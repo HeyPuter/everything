@@ -23,6 +23,8 @@ export async function showNotice(app, { id, title, message, confirm = 'OK', canc
     title,
     body: h('div.notice', { style: { maxWidth: '460px' } }, ...paras, h('label.check', { style: { marginTop: '6px' } }, never, "Don't show this again")),
     buttons: [...(cancel ? [{ label: cancel, value: null }] : []), { label: confirm, value: 'ok', primary: true }],
+    // The action, not the opt-out: Space or Enter must not tick "Don't show this again".
+    initialFocus: '.btn.primary',
   });
   if (r !== 'ok') return false;
   if (never.checked) app.prefs.set('dismissedNotices', [...new Set([...(app.prefs.get('dismissedNotices') || []), id])]);

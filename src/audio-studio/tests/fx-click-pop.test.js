@@ -147,6 +147,11 @@ describe('Click/Pop Eliminator dialog', () => {
     dlg.set({ rejectMin: mid, rejectAvg: mid, rejectMax: mid });
     expect(dlg.state().chosen.has(weakP.id)).toBe(false);
     expect(dlg.state().chosen.has(strongP.id)).toBe(true);
+    // Only the ticks changed: the same rows are restyled (thousands of clicks made every change rebuild them).
+    const after = root.querySelectorAll('.cpe-table tbody tr');
+    expect([...after].every((tr, i) => tr === rows[i])).toBe(true);
+    expect([...after].map((tr) => tr.querySelector('input').checked)).toEqual(list.map((p) => dlg.state().chosen.has(p.id)));
+    expect([...after].map((tr) => tr.getAttribute('aria-selected'))).toEqual(list.map((p) => String(dlg.state().chosen.has(p.id))));
     // Arrow keys move a curve point.
     const handle = root.querySelector('.cpe-handle.reject');
     const before = dlg.state().values.rejectMax;

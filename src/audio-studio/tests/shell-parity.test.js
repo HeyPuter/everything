@@ -256,6 +256,86 @@ describe('toolbar and panel buttons', () => {
   });
 });
 
+describe('workspace tabs and keyboard focus', () => {
+  it('keeps focus on a workspace tab through status messages, playback and workspace changes', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+    createShell(app, root);
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    await frame();
+    const tab = (name) => [...root.querySelectorAll('.workspace-tab')].find((t) => t.textContent === name);
+    const radio = tab('Radio Production');
+    radio.focus();
+    app.setStatus('Saved');
+    app.emit('transport', 'playing');
+    await frame();
+    expect(document.activeElement).toBe(radio);
+    radio.click();
+    await frame();
+    expect(app.prefs.get('workspace')).toBe('Radio Production');
+    expect(document.activeElement).toBe(tab('Radio Production'));
+    expect(document.activeElement.getAttribute('aria-selected')).toBe('true');
+    root.querySelector('.workspace-menu-btn').focus();
+    app.setWorkspace('Default');
+    await frame();
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Default workspace menu');
+  });
+});
+
+describe('shortcut keys in button labels', () => {
+  it('names the current key of each tool and transport button, also after a remap', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const { transportButtons } = await import('../src/panels/transport-controls.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    const move = root.querySelector('[data-tool="move"]');
+    expect(move.getAttribute('aria-label')).toBe('Move Tool (V)');
+    const transport = transportButtons(app);
+    const play = transport.byCmd['transport.play'];
+    expect(play.title).toBe('Play (Space)');
+    app.commands.setShortcuts('tool.move', ['Shift+V']);
+    app.commands.setShortcuts('transport.toggle', ['K']);
+    await frame();
+    transport.update();
+    expect(move.getAttribute('aria-label')).toBe('Move Tool (Shift+V)');
+    expect(move.title).toBe('Move Tool (Shift+V)');
+    expect(play.getAttribute('aria-label')).toBe('Play (K)');
+    // Without a key the label stands alone.
+    app.commands.setShortcuts('tool.move', []);
+    await frame();
+    expect(move.getAttribute('aria-label')).toBe('Move Tool');
+    const waveform = root.querySelector('.mode-btn[data-kind="audio"]');
+    expect(waveform.title).toBe('Waveform (9)');
+  });
+});
+
+describe('safe areas', () => {
+  it('keeps the app clear of the home indicator as well as notches', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/shell.css`, 'utf8');
+    const app = css.slice(css.indexOf('.app {'), css.indexOf('}', css.indexOf('.app {')));
+    expect(app).toMatch(/padding: env\(safe-area-inset-top\) env\(safe-area-inset-right\) env\(safe-area-inset-bottom\)\s+env\(safe-area-inset-left\);/);
+  });
+});
+
+describe('forced colors', () => {
+  it('redraws focus, current tabs and selected items with system colors', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/base.css`, 'utf8');
+    const block = css.slice(css.indexOf('@media (forced-colors: active) {'));
+    expect(block).toMatch(/\.menu-item:focus,\s*\.menu-item:hover \{\s*forced-color-adjust: none;\s*background: Highlight;/);
+    expect(block).toMatch(/\.menu-item\[aria-disabled='true'\],[^{]*\{\s*color: GrayText;/);
+    expect(block).toMatch(/\.panel-tab\[aria-selected='true'\]::after \{\s*forced-color-adjust: none;\s*background: Highlight;/);
+    expect(block).toMatch(/\.icon-btn\[aria-pressed='true'\],[^{]*\.data-table tbody tr\[aria-selected='true'\] \{\s*forced-color-adjust: none;\s*background: SelectedItem;/);
+  });
+});
+
 describe('theme contrast', () => {
   it('keeps faint text readable (4.5:1) on panels in both themes', async () => {
     const fs = await import('node:fs');

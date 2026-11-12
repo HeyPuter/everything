@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ChunkStore, renderBlock, createScratch, envelopeAt, fadeShape, CHUNK } from '../src/engine/mixcore.js';
+import { ChunkStore, renderBlock, createScratch, envelopeAt, envelopeFill, fadeShape, CHUNK } from '../src/engine/mixcore.js';
 
 function setup(extraTrack = {}, clip = {}) {
   const store = new ChunkStore();
@@ -137,5 +137,76 @@ describe('mixcore polarity and rack mix', () => {
     const full = setup({ fx: [wet, post], fxWet: 1, fxMix: 1 });
     renderBlock(full.graph, full.store, 0, 128, full.master, createScratch(128), { runFx });
     expect(full.master[0][20]).toBeCloseTo(3);
+  });
+});
+
+describe('mixcore automation', () => {
+  // Renders `total` frames in blocks of `block` (128 like playback, 8192 like a mixdown).
+  const renderIn = (graph, block, total) => {
+    const store = new ChunkStore();
+    store.put('k', 0, [new Float32Array(CHUNK).fill(0.5), new Float32Array(CHUNK).fill(0.5)]);
+    const scratch = createScratch(block);
+    const out = [new Float32Array(total), new Float32Array(total)];
+    for (let at = 0; at < total; at += block) {
+      const n = Math.min(block, total - at);
+      const m = [new Float32Array(n), new Float32Array(n)];
+      renderBlock(graph, store, at, n, m, scratch);
+      out[0].set(m[0], at);
+      out[1].set(m[1], at);
+    }
+    return out;
+  };
+  const graphOf = (track = {}, master = { gain: 1 }) => ({
+    master,
+    tracks: [{ id: 't', gain: 1, pan: 0, clips: [{ id: 'c', source: 'k', channels: 2, start: 0, offset: 0, length: CHUNK, gain: 1, fadeIn: 0, fadeOut: 0 }], ...track }],
+  });
+
+  it('envelopeFill matches envelopeAt frame by frame', () => {
+    const pts = [{ t: 10.5, v: 0 }, { t: 20, v: 1 }, { t: 20, v: 0.25 }, { t: 40, v: 0.75 }];
+    const out = envelopeFill(pts, 0, 60, new Float32Array(60));
+    for (let i = 0; i < 60; i++) if (i !== 20) expect(out[i]).toBeCloseTo(envelopeAt(pts, i), 6);
+    expect(envelopeFill(null, 0, 4, new Float32Array(4), 0.5)[3]).toBe(0.5);
+  });
+
+  it('follows track volume and pan automation inside a mixdown-sized block like playback does', () => {
+    // A dip to silence at frame 4096, in the middle of the first 8192-frame block.
+    const dip = [{ t: 0, v: 1 }, { t: 3000, v: 1 }, { t: 4096, v: 0 }, { t: 5000, v: 1 }];
+    for (const track of [{ volumeEnv: dip }, { panEnv: dip.map((p) => ({ t: p.t, v: 1 - p.v })) }]) {
+      const live = renderIn(graphOf(track), 128, 16384);
+      const mixdown = renderIn(graphOf(track), 8192, 16384);
+      expect(live[0][4096]).toBe(0);
+      expect(mixdown[0][4096]).toBe(0);
+      for (let i = 0; i < 16384; i += 7) expect(mixdown[0][i]).toBeCloseTo(live[0][i], 5);
+    }
+  });
+
+  it('ramps master volume automation smoothly instead of in block-sized steps', () => {
+    const fade = { gain: 1, volumeEnv: [{ t: 0, v: 1 }, { t: 16384, v: 0 }] };
+    const [L] = renderIn(graphOf({}, fade), 8192, 16384);
+    expect(L[4096]).toBeCloseTo(0.5 * 0.75, 5);
+    // No jump at the block boundary: neighbouring frames differ by one frame's step.
+    expect(Math.abs(L[8192] - L[8191])).toBeLessThan(1e-4);
+  });
+});
+
+describe('mixcore multichannel sources', () => {
+  it('folds a 5.1 source on a stereo track to stereo instead of dropping its centre and surrounds', () => {
+    const store = new ChunkStore();
+    // L, R, C, LFE, Ls, Rs: only the centre and left surround carry signal.
+    const chans = [0, 0, 0.5, 0.9, 0.25, 0].map((v) => new Float32Array(CHUNK).fill(v));
+    store.put('six', 0, chans);
+    const clip = { id: 'c', source: 'six', channels: 6, start: 0, offset: 0, length: 1000, gain: 1, fadeIn: 0, fadeOut: 0 };
+    const render = (track) => {
+      const master = [new Float32Array(128), new Float32Array(128)];
+      renderBlock({ tracks: [{ id: 't', gain: 1, pan: 0, clips: [clip], ...track }], master: { gain: 1 } }, store, 0, 128, master, createScratch(128));
+      return master;
+    };
+    const [L, R] = render();
+    expect(L[10]).toBeCloseTo(Math.SQRT1_2 * 0.75, 5);
+    expect(R[10]).toBeCloseTo(Math.SQRT1_2 * 0.5, 5);
+    // A mono track averages the downmix.
+    const [mL, mR] = render({ clips: [{ ...clip, mono: true }] });
+    expect(mL[10]).toBeCloseTo(Math.SQRT1_2 * 0.625, 5);
+    expect(mR[10]).toBeCloseTo(mL[10], 6);
   });
 });

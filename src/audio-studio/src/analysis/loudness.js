@@ -354,10 +354,16 @@ export function loudnessPanel(app) {
         }
         e.status = 'Processing...';
         renderRows();
-        const { state } = await applyMatch(e.doc.state, plan, s, (f) => {
+        const base = e.state;
+        const { state } = await applyMatch(base, plan, s, (f) => {
           e.status = `Processing ${Math.round(f * 100)}%`;
           renderRows();
         });
+        if (e.doc.state !== base) {
+          // Edited while measuring or processing: keep the edit (the row shows the change).
+          renderRows();
+          continue;
+        }
         commitWhole(e.doc, 'Match Loudness', state);
         changed++;
         const outcome = matchOutcome(plan, await scanOne(e), s);

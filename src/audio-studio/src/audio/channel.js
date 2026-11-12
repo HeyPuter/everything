@@ -161,6 +161,28 @@ export class Channel {
     }
   }
 
+  /**
+   * This channel, with pieces of large sample buffers it uses only a small part of copied
+   * into buffers of their own. Processing writes a range as blocks that share one buffer, so a
+   * second kept from a processed hour would otherwise hold the whole hour in memory after
+   * undo history lets go of it. Buffers under `minBytes`, or a quarter used, are kept.
+   */
+  compact(minBytes = 1 << 20) {
+    const used = new Map();
+    for (const p of this.pieces) {
+      const buf = p.block.data.buffer;
+      used.set(buf, (used.get(buf) || 0) + p.length * p.block.data.BYTES_PER_ELEMENT);
+    }
+    let copied = false;
+    const pieces = this.pieces.map((p) => {
+      const buf = p.block.data.buffer;
+      if (buf.byteLength < minBytes || used.get(buf) * 4 > buf.byteLength) return p;
+      copied = true;
+      return piece(new Block(p.block.data.slice(p.offset, p.offset + p.length)), 0, p.length);
+    });
+    return copied ? new Channel(pieces) : this;
+  }
+
   /** Bytes held by distinct blocks referenced here (for memory display). */
   bytes(seen = new Set()) {
     let total = 0;

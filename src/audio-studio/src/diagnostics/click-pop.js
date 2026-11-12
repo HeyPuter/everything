@@ -86,7 +86,10 @@ export function openClickPopDialog(app, doc, { runner = null, autoScan = true } 
     render(from);
   }
   function reclassify() {
-    ({ list, chosen } = classify(scan.found, values));
+    const next = classify(scan.found, values);
+    // Moving the Reject curve often changes only which clicks are ticked: keep the list (and its rows).
+    list = next.list.length === list.length && next.list.every((p, i) => p === list[i]) ? list : next.list;
+    chosen = next.chosen;
     focusIndex = Math.min(focusIndex, Math.max(0, list.length - 1));
   }
 
@@ -118,9 +121,10 @@ export function openClickPopDialog(app, doc, { runner = null, autoScan = true } 
     xs.forEach((d) => labelText(g, String(d), xOf(d, W), H - 14, d === 0 ? 'right' : d === LEVEL_FLOOR ? 'left' : 'center'));
     ts.forEach((t) => labelText(g, String(t), W - 3, yOf(t, H) - 6, 'right'));
     if (scan) {
+      const listed = new Set(list);
       for (const p of scan.found) {
         const on = chosen.has(p.id);
-        const shown = on || list.includes(p);
+        const shown = on || listed.has(p);
         g.fillStyle = on ? cssVar('--hot') : shown ? cssVar('--text-dim') : cssVar('--text-faint');
         const r = shown ? 2.5 : 1.5;
         g.beginPath();
@@ -238,34 +242,51 @@ export function openClickPopDialog(app, doc, { runner = null, autoScan = true } 
     e.stopPropagation();
   }
 
+  let shown = null; // the rows on screen: { list, rows: [{ tr, box }] }
+
   function renderRows() {
-    const empty = (text) => body.replaceChildren(h('tr', h('td.empty-row', { colspan: '6' }, h('span.empty-text', text))));
+    const empty = (text) => {
+      shown = null;
+      body.replaceChildren(h('tr', h('td.empty-row', { colspan: '6' }, h('span.empty-text', text))));
+    };
     if (!scan) return empty('Find Clicks lists the clicks and pops in the selection, or the whole file.');
     if (!list.length) return empty(scan.found.length ? 'No clicks pass the Detect curve. Lower it and the list fills again.' : 'No clicks found. Lower the Detect curve and scan again.');
-    body.replaceChildren(
-      ...list.map((p, i) => {
-        const box = h('input', { type: 'checkbox', checked: chosen.has(p.id), tabindex: '-1', 'aria-label': `Repair click ${i + 1}`, onclick: (e) => e.stopPropagation(), onchange: () => toggle(p) });
-        return h(
-          'tr',
-          {
-            tabindex: i === focusIndex ? '0' : '-1',
-            'aria-selected': String(chosen.has(p.id)),
-            onclick: () => {
-              focusIndex = i;
-              show(p);
-              renderRows();
-            },
-            onkeydown: (e) => rowKeys(e, i),
+    if (shown?.list === list) {
+      // The same clicks: only ticks and the tab stop change (thousands of rows are not rebuilt).
+      shown.rows.forEach(({ tr, box }, i) => {
+        const on = chosen.has(list[i].id);
+        if (box.checked !== on) box.checked = on;
+        if (tr.getAttribute('aria-selected') !== String(on)) tr.setAttribute('aria-selected', String(on));
+        const tab = i === focusIndex ? '0' : '-1';
+        if (tr.getAttribute('tabindex') !== tab) tr.setAttribute('tabindex', tab);
+      });
+      return;
+    }
+    const rows = list.map((p, i) => {
+      const box = h('input', { type: 'checkbox', checked: chosen.has(p.id), tabindex: '-1', 'aria-label': `Repair click ${i + 1}`, onclick: (e) => e.stopPropagation(), onchange: () => toggle(p) });
+      const tr = h(
+        'tr',
+        {
+          tabindex: i === focusIndex ? '0' : '-1',
+          'aria-selected': String(chosen.has(p.id)),
+          onclick: () => {
+            focusIndex = i;
+            show(p);
+            renderRows();
           },
-          h('td.cpe-check', box),
-          h('td.num', String(i + 1)),
-          h('td.tabular', timeText(p.start)),
-          h('td', chanText(p)),
-          h('td.num', `${Math.round(p.db)} dB`),
-          h('td.num', p.level >= T_MAX ? `${T_MAX}+` : String(Math.round(p.level))),
-        );
-      }),
-    );
+          onkeydown: (e) => rowKeys(e, i),
+        },
+        h('td.cpe-check', box),
+        h('td.num', String(i + 1)),
+        h('td.tabular', timeText(p.start)),
+        h('td', chanText(p)),
+        h('td.num', `${Math.round(p.db)} dB`),
+        h('td.num', p.level >= T_MAX ? `${T_MAX}+` : String(Math.round(p.level))),
+      );
+      return { tr, box };
+    });
+    body.replaceChildren(...rows.map((r) => r.tr));
+    shown = { list, rows };
   }
 
   let repairBtn = null;

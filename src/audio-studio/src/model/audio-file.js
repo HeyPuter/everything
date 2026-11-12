@@ -30,12 +30,15 @@ export class AudioFile extends Emitter {
     this.history = new History({ sampleRate, channels, markers, meta });
     this.savedState = this.history.state;
     let shown = this.history.state;
+    let shownIndex = this.history.index;
     this.history.on('change', () => {
       // Undo or redo across a sample rate conversion keeps the view and playhead at the
       // same times; the conversion itself (an apply) sets them.
       const prev = shown;
+      const prevIndex = shownIndex;
       shown = this.state;
-      if (!this.#applying && prev.sampleRate !== shown.sampleRate) this.#rescale(lengthOf(shown) / lengthOf(prev));
+      shownIndex = this.history.index;
+      if (!this.#applying && prev.sampleRate !== shown.sampleRate) this.#rescale(this.#rateScale(prev, prevIndex));
       this.#syncBitDepth();
       this.clampView();
       this.emit('change', { kind: 'history' });
@@ -101,6 +104,26 @@ export class AudioFile extends Emitter {
 
   #applying = false;
 
+  /**
+   * How frames scale from `prev` (shown at history entry `prevIndex`) to the current state:
+   * each step between them that changed the sample rate scales by its change in length (a
+   * conversion resamples; Interpret Sample Rate keeps the frames). Steps that only edit
+   * (a crop after the conversion, when the History panel jumps back past both) do not scale.
+   */
+  #rateScale(prev, prevIndex) {
+    const { entries, index } = this.history;
+    if (entries[prevIndex]?.state !== prev) return lengthOf(this.state) / lengthOf(prev);
+    const lo = Math.min(prevIndex, index);
+    const hi = Math.max(prevIndex, index);
+    let k = 1;
+    for (let i = lo; i < hi; i++) {
+      const a = entries[i].state;
+      const b = entries[i + 1].state;
+      if (a.sampleRate !== b.sampleRate) k *= lengthOf(b) / lengthOf(a);
+    }
+    return index < prevIndex ? 1 / k : k;
+  }
+
   /** Scales the view, playhead and selection by `k` (frames at a new sample rate). */
   #rescale(k) {
     if (!(k > 0) || !Number.isFinite(k) || k === 1) return;
@@ -138,6 +161,20 @@ export class AudioFile extends Emitter {
     else if (this.baseBitDepth !== undefined) this.info.bitDepth = this.baseBitDepth;
   }
 
+  /**
+   * Clears the undo history. Audio kept from processed ranges (a crop of a processed file)
+   * then gets buffers of its own, so the rest of those ranges can be freed.
+   */
+  clearHistory() {
+    const saved = this.state === this.savedState;
+    const state = this.state;
+    const channels = state.channels.map((c) => c.compact());
+    this.history.clear();
+    if (channels.every((c, i) => c === state.channels[i])) return;
+    this.history.amend({ ...state, channels });
+    if (saved) this.savedState = this.state;
+  }
+
   rename(name) {
     this.name = name;
     this.emit('change', { kind: 'rename' });
@@ -149,6 +186,9 @@ export class AudioFile extends Emitter {
     let b = Math.max(0, Math.min(len, Math.round(Math.max(start, end))));
     this.selection = { start: a, end: b, channels: channels ?? this.selection.channels.slice(0, this.channelCount) };
     while (this.selection.channels.length < this.channelCount) this.selection.channels.push(true);
+    // Undo to fewer channels can drop every enabled one (a stereo file with only Right enabled
+    // undone to mono); edits would then change nothing, so every channel is enabled again.
+    if (!this.selection.channels.some(Boolean)) this.selection.channels.fill(true);
     if (!silent) this.emit('change', { kind: 'selection' });
   }
 

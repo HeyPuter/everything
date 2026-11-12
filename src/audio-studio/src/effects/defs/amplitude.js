@@ -473,9 +473,17 @@ export async function runDcOffset({ channels, onProgress, signal }) {
   for (let c = 0; c < channels.length; c++) {
     checkAbort(signal);
     const src = channels[c];
+    // NaN or infinite samples (a damaged float file) are left out of the mean,
+    // or one of them would turn the whole channel into NaN.
     let sum = 0;
-    for (let i = 0; i < src.length; i++) sum += src[i];
-    const mean = src.length ? sum / src.length : 0;
+    let count = 0;
+    for (let i = 0; i < src.length; i++) {
+      if (Number.isFinite(src[i])) {
+        sum += src[i];
+        count++;
+      }
+    }
+    const mean = count ? sum / count : 0;
     const dst = new Float32Array(src.length);
     for (let i = 0; i < src.length; i++) dst[i] = src[i] - mean;
     out.push(dst);

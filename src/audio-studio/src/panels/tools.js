@@ -5,15 +5,15 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { TOOLS } from '../ui/tools.js';
-import { commandButton, syncButtons } from './transport-controls.js';
+import { commandButton, syncButtons, keyedLabel } from './transport-controls.js';
 
 export function toolsPanel(app) {
   const mode = (kind, ic, label, cmd) =>
-    h('button.mode-btn', { type: 'button', role: 'radio', 'aria-checked': 'false', dataset: { kind, cmd }, title: `${label} Editor (${kind === 'audio' ? '9' : '0'})`, onclick: () => app.commands.run(cmd) }, icon(ic, 16), h('span', label));
+    h('button.mode-btn', { type: 'button', role: 'radio', 'aria-checked': 'false', dataset: { kind, cmd, label: `${label} Editor` }, onclick: () => app.commands.run(cmd) }, icon(ic, 16), h('span', label));
   const modes = [mode('audio', 'mode-waveform', 'Waveform', 'view.waveform'), mode('session', 'mode-multitrack', 'Multitrack', 'view.multitrack')];
-  const tools = TOOLS.map(([id, ic, label]) => commandButton(app, `tool.${id}`, ic, label, { cls: '.tool-panel-btn', size: 18 }));
+  const tools = TOOLS.map(([id, ic, label]) => commandButton(app, `tool.${id}`, ic, label, { cls: '.tool-panel-btn', size: 18, keyOf: `tool.${id}` }));
   const display = [
-    commandButton(app, 'view.spectral', 'spectral-frequency', 'Show Spectral Frequency Display (Shift+D)', { cls: '.tool-panel-btn', size: 18 }),
+    commandButton(app, 'view.spectral', 'spectral-frequency', 'Show Spectral Frequency Display', { cls: '.tool-panel-btn', size: 18, keyOf: 'view.spectral' }),
     commandButton(app, 'view.spectralPitch', 'spectral-pitch', 'Show Spectral Pitch Display', { cls: '.tool-panel-btn', size: 18 }),
   ];
   const el = h(
@@ -30,6 +30,7 @@ export function toolsPanel(app) {
       const on = b.dataset.kind === kind;
       b.setAttribute('aria-checked', String(on));
       b.classList.toggle('on', on);
+      b.title = keyedLabel(app, b.dataset.cmd, b.dataset.label);
     }
     syncButtons(app, [...tools, ...display]);
     // A group with nothing registered (no spectral feature) takes no space.

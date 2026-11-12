@@ -77,18 +77,26 @@ export function newTrack(state, { type = 'audio', channels = 2, name, afterId } 
   return { track, state: S.addTrack(state, track, i >= 0 ? i + 1 : state.tracks.length) };
 }
 
+/** Channels of a new track for audio with `n` channels: 5.1 audio gets a 5.1 track in a 5.1 session. */
+export function trackChannelsFor(state, n) {
+  return n === 6 && state.master.channels === 6 ? 6 : Math.min(2, n);
+}
+
 /** True when [start, end) on the track is free of (unmuted or muted) clips. */
 export function trackIsFree(state, trackId, start, end) {
   return !state.clips.some((c) => c.trackId === trackId && c.start < end && S.clipEnd(c) > start);
 }
 
+/** Audio tracks that are shown (not hidden): where inserted and pasted clips land. */
+export const shownAudioTracks = (state) => S.audioTracks(state).filter((t) => !t.hidden);
+
 /**
- * Smallest shift (in audio tracks, from 0) that lets clips placed at
+ * Smallest shift (in shown audio tracks, from 0) that lets clips placed at
  * `base + trackOffset` and times [start, end) land without overlapping
  * existing clips. Tracks past the end count as free (they get created).
  */
 export function freeTrackShift(state, base, spans) {
-  const audio = S.audioTracks(state);
+  const audio = shownAudioTracks(state);
   for (let k = 0; k < 1000; k++) {
     const ok = spans.every(({ trackOffset, start, end }) => {
       const t = audio[base + trackOffset + k];
@@ -117,7 +125,8 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   if (!docs.length) return [];
   at = Math.max(0, Math.round(at ?? session.cursor));
   let state = session.state;
-  const audio = () => S.audioTracks(state);
+  // Clips never land on hidden tracks, where they could not be seen.
+  const audio = () => shownAudioTracks(state);
   // trackId null means "a new track"; undefined means the selected track.
   let index = trackId === null ? -1 : audio().findIndex((t) => t.id === (trackId ?? session.selectedTrack));
   const ids = [];
@@ -143,7 +152,7 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
     let track = index >= 0 ? audio()[index + p.trackOffset] : null;
     if (!track) {
       const last = state.tracks.filter((x) => x.type === 'audio').pop();
-      const made = newTrack(state, { channels: Math.min(2, p.doc.channelCount), afterId: last?.id });
+      const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
       state = made.state;
       track = made.track;
       if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
@@ -164,6 +173,8 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
 /** Opens local files or Puter items (without activating them) and inserts them. */
 export async function insertFiles(app, session, items, opts = {}) {
   const docs = await openFiles(app, items, { activate: false });
+  // The session was closed while the files opened: they stay in the Files panel.
+  if (!app.documents.includes(session)) return [];
   if (app.active !== session) app.activate(session);
   return insertDocs(app, session, docs, opts);
 }

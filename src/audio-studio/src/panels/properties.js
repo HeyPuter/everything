@@ -48,7 +48,23 @@ export function propertiesPanel(app) {
 
   const row = (label, value) => h('div.prop-row', h('span.prop-label', label), h('span.prop-value', value));
 
+  const focusables = () => [...el.querySelectorAll('button, input, select, textarea, [tabindex]')];
+  // A control's identity across rebuilds: its label, or its heading's text.
+  const nameOf = (c) => c.getAttribute('aria-label') || c.textContent.trim();
+
+  /** Rebuilds the panel; keyboard focus stays on the same control (or near it). */
   const render = () => {
+    const had = el.contains(document.activeElement) ? document.activeElement : null;
+    const at = had ? focusables().indexOf(had) : -1;
+    build();
+    if (!had || (document.activeElement && document.activeElement !== document.body)) return;
+    const list = focusables();
+    const same = list.find((c) => c.tagName === had.tagName && nameOf(c) === nameOf(had));
+    const tab = el.closest('.panel-group')?.querySelector('[role=tab][aria-selected=true]');
+    (same || list[Math.min(at, list.length - 1)] || tab)?.focus({ preventScroll: true });
+  };
+
+  const build = () => {
     const doc = app.active;
     el.replaceChildren();
     if (!doc) {
@@ -71,7 +87,9 @@ export function propertiesPanel(app) {
       else name.value = doc.name;
     });
     name.addEventListener('keydown', (e) => e.stopPropagation());
-    const bytes = doc.length * doc.channelCount * 4;
+    // At the file's sample type, as the status bar counts it (32-bit float before it has one).
+    const bytes =
+      doc.length * doc.channelCount * Math.max(1, Math.round((doc.info?.bitDepth || 32) / 8));
     el.append(
       h(
         'section.prop-section',

@@ -203,7 +203,10 @@ export function amplitudePanel(app) {
   };
 
   const render = () => {
-    const { rows, names } = last;
+    const { rows, names, title } = last;
+    // Edits and undo after a scan leave its numbers describing audio that has changed.
+    const changed = last.doc.state !== last.state;
+    caption.textContent = `Statistics for ${title}${changed ? ' (the file has changed since this scan: scan again to update)' : ''}`;
     head.replaceChildren(h('tr', h('th', { scope: 'col' }, ''), ...names.map((n) => h('th.num', { scope: 'col' }, n))));
     body.replaceChildren(
       ...rows.map(([label, v]) =>
@@ -309,12 +312,15 @@ export function amplitudePanel(app) {
     drawHist();
   });
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => drawHist()).observe(histPlot);
+  // Colours come from the theme: repaint when it changes.
+  window.addEventListener('themechange', () => drawHist());
 
   async function scan(selectionOnly) {
     const doc = app.active;
     if (!doc || doc.kind !== 'audio' || abort) return;
     const [start, end] = selectionOnly && doc.hasSelection ? [doc.selection.start, doc.selection.end] : [0, doc.length];
     const s = settings();
+    const state = doc.state;
     abort = new AbortController();
     progress.hidden = false;
     const bar = progress.firstChild;
@@ -323,7 +329,7 @@ export function amplitudePanel(app) {
     settingsNote.textContent = '';
     refresh();
     try {
-      const result = await scanStats(doc.state.channels, doc.sampleRate, start, end, {
+      const result = await scanStats(state.channels, doc.sampleRate, start, end, {
         signal: abort.signal,
         windowMs: s.windowMs,
         onProgress: (f) => {
@@ -331,11 +337,15 @@ export function amplitudePanel(app) {
           progress.setAttribute('aria-valuenow', String(Math.round(f * 100)));
         },
       });
-      const n = doc.channelCount;
-      const names = n === 1 ? ['Mono'] : doc.state.channels.map((_, i) => NAMES[i] || `Channel ${i + 1}`);
+      if (app.active !== doc) {
+        // Another file became active during the scan (which cleared the results).
+        caption.textContent = '';
+        return;
+      }
+      const n = state.channels.length;
+      const names = n === 1 ? ['Mono'] : state.channels.map((_, i) => NAMES[i] || `Channel ${i + 1}`);
       const title = `${doc.name}, ${selectionOnly && doc.hasSelection ? `selection ${app.formatTime(start)} to ${app.formatTime(end)}` : 'entire file'}`;
-      last = { result, rows: statsRows(result, n, s), names, title, settings: s };
-      caption.textContent = `Statistics for ${title}`;
+      last = { result, rows: statsRows(result, n, s), names, title, settings: s, doc, state };
       render();
       announce('Amplitude statistics ready');
     } catch (err) {
@@ -364,7 +374,11 @@ export function amplitudePanel(app) {
     caption.textContent = '';
     refresh();
   });
-  app.on('doc-change', (doc, e) => doc === app.active && (e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history') && refresh());
+  app.on('doc-change', (doc, e) => {
+    if (doc !== app.active || !(e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history')) return;
+    refresh();
+    if (last && last.doc === doc && e.kind !== 'selection') render();
+  });
   refresh();
   return {
     el,

@@ -95,7 +95,13 @@ export function filesPanel(app) {
   let revealed = new Set();
   const render = () => {
     // Rows are rebuilt (playback starting, edits): keyboard focus stays on the same file.
-    const focused = body.contains(document.activeElement) ? document.activeElement.closest('tr')?.dataset.id || document.activeElement.closest('tr')?.dataset.file : null;
+    const inBody = body.contains(document.activeElement);
+    const focusedRow = inBody ? document.activeElement.closest('tr') : null;
+    const focused = focusedRow?.dataset.id || focusedRow?.dataset.file || null;
+    const markerRows = (id) => [
+      ...body.querySelectorAll(`tr.files-marker[data-file="${CSS.escape(id)}"]`),
+    ];
+    const focusedMarker = focusedRow?.dataset.file ? markerRows(focused).indexOf(focusedRow) : -1;
     renderHead();
     const cols = columns();
     body.replaceChildren();
@@ -129,10 +135,8 @@ export function filesPanel(app) {
           },
           onclick: (e) => (e.target.closest('.files-twisty') ? toggle(doc) : pick(doc)),
           onkeydown: (e) => {
-            const rows = [...body.querySelectorAll('tr[data-id]')];
-            const i = rows.indexOf(row);
-            if (e.key === 'ArrowDown') rows[i + 1]?.focus();
-            else if (e.key === 'ArrowUp') rows[i - 1]?.focus();
+            if (e.key === 'ArrowDown') step(row, 1);
+            else if (e.key === 'ArrowUp') step(row, -1);
             else if (e.key === 'ArrowRight' && !expanded.has(doc.id) && doc.state?.markers?.length) toggle(doc);
             else if (e.key === 'ArrowLeft' && expanded.has(doc.id)) toggle(doc);
             else if (e.key === 'Enter') {
@@ -165,12 +169,19 @@ export function filesPanel(app) {
       body.append(row);
       if (expanded.has(doc.id)) for (const m of doc.state.markers) body.append(markerRow(doc, m));
     }
-    if (focused) body.querySelector(`tr[data-id="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
+    const fileRow = focused && body.querySelector(`tr[data-id="${CSS.escape(focused)}"]`);
+    if (fileRow) (markerRows(focused)[focusedMarker] || fileRow).focus({ preventScroll: true });
     playBtn.disabled = !app.active;
     playBtn.replaceChildren(icon(app.engine.playing ? 'square' : 'play', app.engine.playing ? 13 : 15));
     loopBtn.setAttribute('aria-pressed', String(app.loop));
     for (const b of toolbar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd);
   };
+  /** Moves keyboard focus to the next or previous row, file or marker under an expanded file. */
+  function step(row, dir) {
+    const rows = [...body.querySelectorAll('tr[data-id], tr.files-marker')];
+    rows[rows.indexOf(row) + dir]?.focus();
+  }
+
   function toggle(doc) {
     if (expanded.has(doc.id)) expanded.delete(doc.id);
     else expanded.add(doc.id);
@@ -187,9 +198,20 @@ export function filesPanel(app) {
       const v = doc.view;
       if (m.start < v.start || m.start > v.end) doc.setView(m.start - (v.end - v.start) / 3, m.start + ((v.end - v.start) * 2) / 3);
     };
+    const keys = (e) => {
+      const row = e.currentTarget;
+      if (e.key === 'Enter') go();
+      else if (e.key === 'ArrowDown') step(row, 1);
+      else if (e.key === 'ArrowUp') step(row, -1);
+      // Left goes up to the file the marker belongs to.
+      else if (e.key === 'ArrowLeft') body.querySelector(`tr[data-id="${CSS.escape(doc.id)}"]`)?.focus();
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
     return h(
       'tr.files-marker',
-      { tabindex: '-1', dataset: { file: doc.id }, onclick: go, onkeydown: (e) => e.key === 'Enter' && go() },
+      { tabindex: '-1', dataset: { file: doc.id }, onclick: go, onkeydown: keys },
       h('td.name-cell', h('span.files-twisty'), icon(m.duration ? 'bookmark' : 'flag', 12), h('span', m.name || 'Marker')),
       h('td.tabular', { colspan: String(Math.max(1, columns().length - 1)) }, app.formatTime(m.start, doc.sampleRate), m.duration ? ` – ${app.formatTime(m.start + m.duration, doc.sampleRate)}` : ''),
     );

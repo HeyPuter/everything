@@ -11,7 +11,7 @@ import { withProgress } from './progress.js';
 import { openEffectDialog } from './dialog.js';
 import * as E from '../model/edits.js';
 import { editSmoothFrames } from '../editor/view-prefs.js';
-import { routeMask } from './routing.js';
+import { routeMask, recallRoute, rememberRoute } from './routing.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
 
@@ -68,14 +68,22 @@ export async function runEffect(app, id, args = {}) {
   if (!def || !doc) return false;
   let values = args.values;
   let route = null;
-  if (!values && (args.repeat || !def.params.length)) values = lastValues(app.prefs, def);
+  if (!values && (args.repeat || !def.params.length)) {
+    values = lastValues(app.prefs, def);
+    // Repeating (Repeat Without Dialog) also keeps the channel map it was last applied with.
+    if (args.repeat && doc.state.channels.length === 2) route = recallRoute(def.id);
+  }
   if (!values) {
     const routing = {};
     values = await openEffectDialog(app, def, { mode: 'apply', doc, routing });
     if (!values) return false;
     route = routing.route || null;
   }
-  return applyEffectToDoc(app, doc, def, values, { route });
+  const ok = await applyEffectToDoc(app, doc, def, values, { route });
+  // Settings given directly (favorites, scripts) apply without a channel map, so the
+  // effect's remembered map no longer describes its last use (Repeat, the next dialog).
+  if (ok && args.values) rememberRoute(def.id, null);
+  return ok;
 }
 
 /** Registers fx.<id> for one definition unless another feature owns that command. */

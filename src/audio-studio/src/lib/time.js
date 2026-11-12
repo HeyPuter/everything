@@ -155,12 +155,18 @@ export function parseTime(text, rate, format = 'decimal', music = {}) {
   const neg = s.startsWith('-');
   const body = neg ? s.slice(1) : s;
   let frames = NaN;
+  // Timecode and bars name the span from one frame (or subdivision) to the next, which the
+  // display rounds down to: they read as the first sample of that span, not the nearest one,
+  // which can fall just before it and show as the previous frame.
+  let firstSample = false;
   if (format === 'samples' && /^\d+$/.test(body)) frames = Number(body);
   else if (isFrameFormat(format) && /^\d+:\d+:\d+[:;.]\d+$/.test(body)) {
+    firstSample = true;
     const fr = frameRateOf(format, music);
     const [h, m, sec, ff] = body.split(/[:;.]/).map(Number);
     frames = (timecodeToFrames(h, m, sec, ff, fr) / fr.real) * rate;
   } else if (format === 'bars' && /^\d+(:\d+(\.\d+)?)?$/.test(body)) {
+    firstSample = true;
     const per = music.beatsPerBar || 4;
     const subs = Math.max(1, Math.round(music.subdivisions || 100));
     const [bar, beatPart = '1'] = body.split(':');
@@ -180,7 +186,9 @@ export function parseTime(text, rate, format = 'decimal', music = {}) {
     frames = secs * rate;
   }
   if (!Number.isFinite(frames)) return NaN;
-  return Math.round(neg ? -frames : frames);
+  if (!firstSample) return Math.round(neg ? -frames : frames);
+  const first = Math.ceil(frames - 1e-4);
+  return neg ? -first : first;
 }
 
 /** Nice ruler step (in seconds) so labels are at least `minPx` apart. */

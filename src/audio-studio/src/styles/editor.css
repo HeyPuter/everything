@@ -154,6 +154,15 @@
   outline: none;
 }
 
+/* The ring is drawn over the canvas, which would cover an outline. */
+.time-ruler:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--focus);
+  pointer-events: none;
+}
+
 .time-ruler canvas {
   position: absolute;
   inset: 0;
@@ -169,6 +178,31 @@
 .icon-btn.sm {
   width: 20px;
   height: 20px;
+}
+
+/* Touch: each ruler corner button takes taps over its half of the corner, the
+   full ruler height, without covering the ruler or changing the look. */
+@media (pointer: coarse) {
+  .wf-ruler-corner {
+    position: relative;
+  }
+
+  .wf-ruler-corner > .icon-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+  }
+
+  .wf-ruler-corner > .icon-btn:first-child::before {
+    left: 0;
+    right: 50%;
+  }
+
+  .wf-ruler-corner > .icon-btn:last-child::before {
+    left: 50%;
+    right: 0;
+  }
 }
 
 .playhead-handle {
@@ -481,10 +515,11 @@
   grid-template-rows: 30px 24px minmax(0, 1fr);
 }
 
+/* Wide enough for the ruler corner's two buttons (snapping, add marker). */
 [data-layout='phone'] .wf-top,
 [data-layout='phone'] .wf-ruler-row,
 [data-layout='phone'] .wf-main {
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 42px;
 }
 
 @media (pointer: coarse) {

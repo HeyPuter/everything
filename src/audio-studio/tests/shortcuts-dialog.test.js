@@ -127,6 +127,14 @@ describe('shortcuts dialog', () => {
     dialog().querySelector('.sc-row .sc-add').click();
     press({ key: 'w', code: 'KeyW', ctrlKey: true });
     expect(app.commands.commandFor('Mod+W')).toBe(null);
+    // Tab and Shift+Tab move keyboard focus, so they are refused too.
+    dialog().querySelector('.sc-row .sc-add').click();
+    press({ key: 'Tab', code: 'Tab' });
+    expect(app.commands.commandFor('Tab')).toBe(null);
+    expect(dialog().querySelector('.sc-status').textContent).toContain('moves keyboard focus');
+    dialog().querySelector('.sc-row .sc-add').click();
+    press({ key: 'Tab', code: 'Tab', shiftKey: true });
+    expect(app.commands.commandFor('Shift+Tab')).toBe(null);
     // Undo restores the previous keymap.
     [...dialog().querySelectorAll('.sc-actions button')].find((b) => b.textContent.includes('Undo')).click();
     expect(app.commands.commandFor('K')).toBe('transport.shuttleStop');

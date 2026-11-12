@@ -62,6 +62,34 @@ describe('applying favorites', () => {
     await applyFavorite(app, fav);
     expect(doc.state.channels[0].toArray(0, 1)[0]).toBeCloseTo(Math.pow(10, -3 / 20), 5);
   });
+  it('makes an applied effect favorite the command Repeat runs, as from its menu item', async () => {
+    const { app, doc } = setup();
+    // Edit > Repeat (dialog) and Repeat Without Dialog run the last command like this (core.js).
+    const repeat = (noDialog) => app.commands.run(app.lastCommand.id, { ...app.lastCommand.args, repeat: noDialog });
+    await app.commands.run('fx.normalizePeak', { peak: -3 });
+    await applyFavorite(app, { name: 'Double', action: { type: 'effect', effect: 'favFx', values: { gain: 2 } } });
+    expect(app.lastCommand).toEqual({ id: 'fx.favFx', args: {} });
+    const level = doc.state.channels[0].toArray(0, 1)[0];
+    // Repeat opens the effect's dialog, holding the favorite's settings.
+    const pending = repeat(false);
+    await tick();
+    const dlg = document.querySelector('.fx-dialog');
+    expect(dlg).not.toBeNull();
+    expect(dlg.querySelector('.hot[role="spinbutton"]').getAttribute('aria-valuenow')).toBe('2');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Cancel' || b.textContent === 'Close').click();
+    await pending;
+    expect(doc.state.channels[0].toArray(0, 1)[0]).toBe(level);
+    // Repeat Without Dialog applies the favorite's settings again.
+    await repeat(true);
+    expect(doc.state.channels[0].toArray(0, 1)[0]).toBeCloseTo(level * 2, 5);
+    expect(document.querySelector('.fx-dialog')).toBeNull();
+  });
+  it('leaves Repeat alone when an effect favorite does not apply', async () => {
+    const { app } = setup();
+    await app.commands.run('fx.normalizePeak', { peak: -3 });
+    expect(await applyFavorite(app, { name: 'X', action: { type: 'effect', effect: 'missingFx' } })).toBe(false);
+    expect(app.lastCommand).toEqual({ id: 'fx.normalizePeak', args: { peak: -3 } });
+  });
   it('notifies instead of running when unavailable', async () => {
     const { app } = setup();
     expect(await applyFavorite(app, { name: 'X', action: { type: 'effect', effect: 'missingFx' } })).toBe(false);
@@ -158,6 +186,22 @@ describe('favorites panel', () => {
     await tick();
     await tick();
     expect(doc.state.channels[0].toArray(0, 1)[0]).toBe(0.25);
+    panel.el.remove();
+  });
+  it('leaves the focus in the Edit Favorite dialog that F2 opens', async () => {
+    const { app } = setup();
+    const panel = favoritesPanel(app);
+    document.body.append(panel.el);
+    const row = panel.el.querySelector('tr[aria-selected="true"]');
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+    await new Promise((r) => requestAnimationFrame(r));
+    await tick();
+    const dlg = document.querySelector('.dialog');
+    expect(dlg).not.toBeNull();
+    expect(dlg.contains(document.activeElement)).toBe(true);
+    dlg.querySelector('[aria-label="Close"]').click();
+    await tick();
     panel.el.remove();
   });
 });

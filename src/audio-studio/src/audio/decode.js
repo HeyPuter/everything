@@ -6,7 +6,7 @@
 
 import { isWav, parseWav } from './wav.js';
 import { isAiff, parseAiff } from './aiff.js';
-import { readTags } from './meta.js';
+import { readTags, id3v2Size } from './meta.js';
 
 export const AUDIO_EXTENSIONS = ['wav', 'wave', 'bwf', 'rf64', 'mp3', 'flac', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'mp4', 'm4v', 'webm', 'weba', 'mkv', 'aif', 'aiff', 'aifc', 'caf', 'mov'];
 export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'webm', 'mkv', 'mov'];
@@ -27,8 +27,13 @@ export function baseName(name = '') {
 export function sniffSampleRate(buffer) {
   const b = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 1 << 20));
   const str = (o, n) => String.fromCharCode(...b.subarray(o, o + n));
-  // FLAC: "fLaC" then STREAMINFO; rate is 20 bits at byte 18 of the file.
-  if (str(0, 4) === 'fLaC' && b.length > 21) return (b[18] << 12) | (b[19] << 4) | (b[20] >> 4);
+  // FLAC: "fLaC" then STREAMINFO; rate is 20 bits at byte 18 of the stream
+  // (which some taggers put behind an ID3v2 tag).
+  const f = flacStart(buffer);
+  if (f >= 0) {
+    const s = new Uint8Array(buffer, f, Math.min(22, buffer.byteLength - f));
+    if (s.length > 21) return (s[18] << 12) | (s[19] << 4) | (s[20] >> 4);
+  }
   // Ogg: Opus always decodes at 48 kHz; Vorbis stores the rate in its id header.
   if (str(0, 4) === 'OggS') {
     const head = str(28, 8);
@@ -152,17 +157,57 @@ export async function decodeAudio(buffer, name = '') {
   }
   if (!audio.length) throw new Error(`"${label}" contains no audio.`);
   const channels = Array.from({ length: audio.numberOfChannels }, (_, c) => audio.getChannelData(c));
+  if (isFlac && bitDepth <= 16 && audio.sampleRate === rate) fixPositiveScale(channels);
   const format = isFlac ? 'flac' : ext === 'aif' || ext === 'aifc' ? 'aiff' : ext || 'audio';
   return { sampleRate: audio.sampleRate, channels, bitDepth, format, markers: [], meta };
 }
 
+/**
+ * Chromium decodes 8- and 16-bit FLAC with positive samples divided by 32767
+ * (negative ones by 32768), so the file's integer samples come back off the
+ * 2^15 grid every encoder uses: a lossless re-save would dither or shift them.
+ * When every positive sample checked fits that pattern (a decoder that divides
+ * by 32768 gives exact multiples of 1/32768 instead), positives are put back
+ * on the grid in place.
+ */
+export function fixPositiveScale(channels) {
+  let seen = 0;
+  for (const ch of channels) {
+    for (let i = 0; i < ch.length && seen < 4096; i++) {
+      const v = ch[i];
+      if (!(v > 0) || v === 1) continue;
+      const a = v * 32768;
+      if (a === Math.round(a)) return false;
+      const b = v * 32767;
+      if (Math.abs(b - Math.round(b)) > 0.01) return false;
+      seen++;
+    }
+  }
+  if (!seen) return false;
+  for (const ch of channels) {
+    for (let i = 0; i < ch.length; i++) {
+      const v = ch[i];
+      if (v > 0) ch[i] = Math.round(v * 32767) / 32768;
+    }
+  }
+  return true;
+}
+
+/** Offset of a FLAC stream's "fLaC" marker: 0, or just past a leading ID3v2 tag; -1 when not FLAC. */
+function flacStart(buffer) {
+  const o = id3v2Size(new Uint8Array(buffer, 0, Math.min(10, buffer.byteLength)));
+  if (o + 4 > buffer.byteLength) return -1;
+  const b = new Uint8Array(buffer, o, 4);
+  return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43 ? o : -1;
+}
+
 function sniffFlac(buffer) {
-  const b = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
-  return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43;
+  return flacStart(buffer) >= 0;
 }
 
 function flacBits(buffer) {
-  const b = new Uint8Array(buffer, 0, Math.min(26, buffer.byteLength));
-  if (b.length < 26 || b[0] !== 0x66) return 16;
+  const o = flacStart(buffer);
+  if (o < 0 || o + 26 > buffer.byteLength) return 16;
+  const b = new Uint8Array(buffer, o, 26);
   return (((b[20] & 1) << 4) | (b[21] >> 4)) + 1;
 }

@@ -26,6 +26,7 @@ class MixerProcessor extends AudioWorkletProcessor {
     this.masterPeak = [0, 0];
     this.blockMeters = new Map();
     this.underrunReported = new Set();
+    this.seq = 0; // echoed in position reports (see Engine.seq)
     // Analysis tap: the latest master output, posted about 20 times a second
     // while an analysis panel asks for it (see Engine.tap).
     this.tapOn = false;
@@ -68,6 +69,7 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.store.drop(m.key, m.index);
         break;
       case 'play':
+        this.seq = m.seq ?? this.seq;
         this.pos = m.from;
         this.end = m.to ?? Infinity;
         this.loop = m.loop || null;
@@ -82,12 +84,14 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.report();
         break;
       case 'seek':
+        this.seq = m.seq ?? this.seq;
         this.pos = m.frame;
         if (this.host) this.host.reset();
         this.scratch.dryDelay?.clear(); // rack dry/wet delay lines start empty, like the effects
         this.report();
         break;
       case 'loop':
+        this.seq = m.seq ?? this.seq;
         this.loop = m.loop || null;
         break;
       case 'range':
@@ -112,8 +116,9 @@ class MixerProcessor extends AudioWorkletProcessor {
     g.fxResolved = true;
   }
 
-  report() {
-    this.port.postMessage({ type: 'pos', frame: this.pos, time: currentTime, playing: this.playing });
+  /** Posts the playhead: frame `pos` renders at context time `time`. */
+  report(time = currentTime) {
+    this.port.postMessage({ type: 'pos', frame: this.pos, time, playing: this.playing, seq: this.seq });
   }
 
   process(inputs, outputs) {
@@ -157,7 +162,7 @@ class MixerProcessor extends AudioWorkletProcessor {
       if (this.loop && this.loop.end > this.loop.start) {
         if (this.pos >= this.loop.end) {
           this.pos = this.loop.start;
-          this.report();
+          this.report(currentTime + done / sampleRate);
         }
         frames = Math.min(frames, this.loop.end - this.pos);
       } else if (this.pos + frames > this.end) {
@@ -182,7 +187,7 @@ class MixerProcessor extends AudioWorkletProcessor {
     }
     if (ended || (!this.loop && this.pos >= this.end)) {
       this.playing = false;
-      this.port.postMessage({ type: 'ended', frame: this.pos });
+      this.port.postMessage({ type: 'ended', frame: this.pos, seq: this.seq });
     }
     let pl = this.masterPeak[0];
     let pr = this.masterPeak[1];
@@ -216,7 +221,8 @@ class MixerProcessor extends AudioWorkletProcessor {
       this.meterCount = 0;
       const tracks = [];
       for (const [id, [l, r]] of this.peaks) tracks.push([id, l, r]);
-      this.port.postMessage({ type: 'meters', master: this.masterPeak.slice(), tracks, frame: this.pos, time: currentTime });
+      // `pos` is the frame after this block, which starts at currentTime.
+      this.port.postMessage({ type: 'meters', master: this.masterPeak.slice(), tracks, frame: this.pos, time: currentTime + n / sampleRate, seq: this.seq });
       this.masterPeak[0] = 0;
       this.masterPeak[1] = 0;
       this.peaks.clear();

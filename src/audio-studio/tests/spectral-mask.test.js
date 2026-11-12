@@ -115,6 +115,37 @@ describe('spectral processing', () => {
     expect(level(out.channels[1].toArray(), 1000, 8000, 40000)).toBeLessThan(0.01);
   });
 
+  it('processes long selections in segments with the same result', () => {
+    const s = state();
+    const x = s.channels[0].toArray();
+    const sel = { channels: [true], shapes: [{ type: 'rect', t0: 3000, t1: 41000, f0: 700, f1: 7000 }, { type: 'rect', t0: 20000, t1: 30000, f0: 100, f1: 400 }] };
+    const whole = applySpectralMask(s, sel, 0.25, d, { segment: Infinity }).channels[0].toArray();
+    // 16 columns per pass: about a dozen passes over this selection.
+    const parts = applySpectralMask(s, sel, 0.25, d, { segment: 16 }).channels[0].toArray();
+    let worst = 0;
+    for (let i = 0; i < n; i++) worst = Math.max(worst, Math.abs(parts[i] - whole[i]));
+    expect(worst).toBeLessThan(1e-5);
+    expect(level(parts, 1000, 8000, 36000)).toBeCloseTo(0.1, 2);
+    // Edits restricted to the selection go through the same passes.
+    const silenced = gainRange(s, 0, n, 0, null);
+    const a = restrictEdit(s, silenced, sel, d).channels[0].toArray();
+    expect(level(a, 6000, 8000, 36000)).toBeLessThan(0.004);
+    expect(level(a, 1000, 8000, 36000)).toBeLessThan(0.004);
+    for (let i = 0; i < 900; i++) expect(a[i]).toBe(x[i]);
+  });
+
+  it('keeps memory bounded for a selection across a long file', () => {
+    const long = 48000 * 80;
+    const x = new Float32Array(long);
+    for (let i = 0; i < long; i++) x[i] = 0.3 * Math.sin(i / 7);
+    const s = { sampleRate: RATE, markers: [], channels: [Channel.fromSamples(x)] };
+    const sel = { channels: [true], shapes: [{ type: 'rect', t0: 0, t1: long, f0: 300, f1: 3000 }] };
+    const out = applySpectralMask(s, sel, 0.5, d);
+    expect(out).not.toBe(s);
+    // One pass over 80 s copies a 31 MB mask raster and two 15 MB buffers into WebAssembly memory.
+    expect(d.x.memory.buffer.byteLength).toBeLessThan(48 * 1024 * 1024);
+  });
+
   it('heals a dropout from the surrounding spectrum', () => {
     const x = tone(2000, 0.5, n);
     x.fill(0, 24000, 25200);

@@ -97,6 +97,7 @@ export class SpectralLayer {
     for (const el of [this.canvas, this.over, this.divider, this.ruler, this.rulerHit, this.settingsBtn, this.readout]) el.hidden = !on;
     if (!on) {
       this.rect = null;
+      clearTimeout(this.pitchTimer);
       this.release();
     }
     this.view.layout?.();
@@ -159,6 +160,7 @@ export class SpectralLayer {
       this.renderer = null;
       return null;
     }
+    this.renderer.onLost = () => this.invalidate();
     this.renderer.onRestore = () => {
       this.cache.clear();
       this.invalidate();
@@ -170,8 +172,17 @@ export class SpectralLayer {
   /** Frees textures and the GL context (re-created on the next draw). */
   release() {
     this.cache.clear();
-    this.renderer?.dispose();
-    this.renderer = null;
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer = null;
+      // Disposing loses the canvas' WebGL context, and a canvas keeps that lost
+      // context for good: the next renderer needs a new canvas.
+      const fresh = h('canvas.spec-gl', { 'aria-hidden': 'true' });
+      fresh.hidden = this.canvas.hidden;
+      fresh.style.cssText = this.canvas.style.cssText;
+      this.canvas.replaceWith(fresh);
+      this.canvas = fresh;
+    }
     this.needs = true;
   }
 
@@ -306,7 +317,9 @@ export class SpectralLayer {
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = cssVar('--text-dim');
       ctx.textAlign = 'center';
-      ctx.fillText('The spectral display needs WebGL2, which is not available in this browser.', W / 2, H / 2);
+      // A lost context (a graphics reset) comes back on its own; no WebGL2 at all does not.
+      const text = this.renderer?.lost ? 'Restoring the spectral display after a graphics reset...' : 'The spectral display needs WebGL2, which is not available in this browser.';
+      ctx.fillText(text, W / 2, H / 2);
       ctx.textAlign = 'left';
     }
     // Frequency gridlines (Preferences > Spectral Displays), on the ruler's ticks.
@@ -462,6 +475,7 @@ export class SpectralLayer {
   }
 
   async #computePitch(key) {
+    if (!this.rect) return;
     const doc = this.doc;
     const v = doc.view;
     const { n, fmin, fmax } = pitchSettings(this.app.prefs, doc.sampleRate);
@@ -516,13 +530,14 @@ export class SpectralLayer {
 
   // ---------------------------------------------------------- interaction
 
-  #locate(e) {
+  /** Pointer position on the spectrogram; `inLane` (a drag's lane) keeps it there, clamped to its edges. */
+  #locate(e, inLane = null) {
     const r = this.view.surface.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    if (!this.rect || y < this.rect.y) return null;
+    if (!this.rect || (!inLane && y < this.rect.y)) return null;
     const lanes = this.lanes();
-    const lane = lanes.find((l) => y >= l.top - 1 && y <= l.bottom + 1) || lanes[lanes.length - 1];
+    const lane = (inLane && lanes.find((l) => l.channel === inLane.channel)) || lanes.find((l) => y >= l.top - 1 && y <= l.bottom + 1) || lanes[lanes.length - 1];
     if (!lane) return null;
     const scale = this.scale();
     const frac = 1 - (y - lane.top) / (lane.bottom - lane.top);
@@ -564,7 +579,9 @@ export class SpectralLayer {
       return true;
     }
     if (!this.drag) return false;
-    const p = this.#locate(e) || this.drag.last;
+    // A drag stays on the lane it started in: past its edges (into the waveform or
+    // another channel) it clamps to the lowest or highest frequency.
+    const p = this.#locate(e, this.drag.start.lane) || this.drag.last;
     if (phase === 'move') {
       this.#moveDrag(p, e);
       this.#setHover(p);

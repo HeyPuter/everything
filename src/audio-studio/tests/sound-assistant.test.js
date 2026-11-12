@@ -346,4 +346,32 @@ describe('file operations', () => {
     expect(r.state.channels[0].toArray(10, 11)[0]).toBeCloseTo(0.2, 4);
     expect(state.channels[0].toArray(10, 11)[0]).toBeCloseTo(0.1, 6);
   });
+
+  it('applies the loudness and volume gain to an effect tail past the selection too', async () => {
+    const n = RATE;
+    // A selection over the first second; silence after it.
+    const x = new Float32Array(2 * n);
+    x.fill(0.1, 0, n);
+    const state = { sampleRate: RATE, channels: [Channel.fromSamples(x)], markers: [] };
+    const settings = setPath(on('dialogue', { loudness: { on: true, target: -20 }, creative: { on: true } }), ['volume', 'level'], -2);
+    let tail = 0;
+    const applyChain = async (channels, rate, specs, o) => {
+      tail = o.tail;
+      // The body passes through; the tail is a steady 0.05 decay stand-in.
+      return channels.map((c) => {
+        const out = new Float32Array(o.end - o.start + o.tail).fill(0.05);
+        out.set(c.toArray(o.start, o.end));
+        return out;
+      });
+    };
+    const measure = async () => ({ integrated: -26 });
+    const r = await ops.renderFile({ settings, state, start: 0, end: n, applyChain, measure });
+    expect(tail).toBeGreaterThan(10);
+    const g = Math.pow(10, 4 / 20);
+    const y = r.state.channels[0];
+    expect(y.toArray(10, 11)[0]).toBeCloseTo(0.1 * g, 4);
+    // The tail continues at the same gain as the processed selection.
+    expect(y.toArray(n + 5, n + 6)[0]).toBeCloseTo(0.05 * g, 4);
+    expect(y.toArray(n + tail + 5, n + tail + 6)[0]).toBe(0);
+  });
 });

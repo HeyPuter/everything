@@ -9,6 +9,7 @@ import { muxOggOpus, oggCrc } from '../src/export/ogg.js';
 import { muxM4a } from '../src/export/mp4.js';
 import { readTags, parseVorbisComment } from '../src/audio/meta.js';
 import { Quantizer } from '../src/audio/quantize.js';
+import { conformOptions } from '../src/export/formats.js';
 import { crc8Flac, crc16Flac } from './helpers/flac-crc.js';
 
 let dsp;
@@ -63,6 +64,64 @@ describe('WAV export', () => {
     expect(Math.abs(r.channels[5][123] - chans[5][123])).toBeLessThan(1e-6);
   });
 
+  it('saves every channel of a multitrack recorder file with more than eight', async () => {
+    const chans = Array.from({ length: 10 }, (_, c) => tone(500, 100 * (c + 1)));
+    const options = conformOptions('wav', { format: 'wav', sampleRate: 48000, channels: 10, bitDepth: 24 });
+    expect(options.options.channels).toBe(10);
+    expect(options.notes).toEqual([]);
+    const bytes = await exportFrom(chans, 48000, options.options);
+    const dv = new DataView(bytes.buffer);
+    expect(dv.getUint32(40, true)).toBe(0); // no speaker positions claimed
+    const r = parseWav(bytes.buffer);
+    expect(r.channels.length).toBe(10);
+    expect(Math.abs(r.channels[9][123] - chans[9][123])).toBeLessThan(1e-6);
+    const ten = { channels: 10, sampleRate: 48000, bitDepth: 16 };
+    const aiff = await exportFrom(chans, 48000, conformOptions('aiff', ten).options);
+    expect(parseAiff(aiff.buffer).channels.length).toBe(10);
+    // FLAC holds at most eight.
+    expect(conformOptions('flac', ten).options.channels).toBe(8);
+  });
+
+  it('keeps iXML, axml, inst and smpl chunks of an opened file while they still hold', async () => {
+    const enc = new TextEncoder();
+    // An odd length, so the chunk is padded.
+    const ixml = enc.encode('<BWFXML><SCENE>12A</SCENE><TAKE>3</TAKE></BWFXML>');
+    const smpl = new Uint8Array(36 + 24).fill(1);
+    const list = [
+      { id: 'iXML', bytes: ixml },
+      { id: 'axml', bytes: enc.encode('<ebuCoreMain/>') },
+      { id: 'inst', bytes: Uint8Array.of(60, 0, 0, 0, 127, 0, 127) },
+      { id: 'smpl', bytes: smpl },
+    ];
+    const src = [tone(1000), tone(1000, 300)];
+    const chunks = { sampleRate: 44100, channels: 2, frames: 1000, list };
+    const save = async (channels, options, frames = 1000) => {
+      const opts = { format: 'wav', bitDepth: 24, ...options };
+      const out = await exportFrom(channels, 44100, opts, { chunks, markers: [] });
+      expect(out.length % 2).toBe(0);
+      const r = parseWav(out.buffer);
+      expect(r.channels[0].length).toBe(frames);
+      return r.chunks.map((c) => [c.id, c.bytes.length]);
+    };
+    const all = list.map((c) => [c.id, c.bytes.length]);
+    // An untouched sample type keeps them all, byte for byte.
+    expect(await save(src, { sampleRate: 44100, channels: 2 })).toEqual(all);
+    const same = { format: 'wav', sampleRate: 44100, channels: 2, bitDepth: 16 };
+    const kept = parseWav((await exportFrom(src, 44100, same, { chunks })).buffer).chunks;
+    expect(Array.from(kept[0].bytes)).toEqual(Array.from(ixml));
+    // A changed length drops the loop points; a mono mixdown drops the track descriptions.
+    const shorter = await save([tone(900), tone(900)], { sampleRate: 44100, channels: 2 }, 900);
+    expect(shorter).toEqual(all.filter(([id]) => id !== 'smpl'));
+    const mono = await save(src, { sampleRate: 44100, channels: 1 });
+    expect(mono).toEqual([
+      ['inst', 7],
+      ['smpl', 60],
+    ]);
+    // Rate conversion keeps only the instrument data; "no metadata" keeps nothing.
+    expect(await save(src, { sampleRate: 48000, channels: 2 }, 1088)).toEqual([['inst', 7]]);
+    expect(await save(src, { sampleRate: 44100, channels: 2, meta: false })).toEqual([]);
+  });
+
   it('16-bit integer values survive without dither exactly', async () => {
     const x = Float32Array.from({ length: 1000 }, (_, i) => ((i * 37) % 65536 - 32768) / 32768);
     const r = parseWav((await exportFrom([x], 8000, { format: 'wav', sampleRate: 8000, channels: 1, bitDepth: 16 })).buffer);
@@ -86,6 +145,27 @@ describe('AIFF export', () => {
       expect(r.meta).toEqual(meta);
     });
   }
+
+  it('reads NaN and infinite 32-bit float samples as silence', async () => {
+    const src = Float32Array.of(0.5, NaN, Infinity, -Infinity, -0.25);
+    const bytes = await exportFrom([src], 48000, { format: 'aiff', sampleRate: 48000, channels: 1, bitDepth: 32 });
+    expect(Array.from(parseAiff(bytes.buffer).channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+  });
+
+  it('rejects damaged channel counts and sample sizes but opens cut-off files', async () => {
+    const src = tone(1000);
+    const bytes = await exportFrom([src, src], 44100, { format: 'aiff', sampleRate: 44100, channels: 2, bitDepth: 16 });
+    const comm = findBox(bytes, 'COMM') + 12; // findBox returns the offset 4 bytes before the id
+    const dv = new DataView(bytes.buffer);
+    expect(dv.getInt16(comm)).toBe(2);
+    const bad = bytes.slice();
+    new DataView(bad.buffer).setInt16(comm, 227);
+    expect(() => parseAiff(bad.buffer)).toThrow('The AIFF file header is damaged.');
+    const bits = bytes.slice();
+    new DataView(bits.buffer).setInt16(comm + 6, 1000);
+    expect(() => parseAiff(bits.buffer)).toThrow('The AIFF file header is damaged.');
+    expect(parseAiff(bytes.slice(0, bytes.length - 1000).buffer).channels[1].length).toBeLessThan(1000);
+  });
 
   it('encodes 80-bit extended sample rates exactly', () => {
     const dv = new DataView(new ArrayBuffer(10));
@@ -158,6 +238,33 @@ describe('MP3 export', () => {
     // One second plus encoder delay and padding.
     expect(frames).toBeGreaterThanOrEqual(39);
     expect(frames).toBeLessThan(44);
+  });
+
+  it('reads an ID3v1 tag at the end when the file has no ID3v2 tag, and fills gaps with it', async () => {
+    const opts = { format: 'mp3', sampleRate: 44100, channels: 1 };
+    const mp3 = await exportFrom([tone(4000)], 44100, opts, { meta: {} });
+    const v1 = new Uint8Array(128);
+    const put = (at, text) => v1.set(new TextEncoder().encode(text), at);
+    put(0, 'TAG');
+    put(3, 'Old Title');
+    put(33, 'Old Artist   ');
+    put(63, 'Album');
+    put(93, '1999');
+    put(97, 'Caf');
+    v1[100] = 0xe9; // é in ISO-8859-1
+    v1[126] = 7; // ID3v1.1 track number
+    v1[127] = 255;
+    const file = new Uint8Array(mp3.length + 128);
+    file.set(mp3);
+    file.set(v1, mp3.length);
+    const old = { title: 'Old Title', artist: 'Old Artist', album: 'Album', year: '1999' };
+    expect(readTags(file.buffer)).toEqual({ ...old, comment: 'Café', track: '7' });
+    // Behind an ID3v2 tag the v2 fields win.
+    const tagged = await exportFrom([tone(4000)], 44100, opts, { meta: { title: 'New' } });
+    const both = new Uint8Array(tagged.length + 128);
+    both.set(tagged);
+    both.set(v1, tagged.length);
+    expect(readTags(both.buffer)).toMatchObject({ title: 'New', artist: 'Old Artist', track: '7' });
   });
 
   it('picks MPEG-2 frames for low sample rates and mono', async () => {
@@ -283,6 +390,20 @@ describe('M4A muxer', () => {
     late.set([0x6d, 0x64, 0x61, 0x74], ftyp.length + 4);
     late.set(moov, late.length - moov.length);
     expect(readTags(late.buffer)).toEqual(meta);
+  });
+
+  it('keeps the album artist, composer, copyright, track, tempo and key', () => {
+    const more = { ...meta, albumArtist: 'Various', composer: 'Écrivain', copyright: '2026 Label' };
+    Object.assign(more, { track: '3/12', bpm: '128', key: 'F#m' });
+    const tagsOf = (m) => {
+      const o = { sampleRate: 48000, channels: 2, totalFrames: 1000, priming: 2112, bitrate: 128000 };
+      const parts = muxM4a({ ...o, packets: [new Uint8Array(10)], meta: m });
+      const file = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+      parts.reduce((at, p) => (file.set(p, at), at + p.length), 0);
+      return readTags(file.buffer);
+    };
+    expect(tagsOf(more)).toEqual(more);
+    expect(tagsOf({ track: '7' })).toEqual({ track: '7' });
   });
 
   it('records priming, padding and length as iTunSMPB so Apple players trim the padding', () => {

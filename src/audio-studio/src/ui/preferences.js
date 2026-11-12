@@ -681,6 +681,10 @@ function resetNotices({ app, row }) {
   };
   b.addEventListener('click', () => {
     app.prefs.reset(['dismissedNotices']);
+    // The page does not refresh the row holding focus: turn the button off here,
+    // keeping keyboard focus on the page rather than on the disabled button.
+    sync();
+    if (b.disabled) b.closest('[role=tabpanel]')?.focus({ preventScroll: true });
     announce('Warning dialogs will show again');
   });
   sync();

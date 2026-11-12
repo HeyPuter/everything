@@ -28,6 +28,8 @@ const VERSION = 1;
 const BLOCK = 1 << 16;
 /** Backups older than this are deleted on start whatever the count. */
 const MAX_AGE = 30 * 24 * 3600 * 1000;
+/** How long unreferenced media of another tab are kept: its backup may still be being written. */
+const IN_FLIGHT = 10 * 60 * 1000;
 
 const validKey = (k) => typeof k === 'string' && /^[a-z0-9-]+$/i.test(k);
 
@@ -176,13 +178,24 @@ export class SessionBackupStore {
     await (await this.#dir()).removeEntry(`${key}.json`).catch(() => {});
   }
 
-  /** Deletes media no remaining manifest refers to (except `keep`, being written now). */
-  async sweepMedia(manifests, keep = new Set()) {
+  /**
+   * Deletes media no remaining manifest refers to (except `keep`, being written now).
+   * Media of other tabs (keys not starting with `own`) go only once they are a few
+   * minutes old: another tab writes a backup's media before its manifest.
+   */
+  async sweepMedia(manifests, keep = new Set(), { own = null, now = Date.now() } = {}) {
     const used = new Set([...keep, ...manifests.flatMap((m) => m.media.map((x) => x.key))]);
     const media = await this.#media();
     const names = [];
-    for await (const [name] of media.entries()) names.push(name);
-    for (const name of names) if (name.endsWith('.wav') && !used.has(name.slice(0, -4))) await media.removeEntry(name).catch(() => {});
+    for await (const [name, handle] of media.entries()) names.push([name, handle]);
+    for (const [name, handle] of names) {
+      if (!name.endsWith('.wav') || used.has(name.slice(0, -4))) continue;
+      if (!own || !name.startsWith(`${own}-`)) {
+        const file = await handle.getFile().catch(() => null);
+        if (file && now - file.lastModified < IN_FLIGHT) continue;
+      }
+      await media.removeEntry(name).catch(() => {});
+    }
   }
 }
 
@@ -241,7 +254,8 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
     const drop = backupsToPrune(all, max(), at);
     for (const m of drop) await store.remove(m.key);
     const dropped = new Set(drop.map((m) => m.key));
-    await store.sweepMedia(all.filter((m) => !dropped.has(m.key)), fresh);
+    const kept = all.filter((m) => !dropped.has(m.key));
+    await store.sweepMedia(kept, fresh, { own: tab });
     return manifest;
   };
 
@@ -342,7 +356,7 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
         if (drop.length) {
           const dropped = new Set(drop.map((m) => m.key));
           all = all.filter((m) => !dropped.has(m.key));
-          await store.sweepMedia(all);
+          await store.sweepMedia(all, new Set(), { own: tab });
         }
       } catch {
         return [];

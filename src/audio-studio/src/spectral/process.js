@@ -45,36 +45,66 @@ function writeDelta(channel, start, orig, delta) {
 }
 
 /**
+ * Analysis columns processed per pass. The mask raster holds about two
+ * values per sample, so a long selection (a hum band across an hour of
+ * audio) is processed in segments of time to keep memory bounded.
+ */
+export const SEGMENT_COLS = 2048;
+
+/**
  * Applies `fn` only inside a spectral selection: for each selected channel,
  * fn(samples, channelIndex, startFrame) returns processed samples (same
  * length; it may modify and return its input), and the result keeps the
  * original everywhere except the masked time-frequency region, with smooth
  * edges. `fn` may also be a number: a linear gain (0 removes the region).
- * Returns a new state (the input state when nothing changes).
+ * Long selections call `fn` once per segment of time, with that segment's
+ * samples and start frame. Returns a new state (the input state when
+ * nothing changes).
  */
-export function applySpectralMask(state, selection, fn, d) {
+export function applySpectralMask(state, selection, fn, d, { segment = SEGMENT_COLS } = {}) {
   const rate = state.sampleRate;
   const grid = selectionGrid(selection, rate);
   if (!grid || !lengthOf(state)) return state;
-  const mask = rasterize(selection, { first: grid.start + grid.first, cols: grid.cols, hop: grid.hop, n: grid.n, rate });
   const process = typeof fn === 'number' ? gainFn(fn) : fn;
+  const { n, hop, first } = grid;
+  // Columns whose windows overlap a column's window: each pass analyses this
+  // many more on both sides, so its mask edges (feathering reaches two
+  // columns) and overlap-add normalisation match a single pass exactly.
+  const margin = Math.ceil(n / hop);
+  const channels = state.channels.slice();
   let changed = false;
-  const channels = state.channels.map((ch, i) => {
-    if (selection.channels && selection.channels[i] === false) return ch;
-    const orig = ch.read(grid.start, new Float32Array(grid.length));
-    const processed = process(orig.slice(), i, grid.start);
-    const diff = new Float32Array(grid.length);
-    let any = false;
-    for (let k = 0; k < diff.length; k++) {
-      diff[k] = processed[k] - orig[k];
-      if (diff[k] !== 0) any = true;
-    }
-    if (!any) return ch;
-    const delta = maskBlend(d, diff, mask, grid.cols, grid.n, grid.hop, grid.first);
-    const next = writeDelta(ch, grid.start, orig, delta);
-    if (next !== ch) changed = true;
-    return next;
-  });
+  for (let c0 = 0; c0 < grid.cols; c0 += segment) {
+    const c1 = Math.min(grid.cols, c0 + segment);
+    const a = Math.max(0, c0 - margin);
+    const b = Math.min(grid.cols, c1 + margin);
+    const cols = b - a;
+    const start = grid.start + a * hop;
+    const length = (cols - 1) * hop + n;
+    const mask = rasterize(selection, { first: start + first, cols, hop, n, rate });
+    // Only this pass's own columns; the margins belong to the neighbouring passes.
+    const bins = n / 2 + 1;
+    mask.fill(0, 0, (c0 - a) * bins);
+    mask.fill(0, (c1 - a) * bins);
+    if (!mask.some((w) => w > 0)) continue;
+    state.channels.forEach((ch, i) => {
+      if (selection.channels && selection.channels[i] === false) return;
+      const orig = ch.read(start, new Float32Array(length));
+      const processed = process(orig.slice(), i, start);
+      const diff = new Float32Array(length);
+      let any = false;
+      for (let k = 0; k < length; k++) {
+        diff[k] = processed[k] - orig[k];
+        if (diff[k] !== 0) any = true;
+      }
+      if (!any) return;
+      const delta = maskBlend(d, diff, mask, cols, n, hop, first);
+      // Passes overlap by a window: add to what earlier passes wrote.
+      const cur = channels[i] === ch ? orig : channels[i].read(start, new Float32Array(length));
+      const next = writeDelta(channels[i], start, cur, delta);
+      if (next !== channels[i]) changed = true;
+      channels[i] = next;
+    });
+  }
   return changed ? { ...state, channels } : state;
 }
 

@@ -14,6 +14,7 @@
 import { sourceKey } from '../engine/engine.js';
 import { activeCrossfades, clipEnd, SILENT_DB } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
+import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
 import { clickSound, DEFAULT_METRONOME_SOUND } from '../multitrack/metronome-sounds.js';
 
@@ -41,6 +42,13 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
     Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0), fxLatency });
   }
   return r;
+}
+
+/** Processing delay (frames) of a track's or the master's rack: its switched-on slots, in series. */
+export function rackLatency(t, rate, channels = 2) {
+  if (!t.fxPower) return 0;
+  const run = channels === 6 ? (t.fx || []).filter((s) => getEffect(s?.effect)?.surround) : t.fx;
+  return rackTiming({ slots: run }, rate).latency;
 }
 
 /**
@@ -205,9 +213,11 @@ function sourceSegments(clip, a, b, srcLen) {
  * @param {Channel[]|null} [o.metronome] one bar of clicks to loop when state.metronome is on
  * @param {number} [o.metronomeEnd] last frame to place clicks before
  * @param {object} [o.panLaw] { mode: 'balance' | 'equalPower', centerDb } (see engine/mixcore.js)
+ * @param {boolean} [o.compensate] false leaves latency compensation (compensateLatency) to a
+ *   caller that changes the routing first (bounces render without the master or the track's output)
  * @returns {{ graph, sources: Map<string, Channel[]> }}
  */
-export function buildSessionGraph(state, pool, { clipIds = null, overrides = {}, metronome = null, metronomeEnd = 0, panLaw = null } = {}) {
+export function buildSessionGraph(state, pool, { clipIds = null, overrides = {}, metronome = null, metronomeEnd = 0, panLaw = null, compensate = true } = {}) {
   const sources = new Map();
   const keyOf = new Map();
   for (const [id, src] of pool) {
@@ -235,6 +245,8 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
       ...trackRackSpecs(t, rateDoc, surround && t.channels === 6 ? 6 : 2),
       clips: [],
     };
+    const lat = rackLatency(t, state.sampleRate, surround && t.channels === 6 ? 6 : 2);
+    if (lat) gt.latency = lat;
     if (t.invert) gt.invert = true;
     if (surround) {
       if (t.channels === 6) gt.six = true;
@@ -263,7 +275,9 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         if (!key || !p) continue;
         const src = pool.get(c.sourceId);
         const srcLen = src.channels[0].length;
-        const clipFx = c.fx?.length ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
+        // 5.1 tracks in a 5.1 mix play their clips without clip chains (the mix core runs those on
+        // stereo tracks only), so they must not read ahead for the chain's latency either.
+        const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
         const timing = clipFx?.length ? rackTiming({ slots: c.fx }, state.sampleRate) : null;
         for (const [a, b] of p.parts) {
           for (const seg of sourceSegments(c, a, b, srcLen)) {
@@ -314,17 +328,26 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   const m = state.master;
   const mo = overrides[m.id] || {};
   const master = { gain: dbToGain(mo.volume ?? m.volume), ...trackRackSpecs(m, rateDoc, surround ? 6 : 2) };
+  const masterLat = rackLatency(m, state.sampleRate, surround ? 6 : 2);
+  if (masterLat) master.latency = masterLat;
   if (m.invert) master.invert = true;
   if (m.eq?.on) master.fx = [...master.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: m.eq.values, enabled: true }], `eq:${m.id}`, rateDoc)];
   if (m.mode !== 'off' && mo.volume === undefined && m.automation.volume.length) {
     master.gain = 1;
     master.volumeEnv = dbEnvelopeToGain(m.automation.volume);
   }
+  // Muting the master silences the mix (after its effects, so they keep their state).
+  if (m.mute) {
+    master.gain = 0;
+    delete master.volumeEnv;
+  }
   // A mono master folds the mix to mono (both outputs carry it).
   if (m.channels === 1) master.mono = true;
   const graph = { rate: state.sampleRate, tracks, master };
   if (surround) graph.surround = true;
   if (panLaw && panLaw.mode === 'equalPower') graph.panLaw = { mode: 'equalPower', centerDb: panLaw.centerDb };
+  // Tracks and buses with latent effects (lookahead, FFT) line up with the rest.
+  if (compensate) compensateLatency(graph);
   return { graph, sources };
 }
 

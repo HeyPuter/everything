@@ -82,6 +82,31 @@ describe('Frequency Analysis panel', () => {
     expect(poolCall.mock.calls[0][0].frames).toBe(msg.frames);
   });
 
+  it('analyses a full window of audio at a playhead near either end of the file', async () => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    installAnalysis(app);
+    const panel = app.panels.get('frequency').create(app);
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: RATE,
+      channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.5))],
+    });
+    app.addDocument(doc);
+    panel.show();
+    for (const at of [0, 100, RATE - 10]) {
+      poolCall.mockClear();
+      doc.setCursor(at);
+      await vi.advanceTimersByTimeAsync(300);
+      const msg = poolCall.mock.calls[0][0];
+      expect(msg.frames).toBe(1);
+      // No zero padding from before the start or after the end.
+      expect(msg.samples.every((v) => v === 0.5)).toBe(true);
+    }
+  });
+
   it('does no analysis while hidden and catches up when shown', async () => {
     vi.useFakeTimers();
     const { panel, doc } = setup();
@@ -195,6 +220,58 @@ describe('Frequency Analysis channels', () => {
       expect(panel.el.querySelector('.analysis-readout').textContent).toMatch(/at -150\.0 dB$/);
     } finally {
       HTMLCanvasElement.prototype.getContext = () => null;
+    }
+  });
+});
+
+describe('Frequency Analysis readout', () => {
+  it('is not a live region while playing, when it changes every frame', async () => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => recordingContext([]);
+    try {
+      const { app, panel } = setup();
+      const plot = panel.el.querySelector('.freq-plot');
+      Object.defineProperty(plot, 'clientWidth', { value: 642 });
+      Object.defineProperty(plot, 'clientHeight', { value: 300 });
+      const readout = panel.el.querySelector('.analysis-readout');
+      panel.show();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(readout.getAttribute('aria-live')).toBe('polite');
+      let playing = true;
+      Object.defineProperty(app.engine, 'playing', { get: () => playing, configurable: true });
+      app.emit('transport', 'playing');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(readout.getAttribute('aria-live')).toBe('off');
+      playing = false;
+      app.emit('transport', 'stopped');
+      await new Promise((r) => setTimeout(r, 300));
+      expect(readout.getAttribute('aria-live')).toBe('polite');
+      panel.hide();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+    }
+  });
+});
+
+describe('Frequency Analysis theme', () => {
+  it('repaints the plot when the theme changes while stopped', async () => {
+    const points = [];
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => recordingContext(points);
+    try {
+      const { panel } = setup();
+      const plot = panel.el.querySelector('.freq-plot');
+      Object.defineProperty(plot, 'clientWidth', { value: 642 });
+      Object.defineProperty(plot, 'clientHeight', { value: 300 });
+      panel.show();
+      await new Promise((r) => setTimeout(r, 300));
+      points.length = 0;
+      window.dispatchEvent(new CustomEvent('themechange'));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(points.length).toBeGreaterThan(0);
+      panel.hide();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
     }
   });
 });

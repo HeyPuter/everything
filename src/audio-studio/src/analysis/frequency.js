@@ -51,6 +51,27 @@ export function spectrumBars(db, rate, fft, toHz, count) {
   return out;
 }
 
+/**
+ * The latest `size` output frames for a live spectrum. A mixer tap holds
+ * fewer frames than the largest FFT sizes, so the start of the window comes
+ * from earlier taps, moved along by the frames played since (`m.frame`);
+ * after a seek or a gap they move by a whole tap. `hist` is the state
+ * returned by the previous call (null to start over).
+ */
+export function liveWindow(hist, m, size) {
+  const n = m.L.length;
+  if (n >= size) return { L: m.L.subarray(n - size), R: m.R.subarray(n - size), frame: m.frame };
+  if (!hist || hist.L.length !== size || !hist.own) hist = { L: new Float32Array(size), R: new Float32Array(size), frame: null, own: true };
+  const step = hist.frame === null ? n : Math.round(m.frame - hist.frame);
+  const shift = step > 0 && step <= n ? step : n;
+  for (const [h, x] of [[hist.L, m.L], [hist.R, m.R]]) {
+    h.copyWithin(0, shift);
+    h.set(x, size - n);
+  }
+  hist.frame = m.frame;
+  return hist;
+}
+
 /** (L + R) / 2 sample by sample. */
 function midOf(L, R) {
   const out = new Float32Array(L.length);
@@ -99,6 +120,7 @@ export function frequencyPanel(app) {
   let visible = false;
   let raf = 0;
   let live = null; // { L: dB[], R: dB[], rate, fft }
+  let tapHist = null; // the latest output frames (see liveWindow)
   let still = null; // computed from the document when stopped
   let holds = new Array(HOLD_COLORS.length).fill(null);
   let scanRange = null; // set by Scan until the selection or document changes
@@ -125,11 +147,10 @@ export function frequencyPanel(app) {
     const { fft, window, channel } = prefs();
     const a = analyzer(fft, window);
     if (!a) return;
-    const n = Math.min(fft, m.L.length);
-    const frame = (x) => a.frame(x.subarray(x.length - n));
-    const L = frame(m.L);
-    const R = frame(m.R);
-    const M = channel === 'mid' ? a.frame(midOf(m.L.subarray(m.L.length - n), m.R.subarray(m.R.length - n))) : null;
+    tapHist = liveWindow(tapHist, m, fft);
+    const L = a.frame(tapHist.L);
+    const R = a.frame(tapHist.R);
+    const M = channel === 'mid' ? a.frame(midOf(tapHist.L, tapHist.R)) : null;
     if (live && live.fft === fft) {
       for (const [prev, next] of [[live.L, L], [live.R, R], [live.M, M]]) {
         if (!prev || !next) continue;
@@ -166,7 +187,11 @@ export function frequencyPanel(app) {
       const frames = Math.max(1, Math.min(scanRange ? 256 : 128, Math.floor((sel.end - sel.start - fft) / (fft / 2)) + 1));
       const step = frames > 1 ? (sel.end - sel.start - fft) / (frames - 1) : 0;
       positions = Array.from({ length: frames }, (_, i) => Math.round(sel.start + i * step));
-    } else positions = [Math.round(doc.cursor - fft / 2)];
+    } else {
+      // Centred on the playhead, but kept inside the file: a window half off
+      // either end reads 6 dB low with a smeared spectrum.
+      positions = [Math.round(Math.max(0, Math.min(doc.length - fft, doc.cursor - fft / 2)))];
+    }
     const channels = doc.state.channels;
     try {
       const blocks = channels.slice(0, 2).map((ch) => {
@@ -372,6 +397,9 @@ export function frequencyPanel(app) {
       ...traces(data, channel).map(([name]) => h('span.legend-item', h('span.swatch', { style: { background: colors[name] } }), name === 'M' ? 'Mid' : name === 'L' ? 'Left' : 'Right')),
       ...holds.flatMap((hd, i) => (hd ? [h('span.legend-item', h('span.swatch.dashed', { style: { borderColor: HOLD_COLORS[i] } }), `Hold ${i + 1}`)] : [])),
     );
+    // While playing the readout changes every frame: a live region would talk non-stop.
+    const quiet = app.engine.playing ? 'off' : 'polite';
+    if (readout.getAttribute('aria-live') !== quiet) readout.setAttribute('aria-live', quiet);
     if (hoverX !== null && data) {
       const f = scale.toHz((hoverX - g.left) / (g.right - g.left));
       const k = Math.round(f / (rate / data.fft));
@@ -428,11 +456,14 @@ export function frequencyPanel(app) {
     app.on('transport', (s) => {
       if (s === 'stopped') {
         live = null;
+        tapHist = null;
         recompute();
       }
       schedule();
     }),
   ];
+  // Colours come from the theme: repaint when it changes (also while stopped).
+  window.addEventListener('themechange', () => schedule());
   const ro = new ResizeObserver(() => schedule());
   ro.observe(plot);
   void offs;

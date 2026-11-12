@@ -576,7 +576,8 @@ input[type='range'].fx-slider:disabled {
 /* Band tables (Parametric EQ, Notch Filter). */
 .fx-table {
   display: grid;
-  grid-template-columns: max-content repeat(var(--cols), minmax(0, 1fr));
+  /* Columns never narrower than their values: a narrow dialog scrolls the table instead of overlapping them. */
+  grid-template-columns: max-content repeat(var(--cols), minmax(max-content, 1fr));
   align-items: center;
   justify-items: center;
   gap: 4px 2px;
@@ -1333,6 +1334,8 @@ input[type='range'].fx-slider:disabled {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* A short panel (a phone held sideways) scrolls as a whole, keeping a slot in view. */
+  overflow-y: auto;
 }
 
 .rack-content {
@@ -1438,7 +1441,7 @@ input[type='range'].fx-slider:disabled {
 
 .rack-scroll {
   flex: 1;
-  min-height: 0;
+  min-height: calc(var(--row) + 4px);
   overflow: auto;
 }
 

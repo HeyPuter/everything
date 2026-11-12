@@ -503,10 +503,20 @@
 
 .mixer-panel {
   display: flex;
+  align-items: flex-start;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
+  /* A short panel (phones, a low dock frame) scrolls the strips up to their faders. */
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg-panel);
+}
+
+/* At least the panel's height (the faders grow into it), else as tall as the strips. */
+.mixer-panel > .mx-gutter,
+.mixer-panel > .mx-strips,
+.mixer-panel > .mx-master {
+  min-height: 100%;
 }
 
 .mixer-panel .mx-empty {
@@ -1003,6 +1013,7 @@
   border: 1px solid var(--divider);
   border-radius: 2px;
   cursor: pointer;
+}
 
 /* Remix Properties: sliders between their two ends, and the plan summary. */
 .remix-range {

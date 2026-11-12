@@ -29,12 +29,33 @@ export function buildManifest(doc, { session, key, now = Date.now() }) {
     bitDepth: doc.info?.bitDepth ?? 32,
     format: doc.info?.format || 'wav',
     exportOptions: doc.info?.exportOptions || null,
+    wavChunks: packChunks(doc.info?.wavChunks),
     source: doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path, uid: doc.source.uid } : { type: doc.source?.type || 'new' },
     markers: doc.state.markers.map(({ id, ...m }) => m),
     meta: doc.state.meta || {},
     savedAt: now,
     bytes: 44 + doc.length * doc.channelCount * 4,
   };
+}
+
+const toBase64 = (bytes) => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+};
+
+/** doc.info.wavChunks (iXML... kept for the next WAV save) as JSON, and back. */
+export function packChunks(c) {
+  if (!c?.list?.length) return null;
+  return { ...c, list: c.list.map(({ id, bytes }) => ({ id, data: toBase64(bytes) })) };
+}
+
+export function unpackChunks(c) {
+  if (!c?.list?.length) return undefined;
+  const bytesOf = (data) => Uint8Array.from(atob(data), (ch) => ch.charCodeAt(0));
+  return { ...c, list: c.list.map(({ id, data }) => ({ id, bytes: bytesOf(data) })) };
 }
 
 /** Whether a manifest is well formed (recovery skips anything else). */

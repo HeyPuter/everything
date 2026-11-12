@@ -385,7 +385,8 @@ export function phaseMeterPanel(app) {
     }
     value.textContent = `${corr >= 0 ? '+' : ''}${corr.toFixed(2)}`;
     const now = performance.now();
-    if (now - lastSpoken > 1000) {
+    // Spoken at most once a second while active; at rest it must not keep a stale reading.
+    if (now - lastSpoken > 1000 || !active) {
       bar.setAttribute('aria-valuenow', corr.toFixed(2));
       bar.setAttribute('aria-valuetext', active ? correlationText(corr) : 'No signal');
       lastSpoken = now;

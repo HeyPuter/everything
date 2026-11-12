@@ -36,6 +36,57 @@ export function impulseLength(values, rate) {
   return Math.max(1, Math.round(secs * rate));
 }
 
+/** Top of the band (Hz) an impulse's level is normalised over: the whole band of a 48 kHz file. */
+const LEVEL_BAND = 24000;
+
+/**
+ * Energy normalisation target for an impulse at `rate`, and the energy of
+ * one channel that it is compared with. Up to 48 kHz that is the channel's
+ * whole energy against 1 (the impulse has unit energy). Above, only the
+ * energy below 24 kHz counts, against 48000 / rate: the same sound spreads
+ * its energy over more samples at a higher rate, and the ultrasonic part of
+ * a generated impulse (or the images of a resampled one) is not heard, so
+ * normalising all of it made the reverb louder at 96 and 192 kHz. The
+ * channel's energy is added to `e` (a running total over the channels).
+ */
+function levelTarget(rate) {
+  return Math.min(1, (2 * LEVEL_BAND) / rate);
+}
+
+function bandEnergy(ch, rate, e = 0) {
+  if (rate <= 2 * LEVEL_BAND) {
+    for (let i = 0; i < ch.length; i++) e += ch[i] * ch[i];
+    return e;
+  }
+  // 8th-order Butterworth low pass at 24 kHz (four biquad sections).
+  const w = (2 * Math.PI * LEVEL_BAND) / rate;
+  const cos = Math.cos(w);
+  const sections = [1, 3, 5, 7].map((k) => {
+    const alpha = Math.sin(w) * Math.cos((k * Math.PI) / 16);
+    const a0 = 1 + alpha;
+    return {
+      b0: (1 - cos) / 2 / a0,
+      b1: (1 - cos) / a0,
+      b2: (1 - cos) / 2 / a0,
+      a1: (-2 * cos) / a0,
+      a2: (1 - alpha) / a0,
+      z1: 0,
+      z2: 0,
+    };
+  });
+  for (let i = 0; i < ch.length; i++) {
+    let x = ch[i];
+    for (const s of sections) {
+      const y = s.b0 * x + s.z1;
+      s.z1 = s.b1 * x - s.a1 * y + s.z2;
+      s.z2 = s.b2 * x - s.a2 * y;
+      x = y;
+    }
+    e += x * x;
+  }
+  return e;
+}
+
 function rng(seed) {
   let s = seed >>> 0 || 1;
   return () => {
@@ -118,9 +169,9 @@ export function generateImpulse(values, rate) {
         ch[idx] += level;
       }
     }
-    for (let i = 0; i < n; i++) energy += ch[i] * ch[i];
+    energy = bandEnergy(ch, rate, energy);
   }
-  const scale = 1 / Math.sqrt(Math.max(1e-12, energy / 2));
+  const scale = 1 / Math.sqrt(Math.max(1e-12, energy / 2) / levelTarget(rate));
   for (let i = 1; i < out.length; i++) out[i] *= scale;
   return out;
 }
@@ -192,10 +243,10 @@ export function shapeLoadedImpulse(impulse, values, rate) {
       ch[i] = lp1 * gLow + (lp2 - lp1) + (v - lp2) * gHigh;
       gLow *= kLow;
       gHigh *= kHigh;
-      energy += ch[i] * ch[i];
     }
+    energy = bandEnergy(ch, rate, energy);
   }
-  const scale = 1 / Math.sqrt(Math.max(1e-12, energy / k));
+  const scale = 1 / Math.sqrt(Math.max(1e-12, energy / k) / levelTarget(rate));
   for (let i = 1; i < out.length; i++) out[i] *= scale;
   return out;
 }

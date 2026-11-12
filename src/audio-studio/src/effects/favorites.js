@@ -20,7 +20,7 @@ import { lastValues } from './presets.js';
 import { openEffectDialog } from './dialog.js';
 import { groupedEffects } from './rack.js';
 import { showNotice } from '../ui/notices.js';
-import { createRecorder, actionFromSteps, runSteps, stepProblem, placeSelection } from './favorite-sequence.js';
+import { createRecorder, actionFromSteps, runSteps, runEffectRepeatable, stepProblem, placeSelection } from './favorite-sequence.js';
 
 let nextFav = 1;
 const favId = () => `fav${Date.now().toString(36)}${nextFav++}`;
@@ -179,10 +179,7 @@ export async function applyFavorite(app, fav) {
   }
   const a = fav.action;
   if (a.type === 'sequence') return runSteps(app, a.steps);
-  if (a.type === 'effect') {
-    const def = getEffect(a.effect);
-    return app.runEffect(def.id, { values: normalizeValues(def, a.values) });
-  }
+  if (a.type === 'effect') return runEffectRepeatable(app, getEffect(a.effect), a.values);
   await app.commands.run(a.command, a.args);
   return true;
 }
@@ -506,7 +503,11 @@ export function favoritesPanel(app) {
             else return;
             e.preventDefault();
             e.stopPropagation();
-            requestAnimationFrame(() => body.querySelector('tr[aria-selected="true"]')?.focus());
+            // The redrawn row takes the focus back, unless the key opened a dialog that has it.
+            requestAnimationFrame(() => {
+              const a = document.activeElement;
+              if (!a || a === document.body || el.contains(a)) body.querySelector('tr[aria-selected="true"]')?.focus();
+            });
           },
         },
         h('td.name-cell', icon(fav.action?.type === 'effect' ? 'fx' : fav.action?.type === 'sequence' ? 'list-ordered' : 'star', 14), h('span', fav.name)),

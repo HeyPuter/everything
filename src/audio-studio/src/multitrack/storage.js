@@ -38,6 +38,8 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
       name = item.name;
     }
     const dir = dirOf(path);
+    // What the file holds: edits made while the media uploads stay unsaved.
+    const saved = doc.state;
     const { text, media, video } = serializeSession(doc, { name });
     await saveSessionVideo(app, doc, video, dir, { copy });
     let written = 0;
@@ -45,19 +47,20 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
       const src = doc.pool.get(m.id);
       const target = `${dir}/${m.file}`;
       if (!src?.channels?.length) continue;
-      if (src.savedPath === target && src.savedRef === src.channels) continue;
+      if (src.savedPath === target && src.savedRef === m.channels) continue;
       app.setStatus(`Saving media ${++written}...`);
       await puter.writeFile(target, mediaBlob(doc, m));
       if (!copy) {
+        // The audio written (the source may change during the upload: then the next save writes it again).
         src.savedPath = target;
-        src.savedRef = src.channels;
+        src.savedRef = m.channels;
       }
     }
     await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
     if (!copy) {
       doc.source = { type: 'puter', path };
       if (doc.name !== name) doc.rename(name);
-      doc.markSaved();
+      doc.markSaved(saved);
       rememberRecent(app, { name, path });
     }
     app.setStatus(`Saved ${name}`);

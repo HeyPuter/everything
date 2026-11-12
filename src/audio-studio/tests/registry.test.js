@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { CommandRegistry, normalizeShortcut } from '../src/commands/registry.js';
+import {
+  CommandRegistry,
+  normalizeShortcut,
+  eventKey,
+  eventShortcut,
+} from '../src/commands/registry.js';
 import { Prefs } from '../src/lib/prefs.js';
 
 const memory = () => {
@@ -25,6 +30,28 @@ describe('CommandRegistry shortcuts', () => {
     expect(again.commandFor('Mod+K')).toBe('b');
     again.resetShortcuts('b');
     expect(again.commandFor('B')).toBe('b');
+  });
+
+  it('ignores damaged remappings from storage or an imported settings file', () => {
+    const app = { prefs: new Prefs(memory()), documentKinds: new Map() };
+    // A hand-edited file: a key written as a string, a list with junk, and a non-list.
+    app.prefs.set('shortcuts', { a: 'Alt+5', b: ['Shift+B', 7, null], c: { k: 1 } });
+    const C = new CommandRegistry(app);
+    C.register([
+      { id: 'a', label: 'A', shortcut: 'Mod+K', run() {} },
+      { id: 'b', label: 'B', shortcut: 'B', run() {} },
+      { id: 'c', label: 'C', shortcut: 'C', run() {} },
+    ]);
+    expect(C.keysFor('a')).toEqual(['Alt+5']);
+    expect(C.commandFor('Alt+5')).toBe('a');
+    // The characters of "Alt+5" are not bound one by one.
+    expect(C.commandFor('5')).toBe(null);
+    expect(C.keysFor('b')).toEqual(['Shift+B']);
+    expect(C.keysFor('c')).toEqual(['C']);
+    expect(C.shortcutLabel('a')).toBeTruthy();
+    C.reloadShortcuts();
+    expect(C.commandFor('Alt+5')).toBe('a');
+    expect(C.keysFor('c')).toEqual(['C']);
   });
 
   it('lets a document kind override a shared command', async () => {
@@ -53,5 +80,27 @@ describe('Prefs', () => {
     expect(prefs.get('shortcuts')).toEqual({ 'window.assistant': 'Alt+5' });
     expect(prefs.get('layouts').Default.c[1]).toEqual({ t: 'group', tabs: ['properties', 'assistant'], a: 'assistant' });
     expect('essentialPresets' in prefs.values).toBe(false);
+  });
+});
+
+describe('shortcut keys from keyboard events', () => {
+  const ev = (o) => new KeyboardEvent('keydown', o);
+
+  it('follows the keyboard layout for letters', () => {
+    // AZERTY: the key labelled Z sits where QWERTY has W, and A where QWERTY has Q.
+    expect(eventKey(ev({ key: 'z', code: 'KeyW' }))).toBe('z');
+    expect(eventKey(ev({ key: 'a', code: 'KeyQ' }))).toBe('a');
+    expect(eventKey(ev({ key: 'm', code: 'Semicolon' }))).toBe('m');
+    expect(eventShortcut(ev({ key: 'z', code: 'KeyW', metaKey: true, ctrlKey: true }))).toMatch(/\+z$/);
+    expect(eventKey(ev({ key: 'Z', code: 'KeyW', shiftKey: true }))).toBe('z');
+  });
+
+  it('uses the physical key when the layout gives no Latin letter', () => {
+    // Option+K on macOS types "˚"; a Cyrillic layout types "л".
+    expect(eventKey(ev({ key: '˚', code: 'KeyK', altKey: true }))).toBe('k');
+    expect(eventKey(ev({ key: 'л', code: 'KeyK' }))).toBe('k');
+    // Digits and punctuation keep their physical key (Shift changes the character).
+    expect(eventKey(ev({ key: '!', code: 'Digit1', shiftKey: true }))).toBe('1');
+    expect(eventKey(ev({ key: '?', code: 'Slash', shiftKey: true }))).toBe('/');
   });
 });

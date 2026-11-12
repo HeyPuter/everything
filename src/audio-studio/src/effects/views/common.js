@@ -135,7 +135,10 @@ export function liveSpectrum(ctx, { size = 4096, onFrame = () => {} } = {}) {
   let live = false;
   let raf = 0;
   let fftFn = null;
-  import('../../multitrack/align.js').then((m) => (fftFn = m.fft));
+  import('../../multitrack/align.js').then((m) => {
+    fftFn = m.fft;
+    if (live && !raf) raf = requestAnimationFrame(frame);
+  });
   const frame = () => {
     raf = 0;
     if (!live || !doc || !fftFn) return;
@@ -164,6 +167,11 @@ export function liveSpectrum(ctx, { size = 4096, onFrame = () => {} } = {}) {
       onFrame();
     }
   });
+  // A dialog opened during playback (a rack slot edited while listening) is live at once.
+  if (app?.engine?.playing) {
+    live = true;
+    raf = requestAnimationFrame(frame);
+  }
   ctx.onClose?.(() => {
     off?.();
     cancelAnimationFrame(raf);

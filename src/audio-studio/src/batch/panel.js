@@ -179,7 +179,7 @@ export function batchPanel(app) {
     const signal = running.signal;
     items = resetItems(items);
     refresh();
-    const names = plannedNames(items, s);
+    const names = plannedNames(items, s, { dir });
     const write = (name, blob) => out.write(name, blob);
     announce('Batch processing started');
     const result = await runQueue(items, {

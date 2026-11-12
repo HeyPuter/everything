@@ -157,7 +157,7 @@ function editDialog(app) {
       if (!groups[g.id].length) rows.push(h('div.ws-empty.faint', { dataset: { group: g.id } }, 'Drop a workspace here'));
       for (const name of groups[g.id]) {
         const isCustom = !WORKSPACES[name];
-        const row = h('div.ws-row', { role: 'option', draggable: 'true', 'aria-selected': String(name === selected), dataset: { name } }, icon('grip-vertical', 14), h('span.ws-name', name), isCustom ? h('span.faint', '(custom)') : null);
+        const row = h('div.ws-row', { role: 'option', id: `ws-option-${rows.length}`, draggable: 'true', 'aria-selected': String(name === selected), dataset: { name } }, icon('grip-vertical', 14), h('span.ws-name', name), isCustom ? h('span.faint', '(custom)') : null);
         row.addEventListener('click', () => {
           selected = name;
           render();
@@ -180,6 +180,10 @@ function editDialog(app) {
       }
     }
     list.replaceChildren(...rows);
+    // Focus stays on the list: name the selected workspace to screen readers.
+    const current = rows.find((r) => r.dataset.name === selected);
+    if (current) list.setAttribute('aria-activedescendant', current.id);
+    else list.removeAttribute('aria-activedescendant');
     for (const empty of list.querySelectorAll('.ws-empty')) {
       empty.addEventListener('dragover', (e) => dragging && e.preventDefault());
       empty.addEventListener('drop', (e) => {

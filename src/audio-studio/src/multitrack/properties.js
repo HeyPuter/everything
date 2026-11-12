@@ -102,7 +102,7 @@ export function sessionPropertySection(app, doc) {
         row('Crossfade', xf, xfId),
         text('Stretch', stretchText(c)),
         text('Remix', c.remix?.segments?.length ? `${c.remix.segments.length} segment${c.remix.segments.length === 1 ? '' : 's'}, target ${fmt(c.remix.target)}` : 'Off'),
-        h('div.prop-checks', check('Loop', c.loop, (v) => set(v ? 'Loop Clip' : 'Unloop Clip', { loop: v })), check('Lock in Time', c.locked, (v) => set(v ? 'Lock Clip' : 'Unlock Clip', { locked: v })), check('Mute', c.mute, (v) => set(v ? 'Mute Clip' : 'Unmute Clip', { mute: v }))),
+        h('div.prop-checks', check('Loop', c.loop, (v) => doc.apply(v ? 'Loop Clip' : 'Unloop Clip', S.setClipsLoop(doc.state, [c.id], v, (id) => doc.sourceLength(id)))), check('Lock in Time', c.locked, (v) => set(v ? 'Lock Clip' : 'Unlock Clip', { locked: v })), check('Mute', c.mute, (v) => set(v ? 'Mute Clip' : 'Unmute Clip', { mute: v }))),
       ),
     );
   } else if (clips.length > 1) {

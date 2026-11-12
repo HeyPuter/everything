@@ -37,7 +37,10 @@ export function probeAudio(head, size, tail = null) {
       if (cid === 'fmt ' && o + 24 <= head.length) fmt = { channels: dv.getUint16(o + 10, true), sampleRate: dv.getUint32(o + 12, true), blockAlign: dv.getUint16(o + 20, true), bits: dv.getUint16(o + 22, true) };
       if (cid === 'data') {
         if (!fmt) break;
-        const bytes = csize === 0xffffffff && ds64 != null ? ds64 : Math.min(csize, size - o - 8);
+        let bytes = csize === 0xffffffff && ds64 != null ? ds64 : Math.min(csize, size - o - 8);
+        // A recording cut off before its header was finished: size 0 with the audio running
+        // to the end of the file (as parseWav reads it), unless another chunk follows.
+        if (csize === 0 && !/^[\x20-\x7e]{4}$/.test(str(head, o + 8, 4))) bytes = size - o - 8;
         return { format: 'WAV', sampleRate: fmt.sampleRate, channels: fmt.channels, bitDepth: fmt.bits, duration: bytes / (fmt.blockAlign || 1) / fmt.sampleRate };
       }
       o += 8 + csize + (csize & 1);
@@ -106,10 +109,12 @@ export function probeAudio(head, size, tail = null) {
     const sideInfo = h.version === 1 ? (h.channels === 1 ? 17 : 32) : h.channels === 1 ? 9 : 17;
     const x = i + 4 + sideInfo;
     let frames = 0;
-    if (str(head, x, 4) === 'Xing' || str(head, x, 4) === 'Info') {
+    if ((str(head, x, 4) === 'Xing' || str(head, x, 4) === 'Info') && x + 12 <= head.length) {
       const flags = new DataView(head.buffer, head.byteOffset + x + 4).getUint32(0);
       if (flags & 1) frames = new DataView(head.buffer, head.byteOffset + x + 8).getUint32(0);
-    } else if (str(head, i + 36, 4) === 'VBRI') frames = new DataView(head.buffer, head.byteOffset + i + 50).getUint32(0);
+    } else if (str(head, i + 36, 4) === 'VBRI' && i + 54 <= head.length) {
+      frames = new DataView(head.buffer, head.byteOffset + i + 50).getUint32(0);
+    }
     const duration = frames ? (frames * h.samples) / h.sampleRate : ((size - i) * 8) / (h.bitrate * 1000);
     return { format: 'MP3', sampleRate: h.sampleRate, channels: h.channels, duration };
   }

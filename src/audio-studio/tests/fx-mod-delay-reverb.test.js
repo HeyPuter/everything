@@ -95,6 +95,50 @@ describe('procedural impulses', () => {
     });
   });
 
+  it('keeps the reverb level heard at 96 and 192 kHz, generated or loaded', async () => {
+    const { testDsp } = await import('./wasm-helper.js');
+    const { setLoadedImpulse } = await import('../src/effects/defs/reverb-impulses.js');
+    const d = testDsp();
+    // A damped impulse loaded from a 48 kHz file.
+    const file = generateImpulse({ impulse: 3, roomSize: 60, dampLF: 0, dampHF: 70 }, RATE);
+    const half = (file.length - 1) / 2;
+    const channels = [file.slice(1, 1 + half), file.slice(1 + half)];
+    setLoadedImpulse('level-test.wav', { rate: RATE, channels });
+    /** Wet level (dB) of band-limited noise (100 Hz to 3 kHz) once the reverb has built up. */
+    const level = (id, values, rate) => {
+      const def = getEffect(id);
+      const v = { ...defaults(def), ...values };
+      const n = 2 * rate;
+      const x = new Float32Array(n);
+      let seed = 3;
+      const lp = Math.exp((-2 * Math.PI * 3000) / rate);
+      const hp = Math.exp((-2 * Math.PI * 100) / rate);
+      let [s1, s2, s3, low] = [0, 0, 0, 0];
+      for (let i = 0; i < n; i++) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        const w = seed / 2 ** 31 - 1;
+        s1 = w + (s1 - w) * lp;
+        s2 = s1 + (s2 - s1) * lp;
+        s3 = s2 + (s3 - s2) * lp;
+        low = s3 + (low - s3) * hp;
+        x[i] = s3 - low;
+      }
+      const spec = slotSpec(def, v, { rate });
+      const [out] = d.runEffect(def.kind, rate, [x, x], spec.params, { data: spec.data });
+      const rms = (a) => Math.sqrt(a.reduce((m, q) => m + q * q, 0) / a.length);
+      return 20 * Math.log10(rms(out.subarray(rate)) / rms(x.subarray(rate)));
+    };
+    for (const [id, values] of [
+      ['surroundReverb', {}],
+      ['convolutionReverb', { impulse: IMPULSES.length, impulseName: 'level-test.wav', mix: 100 }],
+    ]) {
+      const ref = level(id, values, RATE);
+      for (const rate of [96000, 192000]) {
+        expect(Math.abs(level(id, values, rate) - ref), `${id} at ${rate} Hz`).toBeLessThan(1.5);
+      }
+    }
+  });
+
   it('room size scales the length and caps it', () => {
     const short = impulseLength({ impulse: 2, roomSize: 50 }, RATE);
     const long = impulseLength({ impulse: 2, roomSize: 150 }, RATE);

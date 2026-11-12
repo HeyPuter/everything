@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { encodeWav, parseWav } from '../src/audio/wav.js';
 import { Channel } from '../src/audio/channel.js';
-import { sniffSampleRate } from '../src/audio/decode.js';
+import { ulaw, alaw } from '../src/audio/aiff.js';
+import { sniffSampleRate, decodeAudio, fixPositiveScale } from '../src/audio/decode.js';
 
 const tone = (n) => Float32Array.from({ length: n }, (_, i) => Math.sin(i / 7) * 0.5);
 
@@ -22,6 +23,118 @@ describe('wav', () => {
       ]);
     });
   }
+  for (const bitDepth of [8, 16, 24]) {
+    it(`writes ${bitDepth}-bit samples read from a file back unchanged`, async () => {
+      const full = 2 ** (bitDepth - 1);
+      // Every code near both ends of the range, plus a spread across it.
+      const codes = [];
+      for (let k = -full; k < -full + 40; k++) codes.push(k);
+      for (let k = full - 40; k < full; k++) codes.push(k);
+      for (let k = -full; k < full; k += Math.max(1, Math.floor(full / 500))) codes.push(k);
+      const samples = Float32Array.from(codes, (k) => k / full);
+      const blob = encodeWav({ sampleRate: 8000, channels: [samples], bitDepth, dither: false });
+      const r = parseWav(await blob.arrayBuffer());
+      expect(Array.from(r.channels[0], (v) => Math.round(v * full))).toEqual(codes);
+      // Full scale and beyond clip to the top code instead of wrapping.
+      const peaks = Float32Array.of(1, 1.5, -1.5);
+      const loud = encodeWav({ sampleRate: 8000, channels: [peaks], bitDepth, dither: false });
+      const back = parseWav(await loud.arrayBuffer()).channels[0];
+      expect(Array.from(back, (v) => Math.round(v * full))).toEqual([full - 1, full - 1, -full]);
+    });
+  }
+  it('reads NaN and infinite float samples as silence', async () => {
+    const samples = Float32Array.of(0.5, NaN, Infinity, -Infinity, -0.25);
+    const r = parseWav(await encodeWav({ sampleRate: 8000, channels: [samples], bitDepth: 32 }).arrayBuffer());
+    expect(Array.from(r.channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+    // 64-bit float, including values too large for 32-bit float.
+    const head = await encodeWav({ sampleRate: 8000, channels: [new Float32Array(5)], bitDepth: 32 }).arrayBuffer();
+    const bytes = new Uint8Array(44 + 5 * 8);
+    bytes.set(new Uint8Array(head, 0, 44));
+    const dv = new DataView(bytes.buffer);
+    dv.setUint16(32, 8, true);
+    dv.setUint16(34, 64, true);
+    dv.setUint32(40, 5 * 8, true);
+    [0.5, NaN, -Infinity, 1e300, -0.25].forEach((v, i) => dv.setFloat64(44 + i * 8, v, true));
+    expect(Array.from(parseWav(bytes.buffer).channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+  });
+  it('decodes every sample type exactly, also when the data is not 4-byte aligned', () => {
+    // Reference: the straightforward DataView reading of interleaved samples.
+    const ref = {
+      1: (dv, p, bits) => {
+        if (bits === 8) return (dv.getUint8(p) - 128) / 128;
+        if (bits === 16) return dv.getInt16(p, true) / 32768;
+        if (bits === 32) return dv.getInt32(p, true) / 2147483648;
+        const v = dv.getUint8(p) | (dv.getUint8(p + 1) << 8) | (dv.getUint8(p + 2) << 16);
+        return ((v << 8) >> 8) / 8388608;
+      },
+      3: (dv, p, bits) => (bits === 32 ? dv.getFloat32(p, true) : dv.getFloat64(p, true)),
+      6: (dv, p) => alaw(dv.getUint8(p)),
+      7: (dv, p) => ulaw(dv.getUint8(p)),
+    };
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) & 255;
+    for (const [format, bits] of [[1, 8], [1, 16], [1, 24], [1, 32], [3, 32], [3, 64], [6, 8], [7, 8]]) {
+      for (const nch of [1, 2, 3]) {
+        for (const junk of [0, 2]) {
+          const bytes = bits / 8;
+          const frames = 101;
+          const size = frames * nch * bytes;
+          const buf = new ArrayBuffer(44 + (junk ? 8 + junk : 0) + size);
+          const dv = new DataView(buf);
+          const w4 = (o, t) => [...t].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
+          w4(0, 'RIFF');
+          dv.setUint32(4, buf.byteLength - 8, true);
+          w4(8, 'WAVE');
+          w4(12, 'fmt ');
+          dv.setUint32(16, 16, true);
+          dv.setUint16(20, format, true);
+          dv.setUint16(22, nch, true);
+          dv.setUint32(24, 8000, true);
+          dv.setUint32(28, 8000 * nch * bytes, true);
+          dv.setUint16(32, nch * bytes, true);
+          dv.setUint16(34, bits, true);
+          let o = 36;
+          if (junk) {
+            w4(o, 'JUNK');
+            dv.setUint32(o + 4, junk, true);
+            o += 8 + junk;
+          }
+          w4(o, 'data');
+          dv.setUint32(o + 4, size, true);
+          o += 8;
+          for (let i = 0; i < size; i++) dv.setUint8(o + i, rnd());
+          for (let i = 0; format === 3 && i < frames * nch; i++) {
+            if (bits === 32) dv.setFloat32(o + i * 4, (rnd() - 128) / 100, true);
+            else dv.setFloat64(o + i * 8, (rnd() - 128) / 100, true);
+          }
+          const r = parseWav(buf);
+          for (let c = 0; c < nch; c++) {
+            const at = (i) => o + (i * nch + c) * bytes;
+            const want = Float32Array.from({ length: frames }, (_, i) => ref[format](dv, at(i), bits));
+            expect(r.channels[c]).toEqual(want);
+          }
+        }
+      }
+    }
+  });
+  it('keeps marker descriptions through a save and reopen', async () => {
+    const markers = [
+      { start: 10, duration: 0, name: 'Intro', description: 'Count-in, café take' },
+      { start: 40, duration: 20, name: 'Verse', description: '' },
+      { start: 80, duration: 0, name: 'Odd', description: 'abc' },
+    ];
+    const blob = encodeWav({
+      sampleRate: 8000,
+      channels: [tone(100)],
+      bitDepth: 16,
+      dither: false,
+      markers,
+    });
+    const r = parseWav(await blob.arrayBuffer());
+    expect(r.markers.map((m) => [m.start, m.duration, m.name, m.description])).toEqual(
+      markers.map((m) => [m.start, m.duration, m.name, m.description]),
+    );
+  });
   it('opens the audio of a file whose cue list or labels are cut off or damaged', async () => {
     const blob = encodeWav({ sampleRate: 8000, channels: [tone(64)], bitDepth: 16, dither: false, markers: [{ start: 10, name: 'A' }, { start: 20, name: 'B' }] });
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -65,6 +178,25 @@ describe('wav', () => {
     bytes.set([0x42, 0x57, 0x36, 0x34]); // "BW64"
     expect(Array.from(parseWav(bytes.buffer).channels[0])).toEqual([0.5, -0.5]);
   });
+  it('gives readable errors for cut-off headers and damaged channel counts', async () => {
+    const blob = encodeWav({ sampleRate: 8000, channels: [tone(100), tone(100)], bitDepth: 16 });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // Cut off inside the format chunk.
+    const cut = bytes.slice(0, 30).buffer;
+    expect(() => parseWav(cut)).toThrow('The WAV file header is damaged or cut off.');
+    // A channel count that disagrees with the block size and byte rate.
+    const bad = bytes.slice();
+    new DataView(bad.buffer).setUint16(22, 40000, true);
+    expect(() => parseWav(bad.buffer)).toThrow('The WAV file header is damaged.');
+    // Consistent but absurd: more channels than any file opens with.
+    const huge = bytes.slice();
+    const dv = new DataView(huge.buffer);
+    dv.setUint16(22, 2000, true);
+    dv.setUint16(32, 4000, true);
+    dv.setUint32(28, 8000 * 4000, true);
+    expect(() => parseWav(huge.buffer)).toThrow('The WAV file header is damaged.');
+    expect(parseWav(bytes.buffer).channels.length).toBe(2);
+  });
   it('rejects non-WAV data', () => {
     expect(() => parseWav(new ArrayBuffer(64))).toThrow();
   });
@@ -79,6 +211,55 @@ describe('wav', () => {
     const mp3 = new Uint8Array(16);
     mp3.set([0xff, 0xfb, 0x94, 0x00]); // MPEG1 layer III, 48 kHz index 1
     expect(sniffSampleRate(mp3.buffer)).toBe(48000);
+  });
+  it('opens a FLAC file behind an ID3v2 tag at its own rate and bit depth', async () => {
+    // ID3v2 tag (300 bytes of frames), then fLaC + STREAMINFO: 44.1 kHz, 24-bit.
+    const tag = 300;
+    const bytes = new Uint8Array(10 + tag + 42 + 64);
+    bytes.set([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, (tag >> 7) & 0x7f, tag & 0x7f]);
+    const f = 10 + tag;
+    bytes.set([0x66, 0x4c, 0x61, 0x43], f);
+    bytes[f + 18] = 0x0a;
+    bytes[f + 19] = 0xc4;
+    bytes[f + 20] = 0x40 | (1 << 1) | 1; // channels - 1 = 1, top bit of (bits - 1) = 1
+    bytes[f + 21] = 0x70; // low 4 bits of (bits - 1) = 7 -> 24-bit
+    expect(sniffSampleRate(bytes.buffer)).toBe(44100);
+    let rate = 0;
+    const prev = globalThis.OfflineAudioContext;
+    globalThis.OfflineAudioContext = class {
+      constructor(c, n, r) {
+        rate = r;
+      }
+      async decodeAudioData() {
+        const data = new Float32Array(4);
+        return { sampleRate: rate, length: 4, numberOfChannels: 1, getChannelData: () => data };
+      }
+    };
+    try {
+      const r = await decodeAudio(bytes.buffer.slice(0), 'Song.flac');
+      expect(r.sampleRate).toBe(44100);
+      expect(r.bitDepth).toBe(24);
+      expect(r.format).toBe('flac');
+    } finally {
+      globalThis.OfflineAudioContext = prev;
+    }
+  });
+  it('puts 16-bit FLAC samples a browser divided by 32767 back on the 1/32768 grid', async () => {
+    const codes = [];
+    for (let k = -32768; k < 32768; k += 7) codes.push(k);
+    codes.push(32767, 1, -1, 0);
+    // Chromium's decoder: positives / 32767, negatives / 32768.
+    const chromium = Float32Array.from(codes, (k) => (k > 0 ? k / 32767 : k / 32768));
+    expect(fixPositiveScale([chromium])).toBe(true);
+    expect(Array.from(chromium, (v) => v * 32768)).toEqual(codes);
+    // A decoder that already divides by 32768 is left alone, as is anything off both grids.
+    const exact = Float32Array.from(codes, (k) => k / 32768);
+    expect(fixPositiveScale([exact])).toBe(false);
+    expect(Array.from(exact, (v) => v * 32768)).toEqual(codes);
+    const lossy = Float32Array.from({ length: 1000 }, (_, i) => Math.sin(i / 3) * 0.7);
+    const copy = lossy.slice();
+    expect(fixPositiveScale([lossy])).toBe(false);
+    expect(lossy).toEqual(copy);
   });
   it('sniffs the rate of MP3s behind large cover art and of M4As with the movie box at the end', () => {
     // A 2 MB ID3v2 tag (embedded artwork), then a 44.1 kHz MPEG-1 Layer III frame.

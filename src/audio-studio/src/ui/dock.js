@@ -163,14 +163,43 @@ export class Dock extends Emitter {
       return box;
     };
     this.tabsObserver?.disconnect();
+    // Rebuilding detaches whatever had focus in the dock; it is given back below.
+    const focused = document.activeElement;
+    const hadFocus = focused && focused !== document.body && this.root.contains(focused);
+    const focusedGroup = hadFocus ? focused.closest('.panel-group')?._group : null;
     const content = this.maximized && this.groups().includes(this.maximized) ? this.#group(this.maximized, shown) : build(this.tree);
     content.style.flex = '1 1 0px';
     this.root.replaceChildren(content);
     for (const [id, inst] of this.instances) {
       if (!shown.has(id)) inst.hide?.();
     }
+    // Before show(), so a panel that rebuilds itself there sees where focus is
+    // (and again after, for one that rebuilt the focused control away).
+    const lost = () => !document.activeElement || document.activeElement === document.body;
+    if (hadFocus && lost()) this.#restoreFocus(focused, focusedGroup);
     for (const id of shown) this.instances.get(id)?.show?.();
+    if (hadFocus && lost()) this.#restoreFocus(focused, focusedGroup);
     this.emit('render');
+  }
+
+  /**
+   * After a rebuild: focus back on the element that had it (panels are moved,
+   * not rebuilt), else on the same tab, else on its frame's current tab, else
+   * on the editor, so keyboard focus never falls back to the page.
+   */
+  #restoreFocus(el, group) {
+    const opts = { preventScroll: true };
+    if (el.isConnected && this.root.contains(el)) return el.focus(opts);
+    const sameId = el.id && this.root.querySelector(`#${CSS.escape(el.id)}`);
+    const frames = [...this.root.querySelectorAll('.panel-group')];
+    const frame = group && frames.find((g) => g._group === group);
+    const tab = '[role=tab][aria-selected=true]';
+    const target =
+      sameId ||
+      frame?.querySelector(tab) ||
+      this.app.focusTarget?.() ||
+      this.root.querySelector(tab);
+    target?.focus(opts);
   }
 
   #group(g, shown) {
@@ -318,7 +347,14 @@ export class Dock extends Emitter {
         for (const t of g.tabs.slice()) this.closePanel(t);
       } },
       { type: 'sep' },
-      { type: 'cmd', label: this.maximized === g ? 'Restore Frame Size' : 'Maximize Frame', shortcut: '`', enabled: true, run: () => this.toggleMaximize(g) },
+      {
+        type: 'cmd',
+        label: this.maximized === g ? 'Restore Frame Size' : 'Maximize Frame',
+        // The key Window > Maximize Frame has now (it can be remapped).
+        shortcut: this.app.commands?.shortcutLabel('window.maximize') ?? '`',
+        enabled: true,
+        run: () => this.toggleMaximize(g),
+      },
     ];
     const r = anchor.getBoundingClientRect();
     this.app.openMenu(items, { x: r.left, y: r.bottom + 2, anchor, label: `${this.#title(id)} panel menu` });

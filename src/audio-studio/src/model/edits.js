@@ -135,15 +135,18 @@ export function silenceRange(state, start, end, mask) {
 }
 
 /**
- * Maps clip channels onto `count` destination channels: mono spreads, extra
- * channels drop, and destination channels a multichannel clip does not have
- * (the centre and surrounds of a 5.1 file under a stereo clip) are silent.
+ * Maps clip channels onto `count` destination channels: mono spreads, a mono
+ * destination takes the average of the clip's channels (as Mix Paste and Convert
+ * to Mono do), other extra channels drop, and destination channels a multichannel
+ * clip does not have (the centre and surrounds of a 5.1 file under a stereo clip)
+ * are silent.
  * With `reuse`, those channels take the clip's last channel instead (pasting
  * into channels the user picked).
  */
 export function conformChannels(clip, count, { reuse = false } = {}) {
   const src = clip.channels;
   if (!src.length) return Array.from({ length: count }, () => Channel.empty());
+  if (count === 1 && src.length > 1) return convertChannels({ channels: src }, 1).channels;
   if (src.length === 1 || reuse) return Array.from({ length: count }, (_, i) => src[Math.min(i, src.length - 1)]);
   return Array.from({ length: count }, (_, i) => src[i] ?? Channel.silence(src[0].length));
 }

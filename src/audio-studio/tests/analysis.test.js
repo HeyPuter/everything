@@ -5,6 +5,7 @@ import { planMatch, matchOutcome, MATCH_DEFAULTS, LOUDNESS_PRESETS } from '../sr
 import { statsRows } from '../src/analysis/amplitude.js';
 import { correlation } from '../src/analysis/phase.js';
 import { fmtDb, gainToDb } from '../src/analysis/common.js';
+import { liveWindow } from '../src/analysis/frequency.js';
 
 const sine = (f, a, n, rate = 48000, ph = 0) => Float32Array.from({ length: n }, (_, i) => a * Math.sin((2 * Math.PI * f * i) / rate + ph));
 
@@ -132,5 +133,28 @@ describe('analysis helpers', () => {
     expect(get('Dynamic Range')[0]).toBe('12.04 dB');
     expect(get('Integrated Loudness')).toBe('-20.00 LUFS');
     expect(fmtDb(-Infinity)).toBe('-∞');
+  });
+});
+
+describe('live frequency analysis', () => {
+  it('fills FFT sizes larger than a mixer tap from earlier taps', () => {
+    const d = testDsp();
+    const TAP = 8192;
+    const size = 16384;
+    const x = sine(1000, 1, 48000);
+    // Taps every 4096 frames, each holding the latest TAP frames played.
+    const tapAt = (end) => ({ L: x.slice(end - TAP, end), R: x.slice(end - TAP, end), frame: end });
+    let hist = null;
+    for (const end of [8192, 12288, 16384, 20480]) hist = liveWindow(hist, tapAt(end), size);
+    expect(Array.from(hist.L)).toEqual(Array.from(x.subarray(20480 - size, 20480)));
+    const peak = (a) => Math.max(...a);
+    const a = d.analyzer(size, 0);
+    // As loud as a full window of the tone (a half-filled window reads 6 dB low).
+    expect(peak(a.frame(hist.L))).toBeCloseTo(peak(a.frame(x.subarray(0, size))), 1);
+    // A seek moves the window by a whole tap; the newest frames are always the tap's.
+    hist = liveWindow(hist, tapAt(40000), size);
+    expect(Array.from(hist.R.subarray(size - TAP))).toEqual(Array.from(x.subarray(40000 - TAP, 40000)));
+    // Sizes a tap covers come straight from it.
+    expect(Array.from(liveWindow(hist, tapAt(40000), 4096).L)).toEqual(Array.from(x.subarray(40000 - 4096, 40000)));
   });
 });

@@ -7,7 +7,7 @@
 import mixerUrl from './mixer-worklet.js?worker&url';
 import captureUrl from './capture-worklet.js?worker&url';
 import { Emitter } from '../lib/emitter.js';
-import { CHUNK } from './mixcore.js';
+import { CHUNK, graphLength } from './mixcore.js';
 import { dspBytes } from '../audio/dsp.js';
 import { UserError } from '../lib/errors.js';
 
@@ -50,7 +50,12 @@ export class Engine extends Emitter {
     this.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
     this.sources = new Map(); // key -> Channel[]
     this.sent = new Map(); // key -> Set(chunk index)
+    // While playing: the last position report already heard (or the play,
+    // seek or loop jump point until its audio is heard), and the reports
+    // after it that are still on their way through the output latency.
     this.lastPos = { frame: 0, time: 0 };
+    this.reports = [];
+    this.seq = 0; // play/seek generation: reports from before a jump are ignored
     this.range = { from: 0, to: null, loop: null };
     this.timer = 0;
     this.meters = { master: [0, 0], tracks: new Map() };
@@ -70,8 +75,12 @@ export class Engine extends Emitter {
 
   /** Creates (or re-creates at a new rate) the AudioContext. Must follow a user gesture. */
   async ensure(rate = this.rate) {
-    if (this.ctx && this.requestedRate === rate && this.node) {
-      if (this.ctx.state === 'suspended') await this.ctx.resume();
+    // A new latency mode recreates the context, but never in the middle of playback.
+    const restart = this.hintChanged && this.state !== 'playing';
+    // A context the browser closed is replaced; a suspended or interrupted one
+    // (Safari pauses audio for calls and other apps) resumes.
+    if (this.ctx && this.ctx.state !== 'closed' && this.requestedRate === rate && this.node && !restart) {
+      if (this.ctx.state !== 'running') await this.ctx.resume();
       return this.ctx;
     }
     if (this.contextPromise) {
@@ -108,6 +117,7 @@ export class Engine extends Emitter {
     }
     this.ctx = ctx;
     this.requestedRate = rate;
+    this.hintChanged = false;
     this.rate = ctx.sampleRate;
     await ctx.audioWorklet.addModule(mixerUrl);
     const node = new AudioWorkletNode(ctx, 'audio-studio-mixer', {
@@ -158,8 +168,8 @@ export class Engine extends Emitter {
   setLatencyHint(hint) {
     if (hint === this.latencyHint) return;
     this.latencyHint = hint;
-    // Recreated on the next ensure() (while stopped, so playback is not cut).
-    if (this.ctx && this.state !== 'playing') this.requestedRate = null;
+    // Recreated on the next ensure() while stopped, so playback is not cut.
+    if (this.ctx) this.hintChanged = true;
   }
 
   /** Maps the two mix channels onto device outputs, e.g. [1, 0] swaps left and right. */
@@ -204,8 +214,13 @@ export class Engine extends Emitter {
   }
 
   #onMessage(m) {
-    if (m.type === 'pos' || m.type === 'meters') {
-      this.lastPos = { frame: m.frame, time: m.time };
+    if (m.seq !== undefined && m.seq !== this.seq) {
+      // Sent before the latest play, seek or loop jump: out of date.
+      if (m.type === 'pos' || m.type === 'meters' || m.type === 'ended') return;
+    }
+    if ((m.type === 'pos' || m.type === 'meters') && this.state === 'playing') {
+      this.reports.push({ frame: m.frame, time: m.time });
+      if (this.reports.length > 256) this.reports.shift();
     }
     if (m.type === 'meters') {
       this.meters.master = m.master;
@@ -213,6 +228,7 @@ export class Engine extends Emitter {
       this.emit('meters', this.meters);
     } else if (m.type === 'ended') {
       this.lastPos = { frame: m.frame, time: this.ctx.currentTime };
+      this.reports = [];
       this.#setState('stopped');
       this.emit('ended', m.frame);
     } else if (m.type === 'tap') {
@@ -247,11 +263,22 @@ export class Engine extends Emitter {
     return this.state === 'playing';
   }
 
-  /** Current playhead in graph frames, interpolated between worklet reports. */
+  /**
+   * Current playhead in graph frames: the frame being heard, interpolated
+   * from the worklet's latest report rendered at least the output latency
+   * ago. Until the audio from a play, seek or loop jump point is heard, the
+   * playhead holds there (rather than showing earlier frames), and a loop
+   * wrap shows once its audio is heard rather than one latency early.
+   */
   get position() {
     if (!this.ctx || this.state !== 'playing') return this.lastPos.frame;
-    const latency = (this.ctx.outputLatency || this.ctx.baseLatency || 0) * this.rate;
-    let f = this.lastPos.frame + (this.ctx.currentTime - this.lastPos.time) * this.rate - latency;
+    const heard = this.ctx.currentTime - (this.ctx.outputLatency || this.ctx.baseLatency || 0);
+    const reports = this.reports;
+    let n = 0;
+    while (n < reports.length && reports[n].time <= heard) n++;
+    if (n) this.lastPos = reports.splice(0, n).pop();
+    if (heard <= this.lastPos.time) return this.lastPos.frame;
+    let f = this.lastPos.frame + (heard - this.lastPos.time) * this.rate;
     const loop = this.range.loop;
     if (loop && loop.end > loop.start && f >= loop.end) f = loop.start + ((f - loop.start) % (loop.end - loop.start));
     if (!loop && this.range.to != null) f = Math.min(f, this.range.to);
@@ -263,6 +290,19 @@ export class Engine extends Emitter {
    * Channel[]; chunks already sent for unchanged keys are reused.
    */
   setGraph(graph, sources) {
+    // The context runs at one rate and the mixer does not convert: audio at
+    // another rate (Convert Sample Type during playback, or undoing it) would
+    // play at the wrong speed and pitch, so playback stops.
+    if (this.playing && graph.rate && this.ctx && graph.rate !== this.ctx.sampleRate) this.stop();
+    // Playing to the end of the content follows edits that move the end
+    // (pasting during playback plays the new audio too; deleting stops sooner).
+    if (this.playing && this.toEnd) {
+      const to = graphLength(graph);
+      if (to !== this.range.to) {
+        this.range.to = to;
+        this.node?.port.postMessage({ type: 'range', to });
+      }
+    }
     this.graph = graph;
     this.sources = sources;
     for (const key of [...this.sent.keys()]) {
@@ -287,9 +327,10 @@ export class Engine extends Emitter {
     await this.ensure(rate);
     if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
     this.range = { from, to, loop };
-    this.lastPos = { frame: from, time: this.ctx.currentTime };
+    this.toEnd = to != null && to === graphLength(this.graph);
+    this.#jumped(from);
     this.#feed(from);
-    this.node.port.postMessage({ type: 'play', from, to, loop });
+    this.node.port.postMessage({ type: 'play', from, to, loop, seq: this.seq });
     this.#setState('playing');
   }
 
@@ -307,9 +348,11 @@ export class Engine extends Emitter {
     loop = wholeLoop(loop);
     // Past the new loop's end the mixer jumps to its start on the next block:
     // the interpolated playhead follows rather than wrapping from the old position.
-    if (this.playing && loop && loop.end > loop.start && this.lastPos.frame >= loop.end) this.lastPos = { frame: loop.start, time: this.ctx?.currentTime ?? 0 };
+    const latest = this.reports.length ? this.reports[this.reports.length - 1] : this.lastPos;
+    const jump = this.playing && loop && loop.end > loop.start && latest.frame >= loop.end;
+    if (jump) this.#jumped(loop.start);
     this.range.loop = loop;
-    this.node?.port.postMessage({ type: 'loop', loop });
+    this.node?.port.postMessage(jump ? { type: 'loop', loop, seq: this.seq } : { type: 'loop', loop });
     if (this.playing) this.#feed();
   }
 
@@ -318,6 +361,7 @@ export class Engine extends Emitter {
     const at = this.position;
     this.node.port.postMessage({ type: 'stop' });
     this.lastPos = { frame: at, time: this.ctx?.currentTime ?? 0 };
+    this.reports = [];
     this.#setState('stopped');
     return at;
   }
@@ -327,10 +371,17 @@ export class Engine extends Emitter {
     // The mixer reads chunks by whole frame index: a fractional playhead (for
     // example the interpolated `position`) would read undefined samples as NaN.
     frame = wholeFrame(frame);
-    this.lastPos = { frame, time: this.ctx?.currentTime ?? 0 };
+    this.#jumped(frame);
     if (!this.node) return;
     this.#feed(frame);
-    this.node.port.postMessage({ type: 'seek', frame });
+    this.node.port.postMessage({ type: 'seek', frame, seq: this.seq });
+  }
+
+  /** The playhead jumps to `frame` now; reports from before the jump no longer count. */
+  #jumped(frame) {
+    this.seq++;
+    this.lastPos = { frame, time: this.ctx?.currentTime ?? 0 };
+    this.reports = [];
   }
 
   #feed(at = this.position) {
@@ -433,6 +484,12 @@ export class Engine extends Emitter {
     this.input.src.disconnect();
     for (const t of this.input.stream.getTracks()) t.stop();
     this.input = null;
+  }
+
+  /** Input latency (frames) the open input device reports (0 when unknown). */
+  get inputLatencyFrames() {
+    const settings = this.input?.stream?.getAudioTracks?.()[0]?.getSettings?.();
+    return Math.round((Number(settings?.latency) || 0) * this.rate);
   }
 
   /** Context time to wall-clock conversion for latency-compensated recording. */

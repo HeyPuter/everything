@@ -7,7 +7,7 @@
 // view.layers entries { id, el, layout(rect), draw(), pointer(e, phase) }.
 
 import { h, announce } from '../lib/dom.js';
-import { TimeRuler, rulerTicks } from './time-ruler.js';
+import { TimeRuler, rulerTicks, rulerFps } from './time-ruler.js';
 import { Overview } from './overview.js';
 import { WaveformRenderer } from '../render/waveform-gl.js';
 import { channelColumns } from '../audio/peaks.js';
@@ -79,6 +79,12 @@ export function dbMinorTicks(lane, amp) {
   }
   return out;
 }
+
+/**
+ * The first sample at or after a grid line between samples (a video frame or beat): the
+ * time display rounds down, so the nearest sample could show as the previous frame.
+ */
+const firstSampleOf = (frame) => Math.ceil(frame - 1e-4);
 
 /** Keeps a w x h box at (x, y) inside a W x H area. */
 export function clampHud(x, y, w, h, W, H) {
@@ -222,11 +228,22 @@ export class WaveformView {
     syncPin();
     this.syncHudPin = syncPin;
     this.#bindHudGrip(hud, grip);
-    const setGain = (db) => {
+    const showGain = (db) => {
       this.hudGain = Math.max(-60, Math.min(30, Math.round(db * 10) / 10));
       valueEl.textContent = formatDb(this.hudGain).replace(/ dB$/, '');
       knobEl.setAttribute('aria-valuenow', String(this.hudGain));
       knobEl.setAttribute('aria-valuetext', formatDb(this.hudGain));
+    };
+    // Switching files drops the HUD's preview (the app clears it), so an unapplied
+    // adjustment is dropped too instead of showing a gain that is no longer heard.
+    this.offActive = this.app.on('active', (d) => {
+      if (d !== this.doc && this.hudGain) {
+        drag = null;
+        showGain(0);
+      }
+    });
+    const setGain = (db) => {
+      showGain(db);
       this.app.previewFx = this.hudGain ? [{ key: 'hud', kind: 1, params: [this.hudGain, this.hudGain, 1], enabled: true, mix: 1 }] : null;
       this.app.syncGraph();
       this.invalidate('wave');
@@ -444,7 +461,7 @@ export class WaveformView {
       const rate = this.doc.sampleRate;
       if (prefs.get('timeFormat') === 'bars') {
         const step = musicalStep(this.fpp, rate, this.app.timeOptions(), snap.rulerFine ? 3 : 12);
-        consider(Math.round(Math.round(frame / step) * step));
+        consider(firstSampleOf(Math.round(frame / step) * step));
       } else {
         const secPerPx = this.fpp / rate;
         const steps = [0.001, 0.01, 0.1, 0.5, 1, 5, 10, 30, 60];
@@ -456,7 +473,7 @@ export class WaveformView {
     const fps = snap.frames ? framesPerSecond(this.app.prefs) : 0;
     if (fps) {
       const step = this.doc.sampleRate / fps;
-      consider(Math.round(Math.round(frame / step) * step));
+      consider(firstSampleOf(Math.round(frame / step) * step));
     }
     if (snap.zero && bestD === tol) {
       // The sum of the channels enabled for editing, as Adjust Selection to Zero Crossings uses.
@@ -670,7 +687,8 @@ export class WaveformView {
     }
     const t0 = v.start / rate;
     const t1 = v.end / rate;
-    return rulerTicks(t0, t1, W).ticks.map((sec) => Math.round(((sec - t0) / (t1 - t0)) * W));
+    const { ticks } = rulerTicks(t0, t1, W, 70, rulerFps(this.app));
+    return ticks.map((sec) => Math.round(((sec - t0) / (t1 - t0)) * W));
   }
 
   #drawAmp() {
@@ -776,7 +794,12 @@ export class WaveformView {
         this.invalidate('wave');
         this.#buildChannelButtons();
       }
-    } else if (e.kind === 'cursor') this.#placePlayhead(); else if (e.kind === 'rename') this.surface.setAttribute('aria-label', `Waveform of ${this.doc.name}`);
+    } else if (e.kind === 'cursor') {
+      this.#placePlayhead();
+      this.ruler.syncValue(this.doc.cursor);
+    } else if (e.kind === 'rename') {
+      this.surface.setAttribute('aria-label', `Waveform of ${this.doc.name}`);
+    }
     if (e.kind === 'edit' || e.kind === 'history') this.#buildChannelButtons();
   }
 
@@ -1026,9 +1049,10 @@ export class WaveformView {
     this.surface.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey) return;
       const doc = this.doc;
-      const step = e.altKey ? 1 : Math.max(1, Math.round(this.fpp * (e.shiftKey ? 1 : 10)));
+      const step = Math.max(1, Math.round(this.fpp * (e.shiftKey ? 1 : 10)));
       let handled = true;
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      // Alt+Left/Right are Move Playhead to Previous/Next, as in the Multitrack editor.
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.altKey) {
         const dir = e.key === 'ArrowLeft' ? -1 : 1;
         if (e.shiftKey) {
           const sel = doc.selection;
@@ -1122,6 +1146,7 @@ export class WaveformView {
   destroy() {
     this.offDoc();
     this.offPrefs();
+    this.offActive();
     window.removeEventListener('themechange', this.onTheme);
     this.resizeObserver.disconnect();
     this.renderer.dispose();

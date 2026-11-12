@@ -162,8 +162,13 @@ export function rng(seed = 1) {
   };
 }
 
-/** Coloured noise filter state; next(white) returns the coloured sample (about unit peak). */
-function colorFilter(color) {
+/**
+ * Coloured noise filter state; next(white) returns the coloured sample (about
+ * unit peak). The brown and grey filters' coefficients follow the sample rate
+ * so their corners stay at the same frequencies (about 150 Hz and 3.9 kHz) at
+ * every rate; at 48 kHz they are the original constants exactly.
+ */
+function colorFilter(color, rate = 48000) {
   if (color === 'pink') {
     // Paul Kellet's refined pink filter (within 0.05 dB above 9.2 Hz at 44.1 kHz).
     let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
@@ -180,9 +185,12 @@ function colorFilter(color) {
     };
   }
   if (color === 'brown') {
+    // Leaky integrator; c = 0.02 at 48 kHz (960 / 48000 rounds to the same value).
+    const c = 960 / rate;
+    const d = 1 + c;
     let last = 0;
     return (w) => {
-      last = (last + 0.02 * w) / 1.02;
+      last = (last + c * w) / d;
       return last * 3.5;
     };
   }
@@ -190,11 +198,13 @@ function colorFilter(color) {
     // Approximates equal perceived loudness across the band: more energy in
     // the lows and highs than pink noise, less in the 2 to 5 kHz region.
     const pink = colorFilter('pink');
-    const brown = colorFilter('brown');
+    const brown = colorFilter('brown', rate);
+    // One-pole high pass, pole 0.6 at 48 kHz.
+    const a = Math.pow(0.6, 48000 / rate);
     let hp = 0;
     let prev = 0;
     return (w) => {
-      hp = 0.6 * (hp + w - prev);
+      hp = a * (hp + w - prev);
       prev = w;
       return 0.55 * brown(w) + 0.25 * pink(w) + 0.35 * hp;
     };
@@ -218,7 +228,7 @@ export function generateNoise({ frames, channels = 1, rate = 48000, color = 'whi
   const delay = style === 'spatial' ? Math.max(0, (delayUs * rate) / 1e6) : 0;
   const lead = Math.ceil(delay) + 1;
   const make = (n) => {
-    const f = colorFilter(color);
+    const f = colorFilter(color, rate);
     const out = new Float32Array(n);
     const mix = color === 'white' ? 0 : Math.min(1, Math.max(0, intensity));
     for (let i = 0; i < n; i++) {
@@ -267,7 +277,8 @@ export function generateNoise({ frames, channels = 1, rate = 48000, color = 'whi
  * @returns {{ freqs: Float32Array, db: Float32Array }}
  */
 export function noiseSpectrum({ color = 'white', intensity = 1, rate = 48000, bins = 160, size = 2048, frames = 16 }, fft) {
-  const [x] = generateNoise({ frames: size * frames, color, intensity, volumeDb: 0, seed: 99 });
+  const opts = { frames: size * frames, rate, color, intensity, volumeDb: 0, seed: 99 };
+  const [x] = generateNoise(opts);
   const half = size / 2;
   const power = new Float64Array(half + 1);
   const re = new Float64Array(size);

@@ -273,6 +273,21 @@ describe('multitrack view', () => {
     expect([...sel.options].map((o) => o.textContent)).toContain('Bus A');
   });
 
+  it('keeps track control commands off without the track and value they set', async () => {
+    const { app, doc } = ctx;
+    const id = doc.state.tracks[0].id;
+    const ids = ['mt.setTrackInput', 'mt.setTrackOutput', 'mt.setAutomationMode'];
+    for (const cmd of [...ids, 'mt.setAutomationParam']) {
+      // Command search and keyboard shortcuts run commands without arguments.
+      expect(app.commands.isEnabled(cmd)).toBe(false);
+      expect(app.commands.isEnabled(cmd, { id })).toBe(false);
+      expect(await app.commands.run(cmd)).toBeUndefined();
+    }
+    expect(app.commands.isEnabled('mt.setAutomationMode', { id, mode: 'touch' })).toBe(true);
+    await app.commands.run('mt.setAutomationMode', { id, mode: 'touch' });
+    expect(doc.state.tracks[0].mode).toBe('touch');
+  });
+
   it('switches tools per editor and reports available tools', () => {
     const { app } = ctx;
     expect(app.toolAvailable('razor')).toBe(true);
@@ -405,8 +420,11 @@ describe('automation writing', () => {
     const lane = S.findTrack(doc.state, id).automation.volume;
     expect(doc.history.entries.length).toBe(steps + 1);
     expect(doc.history.undoLabel).toBe('Write Automation');
-    expect(lane[0]).toEqual({ t: 1000, v: -3 });
-    expect(lane[lane.length - 1]).toEqual({ t: 30000, v: -9 });
+    // Recorded from the first move to the release, back to the track's own level on either side.
+    expect(lane[0]).toEqual({ t: 999, v: 0 });
+    expect(lane[1]).toEqual({ t: 1000, v: -3 });
+    expect(lane[lane.length - 2]).toEqual({ t: 30000, v: -9 });
+    expect(lane[lane.length - 1]).toEqual({ t: 30001, v: 0 });
     expect(S.findTrack(doc.state, id).volume).toBe(0);
   });
 
@@ -429,10 +447,13 @@ describe('automation writing', () => {
     c.commit(40000);
     delete app.engine.playing;
     const lane = S.findTrack(doc.state, id).automation.volume;
-    expect(lane[0]).toEqual({ t: 1000, v: -3 });
+    expect(lane[1]).toEqual({ t: 1000, v: -3 });
     expect(lane).toContainEqual({ t: 5000, v: -6 });
     expect(lane).toContainEqual({ t: 20000, v: -12 });
-    expect(lane[lane.length - 1]).toEqual({ t: 25000, v: -15 });
+    expect(lane[lane.length - 2]).toEqual({ t: 25000, v: -15 });
+    // Between and after the touches the track is back at its own level.
+    expect(S.envelopeValue(lane, 12000)).toBe(0);
+    expect(lane[lane.length - 1]).toEqual({ t: 25001, v: 0 });
   });
 
   it('sets a keyframe at the playhead when stopped with automation', () => {

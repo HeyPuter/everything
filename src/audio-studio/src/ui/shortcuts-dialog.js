@@ -523,6 +523,12 @@ export function shortcutsDialog(app) {
         return focusRow(id);
       }
       const combo = eventShortcut(e);
+      // Tab and Shift+Tab move keyboard focus: bound to a command, they would trap it.
+      if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        say(`${formatShortcut(combo)} can't be used: it moves keyboard focus.`);
+        refreshAll();
+        return focusRow(id);
+      }
       if (browserReserved(combo)) {
         say(`${formatShortcut(combo)} can't be used: the browser keeps it for itself.`);
         refreshAll();

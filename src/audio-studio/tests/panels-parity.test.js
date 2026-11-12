@@ -295,6 +295,47 @@ describe('Properties', () => {
     expect(again.el.querySelector('.prop-toggle').getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('keeps keyboard focus on the same control when an edit or a rename rebuilds it', async () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const doc = app.addDocument(audioDoc());
+    const { Dock } = await import('../src/ui/dock.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    // Only this panel: the editor's view would keep drawing after the test.
+    app.dock = new Dock(app, root, new Map([['properties', app.panels.get('properties')]]));
+    app.dock.setLayout({ t: 'group', tabs: ['properties'], a: 'properties' });
+    const panel = () => root.querySelector('.properties-panel');
+    panel().querySelector('.prop-toggle').focus();
+    doc.apply('Gain', doc.state);
+    expect(document.activeElement.className).toBe('prop-toggle');
+    expect(panel().contains(document.activeElement)).toBe(true);
+    // Renaming (Enter in the name field) also re-renders the dock to retitle the editor.
+    const name = panel().querySelector('input[aria-label="File name"]');
+    name.focus();
+    name.value = 'b.wav';
+    name.dispatchEvent(new Event('change'));
+    expect(doc.name).toBe('b.wav');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('File name');
+    expect(document.activeElement).not.toBe(name);
+    root.remove();
+  });
+
+  it('gives the same uncompressed size as the status bar', async () => {
+    const app = makeApp();
+    const doc = audioDoc(3);
+    doc.info.bitDepth = 16;
+    app.addDocument(doc);
+    const p = create(app, 'properties');
+    const rows = [...p.el.querySelectorAll('.prop-row')];
+    const size = rows.find((r) => r.textContent.startsWith('Uncompressed Size'));
+    const { statusParts } = await import('../src/ui/status-fields.js');
+    const status = statusParts(app, doc, {});
+    // 3 s of 16-bit stereo at 1 kHz: 12,000 bytes.
+    expect(size.querySelector('.prop-value').textContent).toBe('11.7 KB');
+    expect(status).toContain('11.7 KB');
+  });
+
   it('makes any section built by a feature collapsible', () => {
     const root = document.createElement('div');
     root.innerHTML = '<section class="prop-section"><h3 class="prop-heading">Track</h3><div class="prop-row">x</div></section>';
@@ -320,6 +361,25 @@ describe('Level Meters', () => {
     expect(app.prefs.get('meterOrientation')).toBe('vertical');
     expect(app.commands.isChecked('meter.orientVertical')).toBe(true);
     expect(app.commands.isChecked('meter.orientAuto')).toBe(false);
+  });
+});
+
+describe('Level Meters colors', () => {
+  it('redraws in the new colors when the theme changes while stopped', () => {
+    const app = makeApp();
+    const p = create(app, 'levels');
+    const frames = [];
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((fn) => frames.push(fn));
+    try {
+      p.show();
+      // The first frame draws (jsdom has no layout, so it stops at the size check).
+      frames.splice(0).forEach((fn) => fn(0));
+      window.dispatchEvent(new CustomEvent('themechange'));
+      expect(frames.length).toBe(1);
+    } finally {
+      p.hide();
+      raf.mockRestore();
+    }
   });
 });
 
@@ -353,6 +413,44 @@ describe('Files panel', () => {
     expect(app.prefs.get('filesHiddenColumns')).toEqual(['format']);
     p.menu().find((i) => i.label === 'Show Preview Transport').run();
     expect(p.el.querySelector('.files-footer').hidden).toBe(true);
+  });
+});
+
+describe('Files panel keyboard', () => {
+  it('reaches the markers listed under an expanded file with the arrow keys', async () => {
+    const { createMarker } = await import('../src/model/markers.js');
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const a = new AudioFile({
+      name: 'a.wav',
+      sampleRate: RATE,
+      channels: [Channel.fromSamples(new Float32Array(RATE))],
+      markers: [createMarker({ start: 100, name: 'One' }), createMarker({ start: 500, name: 'Two' })],
+    });
+    app.addDocument(a);
+    app.addDocument(audioDoc());
+    const p = create(app, 'files');
+    document.body.replaceChildren(p.el);
+    const key = (k) =>
+      document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    const at = () => document.activeElement.textContent;
+    p.el.querySelector(`tr[data-id="${a.id}"]`).focus();
+    key('ArrowRight');
+    key('ArrowDown');
+    expect(at()).toContain('One');
+    key('ArrowDown');
+    expect(at()).toContain('Two');
+    key('ArrowDown');
+    expect(document.activeElement.dataset.id).not.toBe(a.id);
+    key('ArrowUp');
+    expect(at()).toContain('Two');
+    // Enter goes to the marker and keeps focus on it; Left returns to its file.
+    key('Enter');
+    expect(a.cursor).toBe(500);
+    expect(at()).toContain('Two');
+    key('ArrowLeft');
+    expect(document.activeElement.dataset.id).toBe(a.id);
+    p.el.remove();
   });
 });
 

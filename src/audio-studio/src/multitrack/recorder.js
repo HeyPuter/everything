@@ -82,7 +82,10 @@ export class SessionRecorder {
     const preroll = punch ? Math.round((Number(app.prefs?.get('prerollSeconds')) || 0) * doc.sampleRate) : 0;
     const loop = Boolean(punch && app.loop);
     const from = punch ? Math.max(0, punch.start - preroll) : doc.cursor;
-    this.take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id) };
+    const take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id), closed: false };
+    // Closing the session stops the transport; the take must not reopen it.
+    take.offClose = doc.on('close', () => (take.closed = true));
+    this.take = take;
     engine.setRecording(true);
     app.playStart = from;
     try {
@@ -92,6 +95,7 @@ export class SessionRecorder {
       // undo the start so the input is not left capturing, then report it.
       engine.setRecording(false);
       off();
+      take.offClose();
       if (this.take?.chunks === chunks) this.take = null;
       app.playStart = null;
       if (monitoring) {
@@ -119,9 +123,12 @@ export class SessionRecorder {
     // Let the capture worklet flush its last block.
     await new Promise((r) => setTimeout(r, 150));
     take.off();
+    take.offClose();
     engine.stop();
     const rate = engine.rate;
-    const latency = engine.outputLatencyFrames;
+    // What the player heard left the speakers output latency late, and their
+    // performance reached the capture input latency late: both come off the take.
+    const latency = engine.outputLatencyFrames + (engine.inputLatencyFrames || 0);
     engine.closeInput();
     app.recording = false;
     app.playStart = null;
@@ -139,7 +146,7 @@ export class SessionRecorder {
       for (let ch = 0; ch < nch; ch++) data[ch].set(c[Math.min(ch, c.length - 1)], at);
       at += c[0].length;
     }
-    // Compensate for output latency: the take starts when the player heard the playhead.
+    // Compensate for the round trip: the take starts when the player heard the playhead.
     const trimmed = data.map((d) => d.subarray(Math.min(latency, d.length - 1)));
     let channels = trimmed.map((d) => Channel.fromSamples(d.slice()));
     channels = await channelsAtRate(channels, rate, doc.sampleRate);
@@ -174,6 +181,11 @@ export class SessionRecorder {
       // Takes play over the clips they were recorded over (a punch-in replaces what is there).
       state = S.addClipsOnTop(state, clips);
       ids.push(clips[clips.length - 1].id);
+    }
+    // The session was closed while recording: the takes stay as files, the session is not reopened.
+    if (take.closed) {
+      app.notify(`${doc.name} was closed while recording. The recording is in the Files panel.`);
+      return;
     }
     if (app.active !== doc) app.activate(doc);
     doc.apply(pieces.length > 1 ? 'Record Takes' : 'Record', state, { clips: ids, cursor: pieces[0].at });

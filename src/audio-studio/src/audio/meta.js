@@ -496,17 +496,38 @@ export function aiffMetaChunks(meta) {
 export function readTags(buffer) {
   try {
     const b = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 4 << 20));
-    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return parseId3v2(b);
+    // ID3v2 wins; an MP3's old ID3v1 tag at the end fills what it lacks (or is all there is).
+    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
+      return { ...parseId3v1(buffer), ...parseId3v2(b) };
+    }
     const head = latin1(b.subarray(0, 4));
     if (head === 'fLaC') return flacTags(b);
     if (head === 'OggS') return oggTags(b);
     // MP4 boxes are walked by their headers only, so the whole file costs little; the
     // moov box with the tags often follows the media data, far past the first megabytes.
     if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Tags(new Uint8Array(buffer));
+    return parseId3v1(buffer);
   } catch {
     // Unreadable tags never block opening the audio.
   }
   return {};
+}
+
+/** Fields of an ID3v1 (or v1.1, with a track number) tag in the last 128 bytes, if there is one. */
+export function parseId3v1(buffer) {
+  if (buffer.byteLength < 128) return {};
+  const t = new Uint8Array(buffer, buffer.byteLength - 128, 128);
+  if (t[0] !== 0x54 || t[1] !== 0x41 || t[2] !== 0x47) return {}; // "TAG"
+  const text = (from, to) => latin1(t.subarray(from, to)).split('\0')[0].trim();
+  const v11 = t[125] === 0 && t[126] !== 0;
+  return cleanMeta({
+    title: text(3, 33),
+    artist: text(33, 63),
+    album: text(63, 93),
+    year: text(93, 97),
+    comment: text(97, v11 ? 125 : 127),
+    track: v11 ? String(t[126]) : '',
+  });
 }
 
 function flacTags(b) {
@@ -551,7 +572,17 @@ function oggTags(b) {
   return {};
 }
 
-const MP4_KEYS = { '\xa9nam': 'title', '\xa9ART': 'artist', '\xa9alb': 'album', '\xa9day': 'year', '\xa9gen': 'genre', '\xa9cmt': 'comment' };
+const MP4_KEYS = {
+  '\xa9nam': 'title',
+  '\xa9ART': 'artist',
+  '\xa9alb': 'album',
+  '\xa9day': 'year',
+  '\xa9gen': 'genre',
+  '\xa9cmt': 'comment',
+  aART: 'albumArtist',
+  '\xa9wrt': 'composer',
+  cprt: 'copyright',
+};
 
 function mp4Tags(b) {
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -570,10 +601,35 @@ function mp4Tags(b) {
       const inner = o + head;
       if (type === 'moov' || type === 'udta' || type === 'ilst') walk(inner, o + size, [...path, type]);
       else if (type === 'meta') walk(inner + 4, o + size, [...path, type]);
-      else if (path[path.length - 1] === 'ilst' && MP4_KEYS[type]) {
+      else if (path[path.length - 1] === 'ilst') {
         // Item atom holds a 'data' atom: size, 'data', type flags, locale, value.
-        const ds = dv.getUint32(inner);
-        if (latin1(b.subarray(inner + 4, inner + 8)) === 'data' && ds >= 16) out[MP4_KEYS[type]] = utf8.decode(b.subarray(inner + 16, inner + ds));
+        let at = inner;
+        let name = '';
+        if (type === '----') {
+          // Freeform item: 'mean' and 'name' atoms come before its 'data' atom.
+          while (at + 8 <= o + size && latin1(b.subarray(at + 4, at + 8)) !== 'data') {
+            const len = dv.getUint32(at);
+            if (len < 8) break;
+            const id = latin1(b.subarray(at + 4, at + 8));
+            if (id === 'name' && len >= 12) name = latin1(b.subarray(at + 12, at + len));
+            at += len;
+          }
+        }
+        const ds = at + 8 <= o + size ? dv.getUint32(at) : 0;
+        if (ds >= 16 && at + ds <= o + size && latin1(b.subarray(at + 4, at + 8)) === 'data') {
+          const value = b.subarray(at + 16, at + ds);
+          if (MP4_KEYS[type]) out[MP4_KEYS[type]] = utf8.decode(value);
+          else if (type === 'trkn' && value.length >= 6) {
+            const n = (value[2] << 8) | value[3];
+            const total = (value[4] << 8) | value[5];
+            if (n) out.track = total ? `${n}/${total}` : String(n);
+          } else if (type === 'tmpo' && value.length >= 1) {
+            const bpm = value.length >= 2 ? (value[0] << 8) | value[1] : value[0];
+            if (bpm) out.bpm = String(bpm);
+          } else if (type === '----' && name.toLowerCase() === 'initialkey') {
+            out.key = utf8.decode(value);
+          }
+        }
       }
       o += size;
     }

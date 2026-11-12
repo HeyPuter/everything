@@ -211,7 +211,10 @@ function surfacePrefs(app) {
   const s = () => surfaceSettings(app.prefs);
   const save = (patch) => app.prefs.set('controlSurface', { ...s(), ...patch });
   const wrap = h('div.surface-prefs');
+  const controls = () => [...wrap.querySelectorAll('input, select, button')];
   const render = () => {
+    // The page is rebuilt on each change: keep keyboard focus on the same control.
+    const had = controls().indexOf(document.activeElement);
     const cur = s();
     const { inputs, outputs } = cs.ports();
     const enabled = h('input', { type: 'checkbox', checked: cur.enabled, onchange: async (e) => {
@@ -239,6 +242,10 @@ function surfacePrefs(app) {
       rows.push(learnTable(app, cur, save, render));
     }
     wrap.replaceChildren(...rows);
+    if (had < 0 || (document.activeElement && document.activeElement !== document.body)) return;
+    // That control, or the nearest one before it that can take focus (a Clear button turns off).
+    const list = controls().slice(0, had + 1);
+    list.reverse().find((el) => !el.disabled)?.focus();
   };
   const onStatus = (text) => {
     const el = wrap.querySelector('[role=status]');

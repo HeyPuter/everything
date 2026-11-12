@@ -29,6 +29,7 @@ import { isRealtime, tailFrames, latencyFrames, writeResult } from './apply.js';
 import { EFFECT_GROUPS, alphabeticalGroups } from '../ui/menus.js';
 import { openEffectDialog } from './dialog.js';
 import { UserError } from '../lib/errors.js';
+import { compensateLatency } from '../engine/mixcore.js';
 
 export const RACK_SLOTS = 16;
 
@@ -129,28 +130,34 @@ export function rackChain(rack, prefix = 'rack', doc = null) {
 /**
  * Routes an audio file's playback graph through its rack: the rack's slots
  * follow any preview effects on the file track; output gain and the wet/dry
- * mix become track gains, with a parallel dry track when mix < 1. The dry
- * track plays as late as the rack's latency (lookahead, spectral effects)
- * delays the wet one, as in renderRack, so the blend does not comb filter.
+ * mix become track gains, with a parallel dry track when mix < 1. The file
+ * track is latency-compensated (compensateLatency) for the processing delay
+ * of its chain (lookahead, spectral effects: the rack's switched-on slots and
+ * preview slots carrying a `latency`), so what plays lines up with the
+ * playhead, and the dry track for only the preview slots it shares, so the
+ * blend does not comb filter.
  */
 export function decorateGraph(graph, rack, doc = null) {
-  if (!rackActive(rack)) return graph;
   const wet = graph.tracks.find((t) => t.id === 'file');
   if (!wet) return graph;
-  const out = dbGain(rack.output);
-  const mix = Math.min(1, Math.max(0, rack.mix ?? 1));
   const pre = wet.fx || [];
-  wet.fx = [...pre, ...rackChain(rack, 'rack', doc)];
-  if (mix < 1) {
-    const lat = rackTiming(rack, graph.rate || doc?.sampleRate || 48000).latency;
-    const clips = lat ? wet.clips.map((c) => ({ ...c, start: c.start + lat })) : wet.clips;
-    const fx = pre.map((s) => ({ ...s, key: `dry:${s.key}` }));
-    const gain = wet.gain * out * dbGain(rack.input) * (1 - mix);
-    const dry = { ...wet, id: 'file-dry', clips, fx, gain };
-    graph.tracks.push(dry);
-  }
-  wet.gain *= out * mix;
-  return graph;
+  const preLatency = pre.reduce((n, s) => n + (s.enabled !== false && s.latency > 0 ? s.latency : 0), 0);
+  if (rackActive(rack)) {
+    const out = dbGain(rack.output);
+    const mix = Math.min(1, Math.max(0, rack.mix ?? 1));
+    wet.fx = [...pre, ...rackChain(rack, 'rack', doc)];
+    if (mix < 1) {
+      const fx = pre.map((s) => ({ ...s, key: `dry:${s.key}` }));
+      const gain = wet.gain * out * dbGain(rack.input) * (1 - mix);
+      const dry = { ...wet, id: 'file-dry', fx, gain };
+      if (preLatency) dry.latency = preLatency;
+      graph.tracks.push(dry);
+    }
+    wet.gain *= out * mix;
+    const latency = preLatency + rackTiming(rack, graph.rate || doc?.sampleRate || 48000).latency;
+    if (latency) wet.latency = latency;
+  } else if (preLatency) wet.latency = preLatency;
+  return compensateLatency(graph);
 }
 
 /** Total tail and latency (frames) of the rack's playable slots, in series. */
@@ -246,7 +253,8 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
     if (!slot) return chooser(i);
     if (onEdit) return onEdit(i, slot);
     const def = getEffect(slot.effect);
-    if (!def) return;
+    // An effect that is not available has no settings: offer to replace or remove it.
+    if (!def) return chooser(i);
     await openEffectDialog(app, def, {
       mode: 'edit',
       values: slot.values,
@@ -299,7 +307,12 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
 
   const focusRow = (i) => {
     focusIndex = i;
-    requestAnimationFrame(() => list.children[i]?.querySelector('.rack-name')?.focus());
+    requestAnimationFrame(() => {
+      // Not from under a dialog opened meanwhile (the effect's settings, opened on adding it).
+      const dialog = document.activeElement?.closest?.('.dialog');
+      if (dialog && !dialog.contains(el)) return;
+      list.children[i]?.querySelector('.rack-name')?.focus();
+    });
   };
 
   const move = (from, to) => {

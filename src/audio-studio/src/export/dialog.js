@@ -56,7 +56,10 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const support = await webCodecsSupport();
   const sdk = Boolean(puter.sdk());
   let locationType = mode === 'download' || !sdk ? 'download' : app.prefs.get('exportLocation') === 'download' ? 'download' : 'puter';
-  let dir = app.prefs.get('exportFolder') || null;
+  // Save As and Save a Copy start in the folder of the document's own Puter file.
+  const ownPath = doc.source?.type === 'puter' ? doc.source.path : null;
+  const ownDir = (mode === 'saveAs' || mode === 'copy') && ownPath ? puter.dirname(ownPath) : null;
+  let dir = ownDir || app.prefs.get('exportFolder') || null;
   let notes = [];
 
   // ---------------------------------------------------------------- controls
@@ -265,7 +268,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   };
   window.addEventListener('keydown', escape, true);
   const primaryLabel = mode === 'export' ? 'Export' : mode === 'download' ? 'Download' : 'Save';
-  const result = await openDialog({
+  const shown = openDialog({
     title: TITLES[mode] || 'Export',
     className: 'io-export-dialog',
     body: () => {
@@ -290,6 +293,10 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
       return true;
     },
   });
+  // Typing replaces the name, not its extension (the dialog selected the whole text).
+  const stem = stripExtension(nameInput.value).length;
+  if (document.activeElement === nameInput) nameInput.setSelectionRange(0, stem);
+  const result = await shown;
   window.removeEventListener('keydown', escape, true);
   if (result !== 'ok') return null;
   const fileName = withExtension(sanitizeFileName(nameInput.value), state.options.format);

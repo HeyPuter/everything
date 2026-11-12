@@ -81,7 +81,8 @@ export function createTrack(o = {}) {
     height: o.height || 124,
     minimized: Boolean(o.minimized),
     hidden: Boolean(o.hidden),
-    sends: type === 'master' ? [] : (o.sends || []).map(createSend),
+    // Empty entries (from sessions saved with gaps between sends) become unrouted sends.
+    sends: type === 'master' ? [] : Array.from(o.sends || [], (x) => createSend(x || {})),
     eq: { on: Boolean(o.eq?.on), values: { ...(o.eq?.values || {}) } },
     // Surround panner settings for 5.1 sessions (see engine/surround.js); null = defaults.
     surround: o.surround ? { ...o.surround } : null,
@@ -135,12 +136,17 @@ export function createSessionState({ sampleRate = 48000, bitDepth = 32, tracks =
   let list;
   if (Array.isArray(template)) list = template.map((t, i) => createTrack({ color: TRACK_COLORS[i % TRACK_COLORS.length], ...t }));
   else list = Array.from({ length: tracks }, (_, i) => createTrack({ name: `Track ${i + 1}`, color: TRACK_COLORS[i % TRACK_COLORS.length] }));
-  // Template tracks may name a bus by its name for their output and sends.
+  // Template tracks may name a bus by its name for their output and sends; saved templates also
+  // give its position among the tracks (outputIndex, targetIndex), which tells same-named buses apart.
   const busId = (name) => list.find((b) => b.type === 'bus' && b.name === name)?.id;
-  for (const t of list) {
-    if (t.output !== 'master' && !list.some((b) => b.id === t.output)) t.output = busId(t.output) || 'master';
-    for (const x of t.sends) if (x.target && !list.some((b) => b.id === x.target)) x.target = busId(x.target) || null;
-  }
+  const busAt = (i, self) => (Number.isInteger(i) && list[i]?.type === 'bus' && list[i] !== self ? list[i].id : undefined);
+  list.forEach((t, i) => {
+    const raw = Array.isArray(template) ? template[i] : null;
+    if (t.output !== 'master' && !list.some((b) => b.id === t.output)) t.output = busAt(raw?.outputIndex, t) || busId(t.output) || 'master';
+    t.sends.forEach((x, k) => {
+      if (x.target && !list.some((b) => b.id === x.target)) x.target = busAt(raw?.sends?.[k]?.targetIndex, t) || busId(x.target) || null;
+    });
+  });
   return {
     sampleRate,
     bitDepth,
@@ -223,7 +229,7 @@ export function wouldCycle(state, trackId, output) {
     const t = state.tracks.find((x) => x.id === cur);
     if (!t) continue;
     stack.push(t.output);
-    for (const snd of t.sends || []) stack.push(snd.target);
+    for (const snd of t.sends || []) stack.push(snd?.target);
   }
   return false;
 }
@@ -231,8 +237,9 @@ export function wouldCycle(state, trackId, output) {
 /** Replaces one send of a track (or adds it when `index` is past the end). */
 export function setSend(state, trackId, index, patch) {
   return updateTrack(state, trackId, (t) => {
-    const sends = (t.sends || []).slice();
-    sends[index] = createSend({ ...(sends[index] || {}), ...patch });
+    // Sends before `index` that do not exist yet are added unrouted, so the list has no gaps.
+    const sends = Array.from({ length: Math.max(index + 1, t.sends?.length || 0) }, (_, i) => t.sends?.[i] || createSend());
+    sends[index] = createSend({ ...sends[index], ...patch });
     return { sends: sends.slice(0, MAX_SENDS) };
   });
 }
@@ -519,6 +526,20 @@ export function trimClipsAt(state, ids, edge, frame, sourceLength = () => Infini
   return changed ? { ...state, clips } : state;
 }
 
+/**
+ * Turns looping on or off. A clip that stops looping starts where its loop was
+ * at its start (a looped clip's offset may lie past the source end, e.g. the
+ * right part of a split loop) and ends where its source does.
+ */
+export function setClipsLoop(state, ids, loop, sourceLength = () => Infinity) {
+  return updateClips(state, ids, (c) => {
+    const n = sourceLength(c.sourceId);
+    if (loop || !c.loop || !(n > 0) || !Number.isFinite(n)) return { loop };
+    const next = trimmedClip({ ...c, loop: false, locked: false, offset: c.offset % n }, 'out', clipEnd(c), n);
+    return { ...next, locked: c.locked };
+  });
+}
+
 /** Slips the audio inside a clip by `delta` frames (positive moves the audio right). */
 export function slipClip(state, id, delta, sourceLength = Infinity) {
   const c = findClip(state, id);
@@ -575,9 +596,36 @@ export function removeTimeFromClips(state, a, b, { ids = null, trackIds = null }
 }
 
 /**
+ * A track automation lane with timeline range [a, b) removed: later points move
+ * left by b - a, and the lane keeps its values on both sides of the cut.
+ */
+export function removeTimeFromLane(points, a, b) {
+  if (!points?.length || b <= a || points[points.length - 1].t < a) return points;
+  const cut = b - a;
+  const out = points.filter((p) => p.t < a);
+  // The value just before the cut, then the value from b on (where later audio now plays).
+  if (a > 0 && (!out.length || out[out.length - 1].t < a - 1)) out.push({ t: a - 1, v: envelopeValue(points, a - 1) });
+  const after = points.filter((p) => p.t >= b).map((p) => ({ ...p, t: p.t - cut }));
+  if (!after.length || after[0].t > a) out.push({ t: a, v: envelopeValue(points, b) });
+  return [...out, ...after];
+}
+
+/** Track automation lanes with [a, b) removed on the tracks for which `hit(track)` is true. */
+function rippleAutomation(state, a, b, hit) {
+  const shift = (t) => {
+    if (!hit(t)) return t;
+    const volume = removeTimeFromLane(t.automation.volume, a, b);
+    const pan = removeTimeFromLane(t.automation.pan, a, b);
+    return volume === t.automation.volume && pan === t.automation.pan ? t : { ...t, automation: { ...t.automation, volume, pan } };
+  };
+  return { ...state, tracks: state.tracks.map(shift), master: shift(state.master) };
+}
+
+/**
  * Ripple delete of time [a, b): removes the range from clips on the tracks
  * (all tracks when trackIds is null, or only clips in `ids`) and pulls later
- * material on those tracks left. Markers shift when every track ripples.
+ * material on those tracks left. Markers shift when every track ripples. Track
+ * automation follows on the tracks that ripple (not when only clips do).
  */
 export function rippleDeleteTime(state, a, b, { trackIds = null, ids = null } = {}) {
   a = Math.round(a);
@@ -599,6 +647,7 @@ export function rippleDeleteTime(state, a, b, { trackIds = null, ids = null } = 
     }),
   };
   if (!trackIds && !ids) s = { ...s, markers: shiftMarkersForDelete(s.markers, a, b) };
+  if (!ids) s = rippleAutomation(s, a, b, (t) => !trackSet || trackSet.has(t.id));
   return s;
 }
 
@@ -645,7 +694,8 @@ export function rippleDeleteGap(state, trackId, at) {
   const gap = gapAt(state, trackId, at);
   if (!gap) return state;
   const [a, b] = gap;
-  return { ...state, clips: state.clips.map((c) => (c.trackId === trackId && c.start >= b ? { ...c, start: c.start - (b - a) } : c)) };
+  const s = { ...state, clips: state.clips.map((c) => (c.trackId === trackId && c.start >= b ? { ...c, start: c.start - (b - a) } : c)) };
+  return rippleAutomation(s, a, b, (t) => t.id === trackId);
 }
 
 // ------------------------------------------------------------- fades, env

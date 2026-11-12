@@ -419,18 +419,26 @@ export function effectsRackPanel(app) {
   return { el, show: render, focus: () => editor.focus() };
 }
 
+// Files whose rack is being applied: Apply pressed again meanwhile (a double click
+// before the progress dialog appears) is ignored rather than rendering it twice.
+const applying = new WeakSet();
+
 /** Renders the active file's rack into the audio. */
 export async function applyRack(app) {
   const doc = app.active?.kind === 'audio' ? app.active : null;
   const rack = rackFor(doc);
-  if (!rackActive(rack)) return false;
+  if (!rackActive(rack) || applying.has(doc)) return false;
   const [start, end] = rack.process === 'file' || !doc.hasSelection ? [0, doc.length] : [doc.selection.start, doc.selection.end];
   const before = doc.state;
+  applying.add(doc);
   try {
     const state = await withProgress(app, 'Applying Effects Rack', (signal, onProgress) =>
       renderRack({ rack, state: before, start, end, mask: doc.channelMask, signal, onProgress, applyChain: lazyApplyChain, doc }),
     );
-    if (doc.state !== before) return false;
+    if (doc.state !== before) {
+      app.notify('The Effects Rack was not applied because the file changed while it was processing.', { error: true });
+      return false;
+    }
     doc.apply('Effects Rack', smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), doc.channelMask));
     // Empty the rack as it is now: settings changed during the render stay.
     setRack(app, doc, { ...rackFor(doc), slots: fitSlots([]) });
@@ -440,6 +448,8 @@ export async function applyRack(app) {
   } catch (err) {
     if (isAbort(err)) return false;
     throw err;
+  } finally {
+    applying.delete(doc);
   }
 }
 

@@ -117,6 +117,85 @@ describe('engine transport', () => {
     expect(store.sources.get('gone').size).toBe(0);
   });
 
+  it('stops playback when the graph changes to another sample rate', async () => {
+    const { e, sent } = fakeEngine();
+    e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    await e.play({ from: 0 });
+    e.setGraph({ rate: 48000, tracks: [], master: { gain: 1 } }, new Map());
+    expect(e.playing).toBe(true);
+    // Convert Sample Type to 44.1 kHz during playback.
+    e.setGraph({ rate: 44100, tracks: [], master: { gain: 1 } }, new Map());
+    expect(e.playing).toBe(false);
+    expect(sent.map((m) => m.type)).toContain('stop');
+  });
+
+  it('resumes an interrupted context and replaces a closed one before playing', async () => {
+    const { e } = fakeEngine();
+    e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    // Safari interrupts audio for a phone call or another app.
+    e.ctx.state = 'interrupted';
+    e.ctx.resume = vi.fn(async () => (e.ctx.state = 'running'));
+    await e.play({ from: 0 });
+    expect(e.ctx.resume).toHaveBeenCalled();
+    e.stop();
+    const made = [];
+    vi.stubGlobal('AudioContext', function () {
+      const ctx = { currentTime: 0, sampleRate: 48000, state: 'running', audioWorklet: { addModule: async () => {} }, destination: {}, resume: async () => {} };
+      made.push(ctx);
+      return ctx;
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      return { port: { postMessage() {} }, connect() {}, disconnect() {} };
+    });
+    e.ctx.state = 'closed';
+    e.ctx.close = async () => {};
+    await e.play({ from: 0 });
+    expect(made.length).toBe(1);
+    expect(e.ctx).toBe(made[0]);
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
+  it('playing to the end follows edits that move the end, a selection end does not', async () => {
+    const { e, sent } = fakeEngine();
+    const graph = (len) => ({ rate: 48000, master: { gain: 1 }, tracks: [{ id: 'file', gain: 1, pan: 0, clips: [{ id: 'file', source: 'k', channels: 1, start: 0, offset: 0, length: len, gain: 1 }] }] });
+    e.graph = graph(96000);
+    await e.play({ from: 0, to: 96000 });
+    // Pasting 2 s during playback: the mixer now plays to the new end.
+    e.setGraph(graph(192000), new Map());
+    expect(sent.filter((m) => m.type === 'range').pop()).toEqual({ type: 'range', to: 192000 });
+    expect(e.range.to).toBe(192000);
+    e.stop();
+    sent.length = 0;
+    await e.play({ from: 0, to: 48000 }); // stop at a selection's end
+    e.setGraph(graph(96000), new Map());
+    expect(sent.some((m) => m.type === 'range')).toBe(false);
+    e.stop();
+  });
+
+  it('applies a latency mode chosen during playback once playback stops', async () => {
+    const { e } = fakeEngine();
+    const made = [];
+    vi.stubGlobal('AudioContext', function (opts) {
+      made.push(opts.latencyHint);
+      return { ...e.ctx, audioWorklet: { addModule: async () => {} }, destination: {}, resume: async () => {} };
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      return { port: { postMessage() {} }, connect() {}, disconnect() {} };
+    });
+    e.ctx.close = async () => {};
+    e.state = 'playing';
+    e.setLatencyHint('playback');
+    await e.ensure(48000);
+    expect(made).toEqual([]); // not while playing
+    e.stop();
+    await e.ensure(48000);
+    expect(made).toEqual(['playback']);
+    await e.ensure(48000);
+    expect(made).toEqual(['playback']);
+    vi.unstubAllGlobals();
+  });
+
   it('refuses to play when the audio context could not run at the audio rate', async () => {
     const { e, sent } = fakeEngine();
     // The browser fell back to its device rate (48 kHz) for 384 kHz audio.
@@ -135,5 +214,104 @@ describe('engine transport', () => {
     await e.play({ from: 0 });
     expect(e.playing).toBe(true);
     e.stop();
+  });
+});
+
+describe('engine playhead and output latency', () => {
+  let Processor = null;
+  // An Engine wired to a real mixer worklet processor through fake Web Audio
+  // nodes; `advance` renders quanta and moves both clocks forward.
+  async function liveEngine(latency) {
+    globalThis.sampleRate = 48000;
+    globalThis.currentTime = 1;
+    globalThis.AudioWorkletProcessor = class {
+      constructor() {
+        this.port = { postMessage() {}, onmessage: null };
+      }
+    };
+    globalThis.registerProcessor = (name, cls) => (Processor = cls);
+    await import('../src/engine/mixer-worklet.js');
+    let proc = null;
+    const ctx = {
+      sampleRate: 48000,
+      currentTime: 1,
+      outputLatency: latency,
+      baseLatency: 0,
+      state: 'running',
+      destination: { channelCount: 2, maxChannelCount: 2 },
+      audioWorklet: { addModule: async () => {} },
+      resume: async () => {},
+      close: async () => {},
+    };
+    vi.stubGlobal('AudioContext', function () {
+      return ctx;
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      proc = new Processor();
+      const node = { port: { onmessage: null }, connect() {}, disconnect() {} };
+      node.port.postMessage = (m) => proc.port.onmessage({ data: m });
+      proc.port.postMessage = (m) => node.port.onmessage?.({ data: m });
+      return node;
+    });
+    const e = new Engine();
+    await e.ensure(48000);
+    const out = [new Float32Array(128), new Float32Array(128)];
+    const advance = (seconds) => {
+      for (let i = 0; i < Math.round((seconds * 48000) / 128); i++) {
+        proc.process([], [out]);
+        globalThis.currentTime += 128 / 48000;
+        ctx.currentTime = globalThis.currentTime;
+      }
+    };
+    return { e, advance, proc };
+  }
+
+  it('holds the playhead at the start point until its audio is heard, then follows it', async () => {
+    const { e, advance } = await liveEngine(0.1);
+    await e.play({ from: 48000 });
+    expect(e.position).toBe(48000);
+    advance(0.05);
+    // Half the output latency later the start is still not heard: no jump back before it.
+    expect(e.position).toBe(48000);
+    advance(0.15);
+    expect(Math.abs(e.position - (48000 + 0.1 * 48000))).toBeLessThanOrEqual(128);
+    // Stopping right after a seek leaves the playhead at the seek point, not before it.
+    e.seek(96000);
+    advance(0.02);
+    expect(e.stop()).toBe(96000);
+    vi.unstubAllGlobals();
+  });
+
+  it('shows a loop wrap when it is heard, never a frame outside the loop', async () => {
+    const { e, advance } = await liveEngine(0.1);
+    await e.play({ from: 51000, to: 52000, loop: { start: 48000, end: 52000 } });
+    const seen = [];
+    for (let i = 0; i < 60; i++) {
+      advance(0.005);
+      seen.push(e.position);
+    }
+    expect(seen.every((f) => f >= 48000 && f < 52000)).toBe(true);
+    // The mixer wrapped after 1000 frames (about 21 ms); the wrap is heard 100 ms after that.
+    expect(seen[21]).toBeGreaterThan(51500); // about 117 ms in: still the end of the loop
+    expect(seen[30]).toBeLessThan(50500); // about 165 ms in: back near the loop start
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores an end of playback reported for an earlier play', async () => {
+    const { e, advance } = await liveEngine(0);
+    await e.play({ from: 0, to: 256 });
+    // The first snippet ends in the mixer, but a new play starts before the main thread hears of it.
+    const ended = [];
+    const port = e.node.port;
+    const deliver = port.onmessage;
+    port.onmessage = (m) => (m.data.type === 'ended' ? ended.push(m) : deliver(m));
+    advance(0.01);
+    port.onmessage = deliver;
+    await e.play({ from: 1000 });
+    for (const m of ended) deliver(m);
+    expect(e.playing).toBe(true);
+    e.stop();
+    vi.unstubAllGlobals();
   });
 });

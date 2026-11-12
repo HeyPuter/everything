@@ -37,6 +37,8 @@ export class Session extends Emitter {
     this.savedState = this.history.state;
     this.history.on('change', () => {
       this.previewState = null;
+      // Selected keyframes are indices into an envelope: any change (undo, a trim) may move them.
+      this.selectedKeys = null;
       this.#pruneSelection();
       this.clampView();
       this.emit('change', { kind: 'history' });
@@ -98,8 +100,9 @@ export class Session extends Emitter {
     return null;
   }
 
-  markSaved() {
-    this.savedState = this.state;
+  /** Marks `state` (by default the current one) as what the file holds. */
+  markSaved(state = this.state) {
+    this.savedState = state;
     this.emit('change', { kind: 'saved' });
   }
 

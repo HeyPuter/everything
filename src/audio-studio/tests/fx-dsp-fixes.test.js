@@ -69,6 +69,100 @@ describe('DeNoise and DeReverb processing focus', () => {
   }
 });
 
+describe('Non-finite input', () => {
+  it('a NaN or infinite sample does not stay in feedback delays and reverbs', () => {
+    const x = instance();
+    // Echo, Analog Delay, Chorus, Flanger, Chorus/Flanger, Studio Reverb, Reverb, Full Reverb.
+    for (const kind of [61, 62, 70, 71, 73, 80, 81, 82]) {
+      const h = x.fx_new(kind, RATE, 2);
+      x.fx_reset(h);
+      const n = 128;
+      const buf = x.mem_alloc(2 * n * 4);
+      let finite = true;
+      for (let b = 0; b < 400; b++) {
+        const v = new Float32Array(x.memory.buffer, buf, 2 * n);
+        v.set(noise(2 * n, 0.2, b + 1));
+        if (b === 10) {
+          v[3] = NaN;
+          v[n + 5] = Infinity;
+        }
+        x.fx_process(h, buf, n);
+        if (!new Float32Array(x.memory.buffer, buf, 2 * n).every(Number.isFinite)) finite = false;
+      }
+      expect(finite, `kind ${kind}`).toBe(true);
+      x.mem_free(buf, 2 * n * 4);
+      x.fx_free(h);
+    }
+  });
+});
+
+describe('Denormals after the audio stops', () => {
+  it('feedback delays and reverbs ring down to zero, not to denormal numbers', () => {
+    const x = instance();
+    // Echo, Analog Delay, Flanger, Chorus/Flanger, Studio Reverb, Reverb, Full Reverb.
+    for (const kind of [61, 62, 71, 73, 80, 81, 82]) {
+      const h = x.fx_new(kind, RATE, 2);
+      x.fx_reset(h);
+      const n = 128;
+      const buf = x.mem_alloc(2 * n * 4);
+      let denormals = 0;
+      // Half a second of loud noise, then 40 s of silence.
+      for (let b = 0; b < 375 * 40.5; b++) {
+        const v = new Float32Array(x.memory.buffer, buf, 2 * n);
+        if (b < 188) v.set(noise(2 * n, 0.9, b + 1));
+        else v.fill(0);
+        x.fx_process(h, buf, n);
+        if (b < 375 * 30) continue;
+        for (const s of new Float32Array(x.memory.buffer, buf, 2 * n)) {
+          if (s !== 0 && Math.abs(s) < 1.1754944e-38) denormals++;
+        }
+      }
+      expect(denormals, `kind ${kind}`).toBe(0);
+      x.mem_free(buf, 2 * n * 4);
+      x.fx_free(h);
+    }
+  });
+});
+
+describe('DeNoise at low sample rates', () => {
+  it('reports its latency at every rate and keeps speech at 8 kHz', async () => {
+    const { getEffect, defaults, effectLatency } = await import('../src/effects/index.js');
+    const def = getEffect('denoise');
+    const x = instance();
+    for (const rate of [8000, 11025, 16000, 22050, 32000, 44100, 48000, 96000, 192000]) {
+      const h = x.fx_new(132, rate, 2);
+      expect(x.fx_latency(h), `${rate} Hz`).toBe(effectLatency(def, defaults(def), rate));
+      x.fx_free(h);
+    }
+    // Voiced syllables (180 ms every 300 ms) over hiss at 8 kHz.
+    const rate = 8000;
+    const n = rate * 6;
+    const hiss = noise(n, 0.01, 4);
+    const voice = new Float32Array(n);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      const cyc = t % 0.3;
+      const env = cyc < 0.18 ? Math.sin((Math.PI * cyc) / 0.18) ** 2 : 0;
+      ph += (140 * (1 + 0.1 * Math.sin(2 * Math.PI * 0.7 * t))) / rate;
+      let s = 0;
+      for (let k = 1; k <= 12; k++) s += Math.sin(2 * Math.PI * k * ph) / k;
+      voice[i] = 0.05 * env * s;
+    }
+    const lat = effectLatency(def, defaults(def), rate);
+    const input = new Float32Array(n + lat);
+    for (let i = 0; i < n; i++) input[i] = voice[i] + hiss[i];
+    const y = runMono(132, [[0, 40]], input, rate);
+    let dot = 0;
+    let vv = 0;
+    for (let i = n / 2; i < n; i++) {
+      dot += y[i + lat] * voice[i];
+      vv += voice[i] * voice[i];
+    }
+    expect(dot / vv).toBeGreaterThan(0.8);
+  });
+});
+
 describe('Multiband Compressor crossovers', () => {
   it('takes crossovers at and beyond the ceiling at every sample rate', () => {
     for (const rate of [8000, 11025, 22050, 44100, 48000, 88200, 176400, 192000]) {
@@ -231,5 +325,20 @@ describe('Filters with poles very close to DC', () => {
     };
     const { got, want } = await gainDb('notchFilter', notch, 48000, 60);
     expect(Math.abs(got - want)).toBeLessThan(0.5);
+  });
+
+  it('graphic equalizer low bands follow their sliders at 176.4 and 192 kHz', async () => {
+    const { getEffect } = await import('../src/effects/index.js');
+    for (const id of ['graphicEq20', 'graphicEq30']) {
+      for (const name of ['Treble Cut', 'Bass Cut']) {
+        const values = getEffect(id).presets.find((p) => p.name === name).values;
+        for (const rate of [176400, 192000]) {
+          for (const f of [25, 31.5, 63]) {
+            const { got, want } = await gainDb(id, values, rate, f);
+            expect(Math.abs(got - want), `${id} ${name} ${rate} Hz ${f} Hz`).toBeLessThan(0.3);
+          }
+        }
+      }
+    }
   });
 });

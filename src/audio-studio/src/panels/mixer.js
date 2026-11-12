@@ -127,7 +127,8 @@ class Strip {
     const mscale = h('div.mx-mscale', { 'aria-hidden': 'true' }, [0, -12, -24, -36, -48, -60].map((db) => h('span', { style: { bottom: `${((METER_RANGE + db) / METER_RANGE) * 100}%` } }, String(db))));
     this.el = h(
       `div.mx-strip${isMaster ? '.master' : ''}${track.type === 'bus' ? '.bus' : ''}`,
-      { role: 'group', dataset: { id: this.id }, onpointerdown: () => doc.selectTrack(this.id) },
+      // Focus selects the track too, so keyboard users act on the strip they are in, as a click does.
+      { role: 'group', dataset: { id: this.id }, onpointerdown: () => doc.selectTrack(this.id), onfocusin: () => doc.selectTrack(this.id) },
       // Sections the gutter can collapse (data-sec); the master keeps empty
       // ones so its controls line up with the tracks'.
       h('div.mx-sec', { dataset: { sec: 'io' } }, h('div.mx-io', h('div.mx-io-top', this.invert), this.input ? h('label.mx-io-row', icon('log-in', 12), this.input) : h('div.mx-io-row.placeholder', { 'aria-hidden': 'true' }), h('label.mx-io-row', icon('log-out', 12), this.output))),

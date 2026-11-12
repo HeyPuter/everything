@@ -1,8 +1,9 @@
 // Preview Editor: while an effect dialog is open on an audio file, a second
 // waveform under the editor shows the result of the effect with its current
 // settings, for the part of the file in view (the effect applies to the
-// selection, or to the whole visible range without one). It follows the main
-// editor's zoom and scroll and updates a moment after settings change.
+// selection, or to the whole visible range without one, through the dialog's
+// channel map). It follows the main editor's zoom and scroll and updates a
+// moment after settings change.
 //
 // View > Show Preview Editor turns it on; independently of that, it also
 // appears for effects that change the length of the audio (stretching,
@@ -70,7 +71,7 @@ export function installPreviewEditor(app, host) {
   async function compute() {
     controller?.abort();
     if (!current || !(wanted() || detecting())) return;
-    const { def, values, doc } = current;
+    const { def, values, doc, route = null } = current;
     const r = previewRange(doc);
     label.textContent = `${def.name}`;
     if (!r?.range) {
@@ -83,7 +84,7 @@ export function installPreviewEditor(app, host) {
     status.textContent = 'Rendering...';
     try {
       const [a, b] = r.range;
-      const out = await renderEffect({ def, values, state: doc.state, start: a, end: b, mask: doc.channelMask, signal: ctrl.signal, doc, app });
+      const out = await renderEffect({ def, values, state: doc.state, start: a, end: b, mask: doc.channelMask, route, signal: ctrl.signal, doc, app });
       if (ctrl.signal.aborted) return;
       const delta = out.length - (b - a);
       if (delta !== 0 && !changesLength) {

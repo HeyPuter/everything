@@ -131,6 +131,8 @@ export function markersPanel(app) {
           else app.notify('Enter a time in the current time format.', { error: true });
         } else commit(m, field, input.value.trim());
       }
+      // The row holds the text field: build it again even when the marker did not change.
+      rowCache.delete(m);
       render();
       body.querySelector(`tr[data-id="${m.id}"]`)?.focus();
     };
@@ -143,6 +145,30 @@ export function markersPanel(app) {
     td.replaceChildren(input);
     input.focus();
     input.select();
+  };
+
+  /**
+   * The editor's ruler shows the panel's selection. The editor keeps one set and reports it
+   * back (marker-selection), so it gets the whole set: adding only the clicked marker made
+   * a Shift-click range select just its two ends and a Ctrl/Cmd-click never deselect.
+   */
+  const showOnRuler = () => {
+    const view = app.currentView?.();
+    if (!view?.selectMarker) return;
+    view.selectedMarkers = new Set(selected);
+    view.selectMarker(null, { add: true });
+  };
+
+  /** Marks the selected rows in place: rebuilding thousands of rows is slow. */
+  const markRows = () => {
+    const rows = [...body.querySelectorAll('tr[data-id]')];
+    for (const row of rows) {
+      const on = selected.has(row.dataset.id);
+      row.setAttribute('aria-selected', String(on));
+      row.tabIndex = on ? 0 : -1;
+    }
+    if (rows.length && !rows.some((r) => r.tabIndex === 0)) rows[0].tabIndex = 0;
+    updateButtons();
   };
 
   const select = (m, e, visible) => {
@@ -175,12 +201,67 @@ export function markersPanel(app) {
         d.setView(m.start - span / 3, m.start - span / 3 + span);
       }
     }
-    app.currentView?.()?.selectMarker?.(m.id, { add: e.metaKey || e.ctrlKey || e.shiftKey });
-    // Re-render only when the selection changed, so the second click of a
-    // double-click lands on the same row and the double-click reaches it.
-    if ([...selected].join() !== before) render();
+    showOnRuler();
+    // Rows are marked in place (not rebuilt), so the second click of a double-click lands
+    // on the same row and the double-click reaches it.
+    if ([...selected].join() !== before) markRows();
     body.querySelector(`tr[data-id="${m.id}"]`)?.focus();
   };
+
+  /** The markers listed now, in order (row handlers read it: rows outlive a render). */
+  let visible = [];
+  /** marker object -> its row, for the time format and sample rate in rowKey. */
+  let rowCache = new WeakMap();
+  let rowKey = '';
+
+  const buildRow = (m, d) => {
+    const cell = (field, content, cls = '') => h(`td${cls}`, { dataset: { field } }, content);
+    const typeSel = h(
+      'select.select.cell-select',
+      { 'aria-label': `Type of ${m.name || 'marker'}`, onclick: (e) => e.stopPropagation(), onchange: (e) => commit(m, 'type', e.target.value) },
+      MARKER_TYPES.map((t) => h('option', { value: t.id, selected: t.id === m.type }, t.label)),
+    );
+    const row = h(
+      'tr',
+      {
+        tabindex: '-1',
+        dataset: { id: m.id },
+        onclick: (e) => select(m, e, visible),
+        oncontextmenu: (e) => {
+          e.preventDefault();
+          if (!selected.has(m.id)) select(m, {}, visible);
+          rowMenu(e.clientX, e.clientY);
+        },
+        onkeydown: (e) => {
+          if (e.target !== row) return;
+          const rows = [...body.querySelectorAll('tr[data-id]')];
+          const i = rows.indexOf(row);
+          const go = (j) => rows[j] && select(visible[j], { shiftKey: e.shiftKey }, visible);
+          if (e.key === 'ArrowDown') go(i + 1);
+          else if (e.key === 'ArrowUp') go(i - 1);
+          else if (e.key === 'Enter' || e.key === 'F2') editCell(row.firstChild, m, 'name');
+          else if (e.key === 'Delete' || e.key === 'Backspace') app.commands.run('marker.deleteSelected', ids());
+          else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
+            for (const x of visible) selected.add(x.id);
+            showOnRuler();
+            markRows();
+          } else return;
+          e.preventDefault();
+          e.stopPropagation();
+        },
+      },
+      cell('name', [icon(m.duration ? 'bookmark' : 'flag', 13), h('span.marker-name', m.name || 'Untitled')], '.name-cell'),
+      cell('start', app.formatTime(m.start, d.sampleRate), '.tabular.hot-cell'),
+      cell('end', m.duration ? app.formatTime(m.start + m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
+      cell('duration', m.duration ? app.formatTime(m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
+      h('td', typeSel),
+      cell('description', m.description || '', '.muted'),
+    );
+    return row;
+  };
+
+  /** What the rows were last built from: edits that leave the markers alone keep them. */
+  let shown = null;
 
   const render = () => {
     // A focused row that goes away (deleted, filtered) hands focus to the row now in its
@@ -189,62 +270,44 @@ export function markersPanel(app) {
     const focusedAt = focusedRow ? [...body.querySelectorAll('tr[data-id]')].indexOf(focusedRow) : -1;
     renderHead();
     const d = doc();
-    body.replaceChildren();
+    shown = d ? { doc: d, markers: d.state.markers, rate: d.sampleRate } : null;
     filterBtn.classList.toggle('on', Boolean(types));
     if (!d) {
+      body.replaceChildren();
       body.append(h('tr', h('td.empty-row', { colspan: '6' }, h('span.empty-text', 'No file open'))));
       updateButtons();
       return;
     }
     for (const id of [...selected]) if (!d.state.markers.some((m) => m.id === id)) selected.delete(id);
     const markers = visibleMarkers(d.state.markers, { query: search.value, types, sort });
-    if (!markers.length) body.append(h('tr', h('td.empty-row', { colspan: '6' }, h('span.empty-text', search.value.trim() || types ? 'No matching markers' : 'No markers. Press M to add one at the playhead.'))));
+    if (!markers.length) body.replaceChildren(h('tr', h('td.empty-row', { colspan: '6' }, h('span.empty-text', search.value.trim() || types ? 'No matching markers' : 'No markers. Press M to add one at the playhead.'))));
+    visible = markers;
+    // Rows are kept per marker object (markers are replaced, never changed in place), so a
+    // change to a few markers in a long list builds only their rows.
+    const options = JSON.stringify(app.timeOptions?.() || {});
+    const key = `${d.sampleRate}|${app.prefs.get('timeFormat')}|${options}`;
+    if (key !== rowKey) {
+      rowCache = new WeakMap();
+      rowKey = key;
+    }
+    // Kept rows stay in place (moving thousands of rows is slow too); new ones go in between.
+    let at = markers.length ? body.firstChild : null;
     for (const m of markers) {
-      const isSel = selected.has(m.id);
-      const cell = (field, content, cls = '') => h(`td${cls}`, { dataset: { field } }, content);
-      const typeSel = h(
-        'select.select.cell-select',
-        { 'aria-label': `Type of ${m.name || 'marker'}`, onclick: (e) => e.stopPropagation(), onchange: (e) => commit(m, 'type', e.target.value) },
-        MARKER_TYPES.map((t) => h('option', { value: t.id, selected: t.id === m.type }, t.label)),
-      );
-      const row = h(
-        'tr',
-        {
-          tabindex: '-1',
-          'aria-selected': String(isSel),
-          dataset: { id: m.id },
-          onclick: (e) => select(m, e, markers),
-          oncontextmenu: (e) => {
-            e.preventDefault();
-            if (!selected.has(m.id)) select(m, {}, markers);
-            rowMenu(e.clientX, e.clientY);
-          },
-          onkeydown: (e) => {
-            if (e.target !== row) return;
-            const rows = [...body.querySelectorAll('tr[data-id]')];
-            const i = rows.indexOf(row);
-            const go = (j) => rows[j] && select(markers[j], { shiftKey: e.shiftKey }, markers);
-            if (e.key === 'ArrowDown') go(i + 1);
-            else if (e.key === 'ArrowUp') go(i - 1);
-            else if (e.key === 'Enter' || e.key === 'F2') editCell(row.firstChild, m, 'name');
-            else if (e.key === 'Delete' || e.key === 'Backspace') app.commands.run('marker.deleteSelected', ids());
-            else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
-              for (const x of markers) selected.add(x.id);
-              render();
-            } else return;
-            e.preventDefault();
-            e.stopPropagation();
-          },
-        },
-        cell('name', [icon(m.duration ? 'bookmark' : 'flag', 13), h('span.marker-name', m.name || 'Untitled')], '.name-cell'),
-        cell('start', app.formatTime(m.start, d.sampleRate), '.tabular.hot-cell'),
-        cell('end', m.duration ? app.formatTime(m.start + m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
-        cell('duration', m.duration ? app.formatTime(m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
-        h('td', typeSel),
-        cell('description', m.description || '', '.muted'),
-      );
-      if (isSel) row.tabIndex = 0;
-      body.append(row);
+      let row = rowCache.get(m);
+      if (!row) {
+        row = buildRow(m, d);
+        rowCache.set(m, row);
+      }
+      const isSel = String(selected.has(m.id));
+      if (row.getAttribute('aria-selected') !== isSel) row.setAttribute('aria-selected', isSel);
+      row.tabIndex = isSel === 'true' ? 0 : -1;
+      if (row === at) at = at.nextSibling;
+      else body.insertBefore(row, at);
+    }
+    while (at) {
+      const next = at.nextSibling;
+      at.remove();
+      at = next;
     }
     if (!body.querySelector('tr[tabindex="0"]')) {
       const first = body.querySelector('tr[data-id]');
@@ -348,14 +411,17 @@ export function markersPanel(app) {
     render();
   });
   app.on('doc-change', (d, e) => {
-    if (d === app.active && (e.kind === 'edit' || e.kind === 'history')) render();
+    if (d !== app.active || (e.kind !== 'edit' && e.kind !== 'history')) return;
+    // Rebuilding every row is slow with thousands of markers; most edits do not touch them.
+    if (shown && shown.doc === d && shown.markers === d.state.markers && shown.rate === d.sampleRate) updateButtons();
+    else render();
   });
   app.on('marker-selection', (d, list) => {
     const next = [...list];
     if (next.length === selected.size && next.every((id) => selected.has(id))) return;
     selected.clear();
     for (const id of next) selected.add(id);
-    render();
+    markRows();
   });
   app.on('prefs', (key) => TIME_DISPLAY_KEYS.has(key) && render());
   render();

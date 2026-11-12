@@ -264,9 +264,10 @@ export async function renderFile({ settings, state, start, end, mask = null, sig
   let next = state;
   let length = end - start;
   const step = (a, b) => (f) => onProgress?.(a + (b - a) * f);
+  let rendered = null;
   if (chain.length) {
-    const { outs, tail } = await renderChain(state.channels, rate, chain, { start, end, signal, applyChain, onProgress: step(0, 0.6) });
-    next = writeResult(next, start, end, outs, mask, { tail });
+    rendered = await renderChain(state.channels, rate, chain, { start, end, signal, applyChain, onProgress: step(0, 0.6) });
+    next = writeResult(next, start, end, rendered.outs, mask, { tail: rendered.tail });
   }
   let gainDb = s.volume?.level || 0;
   if (s.loudness?.on) {
@@ -275,7 +276,12 @@ export async function renderFile({ settings, state, start, end, mask = null, sig
     if (lufs != null) gainDb += Math.max(-40, Math.min(30, s.loudness.target - lufs));
   }
   onProgress?.(0.7);
-  if (Math.abs(gainDb) > 0.001) next = E.gainRange(next, start, end, Math.pow(10, gainDb / 20), mask);
+  if (Math.abs(gainDb) > 0.001) {
+    const g = Math.pow(10, gainDb / 20);
+    next = E.gainRange(next, start, end, g, mask);
+    // An effect tail mixed in past the range (reverb) belongs to the processed audio: same gain.
+    if (rendered?.tail) next = addTail(next, start, end, rendered, g - 1, mask);
+  }
   const stretch = durationStretch(s, end - start, rate);
   if (stretch != null) {
     const def = getEffect('stretchPitch');
@@ -285,6 +291,25 @@ export async function renderFile({ settings, state, start, end, mask = null, sig
   }
   onProgress?.(1);
   return { state: next, length };
+}
+
+/** Adds k times the effect tail that writeResult mixed in after `end` (the same frames it wrote). */
+function addTail(state, start, end, { outs, tail }, k, mask) {
+  const body = outs[0].length - tail;
+  // writeResult replaces the range without its tail when the length changed.
+  if (body !== end - start && (!mask || mask.every(Boolean))) return state;
+  const room = Math.max(0, Math.min(tail, E.lengthOf(state) - end));
+  if (!room) return state;
+  return {
+    ...state,
+    channels: state.channels.map((c, i) => {
+      if (mask && !mask[i]) return c;
+      const out = outs[Math.min(i, outs.length - 1)];
+      const mixed = c.toArray(end, end + room);
+      for (let j = 0; j < room; j++) mixed[j] += k * out[body + j];
+      return c.write(end, mixed);
+    }),
+  };
 }
 
 /** Loudness of a file range through its chain (for Auto-Match before Apply). */

@@ -59,6 +59,32 @@ describe('preference pages', () => {
     expect(app.prefs.get('tempo')).toBe(140);
   });
 
+  it('turns Reset All Warning Dialogs off once used, keeping focus in the page', async () => {
+    const app = await makeApp();
+    app.prefs.set('dismissedNotices', ['batch-intro']);
+    const done = app.commands.run('prefs.general');
+    const btn = [...document.querySelectorAll('.prefs-window button')].find(
+      (b) => b.textContent === 'Reset All Warning Dialogs',
+    );
+    expect(btn.disabled).toBe(false);
+    btn.focus();
+    btn.click();
+    expect(app.prefs.get('dismissedNotices')).toEqual([]);
+    expect(btn.disabled).toBe(true);
+    expect(document.activeElement).toBe(document.querySelector('.prefs-pane'));
+    document.querySelector('.prefs-window .dialog-foot .btn.primary').click();
+    await done;
+  });
+
+  it('opens notices with focus on their action, not on "Don\'t show this again"', async () => {
+    const app = await makeApp();
+    const { showNotice } = await import('../src/ui/notices.js');
+    const shown = showNotice(app, { id: 'test-notice', title: 'Note', message: 'Hello' });
+    expect(document.activeElement.textContent).toBe('OK');
+    document.activeElement.click();
+    expect(await shown).toBe(true);
+  });
+
   it('reverts only keys that changed', () => {
     const p = new Prefs(memoryStorage());
     p.set('hud', false);
@@ -93,6 +119,31 @@ describe('appearance colors and brightness', () => {
     const darker = appearanceVars(prefsOf({ uiBrightness: -100 }), 'dark', base);
     expect(parseInt(darker['--bg-panel'].slice(1, 3), 16)).toBeLessThan(0x20);
     expect(appearanceVars(prefsOf({ uiBrightness: 0 }), 'dark', base)).toEqual({});
+  });
+
+  it('keeps text readable on the surfaces at any brightness, in both themes', async () => {
+    const { contrastRatio, TEXT_TOKENS } = await import('../src/ui/appearance.js');
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/tokens.css`, 'utf8');
+    const surfaces = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input'];
+    for (const theme of ['dark', 'light']) {
+      const sel = `:root[data-theme-resolved='${theme}']`;
+      const block = css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+      const base = (name) => block.match(new RegExp(`${name}: (#[0-9a-f]{6});`))?.[1] || '';
+      const worst = (text, of) => Math.min(...surfaces.map((n) => contrastRatio(text, of(n))));
+      for (const bright of [-100, -50, 50, 100]) {
+        const vars = appearanceVars(prefsOf({ uiBrightness: bright }), theme, base);
+        for (const name of TEXT_TOKENS) {
+          const before = worst(base(name), base);
+          const after = worst(vars[name] || base(name), (n) => vars[n]);
+          expect(after).toBeGreaterThanOrEqual(Math.min(4.5, before) - 0.01);
+        }
+      }
+      // Main text in the dark theme at full brightness was 3.7:1 on raised surfaces.
+      if (theme !== 'dark') continue;
+      const v = appearanceVars(prefsOf({ uiBrightness: 100 }), 'dark', base);
+      expect(contrastRatio(v['--text'], v['--bg-raised'])).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it('stores color sets without unset colors and compares them field by field', () => {

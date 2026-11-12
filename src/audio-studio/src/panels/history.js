@@ -19,7 +19,10 @@ export function historyPanel(app) {
   const clearHistory = async () => {
     const doc = app.active;
     if (!doc) return;
-    if (await confirmDialog({ title: 'Clear History', message: 'Clear the undo history for this file? This cannot be undone.', confirm: 'Clear', danger: true })) doc.history.clear();
+    if (await confirmDialog({ title: 'Clear History', message: 'Clear the undo history for this file? This cannot be undone.', confirm: 'Clear', danger: true })) {
+      if (doc.clearHistory) doc.clearHistory();
+      else doc.history.clear();
+    }
   };
   const clearBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Clear history', title: 'Clear history', onclick: clearHistory }, icon('trash-2', 15));
   const el = h('div.history-panel', list, h('div.panel-footer', count, h('div.spacer'), clearBtn));

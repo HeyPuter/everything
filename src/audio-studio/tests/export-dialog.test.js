@@ -26,6 +26,9 @@ describe('Export File dialog', () => {
     await tick(10);
     const name = $('.io-name');
     expect(name.value).toBe('Podcast.wav');
+    // The name is selected without its extension, so typing keeps ".wav".
+    expect(document.activeElement).toBe(name);
+    expect([name.selectionStart, name.selectionEnd]).toEqual([0, 7]);
     // Without Puter only "This device" can be chosen.
     expect($('select[aria-label=Location]').value).toBe('download');
     expect($('.io-export').textContent).toContain('48000 Hz Stereo, 24-bit');
@@ -73,5 +76,26 @@ describe('Export File dialog', () => {
     expect($('.io-export-dialog')).not.toBe(null);
     [...document.querySelectorAll('.dialog-foot .btn')].find((b) => b.textContent === 'Cancel').click();
     expect(await pending).toBe(null);
+  });
+
+  it("starts Save As in the folder of the document's Puter file", async () => {
+    window.puter = { auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) } };
+    app.prefs.set('exportFolder', '/u/Exports');
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 44100, channels: 1, seconds: 1 });
+    doc.source = { type: 'puter', path: '/u/Music/Album/Song.wav' };
+    const pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('.io-path').textContent).toBe('/u/Music/Album');
+    $('.dialog-foot .btn.primary').click();
+    expect((await pending).location).toEqual({ type: 'puter', dir: '/u/Music/Album' });
+    // Export keeps going to the last export folder.
+    app.prefs.set('exportFolder', '/u/Exports');
+    const third = exportFileDialog(app, doc, { mode: 'export' });
+    await tick(10);
+    expect($('.io-path').textContent).toBe('/u/Exports');
+    [...document.querySelectorAll('.dialog-foot .btn')]
+      .find((b) => b.textContent === 'Cancel')
+      .click();
+    await third;
   });
 });

@@ -93,6 +93,8 @@
 
 .sa-head {
   display: flex;
+  /* Narrow panels (tablets) put Clear Audio Type on its own line rather than past the edge. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 6px 8px;

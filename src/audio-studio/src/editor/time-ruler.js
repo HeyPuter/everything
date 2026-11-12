@@ -6,7 +6,7 @@
 //   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame)
 
 import { h } from '../lib/dom.js';
-import { rulerStep, rulerLabel, formatTime, musicalStep } from '../lib/time.js';
+import { rulerStep, rulerLabel, formatTime, musicalStep, frameRateOf } from '../lib/time.js';
 import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { markerColor } from '../ui/appearance.js';
 
@@ -27,13 +27,31 @@ export function minorStep(step) {
   return step / 2;
 }
 
-/** Labelled tick positions (seconds) for the view: { step, minor, ticks: [seconds...] }. */
-export function rulerTicks(t0, t1, width, minPx = 70) {
+/** Frame rate the ruler counts in for a timecode or custom-frames time format, else 0. */
+export function rulerFps(app) {
+  const format = app.prefs.get('timeFormat') || '';
+  if (format !== 'frames' && !format.startsWith('smpte')) return 0;
+  return frameRateOf(format, app.timeOptions?.() || {}).real;
+}
+
+/**
+ * Labelled tick positions (seconds) for the view: { step, minor, ticks: [seconds...] }.
+ * With a frame rate (timecode), ticks closer than a second fall on frames a whole number of
+ * frames apart, so their labels count up evenly instead of skipping frames unevenly.
+ */
+export function rulerTicks(t0, t1, width, minPx = 70, fps = 0) {
   if (!(t1 > t0) || width <= 0) return { step: 1, minor: 0.5, ticks: [] };
-  const step = rulerStep((t1 - t0) / width, minPx);
+  let step = rulerStep((t1 - t0) / width, minPx);
+  let minor = minorStep(step);
+  // (Zoomed in past a frame, ticks stay where they were: every label is then one frame.)
+  if (fps > 0 && step < 1 && step * fps > 1) {
+    const frames = Math.ceil(step * fps - 1e-9);
+    step = frames / fps;
+    minor = frames > 1 ? 1 / fps : step;
+  }
   const ticks = [];
   for (let s = Math.ceil(t0 / step - 1e-9) * step; s <= t1 + 1e-9; s += step) ticks.push(s || 0);
-  return { step, minor: minorStep(step), ticks };
+  return { step, minor, ticks };
 }
 
 export class TimeRuler {
@@ -41,7 +59,18 @@ export class TimeRuler {
     this.app = app;
     this.host = host;
     this.canvas = h('canvas.time-ruler-canvas', { 'aria-hidden': 'true' });
-    this.el = h('div.time-ruler', { role: 'slider', tabindex: '-1', 'aria-label': 'Time ruler, playhead position' }, this.canvas);
+    // A slider for the playhead: drag or click it, or focus it and use the arrow keys,
+    // Page Up/Down, Home and End.
+    this.el = h(
+      'div.time-ruler',
+      {
+        role: 'slider',
+        tabindex: '0',
+        'aria-label': 'Time ruler, playhead position',
+        'aria-valuemin': '0',
+      },
+      this.canvas,
+    );
     this.ctx = this.canvas.getContext('2d');
     this.width = 0;
     this.height = 0;
@@ -50,6 +79,7 @@ export class TimeRuler {
     this.el.addEventListener('pointermove', (e) => this.#move(e));
     this.el.addEventListener('pointerup', (e) => this.#up(e));
     this.el.addEventListener('pointercancel', (e) => this.#up(e));
+    this.el.addEventListener('keydown', (e) => this.#keys(e));
     this.el.addEventListener('dblclick', (e) => {
       const m = this.#markerAt(e.offsetX);
       if (m) host.renameMarker?.(m.id);
@@ -67,8 +97,8 @@ export class TimeRuler {
     this.dpr = dpr;
   }
 
-  xOf(frame) {
-    const { view } = this.host.timeline();
+  /** x of a frame; `view` saves asking the host again (its timeline lists every marker). */
+  xOf(frame, view = this.host.timeline().view) {
     return ((frame - view.start) / (view.end - view.start)) * this.width;
   }
 
@@ -80,10 +110,52 @@ export class TimeRuler {
   #markerAt(x) {
     const t = this.host.timeline();
     for (const m of t.markers || []) {
-      const mx = this.xOf(m.start);
+      const mx = this.xOf(m.start, t.view);
       if (Math.abs(x - mx) <= 5) return m;
     }
     return null;
+  }
+
+  #keys(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = this.host.timeline();
+    const span = t.view.end - t.view.start;
+    const step = Math.max(1, Math.round((span / Math.max(1, this.width)) * (e.shiftKey ? 1 : 10)));
+    const page = span / 2;
+    const moves = {
+      ArrowLeft: -step,
+      ArrowDown: -step,
+      ArrowRight: step,
+      ArrowUp: step,
+      PageUp: -page,
+      PageDown: page,
+    };
+    let f;
+    if (e.key in moves) f = t.cursor + moves[e.key];
+    else if (e.key === 'Home') f = 0;
+    else if (e.key === 'End') f = t.length;
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+    f = Math.max(0, Math.min(t.length, Math.round(f)));
+    this.host.seek(f);
+    // Keep the playhead in view, as the transport keys do.
+    const hidden = f < t.view.start || f > t.view.end;
+    if (hidden && this.host.setView) this.host.setView(f - span / 2, f + span / 2);
+    this.syncValue(f, t);
+  }
+
+  /** The slider's value: the playhead, as a time in the current format. */
+  syncValue(frame, t = this.host.timeline()) {
+    const f = Math.round(frame);
+    const max = String(t.length);
+    const el = this.el;
+    const same = el.getAttribute('aria-valuenow') === String(f);
+    if (same && el.getAttribute('aria-valuemax') === max) return;
+    this.el.setAttribute('aria-valuemax', max);
+    this.el.setAttribute('aria-valuenow', String(f));
+    const text = this.app.formatTime ? this.app.formatTime(f, t.rate) : formatTime(f, t.rate);
+    this.el.setAttribute('aria-valuetext', text);
   }
 
   #down(e) {
@@ -158,6 +230,7 @@ export class TimeRuler {
     const W = this.width;
     const H = this.height;
     const t = this.host.timeline();
+    this.syncValue(t.cursor, t);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = cssVar('--bg-ruler');
@@ -178,7 +251,8 @@ export class TimeRuler {
     if (format === 'bars') {
       this.#drawMusical(t, W, H, textColor, tickColor, unitRight);
     } else {
-      const { step, minor, ticks } = rulerTicks(t0, t1, W);
+      const fps = rulerFps(this.app);
+      const { step, minor, ticks } = rulerTicks(t0, t1, W, 70, fps);
       ctx.fillStyle = tickColor;
       for (let s = Math.ceil(t0 / minor - 1e-9) * minor; s <= t1; s += minor) {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
@@ -188,10 +262,12 @@ export class TimeRuler {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
         ctx.fillStyle = tickColor;
         ctx.fillRect(x, H - 9, 1, 9);
+        // A tick on a frame reads as its first sample (the nearest can show the frame before).
+        const at = fps ? Math.ceil(s * rate - 1e-4) : Math.round(s * rate);
         const label =
           format === 'decimal' || format === 'compact'
             ? rulerLabel(Math.max(0, s), step)
-            : formatTime(Math.round(s * rate), rate, format, this.app.timeOptions?.() || {});
+            : formatTime(at, rate, format, this.app.timeOptions?.() || {});
         // Labels centre on their tick, kept inside the ruler.
         const lw = ctx.measureText(label).width;
         const lx = Math.min(W - lw - 1, x - lw / 2);
@@ -205,8 +281,8 @@ export class TimeRuler {
     // Selection band.
     const sel = t.selection;
     if (sel && sel.end > sel.start) {
-      const x0 = Math.max(0, this.xOf(sel.start));
-      const x1 = Math.min(W, this.xOf(sel.end));
+      const x0 = Math.max(0, this.xOf(sel.start, t.view));
+      const x1 = Math.min(W, this.xOf(sel.end, t.view));
       if (x1 > x0) {
         ctx.fillStyle = cssVar('--accent-soft');
         ctx.fillRect(x0, H - 6, x1 - x0, 6);
@@ -214,8 +290,8 @@ export class TimeRuler {
     }
     // Markers.
     for (const m of t.markers || []) {
-      const x = Math.round(this.xOf(m.start)) + 0.5;
-      const x2 = m.duration ? this.xOf(m.start + m.duration) : x;
+      const x = Math.round(this.xOf(m.start, t.view)) + 0.5;
+      const x2 = m.duration ? this.xOf(m.start + m.duration, t.view) : x;
       if (x2 < -10 || x > W + 10) continue;
       ctx.fillStyle = m.selected ? cssVar('--text-strong') : markerColor(m.type);
       if (m.duration) {

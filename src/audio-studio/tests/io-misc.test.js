@@ -146,6 +146,24 @@ describe('file probing and decoding', () => {
     w.write([tone(22050), tone(22050)], 22050);
     return new Uint8Array(await w.finish().arrayBuffer());
   }
+  it('probes an MP3 whose Info header is cut off without failing', () => {
+    const head = new Uint8Array(42);
+    head.set([0xff, 0xfb, 0x90, 0x00]);
+    head.set([0x49, 0x6e, 0x66, 0x6f], 36); // "Info", its flags and frame count missing
+    expect(probeAudio(head, 100000)).toMatchObject({ format: 'MP3', sampleRate: 44100 });
+  });
+  it('reads the duration of a WAV recording whose data size was never written', async () => {
+    const wav = await bytesOf(WavWriter, { meta: {} });
+    const dataAt = 36;
+    expect(String.fromCharCode(...wav.subarray(dataAt, dataAt + 4))).toBe('data');
+    new DataView(wav.buffer).setUint32(dataAt + 4, 0, true);
+    expect(probeAudio(wav.subarray(0, 4096), wav.length).duration).toBe(1);
+    // A genuinely empty data chunk followed by another chunk stays empty.
+    const markers = [{ start: 0, name: 'A' }];
+    const w = new WavWriter({ sampleRate: 22050, channels: 2, frames: 0, markers });
+    const empty = new Uint8Array(await w.finish().arrayBuffer());
+    expect(probeAudio(empty, empty.length).duration).toBe(0);
+  });
   it('reads durations from WAV, AIFF, MP3 and Ogg headers', async () => {
     const wav = await bytesOf(WavWriter);
     expect(probeAudio(wav.subarray(0, 4096), wav.length)).toMatchObject({ format: 'WAV', sampleRate: 22050, channels: 2, bitDepth: 16, duration: 1 });
@@ -200,6 +218,23 @@ describe('file probing and decoding', () => {
     expect(docs.map((d) => d.name)).toEqual(['Fine.wav']);
     expect(app.activate).toHaveBeenCalledWith(docs[0]);
     expect(app.notify).toHaveBeenCalledWith('"Broken.wav" could not be opened. The WAV file header is damaged.', { error: true });
+  });
+  it('shows a Puter file that is already open instead of opening a second copy', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    const open = { id: 'd1', name: 'Song.wav', source: { type: 'puter', path: '/u/Song.wav' } };
+    const read = vi.fn(async () => new Blob([good]));
+    const prefs = { get: () => [], set: () => {} };
+    const app = { documents: [open], setStatus: () => {}, notify: vi.fn(), prefs };
+    Object.assign(app, { addDocument: vi.fn(), activate: vi.fn() });
+    const docs = await openFiles(app, [{ name: 'Song.wav', path: '/u/Song.wav', read }]);
+    expect(docs).toEqual([open]);
+    expect(read).not.toHaveBeenCalled();
+    expect(app.addDocument).not.toHaveBeenCalled();
+    expect(app.activate).toHaveBeenCalledWith(open);
+    // Another file still opens.
+    const more = await openFiles(app, [{ name: 'Other.wav', path: '/u/Other.wav', read }]);
+    expect(more[0].source).toMatchObject({ type: 'puter', path: '/u/Other.wav' });
   });
   it('rejects empty and known-unsupported files with clear messages', async () => {
     await expect(decodeAudio(new ArrayBuffer(0), 'a.mp3')).rejects.toThrow(/empty/);

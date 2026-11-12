@@ -23,7 +23,7 @@ export class CommandRegistry {
     this.commands = new Map();
     this.byShortcut = new Map();
     /** User remappings: id -> shortcut strings (an empty list removes the shortcut). */
-    this.overrides = new Map(Object.entries(app?.prefs?.get?.('shortcuts') || {}));
+    this.overrides = storedOverrides(app);
     /** Observers told before and after each command runs ({ before(id, args), after(id, args) }). */
     this.watchers = new Set();
   }
@@ -91,7 +91,7 @@ export class CommandRegistry {
 
   /** Re-reads user shortcuts from preferences (after settings were imported or reset). */
   reloadShortcuts() {
-    this.overrides = new Map(Object.entries(this.app?.prefs?.get?.('shortcuts') || {}));
+    this.overrides = storedOverrides(this.app);
     this.byShortcut.clear();
     for (const id of this.commands.keys()) for (const s of this.keysFor(id)) this.byShortcut.set(normalizeShortcut(s), id);
   }
@@ -168,6 +168,24 @@ export class CommandRegistry {
   }
 }
 
+/**
+ * User remappings from preferences, as lists of shortcut strings. Damaged
+ * entries (a hand-edited or old settings file) would otherwise bind each
+ * character of a string or stop the app from starting: a single string
+ * counts as a one-key list, other values are ignored.
+ */
+function storedOverrides(app) {
+  const stored = app?.prefs?.get?.('shortcuts');
+  const out = new Map();
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return out;
+  for (const [id, keys] of Object.entries(stored)) {
+    const list = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : null;
+    if (!list) continue;
+    out.set(id, list.filter((k) => typeof k === 'string' && k.trim()));
+  }
+  return out;
+}
+
 // Keys a browser tab never receives (new/close tab or window, quit, tab
 // switching; on macOS also minimize, hide and window cycling).
 const RESERVED = new Set(['mod+n', 'mod+shift+n', 'mod+t', 'mod+shift+t', 'mod+w', 'mod+shift+w', 'mod+q', 'f11']);
@@ -193,9 +211,15 @@ export function normalizeShortcut(s) {
   return [mod ? 'mod' : '', ctrl ? 'ctrl' : '', mods.has('alt') ? 'alt' : '', mods.has('shift') ? 'shift' : '', k].filter(Boolean).join('+');
 }
 
-/** Key name from a KeyboardEvent that ignores what Shift/Alt do to the character. */
+/**
+ * Key name from a KeyboardEvent that ignores what Shift/Alt do to the character.
+ * Letters follow the keyboard layout (Mod+Z is the key labelled Z on AZERTY and
+ * Dvorak too); the physical key is used only when the layout gives no Latin
+ * letter (Option on macOS, non-Latin layouts).
+ */
 export function eventKey(ev) {
   const code = ev.code || '';
+  if (/^[a-z]$/i.test(ev.key || '')) return ev.key.toLowerCase();
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
   if (/^Digit\d$/.test(code)) return code.slice(5);
   const map = {

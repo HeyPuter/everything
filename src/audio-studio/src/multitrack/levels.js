@@ -89,6 +89,8 @@ export function formatPan(v) {
 /** Parses "L30", "R 20", "-30", "C" into -100..100. */
 export function parsePan(text) {
   const s = String(text).trim().toUpperCase();
+  // Empty text is not a value (Number('') would read it as centre).
+  if (!s) return NaN;
   if (s === 'C' || s === '0') return 0;
   const m = s.match(/^([LR])\s*(\d+(\.\d+)?)$/);
   if (m) return (m[1] === 'L' ? -1 : 1) * Number(m[2]);
@@ -98,6 +100,8 @@ export function parsePan(text) {
 
 export function parseGain(text) {
   const s = String(text).trim().toLowerCase().replace(/db$/, '').trim();
+  // Empty text is not a value (Number('') would read it as 0 dB).
+  if (!s) return NaN;
   if (s === '-inf' || s === '-∞' || s === 'inf') return SILENT_DB;
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;

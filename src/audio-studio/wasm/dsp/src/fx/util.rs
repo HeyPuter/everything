@@ -296,10 +296,15 @@ impl DelayLine {
     pub fn capacity(&self) -> usize {
         self.buf.len() - 4
     }
+    /// Pushes a sample. Values under 1e-25 (-500 dBFS) are stored as zero:
+    /// in feedback loops (echoes, flangers, reverbs) a dying tail otherwise
+    /// circulates as denormal numbers for seconds after the audio stops,
+    /// which x86 processors handle many times slower (WebAssembly cannot
+    /// flush them to zero).
     #[inline]
     pub fn push(&mut self, x: f32) {
         self.pos = (self.pos + 1) & self.mask;
-        self.buf[self.pos] = x;
+        self.buf[self.pos] = if x.abs() > 1e-25 { x } else { 0.0 };
     }
     /// The sample pushed `d` pushes ago (0 = the latest).
     #[inline]

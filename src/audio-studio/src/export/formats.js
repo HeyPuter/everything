@@ -17,7 +17,8 @@ export const FORMATS = [
     mime: 'audio/wav',
     lossy: false,
     bitDepths: [8, 16, 24, 32],
-    maxChannels: 8,
+    // As many channels as the format holds: multitrack recorder files often have 10 or more.
+    maxChannels: 65535,
     markers: true,
     settings: [],
   },
@@ -29,7 +30,7 @@ export const FORMATS = [
     mime: 'audio/aiff',
     lossy: false,
     bitDepths: [8, 16, 24, 32],
-    maxChannels: 8,
+    maxChannels: 32767,
     markers: true,
     settings: [],
   },

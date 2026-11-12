@@ -127,6 +127,22 @@ fn ill_conditioned(k: &Coefs) -> bool {
     k.wide_ok() && ((1.0 + w[3] + w[4]).abs() < ILL_CONDITIONED || (1.0 - w[3] + w[4]).abs() < ILL_CONDITIONED)
 }
 
+/// Magnitude response at `f` Hz (linear) of a section as `Cascade` runs it:
+/// ill-conditioned sections with their designed double-precision
+/// coefficients, the others with their f32 ones.
+pub(crate) fn section_magnitude(k: &Coefs, f: f32, rate: f32) -> f32 {
+    if !ill_conditioned(k) {
+        return k.magnitude(f, rate);
+    }
+    let (b0, b1, b2, a1, a2) = wide_coefs(k);
+    let w = 2.0 * std::f64::consts::PI * f as f64 / rate as f64;
+    let (c1, s1) = (w.cos(), -w.sin());
+    let (c2, s2) = ((2.0 * w).cos(), -(2.0 * w).sin());
+    let (nr, ni) = (b0 + b1 * c1 + b2 * c2, b1 * s1 + b2 * s2);
+    let (dr, di) = (1.0 + a1 * c1 + a2 * c2, a1 * s1 + a2 * s2);
+    ((nr * nr + ni * ni) / (dr * dr + di * di).max(1e-30)).sqrt() as f32
+}
+
 /// A section's coefficients in double precision: the designed values when
 /// they are current, else the f32 ones.
 #[inline]

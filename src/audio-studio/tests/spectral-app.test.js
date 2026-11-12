@@ -125,6 +125,148 @@ describe('spectral feature', () => {
     app.setTool('time');
   });
 
+  it('repairs Diagnostics results in full while a spectral selection exists', async () => {
+    await import('../src/effects/index.js');
+    const { diagnosticsPanel } = await import('../src/diagnostics/panel.js');
+    const { setDiagnosticsWorker } = await import('../src/diagnostics/scan.js');
+    setDiagnosticsWorker(null);
+    const x = tone(330, 0.3, RATE);
+    for (const at of [10000, 30000]) {
+      x[at] += 0.6;
+      x[at + 1] -= 0.4;
+      x[at + 2] += 0.3;
+    }
+    const clicky = new AudioFile({ name: 'clicks.wav', sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    app.addDocument(clicky);
+    const view = new WaveformView(app, clicky);
+    document.body.append(view.el);
+    // A spectral selection away from the clicks (a high band, early on).
+    app.spectral.set(clicky, { channels: [true], shapes: [{ type: 'rect', t0: 1000, t1: 3000, f0: 15000, f1: 20000 }] });
+    const p = diagnosticsPanel(app);
+    p.select('declicker');
+    const button = (re) => [...p.el.querySelectorAll('button')].find((b) => re.test(b.textContent));
+    button(/^Scan File$/).click();
+    await expect.poll(() => button(/^Repair All$/)?.disabled, { timeout: 5000 }).toBe(false);
+    button(/^Repair All$/).click();
+    await expect.poll(() => p.el.querySelector('.diag-caption').textContent, { timeout: 5000 }).toMatch(/done/);
+    const y = clicky.state.channels[0].toArray();
+    for (const at of [10000, 30000]) expect(Math.abs(y[at] - 0.3 * Math.sin((2 * Math.PI * 330 * at) / RATE))).toBeLessThan(0.1);
+    view.el.remove();
+    app.activate(doc);
+  });
+
+  it('does not analyse pitch after the display is hidden', async () => {
+    const view = new WaveformView(app, doc);
+    document.body.append(view.el);
+    const layer = view.layers.find((l) => l.id === 'spectral');
+    const failures = [];
+    const onFail = (err) => failures.push(err);
+    process.on('unhandledRejection', onFail);
+    try {
+      app.prefs.set('spectralPitch', true);
+      layer.layout({ y: 100, width: 600, height: 200, dpr: 1 });
+      layer.draw({});
+      // Hidden before the pitch analysis (120 ms after a draw) starts.
+      app.prefs.set('spectralDisplay', false);
+      await new Promise((r) => setTimeout(r, 250));
+      expect(failures).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onFail);
+      app.prefs.set('spectralPitch', false);
+      app.prefs.set('spectralDisplay', true);
+      view.destroy();
+      view.el.remove();
+    }
+  });
+
+  it('draws again after the display is hidden and shown or the file is switched away and back', async () => {
+    // A stand-in WebGL2 context per canvas; losing it (as dispose does) is permanent for that canvas.
+    const contexts = new WeakMap();
+    const fakeGl = () => {
+      let lost = false;
+      return new Proxy(
+        {},
+        {
+          get(t, k) {
+            if (k === 'getExtension') {
+              return (name) => (name === 'WEBGL_lose_context' ? { loseContext: () => (lost = true) } : null);
+            }
+            if (k === 'isContextLost') return () => lost;
+            if (k === 'getParameter') return () => 4096;
+            if (k === 'getShaderParameter' || k === 'getProgramParameter') return () => (lost ? null : true);
+            if (k === 'getUniformLocation') return () => (lost ? null : {});
+            if (typeof k === 'string' && /^[A-Z_0-9]+$/.test(k)) return 1;
+            return () => (lost ? null : {});
+          },
+        },
+      );
+    };
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type) {
+      if (type !== 'webgl2') return null;
+      if (!contexts.has(this)) contexts.set(this, fakeGl());
+      return contexts.get(this);
+    };
+    const view = new WaveformView(app, doc);
+    document.body.append(view.el);
+    try {
+      const layer = view.layers.find((l) => l.id === 'spectral');
+      const draw = () => {
+        layer.layout({ y: 100, width: 600, height: 200, dpr: 1 });
+        layer.draw({});
+        return layer.renderer?.available === true;
+      };
+      expect(draw()).toBe(true);
+      app.prefs.set('spectralDisplay', false);
+      app.prefs.set('spectralDisplay', true);
+      expect(draw()).toBe(true);
+      expect(view.el.contains(layer.canvas)).toBe(true);
+      layer.release();
+      expect(draw()).toBe(true);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
+      view.destroy();
+      view.el.remove();
+    }
+  });
+
+  it('keeps a marquee drag on its lane, clamped to the top and bottom frequencies', async () => {
+    const stereo = new AudioFile({
+      name: 's.wav',
+      sampleRate: RATE,
+      channels: [Channel.fromSamples(tone(1000, 0.4, RATE)), Channel.fromSamples(tone(1000, 0.4, RATE))],
+    });
+    app.addDocument(stereo);
+    const view = new WaveformView(app, stereo);
+    document.body.append(view.el);
+    try {
+      view.width = 600;
+      const layer = view.layers.find((l) => l.id === 'spectral');
+      layer.layout({ y: 100, width: 600, height: 201, dpr: 1 });
+      const [left] = layer.lanes();
+      const band = layer.scale();
+      app.setTool('marquee');
+      const at = (x, y) => ({ clientX: x, clientY: y, shiftKey: false });
+      expect(layer.pointer(at(100, (left.top + left.bottom) / 2), 'down')).toBe(true);
+      // Down into the right channel's lane: the bottom of the left lane, not a frequency of the right one.
+      layer.pointer(at(300, left.bottom + 60), 'move');
+      layer.pointer(at(300, left.bottom + 60), 'up');
+      let shape = app.spectral.selection(stereo).shapes[0];
+      expect(shape.f0).toBeCloseTo(band.lo, 3);
+      // Up past the top of the spectrogram (into the waveform): the highest frequency.
+      layer.pointer(at(100, (left.top + left.bottom) / 2), 'down');
+      layer.pointer(at(300, 40), 'move');
+      layer.pointer(at(300, 40), 'up');
+      shape = app.spectral.selection(stereo).shapes[0];
+      expect(shape.f1).toBeCloseTo(band.hi, 3);
+    } finally {
+      app.setTool('time');
+      view.destroy();
+      view.el.remove();
+      app.activate(doc);
+    }
+  });
+
   it('zooms the frequency axis', async () => {
     const { docState } = await import('../src/spectral/state.js');
     app.prefs.set('spectralLog', false);

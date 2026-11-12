@@ -7,7 +7,7 @@ import { conformOptions, exportMarkers } from './formats.js';
 
 /**
  * Encodes frames [start, end) of `channels` (Channel objects or Float32Arrays).
- * @param {{ channels, sampleRate, start?, end?, markers?, meta? }} source
+ * @param {{ channels, sampleRate, start?, end?, markers?, meta?, chunks? }} source
  * @param {object} options export options (formats.js), conformed here
  * @param {{ onProgress?: (fraction) => void, signal?: AbortSignal }} [o]
  * @returns {Promise<Blob>}
@@ -47,7 +47,7 @@ export async function exportAudio(source, options, { onProgress, signal } = {}) 
     worker.postMessage({
       type: 'start',
       module,
-      job: { options: opts, sourceRate: sampleRate, frames: Math.max(0, end - start), markers, meta: source.meta || {}, resampler: options.resampler || resampleSettings() },
+      job: { options: opts, sourceRate: sampleRate, frames: Math.max(0, end - start), markers, meta: source.meta || {}, chunks: source.chunks || null, resampler: options.resampler || resampleSettings() },
     });
   });
 }

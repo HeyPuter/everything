@@ -63,6 +63,67 @@ describe('envelope editor', () => {
   });
 });
 
+describe('Scientific Filter cutoff handle', () => {
+  it('stops following the pointer when the browser cancels the drag', async () => {
+    await import('../src/effects/index.js');
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    const done = openEffectDialog(app, getEffect('scientificFilter'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    const plotEl = dlg.querySelector('.fx-sci');
+    plotEl.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 100,
+      right: 300,
+      bottom: 100,
+    });
+    const handle = dlg.querySelector('.fx-xover');
+    handle.setPointerCapture = () => {};
+    handle.dispatchEvent(pointer('pointerdown', 150, 50));
+    handle.dispatchEvent(pointer('pointermove', 150, 50));
+    const during = handle.getAttribute('aria-valuenow');
+    handle.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
+    // A pointer passing over the handle afterwards (no button held) leaves the cutoff alone.
+    handle.dispatchEvent(pointer('pointermove', 280, 50));
+    expect(handle.getAttribute('aria-valuenow')).toBe(during);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
+  });
+});
+
+describe('live input spectrum', () => {
+  it('runs at once in a dialog opened while audio plays', async () => {
+    const { liveSpectrum } = await import('../src/effects/views/common.js');
+    await import('../src/multitrack/align.js');
+    const app = fakeApp();
+    app.engine.playing = true;
+    app.engine.position = 2048;
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(8192, 0.5))],
+    });
+    const closers = [];
+    let frames = 0;
+    const spec = liveSpectrum(
+      { app, doc, onClose: (fn) => closers.push(fn) },
+      { size: 1024, onFrame: () => frames++ },
+    );
+    expect(spec.live()).toBe(true);
+    for (let i = 0; i < 3 && !frames; i++) await new Promise((r) => requestAnimationFrame(r));
+    expect(frames).toBeGreaterThan(0);
+    expect(Math.max(...spec.levels)).toBeGreaterThan(-120);
+    closers.forEach((fn) => fn());
+  });
+});
+
 describe('log-scaled value fields', () => {
   const def = {
     id: 'logProbe',
@@ -197,6 +258,13 @@ describe('Effects Rack levels', () => {
     expect(rackFor(doc).mix).toBeCloseTo(0.4);
     panel.el.remove();
   });
+  it('keeps a slot in view in a short panel, scrolling the panel instead', () => {
+    const css = readFileSync(resolve(__dirname, '../src/styles/effects.css'), 'utf8');
+    const rule = (sel) => css.slice(css.indexOf(`\n${sel} {`)).split('\n}')[0];
+    // The slot list no longer shrinks to nothing (a phone held sideways); the panel scrolls.
+    expect(rule('.rack-scroll')).toMatch(/min-height: calc\(var\(--row\) \+ 4px\);/);
+    expect(rule('.rack-panel')).toMatch(/overflow-y: auto;/);
+  });
 });
 
 describe('effect dialog favorites', () => {
@@ -284,6 +352,51 @@ describe('Preview Editor', () => {
     expect(host.querySelector('.preview-status').textContent).toBe('Length +0.500');
     app.emit('effect-values', null);
     expect(el.hidden).toBe(true);
+    host.remove();
+  });
+  it('follows the effect dialog channel map', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    const app = fakeApp();
+    app.prefs.set('previewEditor', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    installPreviewEditor(app, host);
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 1000,
+      channels: [Channel.fromSamples(filled(1000, 0.1)), Channel.fromSamples(filled(1000, 0.3))],
+    });
+    doc.view = { start: 0, end: 1000, amp: 1 };
+    app.addDocument(doc);
+    const seen = [];
+    const probe = {
+      id: 'pvProbe',
+      name: 'Probe',
+      params: [{ id: 'g', min: 0, max: 2, default: 1 }],
+      kind: null,
+      process: async ({ channels }) => {
+        seen.push(channels.map((c) => c[0]));
+        return channels;
+      },
+    };
+    const payloads = [];
+    app.on('effect-values', (v) => payloads.push(v));
+    const p = openEffectDialog(app, probe, { doc, routing: {} });
+    const dlg = document.querySelector('.fx-dialog');
+    dlg.querySelector('.fx-map-btn').click();
+    const selects = dlg.querySelectorAll('.fx-chmap select');
+    // Both effect inputs read the left channel.
+    selects[1].value = '0';
+    selects[1].dispatchEvent(new Event('change'));
+    expect(payloads.at(-1).route).toEqual({ in: [0, 0], out: [0, 1] });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(seen.at(-1)[0]).toBeCloseTo(0.1);
+    expect(seen.at(-1)[1]).toBeCloseTo(0.1);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await p;
     host.remove();
   });
 });
@@ -640,6 +753,41 @@ describe('rack slot list focus', () => {
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
     expect(slots[0]).toBe(null);
     expect(document.activeElement).toBe(row(0).querySelector('.rack-name'));
+    ed.el.remove();
+  });
+  it('offers to replace or remove an effect that is not available when its slot is opened', async () => {
+    const app = fakeApp();
+    let menu = null;
+    app.openMenu = (items) => (menu = items);
+    let slots = [rackSlot('noSuchEffect')];
+    const ed = createRackEditor({ app, getSlots: () => slots, setSlots: (next) => (slots = next) });
+    document.body.append(ed.el);
+    const name = ed.el.querySelector('.rack-name');
+    expect(name.textContent).toMatch(/not available/);
+    name.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(menu?.find((it) => it.label === 'Remove Effect')).toBeTruthy();
+    expect(menu.find((it) => it.label === 'Edit Effect...').enabled).toBe(false);
+    ed.el.remove();
+  });
+  it('leaves the focus in the settings dialog that adding an effect opens', async () => {
+    const app = fakeApp();
+    app.prefs.set('fxOpenOnAdd', true);
+    let menu = null;
+    app.openMenu = (items) => (menu = items);
+    let slots = [];
+    const ed = createRackEditor({ app, getSlots: () => slots, setSlots: (next) => (slots = next) });
+    document.body.append(ed.el);
+    ed.el.querySelector('.rack-name').focus();
+    ed.chooser(0);
+    const amplify = menu.flatMap((g) => g.items || []).find((it) => it.label === 'Amplify');
+    amplify.run();
+    await new Promise((r) => requestAnimationFrame(r));
+    const dlg = document.querySelector('.fx-dialog');
+    expect(slots[0].effect).toBe('amplify');
+    expect(dlg.contains(document.activeElement)).toBe(true);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await new Promise((r) => setTimeout(r, 0));
     ed.el.remove();
   });
 });

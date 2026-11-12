@@ -15,7 +15,7 @@ import { paramControls as buildControls } from './param-ui.js';
 import { channelNames, defaultRoute, routeSummary, rememberRoute, recallRoute, sameRoute } from './routing.js';
 import { allPresets, savePreset, deletePreset, matchPreset, lastValues } from './presets.js';
 import { editorFor } from './displays.js';
-import { isRealtime } from './apply.js';
+import { isRealtime, latencyFrames } from './apply.js';
 
 const CUSTOM = '\u0000custom';
 
@@ -173,8 +173,8 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     values = normalizeValues(def, next);
     changed(null);
   }
-  // The Preview Editor follows the settings of effects about to be applied to a file.
-  const announceValues = (v) => mode === 'apply' && doc && app.emit('effect-values', v && { def, values: v, doc });
+  // The Preview Editor follows the settings (and channel map) of effects about to be applied to a file.
+  const announceValues = (v) => mode === 'apply' && doc && app.emit('effect-values', v && { def, values: v, doc, route });
   function changed(from) {
     controls?.refresh(values, from);
     subscribers.forEach((fn) => fn(values));
@@ -254,6 +254,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     const set = (next) => {
       route = next;
       showRoute();
+      announceValues(values);
       if (previewing) pushPreview();
     };
     const inputs = [0, 1].map((c) => h('label.fx-chmap-cell', h('span.faint', full[c]), pick(route.in[c], [[0, `File ${names[0]}`], [1, `File ${names[1]}`], [-1, 'Silence']], (v) => set({ ...route, in: route.in.map((x, i) => (i === c ? v : x)) }), `Effect ${full[c].toLowerCase()} input`)));
@@ -296,7 +297,21 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
       panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
     }
+    if (open) window.addEventListener('keydown', popoverKeys, true);
+    else window.removeEventListener('keydown', popoverKeys, true);
   }
+  // While one is open, Escape closes the channel map or info popover before the dialog
+  // (caught at the window, ahead of the dialog's own Escape, like the inline name prompt).
+  function popoverKeys(e) {
+    if (e.key !== 'Escape' || !(body.closest('.dialog') || body).contains(e.target) || nameBar.contains(e.target) || e.target.classList?.contains('hot-edit')) return;
+    const open = [[mapPanel, mapBtn], [infoPanel, infoBtn]].find(([pnl]) => !pnl.hidden);
+    if (!open) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    toggle(...open);
+    open[1].focus();
+  }
+  cleanups.push(() => window.removeEventListener('keydown', popoverKeys, true));
 
   const presetBar = h('div.fx-presetbar', h('span.fx-label', 'Presets:'), presetSel, saveBtn, delBtn, h('span.fx-bar-sep', { 'aria-hidden': 'true' }), favBtn, h('span.spacer'), mapBtn, infoBtn);
   syncPresetSelect();
@@ -378,7 +393,14 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
 
   function pushPreview() {
     if (mode !== 'apply') return;
-    app.previewFx = previewing && realtime ? [slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route })] : null;
+    let spec = null;
+    if (previewing && realtime) {
+      spec = slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route });
+      // Its processing delay, which the file's playback graph compensates (decorateGraph).
+      const latency = doc ? latencyFrames(def, values, doc.sampleRate) : 0;
+      if (latency) spec.latency = latency;
+    }
+    app.previewFx = spec ? [spec] : null;
     app.syncGraph();
   }
   function startPlayback() {

@@ -377,6 +377,15 @@
 }
 
 /* Match Loudness */
+/* A panel too short for its settings and the file list (phones) scrolls as a whole. */
+.loudness-panel {
+  overflow: hidden auto;
+}
+
+.loudness-panel > .table-scroll {
+  min-height: 84px;
+}
+
 .match-export {
   display: flex;
   flex-wrap: wrap;

@@ -56,7 +56,8 @@ export class TrackHeader {
     const toggle = (key, label, text, title) =>
       h(`button.mt-tb.mt-tb-${key}`, { type: 'button', 'aria-pressed': 'false', 'aria-label': label, title, onclick: () => controls().toggle(this.id, key) }, text);
     this.mute = toggle('mute', 'Mute', 'M', 'Mute');
-    this.solo = toggle('solo', 'Solo', 'S', 'Solo');
+    // The master is never soloed (it carries the whole mix), as in the Mixer.
+    this.solo = isMaster ? null : toggle('solo', 'Solo', 'S', 'Solo');
     this.arm = isMaster || isBus ? null : toggle('arm', 'Arm for recording', 'R', 'Arm for Record');
     this.monitor = isMaster || isBus ? null : h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Monitor input', title: 'Monitor Input', onclick: () => controls().toggle(this.id, 'monitor') }, icon('monitor-input', 12));
 
@@ -114,7 +115,8 @@ export class TrackHeader {
     this.body = h('div.mt-th-body', this.rowName, this.rowLevel, this.rowIo, this.rowFx, this.rowSends, this.rowEq, this.rowAuto);
     this.el = h(
       `div.mt-th${isMaster ? '.master' : ''}${isBus ? '.bus' : ''}`,
-      { role: 'group', dataset: { id: this.id }, onpointerdown: () => doc.selectTrack(this.id) },
+      // Focus selects the track too, so keyboard users act on the track they are in, as a click does.
+      { role: 'group', dataset: { id: this.id }, onpointerdown: () => doc.selectTrack(this.id), onfocusin: () => doc.selectTrack(this.id) },
       this.colorBtn,
       this.body,
       this.meter.el,

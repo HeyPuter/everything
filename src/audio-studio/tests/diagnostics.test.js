@@ -250,3 +250,70 @@ describe('marking any diagnostic', () => {
     expect(doc.state.channels[0].toArray(10000, 10001)[0]).not.toBeCloseTo(x[10000], 3);
   });
 });
+
+describe('panel results and edits', () => {
+  it('restyles the list rather than rebuilding it when rows are chosen', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { diagnosticsPanel } = await import('../src/diagnostics/panel.js');
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    const x = withClicks(music(RATE), [6000, 16000, 26000, 36000]);
+    const doc = new AudioFile({ name: 'c.wav', sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    app.addDocument(doc);
+    const p = diagnosticsPanel(app);
+    document.body.append(p.el);
+    p.select('declicker');
+    const button = (re) => [...p.el.querySelectorAll('button')].find((b) => re.test(b.textContent));
+    button(/^Scan File$/).click();
+    await expect.poll(() => button(/^Repair All$/)?.disabled, { timeout: 5000 }).toBe(false);
+    const rows = [...p.el.querySelectorAll('.diag-table tbody tr')];
+    expect(rows.length).toBeGreaterThanOrEqual(4);
+    rows[1].click();
+    rows[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    const after = [...p.el.querySelectorAll('.diag-table tbody tr')];
+    // Thousands of clicks made every choice rebuild every row (about a second each).
+    expect(after.every((tr, i) => tr === rows[i])).toBe(true);
+    expect(after.map((tr) => tr.getAttribute('aria-selected'))).toEqual(after.map((_, i) => String(i === 2)));
+    expect(after.map((tr) => tr.getAttribute('tabindex'))).toEqual(after.map((_, i) => (i === 2 ? '0' : '-1')));
+    expect(document.activeElement).toBe(after[2]);
+    expect(doc.selection.start).toBeGreaterThan(20000);
+    p.el.remove();
+  });
+
+  it('does not offer to repair a list scanned from audio that was edited during the scan', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { diagnosticsPanel } = await import('../src/diagnostics/panel.js');
+    const { deleteRange } = await import('../src/model/edits.js');
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    const x = withClicks(music(RATE), [10000, 30000]);
+    const doc = new AudioFile({ name: 'c.wav', sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    app.addDocument(doc);
+    const p = diagnosticsPanel(app);
+    p.select('declicker');
+    const button = (re) => [...p.el.querySelectorAll('button')].find((b) => re.test(b.textContent));
+    button(/^Scan File$/).click();
+    // The scan is under way: remove the first 5000 frames, moving every click.
+    doc.apply('Delete', deleteRange(doc.state, 0, 5000, null));
+    const edited = doc.state.channels[0];
+    await expect.poll(() => button(/^Scan File$/)?.disabled, { timeout: 5000 }).toBe(false);
+    expect(button(/^Repair All$/).disabled).toBe(true);
+    expect(p.el.querySelector('.diag-caption').textContent).toMatch(/changed/);
+    button(/^Repair All$/).click();
+    expect(doc.state.channels[0]).toBe(edited);
+  });
+});
