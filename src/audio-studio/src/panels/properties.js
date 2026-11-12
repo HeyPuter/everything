@@ -87,7 +87,9 @@ export function propertiesPanel(app) {
       else name.value = doc.name;
     });
     name.addEventListener('keydown', (e) => e.stopPropagation());
-    const bytes = doc.length * doc.channelCount * 4;
+    // At the file's sample type, as the status bar counts it (32-bit float before it has one).
+    const bytes =
+      doc.length * doc.channelCount * Math.max(1, Math.round((doc.info?.bitDepth || 32) / 8));
     el.append(
       h(
         'section.prop-section',

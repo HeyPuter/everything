@@ -321,6 +321,21 @@ describe('Properties', () => {
     root.remove();
   });
 
+  it('gives the same uncompressed size as the status bar', async () => {
+    const app = makeApp();
+    const doc = audioDoc(3);
+    doc.info.bitDepth = 16;
+    app.addDocument(doc);
+    const p = create(app, 'properties');
+    const rows = [...p.el.querySelectorAll('.prop-row')];
+    const size = rows.find((r) => r.textContent.startsWith('Uncompressed Size'));
+    const { statusParts } = await import('../src/ui/status-fields.js');
+    const status = statusParts(app, doc, {});
+    // 3 s of 16-bit stereo at 1 kHz: 12,000 bytes.
+    expect(size.querySelector('.prop-value').textContent).toBe('11.7 KB');
+    expect(status).toContain('11.7 KB');
+  });
+
   it('makes any section built by a feature collapsible', () => {
     const root = document.createElement('div');
     root.innerHTML = '<section class="prop-section"><h3 class="prop-heading">Track</h3><div class="prop-row">x</div></section>';
