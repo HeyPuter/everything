@@ -3,6 +3,7 @@ import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { bootAppWithFeatures } from './helpers.js';
 import { versionKey } from '../src/features/panels/file-commands.js';
+import { scriptAPI } from '../src/features/scripts/runner.js';
 
 /** Saves in this browser download the file (no cloud, no File System Access): capture the bytes. */
 function captureDownloads() {
@@ -102,5 +103,75 @@ describe('version history', () => {
     const list = await app.versions.list(versionKey(ed));
     expect(list.length).toBe(1);
     expect(paths(await app.versions.read(versionKey(ed), list[0].id))).toBe(1);
+  });
+});
+
+describe('scripts', () => {
+  async function setup() {
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const doc = app.editor.doc;
+    const a = createPath(rectangle(0, 0, 10, 10), true);
+    const b = createPath(rectangle(20, 0, 10, 10), true);
+    doc.transact('add', () => {
+      doc.insert(a, app.editor.targetLayer().id);
+      doc.insert(b, app.editor.targetLayer().id);
+    });
+    return { app, doc, a, b };
+  }
+
+  it('one run is one undo step, with commands and pauses between changes', async () => {
+    const { app, doc, a, b } = await setup();
+    const before = doc.undoStack.length;
+    const { api } = scriptAPI(app, app.editor, 'Tidy');
+    api.update(a.id, { opacity: 0.5 });
+    api.select([a.id, b.id]);
+    await api.command('object.group');
+    // A pause longer than edits normally merge over (waiting for vs.prompt, say).
+    const now = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(now + 60000);
+    try {
+      api.update(b.id, { opacity: 0.25 });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(doc.get(a.id).parent).not.toBe(doc.get(app.editor.targetLayer().id).id);
+    expect(doc.undoStack.length).toBe(before + 1);
+    expect(doc.undoLabel).toBe('Tidy');
+    doc.undo();
+    expect(doc.get(a.id).opacity).toBe(1);
+    expect(doc.get(b.id).opacity).toBe(1);
+    expect(doc.get(a.id).parent).toBe(app.editor.targetLayer().id);
+    expect(doc.undoStack.length).toBe(before);
+    doc.redo();
+    expect(doc.get(a.id).opacity).toBe(0.5);
+    expect(doc.get(b.id).opacity).toBe(0.25);
+    expect(doc.get(doc.get(a.id).parent).type).toBe('group');
+  });
+
+  it('a selection made in the same task as a merged change is restored by Redo', async () => {
+    const { app, doc, a, b } = await setup();
+    const ed = app.editor;
+    ed.select([a.id]);
+    const { api } = scriptAPI(app, ed, 'Tidy');
+    api.update(a.id, { opacity: 0.5 });
+    await api.command('object.bringToFront');
+    api.update(b.id, { opacity: 0.5 }); // merges the run's steps into one
+    ed.select([b.id]); // same task as the last change: part of the run's step
+    doc.undo();
+    expect([...ed.selection]).toEqual([a.id]);
+    doc.redo();
+    expect([...ed.selection]).toEqual([b.id]);
+  });
+
+  it('a shared document saved during the run still undoes the run in one step', async () => {
+    const { app, doc, a, b } = await setup();
+    const before = doc.undoStack.length;
+    const { api } = scriptAPI(app, app.editor, 'Tidy');
+    api.update(a.id, { opacity: 0.5 });
+    // The server has every edit so far.
+    doc.markSaved();
+    api.update(b.id, { opacity: 0.5 });
+    expect(doc.undoStack.length).toBe(before + 1);
   });
 });

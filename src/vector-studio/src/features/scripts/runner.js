@@ -217,6 +217,14 @@ export function scriptAPI(app, editor, name) {
   const doc = editor.doc;
   const runKey = `script:${Date.now()}:${Math.random()}`;
   let changes = 0;
+  // Every undo step added from here on (changes and commands, however far apart) is part of this run.
+  const earlier = new Set(doc.undoStack);
+  const asOneStep = () => {
+    const stack = doc.undoStack;
+    let n = 0;
+    while (n < stack.length && !earlier.has(stack[stack.length - 1 - n])) n++;
+    if (n > 1 || (n === 1 && stack[stack.length - 1].label !== name)) doc.mergeHistory(n, name);
+  };
 
   const mutate = (fn) => {
     let out;
@@ -224,6 +232,7 @@ export function scriptAPI(app, editor, name) {
       out = fn();
     }, { coalesce: runKey });
     changes++;
+    asOneStep();
     return out;
   };
   const check = (id) => {
@@ -268,6 +277,7 @@ export function scriptAPI(app, editor, name) {
       if (!app.commands.get(id)) throw new Error(`Unknown command "${id}".`);
       await app.commands.run(id);
       changes++;
+      asOneStep();
       return true;
     },
     exportSVG: async (opts) => app.exporters?.svg?.(editor, opts || {}) ?? null,

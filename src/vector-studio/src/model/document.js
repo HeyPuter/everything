@@ -721,6 +721,34 @@ export class VDocument extends Emitter {
     return true;
   }
 
+  /** Make the newest `count` undo steps one step named `label` (a script run, made of several changes). */
+  mergeHistory(count, label) {
+    if (this.tx || count < 1 || count > this.undoStack.length) return false;
+    const recs = this.undoStack.splice(this.undoStack.length - count, count);
+    const first = recs[0];
+    const last = recs[recs.length - 1];
+    const before = new Map();
+    const after = new Map();
+    for (const rec of recs) {
+      for (const [id, node] of rec.before) if (!before.has(id)) before.set(id, node);
+      for (const [id, node] of rec.after) after.set(id, node);
+    }
+    const merged = {
+      ...last,
+      label,
+      before,
+      after,
+      selectionBefore: first.selectionBefore,
+      structural: recs.some((r) => r.structural),
+      prevRev: first.prevRev,
+    };
+    this.undoStack.push(merged);
+    // A selection made later in the same task still belongs to the merged step.
+    if (this.#fresh === last) this.#fresh = merged;
+    this.emit('history');
+    return true;
+  }
+
   /** Forget every undo and redo step (the document itself is unchanged). */
   clearHistory() {
     if (this.tx) return;
