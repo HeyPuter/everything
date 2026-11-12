@@ -4,7 +4,7 @@
  * effects and options, the vertical type tools and View > Snap to Letterforms.
  */
 import { layoutText, listLabels, glyphMetrics } from '../../model/text-layout.js';
-import { paragraphRanges, paraStylePatch, replaceRange, overridesAt, paraAt } from '../../model/text-runs.js';
+import { paragraphRanges, paraStylePatch, replaceRange, overridesAt, paraAt, selectedParagraphs } from '../../model/text-runs.js';
 import { registerIcons } from '../../ui/icons.js';
 import { snapHooks } from '../../tools/snap.js';
 import { selectedTextNodes } from './outlines.js';
@@ -106,12 +106,7 @@ function targetParas(app, node) {
   const n = paragraphRanges(node.text).length;
   if (s && s.node()?.id === node.id) {
     const [a, b] = s.range();
-    const text = node.text;
-    let p0 = 0;
-    for (let i = 0; i < a; i++) if (text[i] === '\n') p0++;
-    let p1 = p0;
-    for (let i = a; i < b; i++) if (text[i] === '\n') p1++;
-    return [p0, p1];
+    return selectedParagraphs(node.text, a, b);
   }
   return [0, n - 1];
 }
