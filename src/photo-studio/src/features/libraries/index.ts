@@ -41,6 +41,19 @@ async function targetLibrary(e: Editor) {
   refreshPanel(e);
   return created.id;
 }
+const shownItems = () => [...document.querySelectorAll<HTMLElement>('.libraries-panel .lib-item')];
+/** After an item command (its menu and dialog are gone), put the keyboard
+ * focus back on the item, or on the one that took its place, instead of
+ * leaving it on the page. */
+function keepItemFocus(at: number) {
+  if (at < 0) return;
+  requestAnimationFrame(() => {
+    const a = document.activeElement;
+    if (a && a !== document.body) return;
+    const items = shownItems();
+    (items.find((x) => x.dataset.item === libState.itemId) ?? items[Math.min(at, items.length - 1)])?.focus();
+  });
+}
 const showPanel = (e: Editor) => {
   if (!e.dock.isVisible('libraries')) e.dock.show('libraries');
 };
@@ -214,7 +227,18 @@ export function installLibraries(e: Editor) {
     });
   // Item commands act on the item last clicked in the panel.
   const itemCmd = (id: string, label: string, run: (e: Editor) => Promise<unknown>, when: (t: string) => boolean = () => true, description?: string) =>
-    cmd({ id, label, description, enabled: () => !!currentItem() && when(currentItem()!.type), run: (e) => run(e).then(() => refreshPanel(e)) });
+    cmd({
+      id,
+      label,
+      description,
+      enabled: () => !!currentItem() && when(currentItem()!.type),
+      run: async (e) => {
+        const at = shownItems().findIndex((x) => x.dataset.item === libState.itemId);
+        await run(e);
+        refreshPanel(e);
+        keepItemFocus(at);
+      },
+    });
   itemCmd('libraries.item-apply', 'Apply', async (e) => (await apply()).applyItem(e, currentItem()!), (t) => t !== 'graphic', 'Use the item: set the color, apply the style, make the brush or pattern current');
   itemCmd('libraries.item-place', 'Place', async (e) => (await apply()).placeGraphic(e, currentItem()!), (t) => t === 'graphic', 'Place the graphic as an embedded object');
   itemCmd('libraries.item-place-linked', 'Place Linked', async (e) => (await apply()).placeGraphic(e, currentItem()!, { linked: true }), (t) => t === 'graphic', 'Place the graphic so it updates when the library item changes');

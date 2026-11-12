@@ -260,3 +260,29 @@ test.describe('Libraries', () => {
     await other.close();
   });
 });
+
+test('library item commands from the keyboard keep the focus on the items', async ({ page }) => {
+  await boot(page);
+  await freshLibraries(page);
+  await openImage(page, 60, 40, '#808080');
+  await panel(page, 'Libraries');
+  for (const c of ['#ff0000', '#00ff00', '#0000ff'])
+    await page.evaluate(async (c) => {
+      window.photoStudio.setForeground(c);
+      await window.photoStudio.runCommand('libraries.add-foreground');
+    }, c);
+  await expect(items(page)).toHaveCount(3);
+  await items(page).nth(1).focus();
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await page.locator('#dialog[open] input[name=name]').fill('Leaf');
+  await page.keyboard.press('Enter');
+  // The menu and the dialog are gone: focus used to fall back to the page.
+  await expect(items(page).nth(1)).toBeFocused();
+  await expect(items(page).nth(1)).toContainText('Leaf');
+  await page.keyboard.press('Shift+F10');
+  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(items(page)).toHaveCount(2);
+  await expect(items(page).nth(1)).toBeFocused();
+});
