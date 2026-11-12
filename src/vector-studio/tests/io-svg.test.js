@@ -797,3 +797,21 @@ describe('SVG CSS custom properties', () => {
     expect(d.stroke).toBeNull();
   });
 });
+
+describe('SVG transform-box', () => {
+  it('rotates about the shape\'s own box with transform-box: fill-box', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+      <style>.d { transform: rotate(90deg); transform-origin: center; transform-box: fill-box } .e { transform: scale(2); transform-box: fill-box }</style>
+      <rect class="d" x="100" y="100" width="40" height="20"/>
+      <rect class="e" x="10" y="10" width="10" height="10"/>
+      <rect style="transform: rotate(90deg); transform-origin: center" x="100" y="100" width="40" height="20"/>
+    </svg>`);
+    const [d, e, v] = doc.leaves().map((n) => nodeBounds(doc, n));
+    // About its own center (120, 110).
+    for (const [k, want] of Object.entries({ x: 110, y: 90, w: 20, h: 40 })) close(d[k], want, 1e-6);
+    // The default origin is the box's top-left corner.
+    for (const [k, want] of Object.entries({ x: 10, y: 10, w: 20, h: 20 })) close(e[k], want, 1e-6);
+    // Without it, the origin is the viewport's center (100, 100).
+    for (const [k, want] of Object.entries({ x: 80, y: 100, w: 20, h: 40 })) close(v[k], want, 1e-6);
+  });
+});

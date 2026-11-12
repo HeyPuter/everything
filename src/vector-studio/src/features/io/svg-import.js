@@ -19,7 +19,7 @@ import { VDocument } from '../../model/document.js';
 import { createPath, createCompound, createGroup, createText, createImage, createLayer, DEFAULT_CHAR, DEFAULT_PARA, LAYER_COLORS } from '../../model/nodes.js';
 import { transformAnchors, pathBounds } from '../../model/bezier.js';
 import { rectangle, ellipse as ellipseAnchors } from '../../model/shapes.js';
-import { nodeBounds, unionRect, transformRect } from '../../model/geometry.js';
+import { nodeBounds, unionRect, transformRect, inflate as inflateRect } from '../../model/geometry.js';
 import { multiply, invert, apply, decompose, identity, translate, rotate, scale as scaleM } from '../../lib/matrix.js';
 import { parseCssColor, hexToRgb, rgbToHex } from '../../lib/color.js';
 import { uid } from '../../lib/ids.js';
@@ -38,9 +38,10 @@ const INHERITED = [
   'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'marker-start',
   'marker-mid', 'marker-end', 'vector-effect', 'white-space', 'xml:lang',
 ];
-const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin', 'mask-type'];
+const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin', 'transform-box', 'mask-type'];
 const PRESENTATION = [...INHERITED, ...NON_INHERITED.filter((p) => p !== 'transform')];
 const PRESENTATION_SET = new Set(PRESENTATION);
+const SHAPE_TAGS = new Set(['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon']);
 
 const BASE_STYLE = {
   fill: 'black',
@@ -373,28 +374,37 @@ class Importer {
     if (!tf) return null;
     let T = parseTransform(tf);
     const origin = st['transform-origin'];
-    if (origin) {
-      // Reference box: the viewport (transform-box: view-box, the SVG default).
-      const parts = String(origin).trim().split(/\s+/);
+    // Reference box: the viewport (transform-box: view-box, the SVG default) or the shape's own bounds.
+    const boxKind = String(st['transform-box'] || '').trim();
+    let box = null;
+    if (/^(fill-box|content-box|stroke-box|border-box)$/.test(boxKind) && SHAPE_TAGS.has(el.localName)) {
+      let b = null;
+      for (const sp of this.geometry(el, el.localName, ctx).subpaths) b = unionRect(b, pathBounds(sp.anchors, sp.closed));
+      if (b && /^(stroke-box|border-box)$/.test(boxKind) && st.stroke && st.stroke !== 'none') b = inflateRect(b, parseLength(st['stroke-width'], { ref: 100, fallback: 1 }) / 2);
+      box = b;
+    }
+    box ||= { x: 0, y: 0, w: ctx.vw || 0, h: ctx.vh || 0 };
+    if (origin || box.x || box.y) {
+      const parts = String(origin || '0 0').trim().split(/\s+/);
       const kw = { left: ['x', 0], right: ['x', 1], top: ['y', 0], bottom: ['y', 1], center: [null, 0.5] };
       let ox = null;
       let oy = null;
       const pending = [];
       for (const p of parts.slice(0, 2)) {
         const k = kw[p.toLowerCase()];
-        if (k?.[0] === 'x') ox = k[1] * (ctx.vw || 0);
-        else if (k?.[0] === 'y') oy = k[1] * (ctx.vh || 0);
+        if (k?.[0] === 'x') ox = k[1] * box.w;
+        else if (k?.[0] === 'y') oy = k[1] * box.h;
         else pending.push(k ? { center: true } : p);
       }
       for (const p of pending) {
         const axis = ox == null ? 'x' : 'y';
-        const ref = axis === 'x' ? ctx.vw || 0 : ctx.vh || 0;
+        const ref = axis === 'x' ? box.w : box.h;
         const v = p.center ? ref / 2 : parseLength(p, { ref, fallback: 0 });
         if (axis === 'x') ox = v;
         else oy = v;
       }
-      ox ??= (ctx.vw || 0) / 2;
-      oy ??= (ctx.vh || 0) / 2;
+      ox = box.x + (ox ?? box.w / 2);
+      oy = box.y + (oy ?? box.h / 2);
       if (ox || oy) T = multiply(multiply([1, 0, 0, 1, ox, oy], T), [1, 0, 0, 1, -ox, -oy]);
     }
     return T;
