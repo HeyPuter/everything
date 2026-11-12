@@ -4,6 +4,7 @@ import { rectangle } from '../src/model/shapes.js';
 import { bootAppWithFeatures } from './helpers.js';
 import { versionKey } from '../src/features/panels/file-commands.js';
 import { scriptAPI } from '../src/features/scripts/runner.js';
+import { LibraryStore } from '../src/features/libraries/store.js';
 
 /** Saves in this browser download the file (no cloud, no File System Access): capture the bytes. */
 function captureDownloads() {
@@ -173,5 +174,27 @@ describe('scripts', () => {
     doc.markSaved();
     api.update(b.id, { opacity: 0.5 });
     expect(doc.undoStack.length).toBe(before + 1);
+  });
+});
+
+describe('libraries', () => {
+  it('signing in while libraries load from this browser shows the account libraries', async () => {
+    const cloudLib = { id: 'lib-cloud', name: 'Cloud Kit', items: [] };
+    const fs = {
+      readdir: async () => [{ name: 'lib-cloud.json', is_dir: false }],
+      read: async () => new Blob([JSON.stringify(cloudLib)]),
+      write: async () => {},
+      delete: async () => {},
+    };
+    const app = { puter: { fs }, env: 'web', user: null };
+    const store = new LibraryStore(app, null, { journal: null });
+    const first = store.load();
+    // Signed in before this browser's libraries finished loading.
+    app.user = { username: 'u' };
+    const second = store.load(true);
+    await Promise.all([first, second]);
+    expect(store.location).toBe('cloud');
+    expect(store.libraries.map((l) => l.name)).toEqual(['Cloud Kit']);
+    expect(await second).toEqual(store.libraries);
   });
 });

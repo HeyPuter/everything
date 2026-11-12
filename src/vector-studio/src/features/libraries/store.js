@@ -76,6 +76,8 @@ export class LibraryStore {
     this.libraries = [];
     this.loaded = false;
     this.loading = null;
+    this.loadingFrom = null;
+    this.loadToken = null;
     this.listeners = new Set();
     this.pending = new Map(); // library id -> { timer, lib, backend }: a write waiting to merge quick edits
     this.queues = new Map(); // library id -> the last queued write or removal
@@ -112,11 +114,15 @@ export class LibraryStore {
   async load(force = false) {
     const backend = this.backend;
     if (this.loaded && !force) return this.libraries;
-    if (this.loading) return this.loading;
+    // A load from the same storage serves this call; one from storage left behind (signing in or out) does not.
+    if (this.loading && this.loadingFrom === backend) return this.loading;
+    const token = {};
+    this.loadToken = token;
+    this.loadingFrom = backend;
     this.loading = (async () => {
+      let libs = [];
       try {
         const files = (await backend.list('')).filter((f) => !f.isDir && f.name.endsWith('.json'));
-        const libs = [];
         for (const f of files) {
           try {
             const lib = normalizeLibrary(await backend.readJSON(f.name));
@@ -126,10 +132,12 @@ export class LibraryStore {
           }
         }
         libs.sort((a, b) => a.name.localeCompare(b.name));
-        this.libraries = libs;
       } catch {
-        this.libraries = [];
+        libs = [];
       }
+      // Superseded by a load from other storage: that one's libraries are the ones to show.
+      if (this.loadToken !== token) return this.loading || this.libraries;
+      this.libraries = libs;
       this.#recoverJournal(backend);
       this.loaded = true;
       this.loading = null;
