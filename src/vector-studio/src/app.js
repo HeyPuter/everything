@@ -219,8 +219,15 @@ export class App extends Emitter {
     this.emit('user');
   }
 
+  /** Whether the panels are on screen (not closed, and not hidden with Tab). */
+  get panelsShown() {
+    return this.dockOpen && !this.root.classList.contains('hide-panels') && !this.root.classList.contains('hide-dock');
+  }
+
   setDockOpen(open) {
     this.dockOpen = open;
+    // Showing the panels also brings back panels (and tools) hidden with Tab.
+    if (open) this.root.classList.remove('hide-panels', 'hide-dock');
     if (!(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 760px)').matches)) this.prefs.set('dockOpen', open);
     this.root.classList.toggle('dock-closed', !open);
     this.statusbar?.refresh();
@@ -229,7 +236,7 @@ export class App extends Emitter {
 
   openPanel(id) {
     if (!this.dock.panels.has(id)) return;
-    if (!this.dockOpen) this.setDockOpen(true);
+    if (!this.panelsShown) this.setDockOpen(true);
     this.dock.openPanel(id);
   }
 
@@ -635,6 +642,7 @@ export class App extends Emitter {
       // panels except the tools.
       e.preventDefault();
       this.root.classList.toggle(e.shiftKey ? 'hide-dock' : 'hide-panels');
+      this.statusbar?.refresh();
       return;
     }
     // Paint shortcuts.
@@ -706,7 +714,7 @@ export class App extends Emitter {
           for (const ed of [...a.editors]) if (!(await a.closeDocument(ed))) return;
         },
       },
-      { id: 'window.toggleDock', label: (a) => (a.dockOpen ? 'Hide Panels' : 'Show Panels'), run: (a) => a.setDockOpen(!a.dockOpen) },
+      { id: 'window.toggleDock', label: (a) => (a.panelsShown ? 'Hide Panels' : 'Show Panels'), run: (a) => a.setDockOpen(!a.panelsShown) },
       {
         id: 'window.resetWorkspace',
         label: 'Reset Standard',

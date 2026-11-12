@@ -353,3 +353,29 @@ describe('number field scrubbing', () => {
     f.el.remove();
   });
 });
+
+describe('panels hidden with Tab', () => {
+  it('come back from Window > Show Panels, the Panels button or opening a panel', async () => {
+    const { app } = await appWithRect();
+    const tab = () => {
+      app.canvasHost.focus();
+      app.canvasHost.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true }),
+      );
+    };
+    tab();
+    expect(app.root.classList.contains('hide-panels')).toBe(true);
+    expect(app.commands.label('window.toggleDock')).toBe('Show Panels');
+    expect(document.querySelector('.status-panels').getAttribute('aria-pressed')).toBe('false');
+    await app.commands.run('window.toggleDock');
+    expect(app.root.classList.contains('hide-panels')).toBe(false);
+    expect(app.dockOpen).toBe(true);
+    tab();
+    document.querySelector('.status-panels').click();
+    expect(app.root.classList.contains('hide-panels')).toBe(false);
+    tab();
+    app.openPanel('color');
+    expect(app.root.classList.contains('hide-panels')).toBe(false);
+    expect(app.dock.flyoutId).toBe('color');
+  });
+});

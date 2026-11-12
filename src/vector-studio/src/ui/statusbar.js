@@ -80,7 +80,7 @@ export function createStatusbar(app) {
     refresh();
   };
   const toolName = h('span.status-tool');
-  const panelsBtn = h('button.icon-btn.small.status-panels', { type: 'button', 'aria-label': 'Panels', 'aria-pressed': String(Boolean(app.dockOpen)), 'data-tip': 'Show or hide panels', onclick: () => app.setDockOpen(!app.dockOpen) }, icon('panel-right', 16));
+  const panelsBtn = h('button.icon-btn.small.status-panels', { type: 'button', 'aria-label': 'Panels', 'aria-pressed': String(Boolean(app.dockOpen)), 'data-tip': 'Show or hide panels', onclick: () => app.setDockOpen(!app.panelsShown) }, icon('panel-right', 16));
 
   const el = h(
     'footer.statusbar',
@@ -98,7 +98,7 @@ export function createStatusbar(app) {
 
   function refresh() {
     const ed = app.editor;
-    panelsBtn.setAttribute('aria-pressed', String(Boolean(app.dockOpen)));
+    panelsBtn.setAttribute('aria-pressed', String(Boolean(app.panelsShown)));
     el.classList.toggle('no-doc', !ed);
     if (!ed) return;
     if (document.activeElement !== zoomInput) zoomInput.value = `${Number((ed.view.zoom * 100).toFixed(2))}%`;
