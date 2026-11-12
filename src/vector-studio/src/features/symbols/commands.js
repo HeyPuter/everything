@@ -13,7 +13,7 @@ import { enterSymbolEdit, exitSymbolEdit, editingSymbol } from './editing.js';
 import { symbolOptionsDialog, deleteInUseDialog, registrationCode } from './dialogs.js';
 import { currentSymbol, selectedSymbols, setSymbolSelection } from './state.js';
 
-const NESTED_ITSELF = 'A symbol cannot be placed inside itself.';
+export const NESTED_ITSELF = 'A symbol cannot be placed inside itself.';
 
 /** Instances in the selection, including those inside selected symbol sets. */
 export function selectedInstances(editor, { sets = true } = {}) {

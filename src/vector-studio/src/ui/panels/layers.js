@@ -18,6 +18,8 @@ import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
 import { addLayerAbove, insertLayer, layerPicks, templatePrevOf } from '../../ops/layer-ops.js';
 import { layerObjects } from '../../ops/select-ops.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
+import { isUserError } from '../../lib/errors.js';
 
 const thumbCache = new WeakMap();
 
@@ -464,13 +466,25 @@ export class LayersPanel extends Panel {
     const doc = this.app.editor.doc;
     const ids = doc.sortByPaintOrder((Array.isArray(dragIds) ? dragIds : [dragIds]).filter((id) => doc.get(id) && id !== target.id && !doc.isAncestor(id, target.id)));
     if (!ids.length) return;
-    doc.transact('Reorder', () => {
-      // The backmost item goes where it was dropped, each next one right above the previous.
-      let prev = null;
-      for (const id of ids) {
-        if (this.#dropOne(id, prev ? doc.get(prev) : target, prev ? 'above' : zone)) prev = id;
-      }
-    });
+    try {
+      doc.transact('Reorder', () => {
+        // The backmost item goes where it was dropped, each next one right above the previous.
+        let prev = null;
+        for (const id of ids) {
+          if (this.#dropOne(id, prev ? doc.get(prev) : target, prev ? 'above' : zone)) prev = id;
+        }
+        // Features may refuse a new place, as for pasting (e.g. a symbol into its own master).
+        const checks = clipboardHooks.filter((hk) => hk.check);
+        for (const id of checks.length ? ids : []) {
+          const n = doc.get(id);
+          const item = { root: id, nodes: [n, ...doc.descendants(id)] };
+          for (const hk of checks) hk.check(doc, [item], n.parent);
+        }
+      });
+    } catch (err) {
+      if (!isUserError(err)) throw err;
+      this.app.notify(err.message, { error: true });
+    }
   }
 
   #dropOne(dragId, target, zone) {

@@ -15,12 +15,13 @@ import { deleteSelection, selectedSegment, selectedSegmentHits } from './object-
 export const clipboard = { data: null };
 
 /**
- * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), targetLayer(doc, data, item), placed(doc, idMap) }].
+ * Feature hooks: [{ copy(doc, ids, data), paste(doc, data, items), check(doc, items, parentId), targetLayer(doc, data, item), placed(doc, idMap) }].
  * copy() can add what the copied objects need to the clipboard data (e.g.
  * the brush or symbol definitions they use); paste() runs inside the Paste
  * transaction, before the objects arrive, to bring that into the target
  * document, and may return the items to insert instead (e.g. with symbol
- * references renamed). targetLayer() may name the layer an item pastes
+ * references renamed). check() may throw a UserError to refuse pasting the
+ * items into parentId (e.g. a symbol into its own master). targetLayer() may name the layer an item pastes
  * into (Paste Remembers Layers); null keeps the usual target. placed() runs
  * after each placement of the items with every copied id -> new id, to
  * relink references between pasted objects (e.g. threaded text).
@@ -167,6 +168,7 @@ export function paste(editor, mode = 'center') {
     if (target.clip && target.children.length && index >= target.children.length) index = target.children.length - 1;
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
+    for (const hk of clipboardHooks) hk.check?.(doc, items, parentId);
     const placeOnce = (dx, dy) => {
       const ids = [];
       const idMap = new Map();

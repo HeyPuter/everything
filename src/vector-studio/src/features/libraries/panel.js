@@ -6,6 +6,7 @@
  * Libraries are kept per user, not per document.
  */
 import { h } from '../../lib/dom.js';
+import { isUserError } from '../../lib/errors.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton, paintSwatch } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
@@ -88,6 +89,7 @@ export function placeGraphic(app, data, point = null) {
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
     const { parentId, index } = ed.drawTarget();
+    for (const hk of clipboardHooks) hk.check?.(doc, items, parentId);
     const idMap = new Map();
     for (const [i, sub] of items.entries()) ids.push(doc.importSubtree(sub, parentId, index + i, idMap).id);
     for (const hk of clipboardHooks) hk.placed?.(doc, idMap);
@@ -118,7 +120,14 @@ export function useItem(app, item, opts = {}) {
       applyParaStyle(app, item.data.para, { label: 'Apply Paragraph Style' });
       return true;
     case 'graphic':
-      return placeGraphic(app, item.data, opts.point).length > 0;
+      try {
+        return placeGraphic(app, item.data, opts.point).length > 0;
+      } catch (err) {
+        // e.g. a symbol instance dropped into that symbol's own master.
+        if (!isUserError(err)) throw err;
+        app.notify(err.message, { error: true });
+        return false;
+      }
     case 'text':
       if (app.placeText) app.placeText(item.data.text);
       else navigator.clipboard?.writeText?.(item.data.text);
