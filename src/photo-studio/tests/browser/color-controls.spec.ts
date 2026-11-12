@@ -80,3 +80,17 @@ test('changing the Duotone type keeps the keyboard focus on the Type field', asy
   await page.keyboard.press('Escape');
   await expect(page.locator('.duotone-dialog')).toHaveCount(0);
 });
+
+test('double-clicking a channel opens Channel Options and renames it', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.runCommand('window.panel.channels'));
+  await page.evaluate(() => window.photoStudio.runCommand('channel.new'));
+  const row = page.locator('[data-panel="channels"] .channel-row', { hasText: 'Alpha 1' });
+  // The first click selects (and redraws the panel); the second used to be lost.
+  await row.locator('.channel-name').dblclick();
+  await expect(page.locator('#dialog[open] input[name=name]')).toHaveValue('Alpha 1');
+  await page.locator('#dialog[open] input[name=name]').fill('Sky');
+  await page.locator('#dialog[open] button[type=submit]').click();
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.channels?.map((c) => c.name))).toEqual(['Sky']);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.undo'));
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.channels?.map((c) => c.name))).toEqual(['Alpha 1']);
+});

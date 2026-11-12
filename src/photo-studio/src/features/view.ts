@@ -74,20 +74,10 @@ const channelsPanel: Panel = {
       }
       e.settings.activeChannel = id;
       e.dock.update();
-    });
-    el.addEventListener('dblclick', async (ev) => {
-      const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-channel]');
-      const ch = e.doc.channels?.find((c) => c.id === row?.dataset.channel);
-      if (!ch) return;
-      // Ink channels also choose the color they print in.
-      const v = await formDialog('Channel Options', [{ name: 'name', label: 'Name', value: ch.name }, ...(ch.spot ? [{ name: 'color', label: 'Ink color', value: ch.color ?? '#000000', type: 'color' }] : [])], 'OK');
-      if (v)
-        e.command('Channel Options', (d) => {
-          const c = d.channels!.find((c) => c.id === ch.id)!;
-          c.name = v.name;
-          if (c.spot && /^#[0-9a-f]{6}$/i.test(v.color ?? '')) c.color = v.color.toLowerCase();
-          syncMultichannel(e.assets.tiles, d);
-        });
+      // A double-click opens Channel Options. The first click redraws the
+      // panel, so the second lands on a new row: count clicks instead of
+      // listening for dblclick on the old one.
+      if (ev.detail === 2) void channelOptions(e, id);
     });
   },
   update: (e, el) => {
@@ -115,8 +105,21 @@ const channelsPanel: Panel = {
     const quick = e.settings.quickMask ? `<div class="channel-row selected quick-mask-row"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb"></span><span class="channel-name"><i>Quick Mask</i></span></div>` : '';
     el.innerHTML = `<div class="channel-list">${rows}${alpha}${quick}${composite}</div><div class="layer-footer"><button data-command="select.load-active-channel" title="Load channel as selection" aria-label="Load channel as selection">${svg('circle-dashed', 16)}</button><button data-command="select.save" title="Save selection as channel" aria-label="Save selection as channel">${svg('mask-add', 16)}</button><button data-command="channel.new" title="Create new channel" aria-label="New channel">${svg('plus', 16)}</button><button data-command="channel.delete" title="Delete channel" aria-label="Delete channel">${svg('trash-2', 16)}</button></div>`;
   },
-  menu: () => ['channel.new', 'channel.duplicate', 'channel.delete', '-', 'select.save', 'select.load'],
+  menu: () => ['channel.new', 'channel.duplicate', 'channel.delete', 'channel.options', '-', 'select.save', 'select.load'],
 };
+/** Rename an alpha or ink channel (ink channels also choose their color). */
+async function channelOptions(e: Editor, id: string) {
+  const ch = e.doc.channels?.find((c) => c.id === id);
+  if (!ch) return;
+  const v = await formDialog('Channel Options', [{ name: 'name', label: 'Name', value: ch.name }, ...(ch.spot ? [{ name: 'color', label: 'Ink color', value: ch.color ?? '#000000', type: 'color' }] : [])], 'OK');
+  if (!v || !e.doc.channels?.some((c) => c.id === id)) return;
+  e.command('Channel Options', (d) => {
+    const c = d.channels!.find((c) => c.id === id)!;
+    c.name = v.name.trim() || c.name;
+    if (c.spot && /^#[0-9a-f]{6}$/i.test(v.color ?? '')) c.color = v.color.toLowerCase();
+    syncMultichannel(e.assets.tiles, d);
+  });
+}
 async function loadChannel(e: Editor, id: string, op: ReturnType<typeof selectionOp>) {
   const doc = e.doc;
   const area = canvasRect(doc);
@@ -326,6 +329,12 @@ export function installView(e: Editor) {
           syncMultichannel(e.assets.tiles, d);
         });
       },
+    },
+    {
+      id: 'channel.options',
+      label: 'Channel Options…',
+      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
+      run: (e) => channelOptions(e, e.settings.activeChannel as string),
     },
     {
       id: 'channel.delete',
