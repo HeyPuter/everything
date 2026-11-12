@@ -6,14 +6,16 @@ import { assertEditable } from '../../model/layers';
 import { carryMask, setLayerPixels, setLivePixels, setPixelResampleMethod } from '../../model/pixel-layer';
 import { transformVideo } from '../../model/video-layer';
 import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, TILE, writeRect, parseKey, type TileGrid, type TileStore } from '../../model/tiles';
-import { applySelection, selectionGrid } from '../../model/selection';
+import { applySelection, maskGrid, selectionGrid } from '../../model/selection';
+import { layerLock } from '../../model/locks';
+import { dropFloat, liftSelection } from './float';
 import { normalizeAngle, selectionFrame } from '../../model/transform';
 import { settingsDialog } from '../action-settings';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { applyMat3, type Mat3 } from '../../imaging/filters/warp';
 import { remapCompPositions } from '../../model/layer-comps';
 import { mapMaskPoints } from '../../model/paths';
-import { layerRGBA, legacyMaskToGrid } from '../pixels';
+import { hexRgb, layerRGBA, legacyMaskToGrid } from '../pixels';
 import { hasMask } from '../../model/masks';
 import {
   about,
@@ -350,14 +352,45 @@ export async function transformAgain(e: Editor) {
     e.message('Select layers to transform.');
     return;
   }
+  const store = e.assets.tiles;
+  const method = samplerInterp(e.settings.transformInterpolation as string);
+  // With a selection, the selected pixels of a single pixel layer are
+  // transformed again, as Free Transform does (a pixel edit, so a locked
+  // position does not prevent it).
+  const only = roots.length === 1 ? roots[0] : undefined;
+  if (only?.kind === 'pixel' && only.pixels && (e.doc.selection || e.doc.selectionMask)) {
+    if (layerLock(e.doc.layers, only.id, 'pixels')) {
+      e.message('Unlock the layer before transforming it.');
+      return;
+    }
+    const f = liftSelection(e.doc, store, only, { preserveAlpha: !!only.background || layerLock(e.doc.layers, only.id, 'transparency'), background: hexRgb(e.background) });
+    if (f === null) {
+      e.message('The selected area is empty. Select some of the layer’s pixels to transform them.');
+      return;
+    }
+    if (f) {
+      const quad = mapQuad(t.matrix, rectQuad(f.rect));
+      const mesh = t.unitMesh ? meshFromUnit(t.unitMesh, f.rect, quad) : undefined;
+      const render = (img: RGBA8) => renderFrame(img, f.rect, quad, mesh, { method, exact: true, doc: e.doc });
+      const r = render(f.image);
+      const grid = dropFloat(store, f, r?.image, r?.rect.x ?? 0, r?.rect.y ?? 0);
+      const shape = render(rgbaFromMask(f.selection));
+      const selection = shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
+      e.command('Transform Again', (d) => {
+        const l = findLayer(d.layers, only.id);
+        if (!l) return;
+        setLayerPixels(l, grid, d);
+        applySelection(d, selection);
+      });
+      return;
+    }
+  }
   try {
     assertEditable(e.doc, roots, 'position');
   } catch (error) {
     e.message((error as Error).message);
     return;
   }
-  const store = e.assets.tiles;
-  const method = samplerInterp(e.settings.transformInterpolation as string);
   const affine = isAffine(t.matrix);
   const params = affine ? paramsFromAffine(t.matrix, { x: 0, y: 0, width: 1, height: 1 }, { x: 0, y: 0 }) : undefined;
   const similar = !!params && !t.unitMesh && Math.abs(params.skewX) < 1e-6 && Math.abs(Math.abs(params.sx) - Math.abs(params.sy)) < 1e-6 && params.sy > 0;
