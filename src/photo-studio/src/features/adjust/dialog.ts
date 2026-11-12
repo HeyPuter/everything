@@ -9,7 +9,7 @@
 // layers already inside a clipping group and non-LUT operations preview the
 // exact CPU result instead.
 import type { Editor } from '../../editor';
-import { ADJUSTMENT_LABELS, defaultParams, histograms, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
+import { ADJUSTMENT_LABELS, defaultParams, histograms, isSpatialKind, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
 import type { IRect, OperationContext, ParamSpec, ParamValues, RGBA8 } from '../../imaging/types';
 import { allLayers, findLayer, layer, type Layer, type PhotoDocument } from '../../model/document';
 import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
@@ -207,7 +207,11 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   if (!src) return e.message('The layer is empty.');
   const label = ADJUSTMENT_LABELS[kind];
   const shell = openShell(e, label, { wide: kind === 'curves' || kind === 'levels' || kind === 'hue-saturation' || kind === 'gradient-map' });
-  const gpu = target.kind === 'pixels' && !target.layer.clipped;
+  // Clarity & Dehaze and Grain read neighboring pixels: clipped to a masked
+  // layer, the GPU would see the hidden part as transparent while OK adjusts
+  // the pixels under the mask too, so those preview the CPU result.
+  const masked = target.kind === 'pixels' && !!target.layer.maskGrid && !target.layer.maskDisabled;
+  const gpu = target.kind === 'pixels' && !target.layer.clipped && !(masked && isSpatialKind(kind));
   const schedule = latest();
   const source = sourceFor(src);
   const host: AdjustHost<K> = {

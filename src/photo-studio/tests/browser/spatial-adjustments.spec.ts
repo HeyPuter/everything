@@ -166,3 +166,48 @@ for (const backend of ['default', 'WebGL'] as Backend[]) {
     expect(result.max).toBeLessThan(2e-3);
   });
 }
+
+test('the Clarity & Dehaze dialog previews a masked layer as OK applies it', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    const c = new OffscreenCanvas(64, 48);
+    const g = c.getContext('2d')!;
+    const gr = g.createLinearGradient(0, 0, 64, 0);
+    gr.addColorStop(0, '#ff0000');
+    gr.addColorStop(0.5, '#00ff00');
+    gr.addColorStop(1, '#0000ff');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 64, 48);
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, await c.convertToBlob({ type: 'image/png' }), 'masked.png');
+  });
+  await idle(page);
+  // A layer mask that shows only part of the layer.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    e.command('Add Mask', (d) => (d.layers[0].maskGrid = filledMask(e.assets.tiles, { x: 10, y: 10, width: 30, height: 20 })));
+    const { adjustmentDialog } = await import('/src/features/adjust/dialog.ts');
+    void adjustmentDialog(e, 'clarity-dehaze', { clarity: 50, dehaze: 30 });
+  });
+  const dialog = page.locator('dialog.adj-dialog[open]');
+  await expect(dialog).toBeVisible();
+  // The document on screen (the preview while the dialog is open), or the stored one.
+  const pixels = async (shown: boolean) =>
+    page.evaluate(async (shown) => {
+      const e = window.photoStudio as unknown as { lastDoc?: unknown; doc: unknown; renderer: { settle(): Promise<void> } };
+      await e.renderer.settle();
+      const { compositeRGBA } = await import('/src/features/pixels.ts');
+      return Array.from((await compositeRGBA(window.photoStudio, (shown ? (e.lastDoc ?? e.doc) : e.doc) as never)).data);
+    }, shown);
+  const original = (await pixels(false)).join();
+  await expect.poll(async () => (await pixels(true)).join() !== original).toBe(true);
+  const preview = await pixels(true);
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('dialog.adj-dialog[open]')).toHaveCount(0);
+  await idle(page);
+  const applied = await pixels(true);
+  let max = 0;
+  for (let i = 0; i < applied.length; i++) max = Math.max(max, Math.abs(applied[i] - preview[i]));
+  expect(max).toBeLessThanOrEqual(2);
+});
