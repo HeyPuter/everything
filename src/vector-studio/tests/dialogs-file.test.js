@@ -179,6 +179,15 @@ describe('SVG export styling and ids', () => {
     expect(css).toContain('<style>');
   });
 
+  it('gives type sizes a unit in styles, where a bare number is invalid CSS', async () => {
+    const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text font-family="serif" font-size="20" letter-spacing="1.5" stroke-width="2">A<tspan font-size="12.5px" letter-spacing="0">b</tspan></text></svg>';
+    const css = applySvgOptions(svg, { styling: 'css' });
+    expect(css).toContain('{stroke-width:2;font-family:serif;font-size:20px;letter-spacing:1.5px}');
+    expect(css).toContain('{font-size:12.5px;letter-spacing:0}');
+    expect(applySvgOptions(svg, { styling: 'inline' })).toContain('style="stroke-width:2;font-family:serif;font-size:20px;letter-spacing:1.5px"');
+  });
+
   it('keeps only referenced ids, or gives every object one', async () => {
     const { applySvgOptions } = await import('../src/features/io/svg-styling.js');
     const minimal = applySvgOptions(SVG, { objectIds: 'minimal' });
