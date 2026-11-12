@@ -57,9 +57,19 @@ function hitShape(doc, node, x, y, tol, outline, fillOnly) {
   const rule = node.fillRule || 'nonzero';
   if (filled && ctx.isPointInPath(path, x, y, rule)) return true;
   if (fillOnly) return false;
-  ctx.lineWidth = Math.max(outline ? 0 : node.stroke ? node.strokeWidth || 0 : 0, tol * 2);
+  const w = outline || !node.stroke ? 0 : node.strokeWidth || 0;
   ctx.lineJoin = node.strokeJoin || 'miter';
   ctx.lineCap = node.strokeCap || 'butt';
+  // A stroke aligned inside or outside a closed shape covers a full width on one side of the path.
+  const align = w > tol * 2 && (node.type === 'compound' || node.closed) ? node.strokeAlign : null;
+  if (align === 'inside' || align === 'outside') {
+    ctx.lineWidth = tol * 2;
+    if (ctx.isPointInStroke(path, x, y)) return true;
+    ctx.lineWidth = w * 2;
+    const inside = ctx.isPointInPath(path, x, y, rule);
+    return inside === (align === 'inside') && ctx.isPointInStroke(path, x, y);
+  }
+  ctx.lineWidth = Math.max(w, tol * 2);
   return ctx.isPointInStroke(path, x, y);
 }
 
