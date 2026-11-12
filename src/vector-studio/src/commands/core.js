@@ -27,6 +27,29 @@ const canMatchSame = (app) => {
     return false;
   });
 };
+/** Release Clipping Mask needs a selected clipping group, or an object inside one. */
+const canReleaseClip = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canReleaseClip', () =>
+    e.topSelection().some((id) => {
+      for (let n = e.doc.get(id); n; n = n.parent ? e.doc.get(n.parent) : null) {
+        if (n.type === 'group' && n.clip) return true;
+      }
+      return false;
+    }),
+  );
+};
+/** Make Compound Path needs a path among the selected objects (or inside selected groups). */
+const canMakeCompound = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  const hasPath = (n) =>
+    n?.type === 'path' ||
+    (n?.type === 'compound' && n.children.length > 0) ||
+    (n?.type === 'group' && n.children.some((c) => hasPath(e.doc.get(c))));
+  return e.memo('canMakeCompound', () => e.topSelection().some((id) => hasPath(e.doc.get(id))));
+};
 /** Join acts on the open paths among the selected objects. */
 const canJoin = (app) => {
   const e = app.editor;
@@ -228,8 +251,20 @@ export function registerCoreCommands(app) {
     { id: 'object.hide', label: 'Hide Selection', shortcut: 'Mod+3', enabled: hasSel, run: () => O.hideSelection(ed()) },
     { id: 'object.showAll', label: 'Show All', shortcut: 'Alt+Mod+3', enabled: hasDoc, run: () => O.showAll(ed()) },
     { id: 'object.clipMake', label: 'Make', shortcut: 'Mod+7', enabled: selCount(2), run: () => O.makeClipMask(ed()) },
-    { id: 'object.clipRelease', label: 'Release', shortcut: 'Alt+Mod+7', enabled: hasSel, run: () => O.releaseClipMask(ed()) },
-    { id: 'object.compoundMake', label: 'Make', shortcut: 'Mod+8', enabled: hasSel, run: () => O.makeCompound(ed()) },
+    {
+      id: 'object.clipRelease',
+      label: 'Release',
+      shortcut: 'Alt+Mod+7',
+      enabled: canReleaseClip,
+      run: () => O.releaseClipMask(ed()),
+    },
+    {
+      id: 'object.compoundMake',
+      label: 'Make',
+      shortcut: 'Mod+8',
+      enabled: canMakeCompound,
+      run: () => O.makeCompound(ed()),
+    },
     { id: 'object.compoundRelease', label: 'Release', shortcut: 'Alt+Shift+Mod+8', enabled: selHas((n) => n.type === 'compound'), run: () => O.releaseCompound(ed()) },
     {
       id: 'path.join',

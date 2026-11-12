@@ -4,6 +4,8 @@ import { installCanvasStub, bootAppWithFeatures } from './helpers.js';
 import { createPath, createText } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { anchor } from '../src/model/bezier.js';
+import { CONTEXT_MENU } from '../src/ui/menus.js';
+import { resolveItems, applicableItems } from '../src/ui/menubar.js';
 import { DEFAULT_GRAPHIC_STYLES } from '../src/features/paint/graphic-styles.js';
 
 beforeAll(() => installCanvasStub());
@@ -147,5 +149,45 @@ describe('Select menu', () => {
     app.editor.select([t]);
     expect(on('select.globalEdit')).toBe(false);
     expect(on('select.same.shapesText')).toBe(true);
+  });
+});
+
+describe('Clipping masks and compound paths', () => {
+  it('Release Clipping Mask needs a clipping group; Make Compound Path needs a path', async () => {
+    const a = rect(10);
+    const b = rect(100);
+    const t = add(createText('Hi', 10, 100));
+    app.editor.select([a]);
+    expect(on('object.clipRelease')).toBe(false);
+    expect(on('object.compoundMake')).toBe(true);
+    app.editor.select([t]);
+    expect(on('object.compoundMake')).toBe(false);
+    // The canvas context menu leaves out what does not apply to a lone rectangle.
+    app.editor.select([a]);
+    const ids = [];
+    const walk = (items) => {
+      for (const i of items) {
+        if (i.id) ids.push(i.id);
+        if (i.items) walk(i.items);
+      }
+    };
+    walk(applicableItems(resolveItems(app, CONTEXT_MENU)));
+    for (const id of ['object.clipRelease', 'path.join', 'path.averageJoin'])
+      expect(ids).not.toContain(id);
+    expect(ids).toContain('object.compoundMake');
+    app.editor.select([a, b]);
+    await app.commands.run('object.clipMake');
+    const clip = [...app.editor.selection][0];
+    expect(doc.get(clip).clip).toBe(true);
+    expect(on('object.clipRelease')).toBe(true);
+    // An object inside the clipping group (picked with Direct Selection) releases it too.
+    app.editor.select([b]);
+    expect(on('object.clipRelease')).toBe(true);
+    await app.commands.run('object.clipRelease');
+    expect(doc.has(clip)).toBe(false);
+    // A group of type objects has no path for a compound path.
+    app.editor.select([t, add(createText('Yo', 10, 200))]);
+    await app.commands.run('object.group');
+    expect(on('object.compoundMake')).toBe(false);
   });
 });
