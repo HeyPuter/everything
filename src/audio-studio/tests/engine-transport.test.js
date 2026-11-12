@@ -129,6 +129,33 @@ describe('engine transport', () => {
     expect(sent.map((m) => m.type)).toContain('stop');
   });
 
+  it('resumes an interrupted context and replaces a closed one before playing', async () => {
+    const { e } = fakeEngine();
+    e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    // Safari interrupts audio for a phone call or another app.
+    e.ctx.state = 'interrupted';
+    e.ctx.resume = vi.fn(async () => (e.ctx.state = 'running'));
+    await e.play({ from: 0 });
+    expect(e.ctx.resume).toHaveBeenCalled();
+    e.stop();
+    const made = [];
+    vi.stubGlobal('AudioContext', function () {
+      const ctx = { currentTime: 0, sampleRate: 48000, state: 'running', audioWorklet: { addModule: async () => {} }, destination: {}, resume: async () => {} };
+      made.push(ctx);
+      return ctx;
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      return { port: { postMessage() {} }, connect() {}, disconnect() {} };
+    });
+    e.ctx.state = 'closed';
+    e.ctx.close = async () => {};
+    await e.play({ from: 0 });
+    expect(made.length).toBe(1);
+    expect(e.ctx).toBe(made[0]);
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
   it('applies a latency mode chosen during playback once playback stops', async () => {
     const { e } = fakeEngine();
     const made = [];

@@ -77,8 +77,10 @@ export class Engine extends Emitter {
   async ensure(rate = this.rate) {
     // A new latency mode recreates the context, but never in the middle of playback.
     const restart = this.hintChanged && this.state !== 'playing';
-    if (this.ctx && this.requestedRate === rate && this.node && !restart) {
-      if (this.ctx.state === 'suspended') await this.ctx.resume();
+    // A context the browser closed is replaced; a suspended or interrupted one
+    // (Safari pauses audio for calls and other apps) resumes.
+    if (this.ctx && this.ctx.state !== 'closed' && this.requestedRate === rate && this.node && !restart) {
+      if (this.ctx.state !== 'running') await this.ctx.resume();
       return this.ctx;
     }
     if (this.contextPromise) {
