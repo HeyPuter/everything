@@ -3,6 +3,7 @@
 
 import type { Feature, Id, SkDimension } from '../model/types';
 import { isDimension } from '../model/types';
+import { consumedSketches } from '../model/features';
 import { VIEWS, type ViewName } from '../render/camera';
 import type { DisplayStyle } from '../render/renderer';
 import { UNIT_SYSTEMS } from '../model/units';
@@ -476,8 +477,11 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
     const f = app.store.feature(id)!;
     const idx = app.store.indexOf(id);
     const ids = app.tree.targets(id);
+    // The sketches a feature was built from stay editable from the feature itself.
+    const used = sketchesOf(app, f);
     return [
       f.type === 'sketch' ? { label: 'Edit Sketch', icon: 'sketch', run: () => app.editSketch(id) } : { label: 'Edit Feature', icon: 'edit', run: () => app.editFeature(id) },
+      ...used.map((sk): MenuItem => ({ label: used.length === 1 ? 'Edit Sketch' : `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) })),
       { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.tree.startRename(id) },
       sep,
       ...(f.type === 'sketch' || f.type === 'plane' ? [{ label: f.hidden ? 'Show' : 'Hide', icon: f.hidden ? 'eye' : 'eyeOff', run: () => app.toggleHidden([id]) } as MenuItem] : []),
@@ -497,8 +501,7 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
     if (sel.kind === 'face') {
       const owner = app.store.feature(app.faces[sel.index]?.feature ?? '');
       if (owner) items.push({ label: `Edit ${owner.name}`, icon: 'edit', run: () => app.editFeature(owner.id) });
-      const sk = owner && 'sketch' in owner ? app.store.feature((owner as { sketch: Id }).sketch) : null;
-      if (sk) items.push({ label: `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) });
+      if (owner) for (const sk of sketchesOf(app, owner)) items.push({ label: `Edit ${sk.name}`, icon: 'sketch', run: () => app.editSketch(sk.id) });
       items.push(m('fillet'), m('chamfer'), m('shell'), m('measure'), sep);
     }
     if (sel.kind === 'edge') items.push(m('fillet'), m('chamfer'), m('measure'), sep);
@@ -506,6 +509,16 @@ export function contextItems(app: App, target: 'viewport' | 'feature' | 'referen
   items.push(m('zoomFit'), { label: 'View Orientation', icon: 'viewOrientation', submenu: () => app.viewMenuItems() }, { label: 'Display Style', icon: 'shadedEdges', submenu: () => app.displayMenuItems() });
   if (target === 'reference') items.unshift({ label: 'Show/Hide Planes', icon: 'plane', run: () => c.run('showPlanes') }, sep);
   return items;
+}
+
+/** The sketches a feature consumes (profile, path, hole centres), in order, without repeats. */
+function sketchesOf(app: App, f: Feature): Feature[] {
+  const out: Feature[] = [];
+  for (const sid of consumedSketches(f)) {
+    const sk = app.store.feature(sid);
+    if (sk && sk.type === 'sketch' && !out.includes(sk)) out.push(sk);
+  }
+  return out;
 }
 
 export function quickActions(app: App): { cmd: string }[] {

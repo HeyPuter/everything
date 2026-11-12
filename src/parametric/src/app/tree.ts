@@ -66,7 +66,8 @@ export class FeatureTree {
       const kids = consumedSketches(f).map((id) => doc.features.find((x) => x.id === id)).filter((x): x is Feature => !!x && x.type === 'sketch' && doc.features.indexOf(x) < doc.features.indexOf(f));
       const expanded = this.expanded.has(f.id);
       rows.push({ key: f.id, item: { kind: 'feature', id: f.id }, label: f.name, icon: featureIcon(f), depth: 1, feature: f, children: kids.length > 0, expanded });
-      if (expanded) for (const k of kids) rows.push({ key: k.id, item: { kind: 'feature', id: k.id }, label: k.name, icon: featureIcon(k), depth: 2, feature: k });
+      // A filter also searches the sketches nested under collapsed features.
+      if (expanded || this.filter) for (const k of kids) rows.push({ key: k.id, item: { kind: 'feature', id: k.id }, label: k.name, icon: featureIcon(k), depth: 2, feature: k });
     }
     if (!this.filter) return rows;
     return rows.filter((r) => r.depth === 0 || r.label.toLowerCase().includes(this.filter));
@@ -109,7 +110,7 @@ export class FeatureTree {
         style: { paddingLeft: `${4 + r.depth * 14}px` },
       });
       // Expansion is announced through aria-expanded and done with the arrow keys.
-      const twisty = h('span', { class: 'twisty', 'aria-hidden': 'true' }, r.children ? icon(r.expanded ? 'chevronDown' : 'chevronRight', 12) : null);
+      const twisty = h('span', { class: r.children ? 'twisty' : 'twisty empty', 'aria-hidden': 'true' }, r.children ? icon(r.expanded ? 'chevronDown' : 'chevronRight', 12) : null);
       twisty.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(r.key); });
       el.append(twisty, icon(r.icon, 16));
       if (this.renaming && this.renaming === f?.id) el.append(this.renameInput(f));

@@ -284,7 +284,7 @@ a.icon-btn { text-decoration: none; }
 .ti[aria-selected='true'] { background: var(--accent-weak); border-color: var(--accent-border); }
 .ti:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 0; }
 .ti .twisty { width: 14px; height: 14px; display: grid; place-items: center; color: var(--text-3); flex: none; border: 0; background: none; padding: 0; }
-.ti .twisty[aria-hidden='true'] { visibility: hidden; }
+.ti .twisty.empty { visibility: hidden; }
 .ti .label { overflow: hidden; text-overflow: ellipsis; }
 .ti .label .muted { color: var(--text-3); }
 .ti:hover .label .muted { color: var(--text-2); }

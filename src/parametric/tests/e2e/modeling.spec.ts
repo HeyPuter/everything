@@ -131,6 +131,39 @@ test.describe('part modeling', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a sketch used by a feature stays reachable and editable from the design tree', async ({ page }) => {
+    const errors = await openApp(page);
+    await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+    await waitForFeature(page, 'Fillet1');
+    const extrude = page.getByRole('treeitem', { name: 'Extrude1', exact: true });
+    const sketch = page.getByRole('treeitem', { name: 'Sketch1', exact: true });
+    const exit = page.locator('.confirm-corner').getByRole('button', { name: 'Exit sketch' });
+    // The sketch is nested under its feature, behind a visible expand arrow.
+    await expect(sketch).toHaveCount(0);
+    await expect(extrude.locator('.twisty')).toBeVisible();
+    await expect(page.getByRole('treeitem', { name: 'Fillet1', exact: true }).locator('.twisty')).toBeHidden();
+    await extrude.locator('.twisty').click();
+    await expect(extrude).toHaveAttribute('aria-expanded', 'true');
+    await expect(sketch).toBeVisible();
+    // Edit Sketch works from the sketch row...
+    await sketch.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Edit Sketch', exact: true }).click();
+    await expect(exit).toBeVisible();
+    await exit.click();
+    await expect(exit).toHaveCount(0);
+    // ...and from the feature that uses it.
+    await extrude.locator('.twisty').click();
+    await expect(sketch).toHaveCount(0);
+    await extrude.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Edit Sketch', exact: true }).click();
+    await expect(exit).toBeVisible();
+    await exit.click();
+    // Filtering finds a sketch nested under a collapsed feature.
+    await page.getByRole('searchbox', { name: 'Filter the design tree' }).fill('sketch1');
+    await expect(sketch).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('suppressing a feature suppresses the features built on it', async ({ page }) => {
     const errors = await openApp(page);
     await page.getByRole('button', { name: /Mounting Bracket/ }).click();
