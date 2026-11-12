@@ -368,4 +368,22 @@ describe('type editing session', () => {
     expect(styleAt(n, 0).fontSize).toBe(13);
     expect(styleAt(n, 7).fontSize).toBe(41);
   });
+
+  it('type on a closed path starts where the path was clicked', async () => {
+    const { createPath } = await import('../src/model/nodes.js');
+    const { layoutText, glyphPlacements } = await import('../src/model/text-layout.js');
+    const pt = (x, y) => ({ x, y, ix: x, iy: y, ox: x, oy: y });
+    const sq = createPath([pt(100, 100), pt(300, 100), pt(300, 300), pt(100, 300)], true);
+    doc.transact('Add', () => doc.insert(sq, app.editor.targetLayer().id));
+    app.setTool('type-on-path');
+    const p = app.editor.view.toScreen(300, 200);
+    const ev = { x: 300, y: 200, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: {} };
+    app.tool.onPointerDown(ev);
+    app.tool.onPointerUp(ev);
+    const t = [...doc.nodes.values()].find((n) => n.type === 'text');
+    expect(t.pathOptions.start).toBeCloseTo(300);
+    // The first character sits on the right edge, where the click was.
+    const g = glyphPlacements(layoutText(t))[0];
+    expect(g.m[4]).toBeCloseTo(300, 0);
+  });
 });

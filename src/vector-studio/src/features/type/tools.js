@@ -407,7 +407,7 @@ export class TypeTool extends Tool {
     }
     if (mode === 'path' || mode === 'type') {
       const p = this.pathAt(e);
-      if (p) return this.pathTypeFrom(p);
+      if (p) return this.pathTypeFrom(p, e);
     }
     if (mode === 'area' || mode === 'path') {
       this.app.notify(mode === 'area' ? 'To use the Area Type tool, click a closed path.' : 'To use the Type on a Path tool, click a path.');
@@ -424,9 +424,18 @@ export class TypeTool extends Tool {
     this.createAndEdit(node, path.id);
   }
 
-  /** Put type along a path (the path becomes the type's baseline guide). */
-  pathTypeFrom(path) {
+  /**
+   * Put type along a path (the path becomes the type's baseline guide). On a
+   * closed path, which has no start of its own, the type starts where it was clicked.
+   */
+  pathTypeFrom(path, e = null) {
     const node = this.newTextNode(path.anchors[0].x, path.anchors[0].y, { kind: 'path', pathAnchors: path.anchors, pathClosed: path.closed, pathOptions: { effect: 'rainbow', align: 'baseline', start: 0 }, vertical: this.constructor.vertical || undefined });
+    if (e && path.closed) {
+      // Paths have no transform, so the click is already in the new type's local space.
+      const lay = layoutText(node);
+      const u = lay.path ? lay.path.project(e.x, e.y).u : 0;
+      if (Number.isFinite(u) && lay.path.length > 1) node.pathOptions.start = Math.max(0, Math.min(lay.path.length - 1, u));
+    }
     this.createAndEdit(node, path.id);
   }
 
