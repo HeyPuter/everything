@@ -15,7 +15,7 @@ import { paramControls as buildControls } from './param-ui.js';
 import { channelNames, defaultRoute, routeSummary, rememberRoute, recallRoute, sameRoute } from './routing.js';
 import { allPresets, savePreset, deletePreset, matchPreset, lastValues } from './presets.js';
 import { editorFor } from './displays.js';
-import { isRealtime } from './apply.js';
+import { isRealtime, latencyFrames } from './apply.js';
 
 const CUSTOM = '\u0000custom';
 
@@ -378,7 +378,14 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
 
   function pushPreview() {
     if (mode !== 'apply') return;
-    app.previewFx = previewing && realtime ? [slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route })] : null;
+    let spec = null;
+    if (previewing && realtime) {
+      spec = slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route });
+      // Its processing delay, which the file's playback graph compensates (decorateGraph).
+      const latency = doc ? latencyFrames(def, values, doc.sampleRate) : 0;
+      if (latency) spec.latency = latency;
+    }
+    app.previewFx = spec ? [spec] : null;
     app.syncGraph();
   }
   function startPlayback() {

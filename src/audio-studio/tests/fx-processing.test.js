@@ -552,9 +552,14 @@ describe('Effects Rack wet/dry mix with a latent effect', () => {
       tracks: [{ id: 't', gain: 1, pan: 0, clips: [{ ...clip }], ...specs }],
       master: { gain: 1 },
     });
-    for (const out of [file, track]) {
+    // The file's rack is latency-compensated (in time with the playhead); this track
+    // graph is not (compensateLatency is not run), so it plays its latency late.
+    for (const [out, delay] of [
+      [file, 0],
+      [track, lat],
+    ]) {
       let err = 0;
-      for (let i = lat + 1000; i < n; i++) err = Math.max(err, Math.abs(out[i] - x[i - lat]));
+      for (let i = lat + 1000; i < n; i++) err = Math.max(err, Math.abs(out[i] - x[i - delay]));
       expect(err).toBeLessThan(1e-4);
     }
   });
