@@ -716,3 +716,63 @@ describe('text export', () => {
     expect(out).toContain('fill="none" stroke="#ff0000"');
   });
 });
+
+describe('SVG masks with gray levels', () => {
+  it('import as opacity masks instead of being dropped', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+      <defs>
+        <linearGradient id="fade"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>
+        <mask id="m"><rect width="100" height="100" fill="url(#fade)"/></mask>
+        <mask id="t"><text x="10" y="50" font-size="30" fill="#fff">Hi</text></mask>
+        <mask id="a" style="mask-type:alpha"><rect width="100" height="100" fill="url(#fade)"/></mask>
+      </defs>
+      <rect width="100" height="100" fill="#ff0000" mask="url(#m)"/>
+      <g mask="url(#t)"><rect x="100" width="50" height="50" fill="#00ff00"/><rect x="150" width="50" height="50"/></g>
+      <rect y="50" width="10" height="10" fill="#0000ff" mask="url(#a)"/>
+    </svg>`);
+    const top = doc.layers()[0].children.map((id) => doc.get(id));
+    expect(top).toHaveLength(3);
+    const [red, pair, blue] = top;
+    expect(red.type).toBe('path');
+    expect(red.opacityMask).toMatchObject({ clip: true, invert: false, transform: [1, 0, 0, 1, 0, 0] });
+    const art = red.opacityMask.art;
+    expect(art.nodes[0].id).toBe(art.root);
+    expect(art.nodes.find((n) => n.type === 'path').fill.type).toBe('linear');
+    // The art lives only in the mask, not in the document tree.
+    for (const n of art.nodes) expect(doc.get(n.id)).toBeUndefined();
+    // Several masked objects are grouped; type in a mask is kept as type.
+    expect(pair.type).toBe('group');
+    expect(pair.children).toHaveLength(2);
+    expect(pair.opacityMask.art.nodes.some((n) => n.type === 'text')).toBe(true);
+    // Alpha masks have no equivalent and are still reported.
+    expect(blue.opacityMask).toBeUndefined();
+    expect(doc.importWarnings).toContain('Masks with transparency were ignored.');
+    expect(doc.importWarnings).not.toContain('Text used as a clipping path was approximated by its bounding box.');
+  });
+
+  it('round-trip the export\'s opacity masks with their clip and invert options', async () => {
+    const { installOpacityMasks } = await import('../src/features/paint/opacity-mask.js');
+    installOpacityMasks();
+    const doc = VDocument.create({ width: 200, height: 100 });
+    const layer = doc.layers()[0].id;
+    const add = (clip, invert, x) => {
+      const m = createPath(ellipse(x + 10, 10, 30, 30), true, { fill: { type: 'solid', color: '#808080' }, stroke: null });
+      const node = createPath(rectangle(x, 0, 50, 50), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null }, { opacityMask: { art: { root: m.id, nodes: [m] }, transform: [1, 0, 0, 1, 5, 0], clip, invert } });
+      doc.insert(node, layer);
+    };
+    doc.transact('Masks', () => {
+      add(false, false, 0);
+      add(true, true, 100);
+    });
+    const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 100 } });
+    const back = svgToDocument(svg);
+    // (The exported layer comes back as a group.)
+    const nodes = back.get(back.layers()[0].children[0]).children.map((id) => back.get(id));
+    expect(nodes.map((n) => [n.type, n.opacityMask.clip, n.opacityMask.invert])).toEqual([['path', false, false], ['path', true, true]]);
+    // The full-size backdrop is not part of the art; the art keeps its place (transform baked in).
+    const artPaths = nodes[0].opacityMask.art.nodes.filter((n) => n.type === 'path');
+    expect(artPaths).toHaveLength(1);
+    expect(pathBounds(artPaths[0].anchors, true).x).toBeCloseTo(15, 3);
+    expect(back.importWarnings).toEqual([]);
+  });
+});

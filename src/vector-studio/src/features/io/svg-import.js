@@ -8,8 +8,9 @@
  * and preserveAspectRatio, use/symbol/defs, presentation attributes, style
  * attributes and <style> rules, inherited paint and stroke properties,
  * currentColor, linear and radial gradients (units, transforms, href
- * inheritance), clipPath (to clip groups), simple masks (as clips), blur and
- * drop shadow filters (as effects), mix-blend-mode, text/tspan and images.
+ * inheritance), clipPath (to clip groups), masks (simple ones as clips, others
+ * as opacity masks), blur and drop shadow filters (as effects),
+ * mix-blend-mode, text/tspan and images.
  * Anything else is skipped and reported in `warnings`; malformed input never
  * throws past the top-level "not an SVG" error.
  */
@@ -37,7 +38,7 @@ const INHERITED = [
   'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'marker-start',
   'marker-mid', 'marker-end', 'vector-effect', 'white-space', 'xml:lang',
 ];
-const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin'];
+const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin', 'mask-type'];
 const PRESENTATION = [...INHERITED, ...NON_INHERITED.filter((p) => p !== 'transform')];
 const PRESENTATION_SET = new Set(PRESENTATION);
 
@@ -1257,8 +1258,8 @@ class Importer {
     const mk = id ? this.ids.get(id) : null;
     if (!mk || mk.localName !== 'mask') return ids;
     // Masks made of opaque white shapes map to a clip, and so does one white
-    // shape with black cut-outs on top (a hole); anything with gradients or
-    // gray levels is left out (content stays visible).
+    // shape with black cut-outs on top (a hole); anything with gradients,
+    // gray levels, type or images becomes an opacity mask.
     let simple = true;
     const order = [];
     const base = this.computeStyle(mk, ctx.style);
@@ -1277,6 +1278,11 @@ class Importer {
       return 'other';
     };
     const check = (el, st) => {
+      // Type and images in a mask make an opacity mask, not a clip.
+      if (el.localName === 'text' || el.localName === 'image') {
+        simple = false;
+        return false;
+      }
       if (!SHAPES.has(el.localName)) return true;
       const k = classify(st);
       if (k === 'other') simple = false;
@@ -1309,13 +1315,85 @@ class Importer {
         rule = 'evenodd';
       }
     }
-    if (!simple || !whites.length) {
-      this.warn('Masks with transparency were ignored.');
-      return ids;
-    }
+    if (!simple || !whites.length) return this.opacityMask(mk, T, base, ids, ctx);
     this.warn('Masks were converted to clipping paths.');
     const mask = this.maskNode(subpaths, rule);
     return this.clipGroup(ids, mask);
+  }
+
+  /**
+   * A mask with gray levels, gradients or images: the mask artwork becomes
+   * an opacity mask (luminance) on the masked object. Outside the mask art
+   * hides the object, as in SVG. The full-size backdrop and the invert
+   * filter the SVG export writes for its own opacity masks map back to the
+   * mask's clip and invert options.
+   */
+  opacityMask(mk, T, base, ids, ctx) {
+    const type = String(base['mask-type'] || '').trim();
+    this.maskStack ||= new Set();
+    if (type === 'alpha' || this.maskStack.has(mk)) {
+      this.warn('Masks with transparency were ignored.');
+      return ids;
+    }
+    let host = mk;
+    let invert = false;
+    const kids = [...mk.children].filter((c) => !NON_ART.has(c.localName));
+    if (kids.length === 1 && kids[0].localName === 'g' && kids[0].attributes.length === 1 && this.isInvertFilter(kids[0].getAttribute('filter'))) {
+      host = kids[0];
+      invert = true;
+    }
+    let clip = true;
+    let skip = null;
+    const first = [...host.children].find((c) => !NON_ART.has(c.localName));
+    if (first?.localName === 'rect' && Number(first.getAttribute('x')) <= -100000 && Number(first.getAttribute('y')) <= -100000 && Number(first.getAttribute('width')) >= 200000 && Number(first.getAttribute('height')) >= 200000) {
+      const c = parseColor(first.getAttribute('fill') || '');
+      if (c && c.alpha === 1 && /^#(000000|ffffff)$/i.test(c.hex)) {
+        clip = c.hex.toLowerCase() === '#000000';
+        skip = first;
+      }
+    }
+    let artIds = [];
+    this.maskStack.add(mk);
+    try {
+      const st = { ...base, display: 'inline' };
+      for (const child of host.children) if (child !== skip) artIds.push(...this.convert(child, { ...ctx, ctm: T, style: st }));
+    } finally {
+      this.maskStack.delete(mk);
+    }
+    if (!artIds.length) {
+      // Nothing in the mask: the object is hidden (or shown when outside counts as white).
+      return clip ? [] : ids;
+    }
+    const art = this.add(createGroup(artIds));
+    const list = [];
+    const take = (id, parent) => {
+      const n = this.nodes.get(id);
+      if (!n) return;
+      this.nodes.delete(id);
+      const out = { ...n, parent };
+      list.push(out);
+      for (const c of n.children || []) take(c, id);
+    };
+    take(art, undefined);
+    let target = ids.length === 1 ? this.nodes.get(ids[0]) : null;
+    // A plain group around one object (how the export writes a masked object) masks the object itself.
+    const only = target?.type === 'group' && target.children.length === 1 && !target.name && !target.clip && (target.opacity ?? 1) === 1 && !target.effects?.length && (!target.blendMode || target.blendMode === 'normal') ? this.nodes.get(target.children[0]) : null;
+    if (only && !only.opacityMask) {
+      this.nodes.delete(target.id);
+      target = only;
+    }
+    if (!target || target.opacityMask) target = this.nodes.get(this.add(createGroup(ids)));
+    this.nodes.set(target.id, { ...target, opacityMask: { art: { root: art, nodes: list }, transform: [1, 0, 0, 1, 0, 0], clip, invert } });
+    return [target.id];
+  }
+
+  /** The SVG export's invert filter for opacity masks (a 1 -> 0 table on the color channels). */
+  isInvertFilter(ref) {
+    const id = urlId(ref || '');
+    const f = id ? this.ids.get(id) : null;
+    if (f?.localName !== 'filter' || f.children.length !== 1 || f.children[0].localName !== 'feComponentTransfer') return false;
+    const funcs = [...f.children[0].children];
+    return funcs.length === 3 && funcs.every((fn) => /^feFunc[RGB]$/.test(fn.localName) && fn.getAttribute('type') === 'table' && parseNumberList(fn.getAttribute('tableValues')).join(' ') === '1 0');
   }
 
   filterEffects(ref, s) {
