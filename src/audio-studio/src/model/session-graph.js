@@ -263,7 +263,9 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         if (!key || !p) continue;
         const src = pool.get(c.sourceId);
         const srcLen = src.channels[0].length;
-        const clipFx = c.fx?.length ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
+        // 5.1 tracks in a 5.1 mix play their clips without clip chains (the mix core runs those on
+        // stereo tracks only), so they must not read ahead for the chain's latency either.
+        const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
         const timing = clipFx?.length ? rackTiming({ slots: c.fx }, state.sampleRate) : null;
         for (const [a, b] of p.parts) {
           for (const seg of sourceSegments(c, a, b, srcLen)) {

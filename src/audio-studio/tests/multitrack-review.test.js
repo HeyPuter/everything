@@ -742,3 +742,31 @@ describe('closing a session during a long command', () => {
     expect(app.documents).not.toContain(doc);
   });
 });
+
+describe('clip effect chains on 5.1 tracks', () => {
+  it('do not move the clip earlier for a latency that is never applied', async () => {
+    await import('../src/effects/catalog.js');
+    const doc = new Session({ name: 'S.asesx', sampleRate: RATE, tracks: 0, masterChannels: 6 });
+    const six = S.createTrack({ name: '5.1', channels: 6 });
+    const st = S.createTrack({ name: 'Stereo', channels: 2 });
+    const src = doc.addSource({
+      name: 'a.wav',
+      channels: Array.from({ length: 6 }, () =>
+        Channel.fromSamples(new Float32Array(RATE).fill(0.1)),
+      ),
+    });
+    const fx = [{ id: 'l', effect: 'hardLimiter', values: { lookahead: 5 }, enabled: true }];
+    const a = S.createClip({ trackId: six.id, sourceId: src, start: 10000, length: 5000, fx });
+    const b = S.createClip({ trackId: st.id, sourceId: src, start: 10000, length: 5000, fx });
+    const state = S.addClips(S.addTrack(S.addTrack(doc.state, six), st), [a, b]);
+    const { graph } = buildSessionGraph(state, doc.pool);
+    const [g6, g2] = graph.tracks;
+    expect(g6.six).toBe(true);
+    // The 5.1 track plays its clips without their chains (only stereo tracks run them), so on time.
+    expect(g6.clips[0].start).toBe(10000);
+    expect(g6.clips[0].offset).toBe(0);
+    // A stereo track runs the chain and reads ahead by its latency.
+    expect(g2.clips[0].fx.length).toBe(1);
+    expect(g2.clips[0].start).toBeLessThan(10000);
+  });
+});
