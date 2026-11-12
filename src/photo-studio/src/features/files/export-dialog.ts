@@ -73,7 +73,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
         <p class="export-note" data-show="prov-unsigned">This format gets the record only; signed manifests go into PNG and JPEG.</p>
       `)}</div>
       <div data-show="color">${sectionHtml('Color Space', `
-        ${check('convertSrgb', forced ? 'Convert to sRGB (required for this document)' : 'Convert to sRGB')}
+        ${check('convertSrgb', 'Convert to sRGB')}
         ${check('embedIcc', 'Embed color profile', 'icc')}
         <p class="export-note">${hasProfile ? 'The document has an embedded ICC profile.' : forced ? 'This 32-bit document uses linear sRGB.' : 'The document uses sRGB.'}</p>
       `)}</div>
@@ -109,8 +109,6 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     field<HTMLInputElement>('matte')!.value = /^#[0-9a-f]{6}$/i.test(s.matte) ? s.matte : '#ffffff';
     field<HTMLSelectElement>('resample')!.value = s.resample;
     field<HTMLSelectElement>('metadata')!.value = s.metadata;
-    field<HTMLInputElement>('convertSrgb')!.checked = forced || s.convertSrgb;
-    field<HTMLInputElement>('convertSrgb')!.disabled = forced || !hasProfile;
     field<HTMLInputElement>('embedIcc')!.checked = s.embedIcc;
     field<HTMLSelectElement>('provenance')!.value = provenance;
     syncSize();
@@ -124,8 +122,18 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     if (active !== field('canvasWidth')) field<HTMLInputElement>('canvasWidth')!.value = String(s.canvasWidth || w);
     if (active !== field('canvasHeight')) field<HTMLInputElement>('canvasHeight')!.value = String(s.canvasHeight || h);
   };
+  // Formats that cannot carry the profile are always converted (see convertsToSrgb).
+  const formatForces = (f: ExportFormat) => hasProfile && !formatInfo[f].icc;
+  const syncConvert = () => {
+    const box = field<HTMLInputElement>('convertSrgb')!;
+    const byFormat = formatForces(s.format);
+    box.checked = forced || byFormat || s.convertSrgb;
+    box.disabled = forced || byFormat || !hasProfile;
+    box.nextElementSibling!.textContent = forced ? 'Convert to sRGB (required for this document)' : byFormat ? 'Convert to sRGB (required for this format)' : 'Convert to sRGB';
+  };
   const visibility = () => {
     const info = formatInfo[s.format];
+    syncConvert();
     const tags = new Set<string>([s.format]);
     if (info.lossy) tags.add('lossy');
     if (info.alpha) tags.add('alpha');
@@ -142,6 +150,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     for (const o of dialog.querySelectorAll<HTMLOutputElement>('output[data-for]')) o.value = field<HTMLInputElement>(o.dataset.for!)!.value;
   };
   const read = (changed?: string) => {
+    const shownFormat = s.format;
     s.format = field<HTMLSelectElement>('format')!.value as ExportFormat;
     s.quality = Number(field<HTMLInputElement>('quality')!.value);
     s.transparency = field<HTMLInputElement>('transparency')!.checked;
@@ -153,7 +162,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     s.matte = field<HTMLInputElement>('matte')!.value;
     s.resample = field<HTMLSelectElement>('resample')!.value as ExportSettings['resample'];
     s.metadata = field<HTMLSelectElement>('metadata')!.value as ExportSettings['metadata'];
-    if (!forced && hasProfile) s.convertSrgb = field<HTMLInputElement>('convertSrgb')!.checked;
+    if (!forced && hasProfile && !formatForces(shownFormat)) s.convertSrgb = field<HTMLInputElement>('convertSrgb')!.checked;
     s.embedIcc = field<HTMLInputElement>('embedIcc')!.checked;
     provenance = field<HTMLSelectElement>('provenance')!.value as typeof provenance;
     const num = (name: string) => Number(field<HTMLInputElement>(name)!.value);
