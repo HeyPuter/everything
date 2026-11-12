@@ -256,7 +256,8 @@ export class FileService {
     // Every window showing the document now saves to this file.
     for (const ed of new Set([editor, ...this.app.editors])) if (ed.doc === doc) ed.file = file;
     doc.savedRevision = enc.rev;
-    doc.emit('saved');
+    // Version History keeps these bytes: exactly what was written.
+    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb });
     this.#remember(file, enc.thumb);
     this.recovery?.discard(editor);
     this.app.renderTabs();
