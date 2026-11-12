@@ -75,7 +75,9 @@ export class Engine extends Emitter {
 
   /** Creates (or re-creates at a new rate) the AudioContext. Must follow a user gesture. */
   async ensure(rate = this.rate) {
-    if (this.ctx && this.requestedRate === rate && this.node) {
+    // A new latency mode recreates the context, but never in the middle of playback.
+    const restart = this.hintChanged && this.state !== 'playing';
+    if (this.ctx && this.requestedRate === rate && this.node && !restart) {
       if (this.ctx.state === 'suspended') await this.ctx.resume();
       return this.ctx;
     }
@@ -113,6 +115,7 @@ export class Engine extends Emitter {
     }
     this.ctx = ctx;
     this.requestedRate = rate;
+    this.hintChanged = false;
     this.rate = ctx.sampleRate;
     await ctx.audioWorklet.addModule(mixerUrl);
     const node = new AudioWorkletNode(ctx, 'audio-studio-mixer', {
@@ -163,8 +166,8 @@ export class Engine extends Emitter {
   setLatencyHint(hint) {
     if (hint === this.latencyHint) return;
     this.latencyHint = hint;
-    // Recreated on the next ensure() (while stopped, so playback is not cut).
-    if (this.ctx && this.state !== 'playing') this.requestedRate = null;
+    // Recreated on the next ensure() while stopped, so playback is not cut.
+    if (this.ctx) this.hintChanged = true;
   }
 
   /** Maps the two mix channels onto device outputs, e.g. [1, 0] swaps left and right. */

@@ -117,6 +117,29 @@ describe('engine transport', () => {
     expect(store.sources.get('gone').size).toBe(0);
   });
 
+  it('applies a latency mode chosen during playback once playback stops', async () => {
+    const { e } = fakeEngine();
+    const made = [];
+    vi.stubGlobal('AudioContext', function (opts) {
+      made.push(opts.latencyHint);
+      return { ...e.ctx, audioWorklet: { addModule: async () => {} }, destination: {}, resume: async () => {} };
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      return { port: { postMessage() {} }, connect() {}, disconnect() {} };
+    });
+    e.ctx.close = async () => {};
+    e.state = 'playing';
+    e.setLatencyHint('playback');
+    await e.ensure(48000);
+    expect(made).toEqual([]); // not while playing
+    e.stop();
+    await e.ensure(48000);
+    expect(made).toEqual(['playback']);
+    await e.ensure(48000);
+    expect(made).toEqual(['playback']);
+    vi.unstubAllGlobals();
+  });
+
   it('refuses to play when the audio context could not run at the audio rate', async () => {
     const { e, sent } = fakeEngine();
     // The browser fell back to its device rate (48 kHz) for 384 kHz audio.
