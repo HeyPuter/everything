@@ -82,6 +82,27 @@ describe('Frequency Analysis panel', () => {
     expect(poolCall.mock.calls[0][0].frames).toBe(msg.frames);
   });
 
+  it('analyses a full window of audio at a playhead near either end of the file', async () => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    installAnalysis(app);
+    const panel = app.panels.get('frequency').create(app);
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.5))] });
+    app.addDocument(doc);
+    panel.show();
+    for (const at of [0, 100, RATE - 10]) {
+      poolCall.mockClear();
+      doc.setCursor(at);
+      await vi.advanceTimersByTimeAsync(300);
+      const msg = poolCall.mock.calls[0][0];
+      expect(msg.frames).toBe(1);
+      // No zero padding from before the start or after the end.
+      expect(msg.samples.every((v) => v === 0.5)).toBe(true);
+    }
+  });
+
   it('does no analysis while hidden and catches up when shown', async () => {
     vi.useFakeTimers();
     const { panel, doc } = setup();

@@ -187,7 +187,11 @@ export function frequencyPanel(app) {
       const frames = Math.max(1, Math.min(scanRange ? 256 : 128, Math.floor((sel.end - sel.start - fft) / (fft / 2)) + 1));
       const step = frames > 1 ? (sel.end - sel.start - fft) / (frames - 1) : 0;
       positions = Array.from({ length: frames }, (_, i) => Math.round(sel.start + i * step));
-    } else positions = [Math.round(doc.cursor - fft / 2)];
+    } else {
+      // Centred on the playhead, but kept inside the file: a window half off
+      // either end reads 6 dB low with a smeared spectrum.
+      positions = [Math.round(Math.max(0, Math.min(doc.length - fft, doc.cursor - fft / 2)))];
+    }
     const channels = doc.state.channels;
     try {
       const blocks = channels.slice(0, 2).map((ch) => {
