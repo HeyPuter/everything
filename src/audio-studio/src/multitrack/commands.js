@@ -39,6 +39,11 @@ import { templateFromState, stateFromTemplate, userTemplates, saveTemplate, dele
 
 const session = (app) => (app.active?.kind === 'session' ? app.active : null);
 const hasSession = (app) => Boolean(session(app));
+/** For commands run by track controls with arguments: off without them (command search, shortcuts). */
+const hasArgs =
+  (...keys) =>
+  (app, args) =>
+    hasSession(app) && keys.every((k) => args?.[k] != null);
 const selected = (app) => session(app)?.clipSelection || [];
 const hasClips = (app) => selected(app).length > 0;
 const hasTimeSel = (app) => Boolean(session(app)?.hasSelection);
@@ -828,11 +833,11 @@ export function installMultitrackCommands(app) {
         if (name && name.trim() && name.trim() !== t.name) doc.apply('Rename Track', S.updateTrack(doc.state, t.id, { name: name.trim() }));
       },
     },
-    { id: 'mt.setTrackInput', label: 'Track Input', enabled: hasSession, run: (a, args) => session(app).apply('Track Input', S.updateTrack(session(app).state, args.id, { input: args.input })) },
+    { id: 'mt.setTrackInput', label: 'Track Input', enabled: hasArgs('id', 'input'), run: (a, args) => session(app).apply('Track Input', S.updateTrack(session(app).state, args.id, { input: args.input })) },
     {
       id: 'mt.setTrackOutput',
       label: 'Track Output',
-      enabled: hasSession,
+      enabled: hasArgs('id', 'output'),
       run: (a, args) => {
         const doc = session(app);
         if (args.output !== 'master' && S.wouldCycle(doc.state, args.id, args.output)) {
@@ -849,8 +854,8 @@ export function installMultitrackCommands(app) {
       const show = !t.showAutomation;
       doc.amendView((st) => S.updateTrack(st, t.id, { showAutomation: show }));
     } },
-    { id: 'mt.setAutomationMode', label: 'Automation Mode', enabled: hasSession, run: (a, args) => session(app).apply(`Automation ${args.mode[0].toUpperCase()}${args.mode.slice(1)}`, S.updateTrack(session(app).state, args.id, { mode: args.mode })) },
-    { id: 'mt.setAutomationParam', label: 'Automation Parameter', enabled: hasSession, run: (a, args) => session(app).amendView((st) => S.updateTrack(st, args.id, { autoParam: args.param, showAutomation: true })) },
+    { id: 'mt.setAutomationMode', label: 'Automation Mode', enabled: hasArgs('id', 'mode'), run: (a, args) => session(app).apply(`Automation ${args.mode[0].toUpperCase()}${args.mode.slice(1)}`, S.updateTrack(session(app).state, args.id, { mode: args.mode })) },
+    { id: 'mt.setAutomationParam', label: 'Automation Parameter', enabled: hasArgs('id', 'param'), run: (a, args) => session(app).amendView((st) => S.updateTrack(st, args.id, { autoParam: args.param, showAutomation: true })) },
     {
       id: 'mt.insertFiles',
       label: 'Insert Files...',

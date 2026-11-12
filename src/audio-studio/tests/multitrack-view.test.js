@@ -273,6 +273,21 @@ describe('multitrack view', () => {
     expect([...sel.options].map((o) => o.textContent)).toContain('Bus A');
   });
 
+  it('keeps track control commands off without the track and value they set', async () => {
+    const { app, doc } = ctx;
+    const id = doc.state.tracks[0].id;
+    const ids = ['mt.setTrackInput', 'mt.setTrackOutput', 'mt.setAutomationMode'];
+    for (const cmd of [...ids, 'mt.setAutomationParam']) {
+      // Command search and keyboard shortcuts run commands without arguments.
+      expect(app.commands.isEnabled(cmd)).toBe(false);
+      expect(app.commands.isEnabled(cmd, { id })).toBe(false);
+      expect(await app.commands.run(cmd)).toBeUndefined();
+    }
+    expect(app.commands.isEnabled('mt.setAutomationMode', { id, mode: 'touch' })).toBe(true);
+    await app.commands.run('mt.setAutomationMode', { id, mode: 'touch' });
+    expect(doc.state.tracks[0].mode).toBe('touch');
+  });
+
   it('switches tools per editor and reports available tools', () => {
     const { app } = ctx;
     expect(app.toolAvailable('razor')).toBe(true);
