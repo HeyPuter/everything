@@ -81,9 +81,13 @@ export function installStatusBar(e: Editor) {
     button.innerHTML = `<span>${escapeXML(text)}</span>${svg('chevron-down', 12)}`;
   };
 
+  // The open menu's outside-press listener, removed whichever way it closes.
+  let stopOutside: (() => void) | undefined;
   const close = (menu: HTMLElement) => {
     menu.remove();
     button.setAttribute('aria-expanded', 'false');
+    stopOutside?.();
+    stopOutside = undefined;
   };
   button.addEventListener('click', () => {
     const old = document.querySelector<HTMLElement>('.status-info-menu');
@@ -123,6 +127,7 @@ export function installStatusBar(e: Editor) {
     menu.addEventListener('keydown', (ev) => {
       const at = items.indexOf(document.activeElement as HTMLElement);
       if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') items[(at + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+      else if (ev.key === 'Home' || ev.key === 'End') items[ev.key === 'Home' ? 0 : items.length - 1].focus();
       else if (ev.key === 'Enter' || ev.key === ' ') {
         if (at >= 0) pick(items[at]);
       } else if (ev.key === 'Escape' || ev.key === 'Tab') {
@@ -135,9 +140,9 @@ export function installStatusBar(e: Editor) {
     const outside = (ev: Event) => {
       if (menu.contains(ev.target as Node) || button.contains(ev.target as Node)) return;
       close(menu);
-      document.removeEventListener('pointerdown', outside, true);
     };
     document.addEventListener('pointerdown', outside, true);
+    stopOutside = () => document.removeEventListener('pointerdown', outside, true);
   });
   e.onUpdate(render);
   render();
