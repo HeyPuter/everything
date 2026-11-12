@@ -503,7 +503,11 @@ export function favoritesPanel(app) {
             else return;
             e.preventDefault();
             e.stopPropagation();
-            requestAnimationFrame(() => body.querySelector('tr[aria-selected="true"]')?.focus());
+            // The redrawn row takes the focus back, unless the key opened a dialog that has it.
+            requestAnimationFrame(() => {
+              const a = document.activeElement;
+              if (!a || a === document.body || el.contains(a)) body.querySelector('tr[aria-selected="true"]')?.focus();
+            });
           },
         },
         h('td.name-cell', icon(fav.action?.type === 'effect' ? 'fx' : fav.action?.type === 'sequence' ? 'list-ordered' : 'star', 14), h('span', fav.name)),

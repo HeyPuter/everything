@@ -188,4 +188,20 @@ describe('favorites panel', () => {
     expect(doc.state.channels[0].toArray(0, 1)[0]).toBe(0.25);
     panel.el.remove();
   });
+  it('leaves the focus in the Edit Favorite dialog that F2 opens', async () => {
+    const { app } = setup();
+    const panel = favoritesPanel(app);
+    document.body.append(panel.el);
+    const row = panel.el.querySelector('tr[aria-selected="true"]');
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+    await new Promise((r) => requestAnimationFrame(r));
+    await tick();
+    const dlg = document.querySelector('.dialog');
+    expect(dlg).not.toBeNull();
+    expect(dlg.contains(document.activeElement)).toBe(true);
+    dlg.querySelector('[aria-label="Close"]').click();
+    await tick();
+    panel.el.remove();
+  });
 });
