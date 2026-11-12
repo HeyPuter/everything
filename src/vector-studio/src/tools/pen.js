@@ -483,6 +483,16 @@ export class AnchorPointTool extends Tool {
     this.doc.update(path.id, { anchors, shape: undefined });
   }
 
+  /** A canceled press (Escape, pointer cancel, a second finger) puts the anchor back. */
+  cancel() {
+    this.drag?.tx.cancel();
+    this.drag = null;
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   onPointerUp() {
     const d = this.drag;
     this.drag = null;
