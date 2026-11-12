@@ -199,6 +199,40 @@ export function exactPivot(cx: number, cy: number) {
   if (Math.abs((x - y) % 1) > 1e-9) y += 0.5;
   return { x, y };
 }
+/** With an active selection and a single pixel layer selected, lift the
+ * selected pixels, place them on the frame `place` gives for their bounds and
+ * put them back (one history step; the selection follows). A pixel edit, so a
+ * locked position does not prevent it. Undefined when this does not apply;
+ * false after explaining why nothing changed. */
+function transformSelectedPixels(e: Editor, roots: Layer[], label: string, place: (rect: IRect) => { quad: Quad; mesh?: MeshGrid }): boolean | undefined {
+  const only = roots.length === 1 ? roots[0] : undefined;
+  if (only?.kind !== 'pixel' || !only.pixels || !(e.doc.selection || e.doc.selectionMask)) return;
+  if (layerLock(e.doc.layers, only.id, 'pixels')) {
+    e.message('Unlock the layer before transforming it.');
+    return false;
+  }
+  const store = e.assets.tiles;
+  const f = liftSelection(e.doc, store, only, { preserveAlpha: !!only.background || layerLock(e.doc.layers, only.id, 'transparency'), background: hexRgb(e.background) });
+  if (f === null) {
+    e.message('The selected area is empty. Select some of the layer’s pixels to transform them.');
+    return false;
+  }
+  if (!f) return;
+  const method = samplerInterp(e.settings.transformInterpolation as string);
+  const { quad, mesh } = place(f.rect);
+  const render = (img: RGBA8) => renderFrame(img, f.rect, quad, mesh, { method, exact: true, doc: e.doc });
+  const r = render(f.image);
+  const grid = dropFloat(store, f, r?.image, r?.rect.x ?? 0, r?.rect.y ?? 0);
+  const shape = render(rgbaFromMask(f.selection));
+  const selection = shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
+  e.command(label, (d) => {
+    const l = findLayer(d.layers, only.id);
+    if (!l) return;
+    setLayerPixels(l, grid, d);
+    applySelection(d, selection);
+  });
+  return true;
+}
 export async function turnLayers(e: Editor, op: 'rotate-180' | 'rotate-cw' | 'rotate-ccw' | 'flip-horizontal' | 'flip-vertical') {
   const s = currentSession();
   if (s) {
@@ -214,6 +248,15 @@ export async function turnLayers(e: Editor, op: 'rotate-180' | 'rotate-cw' | 'ro
     e.message('Select layers to transform.');
     return;
   }
+  const labels = { 'rotate-180': 'Rotate 180°', 'rotate-cw': 'Rotate 90° Clockwise', 'rotate-ccw': 'Rotate 90° Counter Clockwise', 'flip-horizontal': 'Flip Horizontal', 'flip-vertical': 'Flip Vertical' };
+  const local =
+    op === 'rotate-180' ? rotateM(180) : op === 'rotate-cw' ? rotateM(90) : op === 'rotate-ccw' ? rotateM(-90) : op === 'flip-horizontal' ? scaleM(-1, 1) : scaleM(1, -1);
+  // With a selection, the selected pixels turn about their own center.
+  const floated = transformSelectedPixels(e, roots, labels[op], (r) => {
+    const p = exactPivot(r.x + r.width / 2, r.y + r.height / 2);
+    return { quad: mapQuad(about(local, p.x, p.y), rectQuad(r)) };
+  });
+  if (floated !== undefined) return;
   try {
     assertEditable(e.doc, roots, 'position');
   } catch (error) {
@@ -226,11 +269,8 @@ export async function turnLayers(e: Editor, op: 'rotate-180' | 'rotate-cw' | 'ro
     return;
   }
   const c = exactPivot(frame.x + frame.width / 2, frame.y + frame.height / 2);
-  const local =
-    op === 'rotate-180' ? rotateM(180) : op === 'rotate-cw' ? rotateM(90) : op === 'rotate-ccw' ? rotateM(-90) : op === 'flip-horizontal' ? scaleM(-1, 1) : scaleM(1, -1);
   const m = about(local, c.x, c.y);
   const { prepared, skipped } = await prepareLayers(e, contentLayers(roots), m, e.doc, false);
-  const labels = { 'rotate-180': 'Rotate 180°', 'rotate-cw': 'Rotate 90° Clockwise', 'rotate-ccw': 'Rotate 90° Counter Clockwise', 'flip-horizontal': 'Flip Horizontal', 'flip-vertical': 'Flip Vertical' };
   e.command(labels[op], (d) => applyPrepared(d, prepared, m, e.assets));
   if (skipped.length) e.message(`Rasterize type and shape layers to flip them (skipped: ${skipped.join(', ')}).`);
 }
@@ -355,36 +395,12 @@ export async function transformAgain(e: Editor) {
   const store = e.assets.tiles;
   const method = samplerInterp(e.settings.transformInterpolation as string);
   // With a selection, the selected pixels of a single pixel layer are
-  // transformed again, as Free Transform does (a pixel edit, so a locked
-  // position does not prevent it).
-  const only = roots.length === 1 ? roots[0] : undefined;
-  if (only?.kind === 'pixel' && only.pixels && (e.doc.selection || e.doc.selectionMask)) {
-    if (layerLock(e.doc.layers, only.id, 'pixels')) {
-      e.message('Unlock the layer before transforming it.');
-      return;
-    }
-    const f = liftSelection(e.doc, store, only, { preserveAlpha: !!only.background || layerLock(e.doc.layers, only.id, 'transparency'), background: hexRgb(e.background) });
-    if (f === null) {
-      e.message('The selected area is empty. Select some of the layer’s pixels to transform them.');
-      return;
-    }
-    if (f) {
-      const quad = mapQuad(t.matrix, rectQuad(f.rect));
-      const mesh = t.unitMesh ? meshFromUnit(t.unitMesh, f.rect, quad) : undefined;
-      const render = (img: RGBA8) => renderFrame(img, f.rect, quad, mesh, { method, exact: true, doc: e.doc });
-      const r = render(f.image);
-      const grid = dropFloat(store, f, r?.image, r?.rect.x ?? 0, r?.rect.y ?? 0);
-      const shape = render(rgbaFromMask(f.selection));
-      const selection = shape ? maskGrid(store, maskFromRGBA(shape.image), shape.rect.x, shape.rect.y) : null;
-      e.command('Transform Again', (d) => {
-        const l = findLayer(d.layers, only.id);
-        if (!l) return;
-        setLayerPixels(l, grid, d);
-        applySelection(d, selection);
-      });
-      return;
-    }
-  }
+  // transformed again, as Free Transform does.
+  const floated = transformSelectedPixels(e, roots, 'Transform Again', (r) => {
+    const quad = mapQuad(t.matrix, rectQuad(r));
+    return { quad, mesh: t.unitMesh ? meshFromUnit(t.unitMesh, r, quad) : undefined };
+  });
+  if (floated !== undefined) return;
   try {
     assertEditable(e.doc, roots, 'position');
   } catch (error) {

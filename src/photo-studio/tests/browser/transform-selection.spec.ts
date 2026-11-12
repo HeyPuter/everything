@@ -188,3 +188,24 @@ test('Transform Again repeats the transform on the selected pixels', async ({ pa
   expect(await layerPixel(page, 70, 70)).toEqual([255, 0, 0, 255]);
   expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 40, y: 60, width: 20, height: 30 });
 });
+
+test('Flip and Rotate 90° with a selection turn only the selected pixels', async ({ page }) => {
+  // The left half of the blue square, flipped across its own center.
+  await selectRect(page, { x: 0, y: 20, width: 40, height: 30 });
+  await run(page, 'edit.flip-horizontal');
+  expect((await page.evaluate(() => window.photoStudio.history.labels)).at(-1)).toBe('Flip Horizontal');
+  // Lifted pixels span x 0–40 (red 0–20, blue 20–40); flipped, blue is on the left.
+  expect(await layerPixel(page, 5, 30)).toEqual([0, 0, 255, 255]);
+  expect(await layerPixel(page, 35, 30)).toEqual([255, 0, 0, 255]);
+  // Outside the selection nothing moved.
+  expect(await layerPixel(page, 50, 30)).toEqual([0, 0, 255, 255]);
+  expect(await layerPixel(page, 100, 30)).toEqual([255, 0, 0, 255]);
+  await undo(page);
+  expect(await layerPixel(page, 5, 30)).toEqual([255, 0, 0, 255]);
+  // A 40 x 30 area turned a quarter about its center becomes 30 x 40.
+  await selectRect(page, { x: 20, y: 20, width: 40, height: 30 });
+  await run(page, 'edit.rotate-cw');
+  expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 25, y: 15, width: 30, height: 40 });
+  expect(await layerPixel(page, 30, 17)).toEqual([0, 0, 255, 255]);
+  expect((await layerPixel(page, 22, 30))[3]).toBe(0);
+});
