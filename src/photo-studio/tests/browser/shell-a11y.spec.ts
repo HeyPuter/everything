@@ -60,3 +60,35 @@ test('menu bar menus follow the arrow keys, Home, End and Tab, also when opened 
   expect(await openMenu()).toBe('');
   expect(await page.evaluate(() => JSON.stringify(window.photoStudio.doc.layers))).toBe(before);
 });
+
+test('dragging a divider between panel groups resizes only those two groups, also by touch', async ({ page }) => {
+  const heights = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>('.dock-column .panel-group:not(.empty)')].map((g) => [g.dataset.location, Math.round(g.getBoundingClientRect().height)])));
+  const drag = async (loc: string, dy: number) => {
+    const b = (await page.locator(`[data-resize="${loc}"]`).boundingBox())!;
+    await page.mouse.move(b.x + 40, b.y + 3);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 40, b.y + 3 + dy, { steps: 4 });
+    await page.mouse.up();
+  };
+  const before = await heights();
+  expect(Object.keys(before)).toEqual(['dock-top', 'dock-middle', 'dock-bottom']);
+  // Between the middle and bottom groups: the top group keeps its height.
+  await drag('dock-middle', 40);
+  let now = await heights();
+  expect(Math.abs(now['dock-top'] - before['dock-top'])).toBeLessThanOrEqual(1);
+  expect(Math.abs(now['dock-middle'] - (before['dock-middle'] + 40))).toBeLessThanOrEqual(2);
+  expect(Math.abs(now['dock-bottom'] - (before['dock-bottom'] - 40))).toBeLessThanOrEqual(2);
+  // Between the top and middle groups: the bottom group keeps its height.
+  const mid = now;
+  await drag('dock-top', -40);
+  now = await heights();
+  expect(Math.abs(now['dock-bottom'] - mid['dock-bottom'])).toBeLessThanOrEqual(1);
+  expect(Math.abs(now['dock-top'] - (mid['dock-top'] - 40))).toBeLessThanOrEqual(2);
+  // The arrangement is kept after a reload.
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer);
+  const reloaded = await heights();
+  for (const loc of Object.keys(now)) expect(Math.abs(reloaded[loc] - now[loc]), loc).toBeLessThanOrEqual(2);
+  // The browser does not take a touch drag on the divider for scrolling.
+  expect(await page.locator('[data-resize="dock-top"]').evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
+});

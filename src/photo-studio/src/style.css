@@ -287,7 +287,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .panel-menu-button, [data-drawer-close] { width: 26px; padding: 0; border-radius: 0; min-height: 0; }
 .panel-slot { flex: 1; min-height: 0; overflow: auto; }
 .panel-body { min-height: 0; }
-.group-resizer { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; z-index: 5; }
+.group-resizer { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; z-index: 5; touch-action: none; }
 
 /* Bottom dock (under the canvas) */
 .bottom-dock { flex: none; height: var(--bottom-height, 210px); max-height: calc(100% - 140px); display: flex; flex-direction: column; background: var(--surface); border-top: 1px solid var(--line); position: relative; min-height: 0; }

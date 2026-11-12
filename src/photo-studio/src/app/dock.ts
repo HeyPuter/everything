@@ -530,7 +530,7 @@ export class Dock {
     });
   }
   private bindResize() {
-    let drag: { loc: string; start: number; a: HTMLElement; b: HTMLElement; ha: number; hb: number } | undefined;
+    let drag: { id: number; loc: string; start: number; a: HTMLElement; b: HTMLElement; ha: number; hb: number } | undefined;
     this.el.addEventListener('pointerdown', (ev) => {
       const handle = (ev.target as HTMLElement).closest<HTMLElement>('[data-resize]');
       if (!handle || this.locked) return;
@@ -538,26 +538,40 @@ export class Dock {
       let b = a.nextElementSibling as HTMLElement | null;
       while (b && b.classList.contains('empty')) b = b.nextElementSibling as HTMLElement | null;
       if (!b) return;
-      drag = { loc: handle.dataset.resize!, start: ev.clientY, a, b, ha: a.getBoundingClientRect().height, hb: b.getBoundingClientRect().height };
+      // Sizes are flex weights: give every open group its current height as
+      // its weight, or groups still on their default weight (1) would collapse.
+      // (Measure them all before changing any.)
+      const open = [...this.el.querySelectorAll<HTMLElement>('.panel-group:not(.empty):not(.collapsed)')].map((g) => [g, g.getBoundingClientRect().height] as const);
+      for (const [g, h] of open) {
+        g.style.flex = `${h} 1 0`;
+        this.layout.sizes[g.dataset.location!] = h;
+      }
+      drag = { id: ev.pointerId, loc: handle.dataset.resize!, start: ev.clientY, a, b, ha: a.getBoundingClientRect().height, hb: b.getBoundingClientRect().height };
       handle.setPointerCapture(ev.pointerId);
+      ev.preventDefault();
     });
     this.el.addEventListener('pointermove', (ev) => {
-      if (!drag) return;
-      const d = ev.clientY - drag.start;
-      const ha = Math.max(60, drag.ha + d),
-        hb = Math.max(60, drag.hb - d);
-      drag.a.style.flex = `${ha} 1 0`;
-      drag.b.style.flex = `${hb} 1 0`;
-      this.layout.sizes[drag.loc] = ha;
+      if (!drag || ev.pointerId !== drag.id) return;
+      // The divider follows the pointer while both groups keep 60 px. The
+      // upper group may stop short (the top group is limited to 30% of the
+      // dock); the lower one gives up only what the upper one took.
+      const d = Math.max(Math.min(60 - drag.ha, 0), Math.min(Math.max(drag.hb - 60, 0), ev.clientY - drag.start));
+      drag.a.style.flex = `${drag.ha + d} 1 0`;
+      drag.b.style.flex = `${drag.hb - d} 1 0`;
+      const actual = Math.min(drag.ha + d, drag.a.getBoundingClientRect().height);
+      const hb = drag.hb - (actual - drag.ha);
+      if (actual < drag.ha + d) drag.b.style.flex = `${hb} 1 0`;
+      this.layout.sizes[drag.loc] = actual;
       this.layout.sizes[drag.b.dataset.location!] = hb;
     });
-    this.el.addEventListener('pointerup', () => {
-      if (drag) {
-        this.save();
-        this.onChange?.();
-      }
+    const end = (ev: PointerEvent) => {
+      if (!drag || ev.pointerId !== drag.id) return;
       drag = undefined;
-    });
+      this.save();
+      this.onChange?.();
+    };
+    this.el.addEventListener('pointerup', end);
+    this.el.addEventListener('pointercancel', end);
   }
 }
 
