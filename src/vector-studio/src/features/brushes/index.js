@@ -13,7 +13,12 @@ import { BrushesPanel, libraryMenuItems } from './brushes-panel.js';
 import { WidthTool } from './width-tool.js';
 import { BrushPaintbrushTool } from './paintbrush-tool.js';
 import { strokeProfileSection, propertiesBrushSection } from './profiles-ui.js';
-import { selectBrushStrokes, brushTargets, brushClipboardHook } from './brush-ops.js';
+import {
+  selectBrushStrokes,
+  brushStrokeKinds,
+  brushTargets,
+  brushClipboardHook,
+} from './brush-ops.js';
 import { clipboardHooks } from '../../ops/clipboard.js';
 import { brushState, newBrush, editSelectedStrokeOptions } from './brush-actions.js';
 import { StrokePanel } from '../paint/stroke-panel.js';
@@ -35,8 +40,18 @@ export function install(app) {
 
   const hasDoc = (a) => Boolean(a.editor);
   app.commands.register([
-    { id: 'select.object.brushStrokes', label: 'Brush Strokes', enabled: hasDoc, run: (a) => selectBrushStrokes(a.editor) },
-    { id: 'select.object.bristleStrokes', label: 'Bristle Brush Strokes', enabled: hasDoc, run: (a) => selectBrushStrokes(a.editor, 'bristle') },
+    {
+      id: 'select.object.brushStrokes',
+      label: 'Brush Strokes',
+      enabled: (a) => Boolean(a.editor && brushStrokeKinds(a.editor.doc).any),
+      run: (a) => selectBrushStrokes(a.editor),
+    },
+    {
+      id: 'select.object.bristleStrokes',
+      label: 'Bristle Brush Strokes',
+      enabled: (a) => Boolean(a.editor && brushStrokeKinds(a.editor.doc).bristle),
+      run: (a) => selectBrushStrokes(a.editor, 'bristle'),
+    },
     { id: 'brush.new', label: 'New Brush...', enabled: hasDoc, run: (a) => newBrush(a) },
     {
       id: 'brush.strokeOptions',

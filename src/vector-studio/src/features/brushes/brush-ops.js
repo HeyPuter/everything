@@ -165,18 +165,40 @@ export function unusedBrushIds(doc) {
   return docBrushes(doc).filter((b) => !used.has(b.id)).map((b) => b.id);
 }
 
+/** Visible, unlocked paths and compound paths painted with a brush (of brush `type` when given). */
+function brushStrokes(doc, type = null, first = false) {
+  const out = [];
+  doc.walk((n) => {
+    if (first && out.length) return false;
+    if (n.hidden || n.locked) return false;
+    if ((n.type === 'path' || n.type === 'compound') && n.brush?.id && (!type || brushById(doc, n.brush.id)?.type === type)) out.push(n.id);
+    return n.type !== 'compound';
+  });
+  return out;
+}
+
+const strokeKinds = new WeakMap();
+
+/**
+ * Whether Select > Object > Brush Strokes and Bristle Brush Strokes would
+ * find anything, worked out once per document state (menus ask on every open).
+ */
+export function brushStrokeKinds(doc) {
+  const c = strokeKinds.get(doc);
+  if (c && c.version === doc.nodes.version) return c;
+  const any = brushStrokes(doc, null, true).length > 0;
+  const bristle = any && brushStrokes(doc, 'bristle', true).length > 0;
+  const kinds = { version: doc.nodes.version, any, bristle };
+  strokeKinds.set(doc, kinds);
+  return kinds;
+}
+
 /**
  * Select > Object > Brush Strokes: every visible, unlocked path painted with
  * a brush; with `type` ('bristle'), only strokes of brushes of that type.
  */
 export function selectBrushStrokes(editor, type = null) {
-  const out = [];
-  const doc = editor.doc;
-  editor.doc.walk((n) => {
-    if (n.hidden || n.locked) return false;
-    if ((n.type === 'path' || n.type === 'compound') && n.brush?.id && (!type || brushById(doc, n.brush.id)?.type === type)) out.push(n.id);
-    return n.type !== 'compound';
-  });
+  const out = brushStrokes(editor.doc, type);
   if (!out.length) throw new UserError(type === 'bristle' ? 'No objects use a bristle brush.' : 'No objects use a brush.');
   editor.select(out);
   return out.length;

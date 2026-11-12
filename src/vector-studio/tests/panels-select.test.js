@@ -40,11 +40,12 @@ describe('Select > Same > Appearance Attribute', () => {
     expect([...ed.selection].sort()).toEqual([a, b].sort());
   });
 
-  it('reports objects without attributes', async () => {
-    const { app, ed, add, notes } = await setup();
+  it('is unavailable for objects without attributes', async () => {
+    const { app, ed, add } = await setup();
     ed.select([add(rectangle(0, 0, 10, 10))]);
-    await app.commands.run('select.same.appearanceAttribute');
-    expect(notes.join(' ')).toMatch(/no appearance attributes/);
+    expect(app.commands.isEnabled('select.same.appearanceAttribute')).toBe(false);
+    ed.select([add(rectangle(20, 0, 10, 10), { effects: [createEffect('blur', { radius: 2 })] })]);
+    expect(app.commands.isEnabled('select.same.appearanceAttribute')).toBe(true);
   });
 });
 
@@ -61,8 +62,8 @@ describe('Select > Same > Graphic Style', () => {
     await app.commands.run('select.same.graphicStyle');
     expect([...ed.selection].sort()).toEqual([a, b].sort());
     ed.select([c]);
-    await app.commands.run('select.same.graphicStyle');
-    expect(notes.join(' ')).toMatch(/does not use a graphic style/);
+    expect(app.commands.isEnabled('select.same.graphicStyle')).toBe(false);
+    expect(notes).toEqual([]);
   });
 });
 

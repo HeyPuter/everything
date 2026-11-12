@@ -15,6 +15,18 @@ const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
 const selCount = (n) => (app) => (app.editor?.topSelection().length || 0) >= n;
 const selHas = (pred) => (app) => Boolean(app.editor?.selectedNodes().some(pred));
+/** Select > Same matches a selected object other than a group (a group has nothing to match). */
+const canMatchSame = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canMatchSame', () => {
+    for (const id of e.selection) {
+      const t = e.doc.get(id)?.type;
+      if (t && t !== 'group' && t !== 'layer') return true;
+    }
+    return false;
+  });
+};
 /** Join acts on the open paths among the selected objects. */
 const canJoin = (app) => {
   const e = app.editor;
@@ -290,7 +302,7 @@ export function registerCoreCommands(app) {
     ...['fill', 'stroke', 'fillStroke', 'strokeWeight', 'opacity', 'blendMode', 'appearance', 'shape'].map((what) => ({
       id: `select.same.${what}`,
       label: { fill: 'Fill Color', stroke: 'Stroke Color', fillStroke: 'Fill & Stroke', strokeWeight: 'Stroke Weight', opacity: 'Opacity', blendMode: 'Blending Mode', appearance: 'Appearance', shape: 'Shape' }[what],
-      enabled: hasSel,
+      enabled: canMatchSame,
       run: () => SEL.selectSame(ed(), what),
     })),
     ...['sameLayer', 'text', 'clipping', 'stray'].map((what) => ({
