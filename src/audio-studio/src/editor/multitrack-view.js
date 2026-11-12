@@ -1744,7 +1744,10 @@ export class MultitrackView {
       const state = doc.previewState;
       let clips;
       if (d.kind === 'move' && d.copy) clips = state.clips.slice(d.state0.clips.length).map((c) => c.id);
+      // A dragged keyframe keeps its place among the others, so it stays selected.
+      const keys = d.kind === 'key' || d.kind === 'autoKey' ? doc.selectedKeys : null;
       doc.apply(label, state, clips ? { clips } : {});
+      if (keys) doc.selectedKeys = keys;
       if (d.kind === 'move') announce(`${label} ${d.dt >= 0 ? 'right' : 'left'} by ${this.app.formatTime(Math.abs(d.dt || 0), doc.sampleRate)}`);
     } else doc.preview(null);
     this.#status('');
@@ -1770,7 +1773,9 @@ export class MultitrackView {
       if (d.added) {
         // A click on an envelope line adds a keyframe.
         const state = d.kind === 'key' ? S.setClipEnvelope(d.state0, d.id, d.param, d.pts) : S.setAutomation(d.state0, d.trackId, d.param, d.pts);
+        const keys = doc.selectedKeys;
         doc.apply(d.kind === 'key' ? 'Add Keyframe' : 'Add Automation Keyframe', state);
+        doc.selectedKeys = keys;
       }
       return;
     }

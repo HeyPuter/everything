@@ -475,3 +475,70 @@ describe('inserting 5.1 audio', () => {
     }
   });
 });
+
+describe('selected keyframes', () => {
+  it('are forgotten when an undo or another edit changes their envelope', async () => {
+    const { app, doc } = await appWithSession();
+    const src = doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(RATE * 4).fill(0.25))],
+    });
+    const env = [
+      { t: 0, v: 0 },
+      { t: RATE, v: 0 },
+      { t: RATE * 2, v: 0 },
+    ];
+    const clip = S.createClip({
+      trackId: doc.state.tracks[0].id,
+      sourceId: src,
+      start: RATE,
+      length: RATE * 2,
+      volumeEnv: env,
+    });
+    doc.apply('Add', S.addClips(doc.state, [clip]));
+    const view = app.documentKinds.get('session').view(app, doc);
+    document.body.replaceChildren(view.el);
+    view.width = 1000;
+    view.height = 600;
+    view.computeRows();
+    doc.setView(0, RATE * 10);
+    app.currentView = () => view;
+    app.activate(doc);
+    app.prefs.set('snapping', false);
+    view.surface.setPointerCapture = () => {};
+    const pointer = (type, x, y) =>
+      view.surface.dispatchEvent(
+        Object.assign(new Event(type, { bubbles: true }), {
+          clientX: x,
+          clientY: y,
+          button: 0,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }),
+      );
+    const r = view.clipRects().find((q) => q.clip.id === clip.id);
+    // A click on the envelope line adds a keyframe (selected).
+    const x = view.xOf(RATE * 1.5);
+    const y = r.wy + 2 + 0.5 * (r.wh - 4);
+    expect(view.hitTest(x, y).part).toBe('line');
+    pointer('pointerdown', x, y);
+    pointer('pointerup', x, y);
+    expect(S.findClip(doc.state, clip.id).volumeEnv).toHaveLength(4);
+    expect(doc.selectedKeys).toBeTruthy();
+    // Undo removes it: Delete then deletes the selected clip, not another keyframe.
+    await app.commands.run('edit.undo');
+    expect(doc.selectedKeys).toBe(null);
+    await app.commands.run('edit.delete');
+    expect(doc.state.clips).toHaveLength(0);
+    await app.commands.run('edit.undo');
+    expect(S.findClip(doc.state, clip.id).volumeEnv).toEqual(env);
+    // A keyframe dragged stays selected after the drag.
+    const kx = view.xOf(RATE * 2);
+    pointer('pointerdown', kx, y);
+    pointer('pointermove', kx + 10, y - 10);
+    pointer('pointerup', kx + 10, y - 10);
+    expect(doc.selectedKeys?.indices.has(1)).toBe(true);
+    await app.commands.run('edit.delete');
+    expect(S.findClip(doc.state, clip.id).volumeEnv).toHaveLength(2);
+  });
+});
