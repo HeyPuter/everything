@@ -528,6 +528,15 @@ export function installWindow(app) {
     return close(editor, { ...opts, force: opts.force || shared });
   };
 
+  // Edit > My Settings > Import: imported bars, tool set and workspace apply right away.
+  app.on('settings-imported', (values) => {
+    if ('controlBar' in values) setControlBar(app, Boolean(app.prefs.get('controlBar')));
+    if ('toolbarSet' in values || 'toolbarHidden' in values) applyToolSet(app);
+    if ('toolbarVisible' in values) setToolbarVisible(app, app.prefs.get('toolbarVisible') !== false);
+    const ws = 'workspace' in values && workspaceByKey(app, currentKey(app));
+    if (ws) app.dock.setLayout(ws);
+  });
+
   app.on('started', () => {
     if (app.prefs.get('controlBar')) setControlBar(app, true);
     applyToolSet(app);

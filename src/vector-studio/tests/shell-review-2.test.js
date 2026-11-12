@@ -394,3 +394,15 @@ describe('imported settings', () => {
     expect(app.toolKeys.get('q')).toBe('pen');
   });
 });
+
+describe('imported settings and the workspace', () => {
+  it('apply an imported workspace and tool set right away', async () => {
+    const { app } = await appWithRect();
+    const { applySettings } = await import('../src/features/panels/edit-commands.js');
+    expect(app.dock.getLayout().dock).not.toContain('character');
+    applySettings(app, { workspace: 'typography', toolbarSet: 'basic' });
+    expect(app.dock.getLayout().dock).toContain('character');
+    expect(app.toolbarFilter?.('magic-wand')).toBe(true);
+    expect(app.toolbarFilter?.('knife')).toBe(false);
+  });
+});
