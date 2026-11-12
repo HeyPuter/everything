@@ -10,6 +10,8 @@ import { layoutText, hitTestText, caretPosition } from '../model/text-layout.js'
 import { apply, invert } from '../lib/matrix.js';
 import { drawArtwork } from '../render/draw.js';
 import { rgbToHex } from '../lib/color.js';
+import { moveGradient } from '../model/gradients.js';
+import { nodeBounds } from '../model/geometry.js';
 
 export class HandTool extends Tool {
   static id = 'hand';
@@ -320,8 +322,18 @@ export class EyedropperTool extends Tool {
       this.#report('Picked up the appearance for new objects. Select other objects first to restyle them');
       return;
     }
+    // Gradient end points keep their place relative to each object's bounds.
+    const placed = ['fill', 'stroke'].filter((k) => patch[k] && patch[k].x1 !== undefined);
+    const from = placed.length ? nodeBounds(doc, hit) : null;
     doc.transact('Eyedropper', () => {
-      for (const t of targets) applyStyleDeep(doc, t, patch);
+      for (const t of targets) {
+        const p = { ...patch };
+        if (placed.length) {
+          const to = nodeBounds(doc, t);
+          for (const k of placed) p[k] = moveGradient(p[k], from, to);
+        }
+        applyStyleDeep(doc, t, p);
+      }
     });
     this.#report(`Copied the appearance to ${plural(targets.length)}`);
   }

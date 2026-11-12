@@ -16,6 +16,7 @@ import { Viewport } from './render/viewport.js';
 import { DEFAULT_STYLE, createGroup } from './model/nodes.js';
 import { selectionBounds, selectionFrame, nodeBounds } from './model/geometry.js';
 import { liveDef } from './model/live.js';
+import { moveGradient } from './model/gradients.js';
 
 export const DEFAULT_VIEW_OPTIONS = {
   mode: 'preview', // preview | outline
@@ -451,6 +452,8 @@ export class Editor extends Emitter {
 
   setStyle(patch) {
     this.style = { ...this.style, ...patch };
+    // Paint for new objects: a gradient's end points belong to the object it came from.
+    for (const k of ['fill', 'stroke']) if (patch[k]) this.style[k] = moveGradient(patch[k]);
     this.emit('style');
   }
 
