@@ -225,3 +225,24 @@ describe('Object > Text Wrap', () => {
     expect(layoutText(doc.get(t.id)).lines[0].x).toBeLessThan(1);
   });
 });
+
+describe('styles on a threaded frame', () => {
+  it('a paragraph style applied with only a later frame selected styles the story', async () => {
+    const { applyStyle, newStyle, currentStyleState } = await import('../src/features/type/styles-panel.js');
+    const { typeDefaults } = await import('../src/features/type/type-ops.js');
+    const { paraAt } = await import('../src/model/text-runs.js');
+    const a = frame(0, 0, STORY);
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    // A style made from the head, then applied with only the second frame selected.
+    app.editor.select([a.id]);
+    const id = newStyle(app, 'para', { name: 'Body', apply: false });
+    const defaultsBefore = typeDefaults(app).para.paraStyle ?? null;
+    app.editor.select([b.id]);
+    applyStyle(app, 'para', id);
+    expect(paraAt(doc.get(a.id), 0).paraStyle).toBe(id);
+    expect(typeDefaults(app).para.paraStyle ?? null).toBe(defaultsBefore);
+    expect(currentStyleState(app, 'para').id).toBe(id);
+  });
+});

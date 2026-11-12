@@ -14,6 +14,7 @@ import { registerIcons } from '../../ui/icons.js';
 import { formatLength, parseLength, parseNumber } from '../../lib/units.js';
 import { paragraphIndexAt, paragraphRanges, selectedParagraphs, rangeStyle, rangeParaStyle, styleAt, paraAt, MIXED } from '../../model/text-runs.js';
 import { session, currentTextNodes, typeDefaults, applyCharStyle } from './type-ops.js';
+import { headOf } from './thread-model.js';
 import { allFamilies, familyFaces, styleName } from './fonts.js';
 import {
   NORMAL,
@@ -63,7 +64,9 @@ function target(app) {
       return { mode: 'session', s, node, a, b, nodes: [node] };
     }
   }
-  const nodes = currentTextNodes(app).filter((n) => !n.threadPrev);
+  // A threaded frame stands for its story, which its thread's first frame holds.
+  const doc = app.editor?.doc;
+  const nodes = [...new Map(currentTextNodes(app).map((n) => headOf(doc, n)).map((n) => [n.id, n])).values()];
   if (nodes.length) return { mode: 'objects', nodes };
   return { mode: 'defaults', nodes: [] };
 }
