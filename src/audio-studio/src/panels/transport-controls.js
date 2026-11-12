@@ -7,16 +7,19 @@ import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import '../editor/editor-icons.js';
 
-/** [command, icon, label] for the transport buttons, in display order. */
+/**
+ * [command, icon, label, command whose key the label names] for the transport
+ * buttons, in display order.
+ */
 export const TRANSPORT_BUTTONS = [
   ['transport.stop', 'transport-stop', 'Stop'],
-  ['transport.play', 'transport-play', 'Play (Space)'],
+  ['transport.play', 'transport-play', 'Play', 'transport.toggle'],
   ['transport.pause', 'transport-pause', 'Pause'],
   ['transport.previous', 'transport-start', 'Move Playhead to Previous'],
   ['transport.rewind', 'transport-rewind', 'Rewind'],
   ['transport.forward', 'transport-forward', 'Fast Forward'],
   ['transport.next', 'transport-end', 'Move Playhead to Next'],
-  ['transport.record', 'transport-record', 'Record (Shift+Space)'],
+  ['transport.record', 'transport-record', 'Record', 'transport.record'],
   ['transport.loop', 'transport-loop', 'Loop Playback'],
   ['transport.skipSelection', 'transport-skip-selection', 'Skip Selection'],
 ];
@@ -35,11 +38,29 @@ export const ZOOM_BUTTONS = [
   ['view.zoomInTrack', 'zoom-in-track', 'Zoom In Full (Selected Track)'],
 ];
 
-/** An icon button that runs `cmd`. */
-export function commandButton(app, cmd, ic, label, { cls = '', size = 16, args } = {}) {
+/** `label` with the current key of command `keyOf`, "Play (Space)", or `label` when it has none. */
+export function keyedLabel(app, keyOf, label) {
+  const key = app.commands.shortcutLabel(keyOf);
+  return key ? `${label} (${key})` : label;
+}
+
+/** Gives a button made with `keyOf` the key its command has now (keys can be remapped). */
+export function syncKeyedLabel(app, b) {
+  if (!b.dataset.keyOf) return;
+  const text = keyedLabel(app, b.dataset.keyOf, b.dataset.label);
+  if (b.title === text) return;
+  b.title = text;
+  b.setAttribute('aria-label', text);
+}
+
+/** An icon button that runs `cmd`; with `keyOf`, its label names that command's key. */
+export function commandButton(app, cmd, ic, label, { cls = '', size = 16, args, keyOf } = {}) {
+  const text = keyOf ? keyedLabel(app, keyOf, label) : label;
+  const dataset = keyOf ? { cmd, label, keyOf } : { cmd };
+  const run = () => app.commands.run(cmd, args);
   return h(
     `button.icon-btn${cls}`,
-    { type: 'button', 'aria-label': label, title: label, dataset: { cmd }, onclick: () => app.commands.run(cmd, args) },
+    { type: 'button', 'aria-label': text, title: text, dataset, onclick: run },
     icon(ic, size),
   );
 }
@@ -68,8 +89,9 @@ function shuttle(app, b, cmd) {
  */
 export function transportButtons(app, { size = 16 } = {}) {
   const byCmd = {};
-  const list = TRANSPORT_BUTTONS.map(([cmd, ic, label]) => {
-    const b = commandButton(app, cmd, ic, label, { cls: `.transport-btn${cmd === 'transport.record' ? '.record' : ''}`, size });
+  const list = TRANSPORT_BUTTONS.map(([cmd, ic, label, keyOf]) => {
+    const cls = `.transport-btn${cmd === 'transport.record' ? '.record' : ''}`;
+    const b = commandButton(app, cmd, ic, label, { cls, size, keyOf });
     byCmd[cmd] = b;
     return b;
   });
@@ -109,6 +131,7 @@ export function syncButtons(app, buttons, { pressed = true } = {}) {
     if (!cmd) continue;
     b.disabled = !app.commands.isEnabled(id);
     if (pressed && cmd.checked) b.setAttribute('aria-pressed', String(app.commands.isChecked(id)));
+    syncKeyedLabel(app, b);
   }
 }
 

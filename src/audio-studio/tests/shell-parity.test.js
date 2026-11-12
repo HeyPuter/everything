@@ -285,6 +285,36 @@ describe('workspace tabs and keyboard focus', () => {
   });
 });
 
+describe('shortcut keys in button labels', () => {
+  it('names the current key of each tool and transport button, also after a remap', async () => {
+    const app = await makeApp();
+    const { createShell } = await import('../src/ui/shell.js');
+    const { transportButtons } = await import('../src/panels/transport-controls.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    const move = root.querySelector('[data-tool="move"]');
+    expect(move.getAttribute('aria-label')).toBe('Move Tool (V)');
+    const transport = transportButtons(app);
+    const play = transport.byCmd['transport.play'];
+    expect(play.title).toBe('Play (Space)');
+    app.commands.setShortcuts('tool.move', ['Shift+V']);
+    app.commands.setShortcuts('transport.toggle', ['K']);
+    await frame();
+    transport.update();
+    expect(move.getAttribute('aria-label')).toBe('Move Tool (Shift+V)');
+    expect(move.title).toBe('Move Tool (Shift+V)');
+    expect(play.getAttribute('aria-label')).toBe('Play (K)');
+    // Without a key the label stands alone.
+    app.commands.setShortcuts('tool.move', []);
+    await frame();
+    expect(move.getAttribute('aria-label')).toBe('Move Tool');
+    const waveform = root.querySelector('.mode-btn[data-kind="audio"]');
+    expect(waveform.title).toBe('Waveform (9)');
+  });
+});
+
 describe('theme contrast', () => {
   it('keeps faint text readable (4.5:1) on panels in both themes', async () => {
     const fs = await import('node:fs');

@@ -12,6 +12,7 @@ import { statusParts } from './status-fields.js';
 import { tabNames } from './workspace-manager.js';
 import { TOOLS } from './tools.js';
 import { eventKey } from '../commands/registry.js';
+import { keyedLabel, syncKeyedLabel } from '../panels/transport-controls.js';
 
 /** Actions offered by the menu beside the current workspace tab. */
 const WORKSPACE_ACTIONS = ['workspace.reset', 'workspace.saveChanges', 'workspace.saveAs', '-', 'workspace.edit'];
@@ -34,18 +35,26 @@ export function createShell(app, root) {
 
   // Toolbar ------------------------------------------------------------------
   const modeBtn = (kind, ic, label, cmd) =>
-    h('button.mode-btn', { type: 'button', role: 'radio', 'aria-checked': 'false', dataset: { kind }, onclick: () => app.commands.run(cmd), title: `${label} (${kind === 'audio' ? '9' : '0'})` }, icon(ic, 16), h('span', label));
+    h('button.mode-btn', { type: 'button', role: 'radio', 'aria-checked': 'false', dataset: { kind, label, keyOf: cmd }, title: keyedLabel(app, cmd, label), onclick: () => app.commands.run(cmd) }, icon(ic, 16), h('span', label));
   const modes = h('div.mode-switch', { role: 'radiogroup', 'aria-label': 'Editor' }, modeBtn('audio', 'mode-waveform', 'Waveform', 'view.waveform'), modeBtn('session', 'mode-multitrack', 'Multitrack', 'view.multitrack'));
+  // A command button whose label names the command's current key ("Move Tool (V)").
+  const keyedButton = (cmd, label, glyph, data = {}) => {
+    const text = keyedLabel(app, cmd, label);
+    const dataset = { ...data, cmd, label, keyOf: cmd };
+    const attrs = { type: 'button', 'aria-label': text, title: text, dataset };
+    if (data.tool) attrs['aria-pressed'] = 'false';
+    return h('button.icon-btn', { ...attrs, onclick: () => app.commands.run(cmd) }, glyph);
+  };
   const displayBtns = h(
     'div.tool-group',
     { role: 'group', 'aria-label': 'Display' },
-    h('button.icon-btn', { type: 'button', 'aria-label': 'Show Spectral Frequency Display (Shift+D)', title: 'Show Spectral Frequency Display (Shift+D)', dataset: { cmd: 'view.spectral' }, onclick: () => app.commands.run('view.spectral') }, icon('spectral-frequency', 18)),
+    keyedButton('view.spectral', 'Show Spectral Frequency Display', icon('spectral-frequency', 18)),
     h('button.icon-btn', { type: 'button', 'aria-label': 'Show Spectral Pitch Display', title: 'Show Spectral Pitch Display', dataset: { cmd: 'view.spectralPitch' }, onclick: () => app.commands.run('view.spectralPitch') }, icon('spectral-pitch', 18)),
   );
   const toolBtns = h(
     'div.tool-group.tools',
     { role: 'toolbar', 'aria-label': 'Tools' },
-    TOOLS.map(([id, ic, label]) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, 'aria-pressed': 'false', dataset: { tool: id, cmd: `tool.${id}` }, onclick: () => app.commands.run(`tool.${id}`) }, icon(ic, 18))),
+    TOOLS.map(([id, ic, label]) => keyedButton(`tool.${id}`, label, icon(ic, 18), { tool: id })),
   );
   const workspaceTabs = h('div.workspace-tabs', { role: 'tablist', 'aria-label': 'Workspaces' });
   const workspaceMore = h('button.icon-btn', { type: 'button', 'aria-label': 'All workspaces', title: 'Workspaces', 'aria-haspopup': 'menu' }, icon('chevrons-right', 16));
@@ -76,8 +85,11 @@ export function createShell(app, root) {
       const on = b.dataset.kind === kind;
       b.setAttribute('aria-checked', String(on));
       b.classList.toggle('on', on);
+      // The mode buttons show their text: the key goes in the tooltip only.
+      b.title = keyedLabel(app, b.dataset.keyOf, b.dataset.label);
     }
     for (const b of toolbar.querySelectorAll('[data-cmd]')) {
+      syncKeyedLabel(app, b);
       b.disabled = !app.commands.isEnabled(b.dataset.cmd);
       if (b.dataset.tool) b.setAttribute('aria-pressed', String(app.tool === b.dataset.tool));
       else if (app.commands.get(b.dataset.cmd)?.checked) b.setAttribute('aria-pressed', String(app.commands.isChecked(b.dataset.cmd)));
