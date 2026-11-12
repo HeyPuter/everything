@@ -133,6 +133,8 @@ export async function assignProfileDialog(e: Editor) {
       // Live preview: render the document with the candidate profile.
       const select = form.querySelector<HTMLSelectElement>('select[name="profile"]')!;
       select.addEventListener('change', () => {
+        // "Load profile file…" is not a profile: keep the preview as it is.
+        if (select.value === LOAD) return;
         try {
           e.preview({ ...doc, ...assignment(select.value, doc) });
         } catch {

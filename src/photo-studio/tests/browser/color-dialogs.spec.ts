@@ -91,3 +91,19 @@ test('a mode conversion does not land in a document opened while it was prepared
   expect(result.a).toBe('rgb');
   await expect(page.locator('#status')).toContainText('nothing was converted');
 });
+
+test('Assign Profile previews profiles but not the "Load profile file…" entry', async ({ page }) => {
+  await page.evaluate(() => void window.photoStudio.runCommand('edit.assign-profile'));
+  await expect(openForm(page).locator('select[name=profile]')).toBeVisible();
+  await page.selectOption('#dialog select[name=profile]', 'builtin:display-p3');
+  await page.selectOption('#dialog select[name=profile]', { label: 'Load profile file…' });
+  await page.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await window.photoStudio.renderer.settle();
+  });
+  // Choosing the entry used to preview a profile named "load" and report a damaged embedded profile.
+  expect(await page.locator('#status').textContent()).not.toContain('cannot be used');
+  await page.locator('#dialog #cancel-dialog').click();
+  await page.waitForFunction(() => !window.photoStudio.busy);
+  expect(await page.evaluate(() => window.photoStudio.doc.iccProfile)).toBeUndefined();
+});
