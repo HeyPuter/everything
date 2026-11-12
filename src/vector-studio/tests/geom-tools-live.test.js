@@ -100,6 +100,18 @@ describe('geometry tools on live objects', () => {
     app.setTool('selection');
   });
 
+  it('Knife keeps the rest of the selection selected', async () => {
+    const { ed, doc, g, plain } = setup();
+    app.setTool('knife');
+    ed.select([g, plain]);
+    await stroke(app.tool, [[10, 90], [10, 130]]);
+    expect(doc.has(plain)).toBe(false);
+    const sel = [...ed.selection];
+    expect(sel).toContain(g);
+    expect(sel.filter((id) => id !== g)).toHaveLength(2);
+    app.setTool('selection');
+  });
+
   it('Eraser keeps the rest of the selection selected', async () => {
     const { ed, doc, g, plain } = setup();
     app.setTool('eraser');

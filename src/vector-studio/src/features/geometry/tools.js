@@ -489,7 +489,8 @@ export class KnifeTool extends Tool {
     const doc = editor.doc;
     const anchors = pts.length === 2 ? pts.map((p) => mkAnchor(p.x, p.y)) : fitCurve(simplifyPolyline(pts, tol(editor, 0.75)), tol(editor, 1.5) ** 2);
     const bounds = polylineBounds(pts);
-    const pool = editor.selection.size ? selectedLeaves(this, 'The Knife') : editableLeaves(doc);
+    const hadSelection = editor.selection.size > 0;
+    const pool = hadSelection ? selectedLeaves(this, 'The Knife') : editableLeaves(doc);
     const targets = pool.filter((n) => (n.closed || n.type === 'compound' || n.fill) && rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds));
     if (!targets.length) return;
     const shapes = [...targets.map((n) => shapeOf(doc, n)), { subpaths: [{ anchors, closed: false }], filled: false, string: true }];
@@ -507,7 +508,9 @@ export class KnifeTool extends Tool {
         ids.push(...replaceWith(doc, [n], items, { parentId: parent.id, index: parent.children.indexOf(n.id) + 1 }));
       });
     });
-    if (ids.length) editor.select(ids);
+    if (!ids.length) return;
+    // Cut objects give way to their pieces; the rest of the selection stays selected.
+    editor.select(hadSelection ? [...editor.selection, ...ids].filter((id) => doc.has(id)) : ids);
   }
 
   cancel() {
