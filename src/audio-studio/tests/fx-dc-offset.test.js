@@ -35,6 +35,18 @@ describe('Repair DC Offset', () => {
     }
   });
 
+  it('a NaN or infinite sample stays where it is instead of spreading over the channel', async () => {
+    const l = sine(4000, 7, 0.3, 0.12);
+    l[100] = NaN;
+    l[200] = Infinity;
+    const [ol] = await def.process({ channels: [l], rate: 1000, values: {} });
+    expect(Number.isNaN(ol[100])).toBe(true);
+    expect(ol[200]).toBe(Infinity);
+    const rest = ol.filter((_, i) => i !== 100 && i !== 200);
+    expect(rest.every(Number.isFinite)).toBe(true);
+    expect(ol[0]).toBeCloseTo(l[0] - 0.12, 3);
+  });
+
   it('runs from fx.dcOffset without a dialog as one undo step on the selection', async () => {
     const app = fakeApp();
     installEffectCommands(app);
