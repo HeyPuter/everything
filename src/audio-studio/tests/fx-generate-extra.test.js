@@ -122,6 +122,22 @@ describe('noise generator: spatial style and DC offset', () => {
     expect(slope(brown)).toBeLessThan(-10);
     expect(Math.max(...white.db)).toBe(0);
   });
+  it('keeps brown and grey noise the same colour at 8, 48 and 192 kHz', () => {
+    for (const color of ['brown', 'grey']) {
+      // Level at 100 Hz over the level at 1 kHz, with about 23 Hz resolution at every rate.
+      const tilt = (rate) => {
+        const size = 2 ** Math.ceil(Math.log2(rate / 24));
+        const s = noiseSpectrum({ color, rate, bins: 120, size, frames: 24 }, fft);
+        const at = (f) => s.db[s.freqs.findIndex((x) => x >= f)];
+        return at(100) - at(1000);
+      };
+      const ref = tilt(48000);
+      expect(ref, color).toBeGreaterThan(10);
+      for (const rate of [8000, 192000]) {
+        expect(Math.abs(tilt(rate) - ref), `${color} ${rate}`).toBeLessThan(3);
+      }
+    }
+  });
 });
 
 describe('generator dialog bodies', () => {
