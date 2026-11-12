@@ -164,7 +164,8 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       onCommit?.(v);
       current = v;
     }
-    e.stopPropagation();
+    // Keys stay in the field, except command shortcuts such as Save (the app skips the rest while typing).
+    if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
   });
   input.addEventListener('blur', commit);
   input.addEventListener('focus', () => input.select());

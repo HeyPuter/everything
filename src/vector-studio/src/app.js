@@ -35,8 +35,11 @@ import { defaultLabel } from './model/nodes.js';
 import { formatLength } from './lib/units.js';
 import { installHeldModifiers } from './lib/held-modifiers.js';
 
-/** Focusable controls that Enter or Space activate. */
+/** Command shortcuts that work while typing in a field. */
+const FIELD_COMMANDS = new Set(['file.save', 'file.saveAs', 'file.saveCopy', 'file.open', 'file.print']);
+/** Keys that change the value of a focused slider or radio button. */
 const VALUE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+/** Focusable controls that Enter or Space activate. */
 const ACTIVATABLE ='button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
 
 export class App extends Emitter {
@@ -552,7 +555,18 @@ export class App extends Emitter {
       e.preventDefault();
       return;
     }
-    if (typing) return;
+    if (typing) {
+      // Save, Open and Print work from a field too (the browser would save or print the page):
+      // the field commits what was typed first, and keeps focus.
+      const cmd = mod ? this.commands.match(e) : null;
+      if (FIELD_COMMANDS.has(cmd)) {
+        e.preventDefault();
+        e.target.blur();
+        e.target.focus({ preventScroll: true });
+        this.commands.run(cmd);
+      }
+      return;
+    }
     // Sliders and radio buttons change their value with these keys: they never nudge the selection.
     if (VALUE_KEYS.has(e.key) && !mod && e.target?.matches?.('input[type="range"], input[type="radio"]')) return;
     // Enter and Space activate the focused button, tab, menu item or option:
