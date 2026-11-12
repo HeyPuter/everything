@@ -109,7 +109,9 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
       const ctx = tile.getContext('2d');
       const pool = new LayerPool(tw, th);
       const opaque = background && background !== 'transparent';
-      if (opaque) {
+      // Without anti-aliasing the art's edges are hardened on a clear tile, then laid on the background.
+      const hard = !antialias;
+      if (opaque && !hard) {
         // Background first, so blend modes mix with it as they do on the canvas.
         ctx.fillStyle = background;
         ctx.fillRect(0, 0, tw, th);
@@ -119,7 +121,11 @@ export async function renderRegion(doc, rect, { scale = 1, background = null, an
       const opts = { viewRect, outline: false, hairline: 1 / scale, scale, layerPool: pool, overprint, leafFilter, textHints: true, skip };
       if (ids) for (const id of ids) drawNode(ctx, doc, doc.get(id), opts);
       else drawArtwork(ctx, doc, { ...opts, layerFilter: (l) => !l.template });
-      if (!antialias && !opaque) hardenAlpha(ctx, tw, th);
+      if (hard) hardenAlpha(ctx, tw, th);
+      if (hard && opaque) {
+        octx.fillStyle = background;
+        octx.fillRect(px, py, tw, th);
+      }
       octx.drawImage(tile, px, py);
       done++;
       onProgress?.(done, total);
