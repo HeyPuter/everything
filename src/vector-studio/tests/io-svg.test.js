@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parsePathData, tokenizePath, arcToCubics, pathDataFromSubpaths, numberFormatter } from '../src/features/io/svg-path.js';
-import { parseTransform, parseStylesheet, specificity, parseLength } from '../src/features/io/svg-style.js';
+import { parseTransform, parseStylesheet, specificity, parseLength, mediaMatches } from '../src/features/io/svg-style.js';
 import { convertSVG, svgToDocument, svgToNodes, viewBoxTransform } from '../src/features/io/svg-import.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
 import { pathBounds, segmentCount, segmentPoints, pointAt } from '../src/model/bezier.js';
@@ -169,6 +169,38 @@ describe('transforms, lengths and CSS', () => {
     expect(paths[2].fill.color).toBe('#123456'); // inline style wins
     expect(paths[3].stroke.color).toBe('#ff00ff'); // inherited from the group
     expect(paths[3].strokeWidth).toBe(2);
+  });
+});
+
+describe('SVG @media rules', () => {
+  it('apply only when they match a light screen at the drawing\'s own size', () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32" viewBox="0 0 64 32">
+      <style>
+        .a { fill: #ff0000 } .b { fill: #ff0000 } .c { fill: #ff0000 } .d { fill: #ff0000 } .e { fill: #ff0000 }
+        @media (prefers-color-scheme: dark) { .a { fill: #ffffff } }
+        @media (prefers-color-scheme: light) { .b { fill: #00ff00 } }
+        @media screen and (max-width: 100px) { .c { fill: #00ff00 } }
+        @media (min-width: 500px), print { .d { fill: #0000ff } }
+        @media (width >= 60px) and (orientation: landscape) { .e { fill: #00ff00 } }
+      </style>
+      <rect class="a" width="5" height="5"/><rect class="b" width="5" height="5"/><rect class="c" width="5" height="5"/>
+      <rect class="d" width="5" height="5"/><rect class="e" width="5" height="5"/>
+    </svg>`;
+    const fills = svgToDocument(svg).leaves().map((n) => n.fill.color);
+    expect(fills).toEqual(['#ff0000', '#00ff00', '#00ff00', '#ff0000', '#00ff00']);
+  });
+
+  it('match media query lists', () => {
+    expect(mediaMatches('screen')).toBe(true);
+    expect(mediaMatches('print')).toBe(false);
+    expect(mediaMatches('not print')).toBe(true);
+    expect(mediaMatches('only screen and (min-width: 10px)', { width: 20, height: 20 })).toBe(true);
+    expect(mediaMatches('(max-width: 10px)', { width: 20, height: 20 })).toBe(false);
+    expect(mediaMatches('(max-width: 10px)')).toBe(true); // no size known: kept
+    expect(mediaMatches('(prefers-reduced-motion: reduce), (hover: hover)')).toBe(true);
+    expect(mediaMatches('(min-resolution: 2dppx)')).toBe(false);
+    expect(mediaMatches('(unknown-feature: 1)')).toBe(false);
+    expect(mediaMatches('(400px < width)', { width: 300, height: 10 })).toBe(false);
   });
 });
 

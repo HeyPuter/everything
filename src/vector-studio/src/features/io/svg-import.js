@@ -220,13 +220,32 @@ class Importer {
     for (const el of this.doc.querySelectorAll('[id]')) if (!this.ids.has(el.id)) this.ids.set(el.id, el);
     let css = '';
     for (const st of this.doc.querySelectorAll('style')) css += '\n' + st.textContent;
-    this.css = css.trim() ? matchStylesheet(this.doc, parseStylesheet(css)) : new Map();
+    this.css = css.trim() ? matchStylesheet(this.doc, parseStylesheet(css, this.mediaSize(svg))) : new Map();
     this.shim = { get: (id) => this.nodes.get(id) };
     this.styleCache = new Map();
   }
 
   warn(msg) {
     this.warnings.add(msg);
+  }
+
+  /** The drawing's own size, which @media rules test (like the file seen as an image). */
+  mediaSize(svg) {
+    const len = (name) => {
+      const v = svg.getAttribute(name);
+      if (!v || /%/.test(v)) return null;
+      const n = parseLength(v, { fallback: NaN });
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    let width = len('width');
+    let height = len('height');
+    const vb = parseNumberList(svg.getAttribute('viewBox') || '');
+    if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+      if (width == null && height == null) [width, height] = [vb[2], vb[3]];
+      else if (width == null) width = (height * vb[2]) / vb[3];
+      else if (height == null) height = (width * vb[3]) / vb[2];
+    }
+    return { width, height };
   }
 
   add(node) {
