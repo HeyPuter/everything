@@ -293,6 +293,51 @@ describe('Preview Editor', () => {
     expect(el.hidden).toBe(true);
     host.remove();
   });
+  it('follows the effect dialog channel map', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    const app = fakeApp();
+    app.prefs.set('previewEditor', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    installPreviewEditor(app, host);
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 1000,
+      channels: [Channel.fromSamples(filled(1000, 0.1)), Channel.fromSamples(filled(1000, 0.3))],
+    });
+    doc.view = { start: 0, end: 1000, amp: 1 };
+    app.addDocument(doc);
+    const seen = [];
+    const probe = {
+      id: 'pvProbe',
+      name: 'Probe',
+      params: [{ id: 'g', min: 0, max: 2, default: 1 }],
+      kind: null,
+      process: async ({ channels }) => {
+        seen.push(channels.map((c) => c[0]));
+        return channels;
+      },
+    };
+    const payloads = [];
+    app.on('effect-values', (v) => payloads.push(v));
+    const p = openEffectDialog(app, probe, { doc, routing: {} });
+    const dlg = document.querySelector('.fx-dialog');
+    dlg.querySelector('.fx-map-btn').click();
+    const selects = dlg.querySelectorAll('.fx-chmap select');
+    // Both effect inputs read the left channel.
+    selects[1].value = '0';
+    selects[1].dispatchEvent(new Event('change'));
+    expect(payloads.at(-1).route).toEqual({ in: [0, 0], out: [0, 1] });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(seen.at(-1)[0]).toBeCloseTo(0.1);
+    expect(seen.at(-1)[1]).toBeCloseTo(0.1);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await p;
+    host.remove();
+  });
 });
 
 describe('effect dialog preview', () => {

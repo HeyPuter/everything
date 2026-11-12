@@ -173,8 +173,8 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     values = normalizeValues(def, next);
     changed(null);
   }
-  // The Preview Editor follows the settings of effects about to be applied to a file.
-  const announceValues = (v) => mode === 'apply' && doc && app.emit('effect-values', v && { def, values: v, doc });
+  // The Preview Editor follows the settings (and channel map) of effects about to be applied to a file.
+  const announceValues = (v) => mode === 'apply' && doc && app.emit('effect-values', v && { def, values: v, doc, route });
   function changed(from) {
     controls?.refresh(values, from);
     subscribers.forEach((fn) => fn(values));
@@ -254,6 +254,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     const set = (next) => {
       route = next;
       showRoute();
+      announceValues(values);
       if (previewing) pushPreview();
     };
     const inputs = [0, 1].map((c) => h('label.fx-chmap-cell', h('span.faint', full[c]), pick(route.in[c], [[0, `File ${names[0]}`], [1, `File ${names[1]}`], [-1, 'Silence']], (v) => set({ ...route, in: route.in.map((x, i) => (i === c ? v : x)) }), `Effect ${full[c].toLowerCase()} input`)));
