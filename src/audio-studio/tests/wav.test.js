@@ -117,6 +117,25 @@ describe('wav', () => {
     bytes.set([0x42, 0x57, 0x36, 0x34]); // "BW64"
     expect(Array.from(parseWav(bytes.buffer).channels[0])).toEqual([0.5, -0.5]);
   });
+  it('gives readable errors for cut-off headers and damaged channel counts', async () => {
+    const blob = encodeWav({ sampleRate: 8000, channels: [tone(100), tone(100)], bitDepth: 16 });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // Cut off inside the format chunk.
+    const cut = bytes.slice(0, 30).buffer;
+    expect(() => parseWav(cut)).toThrow('The WAV file header is damaged or cut off.');
+    // A channel count that disagrees with the block size and byte rate.
+    const bad = bytes.slice();
+    new DataView(bad.buffer).setUint16(22, 40000, true);
+    expect(() => parseWav(bad.buffer)).toThrow('The WAV file header is damaged.');
+    // Consistent but absurd: more channels than any file opens with.
+    const huge = bytes.slice();
+    const dv = new DataView(huge.buffer);
+    dv.setUint16(22, 2000, true);
+    dv.setUint16(32, 4000, true);
+    dv.setUint32(28, 8000 * 4000, true);
+    expect(() => parseWav(huge.buffer)).toThrow('The WAV file header is damaged.');
+    expect(parseWav(bytes.buffer).channels.length).toBe(2);
+  });
   it('rejects non-WAV data', () => {
     expect(() => parseWav(new ArrayBuffer(64))).toThrow();
   });

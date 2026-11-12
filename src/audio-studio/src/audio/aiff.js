@@ -69,12 +69,14 @@ export function parseAiff(buffer) {
   let comm = null;
   let ssnd = -1;
   let ssndSize = 0;
+  let ssndDeclared = 0;
   const marks = [];
   const meta = {};
   let o = 12;
   while (o + 8 <= b.length) {
     const id = str(b, o, 4);
     let size = dv.getUint32(o + 4);
+    const declared = size;
     const body = o + 8;
     if (body + size > b.length) size = b.length - body;
     if (id === 'COMM' && size >= 18) {
@@ -89,6 +91,7 @@ export function parseAiff(buffer) {
       const offset = dv.getUint32(body);
       ssnd = body + 8 + offset;
       ssndSize = Math.max(0, size - 8 - offset);
+      ssndDeclared = Math.max(0, declared - 8 - offset);
     } else if (id === 'MARK' && size >= 2) {
       const n = dv.getUint16(body);
       let p = body + 2;
@@ -112,13 +115,16 @@ export function parseAiff(buffer) {
   }
   if (!comm || ssnd < 0) throw new Error('The AIFF file has no audio data.');
   const { channels: nch, bits, rate, type } = comm;
-  if (nch < 1 || !rate) throw new Error('The AIFF file header is damaged.');
+  // Corrupt fields would open thousands of channels, an absurd rate or garbage samples.
+  const damaged = () => new Error('The AIFF file header is damaged.');
+  if (nch < 1 || nch > 1024 || !(rate > 0 && rate < 2 ** 32)) throw damaged();
   const t = type.toLowerCase();
   let bytes;
   let read;
   let float = false;
   let depth = bits;
   if (t === 'none' || t === 'twos' || t === 'raw ' || t === 'in24' || t === 'in32' || t === 'sowt') {
+    if (bits < 1 || bits > 32) throw damaged();
     const little = t === 'sowt';
     bytes = Math.ceil(bits / 8);
     if (t === 'in24') bytes = 3;
@@ -156,6 +162,9 @@ export function parseAiff(buffer) {
     depth = 16;
     read = t === 'ulaw' ? (p) => ulaw(b[p]) : (p) => alaw(b[p]);
   } else throw new Error(`AIFF-C compression "${type.trim()}" is not supported.`);
+  // AIFF has no block size to check the channel count against, but a damaged count makes the
+  // sound data the header announces far smaller than its frames need (a cut-off file does not).
+  if (comm.frames > 0 && ssndDeclared * 2 < comm.frames * bytes * nch) throw damaged();
   const frames = Math.min(comm.frames, Math.floor(ssndSize / (bytes * nch)));
   const channels = Array.from({ length: nch }, () => new Float32Array(frames));
   const stride = bytes * nch;

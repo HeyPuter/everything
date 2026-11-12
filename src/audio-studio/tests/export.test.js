@@ -112,6 +112,21 @@ describe('AIFF export', () => {
     expect(Array.from(parseAiff(bytes.buffer).channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
   });
 
+  it('rejects damaged channel counts and sample sizes but opens cut-off files', async () => {
+    const src = tone(1000);
+    const bytes = await exportFrom([src, src], 44100, { format: 'aiff', sampleRate: 44100, channels: 2, bitDepth: 16 });
+    const comm = findBox(bytes, 'COMM') + 12; // findBox returns the offset 4 bytes before the id
+    const dv = new DataView(bytes.buffer);
+    expect(dv.getInt16(comm)).toBe(2);
+    const bad = bytes.slice();
+    new DataView(bad.buffer).setInt16(comm, 227);
+    expect(() => parseAiff(bad.buffer)).toThrow('The AIFF file header is damaged.');
+    const bits = bytes.slice();
+    new DataView(bits.buffer).setInt16(comm + 6, 1000);
+    expect(() => parseAiff(bits.buffer)).toThrow('The AIFF file header is damaged.');
+    expect(parseAiff(bytes.slice(0, bytes.length - 1000).buffer).channels[1].length).toBeLessThan(1000);
+  });
+
   it('encodes 80-bit extended sample rates exactly', () => {
     const dv = new DataView(new ArrayBuffer(10));
     for (const rate of [8000, 11025, 22050, 44100, 48000, 96000, 192000, 384000, 7]) {

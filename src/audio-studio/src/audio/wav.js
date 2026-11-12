@@ -13,6 +13,9 @@ const ascii = (dv, o, n) => {
   return s;
 };
 
+/** Most channels a file may have to be opened (more means a damaged header). */
+export const MAX_CHANNELS = 1024;
+
 export function isWav(buffer) {
   if (buffer.byteLength < 12) return false;
   const dv = new DataView(buffer);
@@ -44,6 +47,7 @@ export function parseWav(buffer) {
   const lengths = new Map();
   const notes = new Map();
   let meta = {};
+  let fmtBad = false;
   let o = 12;
   while (o + 8 <= buffer.byteLength) {
     const id = ascii(dv, o, 4);
@@ -51,12 +55,19 @@ export function parseWav(buffer) {
     const body = o + 8;
     if (id === 'ds64' && body + 16 <= buffer.byteLength) ds64Data = Number(dv.getBigUint64(body + 8, true));
     if (id === 'fmt ') {
-      let format = dv.getUint16(body, true);
-      const channels = dv.getUint16(body + 2, true);
-      const sampleRate = dv.getUint32(body + 4, true);
-      const bits = dv.getUint16(body + 14, true);
-      if (format === 0xfffe && size >= 40) format = dv.getUint16(body + 24, true);
-      fmt = { format, channels, sampleRate, bits };
+      // A format chunk too short for its fields (or cut off) leaves `fmt` unset.
+      if (size < 16 || body + 16 > buffer.byteLength) fmtBad = true;
+      else {
+        let format = dv.getUint16(body, true);
+        const channels = dv.getUint16(body + 2, true);
+        const sampleRate = dv.getUint32(body + 4, true);
+        const byteRate = dv.getUint32(body + 8, true);
+        const blockAlign = dv.getUint16(body + 12, true);
+        const bits = dv.getUint16(body + 14, true);
+        const sub = format === 0xfffe && size >= 40 && body + 26 <= buffer.byteLength;
+        if (sub) format = dv.getUint16(body + 24, true);
+        fmt = { format, channels, sampleRate, bits, byteRate, blockAlign };
+      }
     } else if (id === 'data') {
       dataOffset = body;
       dataSize = size === 0xffffffff && ds64Data != null ? ds64Data : size;
@@ -101,6 +112,7 @@ export function parseWav(buffer) {
     }
     o = body + size + (size & 1);
   }
+  if (!fmt && fmtBad) throw new Error('The WAV file header is damaged or cut off.');
   if (!fmt || dataOffset < 0) throw new Error('The WAV file has no audio data.');
   const { format, channels: nch, sampleRate, bits } = fmt;
   if (!nch || !sampleRate || !bits) throw new Error('The WAV file header is damaged.');
@@ -112,6 +124,10 @@ export function parseWav(buffer) {
   // first (cold) decode of a long file ~20% slower.
   const bytes = (bits + 7) >> 3;
   const container = bytes * 8;
+  // A damaged channel count disagrees with both the block size and the byte rate (which a
+  // valid header derives from it); without this a corrupt file opened with thousands of channels.
+  const consistent = fmt.blockAlign === bytes * nch || fmt.byteRate === sampleRate * bytes * nch;
+  if (nch > MAX_CHANNELS || !consistent) throw new Error('The WAV file header is damaged.');
   const frames = Math.floor(dataSize / (bytes * nch));
   const channels = Array.from({ length: nch }, () => new Float32Array(frames));
   const src = new Uint8Array(buffer, dataOffset, frames * bytes * nch);
