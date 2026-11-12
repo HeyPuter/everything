@@ -5,6 +5,7 @@ import {
   mergeVisibleStack,
   moveLayers,
   placeDuplicates,
+  toggleClipping,
   reorderLayers,
   selectedRoots,
   visibleRows,
@@ -206,5 +207,28 @@ describe('duplicating layers in a clipping group', () => {
       ['Top', false],
       ['Top copy', false],
     ]);
+  });
+});
+
+describe('creating and releasing clipping masks', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    const names = ['Base', 'C1', 'C2', 'C3', 'Top'];
+    doc.layers = names.map((n) => layer('solid', n, 40, 30));
+    for (const l of doc.layers.slice(1, 4)) l.clipped = true;
+    return doc;
+  }
+  const clipped = (doc: ReturnType<typeof newDocument>) => doc.layers.map((l) => !!l.clipped);
+  it('releasing a layer in the middle of a group also releases the clipped layers above it', () => {
+    const doc = fixture();
+    toggleClipping(doc, doc.layers[2].id);
+    expect(clipped(doc)).toEqual([false, true, false, false, false]);
+  });
+  it('releasing the top clipped layer releases only it, and creating clips one layer', () => {
+    const doc = fixture();
+    toggleClipping(doc, doc.layers[3].id);
+    expect(clipped(doc)).toEqual([false, true, true, false, false]);
+    toggleClipping(doc, doc.layers[4].id);
+    expect(clipped(doc)).toEqual([false, true, true, false, true]);
   });
 });

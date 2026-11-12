@@ -11,7 +11,7 @@ import { escapeXML } from '../model/assets';
 import { formatShortcut, isMac } from '../app/shortcuts';
 import { appIcon } from '../app/shell';
 import { compositeRGBA, hexRgb, layerRGBA, nextLayerName, pixelTarget, rasterizeLayer, commitTarget } from './pixels';
-import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack } from '../model/layers';
+import { assertEditable, selectedRoots, groupLayers, mergeVisibleStack, toggleClipping } from '../model/layers';
 import { hasMask } from '../model/masks';
 import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
@@ -188,10 +188,15 @@ export function installCore(e: Editor) {
       e.message('There is no layer below to clip to.');
       return;
     }
-    e.editLayer(l.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask', (x) => {
-      if (x.clipped) delete x.clipped;
-      else x.clipped = true;
-    });
+    if (e.selectedIds.size > 1) {
+      e.message('Select a single layer for this adjustment.');
+      return;
+    }
+    if (layerLock(e.doc.layers, l.id, 'all')) {
+      e.message('Unlock this layer to edit it.');
+      return;
+    }
+    e.command(l.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask', (d) => toggleClipping(d, l.id));
   }, { shortcut: 'Mod+Alt+G', enabled: hasLayer, checked: (e) => !!e.layer?.clipped });
   for (const [id, label, shortcut, where] of [
     ['layer.bring-front', 'Bring to Front', 'Mod+Shift+]', 'front'],

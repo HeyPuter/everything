@@ -44,6 +44,19 @@ export function placeDuplicates(doc: PhotoDocument, originals: Layer[], copies: 
     insertLayerAt(list, list.findIndex((item) => item.id === l.id) + 1, copies[i]);
   });
 }
+/** Create Clipping Mask / Release Clipping Mask on `id`. Releasing a layer
+ * in the middle of a clipping group also releases the clipped layers above
+ * it, which would otherwise clip to the released layer. */
+export function toggleClipping(doc: PhotoDocument, id: string) {
+  const list = containerOf(doc.layers, id);
+  const l = findLayer(doc.layers, id);
+  if (!list || !l) return;
+  if (!l.clipped) {
+    l.clipped = true;
+    return;
+  }
+  for (let i = list.indexOf(l); list[i]?.clipped; i++) delete list[i].clipped;
+}
 // The Background layer stays at the bottom of the stack until it is
 // converted (Layer → New → Layer from Background).
 const BACKGROUND_STAYS = 'The Background layer stays at the bottom. Convert it with Layer from Background first.';
