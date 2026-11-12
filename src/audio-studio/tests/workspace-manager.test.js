@@ -68,4 +68,22 @@ describe('workspace groups', () => {
     expect(app.prefs.get('workspaceTabs')).not.toContain(name);
     expect(workspaceGroups(app).overflow[0]).toBe(name);
   });
+
+  it('tells screen readers which workspace is selected in the list', async () => {
+    const app = await makeApp();
+    app.layoutMode = 'desktop';
+    app.dock = { layout: () => ({}) };
+    app.setWorkspace = () => {};
+    const done = app.commands.run('workspace.edit');
+    const list = document.querySelector('.ws-dialog [role=listbox]');
+    const active = () => document.getElementById(list.getAttribute('aria-activedescendant'));
+    expect(active().dataset.name).toBe(app.prefs.get('workspace'));
+    list.focus();
+    list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(active().getAttribute('aria-selected')).toBe('true');
+    expect(active().dataset.name).not.toBe(app.prefs.get('workspace'));
+    const buttons = [...document.querySelectorAll('.ws-dialog .dialog-foot .btn')];
+    buttons.find((b) => b.textContent === 'Cancel').click();
+    await done;
+  });
 });
