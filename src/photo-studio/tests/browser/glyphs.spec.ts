@@ -38,3 +38,27 @@ test('Glyphs panel lists the font’s characters and inserts them into text', as
   const layerText = await page.evaluate(() => window.photoStudio.doc.layers.find((l) => l.kind === 'text')?.text);
   expect(layerText).toBe('Café€');
 });
+
+test('a glyph from a font chosen in the Glyphs panel is inserted in that font', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 400, 200, '#ffffff');
+  await page.evaluate(() => window.photoStudio.runCommand('type.add'));
+  await expect.poll(() => text(page)).toBe('');
+  await page.keyboard.type('ab');
+  await page.evaluate(() => window.photoStudio.dock.show('glyphs'));
+  const body = await panel(page, 'Glyphs');
+  await body.locator('select[aria-label="Font family"]').selectOption('Caveat');
+  const cell = body.locator('.gl-grid [data-cp="38"]');
+  await expect(cell).toBeVisible();
+  await cell.dblclick();
+  await expect.poll(() => text(page)).toBe('ab&');
+  const runs = () =>
+    page.evaluate(() => {
+      const { session } = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+      return session!.data.content.paragraphs[0].runs.map((r) => [r.text, r.style.family]);
+    });
+  expect(await runs()).toEqual([['ab', 'Inter'], ['&', 'Caveat']]);
+  // Undo removes the glyph in one step.
+  await page.keyboard.press('Meta+z');
+  expect(await runs()).toEqual([['ab', 'Inter']]);
+});

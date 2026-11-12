@@ -412,11 +412,12 @@ export function setSelection(e: Editor, anchor: number, focus: number, keepGoal 
   notify();
 }
 
-export function insert(e: Editor, str: string, kind = 'type') {
+// `forced`: the style the inserted text takes (a glyph from another font).
+export function insert(e: Editor, str: string, kind = 'type', forced?: CharStyle) {
   const s = session!;
   const [a, b] = ordered(s);
   const clean = str.replace(/\r\n?/g, '\n');
-  const style = a === b && s.caretStyle ? s.caretStyle : undefined;
+  const style = forced ?? (a === b && s.caretStyle ? s.caretStyle : undefined);
   let content = replaceRange(s.data.content, a, b, clean, style);
   // Preferences → Type → Missing glyph protection: characters the font lacks
   // are typed in a bundled font that has them.
