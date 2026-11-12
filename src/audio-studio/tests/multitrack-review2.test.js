@@ -52,3 +52,70 @@ describe('reverting part of a remixed clip', () => {
     expect(unremixClip(remixed())).toMatchObject({ offset: 100, length: 500 });
   });
 });
+
+describe('Write automation during loop playback', () => {
+  it('writes every pass that played, not only from the start to where playback stopped', async () => {
+    const { Emitter } = await import('../src/lib/emitter.js');
+    const { Session } = await import('../src/model/session.js');
+    const { TrackControls } = await import('../src/multitrack/track-controls.js');
+    for (const mode of ['write', 'latch']) {
+      const doc = new Session({ name: 'A.asesx', tracks: 1, sampleRate: 1000 });
+      const t = doc.state.tracks[0];
+      doc.apply(
+        'Setup',
+        S.setAutomation(S.updateTrack(doc.state, t.id, { mode }), t.id, 'volume', [
+          { t: 0, v: -3 },
+        ]),
+      );
+      const app = new Emitter();
+      app.engine = { playing: true, range: { loop: { start: 1000, end: 2000 } } };
+      app.active = doc;
+      app.playhead = 1500;
+      app.syncGraph = () => {};
+      const tc = new TrackControls(app, doc);
+      tc.begin();
+      app.playhead = 1600;
+      tc.set(t.id, 'volume', -10, 'change');
+      // Playback goes on looping with nothing touched, then stops early in a pass.
+      for (const f of [1800, 1990, 1100, 1500, 1990, 1050, 1200]) tc.follow(f);
+      tc.commit(1200);
+      const lane = S.findTrack(doc.state, t.id).automation.volume;
+      for (const f of [1050, 1300, 1700, 1990])
+        expect(S.envelopeValue(lane, f)).toBeCloseTo(-10, 6);
+      // Outside the loop the lane is as it was.
+      expect(S.envelopeValue(lane, 500)).toBeCloseTo(-3, 6);
+      expect(S.envelopeValue(lane, 2500)).toBeCloseTo(-3, 6);
+    }
+  });
+});
+
+describe('Write automation and seeks', () => {
+  it('does not write past where playback was when it jumped back by a seek', async () => {
+    const { Emitter } = await import('../src/lib/emitter.js');
+    const { Session } = await import('../src/model/session.js');
+    const { TrackControls } = await import('../src/multitrack/track-controls.js');
+    const doc = new Session({ name: 'A.asesx', tracks: 1, sampleRate: 1000 });
+    const t = doc.state.tracks[0];
+    doc.apply(
+      'Setup',
+      S.setAutomation(S.updateTrack(doc.state, t.id, { mode: 'write' }), t.id, 'volume', [
+        { t: 0, v: -3 },
+      ]),
+    );
+    const app = new Emitter();
+    app.engine = { playing: true, range: { loop: { start: 0, end: 10000 } } };
+    app.active = doc;
+    app.playhead = 1000;
+    app.syncGraph = () => {};
+    const tc = new TrackControls(app, doc);
+    tc.begin();
+    app.playhead = 1100;
+    tc.set(t.id, 'volume', -10, 'change');
+    // Seek back from 3000 to 2000, play on to 2500.
+    for (const f of [2000, 3000, 2000, 2500]) tc.follow(f);
+    tc.commit(2500);
+    const lane = S.findTrack(doc.state, t.id).automation.volume;
+    expect(S.envelopeValue(lane, 2800)).toBeCloseTo(-10, 6);
+    expect(S.envelopeValue(lane, 5000)).toBeCloseTo(-3, 6);
+  });
+});

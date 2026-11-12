@@ -99,6 +99,7 @@ export class TrackControls {
       pass.value = value;
       pass.lastT = t;
     }
+    pass.seen = t;
     if (phase === 'change' && track.mode === 'touch') {
       pass.done = true;
       const o = { ...(this.doc.overrides[track.id] || {}) };
@@ -109,6 +110,31 @@ export class TrackControls {
     }
     this.app.syncGraph();
     this.doc.emit('change', { kind: 'automation' });
+  }
+
+  /**
+   * Follows the playhead during playback (`frame`). A loop jump closes the passes that hold a
+   * value (Write, a latched control) at the loop end and continues them from the loop start, so
+   * every pass played is written, also when nothing is touched after the jump.
+   */
+  follow(frame) {
+    if (!this.passes.size) return;
+    const loop = this.app.engine.range?.loop;
+    const looping = loop && loop.end > loop.start;
+    for (const pass of this.passes.values()) {
+      if (pass.done) continue;
+      const seen = pass.seen ?? pass.lastT;
+      pass.seen = frame;
+      if (frame >= seen) continue;
+      // A jump from near the loop end to near its start is the loop wrapping (meters arrive a few
+      // times a second); other jumps back are seeks, which continue from where they land.
+      const near = this.doc.sampleRate * 0.5;
+      const end = looping && loop.end - seen <= near ? Math.max(pass.lastT, loop.end - 1) : Math.max(pass.lastT, seen);
+      const start = looping && frame >= loop.start && frame - loop.start <= near ? loop.start : frame;
+      pass.segments[pass.segments.length - 1].points.push({ t: end, v: pass.value });
+      pass.segments.push({ t0: start, points: [{ t: start, v: pass.value }] });
+      pass.lastT = start;
+    }
   }
 
   /** Starts Write passes for tracks in Write mode (called when playback starts). */

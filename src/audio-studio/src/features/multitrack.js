@@ -97,6 +97,10 @@ export function installMultitrack(app) {
 
   // Automation passes start with playback (or recording, which plays the session) and commit when it stops.
   let playingSession = null;
+  // They follow the playhead through loop jumps (meters arrive steadily during playback).
+  app.engine.on?.('meters', () => {
+    if (playingSession && app.engine.playing && app.active === playingSession) playingSession.controls?.follow(Math.round(app.playhead));
+  });
   app.on('transport', (s) => {
     const doc = app.active?.kind === 'session' ? app.active : null;
     if ((s === 'playing' || s === 'recording') && doc && playingSession !== doc) {
