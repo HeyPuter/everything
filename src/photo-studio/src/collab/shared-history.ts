@@ -11,6 +11,7 @@ import type { PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
 import { ORIGIN } from './shared-project';
 import type { RoomClient } from './client';
+import { CollabError } from './api';
 
 // One step of this person's history. `items` counts the Undo items it wrote
 // into the shared document (more than one when a paused run continued the
@@ -390,17 +391,33 @@ export class SharedBinding {
  * assets it needs, then a binding that keeps it current. */
 export async function openBinding(client: RoomClient, assets: Assets, o: BindingOptions = {}, progress: (text: string) => void = () => {}) {
   let result = client.project.project({ selection: null });
+  let unavailable = false;
   for (let round = 0; ; round++) {
     const missing = client.project.missing(assets);
     if (result.complete && !missing.tiles.size && !missing.assets.size) break;
-    if (round > 8) throw new Error('Some of the shared document could not be downloaded. Try again shortly.');
     progress(`Downloading ${missing.tiles.size} tile${missing.tiles.size === 1 ? '' : 's'}…`);
-    await client.fetchTiles(missing.tiles);
-    for (const [id, ref] of missing.assets) await client.fetchAsset(id, ref);
+    let arrived = await client.fetchTiles(missing.tiles);
+    for (const [id, ref] of missing.assets)
+      try {
+        await client.fetchAsset(id, ref);
+        arrived++;
+      } catch (error) {
+        if (error instanceof CollabError && error.network) throw error;
+      }
     client.project.invalidate();
     result = client.project.project({ selection: null });
+    // Content someone referred to but has not uploaded (or never will): the
+    // document opens without it rather than not at all, and fills in later.
+    if (!arrived || round >= 8) {
+      unavailable = !result.complete || client.project.missing(assets).tiles.size > 0 || client.project.missing(assets).assets.size > 0;
+      break;
+    }
   }
   const binding = new SharedBinding(client, assets, result.document, o);
   binding.reportDropped(result.dropped);
+  if (unavailable) {
+    o.onMessage?.('Some of the shared document is not available yet. It is shown without it and fills in when it arrives.');
+    binding.retryLater();
+  }
   return binding;
 }

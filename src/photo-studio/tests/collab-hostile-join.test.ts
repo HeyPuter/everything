@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { decode, encode, hash } from '../src/collab/protocol';
 import type { Identity } from '../src/collab/server/service';
-import { editor, environment } from './collab-helpers';
+import { editor, environment, viewer } from './collab-helpers';
 import { closeAll, connect, idOf, invite, share, type Env } from './collab-session-helpers';
+import { findLayer } from '../src/model/document';
 
 afterEach(closeAll);
 
@@ -25,7 +26,7 @@ async function change(y: Y.Doc, fn: () => void) {
 }
 
 describe('content another person referred to but never uploaded', () => {
-  it('does not keep others asking for it in a loop', async () => {
+  it('neither keeps others asking for it in a loop nor stops people from joining', async () => {
     const env = environment();
     const { room, a } = await share(env);
     await connect(env, editor, room, { token: await invite(env, room, 'editor') });
@@ -46,5 +47,10 @@ describe('content another person referred to but never uploaded', () => {
     const gets = env.calls.slice(before).filter((c) => c.op === 'asset.get').length;
     // Asked again after a pause, not in a loop.
     expect(gets).toBeLessThanOrEqual(3);
+    const token = await invite(env, room, 'viewer');
+    const v = await connect(env, viewer, room, { token });
+    // The joiner sees the document without the missing tile.
+    expect(findLayer(v.binding.history.document.layers, idOf(v, 'Background'))).toBeTruthy();
+    expect(findLayer(v.binding.history.document.layers, top)!.pixels!.tiles).toEqual({});
   });
 });
