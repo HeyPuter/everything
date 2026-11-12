@@ -205,3 +205,26 @@ describe('Lock and Hide All Artwork Above with sublayers', () => {
     expect(doc.isHidden(b)).toBe(false);
   });
 });
+
+describe('Layers panel Delete button', () => {
+  it('deletes every picked layer, as the panel menu does', async () => {
+    const { app, ed, doc, layer } = setup(await bootAppWithFeatures());
+    let two;
+    let three;
+    doc.transact('Layers', () => {
+      two = doc.addLayer('Two');
+      three = doc.addLayer('Three');
+    });
+    const panel = app.dock.panels.get('layers');
+    panel.ensureBuilt();
+    panel.update();
+    panel.pickLayer(doc.get(two.id));
+    panel.pickLayer(doc.get(three.id), { metaKey: true, ctrlKey: true });
+    ed.clearSelection();
+    panel.deleteSelected();
+    expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+    expect(doc.undoStack.at(-1).label).toBe('Delete Layers');
+    doc.undo();
+    expect(doc.layers()).toHaveLength(3);
+  });
+});

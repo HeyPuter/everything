@@ -256,6 +256,11 @@ export class LayersPanel extends Panel {
       this.app.commands.run('edit.clear');
       return;
     }
+    // Every picked layer, like the panel menu's Delete.
+    if (this.app.commands.get('layers.delete')) {
+      this.app.commands.run('layers.delete');
+      return;
+    }
     const doc = ed.doc;
     const layer = doc.get(ed.activeLayerId);
     if (!layer) return;
