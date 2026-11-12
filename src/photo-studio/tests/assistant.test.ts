@@ -329,6 +329,11 @@ describe('Assistant conversation (scripted model)', () => {
     expect(parseChatReply({ message: { tool_calls: [{ id: 'c', function: { name: 'answer', arguments: '{bad' } }] } }).calls[0].args).toEqual({ __unparsed: '{bad' });
     expect(parseChatReply('plain')).toEqual({ text: 'plain', calls: [] });
   });
+  it('skips malformed tool calls and content parts instead of failing the reply', () => {
+    const reply = parseChatReply({ message: { content: [null, 7, { type: 'text', text: 'Ok' }], tool_calls: [null, 'x', 3, { function: null }, { id: 'd', function: { name: 'answer', arguments: '{"text":"y"}' } }] } });
+    expect(reply).toEqual({ text: 'Ok', calls: [{ id: 'd', name: 'answer', args: { text: 'y' } }] });
+    expect(parseChatReply(null)).toEqual({ text: '', calls: [] });
+  });
 });
 
 /** The editor parts the scripting host uses, over a real session and history. */
