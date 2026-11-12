@@ -353,4 +353,19 @@ describe('type editing session', () => {
     expect(styleAt(n, 0).fontSize).toBe(12);
     expect(styleAt(n, 7).fontSize).toBe(40);
   });
+
+  it('arrow keys in a Character panel field showing mixed values step each character, not from zero', async () => {
+    const { styleAt } = await import('../src/model/text-runs.js');
+    const id = add('small BIG', { char: { fontSize: 12 }, runs: [{ len: 6 }, { len: 3, fontSize: 40 }] });
+    app.editor.select([id]);
+    const p = app.dock.panels.get('character');
+    p.ensureBuilt();
+    p.update();
+    const input = p.el.querySelector('input[aria-label="Font size"]');
+    expect(input.value).toBe('');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    const n = doc.get(id);
+    expect(styleAt(n, 0).fontSize).toBe(13);
+    expect(styleAt(n, 7).fontSize).toBe(41);
+  });
 });
