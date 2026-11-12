@@ -13,7 +13,7 @@ import { svgToDocument } from '../src/features/io/svg-import.js';
 import { exportView } from '../src/features/io/export-view.js';
 import { writePDF } from '../src/features/io/pdf.js';
 import {
-  STORE_ID, symbolDefs, createSymbolFrom, createInstance, getDef, instancesOf, placeInstance, breakLink, deleteSymbols, duplicateSymbol, redefineSymbol,
+  STORE_ID, symbolDefs, createSymbolFrom, createInstance, getDef, instancesOf, placeInstance, breakLink, deleteSymbols, duplicateSymbol, redefineSymbol, symbolDeps,
   sortSymbolsByName, unusedSymbols, exportSymbolsFor, importSymbols, remapInstances, rebaseSymbol, resetTransformPatch, replacePatch, sliceAxis,
   tintColor, updateDefinition, masterBounds, isSymbolSet, createSymbolSet, instanceRegPoint, uniqueSymbolName, onPage,
 } from '../src/features/symbols/model.js';
@@ -323,6 +323,33 @@ describe('redefining a symbol', () => {
     const b = masterBounds(doc, doc.get(def.id));
     expect(b).toEqual({ x: 40, y: 5, w: 10, h: 30 });
     expect(nodeBounds(doc, doc.get(inst.id))).toEqual(b);
+  });
+});
+
+describe('redefining a symbol from its own instance', () => {
+  it('copies what the instance shows instead of nesting the symbol in itself', () => {
+    const { doc, layer, def, inst } = makeSymbol();
+    const shown = nodeBounds(doc, doc.get(inst.id));
+    const c = createPath(rectangle(200, 200, 10, 30), true, { fill: red });
+    doc.transact('add', () => doc.insert(c, layer));
+    // A group holding another instance of the symbol, next to a new shape.
+    let g;
+    doc.transact('group', () => {
+      g = createGroup([]);
+      doc.insert(g, layer);
+      doc.insert(createInstance(def.id, translate(0, 100)), g.id);
+    });
+    const leavesOnPage = doc.leaves().length;
+    doc.transact('redefine', () => redefineSymbol(doc, def.id, [inst.id, g.id, c.id]));
+    const master = symbolDeps(doc, def.id).filter((n) => n.id !== def.id);
+    expect(master.some((n) => n.type === 'instance')).toBe(false);
+    // The old artwork (twice: the instance and the grouped copy) plus the new shape.
+    expect(master.filter((n) => n.type === 'path')).toHaveLength(5);
+    // The page is untouched and the instance shows all of it.
+    expect(doc.leaves().length).toBe(leavesOnPage);
+    const b = nodeBounds(doc, doc.get(inst.id));
+    expect(b.w).toBeGreaterThan(shown.w);
+    expect(b.h).toBeGreaterThan(shown.h);
   });
 });
 

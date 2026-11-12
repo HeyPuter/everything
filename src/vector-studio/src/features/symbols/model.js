@@ -627,14 +627,22 @@ export function redefineSymbol(doc, symbolId, ids) {
   if (!sorted.length) return null;
   let b = null;
   for (const id of sorted) b = unionRect(b, nodeBounds(doc, doc.get(id)));
+  // Copy first, next to the originals, while the old master still draws: an instance
+  // of this symbol (or of one containing it) cannot go into its own master, so it
+  // becomes the artwork it shows instead of drawing nothing.
+  const copies = sorted.map((id) => {
+    const parent = doc.get(doc.get(id).parent);
+    return doc.importSubtree(doc.exportSubtree(id), parent.id, parent.children.indexOf(id) + 1).id;
+  });
+  const out = copies.map((id) => expandInstancesOf(doc, id, symbolId));
   for (const c of [...def.children]) doc.remove(c);
   const reg = def.symbolDef.reg;
   const dx = b ? reg.x - (b.x + b.w / 2) : 0;
   const dy = b ? reg.y - (b.y + b.h / 2) : 0;
   const patches = new Map();
-  for (const id of sorted) {
-    const copy = doc.importSubtree(doc.exportSubtree(id), def.id);
-    if (dx || dy) transformPatches(doc, copy, translate(dx, dy), {}, patches);
+  for (const id of out) {
+    doc.move(id, def.id);
+    if (dx || dy) transformPatches(doc, doc.get(id), translate(dx, dy), {}, patches);
   }
   for (const [id, p] of patches) doc.update(id, p);
   const moved = b ? { ...b, x: b.x + dx, y: b.y + dy } : null;
@@ -642,6 +650,34 @@ export function redefineSymbol(doc, symbolId, ids) {
   // Overrides named parts of the old master.
   for (const inst of instancesOf(doc, symbolId)) if (inst.overrides) doc.update(inst.id, { overrides: undefined });
   return doc.get(def.id);
+}
+
+/**
+ * Break the link of every instance in a subtree whose artwork uses `symbolId`
+ * (inside a transaction). Returns the subtree root's id (a new one when the
+ * root itself was such an instance).
+ */
+function expandInstancesOf(doc, rootId, symbolId) {
+  const uses = (n) =>
+    n.symbol === symbolId || symbolDeps(doc, n.symbol).some((d) => d.id === symbolId);
+  let root = rootId;
+  // Each pass expands one level of nesting; a symbol nests at most once per level.
+  for (let pass = 0; pass < 64; pass++) {
+    const found = [];
+    const visit = (id) => {
+      const n = doc.get(id);
+      if (!n) return;
+      if (isInstance(n) && uses(n)) found.push(id);
+      else if (n.children) n.children.forEach(visit);
+    };
+    visit(root);
+    if (!found.length) break;
+    for (const id of found) {
+      const g = breakLink(doc, id);
+      if (id === root) root = g ? g.id : root;
+    }
+  }
+  return root;
 }
 
 /** Copy a definition (Duplicate Symbol). */
