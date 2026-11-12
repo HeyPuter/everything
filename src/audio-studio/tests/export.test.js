@@ -166,6 +166,33 @@ describe('MP3 export', () => {
     expect(frames).toBeLessThan(44);
   });
 
+  it('reads an ID3v1 tag at the end when the file has no ID3v2 tag, and fills gaps with it', async () => {
+    const opts = { format: 'mp3', sampleRate: 44100, channels: 1 };
+    const mp3 = await exportFrom([tone(4000)], 44100, opts, { meta: {} });
+    const v1 = new Uint8Array(128);
+    const put = (at, text) => v1.set(new TextEncoder().encode(text), at);
+    put(0, 'TAG');
+    put(3, 'Old Title');
+    put(33, 'Old Artist   ');
+    put(63, 'Album');
+    put(93, '1999');
+    put(97, 'Caf');
+    v1[100] = 0xe9; // é in ISO-8859-1
+    v1[126] = 7; // ID3v1.1 track number
+    v1[127] = 255;
+    const file = new Uint8Array(mp3.length + 128);
+    file.set(mp3);
+    file.set(v1, mp3.length);
+    const old = { title: 'Old Title', artist: 'Old Artist', album: 'Album', year: '1999' };
+    expect(readTags(file.buffer)).toEqual({ ...old, comment: 'Café', track: '7' });
+    // Behind an ID3v2 tag the v2 fields win.
+    const tagged = await exportFrom([tone(4000)], 44100, opts, { meta: { title: 'New' } });
+    const both = new Uint8Array(tagged.length + 128);
+    both.set(tagged);
+    both.set(v1, tagged.length);
+    expect(readTags(both.buffer)).toMatchObject({ title: 'New', artist: 'Old Artist', track: '7' });
+  });
+
   it('picks MPEG-2 frames for low sample rates and mono', async () => {
     const bytes = await exportFrom([tone(22050, 300, 22050)], 22050, { format: 'mp3', sampleRate: 22050, channels: 1, settings: { bitrate: 64 } }, { meta: {} });
     const h = parseMp3Header(bytes, 0);

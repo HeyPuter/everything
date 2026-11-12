@@ -496,17 +496,38 @@ export function aiffMetaChunks(meta) {
 export function readTags(buffer) {
   try {
     const b = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 4 << 20));
-    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return parseId3v2(b);
+    // ID3v2 wins; an MP3's old ID3v1 tag at the end fills what it lacks (or is all there is).
+    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) {
+      return { ...parseId3v1(buffer), ...parseId3v2(b) };
+    }
     const head = latin1(b.subarray(0, 4));
     if (head === 'fLaC') return flacTags(b);
     if (head === 'OggS') return oggTags(b);
     // MP4 boxes are walked by their headers only, so the whole file costs little; the
     // moov box with the tags often follows the media data, far past the first megabytes.
     if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Tags(new Uint8Array(buffer));
+    return parseId3v1(buffer);
   } catch {
     // Unreadable tags never block opening the audio.
   }
   return {};
+}
+
+/** Fields of an ID3v1 (or v1.1, with a track number) tag in the last 128 bytes, if there is one. */
+export function parseId3v1(buffer) {
+  if (buffer.byteLength < 128) return {};
+  const t = new Uint8Array(buffer, buffer.byteLength - 128, 128);
+  if (t[0] !== 0x54 || t[1] !== 0x41 || t[2] !== 0x47) return {}; // "TAG"
+  const text = (from, to) => latin1(t.subarray(from, to)).split('\0')[0].trim();
+  const v11 = t[125] === 0 && t[126] !== 0;
+  return cleanMeta({
+    title: text(3, 33),
+    artist: text(33, 63),
+    album: text(63, 93),
+    year: text(93, 97),
+    comment: text(97, v11 ? 125 : 127),
+    track: v11 ? String(t[126]) : '',
+  });
 }
 
 function flacTags(b) {
