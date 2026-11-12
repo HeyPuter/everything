@@ -40,6 +40,8 @@ type Drag = {
   handle: ResizeHandle | 'rotate' | 'move';
   before: PhotoDocument;
   automatic: boolean;
+  // The frame of the latest pointer position.
+  next?: Transform;
 };
 type Pick = {
   event: PointerEvent;
@@ -323,6 +325,7 @@ export class FreeTransform {
         this.e.message((error as Error).message);
         return;
       }
+      drag.next = next;
       if (this.session) {
         this.session.draft = doc;
         this.session.frame = next;
@@ -340,6 +343,17 @@ export class FreeTransform {
         if (this.session) {
           this.session.draft = drag.before;
           this.session.frame = drag.transform;
+        }
+      } else if (this.session && drag.next && drag.handle !== 'move') {
+        // Group masks follow a scale or rotation once the drag ends (too
+        // costly to resample on every pointer move).
+        const doc = structuredClone(drag.before);
+        try {
+          transformSelection(this.roots(doc), drag.transform, drag.next, this.e.assets.tiles);
+          followLinkedMasks(drag.before, doc);
+          this.session.draft = doc;
+        } catch (error) {
+          this.e.message((error as Error).message);
         }
       } else if (drag.automatic && this.moving) {
         const doc = this.moving;

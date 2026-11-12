@@ -18,6 +18,7 @@ import {
   snapTargets,
 } from '../src/model/transform';
 import { History } from '../src/history/history';
+import { emptyGrid, readMask, TileStore, writeRect } from '../src/model/tiles';
 import { validateDocument } from '../src/model/serialization';
 import { makeBackground } from '../src/model/housekeeping';
 
@@ -171,6 +172,30 @@ describe('shared transforms', () => {
     g.maskAsset = 'bitmap';
     expect(() => transformSelection([g], before, { ...before, x: 50 })).toThrow(/bitmap or painted mask/);
     expect(allLayers([g])).toHaveLength(3);
+  });
+  it('scales and rotates a group’s linked mask grid and vector mask with its layers', () => {
+    const { a, b, doc } = fixture();
+    groupLayers(doc, new Set([a.id, b.id]));
+    const g = doc.layers[0];
+    const store = new TileStore();
+    // Reveal-all mask with a hidden 10 x 10 square at (20, 20).
+    g.maskGrid = { ...writeRect(store, { ...emptyGrid(1), fill: 255 }, 20, 20, { width: 10, height: 10, data: new Uint8Array(100) }) };
+    g.vectorMask = { mask: { paths: [{ closed: true, knots: [{ points: [20, 20, 20, 20, 20, 20] }] }] } } as unknown as typeof g.vectorMask;
+    // Twice the size about the frame's top-left corner.
+    const before = selectionFrame([g])!;
+    transformSelection([g], before, { ...before, width: before.width * 2, height: before.height * 2 }, store);
+    const at = (x: number, y: number) => readMask(store, g.maskGrid!, { x, y, width: 1, height: 1 }).data[0];
+    const map = (x: number, y: number) => [before.x + (x - before.x) * 2, before.y + (y - before.y) * 2];
+    const [cx, cy] = map(25, 25);
+    expect(at(Math.round(cx), Math.round(cy))).toBe(0);
+    expect(at(Math.round(cx) + 30, Math.round(cy))).toBe(255);
+    expect(at(-500, -500)).toBe(255);
+    expect(g.vectorMask!.mask.paths[0].knots[0].points.slice(0, 2)).toEqual(map(20, 20));
+    // Without a store (an interactive preview) the painted mask waits.
+    const grid = g.maskGrid;
+    const now = selectionFrame([g])!;
+    transformSelection([g], now, { ...now, rotation: 90 });
+    expect(g.maskGrid).toBe(grid);
   });
 });
 
