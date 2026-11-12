@@ -134,3 +134,41 @@ test('the airbrush builds up paint while the pointer rests', async ({ page }) =>
   });
   expect(alpha).toBeGreaterThan(60);
 });
+
+test('a light pen stroke with smoothing ends at the pen’s pressure', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const l = newPixelLayer('Pen', e.doc);
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    e.setForeground('#000000');
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 40, hardness: 1, flow: 1, smoothing: 0.6, dynamics: { pressureSize: true } });
+  });
+  await idle(page);
+  const cdp = await page.context().newCDPSession(page);
+  const pen = (type: string, x: number, y: number, force: number) =>
+    cdp.send('Input.dispatchMouseEvent', { type: type as 'mouseMoved', x, y, button: force || type !== 'mouseMoved' ? 'left' : 'none', buttons: force ? 1 : 0, clickCount: 1, pointerType: 'pen', force });
+  const [x0, y] = await client(page, 20, 60),
+    [x1] = await client(page, 160, 60);
+  await pen('mouseMoved', x0, y, 0);
+  await pen('mousePressed', x0, y, 0.2);
+  for (let i = 1; i <= 30; i++) await pen('mouseMoved', x0 + ((x1 - x0) * i) / 30, y, 0.2);
+  await pen('mouseReleased', x1, y, 0);
+  await idle(page);
+  // Painted height of the stroke at several columns.
+  const heights = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const d = readRGBA(e.assets.tiles, e.doc.layers.at(-1)!.pixels!, { x: 0, y: 0, width: 200, height: 120 }).data;
+    return [80, 150, 158].map((x) => {
+      let n = 0;
+      for (let y = 0; y < 120; y++) if (d[(y * 200 + x) * 4 + 3] > 128) n++;
+      return n;
+    });
+  });
+  expect(heights[0]).toBe(8);
+  expect(heights[1]).toBe(8);
+  expect(heights[2]).toBeLessThanOrEqual(8);
+});

@@ -50,6 +50,8 @@ type Active = {
   queue: CanvasPointer[];
   smooth?: [number, number];
   last?: [number, number];
+  // Pressure of the latest sample (the smoothing catch-up keeps it).
+  pressure?: number;
   label: string;
   done?: boolean;
   timer?: number;
@@ -281,6 +283,7 @@ function addSample(e: Editor, a: Active, p: CanvasPointer) {
   }
   a.session!.addPoint(x, y, p.pressure);
   a.last = [x, y];
+  a.pressure = p.pressure;
   e.preview(previewTarget(e, a.target!, a.session!.grid));
 }
 function finish(e: Editor, a: Active, id: string) {
@@ -288,7 +291,7 @@ function finish(e: Editor, a: Active, id: string) {
   active = undefined;
   if (a.last) {
     const p = e.pointerInfo;
-    if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, 1);
+    if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
     lastPoint.set(id, a.last);
   }
   const grid = a.session!.commit();
