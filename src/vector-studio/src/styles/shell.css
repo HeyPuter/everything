@@ -778,6 +778,21 @@ body:has(.app.hide-panels) .tool-tearoff {
   min-width: 0;
 }
 
+/* A narrow document area (a tablet with the panels open) drops the tool name
+   and the first and last artboard buttons, as on phones, so the Panels
+   button at the end stays on screen. */
+.statusbar {
+  container-type: inline-size;
+}
+
+@container (max-width: 480px) {
+  .artboard-nav .icon-btn:first-child,
+  .artboard-nav .icon-btn:last-child,
+  .status-tool {
+    display: none;
+  }
+}
+
 .statusbar.no-doc .status-row > :not(.status-panels):not(.status-spacer) {
   visibility: hidden;
 }
