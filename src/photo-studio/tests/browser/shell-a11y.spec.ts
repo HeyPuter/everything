@@ -24,3 +24,39 @@ test('every dialog is announced by its title', async ({ page }) => {
     await expect(page.locator('dialog[open]')).toHaveCount(0);
   }
 });
+
+test('menu bar menus follow the arrow keys, Home, End and Tab, also when opened with the pointer', async ({ page }) => {
+  const openMenu = () => page.evaluate(() => [...document.querySelectorAll('.menubar-entry.open > .menubar-button')].map((b) => b.textContent).join());
+  const focused = () => page.evaluate(() => document.activeElement?.closest('.menu-item')?.getAttribute('data-command') ?? document.activeElement?.className);
+  const items = (menu: string) => page.locator(`.menubar-entry:has(> .menubar-button:text-is("${menu}")) > .menu-pop > .menu-item`);
+  await page.locator('.menubar-button').first().focus();
+  await page.keyboard.press('Enter');
+  expect(await openMenu()).toBe('File');
+  await page.keyboard.press('End');
+  await expect(items('File').last()).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(items('File').first()).toBeFocused();
+  // Right and Left on a plain item move to the neighbouring menus.
+  await page.keyboard.press('ArrowRight');
+  expect(await openMenu()).toBe('Edit');
+  await expect(items('Edit').first()).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  expect(await openMenu()).toBe('File');
+  await page.keyboard.press('ArrowLeft');
+  expect(await openMenu()).toBe('Help');
+  // Tab leaves the menu bar and closes the menu.
+  await page.keyboard.press('Tab');
+  expect(await openMenu()).toBe('');
+  expect(await focused()).not.toContain('menu-item');
+  // A menu opened with the pointer takes the arrows too, without moving layers.
+  await page.locator('#viewport').focus();
+  const before = await page.evaluate(() => JSON.stringify(window.photoStudio.doc.layers));
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.keyboard.press('ArrowDown');
+  await expect(items('Edit').first()).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(items('Edit').last()).toBeFocused();
+  await page.keyboard.press('Escape');
+  expect(await openMenu()).toBe('');
+  expect(await page.evaluate(() => JSON.stringify(window.photoStudio.doc.layers))).toBe(before);
+});

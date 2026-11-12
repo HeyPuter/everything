@@ -133,13 +133,16 @@ export class MenuBar {
     el.addEventListener('keydown', (ev) => this.key(ev));
     // Menus opened with the pointer do not take focus; Escape must still close them
     // (and must not reach the canvas, where it would deselect).
+    // The arrows move into such a menu, as they do in one opened from the keyboard.
     document.addEventListener(
       'keydown',
       (ev) => {
-        if (ev.key !== 'Escape' || this.open < 0 || el.contains(document.activeElement)) return;
+        if (this.open < 0 || el.contains(document.activeElement)) return;
+        if (ev.key === 'Escape') this.close();
+        else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') this.focusMenu(this.open, ev.key === 'ArrowDown' ? 'first' : 'last');
+        else return;
         ev.preventDefault();
         ev.stopPropagation();
-        this.close();
       },
       true,
     );
@@ -188,6 +191,14 @@ export class MenuBar {
     window.setTimeout(() => item.classList.remove('menu-reveal'), 2400);
     return true;
   }
+  /** Open menu `i` (wrapping around the menu bar) and focus its first or last item. */
+  private focusMenu(i: number, which: 'first' | 'last') {
+    const count = menuSkeleton.length;
+    const k = (i + count) % count;
+    this.show(k);
+    const items = this.el.querySelectorAll<HTMLElement>('.menubar-entry')[k].querySelectorAll<HTMLElement>(':scope > .menu-pop > .menu-item');
+    (which === 'first' ? items[0] : items[items.length - 1])?.focus();
+  }
   close() {
     if (this.open < 0) return;
     this.el.querySelectorAll('.menubar-entry').forEach((entry) => {
@@ -224,16 +235,26 @@ export class MenuBar {
     if (!item) return;
     const siblings = [...item.parentElement!.querySelectorAll<HTMLElement>(':scope > .menu-item')];
     const at = siblings.indexOf(item);
+    const inSubmenu = item.parentElement!.classList.contains('submenu');
     if (ev.key === 'ArrowDown') siblings[(at + 1) % siblings.length].focus();
     else if (ev.key === 'ArrowUp') siblings[(at - 1 + siblings.length) % siblings.length].focus();
+    else if (ev.key === 'Home') siblings[0].focus();
+    else if (ev.key === 'End') siblings[siblings.length - 1].focus();
     else if (ev.key === 'ArrowRight' && item.classList.contains('has-submenu')) {
       this.toggleSubmenus(item);
       item.querySelector<HTMLElement>('.submenu > .menu-item')?.focus();
-    } else if (ev.key === 'ArrowLeft' && item.parentElement!.classList.contains('submenu')) {
+    } else if (ev.key === 'ArrowLeft' && inSubmenu) {
       const owner = item.parentElement!.parentElement as HTMLElement;
       owner.classList.remove('open');
       owner.setAttribute('aria-expanded', 'false');
       owner.focus();
+    } else if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') {
+      // Past the end of a menu level, the arrows move to the next or previous menu.
+      this.focusMenu(this.open + (ev.key === 'ArrowRight' ? 1 : -1), 'first');
+    } else if (ev.key === 'Tab') {
+      // Tab leaves the menu bar, so the menu closes behind it.
+      this.close();
+      return;
     } else if (ev.key === 'Enter' || ev.key === ' ') {
       if (item.classList.contains('has-submenu')) {
         this.toggleSubmenus(item);
