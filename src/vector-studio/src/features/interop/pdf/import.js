@@ -135,6 +135,7 @@ export async function pdfToDocument(bytes, opts = {}) {
     const box = page.cropBox;
     const size = page.size('crop');
     const base = pageMatrix(page, box, x, 0);
+    if (page.oversized) interp.warn('A page was too large for an artboard; the artboard covers part of it.');
     artboards.push({ x, y: 0, w: size.w, h: size.h, name: indices.length > 1 || pdf.pages.length > 1 ? `Page ${indices[k] + 1}` : 'Artboard 1' });
     try {
       interp.renderPage(page, base);
