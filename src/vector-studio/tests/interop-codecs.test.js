@@ -283,6 +283,17 @@ describe('PSD', () => {
     expect(Array.from(cmyk.data)).toEqual([0, 255, 255, 255]);
   });
 
+  it('refuses huge and cut-short files instead of decoding them', () => {
+    // A 40-byte file claiming 14000 x 14000 pixels.
+    expect(() => decodePSD(psd({ w: 14000, h: 14000, channels: 3, planes: [] }))).toThrow(/too large to import \(14000 x 14000/);
+    const full = psd({ w: 4, h: 2, channels: 3, planes: [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8]] });
+    expect(() => decodePSD(full.subarray(0, full.length - 5))).toThrow(/damaged or incomplete/);
+    const rle = psd({ w: 4, h: 2, channels: 3, rle: true, planes: [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 8]] });
+    expect(decodePSD(rle).data[4]).toBe(2);
+    expect(() => decodePSD(rle.subarray(0, rle.length - 3))).toThrow(/damaged or incomplete/);
+    expect(() => decodePSD(psd({ w: 1, h: 1, channels: 3, depth: 7, planes: [[1], [2], [3]] }))).toThrow(/damaged|unsupported/);
+  });
+
   it('converts to PNG through the raster helper', async () => {
     const bytes = psd({ w: 1, h: 1, channels: 3, planes: [[1], [2], [3]] });
     expect(rasterKind(bytes)).toBe('psd');
