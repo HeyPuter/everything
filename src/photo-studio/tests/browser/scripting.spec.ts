@@ -125,6 +125,43 @@ test('stops a script that hangs, reports errors with line numbers, and validates
   expect(await page.evaluate(() => window.photoStudio.busy)).toBe(false);
 });
 
+test('a script that takes the runtime’s channel can neither outlive its timeout nor flood the page', async ({ page }) => {
+  // The script sends raw messages past the runtime: forged answers to the
+  // watchdog, output above the rate limit, and lines no runtime sends.
+  const forger = (each: string) => `// @timeout 2
+let port;
+const send = MessagePort.prototype.postMessage;
+MessagePort.prototype.postMessage = function (m, t) { port = this; return send.call(this, m, t); };
+console.log('start');
+await studio.sleep(10);
+const t0 = Date.now();
+let i = 0;
+while (Date.now() - t0 < 6000) { send.call(port, { type: 'pong' }); send.call(port, { type: 'pong', n: 1 }); ${each} }
+send.call(port, { type: 'log', level: 'log', text: 'still running' });`;
+  const timed = async (source: string, name: string) => {
+    const t = Date.now();
+    const out = await runSource(page, source, name);
+    expect(Date.now() - t).toBeLessThan(5500);
+    expect(out).not.toContain('log: still running');
+    return out;
+  };
+  // Forged answers do not keep a busy script alive.
+  expect((await timed(forger(''), 'Pongs')).at(-1)).toContain('did not respond for 2 seconds');
+  // Output above the rate limit is counted, not shown; levels are the known ones.
+  const steady = await timed(forger("if (Date.now() - t0 > i * 0.25) { i++; send.call(port, { type: 'log', level: '<b>', text: 'line' }); }"), 'Steady');
+  expect(steady.at(-1)).toContain('did not respond for 2 seconds');
+  const kept = await page.evaluate(async () => (await import('/src/features/scripting/run.ts')).scriptLog);
+  expect(kept.every((l) => ['log', 'info', 'warn', 'error'].includes(l.level))).toBe(true);
+  expect(kept.some((l) => /more lines were not shown/.test(l.text))).toBe(true);
+  // Lines longer than the runtime sends, or a flood, stop the script at once.
+  for (const each of ["send.call(port, { type: 'log', level: 'log', text: 'x'.repeat(100000) });", "send.call(port, { type: 'log', level: 'log', text: 'y' });"]) {
+    const out = await timed(forger(each), 'Flood');
+    expect(out.at(-1)).toContain('failed: It sent more output than Photo Studio accepts.');
+    expect(Math.max(...out.map((l) => l.length))).toBeLessThan(4100);
+  }
+  expect(await page.evaluate(() => window.photoStudio.busy)).toBe(false);
+});
+
 test('runs a sample script with its form', async ({ page }) => {
   await expect.poll(() => page.evaluate(async () => (await import('/src/features/scripting/store.ts')).listScripts().filter((s) => s.sample).length), { timeout: 20_000 }).toBeGreaterThanOrEqual(6);
   await menu(page, 'File', 'Scripts', 'Add Watermark');
