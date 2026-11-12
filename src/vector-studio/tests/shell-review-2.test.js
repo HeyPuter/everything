@@ -208,3 +208,24 @@ describe('color picker hex field input', () => {
     expect(seen).toEqual(['#00ff00']);
   });
 });
+
+describe('theme color', () => {
+  it("the browser's theme color follows a chosen interface brightness, not just the system's mode", async () => {
+    const { applyTheme } = await import('../src/theme.js');
+    const style = document.createElement('style');
+    style.textContent =
+      ":root { --bg-panel: #f3f3f3; } :root[data-brightness='dark'] { --bg-panel: #2c2c2c; }";
+    document.head.append(style);
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = '#f3f3f3';
+    meta.media = '(prefers-color-scheme: light)';
+    document.head.append(meta);
+    applyTheme('dark');
+    expect(meta.content).toBe('#2c2c2c');
+    applyTheme('light');
+    expect(meta.content).toBe('#f3f3f3');
+    meta.remove();
+    style.remove();
+  });
+});

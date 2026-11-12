@@ -25,6 +25,10 @@ function resolve() {
   root.dataset.theme = level ? current : 'system';
   root.dataset.themeResolved = dark ? 'dark' : 'light';
   root.dataset.brightness = level ? current : dark ? 'dark' : 'light';
+  // The browser's title bar and address bar (installed app, mobile) match the
+  // interface, also when it is set apart from the system's light or dark mode.
+  const panel = getComputedStyle(root).getPropertyValue('--bg-panel').trim();
+  if (panel) for (const m of document.querySelectorAll('meta[name="theme-color"]')) m.setAttribute('content', panel);
   try {
     localStorage.setItem('vector-studio:theme', current);
   } catch {
