@@ -119,6 +119,9 @@ const BOOT = `
 
 const plain = (n) => (n ? JSON.parse(JSON.stringify(n)) : null);
 
+/** API calls that wait for the user to answer a dialog. */
+const ASKS_USER = new Set(['prompt', 'confirm']);
+
 /** Object properties a script may change (structure stays with create/remove). */
 const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children']);
 
@@ -157,6 +160,10 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
     frame.setAttribute('aria-hidden', 'true');
     frame.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none';
     let done = false;
+    let timer = 0;
+    let left = timeoutMs;
+    let since = 0;
+    let asking = 0;
     const finish = (result) => {
       if (done) return;
       done = true;
@@ -165,7 +172,16 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
       frame.remove();
       resolve({ ...result, changes: count() });
     };
-    const timer = setTimeout(() => finish({ ok: false, error: `The script took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped.` }), timeoutMs);
+    // The time limit stops runaway scripts; time spent waiting for the user to answer does not count.
+    const resume = () => {
+      since = Date.now();
+      timer = setTimeout(() => finish({ ok: false, error: `The script took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped.` }), left);
+    };
+    const pause = () => {
+      clearTimeout(timer);
+      left = Math.max(0, left - (Date.now() - since));
+    };
+    resume();
     const onMessage = async (e) => {
       if (e.source !== frame.contentWindow) return;
       const m = e.data;
@@ -175,6 +191,8 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
         frame.contentWindow.postMessage({ __vs: 'run', source, doc: { name: editor.name || root.name, units: root.units, artboards: (root.artboards || []).map((a) => ({ name: a.name, x: a.x, y: a.y, w: a.w, h: a.h })) } }, '*');
       } else if (m.__vs === 'call') {
         let reply;
+        const asks = ASKS_USER.has(m.method);
+        if (asks && !asking++) pause();
         try {
           const fn = api[m.method];
           if (!fn) throw new Error(`Unknown API "${m.method}".`);
@@ -182,6 +200,7 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
         } catch (err) {
           reply = { __vs: 'reply', id: m.id, error: err?.message || String(err) };
         }
+        if (asks && !--asking && !done) resume();
         if (!done) frame.contentWindow?.postMessage(reply, '*');
       } else if (m.__vs === 'done') {
         finish(m.error ? { ok: false, error: m.error } : { ok: true, value: m.value });

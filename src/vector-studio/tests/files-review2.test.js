@@ -234,3 +234,33 @@ describe('closing with unsaved changes', () => {
     await app.files.autosaver.busy;
   });
 });
+
+describe('scripts', () => {
+  it('does not count the time a prompt waits for an answer against the time limit', async () => {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const { runScript } = await import('../src/features/scripts/runner.js');
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    const run = runScript(app, 'return await vs.prompt("Name");', { name: 'Ask', timeoutMs: 400 });
+    const frame = document.querySelector('iframe[sandbox]');
+    // The script side (running in the sandboxed frame in a browser) asks for a value.
+    const send = (data) =>
+      window.dispatchEvent(new MessageEvent('message', { data, source: frame.contentWindow }));
+    send({ __vs: 'call', id: 1, method: 'prompt', args: ['Name', ''] });
+    let dlg = null;
+    for (let i = 0; i < 50 && !dlg; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      dlg = document.querySelector('dialog[open]');
+    }
+    // The user takes longer than the time limit to answer.
+    await new Promise((r) => setTimeout(r, 800));
+    let settled = false;
+    run.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(settled).toBe(false);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
+    await new Promise((r) => setTimeout(r, 0));
+    send({ __vs: 'done', value: 'Ada' });
+    expect(await run).toMatchObject({ ok: true, value: 'Ada' });
+  });
+});
