@@ -228,3 +228,18 @@ test('a preference changed from the keyboard keeps the focus', async ({ page }) 
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toBeHidden();
 });
+
+test('a message is announced once, by the status bar or (when it is hidden) the toast', async ({ page }) => {
+  const speaking = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[role="status"], [aria-live="polite"], [aria-live="assertive"]')]
+        .filter((el) => el.getClientRects().length && !el.closest('[aria-hidden="true"]') && el.textContent?.includes('Hello there'))
+        .map((el) => el.id),
+    );
+  await page.evaluate(() => window.photoStudio.message('Hello there'));
+  expect(await speaking()).toEqual(['status']);
+  // Full screen mode hides the status bar; the toast speaks instead.
+  await page.evaluate(() => window.photoStudio.runCommand('view.screen-full'));
+  await page.evaluate(() => window.photoStudio.message('Hello there again'));
+  expect(await speaking()).toEqual(['toast']);
+});

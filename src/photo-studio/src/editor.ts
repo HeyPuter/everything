@@ -412,8 +412,13 @@ export class Editor {
     startIdleWork();
   }
   message(text: string) {
-    this.el('#status').textContent = text;
+    const status = this.el('#status');
+    status.textContent = text;
     const toast = this.el('#toast');
+    // Both are live regions: only one may speak, or screen readers say each
+    // message twice. The toast speaks when the status bar is hidden, which
+    // only full screen mode does (checked without forcing a layout).
+    toast.setAttribute('aria-hidden', String(this.root.dataset.screenMode !== '2'));
     toast.textContent = text;
     toast.hidden = false;
     clearTimeout(this.toastTimer);
