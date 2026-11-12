@@ -191,8 +191,12 @@ export class CollabSession extends Emitter {
     if (!nodes.length) return;
     const assets = {};
     for (const op of nodes) {
-      const ref = op.put?.asset ?? op.set?.asset;
-      if (typeof ref === 'string' && !this.base.assets.has(ref) && this.doc.assets.has(ref)) assets[ref] = this.doc.assets.get(ref);
+      // Images name their asset; an assigned color profile keeps its data in the asset "icc-<hash>".
+      const profile = op.put?.colorProfile ?? op.set?.colorProfile;
+      const iccRef = typeof profile === 'string' && profile.startsWith('icc:') ? `icc-${profile.slice(4)}` : null;
+      for (const ref of [op.put?.asset ?? op.set?.asset, iccRef]) {
+        if (typeof ref === 'string' && !this.base.assets.has(ref) && this.doc.assets.has(ref)) assets[ref] = this.doc.assets.get(ref);
+      }
     }
     this.#enqueue({ nodes, ...(Object.keys(assets).length ? { assets } : {}) });
   }
