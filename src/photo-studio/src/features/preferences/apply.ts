@@ -49,8 +49,11 @@ export function applyPreferences(e: Editor) {
   app.classList.toggle('hide-slice-numbers', !p.sliceNumbers);
   // History length applies to open documents too.
   for (const s of e.sessions) {
+    const kept = s.history.labels.length + s.history.redoLabels.length;
     s.history.limit = p.historyStates;
     s.history.trim();
+    // Free the pixels of the steps just dropped now, not after later edits.
+    if (s.history.labels.length + s.history.redoLabels.length < kept) s.collectTiles();
   }
   fileNaming.extensionCase = p.extensionCase;
   syncCheckerSize(e);
