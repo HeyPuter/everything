@@ -201,20 +201,22 @@ export function encodeWav({ sampleRate, channels, bitDepth = 16, float = bitDept
         }
         if (dither) v += (rand() - rand()) / (bitDepth === 16 ? 32768 : 8388608);
         v = Math.max(-1, Math.min(1, v));
+        // Full scale is 2^(bits-1) both ways (as parseWav and the export writers use), so
+        // integer samples read from a file are written back unchanged; +1.0 clips to the top code.
         if (bitDepth === 16) {
-          dv.setInt16(p, v < 0 ? Math.round(v * 32768) : Math.round(v * 32767), true);
+          dv.setInt16(p, Math.min(32767, Math.round(v * 32768)), true);
           p += 2;
         } else if (bitDepth === 24) {
-          const s = v < 0 ? Math.round(v * 8388608) : Math.round(v * 8388607);
+          const s = Math.min(8388607, Math.round(v * 8388608));
           dv.setUint8(p, s & 255);
           dv.setUint8(p + 1, (s >> 8) & 255);
           dv.setUint8(p + 2, (s >> 16) & 255);
           p += 3;
         } else if (bitDepth === 8) {
-          dv.setUint8(p, Math.round(v * 127 + 128));
+          dv.setUint8(p, Math.min(255, Math.round(v * 128 + 128)));
           p += 1;
         } else {
-          dv.setInt32(p, v < 0 ? Math.round(v * 2147483648) : Math.round(v * 2147483647), true);
+          dv.setInt32(p, Math.min(2147483647, Math.round(v * 2147483648)), true);
           p += 4;
         }
       }

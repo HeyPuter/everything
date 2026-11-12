@@ -22,13 +22,38 @@ describe('wav', () => {
       ]);
     });
   }
+  for (const bitDepth of [8, 16, 24]) {
+    it(`writes ${bitDepth}-bit samples read from a file back unchanged`, async () => {
+      const full = 2 ** (bitDepth - 1);
+      // Every code near both ends of the range, plus a spread across it.
+      const codes = [];
+      for (let k = -full; k < -full + 40; k++) codes.push(k);
+      for (let k = full - 40; k < full; k++) codes.push(k);
+      for (let k = -full; k < full; k += Math.max(1, Math.floor(full / 500))) codes.push(k);
+      const samples = Float32Array.from(codes, (k) => k / full);
+      const blob = encodeWav({ sampleRate: 8000, channels: [samples], bitDepth, dither: false });
+      const r = parseWav(await blob.arrayBuffer());
+      expect(Array.from(r.channels[0], (v) => Math.round(v * full))).toEqual(codes);
+      // Full scale and beyond clip to the top code instead of wrapping.
+      const peaks = Float32Array.of(1, 1.5, -1.5);
+      const loud = encodeWav({ sampleRate: 8000, channels: [peaks], bitDepth, dither: false });
+      const back = parseWav(await loud.arrayBuffer()).channels[0];
+      expect(Array.from(back, (v) => Math.round(v * full))).toEqual([full - 1, full - 1, -full]);
+    });
+  }
   it('keeps marker descriptions through a save and reopen', async () => {
     const markers = [
       { start: 10, duration: 0, name: 'Intro', description: 'Count-in, café take' },
       { start: 40, duration: 20, name: 'Verse', description: '' },
       { start: 80, duration: 0, name: 'Odd', description: 'abc' },
     ];
-    const blob = encodeWav({ sampleRate: 8000, channels: [tone(100)], bitDepth: 16, dither: false, markers });
+    const blob = encodeWav({
+      sampleRate: 8000,
+      channels: [tone(100)],
+      bitDepth: 16,
+      dither: false,
+      markers,
+    });
     const r = parseWav(await blob.arrayBuffer());
     expect(r.markers.map((m) => [m.start, m.duration, m.name, m.description])).toEqual(
       markers.map((m) => [m.start, m.duration, m.name, m.description]),
