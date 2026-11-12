@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { encodeWav, parseWav } from '../src/audio/wav.js';
 import { Channel } from '../src/audio/channel.js';
-import { sniffSampleRate, decodeAudio } from '../src/audio/decode.js';
+import { sniffSampleRate, decodeAudio, fixPositiveScale } from '../src/audio/decode.js';
 
 const tone = (n) => Float32Array.from({ length: n }, (_, i) => Math.sin(i / 7) * 0.5);
 
@@ -148,6 +148,23 @@ describe('wav', () => {
     } finally {
       globalThis.OfflineAudioContext = prev;
     }
+  });
+  it('puts 16-bit FLAC samples a browser divided by 32767 back on the 1/32768 grid', async () => {
+    const codes = [];
+    for (let k = -32768; k < 32768; k += 7) codes.push(k);
+    codes.push(32767, 1, -1, 0);
+    // Chromium's decoder: positives / 32767, negatives / 32768.
+    const chromium = Float32Array.from(codes, (k) => (k > 0 ? k / 32767 : k / 32768));
+    expect(fixPositiveScale([chromium])).toBe(true);
+    expect(Array.from(chromium, (v) => v * 32768)).toEqual(codes);
+    // A decoder that already divides by 32768 is left alone, as is anything off both grids.
+    const exact = Float32Array.from(codes, (k) => k / 32768);
+    expect(fixPositiveScale([exact])).toBe(false);
+    expect(Array.from(exact, (v) => v * 32768)).toEqual(codes);
+    const lossy = Float32Array.from({ length: 1000 }, (_, i) => Math.sin(i / 3) * 0.7);
+    const copy = lossy.slice();
+    expect(fixPositiveScale([lossy])).toBe(false);
+    expect(lossy).toEqual(copy);
   });
   it('sniffs the rate of MP3s behind large cover art and of M4As with the movie box at the end', () => {
     // A 2 MB ID3v2 tag (embedded artwork), then a 44.1 kHz MPEG-1 Layer III frame.

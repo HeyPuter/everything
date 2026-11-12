@@ -157,8 +157,40 @@ export async function decodeAudio(buffer, name = '') {
   }
   if (!audio.length) throw new Error(`"${label}" contains no audio.`);
   const channels = Array.from({ length: audio.numberOfChannels }, (_, c) => audio.getChannelData(c));
+  if (isFlac && bitDepth <= 16 && audio.sampleRate === rate) fixPositiveScale(channels);
   const format = isFlac ? 'flac' : ext === 'aif' || ext === 'aifc' ? 'aiff' : ext || 'audio';
   return { sampleRate: audio.sampleRate, channels, bitDepth, format, markers: [], meta };
+}
+
+/**
+ * Chromium decodes 8- and 16-bit FLAC with positive samples divided by 32767
+ * (negative ones by 32768), so the file's integer samples come back off the
+ * 2^15 grid every encoder uses: a lossless re-save would dither or shift them.
+ * When every positive sample checked fits that pattern (a decoder that divides
+ * by 32768 gives exact multiples of 1/32768 instead), positives are put back
+ * on the grid in place.
+ */
+export function fixPositiveScale(channels) {
+  let seen = 0;
+  for (const ch of channels) {
+    for (let i = 0; i < ch.length && seen < 4096; i++) {
+      const v = ch[i];
+      if (!(v > 0) || v === 1) continue;
+      const a = v * 32768;
+      if (a === Math.round(a)) return false;
+      const b = v * 32767;
+      if (Math.abs(b - Math.round(b)) > 0.01) return false;
+      seen++;
+    }
+  }
+  if (!seen) return false;
+  for (const ch of channels) {
+    for (let i = 0; i < ch.length; i++) {
+      const v = ch[i];
+      if (v > 0) ch[i] = Math.round(v * 32767) / 32768;
+    }
+  }
+  return true;
 }
 
 /** Offset of a FLAC stream's "fLaC" marker: 0, or just past a leading ID3v2 tag; -1 when not FLAC. */
