@@ -215,7 +215,8 @@ export function validateData(data) {
   let repaired = 0;
   const fixed = {};
   for (const [id, node] of Object.entries(nodes)) {
-    if (!node || typeof node !== 'object' || typeof node.type !== 'string') {
+    // The root is kept whatever its type says: it is repaired below.
+    if (!node || typeof node !== 'object' || (typeof node.type !== 'string' && id !== 'root')) {
       repaired++;
       continue;
     }
@@ -235,8 +236,8 @@ export function validateData(data) {
   if (r.type !== 'root') rootPatch.type = 'root';
   if (!Array.isArray(r.children)) rootPatch.children = [];
   const boards = Array.isArray(r.artboards) ? r.artboards.filter((a) => a && finite(a.x) && finite(a.y) && finite(a.w) && finite(a.h) && a.w > 0 && a.h > 0) : [];
+  if (!Array.isArray(r.artboards) || !boards.length || boards.length !== r.artboards.length) rootPatch.artboards = boards;
   if (!boards.length) boards.push({ id: 'a-recovered', name: 'Artboard 1', x: 0, y: 0, w: 612, h: 792 });
-  if (!Array.isArray(r.artboards) || boards.length !== r.artboards.length) rootPatch.artboards = boards;
   if (!Array.isArray(r.guides)) rootPatch.guides = [];
   if (!Array.isArray(r.swatches)) rootPatch.swatches = DEFAULT_SWATCHES.map((s) => ({ ...s }));
   if (typeof r.units !== 'string') rootPatch.units = 'pt';

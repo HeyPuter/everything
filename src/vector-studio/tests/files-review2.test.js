@@ -22,6 +22,37 @@ describe('native format keeps what the document needs', () => {
   });
 });
 
+describe('damaged documents', () => {
+  const damaged = (mutate) => {
+    const data = JSON.parse(JSON.stringify(VDocument.create({ name: 'Damaged' }).toJSON()));
+    mutate(data.nodes);
+    return new TextEncoder().encode(JSON.stringify(data));
+  };
+
+  it('replaces artboards that are all unusable, even when as many are left', async () => {
+    const { doc, repaired } = await parseDocument(
+      damaged((nodes) => {
+        nodes.root.artboards = [null];
+        nodes.root.type = '';
+      }),
+    );
+    expect(doc.artboards).toHaveLength(1);
+    expect(doc.artboards[0]).toMatchObject({ x: 0, y: 0, w: 612, h: 792 });
+    expect(doc.root.type).toBe('root');
+    expect(repaired).toBe(0);
+  });
+
+  it('repairs a root whose type is not text instead of failing with a program error', async () => {
+    const { doc } = await parseDocument(
+      damaged((nodes) => {
+        nodes.root.type = [];
+      }),
+    );
+    expect(doc.root.type).toBe('root');
+    expect(doc.layers()).toHaveLength(1);
+  });
+});
+
 describe('recovery copies', () => {
   it('never forgets other copies when the list of copies cannot be read for a moment', async () => {
     const { RecoveryStore } = await import('../src/features/files/recovery.js');
