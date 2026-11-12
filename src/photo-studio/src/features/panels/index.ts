@@ -125,14 +125,20 @@ const swatchesPanel: Panel = {
   icon: 'swatch-book',
   location: 'dock-top',
   mount: (e, el) => {
+    const remove = (b: HTMLElement) => {
+      const i = Number(b.dataset.index);
+      const focused = b === document.activeElement;
+      swatches.splice(i, 1);
+      saveSwatches();
+      e.dock.update();
+      // The grid is rebuilt: keep the keyboard on the swatch that took its place.
+      if (focused) el.querySelector<HTMLElement>(`[data-index="${Math.min(i, swatches.length - 1)}"]`)?.focus();
+    };
     el.addEventListener('click', (ev) => {
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-swatch]');
       if (b) {
-        if (ev.altKey) {
-          swatches.splice(Number(b.dataset.index), 1);
-          saveSwatches();
-          e.dock.update();
-        } else if (ev.metaKey || ev.ctrlKey) e.setBackground(b.dataset.swatch!);
+        if (ev.altKey) remove(b);
+        else if (ev.metaKey || ev.ctrlKey) e.setBackground(b.dataset.swatch!);
         else e.setForeground(b.dataset.swatch!);
         return;
       }
@@ -142,9 +148,20 @@ const swatchesPanel: Panel = {
         e.dock.update();
       }
     });
+    // Keyboard equivalents of the modified clicks: Delete removes a swatch,
+    // Mod+Enter makes it the background color.
+    el.addEventListener('keydown', (ev) => {
+      const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-swatch]');
+      if (!b) return;
+      if (ev.key === 'Delete' || ev.key === 'Backspace' || (ev.key === 'Enter' && ev.altKey)) remove(b);
+      else if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) e.setBackground(b.dataset.swatch!);
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
   },
   update: (e, el) => {
-    const html = `<div class="swatch-grid" role="list">${swatches.map((c, i) => `<button role="listitem" data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click: delete" aria-label="Swatch ${c}"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
+    const html = `<div class="swatch-grid" role="group" aria-label="Swatches">${swatches.map((c, i) => `<button data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click or Delete: remove" aria-label="Swatch ${c}" aria-keyshortcuts="Delete"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
     // Updates run after every edit; rebuilding unchanged buttons would cost
     // time and take the keyboard focus off the swatch just chosen.
     if (swatchMarkup.get(el) === html) return;
