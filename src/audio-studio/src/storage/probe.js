@@ -109,10 +109,12 @@ export function probeAudio(head, size, tail = null) {
     const sideInfo = h.version === 1 ? (h.channels === 1 ? 17 : 32) : h.channels === 1 ? 9 : 17;
     const x = i + 4 + sideInfo;
     let frames = 0;
-    if (str(head, x, 4) === 'Xing' || str(head, x, 4) === 'Info') {
+    if ((str(head, x, 4) === 'Xing' || str(head, x, 4) === 'Info') && x + 12 <= head.length) {
       const flags = new DataView(head.buffer, head.byteOffset + x + 4).getUint32(0);
       if (flags & 1) frames = new DataView(head.buffer, head.byteOffset + x + 8).getUint32(0);
-    } else if (str(head, i + 36, 4) === 'VBRI') frames = new DataView(head.buffer, head.byteOffset + i + 50).getUint32(0);
+    } else if (str(head, i + 36, 4) === 'VBRI' && i + 54 <= head.length) {
+      frames = new DataView(head.buffer, head.byteOffset + i + 50).getUint32(0);
+    }
     const duration = frames ? (frames * h.samples) / h.sampleRate : ((size - i) * 8) / (h.bitrate * 1000);
     return { format: 'MP3', sampleRate: h.sampleRate, channels: h.channels, duration };
   }

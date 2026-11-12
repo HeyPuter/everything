@@ -146,6 +146,12 @@ describe('file probing and decoding', () => {
     w.write([tone(22050), tone(22050)], 22050);
     return new Uint8Array(await w.finish().arrayBuffer());
   }
+  it('probes an MP3 whose Info header is cut off without failing', () => {
+    const head = new Uint8Array(42);
+    head.set([0xff, 0xfb, 0x90, 0x00]);
+    head.set([0x49, 0x6e, 0x66, 0x6f], 36); // "Info", its flags and frame count missing
+    expect(probeAudio(head, 100000)).toMatchObject({ format: 'MP3', sampleRate: 44100 });
+  });
   it('reads the duration of a WAV recording whose data size was never written', async () => {
     const wav = await bytesOf(WavWriter, { meta: {} });
     const dataAt = 36;
