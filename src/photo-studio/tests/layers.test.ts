@@ -265,3 +265,33 @@ describe('arranging layers', () => {
     expect(names(doc)).toEqual(['Background', 'C', 'D', 'A', 'B']);
   });
 });
+
+describe('grouping clipped layers', () => {
+  function fixture() {
+    const doc = newDocument(40, 30);
+    doc.layers = ['Base', 'C1', 'C2', 'Top'].map((n) => layer('solid', n, 40, 30));
+    doc.layers[1].clipped = doc.layers[2].clipped = true;
+    return doc;
+  }
+  it('a group of clipped layers takes their place in the clipping group', () => {
+    const doc = fixture();
+    const id = groupLayers(doc, new Set([doc.layers[1].id]))!;
+    expect(doc.layers.map((l) => [l.name, !!l.clipped])).toEqual([
+      ['Base', false],
+      ['Group', true],
+      ['C2', true],
+      ['Top', false],
+    ]);
+    expect(doc.layers[1].id).toBe(id);
+    expect(doc.layers[1].children.map((l) => !!l.clipped)).toEqual([false]);
+  });
+  it('a group holding the base keeps its clipped layers clipped inside it', () => {
+    const doc = fixture();
+    groupLayers(doc, new Set(doc.layers.slice(0, 3).map((l) => l.id)));
+    expect(doc.layers.map((l) => [l.name, !!l.clipped])).toEqual([
+      ['Group', false],
+      ['Top', false],
+    ]);
+    expect(doc.layers[0].children.map((l) => !!l.clipped)).toEqual([false, true, true]);
+  });
+});

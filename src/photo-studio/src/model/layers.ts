@@ -108,6 +108,12 @@ export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): strin
   const insertion = list.slice(0, topIndex).filter((l) => !roots.includes(l)).length;
   const group = layer('group', 'Group', doc.width, doc.height);
   group.children = roots;
+  // Layers clipped to a base outside the selection: the group takes their
+  // place in the clipping group, so they still show only inside the base.
+  if (roots.every((l) => l.clipped)) {
+    group.clipped = true;
+    for (const l of roots) delete l.clipped;
+  }
   for (const l of roots) list.splice(list.indexOf(l), 1);
   list.splice(insertion, 0, group);
   assertTree(doc.layers);
