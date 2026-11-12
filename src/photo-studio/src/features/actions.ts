@@ -5,6 +5,7 @@ import { svg } from '../app/icons';
 import { formDialog } from '../ui/dialog';
 import { registerBatchStep } from './files/automate-steps';
 import { takeDialogCancelled } from './action-settings';
+import { modal } from './files/ui';
 
 // Actions record command IDs (with their arguments) and replay them. Commands
 // that accept an argument object apply it without a dialog when the step's
@@ -98,6 +99,30 @@ let recording: Action | undefined;
 let playing = false;
 // Set by the Stop button while an action plays; playback ends before the next step.
 let stopRequested = false;
+// Insert Stop adds a step that pauses playback with a message.
+export const STOP_STEP = 'actions.stop-step';
+type StopArg = { message: string; allowContinue: boolean };
+const stopArg = (arg: unknown): StopArg => {
+  const a = (arg && typeof arg === 'object' ? arg : {}) as Partial<StopArg>;
+  return { message: typeof a.message === 'string' ? a.message.slice(0, 1000) : '', allowContinue: a.allowContinue !== false };
+};
+/** Show a Stop step's message; resolves true to go on with the action. */
+async function pauseAt(action: Action, arg: unknown) {
+  const { message, allowContinue } = stopArg(arg);
+  const r = await modal({
+    title: 'Action Paused',
+    className: 'action-stop',
+    body: `<p>${escapeXML(message || `“${action.name}” paused.`)}</p>`,
+    submit: allowContinue ? 'Continue' : 'Stop',
+    bind: (dialog) => {
+      const cancel = dialog.querySelector<HTMLButtonElement>('[data-act="cancel"]')!;
+      if (allowContinue) cancel.textContent = 'Stop';
+      else cancel.hidden = true;
+    },
+  });
+  r?.close();
+  return !!r && allowContinue;
+}
 
 export function allActions() {
   return sets.flatMap((s) => s.actions.map((a) => ({ set: s, action: a })));
@@ -120,6 +145,13 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       if (stopRequested) {
         e.message(`Stopped “${action.name}”.`);
         return false;
+      }
+      if (s.command === STOP_STEP) {
+        if (!(await pauseAt(action, s.arg))) {
+          e.message(`Stopped “${action.name}”.`);
+          return false;
+        }
+        continue;
       }
       // Steps recorded before a command was renamed run the current one.
       const c = findCommand(s.command);
@@ -169,7 +201,11 @@ function stopRecording(e: Editor) {
   e.recorder = undefined;
   e.dock.update();
 }
-function label(id: string) {
+function label(id: string, arg?: unknown) {
+  if (id === STOP_STEP) {
+    const { message } = stopArg(arg);
+    return message ? `Stop: ${message}` : 'Stop';
+  }
   return findCommand(id)?.label ?? id;
 }
 
@@ -242,7 +278,7 @@ const actionsPanel: Panel = {
                     selected.action === a.id
                       ? a.steps
                           .map(
-                            (st, i) => `<div class="action-row step ${selected.step === i ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:${i}"><button class="step-check" data-step-toggle="${escapeXML(a.id)}:${i}:enabled" aria-label="${st.enabled ? 'Disable' : 'Enable'} step" aria-pressed="${st.enabled}">${st.enabled ? '✓' : ''}</button><button class="step-dialog" data-step-toggle="${escapeXML(a.id)}:${i}:dialog" aria-label="Toggle dialog" aria-pressed="${st.dialog}" title="Show dialog during playback">${st.dialog ? svg('ellipsis', 12) : ''}</button><span>${escapeXML(label(st.command))}</span></div>`,
+                            (st, i) => `<div class="action-row step ${selected.step === i ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:${i}"><button class="step-check" data-step-toggle="${escapeXML(a.id)}:${i}:enabled" aria-label="${st.enabled ? 'Disable' : 'Enable'} step" aria-pressed="${st.enabled}">${st.enabled ? '✓' : ''}</button><button class="step-dialog" data-step-toggle="${escapeXML(a.id)}:${i}:dialog" aria-label="Toggle dialog" aria-pressed="${st.dialog}" title="Show dialog during playback">${st.dialog ? svg('ellipsis', 12) : ''}</button><span>${escapeXML(label(st.command, st.arg))}</span></div>`,
                           )
                           .join('')
                       : ''
@@ -256,7 +292,7 @@ const actionsPanel: Panel = {
     el.innerHTML = `<div class="actions-list">${html}</div><div class="layer-footer"><button data-actions-stop aria-label="${playing ? 'Stop playing' : 'Stop recording'}" title="Stop playing/recording" ${recording || playing ? '' : 'disabled'}>${svg('square', 14)}</button><button data-command="actions.record" class="${recording ? 'recording' : ''}" aria-label="Begin recording" title="Begin recording" ${find().action && !recording ? '' : 'disabled'}>${svg('circle-dot', 14)}</button><button data-command="actions.play" aria-label="Play selection" title="Play selection" ${find().action && !recording ? '' : 'disabled'}>${svg('play', 14)}</button><button data-command="actions.new-set" aria-label="Create new set" title="Create new set">${svg('folder-plus', 14)}</button><button data-command="actions.new" aria-label="Create new action" title="Create new action">${svg('plus', 14)}</button><button data-command="actions.delete" aria-label="Delete" title="Delete">${svg('trash-2', 14)}</button></div>`;
     void e;
   },
-  menu: () => ['actions.new', 'actions.new-set', 'actions.duplicate', 'actions.delete', '-', 'actions.play', 'actions.record', 'actions.stop', '-', 'actions.insert-menu-item', '-', 'actions.export', 'actions.import', 'actions.reset'],
+  menu: () => ['actions.new', 'actions.new-set', 'actions.duplicate', 'actions.delete', '-', 'actions.play', 'actions.record', 'actions.stop', '-', 'actions.insert-menu-item', 'actions.insert-stop', '-', 'actions.export', 'actions.import', 'actions.reset'],
 };
 
 export function installActions(e: Editor) {
@@ -356,6 +392,26 @@ export function installActions(e: Editor) {
         const v = await formDialog('Insert Menu Item', [{ name: 'command', label: 'Menu item', value: options[0]?.[0] ?? '', type: 'select', options }], 'Insert');
         if (!v) return;
         action.steps.splice((selected.step ?? action.steps.length - 1) + 1, 0, { ...step(v.command), dialog: true });
+        save();
+        e.dock.update();
+      },
+    },
+    {
+      id: 'actions.insert-stop',
+      label: 'Insert Stop…',
+      recordable: false,
+      enabled: () => !!find().action,
+      run: async (e) => {
+        const { action } = find();
+        if (!action) return;
+        const v = await formDialog('Insert Stop', [
+          { name: 'message', label: 'Message', value: '', type: 'textarea' },
+          { name: 'allowContinue', label: 'Allow Continue', value: 'yes', type: 'checkbox' },
+        ], 'Insert', 'Playback pauses at this step and shows the message.');
+        if (!v) return;
+        const at = (selected.step ?? action.steps.length - 1) + 1;
+        action.steps.splice(at, 0, step(STOP_STEP, { message: v.message.trim(), allowContinue: v.allowContinue === 'yes' }));
+        selected = { ...selected, step: at };
         save();
         e.dock.update();
       },

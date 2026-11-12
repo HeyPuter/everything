@@ -1,6 +1,6 @@
 // Dialog commands in recorded actions: confirmed settings are recorded and
 // replayed without the dialog, cancelled dialogs are not recorded and stop
-// playback, and the Stop button stops playback.
+// playback, the Stop button stops playback, and Stop steps pause it.
 import { test, expect, type Page } from '@playwright/test';
 import { boot, idle, layerPixel, openImage, run, start } from './helpers';
 
@@ -130,4 +130,31 @@ test('the Stop button stops an action that is playing', async ({ page }) => {
   expect(blurs).toBeGreaterThan(0);
   expect(blurs).toBeLessThan(40);
   await expect(page.getByRole('button', { name: 'Stop recording' })).toBeDisabled();
+});
+
+test('Insert Stop pauses playback with a message, then continues or stops', async ({ page }) => {
+  await openImage(page, 40, 30, '#808080', 'a.png');
+  await loadAction(page, 'Paused', [{ command: 'image.flip-horizontal' }, { command: 'image.flip-vertical' }]);
+  // Insert after the first step.
+  await page.locator('.actions-list .action-row.step').first().click();
+  await start(page, 'actions.insert-stop');
+  const ins = page.locator('dialog[open]', { hasText: 'Insert Stop' });
+  await ins.getByLabel('Message').fill('Check the horizon.');
+  await ins.getByRole('button', { name: 'Insert' }).click();
+  await expect(page.locator('.actions-list .action-row.step').nth(1)).toContainText('Stop: Check the horizon.');
+  await page.locator('.actions-list .action-row.action', { hasText: 'Paused' }).click();
+
+  const flips = () => page.evaluate(() => window.photoStudio.history.labels.filter((l) => /Flip/.test(l)).length);
+  await startPlay(page);
+  const paused = page.getByRole('dialog', { name: 'Action Paused' });
+  await expect(paused).toContainText('Check the horizon.');
+  await paused.getByRole('button', { name: 'Stop' }).click();
+  await idle(page);
+  expect(await flips()).toBe(1);
+  await expect(page.locator('#status')).toHaveText('Stopped “Paused”.');
+
+  await startPlay(page);
+  await paused.getByRole('button', { name: 'Continue' }).click();
+  await idle(page);
+  expect(await flips()).toBe(3);
 });
