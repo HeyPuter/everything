@@ -18,6 +18,7 @@ import {
   resizeRect,
   presetFor,
 } from '../src/features/artboards/artboard-ops.js';
+import { insertAnchor, segmentCount, segmentPoints, cubicLength } from '../src/model/bezier.js';
 import { matchAnchors, lerpAnchors, lerpPaint, lerpColor, blendStepCount, blendSteps, interpolateNode, virtualDoc } from '../src/features/artboards/blend-math.js';
 import { makeBlend, releaseBlend, expandBlend } from '../src/features/artboards/blend.js';
 import { wandMatches, magicWandSelect, colorsMatch, DEFAULT_WAND } from '../src/features/artboards/magic-wand.js';
@@ -155,6 +156,74 @@ describe('blend interpolation', () => {
     // Subdividing keeps the square's shape.
     for (const p of A) expect(p.x >= -1e-9 && p.x <= 10 + 1e-9 && p.y >= -1e-9 && p.y <= 10 + 1e-9).toBe(true);
   });
+
+  // The straightforward matching (split the longest segment one at a time, try every start point).
+  function naiveMatch(a, closedA, b, closedB) {
+    const sub = (list, closed, count) => {
+      let out = list;
+      while (out.length < count && segmentCount(out, closed) > 0) {
+        let best = 0;
+        let bestLen = -1;
+        for (let i = 0; i < segmentCount(out, closed); i++) {
+          const len = cubicLength(segmentPoints(out, i), 0.5);
+          if (len > bestLen) ((bestLen = len), (best = i));
+        }
+        out = insertAnchor(out, closed, best, 0.5);
+      }
+      return out;
+    };
+    const n = Math.max(a.length, b.length);
+    const A = sub(a, closedA, n);
+    let B = sub(b, closedB, n);
+    if (closedA && closedB) {
+      const c = (l) => ({
+        x: l.reduce((s, p) => s + p.x, 0) / l.length,
+        y: l.reduce((s, p) => s + p.y, 0) / l.length,
+      });
+      const ca = c(A);
+      const cb = c(B);
+      let best = 0;
+      let bestD = Infinity;
+      for (let k = 0; k < n; k++) {
+        let d = 0;
+        for (let i = 0; i < n; i++)
+          d +=
+            (A[i].x - ca.x - (B[(i + k) % n].x - cb.x)) ** 2 +
+            (A[i].y - ca.y - (B[(i + k) % n].y - cb.y)) ** 2;
+        if (d < bestD - 1e-9) ((bestD = d), (best = k));
+      }
+      B = [...B.slice(best), ...B.slice(0, best)];
+    }
+    return [A, B];
+  }
+  const wobbly = (cx, n, phase) =>
+    Array.from({ length: n }, (_, i) => {
+      const t = (i / n) * Math.PI * 2 + phase;
+      const r = 50 + 9 * Math.sin(t * 7);
+      const x = cx + r * Math.cos(t);
+      const y = r * Math.sin(t);
+      return { x, y, ix: x - 2, iy: y + 1, ox: x + 2, oy: y - 1 };
+    });
+
+  it('matches anchors like splitting one segment at a time and trying every start point', () => {
+    const cases = [
+      [rectangle(0, 0, 10, 10), true, star(100, 5, 10, 5, 7), true],
+      [rectangle(0, 0, 10, 10), false, rectangle(50, 0, 30, 30), true],
+      [ellipse(0, 0, 40, 20), true, wobbly(300, 37, 1), true],
+      // Over 512 anchors: the start point search scores every rotation at once.
+      [wobbly(0, 700, 0.3), true, wobbly(400, 90, 2), true],
+      [wobbly(0, 600, 0), true, wobbly(400, 600, 1.7), true],
+    ];
+    for (const [a, ca, b, cb] of cases)
+      expect(matchAnchors(a, ca, b, cb)).toEqual(naiveMatch(a, ca, b, cb));
+  });
+
+  it('matches dense paths without freezing', () => {
+    // Splitting 39,900 segments one at a time and trying 40,000 start points took over a minute.
+    const [A, B] = matchAnchors(wobbly(0, 40000, 0), true, wobbly(400, 100, 1), true);
+    expect(A).toHaveLength(40000);
+    expect(B).toHaveLength(40000);
+  }, 20000);
 
   it('interpolates colors, paints and step counts', () => {
     expect(lerpColor('#000000', '#ffffff', 0.5)).toBe('#808080');
