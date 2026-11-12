@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { bootAppWithFeatures } from './helpers.js';
 import { setGeomSource, loadGeom } from '../src/features/geometry/engine/index.js';
-import { createPath } from '../src/model/nodes.js';
+import { createPath, createGroup } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { anchor } from '../src/model/bezier.js';
 import { makeBlend } from '../src/features/artboards/blend.js';
@@ -140,6 +140,39 @@ describe('geometry tools on live objects', () => {
     doc.undo();
     expect([...ed.selection].sort()).toEqual([g, plain].sort());
     app.setTool('selection');
+  });
+
+  it('cutting tools and Divide Objects Below stay inside the isolated group', async () => {
+    const { ed, doc, plain, layer } = setup();
+    // A group with a square, isolated; the plain square outside it is under the same cuts.
+    const yellow = { fill: solid('#ffff00'), stroke: null };
+    const inside = createPath(rectangle(0, 140, 20, 20), true, yellow);
+    const g = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(g, layer);
+      doc.insert(inside, g.id);
+    });
+    app.commands.run('object.isolate', { id: g.id });
+    expect(ed.isolation).toBe(g.id);
+    const plainNode = doc.get(plain);
+    for (const tool of ['knife', 'eraser']) {
+      app.setTool(tool);
+      ed.select([]);
+      await stroke(app.tool, [[10, 90], [10, 170]]);
+      expect(doc.get(plain), tool).toBe(plainNode);
+    }
+    expect(doc.has(inside.id)).toBe(false);
+    expect(doc.get(g.id).children.length).toBeGreaterThan(0);
+    // Scissors pick paths inside the isolated group only.
+    app.setTool('scissors');
+    expect(app.tool.pick(10, 100)).toBeNull();
+    app.setTool('selection');
+    // Divide Objects Below divides only what is below inside the isolated group.
+    const cutter = createPath(rectangle(5, 95, 10, 70), true, yellow);
+    doc.transact('cutter', () => doc.insert(cutter, g.id));
+    ed.select([cutter.id]);
+    await divideBelow(app);
+    expect(doc.get(plain)).toBe(plainNode);
   });
 
   it('Join does not join the open paths of a blend, selected or not', async () => {
