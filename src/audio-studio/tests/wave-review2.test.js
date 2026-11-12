@@ -489,3 +489,23 @@ describe('Clear History', () => {
     expect(doc.state).toBe(state);
   });
 });
+
+describe('pasting stereo into a mono file', () => {
+  it('mixes both channels down, as Mix Paste does, instead of dropping the right one', async () => {
+    const { app, doc, view } = await makeView({ channels: 1 });
+    const n = 100;
+    app.clipboard = {
+      type: 'audio',
+      sampleRate: 48000,
+      channels: [
+        Channel.fromSamples(new Float32Array(n)),
+        Channel.fromSamples(new Float32Array(n).fill(0.5)),
+      ],
+    };
+    doc.setCursor(0);
+    await app.commands.run('edit.paste');
+    expect(doc.length).toBe(48000 + n);
+    expect([...doc.state.channels[0].toArray(0, 3)]).toEqual([0.25, 0.25, 0.25]);
+    view.destroy();
+  });
+});
