@@ -80,6 +80,14 @@ export function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+/** WAV chunks to keep on a later save (iXML...) and the file's sample type, as info.wavChunks. */
+function wavChunksInfo(r) {
+  if (!r.chunks?.length) return {};
+  const frames = r.channels[0]?.length ?? 0;
+  const channels = r.channels.length;
+  return { wavChunks: { sampleRate: r.sampleRate, channels, frames, list: r.chunks } };
+}
+
 /** Decodes a Blob/File into a new AudioFile document. */
 export async function audioFileFromBlob(blob, name, source = { type: 'local' }) {
   const buffer = await blob.arrayBuffer();
@@ -90,7 +98,7 @@ export async function audioFileFromBlob(blob, name, source = { type: 'local' }) 
     channels: r.channels.map((c) => Channel.fromSamples(c)),
     markers: sortMarkers((r.markers || []).map((m, i) => createMarker({ ...m, name: m.name || `Marker ${String(i + 1).padStart(2, '0')}` }))),
     meta: r.meta || {},
-    info: { bitDepth: r.bitDepth, format: r.format, size: blob.size },
+    info: { bitDepth: r.bitDepth, format: r.format, size: blob.size, ...wavChunksInfo(r) },
     source,
   });
   return doc;

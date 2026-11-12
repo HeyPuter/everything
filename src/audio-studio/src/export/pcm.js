@@ -15,6 +15,12 @@ import { writeExtended } from '../audio/aiff.js';
 import { riffInfoChunk, bextChunk, cartChunk, aiffMetaChunks, concatChunks, hasXmpOnly } from '../audio/meta.js';
 import { wavXmpChunk } from '../audio/xmp.js';
 
+function u32le(v) {
+  const b = new Uint8Array(4);
+  new DataView(b.buffer).setUint32(0, v, true);
+  return b;
+}
+
 const SUBFORMAT_TAIL = [0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71];
 
 /** Interleaves and encodes one block of samples as little- or big-endian PCM bytes. */
@@ -57,7 +63,7 @@ function packPcm(planar, n, { bitDepth, float, little, quantizer, unsigned8 }) {
 }
 
 export class WavWriter {
-  constructor({ sampleRate, channels, bitDepth = 16, dither = 'triangular', frames, markers = [], meta = {} }) {
+  constructor({ sampleRate, channels, bitDepth = 16, dither = 'triangular', frames, markers = [], meta = {}, chunks = [] }) {
     this.nch = channels;
     this.bitDepth = bitDepth;
     this.float = bitDepth === 32;
@@ -65,8 +71,14 @@ export class WavWriter {
     const bytes = bitDepth / 8;
     this.dataSize = frames * channels * bytes;
     this.sink = new ByteSink();
-    // LIST/INFO, bext, cart and XMP (_PMX) chunks, all before the audio data.
-    const info = concatChunks([bextChunk(meta), riffInfoChunk(meta), cartChunk(meta), hasXmpOnly(meta) ? wavXmpChunk(meta) : null]);
+    // LIST/INFO, bext, cart and XMP (_PMX) chunks, then chunks kept from the opened file
+    // (iXML...), all before the audio data.
+    const kept = chunks.map(({ id, bytes: b }) => {
+      return concatBytes([ascii(id), u32le(b.length), b, new Uint8Array(b.length & 1)]);
+    });
+    const xmp = hasXmpOnly(meta) ? wavXmpChunk(meta) : null;
+    const tags = [bextChunk(meta), riffInfoChunk(meta), cartChunk(meta), xmp];
+    const info = concatChunks([...tags, ...kept]);
     const cue = markers.length ? new Uint8Array(buildCue(markers.map((m) => ({ ...m, start: Math.min(m.start, frames), duration: Math.max(0, Math.min(m.duration || 0, frames - m.start)) })))) : null;
     this.tail = cue;
     const extensible = channels > 2;

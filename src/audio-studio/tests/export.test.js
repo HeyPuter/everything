@@ -82,6 +82,46 @@ describe('WAV export', () => {
     expect(conformOptions('flac', ten).options.channels).toBe(8);
   });
 
+  it('keeps iXML, axml, inst and smpl chunks of an opened file while they still hold', async () => {
+    const enc = new TextEncoder();
+    // An odd length, so the chunk is padded.
+    const ixml = enc.encode('<BWFXML><SCENE>12A</SCENE><TAKE>3</TAKE></BWFXML>');
+    const smpl = new Uint8Array(36 + 24).fill(1);
+    const list = [
+      { id: 'iXML', bytes: ixml },
+      { id: 'axml', bytes: enc.encode('<ebuCoreMain/>') },
+      { id: 'inst', bytes: Uint8Array.of(60, 0, 0, 0, 127, 0, 127) },
+      { id: 'smpl', bytes: smpl },
+    ];
+    const src = [tone(1000), tone(1000, 300)];
+    const chunks = { sampleRate: 44100, channels: 2, frames: 1000, list };
+    const save = async (channels, options, frames = 1000) => {
+      const opts = { format: 'wav', bitDepth: 24, ...options };
+      const out = await exportFrom(channels, 44100, opts, { chunks, markers: [] });
+      expect(out.length % 2).toBe(0);
+      const r = parseWav(out.buffer);
+      expect(r.channels[0].length).toBe(frames);
+      return r.chunks.map((c) => [c.id, c.bytes.length]);
+    };
+    const all = list.map((c) => [c.id, c.bytes.length]);
+    // An untouched sample type keeps them all, byte for byte.
+    expect(await save(src, { sampleRate: 44100, channels: 2 })).toEqual(all);
+    const same = { format: 'wav', sampleRate: 44100, channels: 2, bitDepth: 16 };
+    const kept = parseWav((await exportFrom(src, 44100, same, { chunks })).buffer).chunks;
+    expect(Array.from(kept[0].bytes)).toEqual(Array.from(ixml));
+    // A changed length drops the loop points; a mono mixdown drops the track descriptions.
+    const shorter = await save([tone(900), tone(900)], { sampleRate: 44100, channels: 2 }, 900);
+    expect(shorter).toEqual(all.filter(([id]) => id !== 'smpl'));
+    const mono = await save(src, { sampleRate: 44100, channels: 1 });
+    expect(mono).toEqual([
+      ['inst', 7],
+      ['smpl', 60],
+    ]);
+    // Rate conversion keeps only the instrument data; "no metadata" keeps nothing.
+    expect(await save(src, { sampleRate: 48000, channels: 2 }, 1088)).toEqual([['inst', 7]]);
+    expect(await save(src, { sampleRate: 44100, channels: 2, meta: false })).toEqual([]);
+  });
+
   it('16-bit integer values survive without dither exactly', async () => {
     const x = Float32Array.from({ length: 1000 }, (_, i) => ((i * 37) % 65536 - 32768) / 32768);
     const r = parseWav((await exportFrom([x], 8000, { format: 'wav', sampleRate: 8000, channels: 1, bitDepth: 16 })).buffer);

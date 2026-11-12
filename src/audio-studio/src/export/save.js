@@ -14,7 +14,12 @@ import { VIDEO_EXTENSIONS, extensionOf } from '../audio/decode.js';
 
 /** Encodes frames [start, end) of a document with export options. */
 export function encodeDoc(doc, options, { start = 0, end = doc.length, onProgress, signal } = {}) {
-  return exportAudio({ channels: doc.state.channels, sampleRate: doc.sampleRate, start, end, markers: doc.state.markers, meta: doc.state.meta || {} }, options, { onProgress, signal });
+  const { channels, markers, meta } = doc.state;
+  // WAV chunks kept from the opened file (iXML...); the pipeline keeps those still true.
+  const chunks = doc.info?.wavChunks || null;
+  const source = { channels, sampleRate: doc.sampleRate, start, end, markers, chunks };
+  source.meta = meta || {};
+  return exportAudio(source, options, { onProgress, signal });
 }
 
 /** Options for re-saving a document in `format`: what it was last saved with, else its own sample type. */

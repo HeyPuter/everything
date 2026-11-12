@@ -7,6 +7,7 @@ import { FlacWriter } from './flac.js';
 import { Mp3Writer } from './mp3.js';
 import { OpusWriter, AacWriter } from './webcodecs.js';
 import { outputFrames } from './formats.js';
+import { keptChunks } from '../audio/wav.js';
 
 export const WRITERS = { wav: WavWriter, aiff: AiffWriter, flac: FlacWriter, mp3: Mp3Writer, opus: OpusWriter, m4a: AacWriter };
 
@@ -76,17 +77,19 @@ function concatFloats(parts) {
  * @param {(at: number, n: number) => Promise<Float32Array[]>|Float32Array[]} job.read  planar source blocks
  * @param {object[]} [job.markers] already in output frames
  * @param {object} [job.meta]
+ * @param {object} [job.chunks] WAV chunks kept from the opened file (keptChunks in audio/wav.js)
  * @param {object} [job.dsp]     Dsp instance (needed for FLAC and rate conversion)
  * @param {{ quality?: number, filter?: boolean }} [job.resampler] sample-rate conversion settings
  * @param {(fraction: number) => void} [job.onProgress]
  * @param {() => boolean} [job.cancelled]
  * @returns {Promise<Blob>}
  */
-export async function runExport({ options, sourceRate, frames, read, markers = [], meta = {}, dsp, resampler, onProgress, cancelled = () => false }) {
+export async function runExport({ options, sourceRate, frames, read, markers = [], meta = {}, chunks = null, dsp, resampler, onProgress, cancelled = () => false }) {
   const rate = options.sampleRate;
   const nch = options.channels;
   const total = outputFrames(frames, sourceRate, rate);
   const Writer = WRITERS[options.format];
+  const target = { sampleRate: rate, channels: nch, frames: total };
   if (!Writer) throw new Error(`Unknown export format "${options.format}".`);
   const writer = new Writer({
     sampleRate: rate,
@@ -97,6 +100,7 @@ export async function runExport({ options, sourceRate, frames, read, markers = [
     frames: total,
     markers: options.markers === false ? [] : markers,
     meta: options.meta === false ? {} : meta,
+    chunks: options.meta === false ? [] : keptChunks(chunks, target),
     settings: options.settings || {},
     dsp,
   });

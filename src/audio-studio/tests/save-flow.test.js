@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 // Encoding runs in a worker in the app; here it resolves at once.
+const exports = vi.hoisted(() => []);
 vi.mock('../src/export/export.js', () => ({
-  exportAudio: async () => new Blob([new Uint8Array(64)]),
+  exportAudio: async (...args) => {
+    exports.push(args);
+    return new Blob([new Uint8Array(64)]);
+  },
   isCancelled: (err) => err?.name === 'AbortError' || err?.message === 'Cancelled',
   cancelledError: () => Object.assign(new Error('Cancelled'), { name: 'AbortError' }),
 }));
@@ -123,4 +127,21 @@ describe('saving to Puter', () => {
       expect(doc.dirty).toBe(true);
     });
   }
+});
+
+describe('saving a WAV file opened with production sound chunks', () => {
+  it('hands the iXML and other kept chunks of the opened file to the encoder', async () => {
+    const { WavWriter } = await import('../src/export/pcm.js');
+    const { audioFileFromBlob } = await import('../src/storage/files.js');
+    const { encodeDoc } = await import('../src/export/save.js');
+    const ixml = new TextEncoder().encode('<BWFXML><TAKE>3</TAKE></BWFXML>');
+    const chunks = [{ id: 'iXML', bytes: ixml }];
+    const w = new WavWriter({ sampleRate: 8000, channels: 1, bitDepth: 16, frames: 10, chunks });
+    w.write([new Float32Array(10)], 10);
+    const doc = await audioFileFromBlob(w.finish(), 'Take.wav');
+    expect(doc.info.wavChunks).toMatchObject({ sampleRate: 8000, channels: 1, frames: 10 });
+    expect(doc.info.wavChunks.list.map((c) => c.id)).toEqual(['iXML']);
+    await encodeDoc(doc, { format: 'wav' });
+    expect(exports.at(-1)[0].chunks).toBe(doc.info.wavChunks);
+  });
 });

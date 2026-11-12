@@ -13,6 +13,30 @@ const ascii = (dv, o, n) => {
   return s;
 };
 
+/**
+ * Chunks kept as they are when a file is saved again as WAV (see keptChunks): production
+ * sound (iXML), broadcast (axml) and sampler (inst, smpl) data the editor does not edit.
+ */
+export const KEPT_CHUNKS = ['iXML', 'axml', 'inst', 'smpl'];
+
+/**
+ * The kept chunks still true of an export with this rate, channel count and length.
+ * `source` = { sampleRate, channels, frames, list: [{ id, bytes }] } as the file was opened.
+ *   inst  note, tuning and key ranges: true of the sound whatever was edited.
+ *   smpl  loop points are sample offsets: only while the length and rate are the file's own
+ *         (an edit that changes the length moves or invalidates them).
+ *   iXML, axml  describe the tracks and their rate: only with the same channels and rate.
+ */
+export function keptChunks(source, { sampleRate, channels, frames }) {
+  if (!source?.list?.length) return [];
+  const sameRate = sampleRate === source.sampleRate;
+  return source.list.filter(({ id }) => {
+    if (id === 'inst') return true;
+    if (id === 'smpl') return sameRate && frames === source.frames;
+    return sameRate && channels === source.channels;
+  });
+}
+
 /** Most channels a file may have to be opened (more means a damaged header). */
 export const MAX_CHANNELS = 1024;
 
@@ -141,6 +165,7 @@ export function parseWav(buffer) {
   let dataSize = 0;
   let ds64Data = null;
   const cues = new Map();
+  const extra = [];
   const labels = new Map();
   const lengths = new Map();
   const notes = new Map();
@@ -191,6 +216,8 @@ export function parseWav(buffer) {
       const bytes = new Uint8Array(buffer, body, Math.max(0, Math.min(size, buffer.byteLength - body)));
       // INFO wins for the shared title and artist; the cart chunk fills them in only when missing.
       meta = { ...(id === 'bext' ? parseBext(bytes) : parseCart(bytes)), ...meta };
+    } else if (KEPT_CHUNKS.includes(id) && body + size <= buffer.byteLength) {
+      extra.push({ id, bytes: new Uint8Array(buffer.slice(body, body + size)) });
     } else if (id === 'LIST' && body + 4 <= buffer.byteLength && ascii(dv, body, 4) === 'adtl') {
       let q = body + 4;
       const end = Math.min(body + size, buffer.byteLength);
@@ -239,7 +266,8 @@ export function parseWav(buffer) {
     description: notes.get(id) || '',
     type: 'cue',
   }));
-  return { sampleRate, channels, bitDepth: law ? 16 : container, float: isFloat, markers, meta };
+  const bitDepth = law ? 16 : container;
+  return { sampleRate, channels, bitDepth, float: isFloat, markers, meta, chunks: extra };
 }
 
 /**
