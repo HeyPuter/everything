@@ -102,4 +102,50 @@ describe('browser-decoded images beyond the document limits', () => {
     await expect(decodeFile(new Blob([jpeg(6000, 6000)]), 'huge.jpg')).rejects.toThrow('This image is 6000 × 6000 pixels');
     await expect(decodeFile(new Blob([riff('VP8X', [0, 0, 0, 0, 0xff, 0x3f, 0, 0xff, 0x3f, 0])]), 'huge.webp')).rejects.toThrow('This image is 16384 × 16384 pixels');
   });
+
+  // ISO base media boxes: size, type, body.
+  const box = (type: string, ...body: number[][]) => {
+    const flat = body.flat();
+    const n = flat.length + 8;
+    return [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255, ...new TextEncoder().encode(type), ...flat];
+  };
+  const u32 = (n: number) => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const ispe = (w: number, h: number) => box('ispe', [0, 0, 0, 0], u32(w), u32(h));
+  // A thumbnail (item 2) listed before the primary image (item 1), as encoders write them.
+  const heif = (brand: string, w: number, h: number, padding = 0) =>
+    new Uint8Array([
+      ...box('ftyp', [...new TextEncoder().encode(brand)], [0, 0, 0, 0], [...new TextEncoder().encode('mif1')]),
+      ...box(
+        'meta',
+        [0, 0, 0, 0],
+        box('hdlr', [0, 0, 0, 0], [0, 0, 0, 0], [...new TextEncoder().encode('pict')], new Array(13).fill(0)),
+        box('pitm', [0, 0, 0, 0], [0, 1]),
+        box('iinf', [0, 0, 0, 0], new Array(padding).fill(0)),
+        box('iprp', box('ipco', ispe(256, 256), ispe(w, h)), box('ipma', [0, 0, 0, 0], u32(2), [0, 2, 1, 0x81], [0, 1, 1, 0x82])),
+      ),
+      ...box('mdat', new Array(32).fill(0)),
+    ]);
+
+  it('reads the size of the primary AVIF or HEIC image from its item properties', () => {
+    expect(browserImageSize(heif('avif', 12000, 9000))).toEqual({ width: 12000, height: 9000 });
+    expect(browserImageSize(heif('heic', 4032, 3024))).toEqual({ width: 4032, height: 3024 });
+    // The thumbnail is not taken for the image.
+    expect(browserImageSize(heif('avif', 100, 50))).toEqual({ width: 100, height: 50 });
+    // Truncated before the properties: unknown, not an error.
+    expect(browserImageSize(heif('avif', 12000, 9000).subarray(0, 60))).toBeUndefined();
+  });
+
+  it('refuses oversized AVIF and HEIC files before the browser decodes them', async () => {
+    // Item tables of real files run past the first 4 KB.
+    await expect(decodeFile(new Blob([heif('avif', 12000, 12000, 8000)]), 'huge.avif')).rejects.toThrow('This image is 12000 × 12000 pixels');
+    await expect(decodeFile(new Blob([heif('heic', 9000, 9000, 8000)]), 'huge.heic')).rejects.toThrow('This image is 9000 × 9000 pixels');
+  });
+
+  it('finds the JPEG size after metadata segments larger than 4 KB', async () => {
+    const app1 = [0xff, 0xe1, 0x40, 0x00, ...new Array(0x4000 - 2).fill(0)];
+    const big = jpeg(6000, 6000);
+    const file = new Uint8Array([0xff, 0xd8, ...app1, ...big.subarray(2)]);
+    const { checkBrowserFile } = await import('../src/features/files/open');
+    await expect(checkBrowserFile(new Blob([file]))).rejects.toThrow('This image is 6000 × 6000 pixels');
+  });
 });
