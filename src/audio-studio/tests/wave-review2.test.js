@@ -315,8 +315,9 @@ describe('Markers panel', () => {
     doc.apply('Fade In', E.fadeRange(doc.state, 0, 4800, 'in'));
     doc.history.undo();
     expect(rows()[0]).toBe(first);
+    const second = rows()[1];
     doc.apply('Delete', E.deleteRange(doc.state, 0, 2400));
-    expect(rows()[0]).not.toBe(first);
+    expect(rows()[1]).not.toBe(second);
     expect(rows()[1].querySelector('[data-field="start"]').textContent).toBe('0:00.050');
     view.destroy();
   });
@@ -398,6 +399,53 @@ describe('time ruler as a slider', () => {
     expect(doc.cursor).toBe(0);
     doc.setCursor(24000);
     expect(ruler.getAttribute('aria-valuenow')).toBe('24000');
+    view.destroy();
+  });
+});
+
+describe('Markers panel rows', () => {
+  it('builds only the rows of markers that changed', async () => {
+    const { createMarker, sortMarkers } = await import('../src/model/markers.js');
+    const { markersPanel } = await import('../src/panels/markers.js');
+    const { app, doc, view } = await makeView({ frames: 48000 * 4 });
+    const ms = Array.from({ length: 5 }, (_, i) =>
+      createMarker({ start: i * 9600, name: `M${i}` }),
+    );
+    doc.apply('Markers', { ...doc.state, markers: ms });
+    const panel = markersPanel(app);
+    view.el.after(panel.el);
+    const rows = () => [...panel.el.querySelectorAll('tbody tr[data-id]')];
+    const before = rows();
+    const added = createMarker({ start: 12000, name: 'New' });
+    doc.apply('Add Marker', { ...doc.state, markers: sortMarkers([...doc.state.markers, added]) });
+    const after = rows();
+    expect(after.map((r) => r.dataset.id)).toEqual([
+      ms[0].id,
+      ms[1].id,
+      added.id,
+      ms[2].id,
+      ms[3].id,
+      ms[4].id,
+    ]);
+    expect(after.filter((r) => before.includes(r))).toHaveLength(5);
+    // Escape out of a cell edit puts the cell text back.
+    document.elementFromPoint ??= () => null;
+    const name = after[0].querySelector('[data-field="name"]');
+    name.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const input = panel.el.querySelector('input.cell-edit');
+    expect(input).not.toBe(null);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(panel.el.querySelector('input.cell-edit')).toBe(null);
+    expect(rows()[0].textContent).toContain('M0');
+    // A time format change shows every time again.
+    app.prefs.set('timeFormat', 'samples');
+    expect(rows()[1].querySelector('[data-field="start"]').textContent).toBe('9600');
+    doc.apply('None', { ...doc.state, markers: [] });
+    expect(rows()).toHaveLength(0);
+    expect(panel.el.querySelector('.empty-row')).not.toBe(null);
+    doc.history.undo();
+    expect(rows()).toHaveLength(6);
+    expect(panel.el.querySelector('.empty-row')).toBe(null);
     view.destroy();
   });
 });
