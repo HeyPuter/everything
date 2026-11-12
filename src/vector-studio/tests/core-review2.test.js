@@ -143,3 +143,23 @@ describe('undo history memory', () => {
     expect(doc.get(ids[0]).opacity).not.toBe(1);
   });
 });
+
+describe('Release to Layers on a large layer', () => {
+  it('looks at the document once for the new layer colors, not once per layer', async () => {
+    const { releaseToLayers } = await import('../src/ops/layer-ops.js');
+    const { doc, layer, add } = setup();
+    for (let i = 0; i < 40; i++) add(i * 12);
+    let walks = 0;
+    const walk = doc.walk.bind(doc);
+    // Whole-document walks (the recursion passes a node id).
+    doc.walk = (...a) => (a[1] === undefined && walks++, walk(...a));
+    let made;
+    doc.transact('Release to Layers', () => (made = releaseToLayers(doc, layer.id, 'sequence')));
+    expect(made).toHaveLength(40);
+    expect(walks).toBeLessThan(3);
+    // Colors still go through the palette, then repeat its first color, as before.
+    const colors = made.map((id) => doc.get(id).color);
+    expect(new Set(colors.slice(0, 8)).size).toBe(8);
+    expect(colors.slice(8).every((c) => c === colors[8])).toBe(true);
+  });
+});

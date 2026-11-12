@@ -51,12 +51,22 @@ export function nextLayerName(doc) {
 }
 
 function layerColor(doc) {
+  return layerColorPicker(doc)();
+}
+
+/** Colors for new layers, one per call: colors no layer uses yet first (one look at the document for any number of layers). */
+function layerColorPicker(doc) {
   const used = new Set();
   doc.walk((n) => {
     if (n.type === 'layer') used.add(n.color);
     return n.type === 'layer';
   });
-  return LAYER_COLORS.find((c) => !used.has(c)) || LAYER_COLORS[used.size % LAYER_COLORS.length];
+  return () => {
+    const color =
+      LAYER_COLORS.find((c) => !used.has(c)) || LAYER_COLORS[used.size % LAYER_COLORS.length];
+    used.add(color);
+    return color;
+  };
 }
 
 /** Insert a new (sub)layer under `parentId` at `index`. Returns the layer node. */
@@ -218,10 +228,14 @@ export function releaseToLayers(doc, containerId, mode = 'sequence') {
     index = 0;
   }
   const made = [];
+  const color = layerColorPicker(doc);
   kids.forEach((kid, i) => {
     const node = doc.get(kid);
     if (!node || node.type === 'layer') return;
-    const layer = insertLayer(doc, parentId, index + made.length, { name: `${defaultLabel(c)} ${made.length + 1}` });
+    const layer = insertLayer(doc, parentId, index + made.length, {
+      name: `${defaultLabel(c)} ${made.length + 1}`,
+      color: color(),
+    });
     if (mode === 'build') {
       for (let j = 0; j < i; j++) {
         const below = doc.get(kids[j]);
