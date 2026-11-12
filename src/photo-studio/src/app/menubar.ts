@@ -68,12 +68,15 @@ function toggleSubmenus(item: HTMLElement) {
     sibling.setAttribute('aria-expanded', String(expanded));
     sibling.classList.toggle('open', expanded);
     // Keep a long submenu inside the window: shift it up when it would overflow.
+    // Narrow windows drop submenus below their item inside the scrolling menu
+    // instead; shifted up, one would cover its item and start off the screen.
     const sub = expanded ? sibling.querySelector<HTMLElement>(':scope > .submenu') : null;
     if (sub) {
       sub.style.top = '';
       const r = sub.getBoundingClientRect();
+      const beside = r.left >= sibling.getBoundingClientRect().right - 1 || r.right <= sibling.getBoundingClientRect().left + 1;
       const over = r.bottom - (window.innerHeight - 4);
-      if (over > 0) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
+      if (over > 0 && beside) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
     }
   }
 }

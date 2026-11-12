@@ -93,3 +93,24 @@ test.describe('with touch', () => {
     expect(await page.evaluate(() => window.photoStudio.history.position)).toBe(before);
   });
 });
+
+test.describe('at 200% zoom on a 1440×900 screen', () => {
+  test.use({ viewport: { width: 720, height: 450 }, deviceScaleFactor: 2 });
+  test('a submenu low in a menu opens below its item and every entry can be reached', async ({ page }) => {
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'File', exact: true }).click();
+    const owner = page.locator('.menubar-entry.open > .menu-pop > .has-submenu', { hasText: 'Export' }).first();
+    await owner.hover();
+    const sub = owner.locator(':scope > .submenu');
+    await expect(sub).toBeVisible();
+    const [o, s] = [(await owner.boundingBox())!, (await sub.boundingBox())!];
+    // It does not cover its own item (or start above the screen).
+    expect(s.y).toBeGreaterThanOrEqual(o.y + o.height - 6);
+    // Its first and last entries can be scrolled to inside the menu.
+    for (const entry of [sub.locator(':scope > .menu-item').first(), sub.locator(':scope > .menu-item').last()]) {
+      await entry.scrollIntoViewIfNeeded();
+      const b = (await entry.boundingBox())!;
+      expect(b.y).toBeGreaterThanOrEqual(0);
+      expect(b.y + b.height).toBeLessThanOrEqual(450);
+    }
+  });
+});
