@@ -37,3 +37,28 @@ test('OK during the canvas preview render waits for it instead of starting over'
   // The running render was reused: no second full-resolution worker.
   expect((await workers(page)).filter((n) => n === 'filters-full').length).toBe(1);
 });
+
+test('OK and Fade accept typed values between the field steps', async ({ page }) => {
+  await openImage(page, 120, 80, '#808080');
+  await start(page, 'filter.apply.gaussian-blur');
+  const dialog = page.locator('dialog.filter-dialog[open]');
+  await expect(dialog).toBeVisible();
+  // The radius field steps by 0.1; 2.55 is still a usable radius.
+  const radius = dialog.locator('input[type=number][data-key="radius"]');
+  await radius.fill('2.55');
+  await radius.press('Tab');
+  await dialog.locator('.fd-ok').click();
+  await expect(page.locator('dialog.filter-dialog[open]')).toHaveCount(0);
+  await idle(page);
+  expect(await historyLabels(page)).toEqual(['Gaussian Blur']);
+  await start(page, 'edit.fade');
+  const fade = page.locator('dialog.fade-dialog[open]');
+  await expect(fade).toBeVisible();
+  const opacity = fade.locator('#fade-opacity');
+  await opacity.fill('50.5');
+  await opacity.press('Tab');
+  await fade.getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('dialog.fade-dialog[open]')).toHaveCount(0);
+  await idle(page);
+  expect(await historyLabels(page)).toEqual(['Gaussian Blur', 'Fade Gaussian Blur']);
+});

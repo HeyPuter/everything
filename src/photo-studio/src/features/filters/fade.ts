@@ -72,7 +72,7 @@ export async function fade(e: Editor, arg?: { opacity: number; mode: BlendMode }
 function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) => Promise<TileGrid>, commit: (g: TileGrid, o: number, m: BlendMode) => void, target: PixelTarget) {
   const dialog = document.createElement('dialog');
   dialog.className = 'filter-dialog fade-dialog';
-  dialog.innerHTML = `<form method="dialog"><h2>Fade</h2><p class="fd-note">${escapeXML(label)}</p>
+  dialog.innerHTML = `<form method="dialog" novalidate><h2>Fade</h2><p class="fd-note">${escapeXML(label)}</p>
 <div class="fp-row fp-number"><label for="fade-opacity">Opacity</label><input id="fade-opacity" type="number" min="0" max="100" value="100"><span class="fp-unit">%</span><input id="fade-range" type="range" min="0" max="100" value="100" aria-label="Opacity"></div>
 <div class="fp-row"><label for="fade-mode">Mode</label><select id="fade-mode">${blendModes.map((m, i) => `${i && blendModes[i - 1].group !== m.group ? '<option disabled>──────────</option>' : ''}<option value="${m.id}">${escapeXML(m.label)}</option>`).join('')}</select></div>
 <label class="fd-preview-toggle"><input type="checkbox" id="fade-preview" checked> Preview</label>

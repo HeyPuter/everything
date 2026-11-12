@@ -32,7 +32,8 @@ export function blendOptions(selected: Blend) {
 export function dialogShell(title: string, cls: string, paneW: number, paneH: number) {
   const dialog = document.createElement('dialog');
   dialog.className = `filter-dialog ${cls}`;
-  dialog.innerHTML = `<form method="dialog" class="fd-form">
+  // The fields clamp their own entries; a value between steps must not block OK.
+  dialog.innerHTML = `<form method="dialog" class="fd-form" novalidate>
 <h2>${escapeXML(title)}</h2>
 <div class="fd-main">
   <div class="fd-left">
