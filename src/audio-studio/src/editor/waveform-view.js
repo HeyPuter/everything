@@ -1026,9 +1026,10 @@ export class WaveformView {
     this.surface.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey) return;
       const doc = this.doc;
-      const step = e.altKey ? 1 : Math.max(1, Math.round(this.fpp * (e.shiftKey ? 1 : 10)));
+      const step = Math.max(1, Math.round(this.fpp * (e.shiftKey ? 1 : 10)));
       let handled = true;
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      // Alt+Left/Right are Move Playhead to Previous/Next, as in the Multitrack editor.
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.altKey) {
         const dir = e.key === 'ArrowLeft' ? -1 : 1;
         if (e.shiftKey) {
           const sel = doc.selection;
