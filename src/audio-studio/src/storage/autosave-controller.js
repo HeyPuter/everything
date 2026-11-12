@@ -3,7 +3,15 @@
 
 import { h } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
-import { AutosaveStore, buildManifest, planAutosave, recoverable, newSessionId, LOCK_PREFIX } from './autosave.js';
+import {
+  AutosaveStore,
+  buildManifest,
+  planAutosave,
+  recoverable,
+  newSessionId,
+  LOCK_PREFIX,
+  unpackChunks,
+} from './autosave.js';
 import { parseWav } from '../audio/wav.js';
 import { AudioFile } from '../model/audio-file.js';
 import { Channel } from '../audio/channel.js';
@@ -156,6 +164,7 @@ export function installAutosave(app, { store = opfsAvailable() ? new AutosaveSto
             info: { bitDepth: m.bitDepth, format: m.format, exportOptions: m.exportOptions || undefined },
             source: m.source?.type === 'puter' ? m.source : { type: 'recovered' },
           });
+          doc.info.wavChunks = unpackChunks(m.wavChunks); // iXML... kept for the next WAV save
           doc.savedState = null; // unsaved until the user saves it
           app.addDocument(doc, { activate: !docs.length });
           docs.push(doc);
