@@ -80,6 +80,12 @@ export function dbMinorTicks(lane, amp) {
   return out;
 }
 
+/**
+ * The first sample at or after a grid line between samples (a video frame or beat): the
+ * time display rounds down, so the nearest sample could show as the previous frame.
+ */
+const firstSampleOf = (frame) => Math.ceil(frame - 1e-4);
+
 /** Keeps a w x h box at (x, y) inside a W x H area. */
 export function clampHud(x, y, w, h, W, H) {
   return { x: Math.round(Math.max(0, Math.min(W - w, x))), y: Math.round(Math.max(0, Math.min(H - h, y))) };
@@ -444,7 +450,7 @@ export class WaveformView {
       const rate = this.doc.sampleRate;
       if (prefs.get('timeFormat') === 'bars') {
         const step = musicalStep(this.fpp, rate, this.app.timeOptions(), snap.rulerFine ? 3 : 12);
-        consider(Math.round(Math.round(frame / step) * step));
+        consider(firstSampleOf(Math.round(frame / step) * step));
       } else {
         const secPerPx = this.fpp / rate;
         const steps = [0.001, 0.01, 0.1, 0.5, 1, 5, 10, 30, 60];
@@ -456,7 +462,7 @@ export class WaveformView {
     const fps = snap.frames ? framesPerSecond(this.app.prefs) : 0;
     if (fps) {
       const step = this.doc.sampleRate / fps;
-      consider(Math.round(Math.round(frame / step) * step));
+      consider(firstSampleOf(Math.round(frame / step) * step));
     }
     if (snap.zero && bestD === tol) {
       // The sum of the channels enabled for editing, as Adjust Selection to Zero Crossings uses.

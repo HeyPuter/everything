@@ -115,3 +115,31 @@ describe('typed times', () => {
     expect(parseTime('1.5', 48000, 'smpte30')).toBe(72000);
   });
 });
+
+describe('grid snapping', () => {
+  it('snaps to the first sample of a video frame or beat, which shows as that frame', async () => {
+    const { formatTime } = await import('../src/lib/time.js');
+    const { app, view } = await makeView({ frames: 48000 * 4 });
+    app.prefs.set('snapping', true);
+    app.prefs.set('snap', { frames: true });
+    for (const format of ['smpte2997', 'smpte2398', 'smpte5994df']) {
+      app.prefs.set('timeFormat', format);
+      for (let k = 1; k < 120; k++) {
+        const boundary =
+          (k * 48000 * 1001) /
+          (format === 'smpte2398' ? 24000 : format === 'smpte2997' ? 30000 : 60000);
+        const f = view.snap(boundary + 0.3);
+        expect(f).toBe(Math.ceil(boundary - 1e-4));
+        expect(formatTime(f, 48000, format)).not.toBe(formatTime(f - 1, 48000, format));
+      }
+    }
+    app.prefs.set('snap', { ruler: true });
+    app.prefs.set('timeFormat', 'bars');
+    app.prefs.set('tempo', 103);
+    const f = view.snap(27900);
+    expect(f).toBe(27962);
+    expect(formatTime(f, 48000, 'bars', app.timeOptions())).not.toBe(
+      formatTime(f - 1, 48000, 'bars', app.timeOptions()),
+    );
+  });
+});
