@@ -1334,6 +1334,8 @@ input[type='range'].fx-slider:disabled {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* A short panel (a phone held sideways) scrolls as a whole, keeping a slot in view. */
+  overflow-y: auto;
 }
 
 .rack-content {
@@ -1439,7 +1441,7 @@ input[type='range'].fx-slider:disabled {
 
 .rack-scroll {
   flex: 1;
-  min-height: 0;
+  min-height: calc(var(--row) + 4px);
   overflow: auto;
 }
 

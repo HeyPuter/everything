@@ -197,6 +197,13 @@ describe('Effects Rack levels', () => {
     expect(rackFor(doc).mix).toBeCloseTo(0.4);
     panel.el.remove();
   });
+  it('keeps a slot in view in a short panel, scrolling the panel instead', () => {
+    const css = readFileSync(resolve(__dirname, '../src/styles/effects.css'), 'utf8');
+    const rule = (sel) => css.slice(css.indexOf(`\n${sel} {`)).split('\n}')[0];
+    // The slot list no longer shrinks to nothing (a phone held sideways); the panel scrolls.
+    expect(rule('.rack-scroll')).toMatch(/min-height: calc\(var\(--row\) \+ 4px\);/);
+    expect(rule('.rack-panel')).toMatch(/overflow-y: auto;/);
+  });
 });
 
 describe('effect dialog favorites', () => {
