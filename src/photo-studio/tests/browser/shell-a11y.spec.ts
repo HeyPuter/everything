@@ -1,7 +1,7 @@
 // Accessibility of the workspace chrome: dialog names, menu keyboard use,
 // focus handling and small-screen layout.
 import { test, expect } from '@playwright/test';
-import { boot, openImage, start } from './helpers';
+import { boot, idle, openImage, start } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -152,4 +152,25 @@ test.describe('on a phone', () => {
       await expect(drawer).toBeHidden();
     }
   });
+});
+
+test('a panel button used from the keyboard keeps the focus when the panel redraws', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.dock.show('paths'));
+  const create = page.locator('#panel-paths').getByRole('button', { name: 'Create new path' });
+  await create.focus();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.paths?.length ?? 0)).toBe(1);
+  await expect(page.locator('#panel-paths').getByRole('button', { name: 'Create new path' })).toBeFocused();
+  // The History panel: stepping back to an earlier state from the keyboard.
+  await page.evaluate(() => window.photoStudio.dock.show('history'));
+  const first = page.locator('[data-panel="history"] [data-history="0"]');
+  await first.focus();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(0);
+  await expect(page.locator('[data-panel="history"] [data-history="0"]')).toBeFocused();
+  // Tab carries on inside the panel instead of starting over from the top of the page.
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('[data-panel="history"]'))).toBe(true);
 });

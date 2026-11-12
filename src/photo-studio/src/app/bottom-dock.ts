@@ -1,7 +1,7 @@
 import type { Editor } from '../editor';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
-import { menuButton } from './dock';
+import { menuButton, updatePanel } from './dock';
 import { panels, type Panel } from './registry';
 
 type State = { open: boolean; collapsed: boolean; height: number; active?: string };
@@ -112,10 +112,10 @@ export class BottomDock {
     if (this.state.collapsed) return;
     const body = this.body(active);
     this.el.querySelector('.bottom-dock-slot')!.append(body);
-    active.update?.(this.e, body);
+    updatePanel(this.e, active, body);
   }
   update() {
-    for (const [id, el] of this.mounted) if (el.isConnected) panels.get(id)?.update?.(this.e, el);
+    for (const [id, el] of this.mounted) if (el.isConnected) updatePanel(this.e, panels.get(id), el);
   }
   private bindResize() {
     let drag: { start: number; height: number; id: number } | undefined;

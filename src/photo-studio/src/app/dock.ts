@@ -4,6 +4,7 @@ import { svg } from './icons';
 import { showContextMenu } from './menubar';
 import { commands, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
 import { BottomDock } from './bottom-dock';
+import { keepFocus } from '../ui/keep-focus';
 
 const groupLocations: PanelLocation[] = ['dock-top', 'dock-middle', 'dock-bottom'];
 const allLocations: PanelLocation[] = [...groupLocations, 'strip'];
@@ -130,9 +131,10 @@ export class Dock {
     });
     el.addEventListener('keydown', (ev) => {
       // Escape closes an icon panel's drawer and returns to its strip button
-      // (fields inside it keep Escape for themselves).
+      // (fields inside it keep Escape for themselves, and a modal edit on the
+      // canvas, such as a version preview, ends first).
       const inDrawer = (ev.target as HTMLElement).closest('.dock-drawer');
-      if (ev.key === 'Escape' && this.drawer && (inDrawer || (ev.target as HTMLElement).closest(`[data-strip-panel="${CSS.escape(this.drawer)}"]`)) && !(ev.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) {
+      if (ev.key === 'Escape' && this.drawer && !this.e.modal && (inDrawer || (ev.target as HTMLElement).closest(`[data-strip-panel="${CSS.escape(this.drawer)}"]`)) && !(ev.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) {
         ev.preventDefault();
         ev.stopPropagation();
         this.closeDrawer();
@@ -440,7 +442,7 @@ export class Dock {
       const active = this.activeIn(loc);
       if (slot && active && !this.layout.collapsed.includes(loc)) {
         slot.append(this.body(active));
-        active.update?.(this.e, this.body(active));
+        updatePanel(this.e, active, this.body(active));
       }
     }
     const strip = this.el.querySelector<HTMLElement>('.dock-strip')!;
@@ -463,7 +465,7 @@ export class Dock {
       drawer.innerHTML = `<div class="panel-tabs"><span class="drawer-title">${svg(open.icon, 14)}${escapeXML(open.title)}</span><span class="panel-tabs-spacer"></span>${menuButton(open, 'data-panel-menu')}<button class="panel-menu-button" data-drawer-close aria-label="Close ${escapeXML(open.title)}" title="Close">${svg('x', 15)}</button></div>`;
       const body = this.body(open);
       drawer.append(body);
-      open.update?.(this.e, body);
+      updatePanel(this.e, open, body);
     }
     if (refocus) this.el.querySelector<HTMLElement>(refocus)?.focus({ preventScroll: true });
   }
@@ -477,7 +479,7 @@ export class Dock {
   /** Refresh visible panels after an edit. */
   update() {
     for (const [id, el] of this.mounted)
-      if (el.isConnected) panels.get(id)?.update?.(this.e, el);
+      if (el.isConnected) updatePanel(this.e, panels.get(id), el);
     this.bottom.update();
   }
   private bindDrag() {
@@ -575,6 +577,11 @@ export class Dock {
   }
 }
 
+/** Refresh a panel's body; a control in it that had the keyboard focus gets
+ * it back, however the panel redraws. */
+export function updatePanel(e: Editor, p: Panel | undefined, body: HTMLElement) {
+  if (p?.update) keepFocus(body, () => p.update!(e, body));
+}
 /** The flyout menu button every panel header carries. */
 export const menuButton = (p: Panel, attr: string) =>
   `<button class="panel-menu-button" ${attr}="${p.id}" aria-label="${escapeXML(p.title)} panel menu" aria-haspopup="menu" aria-expanded="false" title="Panel menu">${svg('menu', 15)}</button>`;
