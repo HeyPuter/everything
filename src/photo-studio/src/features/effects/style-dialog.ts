@@ -93,7 +93,7 @@ export async function openStyleDialog(e: Editor, start?: string) {
   const dialog = document.createElement('dialog');
   dialog.className = 'layer-style-dialog';
   dialog.setAttribute('aria-label', 'Layer Style');
-  dialog.innerHTML = `<form method="dialog"><h2>Layer Style</h2><div class="ls-body"><nav class="ls-list" aria-label="Effects"></nav><div class="ls-panel"><h3 class="ls-title"></h3><div class="ls-fields"></div></div></div><footer class="ls-side dialog-footer"><img class="ls-thumb" alt="Style sample" width="72" height="72" hidden><button type="button" data-new-style>New Style…</button><label class="fx-check"><input type="checkbox" data-preview checked>Preview</label><button type="button" data-cancel>Cancel</button><button type="submit" class="primary" data-ok>OK</button></footer></form>`;
+  dialog.innerHTML = `<form method="dialog" novalidate><h2>Layer Style</h2><div class="ls-body"><nav class="ls-list" aria-label="Effects"></nav><div class="ls-panel"><h3 class="ls-title"></h3><div class="ls-fields"></div></div></div><footer class="ls-side dialog-footer"><img class="ls-thumb" alt="Style sample" width="72" height="72" hidden><button type="button" data-new-style>New Style…</button><label class="fx-check"><input type="checkbox" data-preview checked>Preview</label><button type="button" data-cancel>Cancel</button><button type="submit" class="primary" data-ok>OK</button></footer></form>`;
   e.root.append(dialog);
   const list = dialog.querySelector<HTMLElement>('.ls-list')!;
   const title = dialog.querySelector<HTMLElement>('.ls-title')!;

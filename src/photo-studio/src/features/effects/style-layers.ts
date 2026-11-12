@@ -96,7 +96,7 @@ export function globalLightDialog(e: Editor) {
   const dialog = document.createElement('dialog');
   dialog.className = 'layer-style-dialog global-light-dialog';
   dialog.setAttribute('aria-label', 'Global Light');
-  dialog.innerHTML = `<form method="dialog"><h2>Global Light</h2><p class="muted">Shadows, bevels and other effects set to use the global light share this direction.</p><div class="ls-fields"></div><div class="dialog-actions"><button type="button" data-cancel>Cancel</button><button type="submit" class="primary">OK</button></div></form>`;
+  dialog.innerHTML = `<form method="dialog" novalidate><h2>Global Light</h2><p class="muted">Shadows, bevels and other effects set to use the global light share this direction.</p><div class="ls-fields"></div><div class="dialog-actions"><button type="button" data-cancel>Cancel</button><button type="submit" class="primary">OK</button></div></form>`;
   e.root.append(dialog);
   const preview = () => e.preview({ ...original, globalLight: { ...light } });
   mountFields(e, dialog.querySelector<HTMLElement>('.ls-fields')!, () => [
