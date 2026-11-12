@@ -364,6 +364,9 @@ export class StrokeSession {
               if (!t.source(x, y, src)) continue;
               sr = src[0]; sg = src[1]; sb = src[2]; sa = src[3] / 255;
             }
+            // Behind paints only transparent pixels and Clear removes alpha:
+            // neither can change a layer whose transparency is locked.
+            if (t.preserveAlpha && (t.mode === 'behind' || t.mode === 'clear')) continue;
             let a = k * sa;
             // Dissolve turns partial coverage into a stable per-pixel choice.
             if (t.mode === 'dissolve') a = hash01(x, y, this.seed) < a ? 1 : 0;
