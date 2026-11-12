@@ -6,46 +6,14 @@
  */
 import { h } from '../../lib/dom.js';
 import { Tool, tol } from '../../tools/tool.js';
-import { hitTest, hitNode } from '../../render/hit.js';
+import { hitTest } from '../../render/hit.js';
 import { nodeBounds, transformPatches } from '../../model/geometry.js';
 import { createGroup } from '../../model/nodes.js';
 import { reverseAnchors } from '../../model/bezier.js';
 import { pathSampler } from '../../model/path-sampler.js';
 import { translate } from '../../lib/matrix.js';
 import { numberField } from '../../ui/widgets.js';
-import { blendSteps, virtualDoc, expandedSubtrees, blendSpine, blendKeys, DEFAULT_BLEND } from './blend-math.js';
-
-/**
- * Hit test the generated steps of visible, unlocked blends (the key objects
- * are ordinary children and hit normally). Returns a key object of the blend
- * that was hit, so the Selection tool picks the blend group, or null.
- */
-export function blendHit(doc, x, y, tolerance, { outline = false } = {}) {
-  let found = null;
-  doc.walk((n) => {
-    if (found || n.hidden || n.locked) return false;
-    if (n.type !== 'group' || !n.blend) return true;
-    const b = nodeBounds(doc, n);
-    if (!b || x < b.x - tolerance || x > b.x + b.w + tolerance || y < b.y - tolerance || y > b.y + b.h + tolerance) return false;
-    const { runs, extra } = blendSteps(doc, n);
-    const vdoc = virtualDoc(doc, extra);
-    const leaves = (v, out = []) => {
-      if (v.type === 'group') for (const c of v.children) leaves(vdoc.get(c), out);
-      else out.push(v);
-      return out;
-    };
-    for (const run of runs) {
-      for (const step of run.nodes) {
-        if (leaves(step).some((leaf) => hitNode(vdoc, leaf, x, y, tolerance, { outline }))) {
-          found = doc.get(n.children[0]);
-          return false;
-        }
-      }
-    }
-    return true;
-  });
-  return found;
-}
+import { expandedSubtrees, blendSpine, blendKeys, DEFAULT_BLEND } from './blend-math.js';
 
 export function blendOptionsFor(app) {
   return { ...DEFAULT_BLEND, ...(app.prefs.get('blendOptions') || {}) };
@@ -396,8 +364,7 @@ export class BlendTool extends Tool {
     // In isolation mode only objects inside the isolated group can be blended.
     const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
     const outline = editor.viewOptions.mode === 'outline';
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline, filter });
-    return hit && editor.inIsolation(hit.id) ? hit : null;
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline, filter });
   }
 
   onHover(e) {

@@ -98,8 +98,8 @@ function liveHit(doc, node, x, y, tol, opts) {
     const real = doc.get(n.id) === n && n.parent === node.id;
     if (real) {
       if (n.hidden || n.locked || (opts.skip && opts.skip.has(n.id))) continue;
-      if (n.type === 'group' || liveDef(n)) {
-        const r = n.type === 'group' ? hitChildren(doc, n, x, y, tol, opts) : hitNode(doc, n, x, y, tol, opts) ? n : null;
+      if (n.type === 'group') {
+        const r = hitChildren(doc, n, x, y, tol, opts);
         if (r) return r;
       } else if ((!opts.filter || opts.filter(n)) && hitNode(doc, n, x, y, tol, opts)) return n;
       continue;
@@ -108,8 +108,10 @@ function liveHit(doc, node, x, y, tol, opts) {
     if (!v) continue;
     // A generated copy that names its source (effects on a group) picks that object.
     const src = v.source ? doc.get(v.source) : null;
-    if (src && !src.locked && !src.hidden) return src;
-    return firstLeaf(doc, node) || node;
+    const pick = src && !src.locked && !src.hidden ? src : firstLeaf(doc, node) || node;
+    // A filter passes over the whole live object (e.g. outside isolation mode).
+    if (opts.filter && !opts.filter(pick)) continue;
+    return pick;
   }
   return null;
 }
