@@ -54,6 +54,8 @@ export async function recoveryTick(e: Editor) {
     const doc = s.doc;
     const project = await serialize(doc, s.assets);
     const thumb = await documentThumbnail(e, s, 160).catch(() => undefined);
+    // Saved or closed while the record was being written: nothing to recover.
+    if (!e.sessions.includes(s) || !s.dirty) continue;
     await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName: s.fileName, path: s.storage.path, time: Date.now(), project, thumb });
     recovered.set(s, doc);
   }
