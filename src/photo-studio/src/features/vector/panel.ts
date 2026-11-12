@@ -4,7 +4,7 @@ import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
 import { formDialog } from '../../ui/dialog';
 import { maskToSvg } from './geometry';
-import { activeKey, listedPaths, setActive, targetPath, type PathTarget } from './state';
+import { activeKey, listedPaths, nextPathName, setActive, targetPath, type PathTarget } from './state';
 
 // Paths panel: the selected shape layer's path and vector mask, the work path
 // and saved document paths, with the classic footer actions.
@@ -19,12 +19,12 @@ export async function savePathDialog(e: Editor, t: PathTarget) {
     if (v?.name) e.command('Rename Path', (d) => (d.paths!.find((p) => p.id === t.id)!.name = v.name));
     return;
   }
-  const n = (e.doc.paths?.length ?? 0) + 1;
-  const v = await formDialog('Save Path', [{ name: 'name', label: 'Name', value: `Path ${n}` }], 'OK');
+  const name = nextPathName(e.doc);
+  const v = await formDialog('Save Path', [{ name: 'name', label: 'Name', value: name }], 'OK');
   if (!v) return;
   const id = crypto.randomUUID();
   e.command('Save Path', (d) => {
-    d.paths = [...(d.paths ?? []), { id, name: v.name || `Path ${n}`, mask: structuredClone(t.mask) }];
+    d.paths = [...(d.paths ?? []), { id, name: v.name || name, mask: structuredClone(t.mask) }];
     if (t.kind === 'work') delete d.workPath;
   });
   setActive(e, `path:${id}`);
