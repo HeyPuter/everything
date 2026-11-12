@@ -274,7 +274,16 @@ function blendOptionsDialog(app) {
       }
       if (!ok) return;
       app.prefs.set('blendOptions', { ...state });
-      if (blends.length) ed.doc.transact('Blend Options', () => blends.forEach((id) => ed.doc.update(id, { blend: { ...state } })));
+      // Blends that already have these options are left alone (an unchanged OK adds no undo step).
+      const changed = blends.filter((id) => {
+        const o = { ...DEFAULT_BLEND, ...ed.doc.get(id)?.blend };
+        return Object.keys(state).some((k) => o[k] !== state[k]);
+      });
+      if (changed.length) {
+        ed.doc.transact('Blend Options', () =>
+          changed.forEach((id) => ed.doc.update(id, { blend: { ...state } })),
+        );
+      }
     });
 }
 
