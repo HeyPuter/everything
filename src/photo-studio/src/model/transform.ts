@@ -2,6 +2,7 @@ import { allLayers, type Layer, type PhotoDocument, type Transform } from './doc
 import { layerLock } from './locks';
 import { multiplyMaskMatrix } from './pixel-mask';
 import { guideLines } from './guides';
+import { mapMaskPoints } from './paths';
 
 export type Point = [number, number];
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -192,6 +193,16 @@ export function selectionFrame(roots: Layer[]): Transform | undefined {
   };
 }
 /** A similarity transform preserves rotated rectangles without introducing shear. */
+/** A moved group carries its linked layer and vector masks (its children
+ * move on their own). Painted masks stay on whole pixels (`gx`, `gy`). */
+export function moveGroupMasks(l: Layer, dx: number, dy: number, gx = Math.round(dx), gy = Math.round(dy)) {
+  if (l.maskGrid && !l.maskUnlinked && (gx || gy)) l.maskGrid = { ...l.maskGrid, x: l.maskGrid.x + gx, y: l.maskGrid.y + gy };
+  if (l.vectorMask && !l.vectorMask.unlinked && (dx || dy)) {
+    const mask = structuredClone(l.vectorMask.mask);
+    mapMaskPoints(mask, (x, y) => [x + dx, y + dy]);
+    l.vectorMask = { ...l.vectorMask, mask };
+  }
+}
 export function transformSelection(roots: Layer[], before: Transform, after: Transform) {
   if (roots.length === 1 && roots[0].kind !== 'group') {
     roots[0].transform = { ...after };
@@ -225,6 +236,8 @@ export function transformSelection(roots: Layer[], before: Transform, after: Tra
         // Artboards stay on whole pixels so exports keep their exact size.
         if (l.artboard) box.rect = { x: Math.round(x), y: Math.round(y), width: Math.max(1, Math.round(box.rect.width)), height: Math.max(1, Math.round(box.rect.height)) };
       }
+    if (l.kind === 'group' && scale === 1 && Math.abs(angle) <= 0.001)
+      moveGroupMasks(l, ax - bx, ay - by, Math.round(after.x) - Math.round(before.x), Math.round(after.y) - Math.round(before.y));
     if (l.kind === 'group' && l.pixelMask && !l.pixelMask.positionRelativeToLayer)
       l.pixelMask.matrix = multiplyMaskMatrix([scale*c,scale*s,-scale*s,scale*c,
         ax-scale*(bx*c-by*s),ay-scale*(bx*s+by*c)], l.pixelMask.matrix);

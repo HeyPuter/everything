@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { commands, findCommand, registerCommand, tools, panels, type Command } from '../app/registry';
 import { allLayers, findLayer, type Layer } from '../model/document';
 import { linkedPartners } from '../model/links';
-import { transformBounds } from '../model/transform';
+import { moveGroupMasks, transformBounds } from '../model/transform';
 import { assertEditable } from '../model/layers';
 import { escapeXML } from '../model/assets';
 import { eventShortcut, formatShortcut, normalizeShortcut } from '../app/shortcuts';
@@ -20,8 +20,10 @@ function layerBox(l: Layer, e: Editor): Box {
   return transformBounds(l.transform);
 }
 function translate(l: Layer, dx: number, dy: number) {
-  if (l.kind === 'group') for (const c of l.children) translate(c, dx, dy);
-  else {
+  if (l.kind === 'group') {
+    moveGroupMasks(l, dx, dy);
+    for (const c of l.children) translate(c, dx, dy);
+  } else {
     l.transform.x += dx;
     l.transform.y += dy;
   }

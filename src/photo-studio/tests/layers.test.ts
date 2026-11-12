@@ -295,3 +295,33 @@ describe('grouping clipped layers', () => {
     expect(doc.layers[0].children.map((l) => !!l.clipped)).toEqual([false, true, true]);
   });
 });
+
+describe('moving a group with a layer mask', () => {
+  function group() {
+    const g = layer('group', 'G', 100, 60);
+    const c = layer('solid', 'C', 20, 20);
+    c.transform.x = 40;
+    c.transform.y = 20;
+    g.children = [c];
+    g.maskGrid = { channels: 1, x: 0, y: 0, tiles: {}, bounds: { x: 40, y: 20, width: 20, height: 20 } };
+    g.vectorMask = { mask: { paths: [{ open: false, knots: [{ linked: true, points: [40, 20, 40, 20, 40, 20] }] }] } } as never;
+    return g;
+  }
+  it('carries a linked mask along with its contents', () => {
+    const g = group();
+    const before = selectionFrame([g])!;
+    transformSelection([g], before, { ...before, x: before.x - 30, y: before.y + 5 });
+    expect(g.children[0].transform.x).toBe(10);
+    expect([g.maskGrid!.x, g.maskGrid!.y]).toEqual([-30, 5]);
+    expect((g.vectorMask!.mask.paths[0].knots[0] as { points: number[] }).points.slice(0, 2)).toEqual([10, 25]);
+  });
+  it('leaves an unlinked mask in place', () => {
+    const g = group();
+    g.maskUnlinked = true;
+    g.vectorMask!.unlinked = true;
+    const before = selectionFrame([g])!;
+    transformSelection([g], before, { ...before, x: before.x - 30 });
+    expect(g.maskGrid!.x).toBe(0);
+    expect((g.vectorMask!.mask.paths[0].knots[0] as { points: number[] }).points[0]).toBe(40);
+  });
+});
