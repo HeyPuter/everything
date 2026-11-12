@@ -55,6 +55,7 @@ const pad = (n: number) => String(n).padStart(12, '0');
 const BATCH = 1_500_000;
 const PUT_BYTES = 8_000_000;
 const GET_BATCH = 24;
+const GET_LANES = 4;
 
 export class RoomClient {
   readonly project: SharedProject;
@@ -458,16 +459,23 @@ export class RoomClient {
   /** Download tiles by content hash into the tile store. */
   async fetchTiles(hashes: Iterable<string>) {
     const list = [...new Set(hashes)].filter((h) => !this.o.tiles.tileFor(h));
+    const wanted = new Set(list);
     let got = 0;
-    for (let i = 0; i < list.length; i += GET_BATCH) {
-      const res = await this.request<{ assets: Record<string, string> }>({ op: 'asset.get', hashes: list.slice(i, i + GET_BATCH) });
-      for (const [h, data] of Object.entries(res.assets)) {
-        if (!list.includes(h)) continue;
-        // A local blob (not yet uploaded) also satisfies a request.
-        this.o.tiles.put(h, await unpackAsset(data, h));
-        got++;
+    // A few batches at a time: a large document needs hundreds of them, and
+    // each waits a round trip to the worker.
+    let next = 0;
+    const lane = async () => {
+      while (next < list.length) {
+        const batch = list.slice(next, (next += GET_BATCH));
+        const res = await this.request<{ assets: Record<string, string> }>({ op: 'asset.get', hashes: batch });
+        for (const [h, data] of Object.entries(res.assets)) {
+          if (!wanted.has(h) || this.o.tiles.tileFor(h)) continue;
+          this.o.tiles.put(h, await unpackAsset(data, h));
+          got++;
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(GET_LANES, Math.ceil(list.length / GET_BATCH)) }, lane));
     // Tiles staged here but not yet delivered.
     for (const h of list)
       if (!this.o.tiles.tileFor(h)) {
