@@ -17,6 +17,7 @@ import { UserError } from '../../lib/errors.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect, selectionBounds, inflate } from '../../model/geometry.js';
 import { shapeAnchors } from '../../model/shapes.js';
 import { multiply, translate, isIdentity } from '../../lib/matrix.js';
+import { pathLength } from '../../model/bezier.js';
 import { pathDataFromSubpaths, numberFormatter } from './svg-path.js';
 import { exportView } from './export-view.js';
 import { svgPaintHooks, svgExportHooks, svgNodeHooks, exportWriters } from './hooks.js';
@@ -588,6 +589,8 @@ class SVGWriter {
       if (!kids.length) return `${nl}${text}`;
       return `${nl}<g${id}${tf}${common}>${text ? `${d1}${text}` : ''}${kids.join('')}${nl}</g>`;
     }
+    const onPath = this.textPathText(node, depth, { id, tf, common, langAttr });
+    if (onPath != null) return onPath;
     for (const it of items) {
       const st = it.style;
       const m = it.m.map((v, i) => (i < 4 ? numberFormatter(6, this.o.minify)(v) : this.n(v))).join(' ');
@@ -596,6 +599,57 @@ class SVGWriter {
     }
     if (!kids.length) return '';
     return `${nl}<g${id}${tf}${common}>${kids.join('')}${nl}</g>`;
+  }
+
+  /**
+   * Type on a path as <text><textPath>, so it stays editable text on its
+   * path in other editors and when opened again: for the plain kind (rainbow
+   * effect on the baseline, horizontal, no spacing adjustment) whose
+   * characters have no tracking, shifts, scaling, rotation or bars, which
+   * a textPath cannot follow exactly. Null otherwise (written glyph by glyph).
+   */
+  textPathText(node, depth, { id, tf, common, langAttr }) {
+    const po = node.pathOptions || {};
+    if (node.kind !== 'path' || node.vertical || !node.pathAnchors?.length || (po.effect && po.effect !== 'rainbow') || po.spacing || (po.align && po.align !== 'baseline')) return null;
+    let lay;
+    try {
+      lay = textPieces(node).lay;
+    } catch {
+      return null;
+    }
+    const { chars } = lay;
+    const text = String(node.text ?? '');
+    if (!text || text.includes('\n') || chars.perGlyph || chars.shaped || chars.gs) return null;
+    for (let i = 0; i < text.length; i++) {
+      const st = chars.sty[i];
+      if (!st || st.tracking || st.baselineShift || st.rotation || st.underline || st.strike || (st.horizontalScale ?? 100) !== 100 || (st.verticalScale ?? 100) !== 100 || chars.size[i] !== st.fontSize || chars.manual[i]) return null;
+    }
+    const align = node.para?.align || 'left';
+    if (!['left', 'center', 'right'].includes(align)) return null;
+    let anchors = node.pathAnchors;
+    if (po.flip) anchors = anchors.slice().reverse().map((p) => ({ ...p, ix: p.ox, iy: p.oy, ox: p.ix, oy: p.iy }));
+    const closed = Boolean(node.pathClosed);
+    const L = pathLength(anchors, closed);
+    if (!(L > 0)) return null;
+    const start = po.start || 0;
+    const offset = align === 'center' ? (start + L) / 2 : align === 'right' ? L : start;
+    const pid = this.def('tp', (pid) => `${this.nl(2)}<path id="${pid}" d="${this.d([{ anchors, closed }], false)}"/>`);
+    this.needsXlink = true;
+    // Same-styled characters share a <tspan>.
+    const spans = [];
+    for (let i = 0; i < text.length; ) {
+      const st = chars.sty[i];
+      let j = i + 1;
+      while (j < text.length && chars.sty[j] === st) j++;
+      spans.push({ st, str: chars.disp.slice(i, j).join('') });
+      i = j;
+    }
+    const pre = spans.some((sp) => /^\s|\s$|\s{2}/.test(sp.str)) ? ' xml:space="preserve"' : '';
+    const anchor = align === 'center' ? ' text-anchor="middle"' : align === 'right' ? ' text-anchor="end"' : '';
+    const first = spans[0].st;
+    const runs = spans.length === 1 ? escapeXml(spans[0].str) : spans.map((sp) => `<tspan${this.fontAttrs(sp.st, sp.st.fontSize)}${this.textPaintAttrs(node, sp.st, null)}${langAttr(sp.st)}>${escapeXml(sp.str)}</tspan>`).join('');
+    const own = spans.length === 1 ? `${this.fontAttrs(first, first.fontSize)}${this.textPaintAttrs(node, first, null)}${langAttr(first)}` : '';
+    return `${this.nl(depth)}<text${id}${tf}${common}${own}${pre}><textPath xlink:href="#${pid}"${offset ? ` startOffset="${this.n(offset)}"` : ''}${anchor}>${runs}</textPath></text>`;
   }
 
   image(node, depth) {

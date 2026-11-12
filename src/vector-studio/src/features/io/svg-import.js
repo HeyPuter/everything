@@ -1759,11 +1759,13 @@ class Importer {
     const anchor = String(tst['text-anchor'] || 'start').trim();
     let align = 'left';
     let start = at;
+    // Offsets written with a few decimals land a little off the path's own length.
+    const tol = Math.max(0.05, L * 1e-4);
     if (anchor === 'middle') {
-      if (2 * at - L >= -1e-6) [align, start] = ['center', Math.max(0, 2 * at - L)];
+      if (2 * at - L >= -tol) [align, start] = ['center', Math.max(0, 2 * at - L)];
       else start = Math.max(0, at - width / 2);
     } else if (anchor === 'end') {
-      if (Math.abs(at - L) < 1e-6) [align, start] = ['right', 0];
+      if (Math.abs(at - L) < tol) [align, start] = ['right', 0];
       else start = Math.max(0, at - width);
     }
     const n = this.nodes.get(id);

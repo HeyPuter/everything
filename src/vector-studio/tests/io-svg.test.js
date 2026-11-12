@@ -6,7 +6,7 @@ import { exportSVG } from '../src/features/io/svg-export.js';
 import { pathBounds, segmentCount, segmentPoints, pointAt } from '../src/model/bezier.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { VDocument } from '../src/model/document.js';
-import { createPath, createCompound, createGroup } from '../src/model/nodes.js';
+import { createPath, createCompound, createGroup, createText } from '../src/model/nodes.js';
 import { rectangle, ellipse } from '../src/model/shapes.js';
 import { apply } from '../src/lib/matrix.js';
 
@@ -884,5 +884,39 @@ describe('SVG layers round trip', () => {
     expect(root.children.map((id) => placed.nodes.find((n) => n.id === id).name)).toEqual(['Back ground', 'Ink']);
     // Minified output for the web stays free of the marker.
     expect(exportSVG(doc, { rect: { x: 0, y: 0, w: 100, h: 100 }, minify: true })).not.toContain('data-layer');
+  });
+});
+
+describe('SVG type on a path export', () => {
+  const pathDoc = (opts = {}, char = {}) => {
+    const doc = VDocument.create({ width: 200, height: 200 });
+    const arc = [{ x: 20, y: 150, ix: 20, iy: 150, ox: 20, oy: 50 }, { x: 180, y: 150, ix: 180, iy: 50, ox: 180, oy: 150 }];
+    doc.transact('t', () => {
+      const t = createText('On the arc', 20, 150, { kind: 'path', pathAnchors: arc, pathClosed: false, pathOptions: { effect: 'rainbow', align: 'baseline', start: 12 }, ...opts });
+      doc.insert({ ...t, char: { ...t.char, fontSize: 16, ...char } }, doc.layers()[0].id);
+    });
+    return doc;
+  };
+
+  it('writes <textPath>, which opens again as the same type on a path', () => {
+    for (const align of ['left', 'center', 'right']) {
+      const doc = pathDoc();
+      const id = doc.layers()[0].children[0];
+      doc.transact('a', () => doc.update(id, { para: { ...doc.get(id).para, align } }));
+      const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 200 } });
+      expect(svg).toMatch(/<defs>[\s\S]*<path id="tp1" d="M 20 150 C /);
+      expect(svg).toContain('<textPath xlink:href="#tp1"');
+      const back = svgToDocument(svg).leaves()[0];
+      expect(back).toMatchObject({ kind: 'path', text: 'On the arc', para: { align } });
+      expect(back.pathOptions.start).toBeCloseTo(align === 'right' ? 0 : 12, 2);
+    }
+  });
+
+  it('keeps writing glyph by glyph what a textPath cannot follow', () => {
+    for (const doc of [pathDoc({}, { tracking: 200 }), pathDoc({ pathOptions: { effect: 'skew', start: 0 } })]) {
+      const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 200 } });
+      expect(svg).not.toContain('textPath');
+      expect(svg.match(/<text /g).length).toBeGreaterThan(5);
+    }
   });
 });
