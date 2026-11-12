@@ -1136,7 +1136,12 @@ class StylesPanel extends Panel {
       }
       return;
     }
-    if (e.key === 'Enter' || e.key === ' ') {
+    // F2 or Mod+Enter opens the style's options (checked before plain Enter, which applies it).
+    if (e.key === 'F2' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+      e.preventDefault();
+      e.stopPropagation();
+      openStyleOptions(this.app, this.kind, this.focusId);
+    } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       e.stopPropagation();
       const s = findStyle(styleLists(this.app.editor.doc)[this.kind], this.focusId);
@@ -1145,9 +1150,6 @@ class StylesPanel extends Panel {
       e.preventDefault();
       e.stopPropagation();
       this.deleteSelected();
-    } else if (e.key === 'F2' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
-      e.preventDefault();
-      openStyleOptions(this.app, this.kind, this.focusId);
     }
   }
 
