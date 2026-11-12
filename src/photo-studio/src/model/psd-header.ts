@@ -23,8 +23,7 @@ export function validatePsdHeader(bytes: Uint8Array) {
     throw new Error(
       `This file has ${depth} bits per channel. Only 8, 16 and 32-bit RGB files open; convert it and save it again.`,
     );
-  if (![3, 4].includes(view.getUint16(12)))
-    throw new Error(
-      "This file has extra channels (saved selections or spot colors), which cannot be opened yet. Delete them in the Channels panel and save it again.",
-    );
+  // Color, transparency and up to 52 alpha or spot channels (see psd-extra-channels).
+  const channels = view.getUint16(12);
+  if (channels < 3 || channels > 56) throw new Error("Invalid PSD channel count.");
 }

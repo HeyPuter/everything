@@ -83,6 +83,8 @@ import {
   psdMetadataMimeType,
 } from "./psd-metadata";
 import { validatePsdHeader } from "./psd-header";
+import { splitPsdChannels } from "./psd-extra-channels";
+import { gridFromImage } from "./tiles";
 import { exportPsdText, importPsdText, type ImportedText } from "./psd-text";
 import { documentPpi, syncLegacyFields, textMatrix } from "./text-layer";
 import { findBundled, isFontAvailable } from "../imaging/text/fonts";
@@ -176,7 +178,9 @@ export async function openPsd(blob: Blob, name: string, engine?: ImageEngine) {
   validatePsdHeader(header);
   const channelDepth = new DataView(header.buffer).getUint16(22);
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  const psd = readPsdWithPatternResources(bytes, {
+  // Alpha and spot channels are read here; the codec gets the file without them.
+  const split = splitPsdChannels(bytes, memoryLimit);
+  const psd = readPsdWithPatternResources(split?.bytes ?? bytes, {
     useImageData: true,
     // High-depth transparency is straight channel data. The codec's eager
     // composite path incorrectly applies its byte-only white-matte removal.
@@ -262,7 +266,16 @@ export async function openPsd(blob: Blob, name: string, engine?: ImageEngine) {
           data: pixels.data as RasterPixels["data"],
         })
       : addPixels(assets, pixels, (encoder ??= new ImageEngine()));
-  let decodedBytes = 0;
+  let decodedBytes = (split?.extras.length ?? 0) * psd.width * psd.height;
+  if (split?.extras.length)
+    document.channels = split.extras.map((c) => ({
+      id: crypto.randomUUID(),
+      name: c.name.slice(0, 255),
+      grid: gridFromImage(assets.tiles, { width: psd.width, height: psd.height, data: c.data }),
+      ...(c.color ? { color: c.color } : {}),
+      ...(c.opacity !== undefined ? { opacity: c.opacity } : {}),
+      ...(c.spot ? { spot: true } : {}),
+    }));
   const reserve = (width: number, height: number) => {
     assertSize(width, height);
     decodedBytes += width * height * 4 * (channelDepth / 8);
