@@ -7,12 +7,12 @@ import { AudioFile } from '../model/audio-file.js';
 import { Channel } from '../audio/channel.js';
 import { baseName } from '../audio/decode.js';
 import { openDialog } from '../ui/dialog.js';
-import { pickLocalFiles, downloadBlob, openFiles } from '../storage/files.js';
+import { pickLocalFiles, openFiles } from '../storage/files.js';
 import { FORMATS, getFormat, sanitizeFileName, withExtension } from '../export/formats.js';
 import { exportAudio } from '../export/export.js';
 import { withProgress } from '../export/progress.js';
 import { exportOptionsFor, batchSettings, uniqueName } from '../batch/queue.js';
-import { zipStore } from '../lib/zip.js';
+import { outputWriter } from '../batch/export-settings.js';
 import * as puter from '../storage/puter.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
@@ -205,12 +205,11 @@ async function exportRangesDialog(app) {
   const settings = { ...saved, format: getFormat(fmt.value).id };
   const options = exportOptionsFor(settings, { sampleRate: doc.sampleRate, channels: doc.channelCount });
   const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format });
-  let dir = null;
-  if (loc.value === 'puter') {
-    if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return;
-    dir = settings.dir || (await puter.appDir());
-  }
-  const files = [];
+  // The Batch Process writer: files already in the Puter folder are kept (or replaced) as its
+  // "If a file exists" setting says, and downloads too big for one ZIP arrive separately.
+  const out = await outputWriter(app, { ...settings, location: loc.value });
+  if (!out) return;
+  const dir = out.dir;
   const done = await withProgress(`Exporting ${chosen.length} range${chosen.length === 1 ? '' : 's'}`, async (onProgress, signal) => {
     for (let i = 0; i < chosen.length; i++) {
       const m = chosen[i];
@@ -219,18 +218,12 @@ async function exportRangesDialog(app) {
         options,
         { signal, onProgress: (f) => onProgress((i + f) / chosen.length) },
       );
-      if (dir) await puter.writeFile(puter.joinPath(dir, names[i]), blob);
-      else files.push({ name: names[i], blob });
+      await out.write(names[i], blob);
     }
     return true;
   });
   if (!done) return app.setStatus('Cancelled');
-  if (files.length === 1) downloadBlob(files[0].blob, files[0].name);
-  else if (files.length) {
-    const entries = [];
-    for (const f of files) entries.push({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) });
-    downloadBlob(zipStore(entries), `${baseName(doc.name)} Ranges.zip`);
-  }
+  await out.finish(`${baseName(doc.name)} Ranges.zip`);
   app.setStatus(dir ? `Exported ${chosen.length} files to ${dir}` : `Exported ${chosen.length} file${chosen.length === 1 ? '' : 's'}`);
 }
 

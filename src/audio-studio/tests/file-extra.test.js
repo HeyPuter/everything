@@ -1,4 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
+// Encoding runs in a worker in the app; here it resolves at once.
+vi.mock('../src/export/export.js', () => ({
+  exportAudio: async () => new Blob([new Uint8Array(64)]),
+  isCancelled: (err) => err?.name === 'AbortError' || err?.message === 'Cancelled',
+  cancelledError: () => Object.assign(new Error('Cancelled'), { name: 'AbortError' }),
+}));
 import { decodeRaw, rangeExportNames, unusedAudioDocs, sessionOnlyMedia } from '../src/commands/file-extra.js';
 
 describe('raw data import', () => {
@@ -62,5 +69,48 @@ describe('media usage', () => {
     const s1 = session('s1', ['a', 'b']);
     const s2 = session('s2', ['b']);
     expect(sessionOnlyMedia([a, b, c, s1, s2], s1)).toEqual([a]);
+  });
+});
+
+describe('export audio within range markers', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.querySelectorAll('.dialog-backdrop').forEach((d) => d.remove());
+  });
+
+  it('does not overwrite a file of the same name in the Puter folder', async () => {
+    HTMLCanvasElement.prototype.getContext = () => null;
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { FEATURES } = await import('../src/features.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { createMarker } = await import('../src/model/markers.js');
+    const app = new App();
+    for (const install of FEATURES) install(app);
+    app.syncGraph = () => {};
+    const existing = new Set(['/u/AudioStudio/Verse.wav']);
+    const write = vi.fn(async () => ({}));
+    const notFound = Object.assign(new Error('missing'), { code: 'subject_does_not_exist' });
+    window.puter = {
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) },
+      fs: { write, stat: async (p) => (existing.has(p) ? {} : Promise.reject(notFound)) },
+    };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 8000, channels: 1, seconds: 1 });
+    const verse = createMarker({ start: 0, duration: 4000, name: 'Verse', type: 'range' });
+    doc.apply('Markers', { ...doc.state, markers: [verse] });
+    app.addDocument(doc);
+    const running = app.commands.run('file.exportRanges');
+    await new Promise((r) => setTimeout(r, 20));
+    const dialog = [...document.querySelectorAll('.dialog')].pop();
+    const loc = dialog.querySelector('select[aria-label="Location"]');
+    loc.value = 'puter';
+    [...dialog.querySelectorAll('.dialog-foot .btn')].find((b) => b.textContent === 'Export').click();
+    await running;
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toBe('/u/AudioStudio/Verse 2.wav');
   });
 });
