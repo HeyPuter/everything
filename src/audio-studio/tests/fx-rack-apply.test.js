@@ -45,4 +45,26 @@ describe('Effects Rack Apply', () => {
     expect(after.process).toBe('file');
     expect(doc.history.undoLabel).toBe('Effects Rack');
   });
+  it('says so when the file changed while it rendered, and keeps the rack', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 1000,
+      channels: [Channel.fromSamples(filled(1000, 0.5))],
+    });
+    app.active = doc;
+    const slots = fitSlots([makeSlot('amplify', { left: -6, right: -6 })]);
+    setRack(app, doc, { ...rackFor(doc), slots, process: 'file' });
+    const done = applyRack(app);
+    await new Promise((r) => setTimeout(r, 0));
+    doc.apply('Edit', { ...doc.state }); // an edit lands while the rack renders
+    release();
+    expect(await done).toBe(false);
+    expect(doc.history.undoLabel).toBe('Edit');
+    expect(app.notes.at(-1)).toEqual({
+      m: 'The Effects Rack was not applied because the file changed while it was processing.',
+      error: true,
+    });
+    expect(rackFor(doc).slots).toBe(slots);
+  });
 });
