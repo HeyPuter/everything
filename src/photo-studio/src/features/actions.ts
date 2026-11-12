@@ -113,8 +113,9 @@ export async function playAction(e: Editor, action: Action, from = 0) {
       // Steps recorded before a command was renamed run the current one.
       const c = findCommand(s.command);
       if (!c) throw new Error(`The command “${s.command}” is not available.`);
-      // Imported action files can name any command.
-      if (interactiveOnly(c.id)) throw new Error(`Actions cannot run “${c.label.replace(/…$/, '')}”.`);
+      // Imported action files can name any command; an Actions panel
+      // command would play an action from inside one (itself, forever).
+      if (interactiveOnly(c.id) || c.id.startsWith('actions.')) throw new Error(`Actions cannot run “${c.label.replace(/…$/, '')}”.`);
       if (c.enabled && !c.enabled(e)) throw new Error(`“${c.label}” is not available in the current state.`);
       // Steps call commands directly so the busy guard does not skip them.
       // A step with its dialog on opens the dialog, showing the recorded

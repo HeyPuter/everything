@@ -132,3 +132,16 @@ test('a command skipped because another is still running is not recorded', async
   await play(page);
   expect(await layerPixel(page, 5, 5)).toEqual(recorded);
 });
+
+test('an action that names an Actions panel command stops instead of playing itself forever', async ({ page }) => {
+  await openImage(page, 40, 30, '#204080', 'a.png');
+  await page.evaluate(() => window.photoStudio.dock.show('actions'));
+  const file = { format: 'photo-studio-actions', version: 1, sets: [{ name: 'Shared', open: true, actions: [{ name: 'Loop', steps: [{ command: 'image.flip-horizontal' }, { command: 'actions.play' }] }] }] };
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.evaluate(() => void window.photoStudio.runCommand('actions.import'))]);
+  await chooser.setFiles({ name: 'actions.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+  await page.locator('.actions-list .action-row.action', { hasText: 'Loop' }).click();
+  await page.evaluate(() => void window.photoStudio.runCommand('actions.play'));
+  await page.waitForFunction(() => !window.photoStudio.busy, null, { timeout: 10_000 });
+  await expect(page.locator('#status')).toContainText('Action stopped');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.filter((l) => /Flip/.test(l)).length)).toBe(1);
+});
