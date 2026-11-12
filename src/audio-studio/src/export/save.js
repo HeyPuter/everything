@@ -51,12 +51,15 @@ async function upload(label, path, blob) {
 
 /**
  * File > Save: in place when the document has a Puter file in a writable format, else Save As.
- * A video file (an .mp4 opened for its sound) is never overwritten with audio alone.
+ * A video file (an .mp4 opened for its sound) is never overwritten with audio alone, nor a
+ * raw ADTS .aac stream with an MPEG-4 file (AAC is written only inside .m4a).
  */
 export async function saveDocument(app, doc, { saveAs = false, copy = false } = {}) {
   if (!doc) return false;
   const path = doc.source?.type === 'puter' ? doc.source.path : null;
-  const format = path && !VIDEO_EXTENSIONS.includes(extensionOf(path)) ? formatForName(path) : null;
+  const ext = path ? extensionOf(path) : '';
+  const inPlace = path && ext !== 'aac' && !VIDEO_EXTENSIONS.includes(ext);
+  const format = inPlace ? formatForName(path) : null;
   if (!saveAs && !copy && path && format && getFormat(format)) {
     if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return false;
     const options = optionsForSave(doc, format);
