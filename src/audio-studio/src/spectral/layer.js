@@ -530,13 +530,14 @@ export class SpectralLayer {
 
   // ---------------------------------------------------------- interaction
 
-  #locate(e) {
+  /** Pointer position on the spectrogram; `inLane` (a drag's lane) keeps it there, clamped to its edges. */
+  #locate(e, inLane = null) {
     const r = this.view.surface.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    if (!this.rect || y < this.rect.y) return null;
+    if (!this.rect || (!inLane && y < this.rect.y)) return null;
     const lanes = this.lanes();
-    const lane = lanes.find((l) => y >= l.top - 1 && y <= l.bottom + 1) || lanes[lanes.length - 1];
+    const lane = (inLane && lanes.find((l) => l.channel === inLane.channel)) || lanes.find((l) => y >= l.top - 1 && y <= l.bottom + 1) || lanes[lanes.length - 1];
     if (!lane) return null;
     const scale = this.scale();
     const frac = 1 - (y - lane.top) / (lane.bottom - lane.top);
@@ -578,7 +579,9 @@ export class SpectralLayer {
       return true;
     }
     if (!this.drag) return false;
-    const p = this.#locate(e) || this.drag.last;
+    // A drag stays on the lane it started in: past its edges (into the waveform or
+    // another channel) it clamps to the lowest or highest frequency.
+    const p = this.#locate(e, this.drag.start.lane) || this.drag.last;
     if (phase === 'move') {
       this.#moveDrag(p, e);
       this.#setHover(p);

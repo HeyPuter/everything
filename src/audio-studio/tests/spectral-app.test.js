@@ -188,7 +188,9 @@ describe('spectral feature', () => {
         {},
         {
           get(t, k) {
-            if (k === 'getExtension') return (name) => (name === 'WEBGL_lose_context' ? { loseContext: () => (lost = true) } : null);
+            if (k === 'getExtension') {
+              return (name) => (name === 'WEBGL_lose_context' ? { loseContext: () => (lost = true) } : null);
+            }
             if (k === 'isContextLost') return () => lost;
             if (k === 'getParameter') return () => 4096;
             if (k === 'getShaderParameter' || k === 'getProgramParameter') return () => (lost ? null : true);
@@ -225,6 +227,43 @@ describe('spectral feature', () => {
       HTMLCanvasElement.prototype.getContext = getContext;
       view.destroy();
       view.el.remove();
+    }
+  });
+
+  it('keeps a marquee drag on its lane, clamped to the top and bottom frequencies', async () => {
+    const stereo = new AudioFile({
+      name: 's.wav',
+      sampleRate: RATE,
+      channels: [Channel.fromSamples(tone(1000, 0.4, RATE)), Channel.fromSamples(tone(1000, 0.4, RATE))],
+    });
+    app.addDocument(stereo);
+    const view = new WaveformView(app, stereo);
+    document.body.append(view.el);
+    try {
+      view.width = 600;
+      const layer = view.layers.find((l) => l.id === 'spectral');
+      layer.layout({ y: 100, width: 600, height: 201, dpr: 1 });
+      const [left] = layer.lanes();
+      const band = layer.scale();
+      app.setTool('marquee');
+      const at = (x, y) => ({ clientX: x, clientY: y, shiftKey: false });
+      expect(layer.pointer(at(100, (left.top + left.bottom) / 2), 'down')).toBe(true);
+      // Down into the right channel's lane: the bottom of the left lane, not a frequency of the right one.
+      layer.pointer(at(300, left.bottom + 60), 'move');
+      layer.pointer(at(300, left.bottom + 60), 'up');
+      let shape = app.spectral.selection(stereo).shapes[0];
+      expect(shape.f0).toBeCloseTo(band.lo, 3);
+      // Up past the top of the spectrogram (into the waveform): the highest frequency.
+      layer.pointer(at(100, (left.top + left.bottom) / 2), 'down');
+      layer.pointer(at(300, 40), 'move');
+      layer.pointer(at(300, 40), 'up');
+      shape = app.spectral.selection(stereo).shapes[0];
+      expect(shape.f1).toBeCloseTo(band.hi, 3);
+    } finally {
+      app.setTool('time');
+      view.destroy();
+      view.el.remove();
+      app.activate(doc);
     }
   });
 
