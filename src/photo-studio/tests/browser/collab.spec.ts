@@ -253,6 +253,37 @@ test('closing a shared document’s tab does not wait for the worker to answer',
   await close();
 });
 
+test('a burst of presence updates redraws the canvas overlay and top bar once', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const { a, b, close } = await twoPeople(browser, info.project.use.baseURL);
+  await b.page.mouse.move(500, 400);
+  await expect(a.page.locator('#overlay .collab-cursor')).toHaveCount(1, { timeout: 30_000 });
+  const counts = await a.page.evaluate(async () => {
+    const { sharedOf } = await import('/src/features/collab/state.ts');
+    const e = window.photoStudio;
+    type Client = { people: Map<string, { session: string; user: string; username: string; role: string }>; receive(kind: string, data: unknown, ticket: unknown): unknown };
+    const cs = sharedOf(e.session) as unknown as { client: Client; drawPeople?: () => void };
+    const other = [...cs.client.people.values()][0];
+    let overlays = 0,
+      bars = 0;
+    const overlay = e.overlay.bind(e);
+    e.overlay = (...args: Parameters<typeof e.overlay>) => (overlays++, overlay(...args));
+    const draw = cs.drawPeople?.bind(cs);
+    if (draw) cs.drawPeople = () => (bars++, draw());
+    // 100 presence packets from the other person in one task.
+    for (let i = 0; i < 100; i++) void cs.client.receive('presence', { cursor: [10 + i, 20 + i] }, { session: other.session, user: other.user, username: other.username, role: other.role });
+    const sync = overlays;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return { sync, overlays, bars, last: document.querySelector('#overlay .collab-cursor path')?.getAttribute('d') ?? '' };
+  });
+  // Nothing is drawn per packet; one frame draws the latest position.
+  expect(counts.sync).toBe(0);
+  expect(counts.overlays).toBe(1);
+  expect(counts.bars).toBe(1);
+  expect(counts.last.startsWith('M109 119')).toBe(true);
+  await close();
+});
+
 test('the Comment tool puts the cursor in the new comment, even when the panel was closed', async ({ page }) => {
   await boot(page);
   await openImage(page, 320, 240, '#808080', 'local.png');

@@ -155,7 +155,24 @@ export class CollabSession implements SharedHandle {
     this.e.message(`Following ${p.username}. Move the view to stop.`);
     renderBar(this.e);
   }
+  // Presence arrives up to 20 times a second from each person: the overlay,
+  // the top bar and a followed view are drawn once per frame, with the
+  // latest state (a timer stands in for frames in a hidden tab).
+  private drawFrame = 0;
+  private drawTimer = 0;
   peopleChanged() {
+    if (this.drawFrame || this.drawTimer) return;
+    const run = () => {
+      cancelAnimationFrame(this.drawFrame);
+      clearTimeout(this.drawTimer);
+      this.drawFrame = this.drawTimer = 0;
+      this.drawPeople();
+    };
+    this.drawFrame = requestAnimationFrame(run);
+    this.drawTimer = window.setTimeout(run, 100);
+  }
+  drawPeople() {
+    if (shared.get(this.s) !== this) return;
     if (this.following && !this.client.people.has(this.following)) {
       this.following = '';
       this.e.message('The person you followed left.');
