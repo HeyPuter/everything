@@ -12,14 +12,17 @@ import * as S from '../model/session-edits.js';
  * @param {object} [o.state] state to render (defaults to the current one)
  * @param {Set<string>} [o.clipIds] only these clips
  * @param {string} [o.trackId] only this track, before its output routing and the master
+ * @param {boolean} [o.master] false leaves out the master track's volume, effects and polarity
+ *   (bounces, which play through the master again)
  */
-export async function renderSession(app, session, { state = session.state, start = 0, end = session.length, clipIds = null, trackId = null, label = 'Rendering' } = {}) {
+export async function renderSession(app, session, { state = session.state, start = 0, end = session.length, clipIds = null, trackId = null, master = true, label = 'Rendering' } = {}) {
   if (end <= start) throw new Error('There is nothing to render in that range.');
   // Stretched and remixed clips render with their finished audio, not the preview.
   if (session.stretcher?.busy) await session.stretcher.whenIdle();
   if (session.remixer?.busy) await session.remixer.whenIdle();
   const { graph, sources } = buildSessionGraph(state, session.pool, { clipIds, panLaw: { mode: app.prefs?.get('panLaw'), centerDb: app.prefs?.get('panLawDb') } });
   if (trackId) bounceGraph(graph, trackId);
+  else if (!master) graph.master = { gain: 1 };
   app.setStatus(`${label}...`);
   // Loaded on first use, like the effect renders, so the render worker code stays out of the startup bundle.
   const { renderGraph } = await import('../engine/offline.js');

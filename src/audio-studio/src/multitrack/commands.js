@@ -687,7 +687,8 @@ export function installMultitrackCommands(app) {
       name = 'Clip Bounce';
       after = clips[clips.length - 1]?.trackId || after;
     }
-    const { data } = await rendered('Bouncing', o);
+    // The new track plays through the master, so the bounce leaves the master out.
+    const { data } = await rendered('Bouncing', { ...o, master: false });
     const file = renderedDoc(app, doc, data, name);
     app.addDocument(file, { activate: false });
     const sourceId = await linkSource(doc, file);

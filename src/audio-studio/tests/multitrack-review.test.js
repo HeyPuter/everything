@@ -252,3 +252,36 @@ describe('sends picked out of order', () => {
     expect(gaps[4].target).toBe(b.id);
   });
 });
+
+describe('bouncing to a new track', () => {
+  it('leaves the master out of the bounce, since the new track plays through it again', async () => {
+    const { app, doc } = await appWithSession();
+    const t = doc.state.tracks[0];
+    const src = doc.addSource({
+      name: 'dc.wav',
+      channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.5))],
+    });
+    const c = S.createClip({ trackId: t.id, sourceId: src, start: 0, length: 2000 });
+    let st = S.addClips(doc.state, [c]);
+    st = S.updateTrack(st, t.id, { volume: -6.0206 });
+    st = S.updateTrack(st, st.master.id, { volume: -6.0206, invert: true });
+    doc.apply('Setup', st);
+    const heard = renderState(doc.state, doc.pool, null, 2000)[0][1000];
+    for (const cmd of ['mt.bounceClips', 'mt.bounceTime']) {
+      doc.selectClips([c.id]);
+      doc.setSelection(0, 2000);
+      await app.commands.run(cmd);
+      const bounced = doc.clipSelection[0];
+      expect(bounced.id).not.toBe(c.id);
+      // The track's volume is in the bounce; the master's volume and polarity are not.
+      expect(doc.pool.get(bounced.sourceId).channels[0].toArray(1000, 1001)[0]).toBeCloseTo(
+        0.25,
+        4,
+      );
+      // Played back with the original muted, the bounce sounds like the clip did.
+      const only = S.updateClips(doc.state, [c.id], { mute: true });
+      expect(renderState(only, doc.pool, null, 2000)[0][1000]).toBeCloseTo(heard, 4);
+      doc.history.undo();
+    }
+  });
+});
