@@ -1,9 +1,33 @@
 /**
  * Print: renders the chosen artboards as inline SVG pages into a print-only
  * container and calls window.print(). @media print CSS hides the app so
- * only the artwork prints; the container is removed afterwards.
+ * only the artwork prints; the container is removed afterwards. The SVG
+ * goes into the app's own page, so it is written without the document's
+ * scripts and event handlers.
  */
 import { exportSVG } from './svg-export.js';
+
+/**
+ * Put SVG markup into an element of the app's page as inert artwork: it is
+ * parsed in a separate document (where nothing runs) and copied in without
+ * scripts, embedded HTML, event handler attributes or javascript: links,
+ * whatever the document's data managed to put in the markup.
+ */
+export function setPrintSvg(el, markup) {
+  if (typeof DOMParser === 'undefined') {
+    el.textContent = '';
+    return;
+  }
+  const parsed = new DOMParser().parseFromString(`<!doctype html><body>${markup}`, 'text/html').body;
+  for (const bad of parsed.querySelectorAll('script, foreignObject, iframe, object, embed')) bad.remove();
+  for (const node of parsed.querySelectorAll('*')) {
+    for (const a of [...node.attributes]) {
+      const name = a.name.toLowerCase();
+      if (name.startsWith('on') || (/(^|:)href$/.test(name) && /^\s*(javascript|vbscript|data:text\/html)/i.test(a.value))) node.removeAttribute(a.name);
+    }
+  }
+  el.replaceChildren(...[...parsed.childNodes].map((n) => document.importNode(n, true)));
+}
 
 export function buildPrintRoot(doc, indices, { fit = false, outlines = null } = {}) {
   const root = document.createElement('div');
@@ -14,8 +38,8 @@ export function buildPrintRoot(doc, indices, { fit = false, outlines = null } = 
     if (!a) continue;
     const page = document.createElement('div');
     page.className = 'io-print-page';
-    const svg = exportSVG(doc, { rect: { x: a.x, y: a.y, w: a.w, h: a.h }, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, idPrefix: `p${i}-` });
-    page.innerHTML = svg;
+    const svg = exportSVG(doc, { rect: { x: a.x, y: a.y, w: a.w, h: a.h }, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, scripts: false, idPrefix: `p${i}-` });
+    setPrintSvg(page, svg);
     const el = page.querySelector('svg');
     if (el) {
       el.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -119,7 +143,7 @@ export function buildLayoutRoot(doc, pages, { layers = 'printable', outlines = n
       const key = `${t.rect.x},${t.rect.y},${t.rect.w},${t.rect.h}`;
       let art = cache.get(key);
       if (art === undefined) {
-        art = exportSVG(source, { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, idPrefix: `p${i}t${k}-` });
+        art = exportSVG(source, { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, scripts: false, idPrefix: `p${i}t${k}-` });
         cache.set(key, art);
       }
       // The artwork's own <svg> becomes a nested viewport at its place on the page; it clips to its viewBox.
@@ -127,7 +151,7 @@ export function buildLayoutRoot(doc, pages, { layers = 'printable', outlines = n
       body += inner;
     });
     body += marksSVG(p.marks || []);
-    page.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${num(p.w)}pt" height="${num(p.h)}pt" viewBox="0 0 ${num(p.w)} ${num(p.h)}">${body}</svg>`;
+    setPrintSvg(page, `<svg xmlns="http://www.w3.org/2000/svg" width="${num(p.w)}pt" height="${num(p.h)}pt" viewBox="0 0 ${num(p.w)} ${num(p.h)}">${body}</svg>`);
     root.append(page);
   });
   return root;

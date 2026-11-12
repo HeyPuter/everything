@@ -29,7 +29,7 @@ export function regionGroups(editor) {
   doc.walk((n) => {
     if (n.hidden || n.locked) return false;
     if (isRegions(n)) {
-      out.push(n);
+      if (editor.inIsolation(n.id)) out.push(n);
       return false;
     }
     return true;

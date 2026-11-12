@@ -199,4 +199,79 @@ export function alignedDash(dash, length, closed) {
   return { dash: scaled, offset: scaled[0] / 2 };
 }
 
+/** Unit tangent of cubic `c` at t (0 or 1), falling back to the chord for degenerate handles. */
+function tangent(c, t) {
+  let d = derivativeAt(c, t);
+  if (Math.hypot(d.x, d.y) < 1e-9) d = { x: c[6] - c[0], y: c[7] - c[1] };
+  const l = Math.hypot(d.x, d.y);
+  return l < 1e-9 ? null : { x: d.x / l, y: d.y / l };
+}
+
+/**
+ * Dashes aligned to the corners and ends of a path: each stretch between
+ * corners (anchors where the direction turns) gets its own whole number of
+ * repeats, stretched to fit, with half a dash at both ends, so a dash is
+ * centered on every corner and path end and turns the corner as one dash.
+ * Smooth anchors do not break a stretch, and a path without corners fits
+ * its repeats around its whole length. Returns { dash, offset } for the
+ * whole path, or null.
+ */
+export function cornerAlignedDash(dash, anchors, closed) {
+  if (!dash || !dash.length || !anchors || anchors.length < 2) return null;
+  const pattern = dash.length % 2 ? [...dash, ...dash] : dash;
+  const P = pattern.reduce((a, b) => a + b, 0);
+  if (!(P > 0) || !pattern.every((v) => v >= 0 && Number.isFinite(v))) return null;
+  const n = segmentCount(anchors, closed);
+  const segs = [];
+  for (let i = 0; i < n; i++) {
+    const c = segmentPoints(anchors, i);
+    const len = cubicLength(c);
+    if (len > 1e-9) segs.push({ len, t0: tangent(c, 0), t1: tangent(c, 1) });
+  }
+  const total = segs.reduce((a, g) => a + g.len, 0);
+  if (!(total > 0)) return null;
+  // A corner between consecutive segments turns by more than about a degree.
+  const corner = (a, b) => !a.t1 || !b.t0 || a.t1.x * b.t0.x + a.t1.y * b.t0.y < 0.9998;
+  const breaks = [];
+  for (let i = closed ? 0 : 1; i < segs.length; i++) {
+    if (corner(segs[(i - 1 + segs.length) % segs.length], segs[i])) breaks.push(i);
+  }
+  if (closed && !breaks.length) return alignedDash(dash, total, true);
+  // Stretch lengths from the first break (an open path starts at its start).
+  const first = closed ? breaks[0] : 0;
+  const starts = closed ? breaks : [0, ...breaks];
+  const runs = [];
+  for (let b = 0; b < starts.length; b++) {
+    const from = starts[b];
+    const to =
+      b + 1 < starts.length ? starts[b + 1] : closed ? starts[0] + segs.length : segs.length;
+    let len = 0;
+    for (let i = from; i < to; i++) len += segs[i % segs.length].len;
+    runs.push(len);
+  }
+  // Each stretch: half a dash, the pattern repeated, and the other half of the first dash.
+  const out = [];
+  for (const len of runs) {
+    const reps = Math.max(1, Math.round(len / P));
+    const k = len / (reps * P);
+    const half = (pattern[0] * k) / 2;
+    if (out.length) out[out.length - 1] += half;
+    else out.push(half);
+    for (let r = 0; r < reps; r++) {
+      for (let j = 1; j < pattern.length; j++) out.push(pattern[j] * k);
+      out.push(r === reps - 1 ? half : pattern[0] * k);
+    }
+  }
+  if (!closed) {
+    out.push(0);
+    return { dash: out, offset: 0 };
+  }
+  // Closed: the last half dash joins the first one at the first corner.
+  const lead = out.pop();
+  out[0] += lead;
+  let at = 0;
+  for (let i = 0; i < first; i++) at += segs[i].len;
+  return { dash: out, offset: (((lead - at) % total) + total) % total };
+}
+
 export { pathLength };

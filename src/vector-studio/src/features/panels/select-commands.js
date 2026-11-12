@@ -38,6 +38,23 @@ function referenceNode(editor) {
   return null;
 }
 
+/** referenceNode() computed once per selection and document state (menus ask on every open). */
+const memoRef = (editor) => editor.memo('selectSameRef', () => referenceNode(editor));
+
+/** Shapes & Text needs a selected path, compound path or type object. */
+function canMatchShapesText(app) {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canMatchShapesText', () => {
+    for (const id of e.selection) {
+      const n = e.doc.get(id);
+      if (n?.type === 'text' || (n?.type === 'path' && n.anchors?.length)) return true;
+      if (n?.type === 'compound' && shapeKey(e.doc, n) != null) return true;
+    }
+    return false;
+  });
+}
+
 // ---- Same Shapes & Text ----
 
 /**
@@ -105,6 +122,13 @@ function normPaint(p) {
   delete out.swatchId;
   delete out.cmyk;
   delete out.mode;
+  // Where a gradient was dragged on the object is not part of its style.
+  if (out.type === 'linear' || out.type === 'radial') {
+    delete out.x1;
+    delete out.y1;
+    delete out.x2;
+    delete out.y2;
+  }
   return out;
 }
 
@@ -142,11 +166,17 @@ function normStack(items) {
 }
 
 /** Objects with the same graphic style as the reference (the first style its appearance matches). */
-export function selectSameGraphicStyle(editor) {
+/** The graphic style the reference object's appearance matches, or null. */
+function graphicStyleOfSelection(editor) {
   const doc = editor.doc;
   const ref = referenceNode(editor) || editor.selectedNodes()[0];
-  if (!ref) throw new UserError('Select an object to match.');
-  const style = graphicStylesOf(doc).find((gs) => matchesStyle(doc, ref, gs.style));
+  return ref ? graphicStylesOf(doc).find((gs) => matchesStyle(doc, ref, gs.style)) || null : null;
+}
+
+export function selectSameGraphicStyle(editor) {
+  const doc = editor.doc;
+  if (!editor.selection.size) throw new UserError('Select an object to match.');
+  const style = graphicStyleOfSelection(editor);
   if (!style) throw new UserError('The selected object does not use a graphic style.');
   const pool = [...candidates(doc)];
   doc.walk((n) => {
@@ -164,26 +194,42 @@ export function selectSameGraphicStyle(editor) {
 const hasHandle = (a) => a.ix !== a.x || a.iy !== a.y || a.ox !== a.x || a.oy !== a.y;
 
 /**
+ * [path id, anchor indices] for the anchors with direction handles on the
+ * selected paths (only among already selected anchors when some are).
+ * With `any`, stops at the first path found (for the menu's enabled state).
+ */
+function directionHandlePicks(editor, any = false) {
+  const doc = editor.doc;
+  const handlesOf = (p) => {
+    const among = editor.anchors.get(p.id);
+    if (any) return p.anchors.some((a, i) => hasHandle(a) && (!among || among.has(i))) ? [0] : [];
+    return p.anchors
+      .map((a, i) => i)
+      .filter((i) => hasHandle(p.anchors[i]) && (!among || among.has(i)));
+  };
+  const seen = new Set();
+  const picks = [];
+  const visit = (n) => {
+    if (!n || (any && picks.length)) return;
+    if (n.type === 'path') {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      const idx = handlesOf(n);
+      if (idx.length) picks.push([n.id, idx]);
+    } else if (n.children) for (const c of n.children) visit(doc.get(c));
+  };
+  for (const id of editor.selection) visit(doc.get(id));
+  return picks;
+}
+
+/**
  * Select the anchors with direction handles on the selected paths (only
  * among already selected anchors when some are), and switch to Direct
  * Selection so the handles show and can be dragged.
  */
 export function selectDirectionHandles(app) {
   const editor = app.editor;
-  const doc = editor.doc;
-  const paths = [];
-  const visit = (n) => {
-    if (!n) return;
-    if (n.type === 'path') paths.push(n);
-    else if (n.children) for (const c of n.children) visit(doc.get(c));
-  };
-  for (const id of editor.selection) visit(doc.get(id));
-  const picks = [];
-  for (const p of [...new Map(paths.map((n) => [n.id, n])).values()]) {
-    const among = editor.anchors.get(p.id);
-    const idx = p.anchors.map((a, i) => i).filter((i) => hasHandle(p.anchors[i]) && (!among || among.has(i)));
-    if (idx.length) picks.push([p.id, idx]);
-  }
+  const picks = directionHandlePicks(editor);
   if (!picks.length) throw new UserError('The selected paths have no direction handles.');
   app.setTool?.('direct-selection');
   picks.forEach(([id, idx], k) => editor.selectAnchors(id, idx, { add: k > 0 }));
@@ -432,19 +478,45 @@ export function registerSelectCommands(app) {
     if (app.globalEdit?.editor === ed) app.stopGlobalEdit();
   });
   app.commands.register([
-    { id: 'select.same.shapesText', label: 'Shapes & Text', enabled: hasSel, run: (a) => selectSameShapesText(a.editor) },
-    { id: 'select.same.appearanceAttribute', label: 'Appearance Attribute', enabled: hasSel, run: (a) => selectSameAppearanceAttribute(a.editor) },
-    { id: 'select.same.graphicStyle', label: 'Graphic Style', enabled: hasSel, run: (a) => selectSameGraphicStyle(a.editor) },
+    {
+      id: 'select.same.shapesText',
+      label: 'Shapes & Text',
+      enabled: canMatchShapesText,
+      run: (a) => selectSameShapesText(a.editor),
+    },
+    {
+      id: 'select.same.appearanceAttribute',
+      label: 'Appearance Attribute',
+      enabled: (a) =>
+        hasSel(a) &&
+        a.editor.memo(
+          'refAttributes',
+          () => appearanceAttributes(memoRef(a.editor) || {}).length > 0,
+        ),
+      run: (a) => selectSameAppearanceAttribute(a.editor),
+    },
+    {
+      id: 'select.same.graphicStyle',
+      label: 'Graphic Style',
+      enabled: (a) =>
+        hasSel(a) &&
+        a.editor.memo('refGraphicStyle', () => Boolean(graphicStyleOfSelection(a.editor))),
+      run: (a) => selectSameGraphicStyle(a.editor),
+    },
     {
       id: 'select.object.handles',
       label: 'Direction Handles',
-      enabled: (a) => Boolean(a.editor?.selectedNodes().some((n) => n.type === 'path' || n.type === 'compound' || n.type === 'group')),
+      enabled: (a) =>
+        hasSel(a) &&
+        a.editor.memo('directionHandles', () => directionHandlePicks(a.editor, true).length > 0),
       run: (a) => selectDirectionHandles(a),
     },
     {
       id: 'select.globalEdit',
       label: (a) => (a.globalEdit ? 'Stop Global Edit' : 'Start Global Edit'),
-      enabled: (a) => Boolean(a.globalEdit) || hasSel(a),
+      enabled: (a) =>
+        Boolean(a.globalEdit) ||
+        (hasSel(a) && ['path', 'compound'].includes(memoRef(a.editor)?.type)),
       run: (a) => (a.globalEdit ? a.stopGlobalEdit() : startGlobalEdit(a)),
     },
     { id: 'select.save', label: 'Save Selection...', enabled: hasSel, run: (a) => saveSelectionDialog(a) },

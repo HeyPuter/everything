@@ -337,4 +337,21 @@ describe('Character and Paragraph Styles', () => {
     expect(styleLists(doc).char.find((s) => s.id === 'em').attrs.fontSize).toBe(33);
     expect(doc.undoStack.length).toBe(undoDepth + 1);
   });
+
+  it('Cmd+Enter in the styles list opens the style options instead of applying the style', async () => {
+    const t = add(app, createText('Hello', 0, 0));
+    addStyle(app, 'char', { id: 'em', name: 'Emphasis', basedOn: null, attrs: { fontStyle: 'italic' } });
+    app.editor.select([t.id]);
+    const p = app.dock.panels.get('characterStyles');
+    p.ensureBuilt();
+    p.update();
+    p.focusId = 'em';
+    p.list.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, metaKey: true, bubbles: true }));
+    await Promise.resolve();
+    const dlg = document.querySelector('dialog.style-options-dialog');
+    expect(dlg).toBeTruthy();
+    expect(styleAt(app.editor.doc.get(t.id), 0).fontStyle).toBe('normal');
+    [...dlg.querySelectorAll('.dialog-footer .btn')].find((b) => b.textContent === 'Cancel').click();
+    await Promise.resolve();
+  });
 });

@@ -9,17 +9,18 @@ import './styles.css';
 import { PropertiesPanel } from '../../ui/panels/properties.js';
 import { clipboardHooks } from '../../ops/clipboard.js';
 import { h } from '../../lib/dom.js';
+import { UserError } from '../../lib/errors.js';
 import { icon } from '../../ui/icons.js';
 import { registerSymbolIcons } from './icons.js';
 import { SymbolsPanel } from './panel.js';
 import { SYMBOLISM_TOOLS } from './tools.js';
-import { registerSymbolCommands } from './commands.js';
+import { registerSymbolCommands, NESTED_ITSELF } from './commands.js';
 import { installParts } from './parts.js';
 import { symbolSection } from './props-section.js';
 import { SYMBOL_LIBRARIES } from './libraries.js';
 import { openSymbolLibrary } from './library-window.js';
 import { userLibraryMenu } from '../paint/user-libraries.js';
-import { exportSymbolsFor, importSymbols, remapInstances, indexSymbolNames, getDef, masterBounds, updateDefinition, editingStack, isSymbolDef, STORE_ID } from './model.js';
+import { exportSymbolsFor, importSymbols, remapInstances, wouldNestItself, indexSymbolNames, getDef, masterBounds, updateDefinition, editingStack, isSymbolDef, STORE_ID } from './model.js';
 import { exportSkips } from '../io/hooks.js';
 import { syncSymbolEditing, editingSymbol } from './editing.js';
 import { importedSymbolGroups, convertImportedSymbols } from './svg-symbols.js';
@@ -120,6 +121,17 @@ function installClipboardHooks() {
       if (!data.symbols?.length) return items;
       const map = importSymbols(doc, data.symbols);
       return items.map((it) => ({ ...it, nodes: remapInstances(it.nodes, map) }));
+    },
+    // An instance inside its own master draws nothing: refuse pasting one there.
+    check(doc, items, parentId) {
+      if (!editingStack(doc).length) return;
+      const symbols = new Set();
+      for (const it of items) {
+        for (const n of it.nodes) if (n.type === 'instance') symbols.add(n.symbol);
+      }
+      for (const id of symbols) {
+        if (wouldNestItself(doc, id, parentId)) throw new UserError(NESTED_ITSELF);
+      }
     },
   });
 }

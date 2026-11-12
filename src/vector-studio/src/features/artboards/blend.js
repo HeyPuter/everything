@@ -6,46 +6,14 @@
  */
 import { h } from '../../lib/dom.js';
 import { Tool, tol } from '../../tools/tool.js';
-import { hitTest, hitNode } from '../../render/hit.js';
+import { hitTest } from '../../render/hit.js';
 import { nodeBounds, transformPatches } from '../../model/geometry.js';
 import { createGroup } from '../../model/nodes.js';
 import { reverseAnchors } from '../../model/bezier.js';
 import { pathSampler } from '../../model/path-sampler.js';
 import { translate } from '../../lib/matrix.js';
 import { numberField } from '../../ui/widgets.js';
-import { blendSteps, virtualDoc, expandedSubtrees, blendSpine, blendKeys, DEFAULT_BLEND } from './blend-math.js';
-
-/**
- * Hit test the generated steps of visible, unlocked blends (the key objects
- * are ordinary children and hit normally). Returns a key object of the blend
- * that was hit, so the Selection tool picks the blend group, or null.
- */
-export function blendHit(doc, x, y, tolerance, { outline = false } = {}) {
-  let found = null;
-  doc.walk((n) => {
-    if (found || n.hidden || n.locked) return false;
-    if (n.type !== 'group' || !n.blend) return true;
-    const b = nodeBounds(doc, n);
-    if (!b || x < b.x - tolerance || x > b.x + b.w + tolerance || y < b.y - tolerance || y > b.y + b.h + tolerance) return false;
-    const { runs, extra } = blendSteps(doc, n);
-    const vdoc = virtualDoc(doc, extra);
-    const leaves = (v, out = []) => {
-      if (v.type === 'group') for (const c of v.children) leaves(vdoc.get(c), out);
-      else out.push(v);
-      return out;
-    };
-    for (const run of runs) {
-      for (const step of run.nodes) {
-        if (leaves(step).some((leaf) => hitNode(vdoc, leaf, x, y, tolerance, { outline }))) {
-          found = doc.get(n.children[0]);
-          return false;
-        }
-      }
-    }
-    return true;
-  });
-  return found;
-}
+import { expandedSubtrees, blendSpine, blendKeys, DEFAULT_BLEND } from './blend-math.js';
 
 export function blendOptionsFor(app) {
   return { ...DEFAULT_BLEND, ...(app.prefs.get('blendOptions') || {}) };
@@ -120,7 +88,7 @@ export function replaceSpine(doc, blendId, pathId) {
 /**
  * Reverse Spine (inside a transaction): the keys trade places along the
  * spine (front key to the start, back key to the end, and so on); a spine
- * path is reversed with them.
+ * path is reversed with them (a closed one keeps its start point).
  */
 export function reverseSpine(doc, blendId) {
   const g = doc.get(blendId);
@@ -131,7 +99,9 @@ export function reverseSpine(doc, blendId) {
   const moves = new Map();
   if (spine) {
     const before = pathSampler(spine.anchors, spine.closed);
-    const anchors = reverseAnchors(spine.anchors);
+    let anchors = reverseAnchors(spine.anchors);
+    // A closed spine keeps its start point (where the first and last keys meet).
+    if (spine.closed) anchors = [anchors[anchors.length - 1], ...anchors.slice(0, -1)];
     const after = pathSampler(anchors, spine.closed);
     doc.update(spine.id, { anchors });
     keys.forEach((k, i) => {
@@ -274,7 +244,16 @@ function blendOptionsDialog(app) {
       }
       if (!ok) return;
       app.prefs.set('blendOptions', { ...state });
-      if (blends.length) ed.doc.transact('Blend Options', () => blends.forEach((id) => ed.doc.update(id, { blend: { ...state } })));
+      // Blends that already have these options are left alone (an unchanged OK adds no undo step).
+      const changed = blends.filter((id) => {
+        const o = { ...DEFAULT_BLEND, ...ed.doc.get(id)?.blend };
+        return Object.keys(state).some((k) => o[k] !== state[k]);
+      });
+      if (changed.length) {
+        ed.doc.transact('Blend Options', () =>
+          changed.forEach((id) => ed.doc.update(id, { blend: { ...state } })),
+        );
+      }
     });
 }
 
@@ -382,7 +361,10 @@ export class BlendTool extends Tool {
 
   hitAt(e) {
     const editor = this.editor;
-    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' });
+    // In isolation mode only objects inside the isolated group can be blended.
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    const outline = editor.viewOptions.mode === 'outline';
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline, filter });
   }
 
   onHover(e) {

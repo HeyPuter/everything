@@ -12,7 +12,7 @@
  * drawArtwork() is shared by the screen renderer and raster export, so what
  * you see is what PNG/JPEG export produces.
  */
-import { segmentCount, segmentPoints, isLine } from '../model/bezier.js';
+import { segmentCount, segmentPoints, isLine, zeroLength, capsShowDots } from '../model/bezier.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect } from '../model/geometry.js';
 import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks, decorationRects } from '../model/text-layout.js';
 import { expandStops, focalPoint } from '../model/gradients.js';
@@ -22,15 +22,24 @@ import { geomEffectsOf, effectiveSubpaths, paintParts } from '../model/geom-effe
 import { liveDef, liveArtwork } from '../model/live.js';
 import '../model/live-effects.js';
 import { hasAppearanceStack, layerAppearanceArtwork } from '../model/appearance.js';
-import { rasterEffects, compositeWithEffects, regionPool, deviceRegion, effectsMargin } from './effects.js';
+import { rasterEffects, compositeWithEffects, regionPool, smallRegionPool, deviceRegion, effectsMargin } from './effects.js';
 
 const pathCache = new WeakMap();
 const compoundCache = new WeakMap();
 
-/** Append an anchor list to a Path2D (or any object with the canvas path API). */
-export function tracePath(p, anchors, closed) {
+/**
+ * Append an anchor list to a Path2D (or any object with the canvas path API). With `caps` (round or
+ * square stroke caps) a zero-length subpath becomes a tiny segment, so its caps draw a dot.
+ */
+export function tracePath(p, anchors, closed, caps = false) {
   if (!anchors.length) return p;
   p.moveTo(anchors[0].x, anchors[0].y);
+  if (caps && zeroLength(anchors)) {
+    const { x, y } = anchors[0];
+    // Long enough to stay a segment in the 32-bit floats canvas paths are stored in.
+    p.lineTo(x + Math.max(1e-4, Math.abs(x) * 5e-7), y);
+    return p;
+  }
   const n = segmentCount(anchors, closed);
   for (let i = 0; i < n; i++) {
     const c = segmentPoints(anchors, i);
@@ -44,7 +53,7 @@ export function tracePath(p, anchors, closed) {
 export function pathOf(node) {
   let p = pathCache.get(node);
   if (!p) {
-    p = tracePath(new Path2D(), node.anchors, node.closed);
+    p = tracePath(new Path2D(), node.anchors, node.closed, capsShowDots(node));
     pathCache.set(node, p);
   }
   return p;
@@ -56,7 +65,8 @@ export function compoundPathOf(doc, node) {
   const hit = compoundCache.get(node);
   if (hit && hit.kids.length === kids.length && hit.kids.every((k, i) => k === kids[i])) return hit.path;
   const p = new Path2D();
-  for (const k of kids) tracePath(p, k.anchors, k.closed);
+  const caps = capsShowDots(node);
+  for (const k of kids) tracePath(p, k.anchors, k.closed, caps);
   compoundCache.set(node, { kids, path: p });
   return p;
 }
@@ -232,7 +242,8 @@ export function renderPathOf(doc, node) {
   const hit = effectPathCache.get(node);
   if (hit && hit.subs === subs) return hit.path;
   const p = new Path2D();
-  for (const s of subs) tracePath(p, s.anchors, s.closed);
+  const caps = capsShowDots(node);
+  for (const s of subs) tracePath(p, s.anchors, s.closed, caps);
   effectPathCache.set(node, { subs, path: p });
   return p;
 }
@@ -265,10 +276,12 @@ function paintedParts(doc, node) {
   const subs = effectiveSubpaths(doc, node);
   const hit = partsCache.get(node);
   if (hit && hit.subs === subs) return hit.parts;
-  const parts = paintParts(node, subs)?.map((p) => ({
-    node: { ...node, ...p.style },
-    path: p.subpaths.reduce((path, s) => tracePath(path, s.anchors, s.closed), new Path2D()),
-  }));
+  const parts = paintParts(node, subs)?.map((p) => {
+    const part = { ...node, ...p.style };
+    const caps = capsShowDots(part);
+    const path = p.subpaths.reduce((acc, s) => tracePath(acc, s.anchors, s.closed, caps), new Path2D());
+    return { node: part, path };
+  });
   partsCache.set(node, { subs, parts: parts || null });
   return parts || null;
 }
@@ -325,13 +338,22 @@ function textPaint(ctx, doc, node, paint, cache, seg = null) {
   return v;
 }
 
-/** Underline and strikethrough bars; `paintOf(paint)` gives the canvas style of a bar with its own color. */
-function decorate(ctx, st, size, x0, x1, base, fill, paintOf) {
+/**
+ * Underline and strikethrough bars, painted like the glyphs: filled with `fill` and outlined with
+ * `stroke` (its width and dashes already set on ctx). `paintOf(paint)` gives the canvas style of a
+ * bar with its own color, which is only filled.
+ */
+function decorate(ctx, st, size, x0, x1, base, fill, paintOf, stroke = null) {
   for (const r of decorationRects(st, size, x0, x1, base)) {
     const f = r.paint ? paintOf(r.paint) : fill;
-    if (!f) continue;
-    ctx.fillStyle = f;
-    ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (f) {
+      ctx.fillStyle = f;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
+    if (stroke && !r.paint) {
+      ctx.strokeStyle = stroke;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
   }
 }
 
@@ -430,7 +452,17 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
       ctx.stroke(path);
     }
   };
-  if (outline && node.kind === 'area' && node.areaPath?.length > 2) {
+  const decorateRun = (st, size, x0, x1, base, seg = null) => {
+    const s = strokeOf(st, seg);
+    if (s) {
+      setStrokeProps(ctx, { ...node, strokeWidth: st.strokeWidth, dash: node.dash });
+      ctx.lineJoin = node.strokeJoin || 'miter';
+    }
+    const paintOf = (p) => textPaint(ctx, doc, node, p, cache, seg);
+    decorate(ctx, st, size, x0, x1, base, fillOf(st, seg), paintOf, s);
+  };
+  // The frame of area type in a shape (not when painting a clipping mask, which has no hairline).
+  if (outline && opts.hairline > 0 && node.kind === 'area' && node.areaPath?.length > 2) {
     ctx.strokeStyle = opts.outlineColor || '#000';
     ctx.lineWidth = opts.hairline / Math.max(1e-6, Math.hypot(m[0], m[1]));
     ctx.stroke(tracePath(new Path2D(), node.areaPath, true));
@@ -466,7 +498,7 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
         }
         if ((st.underline || st.strike) && !outline) {
           const x1 = j >= end ? line.xs[end - line.start] - ((st.tracking || 0) / 1000) * st.fontSize : line.xs[j - line.start];
-          decorate(ctx, st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm), fillOf(st), (p) => textPaint(ctx, doc, node, p, cache));
+          decorateRun(st, size, line.xs[i - line.start], x1, line.y - riseOf(st, lay.chars.tm));
         }
         i = j;
       }
@@ -494,7 +526,9 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
       const gp = g.glyph != null ? textHooks.glyphPath?.(g.style, g.glyph, g.size) : null;
       if (gp) paintGlyph(g.style, gp, gm);
       else paintText(g.style, g.ch, 0, 0, gm);
-      if ((g.style.underline || g.style.strike) && !outline && !lay.vertical) decorate(ctx, g.style, g.size, 0, g.w, 0, fillOf(g.style, gm), (p) => textPaint(ctx, doc, node, p, cache, gm));
+      if ((g.style.underline || g.style.strike) && !outline && !lay.vertical) {
+        decorateRun(g.style, g.size, 0, g.w, 0, gm);
+      }
       ctx.restore();
     }
   }
@@ -548,6 +582,10 @@ function drawImage(ctx, doc, node, opts) {
   ctx.restore();
 }
 
+function plainPaint(p) {
+  return !p || p.type === 'solid' || p.type === 'linear' || p.type === 'radial';
+}
+
 /**
  * Draw one node. `opts`:
  *   viewRect   document-space rect to cull against (null = no culling)
@@ -585,7 +623,18 @@ export function drawNode(ctx, doc, node, opts) {
     // through each other and effects see the finished artwork.
     const region = deviceRegion(ctx, visualBounds(doc, node), fx ? effectsMargin(fx, opts.scale || 1) : undefined);
     if (!region) return;
-    const pool = regionPool;
+    // A small effected shape draws, blurs and composites faster in memory
+    // (effects.js); a drop shadow's own blur runs faster on the GPU beyond ~64 x 64 px.
+    const pool =
+      fx &&
+      !om &&
+      !grouped &&
+      node.type !== 'image' &&
+      region.w * region.h <= (fx.some((e) => e.type === 'dropShadow') ? 64 * 64 : 256 * 256) &&
+      plainPaint(node.fill) &&
+      plainPaint(node.stroke)
+        ? smallRegionPool
+        : regionPool;
     const layer = pool.acquire(region.w, region.h);
     const lctx = layer.ctx;
     const m = ctx.getTransform();
@@ -740,14 +789,80 @@ function drawTextMasked(ctx, doc, kids, mask, opts) {
   const m = ctx.getTransform();
   lctx.setTransform(m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y);
   for (let i = 0; i < kids.length - 1; i++) drawNode(lctx, doc, doc.get(kids[i]), opts);
-  lctx.globalCompositeOperation = 'destination-in';
-  fillMask(lctx, doc, mask, opts);
+  if (maskPaintCalls(doc, mask, opts, 'letterSpacing' in lctx) > 1) {
+    // A mask painted in several calls (lines, style runs, glyphs, parts) adds
+    // up on a layer of its own: painted straight onto the content with
+    // destination-in, each call would erase what the others keep.
+    const shape = regionPool.acquire(region.w, region.h);
+    shape.ctx.setTransform(m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y);
+    fillMask(shape.ctx, doc, mask, opts);
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.drawImage(shape.canvas, 0, 0);
+    regionPool.release(shape);
+  } else {
+    lctx.globalCompositeOperation = 'destination-in';
+    fillMask(lctx, doc, mask, opts);
+  }
   lctx.globalCompositeOperation = 'source-over';
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(layer.canvas, region.x, region.y);
   ctx.restore();
   regionPool.release(layer);
+}
+
+const PAINT_CALLS = new Set([
+  'fill',
+  'stroke',
+  'fillText',
+  'strokeText',
+  'fillRect',
+  'strokeRect',
+  'drawImage',
+]);
+
+/**
+ * How many paint calls fillMask makes for `mask`, from a pass over a context
+ * that draws nothing. `hasLS`: whether the real context has letterSpacing
+ * (without it, tracked type is painted glyph by glyph).
+ */
+function maskPaintCalls(doc, mask, opts, hasLS) {
+  const state = { calls: 0 };
+  if (hasLS) state.letterSpacing = '0px';
+  const counter = new Proxy(state, {
+    get: (t, k) => (k in t ? t[k] : PAINT_CALLS.has(k) ? () => t.calls++ : () => {}),
+    set: (t, k, v) => ((t[k] = v), true),
+  });
+  fillMask(counter, doc, mask, opts);
+  return state.calls;
+}
+
+let probe = null;
+
+/**
+ * Whether a clip group's clipping path `mask` covers a document point, as drawChildren clips:
+ * paths by their area, groups by the union of their parts, type by its glyphs. Glyph shapes are
+ * known only to the canvas, so the mask is painted over one pixel spanning `tol` around the point.
+ */
+export function clipCovers(doc, mask, x, y, tol = 1) {
+  if (!probe) {
+    const c =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(1, 1)
+        : Object.assign(document.createElement('canvas'), { width: 1, height: 1 });
+    probe = c.getContext('2d', { willReadFrequently: true });
+  }
+  probe.setTransform(1, 0, 0, 1, 0, 0);
+  if (!maskHasText(doc, mask)) {
+    const path = clipPathOf(doc, mask);
+    return !path || probe.isPointInPath(path, x, y, mask.fillRule || 'nonzero');
+  }
+  const s = 1 / Math.max(tol, 1e-3);
+  probe.clearRect(0, 0, 1, 1);
+  probe.setTransform(s, 0, 0, s, 0.5 - x * s, 0.5 - y * s);
+  fillMask(probe, doc, mask, { hairline: 0 });
+  return probe.getImageData(0, 0, 1, 1).data[3] > 0;
 }
 
 /** Clip region for a mask node (path, compound, or text as its glyph boxes). */

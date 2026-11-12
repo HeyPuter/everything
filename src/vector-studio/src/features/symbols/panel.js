@@ -167,7 +167,13 @@ export class SymbolsPanel extends Panel {
     el.addEventListener('pointerdown', (e) =>
       dragToCanvas(this.app, el, e, {
         preview: () => symbolThumb(this.editor.doc, def, 40),
-        onDrop: (p) => placeSymbol(this.app, def.id, p),
+        onDrop: (p) => {
+          try {
+            placeSymbol(this.app, def.id, p);
+          } catch (err) {
+            this.app.notify(err.message, { error: true });
+          }
+        },
       }),
     );
     return el;

@@ -118,6 +118,21 @@ describe('graph layout', () => {
     }
   });
 
+  it('lays out long data columns (more values than a call can take as arguments)', () => {
+    const rows = 200000;
+    const cells = [['', 'A']];
+    for (let i = 0; i < rows; i++) cells.push(['', String((i % 50) - 10)]);
+    const slices = [['', 'A', 'B'], ['', '3', '4']];
+    const ys = [['A', 'B']];
+    for (let i = 0; i < rows; i++) ys.push([String(i % 7), String(i)]);
+    for (const [type, data] of [['area', cells], ['scatter', ys], ['pie', slices]]) {
+      const s = layoutGraph({ ...base, type, data });
+      expect(s.marks.length, type).toBeGreaterThan(0);
+    }
+    const values = cells.slice(1).map((r) => Number(r[1]));
+    expect(valueScale(values, graphOptions({}))).toMatchObject({ min: -10, max: 40 });
+  });
+
   it('lays out grouped columns from zero', () => {
     const s = layoutGraph(base);
     expect(s.scale).toMatchObject({ min: -2, max: 6 });

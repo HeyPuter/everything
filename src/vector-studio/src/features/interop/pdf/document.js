@@ -412,7 +412,14 @@ export class PDFPage {
     this.index = index;
     this.resources = inherited.Resources instanceof PDFDict ? inherited.Resources : new PDFDict(doc);
     const media = rectOf(inherited.MediaBox) || { x: 0, y: 0, w: 612, h: 792 };
-    this.mediaBox = media.w > 0 && media.h > 0 ? media : { x: 0, y: 0, w: 612, h: 792 };
+    // Absurd boxes (damaged or hostile files) are cut to a size an artboard can have.
+    const MAX = 1e6;
+    let box = media.w > 0 && media.h > 0 ? media : { x: 0, y: 0, w: 612, h: 792 };
+    if (!(Math.abs(box.x) <= MAX && Math.abs(box.y) <= MAX && box.w <= MAX && box.h <= MAX)) {
+      box = { x: Math.max(-MAX, Math.min(MAX, box.x || 0)), y: Math.max(-MAX, Math.min(MAX, box.y || 0)), w: Math.min(MAX, box.w), h: Math.min(MAX, box.h) };
+      this.oversized = true;
+    }
+    this.mediaBox = box;
     this.cropBox = intersect(this.mediaBox, rectOf(inherited.CropBox));
     this.bleedBox = intersect(this.cropBox, rectOf(dict.get('BleedBox'))) || this.cropBox;
     this.trimBox = intersect(this.cropBox, rectOf(dict.get('TrimBox'))) || this.cropBox;

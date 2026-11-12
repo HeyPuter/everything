@@ -12,7 +12,7 @@ import { openMenu } from '../../ui/menubar.js';
 import { parseLength, parseNumber, formatLength } from '../../lib/units.js';
 import { createFontPicker } from './font-picker.js';
 import { familyFaces, styleName, fontEvents } from './fonts.js';
-import { applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, session, MIXED } from './type-ops.js';
+import { applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, currentTextNodes, session, stepCharStyle, MIXED } from './type-ops.js';
 import { setFontFamily, SIZE_PRESETS } from './commands.js';
 import { selectedTextNodes } from './outlines.js';
 import { KERN_MODES } from './type-options.js';
@@ -27,7 +27,7 @@ let fieldId = 0;
  * optional "Auto" value (null). kind: 'pt' | 'percent' | 'number' | 'angle'.
  * `words` ([[token, label]]) are named values shown and typed as words.
  */
-function typeField(app, { label, iconName, kind = 'pt', units = null, presets = null, auto = false, words = null, min = -Infinity, max = Infinity, step = 1, onCommit }) {
+function typeField(app, { label, iconName, kind = 'pt', units = null, presets = null, auto = false, words = null, min = -Infinity, max = Infinity, step = 1, onCommit, onStep = null }) {
   // Lengths show in `units()` (the Type units preference for type sizes), points otherwise.
   const unit = () => (typeof units === 'function' && units()) || 'pt';
   const id = `tf-${++fieldId}`;
@@ -77,6 +77,11 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const cur = parse(input.value);
+      // Mixed values step each from their own (onStep), never from zero.
+      if (typeof cur !== 'number' && value === MIXED) {
+        onStep?.((e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1));
+        return;
+      }
       const base = typeof cur === 'number' ? cur : typeof value === 'number' ? value : 0;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1)));
       input.value = fmt(v);
@@ -126,6 +131,9 @@ const ALIGNS = [
 export function buildCharacterControls(app, { compact = false } = {}) {
   const coalesce = (k) => `char-${k}-${Date.now() >> 10}`;
   const apply = (patch, label, k) => applyCharStyle(app, patch, { label, coalesce: k ? coalesce(k) : null });
+  // Arrow keys in a field showing mixed values: every character steps from its own value, clamped to the field's range.
+  const stepper = (key, label, k, lo, hi, auto = null) => (d) =>
+    stepCharStyle(app, key, (v, st) => Math.min(hi, Math.max(lo, (typeof v === 'number' ? v : auto ? auto(st) : 0) + d)), { label, coalesce: coalesce(k) });
   const picker = createFontPicker(app, { label: 'Font family', onPick: (f) => setFontFamily(app, f) });
   const styleSel = h('select.select.ty-style', { 'aria-label': 'Font style' });
   styleSel.addEventListener('change', () => {
@@ -136,8 +144,8 @@ export function buildCharacterControls(app, { compact = false } = {}) {
   // The size field can show and take a height the font measures (cap height, x height, ideographic face) instead of the em.
   const sizeRef = () => (app.prefs.get('showFontHeightOptions') === true && app.prefs.get('fontSizeReference')) || 'em';
   const sizeRatio = () => (cur && cur.fontFamily !== MIXED && cur.fontWeight !== MIXED && cur.fontStyle !== MIXED ? fontHeightRatio({ ...cur, fontSize: 100 }, sizeRef()) : 1) || 1;
-  const size = typeField(app, { label: 'Font size', iconName: 'font-size', units: typeUnits, presets: SIZE_PRESETS, min: 0.1, max: 1296, onCommit: (v) => apply({ fontSize: Math.min(1296, Math.max(0.1, v / sizeRatio())) }, 'Font Size', 'size') });
-  const leading = typeField(app, { label: 'Leading', iconName: 'leading', units: typeUnits, auto: true, presets: [null, ...SIZE_PRESETS], min: 0, max: 5000, onCommit: (v) => apply({ leading: v }, 'Leading', 'leading') });
+  const size = typeField(app, { label: 'Font size', iconName: 'font-size', units: typeUnits, presets: SIZE_PRESETS, min: 0.1, max: 1296, onCommit: (v) => apply({ fontSize: Math.min(1296, Math.max(0.1, v / sizeRatio())) }, 'Font Size', 'size'), onStep: stepper('fontSize', 'Font Size', 'size', 0.1, 1296) });
+  const leading = typeField(app, { label: 'Leading', iconName: 'leading', units: typeUnits, auto: true, presets: [null, ...SIZE_PRESETS], min: 0, max: 5000, onCommit: (v) => apply({ leading: v }, 'Leading', 'leading'), onStep: stepper('leading', 'Leading', 'leading', 0, 5000, (st) => (typeof st.fontSize === 'number' ? st.fontSize : 12) * 1.2) });
   // Kerning: the automatic kerning mode (Auto, Optical, None) or manual kerning at the insertion point or on the selection.
   const kerning = typeField(app, {
     label: 'Kerning (between the characters at the insertion point)',
@@ -150,11 +158,11 @@ export function buildCharacterControls(app, { compact = false } = {}) {
     step: 10,
     onCommit: (v) => (typeof v === 'string' ? applyCharStyle(app, { kernMode: v, kerning: 0 }, { label: 'Kerning' }) : kern(app, v)),
   });
-  const tracking = typeField(app, { label: 'Tracking', iconName: 'tracking', kind: 'number', presets: [-100, -75, -50, -25, -10, -5, 0, 5, 10, 25, 50, 75, 100, 200], min: -1000, max: 10000, step: 10, onCommit: (v) => apply({ tracking: v }, 'Tracking', 'tracking') });
-  const vscale = typeField(app, { label: 'Vertical scale', iconName: 'vertical-scale', kind: 'percent', presets: [50, 75, 100, 125, 150, 200], min: 1, max: 10000, onCommit: (v) => apply({ verticalScale: v }, 'Vertical Scale', 'vscale') });
-  const hscale = typeField(app, { label: 'Horizontal scale', iconName: 'horizontal-scale', kind: 'percent', presets: [50, 75, 100, 125, 150, 200], min: 1, max: 10000, onCommit: (v) => apply({ horizontalScale: v }, 'Horizontal Scale', 'hscale') });
-  const shift = typeField(app, { label: 'Baseline shift', iconName: 'baseline-shift', units: typeUnits, min: -5000, max: 5000, onCommit: (v) => apply({ baselineShift: v }, 'Baseline Shift', 'shift') });
-  const rotation = typeField(app, { label: 'Character rotation', iconName: 'char-rotation', kind: 'angle', presets: [0, 15, 30, 45, 60, 90, 180, 270, -15, -30, -45, -90], min: -360, max: 360, onCommit: (v) => apply({ rotation: v }, 'Character Rotation', 'rotation') });
+  const tracking = typeField(app, { label: 'Tracking', iconName: 'tracking', kind: 'number', presets: [-100, -75, -50, -25, -10, -5, 0, 5, 10, 25, 50, 75, 100, 200], min: -1000, max: 10000, step: 10, onCommit: (v) => apply({ tracking: v }, 'Tracking', 'tracking'), onStep: stepper('tracking', 'Tracking', 'tracking', -1000, 10000) });
+  const vscale = typeField(app, { label: 'Vertical scale', iconName: 'vertical-scale', kind: 'percent', presets: [50, 75, 100, 125, 150, 200], min: 1, max: 10000, onCommit: (v) => apply({ verticalScale: v }, 'Vertical Scale', 'vscale'), onStep: stepper('verticalScale', 'Vertical Scale', 'vscale', 1, 10000) });
+  const hscale = typeField(app, { label: 'Horizontal scale', iconName: 'horizontal-scale', kind: 'percent', presets: [50, 75, 100, 125, 150, 200], min: 1, max: 10000, onCommit: (v) => apply({ horizontalScale: v }, 'Horizontal Scale', 'hscale'), onStep: stepper('horizontalScale', 'Horizontal Scale', 'hscale', 1, 10000) });
+  const shift = typeField(app, { label: 'Baseline shift', iconName: 'baseline-shift', units: typeUnits, min: -5000, max: 5000, onCommit: (v) => apply({ baselineShift: v }, 'Baseline Shift', 'shift'), onStep: stepper('baselineShift', 'Baseline Shift', 'shift', -5000, 5000) });
+  const rotation = typeField(app, { label: 'Character rotation', iconName: 'char-rotation', kind: 'angle', presets: [0, 15, 30, 45, 60, 90, 180, 270, -15, -30, -45, -90], min: -360, max: 360, onCommit: (v) => apply({ rotation: v }, 'Character Rotation', 'rotation'), onStep: stepper('rotation', 'Character Rotation', 'rotation', -360, 360) });
   const toggles = {
     caps: toggleButton('case-upper', 'All Caps', () => apply({ caps: cur?.caps === 'all' ? 'normal' : 'all' }, 'All Caps')),
     small: toggleButton('small-caps', 'Small Caps', () => apply({ caps: cur?.caps === 'small' ? 'normal' : 'small' }, 'Small Caps')),

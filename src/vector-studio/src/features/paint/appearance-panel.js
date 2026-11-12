@@ -29,7 +29,7 @@ import { selectionKind, BLEND_LABELS } from '../../ui/panels/properties.js';
 import { EFFECTS, effectLabel } from './effects-model.js';
 import { effectDialog, effectTargets } from './effects-ui.js';
 import { drawThumbnail, standaloneDoc } from './thumbs.js';
-import { graphicStylesOf, setGraphicStyles, styleOfNode, applyGraphicStyle, applyStyleTo, newStyleId, linkedStyle, styleUsers, unusedGraphicStyleIds, mergeStyles, sortStylesByName, overridesCharColor, OVERRIDE_CHAR_COLOR } from './graphic-styles.js';
+import { graphicStylesOf, setGraphicStyles, styleOfNode, portableStyle, applyGraphicStyle, applyStyleTo, newStyleId, linkedStyle, styleUsers, unusedGraphicStyleIds, mergeStyles, sortStylesByName, overridesCharColor, OVERRIDE_CHAR_COLOR } from './graphic-styles.js';
 import { graphicStyleLibraries } from './graphic-style-libraries.js';
 import { userLibraryMenu, saveLibraryDialog, exportLibraryFile, pickTextFile } from './user-libraries.js';
 import { MENUS } from '../../ui/menus.js';
@@ -952,7 +952,7 @@ export class GraphicStylesPanel extends Panel {
     const top = ed.topSelection().map((id) => ed.doc.get(id)).filter((n) => n && n.type !== 'layer');
     if (!top.length) return applyGraphicStyle(ed, mergeStyles([ed.style, gs.style]));
     ed.doc.transact('Add Graphic Style', () => {
-      for (const n of top) applyStyleTo(ed.doc, [ed.doc.get(n.id)], mergeStyles([styleOfNode(ed.doc, n), gs.style]), null, { keepCharColor: !overridesCharColor(this.app.prefs) });
+      for (const n of top) applyStyleTo(ed.doc, [ed.doc.get(n.id)], mergeStyles([styleOfNode(ed.doc, n), portableStyle(gs.style)]), null, { keepCharColor: !overridesCharColor(this.app.prefs) });
     });
   }
 
@@ -992,7 +992,7 @@ export class GraphicStylesPanel extends Panel {
     const ed = this.app.editor;
     if (!ed) return;
     const top = ed.topSelection().map((id) => ed.doc.get(id)).filter(Boolean);
-    const style = top.length ? styleOfNode(ed.doc, top[0]) : structuredClone(ed.style);
+    const style = top.length ? portableStyle(styleOfNode(ed.doc, top[0])) : structuredClone(ed.style);
     const list = graphicStylesOf(ed.doc);
     const res = await this.app.dialogs.form({ title: 'Graphic Style Options', fields: [{ key: 'name', label: 'Style Name', type: 'text', value: `Graphic Style ${list.length + 1}` }] });
     if (!res) return;
@@ -1135,7 +1135,7 @@ export function redefineGraphicStyle(app, id) {
   if (!node) return;
   const doc = ed.doc;
   const users = styleUsers(doc, id).filter((n) => n.id !== node.id);
-  const style = styleOfNode(doc, node);
+  const style = portableStyle(styleOfNode(doc, node));
   doc.transact('Redefine Graphic Style', () => {
     setGraphicStyles(doc, graphicStylesOf(doc).map((g) => (g.id === id ? { ...g, style } : g)));
     applyStyleTo(doc, users.map((n) => doc.get(n.id)), style, id);

@@ -282,6 +282,17 @@ export function paragraphIndexAt(text, i) {
   return n;
 }
 
+/**
+ * First and last paragraph index of the selection [a, b). A selection that
+ * ends just after a paragraph's return (a triple-click, or Shift+Down to the
+ * start of the next line) does not include the paragraph after it.
+ */
+export function selectedParagraphs(text, a, b) {
+  const s = String(text ?? '');
+  const p0 = paragraphIndexAt(s, a);
+  return [p0, Math.max(p0, paragraphIndexAt(s, b > a && s[b - 1] === '\n' ? b - 1 : b))];
+}
+
 /** Full paragraph style of paragraph pi. */
 export function paraAt(node, pi) {
   const o = node.paras?.[pi];
@@ -339,8 +350,9 @@ export function rangeParaStyle(node, p0, p1) {
 
 /**
  * Replace text [start, end) with `insert`. Inserted characters take
- * `overrides` when given (a pending style), else the overrides of the
- * character before the range (or the first character). Returns a node patch
+ * `overrides` when given (a pending style), else the overrides of the first
+ * replaced character, or for a plain insertion the character before it (or
+ * the first character). Returns a node patch
  * { text, runs, paras } that keeps runs and paragraph styles in step.
  */
 export function replaceRange(node, start, end, insert, overrides = null) {
@@ -357,7 +369,7 @@ export function replaceRange(node, start, end, insert, overrides = null) {
   // Runs.
   let runs;
   if (node.runs || overrides) {
-    const ins = overrides || inheritable(overridesAt(node, start > 0 ? start - 1 : start));
+    const ins = overrides || inheritable(overridesAt(node, end > start || !start ? start : start - 1));
     const split = splitAt(runsOf(node), [start, end]);
     const out = [];
     let pos = 0;

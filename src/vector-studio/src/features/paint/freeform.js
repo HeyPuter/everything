@@ -232,21 +232,43 @@ export function setFreeformMode(paint, mode) {
 // ---- rendering ----
 
 const RASTER = 128;
-const rasterCache = new WeakMap();
+// Rasters by paint and shape, least recently used first: objects sharing one paint (applied to a
+// selection, a swatch) differ in proportions, so one entry per paint would be redrawn per object.
+const RASTER_CACHE_MAX = 256;
+const rasterCache = new Map();
+const paintIds = new WeakMap();
+let nextPaintId = 1;
 
 function makeCanvas(w, h) {
   if (typeof document !== 'undefined') return Object.assign(document.createElement('canvas'), { width: w, height: h });
   return new OffscreenCanvas(w, h);
 }
 
+/** Proportions within about 2% share a raster (the blend differs by far less than a raster pixel). */
+function rasterAspect(aspect) {
+  return Math.exp(Math.round(Math.log(aspect) / 0.02) * 0.02);
+}
+
+/** A margin past the frame rounded up to a power of two (so objects of similar size share a raster). */
+export function rasterPad(p) {
+  return p > 0 ? 2 ** Math.ceil(Math.log2(p)) : 0;
+}
+
 /**
  * A canvas of the blend over `rect` (bounds-fraction space, may reach past
- * 0..1 for strokes), cached per paint.
+ * 0..1 for strokes), cached.
  */
 export function freeformRaster(paint, aspect, rect = [0, 0, 1, 1]) {
-  const key = `${aspect.toFixed(4)}|${rect.map((v) => v.toFixed(4)).join()}`;
-  const hit = rasterCache.get(paint);
-  if (hit && hit.key === key) return hit.canvas;
+  aspect = rasterAspect(aspect);
+  let id = paintIds.get(paint);
+  if (!id) paintIds.set(paint, (id = nextPaintId++));
+  const key = `${id}|${aspect.toFixed(4)}|${rect.map((v) => v.toFixed(4)).join()}`;
+  const hit = rasterCache.get(key);
+  if (hit) {
+    rasterCache.delete(key);
+    rasterCache.set(key, hit);
+    return hit;
+  }
   const w = Math.max(8, Math.round(RASTER * Math.min(1, Math.sqrt(aspect))));
   const h = Math.max(8, Math.round(RASTER * Math.min(1, 1 / Math.sqrt(aspect))));
   const canvas = makeCanvas(w, h);
@@ -256,23 +278,35 @@ export function freeformRaster(paint, aspect, rect = [0, 0, 1, 1]) {
   if (!img?.data) return null;
   img.data.set(freeformPixels(paint, w, h, aspect, rect));
   ctx.putImageData(img, 0, 0);
-  rasterCache.set(paint, { key, canvas });
+  rasterCache.set(key, canvas);
+  if (rasterCache.size > RASTER_CACHE_MAX) rasterCache.delete(rasterCache.keys().next().value);
   return canvas;
 }
 
+/**
+ * Type draws inside its transform (each run inside its placement `seg` too):
+ * the matrix from the document into that space, or null for other objects.
+ */
+function typeSpace(node, seg) {
+  if (node.type !== 'text' || !node.transform) return null;
+  return invert(seg ? multiply(node.transform, seg) : node.transform);
+}
+
 /** Canvas style for a freeform paint on a node: a pattern of the blend over its frame. */
-export function freeformStyle(ctx, doc, node, paint) {
+export function freeformStyle(ctx, doc, node, paint, seg = null) {
   const f = freeformFrame(doc, node);
   if (!f) return averageColor(paint);
   // Strokes reach past the frame: cover them too.
   const pad = Math.max(0, node.strokeWidth || 0) + 1;
-  const pu = pad / f.w;
-  const pv = pad / f.h;
+  const pu = rasterPad(pad / f.w);
+  const pv = rasterPad(pad / f.h);
   const canvas = freeformRaster(paint, f.w / f.h, [-pu, -pv, 1 + pu, 1 + pv]);
   const pattern = canvas && ctx.createPattern?.(canvas, 'no-repeat');
   if (!pattern || typeof DOMMatrix === 'undefined' || !pattern.setTransform) return averageColor(paint);
   // Canvas pixels -> frame fractions -> document.
-  const m = multiply(frameFractionMatrix(f), [(1 + 2 * pu) / canvas.width, 0, 0, (1 + 2 * pv) / canvas.height, -pu, -pv]);
+  let m = multiply(frameFractionMatrix(f), [(1 + 2 * pu) / canvas.width, 0, 0, (1 + 2 * pv) / canvas.height, -pu, -pv]);
+  const space = typeSpace(node, seg);
+  if (space) m = multiply(space, m);
   pattern.setTransform(new DOMMatrix(m));
   return pattern;
 }
@@ -301,8 +335,11 @@ function svgFreeform(writer, paint, node, mapped) {
     href = null;
   }
   if (!href || href.length < 30) return null;
-  const m = frameFractionMatrix(f);
-  if (mapped) {
+  let m = frameFractionMatrix(f);
+  // Type is written in its own space (a run in its placement, passed as a matrix in `mapped`).
+  const space = node.type === 'text' && mapped !== true ? typeSpace(node, Array.isArray(mapped) ? mapped : null) : null;
+  if (space) m = multiply(space, m);
+  else if (mapped) {
     m[4] -= writer.ox;
     m[5] -= writer.oy;
   }
@@ -320,7 +357,7 @@ export function installFreeform() {
   if (installed) return;
   installed = true;
   const prev = drawHooks.paintStyle;
-  drawHooks.paintStyle = (ctx, doc, node, paint, seg) => (paint?.type === 'freeform' ? freeformStyle(ctx, doc, node, paint) : prev ? prev(ctx, doc, node, paint, seg) : null);
+  drawHooks.paintStyle = (ctx, doc, node, paint, seg) => (paint?.type === 'freeform' ? freeformStyle(ctx, doc, node, paint, seg) : prev ? prev(ctx, doc, node, paint, seg) : null);
   paintCssHooks.freeform = freeformCss;
   svgPaintHooks.freeform = svgFreeform;
   if (!exportBakers.some((b) => b.key === 'freeform')) {

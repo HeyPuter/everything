@@ -319,18 +319,21 @@ export class VariablesPanel extends Panel {
     }
     const doc = this.doc;
     let added = 0;
+    // Entries that are not variables or data sets (a damaged file) are left out.
+    const isObject = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x);
+    const dataSets = (Array.isArray(data.dataSets) ? data.dataSets : []).filter(isObject);
     doc.transact('Load Variable Library', () => {
       const idMap = new Map();
       for (const v of data.variables) {
-        if (!VARIABLE_TYPES[v.type]) continue;
+        if (!isObject(v) || !VARIABLE_TYPES[v.type]) continue;
         const existing = variablesOf(doc).find((x) => x.name === cleanName(v.name));
         idMap.set(v.id, existing ? existing.id : addVariable(doc, v.type, v.name).id);
         if (!existing) added++;
       }
-      const sets = (data.dataSets || []).map((ds, i) => ({ id: `ds-${Date.now().toString(36)}-${i}`, name: String(ds.name || `Data Set ${i + 1}`), values: Object.fromEntries(Object.entries(ds.values || {}).filter(([k]) => idMap.has(k)).map(([k, val]) => [idMap.get(k), val])) }));
+      const sets = dataSets.map((ds, i) => ({ id: `ds-${Date.now().toString(36)}-${i}`, name: String(ds.name || `Data Set ${i + 1}`), values: Object.fromEntries(Object.entries(ds.values || {}).filter(([k]) => idMap.has(k)).map(([k, val]) => [idMap.get(k), val])) }));
       if (sets.length) doc.updateRoot({ dataSets: sets, dataSet: null });
     });
-    this.app.notify(`Loaded ${added} new variable${added === 1 ? '' : 's'} and ${(data.dataSets || []).length} data sets.`, { polite: true });
+    this.app.notify(`Loaded ${added} new variable${added === 1 ? '' : 's'} and ${dataSets.length} data sets.`, { polite: true });
     return added;
   }
 

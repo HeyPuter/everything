@@ -7,7 +7,7 @@ import { Tool, tol, fmt, constrainAngle } from './tool.js';
 import { hitTest, marqueeHits, pointInPolygon } from '../render/hit.js';
 import { boxHandles } from '../render/overlay.js';
 import { TransformSession } from './transform-session.js';
-import { buildSnapIndex, snapBox } from './snap.js';
+import { buildSnapIndex, snapBox, snapPoint } from './snap.js';
 import { rotate, scale, translate } from '../lib/matrix.js';
 import { frameToDoc, docToFrame, frameMatrix } from '../model/geometry.js';
 import { widgetAt } from './widgets.js';
@@ -196,6 +196,7 @@ export class SelectionTool extends Tool {
     const editor = this.editor;
     const opp = OPPOSITE[handle];
     const h = boxHandles(editor, b);
+    const session = new TransformSession(editor, 'Scale');
     this.drag = {
       kind: 'scale',
       handle,
@@ -203,7 +204,9 @@ export class SelectionTool extends Tool {
       origin: { x: h[opp].fx, y: h[opp].fy },
       center: { x: b.x + b.w / 2, y: b.y + b.h / 2 },
       start: { x: h[handle].fx, y: h[handle].fy },
-      session: new TransformSession(editor, 'Scale'),
+      session,
+      // An upright box's handle snaps like a drawn point (grid, pixels, alignment guides, ruler guides).
+      snap: b.angle ? null : buildSnapIndex(editor, new Set(session.ids)),
     };
   }
 
@@ -265,8 +268,16 @@ export class SelectionTool extends Tool {
       let sy = 1;
       const fx = handle.includes('e') || handle.includes('w');
       const fy = handle.includes('n') || handle.includes('s');
+      let { x, y } = e;
+      if (d.snap) {
+        const s = snapPoint(editor, x, y, d.snap);
+        ({ x, y } = s);
+        // A side handle moves along one axis: only guides across that axis apply.
+        const lines = s.lines.filter((l) => (fx && fy) || (fx ? l.x1 === l.x2 : l.y1 === l.y2));
+        editor.alignmentGuides = { lines, labels: s.labels };
+      }
       // Pointer in the box's frame, so a turned box scales along its own axes.
-      const p = docToFrame(b, e.x, e.y);
+      const p = docToFrame(b, x, y);
       const w0 = d.start.x - origin.x;
       const h0 = d.start.y - origin.y;
       if (fx && Math.abs(w0) > 1e-9) sx = (p.x - origin.x) / w0;

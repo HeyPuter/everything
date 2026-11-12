@@ -41,9 +41,23 @@ function path2dOf(subpaths) {
   return p;
 }
 
-/** All visible, unlocked path/compound leaves in the document (paint order), except the inputs of live objects. */
-function editableLeaves(doc) {
-  return doc.leaves().filter((n) => (n.type === 'path' || n.type === 'compound') && !doc.isHidden(n.id) && !doc.isLocked(n.id) && !insideLive(doc, n));
+/**
+ * All visible, unlocked path/compound leaves the editor can work on (paint
+ * order): inside the isolated group in isolation mode, and not the inputs of
+ * live objects.
+ */
+function editableLeaves(editor) {
+  const doc = editor.doc;
+  return doc
+    .leaves()
+    .filter(
+      (n) =>
+        (n.type === 'path' || n.type === 'compound') &&
+        !doc.isHidden(n.id) &&
+        !doc.isLocked(n.id) &&
+        editor.inIsolation(n.id) &&
+        !insideLive(doc, n),
+    );
 }
 
 /**
@@ -248,8 +262,8 @@ export class ShapeBuilderTool extends Tool {
       items.sort((a, b) => a.order - b.order);
       ids.push(...replaceWith(doc, affected, items.map((i) => i.built), where));
     });
-    const keep = leaves.filter((n) => !plan.affected.includes(leaves.indexOf(n)) && doc.has(n.id)).map((n) => n.id);
-    editor.select([...keep, ...ids]);
+    // Merged or deleted shapes give way to the results; the rest of the selection stays selected.
+    editor.select([...editor.selection, ...ids].filter((id) => doc.has(id)));
   }
 
   onKeyDown(ev) {
@@ -378,7 +392,7 @@ export class ScissorsTool extends Tool {
       if (hit && hit.d <= r && (!best || hit.d < best.d)) best = { node: n, index: hit.index, t: hit.t, d: hit.d };
     };
     for (const n of doc.leaves()) {
-      if (doc.isHidden(n.id) || doc.isLocked(n.id)) continue;
+      if (doc.isHidden(n.id) || doc.isLocked(n.id) || !editor.inIsolation(n.id)) continue;
       if (n.type === 'compound') for (const c of n.children) consider(doc.get(c));
       else consider(n);
     }
@@ -489,7 +503,8 @@ export class KnifeTool extends Tool {
     const doc = editor.doc;
     const anchors = pts.length === 2 ? pts.map((p) => mkAnchor(p.x, p.y)) : fitCurve(simplifyPolyline(pts, tol(editor, 0.75)), tol(editor, 1.5) ** 2);
     const bounds = polylineBounds(pts);
-    const pool = editor.selection.size ? selectedLeaves(this, 'The Knife') : editableLeaves(doc);
+    const hadSelection = editor.selection.size > 0;
+    const pool = hadSelection ? selectedLeaves(this, 'The Knife') : editableLeaves(editor);
     const targets = pool.filter((n) => (n.closed || n.type === 'compound' || n.fill) && rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds));
     if (!targets.length) return;
     const shapes = [...targets.map((n) => shapeOf(doc, n)), { subpaths: [{ anchors, closed: false }], filled: false, string: true }];
@@ -507,7 +522,9 @@ export class KnifeTool extends Tool {
         ids.push(...replaceWith(doc, [n], items, { parentId: parent.id, index: parent.children.indexOf(n.id) + 1 }));
       });
     });
-    if (ids.length) editor.select(ids);
+    if (!ids.length) return;
+    // Cut objects give way to their pieces; the rest of the selection stays selected.
+    editor.select(hadSelection ? [...editor.selection, ...ids].filter((id) => doc.has(id)) : ids);
   }
 
   cancel() {
@@ -682,7 +699,7 @@ export class EraserTool extends RoundBrushTool {
     try {
       const pad = rect ? 0 : this.size / 2;
       const bounds = polylineBounds(pts, pad);
-      const pool = hadSelection ? selectedLeaves(this, 'The Eraser') : editableLeaves(doc);
+      const pool = hadSelection ? selectedLeaves(this, 'The Eraser') : editableLeaves(editor);
       const targets = pool.filter((n) => {
         const b = nodeBounds(doc, n);
         const sw = n.stroke ? (n.strokeWidth || 0) / 2 : 0;
@@ -717,7 +734,10 @@ export class EraserTool extends RoundBrushTool {
           ids.push(...replaceWith(doc, [n], items, { parentId: parent.id, index: parent.children.indexOf(n.id) + 1 }));
         });
       });
-      if (changed && hadSelection) editor.select(ids.filter((id) => doc.has(id)));
+      // Erased objects give way to their pieces; the rest of the selection stays selected.
+      if (changed && hadSelection) {
+        editor.select([...editor.selection, ...ids].filter((id) => doc.has(id)));
+      }
     } finally {
       this.pts = null;
       this.alt = false;
@@ -767,7 +787,13 @@ export class BlobBrushTool extends RoundBrushTool {
       const layer = editor.targetLayer();
       // Merge with overlapping blobs: same solid fill, no stroke, in the target layer.
       const candidates = key
-        ? editableLeaves(doc).filter((n) => doc.layerOf(n.id)?.id === layer.id && !(n.stroke && n.strokeWidth > 0) && solidKey(n) === key && rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds))
+        ? editableLeaves(editor).filter(
+            (n) =>
+              doc.layerOf(n.id)?.id === layer.id &&
+              !(n.stroke && n.strokeWidth > 0) &&
+              solidKey(n) === key &&
+              rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds),
+          )
         : [];
       const snap = snapshot(doc, candidates);
       const result = await withBusy(this.app, 'Merge Brush', async () => {
@@ -845,7 +871,7 @@ export class JoinTool extends Tool {
     const doc = editor.doc;
     const r = tol(editor, 10);
     const bounds = polylineBounds(pts, r);
-    const pool = editor.selection.size ? selectedLeaves(this) : editableLeaves(doc);
+    const pool = editor.selection.size ? selectedLeaves(this) : editableLeaves(editor);
     const out = [];
     for (const n of pool) {
       if (n.type !== 'path' || n.closed || n.anchors.length < 2) continue;

@@ -125,7 +125,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
     row._item = item;
     if (isSub) {
       const openSub = (focusFirst) => {
-        if (submenu?.row === row) return;
+        if (submenu?.row === row) {
+          // Already open from hovering: the keyboard moves into it.
+          if (focusFirst) submenu.focusFirst();
+          return;
+        }
         closeSub();
         const r = row.getBoundingClientRect();
         row.setAttribute('aria-expanded', 'true');
@@ -139,7 +143,15 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         });
         submenu.row = row;
       };
-      row.addEventListener('pointerenter', () => openSub(false));
+      // Hovering opens the submenu and keeps focus on its row, so Right or Enter moves into it.
+      // A touch opens it with the tap instead: opened as the finger lands, the
+      // submenu (which covers its menu on a phone) took the tap and opened the
+      // row under the finger too.
+      row.addEventListener('pointerenter', (e) => {
+        if (e.pointerType === 'touch') return;
+        row.focus();
+        openSub(false);
+      });
       row.addEventListener('click', () => openSub(true));
       row._open = openSub;
     } else {
@@ -197,6 +209,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         e.preventDefault();
         close('escape');
         if (parentMenu) parentMenu.refocus();
+        else {
+          // Back to the button that opened the menu (or what had focus before a context menu).
+          const back = anchor?.isConnected ? anchor : returnFocus;
+          if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true });
+        }
         break;
       case 'Tab': {
         // Close the menus and put focus back on the menu's button without
@@ -288,12 +305,13 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
       close('activate');
       parentMenu?.closeAll?.();
     },
+    focusFirst: () => (focusable()[0] || menu).focus(),
     onNavigate: null,
   };
   if (parentMenu) parentMenu.child = api;
   if (focus === 'first') (focusable()[0] || menu).focus();
   else if (focus === 'last') (focusable().slice(-1)[0] || menu).focus();
-  else menu.focus({ preventScroll: true });
+  else if (!parentMenu) menu.focus({ preventScroll: true });
   return api;
 }
 
@@ -349,8 +367,10 @@ export function createMenubar(app, menus) {
         'aria-expanded': 'false',
         tabindex: i === 0 ? '0' : '-1',
         onclick: () => (open && openIndex === i ? open.close('toggle') : openAt(i)),
-        onpointerenter: () => {
-          if (open && openIndex !== i) openAt(i, 'none');
+        // Moving across the bar switches menus; a touch switches with its tap (opened as the
+        // finger landed, the menu was then closed again by the tap's click).
+        onpointerenter: (e) => {
+          if (open && openIndex !== i && e.pointerType !== 'touch') openAt(i, 'none');
         },
         onkeydown: (e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {

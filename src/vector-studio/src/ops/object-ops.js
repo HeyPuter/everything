@@ -260,7 +260,15 @@ export function arrange(editor, how) {
 /** Move the selection to another layer (Object > Arrange > Send to Current Layer). */
 export function sendToLayer(editor, layerId) {
   const { doc } = editor;
-  const ids = wholeObjects(doc, editor.topSelection());
+  if (doc.isLocked(layerId) || doc.isHidden(layerId))
+    throw new UserError(
+      'The current layer is locked or hidden: unlock and show it, or pick another layer.',
+    );
+  // Objects already on the layer keep their place in its stacking order.
+  const ids = wholeObjects(doc, editor.topSelection()).filter(
+    (id) => doc.get(id)?.parent !== layerId,
+  );
+  if (!ids.length) return;
   doc.transact('Send to Current Layer', () => {
     for (const id of ids) doc.move(id, layerId);
   });
@@ -277,6 +285,35 @@ export function lockSelection(editor) {
 }
 
 /** Unlock everything below the layer level and select what was unlocked. */
+const concealed = new WeakMap();
+
+/**
+ * Whether Unlock All and Show All would find anything: a locked object
+ * outside locked layers, a hidden object outside hidden layers. Worked out
+ * once per document state (menus ask on every open).
+ */
+export function concealedState(doc) {
+  const c = concealed.get(doc);
+  if (c && c.version === doc.nodes.version) return c;
+  const out = { version: doc.nodes.version, locked: false, hidden: false };
+  const visit = (id, lockedLayer, hiddenLayer) => {
+    const n = doc.get(id);
+    if (!n || (out.locked && out.hidden)) return;
+    if (n.type === 'layer') {
+      lockedLayer ||= Boolean(n.locked);
+      hiddenLayer ||= Boolean(n.hidden);
+      if (lockedLayer && hiddenLayer) return;
+    } else {
+      if (n.locked && !lockedLayer) out.locked = true;
+      if (n.hidden && !hiddenLayer) out.hidden = true;
+    }
+    if (n.children) for (const k of n.children) visit(k, lockedLayer, hiddenLayer);
+  };
+  for (const id of doc.root.children) visit(id, false, false);
+  concealed.set(doc, out);
+  return out;
+}
+
 export function unlockAll(editor) {
   const { doc } = editor;
   const out = [];
@@ -295,8 +332,10 @@ export function unlockAll(editor) {
 }
 
 /**
- * Lock Others / Hide Others: everything on unlocked, visible layers that is
- * not part of the selection (top-level objects only).
+ * Lock Others / Hide Others: everything on unlocked, visible layers and
+ * sublayers that is not part of the selection (top-level objects only;
+ * sublayers themselves stay as they are, so Unlock All and Show All bring
+ * their contents back).
  */
 export function lockOrHideOthers(editor, key) {
   const { doc } = editor;
@@ -306,11 +345,16 @@ export function lockOrHideOthers(editor, key) {
   for (const id of sel) for (const a of doc.ancestors(id)) holders.add(a.id);
   const keep = (id) => sel.has(id) || holders.has(id);
   const targets = [];
-  for (const lid of doc.root.children) {
+  const visit = (lid) => {
     const layer = doc.get(lid);
-    if (!layer || layer.locked || layer.hidden) continue;
-    for (const id of layer.children) if (!keep(id) && !doc.get(id)[key]) targets.push(id);
-  }
+    if (!layer || layer.locked || layer.hidden) return;
+    for (const id of layer.children) {
+      const n = doc.get(id);
+      if (n?.type === 'layer') visit(id);
+      else if (n && !keep(id) && !n[key]) targets.push(id);
+    }
+  };
+  for (const lid of doc.root.children) visit(lid);
   if (!targets.length) return;
   doc.transact(key === 'locked' ? 'Lock Others' : 'Hide Others', () => targets.forEach((id) => doc.update(id, { [key]: true })));
 }
@@ -403,13 +447,13 @@ export function makeCompound(editor) {
     doc.insert(c, parent.id, index);
     // Compound paths reverse inner subpaths so holes appear under the non-zero rule.
     const outerSign = Math.sign(signedArea(paths.reduce((a, b) => (Math.abs(signedArea(b.anchors)) > Math.abs(signedArea(a.anchors)) ? b : a)).anchors)) || 1;
-    // Bounds measured once: the containment test compares every pair.
     const bounds = paths.map((p) => nodeBounds(doc, p));
+    const containedByOther = containedFlags(bounds);
     paths.forEach((p, i) => {
       const cur = doc.get(p.id);
       const area = signedArea(cur.anchors);
-      const containedByOther = bounds.some((o, j) => j !== i && contains(o, bounds[i]));
-      if (containedByOther && Math.sign(area) === outerSign) doc.update(p.id, { anchors: reverseAnchors(cur.anchors) });
+      if (containedByOther[i] && Math.sign(area) === outerSign)
+        doc.update(p.id, { anchors: reverseAnchors(cur.anchors) });
       doc.move(p.id, c.id);
       doc.update(p.id, { shape: undefined });
     });
@@ -417,6 +461,68 @@ export function makeCompound(editor) {
     removeEmptyContainers(doc, new Set(paths.map((p) => p.parent)), editor.isolation);
     editor.select([c.id]);
   });
+}
+
+/**
+ * For each box, whether another box contains it. A box that contains b
+ * covers b's center, so each box is compared only with the boxes listed in
+ * the grid cell holding its center (instead of with every other box).
+ */
+export function containedFlags(bounds) {
+  const n = bounds.length;
+  const flags = new Array(n).fill(false);
+  const all = unionBounds(bounds);
+  if (!all) return flags;
+  const side = Math.max(1, Math.ceil(Math.sqrt(n)));
+  const cw = all.w / side || 1;
+  const ch = all.h / side || 1;
+  const col = (x) => Math.max(0, Math.min(side - 1, Math.floor((x - all.x) / cw)));
+  const row = (y) => Math.max(0, Math.min(side - 1, Math.floor((y - all.y) / ch)));
+  const cells = new Map();
+  // Boxes spanning many cells are compared with every box instead (no grid blow-up for nested outlines).
+  const big = [];
+  bounds.forEach((b, j) => {
+    if (!b) return;
+    // (Widened by the containment tolerance, so a box touching a cell edge is listed there.)
+    const r0 = row(b.y - 1e-6);
+    const r1 = row(b.y + b.h + 1e-6);
+    const c0 = col(b.x - 1e-6);
+    const c1 = col(b.x + b.w + 1e-6);
+    if ((r1 - r0 + 1) * (c1 - c0 + 1) > 16) {
+      big.push(j);
+      return;
+    }
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const k = r * side + c;
+        const list = cells.get(k);
+        if (list) list.push(j);
+        else cells.set(k, [j]);
+      }
+    }
+  });
+  bounds.forEach((b, i) => {
+    if (!b) return;
+    const list = cells.get(row(b.y + b.h / 2) * side + col(b.x + b.w / 2)) || [];
+    const inside = (j) => j !== i && contains(bounds[j], b);
+    flags[i] = list.some(inside) || big.some(inside);
+  });
+  return flags;
+}
+
+function unionBounds(list) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const b of list) {
+    if (!b || !Number.isFinite(b.x + b.y + b.w + b.h)) continue;
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w);
+    y1 = Math.max(y1, b.y + b.h);
+  }
+  return x0 <= x1 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
 
 function contains(a, b) {
@@ -541,11 +647,17 @@ export function average(editor, axis = 'both') {
 
 export function reversePaths(editor) {
   const { doc } = editor;
+  // Each path once, even when both it and its compound path are selected.
+  const paths = new Set();
+  for (const id of editor.selection) {
+    const n = doc.get(id);
+    if (n?.type === 'path') paths.add(id);
+    if (n?.type === 'compound') for (const c of n.children) paths.add(c);
+  }
   doc.transact('Reverse Path Direction', () => {
-    for (const id of editor.selection) {
+    for (const id of paths) {
       const n = doc.get(id);
       if (n?.type === 'path') doc.update(id, { anchors: reverseAnchors(n.anchors) });
-      if (n?.type === 'compound') for (const c of n.children) doc.update(c, { anchors: reverseAnchors(doc.get(c).anchors) });
     }
   });
 }

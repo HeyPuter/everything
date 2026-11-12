@@ -172,6 +172,25 @@ describe('DXF export', () => {
     expect(label.char.fontSize).toBeCloseTo(10 * 0.7 * 1.4, 1);
   });
 
+  it('writes type on a path character by character along the path', () => {
+    const doc = VDocument.create({ width: 200, height: 200 });
+    const layer = doc.layers()[0];
+    const path = [{ x: 0, y: 100, ix: 0, iy: 100, ox: 0, oy: 100 }, { x: 100, y: 0, ix: 100, iy: 0, ox: 100, oy: 0 }];
+    doc.transact('x', () => {
+      const t = createText('AB C', 0, 100, { kind: 'path', pathAnchors: path, pathClosed: false, pathOptions: { effect: 'rainbow', align: 'baseline', start: 0 }, char: { ...createText('').char, fontSize: 10 } });
+      doc.insert(t, layer.id);
+    });
+    const { text } = writeDXF(doc, { rect: doc.artboards[0], unit: 'pt' });
+    const { shapes } = convert(text);
+    const texts = shapes.filter((s) => s.type === 'text');
+    // One entity per character (spaces left out), each turned with the path (45 degrees up).
+    expect(texts.map((t) => t.text)).toEqual(['A', 'B', 'C']);
+    for (const t of texts) expect((Math.atan2(t.transform[1], t.transform[0]) * 180) / Math.PI).toBeCloseTo(-45, 3);
+    // The characters follow the path instead of sitting in one straight line at its start.
+    const ys = texts.map((t) => t.transform[5] + t.transform[3] * t.y + t.transform[1] * t.x);
+    expect(ys[2]).toBeLessThan(ys[0] - 5);
+  });
+
   it('writes R12 files with flattened curves and units', () => {
     const doc = sampleDoc();
     const { text } = writeDXF(doc, { rect: doc.artboards[0], version: 'R12', unit: 'mm' });

@@ -263,4 +263,15 @@ describe('PDF structure', () => {
     expect(doc.artboards.map((a) => a.w)).toEqual([50, 70]);
     expect(leaves(doc)).toHaveLength(1);
   });
+
+  it('a page box of absurd size gives an artboard the canvas can show', async () => {
+    const doc = await open(onePage('1 0 0 rg 0 0 50 50 re f', { media: '[0 0 1e30 1e30]' }));
+    const a = doc.artboards[0];
+    expect(Math.max(a.w, a.h)).toBeLessThanOrEqual(1e6);
+    expect(a.w).toBeGreaterThan(0);
+    expect(leaves(doc)).toHaveLength(1);
+    expect(doc.importWarnings.join(' ')).toMatch(/too large for an artboard/);
+    // Ordinary pages are untouched.
+    expect((await open(onePage('0 0 1 1 re f', { media: '[-10 -20 14400 14400]' }))).artboards[0]).toMatchObject({ w: 14410, h: 14420 });
+  });
 });

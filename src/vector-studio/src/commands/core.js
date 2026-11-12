@@ -9,12 +9,73 @@ import { multiply, rotate, scale, shear, translate } from '../lib/matrix.js';
 import { transformNodes, transformPatches, selectionBounds, selectionFrame, frameToDoc, frameMatrix } from '../model/geometry.js';
 import { reflectAcross } from '../tools/transform-tools.js';
 import { createPath } from '../model/nodes.js';
-import { duplicateNodes } from '../ops/layer-ops.js';
+import { addLayerAbove, duplicateNodes, nextLayerName } from '../ops/layer-ops.js';
 
 const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
 const selCount = (n) => (app) => (app.editor?.topSelection().length || 0) >= n;
 const selHas = (pred) => (app) => Boolean(app.editor?.selectedNodes().some(pred));
+/** Select > Same matches a selected object other than a group (a group has nothing to match). */
+const canMatchSame = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canMatchSame', () => {
+    for (const id of e.selection) {
+      const t = e.doc.get(id)?.type;
+      if (t && t !== 'group' && t !== 'layer') return true;
+    }
+    return false;
+  });
+};
+/** Release Clipping Mask needs a selected clipping group, or an object inside one. */
+const canReleaseClip = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canReleaseClip', () =>
+    e.topSelection().some((id) => {
+      for (let n = e.doc.get(id); n; n = n.parent ? e.doc.get(n.parent) : null) {
+        if (n.type === 'group' && n.clip) return true;
+      }
+      return false;
+    }),
+  );
+};
+/** Make Compound Path needs a path among the selected objects (or inside selected groups). */
+const canMakeCompound = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  const hasPath = (n) =>
+    n?.type === 'path' ||
+    (n?.type === 'compound' && n.children.length > 0) ||
+    (n?.type === 'group' && n.children.some((c) => hasPath(e.doc.get(c))));
+  return e.memo('canMakeCompound', () => e.topSelection().some((id) => hasPath(e.doc.get(id))));
+};
+/** Join acts on the open paths among the selected objects. */
+const canJoin = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canJoin', () =>
+    e.topSelection().some((id) => {
+      const n = e.doc.get(id);
+      return n?.type === 'path' && !n.closed;
+    }),
+  );
+};
+/** Average needs two or more selected anchor points. */
+const canAverage = (app) => {
+  const e = app.editor;
+  if (!e?.selection.size) return false;
+  return e.memo('canAverage', () => {
+    let count = 0;
+    for (const id of e.selection) {
+      const n = e.doc.get(id);
+      if (n?.type !== 'path') continue;
+      count += e.anchors.get(id)?.size ?? n.anchors.length;
+      if (count >= 2) return true;
+    }
+    return false;
+  });
+};
 
 /** What Isolate acts on: a selected group, else a single selected object that is not already isolated. */
 function isolateTarget(app) {
@@ -186,15 +247,51 @@ export function registerCoreCommands(app) {
     { id: 'object.group', label: 'Group', shortcut: 'Mod+G', enabled: hasSel, run: () => O.group(ed()) },
     { id: 'object.ungroup', label: 'Ungroup', shortcut: 'Shift+Mod+G', enabled: selHas((n) => n.type === 'group'), run: () => O.ungroup(ed()) },
     { id: 'object.lock', label: 'Lock Selection', shortcut: 'Mod+2', enabled: hasSel, run: () => O.lockSelection(ed()) },
-    { id: 'object.unlockAll', label: 'Unlock All', shortcut: 'Alt+Mod+2', enabled: hasDoc, run: () => O.unlockAll(ed()) },
+    {
+      id: 'object.unlockAll',
+      label: 'Unlock All',
+      shortcut: 'Alt+Mod+2',
+      enabled: (a) => Boolean(a.editor && O.concealedState(a.editor.doc).locked),
+      run: () => O.unlockAll(ed()),
+    },
     { id: 'object.hide', label: 'Hide Selection', shortcut: 'Mod+3', enabled: hasSel, run: () => O.hideSelection(ed()) },
-    { id: 'object.showAll', label: 'Show All', shortcut: 'Alt+Mod+3', enabled: hasDoc, run: () => O.showAll(ed()) },
+    {
+      id: 'object.showAll',
+      label: 'Show All',
+      shortcut: 'Alt+Mod+3',
+      enabled: (a) => Boolean(a.editor && O.concealedState(a.editor.doc).hidden),
+      run: () => O.showAll(ed()),
+    },
     { id: 'object.clipMake', label: 'Make', shortcut: 'Mod+7', enabled: selCount(2), run: () => O.makeClipMask(ed()) },
-    { id: 'object.clipRelease', label: 'Release', shortcut: 'Alt+Mod+7', enabled: hasSel, run: () => O.releaseClipMask(ed()) },
-    { id: 'object.compoundMake', label: 'Make', shortcut: 'Mod+8', enabled: hasSel, run: () => O.makeCompound(ed()) },
+    {
+      id: 'object.clipRelease',
+      label: 'Release',
+      shortcut: 'Alt+Mod+7',
+      enabled: canReleaseClip,
+      run: () => O.releaseClipMask(ed()),
+    },
+    {
+      id: 'object.compoundMake',
+      label: 'Make',
+      shortcut: 'Mod+8',
+      enabled: canMakeCompound,
+      run: () => O.makeCompound(ed()),
+    },
     { id: 'object.compoundRelease', label: 'Release', shortcut: 'Alt+Shift+Mod+8', enabled: selHas((n) => n.type === 'compound'), run: () => O.releaseCompound(ed()) },
-    { id: 'path.join', label: 'Join', shortcut: 'Mod+J', enabled: hasSel, run: () => O.join(ed()) },
-    { id: 'path.average', label: 'Average...', shortcut: 'Alt+Mod+J', enabled: hasSel, run: (a) => a.dialogs.average() },
+    {
+      id: 'path.join',
+      label: 'Join',
+      shortcut: 'Mod+J',
+      enabled: canJoin,
+      run: () => O.join(ed()),
+    },
+    {
+      id: 'path.average',
+      label: 'Average...',
+      shortcut: 'Alt+Mod+J',
+      enabled: canAverage,
+      run: (a) => a.dialogs.average(),
+    },
     { id: 'path.reverse', label: 'Reverse Path Direction', enabled: selHas((n) => n.type === 'path' || n.type === 'compound'), run: () => O.reversePaths(ed()) },
     {
       id: 'object.isolate',
@@ -219,9 +316,14 @@ export function registerCoreCommands(app) {
         const id = ed().isolation;
         ed().isolation = null;
         ed().isolationLeaf = null;
-        // The isolated object ends up selected, unless it was hidden or locked meanwhile (from the Layers panel).
+        // The isolated object ends up selected, unless it was hidden or locked meanwhile (from the Layers panel)
+        // or is a layer (layers are never part of the artwork selection).
         const doc = ed().doc;
-        ed().select(doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id) ? [id] : []);
+        ed().select(
+          doc.has(id) && doc.get(id).type !== 'layer' && !doc.isHidden(id) && !doc.isLocked(id)
+            ? [id]
+            : [],
+        );
         ed().emit('isolation');
         ed().invalidate();
       },
@@ -247,7 +349,7 @@ export function registerCoreCommands(app) {
     ...['fill', 'stroke', 'fillStroke', 'strokeWeight', 'opacity', 'blendMode', 'appearance', 'shape'].map((what) => ({
       id: `select.same.${what}`,
       label: { fill: 'Fill Color', stroke: 'Stroke Color', fillStroke: 'Fill & Stroke', strokeWeight: 'Stroke Weight', opacity: 'Opacity', blendMode: 'Blending Mode', appearance: 'Appearance', shape: 'Shape' }[what],
-      enabled: hasSel,
+      enabled: canMatchSame,
       run: () => SEL.selectSame(ed(), what),
     })),
     ...['sameLayer', 'text', 'clipping', 'stray'].map((what) => ({
@@ -349,7 +451,7 @@ export function registerCoreCommands(app) {
       id: 'path.averageJoin',
       label: 'Average & Join',
       shortcut: 'Alt+Shift+Mod+J',
-      enabled: hasSel,
+      enabled: (a) => canAverage(a) && canJoin(a),
       // One undo step: the nested transactions join this one.
       run: () =>
         ed().doc.transact('Average & Join', () => {
@@ -377,9 +479,8 @@ export function registerCoreCommands(app) {
       enabled: hasDoc,
       run: () => {
         const e = ed();
-        const idx = e.doc.root.children.indexOf(e.doc.layerOf(e.activeLayerId)?.id);
         e.doc.transact('New Layer', () => {
-          const layer = e.doc.addLayer(undefined, idx + 1);
+          const layer = addLayerAbove(e.doc, e.activeLayerId);
           e.activeLayerId = layer.id;
         });
         e.emit('active-layer');
@@ -395,7 +496,7 @@ export function registerCoreCommands(app) {
         const v = await a.dialogs.form({
           title: 'Layer Options',
           fields: [
-            { key: 'name', label: 'Name', type: 'text', value: `Layer ${e.doc.layers().length + 1}` },
+            { key: 'name', label: 'Name', type: 'text', value: nextLayerName(e.doc) },
             { key: 'color', label: 'Color', type: 'color', value: '#4f80ff' },
             { key: 'locked', label: 'Lock', type: 'checkbox', value: false },
             { key: 'hidden', label: 'Hide', type: 'checkbox', value: false },
@@ -403,9 +504,8 @@ export function registerCoreCommands(app) {
           ],
         });
         if (!v) return;
-        const idx = e.doc.root.children.indexOf(e.doc.layerOf(e.activeLayerId)?.id);
         e.doc.transact('New Layer', () => {
-          const layer = e.doc.addLayer(v.name || undefined, idx + 1);
+          const layer = addLayerAbove(e.doc, e.activeLayerId, v.name || undefined);
           e.doc.update(layer.id, { color: v.color, locked: v.locked, hidden: v.hidden, template: v.template });
           e.activeLayerId = layer.id;
         });

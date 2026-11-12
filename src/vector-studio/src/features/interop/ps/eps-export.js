@@ -314,6 +314,8 @@ class Translator {
           const e = eg instanceof PDFDict && a[0] instanceof Name ? eg.get(a[0].name) : null;
           if (e instanceof PDFDict) {
             if ((e.has('ca') && e.get('ca') < 1) || (e.has('CA') && e.get('CA') < 1) || (e.has('BM') && e.name('BM') !== 'Normal')) this.warnings.add('PostScript has no transparency: opacity and blending modes were not kept.');
+            const sm = e.get('SMask');
+            if (sm && !(sm instanceof Name && sm.name === 'None')) this.warnings.add('PostScript has no transparency: opacity masks were not kept, so masked artwork shows in full.');
             if (e.has('LW')) this.emit(`${num(e.get('LW'))} w`);
           }
           break;
@@ -582,7 +584,8 @@ function isGray(rgba) {
 
 /**
  * PostScript text for one region of a document.
- * opts: { rect, ids, level 2|3, colorMode 'rgb'|'cmyk', outlines (Map), title,
+ * opts: { rect, ids, level 2|3, colorMode 'rgb'|'cmyk', outlines (Map),
+ *         outlinesWanted (false: the outlines are only type the standard fonts lack), title,
  *         flatten (flattenSelection options; null keeps transparency out) }
  * Returns { text, warnings }.
  */
@@ -597,7 +600,14 @@ export async function writeEPS(doc, opts = {}) {
     ids = r.ids;
     if (r.failed) pre.push('Some transparent artwork could not be flattened: its opacity and blending modes were not kept.');
   }
-  const { bytes, warnings } = await writePDF(src, [rect], { ids, outlines: opts.outlines, outlinesWanted: Boolean(opts.outlines), title: opts.title, compress: false });
+  const outlinesWanted = opts.outlinesWanted ?? Boolean(opts.outlines);
+  const { bytes, warnings } = await writePDF(src, [rect], {
+    ids,
+    outlines: opts.outlines,
+    outlinesWanted,
+    title: opts.title,
+    compress: false,
+  });
   const out = pdfToPostScript(bytes, { ...opts, title: opts.title || doc.name });
   return { ...out, warnings: [...pre, ...warnings, ...out.warnings] };
 }

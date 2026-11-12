@@ -16,6 +16,7 @@
  */
 import { stackPaints, mapStackPaints } from '../../model/appearance.js';
 import { uid } from '../../lib/ids.js';
+import { moveGradient } from '../../model/gradients.js';
 
 export function swatchesOf(doc) {
   return doc.root.swatches || [];
@@ -35,7 +36,8 @@ export function newSwatchId() {
 
 /** Paint to apply from a swatch: a copy, linked to it when the swatch is global. */
 export function paintFromSwatch(sw) {
-  const p = structuredClone(sw.paint);
+  // A gradient fits whatever it is applied to: end points dragged on another object do not apply.
+  const p = structuredClone(moveGradient(sw.paint));
   if (!p) return null;
   delete p.swatchId;
   if (sw.global && p.type === 'solid') p.swatchId = sw.id;

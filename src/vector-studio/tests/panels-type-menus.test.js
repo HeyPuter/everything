@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
 import { resolveItems } from '../src/ui/menubar.js';
 import { createText } from '../src/model/nodes.js';
-import { paraAt, styleAt } from '../src/model/text-runs.js';
+import { paraAt, styleAt, styledRuns } from '../src/model/text-runs.js';
 import { layoutText } from '../src/model/text-layout.js';
 import { styleLists } from '../src/features/type/text-styles.js';
 import { MENUS } from '../src/ui/menus.js';
@@ -276,6 +276,36 @@ describe('OpenType and Glyphs panel menus', () => {
     await choose(find(panelMenu('openType'), 'Reset OpenType Features'));
     const c = doc.get(id).char;
     expect([c.discretionary, c.figures, c.otPosition, c.stylisticSets]).toEqual([false, 'default', 'default', null]);
+  });
+
+  it('Stylistic Sets turn one set on or off for every character, keeping their other sets', async () => {
+    const a = add('one', { char: { stylisticSets: [1] } });
+    const b = add('two', { char: { stylisticSets: [2] } });
+    app.editor.select([a, b]);
+    const sets = () => find(panelMenu('openType'), 'Stylistic Sets').items;
+    expect(find(sets(), 'Set 3').checked).toBe(false);
+    await choose(find(sets(), 'Set 3'));
+    expect([doc.get(a).char.stylisticSets, doc.get(b).char.stylisticSets]).toEqual([
+      [1, 3],
+      [2, 3],
+    ]);
+    // On for every character: checked, and choosing it again turns it off.
+    expect(find(sets(), 'Set 3').checked).toBe(true);
+    expect(find(sets(), 'Set 1').checked).toBe(false);
+    await choose(find(sets(), 'Set 3'));
+    expect([doc.get(a).char.stylisticSets, doc.get(b).char.stylisticSets]).toEqual([[1], [2]]);
+    // Within one object's selected characters too.
+    const c = add('ab', { char: { stylisticSets: [1] } });
+    doc.transact('Runs', () => doc.update(c, { runs: [{ len: 1 }, { len: 1, stylisticSets: [2] }] }));
+    app.setTool('type');
+    app.tool.editText(c).setSelection(0, 2);
+    await choose(find(sets(), 'Set 4'));
+    expect(styledRuns(doc.get(c)).map((r) => r.style.stylisticSets)).toEqual([
+      [1, 4],
+      [2, 4],
+    ]);
+    expect(find(sets(), 'Clear Stylistic Sets')).toBeTruthy();
+    app.setTool('selection');
   });
 
   it('Glyphs menu filters, zooms and clears recent glyphs', async () => {

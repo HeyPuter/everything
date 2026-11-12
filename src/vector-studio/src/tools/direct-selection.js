@@ -28,7 +28,8 @@ export const directSelectHooks = { instance: null };
  * Feature hooks for objects with their own points (gradient meshes):
  *   pointerDown(tool, e) -> null | { move(e), up(e), cancel(), drawOverlay?(ctx, editor) }
  *     claims the press (dragging a mesh point, selecting a patch)
- *   marquee(tool, rect, add)  refines a marquee selection
+ *   marquee(tool, rect, add, inside)  refines a marquee selection; `rect` bounds the marquee and
+ *                             inside(x, y) tests a document point against it (turned in a rotated view)
  *   hover(tool, e) -> cursor | null   claims the pointer while hovering
  *   doubleClick(tool, e) -> bool      handles a double-click
  *   acceptsAlt: true                  also gets presses with Option held
@@ -166,7 +167,7 @@ export class DirectSelectionTool extends Tool {
       this.hookCursor = false;
       this.setCursor('var(--cursor-direct)');
     }
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), intoCompound: true });
+    const hit = this.hitAt(e);
     const id = hit?.id || null;
     if (editor.hover !== id) {
       editor.hover = id;
@@ -174,9 +175,16 @@ export class DirectSelectionTool extends Tool {
     }
   }
 
+  /** The path or object under the pointer; in isolation mode only the isolated object or what is inside it. */
+  hitAt(e) {
+    const editor = this.editor;
+    const outline = editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath'));
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline, intoCompound: true, filter });
+  }
+
   onPointerDown(e) {
     const editor = this.editor;
-    const doc = editor.doc;
     for (const hook of directSelectionHooks) {
       if (e.alt && !hook.acceptsAlt) continue;
       const handler = hook.pointerDown?.(this, e);
@@ -217,7 +225,7 @@ export class DirectSelectionTool extends Tool {
       this.startHandleDrag(e, ah);
       return;
     }
-    const hit = hitTest(doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' || Boolean(editor.prefs?.get('objectSelectionByPath')), intoCompound: true });
+    const hit = this.hitAt(e);
     if (hit && !hit.children && !hit.anchors && directSelectHooks.instance?.(this, hit, e)) return;
     if (hit) {
       if (hit.type === 'path') {
@@ -431,7 +439,7 @@ export class DirectSelectionTool extends Tool {
       const { r, screen, inside, quad } = marqueeRegion(editor, d);
       if (screen.w > 2 || screen.h > 2) {
         this.selectInRegion((a) => inside(a.x, a.y), r, d.add, true, d.add, quad);
-        for (const hook of directSelectionHooks) hook.marquee?.(this, r, d.add);
+        for (const hook of directSelectionHooks) hook.marquee?.(this, r, d.add, inside);
       }
       this.overlay();
       return;
@@ -463,7 +471,9 @@ export class DirectSelectionTool extends Tool {
       editor.segmentHits = new Map();
     }
     if (!editor.segmentHits) editor.segmentHits = new Map();
-    const hits = marqueeHits(editor.doc, r, { intoCompound: true, quad });
+    const hits = marqueeHits(editor.doc, r, { intoCompound: true, quad }).filter((n) =>
+      editor.inIsolation(n.id),
+    );
     let any = false;
     for (const n of hits) {
       if (n.type === 'path') {
@@ -617,9 +627,16 @@ export class GroupSelectionTool extends Tool {
     this.status();
   }
 
+  /** The object under the pointer; in isolation mode only the isolated object or what is inside it. */
+  hitAt(e) {
+    const editor = this.editor;
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { filter });
+  }
+
   onHover(e) {
     const editor = this.editor;
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3));
+    const hit = this.hitAt(e);
     const id = hit?.id || null;
     if (editor.hover !== id) {
       editor.hover = id;
@@ -629,19 +646,19 @@ export class GroupSelectionTool extends Tool {
 
   onPointerDown(e) {
     const editor = this.editor;
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3));
+    const hit = this.hitAt(e);
     if (!hit) {
       if (!e.shift) editor.clearSelection();
       this.drag = { kind: 'marquee', x0: e.x, y0: e.y, x: e.x, y: e.y, add: e.shift };
       return;
     }
-    // Repeated clicks on the same leaf walk up one group at a time.
+    // Repeated clicks on the same leaf walk up one group at a time, up to an isolated group.
     let target = hit;
     if (this.last && this.last.leaf === hit.id && editor.selection.has(this.last.current)) {
       const cur = editor.doc.get(this.last.current);
       const parent = cur && editor.doc.get(cur.parent);
-      if (parent && parent.type === 'group') target = parent;
-      else target = cur;
+      const up = parent?.type === 'group' && cur.id !== editor.isolation && editor.inIsolation(parent.id);
+      target = up ? parent : cur;
     }
     this.last = { leaf: hit.id, current: target.id };
     editor.select([target.id], { add: e.shift || target !== hit });
@@ -674,10 +691,22 @@ export class GroupSelectionTool extends Tool {
     const editor = this.editor;
     if (d.kind === 'marquee') {
       const { r, opts } = marqueeRegion(editor, d);
-      const hits = marqueeHits(editor.doc, r, opts);
+      const hits = marqueeHits(editor.doc, r, opts).filter((n) => editor.inIsolation(n.id));
       editor.select(hits.map((n) => n.id), d.add ? { toggle: true } : {});
     } else if (d.session) d.session.commit();
     this.overlay();
+  }
+
+  /** Escape, a pointer cancel or a second finger puts a moved selection back. */
+  cancel() {
+    const d = this.drag;
+    this.drag = null;
+    d?.session?.cancel();
+    this.overlay();
+  }
+
+  deactivate() {
+    this.cancel();
   }
 
   drawOverlay(ctx, editor) {

@@ -39,6 +39,13 @@ export function remapIdRefs(node, idMap) {
 }
 
 const HISTORY_LIMIT = 200;
+/**
+ * Node versions the undo history may hold in all (each step keeps the
+ * nodes it changed): Select All edits of a 10,000-object document take
+ * about 5 MB per step, so 200 of them would take a gigabyte. Older steps go
+ * first; the latest one is always kept.
+ */
+const HISTORY_NODE_BUDGET = 500000;
 
 const { get: mapGet, values: mapValues, entries: mapEntries, forEach: mapForEach } = Map.prototype;
 
@@ -494,6 +501,8 @@ export class VDocument extends Emitter {
       last.selectionAfter = this.selection ? this.selection.get() : null;
       last.time = Date.now();
       last.rev = this.revision = this.#nextRevision();
+      this.#justCommitted(last);
+      this.#trimHistory();
       this.emit('transaction', { label: tx.label, before: tx.before, after });
       this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
       this.emit('history');
@@ -512,12 +521,53 @@ export class VDocument extends Emitter {
       rev: this.#nextRevision(),
     };
     this.undoStack.push(record);
-    while (this.undoStack.length > (this.historyLimit || HISTORY_LIMIT)) this.undoStack.shift();
     this.redoStack.length = 0;
+    this.#trimHistory();
     this.revision = record.rev;
+    this.#justCommitted(record);
     this.emit('transaction', { label: tx.label, before: tx.before, after });
     this.emit('change', { ids: tx.changed, structural: tx.structural, commit: true });
     this.emit('history');
+  }
+
+  /** Drop the oldest undo steps beyond the step limit or the node budget (redo steps are gone after a commit). */
+  #trimHistory() {
+    const stack = this.undoStack;
+    while (stack.length > (this.historyLimit || HISTORY_LIMIT)) stack.shift();
+    const budget = this.historyNodeBudget || HISTORY_NODE_BUDGET;
+    let nodes = 0;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      nodes += stack[i].before.size;
+      if (nodes > budget && i < stack.length - 1) {
+        stack.splice(0, i + 1);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Many commands pick what they made just after their transaction ends:
+   * a selection change in the same task as a commit (before any await)
+   * belongs to that step, so Redo restores it.
+   */
+  #fresh = null;
+
+  #freshCount = 0;
+
+  #justCommitted(record) {
+    this.#fresh = record;
+    // (The callback holds a number, not the record, so a dropped step is freed right away.)
+    const n = ++this.#freshCount;
+    queueMicrotask(() => {
+      if (this.#freshCount === n) this.#fresh = null;
+    });
+  }
+
+  /** The editor selection changed (see #justCommitted). */
+  selectionChanged() {
+    const rec = this.#fresh;
+    if (rec && !this.tx && this.selection && this.undoStack[this.undoStack.length - 1] === rec)
+      rec.selectionAfter = this.selection.get();
   }
 
   #cancel(tx) {
@@ -668,6 +718,34 @@ export class VDocument extends Emitter {
     const target = Math.max(0, Math.min(total, n));
     while (this.undoStack.length > target && this.undo());
     while (this.undoStack.length < target && this.redo());
+    return true;
+  }
+
+  /** Make the newest `count` undo steps one step named `label` (a script run, made of several changes). */
+  mergeHistory(count, label) {
+    if (this.tx || count < 1 || count > this.undoStack.length) return false;
+    const recs = this.undoStack.splice(this.undoStack.length - count, count);
+    const first = recs[0];
+    const last = recs[recs.length - 1];
+    const before = new Map();
+    const after = new Map();
+    for (const rec of recs) {
+      for (const [id, node] of rec.before) if (!before.has(id)) before.set(id, node);
+      for (const [id, node] of rec.after) after.set(id, node);
+    }
+    const merged = {
+      ...last,
+      label,
+      before,
+      after,
+      selectionBefore: first.selectionBefore,
+      structural: recs.some((r) => r.structural),
+      prevRev: first.prevRev,
+    };
+    this.undoStack.push(merged);
+    // A selection made later in the same task still belongs to the merged step.
+    if (this.#fresh === last) this.#fresh = merged;
+    this.emit('history');
     return true;
   }
 

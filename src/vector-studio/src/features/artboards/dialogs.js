@@ -3,7 +3,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { numberField, segmented } from '../../ui/widgets.js';
-import { ARTBOARD_PRESETS, presetFor, updateArtboard, rearrangeArtboards, artboardRef, refPoint, rectAtRef, resizeAtRef } from './artboard-ops.js';
+import { ARTBOARD_MAX, ARTBOARD_PRESETS, presetFor, updateArtboard, rearrangeArtboards, artboardRef, refPoint, rectAtRef, resizeAtRef } from './artboard-ops.js';
 import { referencePointGrid } from '../../ui/panels/transform-section.js';
 
 let fid = 0;
@@ -34,10 +34,10 @@ export async function artboardOptionsDialog(app, index) {
   const presetSel = h('select', { id: presetId }, h('option', { value: 'custom' }, 'Custom'), ARTBOARD_PRESETS.map((p) => h('option', { value: p.id }, p.label)));
   // X and Y name the reference point; W, H, presets and orientation resize around it.
   const resize = (w, hgt) => Object.assign(state, resizeAtRef(state, w, hgt));
-  const fw = numberField({ label: 'Width', value: state.w, unit, min: 1, onCommit: (v) => (resize(v, state.h), sync()) });
-  const fh = numberField({ label: 'Height', value: state.h, unit, min: 1, onCommit: (v) => (resize(state.w, v), sync()) });
-  const fx = numberField({ label: 'X', value: state.x, unit, onCommit: (v) => (Object.assign(state, rectAtRef(state.w, state.h, v, refPoint(state).y)), sync()) });
-  const fy = numberField({ label: 'Y', value: state.y, unit, onCommit: (v) => (Object.assign(state, rectAtRef(state.w, state.h, refPoint(state).x, v)), sync()) });
+  const fw = numberField({ label: 'Width', value: state.w, unit, min: 1, max: ARTBOARD_MAX, onCommit: (v) => (resize(v, state.h), sync()) });
+  const fh = numberField({ label: 'Height', value: state.h, unit, min: 1, max: ARTBOARD_MAX, onCommit: (v) => (resize(state.w, v), sync()) });
+  const fx = numberField({ label: 'X', value: state.x, unit, min: -ARTBOARD_MAX, max: ARTBOARD_MAX, onCommit: (v) => (Object.assign(state, rectAtRef(state.w, state.h, v, refPoint(state).y)), sync()) });
+  const fy = numberField({ label: 'Y', value: state.y, unit, min: -ARTBOARD_MAX, max: ARTBOARD_MAX, onCommit: (v) => (Object.assign(state, rectAtRef(state.w, state.h, refPoint(state).x, v)), sync()) });
   const ref = referencePointGrid(artboardRef.index, (i) => {
     artboardRef.index = i;
     sync();

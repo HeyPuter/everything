@@ -12,7 +12,6 @@
  */
 import './styles.css';
 import { drawHooks, tracePath } from '../../render/draw.js';
-import { pathLength } from '../../model/bezier.js';
 import { applyStyle, commonStyle } from '../../ops/paint-ops.js';
 import { registerPaintIcons } from './icons.js';
 import { ColorPanel } from './color-panel.js';
@@ -27,7 +26,7 @@ import { AppearancePanel, GraphicStylesPanel, graphicStyleLibraryMenu } from './
 import { GradientTool } from './gradient-tool.js';
 import { registerEffectCommands } from './effects-ui.js';
 import { registerEditColorCommands } from './edit-colors-ui.js';
-import { nodeArrowheads, arrowTrim, trimAnchors, alignedDash } from './stroke-geometry.js';
+import { nodeArrowheads, arrowTrim, trimAnchors, cornerAlignedDash } from './stroke-geometry.js';
 import { setFocusedColor, displayColor } from './ui-common.js';
 import { isGradient } from '../../model/gradients.js';
 import { installRecentColors } from './recent-colors.js';
@@ -72,7 +71,7 @@ export function dashPattern(node) {
   if (node.dashAlign !== 'corners' || !node.dash || !node.dash.length || node.type !== 'path') return null;
   let hit = dashCache.get(node);
   if (hit === undefined) {
-    hit = alignedDash(node.dash, pathLength(strokeAnchors(node), node.closed), node.closed);
+    hit = cornerAlignedDash(node.dash, strokeAnchors(node), node.closed);
     dashCache.set(node, hit);
   }
   return hit;

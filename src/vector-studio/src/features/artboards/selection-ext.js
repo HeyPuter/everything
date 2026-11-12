@@ -15,8 +15,6 @@ import { shapePathOf } from '../../render/draw.js';
 import { nodeBounds } from '../../model/geometry.js';
 import { multiply } from '../../lib/matrix.js';
 import { setKeyObject } from './align-panel.js';
-import { blendHit } from './blend.js';
-import { tol } from '../../tools/tool.js';
 
 /** Index of the guide within `px` screen pixels of a screen point, or -1. */
 export function guideAt(editor, sx, sy, px = 3) {
@@ -52,14 +50,6 @@ function wrap(proto, name, wrapper) {
 
 export function installSelectionExtensions(app) {
   const proto = SelectionTool.prototype;
-
-  // Clicking a generated blend step selects the blend.
-  wrap(proto, 'hitAt', (orig) =>
-    function hitAt(e) {
-      const ed = this.editor;
-      return orig.call(this, e) || blendHit(ed.doc, e.x, e.y, tol(ed, 3), { outline: ed.viewOptions.mode === 'outline' });
-    },
-  );
 
   wrap(proto, 'onHover', (orig) =>
     function onHover(e) {

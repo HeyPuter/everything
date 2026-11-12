@@ -192,6 +192,25 @@ describe('EPS export', () => {
     expect(warnings.join(' ')).toMatch(/no transparency/);
   });
 
+  it('ignores a bounding box of absurd size', () => {
+    const ps = (box) => enc(`%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: ${box}\n0 0 moveto 10 10 lineto stroke\n`);
+    expect(dscInfo(ps('0 0 1e30 1e30')).bbox).toBeNull();
+    expect(dscInfo(ps('0 0 999999999999 20')).bbox).toBeNull();
+    expect(dscInfo(ps('-10 0 14400 300')).bbox).toEqual({ x: -10, y: 0, w: 14410, h: 300 });
+    expect(interpretEPS(ps('0 0 1e30 1e30'), { families: FAMILIES }).bbox).toEqual({ x: 0, y: 0, w: 612, h: 792 });
+  });
+
+  it('reports opacity masks it cannot keep', async () => {
+    const doc = sampleDoc();
+    const id = doc.layers()[0].children[0];
+    const m = createPath(rectangle(0, 0, 10, 10), true, { fill: { type: 'solid', color: '#808080' }, stroke: null });
+    doc.transact('m', () => doc.update(id, { opacityMask: { art: { root: m.id, nodes: [m] }, transform: [1, 0, 0, 1, 0, 0], clip: true } }));
+    const { warnings } = await writeEPS(doc, { rect: doc.artboards[0] });
+    expect(warnings.join(' ')).toMatch(/opacity masks were not kept/);
+    // Without a mask there is nothing to report.
+    expect((await writeEPS(sampleDoc(), { rect: doc.artboards[0] })).warnings.join(' ')).not.toMatch(/masks/);
+  });
+
   it('wraps a TIFF preview in a binary EPS header', () => {
     const tiff = Uint8Array.from([0x49, 0x49, 42, 0, 1, 2, 3]);
     const bin = dosEPS('%!PS\n', tiff);

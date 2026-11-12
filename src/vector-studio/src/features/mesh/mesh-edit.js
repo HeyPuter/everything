@@ -234,17 +234,20 @@ export function directPointerDown(tool, e) {
   return pointDrag(editor, under, corners[0], e);
 }
 
-/** Marquee with Direct Selection: mesh points inside the rectangle. */
-export function directMarquee(tool, r, add) {
+/** Marquee with Direct Selection: mesh points inside it (`inside`, else the rectangle `r`). */
+export function directMarquee(tool, r, add, inside = null) {
+  const within = inside || ((x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
   const editor = tool.editor;
   for (const id of [...editor.selection]) {
     const n = editor.doc.get(id);
     if (!isMesh(n)) continue;
-    const inside = [];
+    const picked = [];
     n.points.forEach((p, k) => {
-      if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) inside.push(k);
+      if (within(p.x, p.y)) picked.push(k);
     });
-    if (inside.length && inside.length < n.points.length) selectMeshPoints(editor, id, inside, { add: true, toggle: add });
+    if (picked.length && picked.length < n.points.length) {
+      selectMeshPoints(editor, id, picked, { add: true, toggle: add });
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { bootApp } from './helpers.js';
+import { bootApp, bootAppWithFeatures } from './helpers.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 
@@ -7,7 +7,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('Command errors', () => {
   it('shows expected validation messages without logging them as errors', async () => {
-    const app = bootApp();
+    const app = await bootAppWithFeatures();
     app.newDocument();
     const doc = app.editor.doc;
     const n = createPath(rectangle(0, 0, 10, 10), true);
@@ -16,8 +16,9 @@ describe('Command errors', () => {
     const notes = [];
     app.notify = (m, o) => notes.push([m, o?.error]);
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    await app.commands.run('path.join');
-    expect(notes).toEqual([['Select an open path or two open endpoints to join.', true]]);
+    // A lone rectangle: nothing else in the document matches it.
+    await app.commands.run('select.globalEdit');
+    expect(notes).toEqual([['No other objects match the selected object.', true]]);
     expect(err).not.toHaveBeenCalled();
   });
 

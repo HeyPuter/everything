@@ -24,7 +24,7 @@
  * redraws cost nothing until a key object changes.
  */
 import { registerLive } from '../../model/live.js';
-import { insertAnchor, segmentCount, segmentPoints, cubicLength } from '../../model/bezier.js';
+import { segmentCount, segmentPoints, cubicLength, split } from '../../model/bezier.js';
 import { nodeBounds, transformPatches } from '../../model/geometry.js';
 import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
 import { multiply, scale, translate, rotate } from '../../lib/matrix.js';
@@ -64,21 +64,101 @@ export function easeT(t, easing = 'linear', amount = 0.5) {
 /** Split the longest segments of an anchor list until it has `count` anchors. */
 export function subdivideTo(anchors, closed, count) {
   let out = anchors;
-  while (out.length < count && segmentCount(out, closed) > 0) {
-    let best = 0;
-    let bestLen = -1;
-    const n = segmentCount(out, closed);
-    for (let i = 0; i < n; i++) {
-      const len = cubicLength(segmentPoints(out, i), 0.5);
-      if (len > bestLen) {
-        bestLen = len;
-        best = i;
-      }
-    }
-    out = insertAnchor(out, closed, best, 0.5);
-  }
+  const segs = segmentCount(anchors, closed);
+  if (out.length < count && segs > 0)
+    out = splitLongest(anchors, closed, segs, count - anchors.length);
   // Degenerate single-point paths: repeat the point.
   while (out.length < count) out = [...out, { ...out[out.length - 1] }];
+  return out;
+}
+
+const isLineSeg = (c) =>
+  Math.abs(c[2] - c[0]) < 1e-9 &&
+  Math.abs(c[3] - c[1]) < 1e-9 &&
+  Math.abs(c[4] - c[6]) < 1e-9 &&
+  Math.abs(c[5] - c[7]) < 1e-9;
+
+/**
+ * Split segments in half `extra` times, always the longest one (the first on ties), as
+ * repeated insertAnchor(longest, 0.5) would, but with a heap so dense paths stay fast.
+ * Each piece is { c, len, seg, lo, hi }: its cubic, length, segment and place in it.
+ */
+function splitLongest(anchors, closed, segs, extra) {
+  const before = (a, b) =>
+    a.len > b.len || (a.len === b.len && (a.seg < b.seg || (a.seg === b.seg && a.lo < b.lo)));
+  const heap = [];
+  const push = (p) => {
+    let i = heap.push(p) - 1;
+    while (i > 0) {
+      const up = (i - 1) >> 1;
+      if (!before(heap[i], heap[up])) break;
+      [heap[i], heap[up]] = [heap[up], heap[i]];
+      i = up;
+    }
+  };
+  const pop = () => {
+    const top = heap[0];
+    const last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < heap.length && before(heap[l], heap[m])) m = l;
+        if (r < heap.length && before(heap[r], heap[m])) m = r;
+        if (m === i) break;
+        [heap[i], heap[m]] = [heap[m], heap[i]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  const piece = (c, seg, lo, hi) => ({ c, len: cubicLength(c, 0.5), seg, lo, hi });
+  for (let i = 0; i < segs; i++) push(piece(segmentPoints(anchors, i), i, 0, 1));
+  for (let k = 0; k < extra; k++) {
+    const p = pop();
+    const [l, r] = split(p.c, 0.5);
+    if (isLineSeg(p.c)) {
+      // A straight segment's new anchor has no handles.
+      l[4] = l[6];
+      l[5] = l[7];
+      r[2] = r[0];
+      r[3] = r[1];
+    }
+    const mid = (p.lo + p.hi) / 2;
+    push(piece(l, p.seg, p.lo, mid));
+    push(piece(r, p.seg, mid, p.hi));
+  }
+  const done = heap.sort((a, b) => a.seg - b.seg || a.lo - b.lo);
+  const out = [];
+  const at = [];
+  let j = 0;
+  for (let i = 0; i < anchors.length; i++) {
+    at.push(out.length);
+    const a = { ...anchors[i] };
+    out.push(a);
+    if (i >= segs) continue;
+    const first = j;
+    while (j < done.length && done[j].seg === i) j++;
+    a.ox = done[first].c[2];
+    a.oy = done[first].c[3];
+    for (let q = first + 1; q < j; q++) {
+      const c = done[q].c;
+      const p = done[q - 1].c;
+      out.push({ x: c[0], y: c[1], ix: p[4], iy: p[5], ox: c[2], oy: c[3] });
+    }
+  }
+  // Each segment's last piece sets the in handle of the anchor it ends at.
+  j = 0;
+  for (let i = 0; i < segs; i++) {
+    while (j + 1 < done.length && done[j + 1].seg === i) j++;
+    const end = out[at[(i + 1) % anchors.length]];
+    end.ix = done[j].c[4];
+    end.iy = done[j].c[5];
+    j++;
+  }
   return out;
 }
 
@@ -106,26 +186,111 @@ export function matchAnchors(a, closedA, b, closedB) {
   const n = Math.max(a.length, b.length);
   let A = subdivideTo(a, closedA, n);
   let B = subdivideTo(b, closedB, n);
-  if (closedA && closedB && n > 1) {
-    const ca = centroid(A);
-    const cb = centroid(B);
-    let best = 0;
-    let bestD = Infinity;
-    for (let k = 0; k < n; k++) {
-      let d = 0;
-      for (let i = 0; i < n; i++) {
-        const p = A[i];
-        const q = B[(i + k) % n];
-        d += (p.x - ca.x - (q.x - cb.x)) ** 2 + (p.y - ca.y - (q.y - cb.y)) ** 2;
-      }
-      if (d < bestD - 1e-9) {
-        bestD = d;
-        best = k;
+  if (closedA && closedB && n > 1) B = rotateList(B, bestRotation(A, B));
+  return [A, B];
+}
+
+/**
+ * The start index k for B that best matches A (least squared distance between
+ * A[i] and B[i + k] relative to their centers; the first k on ties). Dense
+ * paths score every k at once by FFT and check the near-best ones exactly.
+ */
+function bestRotation(A, B) {
+  const n = A.length;
+  const ca = centroid(A);
+  const cb = centroid(B);
+  const cost = (k) => {
+    let d = 0;
+    for (let i = 0; i < n; i++) {
+      const p = A[i];
+      const q = B[(i + k) % n];
+      d += (p.x - ca.x - (q.x - cb.x)) ** 2 + (p.y - ca.y - (q.y - cb.y)) ** 2;
+    }
+    return d;
+  };
+  let ks = null;
+  if (n > 512) {
+    // d(k) = sum |u|^2 + sum |v|^2 - 2 Re sum conj(u_i) v_(i+k): one circular correlation.
+    let N = 1;
+    while (N < 2 * n) N *= 2;
+    const ur = new Float64Array(N);
+    const ui = new Float64Array(N);
+    const vr = new Float64Array(N);
+    const vi = new Float64Array(N);
+    let su = 0;
+    for (let i = 0; i < n; i++) {
+      ur[i] = A[i].x - ca.x;
+      ui[i] = A[i].y - ca.y;
+      const x = B[i].x - cb.x;
+      const y = B[i].y - cb.y;
+      vr[i] = vr[i + n] = x;
+      vi[i] = vi[i + n] = y;
+      su += ur[i] ** 2 + ui[i] ** 2 + x * x + y * y;
+    }
+    fft(ur, ui, false);
+    fft(vr, vi, false);
+    for (let i = 0; i < N; i++) {
+      // conj(U) * V
+      const r = ur[i] * vr[i] + ui[i] * vi[i];
+      const m = ur[i] * vi[i] - ui[i] * vr[i];
+      ur[i] = r;
+      ui[i] = m;
+    }
+    fft(ur, ui, true);
+    const approx = new Float64Array(n);
+    let lo = Infinity;
+    for (let k = 0; k < n; k++) lo = Math.min(lo, (approx[k] = su - (2 * ur[k]) / N));
+    const slack = 1e-9 * su + 1e-9;
+    ks = [];
+    for (let k = 0; k < n && ks.length < 64; k++) if (approx[k] <= lo + slack) ks.push(k);
+  }
+  let best = 0;
+  let bestD = Infinity;
+  for (let j = 0, m = ks ? ks.length : n; j < m; j++) {
+    const k = ks ? ks[j] : j;
+    const d = cost(k);
+    if (d < bestD - 1e-9) {
+      bestD = d;
+      best = k;
+    }
+  }
+  return best;
+}
+
+/** In-place radix-2 FFT of (re, im); `inverse` leaves the result unscaled. */
+function fft(re, im, inverse) {
+  const N = re.length;
+  for (let i = 1, j = 0; i < N; i++) {
+    let bit = N >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= N; len <<= 1) {
+    const ang = ((inverse ? 2 : -2) * Math.PI) / len;
+    const wr = Math.cos(ang);
+    const wi = Math.sin(ang);
+    for (let i = 0; i < N; i += len) {
+      let cr = 1;
+      let ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k;
+        const b = a + len / 2;
+        const xr = re[b] * cr - im[b] * ci;
+        const xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr;
+        im[b] = im[a] - xi;
+        re[a] += xr;
+        im[a] += xi;
+        const t = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr;
+        cr = t;
       }
     }
-    B = rotateList(B, best);
   }
-  return [A, B];
 }
 
 // Matched anchor lists per pair of anchor arrays (nodes are immutable): every step between two

@@ -8,11 +8,13 @@
 import { DEFAULT_CHAR, DEFAULT_PARA, NEW_PARA } from '../../model/nodes.js';
 import {
   rangeStyle,
+  styledRuns,
+  baseStyle,
   applyRunStyle,
   wholeStylePatch,
   paraStylePatch,
   rangeParaStyle,
-  paragraphIndexAt,
+  selectedParagraphs,
   paragraphRanges,
   replaceRange,
   RUN_KEYS,
@@ -91,7 +93,7 @@ export function currentParaStyle(app) {
     const node = s.node();
     if (!node) return null;
     const [a, b] = s.range();
-    return rangeParaStyle(node, paragraphIndexAt(node.text, a), paragraphIndexAt(node.text, b));
+    return rangeParaStyle(node, ...selectedParagraphs(node.text, a, b));
   }
   const ed = app.editor;
   const nodes = ed ? storyNodes(ed) : [];
@@ -151,6 +153,79 @@ export function applyCharStyle(app, patch, { label = 'Character', coalesce = nul
   app.dock?.update();
 }
 
+/** Runs of a node after stepping `key` of every character in [a, b) from its own value. */
+function steppedRuns(node, a, b, key, step) {
+  let cur = node;
+  for (const r of styledRuns(node)) {
+    const s = Math.max(a, r.start);
+    const e = Math.min(b, r.end);
+    if (e > s) cur = { ...cur, runs: applyRunStyle(cur, s, e, { [key]: step(r.style[key], r.style) }) };
+  }
+  return cur.runs;
+}
+
+/**
+ * Step a numeric character attribute (size, leading, tracking, baseline
+ * shift) of the current text: `step(value, style)` gives the new value.
+ * Characters with different values each step from their own, so a bigger
+ * headline word stays bigger than the rest instead of everything taking
+ * one size.
+ */
+export function stepCharStyle(app, key, step, { label = 'Character', coalesce = null } = {}) {
+  const s = session(app);
+  const ed = app.editor;
+  if (s) {
+    const node = s.node();
+    if (!node) return;
+    const [a, b] = s.range();
+    if (a === b) {
+      const cur = currentCharStyle(app);
+      applyCharStyle(app, { [key]: step(cur[key], cur) }, { label, coalesce });
+      return;
+    }
+    ed.doc.transact(label, () => ed.doc.update(node.id, { runs: steppedRuns(node, a, b, key, step) }), { coalesce });
+    s.changed();
+    return;
+  }
+  const nodes = ed ? storyNodes(ed) : [];
+  if (!nodes.length) {
+    const cur = currentCharStyle(app);
+    applyCharStyle(app, { [key]: step(cur[key], cur) }, { label, coalesce });
+    return;
+  }
+  ed.doc.transact(
+    label,
+    () => {
+      for (const n of nodes) {
+        const cur = ed.doc.get(n.id);
+        const values = new Set(styledRuns(cur).map((r) => step(r.style[key], r.style)));
+        // One resulting value becomes the object's own; otherwise each run keeps its step.
+        if (values.size === 1) ed.doc.update(n.id, wholeStylePatch(cur, { [key]: [...values][0] }));
+        else ed.doc.update(n.id, { runs: steppedRuns(cur, 0, cur.text.length, key, step) });
+      }
+    },
+    { coalesce },
+  );
+}
+
+/** Every distinct value of a character attribute in the current text (the selection, the selected objects, or new type). */
+export function charValues(app, key) {
+  const s = session(app);
+  const ed = app.editor;
+  const runsIn = (node, a, b) => styledRuns(node).filter((r) => r.end > a && r.start < b);
+  if (s) {
+    const node = s.node();
+    if (!node) return [];
+    const [a, b] = s.range();
+    if (a < b) return runsIn(node, a, b).map((r) => r.style[key]);
+  } else {
+    const nodes = ed ? storyNodes(ed) : [];
+    if (nodes.length) return nodes.flatMap((n) => (n.text.length ? runsIn(n, 0, n.text.length) : [{ style: baseStyle(n) }]).map((r) => r.style[key]));
+  }
+  const cur = currentCharStyle(app);
+  return cur ? [cur[key]] : [];
+}
+
 /** Apply a paragraph patch to the paragraphs of the current text. */
 export function applyParaStyle(app, patch, { label = 'Paragraph', coalesce = null } = {}) {
   const s = session(app);
@@ -159,8 +234,7 @@ export function applyParaStyle(app, patch, { label = 'Paragraph', coalesce = nul
     const node = s.node();
     if (!node) return;
     const [a, b] = s.range();
-    const p0 = paragraphIndexAt(node.text, a);
-    const p1 = paragraphIndexAt(node.text, b);
+    const [p0, p1] = selectedParagraphs(node.text, a, b);
     ed.doc.transact(label, () => ed.doc.update(node.id, paraStylePatch(node, p0, p1, patch)), { coalesce });
     s.changed();
     return;

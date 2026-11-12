@@ -17,7 +17,7 @@
  */
 import { textHooks, invalidateTextLayout } from '../../model/text-layout.js';
 import { clearGeometryCache } from '../../model/geometry.js';
-import { otFontFor, fontEvents, familyInfo, nearestFace } from './fonts.js';
+import { otFontFor, otFontIfReady, fontEvents, familyInfo, nearestFace } from './fonts.js';
 import { needsShaping, featureTags } from './feature-settings.js';
 
 export { needsShaping, featureTags, ssTag, cssFeatureSettings } from './feature-settings.js';
@@ -55,7 +55,9 @@ export function shapingFont(st) {
   otFontFor(st)
     .catch(() => null)
     .then((font) => {
-      fonts.set(key, font || null);
+      // A face that failed to download is asked for again by the next layout (after the retry delay).
+      if (font || otFontIfReady(st) !== undefined) fonts.set(key, font || null);
+      else fonts.delete(key);
       if (font) refreshLayouts();
       pending--;
       if (!pending) {

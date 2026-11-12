@@ -13,6 +13,7 @@ import { withProgress } from '../io/progress.js';
 import { placeImported, reportWarnings } from '../io/place.js';
 import { exportRegion, renderRegion } from '../io/raster.js';
 import { collectTextOutlines } from '../io/outlines.js';
+import { textBeyondStandardFonts } from '../io/pdf.js';
 import { bytesToDataUrl, dataUrlToBytes, imageSize, sniffMime } from '../io/image-info.js';
 import { createZip } from '../io/zip.js';
 import { safeFileName } from '../io/deliver.js';
@@ -357,9 +358,17 @@ async function flattenSettings(app, doc, ids, name) {
   return opts;
 }
 
-async function outlinesFor(app, doc, ids, wanted, { images = false } = {}) {
-  if (!wanted || !app.textOutlines) return null;
-  const map = await collectTextOutlines(app, doc, ids || doc.root.children, { images });
+/**
+ * Text outlines Map for a region. EPS text kept as text is written with the
+ * standard fonts, which have only Western characters: with `standardFonts`,
+ * type with other characters is outlined anyway.
+ */
+async function outlinesFor(app, doc, ids, wanted, { images = false, standardFonts = false } = {}) {
+  if (!app.textOutlines) return null;
+  const roots = ids || doc.root.children;
+  const pick = wanted ? roots : standardFonts ? textBeyondStandardFonts(doc, roots) : [];
+  if (!pick.length) return null;
+  const map = await collectTextOutlines(app, doc, pick, { images });
   return map.size ? map : null;
 }
 
@@ -374,9 +383,22 @@ export async function renderExport(app, key, editor, region, options = {}) {
   const { rect, ids } = exportRegion(editor, region.rects ? { rect: region.rects[0] } : region);
   if (!rect || !(rect.w > 0) || !(rect.h > 0)) throw new UserError('There is nothing to export.');
   if (key === 'eps') {
-    const outlines = await outlinesFor(app, doc, ids, options.textOutlines !== false, { images: true });
+    const wanted = options.textOutlines !== false;
+    const outlines = await outlinesFor(app, doc, ids, wanted, {
+      images: true,
+      standardFonts: true,
+    });
     const flatten = await flattenSettings(app, doc, ids, options.flattener);
-    const { text, warnings } = await writeEPS(doc, { rect, ids, level: options.level, colorMode: options.colorMode, outlines, title: options.title, flatten });
+    const { text, warnings } = await writeEPS(doc, {
+      rect,
+      ids,
+      level: options.level,
+      colorMode: options.colorMode,
+      outlines,
+      outlinesWanted: wanted && Boolean(app.textOutlines),
+      title: options.title,
+      flatten,
+    });
     if (warnings.length) app.notify?.([...new Set(warnings)].join(' '), { timeout: 6000 });
     if (options.preview === 'tiff') {
       try {

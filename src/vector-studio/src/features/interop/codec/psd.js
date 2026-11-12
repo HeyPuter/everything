@@ -6,6 +6,7 @@
  * as the composite's transparency.
  */
 import { cmykEngine } from '../../../lib/color.js';
+import { imageSizeOk } from './limits.js';
 
 export function isPSD(b) {
   return b.length > 26 && b[0] === 0x38 && b[1] === 0x42 && b[2] === 0x50 && b[3] === 0x53;
@@ -38,7 +39,9 @@ export function decodePSD(bytes) {
   const width = dv.getUint32(18);
   const depth = dv.getUint16(22);
   const mode = dv.getUint16(24);
-  if (!width || !height || width * height > 2e8) throw new Error('The PSD image size is not valid.');
+  if (!width || !height) throw new Error('The PSD image size is not valid.');
+  if (!imageSizeOk(width, height)) throw new Error(`The PSD image is too large to import (${width} x ${height} pixels).`);
+  if (![1, 8, 16, 32].includes(depth) || !(channels >= 1 && channels <= 56)) throw new Error('The PSD file is damaged or uses an unsupported format.');
   let p = 26;
   const cmLen = dv.getUint32(p);
   const colorData = bytes.subarray(p + 4, p + 4 + cmLen);
@@ -75,16 +78,21 @@ export function decodePSD(bytes) {
   const bpc = depth === 1 ? 1 : depth / 8;
   const rowBytes = depth === 1 ? Math.ceil(width / 8) : width * bpc;
   const planes = [];
+  const damaged = () => new Error('The PSD file is damaged or incomplete.');
   if (compression === 0) {
+    if (p + rowBytes * height * channels > bytes.length) throw damaged();
     for (let c = 0; c < channels; c++) {
       planes.push(bytes.subarray(p, p + rowBytes * height));
       p += rowBytes * height;
     }
   } else if (compression === 1) {
     const countSize = psb ? 4 : 2;
+    if (p + channels * height * countSize > bytes.length) throw damaged();
     const counts = [];
-    for (let i = 0; i < channels * height; i++) counts.push(countSize === 4 ? dv.getUint32(p + i * 4) : dv.getUint16(p + i * 2));
+    let total = 0;
+    for (let i = 0; i < channels * height; i++) total += counts[i] = countSize === 4 ? dv.getUint32(p + i * 4) : dv.getUint16(p + i * 2);
     p += channels * height * countSize;
+    if (p + total > bytes.length) throw damaged();
     let k = 0;
     for (let c = 0; c < channels; c++) {
       const plane = new Uint8Array(rowBytes * height);

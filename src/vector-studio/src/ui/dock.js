@@ -402,10 +402,10 @@ export function createDock(app) {
     showTab(nextDock.includes(active) ? active : nextDock.includes(activeTab) ? activeTab : nextDock[0]);
   }
 
-  function showTab(id) {
+  function showTab(id, { remember = true } = {}) {
     if (!dockIds.includes(id)) return;
     activeTab = id;
-    app.prefs.set('dockTab', id);
+    if (remember) app.prefs.set('dockTab', id);
     for (const did of dockIds) {
       const p = panels.get(did);
       const on = did === id;
@@ -466,7 +466,10 @@ export function createDock(app) {
   });
 
   function start() {
-    showTab(dockIds.includes(activeTab) ? activeTab : dockIds[0]);
+    // A remembered tab that is not in the standard dock (a saved workspace's
+    // tab, restored once it is applied) stays remembered.
+    if (dockIds.includes(activeTab)) showTab(activeTab);
+    else showTab(dockIds[0], { remember: false });
   }
 
   return {

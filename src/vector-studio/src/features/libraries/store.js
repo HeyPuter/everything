@@ -21,6 +21,7 @@
  */
 import { puterBackend, opfsBackend, opfsAvailable, memoryBackend } from '../files/backends.js';
 import { uid } from '../../lib/ids.js';
+import { repairNode } from '../files/format.js';
 
 export const ITEM_KINDS = ['color', 'gradient', 'graphic', 'characterStyle', 'paragraphStyle', 'graphicStyle', 'text'];
 
@@ -38,16 +39,126 @@ export function newLibrary(name) {
   return { format: 'vector-studio-library', version: 1, id: uid('lib'), name, modified: Date.now(), items: [] };
 }
 
-/** A clean library object from parsed JSON, or null when it is not one. */
-export function normalizeLibrary(data) {
+const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A subtree ({ root, nodes }, first node the root) repaired as opening a
+ * file repairs nodes: nodes without an id or type are dropped, child lists
+ * keep only nodes of the subtree (each node in one place), nodes nothing
+ * reaches are left out. Returns { sub, repaired } or null when the root is
+ * unusable.
+ */
+function repairSubtree(sub) {
+  if (!isObject(sub) || !Array.isArray(sub.nodes)) return null;
+  const byId = new Map();
+  let repaired = false;
+  for (const n of sub.nodes) {
+    const usable = isObject(n) && typeof n.id === 'string' && typeof n.type === 'string';
+    if (!usable || n.type === 'root' || byId.has(n.id)) {
+      repaired = true;
+      continue;
+    }
+    const fixed = repairNode(n);
+    if (fixed !== n) repaired = true;
+    byId.set(n.id, fixed);
+  }
+  const first = sub.nodes[0];
+  const root = isObject(first) ? byId.get(first.id) : null;
+  if (!root) return null;
+  const nodes = [];
+  const seen = new Set([root.id]);
+  const visit = (n, parent) => {
+    let out = parent && n.parent !== parent ? { ...n, parent } : n;
+    if (Array.isArray(n.children)) {
+      const kids = [];
+      for (const c of n.children) {
+        if (typeof c !== 'string' || !byId.has(c) || seen.has(c)) continue;
+        seen.add(c);
+        kids.push(c);
+      }
+      if (kids.length !== n.children.length) {
+        repaired = true;
+        out = { ...out, children: kids };
+      }
+      nodes.push(out);
+      for (const c of kids) visit(byId.get(c), n.id);
+    } else nodes.push(out);
+  };
+  visit(root, null);
+  if (nodes.length !== sub.nodes.length) repaired = true;
+  return { sub: { ...sub, root: root.id, nodes }, repaired };
+}
+
+/**
+ * A library graphic's data repaired so placing it only adds sound objects
+ * (repairable damage is repaired, unusable artwork left out), or null when
+ * nothing usable is left. `stats.repaired` counts repaired graphics.
+ */
+export function repairGraphic(data, stats = {}) {
+  if (!Array.isArray(data.items)) return null;
+  let repaired = false;
+  const items = [];
+  for (const it of data.items) {
+    const r = repairSubtree(it);
+    if (!r || r.repaired) repaired = true;
+    if (r) items.push(r.sub);
+  }
+  if (!items.length) return null;
+  const out = { ...data, items };
+  if (data.symbols !== undefined) {
+    // Symbol definitions the instances use: one that cannot be used would break them all.
+    if (!Array.isArray(data.symbols)) return null;
+    const symbols = [];
+    for (const sym of data.symbols) {
+      const r = repairSubtree(sym);
+      if (!r || r.sub.nodes[0].type !== 'group' || !isObject(r.sub.nodes[0].symbolDef)) return null;
+      if (r.repaired) repaired = true;
+      symbols.push(r.sub);
+    }
+    out.symbols = symbols;
+  }
+  if (data.assets !== undefined) {
+    const assets = {};
+    for (const [id, a] of Object.entries(isObject(data.assets) ? data.assets : {})) {
+      if (isObject(a) && typeof a.data === 'string') assets[id] = a;
+    }
+    if (Object.keys(assets).length !== Object.keys(data.assets || {}).length) repaired = true;
+    out.assets = assets;
+  }
+  if (repaired) stats.repaired = (stats.repaired || 0) + 1;
+  return out;
+}
+
+/**
+ * A clean library object from parsed JSON, or null when it is not one.
+ * Damaged graphics are repaired or left out; `stats` counts them
+ * ({ repaired, skipped }).
+ */
+export function normalizeLibrary(data, stats = {}) {
   if (!data || typeof data !== 'object' || !Array.isArray(data.items)) return null;
+  const items = [];
+  for (const it of data.items) {
+    if (!it || !ITEM_KINDS.includes(it.kind) || !isObject(it.data)) continue;
+    const itemData = it.kind === 'graphic' ? repairGraphic(it.data, stats) : it.data;
+    if (!itemData) {
+      stats.skipped = (stats.skipped || 0) + 1;
+      continue;
+    }
+    items.push({
+      id: String(it.id || uid('li')),
+      kind: it.kind,
+      name: String(it.name || '').slice(0, 200),
+      data: itemData,
+      ...(typeof it.thumb === 'string' ? { thumb: it.thumb } : {}),
+    });
+  }
   return {
     format: 'vector-studio-library',
     version: 1,
     id: typeof data.id === 'string' && data.id ? data.id : uid('lib'),
     name: String(data.name || 'Library').slice(0, 120),
     modified: Number(data.modified) || Date.now(),
-    items: data.items.filter((it) => it && ITEM_KINDS.includes(it.kind) && it.data && typeof it.data === 'object').map((it) => ({ id: String(it.id || uid('li')), kind: it.kind, name: String(it.name || '').slice(0, 200), data: it.data, ...(typeof it.thumb === 'string' ? { thumb: it.thumb } : {}) })),
+    items,
   };
 }
 
@@ -76,6 +187,8 @@ export class LibraryStore {
     this.libraries = [];
     this.loaded = false;
     this.loading = null;
+    this.loadingFrom = null;
+    this.loadToken = null;
     this.listeners = new Set();
     this.pending = new Map(); // library id -> { timer, lib, backend }: a write waiting to merge quick edits
     this.queues = new Map(); // library id -> the last queued write or removal
@@ -112,11 +225,15 @@ export class LibraryStore {
   async load(force = false) {
     const backend = this.backend;
     if (this.loaded && !force) return this.libraries;
-    if (this.loading) return this.loading;
+    // A load from the same storage serves this call; one from storage left behind (signing in or out) does not.
+    if (this.loading && this.loadingFrom === backend) return this.loading;
+    const token = {};
+    this.loadToken = token;
+    this.loadingFrom = backend;
     this.loading = (async () => {
+      let libs = [];
       try {
         const files = (await backend.list('')).filter((f) => !f.isDir && f.name.endsWith('.json'));
-        const libs = [];
         for (const f of files) {
           try {
             const lib = normalizeLibrary(await backend.readJSON(f.name));
@@ -126,10 +243,12 @@ export class LibraryStore {
           }
         }
         libs.sort((a, b) => a.name.localeCompare(b.name));
-        this.libraries = libs;
       } catch {
-        this.libraries = [];
+        libs = [];
       }
+      // Superseded by a load from other storage: that one's libraries are the ones to show.
+      if (this.loadToken !== token) return this.loading || this.libraries;
+      this.libraries = libs;
       this.#recoverJournal(backend);
       this.loaded = true;
       this.loading = null;
@@ -306,9 +425,12 @@ export class LibraryStore {
     this.save(this.get(id));
   }
 
-  /** Import a library from parsed JSON (a new id, so it never replaces one). */
-  async importLibrary(data) {
-    const lib = normalizeLibrary(data);
+  /**
+   * Import a library from parsed JSON (a new id, so it never replaces one).
+   * `stats` receives the number of damaged graphics repaired and skipped.
+   */
+  async importLibrary(data, stats = {}) {
+    const lib = normalizeLibrary(data, stats);
     if (!lib) throw new Error('This file is not a Vector Studio library.');
     lib.id = uid('lib');
     if (this.libraries.some((l) => l.name === lib.name)) lib.name = `${lib.name} (imported)`;

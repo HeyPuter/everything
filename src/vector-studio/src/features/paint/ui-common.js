@@ -137,6 +137,8 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
       });
       range.addEventListener('change', () => onCommit?.(def.to(values), values.slice()));
       const commitField = () => {
+        // Values are kept unrounded: committing the rounded text the field shows would shift the color.
+        if (field.value.trim() === formatChannel(ch, values[i])) return;
         const v = parseChannel(ch, field.value);
         if (v == null) {
           field.value = formatChannel(ch, values[i]);

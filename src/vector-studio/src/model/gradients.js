@@ -86,6 +86,27 @@ export function isGradient(paint) {
 }
 
 /**
+ * A gradient paint moved from an object with bounds `from` onto one with
+ * bounds `to` ({ x, y, w, h }): explicit end points are document positions,
+ * so they keep their place relative to the bounds instead. Without both
+ * bounds (paint for objects not drawn yet) the end points are dropped and
+ * the gradient fits whatever it lands on at its angle. Other paints pass
+ * through.
+ */
+export function moveGradient(paint, from = null, to = null) {
+  if (!isGradient(paint) || paint.x1 === undefined) return paint;
+  const { x1, y1, x2, y2, ...rest } = paint;
+  if (!from || !to || !(from.w > 0) || !(from.h > 0)) return rest;
+  const mx = (x) => to.x + ((x - from.x) / from.w) * to.w;
+  const my = (y) => to.y + ((y - from.y) / from.h) * to.h;
+  const out = { ...rest, x1: mx(x1), y1: my(y1), x2: mx(x2), y2: my(y2) };
+  // Flattened onto a line (zero width or height): fit at the angle instead.
+  if (out.x1 === out.x2 && out.y1 === out.y2) return rest;
+  const angle = (-Math.atan2(out.y2 - out.y1, out.x2 - out.x1) * 180) / Math.PI;
+  return { ...out, angle: Math.round(angle * 1000) / 1000 + 0 };
+}
+
+/**
  * Offset {x, y} of a radial gradient's focal point from its center, and the
  * focal radius r, in the space of geometry g. paint.focal is [u, v] in the
  * gradient's unit circle (u along its major axis, v along the minor axis,

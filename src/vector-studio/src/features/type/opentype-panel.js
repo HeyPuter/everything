@@ -9,7 +9,7 @@ import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { icon } from '../../ui/icons.js';
 import { openMenu } from '../../ui/menubar.js';
-import { applyCharStyle, currentCharStyle, currentTextNodes, MIXED } from './type-ops.js';
+import { applyCharStyle, currentCharStyle, currentTextNodes, charValues, stepCharStyle, MIXED } from './type-ops.js';
 import { shapingFont, fontFeatures, ssTag } from './shaping.js';
 import { quoteFamily } from '../../model/text-layout.js';
 
@@ -57,6 +57,22 @@ export function figureAvailable(features, value) {
   return spacingOk && (shape === defaultShape || features.has(shape));
 }
 
+/** Stylistic sets of the current text: which are on for every character, and which are used at all. */
+function setsState(app) {
+  const lists = charValues(app, 'stylisticSets').map((v) => (Array.isArray(v) ? v : []));
+  return { all: (n) => lists.length > 0 && lists.every((l) => l.includes(n)), used: new Set(lists.flat()) };
+}
+
+/** Turn stylistic set n on or off for every character, keeping each character's other sets. */
+function toggleSet(app, n, on) {
+  const step = (v) => {
+    const list = Array.isArray(v) ? v : [];
+    const next = on ? [...new Set([...list, n])].sort((a, b) => a - b) : list.filter((x) => x !== n);
+    return next.length ? next : null;
+  };
+  stepCharStyle(app, 'stylisticSets', step, { label: 'Stylistic Sets' });
+}
+
 /** CSS preview of a feature tag on a sample (the browser's own shaping of the same font). */
 const previewCss = (tags) => tags.map((t) => `"${t}" 1`).join(', ');
 
@@ -101,21 +117,18 @@ export function buildOpenTypeControls(app) {
     icon('chevron-down', 10),
   );
   const openSets = () => {
-    const sets = Array.isArray(cur?.stylisticSets) ? cur.stylisticSets : [];
+    const st = setsState(app);
     const available = [];
-    for (let n = 1; n <= 20; n++) if (!features || features.has(ssTag(n))) available.push(n);
+    for (let n = 1; n <= 20; n++) if (!features || features.has(ssTag(n)) || st.used.has(n)) available.push(n);
     const items = available.map((n) => ({
       type: 'cmd',
       label: `Stylistic Set ${n}`,
       enabled: true,
-      checked: sets.includes(n),
-      run: () => {
-        const next = sets.includes(n) ? sets.filter((s) => s !== n) : [...sets, n].sort((a, b) => a - b);
-        apply({ stylisticSets: next.length ? next : null }, 'Stylistic Sets');
-      },
+      checked: st.all(n),
+      run: () => toggleSet(app, n, !st.all(n)),
     }));
     if (!items.length) items.push({ type: 'cmd', label: 'This font has no stylistic sets', enabled: false });
-    if (sets.length) items.push({ type: 'sep' }, { type: 'cmd', label: 'Clear Stylistic Sets', enabled: true, run: () => apply({ stylisticSets: null }, 'Stylistic Sets') });
+    if (st.used.size) items.push({ type: 'sep' }, { type: 'cmd', label: 'Clear Stylistic Sets', enabled: true, run: () => apply({ stylisticSets: null }, 'Stylistic Sets') });
     const r = setsBtn.getBoundingClientRect();
     openMenu(app, items, { x: r.left, y: r.bottom + 2, anchor: setsBtn, label: 'Stylistic Sets' });
   };
@@ -214,22 +227,15 @@ export function openTypeMenu(app) {
   });
   const pick = (key, options, label) =>
     options.map(([v, l]) => ({ label: l, enabled: en && (!features || key !== 'figures' || figureAvailable(features, v)), checked: (cur?.[key] || 'default') === v, run: () => apply({ [key]: v }, label) }));
-  const sets = Array.isArray(cur?.stylisticSets) ? cur.stylisticSets : [];
+  const st = en ? setsState(app) : { all: () => false, used: new Set() };
   const setItems = [];
   for (let n = 1; n <= 20; n++) {
-    if (features && !features.has(ssTag(n)) && !sets.includes(n)) continue;
-    setItems.push({
-      label: `Set ${n}`,
-      enabled: en,
-      checked: sets.includes(n),
-      run: () => {
-        const next = sets.includes(n) ? sets.filter((x) => x !== n) : [...sets, n].sort((a, b) => a - b);
-        apply({ stylisticSets: next.length ? next : null }, 'Stylistic Sets');
-      },
-    });
+    if (features && !features.has(ssTag(n)) && !st.used.has(n)) continue;
+    const on = st.all(n);
+    setItems.push({ label: `Set ${n}`, enabled: en, checked: on, run: () => toggleSet(app, n, !on) });
   }
   if (!setItems.length) setItems.push({ label: 'None in This Font', enabled: false, run() {} });
-  if (sets.length) setItems.push('-', { label: 'Clear Stylistic Sets', enabled: en, run: () => apply({ stylisticSets: null }, 'Stylistic Sets') });
+  if (st.used.size) setItems.push('-', { label: 'Clear Stylistic Sets', enabled: en, run: () => apply({ stylisticSets: null }, 'Stylistic Sets') });
   const reset = Object.fromEntries(OT_TOGGLES.map(([key, , , , def]) => [key, def]));
   return [
     ...toggles,

@@ -6,6 +6,7 @@
  * Libraries are kept per user, not per document.
  */
 import { h } from '../../lib/dom.js';
+import { isUserError } from '../../lib/errors.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton, paintSwatch } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
@@ -88,6 +89,7 @@ export function placeGraphic(app, data, point = null) {
     let items = data.items;
     for (const hk of clipboardHooks) items = hk.paste?.(doc, data, items) || items;
     const { parentId, index } = ed.drawTarget();
+    for (const hk of clipboardHooks) hk.check?.(doc, items, parentId);
     const idMap = new Map();
     for (const [i, sub] of items.entries()) ids.push(doc.importSubtree(sub, parentId, index + i, idMap).id);
     for (const hk of clipboardHooks) hk.placed?.(doc, idMap);
@@ -118,7 +120,14 @@ export function useItem(app, item, opts = {}) {
       applyParaStyle(app, item.data.para, { label: 'Apply Paragraph Style' });
       return true;
     case 'graphic':
-      return placeGraphic(app, item.data, opts.point).length > 0;
+      try {
+        return placeGraphic(app, item.data, opts.point).length > 0;
+      } catch (err) {
+        // e.g. a symbol instance dropped into that symbol's own master.
+        if (!isUserError(err)) throw err;
+        app.notify(err.message, { error: true });
+        return false;
+      }
     case 'text':
       if (app.placeText) app.placeText(item.data.text);
       else navigator.clipboard?.writeText?.(item.data.text);
@@ -297,7 +306,10 @@ export class LibrariesPanel extends Panel {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             this.use(it);
-          } else if (e.key === 'Delete' || e.key === 'Backspace') this.store.removeItems(lib.id, [it.id]);
+          } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            this.removeItem(lib, it);
+          }
           else if (e.key === 'F2') this.renameItem(lib, it);
           else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
             const r = el.getBoundingClientRect();
@@ -367,10 +379,21 @@ export class LibrariesPanel extends Panel {
         { type: 'cmd', label: 'Rename…', enabled: true, run: () => this.renameItem(lib, it) },
         ...this.store.libraries.filter((l) => l.id !== lib.id).slice(0, 12).map((l) => ({ type: 'cmd', label: `Copy to ${l.name}`, enabled: true, run: () => this.store.addItems(l.id, [JSON.parse(JSON.stringify(it))]) })),
         { type: 'sep' },
-        { type: 'cmd', label: 'Delete', enabled: true, run: () => this.store.removeItems(lib.id, [it.id]) },
+        { type: 'cmd', label: 'Delete…', enabled: true, run: () => this.removeItem(lib, it) },
       ],
       { x: at.x, y: at.y, label: 'Library item' },
     );
+  }
+
+  /**
+   * Remove an asset after asking: removal cannot be undone, and Delete or
+   * Backspace reaches the item still focused after it was clicked to place
+   * it, when the user means the placed artwork.
+   */
+  async removeItem(lib, it) {
+    const label = it.name || KIND_LABELS[it.kind];
+    const ok = await this.app.dialogs.confirm({ title: 'Delete Asset', message: `Delete “${label}” from “${lib.name}”? This cannot be undone. Documents that used it keep their artwork.`, okLabel: 'Delete', danger: true });
+    if (ok) this.store.removeItems(lib.id, [it.id]);
   }
 
   async renameItem(lib, it) {
@@ -436,9 +459,20 @@ export class LibrariesPanel extends Panel {
       input.remove();
       if (!file) return;
       try {
-        const lib = await this.store.importLibrary(JSON.parse(await file.text()));
+        let data;
+        try {
+          data = JSON.parse(await file.text());
+        } catch {
+          throw new Error('This file is not a Vector Studio library.');
+        }
+        const stats = {};
+        const lib = await this.store.importLibrary(data, stats);
         this.choose(lib.id);
-        this.app.notify(`Imported ${lib.name}.`, { polite: true });
+        const plural = (n) => (n === 1 ? '1 damaged graphic was' : `${n} damaged graphics were`);
+        const notes = [`Imported ${lib.name}.`];
+        if (stats.repaired) notes.push(`${plural(stats.repaired)} repaired.`);
+        if (stats.skipped) notes.push(`${plural(stats.skipped)} left out.`);
+        this.app.notify(notes.join(' '), { polite: true });
       } catch (err) {
         this.app.notify(err?.message || 'Could not import the library.', { error: true });
       }

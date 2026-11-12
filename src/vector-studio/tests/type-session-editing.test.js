@@ -244,4 +244,146 @@ describe('type editing session', () => {
     expect(p.y).toBeGreaterThan(0);
     expect(p.y).toBeLessThan(view.height);
   });
+
+  it('typing or composing over a selection keeps the style of the first selected character', async () => {
+    const { styleAt } = await import('../src/model/text-runs.js');
+    const id = add('ab CD ef', { runs: [{ len: 3 }, { len: 2, fontWeight: 700 }, { len: 3 }] });
+    const s = edit(id, 3);
+    s.setSelection(3, 5);
+    s.insert('X');
+    expect(doc.get(id).text).toBe('ab X ef');
+    expect(styleAt(doc.get(id), 3).fontWeight).toBe(700);
+    s.setSelection(3, 4);
+    s.onCompositionStart({});
+    s.onCompositionUpdate({ data: 'に' });
+    s.onCompositionEnd({ data: '日本' });
+    expect(doc.get(id).text).toBe('ab 日本 ef');
+    expect(styleAt(doc.get(id), 3).fontWeight).toBe(700);
+    expect(styleAt(doc.get(id), 4).fontWeight).toBe(700);
+    expect(styleAt(doc.get(id), 2).fontWeight).toBe(400);
+  });
+
+  it('typing after leaving and re-entering the same text is a separate undo step', () => {
+    const id = add('Hello');
+    let s = edit(id, 5);
+    s.insert('A');
+    app.getTool('type').endEditing();
+    s = edit(id, 0);
+    s.insert('B');
+    expect(doc.get(id).text).toBe('BHelloA');
+    doc.undo();
+    expect(doc.get(id).text).toBe('HelloA');
+  });
+
+  it('dragging after a double or triple click extends the selection by whole words or paragraphs', async () => {
+    const { caretPosition } = await import('../src/model/text-layout.js');
+    const id = add('one two three\nfour five\nsix', { char: { fontSize: 20 } });
+    const s = edit(id, 0);
+    const at = (i) => {
+      const c = caretPosition(s.layout(), i);
+      const x = c.x + 1;
+      const y = c.y - 5;
+      const p = app.editor.view.toScreen(x, y);
+      return { x, y, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: { buttons: 1 } };
+    };
+    const tool = app.tool;
+    // Double-click "two", drag into "three": both words; back into "one": "one two".
+    tool.onDoubleClick(at(5));
+    expect(s.range()).toEqual([4, 7]);
+    tool.onHover(at(10));
+    expect(s.range()).toEqual([4, 13]);
+    tool.onHover(at(1));
+    expect([s.anchor, s.caret]).toEqual([7, 0]);
+    // Releasing the button ends the drag.
+    tool.onHover({ ...at(10), native: { buttons: 0 } });
+    tool.onHover(at(10));
+    expect([s.anchor, s.caret]).toEqual([7, 0]);
+    // Triple-click in the first paragraph, drag into the second: both paragraphs.
+    tool.onPointerDown(at(5));
+    tool.onPointerUp(at(5));
+    tool.onDoubleClick(at(5));
+    tool.onPointerDown(at(5));
+    expect(s.range()).toEqual([0, 14]);
+    tool.onPointerMove(at(16));
+    expect(s.range()).toEqual([0, 24]);
+    tool.onPointerUp(at(16));
+  });
+
+  it('paragraph settings for a triple-clicked paragraph leave the next paragraph alone', async () => {
+    const { applyParaStyle, currentParaStyle } = await import('../src/features/type/type-ops.js');
+    const { paraAt } = await import('../src/model/text-runs.js');
+    const id = add('first\nsecond\nthird');
+    const s = edit(id, 0);
+    s.selectParagraph(1);
+    expect(s.range()).toEqual([0, 6]);
+    applyParaStyle(app, { align: 'center' });
+    expect(paraAt(doc.get(id), 0).align).toBe('center');
+    expect(paraAt(doc.get(id), 1).align).toBe('left');
+    expect(currentParaStyle(app).align).toBe('center');
+    // A selection reaching into the next paragraph still includes it.
+    s.setSelection(0, 7);
+    expect(currentParaStyle(app).align).toBe('mixed');
+  });
+
+  it('size, leading, tracking and baseline shortcuts step mixed characters each from their own value', async () => {
+    const { styleAt } = await import('../src/model/text-runs.js');
+    const id = add('small BIG', { char: { fontSize: 12 }, runs: [{ len: 6 }, { len: 3, fontSize: 40, tracking: 50 }] });
+    const s = edit(id, 0);
+    s.setSelection(0, 9);
+    key(s, '.', { metaKey: true, ctrlKey: true, shiftKey: true });
+    let n = doc.get(id);
+    expect(styleAt(n, 0).fontSize).toBe(14);
+    expect(styleAt(n, 7).fontSize).toBe(42);
+    key(s, 'ArrowRight', { altKey: true });
+    n = doc.get(id);
+    expect(styleAt(n, 0).tracking).toBe(20);
+    expect(styleAt(n, 7).tracking).toBe(70);
+    // Auto leading steps from each size's own auto leading.
+    key(s, 'ArrowDown', { altKey: true });
+    n = doc.get(id);
+    expect(styleAt(n, 0).leading).toBeCloseTo(14 * 1.2 + 2);
+    expect(styleAt(n, 7).leading).toBeCloseTo(42 * 1.2 + 2);
+    key(s, 'ArrowUp', { altKey: true, shiftKey: true });
+    n = doc.get(id);
+    expect(styleAt(n, 0).baselineShift).toBe(2);
+    // With the objects selected (not editing) the menu command does the same.
+    app.getTool('type').exitToSelection();
+    await app.commands.run('type.sizeDown');
+    n = doc.get(id);
+    expect(styleAt(n, 0).fontSize).toBe(12);
+    expect(styleAt(n, 7).fontSize).toBe(40);
+  });
+
+  it('arrow keys in a Character panel field showing mixed values step each character, not from zero', async () => {
+    const { styleAt } = await import('../src/model/text-runs.js');
+    const id = add('small BIG', { char: { fontSize: 12 }, runs: [{ len: 6 }, { len: 3, fontSize: 40 }] });
+    app.editor.select([id]);
+    const p = app.dock.panels.get('character');
+    p.ensureBuilt();
+    p.update();
+    const input = p.el.querySelector('input[aria-label="Font size"]');
+    expect(input.value).toBe('');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    const n = doc.get(id);
+    expect(styleAt(n, 0).fontSize).toBe(13);
+    expect(styleAt(n, 7).fontSize).toBe(41);
+  });
+
+  it('type on a closed path starts where the path was clicked', async () => {
+    const { createPath } = await import('../src/model/nodes.js');
+    const { layoutText, glyphPlacements } = await import('../src/model/text-layout.js');
+    const pt = (x, y) => ({ x, y, ix: x, iy: y, ox: x, oy: y });
+    const sq = createPath([pt(100, 100), pt(300, 100), pt(300, 300), pt(100, 300)], true);
+    doc.transact('Add', () => doc.insert(sq, app.editor.targetLayer().id));
+    app.setTool('type-on-path');
+    const p = app.editor.view.toScreen(300, 200);
+    const ev = { x: 300, y: 200, sx: p.x, sy: p.y, shift: false, alt: false, mod: false, button: 0, pointerType: 'mouse', native: {} };
+    app.tool.onPointerDown(ev);
+    app.tool.onPointerUp(ev);
+    const t = [...doc.nodes.values()].find((n) => n.type === 'text');
+    expect(t.pathOptions.start).toBeCloseTo(300);
+    // The first character sits on the right edge, where the click was.
+    const g = glyphPlacements(layoutText(t))[0];
+    expect(g.m[4]).toBeCloseTo(300, 0);
+  });
 });

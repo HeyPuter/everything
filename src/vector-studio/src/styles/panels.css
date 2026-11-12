@@ -331,6 +331,8 @@
   min-width: 14px;
   color: var(--text-2);
   cursor: ew-resize;
+  /* Horizontal touch drags scrub the value; vertical ones still scroll the panel. */
+  touch-action: pan-y;
   user-select: none;
   display: inline-flex;
   align-items: center;

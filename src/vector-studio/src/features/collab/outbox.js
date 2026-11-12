@@ -38,27 +38,72 @@ async function tx(mode, fn) {
   });
 }
 
+/**
+ * A room is kept as two rows written together: the confirmed state (large,
+ * changed only when the server orders batches) and the rest (the edits not
+ * yet confirmed, small, changed on every local edit). put() with no `state`
+ * leaves the stored state as it is, so a local edit writes only its own row.
+ * get() returns them as one { seq, state, pending, ... }.
+ */
+const STATE = '#state';
+
+function splitRow(value) {
+  const { state, seq, ...rest } = value;
+  return { meta: { ...rest, split: true }, state: state === undefined ? null : { seq, state } };
+}
+
+function joined(meta, state) {
+  if (!meta) return null;
+  if (!meta.split) return meta; // kept by an older release in one row
+  const { split, ...rest } = meta;
+  return state ? { ...rest, seq: state.seq, state: state.state } : rest;
+}
+
 export function memoryOutbox() {
   const rows = new Map();
+  const copy = (v) => (v === undefined ? null : structuredClone(v));
   return {
     rows,
     async get(key) {
-      return rows.has(key) ? structuredClone(rows.get(key)) : null;
+      return joined(copy(rows.get(key)), copy(rows.get(key + STATE)));
     },
     async put(key, value) {
-      rows.set(key, structuredClone(value));
+      const { meta, state } = splitRow(value);
+      if (state) rows.set(key + STATE, structuredClone(state));
+      rows.set(key, structuredClone(meta));
     },
     async delete(key) {
       rows.delete(key);
+      rows.delete(key + STATE);
     },
   };
 }
 
 export function indexedOutbox() {
   return {
-    get: (key) => tx('readonly', (s) => s.get(key)).then((v) => v ?? null),
-    put: (key, value) => tx('readwrite', (s) => s.put(value, key)),
-    delete: (key) => tx('readwrite', (s) => s.delete(key)),
+    get: async (key) => {
+      let meta = null;
+      let state = null;
+      await tx('readonly', (s) => {
+        const a = s.get(key);
+        const b = s.get(key + STATE);
+        a.onsuccess = () => (meta = a.result ?? null);
+        b.onsuccess = () => (state = b.result ?? null);
+      });
+      return joined(meta, state);
+    },
+    // One transaction: the state and the edits on top of it are never stored out of step.
+    put: (key, value) =>
+      tx('readwrite', (s) => {
+        const { meta, state } = splitRow(value);
+        if (state) s.put(state, key + STATE);
+        s.put(meta, key);
+      }),
+    delete: (key) =>
+      tx('readwrite', (s) => {
+        s.delete(key);
+        s.delete(key + STATE);
+      }),
   };
 }
 

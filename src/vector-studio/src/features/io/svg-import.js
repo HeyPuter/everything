@@ -8,17 +8,18 @@
  * and preserveAspectRatio, use/symbol/defs, presentation attributes, style
  * attributes and <style> rules, inherited paint and stroke properties,
  * currentColor, linear and radial gradients (units, transforms, href
- * inheritance), clipPath (to clip groups), simple masks (as clips), blur and
- * drop shadow filters (as effects), mix-blend-mode, text/tspan and images.
+ * inheritance), clipPath (to clip groups), masks (simple ones as clips, others
+ * as opacity masks), blur and drop shadow filters (as effects),
+ * mix-blend-mode, text/tspan and images.
  * Anything else is skipped and reported in `warnings`; malformed input never
  * throws past the top-level "not an SVG" error.
  */
 import { UserError } from '../../lib/errors.js';
 import { VDocument } from '../../model/document.js';
 import { createPath, createCompound, createGroup, createText, createImage, createLayer, DEFAULT_CHAR, DEFAULT_PARA, LAYER_COLORS } from '../../model/nodes.js';
-import { transformAnchors, pathBounds } from '../../model/bezier.js';
+import { transformAnchors, pathBounds, pathLength } from '../../model/bezier.js';
 import { rectangle, ellipse as ellipseAnchors } from '../../model/shapes.js';
-import { nodeBounds, unionRect, transformRect } from '../../model/geometry.js';
+import { nodeBounds, unionRect, transformRect, inflate as inflateRect } from '../../model/geometry.js';
 import { multiply, invert, apply, decompose, identity, translate, rotate, scale as scaleM } from '../../lib/matrix.js';
 import { parseCssColor, hexToRgb, rgbToHex } from '../../lib/color.js';
 import { uid } from '../../lib/ids.js';
@@ -34,12 +35,15 @@ const NON_ART = new Set(['title', 'desc', 'metadata', 'defs', 'style', 'script']
 const INHERITED = [
   'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap', 'stroke-linejoin',
   'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'color', 'font-family', 'font-size', 'font-weight',
-  'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'marker-start',
+  'font-style', 'letter-spacing', 'text-anchor', 'visibility', 'clip-rule', 'text-decoration', 'writing-mode', 'text-orientation', 'marker-start',
   'marker-mid', 'marker-end', 'vector-effect', 'white-space', 'xml:lang',
 ];
-const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin'];
+const NON_INHERITED = ['baseline-shift', 'opacity', 'display', 'clip-path', 'mask', 'filter', 'mix-blend-mode', 'stop-color', 'stop-opacity', 'overflow', 'transform', 'transform-origin', 'transform-box', 'mask-type'];
 const PRESENTATION = [...INHERITED, ...NON_INHERITED.filter((p) => p !== 'transform')];
 const PRESENTATION_SET = new Set(PRESENTATION);
+/** The largest artboard side an imported drawing gets (about 350 m in points); larger sizes are damaged or hostile. */
+const MAX_ARTBOARD = 1e6;
+const SHAPE_TAGS = new Set(['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon']);
 
 const BASE_STYLE = {
   fill: 'black',
@@ -106,6 +110,45 @@ function overridesOfRun(run) {
 
 function hrefOf(el) {
   return el.getAttribute('href') || el.getAttributeNS?.(XLINK, 'href') || el.getAttribute('xlink:href') || '';
+}
+
+/** A systemLanguage test (null when absent): one of the listed languages is a user language, or a user language's prefix. */
+function languageMatches(attr) {
+  if (attr == null) return true;
+  const user = (typeof navigator !== 'undefined' && navigator.languages?.length ? navigator.languages : [typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en']).map((l) => String(l).toLowerCase());
+  return attr
+    .split(',')
+    .map((l) => l.trim().toLowerCase())
+    .filter(Boolean)
+    .some((l) => user.some((u) => u === l || l.startsWith(`${u}-`) || u.startsWith(`${l}-`)));
+}
+
+const VARS = Symbol('custom properties');
+
+/** Substitute var(--name[, fallback]) references; null when one has no value and no fallback. */
+function resolveVars(value, vars, depth = 0) {
+  let v = String(value);
+  for (let guard = 0; guard < 64; guard++) {
+    const i = v.indexOf('var(');
+    if (i < 0) return v;
+    // The matching close parenthesis.
+    let d = 0;
+    let j = i + 3;
+    for (; j < v.length; j++) {
+      if (v[j] === '(') d++;
+      else if (v[j] === ')' && --d === 0) break;
+    }
+    if (j >= v.length) return null;
+    const inner = v.slice(i + 4, j);
+    const comma = inner.indexOf(',');
+    const name = (comma < 0 ? inner : inner.slice(0, comma)).trim();
+    let sub = vars?.[name];
+    if (sub != null && sub.includes('var(')) sub = depth < 16 ? resolveVars(sub, vars, depth + 1) : null;
+    if (sub == null || sub === '') sub = comma < 0 ? null : resolveVars(inner.slice(comma + 1).trim(), vars, depth + 1);
+    if (sub == null) return null;
+    v = v.slice(0, i) + sub + v.slice(j + 1);
+  }
+  return null;
 }
 
 function urlId(v) {
@@ -220,13 +263,32 @@ class Importer {
     for (const el of this.doc.querySelectorAll('[id]')) if (!this.ids.has(el.id)) this.ids.set(el.id, el);
     let css = '';
     for (const st of this.doc.querySelectorAll('style')) css += '\n' + st.textContent;
-    this.css = css.trim() ? matchStylesheet(this.doc, parseStylesheet(css)) : new Map();
+    this.css = css.trim() ? matchStylesheet(this.doc, parseStylesheet(css, this.mediaSize(svg))) : new Map();
     this.shim = { get: (id) => this.nodes.get(id) };
     this.styleCache = new Map();
   }
 
   warn(msg) {
     this.warnings.add(msg);
+  }
+
+  /** The drawing's own size, which @media rules test (like the file seen as an image). */
+  mediaSize(svg) {
+    const len = (name) => {
+      const v = svg.getAttribute(name);
+      if (!v || /%/.test(v)) return null;
+      const n = parseLength(v, { fallback: NaN });
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    let width = len('width');
+    let height = len('height');
+    const vb = parseNumberList(svg.getAttribute('viewBox') || '');
+    if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+      if (width == null && height == null) [width, height] = [vb[2], vb[3]];
+      else if (width == null) width = (height * vb[2]) / vb[3];
+      else if (height == null) height = (width * vb[3]) / vb[2];
+    }
+    return { width, height };
   }
 
   add(node) {
@@ -239,10 +301,20 @@ class Importer {
   computeStyle(el, parent) {
     const s = {};
     for (const k of INHERITED) s[k] = parent[k];
+    // Custom properties (--name) inherit; var() references resolve once the cascade is done.
+    if (parent[VARS]) s[VARS] = parent[VARS];
+    let refs = null;
     const set = (k, v) => {
       if (v == null) return;
       v = String(v).trim();
+      if (k.startsWith('--')) {
+        if (s[VARS] === parent[VARS]) s[VARS] = { ...parent[VARS] };
+        s[VARS][k] = v;
+        return;
+      }
       if (!v) return;
+      if (v.includes('var(')) (refs ||= new Set()).add(k);
+      else refs?.delete(k);
       if (v === 'inherit') s[k] = parent[k];
       else if (v === 'initial' || v === 'unset') s[k] = INHERITED.includes(k) && v === 'unset' ? parent[k] : BASE_STYLE[k];
       else s[k] = v;
@@ -267,6 +339,13 @@ class Importer {
     }
     for (const [k, v] of important) this.setProp(set, k, v);
     if (inlineDecls) for (const [k, d] of Object.entries(inlineDecls)) if (d.important) this.setProp(set, k, d.value);
+    if (refs) {
+      for (const k of refs) {
+        const v = resolveVars(s[k], s[VARS]);
+        // An unresolvable reference makes the property unset (inherited or initial).
+        s[k] = v == null ? (INHERITED.includes(k) ? parent[k] : BASE_STYLE[k]) : v;
+      }
+    }
     // Resolve font-size to user units now (em and % are relative to the parent).
     const pf = typeof parent['font-size'] === 'number' ? parent['font-size'] : 16;
     if (typeof s['font-size'] !== 'number') {
@@ -294,7 +373,7 @@ class Importer {
       for (const m of ['marker-start', 'marker-mid', 'marker-end']) set(m, v);
       return;
     }
-    if (INHERITED.includes(k) || NON_INHERITED.includes(k)) set(k, v);
+    if (INHERITED.includes(k) || NON_INHERITED.includes(k) || k.startsWith('--')) set(k, v);
   }
 
   /**
@@ -308,28 +387,37 @@ class Importer {
     if (!tf) return null;
     let T = parseTransform(tf);
     const origin = st['transform-origin'];
-    if (origin) {
-      // Reference box: the viewport (transform-box: view-box, the SVG default).
-      const parts = String(origin).trim().split(/\s+/);
+    // Reference box: the viewport (transform-box: view-box, the SVG default) or the shape's own bounds.
+    const boxKind = String(st['transform-box'] || '').trim();
+    let box = null;
+    if (/^(fill-box|content-box|stroke-box|border-box)$/.test(boxKind) && SHAPE_TAGS.has(el.localName)) {
+      let b = null;
+      for (const sp of this.geometry(el, el.localName, ctx).subpaths) b = unionRect(b, pathBounds(sp.anchors, sp.closed));
+      if (b && /^(stroke-box|border-box)$/.test(boxKind) && st.stroke && st.stroke !== 'none') b = inflateRect(b, parseLength(st['stroke-width'], { ref: 100, fallback: 1 }) / 2);
+      box = b;
+    }
+    box ||= { x: 0, y: 0, w: ctx.vw || 0, h: ctx.vh || 0 };
+    if (origin || box.x || box.y) {
+      const parts = String(origin || '0 0').trim().split(/\s+/);
       const kw = { left: ['x', 0], right: ['x', 1], top: ['y', 0], bottom: ['y', 1], center: [null, 0.5] };
       let ox = null;
       let oy = null;
       const pending = [];
       for (const p of parts.slice(0, 2)) {
         const k = kw[p.toLowerCase()];
-        if (k?.[0] === 'x') ox = k[1] * (ctx.vw || 0);
-        else if (k?.[0] === 'y') oy = k[1] * (ctx.vh || 0);
+        if (k?.[0] === 'x') ox = k[1] * box.w;
+        else if (k?.[0] === 'y') oy = k[1] * box.h;
         else pending.push(k ? { center: true } : p);
       }
       for (const p of pending) {
         const axis = ox == null ? 'x' : 'y';
-        const ref = axis === 'x' ? ctx.vw || 0 : ctx.vh || 0;
+        const ref = axis === 'x' ? box.w : box.h;
         const v = p.center ? ref / 2 : parseLength(p, { ref, fallback: 0 });
         if (axis === 'x') ox = v;
         else oy = v;
       }
-      ox ??= (ctx.vw || 0) / 2;
-      oy ??= (ctx.vh || 0) / 2;
+      ox = box.x + (ox ?? box.w / 2);
+      oy = box.y + (oy ?? box.h / 2);
       if (ox || oy) T = multiply(multiply([1, 0, 0, 1, ox, oy], T), [1, 0, 0, 1, -ox, -oy]);
     }
     return T;
@@ -411,7 +499,7 @@ class Importer {
       case 'switch': {
         for (const child of el.children) {
           // Like browsers, no extensions are supported (the editor-private branches of exporters).
-          if (child.hasAttribute('requiredExtensions')) continue;
+          if (child.hasAttribute('requiredExtensions') || !languageMatches(child.getAttribute('systemLanguage'))) continue;
           const r = this.convert(child, { ...ctx, ctm: M, style: st });
           if (r.length) {
             ids = r;
@@ -1238,8 +1326,8 @@ class Importer {
     const mk = id ? this.ids.get(id) : null;
     if (!mk || mk.localName !== 'mask') return ids;
     // Masks made of opaque white shapes map to a clip, and so does one white
-    // shape with black cut-outs on top (a hole); anything with gradients or
-    // gray levels is left out (content stays visible).
+    // shape with black cut-outs on top (a hole); anything with gradients,
+    // gray levels, type or images becomes an opacity mask.
     let simple = true;
     const order = [];
     const base = this.computeStyle(mk, ctx.style);
@@ -1258,6 +1346,11 @@ class Importer {
       return 'other';
     };
     const check = (el, st) => {
+      // Type and images in a mask make an opacity mask, not a clip.
+      if (el.localName === 'text' || el.localName === 'image') {
+        simple = false;
+        return false;
+      }
       if (!SHAPES.has(el.localName)) return true;
       const k = classify(st);
       if (k === 'other') simple = false;
@@ -1290,13 +1383,88 @@ class Importer {
         rule = 'evenodd';
       }
     }
-    if (!simple || !whites.length) {
-      this.warn('Masks with transparency were ignored.');
-      return ids;
-    }
+    if (!simple || !whites.length) return this.opacityMask(mk, T, base, ids, ctx);
     this.warn('Masks were converted to clipping paths.');
     const mask = this.maskNode(subpaths, rule);
     return this.clipGroup(ids, mask);
+  }
+
+  /**
+   * A mask with gray levels, gradients or images: the mask artwork becomes
+   * an opacity mask (luminance) on the masked object. Outside the mask art
+   * hides the object, as in SVG. The full-size backdrop and the invert
+   * filter the SVG export writes for its own opacity masks map back to the
+   * mask's clip and invert options.
+   */
+  opacityMask(mk, T, base, ids, ctx) {
+    const type = String(base['mask-type'] || '').trim();
+    this.maskStack ||= new Set();
+    if (type === 'alpha' || this.maskStack.has(mk)) {
+      this.warn('Masks with transparency were ignored.');
+      return ids;
+    }
+    let host = mk;
+    let invert = false;
+    const kids = [...mk.children].filter((c) => !NON_ART.has(c.localName));
+    if (kids.length === 1 && kids[0].localName === 'g' && kids[0].attributes.length === 1 && this.isInvertFilter(kids[0].getAttribute('filter'))) {
+      host = kids[0];
+      invert = true;
+    }
+    let clip = true;
+    let skip = null;
+    const first = [...host.children].find((c) => !NON_ART.has(c.localName));
+    if (first?.localName === 'rect' && Number(first.getAttribute('x')) <= -100000 && Number(first.getAttribute('y')) <= -100000 && Number(first.getAttribute('width')) >= 200000 && Number(first.getAttribute('height')) >= 200000) {
+      const c = parseColor(first.getAttribute('fill') || '');
+      if (c && c.alpha === 1 && /^#(000000|ffffff)$/i.test(c.hex)) {
+        clip = c.hex.toLowerCase() === '#000000';
+        skip = first;
+      }
+    }
+    let artIds = [];
+    this.maskStack.add(mk);
+    try {
+      const st = { ...base, display: 'inline' };
+      for (const child of host.children) if (child !== skip) artIds.push(...this.convert(child, { ...ctx, ctm: T, style: st }));
+    } finally {
+      this.maskStack.delete(mk);
+    }
+    if (!artIds.length) {
+      // Nothing in the mask: the object is hidden (or shown when outside counts as white).
+      return clip ? [] : ids;
+    }
+    // One plain group in the mask (how the export writes mask art) is the art's root itself, so round trips don't nest.
+    const lone = artIds.length === 1 ? this.nodes.get(artIds[0]) : null;
+    const plain = lone?.type === 'group' && !lone.clip && !lone.name && (lone.opacity ?? 1) === 1 && !lone.effects?.length && (!lone.blendMode || lone.blendMode === 'normal') && !lone.opacityMask;
+    const art = plain ? lone.id : this.add(createGroup(artIds));
+    const list = [];
+    const take = (id, parent) => {
+      const n = this.nodes.get(id);
+      if (!n) return;
+      this.nodes.delete(id);
+      const out = { ...n, parent };
+      list.push(out);
+      for (const c of n.children || []) take(c, id);
+    };
+    take(art, undefined);
+    let target = ids.length === 1 ? this.nodes.get(ids[0]) : null;
+    // A plain group around one object (how the export writes a masked object) masks the object itself.
+    const only = target?.type === 'group' && target.children.length === 1 && !target.name && !target.clip && (target.opacity ?? 1) === 1 && !target.effects?.length && (!target.blendMode || target.blendMode === 'normal') ? this.nodes.get(target.children[0]) : null;
+    if (only && !only.opacityMask) {
+      this.nodes.delete(target.id);
+      target = only;
+    }
+    if (!target || target.opacityMask) target = this.nodes.get(this.add(createGroup(ids)));
+    this.nodes.set(target.id, { ...target, opacityMask: { art: { root: art, nodes: list }, transform: [1, 0, 0, 1, 0, 0], clip, invert } });
+    return [target.id];
+  }
+
+  /** The SVG export's invert filter for opacity masks (a 1 -> 0 table on the color channels). */
+  isInvertFilter(ref) {
+    const id = urlId(ref || '');
+    const f = id ? this.ids.get(id) : null;
+    if (f?.localName !== 'filter' || f.children.length !== 1 || f.children[0].localName !== 'feComponentTransfer') return false;
+    const funcs = [...f.children[0].children];
+    return funcs.length === 3 && funcs.every((fn) => /^feFunc[RGB]$/.test(fn.localName) && fn.getAttribute('type') === 'table' && parseNumberList(fn.getAttribute('tableValues')).join(' ') === '1 0');
   }
 
   filterEffects(ref, s) {
@@ -1386,20 +1554,21 @@ class Importer {
     let cx = 0;
     let cy = 0;
     const preserve = el.getAttribute('xml:space') === 'preserve' || /pre/.test(st['white-space'] || '');
-    const first = (attr, ref) => {
+    // em/ex lengths are relative to the element's own font size.
+    const first = (attr, ref, fontSize) => {
       const v = el && attr != null ? String(attr).trim().split(/[\s,]+/)[0] : null;
-      return v ? parseLength(v, { ref, fallback: NaN }) : NaN;
+      return v ? parseLength(v, { ref, fontSize, fallback: NaN }) : NaN;
     };
     const walk = (node, style, isRoot, parentRise = 0) => {
       const nst = isRoot ? style : this.computeStyle(node, style);
       if (nst.display === 'none') return;
       // baseline-shift is not inherited but nested shifts add up (positive = up, like riseOf).
       const rise = isRoot ? 0 : parentRise + baselineShiftOf(nst['baseline-shift'], nst['font-size']);
-      if (node.localName === 'textPath') this.warn('Text on a path was imported as straight text.');
-      const x = first(node.getAttribute('x'), ctx.vw);
-      const y = first(node.getAttribute('y'), ctx.vh);
-      const dx = first(node.getAttribute('dx'), ctx.vw);
-      const dy = first(node.getAttribute('dy'), ctx.vh);
+      const fs = nst['font-size'] || 16;
+      const x = first(node.getAttribute('x'), ctx.vw, fs);
+      const y = first(node.getAttribute('y'), ctx.vh, fs);
+      const dx = first(node.getAttribute('dx'), ctx.vw, fs);
+      const dy = first(node.getAttribute('dy'), ctx.vh, fs);
       const penX = cx;
       let positioned = false;
       if (Number.isFinite(x)) (cx = x), (positioned = true);
@@ -1420,7 +1589,7 @@ class Importer {
         chunks.push(chunk);
       }
       // Per-character positions (x="10 30 50"): each positioned character starts a new piece.
-      const list = (name, ref) => String(node.getAttribute(name) || '').trim().split(/[\s,]+/).filter(Boolean).map((v) => parseLength(v, { ref, fallback: NaN }));
+      const list = (name, ref) => String(node.getAttribute(name) || '').trim().split(/[\s,]+/).filter(Boolean).map((v) => parseLength(v, { ref, fontSize: fs, fallback: NaN }));
       const xs = list('x', ctx.vw);
       const ys = list('y', ctx.vh);
       const dxs = list('dx', ctx.vw);
@@ -1546,8 +1715,84 @@ class Importer {
       });
       ids.push(this.add(node));
     }
+    // Vertical writing (writing-mode tb / vertical-rl): one column becomes vertical type running down from (x, y).
+    if (/^(tb|tb-rl|vertical-rl|vertical-lr)$/.test(String(st['writing-mode'] || '').trim()) && ids.length === 1 && items.length === 1) {
+      const n = this.nodes.get(ids[0]);
+      // Latin letters lie sideways in a column, as browsers set them (text-orientation: mixed), unless asked upright.
+      const upright = String(st['text-orientation'] || '').trim() === 'upright';
+      if (!n.text.includes('\n')) this.nodes.set(n.id, { ...n, vertical: true, char: { ...n.char, verticalRoman: !upright }, para: { ...n.para, align: 'left' } });
+    }
+    const onPath = this.textPathOf(el);
+    if (onPath) {
+      if (ids.length === 1 && !this.nodes.get(ids[0]).text.includes('\n') && this.toPathType(ids[0], onPath, st, items[0].width)) return ids;
+      this.warn('Text on a path was imported as straight text.');
+    }
     if (ids.length === 1) return ids;
     return [this.add(createGroup(ids))];
+  }
+
+  /** The <textPath> of a text element whose content is all on it (null otherwise). */
+  textPathOf(el) {
+    let tp = null;
+    for (const child of el.childNodes) {
+      if (child.nodeType === 1 && child.localName === 'textPath' && !tp) tp = child;
+      else if (child.nodeType === 1 && !NON_ART.has(child.localName)) return null;
+      else if ((child.nodeType === 3 || child.nodeType === 4) && /\S/.test(child.nodeValue || '')) return null;
+    }
+    return tp;
+  }
+
+  /**
+   * Make an imported text object type on a path: the textPath's path (its
+   * href target, with that element's transform, or its own path data),
+   * startOffset and text-anchor (middle centers the text on the offset,
+   * end ends it there) and side="right" (the path reversed).
+   */
+  toPathType(id, tp, st, width) {
+    let subpaths = null;
+    const own = tp.getAttribute('path');
+    if (own) subpaths = parsePathData(own);
+    else {
+      const ref = (hrefOf(tp).match(/#(.+)$/) || [])[1];
+      const target = ref ? this.ids.get(decodeURIComponent(ref)) : null;
+      if (!target || !SHAPE_TAGS.has(target.localName)) return false;
+      subpaths = this.geometry(target, target.localName, { vw: this.vw, vh: this.vh }).subpaths;
+      const tf = target.getAttribute('transform');
+      if (tf && subpaths?.length) subpaths = subpaths.map((sp) => ({ ...sp, anchors: transformAnchors(sp.anchors, parseTransform(tf)) }));
+    }
+    const sp = subpaths?.[0];
+    if (!sp || sp.anchors.length < 2) return false;
+    const L = pathLength(sp.anchors, sp.closed);
+    if (!(L > 0)) return false;
+    const tst = this.computeStyle(tp, st);
+    const off = String(tp.getAttribute('startOffset') || '0').trim();
+    let at = /%$/.test(off) ? (parseFloat(off) / 100) * L : parseLength(off, { fontSize: tst['font-size'] || 16, fallback: 0 });
+    if (!Number.isFinite(at)) at = 0;
+    const anchor = String(tst['text-anchor'] || 'start').trim();
+    let align = 'left';
+    let start = at;
+    // Offsets written with a few decimals land a little off the path's own length.
+    const tol = Math.max(0.05, L * 1e-4);
+    if (anchor === 'middle') {
+      if (2 * at - L >= -tol) [align, start] = ['center', Math.max(0, 2 * at - L)];
+      else start = Math.max(0, at - width / 2);
+    } else if (anchor === 'end') {
+      if (Math.abs(at - L) < tol) [align, start] = ['right', 0];
+      else start = Math.max(0, at - width);
+    }
+    const n = this.nodes.get(id);
+    const flip = String(tp.getAttribute('side') || '').trim() === 'right';
+    this.nodes.set(id, {
+      ...n,
+      kind: 'path',
+      x: sp.anchors[0].x,
+      y: sp.anchors[0].y,
+      pathAnchors: sp.anchors,
+      pathClosed: Boolean(sp.closed),
+      pathOptions: { effect: 'rainbow', align: 'baseline', start: Math.round(start * 1000) / 1000, ...(flip ? { flip: true } : {}) },
+      para: { ...n.para, align },
+    });
+    return true;
   }
 
   // ---- images ----
@@ -1657,6 +1902,12 @@ class Importer {
       } else if (W == null) W = (H * vb[2]) / vb[3];
       else if (H == null) H = (W * vb[3]) / vb[2];
     }
+    // Absurd sizes (a damaged or hostile file) would make an artboard the canvas cannot show: use the viewBox's size instead.
+    if (W > MAX_ARTBOARD || H > MAX_ARTBOARD) {
+      this.warn('The drawing\'s size was too large and was ignored.');
+      if (hasVb && vb[2] <= MAX_ARTBOARD && vb[3] <= MAX_ARTBOARD) [W, H] = [vb[2], vb[3]];
+      else W = H = null;
+    }
     const sized = W != null && H != null;
     this.vw = hasVb ? vb[2] : W || 100;
     this.vh = hasVb ? vb[3] : H || 100;
@@ -1667,7 +1918,7 @@ class Importer {
     const ctx = { ctm, style: rootStyle, vw: this.vw, vh: this.vh, useStack: new Set() };
     // Editor layers (top-level groups marked as layers) become document layers.
     const kids = [...svg.children];
-    const isLayer = (el) => el.localName === 'g' && (el.getAttributeNS?.(INK, 'groupmode') === 'layer' || el.getAttribute('inkscape:groupmode') === 'layer');
+    const isLayer = (el) => el.localName === 'g' && (el.hasAttribute('data-layer') || el.getAttributeNS?.(INK, 'groupmode') === 'layer' || el.getAttribute('inkscape:groupmode') === 'layer');
     const layered = kids.some(isLayer);
     const layers = [];
     let loose = null;
@@ -1715,6 +1966,10 @@ class Importer {
         const bottom = b.y + b.h;
         artboard = b.x >= 0 && b.y >= 0 ? { x: 0, y: 0, w: Math.ceil(right), h: Math.ceil(bottom) } : { x: Math.floor(b.x), y: Math.floor(b.y), w: Math.ceil(b.w), h: Math.ceil(b.h) };
       } else artboard = { x: 0, y: 0, w: W || 612, h: H || 792 };
+    }
+    if (artboard.w > MAX_ARTBOARD || artboard.h > MAX_ARTBOARD || !(Math.abs(artboard.x) <= MAX_ARTBOARD) || !(Math.abs(artboard.y) <= MAX_ARTBOARD)) {
+      this.warn('The artwork is too large for an artboard; the artboard covers part of it.');
+      artboard = { x: Math.max(-MAX_ARTBOARD, Math.min(MAX_ARTBOARD, artboard.x || 0)), y: Math.max(-MAX_ARTBOARD, Math.min(MAX_ARTBOARD, artboard.y || 0)), w: Math.min(MAX_ARTBOARD, artboard.w), h: Math.min(MAX_ARTBOARD, artboard.h) };
     }
     return { artboard, layers, nodes: this.nodes, assets: this.assets, warnings: [...this.warnings] };
   }
@@ -1809,7 +2064,16 @@ export async function svgToNodesAsync(text, { onProgress, signal } = {}) {
 }
 
 function nodesFrom(r) {
-  const top = r.layers.flatMap((l) => l.ids);
+  // Placed artwork from several layers keeps each layer as a named group.
+  const layered = r.layers.filter((l) => l.ids.length);
+  const top =
+    layered.length > 1
+      ? layered.map((l) => {
+          const g = createGroup(l.ids, { name: l.name });
+          r.nodes.set(g.id, g);
+          return g.id;
+        })
+      : r.layers.flatMap((l) => l.ids);
   if (!top.length) return { nodes: [], root: null, assets: {}, bounds: null, warnings: r.warnings };
   const nodes = r.nodes;
   let rootId;

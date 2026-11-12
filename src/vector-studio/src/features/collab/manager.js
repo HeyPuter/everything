@@ -31,7 +31,16 @@ export class CollabManager extends Emitter {
     this.deployServer = deployServer;
     this.sessions = new Map(); // editor -> session
     this.membersCache = new Map(); // session -> { at, data }
-    app.on('closed', (editor) => this.detach(editor, { leave: true }));
+    // A new window on a shared document works with its session too (comments, Save, roles).
+    app.on('active-editor', (editor) => {
+      if (editor && !editor.collab) editor.collab = this.sessionOf(editor);
+    });
+    app.on('closed', (editor) => {
+      // Another window still shows the document: it keeps the session.
+      const other = this.sessions.has(editor) && app.editors.find((e) => e.doc === editor.doc);
+      if (other) this.#handOver(editor, other);
+      else this.detach(editor, { leave: true });
+    });
   }
 
   get puter() {
@@ -57,8 +66,13 @@ export class CollabManager extends Emitter {
     return { call: (input) => call(this.puter, server, input) };
   }
 
+  /** The session of a shared document, from any window showing it. */
   sessionOf(editor) {
-    return (editor && this.sessions.get(editor)) || null;
+    if (!editor) return null;
+    const own = this.sessions.get(editor);
+    if (own) return own;
+    for (const [e, s] of this.sessions) if (e.doc === editor.doc) return s;
+    return null;
   }
 
   // ---- sharing ----
@@ -93,6 +107,21 @@ export class CollabManager extends Emitter {
         return editor;
       }
     }
+    // Opened twice while it loads (a double click): one tab, one session.
+    const key = `${link.server}|${link.room}`;
+    this.opening ||= new Map();
+    const busy = this.opening.get(key);
+    if (busy) {
+      const editor = await busy;
+      if (activate) this.app.activate(editor);
+      return editor;
+    }
+    const job = this.#join(link, activate).finally(() => this.opening.delete(key));
+    this.opening.set(key, job);
+    return job;
+  }
+
+  async #join(link, activate) {
     const user = this.identity();
     if (!user) throw new CollabError('Sign in with Puter to open shared documents.');
     const session = new CollabSession({ transport: this.transport(link.server), server: link.server, room: link.room, user, puter: this.puter, outbox: this.outbox, ...this.sessionOptions });
@@ -110,6 +139,24 @@ export class CollabManager extends Emitter {
     this.sessions.set(editor, session);
     editor.collab = session;
     session.bind(editor);
+    this.#wire(editor, session);
+  }
+
+  /** Move a session to another window showing the same document (the one it was in closed). */
+  #handOver(from, to) {
+    const session = this.sessions.get(from);
+    for (const off of session.offs || []) off();
+    this.sessions.delete(from);
+    from.collab = null;
+    from.collabFollow = null;
+    this.sessions.set(to, session);
+    to.collab = session;
+    session.editor = to;
+    this.#wire(to, session);
+  }
+
+  /** The app's reactions to a session shown in `editor`. */
+  #wire(editor, session) {
     this.applyRole(editor);
     const offs = [
       session.on('role', (role, prev) => {
@@ -149,7 +196,7 @@ export class CollabManager extends Emitter {
     this.sessions.delete(editor);
     for (const off of session.offs || []) off();
     session.close({ leave });
-    editor.collab = null;
+    for (const e of [editor, ...this.app.editors.filter((x) => x.doc === editor.doc)]) e.collab = null;
     editor.collabFollow = null;
     editor.doc.readOnly = false;
     this.emit('change', editor);

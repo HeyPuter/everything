@@ -10,6 +10,7 @@
 import { h } from '../../lib/dom.js';
 import { replaceRange, overridesAt, applyRunStyle } from '../../model/text-runs.js';
 import { selectedTextNodes } from './outlines.js';
+import { headOf } from './thread-model.js';
 
 export const PUNCT_KINDS = {
   quotes: 'Smart quotes',
@@ -137,7 +138,8 @@ export function applySmartPunctuation(app, opts, scope) {
     const [a, b] = s.range();
     if (n) targets.push({ id: n.id, from: a === b ? 0 : a, to: a === b ? n.text.length : b });
   } else {
-    const nodes = scope === 'selection' ? selectedTextNodes(ed) : doc.leaves().filter((n) => n.type === 'text' && !doc.isLocked(n.id));
+    // A selected threaded frame stands for its story, held by the thread's first frame.
+    const nodes = scope === 'selection' ? [...new Map(selectedTextNodes(ed).map((n) => headOf(doc, n)).map((n) => [n.id, n])).values()] : doc.leaves().filter((n) => n.type === 'text' && !doc.isLocked(n.id));
     for (const n of nodes) if (n.text) targets.push({ id: n.id, from: 0, to: n.text.length });
   }
   const total = {};

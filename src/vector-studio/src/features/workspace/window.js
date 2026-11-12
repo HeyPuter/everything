@@ -528,13 +528,24 @@ export function installWindow(app) {
     return close(editor, { ...opts, force: opts.force || shared });
   };
 
+  // Edit > My Settings > Import: imported bars, tool set and workspace apply right away.
+  app.on('settings-imported', (values) => {
+    if ('controlBar' in values) setControlBar(app, Boolean(app.prefs.get('controlBar')));
+    if ('toolbarSet' in values || 'toolbarHidden' in values) applyToolSet(app);
+    if ('toolbarVisible' in values) setToolbarVisible(app, app.prefs.get('toolbarVisible') !== false);
+    const ws = 'workspace' in values && workspaceByKey(app, currentKey(app));
+    if (ws) app.dock.setLayout(ws);
+  });
+
   app.on('started', () => {
     if (app.prefs.get('controlBar')) setControlBar(app, true);
     applyToolSet(app);
     setToolbarVisible(app, app.prefs.get('toolbarVisible') !== false);
     const key = app.prefs.get('workspace');
     const saved = key && workspaceByKey(app, key);
-    if (saved && key !== 'essentials') app.dock.setLayout(saved);
+    // The workspace's panels, on the dock tab last used (when it is one of them).
+    const tab = app.prefs.get('dockTab');
+    if (saved && key !== 'essentials') app.dock.setLayout(saved.dock?.includes(tab) ? { ...saved, active: tab } : saved);
     wireToolbarDrag(app);
     // Clicking or scrolling over a document beside the active one makes it active first.
     const pick = (e) => {

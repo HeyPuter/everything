@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { parsePathData, tokenizePath, arcToCubics, pathDataFromSubpaths, numberFormatter } from '../src/features/io/svg-path.js';
-import { parseTransform, parseStylesheet, specificity, parseLength } from '../src/features/io/svg-style.js';
+import { parseTransform, parseStylesheet, specificity, parseLength, mediaMatches } from '../src/features/io/svg-style.js';
 import { convertSVG, svgToDocument, svgToNodes, viewBoxTransform } from '../src/features/io/svg-import.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
 import { pathBounds, segmentCount, segmentPoints, pointAt } from '../src/model/bezier.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { VDocument } from '../src/model/document.js';
-import { createPath, createCompound, createGroup } from '../src/model/nodes.js';
+import { createPath, createCompound, createGroup, createText } from '../src/model/nodes.js';
 import { rectangle, ellipse } from '../src/model/shapes.js';
 import { apply } from '../src/lib/matrix.js';
 
@@ -169,6 +169,38 @@ describe('transforms, lengths and CSS', () => {
     expect(paths[2].fill.color).toBe('#123456'); // inline style wins
     expect(paths[3].stroke.color).toBe('#ff00ff'); // inherited from the group
     expect(paths[3].strokeWidth).toBe(2);
+  });
+});
+
+describe('SVG @media rules', () => {
+  it('apply only when they match a light screen at the drawing\'s own size', () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32" viewBox="0 0 64 32">
+      <style>
+        .a { fill: #ff0000 } .b { fill: #ff0000 } .c { fill: #ff0000 } .d { fill: #ff0000 } .e { fill: #ff0000 }
+        @media (prefers-color-scheme: dark) { .a { fill: #ffffff } }
+        @media (prefers-color-scheme: light) { .b { fill: #00ff00 } }
+        @media screen and (max-width: 100px) { .c { fill: #00ff00 } }
+        @media (min-width: 500px), print { .d { fill: #0000ff } }
+        @media (width >= 60px) and (orientation: landscape) { .e { fill: #00ff00 } }
+      </style>
+      <rect class="a" width="5" height="5"/><rect class="b" width="5" height="5"/><rect class="c" width="5" height="5"/>
+      <rect class="d" width="5" height="5"/><rect class="e" width="5" height="5"/>
+    </svg>`;
+    const fills = svgToDocument(svg).leaves().map((n) => n.fill.color);
+    expect(fills).toEqual(['#ff0000', '#00ff00', '#00ff00', '#ff0000', '#00ff00']);
+  });
+
+  it('match media query lists', () => {
+    expect(mediaMatches('screen')).toBe(true);
+    expect(mediaMatches('print')).toBe(false);
+    expect(mediaMatches('not print')).toBe(true);
+    expect(mediaMatches('only screen and (min-width: 10px)', { width: 20, height: 20 })).toBe(true);
+    expect(mediaMatches('(max-width: 10px)', { width: 20, height: 20 })).toBe(false);
+    expect(mediaMatches('(max-width: 10px)')).toBe(true); // no size known: kept
+    expect(mediaMatches('(prefers-reduced-motion: reduce), (hover: hover)')).toBe(true);
+    expect(mediaMatches('(min-resolution: 2dppx)')).toBe(false);
+    expect(mediaMatches('(unknown-feature: 1)')).toBe(false);
+    expect(mediaMatches('(400px < width)', { width: 300, height: 10 })).toBe(false);
   });
 });
 
@@ -682,5 +714,241 @@ describe('text export', () => {
     expect(out).not.toContain('<text');
     expect(out).toContain('<path d="M 15 10 H 20 V 20 H 15 Z M 25 10 H 30 V 20 H 25 Z" fill="#ff0000"');
     expect(out).toContain('fill="none" stroke="#ff0000"');
+  });
+});
+
+describe('SVG masks with gray levels', () => {
+  it('import as opacity masks instead of being dropped', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+      <defs>
+        <linearGradient id="fade"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>
+        <mask id="m"><rect width="100" height="100" fill="url(#fade)"/></mask>
+        <mask id="t"><text x="10" y="50" font-size="30" fill="#fff">Hi</text></mask>
+        <mask id="a" style="mask-type:alpha"><rect width="100" height="100" fill="url(#fade)"/></mask>
+      </defs>
+      <rect width="100" height="100" fill="#ff0000" mask="url(#m)"/>
+      <g mask="url(#t)"><rect x="100" width="50" height="50" fill="#00ff00"/><rect x="150" width="50" height="50"/></g>
+      <rect y="50" width="10" height="10" fill="#0000ff" mask="url(#a)"/>
+    </svg>`);
+    const top = doc.layers()[0].children.map((id) => doc.get(id));
+    expect(top).toHaveLength(3);
+    const [red, pair, blue] = top;
+    expect(red.type).toBe('path');
+    expect(red.opacityMask).toMatchObject({ clip: true, invert: false, transform: [1, 0, 0, 1, 0, 0] });
+    const art = red.opacityMask.art;
+    expect(art.nodes[0].id).toBe(art.root);
+    expect(art.nodes.find((n) => n.type === 'path').fill.type).toBe('linear');
+    // The art lives only in the mask, not in the document tree.
+    for (const n of art.nodes) expect(doc.get(n.id)).toBeUndefined();
+    // Several masked objects are grouped; type in a mask is kept as type.
+    expect(pair.type).toBe('group');
+    expect(pair.children).toHaveLength(2);
+    expect(pair.opacityMask.art.nodes.some((n) => n.type === 'text')).toBe(true);
+    // Alpha masks have no equivalent and are still reported.
+    expect(blue.opacityMask).toBeUndefined();
+    expect(doc.importWarnings).toContain('Masks with transparency were ignored.');
+    expect(doc.importWarnings).not.toContain('Text used as a clipping path was approximated by its bounding box.');
+  });
+
+  it('round-trip the export\'s opacity masks with their clip and invert options', async () => {
+    const { installOpacityMasks } = await import('../src/features/paint/opacity-mask.js');
+    installOpacityMasks();
+    const doc = VDocument.create({ width: 200, height: 100 });
+    const layer = doc.layers()[0].id;
+    const add = (clip, invert, x) => {
+      const m = createPath(ellipse(x + 10, 10, 30, 30), true, { fill: { type: 'solid', color: '#808080' }, stroke: null });
+      const node = createPath(rectangle(x, 0, 50, 50), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null }, { opacityMask: { art: { root: m.id, nodes: [m] }, transform: [1, 0, 0, 1, 5, 0], clip, invert } });
+      doc.insert(node, layer);
+    };
+    doc.transact('Masks', () => {
+      add(false, false, 0);
+      add(true, true, 100);
+    });
+    const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 100 } });
+    const back = svgToDocument(svg);
+    const nodes = back.layers()[0].children.map((id) => back.get(id));
+    expect(nodes.map((n) => [n.type, n.opacityMask.clip, n.opacityMask.invert])).toEqual([['path', false, false], ['path', true, true]]);
+    // The full-size backdrop is not part of the art; the art keeps its place (transform baked in).
+    const artPaths = nodes[0].opacityMask.art.nodes.filter((n) => n.type === 'path');
+    expect(artPaths).toHaveLength(1);
+    expect(pathBounds(artPaths[0].anchors, true).x).toBeCloseTo(15, 3);
+    expect(back.importWarnings).toEqual([]);
+    // Further round trips write the same file (the mask art doesn't gain a group each time).
+    const again = exportSVG(back, { rect: { x: 0, y: 0, w: 200, h: 100 } });
+    expect(exportSVG(svgToDocument(again), { rect: { x: 0, y: 0, w: 200, h: 100 } })).toBe(again);
+    expect(nodes[0].opacityMask.art.nodes.filter((n) => n.type === 'group').length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('SVG CSS custom properties', () => {
+  it('resolve var() references with inheritance, fallbacks and :root values', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" style="--main: #2a9d8f">
+      <style>:root { --w: 6px } .a { fill: var(--main); stroke: var(--accent); stroke-width: var(--w) } .b { fill: var(--none, var(--main2, #264653)) } .c { fill: var(--none) }</style>
+      <g style="--accent: #e76f51"><rect class="a" width="10" height="10"/></g>
+      <rect class="b" width="10" height="10"/>
+      <g fill="#ff0000"><rect class="c" width="10" height="10"/></g>
+      <rect class="a" style="--main: #000080" width="10" height="10"/>
+    </svg>`);
+    const [a, b, c, d] = doc.leaves();
+    expect(a.fill.color).toBe('#2a9d8f');
+    expect(a.stroke.color).toBe('#e76f51');
+    expect(a.strokeWidth).toBe(6);
+    expect(b.fill.color).toBe('#264653');
+    // An undefined variable without a fallback leaves the property unset (fill inherits).
+    expect(c.fill.color).toBe('#ff0000');
+    expect(d.fill.color).toBe('#000080');
+    expect(d.stroke).toBeNull();
+  });
+});
+
+describe('SVG transform-box', () => {
+  it('rotates about the shape\'s own box with transform-box: fill-box', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+      <style>.d { transform: rotate(90deg); transform-origin: center; transform-box: fill-box } .e { transform: scale(2); transform-box: fill-box }</style>
+      <rect class="d" x="100" y="100" width="40" height="20"/>
+      <rect class="e" x="10" y="10" width="10" height="10"/>
+      <rect style="transform: rotate(90deg); transform-origin: center" x="100" y="100" width="40" height="20"/>
+    </svg>`);
+    const [d, e, v] = doc.leaves().map((n) => nodeBounds(doc, n));
+    // About its own center (120, 110).
+    for (const [k, want] of Object.entries({ x: 110, y: 90, w: 20, h: 40 })) close(d[k], want, 1e-6);
+    // The default origin is the box's top-left corner.
+    for (const [k, want] of Object.entries({ x: 10, y: 10, w: 20, h: 20 })) close(e[k], want, 1e-6);
+    // Without it, the origin is the viewport's center (100, 100).
+    for (const [k, want] of Object.entries({ x: 80, y: 100, w: 20, h: 40 })) close(v[k], want, 1e-6);
+  });
+});
+
+describe('SVG switch', () => {
+  it('skips branches for languages the user does not read', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <switch><rect systemLanguage="xx-YY" width="10" height="10" fill="#ff0000"/><rect systemLanguage="" width="10" height="10" fill="#0000ff"/><rect width="10" height="10" fill="#00ff00"/></switch>
+      <switch><rect systemLanguage="xx, ${navigator.language.split('-')[0]}" width="10" height="10" fill="#00ff00"/><rect width="10" height="10" fill="#ff0000"/></switch>
+    </svg>`);
+    expect(doc.leaves().map((n) => n.fill.color)).toEqual(['#00ff00', '#00ff00']);
+  });
+});
+
+describe('SVG text positions in em', () => {
+  it('measure em against the element\'s font size', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+      <text x="10" y="110" font-size="20"><tspan x="10" dy="0">Line one</tspan><tspan x="10" dy="1.2em">Line two</tspan><tspan x="10" dy="1.2em">Line three</tspan></text>
+      <text x="10" y="200" font-size="10"><tspan font-size="30" dx="1em">wide</tspan></text>
+    </svg>`);
+    const [lines, wide] = doc.leaves();
+    expect(lines.text).toBe('Line one\nLine two\nLine three');
+    expect(lines.char.leading).toBe(24);
+    expect(wide.x).toBe(40);
+  });
+});
+
+describe('SVG text on a path', () => {
+  it('imports as type on a path with its offset, anchor and side', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" height="300">
+      <defs><path id="line" d="M0 0 H200" transform="translate(50 100)"/></defs>
+      <text font-size="20"><textPath xlink:href="#line" startOffset="50%" text-anchor="middle">Mid</textPath></text>
+      <text font-size="20"><textPath href="#line" startOffset="30" side="right">Two <tspan fill="#ff0000">runs</tspan></textPath></text>
+      <text font-size="20"><textPath path="M0 200 L100 200" text-anchor="end" startOffset="100%">End</textPath></text>
+      <text font-size="20"><textPath href="#missing">Lost</textPath></text>
+    </svg>`);
+    const [mid, two, end, lost] = doc.leaves();
+    expect(mid).toMatchObject({ kind: 'path', text: 'Mid', pathClosed: false, pathOptions: { start: 0, align: 'baseline' }, para: { align: 'center' } });
+    // The target's transform is part of the path.
+    expect(mid.pathAnchors.map((a) => [a.x, a.y])).toEqual([[50, 100], [250, 100]]);
+    expect(two).toMatchObject({ kind: 'path', text: 'Two runs', pathOptions: { start: 30, flip: true }, para: { align: 'left' } });
+    expect(two.runs.some((r) => r.fill?.color === '#ff0000')).toBe(true);
+    expect(end).toMatchObject({ kind: 'path', pathOptions: { start: 0 }, para: { align: 'right' } });
+    expect(lost.kind).toBe('point');
+    expect(doc.importWarnings).toEqual(['Text on a path was imported as straight text.']);
+  });
+});
+
+describe('SVG layers round trip', () => {
+  it('export marks layers and import restores them, names and order included', () => {
+    const doc = VDocument.create({ width: 100, height: 100 });
+    const [first] = doc.layers();
+    doc.transact('layers', () => {
+      doc.update(first.id, { name: 'Back ground' });
+      const top = { ...doc.layers()[0], id: 'L2', name: 'Ink', children: [] };
+      doc.insert(top, 'root');
+      doc.insert(createPath(rectangle(0, 0, 10, 10), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null }), first.id);
+      doc.insert(createPath(rectangle(5, 5, 10, 10), true, { fill: { type: 'solid', color: '#0000ff' }, stroke: null }), 'L2');
+    });
+    const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 100, h: 100 } });
+    expect(svg.match(/data-layer=""/g)).toHaveLength(2);
+    const back = svgToDocument(svg);
+    const layers = back.layers();
+    expect(layers.map((l) => l.name)).toEqual(['Back ground', 'Ink']);
+    expect(layers.map((l) => l.children.map((id) => back.get(id).type))).toEqual([['path'], ['path']]);
+    // A second round trip is stable (no extra group per trip).
+    expect(exportSVG(back, { rect: { x: 0, y: 0, w: 100, h: 100 } })).toBe(svg);
+    // Placed, each layer becomes a named group.
+    const placed = svgToNodes(svg);
+    const root = placed.nodes.find((n) => n.id === placed.root);
+    expect(root.children.map((id) => placed.nodes.find((n) => n.id === id).name)).toEqual(['Back ground', 'Ink']);
+    // Minified output for the web stays free of the marker.
+    expect(exportSVG(doc, { rect: { x: 0, y: 0, w: 100, h: 100 }, minify: true })).not.toContain('data-layer');
+  });
+});
+
+describe('SVG type on a path export', () => {
+  const pathDoc = (opts = {}, char = {}) => {
+    const doc = VDocument.create({ width: 200, height: 200 });
+    const arc = [{ x: 20, y: 150, ix: 20, iy: 150, ox: 20, oy: 50 }, { x: 180, y: 150, ix: 180, iy: 50, ox: 180, oy: 150 }];
+    doc.transact('t', () => {
+      const t = createText('On the arc', 20, 150, { kind: 'path', pathAnchors: arc, pathClosed: false, pathOptions: { effect: 'rainbow', align: 'baseline', start: 12 }, ...opts });
+      doc.insert({ ...t, char: { ...t.char, fontSize: 16, ...char } }, doc.layers()[0].id);
+    });
+    return doc;
+  };
+
+  it('writes <textPath>, which opens again as the same type on a path', () => {
+    for (const align of ['left', 'center', 'right']) {
+      const doc = pathDoc();
+      const id = doc.layers()[0].children[0];
+      doc.transact('a', () => doc.update(id, { para: { ...doc.get(id).para, align } }));
+      const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 200 } });
+      expect(svg).toMatch(/<defs>[\s\S]*<path id="tp1" d="M 20 150 C /);
+      expect(svg).toContain('<textPath xlink:href="#tp1"');
+      const back = svgToDocument(svg).leaves()[0];
+      expect(back).toMatchObject({ kind: 'path', text: 'On the arc', para: { align } });
+      expect(back.pathOptions.start).toBeCloseTo(align === 'right' ? 0 : 12, 2);
+    }
+  });
+
+  it('keeps writing glyph by glyph what a textPath cannot follow', () => {
+    for (const doc of [pathDoc({}, { tracking: 200 }), pathDoc({ pathOptions: { effect: 'skew', start: 0 } })]) {
+      const svg = exportSVG(doc, { rect: { x: 0, y: 0, w: 200, h: 200 } });
+      expect(svg).not.toContain('textPath');
+      expect(svg.match(/<text /g).length).toBeGreaterThan(5);
+    }
+  });
+});
+
+describe('SVG vertical writing', () => {
+  it('imports writing-mode columns as vertical type', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+      <text x="40" y="20" font-size="20" writing-mode="tb">VERTICAL</text>
+      <g style="writing-mode: vertical-rl"><text x="120" y="20" font-size="20" style="text-orientation: upright">縦書きABC</text></g>
+      <text x="10" y="190" font-size="20">Across</text>
+    </svg>`);
+    const [tb, upright, across] = doc.leaves();
+    expect(tb).toMatchObject({ vertical: true, x: 40, y: 20, text: 'VERTICAL', char: { verticalRoman: true } });
+    expect(upright).toMatchObject({ vertical: true, char: { verticalRoman: false } });
+    expect(across.vertical).toBeFalsy();
+  });
+});
+
+describe('SVG with absurd sizes', () => {
+  it('never makes an artboard the canvas cannot show', () => {
+    const sized = svgToDocument('<svg xmlns="http://www.w3.org/2000/svg" width="1e30" height="1e30" viewBox="0 0 100 50"><rect width="50" height="50"/></svg>');
+    expect(sized.artboards[0]).toMatchObject({ x: 0, y: 0, w: 100, h: 50 });
+    expect(nodeBounds(sized, sized.leaves()[0]).w).toBe(50);
+    expect(sized.importWarnings).toContain("The drawing's size was too large and was ignored.");
+    const unsized = svgToDocument('<svg xmlns="http://www.w3.org/2000/svg"><rect x="-1e25" width="1e30" height="1e30"/></svg>');
+    const a = unsized.artboards[0];
+    expect(Math.max(Math.abs(a.x), Math.abs(a.y), a.w, a.h)).toBeLessThanOrEqual(1e6);
+    // Large but real drawings keep their size.
+    expect(svgToDocument('<svg xmlns="http://www.w3.org/2000/svg" width="50000" height="20000"/>').artboards[0]).toMatchObject({ w: 50000, h: 20000 });
   });
 });

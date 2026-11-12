@@ -17,6 +17,7 @@ import { exportView } from '../../io/export-view.js';
 import { nodeBounds } from '../../../model/geometry.js';
 import { flattenPath } from '../../../model/bezier.js';
 import { layoutText } from '../../../model/text-layout.js';
+import { textPieces } from '../../io/text-segments.js';
 import { nearestAci, nearestLineweight, UNIT_CHOICES } from './common.js';
 import { dataUrlToBytes, imageSize } from '../../io/image-info.js';
 
@@ -733,6 +734,34 @@ function writeText(w, head, e, X, Y, k) {
   const angle = (-Math.atan2(t[1], t[0]) * 180) / Math.PI;
   const text = String(n.text || '');
   const color = n.fill?.type === 'solid' ? n.fill.color : '#000000';
+  // Type on a path, vertical type and rotated characters: one TEXT entity per character, placed and turned like on the canvas.
+  let pieces = null;
+  try {
+    pieces = textPieces(n);
+  } catch {
+    pieces = null;
+  }
+  if (pieces?.mode === 'glyphs') {
+    for (const g of pieces.items) {
+      if (!g.str || !g.str.trim()) continue;
+      const m = [t[0] * g.m[0] + t[2] * g.m[1], t[1] * g.m[0] + t[3] * g.m[1], t[0] * g.m[2] + t[2] * g.m[3], t[1] * g.m[2] + t[3] * g.m[3], t[0] * g.m[4] + t[2] * g.m[5] + t[4], t[1] * g.m[4] + t[3] * g.m[5] + t[5]];
+      const gs = Math.hypot(m[2], m[3]) || 1;
+      const a = (-Math.atan2(m[1], m[0]) * 180) / Math.PI;
+      const fill = g.style?.fill === undefined ? n.fill : g.style.fill;
+      head('TEXT', e.layer, fill?.type === 'solid' ? fill.color : color, undefined, 'AcDbText');
+      w.pair(10, X(m[4]));
+      w.pair(20, Y(m[5]));
+      w.pair(30, 0);
+      w.pair(40, (g.size || ch.fontSize || 12) * gs * 0.7 * k);
+      w.pair(1, g.str);
+      if (Math.abs(a) > 1e-6) w.pair(50, a);
+      const wf = Math.hypot(m[0], m[1]) / gs;
+      if (Math.abs(wf - 1) > 1e-6) w.pair(41, wf);
+      w.pair(7, w.r12 ? 'STANDARD' : 'Standard');
+      if (!w.r12) w.pair(100, 'AcDbText');
+    }
+    return;
+  }
   // One TEXT entity per laid-out line, at its baseline start.
   let lines = null;
   try {

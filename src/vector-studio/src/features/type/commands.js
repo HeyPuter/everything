@@ -5,9 +5,10 @@
 import { layoutText } from '../../model/text-layout.js';
 import { replaceRange, paragraphRanges, paragraphIndexAt, applyRunStyle } from '../../model/text-runs.js';
 import { createOutlines, selectedTextNodes } from './outlines.js';
-import { session, applyCharStyle, applyParaStyle, applyCase, currentCharStyle, currentTextNodes, MIXED } from './type-ops.js';
+import { session, applyCharStyle, applyParaStyle, applyCase, currentCharStyle, currentTextNodes, stepCharStyle, MIXED } from './type-ops.js';
 import { allFamilies, familyFaces } from './fonts.js';
-import { fillPlaceholder, loremWords } from './lorem.js';
+import { fillPlaceholder, loremWords, overflows } from './lorem.js';
+import { headOf, isThreaded } from './thread-model.js';
 
 export const SIZE_PRESETS = [6, 7, 8, 9, 10, 11, 12, 14, 18, 21, 24, 36, 48, 60, 72];
 
@@ -26,9 +27,8 @@ export function setFontFamily(app, family) {
 }
 
 function stepSize(app, dir, mult) {
-  const cur = currentCharStyle(app);
-  const size = cur?.fontSize === MIXED || cur?.fontSize == null ? 12 : cur.fontSize;
-  applyCharStyle(app, { fontSize: Math.max(0.1, Math.min(1296, size + dir * (app.prefs.get('typeSizeIncrement') || 2) * mult)) }, { label: 'Font Size', coalesce: 'type-size' });
+  const d = dir * (app.prefs.get('typeSizeIncrement') || 2) * mult;
+  stepCharStyle(app, 'fontSize', (size) => Math.max(0.1, Math.min(1296, (size ?? 12) + d)), { label: 'Font Size', coalesce: 'type-size' });
 }
 
 /** Point type -> area type with the same lines. */
@@ -77,7 +77,8 @@ export function areaToPointPatch(node) {
 
 function convertToPoint(app) {
   const ed = app.editor;
-  const nodes = selectedTextNodes(ed).filter((n) => n.kind === 'area' && !n.vertical);
+  // Threaded frames stay area type (a point type object cannot thread).
+  const nodes = selectedTextNodes(ed).filter((n) => n.kind === 'area' && !n.vertical && !isThreaded(n));
   if (!nodes.length) return;
   ed.doc.transact('Convert to Point Type', () => {
     for (const n of nodes) ed.doc.update(n.id, areaToPointPatch(n));
@@ -134,7 +135,7 @@ function fillLorem(app) {
       // Fill what is left of the area from the caret.
       const [a, b] = s.range();
       let words = 1;
-      const fits = (k) => !layoutText({ ...n, ...replaceRange(n, a, b, ` ${loremWords(k)}`.slice(a ? 0 : 1)) }).overflow;
+      const fits = (k) => !overflows(layoutText({ ...n, ...replaceRange(n, a, b, ` ${loremWords(k)}`.slice(a ? 0 : 1)) }));
       while (words < 4000 && fits(words * 2)) words *= 2;
       let lo = words;
       let hi = words * 2;
@@ -147,7 +148,8 @@ function fillLorem(app) {
     }
     return;
   }
-  const nodes = selectedTextNodes(ed);
+  // A threaded frame stands for its story, held by the thread's first frame.
+  const nodes = [...new Map(selectedTextNodes(ed).map((n) => headOf(ed.doc, n)).map((n) => [n.id, n])).values()];
   if (!nodes.length) return;
   ed.doc.transact('Fill with Placeholder Text', () => {
     for (const n of nodes) ed.doc.update(n.id, { ...replaceRange(n, 0, n.text.length, fillPlaceholder(n)) });
@@ -163,7 +165,7 @@ export function registerTypeCommands(app) {
     { id: 'type.case.title', label: 'Title Case', enabled: hasText, run: (a) => applyCase(a, 'title') },
     { id: 'type.case.sentence', label: 'Sentence case.', enabled: hasText, run: (a) => applyCase(a, 'sentence') },
     { id: 'type.convertToArea', label: 'Convert to Area Type', enabled: (a) => !session(a) && a.editor && selectedTextNodes(a.editor).some((n) => n.kind === 'point' && !n.vertical), run: convertToArea },
-    { id: 'type.convertToPoint', label: 'Convert to Point Type', enabled: (a) => !session(a) && a.editor && selectedTextNodes(a.editor).some((n) => n.kind === 'area' && !n.vertical), run: convertToPoint },
+    { id: 'type.convertToPoint', label: 'Convert to Point Type', enabled: (a) => !session(a) && a.editor && selectedTextNodes(a.editor).some((n) => n.kind === 'area' && !n.vertical && !isThreaded(n)), run: convertToPoint },
     { id: 'type.fitHeadline', label: 'Fit Headline', enabled: (a) => currentTextNodes(a).some((n) => n.kind === 'area'), run: fitHeadline },
     {
       id: 'type.showHidden',

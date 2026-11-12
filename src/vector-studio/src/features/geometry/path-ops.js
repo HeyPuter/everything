@@ -652,7 +652,7 @@ export async function divideBelow(app) {
   const below = doc
     .leaves()
     .filter((n) => (n.type === 'path' || n.type === 'compound') && order.get(n.id) < order.get(cutter.id))
-    .filter((n) => !doc.isLocked(n.id) && !doc.isHidden(n.id))
+    .filter((n) => !doc.isLocked(n.id) && !doc.isHidden(n.id) && editor.inIsolation(n.id))
     .filter((n) => {
       const b = nodeBounds(doc, n);
       return b && cb && rectsIntersect(b, cb) && !insideLive(doc, n);

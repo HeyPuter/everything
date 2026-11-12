@@ -4,6 +4,7 @@ import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { easeT, lerpColor, blendSteps, DEFAULT_BLEND } from '../src/features/artboards/blend-math.js';
+import { makeBlend } from '../src/features/artboards/blend.js';
 
 let app;
 beforeAll(async () => {
@@ -84,6 +85,36 @@ describe('Blend panel', () => {
     expect(doc.get(gid).blend.orientation).toBe('path');
     panel.update();
     expect(panel.orient[1].getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Blend Options OK without changes adds no undo step', async () => {
+    const { ed, doc, a, b } = setup();
+    let gid;
+    const opts = { spacing: 'steps', steps: 4 };
+    doc.transact('Make Blend', () => (gid = makeBlend(doc, [a.id, b.id], opts)));
+    ed.select([gid]);
+    const undo0 = doc.undoStack.length;
+    const blend = doc.get(gid).blend;
+    const done = app.commands.run('blend.options');
+    await new Promise((r) => setTimeout(r, 0));
+    const dlg = document.querySelector('dialog[open]');
+    [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'OK').click();
+    await done;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(doc.get(gid).blend).toBe(blend);
+    expect(doc.undoStack.length).toBe(undo0);
+    // A changed option is one undo step.
+    const again = app.commands.run('blend.options');
+    await new Promise((r) => setTimeout(r, 0));
+    const dlg2 = document.querySelector('dialog[open]');
+    const sel = dlg2.querySelector('#blend-spacing');
+    sel.value = 'smooth';
+    sel.dispatchEvent(new Event('change'));
+    [...dlg2.querySelectorAll('button')].find((x) => x.textContent === 'OK').click();
+    await again;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(doc.get(gid).blend.spacing).toBe('smooth');
+    expect(doc.undoStack.length).toBe(undo0 + 1);
   });
 
   it('sets the options for new blends when no blend is selected', () => {

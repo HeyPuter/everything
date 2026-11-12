@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import opentype from 'opentype.js';
@@ -52,6 +52,18 @@ describe('outline conversion', () => {
     expect(cs[0].anchors[2].ix).toBeCloseTo(5 + 2 * ((2 / 3) * 10));
   });
 
+  it('outlines numbered list markers in fonts whose contextual lookups the outline library cannot apply', async () => {
+    const n = createText('One\nTwo', 0, 50, { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 40 }, para: { list: { kind: 'number' } } });
+    const lay = layoutText(n);
+    const markers = glyphPlacements(lay).filter((g) => g.extra);
+    expect(markers.map((g) => g.ch)).toEqual(['1.', '2.']);
+    const glyphs = await textToPathData(n);
+    // The six letters and the two markers, each marker with its digit's and its period's contours.
+    expect(glyphs.filter((g) => g.contours.length)).toHaveLength(8);
+    const one = glyphs.find((g) => g.index === 0 && g.contours.length === 2);
+    expect(one).toBeTruthy();
+  });
+
   it('places glyph outlines where the layout puts the glyphs', async () => {
     const n = createText('H', 100, 200, { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 100 } });
     const glyphs = await textToPathData(n);
@@ -102,6 +114,15 @@ describe('outline conversion', () => {
     const comp = descendants.find((d) => d.type === 'compound');
     expect(comp).toBeTruthy(); // "o" has a hole
     expect(comp.children).toHaveLength(2);
+  });
+
+  it('gives underline bars the stroke of type with no fill, like its glyphs', async () => {
+    const red = { type: 'solid', color: '#ff0000' };
+    const char = { fontFamily: 'Inter', fontSize: 20, fontWeight: 400, fontStyle: 'normal', underline: true };
+    const n = createText('o_', 0, 0, { fill: null, stroke: red, strokeWidth: 2, char });
+    const bars = (await textToPathData(n)).filter((g) => g.contours.length === 1 && g.contours[0].anchors.length === 4);
+    expect(bars.length).toBeGreaterThan(0);
+    for (const b of bars) expect(b).toMatchObject({ fill: null, stroke: red, strokeWidth: 2 });
   });
 
   it('keeps a gradient spanning the whole text on every outlined glyph', async () => {
@@ -222,5 +243,42 @@ describe('type commands helpers', () => {
     // Without images (other uses of the outlines), nothing changes.
     const plain = await collectTextOutlines(app, doc, doc.root.children);
     expect(plain.get(t.id).images).toBeUndefined();
+  });
+});
+
+describe('bundled fonts that fail to download', () => {
+  it('are downloaded again later instead of staying unavailable until reload', async () => {
+    const { ensureStyleFont, isFontLoaded, otFontFor, otFontIfReady } = await import('../src/features/type/fonts.js');
+    const style = { fontFamily: 'Permanent Marker', fontWeight: 400, fontStyle: 'normal' };
+    const buf = readFileSync(resolve(process.cwd(), 'node_modules/@fontsource/permanent-marker/files/permanent-marker-latin-400-normal.woff'));
+    let online = false;
+    const fetchMock = vi.fn(async () => {
+      if (!online) throw new TypeError('Failed to fetch');
+      return { ok: true, arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      await ensureStyleFont(style);
+      expect(isFontLoaded('Permanent Marker')).toBe(false);
+      expect(await otFontFor(style)).toBeNull();
+      expect(otFontIfReady(style)).toBeUndefined();
+      // Right away, nothing is fetched again; once the connection is back and a little time has passed, it is.
+      await ensureStyleFont(style);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      online = true;
+      now += 60000;
+      await ensureStyleFont(style);
+      expect(isFontLoaded('Permanent Marker')).toBe(true);
+      const font = await otFontFor(style);
+      expect(font?.charToGlyph('A')).toBeTruthy();
+    } finally {
+      clock.mockRestore();
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+      await new Promise((r) => setTimeout(r, 40));
+    }
   });
 });

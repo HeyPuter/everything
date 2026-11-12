@@ -5,7 +5,7 @@
  * isPointInStroke on the cached Path2D objects, after a cheap bounds reject,
  * so clicking matches what is drawn (curves, joins, fill rule).
  */
-import { shapePathOf, renderPathOf } from './draw.js';
+import { shapePathOf, renderPathOf, clipCovers } from './draw.js';
 import { liveDef, liveArtwork } from '../model/live.js';
 import { visualBounds, nodeBounds, rectsIntersect, inflate, unionRect } from '../model/geometry.js';
 import { flattenPath } from '../model/bezier.js';
@@ -57,9 +57,19 @@ function hitShape(doc, node, x, y, tol, outline, fillOnly) {
   const rule = node.fillRule || 'nonzero';
   if (filled && ctx.isPointInPath(path, x, y, rule)) return true;
   if (fillOnly) return false;
-  ctx.lineWidth = Math.max(outline ? 0 : node.stroke ? node.strokeWidth || 0 : 0, tol * 2);
+  const w = outline || !node.stroke ? 0 : node.strokeWidth || 0;
   ctx.lineJoin = node.strokeJoin || 'miter';
   ctx.lineCap = node.strokeCap || 'butt';
+  // A stroke aligned inside or outside a closed shape covers a full width on one side of the path.
+  const align = w > tol * 2 && (node.type === 'compound' || node.closed) ? node.strokeAlign : null;
+  if (align === 'inside' || align === 'outside') {
+    ctx.lineWidth = tol * 2;
+    if (ctx.isPointInStroke(path, x, y)) return true;
+    ctx.lineWidth = w * 2;
+    const inside = ctx.isPointInPath(path, x, y, rule);
+    return inside === (align === 'inside') && ctx.isPointInStroke(path, x, y);
+  }
+  ctx.lineWidth = Math.max(w, tol * 2);
   return ctx.isPointInStroke(path, x, y);
 }
 
@@ -88,8 +98,8 @@ function liveHit(doc, node, x, y, tol, opts) {
     const real = doc.get(n.id) === n && n.parent === node.id;
     if (real) {
       if (n.hidden || n.locked || (opts.skip && opts.skip.has(n.id))) continue;
-      if (n.type === 'group' || liveDef(n)) {
-        const r = n.type === 'group' ? hitChildren(doc, n, x, y, tol, opts) : hitNode(doc, n, x, y, tol, opts) ? n : null;
+      if (n.type === 'group') {
+        const r = hitChildren(doc, n, x, y, tol, opts);
         if (r) return r;
       } else if ((!opts.filter || opts.filter(n)) && hitNode(doc, n, x, y, tol, opts)) return n;
       continue;
@@ -98,8 +108,10 @@ function liveHit(doc, node, x, y, tol, opts) {
     if (!v) continue;
     // A generated copy that names its source (effects on a group) picks that object.
     const src = v.source ? doc.get(v.source) : null;
-    if (src && !src.locked && !src.hidden) return src;
-    return firstLeaf(doc, node) || node;
+    const pick = src && !src.locked && !src.hidden ? src : firstLeaf(doc, node) || node;
+    // A filter passes over the whole live object (e.g. outside isolation mode).
+    if (opts.filter && !opts.filter(pick)) continue;
+    return pick;
   }
   return null;
 }
@@ -117,7 +129,7 @@ function firstLeaf(doc, node) {
   return null;
 }
 
-function clipContains(doc, group, x, y) {
+function clipContains(doc, group, x, y, tol) {
   const mask = doc.get(group.children[group.children.length - 1]);
   if (!mask) return true;
   if (mask.type === 'path' || mask.type === 'compound') {
@@ -125,7 +137,10 @@ function clipContains(doc, group, x, y) {
     return hctx().isPointInPath(path, x, y, mask.fillRule || 'nonzero');
   }
   const b = nodeBounds(doc, mask);
-  return b ? x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h : true;
+  if (!b) return true;
+  if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) return false;
+  // Type and groups clip to their glyphs and parts, not their bounding box.
+  return mask.type === 'text' || mask.type === 'group' ? clipCovers(doc, mask, x, y, tol) : true;
 }
 
 /**
@@ -180,10 +195,11 @@ function layerStackHit(doc, layer, x, y, tol, opts) {
 function hitChildren(doc, container, x, y, tol, opts) {
   const kids = container.children;
   if (container.type === 'group' && container.clip && kids.length) {
-    if (!clipContains(doc, container, x, y)) {
-      // The clipping path's own outline is still clickable.
+    if (!clipContains(doc, container, x, y, tol)) {
+      // The clipping path's own outline is still clickable (type only on its glyphs, tested above).
       const mask = doc.get(kids[kids.length - 1]);
-      if (mask && !mask.hidden && !mask.locked && hitNode(doc, mask, x, y, tol, { outline: true })) return mask;
+      const pickable = mask && mask.type !== 'text' && !mask.hidden && !mask.locked;
+      if (pickable && hitNode(doc, mask, x, y, tol, { outline: true })) return mask;
       return null;
     }
   }

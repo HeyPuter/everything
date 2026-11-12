@@ -182,7 +182,7 @@ export class FileService {
     if (f?.kind === 'download') {
       const enc = await this.encode(editor);
       downloadBytes(enc.bytes, f.name);
-      this.#markSaved(editor, enc, f);
+      this.#markSaved(editor, enc, f, f);
       return true;
     }
     return this.saveAs(editor);
@@ -195,11 +195,12 @@ export class FileService {
     if (r.saveAs) return this.saveAs(editor);
     if (r.downloaded) return true;
     const item = r.result;
-    this.#markSaved(editor, enc, { kind: 'puter', path: item?.path || file.path, name: item?.name || file.name });
+    this.#markSaved(editor, enc, { kind: 'puter', path: item?.path || file.path, name: item?.name || file.name }, file);
     return true;
   }
 
-  async #writeHandle(editor, file, enc = null) {
+  async #writeHandle(editor, file, enc = null, { inPlace = true } = {}) {
+    const from = inPlace ? file : undefined;
     enc = enc || (await this.encode(editor));
     if (!(await ensurePermission(file.handle, 'readwrite'))) {
       this.app.notify(`Permission to save "${file.name}" was not granted.`, { error: true });
@@ -213,7 +214,7 @@ export class FileService {
     if (!r) return false;
     if (r.saveAs) return this.saveAs(editor);
     if (r.downloaded) return true;
-    this.#markSaved(editor, enc, file);
+    this.#markSaved(editor, enc, file, from);
     return true;
   }
 
@@ -241,11 +242,22 @@ export class FileService {
     }
   }
 
-  #markSaved(editor, enc, file) {
+  /**
+   * Record a finished write. `from` is the file a save in place started
+   * with: when Save As chose another file meanwhile, the tab stays with
+   * that one (only the recent list hears about this write).
+   */
+  #markSaved(editor, enc, file, from = undefined) {
     const doc = editor.doc;
-    editor.file = file;
+    if (from !== undefined && editor.file !== from) {
+      this.#remember(file, enc.thumb);
+      return;
+    }
+    // Every window showing the document now saves to this file.
+    for (const ed of new Set([editor, ...this.app.editors])) if (ed.doc === doc) ed.file = file;
     doc.savedRevision = enc.rev;
-    doc.emit('saved');
+    // Version History keeps these bytes: exactly what was written.
+    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb });
     this.#remember(file, enc.thumb);
     this.recovery?.discard(editor);
     this.app.renderTabs();
@@ -456,7 +468,7 @@ export class FileService {
       if (r && !r.saveAs) this.#remember(file, enc.thumb);
       return Boolean(r);
     }
-    return this.#writeHandle(editor, file, enc);
+    return this.#writeHandle(editor, file, enc, { inPlace: false });
   }
 
   // ---- opening ----
@@ -529,8 +541,22 @@ export class FileService {
     );
   }
 
+  /** Run an open of one file once at a time: a second click while it loads gets the same tab. */
+  #openOnce(key, fn) {
+    this.opening ||= new Map();
+    const busy = this.opening.get(key);
+    if (busy) return busy;
+    const job = fn().finally(() => this.opening.delete(key));
+    this.opening.set(key, job);
+    return job;
+  }
+
   /** Open a file from the Puter cloud by path. */
-  async openPath(path, { name = baseName(path), item = null } = {}) {
+  openPath(path, opts = {}) {
+    return this.#openOnce(`puter:${path}`, () => this.#openPath(path, opts));
+  }
+
+  async #openPath(path, { name = baseName(path), item = null } = {}) {
     const existing = this.findOpen({ kind: 'puter', path });
     if (existing) {
       this.app.activate(existing);
@@ -651,7 +677,12 @@ export class FileService {
   }
 
   /** Reopen an entry from the recent list. */
-  async openRecent(entry) {
+  openRecent(entry) {
+    if (entry.kind !== 'local') return this.#openRecent(entry);
+    return this.#openOnce(`local:${entry.handleId}`, () => this.#openRecent(entry));
+  }
+
+  async #openRecent(entry) {
     if (entry.kind === 'puter') return this.openPath(entry.path, { name: entry.name });
     if (entry.kind === 'local') {
       const handle = await this.handles.get(entry.handleId);
@@ -715,7 +746,23 @@ export class FileService {
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: err.message });
       return false;
     }
-    return this.replaceDocument(editor, parsed.doc, f);
+    // Every window showing the document shows the saved one (none keeps the discarded changes to
+    // save over the file later); the window reverted from is replaced last, so it stays active.
+    const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
+    const replaced = new Map();
+    for (const o of others) replaced.set(o, await this.replaceDocument(o, parsed.doc, f));
+    const ed = await this.replaceDocument(editor, parsed.doc, f);
+    replaced.set(editor, ed);
+    // Windows keep their names ("Logo.vstudio:2"), now counted from the replaced first window.
+    for (const [o, w] of replaced) {
+      const n = o.windowOf && /:(\d+)$/.exec(o.name)?.[1];
+      if (!n) continue;
+      const base = replaced.get(o.windowOf) || o.windowOf;
+      w.windowOf = base;
+      Object.defineProperty(w, 'name', { get: () => `${base.name}:${n}`, configurable: true });
+    }
+    this.app.renderTabs();
+    return ed;
   }
 
   /** Swap the document shown in a tab, keeping its place in the tab order and its view. */

@@ -28,7 +28,7 @@ import { collectColors, colorTargets } from './edit-colors.js';
 import { recolorDialog } from './edit-colors-ui.js';
 import { spotColorsDialog } from './spot-colors.js';
 import { stackPaints, mapStackPaints } from '../../model/appearance.js';
-import { isGradient } from '../../model/gradients.js';
+import { isGradient, moveGradient } from '../../model/gradients.js';
 import { createGradientSlider } from './gradient-slider.js';
 import { setStop, moveStop, reverseGradient, setGradientType, gradientAngle, setGradientAngle } from './gradient-model.js';
 
@@ -223,7 +223,8 @@ export async function createSwatchFromFocused(app, { direct = false } = {}) {
   const ed = app.editor;
   if (!ed) return null;
   const { key, paint } = focusedPaint(ed);
-  const p = paint && paint !== 'mixed' ? structuredClone(paint) : { type: 'solid', color: displayColor(ed, key, paint) };
+  // A gradient swatch keeps no end points (they belong to the object it came from).
+  const p = paint && paint !== 'mixed' ? structuredClone(moveGradient(paint)) : { type: 'solid', color: displayColor(ed, key, paint) };
   delete p.swatchId;
   delete p.tint;
   const base = { name: p.type === 'solid' ? colorName(p.color) : p.type === 'pattern' ? 'New Pattern Swatch' : 'New Gradient Swatch', paint: p };

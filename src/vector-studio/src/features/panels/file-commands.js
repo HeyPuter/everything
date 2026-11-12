@@ -19,6 +19,7 @@ import { formatBytes, relativeTime } from '../files/naming.js';
 import { serializeDocument, parseDocument, documentId } from '../files/format.js';
 import { renderThumbnail } from '../files/thumbnail.js';
 import { familyInfo } from '../type/fonts.js';
+import { VDocument } from '../../model/document.js';
 
 export const VERSION_LIMIT = 20;
 /** Shared documents are "saved" whenever the server has every edit: they keep a version at most this often. */
@@ -37,6 +38,15 @@ async function encodeDoc(doc) {
   // Templates and versions are content only: documents made from them get their own identity.
   const bytes = await serializeDocument(doc, { thumbnail: thumb, id: null });
   return { bytes, thumb };
+}
+
+/** A document with a snapshot's content (to encode it while the document itself changes). */
+function copyOf(snap) {
+  const copy = new VDocument();
+  for (const [id, node] of snap.nodes) copy.nodes.set(id, node);
+  for (const [id, asset] of snap.assets) copy.assets.set(id, asset);
+  copy.comments = snap.comments;
+  return copy;
 }
 
 async function blobBytes(blob) {
@@ -62,9 +72,12 @@ export class TemplateStore {
     const a = doc.artboards[0] || { w: 612, h: 792 };
     const entry = { id: uid('tpl'), name, savedAt: Date.now(), width: a.w, height: a.h, artboards: doc.artboards.length, thumb };
     await this.store.writeBlob(`templates/${entry.id}.vstudio`, new Blob([bytes]));
-    const list = (await this.list()).filter((t) => t.name !== name);
+    const all = await this.list();
+    const list = all.filter((t) => t.name !== name);
     list.push(entry);
     await this.store.writeJSON('templates/index.json', list);
+    // The template replaced (same name) leaves no file behind.
+    for (const old of all) if (old.name === name) await this.store.remove(`templates/${old.id}.vstudio`).catch(() => {});
     return entry;
   }
 
@@ -146,8 +159,9 @@ export class VersionStore {
     return (await this.store.readJSON(`versions/${key}/index.json`)) || [];
   }
 
-  async add(key, doc, { name = '', label = '' } = {}) {
-    const { bytes, thumb } = await encodeDoc(doc);
+  /** Keep a version of `doc`, or of the file `bytes` already written (and their `thumb`). */
+  async add(key, doc, { name = '', label = '', bytes = null, thumb = null } = {}) {
+    if (!bytes) ({ bytes, thumb } = await encodeDoc(doc));
     const entry = { id: uid('ver'), time: Date.now(), size: bytes.length, name, label, thumb };
     return this.#run(async () => {
       await this.store.writeBlob(`versions/${key}/${entry.id}.vstudio`, new Blob([bytes]));
@@ -164,7 +178,10 @@ export class VersionStore {
   async read(key, id) {
     const bytes = await blobBytes(await this.store.readBlob(`versions/${key}/${id}.vstudio`));
     if (!bytes) throw new UserError('This version is no longer available.');
-    return (await parseDocument(bytes)).doc;
+    const { doc } = await parseDocument(bytes);
+    // Versions are content only (a version kept from a saved file carries its identity).
+    doc.fileId = null;
+    return doc;
   }
 
   /** Copy the versions kept under `from` into `to` (newest kept within the limit). */
@@ -494,19 +511,14 @@ export function registerFileCommands(app) {
   // Keep a version every time a document is saved (once per document, however many windows show it).
   const watched = new WeakSet();
   const kept = new WeakMap(); // doc -> { key, time, changed }: the last version kept automatically
-  const keep = async (ed) => {
-    const doc = ed.doc;
-    const key = versionKey(ed);
-    const last = kept.get(doc);
-    // Saving again without changes keeps no duplicate; shared documents keep one now and then.
-    if (last?.key === key && (!last.changed || (ed.file?.kind === 'shared' && Date.now() - last.time < SHARED_VERSION_MS))) return;
-    kept.set(doc, { key, time: Date.now(), changed: false });
+  const keep = async (doc, key, content, name) => {
     // A file from before documents had an identity now has one: it takes its versions along.
-    if (doc.legacyVersionKey) {
-      await app.versions.adopt(doc.legacyVersionKey, key);
-      doc.legacyVersionKey = null;
+    if (content.legacy) {
+      await app.versions.adopt(content.legacy, key);
+      if (doc.legacyVersionKey === content.legacy) doc.legacyVersionKey = null;
     }
-    await app.versions.add(key, doc, { name: ed.name });
+    if (content.bytes) await app.versions.add(key, null, { name, bytes: content.bytes, thumb: content.thumb });
+    else await app.versions.add(key, copyOf(content.snap), { name });
   };
   const watch = (ed) => {
     if (!ed || watched.has(ed.doc)) return;
@@ -519,11 +531,21 @@ export function registerFileCommands(app) {
     // Once per committed change (every edit, undo or remote change ends with one), not per object.
     doc.on('change', (e) => e.commit && changed());
     doc.on('comments', changed);
-    doc.on('saved', () => {
-      const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
+    // `saved` carries the bytes a save wrote; a shared document is saved when the server has every edit.
+    doc.on('saved', (saved) => {
       // The window that saved is the active one; its file is the one written.
       const target = app.editor?.doc === doc ? app.editor : app.editors.includes(ed) ? ed : app.editors.find((e) => e.doc === doc) || ed;
-      idle(() => keep(target).catch((err) => console.warn('Could not keep a version', err)));
+      const key = versionKey(target);
+      const last = kept.get(doc);
+      // Saving again without changes keeps no duplicate; shared documents keep one now and then.
+      if (last?.key === key && (!last.changed || (target.file?.kind === 'shared' && Date.now() - last.time < SHARED_VERSION_MS))) return;
+      // Edits made while the file was written are not in it: they count as changes to keep next time.
+      kept.set(doc, { key, time: Date.now(), changed: doc.revision !== doc.savedRevision });
+      // The version is what was saved, whatever is edited before it is written (at idle time).
+      const content = saved?.bytes ? { bytes: saved.bytes, thumb: saved.thumb } : { snap: { ...doc.snapshot(), comments: doc.comments } };
+      content.legacy = doc.legacyVersionKey;
+      const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 200));
+      idle(() => keep(doc, key, content, target.name).catch((err) => console.warn('Could not keep a version', err)));
     });
   };
   app.on('file-opened', (ed) => {

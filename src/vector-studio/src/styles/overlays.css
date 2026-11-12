@@ -322,6 +322,43 @@
   min-width: 0;
 }
 
+/* A narrow document area (a tablet in portrait with the panels open) puts
+   the side column above the content, as on phones, instead of squeezing
+   the content into a sliver beside it. */
+.home-host {
+  container-type: inline-size;
+}
+
+@container (max-width: 640px) {
+  .home {
+    grid-template-columns: 1fr;
+  }
+
+  .home-side {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .home-side .btn.block {
+    width: auto;
+    flex: 1;
+  }
+
+  .home-side .home-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex-basis: 100%;
+    margin-top: 0;
+  }
+
+  .home-main {
+    padding: 24px;
+  }
+}
+
 .home-title {
   margin: 0 0 4px;
   font-size: 24px;

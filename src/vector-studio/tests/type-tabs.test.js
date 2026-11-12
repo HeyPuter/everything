@@ -101,3 +101,40 @@ describe('Tabs panel', () => {
     expect(n.para.tabs ?? null).toBeNull();
   });
 });
+
+describe('Tabs ruler drags', () => {
+  const ev = (type, x, y) => new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y });
+
+  it('a cancelled tab drag ends without removing the stop, and later moves leave it alone', () => {
+    const t = addArea();
+    panel.addTab(50);
+    panel.update();
+    const marker = panel.ruler.el.querySelector('.tab-stop');
+    const scale = panel.ruler.scale;
+    marker.dispatchEvent(ev('pointerdown', 50 * scale, 0));
+    window.dispatchEvent(ev('pointermove', 80 * scale, 0));
+    expect(doc.get(t.id).para.tabs[0].pos).toBe(80);
+    // Dragged off the ruler (it would be removed on release), then the system cancels the pointer.
+    window.dispatchEvent(ev('pointermove', 80 * scale, 200));
+    expect(panel.ruler.el.classList.contains('removing')).toBe(true);
+    window.dispatchEvent(ev('pointercancel', 80 * scale, 200));
+    expect(panel.ruler.el.classList.contains('removing')).toBe(false);
+    expect(doc.get(t.id).para.tabs).toEqual([{ pos: 80, align: 'left' }]);
+    window.dispatchEvent(ev('pointermove', 120 * scale, 0));
+    window.dispatchEvent(ev('pointerup', 120 * scale, 0));
+    expect(doc.get(t.id).para.tabs).toEqual([{ pos: 80, align: 'left' }]);
+  });
+
+  it('a cancelled indent drag stops following the pointer', () => {
+    const t = addArea();
+    panel.update();
+    const marker = panel.ruler.el.querySelector('.tab-indent.left');
+    const scale = panel.ruler.scale;
+    marker.dispatchEvent(ev('pointerdown', 0, 0));
+    window.dispatchEvent(ev('pointermove', 20 * scale, 0));
+    expect(doc.get(t.id).para.indentLeft).toBe(20);
+    window.dispatchEvent(ev('pointercancel', 20 * scale, 0));
+    window.dispatchEvent(ev('pointermove', 60 * scale, 0));
+    expect(doc.get(t.id).para.indentLeft).toBe(20);
+  });
+});

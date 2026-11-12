@@ -18,7 +18,16 @@ import { multiply, translate, scale, rotate, IDENTITY } from '../../lib/matrix.j
 import { nodeBounds } from '../../model/geometry.js';
 import { STYLE_KEYS } from '../../model/nodes.js';
 import { mix } from '../../lib/color.js';
-import { getDef, isInstance, isSymbolSet, createSymbolSet, createInstance, placementMatrix, masterBounds } from './model.js';
+import {
+  getDef,
+  isInstance,
+  isSymbolSet,
+  createSymbolSet,
+  createInstance,
+  placementMatrix,
+  masterBounds,
+  wouldNestItself,
+} from './model.js';
 import { currentSymbol } from './state.js';
 import { graphicStylesOf } from '../paint/graphic-styles.js';
 
@@ -311,6 +320,12 @@ export class SymbolSprayerTool extends SymbolismTool {
     const layer = this.editor.targetLayer();
     if (!layer || this.editor.doc.isLocked(layer.id) || this.editor.doc.isHidden(layer.id)) {
       this.app.notify('Unlock or show the layer to spray symbols.', { error: true });
+      return false;
+    }
+    const ed = this.editor;
+    const set = ed.topSelection().map((id) => ed.doc.get(id)).find(isSymbolSet);
+    if (wouldNestItself(ed.doc, this.symbol(), set ? set.id : ed.drawTarget().parentId)) {
+      this.app.notify('A symbol cannot be placed inside itself.', { error: true });
       return false;
     }
     return true;

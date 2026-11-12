@@ -157,14 +157,18 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       input.blur();
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
-      const base = Number.isFinite(parse(input.value)) ? parse(input.value) : Number.isFinite(current) ? current : 0;
+      const typed = parse(input.value);
+      // A Mixed value has nothing to step from (stepping from 0 set every object to one step).
+      if (!Number.isFinite(typed) && current === 'mixed') return e.stopPropagation();
+      const base = Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
       const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * factor * (e.shiftKey ? 10 : 1)));
       input.value = fmt(v);
       onCommit?.(v);
       current = v;
     }
-    e.stopPropagation();
+    // Keys stay in the field, except command shortcuts such as Save (the app skips the rest while typing).
+    if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
   });
   input.addEventListener('blur', commit);
   input.addEventListener('focus', () => input.select());
@@ -189,13 +193,17 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       current = v;
       onCommit?.(v, { live: true });
     };
-    const up = () => {
+    // A cancelled pointer (the browser taking a touch for scrolling) ends the scrub too:
+    // left listening, the next mouse pass over the label went on changing the value.
+    const up = (ev) => {
       lab.removeEventListener('pointermove', move);
       lab.removeEventListener('pointerup', up);
-      if (!moved) input.focus();
+      lab.removeEventListener('pointercancel', up);
+      if (!moved && ev.type === 'pointerup') input.focus();
     };
     lab.addEventListener('pointermove', move);
     lab.addEventListener('pointerup', up);
+    lab.addEventListener('pointercancel', up);
   });
   set(value);
   const el = h('div.num-field', lab, input);

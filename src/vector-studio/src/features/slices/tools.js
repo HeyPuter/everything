@@ -9,6 +9,7 @@
  * Lock Slices) can be selected but not changed.
  */
 import { Tool } from '../../tools/tool.js';
+import { resizeCursorFor } from '../../tools/selection.js';
 import { sliceTable, sliceAt, findSlice, addSlice, updateSlice, promote, sliceRect, pixelRect, removeSlices } from './model.js';
 
 export const SLICE_COLOR = '#e8590c';
@@ -162,6 +163,7 @@ export class SliceTool extends Tool {
   cancel() {
     this.drag = null;
     if (this.editor) this.editor.feedback = null;
+    this.overlay();
   }
 
   drawOverlay(ctx, editor) {
@@ -210,8 +212,9 @@ export class SliceSelectTool extends Tool {
 
   onHover(e) {
     const h = this.handleAt(e);
-    const cursors = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
-    this.setCursor(h ? cursors[h.part] : 'default');
+    // The resize cursor follows the handle's direction on screen (the view may be rotated).
+    const r = h && sliceRect(this.editor.doc, findSlice(this.editor.doc, h.id));
+    this.setCursor(r ? resizeCursorFor(this.editor, r, h.part) : 'default');
   }
 
   onPointerDown(e) {
@@ -340,6 +343,8 @@ export class SliceSelectTool extends Tool {
   cancel() {
     if (this.drag?.tx) this.drag.tx.cancel();
     this.drag = null;
+    if (this.editor) this.editor.feedback = null;
+    this.overlay();
   }
 }
 

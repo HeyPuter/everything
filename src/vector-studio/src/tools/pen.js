@@ -15,7 +15,7 @@
 import { Tool, tol, constrain45, constrainAngle } from './tool.js';
 import { createPath, pickStyle } from '../model/nodes.js';
 import { anchor, hasIn, hasOut, insertAnchor, nearestOnPath, reverseAnchors, autoSmooth } from '../model/bezier.js';
-import { buildSnapIndex, snapPoint } from './snap.js';
+import { buildSnapIndex, snapPoint, SnapIndex } from './snap.js';
 import { hitTest } from '../render/hit.js';
 import { drawAnchor, layerColor } from '../render/overlay.js';
 import { findAnchorOrHandle, isSmooth } from './direct-selection.js';
@@ -96,7 +96,7 @@ export class PenTool extends Tool {
     this.drag = null;
     const p = this.pathId ? this.doc?.get(this.pathId) : null;
     // A lone anchor is not a path: remove it.
-    if (p && p.anchors.length < 2) this.doc.transact('Delete', () => this.doc.remove(p.id));
+    if (p && p.anchors.length < 2) dropLoneAnchor(this.doc, p.id);
     this.pathId = null;
     this.cursorPt = null;
     this.overlay();
@@ -255,7 +255,11 @@ export class PenTool extends Tool {
     }
     if (e.shift) ({ x, y } = constrain45(last.x, last.y, x, y, constrainAngle(this.app)));
     else {
-      const s = snapPoint(editor, x, y, buildSnapIndex(editor, new Set([p.id])));
+      // Alignment guides also line the new anchor up with the anchors already placed (not with the path's changing bounds).
+      const snap = buildSnapIndex(editor, new Set([p.id]));
+      const own = p.anchors.map((a) => ({ x: a.x, y: a.y, kind: 'anchor' }));
+      snap.index = new SnapIndex([...snap.index.points, ...own]);
+      const s = snapPoint(editor, x, y, snap);
       x = s.x;
       y = s.y;
     }
@@ -364,6 +368,25 @@ export class PenTool extends Tool {
     ctx.stroke();
     ctx.restore();
   }
+}
+
+/**
+ * Remove a path that never got past its first anchor. When the last undo
+ * step is the click that made it (nothing changed since), that step is
+ * taken back instead of recording a deletion, which Undo would turn back
+ * into an invisible one-point path.
+ */
+function dropLoneAnchor(doc, id) {
+  const last = doc.undoStack[doc.undoStack.length - 1];
+  const made = last && last.before.has(id) && last.before.get(id) === undefined;
+  const untouched = made && last.after.get(id) === doc.get(id) && last.rev === doc.revision;
+  if (untouched && !doc.tx && !doc.redoStack.length) {
+    doc.undo();
+    doc.redoStack.length = 0;
+    doc.emit('history');
+    return;
+  }
+  doc.transact('Delete', () => doc.remove(id));
 }
 
 /** Remove an anchor; deleting below two anchors removes the path. */
@@ -483,6 +506,16 @@ export class AnchorPointTool extends Tool {
     this.doc.update(path.id, { anchors, shape: undefined });
   }
 
+  /** A canceled press (Escape, pointer cancel, a second finger) puts the anchor back. */
+  cancel() {
+    this.drag?.tx.cancel();
+    this.drag = null;
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   onPointerUp() {
     const d = this.drag;
     this.drag = null;
@@ -543,7 +576,7 @@ export class CurvatureTool extends Tool {
     if (this.drag?.tx) this.drag.tx.commit();
     this.drag = null;
     const p = this.pathId && this.doc?.get(this.pathId);
-    if (p && p.anchors.length < 2) this.doc.transact('Delete', () => this.doc.remove(p.id));
+    if (p && p.anchors.length < 2) dropLoneAnchor(this.doc, p.id);
     this.pathId = null;
     this.corners = [];
     this.overlay();

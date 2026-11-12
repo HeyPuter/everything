@@ -139,7 +139,8 @@ export function insertGlyph(app, font, glyphIndex, face) {
   const n = s.node();
   if (!n) return false;
   const [a, b] = s.range();
-  const { altGlyph, ...inherited } = overridesAt(n, a > 0 ? a - 1 : a); // eslint-disable-line no-unused-vars
+  // A glyph replacing selected characters takes the style of the first of them.
+  const { altGlyph, ...inherited } = overridesAt(n, b > a || !a ? a : a - 1); // eslint-disable-line no-unused-vars
   const enc = font.glyphs.get(glyphIndex);
   const isEncoded = codeOf(enc) != null;
   const overrides = { ...inherited, ...(s.pending || {}), altGlyph: isEncoded ? null : glyphIndex };

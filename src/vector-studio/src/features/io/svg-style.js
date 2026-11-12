@@ -168,11 +168,110 @@ export function specificity(sel) {
 }
 
 /**
- * Parse stylesheet text into rules [{ selector, spec, order, decls }].
- * At-rules: @media and @supports contents are kept (an editor has no media
- * to test against), @font-face, @import, @keyframes and the like are skipped.
+ * Whether a media query list matches the medium a drawing is opened for:
+ * a light screen at 1x with a mouse, whose viewport is the SVG's own size
+ * (`width`/`height`, when known), like the file seen as an image in a
+ * browser. Unknown media features don't match, as in browsers.
  */
-export function parseStylesheet(text) {
+export function mediaMatches(list, { width = null, height = null } = {}) {
+  const px = (v) => {
+    const n = parseLength(v, { fallback: NaN });
+    return Number.isFinite(n) ? n : NaN;
+  };
+  const range = (name, value, actual) => {
+    if (actual == null) return null;
+    const v = px(value);
+    if (Number.isNaN(v)) return false;
+    if (name.startsWith('min-')) return actual >= v;
+    if (name.startsWith('max-')) return actual <= v;
+    return Math.abs(actual - v) < 1e-9;
+  };
+  const feature = (f) => {
+    // Range syntax: (width >= 600px), (400px < width).
+    const r = /^\(\s*([a-z-]+|[\d.]+[a-z%]*)\s*(<=|>=|<|>|=)\s*([a-z-]+|[\d.]+[a-z%]*)\s*\)$/i.exec(f.trim());
+    if (r && /^(width|height)$/i.test(r[1]) !== /^(width|height)$/i.test(r[3])) {
+      const flip = { '<': '>', '>': '<', '<=': '>=', '>=': '<=', '=': '=' };
+      const [name, op, value] = /^(width|height)$/i.test(r[1]) ? [r[1], r[2], r[3]] : [r[3], flip[r[2]], r[1]];
+      const actual = name.toLowerCase() === 'width' ? width : height;
+      if (actual == null) return true;
+      const v = px(value);
+      if (Number.isNaN(v)) return false;
+      return { '<': actual < v, '>': actual > v, '<=': actual <= v, '>=': actual >= v, '=': Math.abs(actual - v) < 1e-9 }[op];
+    }
+    const m = /^\(\s*([a-z-]+)\s*(?::\s*([^)]*?))?\s*\)$/i.exec(f.trim());
+    if (!m) return false;
+    const name = m[1].toLowerCase();
+    const value = (m[2] ?? '').trim().toLowerCase();
+    const dim = /^(min-|max-)?(width|height)$/.exec(name);
+    if (dim) {
+      const r = value ? range(name, value, dim[2] === 'width' ? width : height) : (dim[2] === 'width' ? width : height) !== 0;
+      // An unknown viewport size keeps the rule (the drawing has no viewport to test against).
+      return r ?? true;
+    }
+    if (/^(min-|max-)?aspect-ratio$/.test(name)) {
+      if (!(width > 0 && height > 0)) return true;
+      const [a, b = '1'] = value.split('/');
+      const want = Number(a) / Number(b);
+      if (!Number.isFinite(want)) return false;
+      const actual = width / height;
+      return name.startsWith('min-') ? actual >= want - 1e-9 : name.startsWith('max-') ? actual <= want + 1e-9 : Math.abs(actual - want) < 1e-9;
+    }
+    if (name === 'orientation') return !(width > 0 && height > 0) || value === (height >= width ? 'portrait' : 'landscape');
+    const fixed = {
+      'prefers-color-scheme': ['light'],
+      'prefers-reduced-motion': ['no-preference'],
+      'prefers-reduced-transparency': ['no-preference'],
+      'prefers-contrast': ['no-preference'],
+      'forced-colors': ['none'],
+      'inverted-colors': ['none'],
+      hover: ['hover', ''],
+      'any-hover': ['hover', ''],
+      pointer: ['fine', ''],
+      'any-pointer': ['fine', ''],
+      color: [''],
+      'color-gamut': ['srgb'],
+      scripting: ['none'],
+      'display-mode': ['browser'],
+    };
+    if (fixed[name]) return fixed[name].includes(value);
+    if (/^(min-|max-)?(resolution|device-pixel-ratio|-webkit-(min-|max-)?device-pixel-ratio)$/.test(name)) {
+      const v = parseFloat(value);
+      const ratio = /dpi$/.test(value) ? v / 96 : /dpcm$/.test(value) ? (v * 2.54) / 96 : v;
+      if (!Number.isFinite(ratio)) return false;
+      return /min-/.test(name) ? 1 >= ratio : /max-/.test(name) ? 1 <= ratio : ratio === 1;
+    }
+    return false;
+  };
+  const query = (q) => {
+    let s = q.trim().toLowerCase();
+    if (!s) return false;
+    let negate = false;
+    if (s.startsWith('not ')) {
+      negate = true;
+      s = s.slice(4).trim();
+    } else if (s.startsWith('only ')) s = s.slice(5).trim();
+    const parts = splitOutside(s.replace(/\)\s*and\s*\(/g, ') and ('), ' ')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .filter((p) => p !== 'and');
+    if (parts.includes('or')) return parts.filter((p) => p !== 'or').some(feature) !== negate;
+    let ok = true;
+    for (const p of parts) {
+      if (p.startsWith('(')) ok = ok && feature(p);
+      else ok = ok && (p === 'all' || p === 'screen');
+    }
+    return negate ? !ok : ok;
+  };
+  return splitOutside(String(list || ''), ',').some(query) || !String(list || '').trim();
+}
+
+/**
+ * Parse stylesheet text into rules [{ selector, spec, order, decls }].
+ * At-rules: @media blocks are kept when they match the medium the drawing
+ * opens for (see mediaMatches), @supports contents are kept, @font-face,
+ * @import, @keyframes and the like are skipped.
+ */
+export function parseStylesheet(text, media = {}) {
   const css = String(text || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--|-->/g, '');
   const rules = [];
   let order = 0;
@@ -196,7 +295,10 @@ export function parseStylesheet(text) {
         // Statement at-rules (@import x;) before the block prelude.
         const stmt = prelude.lastIndexOf(';');
         const pre = stmt >= 0 ? prelude.slice(stmt + 1).trim() : prelude;
-        if (/^@(media|supports|layer|container)\b/i.test(pre)) parseBlock(body);
+        const at = /^@media\b([\s\S]*)$/i.exec(pre);
+        if (at) {
+          if (mediaMatches(at[1], media)) parseBlock(body);
+        } else if (/^@(supports|layer|container)\b/i.test(pre)) parseBlock(body);
         else if (!pre.startsWith('@')) addRule(pre, body);
         continue;
       }

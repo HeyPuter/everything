@@ -9,7 +9,7 @@
  */
 import { VDocument, FORMAT_VERSION } from '../../model/document.js';
 import { DEFAULT_SWATCHES } from '../../model/swatches.js';
-import { DEFAULT_CHAR } from '../../model/nodes.js';
+import { DEFAULT_CHAR, DEFAULT_PARA, DEFAULT_STYLE } from '../../model/nodes.js';
 
 export { FORMAT_VERSION };
 
@@ -84,7 +84,13 @@ function usedAssets(json) {
   if (!ids.length) return json.assets || {};
   const text = JSON.stringify(json.nodes);
   const out = {};
-  for (const id of ids) if (text.includes(JSON.stringify(id))) out[id] = json.assets[id];
+  for (const id of ids) {
+    // An embedded color profile is mentioned by its profile id.
+    const used =
+      text.includes(JSON.stringify(id)) ||
+      (id.startsWith('icc-') && text.includes(JSON.stringify(`icc:${id.slice(4)}`)));
+    if (used) out[id] = json.assets[id];
+  }
   return out;
 }
 
@@ -157,15 +163,68 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const CONTAINERS = new Set(['root', 'layer', 'group', 'compound']);
 const isMatrix = (m) => Array.isArray(m) && m.length === 6 && m.every(finite);
 
+const STYLE_DEFAULTS = Object.entries(DEFAULT_STYLE);
+const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/** Whether `v` is the same kind of value as the default `def` (settings whose default is null are free-form). */
+function sameKind(def, v) {
+  if (typeof def === 'number') return finite(v);
+  if (typeof def === 'string' || typeof def === 'boolean') return typeof v === typeof def;
+  if (Array.isArray(def)) return Array.isArray(v);
+  return true;
+}
+
+/** A paint (fill or stroke) drawing can use: none, or a typed paint whose gradient stops are stops. */
+function paintOk(p) {
+  if (p === null) return true;
+  if (!isObject(p) || typeof p.type !== 'string') return false;
+  return p.stops === undefined || (Array.isArray(p.stops) && p.stops.every((st) => isObject(st) && finite(st.offset)));
+}
+
+/** `attrs` without the entries of the wrong kind for `defaults` (they fall back to the defaults); itself when all are fine. */
+function cleanAttrs(attrs, defaults) {
+  let out = null;
+  for (const k in attrs) {
+    const v = attrs[k];
+    if (v === null || v === undefined || !(k in defaults) || sameKind(defaults[k], v)) continue;
+    out ||= { ...attrs };
+    delete out[k];
+  }
+  return out || attrs;
+}
+
+const isEffect = (e) => isObject(e) && typeof e.type === 'string';
+const isLength = (x) => finite(x) && x >= 0;
+const isRun = (r) => isObject(r) && finite(r.len);
+
+/** A list keeping only the entries `ok` accepts; itself when all are kept. */
+function keep(list, ok) {
+  return list.every(ok) ? list : list.filter(ok);
+}
+
 /**
  * The fields drawing and hit testing rely on, patched with safe defaults
  * where they are missing or malformed (points that are not points are
- * dropped, missing curve handles sit on their point).
+ * dropped, missing curve handles sit on their point, style settings of the
+ * wrong kind are left out so the defaults apply).
  */
-function repairNode(node) {
+export function repairNode(node) {
   let patch = null;
   const set = (k, v) => ((patch ||= {})[k] = v);
   if (CONTAINERS.has(node.type) && !Array.isArray(node.children)) set('children', []);
+  for (let i = 0; i < STYLE_DEFAULTS.length; i++) {
+    const [k, def] = STYLE_DEFAULTS[i];
+    const v = node[k];
+    if (v === undefined) continue;
+    if (k === 'fill' || k === 'stroke' ? !paintOk(v) : def !== null && !sameKind(def, v)) set(k, undefined);
+    else if (k === 'effects') {
+      const fx = keep(v, isEffect);
+      if (fx !== v) set(k, fx);
+    } else if (k === 'dash') {
+      const d = keep(v, isLength);
+      if (d !== v) set(k, d);
+    }
+  }
   if (node.type === 'path') {
     let changed = !Array.isArray(node.anchors);
     const anchors = [];
@@ -184,10 +243,25 @@ function repairNode(node) {
   }
   if (node.type === 'text') {
     if (typeof node.text !== 'string') set('text', node.text == null ? '' : String(node.text));
-    if (!node.char || typeof node.char !== 'object' || Array.isArray(node.char)) set('char', { ...DEFAULT_CHAR });
+    const char = isObject(node.char) ? cleanAttrs(node.char, DEFAULT_CHAR) : { ...DEFAULT_CHAR };
+    if (char !== node.char) set('char', char);
+    const para = isObject(node.para) ? cleanAttrs(node.para, DEFAULT_PARA) : undefined;
+    if (para !== node.para) set('para', para);
+    if (node.runs !== undefined) {
+      if (!Array.isArray(node.runs)) set('runs', undefined);
+      else {
+        const runs = keep(node.runs, isRun).map((r) => cleanAttrs(r, DEFAULT_CHAR));
+        if (runs.length !== node.runs.length || runs.some((r, i) => r !== node.runs[i])) set('runs', runs);
+      }
+    }
+    if (node.paras !== undefined && !Array.isArray(node.paras)) set('paras', undefined);
+    else if (node.paras?.some((p) => p != null && !isObject(p))) set('paras', node.paras.map((p) => (isObject(p) ? p : null)));
     if (!isMatrix(node.transform)) set('transform', [1, 0, 0, 1, 0, 0]);
   }
-  return patch ? { ...node, ...patch } : node;
+  if (!patch) return node;
+  const out = { ...node, ...patch };
+  for (const k in patch) if (patch[k] === undefined) delete out[k];
+  return out;
 }
 
 /**
@@ -209,7 +283,8 @@ export function validateData(data) {
   let repaired = 0;
   const fixed = {};
   for (const [id, node] of Object.entries(nodes)) {
-    if (!node || typeof node !== 'object' || typeof node.type !== 'string') {
+    // The root is kept whatever its type says: it is repaired below.
+    if (!node || typeof node !== 'object' || (typeof node.type !== 'string' && id !== 'root')) {
       repaired++;
       continue;
     }
@@ -229,9 +304,10 @@ export function validateData(data) {
   if (r.type !== 'root') rootPatch.type = 'root';
   if (!Array.isArray(r.children)) rootPatch.children = [];
   const boards = Array.isArray(r.artboards) ? r.artboards.filter((a) => a && finite(a.x) && finite(a.y) && finite(a.w) && finite(a.h) && a.w > 0 && a.h > 0) : [];
+  if (!Array.isArray(r.artboards) || !boards.length || boards.length !== r.artboards.length) rootPatch.artboards = boards;
   if (!boards.length) boards.push({ id: 'a-recovered', name: 'Artboard 1', x: 0, y: 0, w: 612, h: 792 });
-  if (!Array.isArray(r.artboards) || boards.length !== r.artboards.length) rootPatch.artboards = boards;
   if (!Array.isArray(r.guides)) rootPatch.guides = [];
+  else if (r.guides.some((g) => !isObject(g))) rootPatch.guides = r.guides.filter(isObject);
   if (!Array.isArray(r.swatches)) rootPatch.swatches = DEFAULT_SWATCHES.map((s) => ({ ...s }));
   if (typeof r.units !== 'string') rootPatch.units = 'pt';
   if (!r.grid || !finite(r.grid.spacing) || !finite(r.grid.subdivisions) || r.grid.spacing <= 0 || r.grid.subdivisions < 1) rootPatch.grid = { spacing: 72, subdivisions: 8 };

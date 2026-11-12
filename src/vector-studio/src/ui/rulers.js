@@ -79,9 +79,15 @@ export function createRulers(app, host) {
       const d1 = horizontal ? v.toDoc(len, 0).x - origin.x : v.toDoc(0, len).y - origin.y;
       const startTick = Math.floor(d0 / stepPt) * stepPt;
       ctx.beginPath();
-      for (let d = startTick; d <= d1 + stepPt; d += stepPt / 10) {
+      // Count the ticks rather than adding the step to a coordinate: far from the origin the step
+      // can be lost in float precision, and the loop would never end. At most one tick per pixel.
+      const ticks = Math.min(
+        Math.floor((d1 + stepPt - startTick) / (stepPt / 10)),
+        Math.ceil(len) + 20,
+      );
+      for (let k = 0; k <= ticks; k++) {
+        const d = startTick + (k * stepPt) / 10;
         const s = horizontal ? v.toScreen(d + origin.x, 0).x : v.toScreen(0, d + origin.y).y;
-        const k = Math.round((d / stepPt) * 10);
         const major = k % 10 === 0;
         const mid = k % 5 === 0;
         const tl = major ? SIZE : mid ? 6 : 3;
@@ -131,10 +137,12 @@ export function createRulers(app, host) {
     const up = (ev) => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
       ed.alignmentGuides = null;
-      // Released over the rulers, the panels or the status bar: no guide.
+      // Released over the rulers, the panels or the status bar, or the system took the touch:
+      // no guide.
       const inside = ev.clientX > canvasRect.left && ev.clientY > canvasRect.top && ev.clientX < canvasRect.right && ev.clientY < canvasRect.bottom;
-      if (pos != null && inside) {
+      if (pos != null && inside && ev.type === 'pointerup') {
         ed.doc.transact('Add Guide', () => ed.doc.updateRoot({ guides: [...(ed.doc.root.guides || []), { axis, pos }] }));
         if (!ed.viewOptions.guides) ed.setViewOption('guides', true);
       }
@@ -142,10 +150,19 @@ export function createRulers(app, host) {
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
   };
   // The top ruler makes horizontal guides (constant y); the left one vertical guides.
-  top.addEventListener('pointerdown', startGuide('y'));
-  left.addEventListener('pointerdown', startGuide('x'));
+  for (const [el, axis] of [
+    [top, 'y'],
+    [left, 'x'],
+  ]) {
+    el.addEventListener('pointerdown', startGuide(axis));
+    // Touch screens move a finger's press to the nearest element that takes
+    // clicks (the document tabs, the canvas); a mouse listener makes the thin
+    // rulers count as one, so a finger on a ruler drags out a guide.
+    el.addEventListener('mousedown', () => {});
+  }
   corner.addEventListener('dblclick', () => app.editor && app.editor.setViewOption('rulers', true));
 
   return {

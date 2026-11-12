@@ -202,14 +202,17 @@ class TabRuler {
       if (off) return;
       index = this.panel.moveTab(index, this.panel.snap(this.posAt(ev.clientX)), { coalesce: key });
     };
-    const up = () => {
+    // A cancelled pointer (the system took it over) ends the drag without removing the stop.
+    const up = (ev) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       this.el.classList.remove('removing');
-      if (removed) this.panel.removeTab(index, { coalesce: key });
+      if (removed && ev.type === 'pointerup') this.panel.removeTab(index, { coalesce: key });
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
     target?.focus?.();
   }
 
@@ -221,9 +224,11 @@ class TabRuler {
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 }
 

@@ -43,6 +43,13 @@ export class PencilTool extends Tool {
     this.points = null;
   }
 
+  /** Escape, a pointer cancel or a second finger drops the stroke being drawn. */
+  cancel() {
+    if (!this.points) return;
+    this.points = null;
+    this.overlay();
+  }
+
   onPointerDown(e) {
     if (!this.editor.canDrawInTarget()) {
       this.app.notify('The target layer is locked or hidden.');
@@ -325,6 +332,16 @@ export class PathEraserTool extends Tool {
   onPointerUp() {
     this.tx?.commit();
     this.tx = null;
+  }
+
+  /** A canceled press (Escape, pointer cancel, a second finger) puts the paths back. */
+  cancel() {
+    this.tx?.cancel();
+    this.tx = null;
+  }
+
+  deactivate() {
+    this.cancel();
   }
 
   eraseAt(e) {

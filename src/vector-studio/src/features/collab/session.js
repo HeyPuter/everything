@@ -96,7 +96,8 @@ export class CollabSession extends Emitter {
       const saved = err.offline ? await this.outbox?.get(this.key) : null;
       if (!saved?.state) throw err;
       this.#adopt({ seq: saved.seq, state: saved.state, role: saved.role, review: saved.review, owner: saved.owner, publicKey: saved.publicKey });
-      this.pending = saved.pending || [];
+      // Batches already part of the stored state (it may be newer than they are) are not replayed.
+      this.pending = (saved.pending || []).filter((b) => !(b.seq && b.seq <= this.seq));
       this.setStatus('offline');
       return this.#data();
     }
@@ -191,8 +192,12 @@ export class CollabSession extends Emitter {
     if (!nodes.length) return;
     const assets = {};
     for (const op of nodes) {
-      const ref = op.put?.asset ?? op.set?.asset;
-      if (typeof ref === 'string' && !this.base.assets.has(ref) && this.doc.assets.has(ref)) assets[ref] = this.doc.assets.get(ref);
+      // Images name their asset; an assigned color profile keeps its data in the asset "icc-<hash>".
+      const profile = op.put?.colorProfile ?? op.set?.colorProfile;
+      const iccRef = typeof profile === 'string' && profile.startsWith('icc:') ? `icc-${profile.slice(4)}` : null;
+      for (const ref of [op.put?.asset ?? op.set?.asset, iccRef]) {
+        if (typeof ref === 'string' && !this.base.assets.has(ref) && this.doc.assets.has(ref)) assets[ref] = this.doc.assets.get(ref);
+      }
     }
     this.#enqueue({ nodes, ...(Object.keys(assets).length ? { assets } : {}) });
   }
@@ -433,8 +438,21 @@ export class CollabSession extends Emitter {
     if (!this.outbox || !this.base || this.ended) return;
     clearTimeout(this.persistTimer);
     const pending = this.pending.map(({ made, sent, ...b }) => b);
-    const value = { seq: this.seq, state: stateToJSON(this.base), pending, role: this.role, review: this.review, owner: this.owner, publicKey: this.roomKey, saved: Date.now() };
-    this.persisting = Promise.resolve(this.outbox.put(this.key, value)).catch(() => {});
+    const value = { seq: this.seq, pending, role: this.role, review: this.review, owner: this.owner, publicKey: this.roomKey, saved: Date.now() };
+    // The confirmed state (the whole document) is written only when the server has ordered more
+    // batches; a local edit writes its pending batches alone (the outbox keeps both in step).
+    const base = this.base;
+    const seq = this.seq;
+    const full = base !== this.storedBase || seq !== this.storedSeq;
+    if (full) {
+      value.state = stateToJSON(base);
+      this.storedBase = base;
+      this.storedSeq = seq;
+    }
+    this.persisting = Promise.resolve(this.outbox.put(this.key, value)).catch(() => {
+      // Not stored: the next write stores the state again.
+      if (full && this.storedBase === base && this.storedSeq === seq) this.storedBase = null;
+    });
     return this.persisting;
   }
 

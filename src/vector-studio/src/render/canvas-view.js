@@ -492,13 +492,21 @@ function drawGrid(ctx, editor, colors) {
   ctx.lineWidth = 1 / view.zoom;
   const x0 = Math.floor(r.x / step) * step;
   const y0 = Math.floor(r.y / step) * step;
+  // Lines are counted, not stepped by adding to a coordinate: far from the origin the step can be
+  // lost in float precision and such a loop never ends. Lines are at least 6 px apart, so the cap
+  // only matters there.
+  const most = Math.ceil(Math.hypot(view.width, view.height) / 6) + 2;
+  const nx = Math.min(Math.floor((r.x + r.w - x0) / step), most);
+  const ny = Math.min(Math.floor((r.y + r.h - y0) / step), most);
   if (editor.prefs?.get('gridStyle') === 'dots') {
     // Dots at the gridline crossings (larger on major lines).
     const px = 1 / view.zoom;
     ctx.fillStyle = colors.grid;
-    for (let x = x0; x <= r.x + r.w; x += step) {
+    for (let i = 0; i <= nx; i++) {
+      const x = x0 + i * step;
       const mx = Math.abs(x / major - Math.round(x / major)) < 1e-6;
-      for (let y = y0; y <= r.y + r.h; y += step) {
+      for (let j = 0; j <= ny; j++) {
+        const y = y0 + j * step;
         const big = mx && Math.abs(y / major - Math.round(y / major)) < 1e-6;
         const d = (big ? 3 : 1.5) * px;
         ctx.fillRect(x - d / 2, y - d / 2, d, d);
@@ -509,13 +517,15 @@ function drawGrid(ctx, editor, colors) {
   }
   for (const pass of ['minor', 'major']) {
     ctx.beginPath();
-    for (let x = x0; x <= r.x + r.w; x += step) {
+    for (let i = 0; i <= nx; i++) {
+      const x = x0 + i * step;
       const isMajor = Math.abs(x / major - Math.round(x / major)) < 1e-6;
       if ((pass === 'major') !== isMajor) continue;
       ctx.moveTo(x, r.y);
       ctx.lineTo(x, r.y + r.h);
     }
-    for (let y = y0; y <= r.y + r.h; y += step) {
+    for (let j = 0; j <= ny; j++) {
+      const y = y0 + j * step;
       const isMajor = Math.abs(y / major - Math.round(y / major)) < 1e-6;
       if ((pass === 'major') !== isMajor) continue;
       ctx.moveTo(r.x, y);
@@ -528,30 +538,81 @@ function drawGrid(ctx, editor, colors) {
   ctx.restore();
 }
 
-/** Pixel Preview: re-render the canvas through a 72-ppi pixel grid at the current zoom. */
+/**
+ * Where Pixel Preview's pixels fall on the art canvas (device pixels): one
+ * block of `s` device pixels per point, starting at (x0, y0) on a document
+ * pixel boundary so each block is one 72-ppi pixel of the artwork; `w` x `h`
+ * blocks cover the canvas. Null when a pixel is not larger than a device
+ * pixel. A rotated view samples blocks along the screen axes.
+ */
+export function pixelPreviewGrid(view, width, height) {
+  const s = view.zoom * view.dpr;
+  if (s <= 1) return null;
+  const upright = !(view.rotation % 360);
+  // The device position of the document origin, folded into one block (off the canvas to the left/top).
+  const o = upright ? view.toScreen(0, 0) : { x: 0, y: 0 };
+  const x0 = ((((o.x * view.dpr) % s) + s) % s) - (upright ? s : 0);
+  const y0 = ((((o.y * view.dpr) % s) + s) % s) - (upright ? s : 0);
+  return { s, x0, y0, w: Math.ceil((width - x0) / s), h: Math.ceil((height - y0) / s) };
+}
+
+const pixelCanvases = [];
+/** Scratch canvas `i` of at least w x h for Pixel Preview (kept between frames), cleared. */
+function pixelCanvas(i, w, h) {
+  let c = pixelCanvases[i];
+  if (!c || c.width < w || c.height < h) {
+    const cw = Math.max(w, c?.width || 0);
+    const ch = Math.max(h, c?.height || 0);
+    c = pixelCanvases[i] =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(cw, ch)
+        : Object.assign(document.createElement('canvas'), { width: cw, height: ch });
+  }
+  const t = c.getContext('2d');
+  t.setTransform(1, 0, 0, 1, 0, 0);
+  t.clearRect(0, 0, w, h);
+  t.imageSmoothingEnabled = true;
+  t.imageSmoothingQuality = 'low';
+  return c;
+}
+
+/**
+ * Pixel Preview: re-render the canvas through a 72-ppi pixel grid at the
+ * current zoom. Each pixel is the average of its block of the full render
+ * (as an export antialiases): the block is resampled to a power-of-two size
+ * and halved, each halving averaging exact 2 x 2 squares, so no color leaks
+ * into the neighboring pixels the way a single smoothed downscale does.
+ */
 function drawPixelPreview(ctx, canvas, view, grid = true) {
-  if (view.zoom <= 1) return;
-  const w = Math.ceil(canvas.width / (view.zoom * view.dpr));
-  const h = Math.ceil(canvas.height / (view.zoom * view.dpr));
-  const tmp = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
-  const t = tmp.getContext('2d');
-  t.imageSmoothingQuality = 'high';
-  t.drawImage(canvas, 0, 0, w, h);
+  const g = pixelPreviewGrid(view, canvas.width, canvas.height);
+  if (!g) return;
+  const { s, x0, y0, w, h } = g;
+  let size = 2 ** Math.min(12, Math.ceil(Math.log2(s) - 1e-9));
+  let tmp = pixelCanvas(0, w * size, h * size);
+  tmp.getContext('2d').drawImage(canvas, x0, y0, w * s, h * s, 0, 0, w * size, h * size);
+  for (let i = 1; size > 1; i++) {
+    const [nw, nh] = [(w * size) / 2, (h * size) / 2];
+    const next = pixelCanvas(i % 2, nw, nh);
+    next.getContext('2d').drawImage(tmp, 0, 0, w * size, h * size, 0, 0, nw, nh);
+    tmp = next;
+    size /= 2;
+  }
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(tmp, 0, 0, w, h, 0, 0, w * view.zoom * view.dpr, h * view.zoom * view.dpr);
-  // The pixel grid shows above 600% zoom.
+  ctx.drawImage(tmp, 0, 0, w, h, x0, y0, w * s, h * s);
+  // The pixel grid shows above 600% zoom, on the pixel edges.
   if (grid && view.zoom >= 6) {
-    const s = view.zoom * view.dpr;
     ctx.beginPath();
     for (let i = 1; i < w; i++) {
-      ctx.moveTo(Math.round(i * s) + 0.5, 0);
-      ctx.lineTo(Math.round(i * s) + 0.5, canvas.height);
+      const x = Math.round(x0 + i * s) + 0.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvas.height);
     }
     for (let j = 1; j < h; j++) {
-      ctx.moveTo(0, Math.round(j * s) + 0.5);
-      ctx.lineTo(canvas.width, Math.round(j * s) + 0.5);
+      const y = Math.round(y0 + j * s) + 0.5;
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
     }
     ctx.strokeStyle = 'rgba(128, 128, 128, 0.35)';
     ctx.lineWidth = 1;

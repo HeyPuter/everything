@@ -4,12 +4,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { bootAppWithFeatures } from './helpers.js';
 import { setGeomSource, loadGeom } from '../src/features/geometry/engine/index.js';
-import { createPath } from '../src/model/nodes.js';
+import { createPath, createGroup } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { anchor } from '../src/model/bezier.js';
 import { makeBlend } from '../src/features/artboards/blend.js';
 import { makeRepeat } from '../src/features/repeat/repeat-model.js';
 import { offsetPathDialog, divideBelow } from '../src/features/geometry/path-ops.js';
+import { makeEnvelope } from '../src/features/envelope/envelope-ops.js';
+import { envelopeAt } from '../src/features/envelope/envelope-edit.js';
 
 const solid = (color) => ({ type: 'solid', color });
 
@@ -97,6 +99,129 @@ describe('geometry tools on live objects', () => {
     expect(doc.get(g).children).toEqual([a, b]);
     expect(doc.get(a).anchors).toHaveLength(4);
     expect(doc.has(plain)).toBe(false);
+    app.setTool('selection');
+  });
+
+  it('Shape Builder keeps the rest of the selection selected', async () => {
+    const { ed, doc, g, plain } = setup();
+    ed.select([g, plain]);
+    app.setTool('shape-builder');
+    const tool = app.tool;
+    tool.facesKey = null;
+    await tool.refreshFaces();
+    await tool.apply([0], 0, true);
+    expect(doc.has(plain)).toBe(false);
+    expect([...ed.selection]).toEqual([g]);
+    app.setTool('selection');
+  });
+
+  it('Knife keeps the rest of the selection selected', async () => {
+    const { ed, doc, g, plain } = setup();
+    app.setTool('knife');
+    ed.select([g, plain]);
+    await stroke(app.tool, [[10, 90], [10, 130]]);
+    expect(doc.has(plain)).toBe(false);
+    const sel = [...ed.selection];
+    expect(sel).toContain(g);
+    expect(sel.filter((id) => id !== g)).toHaveLength(2);
+    app.setTool('selection');
+  });
+
+  it('Eraser keeps the rest of the selection selected', async () => {
+    const { ed, doc, g, plain } = setup();
+    app.setTool('eraser');
+    ed.select([g, plain]);
+    // Through the plain square only.
+    await stroke(app.tool, [[10, 90], [10, 130]]);
+    expect(doc.has(plain)).toBe(false);
+    const sel = [...ed.selection];
+    expect(sel).toContain(g);
+    const pieces = sel.filter((id) => id !== g);
+    expect(pieces.length).toBe(2);
+    for (const id of pieces) expect(doc.get(id).fill).toEqual(solid('#00ff00'));
+    doc.undo();
+    expect([...ed.selection].sort()).toEqual([g, plain].sort());
+    app.setTool('selection');
+  });
+
+  it('cutting tools and Divide Objects Below stay inside the isolated group', async () => {
+    const { ed, doc, plain, layer } = setup();
+    // A group with a square, isolated; the plain square outside it is under the same cuts.
+    const yellow = { fill: solid('#ffff00'), stroke: null };
+    const inside = createPath(rectangle(0, 140, 20, 20), true, yellow);
+    const g = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(g, layer);
+      doc.insert(inside, g.id);
+    });
+    app.commands.run('object.isolate', { id: g.id });
+    expect(ed.isolation).toBe(g.id);
+    const plainNode = doc.get(plain);
+    for (const tool of ['knife', 'eraser']) {
+      app.setTool(tool);
+      ed.select([]);
+      await stroke(app.tool, [[10, 90], [10, 170]]);
+      expect(doc.get(plain), tool).toBe(plainNode);
+    }
+    expect(doc.has(inside.id)).toBe(false);
+    expect(doc.get(g.id).children.length).toBeGreaterThan(0);
+    // Scissors pick paths inside the isolated group only.
+    app.setTool('scissors');
+    expect(app.tool.pick(10, 100)).toBeNull();
+    app.setTool('selection');
+    // Divide Objects Below divides only what is below inside the isolated group.
+    const cutter = createPath(rectangle(5, 95, 10, 70), true, yellow);
+    doc.transact('cutter', () => doc.insert(cutter, g.id));
+    ed.select([cutter.id]);
+    await divideBelow(app);
+    expect(doc.get(plain)).toBe(plainNode);
+  });
+
+  it('the Blend tool picks objects inside the isolated group only', async () => {
+    const { ed, doc, plain, layer } = setup();
+    const style = { fill: solid('#ffff00'), stroke: null };
+    const p1 = createPath(rectangle(200, 200, 20, 20), true, style);
+    const p2 = createPath(rectangle(300, 200, 20, 20), true, style);
+    const g = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(g, layer);
+      doc.insert(p1, g.id);
+      doc.insert(p2, g.id);
+    });
+    app.commands.run('object.isolate', { id: g.id });
+    app.setTool('blend');
+    const click = (x, y) => app.tool.onPointerDown(ev(x, y));
+    click(210, 210);
+    // The plain square outside the group is not a second key.
+    click(10, 110);
+    expect(doc.get(plain).parent).toBe(layer);
+    expect(doc.get(g.id).children).toEqual([p1.id, p2.id]);
+    // (A click on nothing starts over.)
+    click(210, 210);
+    click(310, 210);
+    const blend = doc.get(doc.get(p1.id).parent);
+    expect(blend.blend).toBeTruthy();
+    expect(blend.parent).toBe(g.id);
+    app.setTool('selection');
+  });
+
+  it('envelope editing picks envelopes inside the isolated group only', () => {
+    const { ed, doc, plain, layer } = setup();
+    let env;
+    doc.transact('env', () => {
+      env = makeEnvelope(doc, [plain], { mode: 'mesh', rows: 2, cols: 2 });
+    });
+    expect(envelopeAt(ed, 10, 110)?.id).toBe(env);
+    const g = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(g, layer);
+      doc.insert(createPath(rectangle(300, 300, 10, 10), true), g.id);
+    });
+    app.commands.run('object.isolate', { id: g.id });
+    expect(envelopeAt(ed, 10, 110)).toBeNull();
+    // Nor does the Blend tool pick the envelope outside.
+    app.setTool('blend');
+    expect(app.tool.hitAt(ev(10, 110))).toBeNull();
     app.setTool('selection');
   });
 

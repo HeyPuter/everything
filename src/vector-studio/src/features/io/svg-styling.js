@@ -34,11 +34,16 @@ const STYLE_ATTRS = [
 
 const SHAPES = new Set(['path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'image', 'use', 'g']);
 
+/** Properties whose CSS value needs a unit (a bare number is valid only as an attribute). */
+const CSS_LENGTHS = new Set(['font-size', 'letter-spacing']);
+
 function styleOf(el) {
   const parts = [];
   for (const a of STYLE_ATTRS) {
     if (!el.hasAttribute(a)) continue;
-    parts.push(`${a}:${el.getAttribute(a)}`);
+    let v = el.getAttribute(a).trim();
+    if (CSS_LENGTHS.has(a) && /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(v) && Number(v) !== 0) v += 'px';
+    parts.push(`${a}:${v}`);
     el.removeAttribute(a);
   }
   const own = el.getAttribute('style');

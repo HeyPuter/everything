@@ -10,7 +10,7 @@ import { registerOutlineFont } from '../src/features/type/fonts.js';
 import { loadShapingFont, fontAlternates } from '../src/features/type/shaping.js';
 import { applyCharStyle } from '../src/features/type/type-ops.js';
 import { exportSVG } from '../src/features/io/svg-export.js';
-import { glyphSvg } from '../src/features/type/glyphs-panel.js';
+import { glyphSvg, insertGlyph } from '../src/features/type/glyphs-panel.js';
 
 let inter;
 let montserrat;
@@ -226,5 +226,17 @@ describe('SVG export of OpenType features', () => {
     expect(svg).toMatch(/<style>\.vs-ff1\{font-feature-settings:&quot;ss02&quot; 1, &quot;frac&quot; 1\}<\/style>/);
     expect(svg).toMatch(/class="vs-ff1"/);
     expect(svg.match(/class="/g).length).toBe((svg.match(/class="vs-ff1"/g) || []).length);
+  });
+});
+
+describe('inserting a glyph', () => {
+  it('a glyph replacing selected characters keeps their style', () => {
+    const { t, s } = editing('ab CD');
+    app.editor.doc.transact('Bold', () => app.editor.doc.update(t.id, { runs: [{ len: 3 }, { len: 2, fontWeight: 700 }] }));
+    s.setSelection(3, 4);
+    expect(insertGlyph(app, inter, inter.charToGlyphIndex('Q'))).toBe(true);
+    const n = app.editor.doc.get(t.id);
+    expect(n.text).toBe('ab QD');
+    expect(styleAt(n, 3).fontWeight).toBe(700);
   });
 });

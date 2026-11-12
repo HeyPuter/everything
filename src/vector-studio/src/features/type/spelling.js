@@ -17,6 +17,7 @@ import { nodeBounds, rectsIntersect } from '../../model/geometry.js';
 import { multiply } from '../../lib/matrix.js';
 import { loadSpeller, loadedSpeller, dictionaryKey, DICTIONARIES } from './spell-dict.js';
 import { selectedTextNodes } from './outlines.js';
+import { headOf } from './thread-model.js';
 
 export const DEFAULT_SPELL_OPTIONS = Object.freeze({
   repeated: true, // flag a word typed twice in a row
@@ -218,14 +219,18 @@ export function spellOverlay(app) {
 
 // ---- Check Spelling dialog ----
 
-/** Text objects to check: the selection's type when there is some, else every unlocked, visible one. */
-function scopeNodes(app, selectedOnly) {
+/** The text objects selected (or being edited): a threaded frame stands for its story, held by the thread's first frame. */
+function selectedTextIds(app) {
   const ed = app.editor;
-  const doc = ed.doc;
   const s = app.typeSession && !app.typeSession.ended ? app.typeSession : null;
-  let nodes;
-  if (selectedOnly) nodes = s ? [s.node()].filter(Boolean) : selectedTextNodes(ed);
-  else nodes = doc.leaves().filter((n) => n.type === 'text');
+  if (s) return [s.node()?.id].filter(Boolean);
+  return [...new Set(selectedTextNodes(ed).map((n) => headOf(ed.doc, n).id))];
+}
+
+/** Text objects to check: `selected` (ids) when given, else every unlocked, visible one. */
+function scopeNodes(app, selected) {
+  const doc = app.editor.doc;
+  const nodes = selected ? selected.map((id) => doc.get(id)).filter(Boolean) : doc.leaves().filter((n) => n.type === 'text');
   return nodes.filter((n) => n.text && !doc.isLocked(n.id) && !doc.isHidden(n.id)).map((n) => n.id);
 }
 
@@ -244,7 +249,9 @@ export async function openCheckSpelling(app) {
   const context = h('p.sp-context', { role: 'status', 'aria-label': 'Word in context' });
   const changeTo = h('input#sp-change', { type: 'text', autocomplete: 'off', spellcheck: false });
   const list = h('div.sp-suggestions', { role: 'listbox', 'aria-label': 'Suggestions', tabindex: '0' });
-  const hasSel = Boolean((app.typeSession && !app.typeSession.ended) || selectedTextNodes(ed).length);
+  // The selection when the dialog opens: checking shows each word by editing its text, which changes the selection.
+  const selection = selectedTextIds(app);
+  const hasSel = selection.length > 0;
   const scopeSel = h(
     'select#sp-scope',
     h('option', { value: 'doc' }, 'Entire Document'),
@@ -346,7 +353,7 @@ export async function openCheckSpelling(app) {
 
   const restart = () => {
     if (!speller) return;
-    ids = scopeNodes(app, scopeSel.value === 'sel');
+    ids = scopeNodes(app, scopeSel.value === 'sel' ? selection : null);
     at = { k: 0, pos: 0 };
     if (!ids.length) {
       show(null);

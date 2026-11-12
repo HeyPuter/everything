@@ -305,9 +305,24 @@ export function valueScale(values, opt, { includeZero = true } = {}) {
     const divisions = Math.max(1, Math.round(v.divisions) || 1);
     return { min, max, divisions, step: (max - min) / divisions };
   }
-  const nums = values.filter((x) => Number.isFinite(x));
-  if (!nums.length) return { min: 0, max: 1, divisions: 1, step: 1 };
-  return niceScale(Math.min(...nums), Math.max(...nums), 5, includeZero);
+  const [lo, hi] = extent(values);
+  if (lo > hi) return { min: 0, max: 1, divisions: 1, step: 1 };
+  return niceScale(lo, hi, 5, includeZero);
+}
+
+/**
+ * [min, max] of the finite numbers in a list ([Infinity, -Infinity] when there are none).
+ * A loop, not Math.min(...list): spreading a long data column overflows the call stack.
+ */
+export function extent(values) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const x of values) {
+    if (!Number.isFinite(x)) continue;
+    if (x < lo) lo = x;
+    if (x > hi) hi = x;
+  }
+  return [lo, hi];
 }
 
 // ---- geometry helpers ----
@@ -611,7 +626,8 @@ export function layoutGraph(graph, measure = (t, s) => String(t).length * s * 0.
       });
     }
     const yScale = valueScale(ys, opt, { includeZero: false });
-    const xScale = niceScale(xsAll.length ? Math.min(...xsAll) : 0, xsAll.length ? Math.max(...xsAll) : 1, 5, false);
+    const [xlo, xhi] = xsAll.length ? extent(xsAll) : [0, 1];
+    const xScale = niceScale(xlo, xhi, 5, false);
     scene.scale = yScale;
     const toY = valueAxis(yScale, false);
     const toX = (x) => ((x - xScale.min) / (xScale.max - xScale.min)) * W;
@@ -743,7 +759,7 @@ function layoutPies(data, opt, W, H, scene, pushMark, label) {
   if (!nPies) return;
   const fs = opt.fontSize;
   const totals = data.categories.map((_, c) => data.series.reduce((acc, s) => acc + (s.values[c] > 0 ? s.values[c] : 0), 0));
-  const maxTotal = Math.max(...totals, 1e-9);
+  const maxTotal = Math.max(extent(totals)[1], 1e-9);
   // Slice order per pie.
   const orderFor = (c) => {
     const idx = data.series.map((_, i) => i);

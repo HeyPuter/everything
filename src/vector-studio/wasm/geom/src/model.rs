@@ -32,6 +32,8 @@ pub struct Subpath {
 pub const F_FILLED: u32 = 1;
 pub const F_EVENODD: u32 = 2;
 pub const F_STRING: u32 = 4;
+/// Internal: the contours are simple (no self-crossings), so they need orienting, not normalizing.
+pub const F_SIMPLE: u32 = 8;
 
 #[derive(Clone, Debug, Default)]
 pub struct Shape {

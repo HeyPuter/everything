@@ -37,8 +37,10 @@ export const svgPaintHooks = {};
 
 /**
  * SVG export extensions from feature modules:
- *   attrs(node) -> string      extra attributes for an element (with a leading space)
- *   head(doc) -> string        extra markup at the top of the <svg> (e.g. <script>)
+ *   attrs(node, writer) -> string  extra attributes for an element (with a leading space)
+ *   head(doc, opts) -> string  extra markup at the top of the <svg> (e.g. <script>);
+ *                              scripts and event handlers stay out when
+ *                              opts.scripts (writer.o.scripts) is false
  *   element(node, writer, depth) -> string | undefined
  *                              markup that replaces the object's own (effects
  *                              SVG cannot express); writer.element(node, depth)

@@ -17,6 +17,7 @@ import { UserError } from '../../lib/errors.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect, selectionBounds, inflate } from '../../model/geometry.js';
 import { shapeAnchors } from '../../model/shapes.js';
 import { multiply, translate, isIdentity } from '../../lib/matrix.js';
+import { pathLength } from '../../model/bezier.js';
 import { pathDataFromSubpaths, numberFormatter } from './svg-path.js';
 import { exportView } from './export-view.js';
 import { svgPaintHooks, svgExportHooks, svgNodeHooks, exportWriters } from './hooks.js';
@@ -38,6 +39,8 @@ export function escapeXml(s) {
 
 function shortHex(hex, minify) {
   const h = String(hex || '#000000').toLowerCase();
+  // Colors come from document files: anything but a plain color is escaped so it cannot add markup.
+  if (!/^#[0-9a-f]{3,8}$/.test(h)) return escapeXml(h);
   if (minify && /^#([0-9a-f])\1([0-9a-f])\2([0-9a-f])\3$/.test(h)) return `#${h[1]}${h[3]}${h[5]}`;
   return h;
 }
@@ -180,8 +183,8 @@ class SVGWriter {
     if (s.opacity < 1) out += ` stroke-opacity="${this.n(s.opacity)}"`;
     const w = node.strokeWidth * widthScale;
     if (Math.abs(w - 1) > 1e-9) out += ` stroke-width="${this.n(w)}"`;
-    if (node.strokeCap && node.strokeCap !== 'butt') out += ` stroke-linecap="${node.strokeCap}"`;
-    if (node.strokeJoin && node.strokeJoin !== 'miter') out += ` stroke-linejoin="${node.strokeJoin}"`;
+    if (node.strokeCap && node.strokeCap !== 'butt') out += ` stroke-linecap="${escapeXml(node.strokeCap)}"`;
+    if (node.strokeJoin && node.strokeJoin !== 'miter') out += ` stroke-linejoin="${escapeXml(node.strokeJoin)}"`;
     else if ((node.miterLimit ?? 10) !== 4) out += ` stroke-miterlimit="${this.n(node.miterLimit ?? 10)}"`;
     const dash = effectiveDash(node);
     if (dash) {
@@ -478,7 +481,7 @@ class SVGWriter {
   /** Font attributes for a text style. */
   fontAttrs(st, size) {
     let a = ` font-family="${escapeXml(this.fontFamily(st.fontFamily))}" font-size="${this.n(size ?? st.fontSize)}"`;
-    if ((st.fontWeight || 400) !== 400) a += ` font-weight="${st.fontWeight}"`;
+    if ((st.fontWeight || 400) !== 400) a += ` font-weight="${escapeXml(st.fontWeight)}"`;
     if (st.fontStyle === 'italic') a += ' font-style="italic"';
     // OpenType features: a class with font-feature-settings (no presentation attribute exists for it).
     const ff = cssFeatureSettings(st);
@@ -543,7 +546,11 @@ class SVGWriter {
       return l && l !== baseLang ? ` xml:lang="${escapeXml(l)}"` : '';
     };
     const common = `${attrs}${baseLang ? ` xml:lang="${escapeXml(baseLang)}"` : ''}`;
-    const barRect = (x, y, w, h, paint, fill, space) => `${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || fill, space)}/>`;
+    // Bars in their own color are filled with it; the others are painted like the glyphs.
+    const barPaint = (st, paint, space) =>
+      paint ? this.fillAttrs(node, paint, space) : this.textPaintAttrs(node, st, space || null);
+    const barRect = (x, y, w, h, paint, st, space) =>
+      `${d1}<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${barPaint(st, paint, space)}/>`;
     if (mode === 'segments') {
       // Unscaled pieces share ONE <text> as <tspan>s positioned from the
       // layout (baseline shifts as dy from the line's baseline), so SVG
@@ -551,28 +558,45 @@ class SVGWriter {
       // runs. Scaled pieces need a transform, which a tspan cannot carry.
       const spans = [];
       let preserve = false;
+      // Viewers outline a text-decoration piece by piece (and glyph by glyph
+      // in a textLength piece), so stroked bars split into several pieces
+      // show seams: those bars are written as rectangles, like the canvas.
+      const stroked = (st) => {
+        const stroke = st.stroke === undefined ? node.stroke : st.stroke;
+        return !!stroke && (st.strokeWidth ?? node.strokeWidth) > 0;
+      };
+      const decoPieces = new Map();
+      for (const it of items) {
+        if (it.str && it.deco) decoPieces.set(it.line, (decoPieces.get(it.line) || 0) + 1);
+      }
       for (const it of items) {
         const st = it.style;
-        const fill = st.fill === undefined ? node.fill : st.fill;
         const scaled = it.hs !== 1 || it.vs !== 1;
         const ls = it.track ? ` letter-spacing="${this.n(scaled ? it.track / it.hs : it.track)}"` : '';
         // Spacing the layout set (tracking, kerning pairs) is kept by giving the piece its laid-out length.
         const tl = it.str && it.str.length > 1 && it.span > 0 && (it.track || it.kerned) ? ` textLength="${this.n(scaled ? it.span / it.hs : it.span)}"` : '';
-        const plain = plainDecoration(st);
+        const split = tl || decoPieces.get(it.line) > 1;
+        const plain = plainDecoration(st) && !(it.deco && split && stroked(st));
         if (it.str && !scaled) {
           if (/^\s|\s$|\s{2}/.test(it.str)) preserve = true;
           const dy = Math.abs(it.y - it.base) > 1e-9 ? ` dy="${this.n(it.y - it.base)}"` : '';
           const deco = plain ? [st.underline && 'underline', st.strike && 'line-through'].filter(Boolean).join(' ') : '';
           spans.push({ it, dy, attrs: `${this.fontAttrs(st, it.size)}${ls}${tl}${this.textPaintAttrs(node, st, null)}${deco ? ` text-decoration="${deco}"` : ''}${langAttr(st)}`, deco, str: escapeXml(it.str) });
           // Bars with their own weight, offset, color or dashes are drawn as rectangles.
-          if (!plain) for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) kids.push(barRect(x, y, w, h, paint, fill, false));
+          if (!plain) {
+            for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) {
+              kids.push(barRect(x, y, w, h, paint, st, false));
+            }
+          }
           continue;
         }
         if (it.str) {
           const pre = /^\s|\s$|\s{2}/.test(it.str) ? ' xml:space="preserve"' : '';
           kids.push(`${d1}<text transform="translate(${this.n(it.x)} ${this.n(it.y)}) scale(${this.n(it.hs)} ${this.n(it.vs)})"${this.fontAttrs(st, it.size)}${ls}${tl}${this.textPaintAttrs(node, st, [it.hs, 0, 0, it.vs, it.x, it.y])}${langAttr(st)}${pre}>${escapeXml(it.str)}</text>`);
         }
-        for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) kids.push(barRect(x, y, w, h, paint, fill, false));
+        for (const [x, y, w, h, paint] of decoRects(st, it.size, it.deco)) {
+          kids.push(barRect(x, y, w, h, paint, st, false));
+        }
       }
       const pre = preserve ? ' xml:space="preserve"' : '';
       if (!spans.length && !kids.length) return '';
@@ -586,14 +610,72 @@ class SVGWriter {
       if (!kids.length) return `${nl}${text}`;
       return `${nl}<g${id}${tf}${common}>${text ? `${d1}${text}` : ''}${kids.join('')}${nl}</g>`;
     }
+    const onPath = this.textPathText(node, depth, { id, tf, common, langAttr });
+    if (onPath != null) return onPath;
     for (const it of items) {
       const st = it.style;
       const m = it.m.map((v, i) => (i < 4 ? numberFormatter(6, this.o.minify)(v) : this.n(v))).join(' ');
-      const deco = decoRects(st, it.size, it.deco).map(([x, y, w, h, paint]) => `<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${this.fillAttrs(node, paint || (st.fill === undefined ? node.fill : st.fill), it.m)}/>`).join('');
+      const deco = decoRects(st, it.size, it.deco)
+        .map(
+          ([x, y, w, h, paint]) =>
+            `<rect x="${this.n(x)}" y="${this.n(y)}" width="${this.n(w)}" height="${this.n(h)}"${barPaint(st, paint, it.m)}/>`,
+        )
+        .join('');
       kids.push(`${d1}<g transform="matrix(${m})"><text${this.fontAttrs(st, it.size)}${this.textPaintAttrs(node, st, it.m)}${langAttr(st)}>${escapeXml(it.str)}</text>${deco}</g>`);
     }
     if (!kids.length) return '';
     return `${nl}<g${id}${tf}${common}>${kids.join('')}${nl}</g>`;
+  }
+
+  /**
+   * Type on a path as <text><textPath>, so it stays editable text on its
+   * path in other editors and when opened again: for the plain kind (rainbow
+   * effect on the baseline, horizontal, no spacing adjustment) whose
+   * characters have no tracking, shifts, scaling, rotation or bars, which
+   * a textPath cannot follow exactly. Null otherwise (written glyph by glyph).
+   */
+  textPathText(node, depth, { id, tf, common, langAttr }) {
+    const po = node.pathOptions || {};
+    if (node.kind !== 'path' || node.vertical || !node.pathAnchors?.length || (po.effect && po.effect !== 'rainbow') || po.spacing || (po.align && po.align !== 'baseline')) return null;
+    let lay;
+    try {
+      lay = textPieces(node).lay;
+    } catch {
+      return null;
+    }
+    const { chars } = lay;
+    const text = String(node.text ?? '');
+    if (!text || text.includes('\n') || chars.perGlyph || chars.shaped || chars.gs) return null;
+    for (let i = 0; i < text.length; i++) {
+      const st = chars.sty[i];
+      if (!st || st.tracking || st.baselineShift || st.rotation || st.underline || st.strike || (st.horizontalScale ?? 100) !== 100 || (st.verticalScale ?? 100) !== 100 || chars.size[i] !== st.fontSize || chars.manual[i]) return null;
+    }
+    const align = node.para?.align || 'left';
+    if (!['left', 'center', 'right'].includes(align)) return null;
+    let anchors = node.pathAnchors;
+    if (po.flip) anchors = anchors.slice().reverse().map((p) => ({ ...p, ix: p.ox, iy: p.oy, ox: p.ix, oy: p.iy }));
+    const closed = Boolean(node.pathClosed);
+    const L = pathLength(anchors, closed);
+    if (!(L > 0)) return null;
+    const start = po.start || 0;
+    const offset = align === 'center' ? (start + L) / 2 : align === 'right' ? L : start;
+    const pid = this.def('tp', (pid) => `${this.nl(2)}<path id="${pid}" d="${this.d([{ anchors, closed }], false)}"/>`);
+    this.needsXlink = true;
+    // Same-styled characters share a <tspan>.
+    const spans = [];
+    for (let i = 0; i < text.length; ) {
+      const st = chars.sty[i];
+      let j = i + 1;
+      while (j < text.length && chars.sty[j] === st) j++;
+      spans.push({ st, str: chars.disp.slice(i, j).join('') });
+      i = j;
+    }
+    const pre = spans.some((sp) => /^\s|\s$|\s{2}/.test(sp.str)) ? ' xml:space="preserve"' : '';
+    const anchor = align === 'center' ? ' text-anchor="middle"' : align === 'right' ? ' text-anchor="end"' : '';
+    const first = spans[0].st;
+    const runs = spans.length === 1 ? escapeXml(spans[0].str) : spans.map((sp) => `<tspan${this.fontAttrs(sp.st, sp.st.fontSize)}${this.textPaintAttrs(node, sp.st, null)}${langAttr(sp.st)}>${escapeXml(sp.str)}</tspan>`).join('');
+    const own = spans.length === 1 ? `${this.fontAttrs(first, first.fontSize)}${this.textPaintAttrs(node, first, null)}${langAttr(first)}` : '';
+    return `${this.nl(depth)}<text${id}${tf}${common}${own}${pre}><textPath xlink:href="#${pid}"${offset ? ` startOffset="${this.n(offset)}"` : ''}${anchor}>${runs}</textPath></text>`;
   }
 
   image(node, depth) {
@@ -649,7 +731,9 @@ class SVGWriter {
     const nl = this.nl(depth);
     const isLayer = node.type === 'layer';
     const id = isLayer ? this.nameId(node.name || 'Layer') : this.nameId(node.name);
-    const dataName = isLayer && !this.o.minify && node.name && sanitizeId(node.name) !== node.name ? ` data-name="${escapeXml(node.name)}"` : '';
+    let dataName = isLayer && !this.o.minify && node.name && sanitizeId(node.name) !== node.name ? ` data-name="${escapeXml(node.name)}"` : '';
+    // Marks the group as a layer, so opening the file again restores the layers.
+    if (isLayer && !this.o.minify) dataName += ' data-layer=""';
     if (node.type === 'group' && node.clip && kids.length) {
       const mask = kids[kids.length - 1];
       const cp = this.clipDef(mask);
@@ -694,6 +778,8 @@ function plainInstance(doc, n) {
  *   textMode    'text' | 'outlines' (needs `outlines`: Map id -> subpaths)
  *   background  optional color for a full-size background rectangle
  *   symbols     write symbol instances as <use> of shared <symbol> definitions
+ *   scripts     false leaves out the document's scripts and event handlers
+ *               (SVG Interactivity), for SVG the app itself puts in its page
  *   title, idPrefix, writeIds (object names as ids, default true), cull
  */
 export function exportSVG(source, opts) {
@@ -722,7 +808,7 @@ export function exportSVG(source, opts) {
   if (title) out += `${nl}${o.minify ? '' : '  '}<title>${escapeXml(title)}</title>`;
   if (info && !o.minify) out += metadataXml(info, title);
   for (const hook of svgExportHooks.head) {
-    const extra = hook(doc);
+    const extra = hook(doc, o);
     if (extra) out += `${nl}${o.minify ? '' : '  '}${extra}`;
   }
   if (w.defs.length) out += `${nl}${o.minify ? '' : '  '}<defs>${w.defs.join('')}${nl}${o.minify ? '' : '  '}</defs>`;

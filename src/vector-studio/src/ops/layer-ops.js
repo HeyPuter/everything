@@ -51,12 +51,22 @@ export function nextLayerName(doc) {
 }
 
 function layerColor(doc) {
+  return layerColorPicker(doc)();
+}
+
+/** Colors for new layers, one per call: colors no layer uses yet first (one look at the document for any number of layers). */
+function layerColorPicker(doc) {
   const used = new Set();
   doc.walk((n) => {
     if (n.type === 'layer') used.add(n.color);
     return n.type === 'layer';
   });
-  return LAYER_COLORS.find((c) => !used.has(c)) || LAYER_COLORS[used.size % LAYER_COLORS.length];
+  return () => {
+    const color =
+      LAYER_COLORS.find((c) => !used.has(c)) || LAYER_COLORS[used.size % LAYER_COLORS.length];
+    used.add(color);
+    return color;
+  };
 }
 
 /** Insert a new (sub)layer under `parentId` at `index`. Returns the layer node. */
@@ -64,6 +74,25 @@ export function insertLayer(doc, parentId, index = Infinity, props = {}) {
   const layer = { ...createLayer(props.name || nextLayerName(doc), props.color || layerColor(doc)), ...props };
   if (!layer.name) layer.name = nextLayerName(doc);
   return doc.insert(layer, parentId, index);
+}
+
+/**
+ * New Layer: a layer right above `layerId` (the active layer) at its level,
+ * so a sublayer gets a sibling sublayer; on top when there is none.
+ */
+export function addLayerAbove(doc, layerId, name) {
+  const active = doc.layerOf(layerId);
+  if (active && active.parent !== 'root' && doc.get(active.parent)) {
+    const parent = doc.get(active.parent);
+    return insertLayer(
+      doc,
+      parent.id,
+      parent.children.indexOf(active.id) + 1,
+      name ? { name } : {},
+    );
+  }
+  const idx = doc.root.children.indexOf(active?.id);
+  return doc.addLayer(name || nextLayerName(doc), idx < 0 ? Infinity : idx + 1);
 }
 
 /** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */
@@ -199,10 +228,14 @@ export function releaseToLayers(doc, containerId, mode = 'sequence') {
     index = 0;
   }
   const made = [];
+  const color = layerColorPicker(doc);
   kids.forEach((kid, i) => {
     const node = doc.get(kid);
     if (!node || node.type === 'layer') return;
-    const layer = insertLayer(doc, parentId, index + made.length, { name: `${defaultLabel(c)} ${made.length + 1}` });
+    const layer = insertLayer(doc, parentId, index + made.length, {
+      name: `${defaultLabel(c)} ${made.length + 1}`,
+      color: color(),
+    });
     if (mode === 'build') {
       for (let j = 0; j < i; j++) {
         const below = doc.get(kids[j]);
@@ -275,13 +308,27 @@ export function othersAllSet(doc, keepIds, key) {
   return others.length > 0 && others.every((l) => l[key]);
 }
 
-/** Template on or off for layers: a template is locked, does not print and dims its images. */
+/**
+ * Template on or off for layers: a template is locked, does not print and dims its images. Turning
+ * it off brings back the lock and print settings the layer had before (kept in `templatePrev`).
+ */
 export function setTemplate(doc, ids, on) {
   for (const id of ids) {
     const l = doc.get(id);
-    if (l?.type !== 'layer') continue;
-    doc.update(id, on ? { template: true, locked: true, print: false } : { template: false, locked: false, print: true });
+    if (l?.type !== 'layer' || Boolean(l.template) === on) continue;
+    if (on) {
+      doc.update(id, { template: true, locked: true, print: false, templatePrev: templatePrevOf(l) });
+    } else {
+      const prev = l.templatePrev || {};
+      const back = { locked: Boolean(prev.locked), print: prev.print ?? true };
+      doc.update(id, { template: false, ...back, templatePrev: undefined });
+    }
   }
+}
+
+/** The settings a layer about to become a template gets back when it stops being one. */
+export function templatePrevOf(layer) {
+  return { locked: Boolean(layer.locked), print: layer.print ?? true };
 }
 
 /** The layer each top-level id lives in, by name (for Paste Remembers Layers). */

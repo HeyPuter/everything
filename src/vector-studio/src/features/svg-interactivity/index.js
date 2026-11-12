@@ -20,17 +20,17 @@ export const SVG_EVENTS = ['onclick', 'onmousedown', 'onmouseup', 'onmouseover',
 
 const attr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/\n/g, '&#10;');
 
-export function svgEventAttrs(node) {
+export function svgEventAttrs(node, writer) {
   const ev = node?.svgEvents;
-  if (!ev) return '';
+  if (!ev || writer?.o?.scripts === false) return '';
   let out = '';
   for (const name of SVG_EVENTS) if (ev[name]) out += ` ${name}="${attr(ev[name])}"`;
   return out;
 }
 
-export function svgScriptMarkup(doc) {
+export function svgScriptMarkup(doc, opts) {
   const root = doc?.root;
-  if (!root) return '';
+  if (!root || opts?.scripts === false) return '';
   const parts = [];
   for (const url of root.svgScripts || []) if (url) parts.push(`<script href="${attr(url)}"/>`);
   if (root.svgScript) parts.push(`<script><![CDATA[\n${String(root.svgScript).replace(/]]>/g, ']]]]><![CDATA[>')}\n]]></script>`);

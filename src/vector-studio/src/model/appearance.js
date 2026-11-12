@@ -400,27 +400,67 @@ export function layerAppearanceArtwork(doc, layer) {
 
 // ---- transforms ----
 
+/** Lengths of the built-in raster effects (document units), with their ranges. */
+const EFFECT_LENGTHS = {
+  dropShadow: ['x', 'y', 'blur'],
+  innerGlow: ['blur'],
+  outerGlow: ['blur'],
+  blur: ['radius'],
+  feather: ['radius'],
+};
+
+/** Effects with their shadow, glow, blur and feather lengths times s (the same list when none change). */
+export function scaleEffects(list, s) {
+  let changed = false;
+  const out = list.map((e) => {
+    const keys = e && EFFECT_LENGTHS[e.type];
+    if (!keys) return e;
+    const next = { ...e };
+    for (const k of keys) {
+      if (!Number.isFinite(e[k])) continue;
+      const lo = k === 'x' || k === 'y' ? -1000 : 0;
+      next[k] = Math.min(1000, Math.max(lo, Math.round(e[k] * s * 1e6) / 1e6));
+      if (next[k] !== e[k]) changed = true;
+    }
+    return next;
+  });
+  return changed ? out : list;
+}
+
 /**
  * Keep a stack in step with its object: gradient and pattern paints of the
  * extra items move, turn and stretch with it, and with Scale Strokes &
- * Effects their stroke weights scale too.
+ * Effects their stroke weights and the object's and items' effects scale
+ * too.
  */
 function stackTransformPatch(node, m, opts, doc) {
-  if (!hasAppearanceStack(node)) return null;
+  // Most objects have neither a stack nor effects to scale: nothing to do.
+  const stack = hasAppearanceStack(node);
+  if (!stack && !(opts.scaleStrokes && node.effects?.length)) return null;
   const s = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+  const scaleFx = Boolean(opts.scaleStrokes) && s > 0 && Math.abs(s - 1) > 1e-9;
+  const effects = scaleFx && node.effects?.length ? scaleEffects(node.effects, s) : node.effects;
+  const own = effects !== node.effects ? { effects } : null;
+  if (!stack) return own;
   const bounds = () => (doc ? nodeBounds(doc, node) : null);
   let changed = false;
   const appearance = node.appearance.map((it) => {
-    if (!it || it.base || (it.type !== 'fill' && it.type !== 'stroke')) return it;
+    if (!it) return it;
     let out = it;
-    const p = it[it.type];
-    const tp = p ? transformPaint(p, m, bounds, opts) : p;
-    if (tp !== p) out = { ...out, [it.type]: tp };
-    if (it.type === 'stroke' && opts.scaleStrokes && s !== 1 && it.strokeWidth > 0) out = { ...out, strokeWidth: it.strokeWidth * s };
+    if (scaleFx && Array.isArray(it.effects) && it.effects.length) {
+      const fx = scaleEffects(it.effects, s);
+      if (fx !== it.effects) out = { ...out, effects: fx };
+    }
+    if (!it.base && (it.type === 'fill' || it.type === 'stroke')) {
+      const p = it[it.type];
+      const tp = p ? transformPaint(p, m, bounds, opts) : p;
+      if (tp !== p) out = { ...out, [it.type]: tp };
+      if (it.type === 'stroke' && opts.scaleStrokes && s !== 1 && it.strokeWidth > 0) out = { ...out, strokeWidth: it.strokeWidth * s };
+    }
     if (out !== it) changed = true;
     return out;
   });
-  return changed ? { appearance } : null;
+  return changed ? { ...own, appearance } : own;
 }
 
 transformHooks.push(stackTransformPatch);

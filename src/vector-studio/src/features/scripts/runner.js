@@ -23,6 +23,7 @@
  */
 import { createPath, createText, createGroup, DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
 import { downloadBlob } from '../io/deliver.js';
+import { repairNode } from '../files/format.js';
 
 /**
  * The script side of the API, as source text: `post` sends a message to the
@@ -119,6 +120,9 @@ const BOOT = `
 
 const plain = (n) => (n ? JSON.parse(JSON.stringify(n)) : null);
 
+/** API calls that wait for the user to answer a dialog. */
+const ASKS_USER = new Set(['prompt', 'confirm']);
+
 /** Object properties a script may change (structure stays with create/remove). */
 const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children']);
 
@@ -128,6 +132,13 @@ function toAnchors(list) {
   return (Array.isArray(list) ? list : [])
     .filter((a) => a && typeof a === 'object' && Number.isFinite(a.x) && Number.isFinite(a.y))
     .map((a) => ({ ...a, ix: num(a.ix, a.x), iy: num(a.iy, a.y), ox: num(a.ox, a.x), oy: num(a.oy, a.y) }));
+}
+
+/** Refuse properties drawing cannot use (the wrong kind of value), naming them, instead of storing them. */
+function checkValues(node, keys) {
+  const fixed = repairNode(node);
+  const bad = fixed === node ? [] : keys.filter((k) => fixed[k] !== node[k]);
+  if (bad.length) throw new Error(`Not a valid value for ${bad.map((k) => `"${k}"`).join(', ')}.`);
 }
 
 /** Build a node from script JSON. */
@@ -157,6 +168,10 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
     frame.setAttribute('aria-hidden', 'true');
     frame.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none';
     let done = false;
+    let timer = 0;
+    let left = timeoutMs;
+    let since = 0;
+    let asking = 0;
     const finish = (result) => {
       if (done) return;
       done = true;
@@ -165,7 +180,40 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
       frame.remove();
       resolve({ ...result, changes: count() });
     };
-    const timer = setTimeout(() => finish({ ok: false, error: `The script took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped.` }), timeoutMs);
+    // The time limit stops runaway scripts; time spent waiting for the user to answer does not count.
+    const resume = () => {
+      since = Date.now();
+      timer = setTimeout(() => finish({ ok: false, error: `The script took longer than ${Math.round(timeoutMs / 1000)} seconds and was stopped.` }), left);
+    };
+    const pause = () => {
+      clearTimeout(timer);
+      left = Math.max(0, left - (Date.now() - since));
+    };
+    const hold = () => {
+      if (!asking++) pause();
+    };
+    const release = () => {
+      if (!--asking && !done) resume();
+    };
+    /** While a menu command runs, the time its own dialogs (Move..., Offset Path...) are open does not count either. */
+    const watchDialogs = () => {
+      let held = false;
+      const sync = () => {
+        const open = Boolean(document.querySelector('dialog[open]'));
+        if (open === held) return;
+        held = open;
+        if (open) hold();
+        else release();
+      };
+      const observer = new MutationObserver(sync);
+      observer.observe(document.body, { childList: true });
+      sync();
+      return () => {
+        observer.disconnect();
+        if (held) release();
+      };
+    };
+    resume();
     const onMessage = async (e) => {
       if (e.source !== frame.contentWindow) return;
       const m = e.data;
@@ -175,6 +223,9 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
         frame.contentWindow.postMessage({ __vs: 'run', source, doc: { name: editor.name || root.name, units: root.units, artboards: (root.artboards || []).map((a) => ({ name: a.name, x: a.x, y: a.y, w: a.w, h: a.h })) } }, '*');
       } else if (m.__vs === 'call') {
         let reply;
+        const asks = ASKS_USER.has(m.method);
+        if (asks) hold();
+        const unwatch = m.method === 'command' ? watchDialogs() : null;
         try {
           const fn = api[m.method];
           if (!fn) throw new Error(`Unknown API "${m.method}".`);
@@ -182,6 +233,8 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
         } catch (err) {
           reply = { __vs: 'reply', id: m.id, error: err?.message || String(err) };
         }
+        unwatch?.();
+        if (asks) release();
         if (!done) frame.contentWindow?.postMessage(reply, '*');
       } else if (m.__vs === 'done') {
         finish(m.error ? { ok: false, error: m.error } : { ok: true, value: m.value });
@@ -198,6 +251,14 @@ export function scriptAPI(app, editor, name) {
   const doc = editor.doc;
   const runKey = `script:${Date.now()}:${Math.random()}`;
   let changes = 0;
+  // Every undo step added from here on (changes and commands, however far apart) is part of this run.
+  const earlier = new Set(doc.undoStack);
+  const asOneStep = () => {
+    const stack = doc.undoStack;
+    let n = 0;
+    while (n < stack.length && !earlier.has(stack[stack.length - 1 - n])) n++;
+    if (n > 1 || (n === 1 && stack[stack.length - 1].label !== name)) doc.mergeHistory(n, name);
+  };
 
   const mutate = (fn) => {
     let out;
@@ -205,6 +266,7 @@ export function scriptAPI(app, editor, name) {
       out = fn();
     }, { coalesce: runKey });
     changes++;
+    asOneStep();
     return out;
   };
   const check = (id) => {
@@ -228,11 +290,13 @@ export function scriptAPI(app, editor, name) {
       check(id);
       const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => !LOCKED_KEYS.has(k)));
       if ('anchors' in clean) clean.anchors = toAnchors(clean.anchors);
+      checkValues({ ...doc.get(id), ...clean }, Object.keys(clean));
       mutate(() => doc.update(id, clean));
       return true;
     },
     create: (data, opts) => {
       const node = nodeFromJSON(data);
+      checkValues(node, Object.keys(node));
       const parentId = opts?.parent && doc.get(opts.parent)?.children ? opts.parent : editor.targetLayer().id;
       return mutate(() => doc.insert(node, parentId, opts?.index ?? Infinity)).id;
     },
@@ -247,8 +311,12 @@ export function scriptAPI(app, editor, name) {
     },
     command: async (id) => {
       if (!app.commands.get(id)) throw new Error(`Unknown command "${id}".`);
+      // Commands act on the active document: make it the script's again if another tab was chosen.
+      if (!app.editors.includes(editor)) throw new Error('The document the script runs on was closed.');
+      if (app.editor !== editor) app.activate(editor);
       await app.commands.run(id);
       changes++;
+      asOneStep();
       return true;
     },
     exportSVG: async (opts) => app.exporters?.svg?.(editor, opts || {}) ?? null,

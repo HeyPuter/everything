@@ -23,7 +23,7 @@
  */
 import { PRINT_DEFAULTS, normalizePrint } from './print-settings.js';
 import { exportSVG } from './svg-export.js';
-import { printView } from './print.js';
+import { printView, setPrintSvg } from './print.js';
 import { renderRegion } from './raster.js';
 import { colorSettings, INK_NAMES, PROCESS_INKS } from '../prepress/color-management.js';
 import { spotInks, inkUsage, plateView } from '../prepress/separations.js';
@@ -222,7 +222,7 @@ export async function buildPrintOutput(app, editor, pages, st, { outlines = null
           if (url) urls.push(url);
           art = { url };
         } else {
-          art = { svg: exportSVG(printView(doc, st.layers), { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, idPrefix: `p${i}t${k}-` }) };
+          art = { svg: exportSVG(printView(doc, st.layers), { rect: t.rect, responsive: true, minify: true, precision: 3, textMode: outlines ? 'outlines' : 'text', outlines, writeIds: false, scripts: false, idPrefix: `p${i}t${k}-` }) };
         }
         cache.set(key, art);
         onProgress?.(++done);
@@ -243,7 +243,7 @@ export async function buildPrintOutput(app, editor, pages, st, { outlines = null
     const art = proof ? `<defs><filter id="pp-out-${i}" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">${proof}</filter></defs><g filter="url(#pp-out-${i})">${body}</g>` : body;
     const mirror = st.emulsion === 'down' ? ` transform="translate(${num(p.w)} 0) scale(-1 1)"` : '';
     const content = `<g${mirror}>${art}${marksMarkup(p.marks || [], plate.name)}</g>`;
-    el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${num(p.w)}pt" height="${num(p.h)}pt" viewBox="0 0 ${num(p.w)} ${num(p.h)}">${content}</svg>`;
+    setPrintSvg(el, `<svg xmlns="http://www.w3.org/2000/svg" width="${num(p.w)}pt" height="${num(p.h)}pt" viewBox="0 0 ${num(p.w)} ${num(p.h)}">${content}</svg>`);
     const filters = [];
     if (st.mode === 'composite' && st.color === 'gray') filters.push('grayscale(1)');
     if (st.image === 'negative') filters.push('invert(1)');

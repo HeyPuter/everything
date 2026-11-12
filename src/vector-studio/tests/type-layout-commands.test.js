@@ -26,6 +26,17 @@ beforeEach(async () => {
 });
 
 describe('bullets and numbering', () => {
+  it('Convert to Text on a triple-clicked paragraph leaves the next paragraph a list', () => {
+    const t = add(createText('one\ntwo', 0, 0, { kind: 'area', width: 400, height: 400, char: { ...CHAR }, para: { list: { kind: 'bullet', bullet: '\u2022' } } }));
+    app.setTool('type');
+    const s = app.tool.editText(t.id);
+    s.selectParagraph(0);
+    app.commands.run('type.listToText');
+    const n = doc.get(t.id);
+    expect(n.text).toBe('\u2022\tone\ntwo');
+    expect(paraAt(n, 1).list).toEqual({ kind: 'bullet', bullet: '\u2022' });
+  });
+
   it('Apply Bullets toggles a list with a hanging indent on the selected type', () => {
     const t = add(createText('one\ntwo', 0, 0, { kind: 'area', width: 400, height: 400, char: { ...CHAR } }));
     app.editor.select([t.id]);

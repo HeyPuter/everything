@@ -25,13 +25,21 @@ export class RecoveryStore {
     return next;
   }
 
-  async #readIndex(backend) {
+  /**
+   * The entries a backend lists ([] when it has none). With `strict`, a
+   * read that failed (offline) throws instead, so the index is never
+   * rewritten without the entries it could not read; a damaged one still
+   * starts over.
+   */
+  async #readIndex(backend, { strict = false } = {}) {
+    let v;
     try {
-      const v = await backend.readJSON(INDEX);
-      return Array.isArray(v) ? v.filter((e) => e && typeof e.id === 'string') : [];
-    } catch {
+      v = await backend.readJSON(INDEX);
+    } catch (err) {
+      if (strict && !(err instanceof SyntaxError)) throw err;
       return [];
     }
+    return Array.isArray(v) ? v.filter((e) => e && typeof e.id === 'string') : [];
   }
 
   /** Save a recovery copy. Returns the backend kind it landed in. */
@@ -41,7 +49,7 @@ export class RecoveryStore {
       for (const b of this.backends) {
         try {
           await b.writeBlob(`${DIR}/${id}.vstudio`, data instanceof Blob ? data : new Blob([data]));
-          const index = (await this.#readIndex(b)).filter((e) => e.id !== id);
+          const index = (await this.#readIndex(b, { strict: true })).filter((e) => e.id !== id);
           index.push({ id, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null } : null, saved, revision, session });
           await b.writeJSON(INDEX, index);
           // A stale copy in a lower-priority store would resurrect old work.

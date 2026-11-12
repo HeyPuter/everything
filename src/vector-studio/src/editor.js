@@ -15,6 +15,8 @@ import { Emitter } from './lib/emitter.js';
 import { Viewport } from './render/viewport.js';
 import { DEFAULT_STYLE, createGroup } from './model/nodes.js';
 import { selectionBounds, selectionFrame, nodeBounds } from './model/geometry.js';
+import { liveDef } from './model/live.js';
+import { moveGradient } from './model/gradients.js';
 
 export const DEFAULT_VIEW_OPTIONS = {
   mode: 'preview', // preview | outline
@@ -98,8 +100,9 @@ export class Editor extends Emitter {
         this.emit('selection');
       },
     };
+    this.on('selection', () => doc.selectionChanged());
     doc.on('change', (e) => {
-      if (e.structural) this.#pruneSelection();
+      if (e.structural) this.#pruneSelection(e.commit);
       if (e.commit && this.isolation && !doc.has(this.isolation)) this.#lostIsolation();
       if (!doc.has(this.activeLayerId)) this.activeLayerId = doc.root.children[doc.root.children.length - 1];
       // Undo, or canceling an Alt-drag duplicate, can remove the active artboard.
@@ -134,10 +137,30 @@ export class Editor extends Emitter {
     return this.file?.name || this.doc.root.name;
   }
 
-  #pruneSelection() {
+  /**
+   * Drop selected objects that are gone; after a committed change also
+   * those moved into a hidden or locked container (a Layers panel drop),
+   * which must not stay editable.
+   */
+  #pruneSelection(committed = false) {
     let changed = false;
+    const doc = this.doc;
+    // Hidden or locked, per container (one walk up per parent, not per object).
+    const off = new Map();
+    const blocked = (pid) => {
+      if (!pid) return false;
+      let v = off.get(pid);
+      if (v === undefined) {
+        const p = doc.get(pid);
+        v = Boolean(p && (p.hidden || p.locked || blocked(p.parent)));
+        off.set(pid, v);
+      }
+      return v;
+    };
     for (const id of this.selection) {
-      if (!this.doc.has(id)) {
+      // (Mid-transaction only has(): reading would hand out containers the transaction edits in place.)
+      const n = committed ? doc.get(id) : null;
+      if (committed ? !n || n.hidden || n.locked || blocked(n.parent) : !doc.has(id)) {
         this.selection.delete(id);
         this.anchors.delete(id);
         changed = true;
@@ -318,6 +341,8 @@ export class Editor extends Emitter {
     while (n && n.parent && n.id !== stop) {
       const p = this.doc.get(n.parent);
       if (!p || p.type === 'layer' || p.type === 'root' || p.id === stop) break;
+      // Live objects opened for editing (an envelope's contents) select their children.
+      if (p.type === 'group' && p.live && liveDef(p)?.selectContents) break;
       n = p;
     }
     return n;
@@ -427,6 +452,8 @@ export class Editor extends Emitter {
 
   setStyle(patch) {
     this.style = { ...this.style, ...patch };
+    // Paint for new objects: a gradient's end points belong to the object it came from.
+    for (const k of ['fill', 'stroke']) if (patch[k]) this.style[k] = moveGradient(patch[k]);
     this.emit('style');
   }
 

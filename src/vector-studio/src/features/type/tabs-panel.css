@@ -3,6 +3,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 10px 12px 12px;
 }
 /* Without text the controls dim, but the note saying why stays readable. */
 .panel-body.panel-tabs.disabled {

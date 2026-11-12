@@ -244,6 +244,45 @@ describe('Envelope commands', () => {
     expect(hitTest(doc, 120, 190, 1).id).toBe(a);
   });
 
+  it('while editing contents the Selection tool selects and moves the content object, not the envelope', async () => {
+    const { app, ed, doc, a } = await setup();
+    const p = app.commands.run('envelope.makeMesh');
+    await tick();
+    button(openDlg(), 'OK').click();
+    await p;
+    const env = envOf(ed);
+    app.setTool('selection');
+    const click = (x, y) => {
+      const s = ed.view.toScreen(x, y);
+      app.tool.onPointerDown({ x, y, sx: s.x, sy: s.y, shift: false, alt: false });
+      app.tool.onPointerUp({ x, y, sx: s.x, sy: s.y, shift: false, alt: false });
+    };
+    ed.clearSelection();
+    click(120, 190);
+    expect([...ed.selection]).toEqual([env.id]);
+    app.commands.run('envelope.editContents');
+    ed.clearSelection();
+    click(120, 190);
+    expect([...ed.selection]).toEqual([a]);
+    // Edit Envelope still finds the envelope from its selected content.
+    expect(app.commands.get('envelope.editContents').label(app)).toBe('Edit Envelope');
+    // Dragging moves just that content object; the envelope keeps its shape.
+    const mesh = doc.get(env.id).live.mesh;
+    const s0 = ed.view.toScreen(120, 190);
+    const s1 = ed.view.toScreen(130, 190);
+    app.tool.onPointerDown({ x: 120, y: 190, sx: s0.x, sy: s0.y, shift: false, alt: false });
+    app.tool.onPointerMove({ x: 130, y: 190, sx: s1.x, sy: s1.y, shift: false, alt: false });
+    app.tool.onPointerUp({ x: 130, y: 190, sx: s1.x, sy: s1.y, shift: false, alt: false });
+    // (Snapping may round the distance.)
+    expect(doc.get(a).anchors[0].x).toBeGreaterThan(102);
+    expect(doc.get(env.id).live.mesh).toEqual(mesh);
+    // Back to editing the envelope: a click picks the envelope again.
+    app.commands.run('envelope.editContents');
+    ed.clearSelection();
+    click(125, 190);
+    expect([...ed.selection]).toEqual([env.id]);
+  });
+
   it('Envelope Options edits the options with a live preview', async () => {
     const { app, ed, doc } = await setup();
     const p = app.commands.run('envelope.makeMesh');
@@ -414,6 +453,52 @@ describe('Envelope transforms, editing and export', () => {
     expect(q.x).toBe(p0.x);
     doc.undo();
     expect(doc.get(env.id).live.mesh.points[0].rx).toBe(p0.rx);
+  });
+
+  it('Direct Selection marquee in a rotated view picks only the envelope points inside the turned marquee', async () => {
+    const { app, ed, doc } = await setup();
+    const p = app.commands.run('envelope.makeMesh');
+    await tick();
+    const dlg = openDlg();
+    setField(fieldByLabel(dlg, 'Rows'), '2');
+    setField(fieldByLabel(dlg, 'Columns'), '2');
+    button(dlg, 'OK').click();
+    await p;
+    const env = envOf(ed);
+    app.setTool('direct-selection');
+    const tool = app.tool;
+    const view = ed.view;
+    view.set({ zoom: 1, panX: 0, panY: 0, rotation: 45, width: 1000, height: 800 });
+    const points = shownMesh(doc, doc.get(env.id)).points;
+    // A screen-aligned marquee started off the envelope, above and right of its center.
+    const c = view.toScreen(200, 150);
+    const box = { x0: c.x + 20, y0: c.y - 200, x1: c.x + 400, y1: c.y + 30 };
+    const corners = [
+      view.toDoc(box.x0, box.y0),
+      view.toDoc(box.x1, box.y0),
+      view.toDoc(box.x1, box.y1),
+      view.toDoc(box.x0, box.y1),
+    ];
+    const inMarquee = (q) => {
+      const s = view.toScreen(q.x, q.y);
+      return s.x >= box.x0 && s.x <= box.x1 && s.y >= box.y0 && s.y <= box.y1;
+    };
+    const xs = corners.map((q) => q.x);
+    const ys = corners.map((q) => q.y);
+    const inBounds = (q) =>
+      q.x >= Math.min(...xs) && q.x <= Math.max(...xs) && q.y >= Math.min(...ys) && q.y <= Math.max(...ys);
+    const expected = points.flatMap((q, k) => (inMarquee(q) ? [k] : []));
+    // The marquee's axis-aligned bounds take in more points than the marquee itself.
+    expect(expected.length).toBeGreaterThan(0);
+    expect(points.filter(inBounds).length).toBeGreaterThan(expected.length);
+    const ev = (q) => {
+      const s = view.toScreen(q.x, q.y);
+      return { x: q.x, y: q.y, sx: s.x, sy: s.y, shift: false, alt: false };
+    };
+    tool.onPointerDown(ev(corners[0]));
+    tool.onPointerMove(ev(corners[2]));
+    tool.onPointerUp(ev(corners[2]));
+    expect([...selectedEnvelopePoints(ed, env.id)].sort((a, b) => a - b)).toEqual(expected);
   });
 
   it('the Mesh tool adds lines to an envelope mesh without moving the artwork, and Option-click removes them', async () => {

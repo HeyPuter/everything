@@ -62,7 +62,7 @@ export const appearanceSpecBaker = {
 /** Extra attributes for exported elements (svgExportHooks.attrs; `w` is the SVG writer). */
 export function appearanceAttrs(node, w) {
   if (node.appearanceItem) {
-    let out = ` data-appearance-item="${node.appearanceItem}"`;
+    let out = ` data-appearance-item="${escapeAttr(node.appearanceItem)}"`;
     if (node.appearanceSpec) out += ` data-appearance-spec="${escapeAttr(JSON.stringify(node.appearanceSpec))}"`;
     return out;
   }

@@ -225,3 +225,113 @@ describe('Object > Text Wrap', () => {
     expect(layoutText(doc.get(t.id)).lines[0].x).toBeLessThan(1);
   });
 });
+
+describe('styles on a threaded frame', () => {
+  it('a paragraph style applied with only a later frame selected styles the story', async () => {
+    const { applyStyle, newStyle, currentStyleState } = await import('../src/features/type/styles-panel.js');
+    const { typeDefaults } = await import('../src/features/type/type-ops.js');
+    const { paraAt } = await import('../src/model/text-runs.js');
+    const a = frame(0, 0, STORY);
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    // A style made from the head, then applied with only the second frame selected.
+    app.editor.select([a.id]);
+    const id = newStyle(app, 'para', { name: 'Body', apply: false });
+    const defaultsBefore = typeDefaults(app).para.paraStyle ?? null;
+    app.editor.select([b.id]);
+    applyStyle(app, 'para', id);
+    expect(paraAt(doc.get(a.id), 0).paraStyle).toBe(id);
+    expect(typeDefaults(app).para.paraStyle ?? null).toBe(defaultsBefore);
+    expect(currentStyleState(app, 'para').id).toBe(id);
+  });
+});
+
+describe('converting threaded frames', () => {
+  it('Convert to Point Type leaves threaded frames alone, and placeholder text goes into the story', async () => {
+    const a = frame(0, 0, STORY);
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    const before = doc.get(a.id);
+    app.editor.select([a.id, b.id]);
+    await app.commands.run('type.convertToPoint');
+    expect(doc.get(a.id).kind).toBe('area');
+    expect(doc.get(a.id).text).toBe(before.text);
+    expect(threadFrames(doc, doc.get(a.id))).toHaveLength(2);
+    // Fill with Placeholder Text with only the second frame selected fills the story, not the empty follower.
+    doc.transact('Empty', () => doc.update(a.id, { text: '' }));
+    app.editor.select([b.id]);
+    await app.commands.run('type.loremIpsum');
+    expect(doc.get(b.id).text).toBe('');
+    // As much as fills both frames, no more.
+    const lay = layoutText(doc.get(b.id));
+    expect(doc.get(a.id).text.length).toBeGreaterThan(0);
+    expect(lay.story.overflow).toBe(false);
+    expect(lay.lines.length).toBeGreaterThan(0);
+    expect(doc.get(a.id).text.split(' ').length).toBeLessThan(60);
+    // While editing the story: the fill stops where the last frame is full.
+    doc.transact('Empty', () => doc.update(a.id, { text: 'Start' }));
+    app.setTool('type');
+    const s = app.tool.editText(a.id);
+    s.setSelection(5, 5);
+    await app.commands.run('type.loremIpsum');
+    expect(doc.get(a.id).text.length).toBeGreaterThan(5);
+    expect(layoutText(doc.get(b.id)).story.overflow).toBe(false);
+  });
+});
+
+describe('smart punctuation on a threaded frame', () => {
+  it('with only a later frame selected, Smart Punctuation fixes the story', async () => {
+    const { applySmartPunctuation } = await import('../src/features/type/smart-punctuation.js');
+    const a = frame(0, 0, '"quoted" text');
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    app.editor.select([b.id]);
+    applySmartPunctuation(app, { quotes: true }, 'selection');
+    expect(doc.get(a.id).text).toBe('“quoted” text');
+    expect(doc.get(b.id).text).toBe('');
+  });
+});
+
+describe('Check Spelling on a threaded frame', () => {
+  it('with only a later frame selected, Selected Text Objects checks the story', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { createSpeller, setSpeller } = await import('../src/features/type/spell-dict.js');
+    const { openCheckSpelling } = await import('../src/features/type/spelling.js');
+    const dir = path.resolve(import.meta.dirname, '../public/dictionaries');
+    setSpeller(createSpeller({ aff: fs.readFileSync(path.join(dir, 'en-US.aff'), 'utf8'), dic: fs.readFileSync(path.join(dir, 'en-US.dic'), 'utf8') }));
+    // Another object, first in the document, has a misspelling too: the dialog opens on the whole document
+    // and shows it first, but switching to Selected Text Objects must check the selection, not that object.
+    const other = frame(0, 400, 'another mispeled word');
+    const a = frame(0, 0, 'the qick fox');
+    const b = frame(400, 0, '');
+    app.editor.select([a.id, b.id]);
+    app.commands.run('type.thread.create');
+    app.editor.select([b.id]);
+    const done = openCheckSpelling(app);
+    const dlg = await new Promise((resolve) => {
+      const look = () => {
+        const d = document.querySelector('dialog[open] #sp-scope');
+        if (d && !/Loading/.test(document.querySelector('dialog[open] .sp-status').textContent)) resolve(d.closest('dialog'));
+        else setTimeout(look, 5);
+      };
+      look();
+    });
+    const scope = dlg.querySelector('#sp-scope');
+    expect(dlg.querySelector('.sp-status').textContent).toBe('Not in the dictionary: \u201cmispeled\u201d');
+    expect(scope.querySelector('option[value=sel]').disabled).toBe(false);
+    scope.value = 'sel';
+    scope.dispatchEvent(new Event('change'));
+    expect(dlg.querySelector('.sp-status').textContent).toBe('Not in the dictionary: “qick”');
+    // Ignore: the other text object is not part of the selection.
+    [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'Ignore').click();
+    expect(dlg.querySelector('.sp-status').textContent).toMatch(/complete/);
+    expect(doc.get(other.id).text).toBe('another mispeled word');
+    [...dlg.querySelectorAll('button')].find((x) => x.textContent === 'Done').click();
+    await done;
+    app.setTool('select');
+  });
+});

@@ -16,7 +16,10 @@ import { iconButton } from '../widgets.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
-import { layerPicks } from '../../ops/layer-ops.js';
+import { addLayerAbove, insertLayer, layerPicks, templatePrevOf } from '../../ops/layer-ops.js';
+import { layerObjects } from '../../ops/select-ops.js';
+import { clipboardHooks } from '../../ops/clipboard.js';
+import { isUserError } from '../../lib/errors.js';
 
 const thumbCache = new WeakMap();
 
@@ -234,15 +237,12 @@ export class LayersPanel extends Panel {
     const doc = ed.doc;
     doc.transact(sub ? 'New Sublayer' : 'New Layer', () => {
       if (sub) {
-        const parent = doc.get(ed.activeLayerId);
-        const layer = doc.addLayer();
-        doc.move(layer.id, parent.id);
-        doc.update(layer.id, { name: `Layer ${doc.layers().length + countSublayers(doc) }` });
+        const parent = doc.layerOf(ed.activeLayerId) || doc.layers().at(-1);
+        const layer = insertLayer(doc, parent.id);
         this.expanded.add(parent.id);
         ed.activeLayerId = layer.id;
       } else {
-        const idx = doc.root.children.indexOf(doc.layerOf(ed.activeLayerId)?.id);
-        const layer = doc.addLayer(undefined, idx + 1);
+        const layer = addLayerAbove(doc, ed.activeLayerId);
         ed.activeLayerId = layer.id;
       }
     });
@@ -254,6 +254,11 @@ export class LayersPanel extends Panel {
     if (!ed) return;
     if (ed.selection.size) {
       this.app.commands.run('edit.clear');
+      return;
+    }
+    // Every picked layer, like the panel menu's Delete.
+    if (this.app.commands.get('layers.delete')) {
+      this.app.commands.run('layers.delete');
       return;
     }
     const doc = ed.doc;
@@ -461,13 +466,25 @@ export class LayersPanel extends Panel {
     const doc = this.app.editor.doc;
     const ids = doc.sortByPaintOrder((Array.isArray(dragIds) ? dragIds : [dragIds]).filter((id) => doc.get(id) && id !== target.id && !doc.isAncestor(id, target.id)));
     if (!ids.length) return;
-    doc.transact('Reorder', () => {
-      // The backmost item goes where it was dropped, each next one right above the previous.
-      let prev = null;
-      for (const id of ids) {
-        if (this.#dropOne(id, prev ? doc.get(prev) : target, prev ? 'above' : zone)) prev = id;
-      }
-    });
+    try {
+      doc.transact('Reorder', () => {
+        // The backmost item goes where it was dropped, each next one right above the previous.
+        let prev = null;
+        for (const id of ids) {
+          if (this.#dropOne(id, prev ? doc.get(prev) : target, prev ? 'above' : zone)) prev = id;
+        }
+        // Features may refuse a new place, as for pasting (e.g. a symbol into its own master).
+        const checks = clipboardHooks.filter((hk) => hk.check);
+        for (const id of checks.length ? ids : []) {
+          const n = doc.get(id);
+          const item = { root: id, nodes: [n, ...doc.descendants(id)] };
+          for (const hk of checks) hk.check(doc, [item], n.parent);
+        }
+      });
+    } catch (err) {
+      if (!isUserError(err)) throw err;
+      this.app.notify(err.message, { error: true });
+    }
   }
 
   #dropOne(dragId, target, zone) {
@@ -553,6 +570,12 @@ export class LayersPanel extends Panel {
         print: v.template ? false : Boolean(v.print),
         outline: !v.preview,
         dimImages: v.dim ? Math.max(0, Math.min(100, v.dimImages)) : 0,
+        // Turning Template off from the menu later brings back the settings from before it.
+        templatePrev: becameTemplate
+          ? templatePrevOf(cur)
+          : v.template
+            ? cur.templatePrev
+            : undefined,
       }),
     );
     for (const id of [...ed.selection]) if (doc.isHidden(id) || doc.isLocked(id)) ed.selection.delete(id);
@@ -665,8 +688,8 @@ export class LayersPanel extends Panel {
     const add = e?.shiftKey || e?.metaKey || e?.ctrlKey;
     if (n.type !== 'layer' && !e?.shiftKey) this.rangeAnchor = n.id;
     if (n.type === 'layer') {
-      // Selecting a layer's target selects everything on it.
-      const ids = n.children.filter((c) => !doc.get(c)?.locked && !doc.get(c)?.hidden);
+      // Selecting a layer's target selects everything on it, sublayers' artwork included (never the sublayers themselves).
+      const ids = layerObjects(doc, n.id);
       ed.select(ids, { add });
       // The layer itself is the appearance target until the selection changes.
       ed.layerTarget = add ? null : { id: n.id, version: ed.selection.version };
@@ -714,7 +737,9 @@ export class LayersPanel extends Panel {
       this.renaming = null;
       const doc = this.app.editor?.doc;
       const name = input.value.trim();
-      if (commit && doc?.get(n.id) && name !== (n.name || defaultLabel(n))) {
+      // A layer always has a name: an empty one keeps the old name (an object's goes back to its type).
+      const changed = name !== (n.name || defaultLabel(n)) && (name || n.type !== 'layer');
+      if (commit && doc?.get(n.id) && changed) {
         doc.transact('Rename', () => doc.update(n.id, { name }));
       } else this.renderRows();
       this.tree.focus();
@@ -779,15 +804,6 @@ export class LayersPanel extends Panel {
     e.preventDefault();
     e.stopPropagation();
   }
-}
-
-function countSublayers(doc) {
-  let n = 0;
-  doc.walk((x) => {
-    if (x.type === 'layer' && x.parent !== 'root') n++;
-    return x.type === 'layer';
-  });
-  return n;
 }
 
 function typeIcon(n) {

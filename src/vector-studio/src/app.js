@@ -35,8 +35,12 @@ import { defaultLabel } from './model/nodes.js';
 import { formatLength } from './lib/units.js';
 import { installHeldModifiers } from './lib/held-modifiers.js';
 
+/** Command shortcuts that work while typing in a field. */
+const FIELD_COMMANDS = new Set(['file.save', 'file.saveAs', 'file.saveCopy', 'file.open', 'file.print']);
+/** Keys that change the value of a focused slider or radio button. */
+const VALUE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 /** Focusable controls that Enter or Space activate. */
-const ACTIVATABLE = 'button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
+const ACTIVATABLE ='button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
 
 export class App extends Emitter {
   constructor(root, { prefs, env = 'web', user = null, picture = null, onSignIn = null, onSignOut = null, onSessionChange = null, storage = null } = {}) {
@@ -215,8 +219,15 @@ export class App extends Emitter {
     this.emit('user');
   }
 
+  /** Whether the panels are on screen (not closed, and not hidden with Tab). */
+  get panelsShown() {
+    return this.dockOpen && !this.root.classList.contains('hide-panels') && !this.root.classList.contains('hide-dock');
+  }
+
   setDockOpen(open) {
     this.dockOpen = open;
+    // Showing the panels also brings back panels (and tools) hidden with Tab.
+    if (open) this.root.classList.remove('hide-panels', 'hide-dock');
     if (!(typeof matchMedia !== 'undefined' && matchMedia('(max-width: 760px)').matches)) this.prefs.set('dockOpen', open);
     this.root.classList.toggle('dock-closed', !open);
     this.statusbar?.refresh();
@@ -225,7 +236,7 @@ export class App extends Emitter {
 
   openPanel(id) {
     if (!this.dock.panels.has(id)) return;
-    if (!this.dockOpen) this.setDockOpen(true);
+    if (!this.panelsShown) this.setDockOpen(true);
     this.dock.openPanel(id);
   }
 
@@ -371,8 +382,11 @@ export class App extends Emitter {
       });
       if (!save) return false;
       if (save === 'save') {
+        const rev = editor.doc.revision;
         const ok = await this.commands.run('file.save', { editor });
         if (!ok) return false;
+        // Edited while the file was being written (the prompt was already gone): ask again.
+        if (editor.doc.revision !== rev && editor.doc.dirty && this.editors.includes(editor)) return this.closeDocument(editor);
       }
     }
     const i = this.editors.indexOf(editor);
@@ -548,7 +562,20 @@ export class App extends Emitter {
       e.preventDefault();
       return;
     }
-    if (typing) return;
+    if (typing) {
+      // Save, Open and Print work from a field too (the browser would save or print the page):
+      // the field commits what was typed first, and keeps focus.
+      const cmd = mod ? this.commands.match(e) : null;
+      if (FIELD_COMMANDS.has(cmd)) {
+        e.preventDefault();
+        e.target.blur();
+        e.target.focus({ preventScroll: true });
+        this.commands.run(cmd);
+      }
+      return;
+    }
+    // Sliders and radio buttons change their value with these keys: they never nudge the selection.
+    if (VALUE_KEYS.has(e.key) && !mod && e.target?.matches?.('input[type="range"], input[type="radio"]')) return;
     // Enter and Space activate the focused button, tab, menu item or option:
     // they are not canvas shortcuts there (Space would start the Hand tool).
     if ((e.key === 'Enter' || e.key === ' ') && !e.metaKey && !e.ctrlKey && !e.altKey && e.target?.closest?.(ACTIVATABLE)) return;
@@ -615,6 +642,7 @@ export class App extends Emitter {
       // panels except the tools.
       e.preventDefault();
       this.root.classList.toggle(e.shiftKey ? 'hide-dock' : 'hide-panels');
+      this.statusbar?.refresh();
       return;
     }
     // Paint shortcuts.
@@ -686,7 +714,7 @@ export class App extends Emitter {
           for (const ed of [...a.editors]) if (!(await a.closeDocument(ed))) return;
         },
       },
-      { id: 'window.toggleDock', label: (a) => (a.dockOpen ? 'Hide Panels' : 'Show Panels'), run: (a) => a.setDockOpen(!a.dockOpen) },
+      { id: 'window.toggleDock', label: (a) => (a.panelsShown ? 'Hide Panels' : 'Show Panels'), run: (a) => a.setDockOpen(!a.panelsShown) },
       {
         id: 'window.resetWorkspace',
         label: 'Reset Standard',
