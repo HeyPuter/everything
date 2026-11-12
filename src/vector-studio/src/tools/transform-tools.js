@@ -238,12 +238,16 @@ export class ShearTool extends OriginTool {
   static hint = 'Click to set the reference point | Drag to shear | Shift constrains to the horizontal or vertical axis';
   static dialogCommand = 'object.transform.shear';
 
+  /**
+   * A horizontal or vertical shear, whichever axis the drag is closer to (Shift keeps to it as
+   * well), moving the drag's start point along that axis to the pointer about the reference point.
+   */
   matrixFor(d, e) {
     const dx = e.x - d.x0;
     const dy = e.y - d.y0;
     const h = d.y0 - d.o.y || 1;
     const w = d.x0 - d.o.x || 1;
-    if (Math.abs(dx) >= Math.abs(dy) || e.shift) {
+    if (Math.abs(dx) >= Math.abs(dy)) {
       const deg = (Math.atan2(dx, h) * 180) / Math.PI;
       return shear(deg, 0, d.o.x, d.o.y);
     }
