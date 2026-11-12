@@ -16,7 +16,7 @@ import { iconButton } from '../widgets.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
-import { layerPicks } from '../../ops/layer-ops.js';
+import { addLayerAbove, layerPicks } from '../../ops/layer-ops.js';
 import { layerObjects } from '../../ops/select-ops.js';
 
 const thumbCache = new WeakMap();
@@ -242,8 +242,7 @@ export class LayersPanel extends Panel {
         this.expanded.add(parent.id);
         ed.activeLayerId = layer.id;
       } else {
-        const idx = doc.root.children.indexOf(doc.layerOf(ed.activeLayerId)?.id);
-        const layer = doc.addLayer(undefined, idx + 1);
+        const layer = addLayerAbove(doc, ed.activeLayerId);
         ed.activeLayerId = layer.id;
       }
     });

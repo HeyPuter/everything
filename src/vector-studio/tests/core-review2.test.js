@@ -43,3 +43,35 @@ describe('Layers panel layer target', () => {
     expect(doc.get(sub).parent).toBe(layer.id);
   });
 });
+
+describe('New Layer', () => {
+  it('goes right above the active sublayer, not to the bottom of the stack', async () => {
+    const { app, ed, doc, layer, sublayer } = setup();
+    let top;
+    doc.transact('Top', () => (top = doc.addLayer('Top')));
+    const sub = sublayer();
+    ed.activeLayerId = sub;
+    await app.commands.run('layer.new');
+    expect(doc.root.children).toEqual([layer.id, top.id]);
+    const kids = doc.get(layer.id).children;
+    expect(kids).toHaveLength(2);
+    expect(kids[0]).toBe(sub);
+    expect(ed.activeLayerId).toBe(kids[1]);
+    expect(doc.get(kids[1]).type).toBe('layer');
+    // The Layers panel's New Layer button does the same.
+    app.dock.panels.get('layers').newLayer(false);
+    expect(doc.get(layer.id).children).toHaveLength(3);
+    expect(doc.root.children).toEqual([layer.id, top.id]);
+  });
+
+  it('goes right above the active top-level layer', async () => {
+    const { app, ed, doc, layer } = setup();
+    let top;
+    doc.transact('Top', () => (top = doc.addLayer('Top')));
+    ed.activeLayerId = layer.id;
+    await app.commands.run('layer.new');
+    expect(doc.root.children).toHaveLength(3);
+    expect(doc.root.children[0]).toBe(layer.id);
+    expect(doc.root.children[2]).toBe(top.id);
+  });
+});

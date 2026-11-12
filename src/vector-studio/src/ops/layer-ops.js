@@ -66,6 +66,25 @@ export function insertLayer(doc, parentId, index = Infinity, props = {}) {
   return doc.insert(layer, parentId, index);
 }
 
+/**
+ * New Layer: a layer right above `layerId` (the active layer) at its level,
+ * so a sublayer gets a sibling sublayer; on top when there is none.
+ */
+export function addLayerAbove(doc, layerId, name) {
+  const active = doc.layerOf(layerId);
+  if (active && active.parent !== 'root' && doc.get(active.parent)) {
+    const parent = doc.get(active.parent);
+    return insertLayer(
+      doc,
+      parent.id,
+      parent.children.indexOf(active.id) + 1,
+      name ? { name } : {},
+    );
+  }
+  const idx = doc.root.children.indexOf(active?.id);
+  return doc.addLayer(name, idx < 0 ? Infinity : idx + 1);
+}
+
 /** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */
 export function duplicateNodes(doc, ids) {
   const out = [];

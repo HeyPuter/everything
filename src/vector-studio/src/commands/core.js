@@ -9,7 +9,7 @@ import { multiply, rotate, scale, shear, translate } from '../lib/matrix.js';
 import { transformNodes, transformPatches, selectionBounds, selectionFrame, frameToDoc, frameMatrix } from '../model/geometry.js';
 import { reflectAcross } from '../tools/transform-tools.js';
 import { createPath } from '../model/nodes.js';
-import { duplicateNodes } from '../ops/layer-ops.js';
+import { addLayerAbove, duplicateNodes } from '../ops/layer-ops.js';
 
 const hasDoc = (app) => Boolean(app.editor);
 const hasSel = (app) => Boolean(app.editor?.selection.size);
@@ -377,9 +377,8 @@ export function registerCoreCommands(app) {
       enabled: hasDoc,
       run: () => {
         const e = ed();
-        const idx = e.doc.root.children.indexOf(e.doc.layerOf(e.activeLayerId)?.id);
         e.doc.transact('New Layer', () => {
-          const layer = e.doc.addLayer(undefined, idx + 1);
+          const layer = addLayerAbove(e.doc, e.activeLayerId);
           e.activeLayerId = layer.id;
         });
         e.emit('active-layer');
@@ -403,9 +402,8 @@ export function registerCoreCommands(app) {
           ],
         });
         if (!v) return;
-        const idx = e.doc.root.children.indexOf(e.doc.layerOf(e.activeLayerId)?.id);
         e.doc.transact('New Layer', () => {
-          const layer = e.doc.addLayer(v.name || undefined, idx + 1);
+          const layer = addLayerAbove(e.doc, e.activeLayerId, v.name || undefined);
           e.doc.update(layer.id, { color: v.color, locked: v.locked, hidden: v.hidden, template: v.template });
           e.activeLayerId = layer.id;
         });
