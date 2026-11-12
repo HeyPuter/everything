@@ -187,6 +187,21 @@ describe('library model', () => {
     expect(got.library.items.map((i) => i.name)).toEqual(good.map((i) => i.name));
     expect(got.skipped).toBe(bad.length + 1);
   });
+  it('imports a library file with malformed items, leaving them out and counting them', async () => {
+    const malformed = [
+      { id: 'x1', type: 'color', name: 'Bad hex', created: T0, modified: T0, data: { hex: 'red' } },
+      { id: 'x2', type: 'swatch-group', name: 'Newer type', created: T0, modified: T0, data: {} },
+      { id: '', type: 'color', name: 'No id', created: T0, modified: T0, data: { hex: '#000000' } },
+      'not an item',
+    ];
+    const file = { format: 'photo-studio-library', version: 1, exported: T0, library: { ...lib('L', 'Kit', [color('a', 'Red', '#ff0000')]), items: [color('a', 'Red', '#ff0000'), ...malformed, color('b', 'Blue', '#0000ff')] }, assets: {} };
+    // The whole file used to be refused as "not a library file".
+    const got = await importLibraryFile(JSON.stringify(file), sha256Hex);
+    expect(got.library.items.map((i) => i.name)).toEqual(['Red', 'Blue']);
+    expect(got.skipped).toBe(malformed.length);
+    // A file whose library itself is damaged is still refused.
+    await expect(importLibraryFile(JSON.stringify({ ...file, library: { ...file.library, name: 5 } }), sha256Hex)).rejects.toThrow(/not a library file/);
+  });
 });
 
 describe('library storage and sync', () => {

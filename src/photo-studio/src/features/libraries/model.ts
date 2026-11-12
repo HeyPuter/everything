@@ -373,7 +373,8 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
   } catch {
     throw new Error('This is not a library file.');
   }
-  if (!v || v.format !== LIBRARY_FILE_FORMAT || v.version !== 1 || !validLibrary(v.library)) throw new Error('This is not a library file, or it was made by a newer version.');
+  // The library itself must be intact; damaged items are counted and left out below.
+  if (!v || v.format !== LIBRARY_FILE_FORMAT || v.version !== 1 || !validLibraryFields(v.library)) throw new Error('This is not a library file, or it was made by a newer version.');
   const assets = new Map<string, Blob>();
   for (const [h, a] of Object.entries(v.assets ?? {})) {
     if (!isHash(h) || !a || typeof a.data !== 'string' || typeof a.type !== 'string') continue;
@@ -390,7 +391,7 @@ export async function importLibraryFile(text: string, hash: (bytes: Uint8Array) 
   let skipped = 0;
   const items = v.library.items.filter((i) => {
     // Items whose content did not arrive intact, or whose settings are damaged, are left out.
-    const ok = Object.values(i.assets ?? {}).every((h) => assets.has(h)) && usableItem(i);
+    const ok = validItem(i) && Object.values(i.assets ?? {}).every((h) => assets.has(h)) && usableItem(i);
     if (!ok) skipped++;
     return ok;
   });
