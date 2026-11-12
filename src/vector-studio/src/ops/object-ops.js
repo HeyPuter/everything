@@ -295,8 +295,10 @@ export function unlockAll(editor) {
 }
 
 /**
- * Lock Others / Hide Others: everything on unlocked, visible layers that is
- * not part of the selection (top-level objects only).
+ * Lock Others / Hide Others: everything on unlocked, visible layers and
+ * sublayers that is not part of the selection (top-level objects only;
+ * sublayers themselves stay as they are, so Unlock All and Show All bring
+ * their contents back).
  */
 export function lockOrHideOthers(editor, key) {
   const { doc } = editor;
@@ -306,11 +308,16 @@ export function lockOrHideOthers(editor, key) {
   for (const id of sel) for (const a of doc.ancestors(id)) holders.add(a.id);
   const keep = (id) => sel.has(id) || holders.has(id);
   const targets = [];
-  for (const lid of doc.root.children) {
+  const visit = (lid) => {
     const layer = doc.get(lid);
-    if (!layer || layer.locked || layer.hidden) continue;
-    for (const id of layer.children) if (!keep(id) && !doc.get(id)[key]) targets.push(id);
-  }
+    if (!layer || layer.locked || layer.hidden) return;
+    for (const id of layer.children) {
+      const n = doc.get(id);
+      if (n?.type === 'layer') visit(id);
+      else if (n && !keep(id) && !n[key]) targets.push(id);
+    }
+  };
+  for (const lid of doc.root.children) visit(lid);
   if (!targets.length) return;
   doc.transact(key === 'locked' ? 'Lock Others' : 'Hide Others', () => targets.forEach((id) => doc.update(id, { [key]: true })));
 }

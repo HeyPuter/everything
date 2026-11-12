@@ -163,3 +163,28 @@ describe('Release to Layers on a large layer', () => {
     expect(colors.slice(8).every((c) => c === colors[8])).toBe(true);
   });
 });
+
+describe('Lock Others and Hide Others with sublayers', () => {
+  it('act on the objects in sublayers, so Show All and Unlock All bring them back', async () => {
+    const { app, ed, doc, layer, add, sublayer } = setup();
+    const a = add(0);
+    const sub = sublayer();
+    const b = add(20, sub);
+    ed.select([a]);
+    await app.commands.run('object.hideOthers');
+    expect(doc.get(sub).hidden).toBe(false);
+    expect(doc.isHidden(b)).toBe(true);
+    expect(doc.isHidden(a)).toBe(false);
+    await app.commands.run('object.showAll');
+    expect(doc.isHidden(b)).toBe(false);
+    ed.select([b]);
+    await app.commands.run('object.lockOthers');
+    expect(doc.isLocked(a)).toBe(true);
+    expect(doc.isLocked(b)).toBe(false);
+    expect(doc.get(sub).locked).toBe(false);
+    ed.select([b]);
+    await app.commands.run('object.unlockAll');
+    expect(doc.isLocked(a)).toBe(false);
+    expect(doc.get(layer.id).locked).toBe(false);
+  });
+});
