@@ -149,6 +149,28 @@ function missingIn(font, str) {
 }
 
 /**
+ * Outline of a string (one character, a cluster, or a list number such as
+ * "1."). The outline library's own string shaping throws on some
+ * contextual lookups it does not support (Inter's, for a digit or letter
+ * before a period); then each character's glyph is placed by its advance.
+ */
+function stringPath(font, str, size) {
+  if ([...str].length === 1) return font.charToGlyph(str).getPath(0, 0, size);
+  try {
+    return font.getPath(str, 0, 0, size, { kerning: false, features: {}, hinting: false });
+  } catch {
+    const commands = [];
+    let x = 0;
+    for (const c of str) {
+      const gl = font.charToGlyph(c);
+      commands.push(...gl.getPath(x, 0, size).commands);
+      x += ((gl.advanceWidth || 0) * size) / (font.unitsPerEm || 1000);
+    }
+    return { commands };
+  }
+}
+
+/**
  * Glyph outlines of a laid-out text. The list's `missing` property holds the
  * characters the fonts have no glyphs for: the canvas shows those in a
  * fallback font, but their outlines would be the font's empty-glyph box.
@@ -179,7 +201,7 @@ function glyphOutlines(node, lay, fonts) {
     // Shaped glyphs (OpenType substitutions) come from their glyph index; others from the character.
     if (g.glyph == null && /^\s+$/.test(g.ch)) continue; // spaces have no ink (and a font without them would draw boxes)
     const glyph = g.glyph != null && g.glyph >= 0 ? font.glyphs.get(g.glyph) : null;
-    const path = glyph ? glyph.getPath(0, 0, g.size) : font.getPath(g.ch, 0, 0, g.size, { kerning: false, features: {}, hinting: false });
+    const path = glyph ? glyph.getPath(0, 0, g.size) : stringPath(font, g.ch, g.size);
     const contours = commandsToContours(path.commands, gm);
     if (contours.length || fallback) out.push({ index: g.i, fill: st.fill ?? null, stroke: st.stroke ?? null, strokeWidth: st.strokeWidth ?? 0, contours, ...(fallback ? { fallback } : {}) });
     if (fallback && !g.extra) stand.push({ g, entry: out[out.length - 1] });

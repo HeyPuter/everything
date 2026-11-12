@@ -52,6 +52,18 @@ describe('outline conversion', () => {
     expect(cs[0].anchors[2].ix).toBeCloseTo(5 + 2 * ((2 / 3) * 10));
   });
 
+  it('outlines numbered list markers in fonts whose contextual lookups the outline library cannot apply', async () => {
+    const n = createText('One\nTwo', 0, 50, { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 40 }, para: { list: { kind: 'number' } } });
+    const lay = layoutText(n);
+    const markers = glyphPlacements(lay).filter((g) => g.extra);
+    expect(markers.map((g) => g.ch)).toEqual(['1.', '2.']);
+    const glyphs = await textToPathData(n);
+    // The six letters and the two markers, each marker with its digit's and its period's contours.
+    expect(glyphs.filter((g) => g.contours.length)).toHaveLength(8);
+    const one = glyphs.find((g) => g.index === 0 && g.contours.length === 2);
+    expect(one).toBeTruthy();
+  });
+
   it('places glyph outlines where the layout puts the glyphs', async () => {
     const n = createText('H', 100, 200, { char: { fontFamily: 'Inter', fontWeight: 400, fontStyle: 'normal', fontSize: 100 } });
     const glyphs = await textToPathData(n);
