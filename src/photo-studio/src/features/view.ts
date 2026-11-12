@@ -2,8 +2,8 @@ import type { Editor } from '../editor';
 import { registerCommand, registerOverlay, registerPanel, type Panel } from '../app/registry';
 import { formDialog } from '../ui/dialog';
 import { readMask, readRGBA, emptyGrid, gridTileIds, writeRect, TILE, tileKey, type TileGrid } from '../model/tiles';
-import { tileHolders, type DocumentSession } from '../app/session';
-import { applySelection, canvasRect, selectionGrid } from '../model/selection';
+import { tileHolders } from '../app/session';
+import { applySelection, canvasRect, maskGrid, selectionGrid } from '../model/selection';
 import { commitSelectionMask, selectionOp } from './selection';
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
@@ -16,6 +16,13 @@ import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 // Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
 let lastQuickMaskUrl: { grid: TileGrid; url: string; time: number } | undefined;
 
+/** Same tiles, fill and origin (history copies grids on every edit). */
+function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
+  if (a === b) return true;
+  if (!a || !b || a.fill !== b.fill || a.x !== b.x || a.y !== b.y) return false;
+  const ka = Object.keys(a.tiles);
+  return ka.length === Object.keys(b.tiles).length && ka.every((k) => a.tiles[k] === b.tiles[k]);
+}
 function quickMaskOverlay(e: Editor) {
   const grid = (e.settings.quickMaskPreview as TileGrid | undefined) ?? (e.settings.quickMask as TileGrid | undefined);
   if (!grid) return '';
@@ -212,30 +219,22 @@ export function installView(e: Editor) {
     return `<path d="${d}" class="pixel-grid" stroke-width="${1 / e.zoom}"/>`;
   });
   registerOverlay('quick-mask', quickMaskOverlay);
-  // Quick Mask belongs to one document: switching documents sets it aside
-  // and brings back the other document's own.
-  const parked = new Map<DocumentSession, TileGrid>();
-  let shown: DocumentSession | undefined;
+  // The Quick Mask lives in the document (one per document, strokes undo);
+  // tools and filters read it from `e.settings.quickMask`, kept in step here
+  // after every edit, undo, redo and document switch.
   e.onUpdate((e) => {
-    const s = e.session;
-    if (s === shown) return;
-    const was = !!e.settings.quickMask;
-    if (shown && e.settings.quickMask) parked.set(shown, e.settings.quickMask as TileGrid);
-    delete e.settings.quickMask;
+    const grid = e.doc.quickMask;
+    const shown = e.settings.quickMask as TileGrid | undefined;
+    if (sameGrid(grid, shown)) return;
+    if (grid) e.settings.quickMask = grid;
+    else delete e.settings.quickMask;
     delete e.settings.quickMaskPreview;
-    const back = parked.get(s);
-    if (back) e.settings.quickMask = back;
-    parked.delete(s);
-    shown = s;
-    if (!was && !back) return;
-    e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', String(!!back));
+    e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', String(!!grid));
     e.overlay();
   });
-  e.closeHooks.push((s) => parked.delete(s));
   // Painting in Quick Mask makes tiles no document refers to until it ends.
   tileHolders.push(() => {
     const ids = gridTileIds(e.settings.quickMask as TileGrid | undefined);
-    for (const grid of parked.values()) gridTileIds(grid, ids);
     return gridTileIds(e.settings.quickMaskPreview as TileGrid | undefined, ids);
   });
   const toggle = (key: 'showGrid' | 'snap' | 'guidesLocked' | 'showPixelGrid') => () => {
@@ -278,21 +277,25 @@ export function installView(e: Editor) {
       enabled: (e) => e.hasDocument,
       run: (e) => {
         const store = e.assets.tiles;
-        if (e.settings.quickMask) {
-          const grid = e.settings.quickMask as TileGrid;
-          delete e.settings.quickMask;
-          delete e.settings.quickMaskPreview;
-          commitSelectionMask(e, readMask(store, grid, canvasRect(e.doc)), 'replace', 'Quick Mask');
-          e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', 'false');
-          e.update();
+        delete e.settings.quickMaskPreview;
+        const doc = e.doc;
+        if (doc.quickMask) {
+          // Leaving turns the mask into the selection, as one step.
+          const current = selectionGrid(doc, store);
+          const next = maskGrid(store, readMask(store, doc.quickMask, canvasRect(doc)));
+          e.session.lastSelection = current;
+          e.command('Quick Mask', (d) => {
+            delete d.quickMask;
+            applySelection(d, next);
+          });
           return;
         }
-        const sel = selectionGrid(e.doc, store);
-        e.settings.quickMask = sel ?? emptyGrid(1);
-        e.root.querySelector('.quick-mask-button')?.setAttribute('aria-pressed', 'true');
+        const grid = selectionGrid(doc, store) ?? emptyGrid(1);
+        e.command('Edit in Quick Mask Mode', (d) => {
+          d.quickMask = grid;
+        });
         if (!['brush', 'pencil', 'eraser', 'bucket', 'gradient'].includes(e.tool)) e.setTool('brush');
         e.message('Quick Mask: paint with black to remove from the selection, white to add. Press Q to exit.');
-        e.update();
       },
     },
     {

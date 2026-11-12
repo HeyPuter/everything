@@ -216,6 +216,9 @@ export interface PhotoDocument {
   selection: Rect | null;
   // Exact selection coverage; when absent a non-null `selection` is a hard rect.
   selectionMask?: TileGrid | null;
+  // Quick Mask being edited (coverage, origin 0): like the selection, session
+  // state kept in history so its strokes undo; not saved.
+  quickMask?: TileGrid;
   channels?: AlphaChannel[];
   guides?: Guide[];
   // Display width of one pixel relative to its height (non-square video

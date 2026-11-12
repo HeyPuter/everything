@@ -41,8 +41,9 @@ export async function fade(e: Editor, arg?: { opacity: number; mode: BlendMode }
     filterState.fade = undefined;
     delete e.settings.quickMaskPreview;
     if (f.target.kind === 'quick-mask') {
-      e.settings.quickMask = grid;
-      e.update();
+      e.command(label, (d) => {
+        d.quickMask = grid;
+      });
     } else {
       const id = f.target.layer.id,
         kind = f.target.kind;

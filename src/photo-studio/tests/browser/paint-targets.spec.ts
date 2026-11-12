@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { boot, canvasDrag, client, idle, openImage, tool } from './helpers';
+import { boot, canvasDrag, client, idle, openImage, panel, redo, tool, undo } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -276,4 +276,60 @@ test('Quick Mask stays with the document it was turned on in', async ({ page }) 
   await show('gray');
   await idle(page);
   expect(await page.evaluate(() => window.photoStudio.history.labels.includes('Quick Mask'))).toBe(false);
+});
+
+test('Quick Mask strokes, entering and leaving are undoable steps', async ({ page }) => {
+  // A layer edit before Quick Mask must survive undoing the mask strokes.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const l = newPixelLayer('Kept', e.doc);
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.activeTool!.brush!.set(e, { size: 20, smoothing: 0 });
+    e.setForeground('#ffffff');
+  });
+  await canvasDrag(page, [[40, 60], [150, 60]]);
+  const state = () =>
+    page.evaluate(() => {
+      const e = window.photoStudio;
+      const q = e.settings.quickMask as { tiles: object } | undefined;
+      return {
+        last: e.history.labels.slice(-3),
+        quick: q ? Object.keys(q.tiles).length : -1,
+        pressed: document.querySelector('.quick-mask-button')!.getAttribute('aria-pressed'),
+        layers: e.doc.layers.length,
+      };
+    });
+  const painted = await state();
+  expect(painted).toEqual({ last: ['New Layer', 'Edit in Quick Mask Mode', 'Brush Tool'], quick: 1, pressed: 'true', layers: 2 });
+  await undo(page);
+  expect(await state()).toMatchObject({ quick: 0, pressed: 'true', layers: 2 });
+  await redo(page);
+  expect(await state()).toEqual(painted);
+  await undo(page);
+  await undo(page);
+  expect(await state()).toMatchObject({ quick: -1, pressed: 'false', layers: 2 });
+  await redo(page);
+  await redo(page);
+  expect(await state()).toEqual(painted);
+  // Leaving makes the selection; undoing it returns to the painted mask.
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  const left = await page.evaluate(() => ({ sel: window.photoStudio.doc.selection, last: window.photoStudio.history.labels.at(-1) }));
+  expect(left.last).toBe('Quick Mask');
+  expect(left.sel!.x).toBeLessThanOrEqual(40);
+  await undo(page);
+  expect(await state()).toEqual(painted);
+  expect(await page.evaluate(() => window.photoStudio.doc.selection)).toBeNull();
+  // The History panel lists the steps.
+  const history = await panel(page, 'History');
+  await expect(history).toContainText('Edit in Quick Mask Mode');
+  await expect(history).toContainText('Brush Tool');
 });

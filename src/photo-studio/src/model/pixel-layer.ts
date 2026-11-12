@@ -238,6 +238,7 @@ export function documentTileIds(doc: PhotoDocument, into = new Set<string>()) {
     for (const g of Object.values(l.video?.altered ?? {})) gridTileIds(g, into);
   }
   gridTileIds(doc.selectionMask, into);
+  gridTileIds(doc.quickMask, into);
   for (const c of doc.channels ?? []) gridTileIds(c.grid, into);
   for (const p of doc.patterns ?? []) gridTileIds(p.grid, into);
   return into;

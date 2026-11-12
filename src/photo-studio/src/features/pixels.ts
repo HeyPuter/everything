@@ -198,8 +198,11 @@ export function nextLayerName(doc: PhotoDocument) {
 /** Store a new grid for a pixel target as one history step. */
 export function commitTarget(e: Editor, target: PixelTarget, grid: TileGrid, label: string) {
   if (target.kind === 'quick-mask') {
-    e.settings.quickMask = grid;
-    e.update();
+    // A history step of its own, so the stroke undoes.
+    delete e.settings.quickMaskPreview;
+    e.command(label, (d) => {
+      d.quickMask = grid;
+    });
     return;
   }
   const id = target.layer.id;

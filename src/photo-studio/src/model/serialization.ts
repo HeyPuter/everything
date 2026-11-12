@@ -72,6 +72,7 @@ export async function serialize(
   for (const p of doc.patterns ?? []) p.grid = (await pack(p.grid)) as unknown as TileGrid;
   // The active selection is session state and is not saved; channels persist.
   doc.selectionMask = undefined;
+  delete doc.quickMask;
   // Content left over from deleted embedded objects is not written; a layer
   // whose content is missing still draws its own image.
   // Layers turned into pixels by any edit no longer draw embedded contents.

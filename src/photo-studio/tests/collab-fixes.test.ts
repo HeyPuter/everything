@@ -18,6 +18,7 @@ import type { OutboxStores } from '../src/collab/client';
 import { closeAll, connect, edit, idOf, invite, painted, paintOn, pixel, SERVER, settle, share, type Env } from './collab-session-helpers';
 import { findLayer, layer } from '../src/model/document';
 import { newPixelLayer } from '../src/model/pixel-layer';
+import { emptyGrid } from '../src/model/tiles';
 import { textLayer } from '../src/imaging/text/model';
 import type { Assets } from '../src/model/assets';
 
@@ -289,6 +290,19 @@ describe('per-person settings', () => {
     expect(a.binding.history.document.layers[1].opacity).toBe(0.5);
     expect(a.binding.history.document.imageAssets).toBe(true);
     expect(a.binding.history.document.hdrPreview?.method).toBe('filmic');
+  });
+
+  it('keeps the Quick Mask to the person editing it', async () => {
+    const env = environment();
+    const { room, a } = await share(env);
+    const b = await connect(env, editor, room, { token: await invite(env, room, 'editor') });
+    edit(a, 'Edit in Quick Mask Mode', (d) => (d.quickMask = emptyGrid(1)));
+    edit(b, 'Opacity', (d) => (d.layers[1].opacity = 0.5));
+    await settle(a, b);
+    expect(b.binding.history.document.quickMask).toBeUndefined();
+    expect(a.client.project.doc.has('quickMask')).toBe(false);
+    expect(a.binding.history.document.layers[1].opacity).toBe(0.5);
+    expect(a.binding.history.document.quickMask).toBeDefined();
   });
 });
 

@@ -174,7 +174,6 @@ export function commitSession(s: Session, grid: TileGrid, opId: string, params: 
     filterState.fade = undefined;
   } else {
     const before = s.base;
-    if (s.target.kind === 'quick-mask') e.settings.quickMask = grid;
     commitTargetGrid(e, s.target, grid, label);
     filterState.fade = { doc: e.doc, quick: s.target.kind === 'quick-mask' ? grid : undefined, label, target: s.target, before, after: grid, rect: s.rect };
   }
@@ -182,7 +181,9 @@ export function commitSession(s: Session, grid: TileGrid, opId: string, params: 
 }
 function commitTargetGrid(e: Editor, target: PixelTarget, grid: TileGrid, label: string) {
   if (target.kind === 'quick-mask') {
-    e.update();
+    e.command(label, (d) => {
+      d.quickMask = grid;
+    });
     return;
   }
   const id = target.layer.id;

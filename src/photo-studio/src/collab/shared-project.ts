@@ -40,12 +40,13 @@ export const ORIGIN = {
 } as const;
 
 export const SCHEMA = 1;
-// Document properties every participant keeps for themselves: the selection,
+// Document properties every participant keeps for themselves: the selection
+// and Quick Mask,
 // File → Generate → Image Assets (it writes files to that person's storage)
 // and the 32-bit preview options (display only).
-const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask', 'imageAssets', 'hdrPreview']);
+const PRIVATE_DOC = new Set(['layers', 'selection', 'selectionMask', 'quickMask', 'imageAssets', 'hdrPreview']);
 /** This person's own document properties, kept through projection. */
-export type PrivateState = Pick<PhotoDocument, 'selection'> & Partial<Pick<PhotoDocument, 'selectionMask' | 'imageAssets' | 'hdrPreview'>>;
+export type PrivateState = Pick<PhotoDocument, 'selection'> & Partial<Pick<PhotoDocument, 'selectionMask' | 'quickMask' | 'imageAssets' | 'hdrPreview'>>;
 // Layer properties held as per-tile maps.
 export const GRID_KEYS = ['pixels', 'maskGrid', 'liveSource', 'liveMask'] as const;
 const GRID_SET = new Set<string>(GRID_KEYS);
@@ -71,7 +72,7 @@ export function documentTiles(doc: PhotoDocument, into = new Set<string>()) {
     }
     for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x, depth + 1);
   };
-  for (const [k, v] of Object.entries(doc)) if (k !== 'selectionMask') walk(v);
+  for (const [k, v] of Object.entries(doc)) if (k !== 'selectionMask' && k !== 'quickMask') walk(v);
   return into;
 }
 
@@ -397,6 +398,7 @@ export class SharedProject {
     }
     const document = { ...structuredCloneShallow(docRegs), selection: local.selection ?? null } as PhotoDocument;
     if (local.selectionMask) document.selectionMask = local.selectionMask;
+    if (local.quickMask) document.quickMask = local.quickMask;
     if (local.imageAssets !== undefined) document.imageAssets = local.imageAssets;
     if (local.hdrPreview !== undefined) document.hdrPreview = local.hdrPreview;
     const build = (parent: string, depth: number, inFrame: boolean): Layer[] =>
