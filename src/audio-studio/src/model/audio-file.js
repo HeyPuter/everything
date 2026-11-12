@@ -149,6 +149,9 @@ export class AudioFile extends Emitter {
     let b = Math.max(0, Math.min(len, Math.round(Math.max(start, end))));
     this.selection = { start: a, end: b, channels: channels ?? this.selection.channels.slice(0, this.channelCount) };
     while (this.selection.channels.length < this.channelCount) this.selection.channels.push(true);
+    // Undo to fewer channels can drop every enabled one (a stereo file with only Right enabled
+    // undone to mono); edits would then change nothing, so every channel is enabled again.
+    if (!this.selection.channels.some(Boolean)) this.selection.channels.fill(true);
     if (!silent) this.emit('change', { kind: 'selection' });
   }
 
