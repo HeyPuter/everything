@@ -188,3 +188,25 @@ describe('mixcore automation', () => {
     expect(Math.abs(L[8192] - L[8191])).toBeLessThan(1e-4);
   });
 });
+
+describe('mixcore multichannel sources', () => {
+  it('folds a 5.1 source on a stereo track to stereo instead of dropping its centre and surrounds', () => {
+    const store = new ChunkStore();
+    // L, R, C, LFE, Ls, Rs: only the centre and left surround carry signal.
+    const chans = [0, 0, 0.5, 0.9, 0.25, 0].map((v) => new Float32Array(CHUNK).fill(v));
+    store.put('six', 0, chans);
+    const clip = { id: 'c', source: 'six', channels: 6, start: 0, offset: 0, length: 1000, gain: 1, fadeIn: 0, fadeOut: 0 };
+    const render = (track) => {
+      const master = [new Float32Array(128), new Float32Array(128)];
+      renderBlock({ tracks: [{ id: 't', gain: 1, pan: 0, clips: [clip], ...track }], master: { gain: 1 } }, store, 0, 128, master, createScratch(128));
+      return master;
+    };
+    const [L, R] = render();
+    expect(L[10]).toBeCloseTo(Math.SQRT1_2 * 0.75, 5);
+    expect(R[10]).toBeCloseTo(Math.SQRT1_2 * 0.5, 5);
+    // A mono track averages the downmix.
+    const [mL, mR] = render({ clips: [{ ...clip, mono: true }] });
+    expect(mL[10]).toBeCloseTo(Math.SQRT1_2 * 0.625, 5);
+    expect(mR[10]).toBeCloseTo(mL[10], 6);
+  });
+});

@@ -190,7 +190,9 @@ export class ChunkStore {
    * Adds `count` source frames starting at `from`, times per-frame gains, into
    * `out` (stereo planar: out[0], out[1]) at offset `at`. Returns false when a
    * needed chunk is missing (the frames are treated as silence). With `mono`,
-   * the first two channels are averaged into both outputs (mono tracks).
+   * the first two channels are averaged into both outputs (mono tracks). A
+   * 5.1 source (6 channels) is folded to stereo with the monitoring downmix
+   * (see surround.js), so its centre and surrounds are heard too.
    */
   mixInto(key, srcChannels, from, count, gains, out, at, gainsR = gains, mono = false) {
     const m = this.sources.get(key);
@@ -210,7 +212,18 @@ export class ChunkStore {
         const oL = out[0];
         const oR = out[1];
         const n = Math.min(take, l.length - inChunk);
-        if (mono && r !== l) {
+        if (srcChannels >= 6 && chunk.length >= 6) {
+          const k = Math.SQRT1_2;
+          const [, , c, , ls, rs] = chunk;
+          for (let i = 0; i < n; i++) {
+            const j = inChunk + i;
+            let a = l[j] + k * (c[j] + ls[j]);
+            let b = r[j] + k * (c[j] + rs[j]);
+            if (mono) a = b = (a + b) * 0.5;
+            oL[at + done + i] += a * gains[done + i];
+            oR[at + done + i] += b * gainsR[done + i];
+          }
+        } else if (mono && r !== l) {
           for (let i = 0; i < n; i++) {
             const v = (l[inChunk + i] + r[inChunk + i]) * 0.5;
             oL[at + done + i] += v * gains[done + i];
