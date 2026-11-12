@@ -144,3 +144,24 @@ test('CMYK to Multichannel keeps the inks of a perceptual CMYK conversion', asyn
   // Separating the CMYK document perceptually again moved the inks.
   expect(mean).toBeLessThan(3);
 });
+
+test('a working CMYK profile loaded from a file is still the working CMYK after a reload', async ({ page }) => {
+  const bytes = await profileBytes(page, 'My Press');
+  await page.evaluate(async (bytes) => {
+    const P = await import('/src/features/color/profiles.ts');
+    const { ref } = P.registerLoadedProfile(new Uint8Array(bytes));
+    P.saveColorSettings({ ...P.colorSettings(), cmyk: ref, intent: 'perceptual' });
+  }, bytes);
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  const after = await page.evaluate(async () => {
+    const P = await import('/src/features/color/profiles.ts');
+    const s = P.colorSettings();
+    const r = { name: P.profileName(s.cmyk), intent: s.intent, listed: P.profileChoices('CMYK').some(([ref]) => ref === s.cmyk) };
+    // Back to the defaults; the stored profile goes with them.
+    P.saveColorSettings({ ...P.defaultSettings });
+    return { ...r, left: localStorage.getItem('photo-studio-color-profile-cmyk') };
+  });
+  // It used to fall back to the generic profile without a word.
+  expect(after).toEqual({ name: 'My Press', intent: 'perceptual', listed: true, left: null });
+});
