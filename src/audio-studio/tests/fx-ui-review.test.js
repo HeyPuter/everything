@@ -694,4 +694,24 @@ describe('rack slot list focus', () => {
     expect(document.activeElement).toBe(row(0).querySelector('.rack-name'));
     ed.el.remove();
   });
+  it('leaves the focus in the settings dialog that adding an effect opens', async () => {
+    const app = fakeApp();
+    app.prefs.set('fxOpenOnAdd', true);
+    let menu = null;
+    app.openMenu = (items) => (menu = items);
+    let slots = [];
+    const ed = createRackEditor({ app, getSlots: () => slots, setSlots: (next) => (slots = next) });
+    document.body.append(ed.el);
+    ed.el.querySelector('.rack-name').focus();
+    ed.chooser(0);
+    const amplify = menu.flatMap((g) => g.items || []).find((it) => it.label === 'Amplify');
+    amplify.run();
+    await new Promise((r) => requestAnimationFrame(r));
+    const dlg = document.querySelector('.fx-dialog');
+    expect(slots[0].effect).toBe('amplify');
+    expect(dlg.contains(document.activeElement)).toBe(true);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await new Promise((r) => setTimeout(r, 0));
+    ed.el.remove();
+  });
 });

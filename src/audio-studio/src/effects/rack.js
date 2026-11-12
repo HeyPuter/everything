@@ -306,7 +306,12 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
 
   const focusRow = (i) => {
     focusIndex = i;
-    requestAnimationFrame(() => list.children[i]?.querySelector('.rack-name')?.focus());
+    requestAnimationFrame(() => {
+      // Not from under a dialog opened meanwhile (the effect's settings, opened on adding it).
+      const dialog = document.activeElement?.closest?.('.dialog');
+      if (dialog && !dialog.contains(el)) return;
+      list.children[i]?.querySelector('.rack-name')?.focus();
+    });
   };
 
   const move = (from, to) => {
