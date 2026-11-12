@@ -645,6 +645,33 @@
   position: relative;
 }
 
+/* Rows are picked up to reorder them: a press must not select their text or open the touch callout. */
+.layer-row {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.layer-row input {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* A pen hovering over the list drags rows instead of panning the list. */
+.layers-viewport.pen-direct .layer-row {
+  touch-action: none;
+}
+
+.layers-viewport.dragging,
+.layers-viewport.dragging .layer-row,
+.layers-viewport.dragging .layer-row button {
+  cursor: grabbing;
+}
+
+.layer-row.dragging {
+  opacity: 0.5;
+}
+
 .layer-row:hover {
   background: var(--bg-hover);
 }

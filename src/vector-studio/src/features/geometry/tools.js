@@ -7,6 +7,7 @@
  * document changed meanwhile.
  */
 import { Tool, tol } from '../../tools/tool.js';
+import { fidelityTolerance } from '../../tools/freehand.js';
 import { multiply } from '../../lib/matrix.js';
 import { createPath } from '../../model/nodes.js';
 import { fitCurve, simplifyPolyline, nearestOnPath, insertAnchor, segmentPoints, reverseAnchors, anchor as mkAnchor } from '../../model/bezier.js';
@@ -16,6 +17,8 @@ import { tracePath } from '../../render/draw.js';
 import { newPathStyle } from '../../tools/pen.js';
 import { OP, runGeom, loadGeom } from './engine/index.js';
 import { withBusy, isBusy } from './busy.js';
+import { pressureFunction } from '../brushes/generate.js';
+import { pressureSamples, pressureScale, pressureVaries, smoothPressures, roundBrushOutline, traceRoundStroke } from '../brushes/pressure.js';
 import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, replaceWith, snapshot, unchangedSince, solidKey, insertionPoint, insideLive, expandLiveFirst } from './nodes-io.js';
 
 function withDocTransform(ctx, view, fn) {
@@ -91,6 +94,14 @@ function samples(tool, e) {
   const list = e.native?.getCoalescedEvents?.() || [];
   if (list.length > 1) return list.map((s) => tool.app.eventToDoc(s));
   return [{ x: e.x, y: e.y }];
+}
+
+/** Pen pressures of the same samples (null for a mouse or finger). */
+function samplePressures(e) {
+  if (e.pointerType !== 'pen') return null;
+  const list = e.native?.getCoalescedEvents?.() || [];
+  if (list.length > 1) return list.map((s) => s.pressure || e.pressure || 0.5);
+  return [e.pressure || 0.5];
 }
 
 function drawPolyline(ctx, editor, pts, color, width = 1, dash = []) {
@@ -472,7 +483,35 @@ export class KnifeTool extends Tool {
   static label = 'Knife';
   static shortcut = '';
   static icon = 'tool-knife';
-  static hint = 'Drag through filled shapes to cut them | Option: cut in a straight line | Cuts the selection, or everything under the cut when nothing is selected';
+  static hint = 'Drag through filled shapes to cut them | Option: cut in a straight line | Cuts the selection, or everything under the cut when nothing is selected | Double-click the tool for options';
+  /** The default keeps the cut close to the hand (about the tolerance the Knife always had). */
+  static defaultFidelity = 10;
+
+  /** Fidelity 0 (accurate) to 100 (smooth): how closely the cut follows the drag. */
+  get fidelity() {
+    const saved = this.app.prefs.get('knifeFidelity');
+    const v = Number(saved);
+    return saved != null && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : this.constructor.defaultFidelity;
+  }
+
+  set fidelity(v) {
+    this.app.prefs.set('knifeFidelity', Math.max(0, Math.min(100, Number(v) || 0)));
+  }
+
+  async openOptions() {
+    const v = await this.app.dialogs.form({
+      title: 'Knife Tool Options',
+      fields: [{ key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity }],
+    });
+    if (v) this.fidelity = v.fidelity;
+  }
+
+  /** The drag as the cutting path: a straight line for two points, else a curve fitted within the fidelity. */
+  cutAnchors(pts) {
+    if (pts.length === 2) return pts.map((p) => mkAnchor(p.x, p.y));
+    const t = fidelityTolerance(this.fidelity, this.editor.view.zoom);
+    return fitCurve(simplifyPolyline(pts, t * 0.5), t * t);
+  }
 
   activate() {
     this.setCursor('var(--cursor-knife)');
@@ -501,7 +540,7 @@ export class KnifeTool extends Tool {
     if (!pts || pts.length < 2) return;
     const editor = this.editor;
     const doc = editor.doc;
-    const anchors = pts.length === 2 ? pts.map((p) => mkAnchor(p.x, p.y)) : fitCurve(simplifyPolyline(pts, tol(editor, 0.75)), tol(editor, 1.5) ** 2);
+    const anchors = this.cutAnchors(pts);
     const bounds = polylineBounds(pts);
     const hadSelection = editor.selection.size > 0;
     const pool = hadSelection ? selectedLeaves(this, 'The Knife') : editableLeaves(editor);
@@ -574,9 +613,15 @@ class RoundBrushTool extends Tool {
     this.overlay();
   }
 
+  /** Whether pen pressure changes the brush size along a stroke (the Merge Brush, with its option on). */
+  get pressureSize() {
+    return false;
+  }
+
   onPointerDown(e) {
     if (isBusy()) return;
     this.pts = [{ x: e.x, y: e.y }];
+    this.pressures = this.pressureSize ? samplePressures({ ...e, native: null }) : null;
     this.alt = e.alt;
   }
 
@@ -586,8 +631,22 @@ class RoundBrushTool extends Tool {
       this.overlay();
       return;
     }
-    this.pts.push(...samples(this, e));
+    const added = samples(this, e);
+    this.pts.push(...added);
+    if (this.pressures) {
+      const ps = samplePressures(e);
+      // One pressure per point, whatever the two lists hold.
+      for (let i = 0; i < added.length; i++) this.pressures.push(ps?.[i] ?? ps?.[ps.length - 1] ?? 0.5);
+    }
     this.overlay();
+  }
+
+  /** The stroke's pressures when they shape it: one per point, smoothed; null for a mouse or an even pressure. */
+  strokePressures() {
+    const ps = this.pressures;
+    if (!ps || !this.pts || ps.length !== this.pts.length) return null;
+    if (ps.length > 1 && !pressureVaries(ps)) return null;
+    return smoothPressures(ps);
   }
 
   onKeyDown(ev) {
@@ -604,6 +663,7 @@ class RoundBrushTool extends Tool {
 
   cancel() {
     this.pts = null;
+    this.pressures = null;
     this.overlay();
   }
 
@@ -615,11 +675,24 @@ class RoundBrushTool extends Tool {
     return fitCurve(simplifyPolyline(pts, tol(editor, 0.75)), tol(editor, 1) ** 2);
   }
 
-  /** Expand the brush path into a filled outline (round caps and joins). */
+  /**
+   * Expand the brush path into a filled outline (round caps and joins). With
+   * pen pressure the size follows it along the stroke.
+   */
   async brushOutline() {
     const anchors = this.brushAnchors();
-    const recs = await runGeom(OP.STROKE, [{ subpaths: [{ anchors, closed: false }], filled: false }], [this.size, 1, 1, 4, 0, 0]);
-    return recs[0]?.subpaths || [];
+    const size = this.size;
+    const ps = this.strokePressures();
+    const stroke = async (width) => (await runGeom(OP.STROKE, [{ subpaths: [{ anchors, closed: false }], filled: false }], [width, 1, 1, 4, 0, 0]))[0]?.subpaths || [];
+    if (!ps) return stroke(size);
+    // A tap is a dot of the size its pressure gives.
+    if (this.pts.length === 1) return stroke(size * pressureScale(ps[0]));
+    const pf = pressureFunction(pressureSamples(this.pts, ps, Math.min(96, Math.max(8, this.pts.length))));
+    const swept = roundBrushOutline(anchors, (u) => size * pressureScale(pf(u)), size * 2);
+    if (!swept.length) return stroke(size * pressureScale(pf(0.5)));
+    // Uniting the outline with itself merges the overlaps a stroke that crosses itself leaves.
+    const recs = await runGeom(OP.UNITE, [{ subpaths: swept, filled: true }], []);
+    return recs[0]?.subpaths?.length ? recs[0].subpaths : swept;
   }
 
   brushColor() {
@@ -629,9 +702,15 @@ class RoundBrushTool extends Tool {
   drawOverlay(ctx, editor) {
     const z = editor.view.zoom;
     if (this.pts && this.pts.length) {
+      const ps = this.strokePressures();
       ctx.save();
       ctx.globalAlpha = 0.45;
-      drawPolyline(ctx, editor, this.pts.length > 1 ? this.pts : [this.pts[0], { x: this.pts[0].x + 0.01, y: this.pts[0].y }], this.brushColor(), Math.max(1, this.size * z));
+      if (ps) {
+        // The preview is as wide as the pressure makes the stroke.
+        ctx.fillStyle = this.brushColor();
+        traceRoundStroke(ctx, this.pts.map((p) => editor.view.toScreen(p.x, p.y)), ps.map((p) => Math.max(0.5, (this.size * z * pressureScale(p)) / 2)));
+        ctx.fill();
+      } else drawPolyline(ctx, editor, this.pts.length > 1 ? this.pts : [this.pts[0], { x: this.pts[0].x + 0.01, y: this.pts[0].y }], this.brushColor(), Math.max(1, this.size * z));
       ctx.restore();
     }
     const c = this.cursorPt;
@@ -751,8 +830,30 @@ export class BlobBrushTool extends RoundBrushTool {
   static label = 'Merge Brush Tool';
   static shortcut = 'Shift+B';
   static icon = 'tool-blob-brush';
-  static hint = 'Paint filled shapes that merge with overlapping shapes of the same color | [ and ] change the size';
+  static hint = 'Paint filled shapes that merge with overlapping shapes of the same color | [ and ] change the size | Pen pressure changes the size along the stroke';
   static sizePref = 'blobBrushSize';
+
+  /** Pen pressure varies the size (Merge Brush Tool Options), on unless switched off. */
+  get pressureSize() {
+    return this.app.prefs.get('blobBrushPressure') !== false;
+  }
+
+  set pressureSize(v) {
+    this.app.prefs.set('blobBrushPressure', Boolean(v));
+  }
+
+  async openOptions() {
+    const v = await this.app.dialogs.form({
+      title: 'Merge Brush Tool Options',
+      fields: [
+        { key: 'size', label: 'Size', type: 'length', value: this.size, min: 0.5, max: 1000 },
+        { key: 'pressure', label: 'Pen pressure varies the size', type: 'checkbox', value: this.pressureSize },
+      ],
+    });
+    if (!v) return;
+    this.size = v.size;
+    this.pressureSize = v.pressure;
+  }
 
   activate() {
     super.activate();
@@ -783,7 +884,8 @@ export class BlobBrushTool extends RoundBrushTool {
       const paint = this.paint();
       const style = { ...newPathStyle(editor), fill: paint, stroke: null };
       const key = solidKey({ fill: paint });
-      const bounds = polylineBounds(pts, this.size / 2);
+      // Hard pressure paints up to twice the size.
+      const bounds = polylineBounds(pts, this.strokePressures() ? this.size : this.size / 2);
       const layer = editor.targetLayer();
       // Merge with overlapping blobs: same solid fill, no stroke, in the target layer.
       const candidates = key

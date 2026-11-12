@@ -2,7 +2,8 @@
  * Paintbrush tool (B) with brushes: strokes are painted with the current
  * brush (chosen in the Brushes panel), pen pressure is recorded for brushes
  * that vary with pressure and drawing speed for brushes that vary with
- * velocity, and with "Edit selected paths" a stroke drawn
+ * velocity, a plain stroke (or a calligraphic brush of a fixed size) gets
+ * its width from the pen pressure, and with "Edit selected paths" a stroke drawn
  * along a selected path reshapes that part of it instead of making a new
  * path. Double-click the tool for its options.
  */
@@ -13,27 +14,11 @@ import { fitCurve, simplifyPolyline, nearestOnPath, insertAnchor } from '../../m
 import { newPathStyle } from '../../tools/pen.js';
 import { brushById } from './brush-model.js';
 import { brushState } from './brush-actions.js';
+import { pressureSamples, pressureWidthProfile, smoothPressures, pressureScale, traceRoundStroke } from './pressure.js';
 
-const DEFAULTS = { fidelity: 50, fill: false, keepSelected: true, editSelected: true, within: 12 };
+export { pressureSamples };
 
-/** Pressure samples [[t, p]] along a stroke's points (by length), thinned to at most `max`. */
-export function pressureSamples(points, pressures, max = 24) {
-  if (!pressures || pressures.length !== points.length || points.length < 2) return null;
-  const lens = [0];
-  for (let i = 1; i < points.length; i++) lens.push(lens[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
-  const L = lens[lens.length - 1];
-  if (!(L > 0)) return null;
-  const out = [];
-  for (let k = 0; k < max; k++) {
-    const target = (L * k) / (max - 1);
-    let i = 0;
-    while (i < lens.length - 2 && lens[i + 1] < target) i++;
-    const f = lens[i + 1] > lens[i] ? (target - lens[i]) / (lens[i + 1] - lens[i]) : 0;
-    const p = pressures[i] + (pressures[i + 1] - pressures[i]) * Math.min(1, Math.max(0, f));
-    out.push([Math.round((target / L) * 1000) / 1000, Math.round(p * 1000) / 1000]);
-  }
-  return out;
-}
+const DEFAULTS = { fidelity: 50, fill: false, keepSelected: true, editSelected: true, within: 12, pressure: true };
 
 /** Screen speed (pixels per millisecond) that counts as fast (velocity 1). */
 const FAST = 2.5;
@@ -155,9 +140,11 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     if (!target || (endpoint && !target.b)) {
       // A new stroke (or one continuing an end of a selected path: the base tool handles it).
       this.lastPressure = pressureSamples(pts, pressures);
+      this.lastWidth = pressures && this.opts.pressure ? pressureWidthProfile(pressureSamples(pts, smoothPressures(pressures), 32)) : null;
       this.lastVelocity = pressureSamples(pts, velocities(pts, times, this.editor?.view.zoom || 1));
       super.onPointerUp(e);
       this.lastPressure = null;
+      this.lastWidth = null;
       this.lastVelocity = null;
       return;
     }
@@ -185,6 +172,8 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     style.stroke = ed.style.stroke || ed.style.fill || { type: 'solid', color: '#000000' };
     if (!(style.strokeWidth > 0)) style.strokeWidth = 1;
     const id = brushState(this.app).currentId;
+    // Pen pressure becomes the stroke's width profile (editable afterwards with the Width tool).
+    if (this.lastWidth && this.pressureShapesWidth()) style.widthProfile = this.lastWidth;
     if (id && brushById(ed.doc, id)) {
       style.brush = { id, seed: Math.floor(Math.random() * 0x7fffffff) };
       if (this.lastPressure && brushUsesPressure(brushById(ed.doc, id))) style.brushPressure = this.lastPressure;
@@ -197,6 +186,37 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     return style;
   }
 
+  /**
+   * Whether pen pressure sets the width of the stroke being drawn: with the
+   * option on, for a plain stroke and for a calligraphic brush that does not
+   * read pressure itself (other brushes use pressure the way they are set up).
+   */
+  pressureShapesWidth() {
+    if (!this.opts.pressure) return false;
+    const ed = this.editor;
+    const id = brushState(this.app).currentId;
+    const brush = id ? brushById(ed.doc, id) : null;
+    return !brush || (brush.type === 'calligraphic' && !brushUsesPressure(brush));
+  }
+
+  /** While drawing with pen pressure, the preview shows the width the stroke will get. */
+  drawOverlay(ctx, editor) {
+    const pts = this.points;
+    const pressures = this.pressures;
+    const brushed = Boolean(brushState(this.app).currentId && brushById(editor.doc, brushState(this.app).currentId));
+    if (!pts || pts.length < 2 || !pressures || pressures.length !== pts.length || brushed || !this.pressureShapesWidth()) {
+      super.drawOverlay(ctx, editor);
+      return;
+    }
+    const half = Math.max(0.5, ((editor.style.strokeWidth > 0 ? editor.style.strokeWidth : 1) * editor.view.zoom) / 2);
+    const st = editor.style.stroke || editor.style.fill;
+    ctx.save();
+    ctx.fillStyle = st?.type === 'solid' ? st.color : '#000000';
+    traceRoundStroke(ctx, pts.map((p) => editor.view.toScreen(p.x, p.y)), smoothPressures(pressures).map((p) => half * pressureScale(p)));
+    ctx.fill();
+    ctx.restore();
+  }
+
   async openOptions() {
     const o = this.opts;
     const v = await this.app.dialogs.form({
@@ -207,12 +227,13 @@ export class BrushPaintbrushTool extends PaintbrushTool {
         { key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: o.fill },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: o.keepSelected },
         { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: o.editSelected },
+        { key: 'pressure', label: 'Pen pressure varies the width', type: 'checkbox', value: o.pressure },
         { key: 'within', label: 'Within (pixels)', type: 'range', min: 2, max: 20, value: o.within },
       ],
       extraButtons: [{ label: 'Reset', action: 'reset' }],
     });
     if (!v) return;
-    const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within };
+    const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within, pressure: v.pressure };
     this.opts = next;
     this.fidelity = next.fidelity;
     this.keepSelected = next.keepSelected;

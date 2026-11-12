@@ -4,6 +4,13 @@
  * collapse, rename on double-click, select on click (Shift/Cmd to extend),
  * show selection and target indicators, and reorder by drag and drop.
  *
+ * Reordering follows the pointer itself (not the browser's drag and drop,
+ * which a pen or a finger cannot start reliably): a mouse drags a row once
+ * it moves, a pen that hovers over the panel does the same, and a finger
+ * (or a pen that reports no hover) presses and holds a row first, so a
+ * swipe still scrolls the list. Dragging near the top or bottom edge
+ * scrolls, and Escape cancels.
+ *
  * Rows are virtualized (only the visible rows exist in the DOM), so
  * documents with tens of thousands of objects stay responsive. Keyboard:
  * the tree follows the ARIA tree pattern (Up/Down, Left/Right collapse and
@@ -70,6 +77,13 @@ function thumbnail(doc, node, { defer = null, size: THUMB = 20 } = {}) {
 }
 
 const ROW_H = 28;
+/** A mouse or hovering pen starts dragging a row after moving this far (px). */
+const DRAG_SLOP = 4;
+/** A finger holds a row this long (ms) to pick it up; moving further than HOLD_SLOP first is a scroll. */
+const HOLD_MS = 350;
+const HOLD_SLOP = 8;
+/** Dragging within this distance (px) of the list's top or bottom edge scrolls it. */
+const EDGE = 24;
 const coarse = () => Boolean(globalThis.matchMedia?.('(pointer: coarse)')?.matches);
 
 export class LayersPanel extends Panel {
@@ -152,12 +166,49 @@ export class LayersPanel extends Panel {
     this.pressed = false;
     this.viewport.addEventListener('pointerdown', () => {
       this.pressed = true;
-      // A drag whose row was rebuilt never gets its dragend.
-      this.dragState = null;
+      if (!this.drag) this.dragState = null;
     });
     const release = () => (this.pressed = false);
     window.addEventListener('pointerup', release, true);
     window.addEventListener('pointercancel', release, true);
+    // A pen hovering over the list drags rows right away: its rows stop panning (touch-action is
+    // read when the pen touches down, so it is set while the pen hovers and cleared when it leaves,
+    // which keeps finger scrolling).
+    this.penDirect = false;
+    const penMode = (on) => {
+      if (this.penDirect === on) return;
+      this.penDirect = on;
+      this.viewport.classList.toggle('pen-direct', on);
+    };
+    this.viewport.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'pen') penMode(false);
+      else if (!e.buttons) penMode(true);
+    });
+    this.viewport.addEventListener('pointerleave', (e) => {
+      if (!this.drag || e.pointerType !== 'pen') penMode(false);
+    });
+    // Once a held row is picked up, the finger moves the row instead of scrolling the list.
+    this.viewport.addEventListener('touchmove', (e) => this.drag?.active && e.cancelable && e.preventDefault(), { passive: false });
+    // A long press must not also open a context menu over the row being dragged.
+    this.viewport.addEventListener(
+      'contextmenu',
+      (e) => {
+        if (!this.drag?.active) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true,
+    );
+    this.drag = null;
+    this.dropTarget = null;
+    this.onDragMove = (e) => this.#dragMove(e);
+    this.onDragEnd = (e) => this.#dragEnd(e);
+    this.onDragKey = (e) => {
+      if (e.key !== 'Escape' || !this.drag?.active) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.cancelDrag();
+    };
     this.countEl = h('span.layers-count');
     const footer = h(
       'div.layers-footer',
@@ -363,7 +414,6 @@ export class LayersPanel extends Panel {
       'aria-selected': String(isSel || picked),
       'aria-expanded': r.hasKids ? String(r.open) : null,
       'aria-label': `${defaultLabel(n)}${n.hidden ? ', hidden' : ''}${n.locked ? ', locked' : ''}`,
-      draggable: 'true',
       style: { '--depth': r.depth, '--layer-color': color, height: `${rowH}px` },
     });
     row.classList.toggle('picked', picked);
@@ -373,6 +423,9 @@ export class LayersPanel extends Panel {
     row.classList.toggle('active-layer', isLayer && n.id === ed.activeLayerId);
     row.classList.toggle('focused', index === this.focusIndex);
     row.classList.toggle('dim', Boolean(r.dimHidden || n.hidden));
+    // Rows are rebuilt while a drag is on (scrolling, edits): the drag's marks go on the new rows.
+    row.classList.toggle('dragging', Boolean(this.dragState?.ids.includes(n.id)));
+    if (this.dropTarget?.id === n.id) row.dataset.drop = this.dropTarget.zone;
     const eye = h(
       'button.lr-eye',
       {
@@ -426,36 +479,137 @@ export class LayersPanel extends Panel {
       else this.rename(row, n);
     });
     // Drag and drop reordering.
-    row.addEventListener('dragstart', (e) => {
-      // Dragging a selected row moves the whole selection, like the canvas.
-      this.dragState = { id: n.id, ids: ed.selection.has(n.id) ? ed.topSelection() : [n.id] };
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', n.id);
-      row.classList.add('dragging');
-    });
-    row.addEventListener('dragend', () => {
-      this.dragState = null;
-      row.classList.remove('dragging');
-    });
-    row.addEventListener('dragover', (e) => {
-      if (!this.dragState || this.dragState.id === n.id) return;
-      e.preventDefault();
-      const rect = row.getBoundingClientRect();
-      const y = (e.clientY - rect.top) / rect.height;
-      const zone = y < 0.3 ? 'above' : y > 0.7 ? 'below' : n.children && n.type !== 'compound' ? 'into' : y < 0.5 ? 'above' : 'below';
-      row.dataset.drop = zone;
-    });
-    row.addEventListener('dragleave', () => delete row.dataset.drop);
-    row.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const zone = row.dataset.drop;
-      delete row.dataset.drop;
-      if (!this.dragState) return;
-      const { ids } = this.dragState;
-      this.dragState = null;
-      this.dropOn(ids, n, zone);
-    });
+    row.addEventListener('pointerdown', (e) => this.#dragPress(e, n));
     return row;
+  }
+
+  /** A press on a row: the start of a drag once the pointer moves (mouse, hovering pen) or holds still (finger). */
+  #dragPress(e, n) {
+    if (this.drag || e.button > 0 || e.isPrimary === false || e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+    const direct = e.pointerType === 'mouse' || !e.pointerType || (e.pointerType === 'pen' && this.penDirect);
+    const d = { pointerId: e.pointerId, id: n.id, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, direct, timer: 0, frame: 0 };
+    this.drag = d;
+    if (!direct) d.timer = setTimeout(() => this.drag === d && this.#dragBegin(d), HOLD_MS);
+    window.addEventListener('pointermove', this.onDragMove, true);
+    window.addEventListener('pointerup', this.onDragEnd, true);
+    window.addEventListener('pointercancel', this.onDragEnd, true);
+    window.addEventListener('keydown', this.onDragKey, true);
+  }
+
+  #dragBegin(d) {
+    const ed = this.app.editor;
+    if (!ed || !ed.doc.get(d.id)) {
+      this.cancelDrag();
+      return;
+    }
+    clearTimeout(d.timer);
+    d.active = true;
+    // Dragging a selected row moves the whole selection, like the canvas.
+    this.dragState = { id: d.id, ids: ed.selection.has(d.id) ? ed.topSelection() : [d.id] };
+    this.viewport.classList.add('dragging');
+    for (const id of this.dragState.ids) document.getElementById(`lrow-${id}`)?.classList.add('dragging');
+    this.#dragTarget();
+    const tick = () => {
+      if (this.drag !== d) return;
+      this.#dragScroll();
+      d.frame = requestAnimationFrame(tick);
+    };
+    d.frame = requestAnimationFrame(tick);
+  }
+
+  #dragMove(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    d.x = e.clientX;
+    d.y = e.clientY;
+    if (!d.active) {
+      const dist = Math.hypot(d.x - d.x0, d.y - d.y0);
+      if (d.direct && dist > DRAG_SLOP) this.#dragBegin(d);
+      // A finger that moves before the hold is up is scrolling.
+      else if (!d.direct && dist > HOLD_SLOP) this.cancelDrag();
+      if (!d.active) return;
+    }
+    e.preventDefault();
+    this.#dragTarget();
+  }
+
+  #dragEnd(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const drop = d.active && e.type === 'pointerup' ? this.dropTarget : null;
+    const ids = this.dragState?.ids;
+    const wasActive = d.active;
+    this.cancelDrag();
+    if (!wasActive) return;
+    // The release of a drag is not a click on the row under it.
+    const swallow = (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+    };
+    window.addEventListener('click', swallow, true);
+    setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+    const target = drop && this.app.editor?.doc.get(drop.id);
+    if (target && ids?.length) this.dropOn(ids, target, drop.zone);
+  }
+
+  /** End the drag in progress (or the press that could become one) without dropping. */
+  cancelDrag() {
+    const d = this.drag;
+    if (!d) return;
+    clearTimeout(d.timer);
+    if (d.frame) cancelAnimationFrame(d.frame);
+    window.removeEventListener('pointermove', this.onDragMove, true);
+    window.removeEventListener('pointerup', this.onDragEnd, true);
+    window.removeEventListener('pointercancel', this.onDragEnd, true);
+    window.removeEventListener('keydown', this.onDragKey, true);
+    this.drag = null;
+    this.dragState = null;
+    this.#mark(null);
+    this.viewport.classList.remove('dragging');
+    for (const row of this.tree.querySelectorAll('.layer-row.dragging')) row.classList.remove('dragging');
+  }
+
+  /** Show the drop indicator on the target row ({ id, zone } or null). */
+  #mark(target) {
+    const prev = this.dropTarget;
+    if (prev && (!target || prev.id !== target.id)) delete document.getElementById(`lrow-${prev.id}`)?.dataset.drop;
+    this.dropTarget = target;
+    const row = target && document.getElementById(`lrow-${target.id}`);
+    if (row) row.dataset.drop = target.zone;
+  }
+
+  /**
+   * The row and zone under the drag: rows are found by position, so this
+   * works whichever rows exist right now. Past the last row is below it;
+   * well outside the panel is nowhere (releasing there drops nothing).
+   */
+  #dragTarget() {
+    const d = this.drag;
+    const rows = this.rows;
+    if (!d?.active || !this.dragState || !rows?.length) return this.#mark(null);
+    const rect = this.viewport.getBoundingClientRect();
+    if (rect.width > 0 && (d.x < rect.left - 48 || d.x > rect.right + 48)) return this.#mark(null);
+    const rowH = this.rowH;
+    const pos = (d.y - rect.top + this.viewport.scrollTop) / rowH;
+    const i = Math.max(0, Math.min(rows.length - 1, Math.floor(pos)));
+    const y = Math.max(0, Math.min(1, pos - i));
+    const n = this.app.editor?.doc.get(rows[i].id);
+    if (!n || this.dragState.ids.includes(n.id)) return this.#mark(null);
+    const zone = y < 0.3 ? 'above' : y > 0.7 ? 'below' : n.children && n.type !== 'compound' ? 'into' : y < 0.5 ? 'above' : 'below';
+    return this.#mark({ id: n.id, zone });
+  }
+
+  /** Scroll the list while a drag sits near its top or bottom edge. */
+  #dragScroll() {
+    const d = this.drag;
+    if (!d?.active) return;
+    const rect = this.viewport.getBoundingClientRect();
+    if (!(rect.height > 0)) return;
+    const over = d.y < rect.top + EDGE ? d.y - (rect.top + EDGE) : d.y > rect.bottom - EDGE ? d.y - (rect.bottom - EDGE) : 0;
+    if (!over) return;
+    const before = this.viewport.scrollTop;
+    this.viewport.scrollTop = before + Math.sign(over) * Math.min(18, 3 + Math.abs(over) / 3);
+    if (this.viewport.scrollTop !== before) this.#dragTarget();
   }
 
   /**

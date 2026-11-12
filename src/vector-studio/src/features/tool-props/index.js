@@ -29,7 +29,7 @@ function freehandSettings(tool) {
     { key: 'fidelity', label: 'Fidelity', type: 'range', min: 0, max: 100, value: tool.fidelity ?? 50, hint: 'Accurate to Smooth' },
     { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: Boolean(tool.keepSelected) },
   ];
-  if (opts) fields.push({ key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: Boolean(opts.fill) }, { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: Boolean(opts.editSelected) });
+  if (opts) fields.push({ key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: Boolean(opts.fill) }, { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: Boolean(opts.editSelected) }, { key: 'pressure', label: 'Pen pressure varies the width', type: 'checkbox', value: opts.pressure !== false });
   return { fields, set: (k, v) => write({ [k]: v }) };
 }
 
@@ -37,7 +37,14 @@ function freehandSettings(tool) {
 const ADAPTERS = {
   pencil: freehandSettings,
   paintbrush: freehandSettings,
-  'blob-brush': (t) => ({ fields: [{ key: 'size', label: 'Size', type: 'length', value: t.size, min: 0.5, max: 1000 }], set: (k, v) => (t.size = v) }),
+  knife: (t) => ({ fields: [{ key: 'fidelity', label: 'Fidelity', type: 'range', min: 0, max: 100, value: t.fidelity, hint: 'Accurate to Smooth' }], set: (k, v) => (t.fidelity = v) }),
+  'blob-brush': (t) => ({
+    fields: [
+      { key: 'size', label: 'Size', type: 'length', value: t.size, min: 0.5, max: 1000 },
+      { key: 'pressure', label: 'Pen pressure varies the size', type: 'checkbox', value: t.pressureSize },
+    ],
+    set: (k, v) => (k === 'pressure' ? (t.pressureSize = v) : (t.size = v)),
+  }),
   eraser: (t) => ({ fields: [{ key: 'size', label: 'Size', type: 'length', value: t.size, min: 0.5, max: 1000 }], set: (k, v) => (t.size = v) }),
   rectangle: (t) => clickSize(t, 'lastRect'),
   ellipse: (t) => clickSize(t, 'lastEllipse'),
