@@ -119,3 +119,16 @@ describe('Write automation and seeks', () => {
     expect(S.envelopeValue(lane, 5000)).toBeCloseTo(-3, 6);
   });
 });
+
+describe('Mixer panel in a short frame', () => {
+  it('scrolls vertically to the faders instead of cutting them off', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/multitrack.css`, 'utf8');
+    const panel = css.match(/\.mixer-panel \{[^}]*\}/)[0];
+    expect(panel).toMatch(/overflow-y: auto;/);
+    expect(panel).toMatch(/align-items: flex-start;/);
+    expect(css).toMatch(
+      /\.mixer-panel > \.mx-strips,\s*\.mixer-panel > \.mx-master \{\s*min-height: 100%;/,
+    );
+  });
+});
