@@ -5,7 +5,7 @@
 import { layoutText } from '../../model/text-layout.js';
 import { replaceRange, paragraphRanges, paragraphIndexAt, applyRunStyle } from '../../model/text-runs.js';
 import { createOutlines, selectedTextNodes } from './outlines.js';
-import { session, applyCharStyle, applyParaStyle, applyCase, currentCharStyle, currentTextNodes, MIXED } from './type-ops.js';
+import { session, applyCharStyle, applyParaStyle, applyCase, currentCharStyle, currentTextNodes, stepCharStyle, MIXED } from './type-ops.js';
 import { allFamilies, familyFaces } from './fonts.js';
 import { fillPlaceholder, loremWords } from './lorem.js';
 
@@ -26,9 +26,8 @@ export function setFontFamily(app, family) {
 }
 
 function stepSize(app, dir, mult) {
-  const cur = currentCharStyle(app);
-  const size = cur?.fontSize === MIXED || cur?.fontSize == null ? 12 : cur.fontSize;
-  applyCharStyle(app, { fontSize: Math.max(0.1, Math.min(1296, size + dir * (app.prefs.get('typeSizeIncrement') || 2) * mult)) }, { label: 'Font Size', coalesce: 'type-size' });
+  const d = dir * (app.prefs.get('typeSizeIncrement') || 2) * mult;
+  stepCharStyle(app, 'fontSize', (size) => Math.max(0.1, Math.min(1296, (size ?? 12) + d)), { label: 'Font Size', coalesce: 'type-size' });
 }
 
 /** Point type -> area type with the same lines. */

@@ -324,4 +324,33 @@ describe('type editing session', () => {
     s.setSelection(0, 7);
     expect(currentParaStyle(app).align).toBe('mixed');
   });
+
+  it('size, leading, tracking and baseline shortcuts step mixed characters each from their own value', async () => {
+    const { styleAt } = await import('../src/model/text-runs.js');
+    const id = add('small BIG', { char: { fontSize: 12 }, runs: [{ len: 6 }, { len: 3, fontSize: 40, tracking: 50 }] });
+    const s = edit(id, 0);
+    s.setSelection(0, 9);
+    key(s, '.', { metaKey: true, ctrlKey: true, shiftKey: true });
+    let n = doc.get(id);
+    expect(styleAt(n, 0).fontSize).toBe(14);
+    expect(styleAt(n, 7).fontSize).toBe(42);
+    key(s, 'ArrowRight', { altKey: true });
+    n = doc.get(id);
+    expect(styleAt(n, 0).tracking).toBe(20);
+    expect(styleAt(n, 7).tracking).toBe(70);
+    // Auto leading steps from each size's own auto leading.
+    key(s, 'ArrowDown', { altKey: true });
+    n = doc.get(id);
+    expect(styleAt(n, 0).leading).toBeCloseTo(14 * 1.2 + 2);
+    expect(styleAt(n, 7).leading).toBeCloseTo(42 * 1.2 + 2);
+    key(s, 'ArrowUp', { altKey: true, shiftKey: true });
+    n = doc.get(id);
+    expect(styleAt(n, 0).baselineShift).toBe(2);
+    // With the objects selected (not editing) the menu command does the same.
+    app.getTool('type').exitToSelection();
+    await app.commands.run('type.sizeDown');
+    n = doc.get(id);
+    expect(styleAt(n, 0).fontSize).toBe(12);
+    expect(styleAt(n, 7).fontSize).toBe(40);
+  });
 });

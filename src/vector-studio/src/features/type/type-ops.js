@@ -8,6 +8,7 @@
 import { DEFAULT_CHAR, DEFAULT_PARA, NEW_PARA } from '../../model/nodes.js';
 import {
   rangeStyle,
+  styledRuns,
   applyRunStyle,
   wholeStylePatch,
   paraStylePatch,
@@ -149,6 +150,61 @@ export function applyCharStyle(app, patch, { label = 'Character', coalesce = nul
     else d.char = { ...d.char, [k]: patch[k] };
   }
   app.dock?.update();
+}
+
+/** Runs of a node after stepping `key` of every character in [a, b) from its own value. */
+function steppedRuns(node, a, b, key, step) {
+  let cur = node;
+  for (const r of styledRuns(node)) {
+    const s = Math.max(a, r.start);
+    const e = Math.min(b, r.end);
+    if (e > s) cur = { ...cur, runs: applyRunStyle(cur, s, e, { [key]: step(r.style[key], r.style) }) };
+  }
+  return cur.runs;
+}
+
+/**
+ * Step a numeric character attribute (size, leading, tracking, baseline
+ * shift) of the current text: `step(value, style)` gives the new value.
+ * Characters with different values each step from their own, so a bigger
+ * headline word stays bigger than the rest instead of everything taking
+ * one size.
+ */
+export function stepCharStyle(app, key, step, { label = 'Character', coalesce = null } = {}) {
+  const s = session(app);
+  const ed = app.editor;
+  if (s) {
+    const node = s.node();
+    if (!node) return;
+    const [a, b] = s.range();
+    if (a === b) {
+      const cur = currentCharStyle(app);
+      applyCharStyle(app, { [key]: step(cur[key], cur) }, { label, coalesce });
+      return;
+    }
+    ed.doc.transact(label, () => ed.doc.update(node.id, { runs: steppedRuns(node, a, b, key, step) }), { coalesce });
+    s.changed();
+    return;
+  }
+  const nodes = ed ? storyNodes(ed) : [];
+  if (!nodes.length) {
+    const cur = currentCharStyle(app);
+    applyCharStyle(app, { [key]: step(cur[key], cur) }, { label, coalesce });
+    return;
+  }
+  ed.doc.transact(
+    label,
+    () => {
+      for (const n of nodes) {
+        const cur = ed.doc.get(n.id);
+        const values = new Set(styledRuns(cur).map((r) => step(r.style[key], r.style)));
+        // One resulting value becomes the object's own; otherwise each run keeps its step.
+        if (values.size === 1) ed.doc.update(n.id, wholeStylePatch(cur, { [key]: [...values][0] }));
+        else ed.doc.update(n.id, { runs: steppedRuns(cur, 0, cur.text.length, key, step) });
+      }
+    },
+    { coalesce },
+  );
 }
 
 /** Apply a paragraph patch to the paragraphs of the current text. */

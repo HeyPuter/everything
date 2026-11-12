@@ -14,7 +14,7 @@ import { layoutText, hitTextLocal } from '../../model/text-layout.js';
 import { apply, invert } from '../../lib/matrix.js';
 import { pathBounds } from '../../model/bezier.js';
 import { TextSession } from './session.js';
-import { typeDefaults, applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, MIXED } from './type-ops.js';
+import { typeDefaults, applyCharStyle, applyParaStyle, currentCharStyle, currentParaStyle, stepCharStyle, MIXED } from './type-ops.js';
 import { familyFaces } from './fonts.js';
 import { styleAt } from '../../model/text-runs.js';
 import { LOREM, fillPlaceholder } from './lorem.js';
@@ -443,9 +443,8 @@ export class TypeTool extends Tool {
     return {
       align: (align) => applyParaStyle(app, { align }, { label: 'Paragraph Alignment' }),
       size: (dir, mult) => {
-        const cur = currentCharStyle(app);
-        const size = Math.max(0.1, Math.min(1296, num(cur?.fontSize, 12) + dir * (app.prefs.get('typeSizeIncrement') || 2) * mult));
-        applyCharStyle(app, { fontSize: size }, { label: 'Font Size', coalesce: 'type-size' });
+        const d = dir * (app.prefs.get('typeSizeIncrement') || 2) * mult;
+        stepCharStyle(app, 'fontSize', (v) => Math.max(0.1, Math.min(1296, num(v, 12) + d)), { label: 'Font Size', coalesce: 'type-size' });
       },
       clearTracking: () => applyCharStyle(app, { tracking: 0 }, { label: 'Tracking' }),
       clearScale: () => applyCharStyle(app, { horizontalScale: 100, verticalScale: 100 }, { label: 'Scale' }),
@@ -479,19 +478,21 @@ export class TypeTool extends Tool {
           s.anchor = s.caret = a;
           s.changed();
         } else {
-          const cur = currentCharStyle(app);
-          applyCharStyle(app, { tracking: num(cur?.tracking, 0) + dir * (app.prefs.get('typeTrackingIncrement') || 20) * mult }, { label: 'Tracking', coalesce: 'type-tracking' });
+          const d = dir * (app.prefs.get('typeTrackingIncrement') || 20) * mult;
+          stepCharStyle(app, 'tracking', (v) => num(v, 0) + d, { label: 'Tracking', coalesce: 'type-tracking' });
         }
       },
       leading: (dir, mult) => {
-        const cur = currentCharStyle(app);
-        const auto = num(cur?.fontSize, 12) * 1.2;
-        const lead = Math.max(0, num(cur?.leading, auto) ?? auto) + dir * 2 * mult;
-        applyCharStyle(app, { leading: Math.max(0, lead) }, { label: 'Leading', coalesce: 'type-leading' });
+        // Auto leading steps from the leading it stands for.
+        const step = (v, st) => {
+          const auto = num(st?.fontSize, 12) * 1.2;
+          return Math.max(0, Math.max(0, num(v, auto) ?? auto) + dir * 2 * mult);
+        };
+        stepCharStyle(app, 'leading', step, { label: 'Leading', coalesce: 'type-leading' });
       },
       baseline: (dir, mult) => {
-        const cur = currentCharStyle(app);
-        applyCharStyle(app, { baselineShift: num(cur?.baselineShift, 0) + dir * (app.prefs.get('typeBaselineIncrement') || 2) * mult }, { label: 'Baseline Shift', coalesce: 'type-baseline' });
+        const d = dir * (app.prefs.get('typeBaselineIncrement') || 2) * mult;
+        stepCharStyle(app, 'baselineShift', (v) => num(v, 0) + d, { label: 'Baseline Shift', coalesce: 'type-baseline' });
       },
       exit: () => this.exitToSelection(),
     };
