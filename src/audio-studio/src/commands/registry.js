@@ -193,9 +193,15 @@ export function normalizeShortcut(s) {
   return [mod ? 'mod' : '', ctrl ? 'ctrl' : '', mods.has('alt') ? 'alt' : '', mods.has('shift') ? 'shift' : '', k].filter(Boolean).join('+');
 }
 
-/** Key name from a KeyboardEvent that ignores what Shift/Alt do to the character. */
+/**
+ * Key name from a KeyboardEvent that ignores what Shift/Alt do to the character.
+ * Letters follow the keyboard layout (Mod+Z is the key labelled Z on AZERTY and
+ * Dvorak too); the physical key is used only when the layout gives no Latin
+ * letter (Option on macOS, non-Latin layouts).
+ */
 export function eventKey(ev) {
   const code = ev.code || '';
+  if (/^[a-z]$/i.test(ev.key || '')) return ev.key.toLowerCase();
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
   if (/^Digit\d$/.test(code)) return code.slice(5);
   const map = {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CommandRegistry, normalizeShortcut } from '../src/commands/registry.js';
+import { CommandRegistry, normalizeShortcut, eventKey, eventShortcut } from '../src/commands/registry.js';
 import { Prefs } from '../src/lib/prefs.js';
 
 const memory = () => {
@@ -53,5 +53,27 @@ describe('Prefs', () => {
     expect(prefs.get('shortcuts')).toEqual({ 'window.assistant': 'Alt+5' });
     expect(prefs.get('layouts').Default.c[1]).toEqual({ t: 'group', tabs: ['properties', 'assistant'], a: 'assistant' });
     expect('essentialPresets' in prefs.values).toBe(false);
+  });
+});
+
+describe('shortcut keys from keyboard events', () => {
+  const ev = (o) => new KeyboardEvent('keydown', o);
+
+  it('follows the keyboard layout for letters', () => {
+    // AZERTY: the key labelled Z sits where QWERTY has W, and A where QWERTY has Q.
+    expect(eventKey(ev({ key: 'z', code: 'KeyW' }))).toBe('z');
+    expect(eventKey(ev({ key: 'a', code: 'KeyQ' }))).toBe('a');
+    expect(eventKey(ev({ key: 'm', code: 'Semicolon' }))).toBe('m');
+    expect(eventShortcut(ev({ key: 'z', code: 'KeyW', metaKey: true, ctrlKey: true }))).toMatch(/\+z$/);
+    expect(eventKey(ev({ key: 'Z', code: 'KeyW', shiftKey: true }))).toBe('z');
+  });
+
+  it('uses the physical key when the layout gives no Latin letter', () => {
+    // Option+K on macOS types "˚"; a Cyrillic layout types "л".
+    expect(eventKey(ev({ key: '˚', code: 'KeyK', altKey: true }))).toBe('k');
+    expect(eventKey(ev({ key: 'л', code: 'KeyK' }))).toBe('k');
+    // Digits and punctuation keep their physical key (Shift changes the character).
+    expect(eventKey(ev({ key: '!', code: 'Digit1', shiftKey: true }))).toBe('1');
+    expect(eventKey(ev({ key: '?', code: 'Slash', shiftKey: true }))).toBe('/');
   });
 });
