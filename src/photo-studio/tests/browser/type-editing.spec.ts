@@ -77,6 +77,26 @@ test('each paste is its own undo step', async ({ page }) => {
   expect((await caret(page)).text).toBe('ab');
 });
 
+test('undoing a style chosen at the caret also stops it applying to typing', async ({ page }) => {
+  await canvasClick(page, 100, 100);
+  await page.keyboard.type('ab');
+  const runs = () =>
+    page.evaluate(() => {
+      const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+      return m.currentSession()!.data.content.paragraphs[0].runs.map((r) => [r.text, r.style.fauxBold]);
+    });
+  // Redo brings the caret style back.
+  await page.keyboard.press('Meta+Shift+KeyB');
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+Shift+z');
+  await page.keyboard.type('d');
+  expect(await runs()).toEqual([['ab', false], ['d', true]]);
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.press('Meta+z');
+  await page.keyboard.type('c');
+  expect(await runs()).toEqual([['abc', false]]);
+});
+
 test('moving text with Mod-drag while editing is undoable and kept on commit', async ({ page }) => {
   await canvasClick(page, 100, 100);
   await page.keyboard.type('Move');

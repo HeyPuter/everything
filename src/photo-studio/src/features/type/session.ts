@@ -44,7 +44,8 @@ import { commitSelectionMask } from '../selection';
 import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
 
 // `place`: the layer's placement, which Mod-dragging the text changes.
-type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement };
+// `caretStyle`: a style chosen at a collapsed caret, waiting for typing.
+type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement; caretStyle?: CharStyle };
 type Placement = Pick<Layer, 'transform' | 'textFrame'>;
 export type Session = {
   layerId: string;
@@ -143,7 +144,7 @@ function placement(s: Session): Placement {
   const l = findLayer(s.draft.layers, s.layerId);
   return { transform: l?.transform ?? { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, textFrame: l?.textFrame };
 }
-const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s) });
+const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s), caretStyle: s.caretStyle });
 // Records an undo step unless this edit continues the previous one of the same kind.
 function remember(s: Session, kind?: string) {
   if (kind === undefined || kind !== s.lastKind) {
@@ -481,6 +482,7 @@ export function undoEdit(e: Editor, redo = false) {
   s.data = snap.data;
   s.anchor = snap.anchor;
   s.focus = snap.focus;
+  s.caretStyle = snap.caretStyle;
   s.lastKind = undefined;
   render(e);
 }
