@@ -89,7 +89,11 @@ describe('Frequency Analysis panel', () => {
     installCore(app);
     installAnalysis(app);
     const panel = app.panels.get('frequency').create(app);
-    const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.5))] });
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: RATE,
+      channels: [Channel.fromSamples(new Float32Array(RATE).fill(0.5))],
+    });
     app.addDocument(doc);
     panel.show();
     for (const at of [0, 100, RATE - 10]) {
@@ -216,6 +220,35 @@ describe('Frequency Analysis channels', () => {
       expect(panel.el.querySelector('.analysis-readout').textContent).toMatch(/at -150\.0 dB$/);
     } finally {
       HTMLCanvasElement.prototype.getContext = () => null;
+    }
+  });
+});
+
+describe('Frequency Analysis readout', () => {
+  it('is not a live region while playing, when it changes every frame', async () => {
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = () => recordingContext([]);
+    try {
+      const { app, panel } = setup();
+      const plot = panel.el.querySelector('.freq-plot');
+      Object.defineProperty(plot, 'clientWidth', { value: 642 });
+      Object.defineProperty(plot, 'clientHeight', { value: 300 });
+      const readout = panel.el.querySelector('.analysis-readout');
+      panel.show();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(readout.getAttribute('aria-live')).toBe('polite');
+      let playing = true;
+      Object.defineProperty(app.engine, 'playing', { get: () => playing, configurable: true });
+      app.emit('transport', 'playing');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(readout.getAttribute('aria-live')).toBe('off');
+      playing = false;
+      app.emit('transport', 'stopped');
+      await new Promise((r) => setTimeout(r, 300));
+      expect(readout.getAttribute('aria-live')).toBe('polite');
+      panel.hide();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = getContext;
     }
   });
 });

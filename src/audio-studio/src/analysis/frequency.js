@@ -397,6 +397,9 @@ export function frequencyPanel(app) {
       ...traces(data, channel).map(([name]) => h('span.legend-item', h('span.swatch', { style: { background: colors[name] } }), name === 'M' ? 'Mid' : name === 'L' ? 'Left' : 'Right')),
       ...holds.flatMap((hd, i) => (hd ? [h('span.legend-item', h('span.swatch.dashed', { style: { borderColor: HOLD_COLORS[i] } }), `Hold ${i + 1}`)] : [])),
     );
+    // While playing the readout changes every frame: a live region would talk non-stop.
+    const quiet = app.engine.playing ? 'off' : 'polite';
+    if (readout.getAttribute('aria-live') !== quiet) readout.setAttribute('aria-live', quiet);
     if (hoverX !== null && data) {
       const f = scale.toHz((hoverX - g.left) / (g.right - g.left));
       const k = Math.round(f / (rate / data.fft));
