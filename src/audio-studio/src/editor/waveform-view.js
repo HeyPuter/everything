@@ -228,11 +228,22 @@ export class WaveformView {
     syncPin();
     this.syncHudPin = syncPin;
     this.#bindHudGrip(hud, grip);
-    const setGain = (db) => {
+    const showGain = (db) => {
       this.hudGain = Math.max(-60, Math.min(30, Math.round(db * 10) / 10));
       valueEl.textContent = formatDb(this.hudGain).replace(/ dB$/, '');
       knobEl.setAttribute('aria-valuenow', String(this.hudGain));
       knobEl.setAttribute('aria-valuetext', formatDb(this.hudGain));
+    };
+    // Switching files drops the HUD's preview (the app clears it), so an unapplied
+    // adjustment is dropped too instead of showing a gain that is no longer heard.
+    this.offActive = this.app.on('active', (d) => {
+      if (d !== this.doc && this.hudGain) {
+        drag = null;
+        showGain(0);
+      }
+    });
+    const setGain = (db) => {
+      showGain(db);
       this.app.previewFx = this.hudGain ? [{ key: 'hud', kind: 1, params: [this.hudGain, this.hudGain, 1], enabled: true, mix: 1 }] : null;
       this.app.syncGraph();
       this.invalidate('wave');
@@ -1129,6 +1140,7 @@ export class WaveformView {
   destroy() {
     this.offDoc();
     this.offPrefs();
+    this.offActive();
     window.removeEventListener('themechange', this.onTheme);
     this.resizeObserver.disconnect();
     this.renderer.dispose();

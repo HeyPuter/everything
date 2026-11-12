@@ -143,3 +143,28 @@ describe('grid snapping', () => {
     );
   });
 });
+
+describe('gain HUD', () => {
+  it('drops an unapplied adjustment when another file becomes active', async () => {
+    const { app, doc, view } = await makeView();
+    const other = new AudioFile({
+      name: 'b.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(ramp(100))],
+    });
+    const knob = view.el.querySelector('.hud-knob');
+    knob.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true }),
+    );
+    expect(view.hudGain).toBe(3);
+    expect(app.previewFx?.[0].key).toBe('hud');
+    app.addDocument(other);
+    expect(app.previewFx).toBe(null);
+    expect(view.hudGain).toBe(0);
+    expect(knob.getAttribute('aria-valuenow')).toBe('0');
+    app.activate(doc);
+    knob.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(doc.history.entries.length).toBe(1);
+    view.destroy();
+  });
+});
