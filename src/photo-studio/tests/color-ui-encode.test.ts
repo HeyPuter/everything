@@ -135,4 +135,30 @@ describe('mode-aware encoders', { timeout: 120000 }, () => {
     expect(rgb.colorModel).toBe('rgb');
     expect(Array.from(rgb.rgba8.data.subarray(0, 4))).toEqual([0, 0, 255, 255]);
   });
+
+  it('exports the inks a perceptual CMYK conversion produced, not a second perceptual mapping', async () => {
+    const { saveColorSettings, defaultSettings } = await import('../src/features/color/profiles');
+    const { cmykMap } = await import('../src/features/color/convert');
+    const { cachedTransform, bakeLut3D, transformToCMYK } = await import('../src/color/color-management');
+    const srgb = builtinProfile('srgb'),
+      cmyk = builtinProfile('generic-coated-cmyk');
+    saveColorSettings({ ...defaultSettings, intent: 'perceptual' });
+    try {
+      const src = img(8, 2, (x, y) => [x * 36, y ? 200 - x * 20 : 40 + x * 25, (x * 70 + y * 90) % 256]);
+      // Image > Mode > CMYK Color with Perceptual: these are the inks of the conversion.
+      const inks = transformToCMYK(src, bakeLut3D(cachedTransform(srgb, cmyk, 'perceptual', { bpc: true }), 33));
+      const doc: PhotoDocument = { ...newDocument(8, 2, 'Test'), mode: 'cmyk', modeData: { profile: 'builtin:generic-coated-cmyk' } };
+      const page = decodeTiff(encodeModeTiff(doc, cmykMap(srgb, cmyk, 'perceptual', true)(src)).bytes).pages[0];
+      const n = 16;
+      let total = 0;
+      for (const [k, plane] of [inks.c, inks.m, inks.y, inks.k].entries())
+        for (let p = 0; p < n; p++) total += Math.abs(page.cmyk![k * n + p] - plane[p]);
+      // Mapping the already printable colors perceptually again moved the
+      // inks by 9 levels on average (up to 48); what remains is rounding and
+      // the freedom of black generation in the deepest shadows.
+      expect(total / (4 * n)).toBeLessThan(3);
+    } finally {
+      saveColorSettings({ ...defaultSettings });
+    }
+  });
 });

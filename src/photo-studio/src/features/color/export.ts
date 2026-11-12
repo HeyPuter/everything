@@ -39,8 +39,12 @@ export function encodeModeTiff(doc: PhotoDocument, img: RGBA8, force?: 'cmyk'): 
   const s = colorSettings();
   if (mode === 'cmyk') {
     const cmyk = docCmykProfile(doc);
+    // A CMYK document's pixels are already the printable colors of its inks
+    // (converted back relative colorimetric): separate them the same way so
+    // a perceptual or saturation conversion is not applied a second time.
+    const intent = doc.mode === 'cmyk' ? 'relative' : s.intent;
     // CMYK TIFF carries no transparency here: composite over paper white.
-    const planes = transformToCMYK(flattenOn(img), bakeLut3D(cachedTransform(dp, cmyk, s.intent, { bpc: s.bpc }), 33));
+    const planes = transformToCMYK(flattenOn(img), bakeLut3D(cachedTransform(dp, cmyk, intent, { bpc: s.bpc }), 33));
     return { bytes: encodeCmykTiff(planes, { icc: profileBytes(cmyk), dpi }), mime: 'image/tiff', extension: 'tif', description: `CMYK TIFF (${cmyk.name})` };
   }
   if (mode === 'grayscale' || mode === 'bitmap') {
