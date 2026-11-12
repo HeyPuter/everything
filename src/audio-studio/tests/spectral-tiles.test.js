@@ -129,3 +129,40 @@ describe('tile textures wider than the GPU allows', () => {
     expect(fitBins(bytes, bins, 2, 8192)).toEqual({ bytes, width: bins });
   });
 });
+
+describe('graphics context loss', () => {
+  it('reports the loss, and after a restore leaves textures of the old context alone', async () => {
+    const { SpectrogramRenderer } = await import('../src/spectral/renderer.js');
+    const deleted = [];
+    let made = 0;
+    const gl = new Proxy(
+      {},
+      {
+        get(t, k) {
+          if (k === 'getParameter') return () => 4096;
+          if (k === 'getShaderParameter' || k === 'getProgramParameter') return () => true;
+          if (k === 'deleteTexture') return (tex) => deleted.push(tex);
+          if (k === 'createTexture') return () => ({ n: made++ });
+          if (typeof k === 'string' && /^[A-Z_0-9]+$/.test(k)) return 1;
+          return () => ({});
+        },
+      },
+    );
+    const canvas = document.createElement('canvas');
+    canvas.getContext = () => gl;
+    const r = new SpectrogramRenderer(canvas);
+    let lost = 0;
+    r.onLost = () => lost++;
+    const old = r.createTile(new Uint8Array(5 * 2), 5, 2);
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    expect(lost).toBe(1);
+    expect(r.available).toBe(false);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(r.available).toBe(true);
+    r.deleteTile(old);
+    expect(deleted).toEqual([]);
+    const fresh = r.createTile(new Uint8Array(5 * 2), 5, 2);
+    r.deleteTile(fresh);
+    expect(deleted).toEqual([fresh]);
+  });
+});

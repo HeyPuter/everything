@@ -160,6 +160,7 @@ export class SpectralLayer {
       this.renderer = null;
       return null;
     }
+    this.renderer.onLost = () => this.invalidate();
     this.renderer.onRestore = () => {
       this.cache.clear();
       this.invalidate();
@@ -316,7 +317,9 @@ export class SpectralLayer {
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = cssVar('--text-dim');
       ctx.textAlign = 'center';
-      ctx.fillText('The spectral display needs WebGL2, which is not available in this browser.', W / 2, H / 2);
+      // A lost context (a graphics reset) comes back on its own; no WebGL2 at all does not.
+      const text = this.renderer?.lost ? 'Restoring the spectral display after a graphics reset...' : 'The spectral display needs WebGL2, which is not available in this browser.';
+      ctx.fillText(text, W / 2, H / 2);
       ctx.textAlign = 'left';
     }
     // Frequency gridlines (Preferences > Spectral Displays), on the ruler's ticks.

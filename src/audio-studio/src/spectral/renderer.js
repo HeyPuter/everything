@@ -102,6 +102,7 @@ export class SpectrogramRenderer {
     canvas.addEventListener?.('webglcontextlost', (e) => {
       e.preventDefault();
       this.lost = true;
+      this.onLost?.();
     });
     canvas.addEventListener?.('webglcontextrestored', () => {
       this.lost = false;
@@ -179,7 +180,8 @@ export class SpectrogramRenderer {
   }
 
   deleteTile(tex) {
-    if (tex && this.gl && !this.lost) this.gl.deleteTexture(tex);
+    // Textures from before a context loss belong to the old context (widths is reset on restore).
+    if (tex && this.gl && !this.lost && this.widths.has(tex)) this.gl.deleteTexture(tex);
   }
 
   /**
