@@ -258,3 +258,30 @@ describe('dialog dragging', () => {
     expect(await p).toBe(true);
   });
 });
+
+describe('workspace dock tab', () => {
+  it('a saved workspace opens on the dock tab used last, not its default tab', async () => {
+    const { installCanvasStub } = await import('./helpers.js');
+    const { App } = await import('../src/app.js');
+    const { Prefs } = await import('../src/prefs.js');
+    const { installFeatures } = await import('../src/features.js');
+    installCanvasStub();
+    const store = new Map([
+      ['vector-studio:prefs', JSON.stringify({ workspace: 'typography', dockTab: 'paragraph' })],
+    ]);
+    const storage = {
+      getItem: (k) => store.get(k) ?? null,
+      setItem: (k, v) => store.set(k, String(v)),
+    };
+    document.body.innerHTML = '<div id="app" class="app"></div>';
+    const app = new App(document.getElementById('app'), {
+      prefs: new Prefs(storage),
+      onSignOut: () => {},
+    });
+    installFeatures(app);
+    app.start();
+    expect(app.dock.getLayout().dock).toContain('character');
+    expect(app.dock.getLayout().active).toBe('paragraph');
+    expect(app.prefs.get('dockTab')).toBe('paragraph');
+  });
+});

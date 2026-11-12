@@ -534,7 +534,9 @@ export function installWindow(app) {
     setToolbarVisible(app, app.prefs.get('toolbarVisible') !== false);
     const key = app.prefs.get('workspace');
     const saved = key && workspaceByKey(app, key);
-    if (saved && key !== 'essentials') app.dock.setLayout(saved);
+    // The workspace's panels, on the dock tab last used (when it is one of them).
+    const tab = app.prefs.get('dockTab');
+    if (saved && key !== 'essentials') app.dock.setLayout(saved.dock?.includes(tab) ? { ...saved, active: tab } : saved);
     wireToolbarDrag(app);
     // Clicking or scrolling over a document beside the active one makes it active first.
     const pick = (e) => {
