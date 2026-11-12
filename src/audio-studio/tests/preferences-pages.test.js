@@ -59,6 +59,23 @@ describe('preference pages', () => {
     expect(app.prefs.get('tempo')).toBe(140);
   });
 
+  it('turns Reset All Warning Dialogs off once used, keeping focus in the page', async () => {
+    const app = await makeApp();
+    app.prefs.set('dismissedNotices', ['batch-intro']);
+    const done = app.commands.run('prefs.general');
+    const btn = [...document.querySelectorAll('.prefs-window button')].find(
+      (b) => b.textContent === 'Reset All Warning Dialogs',
+    );
+    expect(btn.disabled).toBe(false);
+    btn.focus();
+    btn.click();
+    expect(app.prefs.get('dismissedNotices')).toEqual([]);
+    expect(btn.disabled).toBe(true);
+    expect(document.activeElement).toBe(document.querySelector('.prefs-pane'));
+    document.querySelector('.prefs-window .dialog-foot .btn.primary').click();
+    await done;
+  });
+
   it('opens notices with focus on their action, not on "Don\'t show this again"', async () => {
     const app = await makeApp();
     const { showNotice } = await import('../src/ui/notices.js');
