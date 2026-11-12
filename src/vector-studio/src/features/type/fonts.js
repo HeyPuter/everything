@@ -130,12 +130,26 @@ function scheduleRedraw() {
   }, 16);
 }
 
+// A face that failed to download (offline, a dropped connection) is tried
+// again after a delay that doubles with each failure, and when the browser
+// comes back online.
+const RETRY_MS = 15000;
+const RETRY_MAX_MS = 300000;
+let retryTimer = 0;
+let autoRetry = false;
+
+function retryFailedFaces() {
+  clearTimeout(retryTimer);
+  retryTimer = 0;
+  for (const st of faceState.values()) if (st.status === 'error') loadBundledFace(st.info, st.face, true);
+}
+
 /** Fetch and register a bundled face; resolves when it can be drawn. */
-function loadBundledFace(info, face) {
+function loadBundledFace(info, face, retryNow = false) {
   const key = keyOf(info.family, face);
-  let st = faceState.get(key);
-  if (st) return st.promise;
-  st = { status: 'loading', buffer: null, promise: null };
+  const prev = faceState.get(key);
+  if (prev && !(prev.status === 'error' && (retryNow || Date.now() >= prev.retryAt))) return prev.promise;
+  const st = { status: 'loading', buffer: null, promise: null, info, face, failures: prev?.failures || 0 };
   faceState.set(key, st);
   pending++;
   st.promise = (async () => {
@@ -153,6 +167,12 @@ function loadBundledFace(info, face) {
       scheduleRedraw();
     } catch (err) {
       st.status = 'error';
+      const delay = Math.min(RETRY_MAX_MS, RETRY_MS * 2 ** st.failures++);
+      st.retryAt = Date.now() + delay;
+      if (autoRetry && !retryTimer) {
+        retryTimer = setTimeout(retryFailedFaces, delay);
+        retryTimer.unref?.();
+      }
       console.warn(err);
     } finally {
       pending--;
@@ -216,6 +236,11 @@ export async function otFontFor(style) {
         } else if (face.data?.blob) {
           buf = await (await face.data.blob()).arrayBuffer();
         }
+        if (!buf && info.source === 'bundled') {
+          // Not downloaded: let a later Create Outlines or export try again.
+          otCache.delete(key);
+          return undefined;
+        }
         if (!buf) return null;
         try {
           return await parseFont(buf);
@@ -224,8 +249,8 @@ export async function otFontFor(style) {
           return null;
         }
       })().then((font) => {
-        otReady.set(key, font || null);
-        return font;
+        if (font !== undefined) otReady.set(key, font || null);
+        return font || null;
       }),
     );
   }
@@ -285,6 +310,8 @@ export function installFonts(app) {
   textHooks.ensureFont = (style) => {
     ensureStyleFont(style);
   };
+  autoRetry = true;
+  if (typeof window !== 'undefined') window.addEventListener('online', retryFailedFaces);
   fontEvents.on('loaded', () => {
     for (const v of app.views.values()) v.invalidate();
     app.editor?.emit('overlay');

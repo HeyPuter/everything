@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import opentype from 'opentype.js';
@@ -222,5 +222,42 @@ describe('type commands helpers', () => {
     // Without images (other uses of the outlines), nothing changes.
     const plain = await collectTextOutlines(app, doc, doc.root.children);
     expect(plain.get(t.id).images).toBeUndefined();
+  });
+});
+
+describe('bundled fonts that fail to download', () => {
+  it('are downloaded again later instead of staying unavailable until reload', async () => {
+    const { ensureStyleFont, isFontLoaded, otFontFor, otFontIfReady } = await import('../src/features/type/fonts.js');
+    const style = { fontFamily: 'Permanent Marker', fontWeight: 400, fontStyle: 'normal' };
+    const buf = readFileSync(resolve(process.cwd(), 'node_modules/@fontsource/permanent-marker/files/permanent-marker-latin-400-normal.woff'));
+    let online = false;
+    const fetchMock = vi.fn(async () => {
+      if (!online) throw new TypeError('Failed to fetch');
+      return { ok: true, arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      await ensureStyleFont(style);
+      expect(isFontLoaded('Permanent Marker')).toBe(false);
+      expect(await otFontFor(style)).toBeNull();
+      expect(otFontIfReady(style)).toBeUndefined();
+      // Right away, nothing is fetched again; once the connection is back and a little time has passed, it is.
+      await ensureStyleFont(style);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      online = true;
+      now += 60000;
+      await ensureStyleFont(style);
+      expect(isFontLoaded('Permanent Marker')).toBe(true);
+      const font = await otFontFor(style);
+      expect(font?.charToGlyph('A')).toBeTruthy();
+    } finally {
+      clock.mockRestore();
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+      await new Promise((r) => setTimeout(r, 40));
+    }
   });
 });
