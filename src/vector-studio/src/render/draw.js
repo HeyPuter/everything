@@ -461,7 +461,8 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
     const paintOf = (p) => textPaint(ctx, doc, node, p, cache, seg);
     decorate(ctx, st, size, x0, x1, base, fillOf(st, seg), paintOf, s);
   };
-  if (outline && node.kind === 'area' && node.areaPath?.length > 2) {
+  // The frame of area type in a shape (not when painting a clipping mask, which has no hairline).
+  if (outline && opts.hairline > 0 && node.kind === 'area' && node.areaPath?.length > 2) {
     ctx.strokeStyle = opts.outlineColor || '#000';
     ctx.lineWidth = opts.hairline / Math.max(1e-6, Math.hypot(m[0], m[1]));
     ctx.stroke(tracePath(new Path2D(), node.areaPath, true));
@@ -773,14 +774,53 @@ function drawTextMasked(ctx, doc, kids, mask, opts) {
   const m = ctx.getTransform();
   lctx.setTransform(m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y);
   for (let i = 0; i < kids.length - 1; i++) drawNode(lctx, doc, doc.get(kids[i]), opts);
-  lctx.globalCompositeOperation = 'destination-in';
-  fillMask(lctx, doc, mask, opts);
+  if (maskPaintCalls(doc, mask, opts, 'letterSpacing' in lctx) > 1) {
+    // A mask painted in several calls (lines, style runs, glyphs, parts) adds
+    // up on a layer of its own: painted straight onto the content with
+    // destination-in, each call would erase what the others keep.
+    const shape = regionPool.acquire(region.w, region.h);
+    shape.ctx.setTransform(m.a, m.b, m.c, m.d, m.e - region.x, m.f - region.y);
+    fillMask(shape.ctx, doc, mask, opts);
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.drawImage(shape.canvas, 0, 0);
+    regionPool.release(shape);
+  } else {
+    lctx.globalCompositeOperation = 'destination-in';
+    fillMask(lctx, doc, mask, opts);
+  }
   lctx.globalCompositeOperation = 'source-over';
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(layer.canvas, region.x, region.y);
   ctx.restore();
   regionPool.release(layer);
+}
+
+const PAINT_CALLS = new Set([
+  'fill',
+  'stroke',
+  'fillText',
+  'strokeText',
+  'fillRect',
+  'strokeRect',
+  'drawImage',
+]);
+
+/**
+ * How many paint calls fillMask makes for `mask`, from a pass over a context
+ * that draws nothing. `hasLS`: whether the real context has letterSpacing
+ * (without it, tracked type is painted glyph by glyph).
+ */
+function maskPaintCalls(doc, mask, opts, hasLS) {
+  const state = { calls: 0 };
+  if (hasLS) state.letterSpacing = '0px';
+  const counter = new Proxy(state, {
+    get: (t, k) => (k in t ? t[k] : PAINT_CALLS.has(k) ? () => t.calls++ : () => {}),
+    set: (t, k, v) => ((t[k] = v), true),
+  });
+  fillMask(counter, doc, mask, opts);
+  return state.calls;
 }
 
 let probe = null;
