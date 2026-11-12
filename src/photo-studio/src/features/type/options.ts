@@ -97,16 +97,27 @@ export function openFontPicker(e: Editor, anchor: HTMLElement, onPick: (family: 
     const q = search.value.trim().toLowerCase();
     for (const b of pop.querySelectorAll<HTMLElement>('[data-family]')) b.hidden = !!q && !b.dataset.family!.toLowerCase().includes(q) && !(b.dataset.label ?? '').toLowerCase().includes(q);
   });
-  search.addEventListener('keydown', (ev) => {
+  const shown = () => [...pop.querySelectorAll<HTMLElement>('[data-family]')].filter((b) => !b.hidden);
+  // Keys stay in the picker (no tool shortcuts, no committing the text):
+  // arrows move through the list, Enter picks, Escape closes.
+  pop.addEventListener('keydown', (ev) => {
+    ev.stopPropagation();
+    const list = shown();
+    const at = list.indexOf(document.activeElement as HTMLElement);
     if (ev.key === 'Escape') {
+      ev.preventDefault();
       closePicker();
       if (session) focusInput(e);
+      else anchor.focus();
+    } else if (ev.key === 'Enter' && ev.target === search) {
+      ev.preventDefault();
+      list[0]?.click();
+    } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const next = ev.key === 'ArrowDown' ? Math.min(list.length - 1, at + 1) : at - 1;
+      if (next < 0) search.focus();
+      else list[next]?.focus();
     }
-    if (ev.key === 'Enter') {
-      const first = [...pop.querySelectorAll<HTMLElement>('[data-family]')].find((b) => !b.hidden);
-      if (first) first.click();
-    }
-    ev.stopPropagation();
   });
   pop.addEventListener('click', (ev) => {
     const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-family]');
