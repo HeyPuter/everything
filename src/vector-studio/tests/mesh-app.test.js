@@ -277,6 +277,40 @@ describe('editing mesh points', () => {
     expect([...meshPointSelection(app.editor).get(m.id)].sort((a, b) => a - b)).toEqual([0, 3, 6]);
   });
 
+  it('Direct Selection marquee in a rotated view picks only the points inside the turned marquee', () => {
+    const m = makeMesh(app);
+    app.editor.select([m.id]);
+    app.setTool('direct-selection');
+    const view = app.editor.view;
+    view.set({ rotation: 45 });
+    // A screen-aligned marquee started off the mesh, above and right of its center.
+    const c = view.toScreen(200, 150);
+    const box = { x0: c.x + 20, y0: c.y - 200, x1: c.x + 400, y1: c.y + 30 };
+    const corners = [
+      view.toDoc(box.x0, box.y0),
+      view.toDoc(box.x1, box.y0),
+      view.toDoc(box.x1, box.y1),
+      view.toDoc(box.x0, box.y1),
+    ];
+    const inMarquee = (p) => {
+      const s = view.toScreen(p.x, p.y);
+      return s.x >= box.x0 && s.x <= box.x1 && s.y >= box.y0 && s.y <= box.y1;
+    };
+    const xs = corners.map((q) => q.x);
+    const ys = corners.map((q) => q.y);
+    const inBounds = (p) =>
+      p.x >= Math.min(...xs) && p.x <= Math.max(...xs) && p.y >= Math.min(...ys) && p.y <= Math.max(...ys);
+    const expected = m.points.flatMap((p, k) => (inMarquee(p) ? [k] : []));
+    // The marquee's axis-aligned bounds take in more points than the marquee itself.
+    expect(expected.length).toBeGreaterThan(0);
+    expect(m.points.filter(inBounds).length).toBeGreaterThan(expected.length);
+    const [a, b] = [corners[0], corners[2]];
+    app.tool.onPointerDown(ev(app, a.x, a.y));
+    app.tool.onPointerMove(ev(app, b.x, b.y));
+    app.tool.onPointerUp(ev(app, b.x, b.y));
+    expect([...meshPointSelection(app.editor).get(m.id)].sort((p, q) => p - q)).toEqual(expected);
+  });
+
   it('Delete removes the lines through selected mesh points', async () => {
     const m = makeMesh(app, { rows: 3, cols: 3 });
     selectMeshPoints(app.editor, m.id, [idx(m, 1, 1)]);

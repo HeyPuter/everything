@@ -28,7 +28,8 @@ export const directSelectHooks = { instance: null };
  * Feature hooks for objects with their own points (gradient meshes):
  *   pointerDown(tool, e) -> null | { move(e), up(e), cancel(), drawOverlay?(ctx, editor) }
  *     claims the press (dragging a mesh point, selecting a patch)
- *   marquee(tool, rect, add)  refines a marquee selection
+ *   marquee(tool, rect, add, inside)  refines a marquee selection; `rect` bounds the marquee and
+ *                             inside(x, y) tests a document point against it (turned in a rotated view)
  *   hover(tool, e) -> cursor | null   claims the pointer while hovering
  *   doubleClick(tool, e) -> bool      handles a double-click
  *   acceptsAlt: true                  also gets presses with Option held
@@ -431,7 +432,7 @@ export class DirectSelectionTool extends Tool {
       const { r, screen, inside, quad } = marqueeRegion(editor, d);
       if (screen.w > 2 || screen.h > 2) {
         this.selectInRegion((a) => inside(a.x, a.y), r, d.add, true, d.add, quad);
-        for (const hook of directSelectionHooks) hook.marquee?.(this, r, d.add);
+        for (const hook of directSelectionHooks) hook.marquee?.(this, r, d.add, inside);
       }
       this.overlay();
       return;
