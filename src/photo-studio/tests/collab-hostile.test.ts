@@ -55,3 +55,26 @@ describe('malformed shared layers from another person', () => {
     expect(result.dropped.join()).toContain('patterns');
   });
 });
+
+describe('an invalid document name or size from another person', () => {
+  for (const [k, v] of [['width', -5], ['width', 'x'], ['height', 1e12], ['name', 42], ['name', null]] as [string, unknown][])
+    it(`keeps the value shown before: ${k} = ${String(v)}`, async () => {
+      const { a, ids } = await setup();
+      const shown = a.project.project({ selection: null }).document;
+      a.project.ydoc.transact(() => a.project.doc.set(k, v), ORIGIN.remote);
+      const result = a.project.project({ selection: null });
+      expect(() => validateDocument(result.document)).not.toThrow();
+      expect(findLayer(result.document.layers, ids.top)).toBeTruthy();
+      expect([result.document.name, result.document.width, result.document.height]).toEqual([shown.name, shown.width, shown.height]);
+      expect(result.dropped).toEqual([`document setting “${k}”`]);
+    });
+  it('uses a default for someone joining after the change', async () => {
+    const { a } = await setup();
+    a.project.ydoc.transact(() => a.project.doc.set('width', 0), ORIGIN.remote);
+    const b = participant();
+    Y.applyUpdate(b.project.ydoc, Y.encodeStateAsUpdate(a.project.ydoc), ORIGIN.remote);
+    const result = b.project.project({ selection: null });
+    expect(() => validateDocument(result.document)).not.toThrow();
+    expect(result.document.width).toBe(1200);
+  });
+});

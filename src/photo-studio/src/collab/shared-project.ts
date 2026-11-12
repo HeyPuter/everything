@@ -435,13 +435,16 @@ export class SharedProject {
       });
     document.layers = build('', 0, false);
     document.version = 1;
-    const dropped = [...this.docDropped, ...unreadable, ...salvageDocument(document)];
+    const dropped = [...this.docDropped, ...unreadable, ...salvageDocument(document, this.shape)];
+    this.shape = { name: document.name, width: document.width, height: document.height };
     this.referencedIds = new Set(documentAssetIds(document));
     return { document, complete, dropped };
   }
   private stale = new Set<string>();
   // Document settings left out of the cached registers (unreadable).
   private docDropped: string[] = [];
+  // The name and size last shown, in place of invalid ones.
+  private shape?: Pick<PhotoDocument, 'name' | 'width' | 'height'>;
   /** Project everything again (after tiles arrived). */
   invalidate() {
     this.allDirty = true;
