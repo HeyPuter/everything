@@ -272,6 +272,11 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .panel-menu-button[aria-haspopup][aria-expanded='true'] { background: var(--selected); }
 .dock-drawer { position: absolute; right: 100%; top: 0; width: 310px; max-height: 70%; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); box-shadow: -6px 6px 22px #0007; z-index: 20; }
 .dock-drawer .panel-body { overflow: auto; }
+/* Narrow windows have no room left of the dock: the drawer covers the panel
+   column beside the icon strip instead. */
+@media (max-width: 760px) {
+  .dock > .dock-drawer, .dock > .dock-drawer:has(> .log-panel) { right: 0; width: min(310px, calc(100% - 39px)); max-height: 100%; }
+}
 .drawer-title { display: flex; align-items: center; gap: 6px; padding-left: 8px; font-weight: 600; font-size: 11px; }
 .drawer-title .icon { width: 14px; height: 14px; color: var(--muted); }
 .dock-column { width: 300px; display: flex; flex-direction: column; min-height: 0; gap: 2px; }

@@ -133,3 +133,23 @@ test.describe('on a phone', () => {
     await expect(dialog).toBeHidden();
   });
 });
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+  test('icon panels open on screen beside the icon strip', async ({ page }) => {
+    await page.evaluate(() => window.photoStudio.runCommand('window.toggle-panels'));
+    const strip = (await page.locator('.dock-strip').boundingBox())!;
+    for (const id of ['history', 'measurement-log']) {
+      await page.evaluate((id) => window.photoStudio.runCommand(`window.panel.${id}`), id);
+      const drawer = page.locator('.dock-drawer');
+      await expect(drawer).toBeVisible();
+      await drawer.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      const r = (await drawer.boundingBox())!;
+      expect(r.x, id).toBeGreaterThanOrEqual(strip.x + strip.width - 1);
+      expect(r.x + r.width, id).toBeLessThanOrEqual(375);
+      expect(r.width, id).toBeGreaterThan(250);
+      await page.evaluate((id) => window.photoStudio.runCommand(`window.panel.${id}`), id);
+      await expect(drawer).toBeHidden();
+    }
+  });
+});
