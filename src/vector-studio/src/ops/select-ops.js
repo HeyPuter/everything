@@ -14,17 +14,20 @@ export function selectableTargets(editor) {
   // Nothing inside an isolated object that was hidden or locked meanwhile (itself or a layer around it).
   if (iso && (doc.isHidden(iso.id) || doc.isLocked(iso.id))) return [];
   if (iso && (!iso.children || iso.type === 'compound')) return [iso.id];
-  const collect = (lid) => {
-    const layer = doc.get(lid);
-    if (!layer || layer.hidden || layer.locked) return;
-    for (const id of layer.children) {
-      const n = doc.get(id);
-      if (!n || n.hidden || n.locked) continue;
-      if (n.type === 'layer') collect(id);
-      else out.push(id);
-    }
-  };
-  for (const lid of root) collect(lid);
+  for (const lid of root) layerObjects(doc, lid, out);
+  return out;
+}
+
+/** Selectable top-level objects of a layer and its visible, unlocked sublayers (appended to `out`). */
+export function layerObjects(doc, layerId, out = []) {
+  const layer = doc.get(layerId);
+  if (!layer || layer.hidden || layer.locked) return out;
+  for (const id of layer.children) {
+    const n = doc.get(id);
+    if (!n || n.hidden || n.locked) continue;
+    if (n.type === 'layer') layerObjects(doc, id, out);
+    else out.push(id);
+  }
   return out;
 }
 

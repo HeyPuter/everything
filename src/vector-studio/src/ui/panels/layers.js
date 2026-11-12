@@ -17,6 +17,7 @@ import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
 import { layerPicks } from '../../ops/layer-ops.js';
+import { layerObjects } from '../../ops/select-ops.js';
 
 const thumbCache = new WeakMap();
 
@@ -665,8 +666,8 @@ export class LayersPanel extends Panel {
     const add = e?.shiftKey || e?.metaKey || e?.ctrlKey;
     if (n.type !== 'layer' && !e?.shiftKey) this.rangeAnchor = n.id;
     if (n.type === 'layer') {
-      // Selecting a layer's target selects everything on it.
-      const ids = n.children.filter((c) => !doc.get(c)?.locked && !doc.get(c)?.hidden);
+      // Selecting a layer's target selects everything on it, sublayers' artwork included (never the sublayers themselves).
+      const ids = layerObjects(doc, n.id);
       ed.select(ids, { add });
       // The layer itself is the appearance target until the selection changes.
       ed.layerTarget = add ? null : { id: n.id, version: ed.selection.version };
