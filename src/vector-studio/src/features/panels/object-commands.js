@@ -238,8 +238,13 @@ async function smoothDialog(app) {
     }
   }
   if (!res) return;
+  if (!(res.amount > 0)) {
+    // No smoothing: no change and no undo step.
+    tx.cancel();
+    return;
+  }
   for (const n of nodes) doc.update(n.id, { anchors: n.anchors, shape: n.shape });
-  if (res.amount > 0) applySmooth(doc, nodes, res.amount);
+  applySmooth(doc, nodes, res.amount);
   tx.commit();
 }
 

@@ -167,6 +167,23 @@ describe('Smooth', () => {
     expect(doc.undoLabel).toBe('Smooth');
     expect(doc.tx).toBeNull();
   });
+
+  it('OK with no smoothing changes nothing and adds no undo step', async () => {
+    const { app, ed, doc } = await setup();
+    const p = createPath(zigzag(), false);
+    doc.transact('Add', () => doc.insert(p, ed.targetLayer().id));
+    ed.select([p.id]);
+    const before = doc.get(p.id);
+    const undo0 = doc.undoStack.length;
+    const done = app.commands.run('path.smooth');
+    await tick();
+    const dlg = document.querySelector('dialog[open]');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'OK').click();
+    await done;
+    expect(doc.get(p.id)).toBe(before);
+    expect(doc.undoStack.length).toBe(undo0);
+    expect(doc.tx).toBeNull();
+  });
 });
 
 describe('Align commands', () => {
