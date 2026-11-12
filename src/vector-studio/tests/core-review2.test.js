@@ -337,3 +337,40 @@ describe('Paste Remembers Layers in isolation mode', () => {
     expect(doc.get(pasted[0]).parent).toBe(g.id);
   });
 });
+
+describe('Make Compound Path containment test', () => {
+  it('finds the same contained outlines as comparing every pair', async () => {
+    const { containedFlags } = await import('../src/ops/object-ops.js');
+    let seed = 7;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const contains = (a, b) =>
+      a &&
+      b &&
+      b.x >= a.x - 1e-6 &&
+      b.y >= a.y - 1e-6 &&
+      b.x + b.w <= a.x + a.w + 1e-6 &&
+      b.y + b.h <= a.y + a.h + 1e-6 &&
+      (a.w > b.w || a.h > b.h);
+    const brute = (bs) => bs.map((b, i) => bs.some((o, j) => j !== i && contains(o, b)));
+    const sets = [
+      // Scattered boxes of mixed sizes, some inside others.
+      Array.from({ length: 400 }, () => ({
+        x: rand() * 1000,
+        y: rand() * 1000,
+        w: rand() * (rand() < 0.1 ? 600 : 40),
+        h: rand() * (rand() < 0.1 ? 600 : 40),
+      })),
+      // Nested outlines (rings, letters with holes), touching edges, a missing box and a broken one.
+      Array.from({ length: 50 }, (_, i) => ({ x: i, y: i, w: 200 - 2 * i, h: 200 - 2 * i })),
+      [
+        { x: 0, y: 0, w: 10, h: 10 },
+        { x: 0, y: 0, w: 10, h: 5 },
+        { x: 10, y: 0, w: 10, h: 10 },
+        null,
+        { x: NaN, y: 0, w: 1, h: 1 },
+        { x: 2, y: 2, w: 0, h: 0 },
+      ],
+    ];
+    for (const bs of sets) expect(containedFlags(bs)).toEqual(brute(bs));
+  });
+});
