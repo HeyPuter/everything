@@ -137,3 +137,102 @@ describe('engine transport', () => {
     e.stop();
   });
 });
+
+describe('engine playhead and output latency', () => {
+  let Processor = null;
+  // An Engine wired to a real mixer worklet processor through fake Web Audio
+  // nodes; `advance` renders quanta and moves both clocks forward.
+  async function liveEngine(latency) {
+    globalThis.sampleRate = 48000;
+    globalThis.currentTime = 1;
+    globalThis.AudioWorkletProcessor = class {
+      constructor() {
+        this.port = { postMessage() {}, onmessage: null };
+      }
+    };
+    globalThis.registerProcessor = (name, cls) => (Processor = cls);
+    await import('../src/engine/mixer-worklet.js');
+    let proc = null;
+    const ctx = {
+      sampleRate: 48000,
+      currentTime: 1,
+      outputLatency: latency,
+      baseLatency: 0,
+      state: 'running',
+      destination: { channelCount: 2, maxChannelCount: 2 },
+      audioWorklet: { addModule: async () => {} },
+      resume: async () => {},
+      close: async () => {},
+    };
+    vi.stubGlobal('AudioContext', function () {
+      return ctx;
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      proc = new Processor();
+      const node = { port: { onmessage: null }, connect() {}, disconnect() {} };
+      node.port.postMessage = (m) => proc.port.onmessage({ data: m });
+      proc.port.postMessage = (m) => node.port.onmessage?.({ data: m });
+      return node;
+    });
+    const e = new Engine();
+    await e.ensure(48000);
+    const out = [new Float32Array(128), new Float32Array(128)];
+    const advance = (seconds) => {
+      for (let i = 0; i < Math.round((seconds * 48000) / 128); i++) {
+        proc.process([], [out]);
+        globalThis.currentTime += 128 / 48000;
+        ctx.currentTime = globalThis.currentTime;
+      }
+    };
+    return { e, advance, proc };
+  }
+
+  it('holds the playhead at the start point until its audio is heard, then follows it', async () => {
+    const { e, advance } = await liveEngine(0.1);
+    await e.play({ from: 48000 });
+    expect(e.position).toBe(48000);
+    advance(0.05);
+    // Half the output latency later the start is still not heard: no jump back before it.
+    expect(e.position).toBe(48000);
+    advance(0.15);
+    expect(Math.abs(e.position - (48000 + 0.1 * 48000))).toBeLessThanOrEqual(128);
+    // Stopping right after a seek leaves the playhead at the seek point, not before it.
+    e.seek(96000);
+    advance(0.02);
+    expect(e.stop()).toBe(96000);
+    vi.unstubAllGlobals();
+  });
+
+  it('shows a loop wrap when it is heard, never a frame outside the loop', async () => {
+    const { e, advance } = await liveEngine(0.1);
+    await e.play({ from: 51000, to: 52000, loop: { start: 48000, end: 52000 } });
+    const seen = [];
+    for (let i = 0; i < 60; i++) {
+      advance(0.005);
+      seen.push(e.position);
+    }
+    expect(seen.every((f) => f >= 48000 && f < 52000)).toBe(true);
+    // The mixer wrapped after 1000 frames (about 21 ms); the wrap is heard 100 ms after that.
+    expect(seen[21]).toBeGreaterThan(51500); // about 117 ms in: still the end of the loop
+    expect(seen[30]).toBeLessThan(50500); // about 165 ms in: back near the loop start
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
+  it('ignores an end of playback reported for an earlier play', async () => {
+    const { e, advance } = await liveEngine(0);
+    await e.play({ from: 0, to: 256 });
+    // The first snippet ends in the mixer, but a new play starts before the main thread hears of it.
+    const ended = [];
+    const port = e.node.port;
+    const deliver = port.onmessage;
+    port.onmessage = (m) => (m.data.type === 'ended' ? ended.push(m) : deliver(m));
+    advance(0.01);
+    port.onmessage = deliver;
+    await e.play({ from: 1000 });
+    for (const m of ended) deliver(m);
+    expect(e.playing).toBe(true);
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+});
