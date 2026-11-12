@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { encodeWav, parseWav } from '../src/audio/wav.js';
 import { Channel } from '../src/audio/channel.js';
+import { ulaw, alaw } from '../src/audio/aiff.js';
 import { sniffSampleRate, decodeAudio, fixPositiveScale } from '../src/audio/decode.js';
 
 const tone = (n) => Float32Array.from({ length: n }, (_, i) => Math.sin(i / 7) * 0.5);
@@ -55,6 +56,66 @@ describe('wav', () => {
     dv.setUint32(40, 5 * 8, true);
     [0.5, NaN, -Infinity, 1e300, -0.25].forEach((v, i) => dv.setFloat64(44 + i * 8, v, true));
     expect(Array.from(parseWav(bytes.buffer).channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+  });
+  it('decodes every sample type exactly, also when the data is not 4-byte aligned', () => {
+    // Reference: the straightforward DataView reading of interleaved samples.
+    const ref = {
+      1: (dv, p, bits) => {
+        if (bits === 8) return (dv.getUint8(p) - 128) / 128;
+        if (bits === 16) return dv.getInt16(p, true) / 32768;
+        if (bits === 32) return dv.getInt32(p, true) / 2147483648;
+        const v = dv.getUint8(p) | (dv.getUint8(p + 1) << 8) | (dv.getUint8(p + 2) << 16);
+        return ((v << 8) >> 8) / 8388608;
+      },
+      3: (dv, p, bits) => (bits === 32 ? dv.getFloat32(p, true) : dv.getFloat64(p, true)),
+      6: (dv, p) => alaw(dv.getUint8(p)),
+      7: (dv, p) => ulaw(dv.getUint8(p)),
+    };
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) & 255;
+    for (const [format, bits] of [[1, 8], [1, 16], [1, 24], [1, 32], [3, 32], [3, 64], [6, 8], [7, 8]]) {
+      for (const nch of [1, 2, 3]) {
+        for (const junk of [0, 2]) {
+          const bytes = bits / 8;
+          const frames = 101;
+          const size = frames * nch * bytes;
+          const buf = new ArrayBuffer(44 + (junk ? 8 + junk : 0) + size);
+          const dv = new DataView(buf);
+          const w4 = (o, t) => [...t].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
+          w4(0, 'RIFF');
+          dv.setUint32(4, buf.byteLength - 8, true);
+          w4(8, 'WAVE');
+          w4(12, 'fmt ');
+          dv.setUint32(16, 16, true);
+          dv.setUint16(20, format, true);
+          dv.setUint16(22, nch, true);
+          dv.setUint32(24, 8000, true);
+          dv.setUint32(28, 8000 * nch * bytes, true);
+          dv.setUint16(32, nch * bytes, true);
+          dv.setUint16(34, bits, true);
+          let o = 36;
+          if (junk) {
+            w4(o, 'JUNK');
+            dv.setUint32(o + 4, junk, true);
+            o += 8 + junk;
+          }
+          w4(o, 'data');
+          dv.setUint32(o + 4, size, true);
+          o += 8;
+          for (let i = 0; i < size; i++) dv.setUint8(o + i, rnd());
+          for (let i = 0; format === 3 && i < frames * nch; i++) {
+            if (bits === 32) dv.setFloat32(o + i * 4, (rnd() - 128) / 100, true);
+            else dv.setFloat64(o + i * 8, (rnd() - 128) / 100, true);
+          }
+          const r = parseWav(buf);
+          for (let c = 0; c < nch; c++) {
+            const at = (i) => o + (i * nch + c) * bytes;
+            const want = Float32Array.from({ length: frames }, (_, i) => ref[format](dv, at(i), bits));
+            expect(r.channels[c]).toEqual(want);
+          }
+        }
+      }
+    }
   });
   it('keeps marker descriptions through a save and reopen', async () => {
     const markers = [
