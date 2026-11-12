@@ -1183,6 +1183,7 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .channel-thumb.blue { background: linear-gradient(135deg, #004, #66f); }
 .channel-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .channel-name { flex: 1; }
+.channel-row button.channel-name { align-self: stretch; background: none; border: 0; border-radius: 0; min-height: 0; padding: 0; color: inherit; font: inherit; text-align: left; }
 .channel-row button.eye { background: none; border: 0; border-right: 1px solid var(--line); border-radius: 0; min-height: 0; padding: 0; color: inherit; }
 .channel-ink { width: 10px; height: 10px; flex: none; border-radius: 50%; border: 1px solid var(--line-soft); }
 /* 32-bit preview options: the canvas behind stays visible for the live preview. */

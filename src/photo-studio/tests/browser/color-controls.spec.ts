@@ -135,3 +135,24 @@ test('correcting an out-of-gamut or web color from the keyboard keeps the focus 
     await expect(chip).toBeFocused();
   }
 });
+
+test('every channel row can be chosen from the keyboard and no unbound shortcuts are shown', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.runCommand('window.panel.channels'));
+  await page.evaluate(() => window.photoStudio.runCommand('channel.new'));
+  const panel = page.locator('[data-panel="channels"]');
+  // ⌘2–⌘7 were listed although no such shortcuts exist.
+  await expect(panel.locator('kbd')).toHaveCount(0);
+  for (const name of ['Red', 'Alpha 1', 'RGB']) {
+    const button = panel.getByRole('button', { name, exact: true });
+    await button.focus();
+    await page.keyboard.press('Enter');
+    // The panel redraws; the keyboard stays on the chosen row.
+    await expect(panel.getByRole('button', { name, exact: true })).toBeFocused();
+    await expect(panel.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true');
+  }
+  await panel.getByRole('button', { name: 'Alpha 1', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => window.photoStudio.doc.channels![0].id === window.photoStudio.settings.activeChannel)).toBe(true);
+  await page.keyboard.press('Space');
+  await expect(panel.getByRole('button', { name: 'Alpha 1', exact: true })).toBeFocused();
+});
