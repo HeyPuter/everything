@@ -121,6 +121,10 @@ dialog.prefs-window { resize: both; min-width: min(560px, calc(100vw - 16px)); m
   .prefs-nav button span { white-space: nowrap; }
   .prefs-row { grid-template-columns: minmax(0, 1fr); }
   .prefs-control { justify-content: flex-start; }
+  /* Cancel and Done wrap onto their own row instead of leaving the window. */
+  .prefs-foot { flex-wrap: wrap; padding: 10px 12px; }
+  .prefs-foot .spacer { flex-basis: 100%; }
+  .prefs-foot [data-act='cancel'] { margin-left: auto; }
 }
 #app { --canvas-mode: var(--canvas-mode-0); }
 #app[data-screen-mode='1'] { --canvas-mode: var(--canvas-mode-1); }

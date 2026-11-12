@@ -116,3 +116,20 @@ test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on i
   await expect(flyout).toHaveCount(0);
   await expect(page.locator('[data-slot="marquee"]')).toBeFocused();
 });
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+  test('the Preferences window keeps Cancel and Done on screen', async ({ page }) => {
+    await start(page, 'edit.preferences');
+    const dialog = page.getByRole('dialog', { name: 'Preferences' });
+    await expect(dialog).toBeVisible();
+    const box = (await dialog.boundingBox())!;
+    for (const name of ['Import…', 'Export…', 'Restore Page Defaults', 'Cancel', 'Done']) {
+      const b = (await dialog.locator('.prefs-foot').getByRole('button', { name, exact: true }).boundingBox())!;
+      expect(b.x, name).toBeGreaterThanOrEqual(box.x);
+      expect(b.x + b.width, name).toBeLessThanOrEqual(Math.min(375, box.x + box.width));
+    }
+    await dialog.locator('.prefs-foot').getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(dialog).toBeHidden();
+  });
+});
