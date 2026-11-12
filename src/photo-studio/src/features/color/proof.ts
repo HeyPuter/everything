@@ -221,7 +221,7 @@ export function gamutOverlaySvg(e: Editor): string {
 }
 function gamutKey(e: Editor, st: ProofState) {
   const s = colorSettings();
-  return `${st.setup.ref}|${docProfile(e.doc).key}|${s.gamutColor}|${s.gamutOpacity}`;
+  return `${st.setup.ref}|${st.setup.bpc}|${docProfile(e.doc).key}|${s.gamutColor}|${s.gamutOpacity}`;
 }
 function scheduleGamut(e: Editor, key: string) {
   clearTimeout(gamutTimer);
@@ -233,7 +233,7 @@ function scheduleGamut(e: Editor, key: string) {
       await ensureProfile(st.setup.ref);
       const img = await compositeRGBA(e, doc);
       if (job !== gamutJob || !st.gamut) return;
-      const mask = gamutWarning(img, docProfile(doc), profileFromRef(st.setup.ref));
+      const mask = gamutWarning(img, docProfile(doc), profileFromRef(st.setup.ref), 2, st.setup.bpc);
       const { gamutColor, gamutOpacity } = gamutAppearance();
       const [r, g, b] = [1, 3, 5].map((k) => parseInt(gamutColor.slice(k, k + 2), 16));
       const a = Math.round((gamutOpacity / 100) * 255);

@@ -13,7 +13,8 @@ export type ColorInfo = {
   hsb: { h: number; s: number; b: number };
   // CIELAB D50, media-relative to the document profile.
   lab: { L: number; a: number; b: number };
-  // Ink percentages in the CMYK profile (relative colorimetric with BPC).
+  // Ink percentages in the CMYK profile (relative colorimetric, with BPC
+  // unless turned off).
   cmyk: { c: number; m: number; y: number; k: number };
   outOfGamutForCMYK: boolean;
   // CIEDE2000 between the color and its printed version.
@@ -47,17 +48,20 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
 export function colorInfo(
   rgb: [number, number, number],
   docProfile: Profile = builtinProfile('srgb'),
-  opts: { cmykProfile?: Profile; gamutThreshold?: number } = {},
+  opts: { cmykProfile?: Profile; gamutThreshold?: number; bpc?: boolean } = {},
 ): ColorInfo {
   const cmykProfile = opts.cmykProfile ?? builtinProfile('generic-coated-cmyk');
   const lab = builtinProfile('lab-d50');
   const n = rgb.map((v) => v / 255);
   const labN = cachedTransform(docProfile, lab, 'relative').one(n);
   const L = decodeLab(labN, 'v4');
-  const cmyk = cachedTransform(docProfile, cmykProfile, 'relative', { bpc: true }).one(n);
-  // Gamut test without BPC so in-gamut colors round-trip exactly.
-  const printed = cachedTransform(docProfile, cmykProfile, 'relative').one(n);
-  const back = decodeLab(cachedTransform(cmykProfile, lab, 'relative').one(printed), 'v4');
+  const bpc = opts.bpc ?? true;
+  const cmyk = cachedTransform(docProfile, cmykProfile, 'relative', { bpc }).one(n);
+  // Gamut test: the round trip through the press with the same black point
+  // compensation as the ink values (in-gamut colors come back unchanged).
+  const back = bpc
+    ? decodeLab(cachedTransform(docProfile, lab, 'relative').one(cachedTransform(cmykProfile, docProfile, 'relative', { bpc }).one(cmyk)), 'v4')
+    : decodeLab(cachedTransform(cmykProfile, lab, 'relative').one(cmyk), 'v4');
   const dE = deltaE2000(L, back);
   const safe = rgb.map((v) => Math.round(v / 51) * 51);
   return {

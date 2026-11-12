@@ -38,17 +38,23 @@ export function createProofTransform(
 const errorCache = new Map<string, Lut3D>();
 
 // Round-trip error of each document color through the proof device, baked
-// as a 3D LUT of CIEDE2000 values (channel 0).
-export function gamutErrorLut(docProfile: Profile, proofProfile: Profile, size = 33): Lut3D {
-  const key = `${docProfile.key}>${proofProfile.key}|${size}`;
+// as a 3D LUT of CIEDE2000 values (channel 0). With black point compensation
+// the round trip is document -> device -> document, both compensated, as
+// conversions with that setting do: colors they produce pass, and blacks the
+// device prints as its own black are not flagged.
+export function gamutErrorLut(docProfile: Profile, proofProfile: Profile, size = 33, bpc = false): Lut3D {
+  const key = `${docProfile.key}>${proofProfile.key}|${size}|${bpc}`;
   const hit = errorCache.get(key);
   if (hit) return hit;
   const lab = builtinProfile('lab-d50');
   const direct = createTransform(docProfile, lab, 'relative');
-  const viaProof = chainTransforms(
-    createTransform(docProfile, proofProfile, 'relative'),
-    createTransform(proofProfile, lab, 'relative'),
-  );
+  const viaProof = bpc
+    ? chainTransforms(
+        createTransform(docProfile, proofProfile, 'relative', { bpc: true }),
+        createTransform(proofProfile, docProfile, 'relative', { bpc: true }),
+        direct,
+      )
+    : chainTransforms(createTransform(docProfile, proofProfile, 'relative'), createTransform(proofProfile, lab, 'relative'));
   const n = size,
     total = n * n * n;
   const input = new Float32Array(total * 3);
@@ -78,10 +84,11 @@ export function gamutErrorLut(docProfile: Profile, proofProfile: Profile, size =
 }
 
 // 255 where a pixel's color would move by more than `threshold` (CIEDE2000)
-// when printed on the proof device with relative colorimetric rendering.
-// Fully transparent pixels are never flagged.
-export function gamutWarning(img: RGBA8, docProfile: Profile, proofProfile: Profile, threshold = 2): Mask8 {
-  const lut = gamutErrorLut(docProfile, proofProfile);
+// when printed on the proof device with relative colorimetric rendering
+// (with or without black point compensation). Fully transparent pixels are
+// never flagged.
+export function gamutWarning(img: RGBA8, docProfile: Profile, proofProfile: Profile, threshold = 2, bpc = false): Mask8 {
+  const lut = gamutErrorLut(docProfile, proofProfile, 33, bpc);
   const out = mask8(img.width, img.height);
   const n = lut.size,
     d = lut.data,
