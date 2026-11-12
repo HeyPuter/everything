@@ -30,6 +30,7 @@ export async function savePathDialog(e: Editor, t: PathTarget) {
   setActive(e, `path:${id}`);
   e.update();
 }
+let lastClick = { key: '', time: 0 };
 export const pathsPanel: Panel = {
   id: 'paths',
   title: 'Paths',
@@ -50,16 +51,19 @@ export const pathsPanel: Panel = {
         return;
       }
       const key = row.dataset.pathKey!;
+      // Double-click saves or renames. Detected from click times because the
+      // first click re-renders the list, so the browser's dblclick never fires.
+      const now = ev.timeStamp;
+      const double = lastClick.key === key && now - lastClick.time < 500;
+      lastClick = double ? { key: '', time: 0 } : { key, time: now };
       setActive(e, key.startsWith('layer:') ? undefined : key);
       e.update();
       // Mod-click (or a click on the thumbnail with Mod) loads the path as a selection.
       if (ev.metaKey || ev.ctrlKey) void e.runCommand('path.make-selection');
-    });
-    el.addEventListener('dblclick', (ev) => {
-      const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-path-key]');
-      if (!row) return;
-      const t = listedPaths(e).find((p) => activeKey(p) === row.dataset.pathKey);
-      if (t && (t.kind === 'work' || t.kind === 'saved')) void savePathDialog(e, t);
+      else if (double) {
+        const t = listedPaths(e).find((p) => activeKey(p) === key);
+        if (t && (t.kind === 'work' || t.kind === 'saved')) void savePathDialog(e, t);
+      }
     });
     el.addEventListener('keydown', (ev) => {
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-path-key]');
