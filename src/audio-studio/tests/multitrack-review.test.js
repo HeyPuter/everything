@@ -342,3 +342,53 @@ describe('typed track levels', () => {
     expect(S.findTrack(doc.state, t.id).volume).toBe(-18);
   });
 });
+
+describe('ripple deletes and track automation', () => {
+  const lane = [
+    { t: 0, v: 0 },
+    { t: 100, v: -10 },
+    { t: 300, v: -20 },
+    { t: 400, v: 5 },
+  ];
+  const check = (before, after, a, b) => {
+    for (let t = 0; t < 600; t += 7) {
+      const want = S.envelopeValue(before, t < a ? t : t + (b - a));
+      expect(S.envelopeValue(after, t)).toBeCloseTo(want, 6);
+    }
+  };
+
+  it('removes the time from the lanes of the tracks that ripple', () => {
+    let s = S.createSessionState({ tracks: 2 });
+    const [t0, t1] = s.tracks.map((t) => t.id);
+    for (const id of [t0, t1, s.master.id]) s = S.setAutomation(s, id, 'volume', lane);
+    s = S.setAutomation(s, t0, 'pan', [{ t: 150, v: 50 }]);
+    const all = S.rippleDeleteTime(s, 50, 200);
+    for (const t of [...all.tracks, all.master]) check(lane, t.automation.volume, 50, 200);
+    check([{ t: 150, v: 50 }], all.tracks[0].automation.pan, 50, 200);
+    // One track: only its lane moves.
+    const one = S.rippleDeleteTime(s, 50, 200, { trackIds: [t0] });
+    check(lane, one.tracks[0].automation.volume, 50, 200);
+    expect(one.tracks[1].automation.volume).toBe(s.tracks[1].automation.volume);
+    expect(one.master.automation.volume).toBe(s.master.automation.volume);
+    // From the session start, and past the last point.
+    check(lane, S.rippleDeleteTime(s, 0, 120).tracks[0].automation.volume, 0, 120);
+    expect(S.rippleDeleteTime(s, 500, 600).tracks[0].automation.volume).toBe(
+      s.tracks[0].automation.volume,
+    );
+  });
+
+  it('leaves the lanes alone when only selected clips ripple, and follows a gap ripple', () => {
+    let s = S.createSessionState({ tracks: 1 });
+    const t0 = s.tracks[0].id;
+    s = S.setAutomation(s, t0, 'volume', lane);
+    const a = S.createClip({ trackId: t0, sourceId: 'x', start: 0, length: 50 });
+    const b = S.createClip({ trackId: t0, sourceId: 'x', start: 200, length: 100 });
+    s = S.addClips(s, [a, b]);
+    expect(S.rippleDeleteTime(s, 20, 40, { ids: [a.id] }).tracks[0].automation).toBe(
+      s.tracks[0].automation,
+    );
+    const gap = S.rippleDeleteGap(s, t0, 100);
+    expect(gap.clips.find((c) => c.id === b.id).start).toBe(50);
+    check(lane, gap.tracks[0].automation.volume, 50, 200);
+  });
+});

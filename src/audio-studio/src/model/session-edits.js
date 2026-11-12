@@ -577,9 +577,36 @@ export function removeTimeFromClips(state, a, b, { ids = null, trackIds = null }
 }
 
 /**
+ * A track automation lane with timeline range [a, b) removed: later points move
+ * left by b - a, and the lane keeps its values on both sides of the cut.
+ */
+export function removeTimeFromLane(points, a, b) {
+  if (!points?.length || b <= a || points[points.length - 1].t < a) return points;
+  const cut = b - a;
+  const out = points.filter((p) => p.t < a);
+  // The value just before the cut, then the value from b on (where later audio now plays).
+  if (a > 0 && (!out.length || out[out.length - 1].t < a - 1)) out.push({ t: a - 1, v: envelopeValue(points, a - 1) });
+  const after = points.filter((p) => p.t >= b).map((p) => ({ ...p, t: p.t - cut }));
+  if (!after.length || after[0].t > a) out.push({ t: a, v: envelopeValue(points, b) });
+  return [...out, ...after];
+}
+
+/** Track automation lanes with [a, b) removed on the tracks for which `hit(track)` is true. */
+function rippleAutomation(state, a, b, hit) {
+  const shift = (t) => {
+    if (!hit(t)) return t;
+    const volume = removeTimeFromLane(t.automation.volume, a, b);
+    const pan = removeTimeFromLane(t.automation.pan, a, b);
+    return volume === t.automation.volume && pan === t.automation.pan ? t : { ...t, automation: { ...t.automation, volume, pan } };
+  };
+  return { ...state, tracks: state.tracks.map(shift), master: shift(state.master) };
+}
+
+/**
  * Ripple delete of time [a, b): removes the range from clips on the tracks
  * (all tracks when trackIds is null, or only clips in `ids`) and pulls later
- * material on those tracks left. Markers shift when every track ripples.
+ * material on those tracks left. Markers shift when every track ripples. Track
+ * automation follows on the tracks that ripple (not when only clips do).
  */
 export function rippleDeleteTime(state, a, b, { trackIds = null, ids = null } = {}) {
   a = Math.round(a);
@@ -601,6 +628,7 @@ export function rippleDeleteTime(state, a, b, { trackIds = null, ids = null } = 
     }),
   };
   if (!trackIds && !ids) s = { ...s, markers: shiftMarkersForDelete(s.markers, a, b) };
+  if (!ids) s = rippleAutomation(s, a, b, (t) => !trackSet || trackSet.has(t.id));
   return s;
 }
 
@@ -647,7 +675,8 @@ export function rippleDeleteGap(state, trackId, at) {
   const gap = gapAt(state, trackId, at);
   if (!gap) return state;
   const [a, b] = gap;
-  return { ...state, clips: state.clips.map((c) => (c.trackId === trackId && c.start >= b ? { ...c, start: c.start - (b - a) } : c)) };
+  const s = { ...state, clips: state.clips.map((c) => (c.trackId === trackId && c.start >= b ? { ...c, start: c.start - (b - a) } : c)) };
+  return rippleAutomation(s, a, b, (t) => t.id === trackId);
 }
 
 // ------------------------------------------------------------- fades, env
