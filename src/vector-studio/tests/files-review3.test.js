@@ -426,3 +426,28 @@ describe('templates', () => {
     expect(blobs).toEqual([`templates/${entry.id}.vstudio`]);
   });
 });
+
+describe('script values', () => {
+  it('refuses property values drawing cannot use, naming them, and keeps the object as it was', async () => {
+    const app = await bootAppWithFeatures();
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const a = createPath(rectangle(0, 0, 10, 10), true);
+    doc.transact('add', () => doc.insert(a, ed.targetLayer().id));
+    const { api } = scriptAPI(app, ed, 'Bad');
+    expect(() => api.update(a.id, { effects: 'blur', opacity: 0.5 })).toThrow(
+      'Not a valid value for "effects".',
+    );
+    expect(doc.get(a.id).effects).toBe(a.effects);
+    expect(doc.get(a.id).opacity).toBe(a.opacity);
+    expect(() => api.update(a.id, { stroke: 'red', dash: 'x' })).toThrow(/"stroke", "dash"/);
+    expect(() => api.create({ type: 'text', text: 'Hi', char: { fontSize: 'big' } })).toThrow(
+      /"char"/,
+    );
+    // Good values still go through.
+    api.update(a.id, { effects: [], opacity: 0.5, fill: { type: 'solid', color: '#ff0000' } });
+    expect(doc.get(a.id).opacity).toBe(0.5);
+    const id = api.create({ type: 'text', text: 'Hi', x: 5, y: 5, char: { fontSize: 20 } });
+    expect(doc.get(id).char.fontSize).toBe(20);
+  });
+});

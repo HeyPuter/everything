@@ -23,6 +23,7 @@
  */
 import { createPath, createText, createGroup, DEFAULT_CHAR, NEW_PARA } from '../../model/nodes.js';
 import { downloadBlob } from '../io/deliver.js';
+import { repairNode } from '../files/format.js';
 
 /**
  * The script side of the API, as source text: `post` sends a message to the
@@ -131,6 +132,13 @@ function toAnchors(list) {
   return (Array.isArray(list) ? list : [])
     .filter((a) => a && typeof a === 'object' && Number.isFinite(a.x) && Number.isFinite(a.y))
     .map((a) => ({ ...a, ix: num(a.ix, a.x), iy: num(a.iy, a.y), ox: num(a.ox, a.x), oy: num(a.oy, a.y) }));
+}
+
+/** Refuse properties drawing cannot use (the wrong kind of value), naming them, instead of storing them. */
+function checkValues(node, keys) {
+  const fixed = repairNode(node);
+  const bad = fixed === node ? [] : keys.filter((k) => fixed[k] !== node[k]);
+  if (bad.length) throw new Error(`Not a valid value for ${bad.map((k) => `"${k}"`).join(', ')}.`);
 }
 
 /** Build a node from script JSON. */
@@ -256,11 +264,13 @@ export function scriptAPI(app, editor, name) {
       check(id);
       const clean = Object.fromEntries(Object.entries(patch || {}).filter(([k]) => !LOCKED_KEYS.has(k)));
       if ('anchors' in clean) clean.anchors = toAnchors(clean.anchors);
+      checkValues({ ...doc.get(id), ...clean }, Object.keys(clean));
       mutate(() => doc.update(id, clean));
       return true;
     },
     create: (data, opts) => {
       const node = nodeFromJSON(data);
+      checkValues(node, Object.keys(node));
       const parentId = opts?.parent && doc.get(opts.parent)?.children ? opts.parent : editor.targetLayer().id;
       return mutate(() => doc.insert(node, parentId, opts?.index ?? Infinity)).id;
     },

@@ -208,7 +208,7 @@ function keep(list, ok) {
  * dropped, missing curve handles sit on their point, style settings of the
  * wrong kind are left out so the defaults apply).
  */
-function repairNode(node) {
+export function repairNode(node) {
   let patch = null;
   const set = (k, v) => ((patch ||= {})[k] = v);
   if (CONTAINERS.has(node.type) && !Array.isArray(node.children)) set('children', []);
