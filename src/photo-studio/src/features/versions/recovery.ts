@@ -74,22 +74,51 @@ async function offerRecovery(e: Editor) {
   if (!records.length) return;
   const dialog = document.querySelector<HTMLDialogElement>('#dialog')!;
   const urls = records.map((r) => (r.thumb ? URL.createObjectURL(r.thumb) : ''));
-  dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Restore Unsaved Documents?</h2><p>Photo Studio closed with unsaved changes. These documents were kept in this browser.</p><div class="recovery-list">${records
-    .map(
-      (r, i) =>
-        `<label class="recovery-item"><input type="checkbox" name="keep" value="${i}" checked><span class="recovery-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : ''}</span><span class="recovery-meta"><strong>${escapeXML(r.name)}</strong><small>${escapeXML(r.path ?? r.fileName ?? 'Never saved')} · ${relativeTime(r.time)}</small></span></label>`,
-    )
-    .join('')}</div><div class="dialog-actions"><button type="button" data-discard class="dialog-discard">Discard All</button><button type="button" data-later>Not Now</button><button type="submit" class="primary">Restore</button></div></form>`;
+  // Checked documents survive a trip to the Discard All question and back.
+  let checked = new Set(records.map((_, i) => i));
+  const list = (back = false) => {
+    dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Restore Unsaved Documents?</h2><p>Photo Studio closed with unsaved changes. These documents were kept in this browser.</p><div class="recovery-list">${records
+      .map(
+        (r, i) =>
+          `<label class="recovery-item"><input type="checkbox" name="keep" value="${i}" ${checked.has(i) ? 'checked' : ''}><span class="recovery-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : ''}</span><span class="recovery-meta"><strong>${escapeXML(r.name)}</strong><small>${escapeXML(r.path ?? r.fileName ?? 'Never saved')} · ${relativeTime(r.time)}</small></span></label>`,
+      )
+      .join('')}</div><div class="dialog-actions"><button type="button" data-discard class="dialog-discard">Discard All</button><button type="button" data-later>Not Now</button><button type="submit" class="primary">Restore</button></div></form>`;
+    // Escape is Not Now: the documents are offered again next time.
+    dialog.oncancel = done;
+    dialog.querySelector('[data-later]')!.addEventListener('click', done);
+    dialog.querySelector('[data-discard]')!.addEventListener('click', () => {
+      checked = new Set(new FormData(dialog.querySelector('form')!).getAll('keep').map(Number));
+      confirmDiscard();
+    });
+    dialog.querySelector('form')!.onsubmit = restore;
+    if (back) dialog.querySelector<HTMLButtonElement>('[data-discard]')!.focus();
+  };
+  // Discarding cannot be undone: ask, naming what is lost, with Go Back focused.
+  const confirmDiscard = () => {
+    const n = records.length;
+    const what = n === 1 ? `“${records[0].name}”` : `${n} Unsaved Documents`;
+    dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Discard ${escapeXML(what)}?</h2><p>${n === 1 ? 'Its' : 'Their'} unsaved changes will be lost. This cannot be undone.</p><div class="dialog-actions"><button type="button" data-discard class="dialog-discard">Discard ${n === 1 ? 'Document' : `${n} Documents`}</button><button type="submit" class="primary" data-back>Go Back</button></div></form>`;
+    dialog.querySelector('form')!.onsubmit = (ev) => {
+      ev.preventDefault();
+      list(true);
+    };
+    // Escape goes back to the list rather than closing.
+    dialog.oncancel = (ev) => {
+      ev.preventDefault();
+      list(true);
+    };
+    dialog.querySelector('[data-discard]')!.addEventListener('click', () => {
+      done();
+      void Promise.all(records.map((r) => store.remove(r.sessionId))).then(() => e.message('Recovered documents discarded.'));
+    });
+    dialog.querySelector<HTMLButtonElement>('[data-back]')!.focus();
+  };
   const done = () => {
+    dialog.oncancel = null;
     dialog.close();
     for (const u of urls) if (u) URL.revokeObjectURL(u);
   };
-  dialog.querySelector('[data-later]')!.addEventListener('click', done);
-  dialog.querySelector('[data-discard]')!.addEventListener('click', () => {
-    done();
-    void Promise.all(records.map((r) => store.remove(r.sessionId))).then(() => e.message('Recovered documents discarded.'));
-  });
-  dialog.querySelector('form')!.onsubmit = (ev) => {
+  const restore = (ev: SubmitEvent) => {
     ev.preventDefault();
     const chosen = new FormData(ev.currentTarget as HTMLFormElement).getAll('keep').map((v) => records[Number(v)]);
     done();
@@ -112,6 +141,7 @@ async function offerRecovery(e: Editor) {
       else if (restored) e.message(`Restored ${restored} document${restored === 1 ? '' : 's'}. Save to keep ${restored === 1 ? 'it' : 'them'}.`);
     });
   };
+  list();
   dialog.showModal();
 }
 async function restoreRecord(e: Editor, r: RecoveryRecord) {
