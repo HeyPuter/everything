@@ -132,3 +132,20 @@ describe('Mixer panel in a short frame', () => {
     );
   });
 });
+
+describe('multitrack stylesheet', () => {
+  it('closes every rule, so the remix dialog styles apply outside the EQ curve', async () => {
+    const fs = await import('node:fs');
+    const css = fs
+      .readFileSync(`${import.meta.dirname}/../src/styles/multitrack.css`, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    let depth = 0;
+    for (const ch of css) {
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      expect(depth).toBeGreaterThanOrEqual(0);
+    }
+    expect(depth).toBe(0);
+    expect(css).toMatch(/\.mx-eq-curve \{[^{}]*cursor: pointer;\s*\}/);
+  });
+});

@@ -1013,6 +1013,7 @@
   border: 1px solid var(--divider);
   border-radius: 2px;
   cursor: pointer;
+}
 
 /* Remix Properties: sliders between their two ends, and the plan summary. */
 .remix-range {
