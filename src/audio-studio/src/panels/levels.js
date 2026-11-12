@@ -218,6 +218,8 @@ export function levelsPanel(app) {
   const ro = new ResizeObserver(() => schedule());
   ro.observe(el);
   prefs.on('change', (key) => /^meter/.test(key) && schedule());
+  // Theme, accent and brightness changes recolor the meter while playback is stopped too.
+  window.addEventListener('themechange', () => schedule());
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     app.openMenu(app.levelsMenu(), { x: e.clientX, y: e.clientY, label: 'Levels' });

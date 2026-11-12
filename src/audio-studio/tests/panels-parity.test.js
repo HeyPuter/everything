@@ -364,6 +364,25 @@ describe('Level Meters', () => {
   });
 });
 
+describe('Level Meters colors', () => {
+  it('redraws in the new colors when the theme changes while stopped', () => {
+    const app = makeApp();
+    const p = create(app, 'levels');
+    const frames = [];
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((fn) => frames.push(fn));
+    try {
+      p.show();
+      // The first frame draws (jsdom has no layout, so it stops at the size check).
+      frames.splice(0).forEach((fn) => fn(0));
+      window.dispatchEvent(new CustomEvent('themechange'));
+      expect(frames.length).toBe(1);
+    } finally {
+      p.hide();
+      raf.mockRestore();
+    }
+  });
+});
+
 describe('Files panel', () => {
   it('sorts by any column and hides columns from the panel menu', () => {
     const app = makeApp();
