@@ -1,7 +1,7 @@
 // RGB PSD files with saved selections (alpha channels) and spot channels open,
 // flat or layered, 8 or 16 bits, with the channels in the Channels panel.
 import { expect, test, type Page } from '@playwright/test';
-import { boot, openFiles } from './helpers';
+import { boot, downloadFrom, openFiles } from './helpers';
 import { addChannels, channelResources, flatPsd } from '../psd-channel-builders';
 
 const W = 12, H = 8, N = W * H;
@@ -69,4 +69,26 @@ test('layered 8-bit and 16-bit PSD files with saved selections keep their layers
   expect(s.layers).toEqual(['Blue']);
   expect(s.pixel).toEqual([0, 0, 255, 255]);
   expect(s.channels.map((c) => [c.name, c.data])).toEqual([['Sky', Array.from(selection)]]);
+});
+
+test('Export PSD writes the alpha channels, and the file reopens with them', async ({ page }) => {
+  await boot(page);
+  const rgb = [plane(() => 200), plane(() => 100), plane(() => 50)];
+  const files = [
+    { depth: 8, bytes: flatPsd({ width: W, height: H, depth: 8, compression: 1, planes: [...rgb, selection, soft], resources: channelResources([{ name: 'Sky' }, { name: 'Soft edge' }]) }) },
+    { depth: 16, bytes: flatPsd({ width: W, height: H, depth: 16, compression: 0, planes: [plane16(() => 51400), plane16(() => 25700), plane16(() => 12850), plane16((i) => (i % W < 5 ? 65535 : 0)), plane16((i) => i * 514)], resources: channelResources([{ name: 'Sky' }, { name: 'Soft edge' }]) }) },
+  ];
+  for (const { depth, bytes: input } of files) {
+    await open(page, `flat${depth}.psd`, input);
+    const { bytes } = await downloadFrom(page, () => page.evaluate(() => window.photoStudio.runCommand('file.export-psd')));
+    const reopened = await page.evaluate(async (bytes) => {
+      const { openPsd } = await import('/src/model/psd.ts');
+      const { readMask } = await import('/src/model/tiles.ts');
+      const loaded = await openPsd(new Blob([new Uint8Array(bytes)]), 'again.psd');
+      const d = loaded.document;
+      return { depth: d.bitsPerChannel ?? 8, channels: (d.channels ?? []).map((c) => [c.name, Array.from(readMask(loaded.assets.tiles, c.grid, { x: 0, y: 0, width: d.width, height: d.height }).data)]) };
+    }, Array.from(bytes));
+    expect(reopened.depth).toBe(depth);
+    expect(reopened.channels).toEqual([['Sky', Array.from(selection)], ['Soft edge', Array.from(soft)]]);
+  }
 });

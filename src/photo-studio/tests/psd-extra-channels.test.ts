@@ -2,7 +2,7 @@
 // extra channels are split off for import, and the rest reads as before.
 import { describe, expect, it } from 'vitest';
 import { initializeCanvas, readPsd, writePsd } from 'ag-psd';
-import { splitPsdChannels } from '../src/model/psd-extra-channels';
+import { appendPsdChannels, splitPsdChannels } from '../src/model/psd-extra-channels';
 import { validatePsdHeader } from '../src/model/psd-header';
 import { addChannels, channelResources, flatPsd } from './psd-channel-builders';
 
@@ -86,5 +86,20 @@ describe('PSD alpha and spot channels', () => {
     // Without names, the negative layer count still marks transparency.
     const unnamed = splitPsdChannels(addChannels(base, [soft], []))!;
     expect(unnamed.extras.map((c) => c.name)).toEqual(['Alpha 1']);
+  });
+
+  it('writes channels that read back, replacing stale channel resources', () => {
+    const channels = [{ name: 'Sky', data: selection }, { name: 'Ink', data: soft, color: '#e4002b', opacity: 1, spot: true }];
+    for (const [depth, compression, psb] of [[8, 1, false], [8, 0, false], [16, 0, false], [8, 1, true], [32, 0, false]] as const) {
+      const sample = depth === 8 ? plane : depth === 16 ? plane16 : (f: (i: number) => number) => { const o = new Uint8Array(N * 4); const v = new DataView(o.buffer); for (let i = 0; i < N; i++) v.setFloat32(i * 4, (f(i) & 255) / 255); return o; };
+      const stale = channelResources([{ name: 'Stale' }, { name: 'Stale 2' }]);
+      const base = flatPsd({ psb, width: W, height: H, depth, compression, planes: [sample((i) => i), sample((i) => i * 2), sample((i) => i * 3), sample(() => 255)], resources: stale });
+      const imageData = base.subarray(26 + 8 + stale.length + (psb ? 8 : 4));
+      const split = splitPsdChannels(appendPsdChannels(base, channels))!;
+      expect(split.extras, `${depth} ${compression} ${psb}`).toEqual([{ name: 'Sky', data: selection, color: '#ff0000', opacity: 0.5 }, { name: 'Ink', data: soft, color: '#e4002b', opacity: 1, spot: true }]);
+      // The merged image comes back as written.
+      expect(Array.from(split.bytes.subarray(split.bytes.length - imageData.length))).toEqual(Array.from(imageData));
+      expect(new DataView(split.bytes.buffer).getUint16(12)).toBe(4);
+    }
   });
 });

@@ -83,7 +83,7 @@ import {
   psdMetadataMimeType,
 } from "./psd-metadata";
 import { validatePsdHeader } from "./psd-header";
-import { splitPsdChannels } from "./psd-extra-channels";
+import { appendPsdChannels, splitPsdChannels, type PsdExtraChannel } from "./psd-extra-channels";
 import { gridFromImage } from "./tiles";
 import { exportPsdText, importPsdText, type ImportedText } from "./psd-text";
 import { documentPpi, syncLegacyFields, textMatrix } from "./text-layer";
@@ -510,7 +510,9 @@ export async function savePsd(
   readMaskGrid?: ReadPsdMaskGrid,
   // Without a composite ("maximize compatibility" off) the merged image is
   // left blank: smaller files that other readers rebuild from the layers.
-  options: { composite?: boolean } = {},
+  // Alpha and spot channels (document-sized 8-bit planes), written after
+  // the color and transparency channels of the merged image.
+  options: { composite?: boolean; channels?: PsdExtraChannel[] } = {},
 ): Promise<Blob> {
   validateDocument(doc);
   if (doc.psdOriginal) return (await saveOriginalPsd(doc, readMetadata)).blob;
@@ -992,6 +994,8 @@ export async function savePsd(
   if (metadata) buffer = restorePsdMetadata(new Uint8Array(buffer), metadata);
   if (resources)
     buffer = restorePsdImageResources(new Uint8Array(buffer), resources);
+  if (options.channels?.length)
+    buffer = appendPsdChannels(new Uint8Array(buffer), options.channels).buffer as ArrayBuffer;
   return new Blob([buffer], { type: "image/vnd.adobe.photoshop" });
 }
 

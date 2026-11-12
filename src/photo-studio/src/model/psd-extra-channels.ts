@@ -210,3 +210,112 @@ export function splitPsdChannels(bytes: Uint8Array, maxBytes = Infinity): PsdCha
   });
   return { bytes: out, extras };
 }
+
+function packRow(row: Uint8Array): number[] {
+  const out: number[] = [];
+  let i = 0;
+  while (i < row.length) {
+    let run = 1;
+    while (i + run < row.length && run < 128 && row[i + run] === row[i]) run++;
+    if (run >= 3) {
+      out.push(257 - run, row[i]);
+      i += run;
+      continue;
+    }
+    const start = i;
+    while (i < row.length && i - start < 128 && !(i + 2 < row.length && row[i] === row[i + 1] && row[i] === row[i + 2])) i++;
+    out.push(i - start - 1);
+    for (let k = start; k < i; k++) out.push(row[k]);
+  }
+  return out;
+}
+function resourceRecord(id: number, data: number[]): number[] {
+  const n = data.length;
+  return [0x38, 0x42, 0x49, 0x4d, id >> 8, id & 255, 0, 0, n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255, ...data, ...(n & 1 ? [0] : [])];
+}
+// Resources that describe the extra channels; replaced when channels are written.
+export const channelResourceIds = [1006, 1007, 1045, 1077];
+
+/** Add channels to the merged image of a written PSD/PSB (after its color and
+ * transparency channels), with resources naming them. `data` is 8-bit. */
+export function appendPsdChannels(bytes: Uint8Array, channels: PsdExtraChannel[]): Uint8Array {
+  const s = sections(bytes);
+  if (!s || !channels.length) return bytes;
+  if (s.channels + channels.length > 56) throw new Error('A PSD file holds at most 53 alpha and spot channels.');
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const compression = v.getUint16(s.imageData);
+  if (compression > 1) throw new Error('Unsupported PSD image data compression.');
+  const pixels = s.width * s.height,
+    rowBytes = (s.width * s.depth) >> 3;
+  const planes = channels.map((c) => {
+    const out = new Uint8Array(rowBytes * s.height);
+    const w = new DataView(out.buffer);
+    for (let i = 0; i < pixels; i++) {
+      const x = c.data[i];
+      if (s.depth === 8) out[i] = x;
+      else if (s.depth === 16) w.setUint16(i * 2, x * 257);
+      else w.setFloat32(i * 4, x / 255);
+    }
+    return out;
+  });
+  let section: Uint8Array;
+  const old = bytes.subarray(s.imageData);
+  if (compression === 0) {
+    section = new Uint8Array(old.length + planes.length * planes[0].length);
+    section.set(old);
+    planes.forEach((p, i) => section.set(p, old.length + i * p.length));
+  } else {
+    const entry = s.psb ? 4 : 2;
+    const table = s.channels * s.height * entry;
+    const rows = planes.flatMap((p) => Array.from({ length: s.height }, (_, y) => packRow(p.subarray(y * rowBytes, (y + 1) * rowBytes))));
+    const counts = new Uint8Array(rows.length * entry);
+    const cv = new DataView(counts.buffer);
+    rows.forEach((r, i) => (s.psb ? cv.setUint32(i * 4, r.length) : cv.setUint16(i * 2, r.length)));
+    const data = Uint8Array.from(rows.flat());
+    section = new Uint8Array(old.length + counts.length + data.length);
+    section.set(old.subarray(0, 2 + table));
+    section.set(counts, 2 + table);
+    section.set(old.subarray(2 + table), 2 + table + counts.length);
+    section.set(data, old.length + counts.length);
+  }
+  // Image resources: the old channel descriptions out, the new ones in.
+  const [start, end] = s.resources;
+  const kept: Uint8Array[] = [];
+  for (let o = start; o + 12 <= end; ) {
+    const id = v.getUint16(o + 4);
+    const nameEnd = o + 6 + ((bytes[o + 6] + 2) & ~1);
+    const size = v.getUint32(nameEnd);
+    const next = nameEnd + 4 + ((size + 1) & ~1);
+    if (!channelResourceIds.includes(id)) kept.push(bytes.subarray(o, next));
+    o = next;
+  }
+  const be32 = (n: number) => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const unicode = channels.flatMap((c) => [...be32(c.name.length + 1), ...[...c.name].flatMap((ch) => [ch.charCodeAt(0) >> 8, ch.charCodeAt(0) & 255]), 0, 0]);
+  const pascal = channels.flatMap((c) => {
+    const name = [...c.name].map((ch) => (ch.charCodeAt(0) < 256 ? ch.charCodeAt(0) : 63)).slice(0, 255);
+    return [name.length, ...name];
+  });
+  const rgb = (hex: string | undefined) => (hex && /^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) * 257) : [65535, 0, 0]);
+  const display = [0, 0, 0, 1, ...channels.flatMap((c) => {
+    const opacity = Math.round((c.opacity ?? (c.spot ? 1 : 0.5)) * 100);
+    return [0, 0, ...rgb(c.color).flatMap((x) => [x >> 8, x & 255]), 0, 0, 0, opacity, c.spot ? 2 : 0];
+  })];
+  const added = Uint8Array.from([...resourceRecord(1006, pascal), ...resourceRecord(1045, unicode), ...resourceRecord(1077, display)]);
+  const resources = kept.reduce((n, k) => n + k.length, 0) + added.length;
+  const out = new Uint8Array(start + resources + (s.imageData - end) + section.length);
+  out.set(bytes.subarray(0, start));
+  let at = start;
+  for (const k of kept) {
+    out.set(k, at);
+    at += k.length;
+  }
+  out.set(added, at);
+  at += added.length;
+  out.set(bytes.subarray(end, s.imageData), at);
+  at += s.imageData - end;
+  out.set(section, at);
+  const ov = new DataView(out.buffer);
+  ov.setUint32(start - 4, resources);
+  ov.setUint16(12, s.channels + channels.length);
+  return out;
+}
