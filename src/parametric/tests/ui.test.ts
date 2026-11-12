@@ -4,6 +4,8 @@ import { closeMenus, openMenu } from '../src/ui/menu';
 import { attachTooltip, confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../src/ui/overlay';
 import { numberField, parseParam, paramText, retireNumberFields, type UnitContext } from '../src/app/pm';
 import { Selection } from '../src/app/selection';
+import { sketchDefinitionStatus } from '../src/app/sketch/panel';
+import type { SolveResult } from '../src/sketch/solver';
 
 const ctx = (units: UnitContext['units'] = 'MMGS'): UnitContext => ({ units, decimals: 2, variables: () => new Map([['Len', 4]]) });
 const key = (el: Element, k: string, init: KeyboardEventInit = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...init }));
@@ -367,5 +369,15 @@ describe('editable parameter precision', () => {
       expect(parsed.ok).toBe(true);
       if (parsed.ok) expect(Math.abs(parsed.num - value)).toBeLessThanOrEqual(Math.abs(value) * 1e-14);
     }
+  });
+});
+
+describe('sketch definition status', () => {
+  const st = (bad: string[], conflicting: string[]): SolveResult => ({ converged: true, residual: 0, status: 'over', dof: 0, freeEntities: new Set(), badConstraints: new Set(bad), conflicting: new Set(conflicting) });
+
+  it('tells a redundant relation from a conflicting one', () => {
+    expect(sketchDefinitionStatus(st(['a'], [])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) are redundant/);
+    expect(sketchDefinitionStatus(st(['a'], ['a'])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) conflict\./);
+    expect(sketchDefinitionStatus(st(['a', 'b'], ['a'])).textContent).toMatch(/1 constraint\(s\) or dimension\(s\) conflict and 1 are redundant/);
   });
 });

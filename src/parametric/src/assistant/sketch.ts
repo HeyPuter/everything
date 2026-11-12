@@ -12,7 +12,7 @@ import { isDimension } from '../model/types';
 import { convertEdges } from '../sketch/convert';
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, circumcenter } from '../sketch/geom';
 import {
-  RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, filletCorner, idFactory, kindOf, makeRelations, measureDimension,
+  RELATION_LABELS, addRelations, availableRelations, cleanupConstraints, deleteItems, filletCorner, idFactory, kindOf, makeRelations, measureDimension,
   mirrorAxisDirection, mirrorEntities, nextDimName, offsetCurves, usedPoints,
 } from '../sketch/ops';
 import { buildProfiles, sketchPoints } from '../sketch/profiles';
@@ -326,13 +326,16 @@ export class SketchEdit {
       const kinds = refs.map((id) => `${id} (${id === ORIGIN_ID ? 'origin' : kindOf(this.sk, id)})`).join(', ');
       throw new ToolError(`relations[${i}]: ${type} cannot apply to ${kinds}. Relations that can: ${ok.join(', ') || 'none'}. Symmetric takes two points (or two lines, or two circles) then the symmetry line last.`);
     }
-    const key = (c: SkConstraint) => `${c.type}:${[...c.refs].sort().join(',')}`;
-    const existing = new Set(this.sk.constraints.filter((c) => !isDimension(c)).map(key));
-    for (const c of makeRelations(this.sk, type, refs, this.gen)) {
-      if (existing.has(key(c))) { this.notes.push(`${type} on ${c.refs.join(', ')} already exists`); continue; }
-      this.constraint(c);
-      this.created.push(c.id);
+    const res = addRelations(this.sk, makeRelations(this.sk, type, refs, this.gen));
+    for (const { c, by } of res.skipped) {
+      this.notes.push(by.type === c.type ? `${type} on ${c.refs.join(', ')} already exists` : `${type} on ${c.refs.join(', ')} is already included in the existing ${by.type} (${by.id})`);
     }
+    for (const { c, by } of res.replaced) {
+      this.notes.push(`${by.type} on ${by.refs.join(', ')} includes the existing ${c.type} (${c.id}), which was removed`);
+      const at = this.created.indexOf(c.id);
+      if (at >= 0) this.created.splice(at, 1);
+    }
+    for (const c of res.added) this.created.push(c.id);
   }
 
   private dimValue(v: unknown, type: DimensionType, what: string): number | string {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SkDimension, SkEntity, SkLine, SketchFeature } from '../src/model/types';
 import { ORIGIN_ID, SketchIndex, arcAngles, arcRadius, distanceToCurve } from '../src/sketch/geom';
 import {
-  availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
+  addRelations, availableRelations, deleteItems, extendAt, filletCorner, idFactory, makeRelations, measureDimension, mirrorEntities,
   offsetCurves, pickMirrorAxis, relationsOf, smartDimension, trimAt, zeroDimensionReason,
 } from '../src/sketch/ops';
 import { solveSketch } from '../src/sketch/solver';
@@ -58,6 +58,52 @@ describe('relations', () => {
     const ix = new SketchIndex(s.entities);
     expect(ix.pt('a')[1]).toBeCloseTo(ix.pt('b')[1], 9);
     expect(relationsOf(s, ['l1'])).toHaveLength(1);
+  });
+
+  // A point already on a fixed line, free to slide along it (1 DOF).
+  const onFixedLine = () => {
+    const s = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 0, y: 10 }, { id: 'l1', t: 'line', a: 'a', b: 'b' }, { id: 'p8', t: 'point', x: 0, y: 3 }]);
+    s.constraints.push({ id: 'f', type: 'fix', refs: ['l1'] }, { id: 'co', type: 'coincident', refs: ['p8', 'l1'] });
+    return s;
+  };
+
+  it('replaces a point-on-line coincident with the midpoint that includes it', () => {
+    const s = onFixedLine();
+    expect(solveSketch(s.entities, s.constraints, { value }).dof).toBe(1);
+    const res = addRelations(s, makeRelations(s, 'midpoint', ['p8', 'l1'], idFactory(s)));
+    expect(res.replaced.map((r) => r.c.id)).toEqual(['co']);
+    expect(s.constraints.map((c) => c.type)).toEqual(['fix', 'midpoint']);
+    const st = solveSketch(s.entities, s.constraints, { value });
+    expect(st.status).toBe('full');
+    expect(new SketchIndex(s.entities).pt('p8')[1]).toBeCloseTo(5, 9);
+  });
+
+  it('leaves out a coincident that an existing midpoint already holds, and a duplicate', () => {
+    const s = onFixedLine();
+    addRelations(s, makeRelations(s, 'midpoint', ['l1', 'p8'], idFactory(s)));
+    const again = addRelations(s, makeRelations(s, 'coincident', ['l1', 'p8'], idFactory(s)));
+    expect(again.added).toHaveLength(0);
+    expect(again.skipped[0].by.type).toBe('midpoint');
+    expect(addRelations(s, makeRelations(s, 'midpoint', ['p8', 'l1'], idFactory(s))).added).toHaveLength(0);
+    expect(solveSketch(s.entities, s.constraints, { value }).status).toBe('full');
+  });
+
+  it('replaces parallel with collinear, and horizontal points with coincident', () => {
+    const s = sk([{ id: 'a', t: 'point', x: 0, y: 0 }, { id: 'b', t: 'point', x: 5, y: 0 }, { id: 'l1', t: 'line', a: 'a', b: 'b' },
+      { id: 'c', t: 'point', x: 6, y: 1 }, { id: 'd', t: 'point', x: 9, y: 1 }, { id: 'l2', t: 'line', a: 'c', b: 'd' }]);
+    s.constraints.push({ id: 'par', type: 'parallel', refs: ['l1', 'l2'] }, { id: 'hz', type: 'horizontal', refs: ['b', 'c'] });
+    addRelations(s, makeRelations(s, 'collinear', ['l2', 'l1'], idFactory(s)));
+    addRelations(s, makeRelations(s, 'coincident', ['b', 'c'], idFactory(s)));
+    expect(s.constraints.map((c) => c.type).sort()).toEqual(['coincident', 'collinear']);
+  });
+
+  it('reports a redundant relation apart from a conflicting one', () => {
+    const s = onFixedLine();
+    s.constraints.push({ id: 'mid', type: 'midpoint', refs: ['p8', 'l1'] });
+    const st = solveSketch(s.entities, s.constraints, { value });
+    expect(st.status).toBe('over');
+    expect(st.badConstraints.size).toBe(1);
+    expect(st.conflicting.size).toBe(0);
   });
 });
 

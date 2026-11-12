@@ -12,7 +12,7 @@ import { evaluate, evaluateVariables, variableReferenceChanges } from '../../mod
 import { changeFeatureUnits } from '../../model/document';
 import { ORIGIN_ID, SketchIndex, distanceToCurve, pointIdsOf, sketchBounds, tessellate } from '../../sketch/geom';
 import { type SolveResult, solveSketch } from '../../sketch/solver';
-import { RELATION_LABELS, availableRelations, cleanupConstraints, deleteItems, idFactory, makeRelations, measureDimension, nextDimName, usedPoints } from '../../sketch/ops';
+import { type AddedRelations, RELATION_LABELS, addRelations, availableRelations, cleanupConstraints, deleteItems, idFactory, makeRelations, measureDimension, nextDimName, usedPoints } from '../../sketch/ops';
 import { externalPointIds, hasExternal, isExternal, projectEdgeInto, projectVertexInto } from '../../sketch/external';
 import type { SelItem } from '../selection';
 import { h } from '../../ui/dom';
@@ -77,6 +77,7 @@ interface DragState {
 }
 
 const STATUS_TEXT: Record<SolveResult['status'], string> = { under: 'Under Defined', full: 'Fully Defined', over: 'Over Defined' };
+const FIXED_DRAG_NOTICE = 'This geometry is fully defined, so it cannot be dragged.';
 
 export class SketchEditor implements ViewportTool {
   readonly sketchId: Id;
@@ -244,13 +245,25 @@ export class SketchEditor implements ViewportTool {
   addRelation(type: RelationType, items: SelItem[] = this.app.selection.items) {
     const picked = items.filter(isTargetItem);
     let ids: Id[] = [];
+    let res: AddedRelations | null = null;
     this.edit(`Add ${RELATION_LABELS[type].toLowerCase()} constraint`, (sk, newId) => {
       const found = this.targetIds(sk, picked, newId);
       if (found.some((id) => !id)) return;
       ids = found as Id[];
-      sk.constraints.push(...makeRelations(sk, type, ids, newId));
+      res = addRelations(sk, makeRelations(sk, type, ids, newId));
     });
     if (ids.length) this.app.selection.set(ids.map((id) => this.selItem(id)));
+    // Say when the sketch already held the relation, or when it took the
+    // place of one it includes, so a constraint never vanishes unexplained.
+    const r = res as AddedRelations | null;
+    const label = (c: SkConstraint) => RELATION_LABELS[c.type as RelationType];
+    if (r && !r.added.length && r.skipped.length) {
+      const by = r.skipped[0].by;
+      this.app.setStatus(by.type === type ? `${label(by)} already applies to this selection.` : `The existing ${label(by)} already includes ${RELATION_LABELS[type]}.`, true);
+    } else if (r?.replaced.length) {
+      const names = [...new Set(r.replaced.map((x) => label(x.c)))].join(', ');
+      this.app.setStatus(`${RELATION_LABELS[type]} replaced the ${names} it includes.`, true);
+    }
   }
 
   /** Re-solves the sketch in the document (no undo step). */
@@ -399,7 +412,11 @@ export class SketchEditor implements ViewportTool {
         // defined rectangle flipped across its anchor), and on large sketches
         // every frame paid for a failing solve.
         const list = [...ids].filter((id) => !free || free.has(id));
-        if (ids.size && !list.length) this.app.setStatus('This geometry is fully defined, so it cannot be dragged.');
+        // The notice is transient: it clears on its own, and a drag that can
+        // move something replaces it, so it never outlives the press that
+        // caused it.
+        if (ids.size && !list.length) this.app.setStatus(FIXED_DRAG_NOTICE, true);
+        else if (list.length) this.app.clearStatus(FIXED_DRAG_NOTICE);
         this.drag = { kind: 'points', ids: list, start: list.map((id) => ix.pt(id)), grab: raw, moved: false };
       }
       this.app.store.beginBatch('Drag sketch geometry', () => { this.drag = null; });

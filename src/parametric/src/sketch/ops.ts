@@ -174,6 +174,59 @@ export function makeRelations(sk: SketchFeature, type: RelationType, ids: Id[], 
   return [{ id: newId('r'), type, refs: ids }];
 }
 
+/**
+ * Whether relation `a` already holds everything relation `b` asks for, so
+ * keeping both would count the same equation twice and over-define the
+ * sketch: an identical relation, a midpoint over the point lying on that
+ * line, collinear over parallel for the same lines, and coincident points
+ * over a horizontal or vertical between them.
+ */
+export function relationIncludes(sk: SketchFeature, a: SkConstraint, b: SkConstraint): boolean {
+  if (isDimension(a) || isDimension(b)) return false;
+  const same = (x: Id[], y: Id[]) => x.length === y.length && [...x].sort().join('\u0000') === [...y].sort().join('\u0000');
+  if (a.type === b.type) {
+    if (a.type === 'symmetric') return a.refs.join('\u0000') === b.refs.join('\u0000');
+    if (a.type === 'tangent' && !!a.internal !== !!b.internal) return false;
+    return same(a.refs, b.refs);
+  }
+  if (!same(a.refs, b.refs) || a.refs.length !== 2) return false;
+  const kinds = a.refs.map((id) => kindOf(sk, id));
+  if (a.type === 'midpoint' && b.type === 'coincident') return kinds.includes('point') && kinds.includes('line');
+  if (a.type === 'collinear' && b.type === 'parallel') return kinds.every((k) => k === 'line');
+  if (a.type === 'coincident' && (b.type === 'horizontal' || b.type === 'vertical')) return kinds.every((k) => k === 'point');
+  return false;
+}
+
+export interface AddedRelations {
+  /** The relations added. */
+  added: SkConstraint[];
+  /** New relations left out because an existing one already holds them. */
+  skipped: { c: SkConstraint; by: SkConstraint }[];
+  /** Existing relations removed because a new one includes them. */
+  replaced: { c: SkConstraint; by: SkConstraint }[];
+}
+
+/**
+ * Adds relations to a sketch without doubling up on ones already there: a
+ * relation an existing one already holds is left out, and an existing one a
+ * new relation includes is replaced by it.
+ */
+export function addRelations(sk: SketchFeature, list: SkConstraint[]): AddedRelations {
+  const out: AddedRelations = { added: [], skipped: [], replaced: [] };
+  for (const c of list) {
+    const by = sk.constraints.find((e) => relationIncludes(sk, e, c));
+    if (by) { out.skipped.push({ c, by }); continue; }
+    sk.constraints = sk.constraints.filter((e) => {
+      if (!relationIncludes(sk, c, e)) return true;
+      out.replaced.push({ c: e, by: c });
+      return false;
+    });
+    sk.constraints.push(c);
+    out.added.push(c);
+  }
+  return out;
+}
+
 /** Relations on a sketch that involve any of the ids. */
 export function relationsOf(sk: SketchFeature, ids: Id[]): SkConstraint[] {
   const set = new Set(ids);

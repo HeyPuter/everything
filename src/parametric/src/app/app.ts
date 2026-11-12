@@ -612,6 +612,12 @@ export class App {
     if (flash) this.statusTimer = window.setTimeout(() => { this.shell.statusMsg.textContent = this.defaultStatus(); }, 5000);
   }
 
+  /** Restores the default status, if `text` (when given) is what it shows. */
+  clearStatus(text?: string) {
+    if (text !== undefined && this.shell.statusMsg.textContent !== text) return;
+    this.setStatus(this.defaultStatus());
+  }
+
   private defaultStatus(): string {
     if (this.sketchEditor) return this.sketchEditor.tool?.hint ?? 'Editing sketch. Select entities or pick a sketch tool.';
     if (this.panel) return this.panel.title;

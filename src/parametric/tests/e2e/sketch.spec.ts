@@ -1525,6 +1525,38 @@ for (const kind of ['point', 'radius'] as const) test(`Undo during a ${kind} dra
   expect(errors).toEqual([]);
 });
 
+test('the fully defined drag notice clears once geometry that can move is dragged', async ({ page }) => {
+  const errors = await openApp(page);
+  await startSketch(page);
+  await page.getByRole('button', { name: 'Close task pane', exact: true }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric;
+    a.sketchEditor!.edit('Add geometry', (sk) => {
+      sk.entities.push({ id: 'fixed', t: 'point', x: 20, y: 20 }, { id: 'free', t: 'point', x: -20, y: -20 });
+      sk.constraints.push({ id: 'fx', type: 'fix', refs: ['fixed'] });
+    });
+  });
+  const screen = (p: [number, number]) => page.evaluate((p) => {
+    const ed = (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.sketchEditor!;
+    const [x, y] = ed.toScreen(p), box = ed.app.viewport.canvas.getBoundingClientRect();
+    return { x: x + box.x, y: y + box.y };
+  }, p);
+  const drag = async (from: [number, number], to: [number, number]) => {
+    const a = await screen(from), b = await screen(to);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 3 });
+    await page.mouse.up();
+  };
+  const status = page.locator('.statusbar .msg');
+  await drag([20, 20], [30, 30]);
+  await expect(status).toHaveText('This geometry is fully defined, so it cannot be dragged.');
+  await drag([-20, -20], [-30, -10]);
+  // Straight away, not when the notice's own timer runs out.
+  await expect(status).not.toHaveText(/cannot be dragged/, { timeout: 1000 });
+  expect(errors).toEqual([]);
+});
+
 test('Undo during a dimension-label drag ignores late pointer events', async ({ page }) => {
   const errors = await openApp(page);
   await startSketch(page);

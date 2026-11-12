@@ -19,8 +19,17 @@ const ENTITY_LABELS: Record<string, string> = { point: 'Point', line: 'Line', ci
 
 export function sketchDefinitionStatus(st: SolveResult): HTMLElement {
   const cls = st.status === 'over' ? 'error' : st.status === 'full' ? 'info' : '';
+  // A redundant relation repeats what others already fix and the sketch still
+  // solves; only a conflicting one cannot be met. Saying which keeps a
+  // harmless duplicate from reading as a contradiction.
+  const conflicts = st.conflicting.size;
+  const redundant = [...st.badConstraints].filter((id) => !st.conflicting.has(id)).length;
   const text = st.status === 'over'
-    ? `Over defined: ${st.badConstraints.size} constraint(s) or dimension(s) conflict or are redundant. Delete or make them driven (shown in red).`
+    ? conflicts && redundant
+      ? `Over defined: ${conflicts} constraint(s) or dimension(s) conflict and ${redundant} are redundant. Delete them or make dimensions driven (shown in red).`
+      : conflicts
+        ? `Over defined: ${conflicts} constraint(s) or dimension(s) conflict. Delete them or make dimensions driven (shown in red).`
+        : `Over defined: ${redundant} constraint(s) or dimension(s) are redundant, already fixed by others. Delete them or make dimensions driven (shown in red).`
     : st.status === 'full' ? 'Fully defined.' : `Under defined: ${st.dof} degree(s) of freedom remain. Add dimensions or constraints (blue geometry can still move).`;
   return h('div', { class: `pm-msg sketch-definition ${cls}`, role: 'status' }, text);
 }
@@ -81,7 +90,7 @@ export class SketchPanel extends PropertyPanel {
       }
       if (!rels.length && !linked.length) existing.append(h('div', { class: 'field-label' }, ids.length ? 'No constraints' : 'Not in the sketch yet: adding a constraint projects it, linked to the model.'));
       for (const r of rels) {
-        const label = isDimension(r) ? `${r.name} (${r.type})${r.driven ? ', driven' : ''}` : `${RELATION_LABELS[r.type]}${st?.badConstraints.has(r.id) ? ' (conflict)' : ''}`;
+        const label = isDimension(r) ? `${r.name} (${r.type})${r.driven ? ', driven' : ''}` : `${RELATION_LABELS[r.type]}${st?.conflicting.has(r.id) ? ' (conflict)' : st?.badConstraints.has(r.id) ? ' (redundant)' : ''}`;
         const del = h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Delete ${label}` }, icon('trash', 14));
         del.addEventListener('click', () => ed.edit('Delete constraint', (s2) => { s2.constraints = s2.constraints.filter((c) => c.id !== r.id); }));
         existing.append(h('div', { class: 'rel-btn', style: { cursor: 'default', color: st?.badConstraints.has(r.id) ? 'var(--danger)' : '' } },
