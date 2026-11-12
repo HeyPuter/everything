@@ -14,8 +14,10 @@
  * flattened path (miter-joined offsets). Rendering, hit testing, export and
  * Expand Appearance follow from that. Caps: butt, square (the strip
  * reaches past the ends) and round (a half disc in the end color along the
- * path; bands ending in a curve across it). Arrowheads take the color at
- * their end of the path.
+ * path; bands ending in a curve across it), at the ends of open paths and
+ * of every dash. Dashes, and inside or outside alignment on closed paths,
+ * follow the stroke's settings. Arrowheads take the color at their end of
+ * the path.
  */
 import { registerLive, virtualId, liveExpansion } from '../../model/live.js';
 import { effectiveSubpaths, isGeomEffectType, geomEffectsOf } from '../../model/geom-effects.js';
@@ -24,6 +26,8 @@ import { hasAppearanceStack } from '../../model/appearance.js';
 import { isGradient, sampleStops, sortedStops } from '../../model/gradients.js';
 import { DEFAULT_STYLE } from '../../model/nodes.js';
 import { nodeArrowheads, arrowTrim, trimAnchors } from './stroke-geometry.js';
+import { dashRanges } from '../brushes/generate.js';
+import { drawHooks } from '../../render/draw.js';
 
 export const STROKE_APPLY = ['within', 'along', 'across'];
 
@@ -106,10 +110,14 @@ function prepare(line, miterLimit) {
   for (let i = 1; i < n; i++) dist.push(dist[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
   let length = dist[n - 1];
   if (closed) length += Math.hypot(pts[0].x - pts[n - 1].x, pts[0].y - pts[n - 1].y);
-  return { pts, normals, dist, length, closed };
+  return { pts, normals, segN, dist, length, closed };
 }
 
-/** Point and normal at distance s along a prepared polyline (closed lines wrap). */
+/**
+ * Point and normal at distance s along a prepared polyline (closed lines
+ * wrap): the miter normal at a vertex, the segment's own normal between
+ * vertices (so dash and band ends are square to the path).
+ */
 function at(L, s) {
   const { pts, normals, dist, length, closed } = L;
   const n = pts.length;
@@ -117,7 +125,7 @@ function at(L, s) {
     s = ((s % length) + length) % length;
     if (s >= dist[n - 1]) {
       const t = (s - dist[n - 1]) / Math.max(1e-9, length - dist[n - 1]);
-      return lerpPN(pts[n - 1], normals[n - 1], pts[0], normals[0], t);
+      return lerpPN(L, n - 1, 0, t);
     }
   }
   if (s <= 0) return { x: pts[0].x, y: pts[0].y, nx: normals[0].x, ny: normals[0].y };
@@ -130,11 +138,15 @@ function at(L, s) {
     else hi = mid;
   }
   const t = (s - dist[lo]) / Math.max(1e-9, dist[hi] - dist[lo]);
-  return lerpPN(pts[lo], normals[lo], pts[hi], normals[hi], t);
+  return lerpPN(L, lo, hi, t);
 }
 
-function lerpPN(a, na, b, nb, t) {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, nx: na.x + (nb.x - na.x) * t, ny: na.y + (nb.y - na.y) * t };
+/** Point t of the way along the segment from vertex i to vertex j. */
+function lerpPN(L, i, j, t) {
+  const a = L.pts[i];
+  const b = L.pts[j];
+  const nr = t <= 1e-9 ? L.normals[i] : t >= 1 - 1e-9 ? L.normals[j] : L.segN[i];
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, nx: nr.x, ny: nr.y };
 }
 
 /** The polyline's vertices strictly between distances s0 and s1, with the ends interpolated. */
@@ -180,22 +192,68 @@ function strip(L, s0, s1, o0, o1, { ext0 = [0, 0], ext1 = [0, 0] } = {}) {
   return [...left, ...right.reverse()];
 }
 
-/** A half disc closing an open end (dir -1 at the start, +1 at the end). */
-function halfDisc(L, s, h, dir) {
+/**
+ * A round cap closing an end (dir -1 at the start, +1 at the end): the part
+ * of the disc of radius r around the path point between normal offsets lo
+ * and hi (a half disc for a centered stroke, a quarter for an aligned one).
+ */
+function roundCap(L, s, lo, hi, r, dir) {
   const p = at(L, s);
   const nl = Math.hypot(p.nx, p.ny) || 1;
   const nx = p.nx / nl;
   const ny = p.ny / nl;
   const tx = ny * dir;
   const ty = -nx * dir;
+  const a0 = Math.acos(Math.max(-1, Math.min(1, hi / r)));
+  const a1 = Math.acos(Math.max(-1, Math.min(1, lo / r)));
   const out = [];
+  if (hi < r) out.push({ x: p.x + nx * hi, y: p.y + ny * hi });
   for (let k = 0; k <= 12; k++) {
-    const a = (Math.PI * k) / 12;
+    const a = a0 + ((a1 - a0) * k) / 12;
     const c = Math.cos(a);
     const sn = Math.sin(a);
-    out.push({ x: p.x + nx * h * c + tx * h * sn, y: p.y + ny * h * c + ty * h * sn });
+    out.push({ x: p.x + nx * r * c + tx * r * sn, y: p.y + ny * r * c + ty * r * sn });
   }
+  if (lo > -r) out.push({ x: p.x + nx * lo, y: p.y + ny * lo });
   return out;
+}
+
+/** Whether a point is inside the rings (closed polylines) under a fill rule. */
+function insideRings(lines, x, y, fillRule) {
+  let w = 0;
+  for (const { pts } of lines) {
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const side = (b.x - a.x) * (y - a.y) - (x - a.x) * (b.y - a.y);
+      if (a.y <= y) {
+        if (b.y > y && side > 0) w++;
+      } else if (b.y <= y && side < 0) w--;
+    }
+  }
+  return fillRule === 'evenodd' ? w % 2 !== 0 : w !== 0;
+}
+
+/** +1 when the filled side of a closed line is along its +normals, else -1. */
+function filledSide(L, lines, fillRule) {
+  const { pts } = L;
+  let best = 0;
+  let len = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    const l = Math.hypot(b.x - a.x, b.y - a.y);
+    if (l > len) {
+      len = l;
+      best = i;
+    }
+  }
+  const a = pts[best];
+  const b = pts[(best + 1) % pts.length];
+  const e = len * 1e-4;
+  const x = (a.x + b.x) / 2 - ((b.y - a.y) / len) * e;
+  const y = (a.y + b.y) / 2 + ((b.x - a.x) / len) * e;
+  return insideRings(lines, x, y, fillRule) ? 1 : -1;
 }
 
 const corner = (p) => ({ x: p.x, y: p.y, ix: p.x, iy: p.y, ox: p.x, oy: p.y });
@@ -213,46 +271,67 @@ export function strokeGradientShapes(subpaths, paint, style) {
   if (!stops.length) return [];
   const opaque = stops.every((s) => (s.opacity ?? 1) >= 1);
   const cap = style.strokeCap || 'butt';
+  const align = style.strokeAlign || 'center';
+  const dash = style.dash?.length ? style.dash : null;
   const out = [];
   const color = (t) => sampleStops(stops, Math.max(0, Math.min(1, t)));
   const push = (points, t) => {
     const c = color(t);
     out.push({ points, color: c.color, opacity: c.opacity });
   };
-  for (const line of polylines(subpaths, Math.max(0.05, Math.min(0.5, h / 8)))) {
+  const lines = polylines(subpaths, Math.max(0.05, Math.min(0.5, h / 8)));
+  for (const line of lines) {
     const L = prepare(line, style.miterLimit);
     if (!(L.length > 1e-6)) continue;
-    const open = !L.closed;
-    const square = open && cap === 'square' ? h : 0;
-    const round = open && cap === 'round';
+    // Normal offsets the stroke covers: centered, or its whole width on one side of a closed line.
+    let lo = -h;
+    let hi = h;
+    let r = h;
+    if (L.closed && align !== 'center') {
+      const inward = filledSide(L, lines, style.fillRule) * (align === 'inside' ? 1 : -1);
+      [lo, hi] = inward > 0 ? [0, 2 * h] : [-2 * h, 0];
+      r = 2 * h;
+    }
+    // Dashes, each with its own caps; without them open lines have caps at their ends.
+    const ranges = dash ? dashRanges(L.length, dash, style.dashOffset || 0) : [[0, L.length]];
+    const capped = Boolean(dash) || !L.closed;
+    const square = capped && cap === 'square' ? r : 0;
+    const round = capped && cap === 'round';
     if (mode === 'along') {
       // Bands of about 1.5 units (or fewer for long paths), each slightly overlapping the next to hide seams.
       const count = Math.max(2, Math.min(256, Math.ceil(L.length / 1.5)));
       const step = L.length / count;
       const lap = opaque ? Math.min(step * 0.5, 0.25) : 0;
-      for (let k = 0; k < count; k++) {
-        const s0 = k * step;
-        const s1 = Math.min(L.length, (k + 1) * step + (k < count - 1 ? lap : 0));
-        const e0 = k === 0 ? [square, square] : [0, 0];
-        const e1 = k === count - 1 ? [square, square] : [0, 0];
-        push(strip(L, s0, s1, -h, h, { ext0: e0, ext1: e1 }), (k + 0.5) / count);
-      }
-      if (round) {
-        push(halfDisc(L, 0, h, -1), 0);
-        push(halfDisc(L, L.length, h, 1), 1);
+      for (const [a, b] of ranges) {
+        const k0 = Math.min(count - 1, Math.floor(a / step));
+        const k1 = Math.max(k0, Math.min(count - 1, Math.ceil(b / step) - 1));
+        for (let k = k0; k <= k1; k++) {
+          const s0 = Math.max(a, k * step);
+          const s1 = Math.min(b, (k + 1) * step + (k < k1 ? lap : 0));
+          if (!(s1 > s0)) continue;
+          const e0 = k === k0 ? [square, square] : [0, 0];
+          const e1 = k === k1 ? [square, square] : [0, 0];
+          push(strip(L, s0, s1, lo, hi, { ext0: e0, ext1: e1 }), (k + 0.5) / count);
+        }
+        if (round) {
+          push(roundCap(L, a, lo, hi, r, -1), a / L.length);
+          push(roundCap(L, b, lo, hi, r, 1), b / L.length);
+        }
       }
     } else {
-      // Across: bands from the left edge (offset -h) to the right edge (+h).
-      const count = Math.max(2, Math.min(64, Math.ceil(h * 2 / 0.5)));
-      const band = (2 * h) / count;
+      // Across: bands from the left edge (offset lo) to the right edge (hi), fewer for many dashes.
+      const most = Math.min(64, Math.ceil(8192 / ranges.length));
+      const count = Math.max(2, Math.min(most, Math.ceil((hi - lo) / 0.5)));
+      const band = (hi - lo) / count;
       const lap = opaque ? Math.min(band * 0.5, 0.1) : 0;
       for (let k = 0; k < count; k++) {
-        const o0 = -h + k * band;
-        const o1 = Math.min(h, o0 + band + (k < count - 1 ? lap : 0));
+        const o0 = lo + k * band;
+        const o1 = Math.min(hi, o0 + band + (k < count - 1 ? lap : 0));
         // Round caps: each band ends where the cap's circle crosses it.
-        const reach = (o) => (round ? Math.sqrt(Math.max(0, h * h - o * o)) : square);
+        const reach = (o) => (round ? Math.sqrt(Math.max(0, r * r - o * o)) : square);
         const ext = [reach(o0), reach(o1)];
-        push(strip(L, 0, L.length, o0, o1, open ? { ext0: ext, ext1: ext } : {}), (k + 0.5) / count);
+        const ends = capped ? { ext0: ext, ext1: ext } : {};
+        for (const [a, b] of ranges) push(strip(L, a, b, o0, o1, ends), (k + 0.5) / count);
       }
     }
   }
@@ -279,7 +358,10 @@ function generate(doc, node) {
     if (t.start || t.end) subpaths = [{ anchors: trimAnchors(node.anchors, t.start, t.end), closed: false }];
     arrows = nodeArrowheads(node);
   }
-  const shapes = strokeGradientShapes(subpaths, node.stroke, node);
+  // Dashes aligned to corners have their own pattern (Stroke panel).
+  const dp = node.dash?.length ? drawHooks.dashPattern?.(node) : null;
+  const style = dp ? { ...node, dash: dp.dash, dashOffset: dp.offset } : node;
+  const shapes = strokeGradientShapes(subpaths, node.stroke, style);
   for (const sh of shapes) {
     const v = { ...BASE, id: virtualId(node.id), type: 'path', source: node.id, anchors: sh.points.map(corner), closed: true, fill: { type: 'solid', color: sh.color, ...(sh.opacity < 1 ? { opacity: sh.opacity } : {}) }, stroke: null, strokeWidth: 0 };
     extra.set(v.id, v);
