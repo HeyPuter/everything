@@ -47,7 +47,17 @@ export function aacAudioSpecificConfig(sampleRate, channels) {
   return Uint8Array.of((2 << 3) | (idx >> 1), ((idx & 1) << 7) | (channels << 3));
 }
 
-const ILST_KEYS = { title: '\xa9nam', artist: '\xa9ART', album: '\xa9alb', year: '\xa9day', genre: '\xa9gen', comment: '\xa9cmt' };
+const ILST_KEYS = {
+  title: '\xa9nam',
+  artist: '\xa9ART',
+  album: '\xa9alb',
+  year: '\xa9day',
+  genre: '\xa9gen',
+  comment: '\xa9cmt',
+  albumArtist: 'aART',
+  composer: '\xa9wrt',
+  copyright: 'cprt',
+};
 
 /**
  * iTunes gapless info ("iTunSMPB"): priming, padding and real length. Apple
@@ -66,6 +76,20 @@ function ilst(meta, gapless) {
   const items = Object.entries(ILST_KEYS)
     .filter(([id]) => m[id])
     .map(([id, key]) => box(key, box('data', u32(1), u32(0), enc.encode(m[id]))));
+  // Track number ("3" or "3/12") and tempo are binary atoms; the key has no
+  // atom of its own and goes in the freeform "initialkey" item taggers use.
+  const track = /^\s*(\d+)\s*(?:\/\s*(\d+))?/.exec(m.track || '');
+  const u16n = (v) => u16(Math.min(65535, Number(v) || 0));
+  if (track) {
+    const value = [u16(0), u16n(track[1]), u16n(track[2]), u16(0)];
+    items.push(box('trkn', box('data', u32(0), u32(0), ...value)));
+  }
+  if (/^\d+$/.test(m.bpm || '')) items.push(box('tmpo', box('data', u32(21), u32(0), u16n(m.bpm))));
+  if (m.key) {
+    const mean = fullBox('mean', 0, 0, ascii('com.apple.iTunes'));
+    const name = fullBox('name', 0, 0, ascii('initialkey'));
+    items.push(box('----', mean, name, box('data', u32(1), u32(0), enc.encode(m.key))));
+  }
   if (gapless && (gapless.priming || gapless.padding)) items.push(itunSmpb(gapless, enc));
   if (!items.length) return null;
   const hdlr = fullBox('hdlr', 0, 0, u32(0), ascii('mdir'), ascii('appl'), u32(0), u32(0), Uint8Array.of(0));

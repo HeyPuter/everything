@@ -291,6 +291,20 @@ describe('M4A muxer', () => {
     expect(readTags(late.buffer)).toEqual(meta);
   });
 
+  it('keeps the album artist, composer, copyright, track, tempo and key', () => {
+    const more = { ...meta, albumArtist: 'Various', composer: 'Écrivain', copyright: '2026 Label' };
+    Object.assign(more, { track: '3/12', bpm: '128', key: 'F#m' });
+    const tagsOf = (m) => {
+      const o = { sampleRate: 48000, channels: 2, totalFrames: 1000, priming: 2112, bitrate: 128000 };
+      const parts = muxM4a({ ...o, packets: [new Uint8Array(10)], meta: m });
+      const file = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+      parts.reduce((at, p) => (file.set(p, at), at + p.length), 0);
+      return readTags(file.buffer);
+    };
+    expect(tagsOf(more)).toEqual(more);
+    expect(tagsOf({ track: '7' })).toEqual({ track: '7' });
+  });
+
   it('records priming, padding and length as iTunSMPB so Apple players trim the padding', () => {
     const packets = Array.from({ length: 74 }, () => new Uint8Array(100));
     const parts = muxM4a({ sampleRate: 48000, channels: 2, packets, totalFrames: 72000, priming: 2112, bitrate: 128000, meta: {} });
