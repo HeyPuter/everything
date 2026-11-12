@@ -107,3 +107,40 @@ test('Assign Profile previews profiles but not the "Load profile file…" entry'
   await page.waitForFunction(() => !window.photoStudio.busy);
   expect(await page.evaluate(() => window.photoStudio.doc.iccProfile)).toBeUndefined();
 });
+
+test('CMYK to Multichannel keeps the inks of a perceptual CMYK conversion', async ({ page }) => {
+  const mean = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { saveColorSettings, defaultSettings, ensureProfile } = await import('/src/features/color/profiles.ts');
+    const { cachedTransform, bakeLut3D, transformToCMYK, builtinProfile } = await import('/src/color/color-management.ts');
+    const { compositeRGBA } = await import('/src/features/pixels.ts');
+    const { readMask } = await import('/src/model/tiles.ts');
+    saveColorSettings({ ...defaultSettings, intent: 'perceptual' });
+    try {
+      const src = await compositeRGBA(e);
+      for (let p = 0; p < src.width * src.height; p++) src.data.set([(p * 7) % 256, (p * 13) % 256, (p * 29) % 256, 255], p * 4);
+      const { gridFromImage } = await import('/src/model/tiles.ts');
+      const grid = gridFromImage(e.assets.tiles, src);
+      e.command('Fill', (d) => {
+        const l = d.layers[0] as { pixels?: unknown };
+        l.pixels = grid;
+      });
+      const cmyk = await ensureProfile('builtin:generic-coated-cmyk');
+      const inks = transformToCMYK(src, bakeLut3D(cachedTransform(builtinProfile('srgb'), cmyk, 'perceptual', { bpc: true }), 33));
+      await e.runCommand('image.mode-cmyk');
+      await e.runCommand('image.mode-multichannel');
+      const area = { x: 0, y: 0, width: src.width, height: src.height };
+      const spots = e.doc.channels!.filter((c) => c.spot);
+      let total = 0;
+      [inks.c, inks.m, inks.y, inks.k].forEach((plane, k) => {
+        const ch = readMask(e.assets.tiles, spots[k].grid, area).data;
+        for (let p = 0; p < plane.length; p++) total += Math.abs(255 - ch[p] - plane[p]);
+      });
+      return total / (4 * src.width * src.height);
+    } finally {
+      saveColorSettings({ ...defaultSettings });
+    }
+  });
+  // Separating the CMYK document perceptually again moved the inks.
+  expect(mean).toBeLessThan(3);
+});

@@ -31,7 +31,9 @@ export async function convertToMultichannel(e: Editor) {
   } else if (from === 'cmyk') {
     const s = colorSettings();
     const cmyk = await ensureProfile(docCmykRef(doc));
-    const toInk = cachedTransform(docProfile(doc), cmyk, s.intent, { bpc: s.bpc });
+    // The pixels are already the printable colors of the document's inks
+    // (converted back relative colorimetric): separate them the same way.
+    const toInk = cachedTransform(docProfile(doc), cmyk, 'relative', { bpc: s.bpc });
     const ink = new Float32Array(pixels * 4);
     const chunk = 1 << 16, input = new Float32Array(chunk * 3), out = new Float32Array(chunk * 4);
     for (let p0 = 0; p0 < pixels; p0 += chunk) {
