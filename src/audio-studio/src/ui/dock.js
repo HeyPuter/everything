@@ -163,6 +163,10 @@ export class Dock extends Emitter {
       return box;
     };
     this.tabsObserver?.disconnect();
+    // Rebuilding detaches whatever had focus in the dock; it is given back below.
+    const focused = document.activeElement;
+    const hadFocus = focused && focused !== document.body && this.root.contains(focused);
+    const focusedGroup = hadFocus ? focused.closest('.panel-group')?._group : null;
     const content = this.maximized && this.groups().includes(this.maximized) ? this.#group(this.maximized, shown) : build(this.tree);
     content.style.flex = '1 1 0px';
     this.root.replaceChildren(content);
@@ -170,7 +174,29 @@ export class Dock extends Emitter {
       if (!shown.has(id)) inst.hide?.();
     }
     for (const id of shown) this.instances.get(id)?.show?.();
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (hadFocus && lost) this.#restoreFocus(focused, focusedGroup);
     this.emit('render');
+  }
+
+  /**
+   * After a rebuild: focus back on the element that had it (panels are moved,
+   * not rebuilt), else on the same tab, else on its frame's current tab, else
+   * on the editor, so keyboard focus never falls back to the page.
+   */
+  #restoreFocus(el, group) {
+    const opts = { preventScroll: true };
+    if (el.isConnected && this.root.contains(el)) return el.focus(opts);
+    const sameId = el.id && this.root.querySelector(`#${CSS.escape(el.id)}`);
+    const frames = [...this.root.querySelectorAll('.panel-group')];
+    const frame = group && frames.find((g) => g._group === group);
+    const tab = '[role=tab][aria-selected=true]';
+    const target =
+      sameId ||
+      frame?.querySelector(tab) ||
+      this.app.focusTarget?.() ||
+      this.root.querySelector(tab);
+    target?.focus(opts);
   }
 
   #group(g, shown) {
