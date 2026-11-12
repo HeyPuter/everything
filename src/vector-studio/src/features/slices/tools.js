@@ -162,6 +162,7 @@ export class SliceTool extends Tool {
   cancel() {
     this.drag = null;
     if (this.editor) this.editor.feedback = null;
+    this.overlay();
   }
 
   drawOverlay(ctx, editor) {
@@ -340,6 +341,8 @@ export class SliceSelectTool extends Tool {
   cancel() {
     if (this.drag?.tx) this.drag.tx.cancel();
     this.drag = null;
+    if (this.editor) this.editor.feedback = null;
+    this.overlay();
   }
 }
 
