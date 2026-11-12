@@ -6,7 +6,7 @@ import type { Editor } from '../../editor';
 import { commands, findCommand } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
 import { allActions, lastStopReason, playAction, type Action } from '../actions';
-import { runProcessor, type Input } from '../files/automate';
+import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo } from '../files/encode';
 import { bytesBlob, formatBytes } from '../files/pipeline';
 import { zipStore } from '../files/zip';
@@ -197,7 +197,7 @@ export function openBatchLink(e: Editor, hash: string): Promise<void> {
           if (cancelled || !files.length) return;
           const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
           download(bytesBlob(zip, 'application/zip'), `${link.name.replace(/[\\/:*?"<>|]+/g, '_')}.zip`);
-          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}). Drop more photos to run again.`;
+          status.textContent = `Saved ${files.length} file${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''} Drop more photos to run again.`;
         })
         .finally(() => {
           running = false;

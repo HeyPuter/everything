@@ -7,7 +7,7 @@ import { escapeXML } from '../../model/assets';
 import { lensCorrection, type LensParams } from '../../imaging/filters/lens';
 import type { ParamSpec, RGBA8 } from '../../imaging/types';
 import { download } from '../../persistence/puter';
-import { runProcessor, type Input } from '../files/automate';
+import { failedNote, runProcessor, type Input } from '../files/automate';
 import { formatInfo, type ExportFormat } from '../files/encode';
 import { bytesBlob, formatBytes } from '../files/pipeline';
 import { zipStore } from '../files/zip';
@@ -179,7 +179,7 @@ export function lensCorrectionBatch(e: Editor): Promise<void> {
           else {
             const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
             download(bytesBlob(zip, 'application/zip'), 'lens-corrected.zip');
-            e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)})`);
+            e.message(`Corrected ${files.length} image${files.length > 1 ? 's' : ''} (${formatBytes(zip.length)}).${files.failed.length ? ` ${failedNote(files.failed)}` : ''}`);
           }
         })
         .catch((error) => {
