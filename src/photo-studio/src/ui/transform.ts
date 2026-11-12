@@ -3,6 +3,8 @@ import { selectedRoots, assertEditable } from '../model/layers';
 import { hitLayer } from './hit-test';
 import { snapMove, smartGuidesSvg, snapOptions, type MoveGuides } from '../features/view-extras';
 import { expandLinked, followLinkedMasks } from '../model/links';
+import { setLayerPixels } from '../model/pixel-layer';
+import { hexRgb } from '../features/pixels';
 import { hideReadout, lengthText, showReadout } from '../features/preferences/readouts';
 import {
   findLayer,
@@ -12,6 +14,11 @@ import {
   type Transform,
 } from '../model/document';
 import type { Assets } from '../model/assets';
+import { gridDocBounds, gridFromImage, gridTileIds, readMask, type TileGrid } from '../model/tiles';
+import { applySelection, selectionGrid } from '../model/selection';
+import { layerLock } from '../model/locks';
+import { tileHolders } from '../app/session';
+import { dropFloat, floatingDocument, floatPart, liftSelection, type FloatingPixels } from '../features/transform/float';
 import {
   closestSnap,
   handles,
@@ -43,6 +50,20 @@ type Drag = {
   // The frame of the latest pointer position.
   next?: Transform;
 };
+// Dragging selected pixels with the Move tool: they float above the rest of
+// the layer and are put back, moved by whole pixels, when the button is released.
+type FloatMove = {
+  pointer: number;
+  start: Point;
+  layer: Layer;
+  float: FloatingPixels;
+  grid: TileGrid;
+  ids: { group: string; rest: string; float: string };
+  before: PhotoDocument;
+  hideEdges: unknown;
+  dx: number;
+  dy: number;
+};
 type Pick = {
   event: PointerEvent;
   point: Point;
@@ -63,13 +84,20 @@ export class FreeTransform {
     frame: Transform;
   };
   private drag?: Drag;
+  private floatMove?: FloatMove;
   private pending: Pick[] = [];
   private replayingPick = false;
   private abortPicks?: () => void;
   private guides: MoveGuides = {};
   snapping = true;
   proportional = true;
-  constructor(private e: Editor) {}
+  constructor(private e: Editor) {
+    // Tiles of pixels being moved survive tile cleanup until they are put back.
+    tileHolders.push(() => {
+      const f = this.floatMove;
+      return f ? [...Object.values(f.float.remaining.tiles), ...Object.values(f.grid.tiles)] : [];
+    });
+  }
   get active() {
     return !!this.session;
   }
@@ -79,7 +107,7 @@ export class FreeTransform {
     );
   }
   get dragging() {
-    return !!this.drag || this.pending.length > 0;
+    return !!this.drag || !!this.floatMove || this.pending.length > 0;
   }
   get document() {
     return this.session?.draft;
@@ -128,6 +156,7 @@ export class FreeTransform {
   }
   apply() {
     if (!this.replayingPick) this.abortPicks?.();
+    if (this.floatMove) this.endFloat(false);
     const session = this.session;
     if (!session) return;
     this.stopDrag();
@@ -145,6 +174,10 @@ export class FreeTransform {
   }
   cancel() {
     if (!this.replayingPick) this.abortPicks?.();
+    if (this.floatMove) {
+      this.endFloat(true);
+      return;
+    }
     if (!this.session && !this.drag) return;
     this.stopDrag();
     this.session = undefined;
@@ -160,8 +193,25 @@ export class FreeTransform {
     if (pointer !== undefined && viewport.hasPointerCapture(pointer))
       viewport.releasePointerCapture(pointer);
   }
-  nudge(dx: number, dy: number) {
+  /** Move the selected layers by whole pixels; with `pixels`, an active
+   * selection on a pixel layer moves the selected pixels instead. */
+  nudge(dx: number, dy: number, opts: { pixels?: boolean } = {}) {
     this.abortPicks?.();
+    if (opts.pixels && !this.session && this.selectedPixelLayer()) {
+      const f = this.lift(false);
+      if (!f) return;
+      const store = this.e.assets.tiles;
+      const grid = dropFloat(store, f.float, f.float.image, f.float.rect.x + dx, f.float.rect.y + dy);
+      const sel = selectionGrid(this.e.doc, store);
+      const id = f.layer.id;
+      this.e.command('Nudge Selection', (d) => {
+        const l = findLayer(d.layers, id);
+        if (!l) return;
+        setLayerPixels(l, grid, d);
+        applySelection(d, sel && { ...sel, x: sel.x + dx, y: sel.y + dy });
+      });
+      return;
+    }
     if (!this.editable()) return;
     const before = this.frame();
     if (!before) return;
@@ -198,6 +248,78 @@ export class FreeTransform {
           field.value = String(Math.round(value * 100) / 100);
       }
   }
+  /** The single selected pixel layer while a selection is active. */
+  private selectedPixelLayer(): Layer | undefined {
+    const doc = this.e.doc;
+    if (!doc.selection && !doc.selectionMask) return;
+    const l = this.e.selectedIds.size === 1 ? this.e.layer : undefined;
+    return l?.kind === 'pixel' && l.pixels && l.visible ? l : undefined;
+  }
+  /** Lift the selected pixels of the selected pixel layer (`copy` leaves them
+   * in place too). Undefined after explaining why not. */
+  private lift(copy: boolean): { layer: Layer; float: FloatingPixels } | undefined {
+    const e = this.e,
+      l = this.selectedPixelLayer();
+    if (!l) return;
+    if (layerLock(e.doc.layers, l.id, 'pixels')) {
+      e.message('Unlock the layer before moving its pixels.');
+      return;
+    }
+    const float = liftSelection(e.doc, e.assets.tiles, l, { preserveAlpha: !!l.background || layerLock(e.doc.layers, l.id, 'transparency'), background: hexRgb(e.background) });
+    if (!float) {
+      e.message('The selected area is empty. Select some of the layer’s pixels to move them.');
+      return;
+    }
+    if (copy) float.remaining = l.pixels!;
+    return { layer: l, float };
+  }
+  /** Show the floating pixels moved by (dx, dy). */
+  private previewFloat() {
+    const m = this.floatMove!;
+    const plain = floatPart(m.layer);
+    const restBounds = gridDocBounds(m.float.remaining);
+    const rest: Layer = restBounds ? { ...plain, id: m.ids.rest, pixels: m.float.remaining, transform: { ...restBounds, rotation: 0 } } : { ...plain, id: m.ids.rest, visible: false };
+    const r = m.float.rect;
+    // The layer transform places the unchanged tiles (no new upload per move).
+    const lifted: Layer = { ...plain, id: m.ids.float, pixels: m.grid, transform: { x: r.x + m.dx, y: r.y + m.dy, width: r.width, height: r.height, rotation: 0 } };
+    this.e.preview(floatingDocument(m.before, m.layer, m.ids.group, rest, lifted));
+    this.e.overlay();
+  }
+  /** Put floating pixels back (or, cancelled, leave the layer as it was). */
+  private endFloat(cancel: boolean) {
+    const m = this.floatMove;
+    if (!m) return;
+    this.floatMove = undefined;
+    hideReadout();
+    this.e.settings.hideSelectionEdges = m.hideEdges;
+    const viewport = this.e.el('#viewport');
+    if (viewport.hasPointerCapture(m.pointer)) viewport.releasePointerCapture(m.pointer);
+    const store = this.e.assets.tiles;
+    let keep = new Set<string>();
+    if (!cancel && (m.dx || m.dy) && this.e.doc === m.before) {
+      const grid = dropFloat(store, m.float, m.float.image, m.float.rect.x + m.dx, m.float.rect.y + m.dy);
+      keep = gridTileIds(grid);
+      const sel = selectionGrid(m.before, store);
+      const { dx, dy } = m;
+      this.e.command(m.float.remaining === m.layer.pixels ? 'Duplicate Selection' : 'Move Selection', (d) => {
+        const l = findLayer(d.layers, m.layer.id);
+        if (!l) return;
+        setLayerPixels(l, grid, d);
+        applySelection(d, sel && { ...sel, x: sel.x + dx, y: sel.y + dy });
+      });
+    }
+    // Tiles made for the move that the layer does not keep, once no render
+    // of the preview reads them any more.
+    const base = gridTileIds(m.layer.pixels);
+    const unused = [...Object.values(m.float.remaining.tiles), ...Object.values(m.grid.tiles)].filter((id) => !base.has(id) && !keep.has(id));
+    const done = () => {
+      for (const id of unused) store.delete(id);
+    };
+    const r = this.e.renderer;
+    if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
+    else done();
+    this.e.update();
+  }
   bind() {
     const viewport = this.e.el('#viewport');
     const point = (event: PointerEvent): Point => this.e.docPoint(event.clientX, event.clientY);
@@ -220,6 +342,35 @@ export class FreeTransform {
         if (!hit) {
           this.e.selectLayers([]);
           this.e.update();
+          return;
+        }
+      }
+      // With a selection, dragging inside it moves the selected pixels
+      // (Alt moves a copy).
+      if (!handle && !this.active && this.selectedPixelLayer()) {
+        const sel = selectionGrid(this.e.doc, this.e.assets.tiles);
+        const inside = sel && readMask(this.e.assets.tiles, sel, { x: Math.floor(p[0]), y: Math.floor(p[1]), width: 1, height: 1 }).data[0] > 0;
+        if (inside) {
+          event.preventDefault();
+          const lifted = this.lift(event.altKey);
+          if (!lifted) return;
+          const store = this.e.assets.tiles;
+          this.floatMove = {
+            pointer: event.pointerId,
+            start: p,
+            layer: lifted.layer,
+            float: lifted.float,
+            grid: gridFromImage(store, lifted.float.image, lifted.float.rect.x, lifted.float.rect.y),
+            ids: { group: crypto.randomUUID(), rest: crypto.randomUUID(), float: crypto.randomUUID() },
+            before: this.e.doc,
+            hideEdges: this.e.settings.hideSelectionEdges,
+            dx: 0,
+            dy: 0,
+          };
+          this.e.settings.hideSelectionEdges = true;
+          if (!request.ended) viewport.setPointerCapture(event.pointerId);
+          viewport.focus({ preventScroll: true });
+          this.previewFloat();
           return;
         }
       }
@@ -246,6 +397,22 @@ export class FreeTransform {
       viewport.focus({ preventScroll: true });
     };
     const move = (event: PointerEvent, p = point(event)) => {
+      const m = this.floatMove;
+      if (m && m.pointer === event.pointerId) {
+        let dx = Math.round(p[0] - m.start[0]),
+          dy = Math.round(p[1] - m.start[1]);
+        // Shift keeps the move horizontal or vertical.
+        if (event.shiftKey) {
+          if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+          else dx = 0;
+        }
+        if (dx === m.dx && dy === m.dy) return;
+        m.dx = dx;
+        m.dy = dy;
+        showReadout(this.e, event.clientX, event.clientY, [`ΔX: ${lengthText(this.e, dx, 'x')}`, `ΔY: ${lengthText(this.e, dy, 'y')}`]);
+        this.previewFloat();
+        return;
+      }
       const drag = this.drag;
       if (!drag || drag.pointer !== event.pointerId) return;
       const delta: Point = [p[0] - drag.start[0], p[1] - drag.start[1]];
@@ -335,6 +502,10 @@ export class FreeTransform {
       this.preview(doc);
     };
     const finish = (event: PointerEvent, cancel = false) => {
+      if (this.floatMove?.pointer === event.pointerId) {
+        this.endFloat(cancel);
+        return;
+      }
       const drag = this.drag;
       if (!drag || drag.pointer !== event.pointerId) return;
       this.stopDrag();

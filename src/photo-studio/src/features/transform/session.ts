@@ -16,7 +16,7 @@ import { mapMaskPoints } from '../../model/paths';
 import { gridDocBounds, gridFromImage, gridTileIds, readMask, readRGBA, type TileGrid } from '../../model/tiles';
 import { tileHolders } from '../../app/session';
 import { hexRgb } from '../pixels';
-import { dropFloat, liftSelection, type FloatingPixels } from './float';
+import { dropFloat, floatingDocument, floatPart, liftSelection, type FloatingPixels } from './float';
 import { applySelection, maskGrid, selectionBounds, selectionGrid } from '../../model/selection';
 import { snapTargets, snapTranslation } from '../../model/transform';
 import { snapOptions } from '../view-extras';
@@ -728,12 +728,10 @@ export class TransformSession {
     }
   }
   /** A floating selection previews as a group standing in for the layer
-   * (which stays, hidden, for the panels): the rest of the layer with the
-   * transformed pixels above it, composited together and then blended,
-   * masked, clipped and styled as the layer is. */
+   * (see floatingDocument). */
   private previewFloat(l: Layer, f: FloatingPixels, settled: boolean) {
     const e = this.e;
-    const plain: Layer = { ...l, opacity: 1, blend: 'normal', fillOpacity: 1, clipped: false, style: undefined, blending: undefined, mask: null, maskAsset: undefined, pixelMask: undefined, maskStrokes: undefined, maskGrid: undefined, maskDisabled: undefined, maskInverted: undefined, vectorMask: undefined, liveSource: undefined, liveFilters: undefined, liveMask: undefined, video: undefined, linkGroup: undefined, background: undefined, children: [] };
+    const plain = floatPart(l);
     const restBounds = gridDocBounds(f.remaining);
     const rest: Layer = restBounds
       ? { ...plain, id: this.floatIds!.rest, pixels: f.remaining, transform: { ...restBounds, rotation: 0 } }
@@ -758,9 +756,7 @@ export class TransformSession {
         : { ...plain, id: this.floatIds!.float, visible: false };
       this.retireTiles(old);
     }
-    const group: Layer = { ...l, id: this.floatIds!.group, kind: 'group', pixels: undefined, liveSource: undefined, liveFilters: undefined, liveMask: undefined, video: undefined, background: undefined, children: [rest, lifted] };
-    const walk = (layers: Layer[]): Layer[] => layers.flatMap((x) => (x.id === l.id ? [{ ...x, visible: false }, group] : x.children.length ? [{ ...x, children: walk(x.children) }] : [x]));
-    this.previewDoc = { ...this.base, layers: walk(this.base.layers) };
+    this.previewDoc = floatingDocument(this.base, l, this.floatIds!.group, rest, lifted);
     e.preview(this.previewDoc);
   }
   private previewScale(settled: boolean) {

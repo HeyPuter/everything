@@ -209,3 +209,84 @@ test('Flip and Rotate 90° with a selection turn only the selected pixels', asyn
   expect(await layerPixel(page, 30, 17)).toEqual([0, 0, 255, 255]);
   expect((await layerPixel(page, 22, 30))[3]).toBe(0);
 });
+
+test.describe('Move tool with a selection', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.evaluate(() => window.photoStudio.setTool('move'));
+    await selectRect(page, { x: 20, y: 20, width: 40, height: 30 });
+  });
+  test('dragging inside the selection moves the selected pixels', async ({ page }) => {
+    await canvasDrag(
+      page,
+      [
+        [40, 35],
+        [140, 85],
+      ],
+      6,
+      ['Alt'],
+    );
+    // Alt moved a copy: the original pixels stay.
+    expect((await page.evaluate(() => window.photoStudio.history.labels)).at(-1)).toBe('Duplicate Selection');
+    expect(await layerPixel(page, 30, 30)).toEqual([0, 0, 255, 255]);
+    expect(await layerPixel(page, 130, 80)).toEqual([0, 0, 255, 255]);
+    await undo(page);
+    await canvasDrag(page, [
+      [40, 35],
+      [40, 105],
+    ]);
+    expect((await page.evaluate(() => window.photoStudio.history.labels)).at(-1)).toBe('Move Selection');
+    expect((await layerPixel(page, 30, 30))[3]).toBe(0);
+    expect(await layerPixel(page, 30, 100)).toEqual([0, 0, 255, 255]);
+    expect(await layerPixel(page, 5, 5)).toEqual([255, 0, 0, 255]);
+    expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 20, y: 90, width: 40, height: 30 });
+    // The layer itself did not move.
+    expect(await page.evaluate(() => window.photoStudio.layer!.transform)).toMatchObject({ x: 0, y: 0, width: 200, height: 150 });
+    await undo(page);
+    expect(await layerPixel(page, 30, 30)).toEqual([0, 0, 255, 255]);
+  });
+  test('arrow keys nudge the selected pixels and Escape cancels a drag', async ({ page }) => {
+    await page.locator('#viewport').focus();
+    await page.keyboard.press('Shift+ArrowRight');
+    await idle(page);
+    expect((await page.evaluate(() => window.photoStudio.history.labels)).at(-1)).toBe('Nudge Selection');
+    expect((await layerPixel(page, 25, 30))[3]).toBe(0);
+    expect(await layerPixel(page, 65, 30)).toEqual([0, 0, 255, 255]);
+    expect(await page.evaluate(() => window.photoStudio.doc.selection)).toEqual({ x: 30, y: 20, width: 40, height: 30 });
+    const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+    const [sx, sy] = await page.evaluate(() => window.photoStudio.clientPoint(50, 35));
+    const [tx, ty] = await page.evaluate(() => window.photoStudio.clientPoint(120, 100));
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(tx, ty, { steps: 4 });
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
+    expect(await layerPixel(page, 65, 30)).toEqual([0, 0, 255, 255]);
+    expect(await page.evaluate(() => window.photoStudio.settings.hideSelectionEdges)).toBeFalsy();
+  });
+});
+
+test('the preview of lifted pixels on a half-transparent layer matches the result', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.command('Opacity', (d) => (d.layers[0].opacity = 0.5)));
+  await selectRect(page, { x: 20, y: 20, width: 40, height: 30 });
+  await run(page, 'edit.free-transform');
+  await sessionCall(page, 'nudge', 100, 0);
+  await idle(page);
+  // Over the red rest of the layer the moved blue covers it before the
+  // layer's opacity applies: half-transparent blue, not a purple mix.
+  const shown = await shownPixel(page, 140, 35);
+  expect(shown[0]).toBeLessThan(10);
+  expect(shown[2]).toBeGreaterThan(245);
+  expect(Math.abs(shown[3] - 128)).toBeLessThan(3);
+  await page.keyboard.press('Enter');
+  await idle(page);
+  const committed = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { compositeRGBA } = await import('/src/features/pixels.ts');
+    const img = await compositeRGBA(e);
+    const i = (35 * img.width + 140) * 4;
+    return Array.from(img.data.slice(i, i + 4));
+  });
+  expect(committed).toEqual(shown);
+});

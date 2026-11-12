@@ -1003,7 +1003,7 @@ export class Editor {
       e.preventDefault();
       if (!this.transform.dragging) {
         const step = e.shiftKey ? 10 : 1;
-        this.transform.nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
+        this.transform.nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0, { pixels: true });
       }
       return;
     }

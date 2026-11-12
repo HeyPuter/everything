@@ -131,3 +131,26 @@ export function dropFloat(store: TileStore, f: Pick<FloatingPixels, 'remaining' 
   }
   return writeRect(store, f.remaining, x, y, under);
 }
+
+/** A layer's settings for a part of a floating selection preview: plain
+ * pixels, composited normally inside the stand-in group. */
+export function floatPart(l: Layer): Layer {
+  return { ...l, opacity: 1, blend: 'normal', fillOpacity: 1, clipped: false, style: undefined, blending: undefined, mask: null, maskAsset: undefined, pixelMask: undefined, maskStrokes: undefined, maskGrid: undefined, maskDisabled: undefined, maskInverted: undefined, vectorMask: undefined, liveSource: undefined, liveFilters: undefined, liveMask: undefined, video: undefined, linkGroup: undefined, background: undefined, children: [] };
+}
+/** The document shown while selected pixels float: a group stands in for the
+ * layer (which stays, hidden, for the panels) with the rest of the layer and
+ * the moved pixels inside, composited together and then blended, masked,
+ * clipped and styled as the layer is. */
+export function floatingDocument(base: PhotoDocument, l: Layer, groupId: string, rest: Layer, lifted: Layer): PhotoDocument {
+  // The parts keep the layer's own color filters; the group must not repeat them.
+  const group: Layer = { ...l, id: groupId, kind: 'group', filters: { brightness: 0, contrast: 0, saturation: 0, blur: 0 }, pixels: undefined, liveSource: undefined, liveFilters: undefined, liveMask: undefined, video: undefined, background: undefined, children: [rest, lifted] };
+  const walk = (layers: Layer[]): Layer[] =>
+    layers.flatMap((x, i) => {
+      if (x.id !== l.id) return x.children.length ? [{ ...x, children: walk(x.children) }] : [x];
+      // A plain layer (normal, opaque, unmasked, unstyled, outside clipping
+      // groups) draws the same as its two parts stacked: no group pass.
+      const plain = l.blend === 'normal' && l.opacity === 1 && (l.fillOpacity ?? 1) === 1 && !l.style && !l.blending && !l.clipped && !layers[i + 1]?.clipped && !l.maskGrid && !l.mask && !l.maskAsset && !l.pixelMask && !l.maskStrokes?.length && !l.vectorMask && !l.filters?.blur && !l.filters?.brightness && !l.filters?.contrast && !l.filters?.saturation;
+      return plain ? [{ ...x, visible: false }, rest, lifted] : [{ ...x, visible: false }, group];
+    });
+  return { ...base, layers: walk(base.layers) };
+}
