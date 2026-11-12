@@ -8,7 +8,7 @@ import { transformVideo } from '../../model/video-layer';
 import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, TILE, writeRect, parseKey, type TileGrid, type TileStore } from '../../model/tiles';
 import { applySelection, selectionGrid } from '../../model/selection';
 import { normalizeAngle, selectionFrame } from '../../model/transform';
-import { formDialog } from '../../ui/dialog';
+import { settingsDialog } from '../action-settings';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { applyMat3, type Mat3 } from '../../imaging/filters/warp';
 import { remapCompPositions } from '../../model/layer-comps';
@@ -315,8 +315,11 @@ export const rotateCanvas = (e: Editor, deg: number) => {
 };
 export const flipCanvas = (e: Editor, horizontal: boolean) =>
   transformCanvas(e, horizontal ? 'Flip Canvas Horizontal' : 'Flip Canvas Vertical', scaleM(horizontal ? -1 : 1, horizontal ? 1 : -1), e.doc.width, e.doc.height);
-export async function arbitraryRotation(e: Editor) {
-  const v = await formDialog(
+export async function arbitraryRotation(e: Editor, arg?: unknown) {
+  const v = await settingsDialog(
+    e,
+    'image.rotate-arbitrary',
+    arg,
     'Rotate Canvas',
     [
       { name: 'angle', label: 'Angle (°)', value: Number(e.settings.arbitraryAngle ?? 0), type: 'number', min: -359.99, max: 359.99, step: 0.01 },

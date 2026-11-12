@@ -13,6 +13,7 @@ import { svg } from '../../app/icons';
 import { compositeRGBA } from '../pixels';
 import { automaticMethod, formatBytes, fromPixels, imageBytes, isPhysical, maskFromRGBA, ppcmToPpi, ppiToPpcm, rgbaFromMask, toPixels, type LengthUnit } from './math';
 import { docPpi, fmt, openDialog, resolutionInfo, unitOptions } from './dialog';
+import { noteDialogCancelled, paramsOf, recordStep } from '../action-settings';
 
 export type ResampleChoice = 'automatic' | ResizeMethod;
 export const RESAMPLE_METHODS: [ResampleChoice, string][] = [
@@ -122,9 +123,42 @@ export function maskRegion(grid: TileGrid): IRect | null {
 }
 
 type State = { w: number; h: number; ppi: number; wu: LengthUnit; hu: LengthUnit; resUnit: 'PPI' | 'PPCM'; constrain: boolean; resample: boolean; method: ResampleChoice; scaleStyles: boolean };
-export async function imageSizeDialog(e: Editor) {
+type SizeSettings = { width: number; height: number; ppi: number; resUnit: 'PPI' | 'PPCM'; resample: boolean; method: ResampleChoice; scaleStyles: boolean };
+/** Settings recorded by an action: sizes in pixels, or in percent with
+ * `unit: 'percent'`; without `resolution` the document keeps its own. */
+function sizeSettings(v: Record<string, unknown>, doc: PhotoDocument, fallback: ResampleChoice): SizeSettings {
+  const percent = v.unit === 'percent';
+  const size = (n: unknown, base: number) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? (percent ? (base * n) / 100 : n) : base);
+  const unit = doc.resolution?.horizontalResolutionUnit ?? 'PPI';
+  return {
+    width: size(v.width, doc.width),
+    height: size(v.height, doc.height),
+    ppi: typeof v.resolution === 'number' && Number.isFinite(v.resolution) && v.resolution >= 1 ? Math.min(30000, v.resolution) : docPpi(doc),
+    resUnit: v.resolution === undefined ? unit : v.resolutionUnit === 'PPCM' ? 'PPCM' : 'PPI',
+    resample: v.resample !== false,
+    method: RESAMPLE_METHODS.some(([m]) => m === v.method) ? (v.method as ResampleChoice) : fallback,
+    scaleStyles: v.scaleStyles !== false,
+  };
+}
+function applyImageSize(e: Editor, s: SizeSettings) {
+  const doc = e.doc,
+    ow = doc.width,
+    oh = doc.height;
+  const pw = Math.max(1, Math.round(s.width)),
+    ph = Math.max(1, Math.round(s.height));
+  const resolutionChanged = Math.abs(s.ppi - docPpi(doc)) > 1e-6 || s.resUnit !== (doc.resolution?.horizontalResolutionUnit ?? 'PPI');
+  if (s.resample && (pw !== ow || ph !== oh)) {
+    resampleDocument(e, pw, ph, resolveMethod(s.method, ow, oh, pw, ph), resolutionChanged || doc.resolution ? s.ppi : undefined, s.resUnit, s.scaleStyles);
+    e.fit();
+  } else if (resolutionChanged) e.command('Image Size', (d) => setDocumentResolution(d, resolutionInfo(d, s.ppi, s.resUnit)));
+}
+
+export async function imageSizeDialog(e: Editor, arg?: unknown) {
   e.transform.apply();
   e.modal?.apply();
+  // Settings from an action step or a script apply without the dialog.
+  const given = paramsOf(arg);
+  if (given) return applyImageSize(e, sizeSettings(given, e.doc, e.preferences.interpolation));
   const doc = e.doc;
   const ow = doc.width,
     oh = doc.height,
@@ -143,6 +177,12 @@ export async function imageSizeDialog(e: Editor) {
     method: saved.method ?? e.preferences.interpolation,
     scaleStyles: saved.scaleStyles ?? true,
   };
+  const initial = paramsOf(arg, 'initial');
+  if (initial) {
+    const s = sizeSettings(initial, doc, st.method);
+    Object.assign(st, { w: s.width, h: s.height, ppi: s.ppi, resUnit: s.resUnit, resample: s.resample, method: s.method, scaleStyles: s.scaleStyles });
+    st.constrain = Math.abs(s.width / s.height - ow / oh) < 1e-3;
+  }
   const composite = compositeRGBA(e).catch(() => undefined);
   const html = `<form method="dialog" class="image-size"><h2>Image Size</h2>
     <div class="is-layout">
@@ -278,15 +318,21 @@ export async function imageSizeDialog(e: Editor) {
     sync();
   });
   clearTimeout(previewTimer);
-  if (!ok) return;
+  if (!ok) return noteDialogCancelled();
   e.settings.imageSize = { wu: st.wu, hu: st.hu, resample: st.resample, method: st.method, scaleStyles: st.scaleStyles };
-  const pw = Math.max(1, Math.round(st.w)),
-    ph = Math.max(1, Math.round(st.h));
   const resolutionChanged = Math.abs(st.ppi - ppi0) > 1e-6 || st.resUnit !== (doc.resolution?.horizontalResolutionUnit ?? 'PPI');
-  if (st.resample && (pw !== ow || ph !== oh)) {
-    resampleDocument(e, pw, ph, resolveMethod(st.method, ow, oh, pw, ph), resolutionChanged || doc.resolution ? st.ppi : undefined, st.resUnit, st.scaleStyles);
-    e.fit();
-  } else if (resolutionChanged) e.command('Image Size', (d) => setDocumentResolution(d, resolutionInfo(d, st.ppi, st.resUnit)));
+  applyImageSize(e, { width: st.w, height: st.h, ppi: st.ppi, resUnit: st.resUnit, resample: st.resample, method: st.method, scaleStyles: st.scaleStyles });
+  // Sizes given in percent replay as percent of each document's size.
+  const percent = st.wu === 'percent' && st.hu === 'percent';
+  recordStep(e, 'image.image-size', {
+    params: {
+      ...(percent ? { width: (st.w / ow) * 100, height: (st.h / oh) * 100, unit: 'percent' } : { width: Math.max(1, Math.round(st.w)), height: Math.max(1, Math.round(st.h)) }),
+      ...(resolutionChanged ? { resolution: st.ppi, resolutionUnit: st.resUnit } : {}),
+      resample: st.resample,
+      method: st.method,
+      scaleStyles: st.scaleStyles,
+    },
+  });
 }
 const labelFor = (m: ResizeMethod) => RESAMPLE_METHODS.find(([v]) => v === m)?.[1].replace(/ \(.*\)/, '') ?? m;
 /** 100% view of the image center after resampling with the chosen method. */

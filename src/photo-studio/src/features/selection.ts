@@ -15,7 +15,7 @@ import {
 import { readMask, type TileGrid } from '../model/tiles';
 import type { Mask8 } from '../imaging/types';
 import { compositeRGBA, layerRGBA } from './pixels';
-import { formDialog } from '../ui/dialog';
+import { recordsSettings, settingsDialog } from './action-settings';
 import { border, contract, expand, feather, grow, similar, smooth } from '../imaging/segment/mask-ops';
 import { svg } from '../app/icons';
 import { bindNumberField } from './paint-tools/fields';
@@ -475,8 +475,8 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
 }
 
 // ----- Commands -----
-async function modifyDialog(e: Editor, title: string, label: string, max: number, fn: (m: Mask8, v: number) => Mask8) {
-  const v = await formDialog(title, [{ name: 'value', label, value: 5, type: 'number', min: 0, max }], 'OK');
+async function modifyDialog(e: Editor, id: string, arg: unknown, title: string, label: string, max: number, fn: (m: Mask8, v: number) => Mask8) {
+  const v = await settingsDialog(e, id, arg, title, [{ name: 'value', label, value: 5, type: 'number', min: 0, max }], 'OK');
   if (!v) return;
   const sel = selectionGrid(e.doc, e.assets.tiles);
   if (!sel) return;
@@ -494,6 +494,7 @@ export function installSelection(_e: Editor) {
     wandTool,
   );
   const has = (e: Editor) => !!e.doc.selection;
+  for (const m of ['feather', 'expand', 'contract', 'border', 'smooth']) recordsSettings(`select.modify-${m}`);
   registerCommand(
     { id: 'select.all', label: 'All', shortcut: 'Mod+A', enabled: (e) => e.hasDocument, run: (e) => commitSelectionMask(e, selectAllGrid(), 'replace', 'Select All') },
     { id: 'select.deselect', label: 'Deselect', shortcut: 'Mod+D', enabled: has, run: (e) => commitSelectionMask(e, null, 'replace', 'Deselect') },
@@ -516,11 +517,11 @@ export function installSelection(_e: Editor) {
     },
     // Distance-transform morphology keeps expanded and contracted edges round
     // and exact at any radius.
-    { id: 'select.modify-feather', label: 'Feather…', shortcut: 'Shift+F6', enabled: has, run: (e) => modifyDialog(e, 'Feather Selection', 'Feather Radius (px)', 1000, feather) },
-    { id: 'select.modify-expand', label: 'Expand…', enabled: has, run: (e) => modifyDialog(e, 'Expand Selection', 'Expand By (px)', 500, (m, v) => expand(m, v)) },
-    { id: 'select.modify-contract', label: 'Contract…', enabled: has, run: (e) => modifyDialog(e, 'Contract Selection', 'Contract By (px)', 500, (m, v) => contract(m, v)) },
-    { id: 'select.modify-border', label: 'Border…', enabled: has, run: (e) => modifyDialog(e, 'Border Selection', 'Width (px)', 200, border) },
-    { id: 'select.modify-smooth', label: 'Smooth…', enabled: has, run: (e) => modifyDialog(e, 'Smooth Selection', 'Sample Radius (px)', 500, smooth) },
+    { id: 'select.modify-feather', label: 'Feather…', shortcut: 'Shift+F6', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-feather', arg, 'Feather Selection', 'Feather Radius (px)', 1000, feather) },
+    { id: 'select.modify-expand', label: 'Expand…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-expand', arg, 'Expand Selection', 'Expand By (px)', 500, (m, v) => expand(m, v)) },
+    { id: 'select.modify-contract', label: 'Contract…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-contract', arg, 'Contract Selection', 'Contract By (px)', 500, (m, v) => contract(m, v)) },
+    { id: 'select.modify-border', label: 'Border…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-border', arg, 'Border Selection', 'Width (px)', 200, border) },
+    { id: 'select.modify-smooth', label: 'Smooth…', enabled: has, run: (e, arg) => modifyDialog(e, 'select.modify-smooth', arg, 'Smooth Selection', 'Sample Radius (px)', 500, smooth) },
     {
       id: 'select.grow',
       label: 'Grow',

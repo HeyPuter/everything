@@ -1,13 +1,14 @@
 // Image > Canvas Size: grow or shrink the canvas around a 3x3 anchor, with
 // relative sizes, units and an extension color for the background layer.
 import type { Editor } from '../../editor';
-import { cropDocument, type Layer, type PhotoDocument } from '../../model/document';
+import { assertSize, cropDocument, type Layer, type PhotoDocument } from '../../model/document';
 import { setLayerPixels } from '../../model/pixel-layer';
 import { gridDocBounds, readRGBA, writeRect, type TileGrid, type TileStore } from '../../model/tiles';
 import type { IRect } from '../../imaging/types';
 import { hexRgb } from '../pixels';
 import { anchorOffset, formatBytes, fromPixels, imageBytes, toPixels, type LengthUnit } from './math';
 import { docPpi, fmt, openDialog, unitOptions } from './dialog';
+import { noteDialogCancelled, paramsOf, recordStep } from '../action-settings';
 
 export type ExtensionColor = 'foreground' | 'background' | 'white' | 'black' | 'gray' | 'other';
 /** Areas of the new canvas outside the old one, in old document coordinates. */
@@ -73,9 +74,42 @@ export function resizeCanvas(e: Editor, nw: number, nh: number, dx: number, dy: 
 }
 
 const ARROW = 'M12 19V5M6 11l6-6 6 6';
-export async function canvasSizeDialog(e: Editor) {
+type CanvasSettings = { width: number; height: number; relative: boolean; ax: number; ay: number; color: ExtensionColor; other: string };
+const extensionColors: ExtensionColor[] = ['foreground', 'background', 'white', 'black', 'gray', 'other'];
+/** Settings recorded by an action (sizes in pixels, relative ones as the
+ * change), checked; the new size in pixels is absolute. */
+function canvasSettings(v: Record<string, unknown>, doc: PhotoDocument): CanvasSettings {
+  const relative = v.relative === true;
+  const size = (n: unknown, base: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.round(relative ? base + n : n) : base);
+  const anchor = Array.isArray(v.anchor) ? v.anchor : [];
+  const a = (n: unknown) => ([0, 0.5, 1].includes(n as number) ? (n as number) : 0.5);
+  return {
+    width: size(v.width, doc.width),
+    height: size(v.height, doc.height),
+    relative,
+    ax: a(anchor[0]),
+    ay: a(anchor[1]),
+    color: extensionColors.includes(v.color as ExtensionColor) ? (v.color as ExtensionColor) : 'background',
+    other: typeof v.other === 'string' && /^#[0-9a-f]{6}$/i.test(v.other) ? v.other : '#808080',
+  };
+}
+function applyCanvasSize(e: Editor, s: CanvasSettings) {
+  const doc = e.doc;
+  const nw = s.width,
+    nh = s.height;
+  if (nw === doc.width && nh === doc.height) return;
+  assertSize(nw, nh);
+  const { dx, dy } = anchorOffset(doc.width, doc.height, nw, nh, s.ax, s.ay);
+  const hex = s.color === 'foreground' ? e.color : s.color === 'background' ? e.background : s.color === 'white' ? '#ffffff' : s.color === 'black' ? '#000000' : s.color === 'gray' ? '#808080' : s.other;
+  resizeCanvas(e, nw, nh, dx, dy, backgroundLayer(doc) ? hexRgb(hex) : null);
+}
+
+export async function canvasSizeDialog(e: Editor, arg?: unknown) {
   e.transform.apply();
   e.modal?.apply();
+  // Settings from an action step or a script apply without the dialog.
+  const given = paramsOf(arg);
+  if (given) return applyCanvasSize(e, canvasSettings(given, e.doc));
   const doc = e.doc;
   const ow = doc.width,
     oh = doc.height,
@@ -86,6 +120,11 @@ export async function canvasSizeDialog(e: Editor) {
   // New size in pixels (absolute).
   st.w = ow;
   st.h = oh;
+  const initial = paramsOf(arg, 'initial');
+  if (initial) {
+    const s = canvasSettings(initial, doc);
+    Object.assign(st, { w: s.width, h: s.height, relative: s.relative, ax: s.ax, ay: s.ay, color: s.color, other: s.other });
+  }
   const hasBackground = !!backgroundLayer(doc);
   const html = `<form method="dialog" class="canvas-size"><h2>Canvas Size</h2>
     <fieldset class="cs-group"><legend>Current Size: <strong>${formatBytes(imageBytes(ow, oh, bits))}</strong></legend>
@@ -189,13 +228,11 @@ export async function canvasSizeDialog(e: Editor) {
     });
     sync();
   });
-  if (!ok) return;
+  if (!ok) return noteDialogCancelled();
   e.settings.canvasSize = { unit: st.unit, relative: st.relative, anchor: [st.ax, st.ay], color: st.color, other: st.other };
   const nw = Math.round(st.w),
     nh = Math.round(st.h);
-  if (nw === ow && nh === oh) return;
-  const { dx, dy } = anchorOffset(ow, oh, nw, nh, st.ax, st.ay);
-  const hex = st.color === 'foreground' ? e.color : st.color === 'background' ? e.background : st.color === 'white' ? '#ffffff' : st.color === 'black' ? '#000000' : st.color === 'gray' ? '#808080' : st.other;
-  resizeCanvas(e, nw, nh, dx, dy, hasBackground ? hexRgb(hex) : null);
+  applyCanvasSize(e, { width: nw, height: nh, relative: st.relative, ax: st.ax, ay: st.ay, color: st.color, other: st.other });
+  recordStep(e, 'image.canvas-size', { params: { width: st.relative ? nw - ow : nw, height: st.relative ? nh - oh : nh, relative: st.relative, anchor: [st.ax, st.ay], color: st.color, other: st.other } });
 }
 const unitLabel = (u: LengthUnit) => ({ px: 'px', percent: '%', in: 'in', cm: 'cm', mm: 'mm', pt: 'pt' })[u];

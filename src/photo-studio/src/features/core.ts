@@ -19,6 +19,7 @@ import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
 import { layerLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
+import { recordsSettings, settingsDialog } from './action-settings';
 
 const hasDoc = (e: Editor) => e.hasDocument;
 const hasLayer = (e: Editor) => !!e.layer;
@@ -37,6 +38,7 @@ export function purgeClipboard() {
 export const copiedImage = (): RGBA8 | undefined => clipboard?.image;
 
 export function installCore(e: Editor) {
+  for (const id of ['layer.new', 'edit.fill']) recordsSettings(id);
   // ----- File -----
   cmd('file.open', 'Open…', () => {
     // Load the decoders while the file picker is open.
@@ -89,7 +91,7 @@ export function installCore(e: Editor) {
   cmd('edit.paste', 'Paste', () => paste(e, false), { shortcut: 'Mod+V' });
   cmd('edit.paste-in-place', 'Paste in Place', () => paste(e, true), { shortcut: 'Mod+Shift+V', enabled: () => !!clipboard });
   cmd('edit.clear', 'Clear', () => clearSelection(e), { shortcut: ['Backspace', 'Delete'], enabled: hasDoc });
-  cmd('edit.fill', 'Fill…', () => fillDialog(e), { shortcut: ['Shift+F5', 'Shift+Backspace'], enabled: hasDoc });
+  cmd('edit.fill', 'Fill…', (_e, arg) => fillDialog(e, arg), { shortcut: ['Shift+F5', 'Shift+Backspace'], enabled: hasDoc });
   cmd('edit.fill-foreground', 'Fill with Foreground Color', () => fillWith(e, hexRgb(e.color), 1, false), { shortcut: 'Alt+Backspace', hidden: true });
   cmd('edit.fill-background', 'Fill with Background Color', () => fillWith(e, hexRgb(e.background), 1, false), { shortcut: 'Mod+Backspace', hidden: true });
   cmd('edit.fill-foreground-preserve', 'Fill with Foreground Color, Preserving Transparency', () => fillWith(e, hexRgb(e.color), 1, true), { shortcut: 'Alt+Shift+Backspace', hidden: true });
@@ -133,8 +135,8 @@ export function installCore(e: Editor) {
   }, { enabled: hasDoc, recordable: false });
 
   // ----- Layer -----
-  cmd('layer.new', 'Layer…', async () => {
-    const v = await formDialog('New Layer', [{ name: 'name', label: 'Name', value: nextLayerName(e.doc) }], 'OK');
+  cmd('layer.new', 'Layer…', async (_e, arg) => {
+    const v = await settingsDialog(e, 'layer.new', arg, 'New Layer', [{ name: 'name', label: 'Name', value: nextLayerName(e.doc) }], 'OK');
     if (!v) return;
     const l = newPixelLayer(v.name || nextLayerName(e.doc), e.doc);
     insertAboveSelection(e, l, 'New Layer');
@@ -601,9 +603,9 @@ async function clearSelection(e: Editor, label = 'Clear') {
     commitTarget(e, target, writeRect(e.assets.tiles, target.grid, b.x, b.y, m), label);
   }
 }
-async function fillDialog(e: Editor) {
+async function fillDialog(e: Editor, arg?: unknown) {
   const contextFill = e.doc.selection ? commands.get('edit.context-fill-apply') : undefined;
-  const v = await formDialog('Fill', [
+  const v = await settingsDialog(e, 'edit.fill', arg, 'Fill', [
     { name: 'contents', label: 'Contents', value: 'foreground', type: 'select', options: [['foreground', 'Foreground Color'], ['background', 'Background Color'], ['black', 'Black'], ['gray', '50% Gray'], ['white', 'White'], ['color', 'Color…'], ['pattern', 'Pattern (current in Patterns panel)'], ...(contextFill ? [['context', 'Context Fill'] as [string, string]] : [])] },
     { name: 'color', label: 'Color (when Contents is Color)', value: e.color, type: 'color' },
     { name: 'opacity', label: 'Opacity (%)', value: 100, type: 'number', min: 1, max: 100 },
