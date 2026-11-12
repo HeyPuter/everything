@@ -54,6 +54,10 @@ for (const viewport of [{ width: 1024, height: 768 }, { width: 768, height: 1024
         expect(Math.min(box.width, box.height) - 2 * after, sel).toBeGreaterThanOrEqual(24);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+      // Menu items too.
+      await page.getByRole('menubar').getByRole('menuitem', { name: 'Layer', exact: true }).tap();
+      const item = page.locator('.menubar-entry.open > .menu-pop > .menu-item').first();
+      expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(24);
     });
   });
 }

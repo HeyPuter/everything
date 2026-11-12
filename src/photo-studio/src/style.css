@@ -2393,6 +2393,7 @@ html.feature-loading .statusbar::after { content: ''; position: absolute; left: 
   #color-hue { width: 24px; }
   #color-hue::-webkit-slider-thumb { width: 30px; }
   .property-body h3 button { min-width: 28px; min-height: 28px; }
+  .menu-item { height: 32px; }
 }
 @media (pointer: coarse) and (max-width: 760px) {
   .menubar-entry > .menu-pop { top: 34px; max-height: calc(100dvh - 42px); }
