@@ -157,7 +157,10 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       input.blur();
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
-      const base = Number.isFinite(parse(input.value)) ? parse(input.value) : Number.isFinite(current) ? current : 0;
+      const typed = parse(input.value);
+      // A Mixed value has nothing to step from (stepping from 0 set every object to one step).
+      if (!Number.isFinite(typed) && current === 'mixed') return e.stopPropagation();
+      const base = Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
       const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * factor * (e.shiftKey ? 10 : 1)));
       input.value = fmt(v);

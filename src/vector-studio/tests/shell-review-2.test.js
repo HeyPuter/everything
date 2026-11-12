@@ -406,3 +406,32 @@ describe('imported settings and the workspace', () => {
     expect(app.toolbarFilter?.('knife')).toBe(false);
   });
 });
+
+describe('number field with a mixed value', () => {
+  it('arrow keys leave a Mixed value alone instead of setting every object to one step from 0', async () => {
+    const { numberField } = await import('../src/ui/widgets.js');
+    const seen = [];
+    const f = numberField({
+      label: 'Opacity',
+      kind: 'percent',
+      value: 'mixed',
+      min: 0,
+      max: 100,
+      onCommit: (v) => seen.push(v),
+    });
+    document.body.append(f.el);
+    f.input.focus();
+    f.input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    );
+    expect(seen).toEqual([]);
+    expect(f.input.value).toBe('');
+    // A typed value still steps.
+    f.input.value = '40%';
+    f.input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }),
+    );
+    expect(seen).toEqual([41]);
+    f.el.remove();
+  });
+});
