@@ -6,7 +6,7 @@
 //!
 //! Params: 0 master gain dB, 1 accuracy (0 standard, 1 high), 2.. band gains dB.
 
-use super::{Cascade, SUB};
+use super::{section_magnitude, Cascade, SUB};
 use crate::fx::util::{db_to_gain, gain_to_db, Coefs};
 use crate::fx::{Effect, Smooth};
 
@@ -107,7 +107,7 @@ pub fn correct(want: &[f32], centres: &[f32], q: f32, rate: f32, out: &mut [f32]
         let c = Coefs::peaking_cq(rate, centres[i], q, REF_DB);
         for j in 0..m {
             // Row j, column i: effect of band i at centre j.
-            b[j][i] = (gain_to_db(c.magnitude(centres[j], rate)) / REF_DB) as f64;
+            b[j][i] = (gain_to_db(section_magnitude(&c, centres[j], rate)) / REF_DB) as f64;
         }
     }
     // Normal matrix B^T B + lambda I.
@@ -133,7 +133,7 @@ pub fn correct(want: &[f32], centres: &[f32], q: f32, rate: f32, out: &mut [f32]
         for j in 0..m {
             let mut sum = 0.0f32;
             for c in &coefs[..m] {
-                sum += gain_to_db(c.magnitude(centres[j], rate));
+                sum += gain_to_db(section_magnitude(c, centres[j], rate));
             }
             r[j] = (want[j] - sum) as f64;
         }
@@ -337,6 +337,24 @@ mod tests {
         assert!(out.iter().all(|g| g.abs() < 16.0), "{out:?}");
         let err = |g: &[f32]| -> f32 { (2..18).map(|j| (at(g, j) - want[j]).abs()).sum() };
         assert!(err(&out) < err(&want), "{} vs {}", err(&out), err(&want));
+    }
+
+    #[test]
+    fn high_accuracy_holds_flat_low_bands_at_high_rates() {
+        // Treble cut on the 30 band EQ: the low bands stay at 0 dB. Their
+        // sections run in double precision at 176.4 and 192 kHz, which the
+        // solver must model, or it "corrects" errors that are not there.
+        for rate in [96000.0, 176400.0, 192000.0] {
+            let params: Vec<(u32, f32)> = (25..30).map(|i| (2 + i as u32, -10.0)).collect();
+            for f in [25.0, 31.5, 40.0] {
+                let db = sine_gain_db(13, &params, f, rate);
+                assert!(db.abs() < 0.2, "{rate} Hz rate, {f} Hz: {db} dB");
+            }
+            // A bass cut lands on its slider values.
+            let params: Vec<(u32, f32)> = (0..6).map(|i| (2 + i as u32, -12.0)).collect();
+            let db = sine_gain_db(13, &params, 31.5, rate);
+            assert!((db + 12.0).abs() < 0.3, "{rate} Hz rate: {db} dB");
+        }
     }
 
     #[test]

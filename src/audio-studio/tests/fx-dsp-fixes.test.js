@@ -232,4 +232,19 @@ describe('Filters with poles very close to DC', () => {
     const { got, want } = await gainDb('notchFilter', notch, 48000, 60);
     expect(Math.abs(got - want)).toBeLessThan(0.5);
   });
+
+  it('graphic equalizer low bands follow their sliders at 176.4 and 192 kHz', async () => {
+    const { getEffect } = await import('../src/effects/index.js');
+    for (const id of ['graphicEq20', 'graphicEq30']) {
+      for (const name of ['Treble Cut', 'Bass Cut']) {
+        const values = getEffect(id).presets.find((p) => p.name === name).values;
+        for (const rate of [176400, 192000]) {
+          for (const f of [25, 31.5, 63]) {
+            const { got, want } = await gainDb(id, values, rate, f);
+            expect(Math.abs(got - want), `${id} ${name} ${rate} Hz ${f} Hz`).toBeLessThan(0.3);
+          }
+        }
+      }
+    }
+  });
 });
