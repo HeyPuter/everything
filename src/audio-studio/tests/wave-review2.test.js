@@ -509,3 +509,16 @@ describe('pasting stereo into a mono file', () => {
     view.destroy();
   });
 });
+
+describe('waveform corner on phones', () => {
+  it('is wide enough for the snapping and add-marker buttons', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync(`${import.meta.dirname}/../src/styles/editor.css`, 'utf8');
+    const phone = css.match(
+      /\[data-layout='phone'\] \.wf-main \{\s*grid-template-columns: minmax\(0, 1fr\) (\d+)px;/,
+    );
+    const button = Number(css.match(/\.icon-btn\.sm \{\s*width: (\d+)px;/)[1]);
+    const gap = Number(css.match(/\.wf-ruler-corner \{[^}]*gap: (\d+)px;/)[1]);
+    expect(Number(phone[1])).toBeGreaterThanOrEqual(2 * button + gap);
+  });
+});

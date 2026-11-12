@@ -490,10 +490,11 @@
   grid-template-rows: 30px 24px minmax(0, 1fr);
 }
 
+/* Wide enough for the ruler corner's two buttons (snapping, add marker). */
 [data-layout='phone'] .wf-top,
 [data-layout='phone'] .wf-ruler-row,
 [data-layout='phone'] .wf-main {
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 42px;
 }
 
 @media (pointer: coarse) {
