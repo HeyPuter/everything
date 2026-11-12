@@ -776,3 +776,24 @@ describe('SVG masks with gray levels', () => {
     expect(back.importWarnings).toEqual([]);
   });
 });
+
+describe('SVG CSS custom properties', () => {
+  it('resolve var() references with inheritance, fallbacks and :root values', () => {
+    const doc = svgToDocument(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" style="--main: #2a9d8f">
+      <style>:root { --w: 6px } .a { fill: var(--main); stroke: var(--accent); stroke-width: var(--w) } .b { fill: var(--none, var(--main2, #264653)) } .c { fill: var(--none) }</style>
+      <g style="--accent: #e76f51"><rect class="a" width="10" height="10"/></g>
+      <rect class="b" width="10" height="10"/>
+      <g fill="#ff0000"><rect class="c" width="10" height="10"/></g>
+      <rect class="a" style="--main: #000080" width="10" height="10"/>
+    </svg>`);
+    const [a, b, c, d] = doc.leaves();
+    expect(a.fill.color).toBe('#2a9d8f');
+    expect(a.stroke.color).toBe('#e76f51');
+    expect(a.strokeWidth).toBe(6);
+    expect(b.fill.color).toBe('#264653');
+    // An undefined variable without a fallback leaves the property unset (fill inherits).
+    expect(c.fill.color).toBe('#ff0000');
+    expect(d.fill.color).toBe('#000080');
+    expect(d.stroke).toBeNull();
+  });
+});

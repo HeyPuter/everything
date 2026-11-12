@@ -109,6 +109,34 @@ function hrefOf(el) {
   return el.getAttribute('href') || el.getAttributeNS?.(XLINK, 'href') || el.getAttribute('xlink:href') || '';
 }
 
+const VARS = Symbol('custom properties');
+
+/** Substitute var(--name[, fallback]) references; null when one has no value and no fallback. */
+function resolveVars(value, vars, depth = 0) {
+  let v = String(value);
+  for (let guard = 0; guard < 64; guard++) {
+    const i = v.indexOf('var(');
+    if (i < 0) return v;
+    // The matching close parenthesis.
+    let d = 0;
+    let j = i + 3;
+    for (; j < v.length; j++) {
+      if (v[j] === '(') d++;
+      else if (v[j] === ')' && --d === 0) break;
+    }
+    if (j >= v.length) return null;
+    const inner = v.slice(i + 4, j);
+    const comma = inner.indexOf(',');
+    const name = (comma < 0 ? inner : inner.slice(0, comma)).trim();
+    let sub = vars?.[name];
+    if (sub != null && sub.includes('var(')) sub = depth < 16 ? resolveVars(sub, vars, depth + 1) : null;
+    if (sub == null || sub === '') sub = comma < 0 ? null : resolveVars(inner.slice(comma + 1).trim(), vars, depth + 1);
+    if (sub == null) return null;
+    v = v.slice(0, i) + sub + v.slice(j + 1);
+  }
+  return null;
+}
+
 function urlId(v) {
   const m = /url\(\s*['"]?\s*#([^'")\s]+)\s*['"]?\s*\)/.exec(v || '');
   return m ? decodeURIComponent(m[1]) : null;
@@ -259,10 +287,20 @@ class Importer {
   computeStyle(el, parent) {
     const s = {};
     for (const k of INHERITED) s[k] = parent[k];
+    // Custom properties (--name) inherit; var() references resolve once the cascade is done.
+    if (parent[VARS]) s[VARS] = parent[VARS];
+    let refs = null;
     const set = (k, v) => {
       if (v == null) return;
       v = String(v).trim();
+      if (k.startsWith('--')) {
+        if (s[VARS] === parent[VARS]) s[VARS] = { ...parent[VARS] };
+        s[VARS][k] = v;
+        return;
+      }
       if (!v) return;
+      if (v.includes('var(')) (refs ||= new Set()).add(k);
+      else refs?.delete(k);
       if (v === 'inherit') s[k] = parent[k];
       else if (v === 'initial' || v === 'unset') s[k] = INHERITED.includes(k) && v === 'unset' ? parent[k] : BASE_STYLE[k];
       else s[k] = v;
@@ -287,6 +325,13 @@ class Importer {
     }
     for (const [k, v] of important) this.setProp(set, k, v);
     if (inlineDecls) for (const [k, d] of Object.entries(inlineDecls)) if (d.important) this.setProp(set, k, d.value);
+    if (refs) {
+      for (const k of refs) {
+        const v = resolveVars(s[k], s[VARS]);
+        // An unresolvable reference makes the property unset (inherited or initial).
+        s[k] = v == null ? (INHERITED.includes(k) ? parent[k] : BASE_STYLE[k]) : v;
+      }
+    }
     // Resolve font-size to user units now (em and % are relative to the parent).
     const pf = typeof parent['font-size'] === 'number' ? parent['font-size'] : 16;
     if (typeof s['font-size'] !== 'number') {
@@ -314,7 +359,7 @@ class Importer {
       for (const m of ['marker-start', 'marker-mid', 'marker-end']) set(m, v);
       return;
     }
-    if (INHERITED.includes(k) || NON_INHERITED.includes(k)) set(k, v);
+    if (INHERITED.includes(k) || NON_INHERITED.includes(k) || k.startsWith('--')) set(k, v);
   }
 
   /**
