@@ -50,7 +50,31 @@ describe('saving to Puter', () => {
     fail(new Error('Network error'));
     const result = await saving;
     expect(result).toBeInstanceOf(Error);
-    expect(result.message).toBe('Network error');
+    expect(result.message).toBe('"Song.wav" could not be saved to Puter (Network error).');
+    expect(doc.dirty).toBe(true);
+  });
+
+  it('says why a save failed when Puter rejects with a plain object', async () => {
+    window.puter = {
+      auth: { isSignedIn: () => true },
+      fs: {
+        write: async () => {
+          const error = {
+            code: 'storage_limit_reached',
+            message: 'Storage capacity limit reached.',
+          };
+          throw { error };
+        },
+      },
+    };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 8000, channels: 1, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/AudioStudio/Song.wav' };
+    doc.apply('Edit', { ...doc.state, meta: { title: 'x' } });
+    const err = await saveDocument(fakeApp(), doc).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    const why = 'Storage capacity limit reached';
+    expect(err.message).toBe(`"Song.wav" could not be saved to Puter (${why}).`);
+    expect(err.code).toBe('storage_limit_reached');
     expect(doc.dirty).toBe(true);
   });
 

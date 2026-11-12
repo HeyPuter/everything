@@ -72,8 +72,23 @@ export async function readFile(path) {
   return sdk().fs.read(path);
 }
 
+/**
+ * Writes a file. Puter rejects with plain objects ({ message } or { error: { message } }),
+ * which reached the user as "Something went wrong."; failures become Errors that say
+ * which file could not be saved and why (storage full, offline...).
+ */
 export async function writeFile(path, data, options = {}) {
-  return sdk().fs.write(path, data, { overwrite: true, createMissingParents: true, ...options });
+  const opts = { overwrite: true, createMissingParents: true, ...options };
+  try {
+    return await sdk().fs.write(path, data, opts);
+  } catch (err) {
+    const why = String(err?.message || err?.error?.message || 'Puter did not answer');
+    const name = String(path).split('/').pop();
+    const error = new Error(`"${name}" could not be saved to Puter (${why.replace(/\.$/, '')}).`);
+    error.cause = err;
+    error.code = err?.code ?? err?.error?.code;
+    throw error;
+  }
 }
 
 // ------------------------------------------------------------ file browsing
