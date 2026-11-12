@@ -67,4 +67,29 @@ describe('Effects Rack Apply', () => {
     });
     expect(rackFor(doc).slots).toBe(slots);
   });
+  it('applies once when Apply is pressed again while it renders', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 1000,
+      channels: [Channel.fromSamples(filled(1000, 0.5))],
+    });
+    app.active = doc;
+    setRack(app, doc, {
+      ...rackFor(doc),
+      slots: fitSlots([makeSlot('amplify', { left: -6, right: -6 })]),
+      process: 'file',
+    });
+    const first = applyRack(app);
+    await new Promise((r) => setTimeout(r, 0));
+    const firstRelease = release;
+    const second = applyRack(app);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(release).toBe(firstRelease); // no second render started
+    firstRelease();
+    expect(await first).toBe(true);
+    expect(await second).toBe(false);
+    expect(doc.history.undoLabel).toBe('Effects Rack');
+    expect(app.notes.filter((n) => n.error)).toEqual([]);
+  });
 });
