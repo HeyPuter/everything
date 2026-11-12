@@ -13,7 +13,7 @@ import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { formatShortcut, IS_MAC } from '../../commands/registry.js';
 import { MENUS } from '../../ui/menus.js';
-import { readSets, writeSets, DEFAULT_SET, effective, conflictsFor, shortcutFromEvent, applyChanges } from './sets.js';
+import { readSets, writeSets, DEFAULT_SET, effective, conflictsFor, shortcutFromEvent, applyChanges, reservedKey } from './sets.js';
 
 /** Menu path for every command id in the menu bar ("Object > Path"). */
 function menuPaths() {
@@ -158,6 +158,11 @@ export function keyboardShortcutsDialog(app) {
     if (!sc) return;
     if (row.kind === 'tools' && /(^|\+)(Mod|Ctrl)\+/.test(sc)) {
       status.replaceChildren(`Tool shortcuts can't use ${IS_MAC ? '⌘ or ⌃' : 'Ctrl'}. Use a key, optionally with Shift or ${IS_MAC ? '⌥' : 'Alt'}.`);
+      return;
+    }
+    const reserved = reservedKey(sc);
+    if (reserved) {
+      status.replaceChildren(`${formatShortcut(sc)} is kept for ${reserved}. Type other keys, or Escape to cancel.`);
       return;
     }
     capturing = null;

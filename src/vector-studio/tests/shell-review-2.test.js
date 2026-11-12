@@ -128,3 +128,45 @@ describe('task bar width', () => {
     expect(labelled.dataset.tip).toBeUndefined();
   });
 });
+
+describe('keyboard shortcuts dialog', () => {
+  it('refuses keys the app keeps for itself, which a tool or command could never use', async () => {
+    const { app } = await appWithRect();
+    const { reservedKey } = await import('../src/features/shortcuts/sets.js');
+    expect(reservedKey('D')).toBe('Default Fill and Stroke');
+    expect(reservedKey('Shift+X')).toBe('Swap Fill and Stroke');
+    expect(reservedKey('Shift+,')).toBeTruthy();
+    expect(reservedKey('Space')).toBeTruthy();
+    expect(reservedKey('Alt+ArrowLeft')).toBeTruthy();
+    expect(reservedKey('Tab')).toBeTruthy();
+    expect(reservedKey('Alt+D')).toBe(null);
+    expect(reservedKey('Mod+D')).toBe(null);
+    expect(reservedKey('Q')).toBe(null);
+
+    const { keyboardShortcutsDialog } = await import('../src/features/shortcuts/dialog.js');
+    const done = keyboardShortcutsDialog(app);
+    const dialog = document.querySelector('dialog.keyboard-shortcuts');
+    const row = [...dialog.querySelectorAll('.ks-row')].find(
+      (r) => r.dataset.key === 'tools:rectangle',
+    );
+    const key = row.querySelector('.ks-key');
+    key.click();
+    key.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', bubbles: true, cancelable: true }),
+    );
+    expect(dialog.querySelector('.ks-status').textContent).toMatch(/Default Fill and Stroke/);
+    // Still waiting for keys; nothing was assigned.
+    expect(key.textContent).toMatch(/Type keys/);
+    key.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        code: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    [...dialog.querySelectorAll('.dialog-footer .btn')].find((b) => b.textContent === 'OK').click();
+    await done;
+    expect(app.toolKeys.get('d')).toBeUndefined();
+  });
+});

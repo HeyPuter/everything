@@ -80,6 +80,40 @@ export function conflictsFor(app, shortcut, changes, self) {
   return out;
 }
 
+/**
+ * Keys the app handles itself, before tool keys and alongside commands (see
+ * App's keydown handler): a tool or command given one of them would never
+ * run, or would take away a basic key. Normalized shortcut -> what uses it.
+ */
+const RESERVED = new Map([
+  ['x', 'Toggle Fill and Stroke'],
+  ['shift+x', 'Swap Fill and Stroke'],
+  ['d', 'Default Fill and Stroke'],
+  [',', 'Color'],
+  ['shift+,', 'Color'],
+  ['.', 'Gradient'],
+  ['shift+.', 'Gradient'],
+  ['/', 'None'],
+  ['tab', 'Hide Panels'],
+  ['shift+tab', 'Hide Panels'],
+  ['enter', 'Enter'],
+  ['escape', 'Escape'],
+]);
+
+/** What a built-in key does when `shortcut` is one the app keeps for itself, else null. */
+export function reservedKey(shortcut) {
+  if (!shortcut) return null;
+  const key = normalizeShortcut(shortcut);
+  if (RESERVED.has(key)) return RESERVED.get(key);
+  const parts = key.split('+');
+  const last = parts[parts.length - 1];
+  // Space (with any modifier) is the temporary Hand and Zoom tools.
+  if (last === ' ') return 'Pan and Zoom (Space)';
+  // Arrow keys nudge (with Shift and Alt too).
+  if (/^arrow/.test(last) && !parts.includes('mod')) return 'Nudge';
+  return null;
+}
+
 /** Shortcut text from a keydown event: 'Mod+Alt+Shift+K', or null for a lone modifier. */
 export function shortcutFromEvent(ev, isMac) {
   if (['Shift', 'Alt', 'Meta', 'Control', 'CapsLock', 'Fn'].includes(ev.key)) return null;
