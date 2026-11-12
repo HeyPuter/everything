@@ -371,3 +371,33 @@ describe('Insert Silence', () => {
     view.destroy();
   });
 });
+
+describe('time ruler as a slider', () => {
+  it('reports the playhead and moves it with the keyboard', async () => {
+    const { app, doc, view } = await makeView();
+    const ruler = view.ruler.el;
+    view.ruler.resize(400, 24);
+    view.ruler.draw();
+    expect(ruler.tabIndex).toBe(0);
+    expect(ruler.getAttribute('aria-valuemax')).toBe('48000');
+    expect(ruler.getAttribute('aria-valuenow')).toBe('0');
+    const key = (k) => {
+      const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      ruler.dispatchEvent(e);
+      return e;
+    };
+    expect(key('ArrowRight').defaultPrevented).toBe(true);
+    expect(doc.cursor).toBe(1200);
+    expect(ruler.getAttribute('aria-valuenow')).toBe('1200');
+    expect(ruler.getAttribute('aria-valuetext')).toBe(app.formatTime(1200, 48000));
+    doc.setView(0, 4800);
+    key('End');
+    expect(doc.cursor).toBe(48000);
+    expect(doc.view.end).toBe(48000);
+    key('Home');
+    expect(doc.cursor).toBe(0);
+    doc.setCursor(24000);
+    expect(ruler.getAttribute('aria-valuenow')).toBe('24000');
+    view.destroy();
+  });
+});

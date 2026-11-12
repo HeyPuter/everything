@@ -794,7 +794,12 @@ export class WaveformView {
         this.invalidate('wave');
         this.#buildChannelButtons();
       }
-    } else if (e.kind === 'cursor') this.#placePlayhead(); else if (e.kind === 'rename') this.surface.setAttribute('aria-label', `Waveform of ${this.doc.name}`);
+    } else if (e.kind === 'cursor') {
+      this.#placePlayhead();
+      this.ruler.syncValue(this.doc.cursor);
+    } else if (e.kind === 'rename') {
+      this.surface.setAttribute('aria-label', `Waveform of ${this.doc.name}`);
+    }
     if (e.kind === 'edit' || e.kind === 'history') this.#buildChannelButtons();
   }
 

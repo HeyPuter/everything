@@ -154,6 +154,15 @@
   outline: none;
 }
 
+/* The ring is drawn over the canvas, which would cover an outline. */
+.time-ruler:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--focus);
+  pointer-events: none;
+}
+
 .time-ruler canvas {
   position: absolute;
   inset: 0;

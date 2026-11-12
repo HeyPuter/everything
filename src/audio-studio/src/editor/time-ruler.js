@@ -59,7 +59,18 @@ export class TimeRuler {
     this.app = app;
     this.host = host;
     this.canvas = h('canvas.time-ruler-canvas', { 'aria-hidden': 'true' });
-    this.el = h('div.time-ruler', { role: 'slider', tabindex: '-1', 'aria-label': 'Time ruler, playhead position' }, this.canvas);
+    // A slider for the playhead: drag or click it, or focus it and use the arrow keys,
+    // Page Up/Down, Home and End.
+    this.el = h(
+      'div.time-ruler',
+      {
+        role: 'slider',
+        tabindex: '0',
+        'aria-label': 'Time ruler, playhead position',
+        'aria-valuemin': '0',
+      },
+      this.canvas,
+    );
     this.ctx = this.canvas.getContext('2d');
     this.width = 0;
     this.height = 0;
@@ -68,6 +79,7 @@ export class TimeRuler {
     this.el.addEventListener('pointermove', (e) => this.#move(e));
     this.el.addEventListener('pointerup', (e) => this.#up(e));
     this.el.addEventListener('pointercancel', (e) => this.#up(e));
+    this.el.addEventListener('keydown', (e) => this.#keys(e));
     this.el.addEventListener('dblclick', (e) => {
       const m = this.#markerAt(e.offsetX);
       if (m) host.renameMarker?.(m.id);
@@ -102,6 +114,48 @@ export class TimeRuler {
       if (Math.abs(x - mx) <= 5) return m;
     }
     return null;
+  }
+
+  #keys(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = this.host.timeline();
+    const span = t.view.end - t.view.start;
+    const step = Math.max(1, Math.round((span / Math.max(1, this.width)) * (e.shiftKey ? 1 : 10)));
+    const page = span / 2;
+    const moves = {
+      ArrowLeft: -step,
+      ArrowDown: -step,
+      ArrowRight: step,
+      ArrowUp: step,
+      PageUp: -page,
+      PageDown: page,
+    };
+    let f;
+    if (e.key in moves) f = t.cursor + moves[e.key];
+    else if (e.key === 'Home') f = 0;
+    else if (e.key === 'End') f = t.length;
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+    f = Math.max(0, Math.min(t.length, Math.round(f)));
+    this.host.seek(f);
+    // Keep the playhead in view, as the transport keys do.
+    const hidden = f < t.view.start || f > t.view.end;
+    if (hidden && this.host.setView) this.host.setView(f - span / 2, f + span / 2);
+    this.syncValue(f, t);
+  }
+
+  /** The slider's value: the playhead, as a time in the current format. */
+  syncValue(frame, t = this.host.timeline()) {
+    const f = Math.round(frame);
+    const max = String(t.length);
+    const el = this.el;
+    const same = el.getAttribute('aria-valuenow') === String(f);
+    if (same && el.getAttribute('aria-valuemax') === max) return;
+    this.el.setAttribute('aria-valuemax', max);
+    this.el.setAttribute('aria-valuenow', String(f));
+    const text = this.app.formatTime ? this.app.formatTime(f, t.rate) : formatTime(f, t.rate);
+    this.el.setAttribute('aria-valuetext', text);
   }
 
   #down(e) {
@@ -176,6 +230,7 @@ export class TimeRuler {
     const W = this.width;
     const H = this.height;
     const t = this.host.timeline();
+    this.syncValue(t.cursor, t);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = cssVar('--bg-ruler');
