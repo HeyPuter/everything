@@ -423,3 +423,31 @@ describe('turning looping off', () => {
     expect(S.findClip(doc.state, right.id)).toEqual(right);
   });
 });
+
+describe('bouncing in a 5.1 session', () => {
+  it('puts six-channel bounces on a 5.1 track', async () => {
+    const { app, doc } = await appWithSession();
+    const st0 = { ...doc.state, master: { ...doc.state.master, channels: 6 } };
+    const t = S.createTrack({ name: 'Surround', channels: 6 });
+    const six = Array.from({ length: 6 }, (_, i) =>
+      Channel.fromSamples(new Float32Array(2000).fill(0.1 * (i + 1))),
+    );
+    const src = doc.addSource({ name: 'six.wav', channels: six });
+    const c = S.createClip({ trackId: t.id, sourceId: src, length: 2000 });
+    doc.apply('Setup', S.addClips(S.addTrack(st0, t, 0), [c]));
+    const heard = renderState(doc.state, doc.pool, null, 2000).map((ch) => ch[1000]);
+    for (const cmd of ['mt.bounceTrack', 'mt.bounceClips']) {
+      doc.selectTrack(t.id);
+      doc.selectClips([c.id]);
+      await app.commands.run(cmd);
+      const bounced = doc.clipSelection[0];
+      expect(doc.pool.get(bounced.sourceId).channels.length).toBe(6);
+      expect(S.findTrack(doc.state, bounced.trackId).channels).toBe(6);
+      // With the original muted, the bounce plays the same six channels.
+      const only = S.updateClips(doc.state, [c.id], { mute: true });
+      const out = renderState(only, doc.pool, null, 2000).map((ch) => ch[1000]);
+      for (let i = 0; i < 6; i++) expect(out[i]).toBeCloseTo(heard[i], 4);
+      doc.history.undo();
+    }
+  });
+});

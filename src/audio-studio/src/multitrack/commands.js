@@ -693,7 +693,8 @@ export function installMultitrackCommands(app) {
     app.addDocument(file, { activate: false });
     const sourceId = await linkSource(doc, file);
     const afterTrack = S.findTrack(doc.state, after);
-    const made = newTrack(doc.state, { name: baseName(file.name), afterId: afterTrack?.type === 'audio' ? after : undefined });
+    // A 5.1 render goes on a 5.1 track, which plays all six channels.
+    const made = newTrack(doc.state, { name: baseName(file.name), channels: data.length === 6 ? 6 : 2, afterId: afterTrack?.type === 'audio' ? after : undefined });
     const clip = S.createClip({ trackId: made.track.id, sourceId, name: baseName(file.name), start: o.start, length: data[0].length });
     doc.apply('Bounce to New Track', S.addClips(made.state, [clip]), { clips: [clip.id] });
     doc.selectTrack(made.track.id);
