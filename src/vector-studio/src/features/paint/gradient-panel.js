@@ -275,7 +275,7 @@ export class GradientPanel extends Panel {
     this.presetList = list;
     this.presets.replaceChildren(
       ...list.map((s) =>
-        h('button.gp-preset', { type: 'button', role: 'option', 'aria-label': `Apply ${s.name}`, 'data-tip': s.name, onclick: () => this.commit(structuredClone(s.paint), 'Apply Gradient', null) }, paintSwatch(s.paint)),
+        h('button.gp-preset', { type: 'button', role: 'option', 'aria-label': `Apply ${s.name}`, 'data-tip': s.name, onclick: () => this.commit(resetGradientVector(structuredClone(s.paint)), 'Apply Gradient', null) }, paintSwatch(s.paint)),
       ),
     );
     this.presets.hidden = !list.length;
@@ -286,7 +286,8 @@ export class GradientPanel extends Panel {
     const ed = this.app.editor;
     const { paint } = ed ? focusedPaint(ed) : { paint: null };
     if (paint && paint !== 'mixed' && (isGradient(paint) || isFreeform(paint))) return { paint, applied: true };
-    return { paint: paintState.lastGradient || ed?.lastGradient || DEFAULT_LINEAR, applied: false };
+    // End points dragged on another object do not carry over: the gradient fits what it is applied to.
+    return { paint: resetGradientVector(paintState.lastGradient || ed?.lastGradient || DEFAULT_LINEAR), applied: false };
   }
 
   commit(paint, label, coalesce) {

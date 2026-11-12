@@ -165,3 +165,24 @@ describe('Graphic styles made from a dragged gradient', () => {
     expect(doc.get(src).fill).toEqual(dragged);
   });
 });
+
+describe('The Gradient panel after editing a dragged gradient', () => {
+  it('applies the last gradient to another object fitted to it', async () => {
+    const { paintSetup } = await import('./panels-paint-helpers.js');
+    const { ed, doc, add, panel } = await paintSetup();
+    const src = add({ fill: dragged }, [0, 0, 100, 100]);
+    const dst = add({ fill: blue }, [400, 300, 200, 100]);
+    ed.focusPaint = 'fill';
+    ed.select([src]);
+    const gp = panel('gradient');
+    gp.reverse.click();
+    expect(doc.get(src).fill.x2).toBe(50);
+    ed.select([dst]);
+    gp.update(true);
+    gp.thumb.click();
+    const fill = doc.get(dst).fill;
+    expect(fill.type).toBe('linear');
+    expect(fill.x1).toBeUndefined();
+    expect(fill.stops.map((s) => s.color)).toEqual(['#000000', '#ffffff']);
+  });
+});
