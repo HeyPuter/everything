@@ -636,7 +636,8 @@ export class RoomClient {
     await Promise.race([this.settled(), new Promise((r) => setTimeout(r, 3000))]);
     void this.peers?.broadcast('leave', {});
     this.close();
-    await this.request({ op: 'leave', session: this.session }).catch(() => {});
+    // Not awaited: closing a tab never waits for the worker to answer.
+    void this.request({ op: 'leave', session: this.session }).catch(() => {});
   }
   close() {
     this.closed = true;

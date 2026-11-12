@@ -187,7 +187,7 @@ async function twoPeople(browser: import('@playwright/test').Browser, baseURL: s
   await access.getByRole('button', { name: 'Done' }).click();
   const b = await person(env, peers, ctxB, editor, link.pathname + link.hash);
   await expect.poll(async () => (await sharedState(b.page))?.role, { timeout: 60_000 }).toBe('editor');
-  return { a, b, close: () => Promise.all([ctxA.close(), ctxB.close()]) };
+  return { env, a, b, close: () => Promise.all([ctxA.close(), ctxB.close()]) };
 }
 
 test('a person who switches to another document leaves no cursor, layer or selection outline behind', async ({ browser }, info) => {
@@ -233,6 +233,23 @@ test('a person whose peer link closes stops being shown at once', async ({ brows
   await expect(overlay.locator('.collab-cursor')).toHaveCount(0, { timeout: 5_000 });
   await expect(a.page.locator('.collab-bar .collab-avatar')).toHaveCount(1);
   expect(a.errors).toEqual([]);
+  await close();
+});
+
+test('closing a shared document’s tab does not wait for the worker to answer', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const { env, b, close } = await twoPeople(browser, info.project.use.baseURL);
+  // The worker stops answering (a stalled connection).
+  const service = env.service;
+  env.route = () => ({ call: (identity: never, input: Record<string, unknown>) => (input.op === 'leave' ? new Promise(() => {}) : service.call(identity, input)) }) as unknown as typeof service;
+  const ms = await b.page.evaluate(async () => {
+    const e = window.photoStudio;
+    const t = performance.now();
+    await e.closeSession(e.session);
+    return performance.now() - t;
+  });
+  expect(ms).toBeLessThan(2000);
+  expect(await b.page.evaluate(() => window.photoStudio.sessions.filter((s) => s.hasDocument).length)).toBe(0);
   await close();
 });
 
