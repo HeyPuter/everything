@@ -32,3 +32,28 @@ test('the status bar info menu takes Home and End, and a closed menu leaves noth
   await expect(menu).toHaveCount(0);
   await expect(button).toHaveAttribute('aria-expanded', 'false');
 });
+
+for (const viewport of [{ width: 1024, height: 768 }, { width: 768, height: 1024 }]) {
+  test.describe(`on a ${viewport.width}×${viewport.height} touch screen`, () => {
+    test.use({ viewport, hasTouch: true });
+    test('bar, tab and panel controls are at least 24 px tall and wide', async ({ page }) => {
+      const small = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.topbar, .optionsbar, .toolbar, .document-tabs, .statusbar, .dock-column, .dock-strip')]
+          .flatMap((root) => [...root.querySelectorAll<HTMLElement>('button, select, input:not([type="hidden"]), [role="tab"]')])
+          // Checkboxes sit in their (larger) labels; the color chips' touch area extends past their glyph.
+          .filter((el) => el.getClientRects().length && !el.closest('.color-chips, .color-chip-pair, .sr-only, label') && !el.classList.contains('sr-only'))
+          .map((el) => ({ el, r: el.getBoundingClientRect() }))
+          .filter(({ r }) => Math.min(r.width, r.height) < 24 - 0.5)
+          .map(({ el, r }) => `${el.getAttribute('aria-label') ?? el.id ?? el.className} ${Math.round(r.width)}×${Math.round(r.height)}`),
+      );
+      expect(small).toEqual([]);
+      // The chips' touch areas: 24 px or more around their glyph.
+      for (const sel of ['.chip-default', '.chip-swap', '.fg-big']) {
+        const after = await page.locator(sel).first().evaluate((el) => { const s = getComputedStyle(el, '::after'); return s.content !== 'none' ? parseFloat(s.top) : 0; });
+        const box = (await page.locator(sel).first().boundingBox())!;
+        expect(Math.min(box.width, box.height) - 2 * after, sel).toBeGreaterThanOrEqual(24);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    });
+  });
+}

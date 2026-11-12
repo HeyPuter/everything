@@ -2373,3 +2373,28 @@ html.feature-loading .statusbar::after { content: ''; position: absolute; left: 
 @media (prefers-reduced-motion: reduce) { html.feature-loading .statusbar::after, .panel-loading { animation: none; } }
 .panel-load-error { display: grid; gap: 8px; justify-items: start; padding: 12px 10px; color: var(--muted); }
 .panel-load-error p { margin: 0; line-height: 1.4; }
+
+/* Touch screens: controls of the bars and panels are at least 28 px tall
+   (the 24 px minimum target size, with room for a finger), and the bars grow
+   to hold them. Rules that size a control explicitly still win. */
+@media (pointer: coarse) {
+  #app { grid-template-rows: 36px 40px minmax(0, 1fr) 30px; }
+  #app.options-hidden { grid-template-rows: 36px minmax(0, 1fr) 30px; }
+  button, select, input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='hidden']) { min-height: 28px; }
+  .icon-button { min-width: 28px; }
+  .optionsbar input[type='checkbox'] { width: 18px; height: 18px; }
+  .document-tabs { height: 32px; }
+  .tab-close { width: 26px; min-height: 26px; }
+  .statusbar :is(button, input), #zoom-label.zoom-field { min-height: 26px; }
+  .lock-row .icon-button { min-height: 28px; }
+  /* The small color-chip buttons keep their look; their touch area grows. */
+  .chip-default::after, .chip-swap::after { content: ''; position: absolute; inset: -6px; }
+  .color-chip-pair .chip::after { content: ''; position: absolute; inset: -3px; }
+  #color-hue { width: 24px; }
+  #color-hue::-webkit-slider-thumb { width: 30px; }
+  .property-body h3 button { min-width: 28px; min-height: 28px; }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  .menubar-entry > .menu-pop { top: 34px; max-height: calc(100dvh - 42px); }
+  .dock { top: 76px; bottom: 30px; }
+}
