@@ -451,3 +451,33 @@ describe('script values', () => {
     expect(doc.get(id).char.fontSize).toBe(20);
   });
 });
+
+describe('variable libraries', () => {
+  it('a damaged variable library loads what it can instead of failing with a program error', async () => {
+    const app = await bootAppWithFeatures();
+    const ed = app.newDocument({ name: 'Lib' });
+    const p = app.panels?.get?.('variables') || app.panelInstances?.variables;
+    const { VariablesPanel } = await import('../src/features/variables/panel.js');
+    const panel = p || new VariablesPanel(app);
+    const notes = [];
+    app.notify = (m, o) => notes.push([m, o]);
+    const data = {
+      format: 'vector-studio-variables',
+      version: 1,
+      variables: [null, 5, { id: 'x1', name: 'Title', type: 'text' }],
+      dataSets: [null, { name: 'Row', values: { x1: 'Hi' } }],
+    };
+    const added = await panel.loadLibrary({ text: async () => JSON.stringify(data) });
+    expect(added).toBe(1);
+    expect(ed.doc.root.variables.map((v) => v.name)).toEqual(['Title']);
+    expect(ed.doc.root.dataSets).toHaveLength(1);
+    const bad = {
+      format: 'vector-studio-variables',
+      version: 1,
+      variables: [],
+      dataSets: { a: 1 },
+    };
+    expect(await panel.loadLibrary({ text: async () => JSON.stringify(bad) })).toBe(0);
+    expect(ed.doc.root.dataSets).toHaveLength(1);
+  });
+});
