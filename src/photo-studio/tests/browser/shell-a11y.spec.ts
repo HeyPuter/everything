@@ -92,3 +92,27 @@ test('dragging a divider between panel groups resizes only those two groups, als
   // The browser does not take a touch drag on the divider for scrolling.
   expect(await page.locator('[data-resize="dock-top"]').evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
 });
+
+test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on its slot', async ({ page }) => {
+  const slot = page.locator('[data-slot="marquee"]');
+  await slot.focus();
+  await page.keyboard.press('ArrowRight');
+  const flyout = page.locator('.tool-flyout');
+  await expect(flyout).toBeVisible();
+  await page.keyboard.press('End');
+  await expect(flyout.locator('button').last()).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(flyout.locator('button').first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  const chosen = await flyout.locator('button:focus').getAttribute('data-flyout-tool');
+  await page.keyboard.press('Enter');
+  await expect(flyout).toHaveCount(0);
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe(chosen);
+  await expect(page.locator('[data-slot="marquee"]')).toBeFocused();
+  // Tab closes the flyout instead of leaving it open behind the focus.
+  await page.keyboard.press('ArrowRight');
+  await expect(flyout).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(flyout).toHaveCount(0);
+  await expect(page.locator('[data-slot="marquee"]')).toBeFocused();
+});
