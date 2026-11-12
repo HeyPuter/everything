@@ -392,3 +392,40 @@ describe('a document shown in two windows', () => {
     expect(await store.list()).toHaveLength(1);
   });
 });
+
+describe('libraries', () => {
+  it('asks before Delete or Backspace removes an asset, which cannot be undone', async () => {
+    const { bootAppWithFeatures } = await import('./helpers.js');
+    const app = await bootAppWithFeatures();
+    app.newDocument();
+    await app.libraries.load();
+    const lib = await app.libraries.create('Brand');
+    app.prefs.set('librariesCurrent', lib.id);
+    app.libraries.addItems(lib.id, [
+      { kind: 'color', name: 'Red', data: { paint: { type: 'solid', color: '#ff0000' } } },
+    ]);
+    app.openPanel('libraries');
+    const panel = app.dock.panels.get('libraries');
+    panel.choose?.(lib.id);
+    panel.render?.();
+    const item = () => document.querySelector('.lib-item');
+    const press = async (key) => {
+      item().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      for (let i = 0; i < 50 && !document.querySelector('dialog[open]'); i++)
+        await new Promise((r) => setTimeout(r, 10));
+      return document.querySelector('dialog[open]');
+    };
+    const button = (dlg, label) =>
+      [...dlg.querySelectorAll('button')].find((b) => b.textContent === label);
+    let dlg = await press('Backspace');
+    expect(dlg.textContent).toMatch(/Delete “Red” from “Brand”\?/);
+    button(dlg, 'Cancel').click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(app.libraries.get(lib.id).items).toHaveLength(1);
+    dlg = await press('Delete');
+    button(dlg, 'Delete').click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(app.libraries.get(lib.id).items).toHaveLength(0);
+    await app.libraries.flush();
+  });
+});

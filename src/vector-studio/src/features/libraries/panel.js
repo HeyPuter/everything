@@ -297,7 +297,10 @@ export class LibrariesPanel extends Panel {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             this.use(it);
-          } else if (e.key === 'Delete' || e.key === 'Backspace') this.store.removeItems(lib.id, [it.id]);
+          } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            this.removeItem(lib, it);
+          }
           else if (e.key === 'F2') this.renameItem(lib, it);
           else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
             const r = el.getBoundingClientRect();
@@ -367,10 +370,21 @@ export class LibrariesPanel extends Panel {
         { type: 'cmd', label: 'Rename…', enabled: true, run: () => this.renameItem(lib, it) },
         ...this.store.libraries.filter((l) => l.id !== lib.id).slice(0, 12).map((l) => ({ type: 'cmd', label: `Copy to ${l.name}`, enabled: true, run: () => this.store.addItems(l.id, [JSON.parse(JSON.stringify(it))]) })),
         { type: 'sep' },
-        { type: 'cmd', label: 'Delete', enabled: true, run: () => this.store.removeItems(lib.id, [it.id]) },
+        { type: 'cmd', label: 'Delete…', enabled: true, run: () => this.removeItem(lib, it) },
       ],
       { x: at.x, y: at.y, label: 'Library item' },
     );
+  }
+
+  /**
+   * Remove an asset after asking: removal cannot be undone, and Delete or
+   * Backspace reaches the item still focused after it was clicked to place
+   * it, when the user means the placed artwork.
+   */
+  async removeItem(lib, it) {
+    const label = it.name || KIND_LABELS[it.kind];
+    const ok = await this.app.dialogs.confirm({ title: 'Delete Asset', message: `Delete “${label}” from “${lib.name}”? This cannot be undone. Documents that used it keep their artwork.`, okLabel: 'Delete', danger: true });
+    if (ok) this.store.removeItems(lib.id, [it.id]);
   }
 
   async renameItem(lib, it) {
