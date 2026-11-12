@@ -188,3 +188,20 @@ describe('Lock Others and Hide Others with sublayers', () => {
     expect(doc.get(layer.id).locked).toBe(false);
   });
 });
+
+describe('Lock and Hide All Artwork Above with sublayers', () => {
+  it('act on the overlapping objects in a sublayer above, not on the sublayer', async () => {
+    const { app, ed, doc, add, sublayer } = setup(await bootAppWithFeatures());
+    const a = add(0);
+    const sub = sublayer();
+    const b = add(5, sub);
+    const far = add(500, sub);
+    ed.select([a]);
+    await app.commands.run('object.hideAbove');
+    expect(doc.get(sub).hidden).toBe(false);
+    expect(doc.isHidden(b)).toBe(true);
+    expect(doc.isHidden(far)).toBe(false);
+    await app.commands.run('object.showAll');
+    expect(doc.isHidden(b)).toBe(false);
+  });
+});

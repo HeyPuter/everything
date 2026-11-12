@@ -65,17 +65,23 @@ export function artworkAbove(editor) {
   if (!b) return [];
   const chosen = new Set(sel);
   const out = [];
-  for (const lid of doc.root.children) {
+  // Sublayers are looked into, never locked or hidden themselves (Unlock All and Show All leave layers alone).
+  const visit = (lid) => {
     const layer = doc.get(lid);
-    if (!layer || layer.locked || layer.hidden) continue;
+    if (!layer || layer.locked || layer.hidden) return;
     for (const id of layer.children) {
       const n = doc.get(id);
       if (!n || chosen.has(id) || n.locked || n.hidden) continue;
+      if (n.type === 'layer') {
+        visit(id);
+        continue;
+      }
       if ((order.get(id) ?? 0) <= topIndex) continue;
       const nb = nodeBounds(doc, n);
       if (nb && rectsIntersect(nb, b)) out.push(id);
     }
-  }
+  };
+  for (const lid of doc.root.children) visit(lid);
   return out;
 }
 
