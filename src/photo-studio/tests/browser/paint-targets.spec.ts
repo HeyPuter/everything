@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { boot, canvasDrag, idle, openImage, tool } from './helpers';
+import { boot, canvasDrag, client, idle, openImage, tool } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -106,4 +106,31 @@ test('the Pencil paints hard, aliased pixels', async ({ page }) => {
     return [...new Set(data.filter((_, i) => i % 4 === 3))].sort((a, b) => a - b);
   });
   expect(alpha).toEqual([0, 255]);
+});
+
+test('the airbrush builds up paint while the pointer rests', async ({ page }) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const l = newPixelLayer('Air', e.doc);
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    e.setForeground('#000000');
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 20, hardness: 1, flow: 0.1, airbrush: true, smoothing: 0 });
+  });
+  await idle(page);
+  const at = await client(page, 100, 60);
+  await page.mouse.move(...at);
+  await page.mouse.down();
+  // A single dab at 10% flow is alpha 26; resting adds a dab every 50 ms.
+  await page.waitForTimeout(600);
+  await page.mouse.up();
+  await idle(page);
+  const alpha = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    return readRGBA(e.assets.tiles, e.doc.layers.at(-1)!.pixels!, { x: 100, y: 60, width: 1, height: 1 }).data[3];
+  });
+  expect(alpha).toBeGreaterThan(60);
 });

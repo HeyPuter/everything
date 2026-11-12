@@ -220,7 +220,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
       for (const q of queue) addSample(e, a, q);
       if (s.airbrush) a.timer = window.setInterval(() => {
         if (a.last) {
-          a.session!.addPoint(a.last[0] + 0.01, a.last[1], 1);
+          a.session!.hold();
           e.preview(previewTarget(e, a.target!, a.session!.grid));
         }
       }, 50);

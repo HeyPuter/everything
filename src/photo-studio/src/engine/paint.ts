@@ -164,6 +164,11 @@ export class StrokeSession {
     this.last = { x, y, pressure };
     return dirty;
   }
+  /** Airbrush build-up: another dab where the stroke rests, at its last pressure. */
+  hold(): IRect | null {
+    const l = this.last;
+    return l ? this.dab(l.x, l.y, l.pressure) : null;
+  }
   /** End the current segment so the next point starts a separate stroke
    * within the same session (one undo step for many strokes). */
   lift() {
