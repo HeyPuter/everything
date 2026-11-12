@@ -408,7 +408,10 @@ export function insertContent(c: TextContent, index: number, piece: TextContent)
   let pos = index;
   piece.paragraphs.forEach((p, pi) => {
     for (const r of p.runs) {
-      if (r.text) out = applyCharStyle(out, pos, pos + r.text.length, r.style);
+      // Optional keys the piece lacks are cleared, not inherited from the destination.
+      const style: Partial<CharStyle> = { ...r.style };
+      for (const k of optionalCharKeys) if (style[k] === undefined) style[k] = '';
+      if (r.text) out = applyCharStyle(out, pos, pos + r.text.length, style);
       pos += r.text.length;
     }
     if (pi < piece.paragraphs.length - 1) pos++;
