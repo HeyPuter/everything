@@ -8,7 +8,10 @@ import * as E from '../src/model/edits.js';
 function fakeContext() {
   return new Proxy(
     {},
-    { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => ((t[k] = v), true) },
+    {
+      get: (t, k) => (k in t ? t[k] : k === 'measureText' ? () => ({ width: 10 }) : () => {}),
+      set: (t, k, v) => ((t[k] = v), true),
+    },
   );
 }
 
@@ -215,5 +218,42 @@ describe('history jumps across a sample rate conversion', () => {
     doc.history.undo();
     doc.history.undo();
     expect(doc.cursor).toBe(72000);
+  });
+});
+
+describe('time ruler with many markers', () => {
+  it('asks the host for the timeline once per draw and hover, not once per marker', async () => {
+    const { TimeRuler } = await import('../src/editor/time-ruler.js');
+    const { App } = await import('../src/app.js');
+    HTMLCanvasElement.prototype.getContext = (type) => (type === '2d' ? fakeContext() : null);
+    const app = new App();
+    let calls = 0;
+    const markers = Array.from({ length: 500 }, (_, i) => ({
+      id: `m${i}`,
+      start: i * 90,
+      duration: i % 2 ? 40 : 0,
+      type: 'cue',
+    }));
+    const host = {
+      timeline: () => {
+        calls++;
+        return {
+          rate: 48000,
+          length: 48000,
+          view: { start: 0, end: 48000 },
+          cursor: 0,
+          selection: { start: 10, end: 900 },
+          markers,
+        };
+      },
+      seek: () => {},
+    };
+    const ruler = new TimeRuler(app, host);
+    ruler.resize(800, 24);
+    ruler.draw();
+    expect(calls).toBeLessThanOrEqual(2);
+    calls = 0;
+    ruler.el.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }));
+    expect(calls).toBeLessThanOrEqual(2);
   });
 });

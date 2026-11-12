@@ -67,8 +67,8 @@ export class TimeRuler {
     this.dpr = dpr;
   }
 
-  xOf(frame) {
-    const { view } = this.host.timeline();
+  /** x of a frame; `view` saves asking the host again (its timeline lists every marker). */
+  xOf(frame, view = this.host.timeline().view) {
     return ((frame - view.start) / (view.end - view.start)) * this.width;
   }
 
@@ -80,7 +80,7 @@ export class TimeRuler {
   #markerAt(x) {
     const t = this.host.timeline();
     for (const m of t.markers || []) {
-      const mx = this.xOf(m.start);
+      const mx = this.xOf(m.start, t.view);
       if (Math.abs(x - mx) <= 5) return m;
     }
     return null;
@@ -205,8 +205,8 @@ export class TimeRuler {
     // Selection band.
     const sel = t.selection;
     if (sel && sel.end > sel.start) {
-      const x0 = Math.max(0, this.xOf(sel.start));
-      const x1 = Math.min(W, this.xOf(sel.end));
+      const x0 = Math.max(0, this.xOf(sel.start, t.view));
+      const x1 = Math.min(W, this.xOf(sel.end, t.view));
       if (x1 > x0) {
         ctx.fillStyle = cssVar('--accent-soft');
         ctx.fillRect(x0, H - 6, x1 - x0, 6);
@@ -214,8 +214,8 @@ export class TimeRuler {
     }
     // Markers.
     for (const m of t.markers || []) {
-      const x = Math.round(this.xOf(m.start)) + 0.5;
-      const x2 = m.duration ? this.xOf(m.start + m.duration) : x;
+      const x = Math.round(this.xOf(m.start, t.view)) + 0.5;
+      const x2 = m.duration ? this.xOf(m.start + m.duration, t.view) : x;
       if (x2 < -10 || x > W + 10) continue;
       ctx.fillStyle = m.selected ? cssVar('--text-strong') : markerColor(m.type);
       if (m.duration) {
