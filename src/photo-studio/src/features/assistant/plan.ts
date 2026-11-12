@@ -57,7 +57,7 @@ const nextKey = () => `s${++counter}`;
 
 /** Turn the model's proposal into a checked plan. */
 export function buildPlan(raw: RawPlan, request: string, env: PlanEnv): Plan {
-  const list = Array.isArray(raw.steps) ? (raw.steps as RawStep[]) : [];
+  const list: unknown[] = Array.isArray(raw.steps) ? raw.steps : [];
   const steps: Step[] = list.slice(0, MAX_STEPS).map((s) => makeStep(s, env));
   const plan: Plan = {
     id: crypto.randomUUID(),
@@ -90,8 +90,11 @@ function resolve(asked: string, env: PlanEnv): { id: string; kind: Step['kind'];
   return { id: '', kind: 'unknown', problem: `There is no command “${a.slice(0, 80)}”.` };
 }
 
-function makeStep(raw: RawStep, env: PlanEnv): Step {
-  const asked = typeof raw.action === 'string' ? raw.action : String(raw.action ?? '');
+function makeStep(given: unknown, env: PlanEnv): Step {
+  // Models sometimes write a step as its bare ID; anything else that is not
+  // an object names no command.
+  const raw: RawStep = typeof given === 'string' ? { action: given } : given && typeof given === 'object' && !Array.isArray(given) ? (given as RawStep) : {};
+  const asked = typeof raw.action === 'string' ? raw.action.slice(0, 200) : typeof raw.action === 'number' ? String(raw.action) : '';
   const r = resolve(asked, env);
   const step: Step = {
     key: nextKey(),

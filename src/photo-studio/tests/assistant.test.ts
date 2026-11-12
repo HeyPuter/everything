@@ -225,6 +225,15 @@ describe('Assistant plan validation', () => {
     // AI Fill leaves no selection, so the mask step would fail after a paid fill.
     expect(plan.steps[2].problems).toEqual(['“Hide Selection” needs a selection, and there is none at this point. Add a step that selects an area first.']);
   });
+  it('reads steps the model wrote as bare IDs and survives malformed ones', () => {
+    const plan = buildPlan({ title: { not: 'text' }, steps: [null, 'select.all', 42, ['x'], { action: { id: 'x' } }, { action: 'adjust.invert', args: 'none', note: 7 }] } as never, 'invert it', env());
+    expect(plan.title).toBe('invert it');
+    expect(plan.steps.map((s) => s.action)).toEqual(['', 'select.all', '', '', '', 'adjust.invert']);
+    expect(plan.steps[1].problems).toEqual([]);
+    expect(plan.steps[0].problems).toEqual(['The step does not name a command.']);
+    expect(plan.steps[4].label.length).toBeLessThan(100);
+    expect(plan.steps[5]).toMatchObject({ problems: [], note: undefined });
+  });
   it('runs a settings step without settings at its defaults, not in its dialog', () => {
     const plan = buildPlan({ steps: [{ action: 'filter.apply.gaussian-blur' }] }, 'r', env());
     expect(plan.steps[0].input).toBe('settings');
