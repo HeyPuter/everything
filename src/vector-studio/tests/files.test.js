@@ -689,6 +689,27 @@ describe('FileService', () => {
     expect((await parseDocument(files.get('/u/Logo.vstudio'))).doc.root.name).toBe('Edited during save');
   });
 
+  it('keeps the Save As location when an earlier save lands after it', async () => {
+    const { app, files, puter } = fakeApp();
+    const svc = new FileService(app, { recent: null });
+    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' } });
+    const write = puter.fs.write.getMockImplementation();
+    let release;
+    puter.fs.write.mockImplementationOnce((...a) => new Promise((r) => (release = () => r(write(...a)))));
+    const first = svc.save(ed);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    ed.doc.transact('Rename', () => ed.doc.updateRoot({ name: 'Edited' }));
+    // Save As while the slow save is still writing: the new file is written first.
+    expect(await svc.saveAs(ed)).toBe(true);
+    expect(ed.file.path).toBe('/u/Desktop/Logo.vstudio');
+    release();
+    expect(await first).toBe(true);
+    // The tab stays on the file chosen last, and is saved.
+    expect(ed.file.path).toBe('/u/Desktop/Logo.vstudio');
+    expect(ed.doc.dirty).toBe(false);
+    expect((await parseDocument(files.get('/u/Desktop/Logo.vstudio'))).doc.root.name).toBe('Edited');
+  });
+
   it('clears the file name message in the Save As dialog once the name is edited', async () => {
     const { app } = fakeApp();
     app.prefs.set('filesSaveDialog', 'app');

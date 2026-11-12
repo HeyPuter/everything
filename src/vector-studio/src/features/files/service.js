@@ -182,7 +182,7 @@ export class FileService {
     if (f?.kind === 'download') {
       const enc = await this.encode(editor);
       downloadBytes(enc.bytes, f.name);
-      this.#markSaved(editor, enc, f);
+      this.#markSaved(editor, enc, f, f);
       return true;
     }
     return this.saveAs(editor);
@@ -195,11 +195,12 @@ export class FileService {
     if (r.saveAs) return this.saveAs(editor);
     if (r.downloaded) return true;
     const item = r.result;
-    this.#markSaved(editor, enc, { kind: 'puter', path: item?.path || file.path, name: item?.name || file.name });
+    this.#markSaved(editor, enc, { kind: 'puter', path: item?.path || file.path, name: item?.name || file.name }, file);
     return true;
   }
 
-  async #writeHandle(editor, file, enc = null) {
+  async #writeHandle(editor, file, enc = null, { inPlace = true } = {}) {
+    const from = inPlace ? file : undefined;
     enc = enc || (await this.encode(editor));
     if (!(await ensurePermission(file.handle, 'readwrite'))) {
       this.app.notify(`Permission to save "${file.name}" was not granted.`, { error: true });
@@ -213,7 +214,7 @@ export class FileService {
     if (!r) return false;
     if (r.saveAs) return this.saveAs(editor);
     if (r.downloaded) return true;
-    this.#markSaved(editor, enc, file);
+    this.#markSaved(editor, enc, file, from);
     return true;
   }
 
@@ -241,8 +242,17 @@ export class FileService {
     }
   }
 
-  #markSaved(editor, enc, file) {
+  /**
+   * Record a finished write. `from` is the file a save in place started
+   * with: when Save As chose another file meanwhile, the tab stays with
+   * that one (only the recent list hears about this write).
+   */
+  #markSaved(editor, enc, file, from = undefined) {
     const doc = editor.doc;
+    if (from !== undefined && editor.file !== from) {
+      this.#remember(file, enc.thumb);
+      return;
+    }
     editor.file = file;
     doc.savedRevision = enc.rev;
     doc.emit('saved');
@@ -456,7 +466,7 @@ export class FileService {
       if (r && !r.saveAs) this.#remember(file, enc.thumb);
       return Boolean(r);
     }
-    return this.#writeHandle(editor, file, enc);
+    return this.#writeHandle(editor, file, enc, { inPlace: false });
   }
 
   // ---- opening ----
