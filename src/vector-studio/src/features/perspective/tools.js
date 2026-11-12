@@ -12,6 +12,7 @@ import { hitTest, marqueeHits } from '../../render/hit.js';
 import { translate, scale as scaleMatrix } from '../../lib/matrix.js';
 import { collectOriginals, transformFromOriginals, transformNodes, unionRect } from '../../model/geometry.js';
 import { duplicateInPlace } from '../../tools/transform-session.js';
+import { marqueeRegion } from '../../tools/selection.js';
 import { announce } from '../../lib/dom.js';
 import { toFlat, toDoc, localScale, depthOf, settingsOf, PLANE_LABELS } from './grid-math.js';
 import { gridOf, setGrid, isPerspective, perspectiveOwner, frameFor, flatBounds } from './model.js';
@@ -533,10 +534,11 @@ export class PerspectiveSelectionTool extends Tool {
     ed.feedback = null;
     if (!d) return;
     if (d.kind === 'marquee') {
-      const r = { x: Math.min(d.x0, d.x), y: Math.min(d.y0, d.y), w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) };
-      if (r.w * ed.view.zoom > 2 || r.h * ed.view.zoom > 2) {
+      // The marquee is drawn upright on screen: in a rotated view it covers a turned square of the document.
+      const { r, screen, opts } = marqueeRegion(ed, d);
+      if (screen.w > 2 || screen.h > 2) {
         const iso = ed.isolation;
-        const hits = marqueeHits(ed.doc, r).filter((n) => !iso || ed.doc.isAncestor(iso, n.id));
+        const hits = marqueeHits(ed.doc, r, opts).filter((n) => !iso || ed.doc.isAncestor(iso, n.id));
         const targets = [...new Set(hits.map((n) => ed.selectionTarget(n.id).id))];
         ed.select(targets, d.add ? { toggle: true } : {});
       }
