@@ -33,6 +33,12 @@
 // the chain runs once per block, and it keeps running `fxTail` frames past
 // the clip's end so reverb tails ring out.
 //
+// Latency compensation (see compensateLatency): a track's `envShift` moves
+// where its volume and pan automation is read (its audio runs that far
+// ahead of the timeline), and `outDelay` / a send's `delay` delay what it
+// feeds its output and each send target, so every path reaches the master
+// at the same time.
+//
 // 5.1 surround: with `graph.surround` the master is 6 channels (L, R, C, LFE,
 // Ls, Rs; see surround.js) and renderBlock needs 6 master buffers. Tracks
 // with `six` carry 6 channels end to end (5.1 audio tracks read 6-channel
@@ -370,6 +376,104 @@ function delayDry(scratch, id, dry, nch, frames, lat) {
 }
 
 /**
+ * `frames` of `src` (planar) delayed by `lat` frames, in a scratch buffer
+ * (a ring per `id` keeps the delayed audio between blocks). Returns `src`
+ * itself when `lat` is 0.
+ */
+function delayed(scratch, id, src, frames, lat) {
+  if (!(lat > 0)) return src;
+  if (!scratch.delays) scratch.delays = new Map();
+  const nch = src.length;
+  let d = scratch.delays.get(id);
+  if (!d || d.lat !== lat || d.ring.length !== nch) {
+    d = { lat, pos: 0, ring: Array.from({ length: nch }, () => new Float32Array(lat)), out: null };
+    scratch.delays.set(id, d);
+  }
+  if (!d.out || d.out[0].length < frames) d.out = Array.from({ length: nch }, () => new Float32Array(Math.max(frames, scratch.gains.length)));
+  let pos = d.pos;
+  for (let c = 0; c < nch; c++) {
+    const r = d.ring[c];
+    const x = src[c];
+    const o = d.out[c];
+    pos = d.pos;
+    for (let i = 0; i < frames; i++) {
+      o[i] = r[pos];
+      r[pos] = x[i];
+      if (++pos === lat) pos = 0;
+    }
+  }
+  d.pos = pos;
+  return d.out;
+}
+
+/** Forgets a silenced track's delay lines, so it does not replay stale audio when it is heard again. */
+function dropDelays(scratch, track) {
+  if (!scratch.delays?.size || !(track.outDelay || track.sends?.some((s) => s.delay))) return;
+  for (const key of scratch.delays.keys()) if (key.startsWith(`${track.id}>`)) scratch.delays.delete(key);
+}
+
+/**
+ * Plugin delay compensation for a graph whose tracks (and master) carry their
+ * effect chain's `latency` in frames. A track's audio leaves its chain
+ * `latency` frames late, and a bus adds its own on top, so paths through
+ * latent effects would reach the master behind the others. Every track reads
+ * its clips early by its chain's latency plus the most latency of any path
+ * after it (its output and send targets, through buses, and the master's
+ * chain), and each of those paths that has less latency than the most is
+ * delayed by the difference, so all of them line up with the timeline at the
+ * master. Sets `envShift` and `outDelay` on tracks and `delay` on sends, and
+ * moves the clips (cutting what would start before frame 0). Returns the graph.
+ */
+export function compensateLatency(graph) {
+  const tracks = graph.tracks;
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  const isBus = (id) => byId.get(id)?.bus;
+  const own = (t) => Math.max(0, Math.round(t?.latency || 0));
+  const masterLat = own(graph.master);
+  const dest = (t) => (t.output && t.output !== t.id && isBus(t.output) ? t.output : null);
+  // Latency from a bus's input to the master's output (memoised; cycles count once).
+  const arrival = new Map();
+  const toMaster = (id, guard = 0) => {
+    if (id === null) return masterLat;
+    if (arrival.has(id)) return arrival.get(id);
+    arrival.set(id, 0);
+    const b = byId.get(id);
+    const e = own(b) + (guard < tracks.length ? after(b, guard + 1) : masterLat);
+    arrival.set(id, e);
+    return e;
+  };
+  // The most latency of any path leaving track t (after its own chain).
+  const after = (t, guard = 0) => {
+    let m = toMaster(dest(t), guard);
+    for (const s of t.sends || []) if (s.target !== t.id && isBus(s.target)) m = Math.max(m, toMaster(s.target, guard));
+    return m;
+  };
+  if (!masterLat && !tracks.some((t) => own(t) > 0)) return graph;
+  for (const t of tracks) {
+    const m = after(t);
+    const ahead = own(t) + m;
+    if (m) t.envShift = m;
+    const out = m - toMaster(dest(t));
+    if (out) t.outDelay = out;
+    for (const s of t.sends || []) {
+      if (s.target === t.id || !isBus(s.target)) continue;
+      const d = m - toMaster(s.target);
+      if (d) s.delay = d;
+    }
+    if (!ahead) continue;
+    const clips = [];
+    for (const c of t.clips) {
+      const start = c.start - ahead;
+      const cut = Math.max(0, -start);
+      if (cut >= c.length) continue;
+      clips.push(cut ? { ...c, start: 0, offset: c.offset + cut, length: c.length - cut, base: (c.base || 0) + cut, full: c.full ?? c.length } : { ...c, start });
+    }
+    t.clips = clips;
+  }
+  return graph;
+}
+
+/**
  * Renders one block of `frames` frames starting at timeline frame `pos` into
  * `master` (stereo planar Float32Array[2]). Per-track peaks are written into
  * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames)`
@@ -598,16 +702,18 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       continue;
     }
     const sends = audible && track.sends && track.sends.length ? track.sends : null;
-    if (sends) for (const snd of sends) if (snd.pre) feedSend(scratch, snd, tbuf, frames, law, pg, chOf(snd.target));
+    if (sends) for (const snd of sends) if (snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target));
     const to = plan.dest(track);
     // Feeding a 6-channel destination, the surround panner places the track instead of the stereo pan.
     const toSix = surround && (to ? plan.six.has(to) : true);
-    const vol = envelopeFrames(track.volumeEnv, pos, frames, scratch, 0, 1);
-    const pan = toSix ? null : envelopeFrames(track.panEnv, pos, frames, scratch, 1, 0);
-    const v0 = track.gain * envelopeAt(track.volumeEnv, pos);
-    const v1 = track.gain * envelopeAt(track.volumeEnv, pos + frames);
-    const p0 = Math.max(-1, Math.min(1, track.pan + envelopeAt(track.panEnv, pos, 0)));
-    const p1 = Math.max(-1, Math.min(1, track.pan + envelopeAt(track.panEnv, pos + frames, 0)));
+    // The track's audio runs `envShift` frames ahead of the timeline (latency compensation).
+    const at = pos + (track.envShift || 0);
+    const vol = envelopeFrames(track.volumeEnv, at, frames, scratch, 0, 1);
+    const pan = toSix ? null : envelopeFrames(track.panEnv, at, frames, scratch, 1, 0);
+    const v0 = track.gain * envelopeAt(track.volumeEnv, at);
+    const v1 = track.gain * envelopeAt(track.volumeEnv, at + frames);
+    const p0 = Math.max(-1, Math.min(1, track.pan + envelopeAt(track.panEnv, at, 0)));
+    const p1 = Math.max(-1, Math.min(1, track.pan + envelopeAt(track.panEnv, at + frames, 0)));
     let pkL = 0;
     let pkR = 0;
     const L = tbuf[0];
@@ -629,10 +735,14 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       if (ar > pkR) pkR = ar;
     }
     if (meters) meters.set(track.id, [pkL, pkR]);
-    if (!audible) continue;
-    if (sends) for (const snd of sends) if (!snd.pre) feedSend(scratch, snd, tbuf, frames, law, pg, chOf(snd.target));
+    if (!audible) {
+      dropDelays(scratch, track);
+      continue;
+    }
+    if (sends) for (const snd of sends) if (!snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target));
+    const outBuf = track.outDelay ? delayed(scratch, `${track.id}>`, tbuf, frames, track.outDelay) : tbuf;
     if (toSix) {
-      addInto(track, tbuf, to ? usedBus(scratch, to, frames, 6).buf : master, frames);
+      addInto(track, outBuf, to ? usedBus(scratch, to, frames, 6).buf : master, frames);
       continue;
     }
     let mL = master[0];
@@ -642,9 +752,10 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       mL = b.buf[0];
       mR = b.buf[1];
     }
+    const [oL, oR] = outBuf;
     for (let i = 0; i < frames; i++) {
-      mL[i] += L[i];
-      mR[i] += R[i];
+      mL[i] += oL[i];
+      mR[i] += oR[i];
     }
   }
   const m = graph.master || {};
@@ -719,9 +830,10 @@ function renderSix(graph, store, pos, frames, track, plan, master, scratch, { me
   // Surround-capable effects (the stereo ones are left out on six channels).
   if (track.fx?.length && runFx) runChain(track, buf, frames, scratch, runFx);
   const g = (track.invert ? -1 : 1) * track.gain;
-  const vol = envelopeFrames(track.volumeEnv, pos, frames, scratch, 0, 1);
-  const v0 = g * envelopeAt(track.volumeEnv, pos);
-  const v1 = g * envelopeAt(track.volumeEnv, pos + frames);
+  const at = pos + (track.envShift || 0);
+  const vol = envelopeFrames(track.volumeEnv, at, frames, scratch, 0, 1);
+  const v0 = g * envelopeAt(track.volumeEnv, at);
+  const v1 = g * envelopeAt(track.volumeEnv, at + frames);
   let pkL = 0;
   let pkR = 0;
   for (let c = 0; c < 6; c++) {
@@ -738,9 +850,12 @@ function renderSix(graph, store, pos, frames, track, plan, master, scratch, { me
     if (c !== 0 && c !== 4 && pk > pkR) pkR = pk;
   }
   if (meters) meters.set(track.id, [pkL, pkR]);
-  if (!audible) return;
+  if (!audible) {
+    dropDelays(scratch, track);
+    return;
+  }
   const to = plan.dest(track);
-  addInto(track, buf, to ? usedBus(scratch, to, frames, chOf(to)).buf : master, frames);
+  addInto(track, track.outDelay ? delayed(scratch, `${track.id}>`, buf, frames, track.outDelay) : buf, to ? usedBus(scratch, to, frames, chOf(to)).buf : master, frames);
 }
 
 export function createScratch(frames = QUANTUM) {
