@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, client, idle, openImage, selectRect, start } from './helpers';
+import { boot, client, historyLabels, idle, layerPixel, openImage, selectRect, start } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -109,4 +109,20 @@ test('Curves on-image adjustment samples the tone under the pointer inside a sel
   await expect(dialog.getByRole('spinbutton', { name: 'Input', exact: true })).toHaveValue('96');
   await expect(dialog.getByRole('spinbutton', { name: 'Output', exact: true })).toHaveValue('106');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('OK applies Black & White with its fractional default weights', async ({ page }) => {
+  await openImage(page, 60, 40, '#c03020');
+  await start(page, 'adjust.black-white');
+  const dialog = page.locator('dialog.adj-dialog[open]');
+  await expect(dialog).toBeVisible();
+  // Yellows starts at 92.78 %, between the 1 % steps of its field.
+  await expect(dialog.getByRole('spinbutton', { name: 'Yellows value' })).toHaveValue('92.78');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('dialog.adj-dialog[open]')).toHaveCount(0);
+  await idle(page);
+  expect(await historyLabels(page)).toEqual(['Black & White']);
+  const [r, g, b] = await layerPixel(page, 30, 20);
+  expect(r).toBe(g);
+  expect(g).toBe(b);
 });

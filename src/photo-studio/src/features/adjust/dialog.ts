@@ -92,7 +92,9 @@ export type Shell = { dialog: HTMLDialogElement; body: HTMLElement; preview: HTM
 export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {}): Shell {
   const shield = h('div', { class: 'adj-shield' });
   const dialog = h('dialog', { class: `adj-dialog ${opts.wide ? 'adj-wide' : ''}`, 'aria-label': title });
-  dialog.innerHTML = `<form method="dialog"><header class="adj-dialog-head"><h2>${escapeXML(title)}</h2></header><div class="adj-dialog-main"><div class="adj-body"></div></div><footer class="adj-dialog-foot dialog-footer"><label class="adj-check"><input type="checkbox" class="adj-preview" checked><span>Preview</span></label><p class="adj-status" aria-live="polite"></p><button type="button" value="cancel" class="secondary adj-cancel">Cancel</button><button type="submit" class="primary" value="ok">OK</button></footer></form>`;
+  // Fields clamp and round their own entries, so the browser's step check
+  // must not block OK (Black & White starts between whole percents).
+  dialog.innerHTML = `<form method="dialog" novalidate><header class="adj-dialog-head"><h2>${escapeXML(title)}</h2></header><div class="adj-dialog-main"><div class="adj-body"></div></div><footer class="adj-dialog-foot dialog-footer"><label class="adj-check"><input type="checkbox" class="adj-preview" checked><span>Preview</span></label><p class="adj-status" aria-live="polite"></p><button type="button" value="cancel" class="secondary adj-cancel">Cancel</button><button type="submit" class="primary" value="ok">OK</button></footer></form>`;
   document.body.append(shield, dialog);
   const body = dialog.querySelector<HTMLElement>('.adj-body')!,
     preview = dialog.querySelector<HTMLInputElement>('.adj-preview')!,
