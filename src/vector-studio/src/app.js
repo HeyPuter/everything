@@ -36,7 +36,8 @@ import { formatLength } from './lib/units.js';
 import { installHeldModifiers } from './lib/held-modifiers.js';
 
 /** Focusable controls that Enter or Space activate. */
-const ACTIVATABLE = 'button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
+const VALUE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+const ACTIVATABLE ='button, a[href], summary, select, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"]';
 
 export class App extends Emitter {
   constructor(root, { prefs, env = 'web', user = null, picture = null, onSignIn = null, onSignOut = null, onSessionChange = null, storage = null } = {}) {
@@ -552,6 +553,8 @@ export class App extends Emitter {
       return;
     }
     if (typing) return;
+    // Sliders and radio buttons change their value with these keys: they never nudge the selection.
+    if (VALUE_KEYS.has(e.key) && !mod && e.target?.matches?.('input[type="range"], input[type="radio"]')) return;
     // Enter and Space activate the focused button, tab, menu item or option:
     // they are not canvas shortcuts there (Space would start the Hand tool).
     if ((e.key === 'Enter' || e.key === ' ') && !e.metaKey && !e.ctrlKey && !e.altKey && e.target?.closest?.(ACTIVATABLE)) return;
