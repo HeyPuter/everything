@@ -576,7 +576,8 @@ input[type='range'].fx-slider:disabled {
 /* Band tables (Parametric EQ, Notch Filter). */
 .fx-table {
   display: grid;
-  grid-template-columns: max-content repeat(var(--cols), minmax(0, 1fr));
+  /* Columns never narrower than their values: a narrow dialog scrolls the table instead of overlapping them. */
+  grid-template-columns: max-content repeat(var(--cols), minmax(max-content, 1fr));
   align-items: center;
   justify-items: center;
   gap: 4px 2px;
