@@ -174,10 +174,17 @@ export function diagnosticsPanel(app) {
     try {
       // Like the effects, clicks and clipping are only looked for (and repaired) in enabled channels.
       const mask = doc.channelMask;
-      const r = await scanProblems({ effect: effectId, values, channels: doc.state.channels, rate: doc.sampleRate, start: range[0], end: range[1], mask, signal, onProgress: setProgress });
-      result = { docId: doc.id, state: doc.state, effect: effectId, values: { ...values }, problems: r.problems, info: r.info, range, mask };
+      const state = doc.state;
+      const r = await scanProblems({ effect: effectId, values, channels: state.channels, rate: doc.sampleRate, start: range[0], end: range[1], mask, signal, onProgress: setProgress });
       selected = new Set();
       focusIndex = 0;
+      if (doc.state !== state) {
+        // Edited during the scan: the problem positions no longer match the audio.
+        result = null;
+        caption.textContent = 'The file changed during the scan. Scan again to update the list.';
+        return;
+      }
+      result = { docId: doc.id, state, effect: effectId, values: { ...values }, problems: r.problems, info: r.info, range, mask };
       const n = r.problems.length;
       caption.textContent = n ? `${n} ${meta().noun}${n === 1 ? '' : 's'} found.` : `No ${meta().noun}s found.`;
       announce(caption.textContent);
