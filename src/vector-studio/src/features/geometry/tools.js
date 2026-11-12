@@ -248,8 +248,8 @@ export class ShapeBuilderTool extends Tool {
       items.sort((a, b) => a.order - b.order);
       ids.push(...replaceWith(doc, affected, items.map((i) => i.built), where));
     });
-    const keep = leaves.filter((n) => !plan.affected.includes(leaves.indexOf(n)) && doc.has(n.id)).map((n) => n.id);
-    editor.select([...keep, ...ids]);
+    // Merged or deleted shapes give way to the results; the rest of the selection stays selected.
+    editor.select([...editor.selection, ...ids].filter((id) => doc.has(id)));
   }
 
   onKeyDown(ev) {

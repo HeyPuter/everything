@@ -100,6 +100,19 @@ describe('geometry tools on live objects', () => {
     app.setTool('selection');
   });
 
+  it('Shape Builder keeps the rest of the selection selected', async () => {
+    const { ed, doc, g, plain } = setup();
+    ed.select([g, plain]);
+    app.setTool('shape-builder');
+    const tool = app.tool;
+    tool.facesKey = null;
+    await tool.refreshFaces();
+    await tool.apply([0], 0, true);
+    expect(doc.has(plain)).toBe(false);
+    expect([...ed.selection]).toEqual([g]);
+    app.setTool('selection');
+  });
+
   it('Knife keeps the rest of the selection selected', async () => {
     const { ed, doc, g, plain } = setup();
     app.setTool('knife');
