@@ -174,3 +174,41 @@ test('a panel button used from the keyboard keeps the focus when the panel redra
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!document.activeElement?.closest('[data-panel="history"]'))).toBe(true);
 });
+
+test('the keyboard can move through the shortcut editor, record a shortcut and close it', async ({ page }) => {
+  await page.evaluate(() => localStorage.removeItem('photo-studio-shortcuts'));
+  await start(page, 'edit.keyboard-shortcuts');
+  const dialog = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
+  await expect(dialog).toBeVisible();
+  const field = dialog.locator('[data-shortcut="edit.undo"]');
+  const before = await field.inputValue();
+  await field.focus();
+  // Tab moves on instead of being recorded as a shortcut.
+  await page.keyboard.press('Tab');
+  await expect(field).not.toBeFocused();
+  expect(await field.inputValue()).toBe(before);
+  await page.keyboard.press('Shift+Tab');
+  await expect(field).toBeFocused();
+  // Enter starts recording; the next combination (even Tab) is the shortcut.
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Shift+Tab');
+  await expect(field).toHaveValue('Shift+Tab');
+  await expect(field).toBeFocused();
+  await page.keyboard.press('Alt+Shift+U');
+  await expect(field).toHaveValue('Alt+Shift+U');
+  // Escape stops recording; a second Escape closes the dialog without saving.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('photo-studio-shortcuts'))).toBeNull();
+  // A click arms the field as before.
+  await start(page, 'edit.keyboard-shortcuts');
+  await expect(dialog).toBeVisible();
+  await dialog.locator('[data-shortcut="edit.undo"]').click();
+  await page.keyboard.press('Alt+Shift+U');
+  await expect(dialog.locator('[data-shortcut="edit.undo"]')).toHaveValue('Alt+Shift+U');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('photo-studio-shortcuts') ?? '{}')['edit.undo'])).toBe('Alt+Shift+U');
+});

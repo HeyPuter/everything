@@ -208,7 +208,7 @@ function shortcutEditor(e: Editor) {
     /* Optional. */
   }
   const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.') || true).sort((a, b) => a.id.localeCompare(b.id));
-  d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field and press the new key combination. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
+  d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
     .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? c.shortcut[0] : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
     .join('')}</div><div class="dialog-actions"><button type="button" data-reset-shortcuts>Reset to Defaults</button><button type="button" id="cancel-dialog">Cancel</button><button class="primary">OK</button></div></form>`;
   const conflicts = () => {
@@ -221,17 +221,44 @@ function shortcutEditor(e: Editor) {
     });
     for (const group of seen.values()) if (group.length > 1) group.forEach((i) => i.classList.add('conflict'));
   };
-  d.addEventListener('keydown', function capture(ev) {
+  // A field records keys once clicked (or Enter is pressed on it) until
+  // Escape or the focus leaves; otherwise Tab and Escape keep their usual
+  // meaning, so the keyboard can move through the list and close the dialog.
+  const form = d.querySelector('form')!;
+  const record = (t: HTMLInputElement, on: boolean) => {
+    t.classList.toggle('recording', on);
+    t.placeholder = on ? 'Press keys…' : '';
+  };
+  form.addEventListener('pointerdown', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    if (t.dataset?.shortcut) record(t, true);
+  });
+  form.addEventListener('focusout', (ev) => {
+    const t = ev.target as HTMLInputElement;
+    if (t.dataset?.shortcut) record(t, false);
+  });
+  form.addEventListener('keydown', (ev) => {
     const t = ev.target as HTMLInputElement;
     if (!t.dataset?.shortcut) return;
+    const clear = (ev.key === 'Backspace' || ev.key === 'Delete') && !ev.metaKey && !ev.ctrlKey && !ev.altKey;
+    if (!t.classList.contains('recording')) {
+      if (ev.key === 'Enter' || ev.key === ' ') record(t, true);
+      else if (clear) {
+        t.value = '';
+        custom[t.dataset.shortcut] = '';
+        conflicts();
+      } else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     ev.preventDefault();
     ev.stopPropagation();
     if (['Meta', 'Control', 'Alt', 'Shift'].includes(ev.key)) return;
-    if (ev.key === 'Backspace' && !ev.metaKey && !ev.ctrlKey) t.value = '';
-    else if (ev.key === 'Escape') return;
+    if (ev.key === 'Escape') return record(t, false);
     // Recorded exactly as keyDown will see it: by physical key, so Shift+] or
     // Option+A is stored as itself rather than as "}" or "å", and Ctrl stays Ctrl on a Mac.
-    else t.value = eventShortcut(ev);
+    t.value = ev.key === 'Backspace' && !ev.metaKey && !ev.ctrlKey ? '' : eventShortcut(ev);
     custom[t.dataset.shortcut] = t.value;
     conflicts();
   }, true);
@@ -245,7 +272,7 @@ function shortcutEditor(e: Editor) {
     e.message('Keyboard shortcuts reset to defaults.');
   });
   d.querySelector('#cancel-dialog')!.addEventListener('click', () => d.close());
-  d.querySelector('form')!.onsubmit = (ev) => {
+  form.onsubmit = (ev) => {
     ev.preventDefault();
     try {
       localStorage.setItem(shortcutKey, JSON.stringify(custom));

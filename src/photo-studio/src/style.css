@@ -1237,6 +1237,7 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .shortcut-table { max-height: 55vh; overflow: auto; display: grid; gap: 2px; margin: 8px 0; }
 .shortcut-entry { display: grid; grid-template-columns: 1fr 150px; gap: 8px; align-items: center; font-size: 11px; }
 .shortcut-entry input.conflict { border-color: #e44; color: #f66; }
+.shortcut-entry input.recording { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .layer-filter { display: flex; gap: 4px; padding: 6px 8px 0; align-items: center; }
 .layer-filter select { flex: 1; min-width: 0; }
 .layer-filter input { width: 80px; }
