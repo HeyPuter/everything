@@ -1244,8 +1244,9 @@ export class Renderer {
         this.backend.pass(back, adjusted, await this.mask(actual, assets), u, next, gridMask ?? this.pixelMask(l, assets));
         return [next, back];
       }
-      // Artboards and frames always composite their contents in isolation.
-      if (l.kind === 'group' && l.blend === 'pass through' && !l.artboard && !l.frame) {
+      // Artboards and frames always composite their contents in isolation, and
+      // so does a clipped group (its result is kept inside the base).
+      if (l.kind === 'group' && l.blend === 'pass through' && !l.artboard && !l.frame && !clipped) {
         const plain = l.opacity === 1 && !hasMask(l) && !l.maskGrid && !l.blending?.ranges && !l.blending?.exclude && Object.values(l.filters).every((v) => !v);
         if (plain) return await this.compositeInto(l.children, doc, assets, back, next);
         // Children blend with the backdrop; the group's opacity and mask then

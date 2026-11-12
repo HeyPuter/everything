@@ -104,3 +104,24 @@ test('Layer via Copy on the base of a clipping group joins the group', async ({ 
   // The clipped layer still covers the whole base, not only the copied piece.
   expect(await compositePixel(page, 30, 20)).toEqual([0, 0, 255, 255]);
 });
+
+// A clipped group in Pass Through mode drew its contents unclipped.
+for (const backend of ['default', 'WebGL'] as Backend[])
+  test(`a clipped Pass Through group stays inside its base (${backend})`, async ({ page }) => {
+    await boot(page, backend);
+    const doc = newDocument(60, 40, 'Pass');
+    const base = layer('solid', 'Base', 20, 20);
+    base.color = '#ff0000';
+    base.transform.x = 10;
+    base.transform.y = 10;
+    const group = layer('group', 'Group', 60, 40);
+    group.blend = 'pass through';
+    group.clipped = true;
+    const inner = layer('solid', 'Inner', 60, 40);
+    inner.color = '#0000ff';
+    group.children = [inner];
+    doc.layers = [base, group];
+    await openProject(page, doc, [], 'pass.photo');
+    expect(await compositePixel(page, 15, 15)).toEqual([0, 0, 255, 255]);
+    expect((await compositePixel(page, 2, 2))[3]).toBe(0);
+  });
