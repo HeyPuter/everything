@@ -238,11 +238,12 @@ export function handleKey(e: Editor, ev: KeyboardEvent, fromInput = true): boole
       if (mod || ev.code === 'NumpadEnter') void commit(e);
       else insert(e, '\n', 'newline');
       return true;
+    // Words: Option on the Mac, Ctrl elsewhere; Cmd+Backspace deletes to the line start.
     case 'Backspace':
-      backspace(e, alt, mod);
+      backspace(e, alt || (mod && !isMac), mod && isMac);
       return true;
     case 'Delete':
-      forwardDelete(e, alt);
+      forwardDelete(e, alt || (mod && !isMac));
       return true;
     case 'Tab':
       insert(e, '\t');
