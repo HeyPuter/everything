@@ -5,7 +5,7 @@ import type { Editor } from '../../editor';
 import { allLayers, findLayer, insertLayerAt, localPoint, type Layer, type PhotoDocument, type Rect } from '../../model/document';
 import { layerLock } from '../../model/locks';
 import { applyAffine, documentPpi, invertAffine, legacyTextData, placeTextRect, textMatrix, textScale, type Affine } from '../../model/text-layer';
-import { layoutText, type TextLayout } from '../../imaging/text/layout';
+import { layoutText, measurementGeneration, type TextLayout } from '../../imaging/text/layout';
 import { canvasMeasure } from '../../imaging/text/render';
 import { isIdentityWarp, warpPoint } from '../../imaging/text/warp';
 import type { TextLayerData } from '../../imaging/text/model';
@@ -13,16 +13,40 @@ import { renderTextLayer } from '../../renderer/text-source';
 
 export const ppiOf = (e: Editor | PhotoDocument) => documentPpi('doc' in e ? e.doc : e);
 
-let lastLayout: { data: TextLayerData; ppi: number; layout: TextLayout } | undefined;
+// Recent layouts by text data (which is never mutated): hovering with a type
+// tool hit-tests every text layer on each move, so one entry is not enough.
+// Bounded by count and by characters (typing makes a new entry per key).
+const layouts = new Map<TextLayerData, { ppi: number; gen: number; layout: TextLayout }>();
+const LAYOUT_CACHE = 64, LAYOUT_CHARS = 50_000;
+let cachedChars = 0;
 export function layoutOf(data: TextLayerData, ppi: number): TextLayout {
-  if (lastLayout && lastLayout.data === data && lastLayout.ppi === ppi) return lastLayout.layout;
+  const gen = measurementGeneration();
+  const hit = layouts.get(data);
+  if (hit && hit.ppi === ppi && hit.gen === gen) {
+    // Most recently used last.
+    layouts.delete(data);
+    layouts.set(data, hit);
+    return hit.layout;
+  }
   const layout = layoutText(data, { measure: canvasMeasure(), resolution: ppi });
-  lastLayout = { data, ppi, layout };
+  if (hit) {
+    layouts.delete(data);
+    cachedChars -= hit.layout.length;
+  }
+  layouts.set(data, { ppi, gen, layout });
+  cachedChars += layout.length;
+  // The newest entry always stays.
+  while (layouts.size > 1 && (layouts.size > LAYOUT_CACHE || cachedChars > LAYOUT_CHARS)) {
+    const [k, v] = layouts.entries().next().value!;
+    layouts.delete(k);
+    cachedChars -= v.layout.length;
+  }
   return layout;
 }
-// Font loads change measurements; forget the cached layout.
+// Font loads change measurements; forget the cached layouts.
 export function forgetLayout() {
-  lastLayout = undefined;
+  layouts.clear();
+  cachedChars = 0;
 }
 
 export const warpRect = (layout: TextLayout): Rect => layout.bounds;

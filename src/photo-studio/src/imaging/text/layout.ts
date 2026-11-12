@@ -814,6 +814,8 @@ function unionRects(rs: Rect[]): Rect {
 let measureGeneration = 0;
 const measureCaches = new WeakMap<Measure, { gen: number; map: Map<string, FontMetrics> }>();
 export function invalidateMeasurements() { measureGeneration++; }
+// Changes whenever measurements are invalidated, so cached layouts can tell they are stale.
+export const measurementGeneration = () => measureGeneration;
 function memoMeasure(m: Measure): Measure {
   let entry = measureCaches.get(m);
   if (!entry || entry.gen !== measureGeneration || entry.map.size > 200_000) measureCaches.set(m, (entry = { gen: measureGeneration, map: new Map() }));
