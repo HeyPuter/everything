@@ -6,7 +6,7 @@
 
 import { isWav, parseWav } from './wav.js';
 import { isAiff, parseAiff } from './aiff.js';
-import { readTags } from './meta.js';
+import { readTags, id3v2Size } from './meta.js';
 
 export const AUDIO_EXTENSIONS = ['wav', 'wave', 'bwf', 'rf64', 'mp3', 'flac', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'mp4', 'm4v', 'webm', 'weba', 'mkv', 'aif', 'aiff', 'aifc', 'caf', 'mov'];
 export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'webm', 'mkv', 'mov'];
@@ -27,8 +27,13 @@ export function baseName(name = '') {
 export function sniffSampleRate(buffer) {
   const b = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 1 << 20));
   const str = (o, n) => String.fromCharCode(...b.subarray(o, o + n));
-  // FLAC: "fLaC" then STREAMINFO; rate is 20 bits at byte 18 of the file.
-  if (str(0, 4) === 'fLaC' && b.length > 21) return (b[18] << 12) | (b[19] << 4) | (b[20] >> 4);
+  // FLAC: "fLaC" then STREAMINFO; rate is 20 bits at byte 18 of the stream
+  // (which some taggers put behind an ID3v2 tag).
+  const f = flacStart(buffer);
+  if (f >= 0) {
+    const s = new Uint8Array(buffer, f, Math.min(22, buffer.byteLength - f));
+    if (s.length > 21) return (s[18] << 12) | (s[19] << 4) | (s[20] >> 4);
+  }
   // Ogg: Opus always decodes at 48 kHz; Vorbis stores the rate in its id header.
   if (str(0, 4) === 'OggS') {
     const head = str(28, 8);
@@ -156,13 +161,21 @@ export async function decodeAudio(buffer, name = '') {
   return { sampleRate: audio.sampleRate, channels, bitDepth, format, markers: [], meta };
 }
 
+/** Offset of a FLAC stream's "fLaC" marker: 0, or just past a leading ID3v2 tag; -1 when not FLAC. */
+function flacStart(buffer) {
+  const o = id3v2Size(new Uint8Array(buffer, 0, Math.min(10, buffer.byteLength)));
+  if (o + 4 > buffer.byteLength) return -1;
+  const b = new Uint8Array(buffer, o, 4);
+  return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43 ? o : -1;
+}
+
 function sniffFlac(buffer) {
-  const b = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength));
-  return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43;
+  return flacStart(buffer) >= 0;
 }
 
 function flacBits(buffer) {
-  const b = new Uint8Array(buffer, 0, Math.min(26, buffer.byteLength));
-  if (b.length < 26 || b[0] !== 0x66) return 16;
+  const o = flacStart(buffer);
+  if (o < 0 || o + 26 > buffer.byteLength) return 16;
+  const b = new Uint8Array(buffer, o, 26);
   return (((b[20] & 1) << 4) | (b[21] >> 4)) + 1;
 }

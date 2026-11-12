@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { encodeWav, parseWav } from '../src/audio/wav.js';
 import { Channel } from '../src/audio/channel.js';
-import { sniffSampleRate } from '../src/audio/decode.js';
+import { sniffSampleRate, decodeAudio } from '../src/audio/decode.js';
 
 const tone = (n) => Float32Array.from({ length: n }, (_, i) => Math.sin(i / 7) * 0.5);
 
@@ -116,6 +116,38 @@ describe('wav', () => {
     const mp3 = new Uint8Array(16);
     mp3.set([0xff, 0xfb, 0x94, 0x00]); // MPEG1 layer III, 48 kHz index 1
     expect(sniffSampleRate(mp3.buffer)).toBe(48000);
+  });
+  it('opens a FLAC file behind an ID3v2 tag at its own rate and bit depth', async () => {
+    // ID3v2 tag (300 bytes of frames), then fLaC + STREAMINFO: 44.1 kHz, 24-bit.
+    const tag = 300;
+    const bytes = new Uint8Array(10 + tag + 42 + 64);
+    bytes.set([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, (tag >> 7) & 0x7f, tag & 0x7f]);
+    const f = 10 + tag;
+    bytes.set([0x66, 0x4c, 0x61, 0x43], f);
+    bytes[f + 18] = 0x0a;
+    bytes[f + 19] = 0xc4;
+    bytes[f + 20] = 0x40 | (1 << 1) | 1; // channels - 1 = 1, top bit of (bits - 1) = 1
+    bytes[f + 21] = 0x70; // low 4 bits of (bits - 1) = 7 -> 24-bit
+    expect(sniffSampleRate(bytes.buffer)).toBe(44100);
+    let rate = 0;
+    const prev = globalThis.OfflineAudioContext;
+    globalThis.OfflineAudioContext = class {
+      constructor(c, n, r) {
+        rate = r;
+      }
+      async decodeAudioData() {
+        const data = new Float32Array(4);
+        return { sampleRate: rate, length: 4, numberOfChannels: 1, getChannelData: () => data };
+      }
+    };
+    try {
+      const r = await decodeAudio(bytes.buffer.slice(0), 'Song.flac');
+      expect(r.sampleRate).toBe(44100);
+      expect(r.bitDepth).toBe(24);
+      expect(r.format).toBe('flac');
+    } finally {
+      globalThis.OfflineAudioContext = prev;
+    }
   });
   it('sniffs the rate of MP3s behind large cover art and of M4As with the movie box at the end', () => {
     // A 2 MB ID3v2 tag (embedded artwork), then a 44.1 kHz MPEG-1 Layer III frame.
