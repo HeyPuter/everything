@@ -289,6 +289,8 @@ export class RoomClient {
         this.o.onPeople?.();
       }
       Y.applyUpdate(this.ydoc, decode(res.update), ORIGIN.remote);
+      // The worker answers again: deliver what waits for a retry now.
+      if (this.retryTimer !== undefined && !this.flushing) this.flush();
       if (this.status.state === 'offline' || this.status.state === 'connecting') this.setStatus();
     })().finally(() => (this.syncing = undefined));
     return this.syncing;
@@ -333,6 +335,7 @@ export class RoomClient {
       return;
     }
     clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     this.flushing = (async () => {
       try {
         do {
