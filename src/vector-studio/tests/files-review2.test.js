@@ -22,6 +22,29 @@ describe('native format keeps what the document needs', () => {
   });
 });
 
+describe('recovery copies', () => {
+  it('never forgets other copies when the list of copies cannot be read for a moment', async () => {
+    const { RecoveryStore } = await import('../src/features/files/recovery.js');
+    const { memoryBackend } = await import('../src/features/files/backends.js');
+    const cloud = memoryBackend();
+    const local = memoryBackend();
+    const store = new RecoveryStore([cloud, local]);
+    await store.put('r1', { name: 'First', data: new Uint8Array([1]), session: 's', saved: 1 });
+    // The connection drops while the list is read (the copy itself was written).
+    const readJSON = cloud.readJSON;
+    cloud.readJSON = async () => {
+      cloud.readJSON = readJSON;
+      throw new Error('Network error');
+    };
+    await store.put('r2', { name: 'Second', data: new Uint8Array([2]), session: 's', saved: 2 });
+    expect((await store.list()).map((e) => e.name).sort()).toEqual(['First', 'Second']);
+    // A damaged list is started over, so copies can still be kept.
+    cloud.files.set('recovery/index.json', '{not json');
+    await store.put('r3', { name: 'Third', data: new Uint8Array([3]), session: 's', saved: 3 });
+    expect((await store.list()).map((e) => e.name)).toContain('Third');
+  });
+});
+
 describe('shared documents carry what an edit needs', () => {
   it('sends an embedded color profile with the edit that assigns it', async () => {
     const { network, shareNew, joinClient, settle, alice, bob } =
