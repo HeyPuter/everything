@@ -47,3 +47,30 @@ test('clearing a painting or selection tool option keeps its value', async ({ pa
   }
   expect(wrong).toEqual([]);
 });
+
+test('the brush popover works from the keyboard and the brush button toggles it', async ({ page }) => {
+  await boot(page);
+  await openImage(page);
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  const button = page.locator('[data-brush-popover="brush"]');
+  await button.focus();
+  await page.keyboard.press('Enter');
+  const popover = page.getByRole('dialog', { name: 'Brush settings' });
+  await expect(popover).toBeVisible();
+  // Focus moves into the popover; arrow keys change the size.
+  expect(await popover.evaluate((p) => p.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Escape');
+  await expect(popover).toHaveCount(0);
+  await expect(page.locator('[data-brush-popover="brush"]')).toBeFocused();
+  expect(await page.evaluate(() => window.photoStudio.activeTool!.brush!.get(window.photoStudio).size)).toBe(31);
+  // A second click on the brush button closes it again.
+  await page.locator('[data-brush-popover="brush"]').click();
+  await expect(popover).toBeVisible();
+  await page.locator('[data-brush-popover="brush"]').click();
+  await expect(popover).toHaveCount(0);
+  // Switching tools closes it.
+  await page.locator('[data-brush-popover="brush"]').click();
+  await page.evaluate(() => window.photoStudio.setTool('eraser'));
+  await expect(popover).toHaveCount(0);
+});

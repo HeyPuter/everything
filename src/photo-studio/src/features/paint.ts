@@ -95,16 +95,21 @@ export function bindBrushOptions(e: Editor, el: HTMLElement, id: string) {
   toggle('#airbrush', () => (s.airbrush = !s.airbrush));
   el.querySelector<HTMLButtonElement>('[data-brush-popover]')?.addEventListener('click', (ev) => openBrushPopover(e, id, ev.currentTarget as HTMLElement));
 }
+// Closes the open brush popover (the brush button toggles it); true when it was shown.
+let closePopover: ((refocus?: boolean) => boolean) | undefined;
 function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
-  document.querySelector('.brush-popover')?.remove();
+  if (closePopover?.()) return;
   const s = brushFor(id);
   const pop = document.createElement('div');
   pop.className = 'brush-popover popover';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Brush settings');
   pop.innerHTML = `<label>Size <input type="range" min="1" max="1000" value="${s.size}" data-k="size"><output>${Math.round(s.size)} px</output></label><label>Hardness <input type="range" min="0" max="100" value="${s.hardness * 100}" data-k="hardness"><output>${Math.round(s.hardness * 100)}%</output></label><label>Angle <input type="range" min="-180" max="180" value="${s.angle}" data-k="angle"><output>${s.angle}°</output></label><label>Roundness <input type="range" min="1" max="100" value="${s.roundness * 100}" data-k="roundness"><output>${Math.round(s.roundness * 100)}%</output></label><label>Spacing <input type="range" min="1" max="200" value="${s.spacing * 100}" data-k="spacing"><output>${Math.round(s.spacing * 100)}%</output></label><div class="preset-list" role="listbox" aria-label="Brush presets">${brushPresets.map((p, i) => `<button role="option" data-preset="${i}">${escapeXML(p.name)}</button>`).join('')}</div>`;
   document.body.append(pop);
   const r = anchor.getBoundingClientRect();
   pop.style.left = `${r.left}px`;
   pop.style.top = `${r.bottom + 4}px`;
+  pop.querySelector<HTMLInputElement>('input')?.focus();
   pop.addEventListener('input', (ev) => {
     const t = ev.target as HTMLInputElement;
     const v = Number(t.value);
@@ -121,15 +126,30 @@ function openBrushPopover(e: Editor, id: string, anchor: HTMLElement) {
     if (!b) return;
     const p = brushPresets[Number(b.dataset.preset)].tip;
     Object.assign(s, { roundness: 1, angle: 0, spacing: 0.1, airbrush: false, ...p, dynamics: { ...(p.dynamics ?? {}) } });
-    pop.remove();
-    e.options();
+    dismiss(true);
   });
+  const dismiss = (refocus: boolean) => {
+    closePopover = undefined;
+    pop.remove();
+    document.removeEventListener('pointerdown', close, true);
+    e.options();
+    // The options bar was redrawn: return focus to the new brush button.
+    if (refocus) document.querySelector<HTMLElement>(`[data-brush-popover="${id}"]`)?.focus();
+  };
   const close = (ev: Event) => {
-    if (!pop.contains(ev.target as Node) && ev.target !== anchor) {
-      pop.remove();
-      document.removeEventListener('pointerdown', close, true);
-      e.options();
-    }
+    // The brush button's own click toggles the popover.
+    if (!pop.contains(ev.target as Node) && !(ev.target as Element).closest?.('[data-brush-popover]')) dismiss(false);
+  };
+  pop.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    dismiss(true);
+  });
+  closePopover = (refocus = true) => {
+    const shown = pop.isConnected;
+    dismiss(shown && refocus);
+    return shown;
   };
   setTimeout(() => document.addEventListener('pointerdown', close, true));
 }
@@ -174,6 +194,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
       };
     },
     deactivate: (e) => {
+      closePopover?.(false);
       e.screenOverlayContent = '';
       e.screenOverlay();
       delete e.settings.numberKey;
