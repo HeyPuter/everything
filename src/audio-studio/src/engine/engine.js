@@ -7,7 +7,7 @@
 import mixerUrl from './mixer-worklet.js?worker&url';
 import captureUrl from './capture-worklet.js?worker&url';
 import { Emitter } from '../lib/emitter.js';
-import { CHUNK } from './mixcore.js';
+import { CHUNK, graphLength } from './mixcore.js';
 import { dspBytes } from '../audio/dsp.js';
 import { UserError } from '../lib/errors.js';
 
@@ -294,6 +294,15 @@ export class Engine extends Emitter {
     // another rate (Convert Sample Type during playback, or undoing it) would
     // play at the wrong speed and pitch, so playback stops.
     if (this.playing && graph.rate && this.ctx && graph.rate !== this.ctx.sampleRate) this.stop();
+    // Playing to the end of the content follows edits that move the end
+    // (pasting during playback plays the new audio too; deleting stops sooner).
+    if (this.playing && this.toEnd) {
+      const to = graphLength(graph);
+      if (to !== this.range.to) {
+        this.range.to = to;
+        this.node?.port.postMessage({ type: 'range', to });
+      }
+    }
     this.graph = graph;
     this.sources = sources;
     for (const key of [...this.sent.keys()]) {
@@ -318,6 +327,7 @@ export class Engine extends Emitter {
     await this.ensure(rate);
     if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
     this.range = { from, to, loop };
+    this.toEnd = to != null && to === graphLength(this.graph);
     this.#jumped(from);
     this.#feed(from);
     this.node.port.postMessage({ type: 'play', from, to, loop, seq: this.seq });

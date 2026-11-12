@@ -156,6 +156,23 @@ describe('engine transport', () => {
     vi.unstubAllGlobals();
   });
 
+  it('playing to the end follows edits that move the end, a selection end does not', async () => {
+    const { e, sent } = fakeEngine();
+    const graph = (len) => ({ rate: 48000, master: { gain: 1 }, tracks: [{ id: 'file', gain: 1, pan: 0, clips: [{ id: 'file', source: 'k', channels: 1, start: 0, offset: 0, length: len, gain: 1 }] }] });
+    e.graph = graph(96000);
+    await e.play({ from: 0, to: 96000 });
+    // Pasting 2 s during playback: the mixer now plays to the new end.
+    e.setGraph(graph(192000), new Map());
+    expect(sent.filter((m) => m.type === 'range').pop()).toEqual({ type: 'range', to: 192000 });
+    expect(e.range.to).toBe(192000);
+    e.stop();
+    sent.length = 0;
+    await e.play({ from: 0, to: 48000 }); // stop at a selection's end
+    e.setGraph(graph(96000), new Map());
+    expect(sent.some((m) => m.type === 'range')).toBe(false);
+    e.stop();
+  });
+
   it('applies a latency mode chosen during playback once playback stops', async () => {
     const { e } = fakeEngine();
     const made = [];
