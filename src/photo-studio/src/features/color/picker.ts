@@ -295,8 +295,19 @@ export async function pickColor(e: Editor, initial: string, title = 'Color Picke
     onlyWeb = (ev.target as HTMLInputElement).checked;
     if (onlyWeb) setRgb(webSafe(state.rgb));
   });
-  q('.cp-gamut').addEventListener('click', () => setRgb(printable(state.rgb)));
-  q('.cp-web').addEventListener('click', () => setRgb(webSafe(state.rgb)));
+  // A corrected color hides its warning button: keep the keyboard in the
+  // dialog (on the hex field) instead of losing it to the page.
+  const keepFocus = (b: HTMLElement) => {
+    if (b.hidden && document.activeElement === document.body) q('[data-f="hex"]').focus();
+  };
+  q('.cp-gamut').addEventListener('click', (ev) => {
+    setRgb(printable(state.rgb));
+    keepFocus(ev.currentTarget as HTMLElement);
+  });
+  q('.cp-web').addEventListener('click', (ev) => {
+    setRgb(webSafe(state.rgb));
+    keepFocus(ev.currentTarget as HTMLElement);
+  });
   q('.cp-old').addEventListener('click', () => commit(current));
   q('.cp-add').addEventListener('click', async () => {
     const { addSwatch } = await import('../panels');

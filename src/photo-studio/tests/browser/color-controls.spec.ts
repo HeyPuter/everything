@@ -115,3 +115,23 @@ test('new channels get a name no other channel has', async ({ page }) => {
   await expect(page.locator('#dialog[open] input[name=name]')).toHaveValue('Alpha 3');
   await page.locator('#dialog[open] #cancel-dialog').click();
 });
+
+test('correcting an out-of-gamut or web color from the keyboard keeps the focus in the picker', async ({ page }) => {
+  const chip = page.locator('.fg-chip');
+  for (const [hex, button] of [['0000ff', '.cp-gamut'], ['123457', '.cp-web']] as const) {
+    await chip.focus();
+    await page.keyboard.press('Enter');
+    const hexField = page.locator('.color-picker-dialog [data-f=hex]');
+    await hexField.fill(hex);
+    const warning = page.locator(`.color-picker-dialog ${button}`);
+    await expect(warning).toBeVisible();
+    await warning.focus();
+    await page.keyboard.press('Enter');
+    await expect(warning).toBeHidden();
+    // The pressed button disappears; focus used to fall back to the page.
+    await expect(hexField).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.color-picker-dialog')).toHaveCount(0);
+    await expect(chip).toBeFocused();
+  }
+});
