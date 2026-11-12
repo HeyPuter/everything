@@ -25,4 +25,15 @@ describe('touch targets', () => {
     expect(block).toMatch(/\.dock-row > \.dock-split::before \{\s*inset: 0 -8px;/);
     expect(block).toMatch(/\.dock-col > \.dock-split::before \{\s*inset: -8px 0;/);
   });
+
+  it('gives the waveform ruler corner buttons half the corner each, full height, on coarse pointers', () => {
+    const editor = css('editor.css');
+    const block = editor.slice(editor.indexOf('@media (pointer: coarse) {\n  .wf-ruler-corner {'));
+    expect(block).toMatch(/\.wf-ruler-corner \{\s*position: relative;/);
+    expect(block).toMatch(
+      /\.wf-ruler-corner > \.icon-btn::before \{\s*content: '';\s*position: absolute;\s*top: 0;\s*bottom: 0;/,
+    );
+    expect(block).toMatch(/:first-child::before \{\s*left: 0;\s*right: 50%;/);
+    expect(block).toMatch(/:last-child::before \{\s*left: 50%;\s*right: 0;/);
+  });
 });

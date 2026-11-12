@@ -180,6 +180,31 @@
   height: 20px;
 }
 
+/* Touch: each ruler corner button takes taps over its half of the corner, the
+   full ruler height, without covering the ruler or changing the look. */
+@media (pointer: coarse) {
+  .wf-ruler-corner {
+    position: relative;
+  }
+
+  .wf-ruler-corner > .icon-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+  }
+
+  .wf-ruler-corner > .icon-btn:first-child::before {
+    left: 0;
+    right: 50%;
+  }
+
+  .wf-ruler-corner > .icon-btn:last-child::before {
+    left: 50%;
+    right: 0;
+  }
+}
+
 .playhead-handle {
   position: absolute;
   left: -6px;
