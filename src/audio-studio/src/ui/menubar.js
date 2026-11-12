@@ -7,6 +7,13 @@
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 
+/**
+ * Whether a pointerenter is a hover. A finger or pen tap enters the element
+ * just before it presses, so opening a menu on that enter would put the menu
+ * under the tap (which then picks one of its items, or closes it again).
+ */
+const hovering = (e) => e.pointerType !== 'touch' && e.pointerType !== 'pen';
+
 /** Resolve a menu spec into concrete entries for the current app state. */
 export function resolveItems(app, spec) {
   const out = [];
@@ -135,7 +142,7 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         });
         submenu.row = row;
       };
-      row.addEventListener('pointerenter', () => openSub(false));
+      row.addEventListener('pointerenter', (e) => hovering(e) && openSub(false));
       row.addEventListener('click', () => openSub(true));
       row._open = openSub;
     } else {
@@ -336,8 +343,8 @@ export function createMenubar(app, menus) {
         'aria-expanded': 'false',
         tabindex: i === 0 ? '0' : '-1',
         onclick: () => (open && openIndex === i ? open.close('toggle') : openAt(i)),
-        onpointerenter: () => {
-          if (open && openIndex !== i) openAt(i, 'none');
+        onpointerenter: (e) => {
+          if (open && openIndex !== i && hovering(e)) openAt(i, 'none');
         },
         onkeydown: (e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {

@@ -39,3 +39,56 @@ describe('menu bar', () => {
     expect(buttons.map((b) => b.tabIndex)).toEqual([-1, -1, 0]);
   });
 });
+
+describe('menus on touch screens', () => {
+  const enter = (el, pointerType) => {
+    const e = new Event('pointerenter');
+    Object.defineProperty(e, 'pointerType', { value: pointerType });
+    el.dispatchEvent(e);
+  };
+  const open = () =>
+    [...document.querySelectorAll('[role=menu]')].map((m) => m.getAttribute('aria-label'));
+
+  it('opens a submenu when it is tapped, not on the enter that comes before the tap', async () => {
+    const { openMenu, resolveItems } = await import('../src/ui/menubar.js');
+    document.body.replaceChildren();
+    const menu = openMenu(app, resolveItems(app, [{ label: 'File', submenu: ['file.open'] }]), {
+      x: 0,
+      y: 0,
+      label: 'Application menu',
+    });
+    const row = menu.el.querySelector('.menu-item');
+    // A finger enters the row just before pressing: a submenu opened then would sit under the tap.
+    enter(row, 'touch');
+    expect(open()).toEqual(['Application menu']);
+    row.click();
+    expect(open()).toEqual(['Application menu', 'File']);
+    menu.close();
+    // A mouse still opens it on hover.
+    const again = openMenu(app, resolveItems(app, [{ label: 'File', submenu: ['file.open'] }]), {
+      x: 0,
+      y: 0,
+      label: 'Application menu',
+    });
+    enter(again.el.querySelector('.menu-item'), 'mouse');
+    expect(open()).toEqual(['Application menu', 'File']);
+    again.close();
+  });
+
+  it('switches menus in the menu bar on tap', () => {
+    const bar = createMenubar(
+      app,
+      ['File', 'Edit'].map((label) => ({ label, submenu: [`${label}.one`] })),
+    );
+    document.body.replaceChildren(bar);
+    const [file, edit] = bar.querySelectorAll('.menubar-item');
+    file.click();
+    expect(open()).toEqual(['File']);
+    // Tapping Edit: the enter must not open Edit, or the click that follows closes it again.
+    enter(edit, 'touch');
+    edit.click();
+    expect(open()).toEqual(['Edit']);
+    edit.click();
+    expect(open()).toEqual([]);
+  });
+});
