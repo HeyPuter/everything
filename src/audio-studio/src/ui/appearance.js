@@ -43,6 +43,17 @@ export const WAVE_PRESETS = [
   { name: 'Ink on Paper', wave: '#24303f', selection: '#2f6fe0', background: '#fbfaf5', playhead: '#d0312d', cue: '#9a6a00', subclip: '#2f6fe0', cart: '#1f8a4c', cd: '#8a3fb0' },
 ];
 
+/** Text colors kept readable on the surfaces when the brightness setting moves them closer. */
+export const TEXT_TOKENS = [
+  '--text-strong',
+  '--text',
+  '--text-dim',
+  '--text-faint',
+  '--accent-strong',
+  '--hot',
+];
+const TEXT_SURFACES = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input'];
+
 /** Surface tokens that the brightness setting lightens or darkens. */
 export const BRIGHTNESS_TOKENS = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input', '--bg-hover', '--bg-active', '--bg-track', '--bg-track-alt', '--bg-ruler', '--border', '--border-soft', '--divider'];
 
@@ -71,6 +82,12 @@ const luminance = (color) => {
   const [r, g, b] = parseColor(color);
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 };
+
+/** Contrast ratio of two colors (1 to 21). */
+export function contrastRatio(a, b) {
+  const [x, y] = [luminance(a), luminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
 
 /** Contrast ratio of white text on `color`. */
 export function whiteContrast(color) {
@@ -139,6 +156,22 @@ export function appearanceVars(prefs, theme = resolvedTheme(), base = () => '') 
       const v = base(name);
       if (v) vars[name] = brighten(v, bright, theme);
     }
+    // Surfaces moved toward the text color (lighter in the dark theme, darker in
+    // the light one): the text moves away until it reads as well as before, at
+    // least up to 4.5:1.
+    const surfaces = TEXT_SURFACES.filter((n) => base(n) && vars[n]);
+    const away = theme === 'light' ? '#000000' : '#ffffff';
+    const worst = (c, of) => Math.min(...surfaces.map((n) => contrastRatio(c, of(n))));
+    for (const name of surfaces.length ? TEXT_TOKENS : []) {
+      const v = vars[name] || base(name);
+      if (!v) continue;
+      const want = Math.min(4.5, worst(v, base));
+      let c = v;
+      for (let t = 0.02; worst(c, (n) => vars[n]) < want && t < 1.01; t += 0.02) {
+        c = mixColors(v, away, Math.min(1, t));
+      }
+      if (c !== v) vars[name] = c;
+    }
   }
   const w = prefs.get('waveColors') || {};
   const wave = cleanColor(w.wave);
@@ -176,7 +209,7 @@ export function markerColor(type) {
   return (type && type !== 'cue' && cssVar(`--marker-${type}`)) || cssVar('--marker');
 }
 
-const APPLIED = ['--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
+const APPLIED = ['--text-strong', '--text', '--text-dim', '--text-faint', '--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
 let lastKey = '';
 
 /** Writes the appearance properties onto <html>; repaints (via 'themechange') when they changed. */

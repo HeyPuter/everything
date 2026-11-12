@@ -95,6 +95,31 @@ describe('appearance colors and brightness', () => {
     expect(appearanceVars(prefsOf({ uiBrightness: 0 }), 'dark', base)).toEqual({});
   });
 
+  it('keeps text readable on the surfaces at any brightness, in both themes', async () => {
+    const { contrastRatio, TEXT_TOKENS } = await import('../src/ui/appearance.js');
+    const fs = await import('node:fs');
+    const css = fs.readFileSync(`${import.meta.dirname}/../src/styles/tokens.css`, 'utf8');
+    const surfaces = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input'];
+    for (const theme of ['dark', 'light']) {
+      const sel = `:root[data-theme-resolved='${theme}']`;
+      const block = css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+      const base = (name) => block.match(new RegExp(`${name}: (#[0-9a-f]{6});`))?.[1] || '';
+      const worst = (text, of) => Math.min(...surfaces.map((n) => contrastRatio(text, of(n))));
+      for (const bright of [-100, -50, 50, 100]) {
+        const vars = appearanceVars(prefsOf({ uiBrightness: bright }), theme, base);
+        for (const name of TEXT_TOKENS) {
+          const before = worst(base(name), base);
+          const after = worst(vars[name] || base(name), (n) => vars[n]);
+          expect(after).toBeGreaterThanOrEqual(Math.min(4.5, before) - 0.01);
+        }
+      }
+      // Main text in the dark theme at full brightness was 3.7:1 on raised surfaces.
+      if (theme !== 'dark') continue;
+      const v = appearanceVars(prefsOf({ uiBrightness: 100 }), 'dark', base);
+      expect(contrastRatio(v['--text'], v['--bg-raised'])).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('stores color sets without unset colors and compares them field by field', () => {
     expect(colorSet({ wave: '#ABC', playhead: 'nope' })).toEqual({ wave: '#abc' });
     expect(colorSet({})).toBeNull();
