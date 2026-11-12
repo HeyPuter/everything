@@ -173,9 +173,12 @@ export class Dock extends Emitter {
     for (const [id, inst] of this.instances) {
       if (!shown.has(id)) inst.hide?.();
     }
+    // Before show(), so a panel that rebuilds itself there sees where focus is
+    // (and again after, for one that rebuilt the focused control away).
+    const lost = () => !document.activeElement || document.activeElement === document.body;
+    if (hadFocus && lost()) this.#restoreFocus(focused, focusedGroup);
     for (const id of shown) this.instances.get(id)?.show?.();
-    const lost = !document.activeElement || document.activeElement === document.body;
-    if (hadFocus && lost) this.#restoreFocus(focused, focusedGroup);
+    if (hadFocus && lost()) this.#restoreFocus(focused, focusedGroup);
     this.emit('render');
   }
 

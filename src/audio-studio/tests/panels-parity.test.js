@@ -295,6 +295,32 @@ describe('Properties', () => {
     expect(again.el.querySelector('.prop-toggle').getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('keeps keyboard focus on the same control when an edit or a rename rebuilds it', async () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const doc = app.addDocument(audioDoc());
+    const { Dock } = await import('../src/ui/dock.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    // Only this panel: the editor's view would keep drawing after the test.
+    app.dock = new Dock(app, root, new Map([['properties', app.panels.get('properties')]]));
+    app.dock.setLayout({ t: 'group', tabs: ['properties'], a: 'properties' });
+    const panel = () => root.querySelector('.properties-panel');
+    panel().querySelector('.prop-toggle').focus();
+    doc.apply('Gain', doc.state);
+    expect(document.activeElement.className).toBe('prop-toggle');
+    expect(panel().contains(document.activeElement)).toBe(true);
+    // Renaming (Enter in the name field) also re-renders the dock to retitle the editor.
+    const name = panel().querySelector('input[aria-label="File name"]');
+    name.focus();
+    name.value = 'b.wav';
+    name.dispatchEvent(new Event('change'));
+    expect(doc.name).toBe('b.wav');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('File name');
+    expect(document.activeElement).not.toBe(name);
+    root.remove();
+  });
+
   it('makes any section built by a feature collapsible', () => {
     const root = document.createElement('div');
     root.innerHTML = '<section class="prop-section"><h3 class="prop-heading">Track</h3><div class="prop-row">x</div></section>';
