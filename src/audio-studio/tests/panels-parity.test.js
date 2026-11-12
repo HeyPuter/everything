@@ -416,6 +416,44 @@ describe('Files panel', () => {
   });
 });
 
+describe('Files panel keyboard', () => {
+  it('reaches the markers listed under an expanded file with the arrow keys', async () => {
+    const { createMarker } = await import('../src/model/markers.js');
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const a = new AudioFile({
+      name: 'a.wav',
+      sampleRate: RATE,
+      channels: [Channel.fromSamples(new Float32Array(RATE))],
+      markers: [createMarker({ start: 100, name: 'One' }), createMarker({ start: 500, name: 'Two' })],
+    });
+    app.addDocument(a);
+    app.addDocument(audioDoc());
+    const p = create(app, 'files');
+    document.body.replaceChildren(p.el);
+    const key = (k) =>
+      document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    const at = () => document.activeElement.textContent;
+    p.el.querySelector(`tr[data-id="${a.id}"]`).focus();
+    key('ArrowRight');
+    key('ArrowDown');
+    expect(at()).toContain('One');
+    key('ArrowDown');
+    expect(at()).toContain('Two');
+    key('ArrowDown');
+    expect(document.activeElement.dataset.id).not.toBe(a.id);
+    key('ArrowUp');
+    expect(at()).toContain('Two');
+    // Enter goes to the marker and keeps focus on it; Left returns to its file.
+    key('Enter');
+    expect(a.cursor).toBe(500);
+    expect(at()).toContain('Two');
+    key('ArrowLeft');
+    expect(document.activeElement.dataset.id).toBe(a.id);
+    p.el.remove();
+  });
+});
+
 describe('History panel menu', () => {
   it('deletes the states after the current one', () => {
     const app = makeApp();
