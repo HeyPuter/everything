@@ -7,10 +7,13 @@ import { IDENTITY } from '../../lib/matrix.js';
 import {
   getDef, isInstance, isSymbolSet, symbolDefs, instancesOf, onPage, createSymbolFrom, placeInstance, replacePatch, resetTransformPatch, breakLink,
   duplicateSymbol, deleteSymbols, sortSymbolsByName, unusedSymbols, updateDefinition, masterBounds, redefineSymbol, registrationPoint, editingStack,
+  wouldNestItself,
 } from './model.js';
 import { enterSymbolEdit, exitSymbolEdit, editingSymbol } from './editing.js';
 import { symbolOptionsDialog, deleteInUseDialog, registrationCode } from './dialogs.js';
 import { currentSymbol, selectedSymbols, setSymbolSelection } from './state.js';
+
+const NESTED_ITSELF = 'A symbol cannot be placed inside itself.';
 
 /** Instances in the selection, including those inside selected symbol sets. */
 export function selectedInstances(editor, { sets = true } = {}) {
@@ -87,9 +90,10 @@ export function placeSymbol(app, symbolId = currentSymbol(app.editor), point = n
       y += def.symbolDef.reg.y - (b.y + b.h / 2);
     }
   }
+  const t = ed.drawTarget();
+  if (wouldNestItself(doc, symbolId, t.parentId)) throw new UserError(NESTED_ITSELF);
   let inst = null;
   doc.transact('Place Symbol Instance', () => {
-    const t = ed.drawTarget();
     inst = placeInstance(doc, symbolId, t.parentId, x, y, t.index);
   });
   ed.select([inst.id]);
@@ -98,9 +102,11 @@ export function placeSymbol(app, symbolId = currentSymbol(app.editor), point = n
 
 export function replaceSymbol(app, symbolId = currentSymbol(app.editor)) {
   const ed = app.editor;
-  const insts = selectedInstances(ed);
-  if (!insts.length || !getDef(ed.doc, symbolId)) return false;
   const doc = ed.doc;
+  const all = selectedInstances(ed);
+  const insts = all.filter((n) => !wouldNestItself(doc, symbolId, n.parent));
+  if (all.length && !insts.length) throw new UserError(NESTED_ITSELF);
+  if (!insts.length || !getDef(doc, symbolId)) return false;
   doc.transact('Replace Symbol', () => {
     for (const n of insts) if (n.symbol !== symbolId) doc.update(n.id, replacePatch(doc, n, symbolId));
   });

@@ -19,7 +19,12 @@ export function symbolSection(app) {
     build: (a) => {
       const select = h('select.select.sym-props-select', { 'aria-label': 'Symbol' });
       select.addEventListener('change', () => {
-        if (select.value) replaceSymbol(a, select.value);
+        if (!select.value) return;
+        try {
+          replaceSymbol(a, select.value);
+        } catch (err) {
+          a.notify(err.message, { error: true });
+        }
       });
       const kind = h('p.sym-props-kind');
       const edit = h('button.btn.small', { type: 'button', onclick: () => a.commands.run('symbol.edit') }, 'Edit Symbol');

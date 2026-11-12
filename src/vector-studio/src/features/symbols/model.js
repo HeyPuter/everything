@@ -680,6 +680,17 @@ function expandInstancesOf(doc, rootId, symbolId) {
   return root;
 }
 
+/**
+ * Whether an instance of `symbolId` placed in `parentId` would sit inside its
+ * own master (directly or through a symbol that uses it), where it draws nothing.
+ */
+export function wouldNestItself(doc, symbolId, parentId) {
+  const inside = [doc.get(parentId), ...doc.ancestors(parentId)].filter(isSymbolDef);
+  if (!inside.length) return false;
+  const deps = new Set(symbolDeps(doc, symbolId).map((n) => n.id));
+  return inside.some((d) => d.id === symbolId || deps.has(d.id));
+}
+
 /** Copy a definition (Duplicate Symbol). */
 export function duplicateSymbol(doc, symbolId) {
   const def = getDef(doc, symbolId);

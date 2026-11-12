@@ -55,6 +55,41 @@ beforeEach(async () => {
 
 afterEach(() => closeSymbolLibraries());
 
+describe('symbols inside themselves', () => {
+  it('Place and Replace refuse to put a symbol in its own master while editing it', async () => {
+    const { def, instance } = await makeSymbol();
+    const ed = app.editor;
+    const doc = ed.doc;
+    // A second symbol, then an instance of it inside the first one's master.
+    const c = addRect(300, 100, 20, 20);
+    ed.select([c]);
+    const other = await app.commands.run('symbol.new', { direct: true, name: 'Dot' });
+    ed.select([instance.id]);
+    await app.commands.run('symbol.edit');
+    expect(editingSymbol(ed)).toBe(def.id);
+    const notes = [];
+    app.notify = (m) => notes.push(m);
+    const kids = doc.get(def.id).children.length;
+    await app.commands.run('symbol.place', { id: def.id });
+    expect(notes.pop()).toBe('A symbol cannot be placed inside itself.');
+    expect(doc.get(def.id).children).toHaveLength(kids);
+    const dot = await app.commands.run('symbol.place', { id: other.def.id });
+    expect(doc.get(dot.id).parent).toBe(def.id);
+    ed.select([dot.id]);
+    setSymbolSelection(ed, [def.id]);
+    await app.commands.run('symbol.replace', { id: def.id });
+    expect(notes.pop()).toBe('A symbol cannot be placed inside itself.');
+    expect(doc.get(dot.id).symbol).toBe(other.def.id);
+    // Nor a symbol that uses the one being edited: Card now holds a Dot.
+    await app.commands.run('symbol.exitEdit');
+    await app.commands.run('symbol.edit', { id: other.def.id });
+    expect(editingSymbol(ed)).toBe(other.def.id);
+    await app.commands.run('symbol.place', { id: def.id });
+    expect(notes.pop()).toBe('A symbol cannot be placed inside itself.');
+    expect(instancesOf(doc, def.id).every((n) => !doc.isAncestor(other.def.id, n.id))).toBe(true);
+  });
+});
+
 describe('making and placing symbols', () => {
   it('New Symbol turns the selection into an instance and selects the symbol', async () => {
     const { def, instance } = await makeSymbol();
