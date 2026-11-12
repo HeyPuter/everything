@@ -294,7 +294,6 @@ export function gridTileIds(grid: TileGrid | undefined | null, into = new Set<st
 // followed by each tile's bytes, deflated as a whole.
 export const tilePackMimeType = 'application/x-photo-studio-tiles';
 export async function packGrid(store: TileStore, grid: TileGrid): Promise<Blob> {
-  const { deflate } = await import('pako');
   const keys = Object.keys(grid.tiles);
   const size = tileBytes(grid.channels);
   const header = new TextEncoder().encode(
@@ -304,7 +303,13 @@ export async function packGrid(store: TileStore, grid: TileGrid): Promise<Blob> 
   new DataView(raw.buffer).setUint32(0, header.length, true);
   raw.set(header, 4);
   keys.forEach((k, i) => raw.set(store.get(grid.tiles[k]), 4 + header.length + i * size));
-  return new Blob([deflate(raw, { level: 3 })], { type: tilePackMimeType });
+  return new Blob([await deflateBytes(raw)], { type: tilePackMimeType });
+}
+// The browser's own zlib is several times faster than pako and works off the
+// main thread, so saving (and recovery copies) no longer freezes the editor.
+async function deflateBytes(raw: Uint8Array): Promise<Blob | Uint8Array<ArrayBuffer>> {
+  if (typeof CompressionStream !== 'function') return (await import('pako')).deflate(raw, { level: 3 }) as Uint8Array<ArrayBuffer>;
+  return new Response(new Blob([raw as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new CompressionStream('deflate'))).blob();
 }
 // A pack's header says how many tiles follow, so inflating stops there: a
 // damaged or hostile project cannot expand a small pack into gigabytes.
