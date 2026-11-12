@@ -290,14 +290,14 @@ const bindTone = (e: Editor, el: HTMLElement) => {
 function colorDistance(a: Uint8ClampedArray | number[], b: Uint8ClampedArray | number[]) {
   return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
 }
-function sampledColor(e: Editor, target: PixelTarget & { kind: 'pixels' }) {
+// Sampled under the pointer-down point: a touch or pen tap has no hover before it.
+function sampledColor(e: Editor, target: PixelTarget & { kind: 'pixels' }, p: CanvasPointer) {
   const sample = gridSampler(e, target.grid);
   const t = new Uint8ClampedArray(4);
-  const p = e.pointerInfo!;
   sample(p.x, p.y, t);
   return { sample, ref: [t[0], t[1], t[2]] };
 }
-function backgroundEraserTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
+function backgroundEraserTarget(e: Editor, target: PixelTarget, p: CanvasPointer): PaintTarget | undefined {
   if (target.kind !== 'pixels') {
     e.message('The Background Eraser works on pixel layers.');
     return;
@@ -308,7 +308,7 @@ function backgroundEraserTarget(e: Editor, target: PixelTarget): PaintTarget | u
   }
   const tol = Number(e.settings.bgTolerance ?? 50) * 2.55;
   const mode = (e.settings.bgSampling as string) ?? 'once';
-  const ref = mode === 'swatch' ? hexRgb(e.background) : sampledColor(e, target).ref;
+  const ref = mode === 'swatch' ? hexRgb(e.background) : sampledColor(e, target, p).ref;
   const sample = gridSampler(e, target.grid);
   const t = new Uint8ClampedArray(4);
   let current = ref;
@@ -328,10 +328,13 @@ function backgroundEraserTarget(e: Editor, target: PixelTarget): PaintTarget | u
     },
   };
 }
-function colorReplaceTarget(e: Editor, target: PixelTarget): PaintTarget | undefined {
-  if (target.kind !== 'pixels') return;
+function colorReplaceTarget(e: Editor, target: PixelTarget, p: CanvasPointer): PaintTarget | undefined {
+  if (target.kind !== 'pixels') {
+    e.message('The Color Replacement Tool works on pixel layers.');
+    return;
+  }
   const tol = Number(e.settings.replaceTolerance ?? 30) * 2.55;
-  const { ref } = sampledColor(e, target);
+  const { ref } = sampledColor(e, target, p);
   const fg = hexRgb(e.color);
   return {
     kind: 'process',

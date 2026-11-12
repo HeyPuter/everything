@@ -149,7 +149,7 @@ function paintTargetFor(e: Editor, id: string, target: PixelTarget): PaintTarget
   return { kind: 'color', rgb: hexRgb(e.color), mode: s.mode, preserveAlpha };
 }
 /** Shared stroke lifecycle for brush-like tools. */
-export function strokeTool(id: string, label: string, icon: string, group: string, key: string, history: string, extra: Partial<Tool> = {}, makeTarget?: (e: Editor, target: PixelTarget) => PaintTarget | undefined): Tool {
+export function strokeTool(id: string, label: string, icon: string, group: string, key: string, history: string, extra: Partial<Tool> = {}, makeTarget?: (e: Editor, target: PixelTarget, p: CanvasPointer) => PaintTarget | undefined): Tool {
   return {
     id,
     label,
@@ -190,7 +190,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         return;
       }
       const s = brushFor(id);
-      let paint = makeTarget ? makeTarget(e, target) : paintTargetFor(e, id, target);
+      let paint = makeTarget ? makeTarget(e, target, p) : paintTargetFor(e, id, target);
       if (!paint) {
         active = undefined;
         return;
