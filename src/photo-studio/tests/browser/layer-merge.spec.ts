@@ -121,3 +121,27 @@ test('Merge Down of a clipped layer onto another clipped layer keeps its pixels'
   expect(await page.evaluate(() => window.photoStudio.doc.layers[1].clipped)).toBe(true);
   expect(await pixels(page)).toEqual(before);
 });
+
+test('Merge Down on the base of a clipping group merges the group and looks the same', async ({ page }) => {
+  await setLayers(page, [
+    { name: 'Back', color: [255, 0, 0, 255] },
+    { name: 'Base', color: [0, 255, 0, 255], rect: [2, 2, 4, 4], blend: 'multiply', opacity: 0.8 },
+    { name: 'Clipped', color: [0, 0, 255, 255], clipped: true },
+    { name: 'Hidden', color: [255, 255, 0, 255], clipped: true, hidden: true },
+    { name: 'Top', color: [255, 255, 255, 255], rect: [0, 0, 1, 1] },
+  ]);
+  const before = await pixels(page);
+  await select(page, 'Base');
+  await run(page, 'layer.merge-down');
+  expect(await tree(page)).toEqual(['Back', 'Base', 'Hidden (hidden)', 'Top']);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Merge Clipping Mask');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => !!l.clipped))).toEqual([false, false, true, false]);
+  const after = await pixels(page);
+  for (let i = 0; i < before.length; i++) expect(Math.abs(after[i] - before[i]), `byte ${i}`).toBeLessThanOrEqual(2);
+  // The hidden clipped layer still shows only inside the merged base.
+  await page.evaluate(() => window.photoStudio.command('Show', (d) => (d.layers[2].visible = true)));
+  await idle(page);
+  const shown = await pixels(page);
+  expect(shown.slice(0, 4)).toEqual([255, 255, 255, 255]);
+  expect(shown.slice(4, 8)).toEqual([255, 0, 0, 255]);
+});

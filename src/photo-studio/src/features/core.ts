@@ -718,6 +718,24 @@ async function mergeDown(e: Editor) {
   if (e.selectedIds.size > 1) return mergeSelected(e);
   const list = containerOf(e.doc.layers, l.id)!;
   const i = list.indexOf(l);
+  // On the base of a clipping group, Merge Down merges the group (Merge
+  // Clipping Mask): merging the base alone into the layer below would widen
+  // the shape the clipped layers show through.
+  let top = i + 1;
+  while (list[top]?.clipped) top++;
+  if (!l.clipped && top > i + 1) {
+    if (!l.visible) {
+      e.message('Show the layer before merging its clipping mask.');
+      return;
+    }
+    if (l.kind === 'adjustment') {
+      e.message('An adjustment layer cannot receive merged pixels.');
+      return;
+    }
+    // Hidden clipped layers stay clipped to the merged layer.
+    await mergeLayers(e, [l, ...list.slice(i + 1, top).filter((c) => c.visible)], l.id, 'Merge Clipping Mask', true);
+    return;
+  }
   if (i === 0) {
     e.message('There is no layer below to merge into.');
     return;
