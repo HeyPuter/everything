@@ -23,7 +23,7 @@ export class CommandRegistry {
     this.commands = new Map();
     this.byShortcut = new Map();
     /** User remappings: id -> shortcut strings (an empty list removes the shortcut). */
-    this.overrides = new Map(Object.entries(app?.prefs?.get?.('shortcuts') || {}));
+    this.overrides = storedOverrides(app);
     /** Observers told before and after each command runs ({ before(id, args), after(id, args) }). */
     this.watchers = new Set();
   }
@@ -91,7 +91,7 @@ export class CommandRegistry {
 
   /** Re-reads user shortcuts from preferences (after settings were imported or reset). */
   reloadShortcuts() {
-    this.overrides = new Map(Object.entries(this.app?.prefs?.get?.('shortcuts') || {}));
+    this.overrides = storedOverrides(this.app);
     this.byShortcut.clear();
     for (const id of this.commands.keys()) for (const s of this.keysFor(id)) this.byShortcut.set(normalizeShortcut(s), id);
   }
@@ -166,6 +166,24 @@ export class CommandRegistry {
     const key = this.keysFor(id).find((k) => !browserReserved(k));
     return key ? formatShortcut(key) : '';
   }
+}
+
+/**
+ * User remappings from preferences, as lists of shortcut strings. Damaged
+ * entries (a hand-edited or old settings file) would otherwise bind each
+ * character of a string or stop the app from starting: a single string
+ * counts as a one-key list, other values are ignored.
+ */
+function storedOverrides(app) {
+  const stored = app?.prefs?.get?.('shortcuts');
+  const out = new Map();
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return out;
+  for (const [id, keys] of Object.entries(stored)) {
+    const list = typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : null;
+    if (!list) continue;
+    out.set(id, list.filter((k) => typeof k === 'string' && k.trim()));
+  }
+  return out;
 }
 
 // Keys a browser tab never receives (new/close tab or window, quit, tab

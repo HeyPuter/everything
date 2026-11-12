@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { CommandRegistry, normalizeShortcut, eventKey, eventShortcut } from '../src/commands/registry.js';
+import {
+  CommandRegistry,
+  normalizeShortcut,
+  eventKey,
+  eventShortcut,
+} from '../src/commands/registry.js';
 import { Prefs } from '../src/lib/prefs.js';
 
 const memory = () => {
@@ -25,6 +30,28 @@ describe('CommandRegistry shortcuts', () => {
     expect(again.commandFor('Mod+K')).toBe('b');
     again.resetShortcuts('b');
     expect(again.commandFor('B')).toBe('b');
+  });
+
+  it('ignores damaged remappings from storage or an imported settings file', () => {
+    const app = { prefs: new Prefs(memory()), documentKinds: new Map() };
+    // A hand-edited file: a key written as a string, a list with junk, and a non-list.
+    app.prefs.set('shortcuts', { a: 'Alt+5', b: ['Shift+B', 7, null], c: { k: 1 } });
+    const C = new CommandRegistry(app);
+    C.register([
+      { id: 'a', label: 'A', shortcut: 'Mod+K', run() {} },
+      { id: 'b', label: 'B', shortcut: 'B', run() {} },
+      { id: 'c', label: 'C', shortcut: 'C', run() {} },
+    ]);
+    expect(C.keysFor('a')).toEqual(['Alt+5']);
+    expect(C.commandFor('Alt+5')).toBe('a');
+    // The characters of "Alt+5" are not bound one by one.
+    expect(C.commandFor('5')).toBe(null);
+    expect(C.keysFor('b')).toEqual(['Shift+B']);
+    expect(C.keysFor('c')).toEqual(['C']);
+    expect(C.shortcutLabel('a')).toBeTruthy();
+    C.reloadShortcuts();
+    expect(C.commandFor('Alt+5')).toBe('a');
+    expect(C.keysFor('c')).toEqual(['C']);
   });
 
   it('lets a document kind override a shared command', async () => {
