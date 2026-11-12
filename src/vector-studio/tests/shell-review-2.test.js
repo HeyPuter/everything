@@ -305,3 +305,22 @@ describe('submenus on touch screens', () => {
     m.close();
   });
 });
+
+describe('menu bar on touch screens', () => {
+  it('tapping another menu title while a menu is open opens that menu', async () => {
+    const { app } = await appWithRect();
+    const titles = [...document.querySelectorAll('.menubar-item')];
+    titles[0].click();
+    expect(document.querySelector('.menu').getAttribute('aria-label')).toBe('File');
+    const enter = new Event('pointerenter');
+    enter.pointerType = 'touch';
+    titles[1].dispatchEvent(enter);
+    titles[1].click();
+    const menus = [...document.querySelectorAll('.menu')];
+    expect(menus.map((m) => m.getAttribute('aria-label'))).toEqual(['Edit']);
+    menus[0]
+      .querySelector('.menu-item')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(app.root.contains(document.activeElement)).toBe(true);
+  });
+});

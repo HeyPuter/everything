@@ -367,8 +367,10 @@ export function createMenubar(app, menus) {
         'aria-expanded': 'false',
         tabindex: i === 0 ? '0' : '-1',
         onclick: () => (open && openIndex === i ? open.close('toggle') : openAt(i)),
-        onpointerenter: () => {
-          if (open && openIndex !== i) openAt(i, 'none');
+        // Moving across the bar switches menus; a touch switches with its tap (opened as the
+        // finger landed, the menu was then closed again by the tap's click).
+        onpointerenter: (e) => {
+          if (open && openIndex !== i && e.pointerType !== 'touch') openAt(i, 'none');
         },
         onkeydown: (e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
