@@ -265,6 +265,23 @@ describe('scripting API host', () => {
     host.finish();
   });
 
+  it('explains arrange requests that cannot work in plain words', async () => {
+    const e = mockEditor();
+    const host = new ScriptHost(e as unknown as Editor, ui(), 'Arrange');
+    const id = e.session.id;
+    const bg = e.doc.layers[0].id;
+    const p = (await host.call('layers.create', [id, { name: 'P' }])) as { id: string };
+    const g = (await host.call('layers.create', [id, { kind: 'group', name: 'G' }])) as { id: string };
+    const inner = (await host.call('layers.create', [id, { kind: 'group', name: 'Inner', inside: g.id }])) as { id: string };
+    await expect(host.call('layers.arrange', [id, g.id, { inside: inner.id }])).rejects.toThrow('“G” cannot be moved inside itself or next to a layer it contains.');
+    await expect(host.call('layers.arrange', [id, g.id, { above: g.id }])).rejects.toThrow('cannot be moved inside itself');
+    await expect(host.call('layers.arrange', [id, p.id, { inside: bg }])).rejects.toThrow('Layers can only be moved inside a group; “Background” is not a group.');
+    await expect(host.call('layers.arrange', [id, p.id, {}])).rejects.toThrow('Arrange takes "top"');
+    await expect(host.call('layers.arrange', [id, p.id, { below: 'gone' }])).rejects.toThrow('The target layer no longer exists.');
+    await host.call('layers.arrange', [id, p.id, { inside: inner.id }]);
+    expect(((await host.call('layers.get', [id, p.id])) as { parentId: string }).parentId).toBe(inner.id);
+    host.finish();
+  });
   it('lists layers top to bottom with children after their group', () => {
     const doc = newDocument(10, 10);
     const a = newPixelLayer('A', doc),

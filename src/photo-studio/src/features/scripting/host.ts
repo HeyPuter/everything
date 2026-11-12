@@ -704,9 +704,12 @@ function arrange(d: PhotoDocument, id: string, where: unknown) {
     list.splice(to, 0, l);
     return;
   }
-  if (!isObj(where)) return fail('Arrange takes "top", "bottom", "up", "down" or { above | below | inside: layer }.');
+  if (!isObj(where) || (where.above === undefined && where.below === undefined && where.inside === undefined)) return fail('Arrange takes "top", "bottom", "up", "down" or { above | below | inside: layer }.');
   const [position, target] = where.above !== undefined ? (['above', where.above] as const) : where.below !== undefined ? (['below', where.below] as const) : (['inside', where.inside] as const);
   const targetId = isObj(target) && typeof target.id === 'string' ? target.id : text(target, 'target layer', 100);
+  const to = findLayer(d.layers, targetId) ?? fail('The target layer no longer exists.');
+  if (to.id === id || findLayer(l.children, to.id)) fail(`“${l.name}” cannot be moved inside itself or next to a layer it contains.`);
+  if (position === 'inside' && to.kind !== 'group') fail(`Layers can only be moved inside a group; “${to.name}” is not a group.`);
   moveLayers(d, new Set([id]), targetId, position);
 }
 /** Pixels of a canvas-sized image within a rectangle (clipped to the canvas). */
