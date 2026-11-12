@@ -9,7 +9,7 @@ import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, TILE, writ
 import { applySelection, maskGrid, selectionGrid } from '../../model/selection';
 import { layerLock } from '../../model/locks';
 import { dropFloat, liftSelection } from './float';
-import { normalizeAngle, selectionFrame } from '../../model/transform';
+import { carryGridMask, normalizeAngle, selectionFrame } from '../../model/transform';
 import { settingsDialog } from '../action-settings';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { applyMat3, type Mat3 } from '../../imaging/filters/warp';
@@ -447,7 +447,24 @@ export async function transformAgain(e: Editor) {
     e.message(skipped.length ? 'Rasterize type and shape layers to repeat a skew, distortion or warp.' : 'Nothing to transform.');
     return;
   }
+  // Linked masks of transformed groups follow their layers.
+  const groups = allLayers(roots).filter((l) => l.kind === 'group');
+  const groupMasks = new Map(groups.filter((g) => g.maskGrid && !g.maskUnlinked).map((g) => [g.id, carryGridMask(store, g.maskGrid!, t.matrix)]));
   e.command('Transform Again', (d) => {
+    for (const { id } of groups) {
+      const g = findLayer(d.layers, id);
+      if (!g) continue;
+      const grid = groupMasks.get(id);
+      if (grid) g.maskGrid = grid;
+      if (g.vectorMask && !g.vectorMask.unlinked) {
+        const mask = structuredClone(g.vectorMask.mask);
+        mapMaskPoints(mask, (x, y) => {
+          const q = applyMat3(t.matrix, x, y);
+          return [q.x, q.y];
+        });
+        g.vectorMask = { ...g.vectorMask, mask };
+      }
+    }
     for (const [id, u] of updates) {
       const l = findLayer(d.layers, id);
       if (!l) continue;

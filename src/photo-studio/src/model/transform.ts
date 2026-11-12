@@ -208,7 +208,10 @@ export function moveGroupMasks(l: Layer, dx: number, dy: number, gx = Math.round
 }
 /** A mask grid carried through a document-space matrix; the fill of
  * reveal-all masks stays outside the stored tiles. */
-function carryGridMask(store: TileStore, grid: TileGrid, m: Mat3): TileGrid {
+export function carryGridMask(store: TileStore, grid: TileGrid, m: Mat3): TileGrid {
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  if (near(m[0], 1) && near(m[1], 0) && near(m[3], 0) && near(m[4], 1) && near(m[6], 0) && near(m[7], 0) && near(m[8], 1) && Number.isInteger(m[2]) && Number.isInteger(m[5]))
+    return { ...grid, x: grid.x + m[2], y: grid.y + m[5] };
   const keys = Object.keys(grid.tiles);
   if (!keys.length) return grid;
   let x0 = Infinity,
