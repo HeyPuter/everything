@@ -207,10 +207,12 @@ export function installCore(e: Editor) {
     cmd(id, label, () => arrange(e, where), { shortcut, enabled: hasLayer });
   cmd('layer.hide', 'Hide Layers', () => {
     const ids = [...e.selectedIds];
-    e.command('Hide Layers', (d) => {
+    // Hides every selected layer; when all of them are hidden, shows them.
+    const hide = ids.some((id) => findLayer(e.doc.layers, id)?.visible);
+    e.command(hide ? 'Hide Layers' : 'Show Layers', (d) => {
       for (const id of ids) {
         const l = findLayer(d.layers, id);
-        if (l) l.visible = !l.visible;
+        if (l) l.visible = !hide;
       }
     });
   }, { shortcut: 'Mod+,', enabled: hasLayer });

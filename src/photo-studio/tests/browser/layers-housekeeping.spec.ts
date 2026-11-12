@@ -117,6 +117,26 @@ test('each paste is one undo step', async ({ page }) => {
   }
 });
 
+// Hide Layers on a mix of shown and hidden layers toggled each one, so the
+// hidden layers appeared instead of every selected layer being hidden.
+test('Hide Layers hides every selected layer, then shows them all', async ({ page }) => {
+  await addBox(page, 'Red', '#ff0000', { x: 0, y: 0, width: 20, height: 20 });
+  await addBox(page, 'Blue', '#0000ff', { x: 30, y: 0, width: 20, height: 20 });
+  const visible = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.visible));
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.command('Hide Blue', (d) => (d.layers[2].visible = false));
+    e.selectLayers(e.doc.layers.slice(1).map((l) => l.id));
+    e.update();
+  });
+  await run(page, 'layer.hide');
+  expect(await visible()).toEqual([true, false, false]);
+  expect((await historyLabels(page)).at(-1)).toBe('Hide Layers');
+  await run(page, 'layer.hide');
+  expect(await visible()).toEqual([true, true, true]);
+  expect((await historyLabels(page)).at(-1)).toBe('Show Layers');
+});
+
 test('background layer, isolation, hidden layers and find', async ({ page }) => {
   await page.evaluate(async () => {
     const e = window.photoStudio;
