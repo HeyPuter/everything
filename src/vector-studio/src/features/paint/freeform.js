@@ -260,8 +260,17 @@ export function freeformRaster(paint, aspect, rect = [0, 0, 1, 1]) {
   return canvas;
 }
 
+/**
+ * Type draws inside its transform (each run inside its placement `seg` too):
+ * the matrix from the document into that space, or null for other objects.
+ */
+function typeSpace(node, seg) {
+  if (node.type !== 'text' || !node.transform) return null;
+  return invert(seg ? multiply(node.transform, seg) : node.transform);
+}
+
 /** Canvas style for a freeform paint on a node: a pattern of the blend over its frame. */
-export function freeformStyle(ctx, doc, node, paint) {
+export function freeformStyle(ctx, doc, node, paint, seg = null) {
   const f = freeformFrame(doc, node);
   if (!f) return averageColor(paint);
   // Strokes reach past the frame: cover them too.
@@ -272,7 +281,9 @@ export function freeformStyle(ctx, doc, node, paint) {
   const pattern = canvas && ctx.createPattern?.(canvas, 'no-repeat');
   if (!pattern || typeof DOMMatrix === 'undefined' || !pattern.setTransform) return averageColor(paint);
   // Canvas pixels -> frame fractions -> document.
-  const m = multiply(frameFractionMatrix(f), [(1 + 2 * pu) / canvas.width, 0, 0, (1 + 2 * pv) / canvas.height, -pu, -pv]);
+  let m = multiply(frameFractionMatrix(f), [(1 + 2 * pu) / canvas.width, 0, 0, (1 + 2 * pv) / canvas.height, -pu, -pv]);
+  const space = typeSpace(node, seg);
+  if (space) m = multiply(space, m);
   pattern.setTransform(new DOMMatrix(m));
   return pattern;
 }
@@ -301,8 +312,11 @@ function svgFreeform(writer, paint, node, mapped) {
     href = null;
   }
   if (!href || href.length < 30) return null;
-  const m = frameFractionMatrix(f);
-  if (mapped) {
+  let m = frameFractionMatrix(f);
+  // Type is written in its own space (a run in its placement, passed as a matrix in `mapped`).
+  const space = node.type === 'text' && mapped !== true ? typeSpace(node, Array.isArray(mapped) ? mapped : null) : null;
+  if (space) m = multiply(space, m);
+  else if (mapped) {
     m[4] -= writer.ox;
     m[5] -= writer.oy;
   }
@@ -320,7 +334,7 @@ export function installFreeform() {
   if (installed) return;
   installed = true;
   const prev = drawHooks.paintStyle;
-  drawHooks.paintStyle = (ctx, doc, node, paint, seg) => (paint?.type === 'freeform' ? freeformStyle(ctx, doc, node, paint) : prev ? prev(ctx, doc, node, paint, seg) : null);
+  drawHooks.paintStyle = (ctx, doc, node, paint, seg) => (paint?.type === 'freeform' ? freeformStyle(ctx, doc, node, paint, seg) : prev ? prev(ctx, doc, node, paint, seg) : null);
   paintCssHooks.freeform = freeformCss;
   svgPaintHooks.freeform = svgFreeform;
   if (!exportBakers.some((b) => b.key === 'freeform')) {
