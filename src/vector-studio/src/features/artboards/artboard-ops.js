@@ -12,6 +12,14 @@ import { uid } from '../../lib/ids.js';
 import { nodeBounds, visualBounds, unionRect, transformNodes } from '../../model/geometry.js';
 import { translate } from '../../lib/matrix.js';
 
+/**
+ * The largest artboard size and position in points. Imports cap artboards at the same size; far
+ * beyond it the view's coordinates lose too much precision to draw or edit.
+ */
+export const ARTBOARD_MAX = 1e6;
+const size = (v) => Math.min(ARTBOARD_MAX, Math.max(1, v));
+const place = (v) => Math.min(ARTBOARD_MAX, Math.max(-ARTBOARD_MAX, v));
+
 /** Common artboard size presets in points (portrait where it applies). */
 export const ARTBOARD_PRESETS = [
   { id: 'letter', label: 'Letter', w: 612, h: 792 },
@@ -108,7 +116,15 @@ function setBoards(doc, boards) {
 /** Add an artboard (inside a transaction). Returns its index. */
 export function addArtboard(doc, rect, { name, index, ...extra } = {}) {
   const boards = doc.artboards.slice();
-  const board = { id: uid('a'), name: name || nextArtboardName(boards), x: rect.x, y: rect.y, w: Math.max(1, rect.w), h: Math.max(1, rect.h), ...extra };
+  const board = {
+    id: uid('a'),
+    name: name || nextArtboardName(boards),
+    x: place(rect.x),
+    y: place(rect.y),
+    w: size(rect.w),
+    h: size(rect.h),
+    ...extra,
+  };
   const at = index == null ? boards.length : Math.max(0, Math.min(boards.length, index));
   boards.splice(at, 0, board);
   setBoards(doc, boards);
@@ -120,8 +136,10 @@ export function updateArtboard(doc, index, patch) {
   const boards = doc.artboards.slice();
   if (!boards[index]) return;
   const next = { ...boards[index], ...patch };
-  next.w = Math.max(1, next.w);
-  next.h = Math.max(1, next.h);
+  next.w = size(next.w);
+  next.h = size(next.h);
+  next.x = place(next.x);
+  next.y = place(next.y);
   boards[index] = next;
   setBoards(doc, boards);
 }

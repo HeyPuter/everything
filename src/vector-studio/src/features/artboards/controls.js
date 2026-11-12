@@ -5,7 +5,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { numberField, segmented, iconButton } from '../../ui/widgets.js';
-import { ARTBOARD_PRESETS, presetFor, updateArtboard, addArtboard, artboardRef, refPoint, rectAtRef, resizeAtRef } from './artboard-ops.js';
+import { ARTBOARD_MAX, ARTBOARD_PRESETS, presetFor, updateArtboard, addArtboard, artboardRef, refPoint, rectAtRef, resizeAtRef } from './artboard-ops.js';
 import { referencePointGrid } from '../../ui/panels/transform-section.js';
 import { moveArtworkEnabled } from './artboard-tool.js';
 
@@ -87,10 +87,10 @@ function buildControls(app) {
     const a = board();
     if (a) fn(a, v, o);
   };
-  const fx = numberField({ label: 'X', value: 0, unit: unit(), onCommit: at((a, v, o) => patch(rectAtRef(a.w, a.h, v, refPoint(a).y), 'Move Artboard', o?.live ? 'ab-x' : null)) });
-  const fy = numberField({ label: 'Y', value: 0, unit: unit(), onCommit: at((a, v, o) => patch(rectAtRef(a.w, a.h, refPoint(a).x, v), 'Move Artboard', o?.live ? 'ab-y' : null)) });
-  const fw = numberField({ label: 'W', value: 0, unit: unit(), min: 1, onCommit: at((a, v, o) => patch(resizeAtRef(a, v, a.h), 'Resize Artboard', o?.live ? 'ab-w' : null)) });
-  const fh = numberField({ label: 'H', value: 0, unit: unit(), min: 1, onCommit: at((a, v, o) => patch(resizeAtRef(a, a.w, v), 'Resize Artboard', o?.live ? 'ab-h' : null)) });
+  const fx = numberField({ label: 'X', value: 0, unit: unit(), min: -ARTBOARD_MAX, max: ARTBOARD_MAX, onCommit: at((a, v, o) => patch(rectAtRef(a.w, a.h, v, refPoint(a).y), 'Move Artboard', o?.live ? 'ab-x' : null)) });
+  const fy = numberField({ label: 'Y', value: 0, unit: unit(), min: -ARTBOARD_MAX, max: ARTBOARD_MAX, onCommit: at((a, v, o) => patch(rectAtRef(a.w, a.h, refPoint(a).x, v), 'Move Artboard', o?.live ? 'ab-y' : null)) });
+  const fw = numberField({ label: 'W', value: 0, unit: unit(), min: 1, max: ARTBOARD_MAX, onCommit: at((a, v, o) => patch(resizeAtRef(a, v, a.h), 'Resize Artboard', o?.live ? 'ab-w' : null)) });
+  const fh = numberField({ label: 'H', value: 0, unit: unit(), min: 1, max: ARTBOARD_MAX, onCommit: at((a, v, o) => patch(resizeAtRef(a, a.w, v), 'Resize Artboard', o?.live ? 'ab-h' : null)) });
   const ref = referencePointGrid(artboardRef.index, (i) => {
     artboardRef.index = i;
     refresh();

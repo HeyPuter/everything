@@ -79,9 +79,15 @@ export function createRulers(app, host) {
       const d1 = horizontal ? v.toDoc(len, 0).x - origin.x : v.toDoc(0, len).y - origin.y;
       const startTick = Math.floor(d0 / stepPt) * stepPt;
       ctx.beginPath();
-      for (let d = startTick; d <= d1 + stepPt; d += stepPt / 10) {
+      // Count the ticks rather than adding the step to a coordinate: far from the origin the step
+      // can be lost in float precision, and the loop would never end. At most one tick per pixel.
+      const ticks = Math.min(
+        Math.floor((d1 + stepPt - startTick) / (stepPt / 10)),
+        Math.ceil(len) + 20,
+      );
+      for (let k = 0; k <= ticks; k++) {
+        const d = startTick + (k * stepPt) / 10;
         const s = horizontal ? v.toScreen(d + origin.x, 0).x : v.toScreen(0, d + origin.y).y;
-        const k = Math.round((d / stepPt) * 10);
         const major = k % 10 === 0;
         const mid = k % 5 === 0;
         const tl = major ? SIZE : mid ? 6 : 3;

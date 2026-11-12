@@ -132,6 +132,15 @@ describe('artboard operations', () => {
     expect(doc.has(e)).toBe(true);
   });
 
+  it('keeps artboards within the largest size and position the view can draw', () => {
+    const doc = VDocument.create({ width: 100, height: 100 });
+    let i;
+    doc.transact('t', () => (i = addArtboard(doc, { x: -1e20, y: 5, w: 1e20, h: 1e30 })));
+    expect(doc.artboards[i]).toMatchObject({ x: -1e6, y: 5, w: 1e6, h: 1e6 });
+    doc.transact('t', () => resizeArtboard(doc, 0, { x: 1e18, y: 0, w: 1e18, h: 0 }));
+    expect(doc.artboards[0]).toMatchObject({ x: 1e6, y: 0, w: 1e6, h: 1 });
+  });
+
   it('resizes rects from handles with shift and alt', () => {
     const r = { x: 0, y: 0, w: 100, h: 50 };
     expect(resizeRect(r, 'se', 150, 80)).toEqual({ x: 0, y: 0, w: 150, h: 80 });

@@ -492,13 +492,21 @@ function drawGrid(ctx, editor, colors) {
   ctx.lineWidth = 1 / view.zoom;
   const x0 = Math.floor(r.x / step) * step;
   const y0 = Math.floor(r.y / step) * step;
+  // Lines are counted, not stepped by adding to a coordinate: far from the origin the step can be
+  // lost in float precision and such a loop never ends. Lines are at least 6 px apart, so the cap
+  // only matters there.
+  const most = Math.ceil(Math.hypot(view.width, view.height) / 6) + 2;
+  const nx = Math.min(Math.floor((r.x + r.w - x0) / step), most);
+  const ny = Math.min(Math.floor((r.y + r.h - y0) / step), most);
   if (editor.prefs?.get('gridStyle') === 'dots') {
     // Dots at the gridline crossings (larger on major lines).
     const px = 1 / view.zoom;
     ctx.fillStyle = colors.grid;
-    for (let x = x0; x <= r.x + r.w; x += step) {
+    for (let i = 0; i <= nx; i++) {
+      const x = x0 + i * step;
       const mx = Math.abs(x / major - Math.round(x / major)) < 1e-6;
-      for (let y = y0; y <= r.y + r.h; y += step) {
+      for (let j = 0; j <= ny; j++) {
+        const y = y0 + j * step;
         const big = mx && Math.abs(y / major - Math.round(y / major)) < 1e-6;
         const d = (big ? 3 : 1.5) * px;
         ctx.fillRect(x - d / 2, y - d / 2, d, d);
@@ -509,13 +517,15 @@ function drawGrid(ctx, editor, colors) {
   }
   for (const pass of ['minor', 'major']) {
     ctx.beginPath();
-    for (let x = x0; x <= r.x + r.w; x += step) {
+    for (let i = 0; i <= nx; i++) {
+      const x = x0 + i * step;
       const isMajor = Math.abs(x / major - Math.round(x / major)) < 1e-6;
       if ((pass === 'major') !== isMajor) continue;
       ctx.moveTo(x, r.y);
       ctx.lineTo(x, r.y + r.h);
     }
-    for (let y = y0; y <= r.y + r.h; y += step) {
+    for (let j = 0; j <= ny; j++) {
+      const y = y0 + j * step;
       const isMajor = Math.abs(y / major - Math.round(y / major)) < 1e-6;
       if ((pass === 'major') !== isMajor) continue;
       ctx.moveTo(r.x, y);
