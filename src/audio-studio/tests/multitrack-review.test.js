@@ -678,3 +678,44 @@ describe('recording automation', () => {
     }
   });
 });
+
+describe('closing a session while it records', () => {
+  it('keeps the take as a file without reopening the closed session', async () => {
+    const { Emitter } = await import('../src/lib/emitter.js');
+    const { SessionRecorder } = await import('../src/multitrack/recorder.js');
+    const engine = new Emitter();
+    Object.assign(engine, {
+      rate: RATE,
+      playing: false,
+      outputLatencyFrames: 0,
+      openInput: async () => (engine.input = { channels: 1 }),
+      setRecording: (on) => (engine.capturing = on),
+      play: async () => (engine.playing = true),
+      stop: () => (engine.playing = false),
+      closeInput: () => (engine.input = null),
+    });
+    const app = new Emitter();
+    Object.assign(app, { engine, documents: [], notify: vi.fn(), uniqueName: (b, e) => b + e });
+    app.addDocument = (d) => app.documents.push(d);
+    app.activate = (d) => (app.active = d);
+    const rec = new SessionRecorder(app);
+    const doc = new Session({ name: 'Rec.asesx', sampleRate: RATE, tracks: 1 });
+    const other = new Session({ name: 'Other.asesx', sampleRate: RATE, tracks: 1 });
+    app.documents.push(doc, other);
+    app.active = doc;
+    doc.apply('Arm', S.updateTrack(doc.state, doc.state.tracks[0].id, { arm: true }));
+    await rec.start(doc);
+    engine.emit('record-data', [new Float32Array(4096).fill(0.5)]);
+    // Close the session (as App.closeDocument does): it leaves the list, playback stops.
+    app.documents.splice(app.documents.indexOf(doc), 1);
+    doc.emit('close');
+    app.active = other;
+    engine.stop();
+    app.emit('transport', 'stopped');
+    await new Promise((r) => setTimeout(r, 300));
+    expect(app.active).toBe(other);
+    expect(app.documents).not.toContain(doc);
+    // The recorded audio is kept as a file.
+    expect(app.documents.some((d) => d.kind === 'audio' && d.length === 4096)).toBe(true);
+  });
+});
