@@ -63,6 +63,41 @@ describe('envelope editor', () => {
   });
 });
 
+describe('Scientific Filter cutoff handle', () => {
+  it('stops following the pointer when the browser cancels the drag', async () => {
+    await import('../src/effects/index.js');
+    const app = fakeApp();
+    const doc = new AudioFile({
+      name: 'a.wav',
+      sampleRate: 48000,
+      channels: [Channel.fromSamples(filled(480, 0.1))],
+    });
+    app.active = doc;
+    const done = openEffectDialog(app, getEffect('scientificFilter'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    const plotEl = dlg.querySelector('.fx-sci');
+    plotEl.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 300,
+      height: 100,
+      right: 300,
+      bottom: 100,
+    });
+    const handle = dlg.querySelector('.fx-xover');
+    handle.setPointerCapture = () => {};
+    handle.dispatchEvent(pointer('pointerdown', 150, 50));
+    handle.dispatchEvent(pointer('pointermove', 150, 50));
+    const during = handle.getAttribute('aria-valuenow');
+    handle.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true }));
+    // A pointer passing over the handle afterwards (no button held) leaves the cutoff alone.
+    handle.dispatchEvent(pointer('pointermove', 280, 50));
+    expect(handle.getAttribute('aria-valuenow')).toBe(during);
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await done;
+  });
+});
+
 describe('log-scaled value fields', () => {
   const def = {
     id: 'logProbe',

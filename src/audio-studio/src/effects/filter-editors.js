@@ -95,9 +95,11 @@ export function scientificEditor() {
         const up = () => {
           btn.removeEventListener('pointermove', move);
           btn.removeEventListener('pointerup', up);
+          btn.removeEventListener('pointercancel', up);
         };
         btn.addEventListener('pointermove', move);
         btn.addEventListener('pointerup', up);
+        btn.addEventListener('pointercancel', up);
       });
       btn.addEventListener('keydown', (e) => {
         const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
