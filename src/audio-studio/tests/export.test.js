@@ -9,6 +9,7 @@ import { muxOggOpus, oggCrc } from '../src/export/ogg.js';
 import { muxM4a } from '../src/export/mp4.js';
 import { readTags, parseVorbisComment } from '../src/audio/meta.js';
 import { Quantizer } from '../src/audio/quantize.js';
+import { conformOptions } from '../src/export/formats.js';
 import { crc8Flac, crc16Flac } from './helpers/flac-crc.js';
 
 let dsp;
@@ -61,6 +62,24 @@ describe('WAV export', () => {
     const r = parseWav(bytes.buffer);
     expect(r.channels.length).toBe(6);
     expect(Math.abs(r.channels[5][123] - chans[5][123])).toBeLessThan(1e-6);
+  });
+
+  it('saves every channel of a multitrack recorder file with more than eight', async () => {
+    const chans = Array.from({ length: 10 }, (_, c) => tone(500, 100 * (c + 1)));
+    const options = conformOptions('wav', { format: 'wav', sampleRate: 48000, channels: 10, bitDepth: 24 });
+    expect(options.options.channels).toBe(10);
+    expect(options.notes).toEqual([]);
+    const bytes = await exportFrom(chans, 48000, options.options);
+    const dv = new DataView(bytes.buffer);
+    expect(dv.getUint32(40, true)).toBe(0); // no speaker positions claimed
+    const r = parseWav(bytes.buffer);
+    expect(r.channels.length).toBe(10);
+    expect(Math.abs(r.channels[9][123] - chans[9][123])).toBeLessThan(1e-6);
+    const ten = { channels: 10, sampleRate: 48000, bitDepth: 16 };
+    const aiff = await exportFrom(chans, 48000, conformOptions('aiff', ten).options);
+    expect(parseAiff(aiff.buffer).channels.length).toBe(10);
+    // FLAC holds at most eight.
+    expect(conformOptions('flac', ten).options.channels).toBe(8);
   });
 
   it('16-bit integer values survive without dither exactly', async () => {

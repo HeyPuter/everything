@@ -102,7 +102,8 @@ export class WavWriter {
     if (extensible) {
       dv.setUint16(o + 24, 22, true);
       dv.setUint16(o + 26, bitDepth, true);
-      dv.setUint32(o + 28, channels >= 32 ? 0 : (2 ** channels - 1) >>> 0, true);
+      // Speaker positions for surround layouts up to 7.1; more channels are unassigned.
+      dv.setUint32(o + 28, channels > 8 ? 0 : 2 ** channels - 1, true);
       dv.setUint16(o + 32, tag, true);
       head.set(SUBFORMAT_TAIL, o + 34);
     }
