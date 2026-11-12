@@ -769,18 +769,68 @@ function inputElement(e: Editor): HTMLTextAreaElement {
       ev.stopPropagation();
     }
   });
+  const typed = (v: string) => {
+    const s = session!;
+    // Preferences → Type → Use smart quotes.
+    if (e.preferences.smartQuotes && /["']/.test(v)) {
+      const [a] = ordered(s);
+      insert(e, curlQuotes(v, plainText(s.data.content).slice(Math.max(0, a - 1), a)));
+    } else insert(e, v);
+  };
+  // Soft keyboards (Android) send most keys as keyCode 229 and describe the
+  // edit only in `beforeinput`; the input is kept empty, so there is nothing
+  // for a native Backspace to delete. Edits are applied from the input type.
+  let handled = false;
+  el.addEventListener('beforeinput', (ev) => {
+    const s = session;
+    handled = false;
+    if (!s || s.composing) return;
+    const ie = ev as InputEvent;
+    if (ie.isComposing) return;
+    switch (ie.inputType) {
+      case 'insertText':
+      case 'insertCompositionText':
+        if (!ie.data) return;
+        typed(ie.data.replace(/\r\n?/g, '\n'));
+        break;
+      case 'insertLineBreak':
+      case 'insertParagraph':
+        insert(e, '\n', 'newline');
+        break;
+      case 'deleteContentBackward':
+        backspace(e, false, false);
+        break;
+      case 'deleteWordBackward':
+        backspace(e, true, false);
+        break;
+      case 'deleteSoftLineBackward':
+      case 'deleteHardLineBackward':
+        backspace(e, false, true);
+        break;
+      case 'deleteContentForward':
+        forwardDelete(e, false);
+        break;
+      case 'deleteWordForward':
+        forwardDelete(e, true);
+        break;
+      default:
+        return;
+    }
+    if (ev.cancelable) ev.preventDefault();
+    // Not cancelable: the input changes anyway; its input event is dropped.
+    else handled = true;
+  });
   el.addEventListener('input', (ev) => {
     if (!session) return;
     const ie = ev as InputEvent;
     if (ie.isComposing || session.composing) return;
     const v = el.value;
     el.value = '';
-    if (!v) return;
-    // Preferences → Type → Use smart quotes.
-    if (e.preferences.smartQuotes && /["']/.test(v)) {
-      const [a] = ordered(session);
-      insert(e, curlQuotes(v, plainText(session.data.content).slice(Math.max(0, a - 1), a)));
-    } else insert(e, v);
+    if (handled) {
+      handled = false;
+      return;
+    }
+    if (v) typed(v);
   });
   el.addEventListener('compositionstart', () => {
     const s = session;
