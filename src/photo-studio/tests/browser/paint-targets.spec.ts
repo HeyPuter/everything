@@ -172,3 +172,30 @@ test('a light pen stroke with smoothing ends at the pen’s pressure', async ({ 
   expect(heights[1]).toBe(8);
   expect(heights[2]).toBeLessThanOrEqual(8);
 });
+
+test('Escape cancels a Quick Mask stroke and its preview', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 20, smoothing: 0 });
+    e.setForeground('#ffffff');
+  });
+  const errors: string[] = [];
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (err) => errors.push(err.message));
+  await page.mouse.move(...(await client(page, 40, 60)));
+  await page.mouse.down();
+  await page.mouse.move(...(await client(page, 150, 60)), { steps: 5 });
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await idle(page);
+  const state = await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.overlay();
+    return { preview: 'quickMaskPreview' in e.settings, tiles: Object.keys((e.settings.quickMask as { tiles: object }).tiles).length };
+  });
+  expect(state).toEqual({ preview: false, tiles: 0 });
+  expect(errors).toEqual([]);
+});

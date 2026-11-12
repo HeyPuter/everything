@@ -254,7 +254,10 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         active.session.cancel();
         clearInterval(active.timer);
         active = undefined;
+        // The Quick Mask preview refers to the cancelled stroke's tiles.
+        delete e.settings.quickMaskPreview;
         e.preview(e.doc);
+        e.overlay();
         return true;
       }
       if (ev.code === 'BracketRight' || ev.code === 'BracketLeft') {
