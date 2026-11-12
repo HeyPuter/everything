@@ -87,6 +87,12 @@ describe('AIFF export', () => {
     });
   }
 
+  it('reads NaN and infinite 32-bit float samples as silence', async () => {
+    const src = Float32Array.of(0.5, NaN, Infinity, -Infinity, -0.25);
+    const bytes = await exportFrom([src], 48000, { format: 'aiff', sampleRate: 48000, channels: 1, bitDepth: 32 });
+    expect(Array.from(parseAiff(bytes.buffer).channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+  });
+
   it('encodes 80-bit extended sample rates exactly', () => {
     const dv = new DataView(new ArrayBuffer(10));
     for (const rate of [8000, 11025, 22050, 44100, 48000, 96000, 192000, 384000, 7]) {

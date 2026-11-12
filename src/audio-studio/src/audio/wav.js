@@ -119,9 +119,19 @@ export function parseWav(buffer) {
   if (law) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p++) channels[c][i] = law(src[p]);
   } else if (isFloat && bits === 32) {
-    for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 4) channels[c][i] = view.getFloat32(p, true);
+    // NaN and infinite samples (left by faulty software) read as silence: one would turn a
+    // whole file silent in Normalize and every other effect that measures or filters it.
+    for (let i = 0, p = 0; i < frames; i++)
+      for (let c = 0; c < nch; c++, p += 4) {
+        const v = view.getFloat32(p, true);
+        channels[c][i] = v - v === 0 ? v : 0;
+      }
   } else if (isFloat && bits === 64) {
-    for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 8) channels[c][i] = view.getFloat64(p, true);
+    for (let i = 0, p = 0; i < frames; i++)
+      for (let c = 0; c < nch; c++, p += 8) {
+        const v = view.getFloat64(p, true);
+        channels[c][i] = v - v === 0 && v < 3e38 && v > -3e38 ? v : 0;
+      }
   } else if (container === 16) {
     for (let i = 0, p = 0; i < frames; i++) for (let c = 0; c < nch; c++, p += 2) channels[c][i] = view.getInt16(p, true) / 32768;
   } else if (container === 24) {

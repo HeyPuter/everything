@@ -41,6 +41,21 @@ describe('wav', () => {
       expect(Array.from(back, (v) => Math.round(v * full))).toEqual([full - 1, full - 1, -full]);
     });
   }
+  it('reads NaN and infinite float samples as silence', async () => {
+    const samples = Float32Array.of(0.5, NaN, Infinity, -Infinity, -0.25);
+    const r = parseWav(await encodeWav({ sampleRate: 8000, channels: [samples], bitDepth: 32 }).arrayBuffer());
+    expect(Array.from(r.channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+    // 64-bit float, including values too large for 32-bit float.
+    const head = await encodeWav({ sampleRate: 8000, channels: [new Float32Array(5)], bitDepth: 32 }).arrayBuffer();
+    const bytes = new Uint8Array(44 + 5 * 8);
+    bytes.set(new Uint8Array(head, 0, 44));
+    const dv = new DataView(bytes.buffer);
+    dv.setUint16(32, 8, true);
+    dv.setUint16(34, 64, true);
+    dv.setUint32(40, 5 * 8, true);
+    [0.5, NaN, -Infinity, 1e300, -0.25].forEach((v, i) => dv.setFloat64(44 + i * 8, v, true));
+    expect(Array.from(parseWav(bytes.buffer).channels[0])).toEqual([0.5, 0, 0, 0, -0.25]);
+  });
   it('keeps marker descriptions through a save and reopen', async () => {
     const markers = [
       { start: 10, duration: 0, name: 'Intro', description: 'Count-in, café take' },

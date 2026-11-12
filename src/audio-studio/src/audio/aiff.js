@@ -138,12 +138,19 @@ export function parseAiff(buffer) {
     bytes = 4;
     float = true;
     depth = 32;
-    read = (p) => dv.getFloat32(p);
+    // NaN and infinite samples read as silence (see parseWav).
+    read = (p) => {
+      const v = dv.getFloat32(p);
+      return v - v === 0 ? v : 0;
+    };
   } else if (t === 'fl64') {
     bytes = 8;
     float = true;
     depth = 32;
-    read = (p) => dv.getFloat64(p);
+    read = (p) => {
+      const v = dv.getFloat64(p);
+      return v - v === 0 && v < 3e38 && v > -3e38 ? v : 0;
+    };
   } else if (t === 'ulaw' || t === 'alaw') {
     bytes = 1;
     depth = 16;
