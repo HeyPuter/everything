@@ -191,3 +191,29 @@ describe('Clipping masks and compound paths', () => {
     expect(on('object.compoundMake')).toBe(false);
   });
 });
+
+describe('Unlock All and Show All', () => {
+  it('need a locked or hidden object outside locked or hidden layers', async () => {
+    const a = rect(10);
+    expect(on('object.unlockAll')).toBe(false);
+    expect(on('object.showAll')).toBe(false);
+    app.editor.select([a]);
+    await app.commands.run('object.lock');
+    expect(on('object.unlockAll')).toBe(true);
+    expect(on('object.showAll')).toBe(false);
+    await app.commands.run('object.unlockAll');
+    expect(on('object.unlockAll')).toBe(false);
+    await app.commands.run('object.hide');
+    expect(on('object.showAll')).toBe(true);
+    doc.undo();
+    expect(on('object.showAll')).toBe(false);
+    // Objects in a locked or hidden layer stay as they are, so they don't count.
+    const layer = doc.get(a).parent;
+    doc.transact('Hide', () => {
+      doc.update(a, { hidden: true, locked: true });
+      doc.update(layer, { hidden: true, locked: true });
+    });
+    expect(on('object.unlockAll')).toBe(false);
+    expect(on('object.showAll')).toBe(false);
+  });
+});

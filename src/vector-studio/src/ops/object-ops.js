@@ -285,6 +285,35 @@ export function lockSelection(editor) {
 }
 
 /** Unlock everything below the layer level and select what was unlocked. */
+const concealed = new WeakMap();
+
+/**
+ * Whether Unlock All and Show All would find anything: a locked object
+ * outside locked layers, a hidden object outside hidden layers. Worked out
+ * once per document state (menus ask on every open).
+ */
+export function concealedState(doc) {
+  const c = concealed.get(doc);
+  if (c && c.version === doc.nodes.version) return c;
+  const out = { version: doc.nodes.version, locked: false, hidden: false };
+  const visit = (id, lockedLayer, hiddenLayer) => {
+    const n = doc.get(id);
+    if (!n || (out.locked && out.hidden)) return;
+    if (n.type === 'layer') {
+      lockedLayer ||= Boolean(n.locked);
+      hiddenLayer ||= Boolean(n.hidden);
+      if (lockedLayer && hiddenLayer) return;
+    } else {
+      if (n.locked && !lockedLayer) out.locked = true;
+      if (n.hidden && !hiddenLayer) out.hidden = true;
+    }
+    if (n.children) for (const k of n.children) visit(k, lockedLayer, hiddenLayer);
+  };
+  for (const id of doc.root.children) visit(id, false, false);
+  concealed.set(doc, out);
+  return out;
+}
+
 export function unlockAll(editor) {
   const { doc } = editor;
   const out = [];

@@ -247,9 +247,21 @@ export function registerCoreCommands(app) {
     { id: 'object.group', label: 'Group', shortcut: 'Mod+G', enabled: hasSel, run: () => O.group(ed()) },
     { id: 'object.ungroup', label: 'Ungroup', shortcut: 'Shift+Mod+G', enabled: selHas((n) => n.type === 'group'), run: () => O.ungroup(ed()) },
     { id: 'object.lock', label: 'Lock Selection', shortcut: 'Mod+2', enabled: hasSel, run: () => O.lockSelection(ed()) },
-    { id: 'object.unlockAll', label: 'Unlock All', shortcut: 'Alt+Mod+2', enabled: hasDoc, run: () => O.unlockAll(ed()) },
+    {
+      id: 'object.unlockAll',
+      label: 'Unlock All',
+      shortcut: 'Alt+Mod+2',
+      enabled: (a) => Boolean(a.editor && O.concealedState(a.editor.doc).locked),
+      run: () => O.unlockAll(ed()),
+    },
     { id: 'object.hide', label: 'Hide Selection', shortcut: 'Mod+3', enabled: hasSel, run: () => O.hideSelection(ed()) },
-    { id: 'object.showAll', label: 'Show All', shortcut: 'Alt+Mod+3', enabled: hasDoc, run: () => O.showAll(ed()) },
+    {
+      id: 'object.showAll',
+      label: 'Show All',
+      shortcut: 'Alt+Mod+3',
+      enabled: (a) => Boolean(a.editor && O.concealedState(a.editor.doc).hidden),
+      run: () => O.showAll(ed()),
+    },
     { id: 'object.clipMake', label: 'Make', shortcut: 'Mod+7', enabled: selCount(2), run: () => O.makeClipMask(ed()) },
     {
       id: 'object.clipRelease',
