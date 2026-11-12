@@ -10,6 +10,8 @@ import { anchor } from '../src/model/bezier.js';
 import { makeBlend } from '../src/features/artboards/blend.js';
 import { makeRepeat } from '../src/features/repeat/repeat-model.js';
 import { offsetPathDialog, divideBelow } from '../src/features/geometry/path-ops.js';
+import { makeEnvelope } from '../src/features/envelope/envelope-ops.js';
+import { envelopeAt } from '../src/features/envelope/envelope-edit.js';
 
 const solid = (color) => ({ type: 'solid', color });
 
@@ -173,6 +175,54 @@ describe('geometry tools on live objects', () => {
     ed.select([cutter.id]);
     await divideBelow(app);
     expect(doc.get(plain)).toBe(plainNode);
+  });
+
+  it('the Blend tool picks objects inside the isolated group only', async () => {
+    const { ed, doc, plain, layer } = setup();
+    const style = { fill: solid('#ffff00'), stroke: null };
+    const p1 = createPath(rectangle(200, 200, 20, 20), true, style);
+    const p2 = createPath(rectangle(300, 200, 20, 20), true, style);
+    const g = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(g, layer);
+      doc.insert(p1, g.id);
+      doc.insert(p2, g.id);
+    });
+    app.commands.run('object.isolate', { id: g.id });
+    app.setTool('blend');
+    const click = (x, y) => app.tool.onPointerDown(ev(x, y));
+    click(210, 210);
+    // The plain square outside the group is not a second key.
+    click(10, 110);
+    expect(doc.get(plain).parent).toBe(layer);
+    expect(doc.get(g.id).children).toEqual([p1.id, p2.id]);
+    // (A click on nothing starts over.)
+    click(210, 210);
+    click(310, 210);
+    const blend = doc.get(doc.get(p1.id).parent);
+    expect(blend.blend).toBeTruthy();
+    expect(blend.parent).toBe(g.id);
+    app.setTool('selection');
+  });
+
+  it('envelope editing picks envelopes inside the isolated group only', () => {
+    const { ed, doc, plain, layer } = setup();
+    let env;
+    doc.transact('env', () => {
+      env = makeEnvelope(doc, [plain], { mode: 'mesh', rows: 2, cols: 2 });
+    });
+    expect(envelopeAt(ed, 10, 110)?.id).toBe(env);
+    const g = createGroup([]);
+    doc.transact('group', () => {
+      doc.insert(g, layer);
+      doc.insert(createPath(rectangle(300, 300, 10, 10), true), g.id);
+    });
+    app.commands.run('object.isolate', { id: g.id });
+    expect(envelopeAt(ed, 10, 110)).toBeNull();
+    // Nor does the Blend tool pick the envelope outside.
+    app.setTool('blend');
+    expect(app.tool.hitAt(ev(10, 110))).toBeNull();
+    app.setTool('selection');
   });
 
   it('Join does not join the open paths of a blend, selected or not', async () => {

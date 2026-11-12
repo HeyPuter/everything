@@ -79,8 +79,10 @@ export function activeEnvelopes(editor, hover = null) {
 
 /** The envelope under a document point (edited as an envelope), or null. */
 export function envelopeAt(editor, x, y) {
-  const hit = hitTest(editor.doc, x, y, tol(editor, 2), { outline: editor.viewOptions.mode === 'outline' });
-  return isEnvelope(hit) && !editingContents(hit) ? hit : null;
+  const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+  const outline = editor.viewOptions.mode === 'outline';
+  const hit = hitTest(editor.doc, x, y, tol(editor, 2), { outline, filter });
+  return isEnvelope(hit) && !editingContents(hit) && editor.inIsolation(hit.id) ? hit : null;
 }
 
 /** Make sure an envelope has its own mesh (a warp becomes the mesh it shows). Returns the node. */

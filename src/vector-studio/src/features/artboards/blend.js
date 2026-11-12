@@ -393,7 +393,11 @@ export class BlendTool extends Tool {
 
   hitAt(e) {
     const editor = this.editor;
-    return hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline: editor.viewOptions.mode === 'outline' });
+    // In isolation mode only objects inside the isolated group can be blended.
+    const filter = editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    const outline = editor.viewOptions.mode === 'outline';
+    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { outline, filter });
+    return hit && editor.inIsolation(hit.id) ? hit : null;
   }
 
   onHover(e) {
