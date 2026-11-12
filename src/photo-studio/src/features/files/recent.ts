@@ -104,10 +104,14 @@ function pruneStored() {
   persist();
 }
 /** The file behind a stored entry. */
-export async function storedBlob(key: string): Promise<Blob> {
-  const blob = await localStore().get<Blob>('blobs', `recent:${key}`);
-  if (!blob) throw new Error('This file is no longer stored in this browser. Open it again from its location.');
-  return blob;
+export async function storedBlob(key: string): Promise<Blob | undefined> {
+  return localStore().get<Blob>('blobs', `recent:${key}`);
+}
+/** Take one entry off the list (its file can no longer be read). */
+export function removeRecent(e: Editor, entry: Entry) {
+  entries = load().filter((x) => x !== entry);
+  forget(entry);
+  syncRecentCommands(e);
 }
 export function clearRecent(e: Editor) {
   for (const x of load()) forget(x);
