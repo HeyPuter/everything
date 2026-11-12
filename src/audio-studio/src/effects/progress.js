@@ -16,7 +16,9 @@ export async function withProgress(app, title, task, { delay = 250, indeterminat
     if (!bar) return;
     bar.style.width = `${Math.round(fraction * 100)}%`;
     pct.textContent = indeterminate ? 'Working...' : `${Math.round(fraction * 100)}%`;
-    bar.parentElement.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+    // An indeterminate bar has no value to announce (ARIA leaves aria-valuenow off).
+    const track = bar.parentElement;
+    if (!indeterminate) track.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
   };
   const timer = setTimeout(() => {
     bar = h('div.fx-progress-fill');
