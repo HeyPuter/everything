@@ -114,6 +114,15 @@ export async function openFiles(app, items, { activate = true } = {}) {
       }
       let blob = item;
       let source = { type: 'local' };
+      // A Puter file that is already open is shown, not opened a second time: two copies
+      // of one file would each save over the other's changes.
+      const isOpen = (d) => d.source?.type === 'puter' && d.source.path === item.path;
+      const already = !(item instanceof Blob) && item.path && app.documents?.find(isOpen);
+      if (already) {
+        docs.push(already);
+        app.setStatus(`${name} is already open`);
+        continue;
+      }
       if (!(item instanceof Blob) && (typeof item.read === 'function' || item.path)) {
         // Puter FSItems (file pickers, "Open with", Media Browser) read through the SDK.
         blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);

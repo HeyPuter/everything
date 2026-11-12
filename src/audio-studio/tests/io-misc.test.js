@@ -201,6 +201,23 @@ describe('file probing and decoding', () => {
     expect(app.activate).toHaveBeenCalledWith(docs[0]);
     expect(app.notify).toHaveBeenCalledWith('"Broken.wav" could not be opened. The WAV file header is damaged.', { error: true });
   });
+  it('shows a Puter file that is already open instead of opening a second copy', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    const open = { id: 'd1', name: 'Song.wav', source: { type: 'puter', path: '/u/Song.wav' } };
+    const read = vi.fn(async () => new Blob([good]));
+    const prefs = { get: () => [], set: () => {} };
+    const app = { documents: [open], setStatus: () => {}, notify: vi.fn(), prefs };
+    Object.assign(app, { addDocument: vi.fn(), activate: vi.fn() });
+    const docs = await openFiles(app, [{ name: 'Song.wav', path: '/u/Song.wav', read }]);
+    expect(docs).toEqual([open]);
+    expect(read).not.toHaveBeenCalled();
+    expect(app.addDocument).not.toHaveBeenCalled();
+    expect(app.activate).toHaveBeenCalledWith(open);
+    // Another file still opens.
+    const more = await openFiles(app, [{ name: 'Other.wav', path: '/u/Other.wav', read }]);
+    expect(more[0].source).toMatchObject({ type: 'puter', path: '/u/Other.wav' });
+  });
   it('rejects empty and known-unsupported files with clear messages', async () => {
     await expect(decodeAudio(new ArrayBuffer(0), 'a.mp3')).rejects.toThrow(/empty/);
     await expect(decodeAudio(new ArrayBuffer(16), 'a.wma')).rejects.toThrow(/Windows Media Audio/);
