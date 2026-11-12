@@ -5,6 +5,8 @@ import { bootAppWithFeatures } from './helpers.js';
 import { versionKey } from '../src/features/panels/file-commands.js';
 import { scriptAPI } from '../src/features/scripts/runner.js';
 import { LibraryStore } from '../src/features/libraries/store.js';
+import { memoryOutbox } from '../src/features/collab/outbox.js';
+import { network, joinClient, shareNew, settle, rect, alice, bob } from './collab-helpers.js';
 
 /** Saves in this browser download the file (no cloud, no File System Access): capture the bytes. */
 function captureDownloads() {
@@ -196,5 +198,79 @@ describe('libraries', () => {
     expect(store.location).toBe('cloud');
     expect(store.libraries.map((l) => l.name)).toEqual(['Cloud Kit']);
     expect(await second).toEqual(store.libraries);
+  });
+});
+
+describe('shared documents kept on this device', () => {
+  it('a local edit stores its pending batch without writing the whole document again', async () => {
+    const net = network();
+    const { room, client: a } = await shareNew(net);
+    const { token } = await net.service.call(alice, { op: 'invite', room, role: 'editor' });
+    const outbox = memoryOutbox();
+    const writes = [];
+    const put = outbox.put;
+    outbox.put = (key, value) => {
+      writes.push('state' in value);
+      return put(key, value);
+    };
+    const b = await joinClient(net, bob, room, { invite: token, outbox });
+    const L = b.doc.root.children[0];
+    expect(writes).toEqual([true]);
+    // Offline: edits stay pending, each stored at once, the document state untouched.
+    net.offline.add(bob.uuid);
+    b.doc.transact('Add', () => b.doc.insert(rect('mine1'), L));
+    await b.session.sending;
+    b.doc.transact('Add', () => b.doc.insert(rect('mine2'), L));
+    await b.session.sending;
+    await b.session.persisting;
+    expect(writes.slice(1).every((w) => !w)).toBe(true);
+    expect((await outbox.get(b.session.key)).pending.length).toBeGreaterThan(0);
+    // Someone else's edit, ordered by the server, changes the stored state.
+    a.doc.transact('Add', () => a.doc.insert(rect('theirs'), L));
+    await settle(a);
+    net.offline.delete(bob.uuid);
+    writes.length = 0;
+    b.doc.transact('Add', () => b.doc.insert(rect('mine3'), L));
+    await settle(b, a);
+    await b.session.persisting;
+    expect(writes).toContain(true);
+    // Read back after the connection drops again: everything is there.
+    b.session.close({ leave: false });
+    await b.session.persisting;
+    net.offline.add(bob.uuid);
+    const again = await joinClient(net, bob, room, { outbox });
+    expect(again.session.status).toBe('offline');
+    for (const id of ['mine1', 'mine2', 'mine3', 'theirs']) expect(again.doc.has(id)).toBe(true);
+    again.session.close({ leave: false });
+  });
+
+  it('reads a device copy kept in one row by an earlier release', async () => {
+    const outbox = memoryOutbox();
+    outbox.rows.set('k', {
+      seq: 3,
+      state: { nodes: {}, assets: {}, comments: null },
+      pending: [{ id: 'p' }],
+    });
+    expect(await outbox.get('k')).toMatchObject({ seq: 3, pending: [{ id: 'p' }] });
+    await outbox.put('k', {
+      seq: 5,
+      state: { nodes: { a: 1 }, assets: {}, comments: null },
+      pending: [],
+    });
+    expect(await outbox.get('k')).toMatchObject({
+      seq: 5,
+      state: { nodes: { a: 1 } },
+      pending: [],
+    });
+    // A write without a state keeps the stored one (and its sequence number).
+    await outbox.put('k', { seq: 6, pending: [{ id: 'q' }] });
+    expect(await outbox.get('k')).toMatchObject({
+      seq: 5,
+      state: { nodes: { a: 1 } },
+      pending: [{ id: 'q' }],
+    });
+    await outbox.delete('k');
+    expect(await outbox.get('k')).toBe(null);
+    expect(outbox.rows.size).toBe(0);
   });
 });
