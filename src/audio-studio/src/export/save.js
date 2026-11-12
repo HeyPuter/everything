@@ -10,6 +10,7 @@ import { conformOptions, defaultOptions, docBitDepth, formatForName, getFormat }
 import { confirmDialog } from '../ui/dialog.js';
 import * as puter from '../storage/puter.js';
 import { downloadBlob, rememberRecent } from '../storage/files.js';
+import { VIDEO_EXTENSIONS, extensionOf } from '../audio/decode.js';
 
 /** Encodes frames [start, end) of a document with export options. */
 export function encodeDoc(doc, options, { start = 0, end = doc.length, onProgress, signal } = {}) {
@@ -48,11 +49,14 @@ async function upload(label, path, blob) {
   return item;
 }
 
-/** File > Save: in place when the document has a Puter file in a writable format, else Save As. */
+/**
+ * File > Save: in place when the document has a Puter file in a writable format, else Save As.
+ * A video file (an .mp4 opened for its sound) is never overwritten with audio alone.
+ */
 export async function saveDocument(app, doc, { saveAs = false, copy = false } = {}) {
   if (!doc) return false;
   const path = doc.source?.type === 'puter' ? doc.source.path : null;
-  const format = path ? formatForName(path) : null;
+  const format = path && !VIDEO_EXTENSIONS.includes(extensionOf(path)) ? formatForName(path) : null;
   if (!saveAs && !copy && path && format && getFormat(format)) {
     if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return false;
     const options = optionsForSave(doc, format);

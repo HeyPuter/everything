@@ -72,4 +72,26 @@ describe('saving to Puter', () => {
     expect(await saving).toBe(true);
     expect(doc.dirty).toBe(false);
   });
+
+  it('never overwrites a video file with audio: Save on an opened .mp4 asks where to save', async () => {
+    const write = vi.fn(async () => ({ uid: 'u1' }));
+    window.puter = {
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) },
+      fs: { write, stat: async () => ({}) },
+    };
+    const doc = AudioFile.blank({ name: 'Clip.mp4', sampleRate: 8000, channels: 1, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/Videos/Clip.mp4' };
+    doc.apply('Edit', { ...doc.state, meta: { title: 'x' } });
+    const saving = saveDocument(fakeApp(), doc);
+    await wait(20);
+    const dialog = document.querySelector('.io-export-dialog');
+    expect(dialog).toBeTruthy();
+    expect(dialog.querySelector('.io-name').value).toBe('Clip.m4a');
+    [...dialog.querySelectorAll('.dialog-foot .btn')]
+      .find((b) => b.textContent === 'Cancel')
+      .click();
+    expect(await saving).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+    expect(doc.dirty).toBe(true);
+  });
 });
