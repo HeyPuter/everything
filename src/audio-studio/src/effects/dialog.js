@@ -297,7 +297,21 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
       panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
     }
+    if (open) window.addEventListener('keydown', popoverKeys, true);
+    else window.removeEventListener('keydown', popoverKeys, true);
   }
+  // While one is open, Escape closes the channel map or info popover before the dialog
+  // (caught at the window, ahead of the dialog's own Escape, like the inline name prompt).
+  function popoverKeys(e) {
+    if (e.key !== 'Escape' || !(body.closest('.dialog') || body).contains(e.target) || nameBar.contains(e.target) || e.target.classList?.contains('hot-edit')) return;
+    const open = [[mapPanel, mapBtn], [infoPanel, infoBtn]].find(([pnl]) => !pnl.hidden);
+    if (!open) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    toggle(...open);
+    open[1].focus();
+  }
+  cleanups.push(() => window.removeEventListener('keydown', popoverKeys, true));
 
   const presetBar = h('div.fx-presetbar', h('span.fx-label', 'Presets:'), presetSel, saveBtn, delBtn, h('span.fx-bar-sep', { 'aria-hidden': 'true' }), favBtn, h('span.spacer'), mapBtn, infoBtn);
   syncPresetSelect();

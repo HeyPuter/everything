@@ -143,6 +143,31 @@ describe('dialog chrome', () => {
     expect(await p).toBeNull();
   });
 
+  it('closes an open channel map or info popover on Escape before the dialog', async () => {
+    const { app, doc } = setup();
+    const p = openEffectDialog(app, getEffect('amplify'), { doc, routing: {} });
+    const dlg = document.querySelector('.fx-dialog');
+    const esc = (target) =>
+      target.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    for (const sel of ['.fx-map-btn', '.fx-info-btn']) {
+      const btn = dlg.querySelector(sel);
+      btn.click();
+      const panel = dlg.querySelector(sel === '.fx-map-btn' ? '.fx-chmap' : '.fx-info');
+      expect(panel.hidden).toBe(false);
+      esc(panel.querySelector('select') || btn);
+      expect(panel.hidden).toBe(true);
+      expect(btn.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(btn);
+      expect(dlg.isConnected).toBe(true);
+    }
+    // With nothing open, Escape closes the dialog.
+    esc(dlg.querySelector('.fx-map-btn'));
+    expect(await p).toBeNull();
+    expect(dlg.isConnected).toBe(false);
+  });
+
   it('routes channels from the channel map into the preview slot and the result', async () => {
     const { app, doc } = setup();
     const routing = {};
