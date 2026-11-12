@@ -59,6 +59,15 @@ describe('preference pages', () => {
     expect(app.prefs.get('tempo')).toBe(140);
   });
 
+  it('opens notices with focus on their action, not on "Don\'t show this again"', async () => {
+    const app = await makeApp();
+    const { showNotice } = await import('../src/ui/notices.js');
+    const shown = showNotice(app, { id: 'test-notice', title: 'Note', message: 'Hello' });
+    expect(document.activeElement.textContent).toBe('OK');
+    document.activeElement.click();
+    expect(await shown).toBe(true);
+  });
+
   it('reverts only keys that changed', () => {
     const p = new Prefs(memoryStorage());
     p.set('hud', false);
