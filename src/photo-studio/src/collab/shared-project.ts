@@ -346,15 +346,27 @@ export class SharedProject {
     // editor) are not shown.
     const ids = [...this.layers.keys()].filter(isDocumentId);
     for (const id of this.cache.keys()) if (!this.layers.has(id)) this.cache.delete(id);
+    const unreadable: string[] = [];
     for (const id of ids) {
       if (!this.allDirty && !this.dirty.has(id) && this.cache.has(id) && !this.stale.has(id)) continue;
       const entry = this.layers.get(id);
       if (!(entry instanceof Y.Map)) continue;
       this.incomplete = false;
-      this.cache.set(id, this.projectLayer(id, entry));
+      try {
+        this.cache.set(id, this.projectLayer(id, entry));
+      } catch {
+        // Data no editor writes (malformed tile grids, keys or nesting, from
+        // another person): that layer is left out, never the whole document.
+        this.cache.delete(id);
+        this.stale.delete(id);
+        const name = entry.get('p:name');
+        unreadable.push(`layer “${typeof name === 'string' ? name.slice(0, 100) : 'Layer'}”`);
+        continue;
+      }
       if (this.incomplete) this.stale.add(id);
       else this.stale.delete(id);
     }
+    for (let i = ids.length - 1; i >= 0; i--) if (!this.cache.has(ids[i])) ids.splice(i, 1);
     if (this.stale.size) complete = false;
     this.dirty.clear();
     this.allDirty = false;
@@ -392,7 +404,15 @@ export class SharedProject {
     if (!docRegs) {
       this.incomplete = false;
       docRegs = {};
-      for (const [k, v] of this.doc) if (!PRIVATE_DOC.has(k)) docRegs[k] = this.decode(v);
+      this.docDropped = [];
+      for (const [k, v] of this.doc) {
+        if (PRIVATE_DOC.has(k)) continue;
+        try {
+          docRegs[k] = this.decode(v);
+        } catch {
+          this.docDropped.push(`document setting “${k.slice(0, 60)}”`);
+        }
+      }
       if (this.incomplete) complete = false;
       else this.docCache = docRegs;
     }
@@ -415,11 +435,13 @@ export class SharedProject {
       });
     document.layers = build('', 0, false);
     document.version = 1;
-    const dropped = salvageDocument(document);
+    const dropped = [...this.docDropped, ...unreadable, ...salvageDocument(document)];
     this.referencedIds = new Set(documentAssetIds(document));
     return { document, complete, dropped };
   }
   private stale = new Set<string>();
+  // Document settings left out of the cached registers (unreadable).
+  private docDropped: string[] = [];
   /** Project everything again (after tiles arrived). */
   invalidate() {
     this.allDirty = true;
