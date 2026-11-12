@@ -46,7 +46,7 @@ export class Autosaver {
     this.fixedStore = store;
     this.storeKey = null;
     this.cached = null;
-    this.saved = new WeakMap(); // editor -> revision last written
+    this.saved = new WeakMap(); // document -> revision last written
     this.stashed = new Map(); // recovery id -> revision kept in localStorage at page close
     this.timer = 0;
     this.busy = null;
@@ -88,7 +88,10 @@ export class Autosaver {
       if (document.visibilityState === 'hidden') this.flush({ hiding: true });
     });
     window.addEventListener('pagehide', () => this.flush({ hiding: true }));
-    this.app.on('closed', (editor) => this.discard(editor));
+    // Closing one window of a document that another still shows keeps its copy.
+    this.app.on('closed', (editor) => {
+      if (!this.app.editors.some((e) => e.doc === editor.doc)) this.discard(editor);
+    });
     try {
       this.channel = new BroadcastChannel(CHANNEL);
       this.channel.onmessage = (e) => {
@@ -105,9 +108,12 @@ export class Autosaver {
     if (this.enabled) this.timer = setInterval(() => this.flush(), this.intervalMs);
   }
 
+  /** A document's recovery copy id, shared by every window showing it. */
   recoveryId(editor) {
-    if (!editor.recoveryId) editor.recoveryId = uid('r');
-    return editor.recoveryId;
+    const doc = editor.doc;
+    if (!doc.recoveryId) doc.recoveryId = editor.recoveryId || uid('r');
+    editor.recoveryId = doc.recoveryId;
+    return doc.recoveryId;
   }
 
   /**
@@ -124,9 +130,15 @@ export class Autosaver {
     return this.busy;
   }
 
-  /** Documents whose recovery copy is out of date. */
+  /** Documents whose recovery copy is out of date: one window each. */
   #changed() {
-    return this.app.editors.filter((editor) => editor.doc.dirty && !editor.doc.tx && this.saved.get(editor) !== editor.doc.revision);
+    const seen = new Set();
+    return this.app.editors.filter((editor) => {
+      const doc = editor.doc;
+      if (seen.has(doc)) return false;
+      seen.add(doc);
+      return doc.dirty && !doc.tx && this.saved.get(doc) !== doc.revision;
+    });
   }
 
   /** Keep the copies about to be written in localStorage. Returns editor -> { text, rev } for the regular write. */
@@ -183,10 +195,10 @@ export class Autosaver {
         const data = kept?.rev === rev ? await encodeText(kept.text) : await serializeDocument(doc);
         // Saved or closed while the copy was being encoded: a copy written now would outlive the
         // discard and be offered for recovery later.
-        if (!doc.dirty || !this.app.editors.includes(editor)) continue;
+        if (!doc.dirty || !this.app.editors.some((e) => e.doc === doc)) continue;
         const id = this.recoveryId(editor);
         await store.put(id, { ...this.#entry(editor), data, revision: rev, session: this.session });
-        this.saved.set(editor, rev);
+        this.saved.set(doc, rev);
         this.#unstash(id, rev);
         n++;
       } catch (err) {
@@ -198,11 +210,13 @@ export class Autosaver {
 
   /** Forget a document's recovery copy (saved, or closed without saving). */
   async discard(editor) {
-    this.saved.delete(editor);
-    if (!editor?.recoveryId) return;
-    this.#unstash(editor.recoveryId);
+    if (!editor) return;
+    this.saved.delete(editor.doc);
+    const id = editor.doc?.recoveryId || editor.recoveryId;
+    if (!id) return;
+    this.#unstash(id);
     try {
-      await this.store?.remove(editor.recoveryId);
+      await this.store?.remove(id);
     } catch {
       // Best effort.
     }
@@ -362,7 +376,7 @@ export class Autosaver {
       // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
       if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
       const editor = this.app.addDocument(doc, { file });
-      editor.recoveryId = entry.id;
+      editor.recoveryId = doc.recoveryId = entry.id;
       this.app.renderTabs();
       return editor;
     } catch (err) {

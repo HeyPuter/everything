@@ -371,4 +371,24 @@ describe('a document shown in two windows', () => {
     expect(back.get(doc.layers()[0].id).children).toHaveLength(2);
     expect(files.has('/u/Logo.vstudio')).toBe(false);
   });
+
+  it('keeps one recovery copy for the document, gone once it is saved', async () => {
+    const { RecoveryStore } = await import('../src/features/files/recovery.js');
+    const { memoryBackend } = await import('../src/features/files/backends.js');
+    const { app, first, second, add } = await twoWindows();
+    const store = new RecoveryStore([memoryBackend()]);
+    app.files.autosaver.fixedStore = store;
+    add();
+    await app.files.autosaver.flush();
+    expect(await store.list()).toHaveLength(1);
+    expect(await app.files.service.save(second)).toBe(true);
+    await store.queue;
+    expect(await store.list()).toHaveLength(0);
+    // Closing one window of an unsaved document keeps the copy for the other.
+    add();
+    await app.files.autosaver.flush();
+    await app.closeDocument(first);
+    await store.queue;
+    expect(await store.list()).toHaveLength(1);
+  });
 });
