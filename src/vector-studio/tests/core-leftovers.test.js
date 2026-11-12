@@ -67,3 +67,24 @@ describe('Template layers', () => {
     expect(doc.get(layer.id)).toMatchObject({ template: false, locked: false, print: true });
   });
 });
+
+describe('Layers panel rename', () => {
+  it('keeps the old name of a layer renamed to nothing', () => {
+    const { app, doc, layer } = setup();
+    const panel = app.dock.panels.get('layers');
+    panel.ensureBuilt();
+    app.openPanel('layers');
+    panel.update();
+    const rename = (value) => {
+      const row = document.getElementById(`lrow-${layer.id}`);
+      row.querySelector('.lr-name').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      const input = row.querySelector('.lr-rename');
+      input.value = value;
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    };
+    rename('   ');
+    expect(doc.get(layer.id).name).toBe('Layer 1');
+    rename('Sketch');
+    expect(doc.get(layer.id).name).toBe('Sketch');
+  });
+});

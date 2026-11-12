@@ -723,7 +723,9 @@ export class LayersPanel extends Panel {
       this.renaming = null;
       const doc = this.app.editor?.doc;
       const name = input.value.trim();
-      if (commit && doc?.get(n.id) && name !== (n.name || defaultLabel(n))) {
+      // A layer always has a name: an empty one keeps the old name (an object's goes back to its type).
+      const changed = name !== (n.name || defaultLabel(n)) && (name || n.type !== 'layer');
+      if (commit && doc?.get(n.id) && changed) {
         doc.transact('Rename', () => doc.update(n.id, { name }));
       } else this.renderRows();
       this.tree.focus();
