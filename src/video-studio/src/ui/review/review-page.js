@@ -43,6 +43,7 @@ export class ReviewPage {
     this.pin = { t: 0, end: null, held: false };
     this._disposers = [];
     this._linkTries = 0;
+    this._disposed = false;
     document.title = 'Review - Video Studio';
     this.start();
   }
@@ -53,6 +54,7 @@ export class ReviewPage {
   }
 
   async start() {
+    if (this._disposed) return;
     const { puter } = this;
     if (!puter) {
       this.splash(h('h1.splash-title', 'Sign in needed'), h('p.splash-sub', 'Reviews open in Video Studio with a Puter account. Open this link where Puter is available.'));
@@ -64,6 +66,7 @@ export class ReviewPage {
         btn.disabled = true;
         try {
           await puter.auth.signIn();
+          if (this._disposed) return;
           if (this.onSignedIn) this.onSignedIn();
           else this.start();
         } catch {
@@ -79,7 +82,9 @@ export class ReviewPage {
     try {
       this.session = new this.Session({ puter, server, review, interval: this.interval });
       await this.session.open({ token });
+      if (this._disposed) return;
     } catch (err) {
+      if (this._disposed) return;
       this.session?.dispose();
       this.session = null;
       const retry = h('button.btn', { type: 'button' }, 'Try again');
@@ -670,6 +675,8 @@ export class ReviewPage {
   }
 
   dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
     for (const d of this._disposers.splice(0)) d();
     if (this._raf) cancelAnimationFrame(this._raf);
     if (this._rvfc && this.video?.cancelVideoFrameCallback) this.video.cancelVideoFrameCallback(this._rvfc);

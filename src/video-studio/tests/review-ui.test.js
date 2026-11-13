@@ -396,6 +396,40 @@ describe('review page (reviewer flow)', () => {
     return { env, page, root, rid: pub.review.id };
   }
 
+  it.each(['success', 'failure'])('does not reopen a disposed review after late startup %s', async (outcome) => {
+    const env = await setup();
+    const pub = await publish(env);
+    const token = await invite(env, pub.review.id);
+    let finish, fail, ready = false;
+    const gate = new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+    class SlowSession extends ReviewSession {
+      async open(options) { await super.open(options); ready = true; await gate; }
+    }
+    const root = document.createElement('div');document.body.append(root);
+    const page = new ReviewPage(root, { puter: env.sdk.bob, link: { review: pub.review.id, server: env.server, token }, Session: SlowSession });
+    try {
+      await until(() => ready);
+      const start = vi.spyOn(page.session, 'start');
+      page.dispose();root.textContent = 'Home';history.replaceState(null, '', '/#home');
+      if (outcome === 'success') finish();else fail(new Error('Late open failure'));
+      await tick();
+      expect(root.textContent).toBe('Home');
+      expect(location.hash).toBe('#home');
+      expect(start).not.toHaveBeenCalled();
+    } finally { page.dispose(); }
+  });
+
+  it('does not navigate after a disposed review finishes signing in', async () => {
+    let finish;
+    const onSignedIn = vi.fn();
+    const puter = { env: 'web', auth: { isSignedIn: () => false, signIn: () => new Promise((resolve) => { finish = resolve; }) } };
+    const root = document.createElement('div');document.body.append(root);
+    const page = new ReviewPage(root, { puter, link: {}, onSignedIn });
+    btn(root, 'Sign in with Puter').click();page.dispose();root.textContent = 'Home';finish();await tick();
+    expect(onSignedIn).not.toHaveBeenCalled();
+    expect(root.textContent).toBe('Home');
+  });
+
   it('joins with the invite, drops the token from the address, and shows the review', async () => {
     const { env, page, root, rid } = await opened();
     expect(location.hash).toBe(cleanReviewHash(rid, env.server));
