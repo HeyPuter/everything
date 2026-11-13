@@ -10,6 +10,7 @@ import { US, timecode } from '../lib/time.js';
 import { openDialog, toast } from './dialog.js';
 import { switchField } from './controls.js';
 import { prefs, setPref } from './prefs.js';
+import { createRecordingRecovery } from './recording-recovery.js';
 import { createTeleprompter } from './teleprompter.js';
 import {
   recordingSupported, listMicrophones, openMicrophone, stopStream, micErrorMessage, LevelMeter, VoiceRecorder, extForMime,
@@ -34,7 +35,7 @@ export function openVoiceoverDialog(ctx) {
   let stream = null;
   let meter = null;
   let raf = 0;
-  let state = 'idle'; // idle | countdown | recording | saving
+  let state = 'idle'; // idle | countdown | recording | saving | recovery
   let countdownTimer = 0;
   let tick = 0;
   let startAt = 0;
@@ -73,6 +74,14 @@ export function openVoiceoverDialog(ctx) {
   });
 
   const prompter = createTeleprompter();
+  const recovery = createRecordingRecovery({ onState: (next) => {
+    setState(next);
+    status.textContent = next === 'saving' ? 'Adding recording...' : '';
+    if (next === 'idle') {
+      setWhere();
+      (recBtn.disabled ? d.el.querySelector('.dialog-close') : recBtn).focus();
+    }
+  } });
   const body = h('div.vo-body',
     message,
     prompter.view,
@@ -88,6 +97,7 @@ export function openVoiceoverDialog(ctx) {
     h('div.vo-stage', countdown, recBtn, elapsed),
     where,
     status,
+    recovery.el,
   );
 
   const d = openDialog({
@@ -96,6 +106,10 @@ export function openVoiceoverDialog(ctx) {
     className: 'voiceover-dialog',
     closeOnBackdrop: false,
     onClose: () => cleanup(),
+    beforeClose: () => {
+      if (state === 'saving') { announce('Please wait while the recording is saved.'); return false; }
+      return recovery.beforeClose(() => d.close());
+    },
   });
   open = d;
 
@@ -203,7 +217,7 @@ export function openVoiceoverDialog(ctx) {
     const label = next === 'recording' ? 'Stop recording' : next === 'countdown' ? 'Cancel countdown' : 'Start recording';
     recBtn.setAttribute('aria-label', label);
     recBtn.setAttribute('aria-pressed', String(next === 'recording'));
-    recBtn.disabled = next === 'saving' || !stream;
+    recBtn.disabled = next === 'saving' || next === 'recovery' || !stream?.getAudioTracks().some(t => t.readyState === 'live');
     micSelect.disabled = next !== 'idle';
     for (const sw of body.querySelectorAll('.switch')) sw.disabled = next !== 'idle';
   }
@@ -267,21 +281,18 @@ export function openVoiceoverDialog(ctx) {
     status.textContent = 'Adding recording...';
     const n = nextTakeNumber(store.project.assets, 'Voiceover');
     const file = new File([blob], `Voiceover ${n}.${extForMime(blob.type)}`, { type: blob.type });
-    try {
-      const [asset] = await actions.importFiles([file]);
-      if (asset) {
+    const at = startAt;
+    await recovery.save({
+      file,
+      importFile: (take) => actions.importFiles([take]),
+      onSaved: (asset) => {
         // Some recorders write no duration into the file; fall back to the measured length.
         if (!asset.duration) asset.duration = Math.round(seconds * US);
-        actions.addAsset(asset, { start: startAt });
+        actions.addAsset(asset, { start: at });
         status.textContent = `Added ${asset.name} to the timeline.`;
         announce(`Added ${asset.name} to the timeline`);
-      } else status.textContent = '';
-    } catch (err) {
-      status.textContent = '';
-      toast(err?.message || "Couldn't add the recording.", { kind: 'error' });
-    }
-    if (open) setState('idle');
-    setWhere();
+      },
+    });
   }
 
   function cleanup() {

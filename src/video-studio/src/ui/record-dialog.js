@@ -11,6 +11,7 @@ import { US } from '../lib/time.js';
 import { openDialog, toast } from './dialog.js';
 import { switchField, segmented } from './controls.js';
 import { prefs, setPref } from './prefs.js';
+import { createRecordingRecovery } from './recording-recovery.js';
 import { createTeleprompter } from './teleprompter.js';
 import {
   RESOLUTIONS, cameraSupported, screenSupported, listDevices, openCamera, openMic, openScreen, stopStream, mixStreams,
@@ -40,7 +41,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   let preview = null; // camera stream, or the shared screen
   let micStream = null; // separate microphone for screen recording
   let mixed = null;
-  let state = 'idle'; // idle | countdown | recording | paused | saving
+  let state = 'idle'; // idle | countdown | recording | paused | saving | recovery
   let countdownTimer = 0;
   let tick = 0;
   let preparing = false;
@@ -128,6 +129,13 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     }
   });
 
+  const recovery = createRecordingRecovery({ onState: (next) => {
+    status.textContent = next === 'saving' ? 'Saving the recording...' : '';
+    if ((next === 'idle' || next === 'recovery') && preview && !preview.getVideoTracks().some((t) => t.readyState === 'live')) closeStreams();
+    setState(next);
+    if (next === 'idle') (recBtn.disabled ? d.el.querySelector('.dialog-close') : recBtn).focus();
+  } });
+
   const body = h('div.rec-body',
     modeCtl.el,
     message,
@@ -136,9 +144,13 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
       h('div.rec-right', cameraFields, screenFields, countdownSw.el, addSw.el, prompter.controls),
     ),
     status,
+    recovery.el,
   );
 
-  const d = openDialog({ title: 'Record', body, className: 'record-dialog', wide: true, closeOnBackdrop: false, onClose: () => cleanup() });
+  const d = openDialog({ title: 'Record', body, className: 'record-dialog', wide: true, closeOnBackdrop: false, onClose: () => cleanup(), beforeClose: () => {
+    if (state === 'saving') { announce('Please wait while the recording is saved.'); return false; }
+    return recovery.beforeClose(() => d.close());
+  } });
   open = d;
 
   function sync() {
@@ -344,7 +356,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     recBtn.setAttribute('aria-label', label);
     recBtn.setAttribute('aria-pressed', String(next === 'recording' || next === 'paused'));
     // Screen mode can start without a stream: the click asks what to share.
-    recBtn.disabled = preparing || next === 'saving' || (opts.mode === 'camera' && !preview);
+    recBtn.disabled = preparing || next === 'saving' || next === 'recovery' || (opts.mode === 'camera' && !preview);
     pauseBtn.hidden = !(next === 'recording' || next === 'paused');
     pauseBtn.setAttribute('aria-label', next === 'paused' ? 'Resume recording' : 'Pause recording');
     pauseBtn.replaceChildren(icon(next === 'paused' ? 'play' : 'pause', 18));
@@ -424,24 +436,19 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     const n = nextTakeNumber(store.project.assets, `${base} recording`);
     const file = new File([blob], `${base} recording ${n}.${extForVideoMime(blob.type)}`, { type: blob.type });
     const at = store.time;
-    try {
-      const [asset] = await actions.importFiles([file], { folder, origin: 'record' });
-      if (asset) {
+    const addToTimeline = opts.addToTimeline;
+    await recovery.save({
+      file,
+      importFile: (take) => actions.importFiles([take], { folder, origin: 'record' }),
+      onSaved: (asset) => {
         // Recorders often write no duration into the file; fall back to the measured length.
         if (!asset.duration) asset.duration = Math.round(seconds * US);
-        if (opts.addToTimeline) actions.addAsset(asset, { start: at });
-        const msg = opts.addToTimeline ? `Added ${asset.name} to the timeline.` : `Saved ${asset.name} to your media.`;
+        if (addToTimeline) actions.addAsset(asset, { start: at });
+        const msg = addToTimeline ? `Added ${asset.name} to the timeline.` : `Saved ${asset.name} to your media.`;
         status.textContent = msg;
         announce(msg);
-      } else status.textContent = '';
-    } catch (err) {
-      status.textContent = '';
-      toast(err?.message || "Couldn't save the recording.", { kind: 'error' });
-    }
-    if (!open) return;
-    // A screen whose sharing ended needs to be chosen again.
-    if (preview && !preview.getVideoTracks().some((t) => t.readyState === 'live')) closeStreams();
-    setState('idle');
+      },
+    });
   }
 
   function cleanup() {
