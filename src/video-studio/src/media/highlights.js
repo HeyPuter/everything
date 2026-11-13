@@ -177,6 +177,11 @@ export function highlightClip(clip, h) {
   const copy = structuredClone(clip);
   copy.id = uid('c');
   delete copy.group;
+  // This standalone copy has no detached companion; include the source sound used by the search.
+  if (copy.audioDetached) {
+    copy.audioDetached = false;
+    copy.muted = false;
+  }
   copy.transition = null;
   copy.animIn = null;
   copy.animOut = null;
