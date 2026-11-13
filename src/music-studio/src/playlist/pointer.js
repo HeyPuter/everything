@@ -530,12 +530,14 @@ export function installPointer(V, el) {
     endGesture();
   };
   el.addEventListener('pointerup', finish);
-  el.addEventListener('pointercancel', (e) => {
+  const cancel = (e) => {
     touches.delete(e.pointerId);
     if (pinch && touches.size < 2) pinch = null;
     if (gesture) V.cancelGesture();
-  });
+  };
+  el.addEventListener('pointercancel', cancel);
   el.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) return cancel(e);
     if (gesture && e.pointerType !== 'touch') finish(e);
   });
 

@@ -757,6 +757,7 @@ export function installPointer(ed) {
   el.addEventListener('pointerup', (e) => up(e, false));
   el.addEventListener('pointercancel', (e) => up(e, true));
   el.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) return up(e, true);
     if (ed.gesture && e.pointerType !== 'touch') up(e, false);
   });
   el.addEventListener('pointerleave', () => {

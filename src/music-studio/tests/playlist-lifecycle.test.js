@@ -38,7 +38,11 @@ function setup(kind = 'pattern') {
   const x = view.vp.x(project.clips[0].start + project.clips[0].len / 2);
   const hit = view.hit(view.pointAt(x, 28));
   const y = kind === 'auto' ? hit.auto.bottom - hit.auto.ch * 0.5 : 28;
-  const pointer = (type, dx = 0) => surface.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: y, button: 0, altKey: true, bubbles: true }));
+  const pointer = (type, dx = 0, touchId) => {
+    const event = new MouseEvent(type, { clientX: x + dx, clientY: y, button: 0, altKey: true, bubbles: true });
+    if (touchId !== undefined) Object.defineProperties(event, { pointerId: { value: touchId }, pointerType: { value: 'touch' } });
+    return surface.dispatchEvent(event);
+  };
   pointer('pointerdown');
   expect(view.hasGesture()).toBe(true);
   return { store, view, pointer, panel, body, engine, app };
@@ -401,6 +405,30 @@ it.each(['loop', 'marker', 'resize'])('preserves a committed %s drag when captur
   send('lostpointercapture', 24);
   expect(store.project).toBe(committed);
   expect(store.canUndo).toBe(true);
+  store.undo();
+  expect(store.project).toBe(original);
+  panel.onHide();
+});
+
+it.each(['interrupted', 'released'])('cleans up a %s touch clip drag when capture is lost', (state) => {
+  const { store, pointer, view, panel } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  pointer('pointerdown', 0, 1);
+  pointer('pointermove', 24, 1);
+  if (state === 'released') pointer('pointerup', 24, 1);
+  pointer('lostpointercapture', 24, 1);
+  expect(view.hasGesture()).toBe(false);
+  if (state === 'released') {
+    expect(store.project.clips[0].start).toBe(144);
+    store.undo();
+  }
+  expect(store.project).toBe(original);
+  expect(store.canUndo).toBe(false);
+  pointer('pointerdown', 0, 2);
+  pointer('pointermove', 24, 2);
+  pointer('pointerup', 24, 2);
+  expect(store.project.clips[0].start).toBe(144);
   store.undo();
   expect(store.project).toBe(original);
   panel.onHide();

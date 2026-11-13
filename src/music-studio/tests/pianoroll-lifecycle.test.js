@@ -62,7 +62,11 @@ function beginNoteDrag(editor, store) {
   editor.scrollY = centerScrollY(editor.L, note.key, editor.keyH);
   const x = editor.L.gridX + editor.vp.x(note.pos + note.len / 2);
   const y = rowY(editor.L, note.key, editor.keyH, editor.scrollY) + editor.keyH / 2;
-  const pointer = (type, dx = 0) => editor.surface.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: y, button: 0, altKey: true, bubbles: true }));
+  const pointer = (type, dx = 0, touchId) => {
+    const event = new MouseEvent(type, { clientX: x + dx, clientY: y, button: 0, altKey: true, bubbles: true });
+    if (touchId !== undefined) Object.defineProperties(event, { pointerId: { value: touchId }, pointerType: { value: 'touch' } });
+    return editor.surface.dispatchEvent(event);
+  };
   pointer('pointerdown');
   expect(editor.gesture?.type).toBe('move');
   return pointer;
@@ -91,6 +95,32 @@ it('still commits an ordinary note drag as one undo step', () => {
   pointer('pointerup', 24);
   expect(editor.notes[0].pos).toBe(144);
   expect(editor.gesture).toBeNull();
+  store.undo();
+  expect(store.project).toBe(original);
+  editor.destroy();
+});
+
+it.each(['interrupted', 'released'])('cleans up a %s touch note drag when capture is lost', (state) => {
+  const { editor, store } = setup();
+  const pointer = beginNoteDrag(editor, store);
+  pointer('pointerup');
+  const original = store.project;
+  const history = store.undoStack.length;
+  pointer('pointerdown', 0, 1);
+  pointer('pointermove', 24, 1);
+  if (state === 'released') pointer('pointerup', 24, 1);
+  pointer('lostpointercapture', 24, 1);
+  expect(editor.gesture).toBeNull();
+  if (state === 'released') {
+    expect(editor.notes[0].pos).toBe(144);
+    store.undo();
+  }
+  expect(store.project).toBe(original);
+  expect(store.undoStack.length).toBe(history);
+  pointer('pointerdown', 0, 2);
+  pointer('pointermove', 24, 2);
+  pointer('pointerup', 24, 2);
+  expect(editor.notes[0].pos).toBe(144);
   store.undo();
   expect(store.project).toBe(original);
   editor.destroy();
