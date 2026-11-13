@@ -260,7 +260,11 @@ export function scriptAPI(app, editor, name) {
     if (n > 1 || (n === 1 && stack[stack.length - 1].label !== name)) doc.mergeHistory(n, name);
   };
 
+  const checkOpen = () => {
+    if (!app.editors.includes(editor)) throw new Error('The document the script runs on was closed.');
+  };
   const mutate = (fn) => {
+    checkOpen();
     let out;
     doc.transact(name, () => {
       out = fn();
@@ -306,13 +310,14 @@ export function scriptAPI(app, editor, name) {
       return true;
     },
     select: (ids) => {
+      checkOpen();
       editor.select((ids || []).filter((id) => doc.get(id)));
       return true;
     },
     command: async (id) => {
       if (!app.commands.get(id)) throw new Error(`Unknown command "${id}".`);
       // Commands act on the active document: make it the script's again if another tab was chosen.
-      if (!app.editors.includes(editor)) throw new Error('The document the script runs on was closed.');
+      checkOpen();
       if (app.editor !== editor) app.activate(editor);
       if (!app.commands.isEnabled(id)) throw new Error(`Command "${id}" cannot be used with the current selection.`);
       await app.commands.run(id, undefined, { throwOnError: true });
