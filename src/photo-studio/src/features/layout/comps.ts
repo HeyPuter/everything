@@ -11,6 +11,7 @@ import {
   captureLayers,
   compMatches,
   missingLayers,
+  maxCompNameLength,
   newLayerComp,
   recaptureAspects,
   updateLayerComp,
@@ -62,7 +63,7 @@ async function compDialog(title: string, submit: string, init: { name: string; c
     title,
     submit,
     className: 'comp-dialog',
-    body: `<label class="dialog-field">Name<input name="name" type="text" required maxlength="256" value="${escapeXML(init.name)}"></label>
+    body: `<label class="dialog-field">Name<input name="name" type="text" required maxlength="${maxCompNameLength}" value="${escapeXML(init.name)}"></label>
       <fieldset class="comp-capture"><legend>Apply to layers</legend>${check('visibility', 'Visibility')}${check('position', 'Position')}${check('appearance', 'Appearance (opacity, blending, style)')}</fieldset>
       <label class="dialog-field">Comment<textarea name="comment" rows="3" maxlength="4096" placeholder="Optional">${escapeXML(init.comment ?? '')}</textarea></label>`,
     bind: (dialog) => dialog.querySelector<HTMLInputElement>('[name=name]')?.select(),
@@ -234,7 +235,9 @@ export function installLayerComps(e: Editor) {
       run: (e) => {
         const c = current(e);
         if (!c) return;
-        const copy = { ...structuredClone(c), id: crypto.randomUUID(), name: `${c.name} copy` };
+        // Reserve room for the suffix without splitting a Unicode surrogate pair.
+        const name = c.name.slice(0, maxCompNameLength - 5).replace(/[\uD800-\uDBFF]$/, '');
+        const copy = { ...structuredClone(c), id: crypto.randomUUID(), name: `${name} copy` };
         setComps(e, 'Duplicate Layer Comp', (list) => {
           list.splice(list.findIndex((x) => x.id === c.id) + 1, 0, copy);
           return list;
