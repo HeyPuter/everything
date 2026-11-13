@@ -343,8 +343,8 @@ export function openShareDialog(ctx, { deps = {} } = {}) {
     body.replaceChildren(shareSection, accessSection);
     updateIntro();
     showFooter();
-    if (review) await showAccess();
     titleInput.focus();
+    if (review) await showAccess();
   })();
   return dlg;
 }

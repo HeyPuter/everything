@@ -301,6 +301,27 @@ describe('share for review (owner flow)', () => {
 });
 
 describe('share dialog', () => {
+  it('keeps the current field focused when access details finish loading', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    await publish(env, { projectId: store.project.id });
+    let finish;
+    const call = async (p, server, input) => {
+      if (input.op === 'members') await new Promise((resolve) => { finish = resolve; });
+      return callWorker(p, server, input);
+    };
+    const dlg = openShareDialog({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice }, { deps: { call } });
+    try {
+      const role = await until(() => dlg.el.querySelector('.rv-invite-row select'));
+      role.focus();
+      expect(document.activeElement).toBe(role);
+      finish();
+      await until(() => dlg.el.querySelector('[aria-label="People"] .empty'));
+      await tick();
+      expect(document.activeElement).toBe(role);
+    } finally { dlg.close(); }
+  });
+
   it('keeps the displayed role consistent when another change is attempted during a save', async () => {
     const env = await setup();
     const store = new EditorStore(projectWithClips());
