@@ -184,7 +184,7 @@ function createBrowser(app, host) {
   // ---------------------------------------------------------------- DOM
   const search = h('input.input.br-search', { type: 'search', placeholder: 'Search instruments, effects, files', 'aria-label': 'Search the browser', autocomplete: 'off', spellcheck: false, 'aria-controls': 'browser-tree' });
   const status = h('div.sr-only', { 'aria-live': 'polite' });
-  const treeEl = h('div.br-tree#browser-tree', { role: 'tree', 'aria-label': 'Browser' });
+  const treeEl = h('div#browser-tree.br-tree', { role: 'tree', 'aria-label': 'Browser' });
   const emptyEl = h('div.br-empty', { hidden: true });
   const root = h('div.browser', h('div.br-head', h('span.br-search-icon', icon('search', 14)), search), treeEl, emptyEl, status);
   host.body.append(root);

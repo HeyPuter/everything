@@ -45,6 +45,14 @@ afterEach(() => {
 });
 
 describe('browser preview startup', () => {
+  it('connects the search field to the styled browser tree', () => {
+    const { body } = setup();
+    const search = body.querySelector('input[type=search]');
+    const tree = document.getElementById(search.getAttribute('aria-controls'));
+    expect(tree).toBe(body.querySelector('[role=tree]'));
+    expect(tree.classList.contains('br-tree')).toBe(true);
+  });
+
   it('does not start a preview after the browser panel is hidden', async () => {
     const { app, gate, panel, clickInstrument } = setup();
     clickInstrument('synth');
