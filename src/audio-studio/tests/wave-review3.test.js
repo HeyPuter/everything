@@ -313,3 +313,20 @@ describe('time ruler label spacing', () => {
     }
   });
 });
+
+describe('Convert Sample Type and range markers', () => {
+  it('keeps a range that ends at the end of the file inside it', async () => {
+    const { convertState } = await import('../src/commands/edit-dialogs.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const resample = (x, from, to) => new Float32Array(Math.round((x.length * to) / from));
+    // 6 frames at 8 kHz become 8.27 (8) at 11.025 kHz; a range over the last 4 starts at
+    // 2.76 (3) and lasts 5.51, which rounded on its own (6) would run a frame past the end.
+    const m = { id: 'r', name: 'Track', type: 'cd', start: 2, duration: 4, description: '' };
+    const state = { sampleRate: 8000, channels: [Channel.silence(6)], markers: [m] };
+    const out = convertState(state, { rate: 11025, bits: 32 }, resample);
+    const len = out.channels[0].length;
+    expect(len).toBe(8);
+    expect(out.markers[0]).toMatchObject({ start: 3, duration: 5 });
+    expect(out.markers[0].start + out.markers[0].duration).toBeLessThanOrEqual(len);
+  });
+});

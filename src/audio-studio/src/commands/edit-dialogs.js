@@ -296,7 +296,13 @@ export function convertState(state, target, resample) {
   if (rate !== from) {
     data = data.map((c) => resample(c, from, rate, { quality: target.quality, filter: target.filter }));
     const k = rate / from;
-    markers = markers.map((m) => ({ ...m, start: Math.round(m.start * k), duration: Math.round(m.duration * k) }));
+    const len = data[0]?.length ?? 0;
+    // Both ends scale (rounding the length on its own could put a range's end past the file's).
+    const at = (f) => Math.min(len, Math.round(f * k));
+    markers = markers.map((m) => {
+      const start = at(m.start);
+      return { ...m, start, duration: at(m.start + m.duration) - start };
+    });
   }
   data = convertChannelData(data, target.channels || data.length, target.mix);
   const bits = target.bits || state.bitDepth || 32;
