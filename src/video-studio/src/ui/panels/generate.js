@@ -27,6 +27,7 @@ export function generatePanel(ctx, { getFolder = () => null } = {}) {
   let aspect = IMAGE_ASPECTS.some((a) => a.id === saved.aspect) ? saved.aspect : aspectForSize(store.project.settings.width, store.project.settings.height).id;
   let style = IMAGE_STYLES.some((s) => s.id === saved.style) ? saved.style : 'none';
   let busy = false;
+  let disposed = false;
   const results = []; // { id, url, blob, prompt, assetId }
   const save = () => setPref('generate', { aspect, style });
 
@@ -95,12 +96,13 @@ export function generatePanel(ctx, { getFolder = () => null } = {}) {
   }
 
   go.addEventListener('click', async () => {
-    if (busy) return;
+    if (busy || disposed) return;
     busy = true;
     update();
     status.replaceChildren(h('span.spinner'), 'Creating the picture... this can take a little while.');
     try {
       const { blob, prompt } = await generateImage(text.value, { aspect, style });
+      if (disposed) return;
       const r = { id: Math.random().toString(36).slice(2), blob, prompt, url: URL.createObjectURL(blob), assetId: null };
       results.unshift(r);
       while (results.length > MAX_RESULTS) URL.revokeObjectURL(results.pop().url);
@@ -108,11 +110,12 @@ export function generatePanel(ctx, { getFolder = () => null } = {}) {
       announce('Picture created');
       renderResults();
     } catch (err) {
+      if (disposed) return;
       status.replaceChildren();
       toast(err?.message || "Couldn't create the picture.", { kind: 'error' });
     } finally {
       busy = false;
-      update();
+      if (!disposed) update();
     }
   });
 
@@ -129,7 +132,10 @@ export function generatePanel(ctx, { getFolder = () => null } = {}) {
   return {
     el,
     dispose() {
+      if (disposed) return;
+      disposed = true;
       for (const r of results) URL.revokeObjectURL(r.url);
+      results.length = 0;
     },
   };
 }

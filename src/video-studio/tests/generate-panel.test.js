@@ -25,6 +25,31 @@ function setup() {
 }
 
 describe('picture generation panel', () => {
+  it('does not retain or announce a picture that finishes after disposal', async () => {
+    let finish;
+    vi.mocked(generateImage).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const create = vi.spyOn(URL, 'createObjectURL');
+    const { panel, go } = setup();
+    go.click();
+    panel.dispose();
+    panel.el.remove();
+    finish({ blob: new Blob(['image'], { type: 'image/png' }), prompt: 'Late picture' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(create).not.toHaveBeenCalled();
+    expect(panel.el.querySelector('.gen-card')).toBe(null);
+    panel.dispose();
+  });
+
+  it('does not report a late generation error after disposal', async () => {
+    let fail;
+    vi.mocked(generateImage).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const { panel, go } = setup();
+    go.click();panel.dispose();panel.el.remove();
+    fail(new Error('Late generation error'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.body.textContent).not.toContain('Late generation error');
+  });
+
   it.each([{ isComposing: true }, { keyCode: 229 }])('does not generate while a prompt is being composed (%j)', async (composition) => {
     vi.mocked(generateImage).mockResolvedValue({ blob: new Blob(['image'], { type: 'image/png' }), prompt: 'A forest' });
     const { panel, text } = setup();
