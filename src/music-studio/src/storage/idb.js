@@ -4,6 +4,7 @@
 //
 //   const db = await openDB()            // IndexedDB, or memory when unavailable
 //   await db.get(store, key) / put(store, key, value) / delete(store, key)
+//   await db.put(store, key, value, { overwrite: false }) // atomic insert; false if occupied
 //   await db.all(store) -> [[key, value], ...]
 //   await db.batch([{ type: 'put' | 'delete', store, key, value? }, ...]) // atomic
 //   await db.deleteIf(store, key, matches) // atomic conditional deletion
@@ -54,10 +55,26 @@ function wrap(db) {
   return {
     persistent: true,
     get: (store, key) => req(tx(store, 'readonly').get(key)).then((v) => v ?? null),
-    async put(store, key, value) {
+    async put(store, key, value, { overwrite = true } = {}) {
       const s = tx(store, 'readwrite');
-      s.put(value, key);
-      await done(s.transaction);
+      const completed = done(s.transaction);
+      let inserted = true;
+      try {
+        const request = overwrite ? s.put(value, key) : s.add(value, key);
+        if (!overwrite) request.onerror = (event) => {
+          if (request.error?.name !== 'ConstraintError') return;
+          // A duplicate is an ordinary allocation retry, not a failed transaction.
+          event.preventDefault();
+          event.stopPropagation();
+          inserted = false;
+        };
+      } catch (err) {
+        s.transaction.abort();
+        await completed.catch(() => {});
+        throw err;
+      }
+      await completed;
+      return inserted;
     },
     async delete(store, key) {
       const s = tx(store, 'readwrite');
@@ -124,7 +141,12 @@ export function memoryDB() {
     persistent: false,
     stores,
     get: async (store, key) => clone(get(store).get(key)),
-    put: async (store, key, value) => void get(store).set(key, clone(value)),
+    async put(store, key, value, { overwrite = true } = {}) {
+      const values = get(store);
+      if (!overwrite && values.has(key)) return false;
+      values.set(key, clone(value));
+      return true;
+    },
     delete: async (store, key) => void get(store).delete(key),
     async deleteIf(store, key, matches) {
       const values = get(store);

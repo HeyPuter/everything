@@ -10,7 +10,7 @@
 // app.saving (+ app 'saving' event) and store.markSaved().
 
 import * as puter from './puter.js';
-import { MAX_IMPORT_BYTES } from './library.js';
+import { MAX_IMPORT_BYTES, SampleExistsError } from './library.js';
 import * as E from '../model/edits.js';
 import { createChannel, colorAt, freeInsert, FILE_EXT } from '../model/project.js';
 import { decodeAudio } from '../audio/samples.js';
@@ -19,7 +19,7 @@ import { readMidi, isMidi, writeMidi } from '../io/midi.js';
 import { importMidi, projectToMidi } from '../io/midi-project.js';
 import { downloadBlob, chooseFiles, safeFileName, stripExtension } from '../io/download.js';
 import { AUDIO_EXTENSIONS, isAudioName } from '../io/wav.js';
-import { uid } from '../lib/util.js';
+import { uid, reserveId } from '../lib/util.js';
 import { h } from '../lib/dom.js';
 import { openDialog, confirmDialog, promptDialog } from '../ui/dialog.js';
 
@@ -33,6 +33,29 @@ const mb = (n) => `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB
 
 export function baseName(path = '') {
   return path.slice(path.lastIndexOf('/') + 1);
+}
+
+// Missing media may still be restored by undo or an active gesture. Reuse
+// shared model collections while collecting their IDs and local aliases.
+function sampleIdsInHistory(store, cache) {
+  const used = new Set(cache.ids?.() || []), samples = new Set(), channels = new Set();
+  const projects = [store.project, store.gesture?.start, ...store.undoStack.map((e) => e.project), ...store.redoStack.map((e) => e.project)];
+  for (const p of projects) {
+    if (!p) continue;
+    if (!samples.has(p.samples)) {
+      samples.add(p.samples);
+      for (const [id, ref] of Object.entries(p.samples)) {
+        used.add(id);
+        if (ref.id) used.add(ref.id);
+        if (ref.local) used.add(ref.local);
+      }
+    }
+    if (!channels.has(p.channels)) {
+      channels.add(p.channels);
+      for (const ch of p.channels) if (ch.sample) used.add(ch.sample);
+    }
+  }
+  return used;
 }
 
 export class ProjectFiles {
@@ -427,13 +450,20 @@ export class ProjectFiles {
       throw new Error(`"${fileName}" could not be read as audio. Try WAV, MP3, OGG or FLAC.`);
     }
     check();
-    const id = uid();
-    let local = null;
-    try {
-      await this.lib.putSample(id, { data, name: fileName, type: blob.type || '', path });
-      local = id;
-    } catch (err) {
-      console.warn('Music Studio: could not keep the sample on this device.', err);
+    const usedIds = sampleIdsInHistory(this.store, this.app.samples);
+    let id, local = null;
+    for (;;) {
+      check();
+      id = reserveId(usedIds);
+      try {
+        await this.lib.putSample(id, { data, name: fileName, type: blob.type || '', path }, { overwrite: false });
+        local = id;
+        break;
+      } catch (err) {
+        if (err instanceof SampleExistsError) continue;
+        console.warn('Music Studio: could not keep the sample on this device.', err);
+        break;
+      }
     }
     let p, target;
     try {

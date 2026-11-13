@@ -31,6 +31,10 @@ const isEmbeddedKey = (key) => typeof key === 'string' && /^embedded-(?:[a-z0-9]
 const isHashedKey = (key) => typeof key === 'string' && /^embedded-[a-f0-9]{64}$/i.test(key);
 const temporaryRecord = (temporary, ref) => temporary.get(ref.local || ref.id) || (!isEmbeddedKey(ref.local) ? temporary.get(ref.id) : null);
 
+export class SampleExistsError extends Error {
+  constructor() { super('That sample ID is already in use.'); this.name = 'SampleExistsError'; }
+}
+
 export class Library {
   /**
    * @param {object} o
@@ -42,6 +46,7 @@ export class Library {
     this.puter = puter;
     this.decode = decode;
     this.now = now;
+    this.pendingSampleIds = new Set(); // new imports whose storage writes have not settled
     this.temporarySamples = new Map(); // failed writes, retained for playback and recovery saves
   }
 
@@ -91,19 +96,34 @@ export class Library {
   // ---------------------------------------------------------------- samples
 
   /** Stores imported audio bytes on this device (kept for every sample, also when signed in). */
-  async putSample(id, { data, name = 'Sample', type = '', path = null }, { temporary = this.temporarySamples } = {}) {
+  async putSample(id, { data, name = 'Sample', type = '', path = null }, { temporary = this.temporarySamples, overwrite = true } = {}) {
+    if (!overwrite) {
+      if (temporary.has(id) || this.pendingSampleIds.has(id)) throw new SampleExistsError();
+      this.pendingSampleIds.add(id);
+    }
     const record = { id, name, type, size: data.byteLength, data, path };
     const previous = temporary.get(id);
     const retained = () => temporary !== this.temporarySamples && previous && this.temporarySamples.get(id) === previous;
+    let db;
     try {
-      const db = await this.db();
-      await db.put('samples', id, record);
+      db = await this.db();
+      if (await db.put('samples', id, record, { overwrite }) === false) throw new SampleExistsError();
       temporary.delete(id);
       if (retained()) this.temporarySamples.delete(id);
     } catch (err) {
+      if (err instanceof SampleExistsError) throw err;
+      // A failed write must not shadow another project's durable audio in the
+      // recovery cache when storage is full but still readable.
+      if (!overwrite && db) {
+        let existing;
+        try { existing = await db.get('samples', id); } catch { /* Storage may also be unreadable. */ }
+        if (existing) throw new SampleExistsError();
+      }
       temporary.set(id, record);
       if (retained()) this.temporarySamples.set(id, record);
       throw err;
+    } finally {
+      if (!overwrite) this.pendingSampleIds.delete(id);
     }
   }
 
