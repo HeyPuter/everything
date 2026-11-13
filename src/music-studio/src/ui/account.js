@@ -69,8 +69,12 @@ export function createAccount(app) {
           label: 'Sign Out',
           enabled: true,
           run: async () => {
-            await puter.signOut();
-            await refresh();
+            try {
+              await puter.signOut();
+              await refresh();
+            } catch (err) {
+              app.notify(err?.msg || err?.message || 'Sign out failed. Please try again.', { error: true });
+            }
           },
         });
       }

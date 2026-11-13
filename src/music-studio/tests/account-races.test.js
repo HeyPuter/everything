@@ -81,3 +81,20 @@ it('announces fallback sign-in without waiting for the profile picture', async (
   expect(el.querySelector('.avatar').getAttribute('src')).toBe('data:image/png;base64,current');
   expect(app.emit).toHaveBeenCalledOnce();
 });
+
+it('reports a failed fallback sign-out and allows retry without claiming the session ended', async () => {
+  const el = createAccount(app);
+  await settle();
+  const emitted = app.emit.mock.calls.length;
+  sdk.auth.signOut.mockRejectedValueOnce(new Error('Sign out is temporarily unavailable'));
+  el.querySelector('.account-btn').click();
+  const signOut = app.openMenu.mock.calls.at(-1)[0].find((item) => item.label === 'Sign Out');
+  await expect(signOut.run()).resolves.toBeUndefined();
+  expect(app.notify).toHaveBeenCalledWith('Sign out is temporarily unavailable', { error: true });
+  expect(app.emit).toHaveBeenCalledTimes(emitted);
+  expect(el.querySelector('.account-btn').getAttribute('aria-label')).toBe('Account: previous');
+  el.querySelector('.account-btn').click();
+  await app.openMenu.mock.calls.at(-1)[0].find((item) => item.label === 'Sign Out').run();
+  expect(el.querySelector('.account-signin')).not.toBe(null);
+  expect(app.emit).toHaveBeenCalledTimes(emitted + 1);
+});
