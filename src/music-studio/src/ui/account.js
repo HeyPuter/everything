@@ -84,13 +84,13 @@ export function createAccount(app) {
     user = null;
     picture = null;
     render();
+    app.emit('account');
     if (puter.isSignedIn()) {
       const details = await Promise.all([puter.getUser(), puter.getProfilePicture()]);
       if (request !== refreshRequest) return;
       [user, picture] = details;
     }
     render();
-    app.emit('account');
   };
 
   render();

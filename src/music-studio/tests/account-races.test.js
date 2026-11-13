@@ -64,3 +64,20 @@ it('invalidates a pending profile refresh when signing out with the fallback men
   await settle();
   expect(el.querySelector('.account-btn').getAttribute('aria-label')).toBe('Account: current');
 });
+
+it('announces fallback sign-in without waiting for the profile picture', async () => {
+  sdk.user = null;
+  const el = createAccount(app);
+  app.emit.mockClear();
+  const picture = deferred();
+  sdk.auth.getProfilePicture.mockReturnValueOnce(picture.promise);
+  el.querySelector('.account-signin').click();
+  await settle();
+  expect(sdk.auth.isSignedIn()).toBe(true);
+  expect(app.emit).toHaveBeenCalledExactlyOnceWith('account');
+  expect(el.querySelector('.account-btn')).not.toBe(null);
+  picture.resolve('data:image/png;base64,current');
+  await settle();
+  expect(el.querySelector('.avatar').getAttribute('src')).toBe('data:image/png;base64,current');
+  expect(app.emit).toHaveBeenCalledOnce();
+});
