@@ -7,6 +7,7 @@
 
 import { channelColumns } from '../audio/peaks.js';
 import { parseColor } from '../ui/theme.js';
+import { claimContext, readyContext, dropContext } from './gl-slots.js';
 
 const COLUMN_VS = `#version 300 es
 layout(location = 0) in vec2 corner;
@@ -82,6 +83,7 @@ export class ClipWaveRenderer {
         this.#init();
         this.onRestore?.();
       });
+      claimContext(this);
     }
   }
 
@@ -129,6 +131,7 @@ export class ClipWaveRenderer {
   }
 
   clear() {
+    if (this.gl && !readyContext(this)) return;
     if (this.lost) return;
     const gl = this.gl;
     if (gl) {
@@ -150,6 +153,7 @@ export class ClipWaveRenderer {
    * @param {string} color CSS color
    */
   drawChannel(ch, srcStart, fpp, rect, amp, color, clipBand) {
+    if (this.gl && !readyContext(this)) return;
     if (this.lost || rect.w < 1 || rect.h < 1) return;
     const H = this.canvas.height;
     const y0 = Math.max(rect.y, clipBand ? clipBand.y0 : 0);
@@ -259,6 +263,7 @@ export class ClipWaveRenderer {
   dispose() {
     const gl = this.gl;
     if (!gl) return;
+    dropContext(this);
     gl.deleteBuffer(this.cornerBuf);
     gl.deleteBuffer(this.instBuf);
     gl.deleteBuffer(this.lineBuf);

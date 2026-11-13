@@ -6,6 +6,7 @@
 
 import { channelColumns } from '../audio/peaks.js';
 import { parseColor } from '../ui/theme.js';
+import { claimContext, readyContext, dropContext } from './gl-slots.js';
 
 const COLUMN_VS = `#version 300 es
 layout(location = 0) in vec2 corner;      // (0|1, 0|1)
@@ -93,6 +94,7 @@ export class WaveformRenderer {
         this.#initGL();
         this.onRestore?.();
       });
+      claimContext(this);
     } else this.ctx2d = canvas.getContext('2d');
     this.columns = new Float32Array(0);
   }
@@ -153,6 +155,7 @@ export class WaveformRenderer {
    * @param {object} [p.defer] spreads first-time peak building over frames (see channelColumns)
    */
   draw({ channels, start, fpp, amp, lanes, colors, defer = null }) {
+    if (this.gl && !readyContext(this)) return;
     if (this.lost) return;
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -271,6 +274,7 @@ export class WaveformRenderer {
   dispose() {
     const gl = this.gl;
     if (!gl) return;
+    dropContext(this);
     gl.deleteBuffer(this.cornerBuf);
     gl.deleteBuffer(this.instBuf);
     gl.deleteBuffer(this.lineBuf);
