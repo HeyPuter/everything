@@ -154,6 +154,7 @@ export const glyphsPanel: Panel = {
       const c = cell(ev);
       if (c && ev.key === 'Enter') {
         ev.preventDefault();
+        ev.stopPropagation();
         void insertGlyph(e, String.fromCodePoint(Number(c.dataset.cp)), ...glyphFont(c)).then((ok) => ok && renderRecent(el));
       }
     });

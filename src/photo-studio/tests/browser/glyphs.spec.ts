@@ -132,3 +132,33 @@ test('valid recent glyphs retain Unicode characters, order, limits, and insertio
   await run(page, 'edit.redo');
   expect(await text(page)).toBe('ab😀');
 });
+
+for (const source of ['grid', 'recent']) test(`Enter inserts one ${source} glyph without adding a line break`, async ({ page }) => {
+  await boot(page);
+  await openImage(page, 400, 200, '#ffffff');
+  await run(page, 'type.add');
+  await page.keyboard.insertText('ab');
+  await page.evaluate(() => window.photoStudio.dock.show('glyphs'));
+  const body = await panel(page, 'Glyphs');
+  const grid = body.locator('.gl-grid [data-cp="38"]');
+  await expect(grid).toBeVisible();
+  if (source === 'recent') await grid.dblclick();
+  const target = source === 'recent' ? body.locator('.gl-recent [data-cp="38"]') : grid;
+  await target.focus();
+  await page.keyboard.press('Enter');
+  expect(await text(page)).toBe(source === 'recent' ? 'ab&&' : 'ab&');
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('X');
+  expect(await text(page)).toBe(source === 'recent' ? 'ab&&X' : 'ab&X');
+  await run(page, 'edit.undo');
+  expect(await text(page)).toBe(source === 'recent' ? 'ab&&' : 'ab&');
+  await run(page, 'edit.undo');
+  expect(await text(page)).toBe('ab');
+  await run(page, 'edit.redo');
+  await run(page, 'edit.redo');
+  expect(await text(page)).toBe(source === 'recent' ? 'ab&&X' : 'ab&X');
+  await page.keyboard.press('Enter');
+  expect(await text(page)).toBe(source === 'recent' ? 'ab&&X\n' : 'ab&X\n');
+  await run(page, 'edit.undo');
+  expect(await text(page)).toBe(source === 'recent' ? 'ab&&X' : 'ab&X');
+});
