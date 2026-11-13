@@ -130,6 +130,143 @@ describe('mixer panel', () => {
     expect(slider.getAttribute('aria-valuetext')).toBe('-1.9 dB');
   });
 
+  function mixerControl(kind) {
+    vi.advanceTimersByTime(50); // Let the initial panel focus request settle before editing.
+    const { ctl, panel } = env;
+    let el;
+    if (kind === 'volume') el = panel.strips[1].fader.slider;
+    else if (kind === 'pan') el = panel.strips[1].el.querySelector('[aria-label="Pan"]');
+    else {
+      ctl.select(6);
+      el = kind === 'mix' ? document.querySelector('.mx-slot [aria-label="Delay mix"]') : document.querySelector('.mx-side [aria-label^="Send level to"]');
+    }
+    el.setPointerCapture = vi.fn();
+    el.releasePointerCapture = vi.fn();
+    const pointer = (type, y = 300) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: y, button: 0 });
+      Object.defineProperty(e, 'pointerId', { value: 1 });
+      el.dispatchEvent(e);
+    };
+    const wheel = () => el.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
+    return { el, pointer, wheel, key: () => key(el, 'ArrowDown') };
+  }
+
+  it.each(['volume', 'pan', 'mix', 'send'])('does not let an older mixer %s drag overwrite a newer wheel edit', (kind) => {
+    const { store, panel } = env;
+    const initial = store.project;
+    const old = mixerControl(kind);
+    old.pointer('pointerdown');
+    old.pointer('pointermove', 308);
+    const first = store.project;
+    expect(first === initial).toBe(false);
+    panel.strips[2].fader.slider.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    const preview = store.project;
+    const owner = store.gesture;
+    old.pointer('pointermove', 316);
+    old.pointer('pointerup', 316);
+    expect(store.project === preview).toBe(true);
+    expect(store.gesture === owner).toBe(true);
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it.each(['volume', 'pan', 'mix', 'send'].flatMap((kind) => ['key', 'wheel'].map((input) => [kind, input])))('does not let an old mixer %s %s timer end a newer edit', (kind, input) => {
+    const { store, panel } = env;
+    const initial = store.project;
+    const old = mixerControl(kind);
+    old.el.focus();
+    old[input]();
+    const first = store.project;
+    expect(first === initial).toBe(false);
+    vi.advanceTimersByTime(100);
+    const wheel = () => panel.strips[2].fader.slider.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    wheel();
+    const owner = store.gesture;
+    expect(owner).not.toBeNull();
+    vi.advanceTimersByTime(350);
+    expect(store.gesture === owner).toBe(true);
+    wheel();
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+    old[input]();
+    vi.advanceTimersByTime(500);
+    expect(store.project === initial).toBe(false);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it.each(['mix', 'send'])('keeps successive %s drag updates in one gesture', (kind) => {
+    const { store } = env;
+    const initial = store.project;
+    const control = mixerControl(kind);
+    control.pointer('pointerdown');
+    control.pointer('pointermove', 308);
+    const owner = store.gesture;
+    const first = store.project;
+    const firstValue = Number(control.el.getAttribute('aria-valuenow'));
+    control.pointer('pointermove', 316);
+    expect(store.project === first).toBe(false);
+    expect(Number(control.el.getAttribute('aria-valuenow'))).toBeLessThan(firstValue);
+    expect(store.gesture === owner).toBe(true);
+    control.pointer('pointerup', 316);
+    expect(store.gesture).toBeNull();
+    expect(store.undoStack).toHaveLength(1);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it('keeps strip send wheel input working after its source changes', () => {
+    const { store, ctl, panel } = env;
+    vi.advanceTimersByTime(50);
+    ctl.select(6);
+    const control = panel.strips[0].el.querySelector('.mx-send-knob');
+    const wheel = () => control.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
+    wheel();
+    const first = store.project;
+    expect(first.mixer[6].routes[0]).toBeLessThan(1);
+    ctl.select(1);
+    expect(store.gesture).toBeNull();
+    wheel();
+    const secondGain = store.project.mixer[1].routes[0];
+    wheel();
+    expect(store.project.mixer[1].routes[0]).toBeLessThan(secondGain);
+    expect(store.project.mixer[6].routes[0]).toBe(first.mixer[6].routes[0]);
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project === first).toBe(true);
+  });
+
+  it('preserves a continuous effect-parameter edit before another mixer control takes over', () => {
+    const { store, app, ctl, panel } = env;
+    vi.advanceTimersByTime(50);
+    ctl.select(6);
+    const initial = store.project;
+    const slot = initial.mixer[6].fx[0];
+    const win = app.openEffectEditor(6, slot.id);
+    const control = win.el.querySelector('.fxw-knob');
+    const wheel = () => control.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    wheel();
+    const firstValue = Number(control.getAttribute('aria-valuenow'));
+    wheel();
+    expect(Number(control.getAttribute('aria-valuenow'))).toBeGreaterThan(firstValue);
+    const first = store.project;
+    panel.strips[2].fader.slider.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    const owner = store.gesture;
+    vi.advanceTimersByTime(100);
+    expect(store.gesture === owner).toBe(true);
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
   it.each(['volume', 'pan'])('resynchronizes %s after undo during a keyboard gesture', (param) => {
     const { store, panel } = env;
     const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');

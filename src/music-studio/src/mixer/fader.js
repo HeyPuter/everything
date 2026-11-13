@@ -67,7 +67,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     if (active) return;
     watch();
     active = true;
-    onStart?.();
+    onStart?.(cancel);
   };
   const finish = () => {
     unwatch();

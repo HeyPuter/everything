@@ -50,11 +50,12 @@ export function createStrip(ctx, index) {
   const muteBtn = h('button.led.mx-mute', { type: 'button' });
   const soloBtn = h('button.mx-solo', { type: 'button' }, 'S');
   const sendBtn = h('button.mx-send-btn', { type: 'button' }, icon('arrow-up', 12));
-  const sendKnob = createKnob({ param: SEND, size: 20, showLabel: false, label: 'Send level', format: (v) => formatGain(v), onStart: () => sendG?.onStart(), onInput: (v) => sendG?.onInput(v), onEnd: (v) => sendG?.onEnd(v) });
+  const sendKnob = createKnob({ param: SEND, size: 20, showLabel: false, label: 'Send level', format: (v) => formatGain(v), onStart: (cancel) => sendG?.onStart(cancel), onInput: (v) => sendG?.onInput(v), onEnd: (v) => sendG?.onEnd(v) });
   sendKnob.el.classList.add('mx-send-knob');
   const sendNote = h('span.mx-send-note');
   const sendRow = h('div.mx-send', sendBtn, sendKnob.el, sendNote);
   let sendG = null;
+  let sendFrom = null;
 
   const el = h(
     `div.mx-strip${master ? '.master' : ''}`,
@@ -159,8 +160,18 @@ export function createStrip(ctx, index) {
         sendBtn.setAttribute('aria-disabled', send.mode === 'blocked' ? 'true' : 'false');
         sendBtn.title = send.mode === 'blocked' ? `${to} feeds ${from} already; a send here would loop` : send.mode === 'on' ? `${from} sends here. Click to remove the send.` : `Click to send ${from} here`;
         sendKnob.el.setAttribute('aria-label', `Send level from ${from} to ${to}`);
-        sendG = ctl.routeGesture(send.from, index);
-      } else sendG = null;
+        if (sendFrom !== send.from || !sendG) {
+          sendKnob.cancel();
+          sendG?.onEnd();
+          sendFrom = send.from;
+          sendG = ctl.routeGesture(send.from, index);
+        }
+      } else {
+        sendKnob.cancel();
+        sendG?.onEnd();
+        sendG = null;
+        sendFrom = null;
+      }
     }
     last.send = send;
     if (send?.mode === 'on') sendKnob.set(send.gain);

@@ -71,7 +71,7 @@ export function createFxPanel(ctx) {
       size: 20,
       showLabel: false,
       label: 'Mix',
-      onStart: () => g.onStart(),
+      onStart: (cancel) => g.onStart(cancel),
       onInput: (v) => g.onInput(v),
       onEnd: (v) => g.onEnd(v),
     });
@@ -83,10 +83,10 @@ export function createFxPanel(ctx) {
       name,
       update(s, i) {
         if (api.slot === s && api.i === i && api.track === state.index) return;
+        if (!g || api.track !== state.index) g = ctl.mixGesture(state.index, s.id);
         api.slot = s;
         api.i = i;
         api.track = state.index;
-        g = ctl.mixGesture(state.index, s.id);
         const label = EFFECTS[s.type]?.label || s.type;
         num.textContent = String(i + 1);
         name.textContent = label;

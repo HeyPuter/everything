@@ -109,7 +109,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     if (active) return;
     watch();
     active = true;
-    onStart?.();
+    onStart?.(cancel);
   };
   const finish = () => {
     unwatch();
