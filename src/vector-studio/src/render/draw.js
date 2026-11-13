@@ -12,6 +12,7 @@
  * drawArtwork() is shared by the screen renderer and raster export, so what
  * you see is what PNG/JPEG export produces.
  */
+import { Emitter } from '../lib/emitter.js';
 import { segmentCount, segmentPoints, isLine, zeroLength, capsShowDots } from '../model/bezier.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect } from '../model/geometry.js';
 import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks, decorationRects } from '../model/text-layout.js';
@@ -535,25 +536,26 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
   ctx.restore();
 }
 
-/** Decoded images by asset id. Images decode asynchronously; `onReady` triggers a redraw. */
+/** Decoded images by asset object. Ready events identify the asset maps awaiting them. */
 const imageCache = new Map();
-export const imageEvents = { onReady: null };
+export const imageEvents = new Emitter();
 
 export function imageFor(doc, assetId) {
   const asset = doc.assets.get(assetId);
   if (!asset) return null;
   let entry = imageCache.get(asset);
   if (!entry) {
-    entry = { img: null };
+    entry = { img: null, consumers: new WeakSet([doc.assets]) };
     imageCache.set(asset, entry);
     const img = new Image();
     img.decoding = 'async';
     img.onload = () => {
       entry.img = img;
-      imageEvents.onReady?.();
+      imageEvents.emit('ready', entry.consumers);
+      entry.consumers = null;
     };
     img.src = asset.data;
-  }
+  } else if (!entry.img) entry.consumers.add(doc.assets);
   return entry.img;
 }
 

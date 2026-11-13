@@ -75,8 +75,10 @@ export class CanvasView {
       editor.on('selection', () => this.invalidateOverlay()),
       editor.on('overlay', () => this.invalidateOverlay()),
       editor.on('view-options', () => this.#invalidateCachedArtwork()),
+      imageEvents.on('ready', (consumers) => {
+        if (consumers.has(editor.doc.assets)) this.invalidate();
+      }),
     ];
-    imageEvents.onReady = () => this.invalidate();
     this.resize();
   }
 
