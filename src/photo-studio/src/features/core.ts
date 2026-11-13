@@ -119,6 +119,8 @@ export function installCore(e: Editor) {
   cmd('image.duplicate', 'Duplicate…', async () => {
     const v = await formDialog('Duplicate Image', [{ name: 'name', label: 'As', value: `${e.doc.name} copy` }], 'Duplicate');
     if (!v) return;
+    e.transform.apply();
+    await e.modal?.apply();
     const selected = [...e.selectedIds];
     const blob = await serialize(e.doc, e.assets);
     const { deserialize } = await import('../model/serialization');

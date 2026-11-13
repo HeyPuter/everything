@@ -51,7 +51,7 @@ export class Editor {
   transform: FreeTransform;
   // A feature-owned modal edit (advanced transform, crop) that finishes before
   // any other edit and supplies the document shown on the canvas meanwhile.
-  modal?: { document?: PhotoDocument; apply(): void; cancel(): void };
+  modal?: { document?: PhotoDocument; apply(): void | Promise<void>; cancel(): void };
   menubar!: MenuBar;
   toolbar!: Toolbar;
   dock!: Dock;

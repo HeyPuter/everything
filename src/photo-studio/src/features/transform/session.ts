@@ -273,8 +273,7 @@ export class TransformSession {
       // Embedded objects keep their content: the frame is stored and the
       // layer draws a render of the content through it.
       const e = this.e;
-      void commitFrame(e, this.target.id, quad, mesh, label, result).catch((error) => e.message(error instanceof Error ? error.message : String(error)));
-      return;
+      return commitFrame(e, this.target.id, quad, mesh, label, result).catch((error) => e.message(error instanceof Error ? error.message : String(error)));
     }
     const id = this.target.id;
     // Every frame of a video layer follows its transform; a mesh warp cannot.
