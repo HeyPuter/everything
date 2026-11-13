@@ -5,7 +5,7 @@
 import { h } from '../lib/dom.js';
 import * as S from '../model/session-edits.js';
 import { parseTime } from '../lib/time.js';
-import { formatGain } from './levels.js';
+import { formatGain, parseGain } from './levels.js';
 import { METRONOME_SOUNDS, DEFAULT_METRONOME_SOUND } from './metronome-sounds.js';
 import { TIME_FORMATS } from '../lib/time.js';
 import { stretchOf, stretchActive } from '../model/clip-stretch.js';
@@ -70,7 +70,8 @@ export function sessionPropertySection(app, doc) {
     const [name, nameId] = input(c.name, (v) => v.trim() && set('Rename Clip', { name: v.trim() }), { 'aria-label': 'Clip name' });
     const [color, colorId] = select([{ value: '', label: 'Track Color' }, ...S.TRACK_COLORS.map((x, i) => ({ value: x, label: COLOR_NAMES[i] }))], c.color || '', (v) => set('Clip Color', { color: v || null }));
     const [gain, gainId] = input(String(c.gain), (v) => {
-      const g = Number(String(v).replace(/db/i, ''));
+      // An emptied field is not a value (Number('') would read as 0 dB).
+      const g = parseGain(v);
       if (Number.isFinite(g)) set('Clip Gain', { gain: Math.max(-48, Math.min(24, g)) });
     }, { 'aria-label': 'Clip gain in dB', inputmode: 'decimal' });
     const [fin, finId] = input(fmt(c.fadeIn.length), (v) => {

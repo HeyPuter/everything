@@ -404,6 +404,15 @@ describe('session properties', () => {
     gain.value = '-6';
     gain.dispatchEvent(new Event('change'));
     expect(S.findClip(doc.state, clip.id).gain).toBe(-6);
+    // A cleared field is not 0 dB; "-inf" is as quiet as the field goes.
+    gain.value = ' ';
+    gain.dispatchEvent(new Event('change'));
+    expect(S.findClip(doc.state, clip.id).gain).toBe(-6);
+    gain.value = '-inf';
+    gain.dispatchEvent(new Event('change'));
+    expect(S.findClip(doc.state, clip.id).gain).toBe(-48);
+    gain.value = '-6';
+    gain.dispatchEvent(new Event('change'));
     const loop = [...el.querySelectorAll('label.check')].find((l) => l.textContent === 'Loop').querySelector('input');
     loop.checked = true;
     loop.dispatchEvent(new Event('change'));
