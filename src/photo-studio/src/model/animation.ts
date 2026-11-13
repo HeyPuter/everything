@@ -217,7 +217,21 @@ export function sharedContent(doc: PhotoDocument) {
   const bases = allLayers(doc.layers).map((l) => {
     const s = cur?.layers[l.id];
     const at = l.kind === 'pixel' && l.pixels ? [l.pixels.x, l.pixels.y, l.transform.x, l.transform.y] : [l.transform.x, l.transform.y];
-    return s && positionable(l) ? at.map((v, i) => v - offset(l, i % 2 ? s.dy : s.dx)) : at;
+    const dx = s && positionable(l) ? offset(l, s.dx) : 0;
+    const dy = s && positionable(l) ? offset(l, s.dy) : 0;
+    const base = at.map((v, i) => v - (i % 2 ? dy : dx));
+    // These origins were omitted from the JSON above. Keep their positions
+    // relative to the shared layer placement so independent mask edits
+    // invalidate thumbnails without invalidating every frame on selection.
+    for (const field of ['maskGrid', 'liveSource', 'liveMask'] as const) {
+      const grid = l[field];
+      if (!grid) continue;
+      const follows = field === 'maskGrid' ? !l.maskUnlinked && positionable(l) : l.kind === 'pixel';
+      const gx = follows ? Math.round(l.transform.x) - Math.round(l.transform.x - dx) : 0;
+      const gy = follows ? Math.round(l.transform.y) - Math.round(l.transform.y - dy) : 0;
+      base.push(grid.x - gx, grid.y - gy);
+    }
+    return base;
   });
   return `${content}|${JSON.stringify(bases)}`;
 }

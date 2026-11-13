@@ -289,6 +289,38 @@ describe('frame animation model', () => {
 });
 
 describe('frame render keys', () => {
+  it.each(['maskGrid', 'liveSource', 'liveMask'] as const)('invalidates renders when %s moves without changing tiles', (field) => {
+    const { h, px } = fixture();
+    h.execute('Grid', (d) => {
+      findLayer(d.layers, px)![field] = filledMask(store, { x: 10, y: 10, width: 4, height: 4 });
+    });
+    const before = sharedContent(h.document);
+    h.execute('Move grid', (d) => { findLayer(d.layers, px)![field]!.x += 3; });
+    expect(sharedContent(h.document)).not.toBe(before);
+  });
+
+  it.each([false, true])('keeps mask and live grid keys stable when selecting another frame (unlinked=%s)', (unlinked) => {
+    const { h, px, img } = fixture();
+    h.execute('Grids', (d) => {
+      for (const id of [px, img]) {
+        const l = findLayer(d.layers, id)!;
+        l.maskGrid = filledMask(store, { x: 10, y: 10, width: 4, height: 4 });
+        l.maskUnlinked = unlinked;
+      }
+      const l = findLayer(d.layers, px)!;
+      l.liveSource = structuredClone(l.pixels!);
+      l.liveMask = structuredClone(l.maskGrid!);
+    });
+    h.execute('New Frame', (d) => duplicateFrames(d, [0]));
+    h.execute('Move', (d) => {
+      findLayer(d.layers, px)!.transform.x += 12;
+      findLayer(d.layers, img)!.transform.y += 7.5;
+    });
+    const before = sharedContent(h.document);
+    h.execute('Select Frame', (d) => applyFrame(d, 0));
+    expect(sharedContent(h.document)).toBe(before);
+  });
+
   it('identify what each frame shows regardless of the frame selected', () => {
     const { h, px, img } = fixture();
     h.execute('Frames', (d) => duplicateFrames(d, [0]));
