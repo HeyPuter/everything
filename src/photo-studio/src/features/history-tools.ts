@@ -12,6 +12,8 @@ import type { DocumentSession } from '../app/session';
 // the History Brush paints pixels back from the chosen source state.
 export type Snapshot = { id: string; name: string; doc: PhotoDocument };
 const snapshots = new WeakMap<DocumentSession, Snapshot[]>();
+const sources = new WeakMap<DocumentSession, string>();
+export const historySourceId = (e: Editor) => sources.get(e.session);
 export function sessionSnapshots(e: Editor, s: DocumentSession = e.session) {
   let list = snapshots.get(s);
   if (!list) {
@@ -26,7 +28,7 @@ export function sessionSnapshots(e: Editor, s: DocumentSession = e.session) {
 /** Source state for the History Brush: a snapshot, or the opened state
  * (also once history has dropped the steps after it). */
 export function historySourceDoc(e: Editor): PhotoDocument {
-  const id = e.settings.historySource as string | undefined;
+  const id = historySourceId(e);
   const snap = sessionSnapshots(e).find((s) => s.id === id);
   if (snap) return snap.doc;
   return e.history.opened;
@@ -97,7 +99,8 @@ export function installHistoryTools(e: Editor) {
       label: 'Set History Brush Source',
       hidden: true,
       run: (e, arg) => {
-        e.settings.historySource = arg ? String(arg) : undefined;
+        if (arg) sources.set(e.session, String(arg));
+        else sources.delete(e.session);
         e.dock.update();
       },
     },
