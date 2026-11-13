@@ -82,6 +82,43 @@ describe('Record voiceover dialog', () => {
 });
 
 describe('Record dialog', () => {
+  it.each(['OverconstrainedError', 'NotFoundError'])('falls back from a missing remembered screen microphone (%s)', async (name) => {
+    setPref('record', { mode: 'screen', screenMic: true, micId: 'unplugged-mic' });
+    const getUserMedia = vi.spyOn(navigator.mediaDevices, 'getUserMedia').mockRejectedValueOnce(new DOMException('Device is gone', name));
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(getUserMedia.mock.calls[1][0].audio.deviceId).toBeUndefined();
+      await grant();
+      expect(live()).toBe(1);
+      expect(d.el.querySelector('.vo-message').hidden).toBe(true);
+    } finally { d.close(); }
+    expect(live()).toBe(0);
+  });
+
+  it('reports failure if the default microphone is also missing without retrying forever', async () => {
+    setPref('record', { mode: 'screen', screenMic: true, micId: 'unplugged-mic' });
+    const getUserMedia = vi.spyOn(navigator.mediaDevices, 'getUserMedia').mockRejectedValue(new DOMException('No device', 'NotFoundError'));
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+      expect(d.el.querySelector('.vo-message').textContent).toMatch(/No microphone was found/);
+    } finally { d.close(); }
+  });
+
+  it('reports denied microphone permission without retrying another device', async () => {
+    setPref('record', { mode: 'screen', screenMic: true, micId: 'saved-mic' });
+    const getUserMedia = vi.spyOn(navigator.mediaDevices, 'getUserMedia').mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'));
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+      expect(d.el.querySelector('.vo-message').textContent).toMatch(/microphone access is blocked/i);
+    } finally { d.close(); }
+  });
+
   it('opens the remembered microphone when the dialog starts in screen mode', async () => {
     setPref('record', { mode: 'screen', screenMic: true, micId: 'saved-mic' });
     const getUserMedia = vi.spyOn(navigator.mediaDevices, 'getUserMedia');

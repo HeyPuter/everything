@@ -269,6 +269,11 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
           micStream = mic;
         } catch (err) {
           if (my !== opening) return;
+          if (opts.micId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError')) {
+            opts.micId = '';
+            save();
+            return reopen();
+          }
           showError(captureErrorMessage(err, 'camera').replace(/camera/gi, 'microphone'));
         }
       }
