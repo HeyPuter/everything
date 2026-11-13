@@ -72,7 +72,12 @@ const brushKey = (n) => {
   return JSON.stringify(rest);
 };
 
-const paintKey = (p) => (p ? JSON.stringify(p.type === 'solid' ? { t: 'solid', c: p.color.toLowerCase() } : { t: p.type, s: p.stops }) : 'none');
+function paintKey(p) {
+  if (!p) return 'none';
+  if (p.type === 'solid') return JSON.stringify({ t: p.type, c: p.color.toLowerCase() });
+  if (p.type === 'pattern') return JSON.stringify({ t: p.type, id: p.id });
+  return JSON.stringify({ t: p.type, s: p.stops });
+}
 
 /** Select > Same > ... `what`: fill | stroke | fillStroke | strokeWeight | opacity | blendMode | appearance | shape */
 export function selectSame(editor, what) {
