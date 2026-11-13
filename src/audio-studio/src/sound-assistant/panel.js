@@ -169,17 +169,20 @@ export function soundAssistantPanel(app) {
       if (!r) return;
       t.doc.apply('Auto-Match Loudness', r.state);
       const quiet = r.results.filter((x) => x.lufs == null).length;
-      app.notify(quiet ? `${quiet} clip${quiet > 1 ? 's were' : ' was'} too quiet or short to measure.` : `Loudness matched for ${r.results.length} clip${r.results.length === 1 ? '' : 's'}.`);
+      const msg = quiet ? `${quiet} clip${quiet > 1 ? 's were' : ' was'} too quiet or short to measure.` : `Loudness matched for ${r.results.length} clip${r.results.length === 1 ? '' : 's'}.`;
+      app.notify(msg);
+      announce(msg);
     } else if (t.mode === 'file') {
       const [start, end] = t.doc.editRange();
       const lufs = await run('Measuring Loudness', (signal, onProgress) => ops.measureFile(t.settings, t.doc.state, start, end, { signal, onProgress }));
       if (lufs === undefined) return;
-      if (lufs == null) app.notify('The audio is too quiet or too short to measure.', { error: true });
+      const quiet = lufs == null;
+      if (quiet) app.notify('The audio is too quiet or too short to measure.', { error: true });
       ops.setFileSettings(t.doc, setPath(setPath(ops.getFileSettings(t.doc), ['loudness', 'measured'], lufs), ['loudness', 'on'], true));
       syncPreview();
       refresh();
+      announce(quiet ? 'The audio is too quiet or too short to measure' : 'Loudness measured');
     }
-    announce('Loudness measured');
   }
 
   async function applyDuration() {
