@@ -56,6 +56,7 @@ export class Sequencer {
     this.metronome = false;
     this.countIn = 0; // ticks of count-in left
     this.countLen = 0;
+    this.resumePending = false;
     this.nextId = SEQ_ID;
     // Sounding sequenced notes: end tick, slot, id, kind, and the start tick
     // and key of the event that started them (to match them in a new sequence).
@@ -148,6 +149,7 @@ export class Sequencer {
       i++;
     }
     if (this.countIn) return;
+    this.resumePending = false;
     const pos = this.pos;
     for (let k = 0; k < seq.audio.length; k++) {
       const i = seq.audio[k];
@@ -166,12 +168,14 @@ export class Sequencer {
     const sig = this.seq.sig || [4, 4];
     this.countLen = countIn ? (PPQ * 4 * sig[0]) / sig[1] : 0;
     this.countIn = this.countLen;
+    this.resumePending = false;
     if (!this.countIn) this.#resumeAudio(this.pos, 0);
   }
 
   stop() {
     this.playing = false;
     this.countIn = 0;
+    this.resumePending = false;
     this.#releaseAll(0);
     for (const l of this.lanes) if (l.applied) this.#restore(l);
   }
@@ -231,6 +235,7 @@ export class Sequencer {
 
   /** Audio clips that span `tick` start from the middle. */
   #resumeAudio(tick, offset) {
+    this.resumePending = false;
     const s = this.seq;
     const n = s.notes;
     for (let k = 0; k < s.audio.length; k++) {
@@ -455,6 +460,7 @@ export class Sequencer {
     const map = this.tempo;
     const rate = this.rate;
     let f = 0;
+    if (this.resumePending) this.#resumeAudio(this.pos, 0);
     // Count-in: clicks only, the playhead waits.
     if (this.countIn > 0) {
       const tpf = this.tpf;
@@ -465,8 +471,13 @@ export class Sequencer {
       this.countIn = fr === need ? 0 : this.countIn - fr * tpf;
       if (this.countIn > 0) return;
       f = fr;
-      this.#resumeAudio(this.pos, Math.min(f, frames - 1));
-      if (f >= frames) return;
+      if (f >= frames) {
+        // The last count-in frame is still silent. Resume on the next
+        // render call; intervening edits, seeks, and stops can replace it.
+        this.resumePending = true;
+        return;
+      }
+      this.#resumeAudio(this.pos, f);
     }
     this.core.setTempo(map.bpmAt(this.pos));
     this.#automate(this.pos);
