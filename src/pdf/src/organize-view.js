@@ -367,8 +367,11 @@ export function createOrganizeView({
     }
     if (e.key === ' ') select(i, { ctrlKey: true });
     else if (e.key === 'Enter') actions.open(i);
-    else if ((e.key === 'Delete' || e.key === 'Backspace') && !isBusy()) commands.remove.click();
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Run even when the toolbar's Delete is off (every page is chosen), so the key says
+      // why no page goes rather than doing nothing.
+      if (!isBusy() && can('assemble')) run(removeChosen)();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
       autoChosen = false;
       selected = new Set(tiles.map((_, k) => k));
       updateState();

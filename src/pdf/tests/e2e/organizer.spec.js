@@ -821,3 +821,23 @@ test('pages scattered through a long PDF extract under a file name of a usable l
   expect((await pending).suggestedFilename()).toBe('test 40 pages.pdf');
   await expect(page.locator('#toast')).toHaveText('40 pages downloaded as a new PDF.');
 });
+
+test('Delete on every page in Organize pages says why nothing was deleted', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await tallPdf());
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect(page.locator('.organize-status')).toHaveText('3 of 3 pages selected');
+  await page.keyboard.press('Delete');
+  // The toolbar's Delete is off; the key still answers, rather than doing nothing silently.
+  await expect(page.locator('#toast')).toHaveText('Keep at least one page in the PDF.');
+  await expect(grid.getByRole('option')).toHaveCount(3);
+  await expect(grid.getByRole('option', { name: 'Page 1', exact: true })).toBeFocused();
+});
