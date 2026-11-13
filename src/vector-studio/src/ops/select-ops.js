@@ -149,5 +149,9 @@ export function selectNext(editor, dir) {
 
 /** Remember and restore selections (Select > Reselect). */
 export function reselect(editor, last) {
-  if (last) editor.select(last.filter((id) => editor.doc.has(id)));
+  if (!last) return [];
+  const { doc } = editor;
+  const ids = last.filter((id) => doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id) && editor.inIsolation(id));
+  editor.select(ids);
+  return ids;
 }

@@ -9,7 +9,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { UserError } from '../../lib/errors.js';
-import { walkSelectable } from '../../ops/select-ops.js';
+import { reselect, walkSelectable } from '../../ops/select-ops.js';
 import { graphicStylesOf, styleOfNode } from '../paint/graphic-styles.js';
 
 const hasDoc = (a) => Boolean(a.editor);
@@ -396,8 +396,7 @@ export function saveSelection(doc, name, ids) {
 export function applySavedSelection(editor, id) {
   const s = savedSelectionsOf(editor.doc).find((x) => x.id === id);
   if (!s) return 0;
-  const ids = s.ids.filter((nid) => editor.doc.has(nid));
-  editor.select(ids);
+  const ids = reselect(editor, s.ids);
   editor.activeSavedSelection = s.id;
   return ids.length;
 }
