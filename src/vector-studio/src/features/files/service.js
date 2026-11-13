@@ -727,25 +727,31 @@ export class FileService {
   }
 
   async revert(editor = this.app.editor) {
-    if (!this.canRevert(editor)) return false;
-    const ok = await this.app.dialogs.confirm({ title: 'Revert', message: `Revert to the saved version of "${editor.name}"? Changes since the last save will be lost.`, okLabel: 'Revert' });
-    if (!ok) return false;
+    if (!this.canRevert(editor) || !this.app.editors.includes(editor)) return false;
+    const doc = editor.doc;
     const f = editor.file;
+    const current = () => this.app.editors.includes(editor) && editor.doc === doc && editor.file === f;
+    const ok = await this.app.dialogs.confirm({ title: 'Revert', message: `Revert to the saved version of "${editor.name}"? Changes since the last save will be lost.`, okLabel: 'Revert' });
+    if (!ok || !current()) return false;
     let bytes;
     try {
       if (f.kind === 'puter') bytes = await toBytes(await this.puter.fs.read(f.path));
       else bytes = await toBytes(await f.handle.getFile());
     } catch (err) {
+      if (!current()) return false;
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: `The saved version of "${editor.name}" could not be read. ${classifyError(err).message}` });
       return false;
     }
+    if (!current()) return false;
     let parsed;
     try {
       parsed = await parseDocument(bytes);
     } catch (err) {
+      if (!current()) return false;
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: err.message });
       return false;
     }
+    if (!current()) return false;
     // Every window showing the document shows the saved one (none keeps the discarded changes to
     // save over the file later); the window reverted from is replaced last, so it stays active.
     const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
