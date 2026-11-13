@@ -94,6 +94,16 @@ describe('note edits', () => {
     expect(strip(r)).toEqual([[60, 0, 96], [64, 0, 96], [67, 96, 288]]);
   });
 
+  it('legato skips unselected notes and preserves the final chord when no end is given', () => {
+    const notes = [note('a', 60, 0, 10), note('b', 62, 24, 10), note('c', 64, 96, 10), note('d', 67, 96, 20)];
+    const r = N.legatoNotes(notes, ['a', 'c', 'd']);
+    expect(strip(r)).toEqual([[60, 0, 96], [62, 24, 10], [64, 96, 10], [67, 96, 20]]);
+    expect(r[1]).toBe(notes[1]);
+    expect(r[2]).toBe(notes[2]);
+    expect(r[3]).toBe(notes[3]);
+    expect(N.legatoNotes(notes, [])).toBe(notes);
+  });
+
   it('reverses in time and flips pitches within the selection', () => {
     expect(strip(N.reverseNotes(notes, null))).toEqual([[67, 0, 96], [64, 192, 48], [60, 240, 48]]);
     expect(N.flipNotes(notes, null).map((n) => n.key).sort()).toEqual([60, 63, 67]);

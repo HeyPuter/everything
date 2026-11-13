@@ -220,9 +220,11 @@ export function legatoNotes(notes, ids, end = null) {
   const pick = picker(ids);
   const picked = notes.filter(pick);
   const starts = [...new Set(picked.map((n) => n.pos))].sort((a, b) => a - b);
+  const nextStart = new Map();
+  for (let i = 1; i < starts.length; i++) nextStart.set(starts[i - 1], starts[i]);
   const changes = new Map();
   for (const n of picked) {
-    const next = starts.find((p) => p > n.pos);
+    const next = nextStart.get(n.pos);
     const target = next !== undefined ? next : end !== null && end > n.pos ? end : null;
     if (target !== null && target - n.pos !== n.len) changes.set(n.id, { len: target - n.pos });
   }
