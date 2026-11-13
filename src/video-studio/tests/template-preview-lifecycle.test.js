@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TemplatePreview } from '../src/ui/template-preview.js';
-import { openTemplateDialog } from '../src/ui/home-templates.js';
+import { openTemplateDialog, templateCard } from '../src/ui/home-templates.js';
 import { TEMPLATES } from '../src/model/templates.js';
 import { mockContext } from './canvas-mock.js';
 
@@ -52,6 +52,83 @@ describe('template dialog playback', () => {
       expect(frames.has(animation)).toBe(false);
     } finally {
       dialog.close();
+    }
+  });
+});
+
+function enter(card) {
+  card.dispatchEvent(Object.assign(new Event('pointerenter'), { pointerType: 'mouse' }));
+}
+
+function frameStep() {
+  const now = performance.now() + 16;
+  for (const [id, callback] of [...frames]) {
+    if (!frames.has(id)) continue;
+    frames.delete(id);
+    callback(now);
+  }
+}
+
+describe('template card playback', () => {
+  it('stops both animation loops when an animating card is removed', async () => {
+    vi.spyOn(TemplatePreview.prototype, 'ready').mockResolvedValue();
+    const play = vi.spyOn(TemplatePreview.prototype, 'play');
+    const card = templateCard(TEMPLATES[0], { onChoose: vi.fn() });
+    document.body.append(card);
+    try {
+      enter(card);
+      const preview = play.mock.contexts[0];
+      expect(frames.size).toBe(2);
+      card.remove();
+      frameStep();
+      expect(preview.raf).toBe(0);
+      expect(frames.size).toBe(0);
+      // This preview is cached: a later card must inherit its poster, not the last animated frame.
+      expect(preview.draw).toHaveBeenLastCalledWith(preview.poster);
+    } finally {
+      card.dispatchEvent(new Event('pointerleave'));
+    }
+  });
+
+  it('does not stop another active card when an inactive copy gets pointerleave', () => {
+    vi.spyOn(TemplatePreview.prototype, 'ready').mockResolvedValue();
+    const play = vi.spyOn(TemplatePreview.prototype, 'play');
+    const first = templateCard(TEMPLATES[1], { onChoose: vi.fn() });
+    const other = templateCard(TEMPLATES[1], { onChoose: vi.fn() });
+    document.body.append(first, other);
+    try {
+      enter(first);
+      const preview = play.mock.contexts[0];
+      other.dispatchEvent(new Event('pointerleave'));
+      expect(preview.raf).not.toBe(0);
+      first.dispatchEvent(new Event('pointerleave'));
+      expect(preview.raf).toBe(0);
+      expect(frames.size).toBe(0);
+    } finally {
+      first.dispatchEvent(new Event('pointerleave'));
+      other.dispatchEvent(new Event('pointerleave'));
+    }
+  });
+
+  it('keeps a newly active copy playing when the previous card is removed', () => {
+    vi.spyOn(TemplatePreview.prototype, 'ready').mockResolvedValue();
+    const play = vi.spyOn(TemplatePreview.prototype, 'play');
+    const first = templateCard(TEMPLATES[2], { onChoose: vi.fn() });
+    const other = templateCard(TEMPLATES[2], { onChoose: vi.fn() });
+    document.body.append(first, other);
+    try {
+      enter(first);
+      enter(other);
+      const preview = play.mock.contexts[0];
+      first.remove();
+      frameStep();
+      expect(preview.raf).not.toBe(0);
+      other.dispatchEvent(new Event('pointerleave'));
+      expect(preview.raf).toBe(0);
+      expect(frames.size).toBe(0);
+    } finally {
+      first.dispatchEvent(new Event('pointerleave'));
+      other.dispatchEvent(new Event('pointerleave'));
     }
   });
 });
