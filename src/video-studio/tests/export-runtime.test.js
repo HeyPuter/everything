@@ -107,3 +107,14 @@ describe('successful audio exports', () => {
     await result.release();
   });
 });
+
+describe('audio encoder failures', () => {
+  it.each(modes)('closes the submitted sample when encoding rejects ($kind / $audioFormat)', async ({ kind, ...settings }) => {
+    runtime.addAudio.mockRejectedValue(new Error('Audio encoder failed'));
+    const library = { mediaBlob: async () => new Blob(['x']) };
+    await expect(exportProject(projectWithAudio(), library, settings, { kind })).rejects.toThrow('Audio encoder failed');
+    expect(runtime.samples).toHaveLength(1);
+    expect(runtime.samples[0].close).toHaveBeenCalledTimes(1);
+    expect(runtime.outputs[0].state).toBe('canceled');
+  });
+});

@@ -788,8 +788,11 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
         const data = new Float32Array(frames * channels.length);
         channels.forEach((ch, c) => data.set(ch, c * frames));
         const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels.length, sampleRate, timestamp: audioAt - audioLead });
-        await audioSource.add(sample);
-        sample.close();
+        try {
+          await audioSource.add(sample);
+        } finally {
+          sample.close();
+        }
         audioAt += frames / sampleRate;
       }
     };
@@ -883,8 +886,11 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
       const data = new Float32Array(chunk.frames * channels);
       chunk.channels.forEach((ch, c) => data.set(ch, c * chunk.frames));
       const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels, sampleRate, timestamp: at - lead });
-      await source.add(sample);
-      sample.close();
+      try {
+        await source.add(sample);
+      } finally {
+        sample.close();
+      }
       at += chunk.frames / sampleRate;
       await yieldToEventLoop();
     }
