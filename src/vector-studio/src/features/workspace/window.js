@@ -10,7 +10,6 @@ import { setListItems } from '../../ui/panels/panel.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
-import { SelectionSet } from '../../editor.js';
 import { TOOL_LAYOUT } from '../../ui/toolbar.js';
 import { createControlBar } from './control-bar.js';
 
@@ -332,18 +331,6 @@ export function newWindow(app, editor = app.editor) {
   return ed;
 }
 
-/** Undo restores the selection of the window being worked in (documents shown in several windows). */
-function bindSelection(doc, editor) {
-  editor.selectionBinding = doc.selection = {
-    get: () => ({ ids: [...editor.selection], anchors: [...editor.anchors].map(([k, v]) => [k, [...v]]) }),
-    set: (s) => {
-      editor.selection = new SelectionSet(s.ids.filter((id) => doc.has(id)));
-      editor.anchors = new Map(s.anchors.filter(([k]) => doc.has(k)).map(([k, v]) => [k, new Set(v)]));
-      editor.emit('selection');
-    },
-  };
-}
-
 export const ARRANGEMENTS = ['tabs', 'tile', 'stack'];
 
 /** Show the documents' views: one at a time (tabs), side by side (tile) or stacked (stack); floating ones on top. */
@@ -558,7 +545,6 @@ export function installWindow(app) {
   });
   app.on('active-editor', (ed) => {
     if (ed && !app.floating?.has(ed)) app.lastDocked = ed;
-    if (ed) bindSelection(ed.doc, ed);
     layoutViews(app);
   });
   app.on('closed', () => layoutViews(app));

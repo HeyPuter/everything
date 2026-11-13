@@ -95,8 +95,12 @@ export class Editor extends Emitter {
     this.selectionBinding = doc.selection = {
       get: () => ({ ids: [...this.selection], anchors: [...this.anchors].map(([k, v]) => [k, [...v]]) }),
       set: (s) => {
-        // Undo and Redo bring a selection back only where it can still be selected (not hidden or locked since).
-        const ok = (id) => doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id);
+        // History must respect the receiving window's isolation as well as visibility and locks.
+        // Undo can remove the temporary group around an isolated leaf before the change event
+        // repairs isolation, so use the surviving leaf in that case.
+        const isolation = doc.has(this.isolation) ? this.isolation : doc.has(this.isolationLeaf) ? this.isolationLeaf : null;
+        const ok = (id) => doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id)
+          && (!isolation || id === isolation || doc.isAncestor(isolation, id));
         this.selection = new SelectionSet(s.ids.filter(ok));
         this.anchors = new Map(s.anchors.filter(([k]) => ok(k)).map(([k, v]) => [k, new Set(v)]));
         this.emit('selection');
