@@ -43,6 +43,15 @@ export class HandTool extends Tool {
     this.setCursor('grab');
   }
 
+  cancel() {
+    this.drag = null;
+    this.setCursor('grab');
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   onDoubleClick() {
     this.editor.fitArtboard();
   }
@@ -101,6 +110,15 @@ export class ZoomTool extends Tool {
     this.overlay();
   }
 
+  cancel() {
+    this.drag = null;
+    this.overlay();
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   onDoubleClick() {
     this.editor.actualSize();
   }
@@ -152,6 +170,14 @@ export class RotateViewTool extends Tool {
 
   onPointerUp() {
     this.drag = null;
+  }
+
+  cancel() {
+    this.drag = null;
+  }
+
+  deactivate() {
+    this.cancel();
   }
 
   onDoubleClick() {
