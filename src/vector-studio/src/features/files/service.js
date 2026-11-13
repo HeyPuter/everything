@@ -76,8 +76,9 @@ export class FileService {
     const thumb = thumbnail ? await renderThumbnail(doc) : null;
     // A saved file carries the document's identity (its version history follows it); a copy gets its own.
     const id = copy ? newFileId() : documentId(doc);
+    const commentsRevision = doc.commentsRevision;
     const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
-    return { bytes, thumb, rev };
+    return { bytes, thumb, rev, commentsRevision };
   }
 
   // ---- default folder ("Your files") ----
@@ -267,7 +268,7 @@ export class FileService {
     for (const ed of new Set([editor, ...this.app.editors])) if (ed.doc === doc) ed.file = file;
     doc.savedRevision = enc.rev;
     // Version History keeps these bytes: exactly what was written.
-    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb });
+    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb, commentsRevision: enc.commentsRevision });
     this.#remember(file, enc.thumb);
     this.recovery?.discard(editor);
     this.app.renderTabs();

@@ -197,8 +197,8 @@ export class VDocument extends Emitter {
     this.savedCommentsRevision = 0;
     /** A view-only document refuses every transaction (shared with a viewer or commenter role). */
     this.readOnly = false;
-    this.on('saved', () => {
-      this.savedCommentsRevision = this.commentsRevision;
+    this.on('saved', (event) => {
+      this.savedCommentsRevision = event?.commentsRevision ?? this.commentsRevision;
     });
   }
 
