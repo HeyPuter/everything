@@ -100,8 +100,10 @@ export class ProjectFiles {
 
   async loadSamples(project, { quiet = false } = {}) {
     if (!Object.keys(project.samples || {}).length) return { loaded: 0, missing: [] };
-    const r = await this.lib.loadSamples(project, this.app.samples);
-    if (r.missing.length && !quiet) {
+    const loads = this.loads;
+    const isCurrent = () => this.loads === loads;
+    const r = await this.lib.loadSamples(project, this.app.samples, { isCurrent });
+    if (r.missing.length && !quiet && isCurrent()) {
       const list = r.missing.slice(0, 3).join(', ') + (r.missing.length > 3 ? ` and ${r.missing.length - 3} more` : '');
       const signIn = !this.signedIn() && Object.values(project.samples).some((s) => s.path);
       this.app.notify(`${r.missing.length === 1 ? 'A sample was' : `${r.missing.length} samples were`} not found (${list}). Their channels are kept.${signIn ? ' Sign in to load samples from your Puter cloud.' : ''}`, { error: true, timeout: 9000 });

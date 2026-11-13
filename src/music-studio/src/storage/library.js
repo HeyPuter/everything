@@ -112,18 +112,22 @@ export class Library {
    * Decodes every sample of a project that the cache does not hold yet.
    * Resolves { loaded, missing: [sample names] }; missing samples keep their channels.
    */
-  async loadSamples(project, cache) {
+  async loadSamples(project, cache, { isCurrent = () => true } = {}) {
     const missing = [];
     let loaded = 0;
     for (const ref of Object.values(project.samples || {})) {
+      if (!isCurrent()) break;
       if (cache.has(ref.id)) continue;
       const bytes = await this.sampleBytes(ref);
+      if (!isCurrent()) break;
       if (!bytes) {
         missing.push(ref.name);
         continue;
       }
       try {
-        cache.set(ref.id, await this.decode(bytes));
+        const decoded = await this.decode(bytes);
+        if (!isCurrent()) break;
+        cache.set(ref.id, decoded);
         loaded++;
       } catch {
         missing.push(ref.name);
