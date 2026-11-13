@@ -24,6 +24,13 @@ const validToken = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.te
 const validEntry = (entry) => Boolean(entry && validToken(entry.id) && (entry.snapshot == null || validToken(entry.snapshot)));
 const indexPaths = (id) => [0, 1].map((slot) => `${DIR}/index.${slot}.${encodeURIComponent(id)}.json`);
 const textOrNull = (value) => typeof value === 'string' && value ? value : null;
+const orderNumber = (value) => Number.isFinite(value) ? value : 0;
+
+/** Safe for ordering/display only; keep raw metadata intact for snapshot identity. */
+export function recoveryTime(value) {
+  // JavaScript dates support timestamps within 100 million days of the epoch.
+  return Number.isFinite(value) && Math.abs(value) <= 8.64e15 ? value : 0;
+}
 
 /** Display and file metadata can be repaired without changing snapshot identity. */
 function normalizeEntry(entry) {
@@ -48,9 +55,9 @@ function snapshotPath(entry) {
 export function newerSnapshot(a, b) {
   if (a.session === b.session && Number.isFinite(a.sequence) && Number.isFinite(b.sequence)) return a.sequence > b.sequence;
   // Older versions did not record capture order. Prefer time, then revisions for ties.
-  if (a.saved !== b.saved || a.session !== b.session) return (a.saved || 0) > (b.saved || 0);
-  return a.revision > b.revision ||
-    (a.revision === b.revision && (a.commentsRevision || 0) > (b.commentsRevision || 0));
+  if (a.saved !== b.saved || a.session !== b.session) return recoveryTime(a.saved) > recoveryTime(b.saved);
+  return orderNumber(a.revision) > orderNumber(b.revision) ||
+    (a.revision === b.revision && orderNumber(a.commentsRevision) > orderNumber(b.commentsRevision));
 }
 
 function sameSnapshot(a, b) {
@@ -249,7 +256,7 @@ export class RecoveryStore {
           if (!prev || newerSnapshot(e, prev.entry)) byId.set(e.id, { entry: e, backend: b, copies });
         }
       }
-      return [...byId.values()].sort((a, b) => (b.entry.saved || 0) - (a.entry.saved || 0)).map(({ entry, backend, copies }) => ({ ...entry, store: backend.kind, backend, copies }));
+      return [...byId.values()].sort((a, b) => recoveryTime(b.entry.saved) - recoveryTime(a.entry.saved)).map(({ entry, backend, copies }) => ({ ...entry, store: backend.kind, backend, copies }));
     });
   }
 

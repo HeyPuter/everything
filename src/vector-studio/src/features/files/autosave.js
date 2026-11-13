@@ -15,7 +15,7 @@ import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { serializeDocument, parseDocument, toBytes, documentData, canCompress, gzip, FileFormatError } from './format.js';
-import { RecoveryStore, recoverableEntries, newerSnapshot } from './recovery.js';
+import { RecoveryStore, recoverableEntries, newerSnapshot, recoveryTime } from './recovery.js';
 import { puterBackend, opfsBackend, opfsAvailable } from './backends.js';
 import { relativeTime } from './naming.js';
 import { handleStore } from './handles.js';
@@ -337,7 +337,7 @@ export class Autosaver {
         h(
           'li',
           checks[i],
-          h('label', { for: `rec-${e.id}` }, h('span.files-recover-name', e.name || 'Untitled'), h('span.muted', ` ${e.file?.path ? e.file.path.replace(/^\/[^/]+\//, '') : 'Not saved yet'} · ${relativeTime(e.saved)}`)),
+          h('label', { for: `rec-${e.id}` }, h('span.files-recover-name', e.name || 'Untitled'), h('span.muted', ` ${e.file?.path ? e.file.path.replace(/^\/[^/]+\//, '') : 'Not saved yet'} · ${relativeTime(recoveryTime(e.saved)) || 'Unknown time'}`)),
         ),
       ),
     );
