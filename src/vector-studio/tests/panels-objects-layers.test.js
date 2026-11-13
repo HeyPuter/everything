@@ -292,3 +292,33 @@ describe('nested layer selections', () => {
     expect(doc.get(collected.id).children).toEqual([layer.id]);
   });
 });
+
+
+it('duplicates nested picked layers once without modifying the original hierarchy', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let sub;
+  doc.transact('Sublayer', () => {
+    sub = doc.addLayer('Nested');
+    doc.move(sub.id, layer.id);
+    doc.move(ids[1], sub.id);
+  });
+  const originalChildren = [...doc.get(layer.id).children];
+  layerPicks(ed).add(layer.id);
+  layerPicks(ed).add(sub.id);
+  await run('layers.duplicate');
+  expect(doc.get(layer.id).children).toEqual(originalChildren);
+  expect(doc.get(sub.id).children).toEqual([ids[1]]);
+  const copies = [...layerPicks(ed)];
+  expect(copies).toHaveLength(1);
+  const copy = doc.get(copies[0]);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id, copy.id]);
+  expect(copy.children).toHaveLength(originalChildren.length);
+  const nestedCopy = doc.children(copy.id).find((n) => n.type === 'layer');
+  expect(doc.children(nestedCopy.id).map((n) => n.anchors)).toEqual([doc.get(ids[1]).anchors]);
+  doc.undo();
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+  expect(doc.get(layer.id).children).toEqual(originalChildren);
+  doc.redo();
+  expect(doc.get(layer.id).children).toEqual(originalChildren);
+  expect(doc.get(copy.id).children).toEqual(copy.children);
+});

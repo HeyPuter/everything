@@ -95,11 +95,17 @@ export function addLayerAbove(doc, layerId, name) {
   return doc.addLayer(name || nextLayerName(doc), idx < 0 ? Infinity : idx + 1);
 }
 
+/** Selected roots only: a selected ancestor already carries its descendants. */
+function selectedRoots(doc, ids) {
+  const selected = new Set(ids.filter((id) => doc.has(id)));
+  return doc.sortByPaintOrder([...selected].filter((id) => !doc.ancestors(id).some((n) => selected.has(n.id))));
+}
+
 /** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */
 export function duplicateNodes(doc, ids) {
   const out = [];
   const byParent = new Map(); // parent id -> Map(original id -> copy id)
-  for (const id of doc.sortByPaintOrder(ids)) {
+  for (const id of selectedRoots(doc, ids)) {
     const n = doc.get(id);
     // (has, not get: reading the parent between inserts would make each insert copy its list.)
     const pid = n?.parent;
@@ -186,8 +192,7 @@ export function flattenDiscards(doc) {
 export function collectInNewLayer(doc, ids) {
   // Moving a selected parent already carries its selected descendants.
   // Choose the insertion point from these roots too, so it cannot be inside one.
-  const selected = new Set(ids.filter((id) => doc.has(id)));
-  const sorted = doc.sortByPaintOrder([...selected].filter((id) => !doc.ancestors(id).some((n) => selected.has(n.id))));
+  const sorted = selectedRoots(doc, ids);
   if (!sorted.length) return null;
   const front = doc.get(sorted.at(-1));
   let parent = doc.get(front.parent);
