@@ -193,9 +193,10 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
   const encode = async () => {
     const k = key();
     if (last?.key === k) return last;
+    const settings = { ...s };
     source ??= await documentSource(e, doc);
-    const out = await encodeDocument(e, { ...s }, doc, source);
-    last = { key: k, bytes: out.bytes, mime: out.mime, prepared: undisplayable.has(s.format) ? out.prepared : undefined };
+    const out = await encodeDocument(e, settings, doc, source);
+    last = { key: k, bytes: out.bytes, mime: out.mime, prepared: undisplayable.has(settings.format) ? out.prepared : undefined };
     return { ...last, prepared: out.prepared, width: out.width, height: out.height };
   };
   const refresh = async () => {
