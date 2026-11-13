@@ -132,13 +132,17 @@ export async function findReplace(e: Editor) {
       .map((l) => l.id);
     if (!ids.length) return status('No matches.');
     if (ids.some((id) => layerLock(e.doc.layers, id, 'all'))) return status(lockedMessage);
-    let count = 0;
-    await editLayers(e, 'Replace Text', (d) => {
+    const counts = new Map<string, number>();
+    await editLayers(e, 'Replace Text', (d, l) => {
       const r = replaceAll(d.content, query, replace, options);
-      count += r.count;
+      // A font wait can require another pass over newer text. Count only the
+      // final replacement in each layer, not every preparation attempt.
+      counts.set(l.id, r.count);
       return { ...d, content: r.content };
-    }, ids);
-    status(`Changed ${count} occurrence${count === 1 ? '' : 's'} in ${ids.length} layer${ids.length === 1 ? '' : 's'}.`);
+    }, ids, undefined, { rebase: true });
+    const changed = [...counts.values()].filter((n) => n > 0);
+    const count = changed.reduce((sum, n) => sum + n, 0);
+    status(`Changed ${count} occurrence${count === 1 ? '' : 's'} in ${changed.length} layer${changed.length === 1 ? '' : 's'}.`);
   });
   ws.q('#fr-done').addEventListener('click', ws.close);
   ws.dialog.addEventListener('keydown', (ev) => {

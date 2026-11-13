@@ -99,3 +99,51 @@ for (const change of ['replacement', 'query', 'options']) for (const action of [
   await expect(dlg.getByLabel('Case Sensitive')).toBeChecked({ checked: change === 'options' });
   await expect(dlg.getByLabel('Whole Word Only')).toBeChecked({ checked: change !== 'options' });
 });
+
+for (const ending of ['committed', 'live']) for (const newText of ['New dog dog', 'New words']) test(`Change All preserves newer ${ending} text '${newText}' while another layer's font loads`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog', 'dog']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.locator('#fr-change').fill('cat');
+  await dlg.getByRole('button', { name: 'Change All' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers.at(-1)!.id, 'all');
+  });
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText(newText);
+  if (ending === 'committed') await run(page, 'type.commit');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  const replaced = newText.replaceAll('dog', 'cat');
+  expect(await layerTexts(page)).toEqual(['cat', replaced]);
+  await expect(dlg.locator('#fr-status')).toHaveText(newText.includes('dog') ? 'Changed 3 occurrences in 2 layers.' : 'Changed 1 occurrence in 1 layer.');
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['dog', newText]);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(['cat', replaced]);
+  if (ending === 'live') {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText(' more');
+    await run(page, 'type.commit');
+    expect(await layerTexts(page)).toEqual(['cat', replaced + ' more']);
+  }
+});
