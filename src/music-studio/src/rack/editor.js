@@ -645,10 +645,16 @@ class ChannelEditor {
     if (engine.ready) engine.noteOn(this.id, key, vel);
     else
       Promise.resolve(engine.start())
-        .then(() => {
-          if (this.held.get(key) === request) engine.noteOn(this.id, key, vel);
+        .then((started) => {
+          if (this.held.get(key) !== request) return;
+          if (started === false) this.kb.releaseNote(key);
+          else engine.noteOn(this.id, key, vel);
         })
-        .catch((err) => this.app.reportError(err));
+        .catch((err) => {
+          if (this.held.get(key) !== request) return;
+          this.kb.releaseNote(key);
+          this.app.reportError(err);
+        });
   }
 
   noteOff(key) {

@@ -82,6 +82,14 @@ export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboa
     for (const src of [...sounding.keys()]) stop(src);
   }
 
+  function releaseNote(key) {
+    for (const [src, pitch] of [...sounding]) {
+      if (pitch !== key) continue;
+      if (pointers.has(src)) pointers.get(src)();
+      else stop(src);
+    }
+  }
+
   function shift(d) {
     releaseAll();
     lo = clamp(lo + d * 12, 0, 120 - OCTAVES * 12);
@@ -148,5 +156,5 @@ export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboa
   }
 
   build();
-  return { el, handleKey, releaseAll, get base() { return lo; } };
+  return { el, handleKey, releaseAll, releaseNote, get base() { return lo; } };
 }

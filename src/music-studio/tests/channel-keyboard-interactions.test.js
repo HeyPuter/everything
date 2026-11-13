@@ -92,9 +92,9 @@ it('preserves pointer chords and glissando while ignoring foreign releases', () 
 });
 
 function deferred() {
-  let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let resolve, reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 it.each(['pointer', 'key'].flatMap((input) => ['old first', 'new first', 'shared startup'].map((order) => [input, order])))('does not revive an old %s audition when the same pitch is replayed during startup (%s)', async (input, order) => {
@@ -294,4 +294,92 @@ it('preserves typing and shortcuts that did not start an audition', () => {
   }
   expect(noteOn).not.toHaveBeenCalled();
   expect(noteOff).not.toHaveBeenCalled();
+});
+
+it.each(['pointer', 'key', 'shared pitch'].flatMap((input) => ['false', 'rejection'].map((failure) => [input, failure])))('clears a failed %s audition (%s) and allows a fresh press', async (input, failure) => {
+  const { app, win, id, keys, ready, noteOn, pointer, press, hit } = setup();
+  ready.mockReturnValue(false);
+  const pending = deferred();
+  vi.spyOn(app.engine, 'start').mockReturnValue(pending.promise);
+  const report = vi.spyOn(app, 'reportError').mockImplementation(() => {});
+  const key = (type, code = 'KeyZ') => win.el.querySelector('.ch-editor').dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+  if (input === 'key') key('keydown');
+  else press(48, 1);
+  if (input === 'shared pitch') { press(48, 2); key('keydown'); }
+  // A different pitch can start successfully while this request is pending.
+  ready.mockReturnValue(true);
+  press(55, 3);
+  const error = new Error('Audio startup failed');
+  if (failure === 'false') pending.resolve(false);
+  else pending.reject(error);
+  await pending.promise.catch(() => {});
+  await Promise.resolve();
+  if (failure === 'rejection') expect(report).toHaveBeenCalledExactlyOnceWith(error);
+  else expect(report).not.toHaveBeenCalled();
+  expect(keys.querySelector('[data-key="48"]').classList.contains('down')).toBe(false);
+  expect(keys.querySelector('[data-key="55"]').classList.contains('down')).toBe(true);
+  expect(noteOn).toHaveBeenCalledExactlyOnceWith(id, 55, 0.8);
+  hit(50);
+  pointer('pointermove', 1);
+  pointer('pointermove', 2);
+  expect(noteOn).toHaveBeenCalledTimes(1);
+  if (input === 'key') key('keydown');
+  else press(48, 4);
+  expect(noteOn).toHaveBeenLastCalledWith(id, 48, 0.8);
+  if (input === 'key') key('keyup');
+  else pointer('pointerup', 4);
+  pointer('pointerup', 3);
+  expect(keys.querySelector('.down')).toBeNull();
+});
+
+it.each(['release', 'replay', 'close', 'load'])('ignores an obsolete audition failure after %s', async (action) => {
+  const { app, win, id, keys, ready, noteOn, noteOff, press, pointer } = setup();
+  ready.mockReturnValue(false);
+  const pending = deferred();
+  vi.spyOn(app.engine, 'start').mockReturnValue(pending.promise);
+  const report = vi.spyOn(app, 'reportError').mockImplementation(() => {});
+  press();
+  if (action === 'close') win.close();
+  else if (action === 'load') app.store.load(structuredClone(app.store.project));
+  else pointer('pointerup');
+  ready.mockReturnValue(true);
+  if (action === 'replay') press(48, 2);
+  noteOff.mockClear();
+  pending.reject(new Error('Obsolete startup failure'));
+  await pending.promise.catch(() => {});
+  await Promise.resolve();
+  expect(report).not.toHaveBeenCalled();
+  expect(noteOff).not.toHaveBeenCalled();
+  if (action === 'replay') {
+    expect(noteOn).toHaveBeenCalledExactlyOnceWith(id, 48, 0.8);
+    expect(keys.querySelector('[data-key="48"]').classList.contains('down')).toBe(true);
+    pointer('pointerup', 2);
+    expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 48);
+  } else expect(noteOn).not.toHaveBeenCalled();
+});
+
+it('clears auditions when the real engine cannot create an audio context', async () => {
+  const { app, keys, ready, noteOn, press } = setup();
+  ready.mockRestore();
+  vi.stubGlobal('AudioContext', undefined);
+  vi.stubGlobal('webkitAudioContext', undefined);
+  const report = vi.spyOn(app, 'reportError').mockImplementation(() => {});
+  const errors = vi.fn();
+  app.engine.on('error', errors);
+  const start = vi.spyOn(app.engine, 'start');
+  press();
+  await start.mock.results[0].value;
+  await Promise.resolve();
+  expect(errors).toHaveBeenCalledTimes(1);
+  expect(report).not.toHaveBeenCalled();
+  expect(noteOn).not.toHaveBeenCalled();
+  expect(keys.querySelector('.down')).toBeNull();
+  press(48, 2);
+  expect(start).toHaveBeenCalledTimes(2);
+  await start.mock.results[1].value;
+  await Promise.resolve();
+  expect(keys.querySelector('.down')).toBeNull();
+  expect(noteOn).not.toHaveBeenCalled();
+  expect(errors).toHaveBeenCalledTimes(1);
+  expect(report).not.toHaveBeenCalled();
 });
