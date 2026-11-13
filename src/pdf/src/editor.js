@@ -9001,6 +9001,9 @@ export function createEditor({
     const status = el('p', { class: 'muted', role: 'status' });
     let found = [];
     const search = safe(async () => {
+      // Enter submits the form even while the Search button is disabled; a second search
+      // would add its matches to the first one's list.
+      if (searchButton.disabled) return;
       const text = query.value.trim();
       const patterns = patternBoxes.filter((entry) => entry.box.checked);
       if (!text && !patterns.length) throw new Error('Enter text or choose a pattern to find.');

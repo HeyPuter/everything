@@ -556,3 +556,42 @@ test('redaction marks without an appearance are outlined on the page', async ({ 
   expect(await pixel(130, 160)).toEqual([255, 255, 255]);
   expect(await pixel(180.5, 60)).toEqual([255, 255, 255]);
 });
+
+test('Find text and redact lists each match once when Enter is pressed again while it searches', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({ contentType: 'application/javascript', body: PUTER_MOCK }),
+  );
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 12; i++)
+    doc.addPage([300, 300]).drawText(`Secret code ${i}`, { x: 40, y: 200, size: 14, font });
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'codes.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 12');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Find text and redact…' }).click();
+  const finder = page.getByRole('dialog', { name: 'Find text and redact' });
+  const query = finder.getByLabel('Find text');
+  await query.fill('Secret');
+  // A long document takes a while to search; Enter pressed again meanwhile.
+  await query.evaluate((input) => {
+    input.form.requestSubmit();
+    input.form.requestSubmit();
+  });
+  await expect(finder.getByRole('status')).toContainText('12 matches found');
+  await expect(finder.getByRole('checkbox', { name: /^Page \d+: Secret$/ })).toHaveCount(12);
+  await finder.getByRole('button', { name: 'Mark selected' }).click();
+  await expect(page.locator('#toast')).toContainText('12 matches marked for redaction');
+});
