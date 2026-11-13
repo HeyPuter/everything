@@ -16,8 +16,10 @@ const QUICK_PRESETS = ['web-large', 'web-post', 'print-a4', 'photo-4x6', 'mobile
 
 const SHOWN = 8;
 let urls: string[] = [];
+let renderRevision = 0;
 
 async function render(e: Editor) {
+  const revision = ++renderRevision;
   const host = e.root.querySelector<HTMLElement>('#empty');
   if (!host) return;
   let section = host.querySelector<HTMLElement>('.start-recent');
@@ -40,6 +42,7 @@ async function render(e: Editor) {
   }
   host.classList.add('has-recent');
   const thumbs = await Promise.all(list.map((x) => (thumbKey(x.source) ? localStore().get<Blob>('thumbs', thumbKey(x.source)).catch(() => undefined) : undefined)));
+  if (revision !== renderRevision) return;
   for (const u of urls) URL.revokeObjectURL(u);
   urls = thumbs.map((b) => (b ? URL.createObjectURL(b) : ''));
   const where = (x: RecentEntry) => (x.source.kind === 'puter' ? x.source.path.replace(/\/[^/]*$/, '') || '/' : 'This device');
