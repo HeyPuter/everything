@@ -227,7 +227,7 @@ function sanitizeTarget(t) {
     case 'mixer':
       return { kind: 'mixer', track: Math.round(num(t.track, 0, 0, 127)), param: ['volume', 'pan', 'width'].includes(t.param) ? t.param : 'volume' };
     case 'fx':
-      return { kind: 'fx', track: Math.round(num(t.track, 0, 0, 127)), slot: str(t.slot, ''), param: str(t.param, 'mix', 40) };
+      return { kind: 'fx', track: Math.round(num(t.track, 0, 0, 127)), slot: Number.isInteger(t.slot) && t.slot >= 0 && t.slot < MAX_FX_SLOTS ? t.slot : str(t.slot, ''), param: str(t.param, 'mix', 40) };
     case 'tempo':
       return { kind: 'tempo' };
     default:

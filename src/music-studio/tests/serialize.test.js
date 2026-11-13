@@ -6,6 +6,8 @@ import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
 import { createSlot } from '../src/model/project.js';
 import { addMarker } from '../src/playlist/clips.js';
+import { resolveTarget } from '../src/automation/targets.js';
+import { compileAutomation } from '../src/engine/compile.js';
 
 function richProject() {
   let p = demoProject();
@@ -24,6 +26,15 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it('preserves effect automation addressed by slot index across save and load', () => {
+    let p = richProject();
+    const added = E.addAutomation(p, { name: 'Delay wet', target: { kind: 'fx', track: 2, slot: 0, param: 'wet' }, points: [{ t: 0, v: 0.2 }, { t: 96, v: 0.8 }] });
+    p = E.addClips(added.project, [{ kind: 'auto', track: 3, start: 0, len: 384, ref: added.id }]).project;
+    const back = parseProject(serializeProject(p));
+    expect(resolveTarget(back, back.automation[added.id].target)).toEqual(resolveTarget(p, p.automation[added.id].target));
+    expect(compileAutomation(back, (id) => back.channels.findIndex((c) => c.id === id))).toEqual(compileAutomation(p, (id) => p.channels.findIndex((c) => c.id === id)));
+  });
+
   it.each(['channels', 'effects'])('drops invalid %s types even when they name inherited properties', (collection) => {
     const data = JSON.parse(serializeProject(richProject()));
     const validChannels = data.channels.length;
