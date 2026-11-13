@@ -306,8 +306,8 @@ export class PianoRollEditor {
     this.stopAudition();
     const ch = this.channel;
     if (!ch) return;
-    const list = Array.isArray(keys) ? keys : [keys];
-    this.auditioning = list.slice();
+    const list = Array.isArray(keys) ? keys.slice() : [keys];
+    this.auditioning = list;
     for (const k of list) this.pressed.add(k);
     this.dirty = true;
     const engine = this.app.engine;
@@ -317,7 +317,7 @@ export class PianoRollEditor {
       this.app.reportError?.(err);
       return;
     }
-    if (this.auditioning !== list && !this.auditioning.every((k, i) => k === list[i])) return;
+    if (this.auditioning !== list) return;
     for (const k of list) engine.noteOn(ch.id, k, vel);
     this.auditionChannel = ch.id;
     if (!hold) {
