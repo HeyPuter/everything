@@ -64,7 +64,7 @@ describe('channel rack panel', () => {
     return { spin, send };
   }
 
-  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur'])('finishes mixer assignment on %s without stale movement', (end) => {
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'window blur'])('finishes mixer assignment on %s without stale movement', (end) => {
     const { spin, send } = insertControl();
     const store = app.store;
     const before = store.project;
@@ -72,6 +72,7 @@ describe('channel rack panel', () => {
     send('pointermove', 292);
     expect(store.project.channels[0].mixer).toBe(2);
     if (end === 'blur') spin.blur();
+    else if (end === 'window blur') window.dispatchEvent(new Event('blur'));
     else send(end, 292);
     expect(Boolean(store.gesture)).toBe(false);
     const finished = store.project;
@@ -159,6 +160,39 @@ describe('channel rack panel', () => {
     expect(store.project.channels[0].mixer).toBe(2);
   });
 
+  it.each(['key', 'wheel'])('finishes assignment %s input on window blur before another gesture starts', (input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const { spin } = insertControl();
+    if (input === 'key') spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    else spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    window.dispatchEvent(new Event('blur'));
+    expect(Boolean(store.gesture)).toBe(false);
+    expect(store.undoStack).toHaveLength(1);
+    store.begin('Tempo');
+    store.preview((p) => ({ ...p, bpm: 150 }));
+    const newer = store.gesture;
+    vi.advanceTimersByTime(600);
+    expect(store.gesture).toBe(newer);
+    store.cancel();
+    expect(store.project.bpm).toBe(130);
+    store.undo();
+    expect(store.project.channels[0].mixer).toBe(1);
+  });
+
+  it('clears a pending assignment drag on window blur before any movement', () => {
+    const { spin, send } = insertControl();
+    const before = app.store.project;
+    send('pointerdown');
+    window.dispatchEvent(new Event('blur'));
+    expect(spin.classList.contains('dragging')).toBe(false);
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(app.store.project).toBe(before);
+    expect(Boolean(app.store.gesture)).toBe(false);
+    expect(app.store.undoStack).toHaveLength(0);
+  });
+
   it('preserves a pending assignment drag through an unrelated edit and keeps separate undo steps', () => {
     const store = app.store;
     const { send } = insertControl();
@@ -189,7 +223,7 @@ describe('channel rack panel', () => {
     };
   }
 
-  it.each(['load', 'undo', 'redo', 'blur', 'arrow', 'wheel', 'pointer'])('starts a fresh typed assignment after %s instead of reusing a stale digit', (action) => {
+  it.each(['load', 'undo', 'redo', 'blur', 'window blur', 'arrow', 'wheel', 'pointer'])('starts a fresh typed assignment after %s instead of reusing a stale digit', (action) => {
     const store = app.store;
     const { spin, send, press, advance } = typedInsert();
     if (action === 'undo' || action === 'redo') {
@@ -201,6 +235,7 @@ describe('channel rack panel', () => {
     if (action === 'load') store.load(structuredClone(store.project));
     else if (action === 'undo' || action === 'redo') store[action]();
     else if (action === 'blur') { spin.blur(); spin.focus(); }
+    else if (action === 'window blur') window.dispatchEvent(new Event('blur'));
     else if (action === 'arrow') press('ArrowUp');
     else if (action === 'wheel') spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
     else { send('pointerdown'); send('pointermove', 292); send('pointerup', 292); }

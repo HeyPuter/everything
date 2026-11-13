@@ -23,8 +23,16 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   let typedAt = 0;
   let typedTimer = 0;
   let untrack = null;
-  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
-  const unwatch = () => { untrack?.(); untrack = null; };
+  const watch = () => {
+    if (untrack) return;
+    untrack = trackParameterInteraction(cancel);
+    window.addEventListener('blur', onBlur);
+  };
+  const unwatch = () => {
+    untrack?.();
+    untrack = null;
+    window.removeEventListener('blur', onBlur);
+  };
   const resetTyped = () => {
     clearTimeout(typedTimer);
     typed = '';
@@ -162,7 +170,8 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
       deferEnd();
     }
   });
-  el.addEventListener('blur', () => { stopDrag?.(); resetTyped(); finish(); });
+  function onBlur() { stopDrag?.(); resetTyped(); finish(); }
+  el.addEventListener('blur', onBlur);
 
   draw();
   return {
