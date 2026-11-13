@@ -4,16 +4,20 @@
 // selecting another frame or editing one layer only re-renders what changed.
 import type { Editor } from '../../editor';
 import type { PhotoDocument } from '../../model/document';
-import { frameContent, frameDocument, sharedContent } from '../../model/animation';
+import { frameContent, frameDocument, maxFrames, sharedContent } from '../../model/animation';
 
-export type FrameImage = { thumb: string; onion: string; width: number; height: number };
-const cache = new Map<string, FrameImage>();
-const maxEntries = 600;
+export type FrameImage = { url: string; width: number; height: number };
+// A visible strip requests every frame, so its small thumbnails must fit even
+// at the animation frame limit. Large onion images have a separate budget:
+// at most eight neighbors on either side are visible at once.
+const thumbnails = new Map<string, FrameImage>();
+const onions = new Map<string, FrameImage>();
+const maxOnions = 32;
 const thumbBox = { width: 112, height: 72 };
 const onionMax = 1280;
 // Build frame documents only when their job runs. Queued thumbnails share
 // the source snapshot instead of retaining a full document copy per frame.
-let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor; assets: Editor['assets'] }[] = [];
+let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor; assets: Editor['assets']; onion: boolean }[] = [];
 let running = false;
 const listeners = new Set<() => void>();
 
@@ -47,28 +51,25 @@ export function frameKey(e: Editor, doc: PhotoDocument, index: number) {
   return key;
 }
 
-/** The cached render of frame `index`, queueing it when missing. */
-export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = frameKey(e, doc, index)): FrameImage | undefined {
-  const hit = cache.get(key);
-  if (hit) {
-    // Refresh recency.
-    cache.delete(key);
-    cache.set(key, hit);
-    return hit;
-  }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: () => frameDocument(doc, index), e, assets: e.assets });
-  void pump();
+/** The cached thumbnail of frame `index`, or its larger onion image. */
+export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = frameKey(e, doc, index), onion = false): FrameImage | undefined {
+  return requestImage(e, key, () => frameDocument(doc, index), onion);
 }
 
-/** The cached render for `key`, queueing `build` when missing. */
+/** The cached onion image for `key`, queueing `build` when missing. */
 export function docImage(e: Editor, key: string, build: () => Promise<PhotoDocument>): FrameImage | undefined {
+  return requestImage(e, key, build, true);
+}
+
+function requestImage(e: Editor, key: string, doc: () => PhotoDocument | Promise<PhotoDocument>, onion: boolean): FrameImage | undefined {
+  const cache = onion ? onions : thumbnails;
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
     cache.set(key, hit);
     return hit;
   }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: build, e, assets: e.assets });
+  if (!queue.some((q) => q.key === key && q.onion === onion)) queue.push({ key, doc, e, assets: e.assets, onion });
   void pump();
 }
 
@@ -90,13 +91,13 @@ async function pump() {
         continue;
       }
       queue.shift();
+      const cache = job.onion ? onions : thumbnails;
       if (cache.has(job.key)) continue;
       try {
-        cache.set(job.key, await render(e, await job.doc(), job.assets));
-        while (cache.size > maxEntries) {
+        cache.set(job.key, await render(e, await job.doc(), job.assets, job.onion));
+        while (cache.size > (job.onion ? maxOnions : maxFrames)) {
           const [oldest, img] = cache.entries().next().value!;
-          URL.revokeObjectURL(img.thumb);
-          URL.revokeObjectURL(img.onion);
+          URL.revokeObjectURL(img.url);
           cache.delete(oldest);
         }
         for (const fn of listeners) fn();
@@ -119,7 +120,7 @@ export async function compositeFrame(e: Editor, doc: PhotoDocument, assets = e.a
   return new ImageData(data, doc.width, doc.height);
 }
 
-async function render(e: Editor, doc: PhotoDocument, assets: Editor['assets']): Promise<FrameImage> {
+async function render(e: Editor, doc: PhotoDocument, assets: Editor['assets'], onion: boolean): Promise<FrameImage> {
   const img = await compositeFrame(e, doc, assets);
   const full = new OffscreenCanvas(img.width, img.height);
   full.getContext('2d')!.putImageData(img, 0, 0);
@@ -132,7 +133,6 @@ async function render(e: Editor, doc: PhotoDocument, assets: Editor['assets']): 
     g.drawImage(full, 0, 0, w, h);
     return URL.createObjectURL(await c.convertToBlob({ type: 'image/png' }));
   };
-  const thumb = await scaled(Math.min(1, thumbBox.width / img.width, thumbBox.height / img.height));
-  const onion = await scaled(Math.min(1, onionMax / Math.max(img.width, img.height)));
-  return { thumb, onion, width: img.width, height: img.height };
+  const k = onion ? Math.min(1, onionMax / Math.max(img.width, img.height)) : Math.min(1, thumbBox.width / img.width, thumbBox.height / img.height);
+  return { url: await scaled(k), width: img.width, height: img.height };
 }

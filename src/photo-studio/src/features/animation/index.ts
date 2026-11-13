@@ -388,10 +388,10 @@ function onionOverlay(e: Editor) {
   const parts: string[] = [];
   const add = (index: number, k: number, count: number) => {
     if (index < 0 || index >= anim.frames.length) return;
-    const img = frameImage(e, e.doc, index);
+    const img = frameImage(e, e.doc, index, undefined, true);
     if (!img) return;
     const opacity = o.opacity * (1 - (k - 1) / Math.max(1, count));
-    parts.push(`<image class="onion-skin" href="${img.onion}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" opacity="${opacity.toFixed(3)}" style="mix-blend-mode:${o.blend ?? 'multiply'}"/>`);
+    parts.push(`<image class="onion-skin" href="${img.url}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" opacity="${opacity.toFixed(3)}" style="mix-blend-mode:${o.blend ?? 'multiply'}"/>`);
   };
   for (let k = o.before; k >= 1; k--) add(anim.current - k, k, o.before);
   for (let k = o.after; k >= 1; k--) add(anim.current + k, k, o.after);
@@ -415,7 +415,7 @@ function videoOnionOverlay(e: Editor) {
     const img = frames.timeImage(e, e.doc, t);
     if (!img) return;
     const opacity = o.opacity * (1 - (k - 1) / Math.max(1, count));
-    parts.push(`<image class="onion-skin" href="${img.onion}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" opacity="${opacity.toFixed(3)}" style="mix-blend-mode:${o.blend ?? 'multiply'}"/>`);
+    parts.push(`<image class="onion-skin" href="${img.url}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" opacity="${opacity.toFixed(3)}" style="mix-blend-mode:${o.blend ?? 'multiply'}"/>`);
   };
   for (let k = o.before; k >= 1; k--) add(tl.current - k, k, o.before);
   for (let k = o.after; k >= 1; k--) add(tl.current + k, k, o.after);

@@ -42,3 +42,31 @@ test('the video timeline Onion Skin Settings shows whether onion skins are on', 
   await expect(d).toHaveCount(0);
   expect(await page.evaluate(() => window.photoStudio.doc.timeline?.onion?.enabled)).toBe(false);
 });
+
+test('keeps large onion images separate from small frame thumbnails', async ({ page }) => {
+  await openImage(page, 256, 128, '#b03060', 'onion-size.png');
+  await run(page, 'animation.create');
+  await run(page, 'animation.new-frame');
+  await run(page, 'animation.onion');
+  const onion = page.locator('.onion-skin');
+  await expect(onion).toHaveCount(1);
+  const thumb = page.locator('.frame-thumb img').first();
+  await expect(thumb).toBeVisible();
+  const dimensions = await page.evaluate(async () => {
+    const size = async (url: string) => {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    };
+    return {
+      thumb: await size(document.querySelector<HTMLImageElement>('.frame-thumb img')!.src),
+      onion: await size(document.querySelector('.onion-skin')!.getAttribute('href')!),
+    };
+  });
+  expect(dimensions).toEqual({ thumb: [112, 56], onion: [256, 128] });
+  const url = await thumb.getAttribute('src');
+  await run(page, 'animation.first');
+  await expect(onion).toHaveCount(1);
+  await expect(thumb).toHaveAttribute('src', url!);
+});

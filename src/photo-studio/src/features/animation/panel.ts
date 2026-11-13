@@ -3,6 +3,7 @@
 // and keyframes on a time ruler) for documents with a video timeline. It
 // docks under the canvas.
 import type { Editor } from '../../editor';
+import type { PhotoDocument } from '../../model/document';
 import { commands, type MenuItem, type Panel } from '../../app/registry';
 import { svg } from '../../app/icons';
 import { showContextMenu } from '../../app/menubar';
@@ -28,6 +29,7 @@ export function timelinePanel(menu: (e?: Editor) => MenuItem[]): Panel {
   let editor: Editor | undefined;
   let lastStrip = '';
   let lastControls = '';
+  let queuedDoc: PhotoDocument | undefined;
   let pending = 0;
   const refresh = () => {
     if (!host?.isConnected || !editor) return;
@@ -73,12 +75,16 @@ export function timelinePanel(menu: (e?: Editor) => MenuItem[]): Panel {
     const selected = new Set(selectedFrames(e));
     const doc = e.doc;
     // Queue only the renders this state needs (stale requests are dropped).
-    clearQueue();
+    const changedDoc = queuedDoc !== doc;
+    if (changedDoc) {
+      clearQueue();
+      queuedDoc = doc;
+    }
     const cells = anim.frames.map((f, i) => {
       const img = frameImage(e, doc, i, frameKey(e, doc, i));
       const sel = playing ? i === shown : selected.has(i);
       const ratio = `${doc.width} / ${doc.height}`;
-      return `<div class="frame-cell${i === shown ? ' current' : ''}" role="option" id="frame-${f.id}" aria-selected="${sel}" data-frame="${i}" draggable="true" aria-label="Frame ${i + 1}, ${escapeXML(delayLabel(f.delay))}"><div class="frame-thumb" style="aspect-ratio:${ratio}">${img ? `<img src="${img.thumb}" alt="" draggable="false">` : '<span class="frame-pending"></span>'}</div><div class="frame-meta"><span class="frame-number">${i + 1}</span><button class="frame-delay" data-delay="${i}" aria-haspopup="menu" title="Frame delay" tabindex="-1">${escapeXML(delayLabel(f.delay))}${svg('chevron-down', 11)}</button></div></div>`;
+      return `<div class="frame-cell${i === shown ? ' current' : ''}" role="option" id="frame-${f.id}" aria-selected="${sel}" data-frame="${i}" draggable="true" aria-label="Frame ${i + 1}, ${escapeXML(delayLabel(f.delay))}"><div class="frame-thumb" style="aspect-ratio:${ratio}">${img ? `<img src="${img.url}" alt="" draggable="false">` : '<span class="frame-pending"></span>'}</div><div class="frame-meta"><span class="frame-number">${i + 1}</span><button class="frame-delay" data-delay="${i}" aria-haspopup="menu" title="Frame delay" tabindex="-1">${escapeXML(delayLabel(f.delay))}${svg('chevron-down', 11)}</button></div></div>`;
     });
     const html = cells.join('') + `<button class="frame-add" data-command="animation.new-frame" title="New frame" aria-label="New frame">${svg('plus', 20)}</button>`;
     if (html !== lastStrip) {
@@ -88,6 +94,9 @@ export function timelinePanel(menu: (e?: Editor) => MenuItem[]): Panel {
       strip.setAttribute('aria-activedescendant', `frame-${anim.frames[shown]?.id}`);
       strip.querySelector<HTMLElement>('.frame-cell.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
+    // The editor may have queued onions before this panel discarded stale
+    // jobs. Request them again now, and keep them on thumbnail-only refreshes.
+    if (changedDoc && anim.onion?.enabled) e.overlay();
     const seconds = totalDuration(anim) / 1000;
     const ctl = `<button class="timeline-loop" data-loop aria-haspopup="menu" title="Looping">${svg('repeat', 14)}<span>${escapeXML(loopLabel(anim.loop))}</span>${svg('chevron-down', 11)}</button>
       <span class="timeline-sep"></span>
