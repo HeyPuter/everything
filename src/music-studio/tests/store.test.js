@@ -91,6 +91,48 @@ describe('store', () => {
     expect(s.undoStack).toHaveLength(0);
   });
 
+  it('keeps the start of a large grouped edit when it exceeds the history limit', () => {
+    const s = new Store(newProject());
+    s.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
+    const before = s.project;
+    s.group('Bulk rename', () => {
+      for (let i = 0; i < 350; i++) s.apply('Rename', (p) => E.setProjectProps(p, { name: String(i) }));
+    });
+    expect(s.undoStack.map((step) => step.label)).toEqual(['Tempo', 'Bulk rename']);
+    s.undo();
+    expect(s.project === before).toBe(true);
+    s.redo();
+    expect(s.project.name).toBe('349');
+  });
+
+  it('amends a full history without losing the step being amended', () => {
+    const s = new Store(newProject());
+    for (let i = 0; i < 300; i++) s.apply('Rename', (p) => E.setProjectProps(p, { name: String(i) }));
+    const before = s.undoStack.at(-1).project;
+    s.amend(() => {
+      for (let i = 0; i < 350; i++) s.apply('Follow-up', (p) => E.setProjectProps(p, { name: `follow-${i}` }));
+    });
+    expect(s.undoStack).toHaveLength(300);
+    s.undo();
+    expect(s.project === before).toBe(true);
+  });
+
+  it('evicts only one old step for a nested group at the history limit', () => {
+    const s = new Store(newProject());
+    for (let i = 0; i < 300; i++) s.apply('Rename', (p) => E.setProjectProps(p, { name: String(i) }));
+    const before = s.project;
+    s.group('Outer', () => {
+      s.group('Inner', () => s.apply('Name', (p) => E.setProjectProps(p, { name: 'new' })));
+      s.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
+    });
+    expect(s.undoStack).toHaveLength(300);
+    s.undo();
+    expect(s.project === before).toBe(true);
+    expect(() => s.group('Failed edit', () => { throw new Error('failed'); })).toThrow('failed');
+    for (let i = 0; i < 5; i++) s.apply('Name', (p) => E.setProjectProps(p, { name: `next-${i}` }));
+    expect(s.undoStack).toHaveLength(300);
+  });
+
   it('ignores edits that change nothing and returns extra fields', () => {
     const s = new Store(newProject());
     const onChange = vi.fn();

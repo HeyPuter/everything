@@ -22,6 +22,7 @@ export class Store extends Emitter {
     this.undoStack = []; // { project, label, view }
     this.redoStack = [];
     this.gesture = null; // { label, start }
+    this.groupDepth = 0;
     this.dirty = false;
     this.view = {
       pattern: project.patterns[0]?.id ?? null,
@@ -56,7 +57,7 @@ export class Store extends Emitter {
     const next = out && out.project && out.version === undefined ? out.project : out;
     if (!next || next === prev) return out;
     this.undoStack.push({ project: prev, label, view: this.#viewSnapshot() });
-    if (this.undoStack.length > LIMIT) this.undoStack.shift();
+    this.#trimHistory();
     this.redoStack = [];
     this.project = next;
     this.dirty = true;
@@ -73,9 +74,15 @@ export class Store extends Emitter {
   group(label, fn) {
     if (this.gesture) this.commit();
     const mark = this.undoStack.at(-1);
-    const out = fn();
-    this.#mergeFrom(mark ? this.undoStack.lastIndexOf(mark) + 1 : 0, label);
-    return out;
+    this.groupDepth++;
+    try {
+      const out = fn();
+      this.#mergeFrom(mark ? this.undoStack.lastIndexOf(mark) + 1 : 0, label);
+      return out;
+    } finally {
+      this.groupDepth--;
+      this.#trimHistory();
+    }
   }
 
   /**
@@ -86,9 +93,20 @@ export class Store extends Emitter {
   amend(fn, label) {
     if (this.gesture) this.commit();
     const last = this.undoStack.at(-1);
-    const out = fn();
-    if (last) this.#mergeFrom(this.undoStack.lastIndexOf(last), label || last.label);
-    return out;
+    this.groupDepth++;
+    try {
+      const out = fn();
+      if (last) this.#mergeFrom(this.undoStack.lastIndexOf(last), label || last.label);
+      return out;
+    } finally {
+      this.groupDepth--;
+      this.#trimHistory();
+    }
+  }
+
+  #trimHistory() {
+    // A group's intermediate steps must survive until they have been merged.
+    if (!this.groupDepth && this.undoStack.length > LIMIT) this.undoStack.splice(0, this.undoStack.length - LIMIT);
   }
 
   #mergeFrom(from, label) {
@@ -125,7 +143,7 @@ export class Store extends Emitter {
     this.gesture = null;
     if (this.project === g.start) return;
     this.undoStack.push({ project: g.start, label: g.label, view: g.view });
-    if (this.undoStack.length > LIMIT) this.undoStack.shift();
+    this.#trimHistory();
     this.redoStack = [];
     this.dirty = true;
     this.emit('change', this.project, this.project, { label: g.label, source: 'edit' });
