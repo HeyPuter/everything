@@ -154,7 +154,11 @@ export function purgeUnused(project, allowed) {
   const inPlaylist = new Set(next.clips.filter((c) => c.kind === 'pattern').map((c) => c.ref));
   const empty = next.patterns.filter((p) => !inPlaylist.has(p.id) && !Object.values(p.notes).some((l) => l.length) && (!allowed || allowed.patterns.has(p.id))).map((p) => p.id);
   const keepOne = empty.length === next.patterns.length ? empty.slice(1) : empty;
-  for (const id of keepOne) next = E.removePattern(next, id);
+  if (keepOne.length) {
+    const removed = new Set(keepOne);
+    // These patterns have no playlist clips; remove them in one pass.
+    next = { ...next, patterns: next.patterns.filter((p) => !removed.has(p.id)) };
+  }
   const refs = new Set(next.channels.map((c) => c.sample).filter(Boolean));
   const samples = Object.keys(next.samples).filter((id) => !refs.has(id) && (!allowed || allowed.samples.has(id)));
   if (samples.length) {
