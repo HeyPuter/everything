@@ -12,6 +12,7 @@ import { evaluateAutomation } from '../automation/evaluate.js';
 import { tempoMap } from '../engine/compile.js';
 import { sourceColor, sourceName, AUTO_COLOR } from './clips.js';
 import { patternColor } from '../model/project.js';
+import { clamp } from '../lib/util.js';
 import { trackTop, trackHeight } from './geometry.js';
 import { TITLE_H, LOOP_STRIP_H, RULER_H } from './constants.js';
 
@@ -346,15 +347,22 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const { min, max, perSecond } = peaks;
   const nPeaks = min.length;
   const reverse = chan.params.reverse >= 0.5;
-  // Under tempo automation the audio (not stretched) runs in seconds from
-  // the clip's virtual start (start - offset), like the engine plays it.
+  const semitones = (chan.params.tune || 0) + ((chan.pitch || 0) + (p.masterPitch || 0)) / 100;
+  const playbackRate = 2 ** (clamp(semitones, -96, 96) / 12);
+  // The engine starts at an unpitched source offset, then advances at the
+  // pitched playback rate. Tempo automation determines elapsed seconds.
   const map = tempoMap(p);
   const s0 = map.constant ? 0 : map.seconds(clip.start - clip.offset);
+  const offset = map.constant ? ticksToSeconds(clip.offset, bpm) : map.seconds(clip.start) - s0;
   for (let x = a; x < b; x++) {
     const t = clip.offset + (x - x0) / ppt;
     const song = clip.start + (x - x0) / ppt;
-    const from = map.constant ? ticksToSeconds(t, bpm) : map.seconds(song) - s0;
-    const to = map.constant ? ticksToSeconds(t + 1 / ppt, bpm) : map.seconds(song + 1 / ppt) - s0;
+    let from = map.constant ? ticksToSeconds(t, bpm) : map.seconds(song) - s0;
+    let to = map.constant ? ticksToSeconds(t + 1 / ppt, bpm) : map.seconds(song + 1 / ppt) - s0;
+    if (playbackRate !== 1) {
+      from = offset + (from - offset) * playbackRate;
+      to = offset + (to - offset) * playbackRate;
+    }
     if (from >= s.duration) break;
     let i0;
     let i1;
