@@ -124,6 +124,8 @@ function normPaint(p) {
   delete out.swatchId;
   delete out.cmyk;
   delete out.mode;
+  // Freeform mode changes the rendered gradient; other paints use mode as color metadata.
+  if (p.type === 'freeform') out.mode = p.mode === 'lines' ? 'lines' : 'points';
   // Where a gradient was dragged on the object is not part of its style.
   if (out.type === 'linear' || out.type === 'radial') {
     delete out.x1;
