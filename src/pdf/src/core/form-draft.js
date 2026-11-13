@@ -224,6 +224,47 @@ export function formWidgets(
   });
 }
 
+/**
+ * The widgets in the page's tab order: by rows (/Tabs /R: left to right, rows top to bottom)
+ * or by columns (/C: top to bottom, columns left to right) as the page is shown; any other
+ * order is the annotation order they come in. Boxes whose middles fall within the first box of
+ * a row or column share it.
+ */
+export function tabOrderedWidgets(widgets, viewportTransform, tabs) {
+  if (tabs !== 'R' && tabs !== 'C') return widgets;
+  const [a, b, c, d, e, f] = viewportTransform;
+  const along = tabs === 'R' ? 'top' : 'left',
+    across = tabs === 'R' ? 'left' : 'top';
+  const extent = { left: 'width', top: 'height' };
+  const boxes = widgets
+    .map((widget) => {
+      const [x0, y0, x1, y1] = widget.rect;
+      const xs = [x0 * a + y0 * c + e, x1 * a + y1 * c + e];
+      const ys = [x0 * b + y0 * d + f, x1 * b + y1 * d + f];
+      const box = {
+        left: Math.min(...xs),
+        top: Math.min(...ys),
+        width: Math.abs(xs[1] - xs[0]),
+        height: Math.abs(ys[1] - ys[0]),
+      };
+      return { widget, box };
+    })
+    .sort((p, q) => p.box[along] - q.box[along] || p.box[across] - q.box[across]);
+  const lines = [];
+  for (const entry of boxes) {
+    const middle = entry.box[along] + entry.box[extent[along]] / 2;
+    const line = lines.find(
+      ([first]) =>
+        middle >= first.box[along] && middle <= first.box[along] + first.box[extent[along]],
+    );
+    if (line) line.push(entry);
+    else lines.push([entry]);
+  }
+  return lines.flatMap((line) =>
+    line.sort((p, q) => p.box[across] - q.box[across]).map(({ widget }) => widget),
+  );
+}
+
 /** Compose widget rotation with page rotation, cropping, zoom, and UserUnit. */
 export function formWidgetLayout(widget, viewportTransform) {
   const [left, bottom, right, top] = widget.rect;

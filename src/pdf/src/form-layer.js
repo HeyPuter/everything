@@ -1,5 +1,5 @@
 import { el } from './lib/ui.js';
-import { FormDraft, formWidgets, formWidgetLayout } from './core/form-draft.js';
+import { FormDraft, formWidgets, formWidgetLayout, tabOrderedWidgets } from './core/form-draft.js';
 
 const rgb = (value, fallback) => (value?.length === 3 ? `rgb(${[...value].join(' ')})` : fallback);
 
@@ -249,6 +249,7 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
     tooltips,
     radioChoices,
     listSelections,
+    tabs,
   ) {
     rememberFocus();
     if (key !== pageKey) {
@@ -256,13 +257,11 @@ export function createFormLayer({ onChange, onCommit, onTabOut }) {
       key = pageKey;
       clearError();
     }
-    widgets = formWidgets(
-      annotations,
-      layers,
-      buttonSelections,
-      tooltips,
-      radioChoices,
-      listSelections,
+    // The controls follow the page's tab order (/Tabs), so Tab visits them in that order.
+    widgets = tabOrderedWidgets(
+      formWidgets(annotations, layers, buttonSelections, tooltips, radioChoices, listSelections),
+      viewport.transform,
+      tabs,
     );
     draft.register(widgets);
     controls = new Map();

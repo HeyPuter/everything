@@ -2928,6 +2928,17 @@ export function createEditor({
         editDocument = doc;
         listSelections = sharedChoiceSelections(doc);
       }
+      // The page's tab order (/Tabs), which PDF.js does not report, for a page with fields to
+      // visit. The document is loaded already to edit in Select; a form that may only be
+      // filled in is read for it.
+      let tabs;
+      if (annotations.filter((a) => a.fieldName && a.fieldType !== 'Sig').length > 1) {
+        const doc =
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        tabs = doc.getPage(pageIndex).node.lookup(PDFName.of('Tabs'))?.asString?.().slice(1);
+      }
       pageForms.render(
         annotations,
         viewport,
@@ -2937,6 +2948,7 @@ export function createEditor({
         tooltips,
         radioChoices,
         listSelections,
+        tabs,
       );
       pageForms.setBusy(busy || !pageReady || !access().fill);
       pageForms.setEnabled(tool === 'select' && !preparing);
