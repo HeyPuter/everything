@@ -366,6 +366,8 @@ export function moveClips(state, ids, dt, dTrack = 0, { copy = false } = {}) {
   dt = Math.max(-minStart, Math.round(dt));
   const idx = moving.filter((c) => index.has(c.trackId)).map((c) => index.get(c.trackId));
   dTrack = idx.length ? Math.max(-Math.min(...idx), Math.min(audio.length - 1 - Math.max(...idx), dTrack)) : 0;
+  // Already at the start or at the top or bottom track: nothing moves.
+  if (!dt && !dTrack && !copy) return state;
   // Moved and copied clips come to the front, as the clip you just placed should.
   const z = Math.max(0, ...state.clips.map((c) => c.z)) + 1;
   const moved = new Map();

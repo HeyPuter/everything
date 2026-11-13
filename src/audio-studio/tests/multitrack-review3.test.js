@@ -224,3 +224,21 @@ describe('moving tracks', () => {
     expect(app.commands.isEnabled('mt.moveTrackDown')).toBe(false);
   });
 });
+
+describe('nudging clips', () => {
+  it('adds no undo step when the clips cannot move further', async () => {
+    const { app, doc } = await appWithSession();
+    const [t1, t2] = doc.state.tracks.map((t) => t.id);
+    const c = S.createClip({ trackId: t1, sourceId: dc(doc, 0.5), start: 0, length: 1000 });
+    const other = S.createClip({ trackId: t2, sourceId: c.sourceId, start: 0, length: 1000 });
+    doc.apply('Add', S.addClips(doc.state, [c, other]));
+    doc.selectClips([c.id]);
+    const steps = doc.history.index;
+    await app.commands.run('clip.nudgeLeft');
+    await app.commands.run('clip.nudgeUp');
+    expect(doc.history.index).toBe(steps);
+    // A move that clamps part of the way still moves.
+    await app.commands.run('clip.nudgeDown');
+    expect(S.findClip(doc.state, c.id).trackId).toBe(t2);
+  });
+});
