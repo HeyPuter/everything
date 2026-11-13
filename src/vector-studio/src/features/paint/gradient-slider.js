@@ -2,8 +2,9 @@
  * Gradient slider: the gradient bar with color stops below it and midpoint
  * diamonds above it. Click under the bar to add a stop, drag stops to move
  * them (Option/Alt-drag duplicates), drag a stop down off the slider to
- * remove it, drag midpoints to skew the blend. Stops are focusable sliders:
- * Left/Right move them (Shift 10x), Delete removes, Enter edits the color.
+ * remove it, drag midpoints to skew the blend. Every stop and midpoint is a
+ * focusable slider: arrows step (Shift 10x), Home/End set the limits. For
+ * stops, Delete removes and Enter edits the color.
  */
 import { h } from '../../lib/dom.js';
 import { paintCss } from '../../ui/widgets.js';
@@ -11,6 +12,16 @@ import { insertStop, moveStop, removeStop, setMidpoint } from './gradient-model.
 import { expandStops } from '../../model/gradients.js';
 
 const REMOVE_DISTANCE = 36;
+const VALUE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End'];
+
+function keyboardValue(event, value, min, max) {
+  const step = event.shiftKey ? 0.1 : 0.01;
+  if (event.key === 'Home') return min;
+  if (event.key === 'End') return max;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') return Math.max(min, value - step);
+  if (event.key === 'ArrowRight' || event.key === 'ArrowUp') return Math.min(max, value + step);
+  return null;
+}
 
 /** CSS for a horizontal preview of a gradient's stops (midpoints included). */
 export function gradientBarCss(paint) {
@@ -22,7 +33,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
   let selected = 0;
   let gesture = null;
   const bar = h('div.gs-bar', { 'aria-hidden': 'true' }, h('div.gs-fill'));
-  const mids = h('div.gs-mids');
+  const mids = h('div.gs-mids', { role: 'group', 'aria-label': `${label} midpoints` });
   const stopsEl = h('div.gs-stops', { role: 'group', 'aria-label': `${label} stops` });
   const el = h('div.gs', mids, bar, stopsEl);
   const fill = bar.firstChild;
@@ -172,12 +183,12 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
           b.addEventListener('keydown', (e) => {
             // A discrete keyboard action supersedes the held pointer gesture;
             // its stale paint must not restore a deleted or moved stop.
-            if (['ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter'].includes(e.key)) gesture?.end();
+            if (VALUE_KEYS.includes(e.key) || ['Delete', 'Backspace', 'Enter'].includes(e.key)) gesture?.end();
             const i2 = Number(b.dataset.index);
-            const step = e.shiftKey ? 0.1 : 0.01;
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            const offset = keyboardValue(e, paint.stops[i2].offset, 0, 1);
+            if (offset !== null) {
               onGestureStart?.();
-              const r = moveStop(paint, i2, paint.stops[i2].offset + (e.key === 'ArrowRight' ? step : -step));
+              const r = moveStop(paint, i2, offset);
               selected = r.index;
               onSelect?.(r.index);
               emit(r.paint, false);
@@ -215,14 +226,24 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       b.setAttribute('aria-valuenow', String(Math.round(s.offset * 100)));
       b.setAttribute('aria-valuetext', `${Math.round(s.offset * 100)}%, ${s.color.toUpperCase()}${(s.opacity ?? 1) < 1 ? `, opacity ${Math.round((s.opacity ?? 1) * 100)}%` : ''}`);
       b.setAttribute('aria-label', `Stop ${i + 1}`);
-      b.tabIndex = i === selected ? 0 : -1;
+      b.tabIndex = 0;
     });
     const midCount = Math.max(0, stops.length - 1);
     if (mids.children.length !== midCount) {
       mids.replaceChildren(
         ...Array.from({ length: midCount }, () => {
-          const m = h('span.gs-mid', { role: 'presentation' });
+          const m = h('span.gs-mid', { role: 'slider', tabindex: 0, 'aria-valuemin': '5', 'aria-valuemax': '95' });
           m.addEventListener('pointerdown', (e) => startMidDrag(e, Number(m.dataset.index)));
+          m.addEventListener('keydown', (e) => {
+            if (!VALUE_KEYS.includes(e.key)) return;
+            gesture?.end();
+            const index = Number(m.dataset.index);
+            const value = keyboardValue(e, paint.stops[index].midpoint ?? 0.5, 0.05, 0.95);
+            e.preventDefault();
+            e.stopPropagation();
+            onGestureStart?.();
+            emit(setMidpoint(paint, index, value), false);
+          });
           return m;
         }),
       );
@@ -232,6 +253,10 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       const b = stops[i + 1];
       const m = mids.children[i];
       m.dataset.index = String(i);
+      const percent = Math.round((a.midpoint ?? 0.5) * 10000) / 100;
+      m.setAttribute('aria-label', `Midpoint between stops ${i + 1} and ${i + 2}`);
+      m.setAttribute('aria-valuenow', String(percent));
+      m.setAttribute('aria-valuetext', `${percent}%`);
       m.style.left = `${(a.offset + (b.offset - a.offset) * (a.midpoint ?? 0.5)) * 100}%`;
       m.hidden = b.offset - a.offset < 0.02;
       m.classList.toggle('active', i === selected || i + 1 === selected);

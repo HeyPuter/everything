@@ -270,8 +270,8 @@ it('continues a drag when another document changes or loses editing access', () 
 
 
 for (const kind of ['stop', 'midpoint']) {
-  it.each(['ArrowLeft', 'ArrowRight', 'Delete', 'Backspace'])(`ends a held ${kind} drag before a %s keyboard edit`, (key) => {
-    const focused = slider.querySelectorAll('.gs-stop')[kind === 'midpoint' && key === 'ArrowLeft' ? 1 : 0];
+  it.each(['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End', 'Delete', 'Backspace'])(`ends a held ${kind} drag before a %s keyboard edit`, (key) => {
+    const focused = slider.querySelectorAll('.gs-stop')[kind === 'midpoint' && ['ArrowLeft', 'ArrowDown', 'Home'].includes(key) ? 1 : 0];
     focused.focus();
     start(kind);
     const dragged = fill();
