@@ -37,9 +37,17 @@ const historyPanel: Panel = {
       }
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-history]');
       if (!row) return;
-      e.transform.apply();
-      e.history.goto(Number(row.dataset.history));
-      e.restoreSelection();
+      void e.run(async () => {
+        const position = e.history.holdPosition(Number(row.dataset.history));
+        try {
+          e.transform.apply();
+          await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
+          position.restore();
+        } finally {
+          position.release();
+          e.restoreSelection();
+        }
+      });
     });
   },
   update: (e, el) => {
