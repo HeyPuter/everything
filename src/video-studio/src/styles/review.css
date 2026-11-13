@@ -357,6 +357,27 @@
   display: none;
 }
 
+.rv-unsent-list {
+  display: grid;
+  gap: 8px;
+}
+
+.rv-unsent-list:empty {
+  display: none;
+}
+
+.rv-unsent {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.rv-unsent > .rv-pin {
+  margin: 0;
+}
+
 /* Threads */
 .rv-threads,
 .rv-replies {

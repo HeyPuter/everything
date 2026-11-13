@@ -473,13 +473,16 @@ export class ReviewPage {
     const err = h('p.rv-form-error', { role: 'alert' });
     const counter = h('span.rv-counter');
     const post = h('button.btn.primary', { type: 'submit' }, icon('send', 15), 'Post');
+    const unsent = h('div.rv-unsent-list');
     const el = h('form.rv-composer', { 'aria-label': 'Add a comment' },
       h('div.rv-pin', h('span.rv-pin-label', 'At'), pinBtn, repin),
       h('div.rv-pin', h('label.rv-toggle', { for: rangeId }, rangeBox, 'Until'), endBtn, setEnd),
       text,
       h('div.rv-compose-foot', h('span.rv-hint', 'C comments at the current frame. Ctrl+Enter posts.'), counter, post),
-      err);
+      err, unsent);
     const pin = this.pin;
+    let draftRevision = 0;
+    let posting = false;
     const render = () => {
       pinBtn.textContent = reviewTimecode(pin.t, page.fps);
       pinBtn.setAttribute('aria-label', `Comment time ${reviewTimecode(pin.t, page.fps)}. Go there`);
@@ -506,11 +509,16 @@ export class ReviewPage {
     pinBtn.addEventListener('click', () => page.seek(pin.t));
     endBtn.addEventListener('click', () => pin.end !== null && page.seek(pin.end));
     repin.addEventListener('click', () => {
+      draftRevision++;
       pin.held = true;
       pinHere();
     });
-    setEnd.addEventListener('click', endHere);
+    setEnd.addEventListener('click', () => {
+      draftRevision++;
+      endHere();
+    });
     rangeBox.addEventListener('change', () => {
+      draftRevision++;
       pin.held = true;
       if (rangeBox.checked) {
         pin.end = null;
@@ -520,6 +528,7 @@ export class ReviewPage {
       render();
     });
     text.addEventListener('input', () => {
+      draftRevision++;
       if (text.value && !pin.held) {
         pin.held = true;
         pinHere();
@@ -539,30 +548,74 @@ export class ReviewPage {
         text.blur();
       }
     });
+    // A failed post must not replace words or a time range entered since it was sent.
+    // Keep that post separately, including its original version and frame range.
+    const keepUnsent = (comment, fps, error) => {
+      const message = h('p.rv-form-error', { role: 'alert' }, error);
+      const retry = h('button.btn.small', { type: 'button' }, 'Retry');
+      const discard = h('button.btn.small', { type: 'button' }, 'Discard');
+      const when = `${reviewTimecode(comment.t, fps)}${comment.end === null ? '' : ` to ${reviewTimecode(comment.end, fps)}`}`;
+      const row = h('div.rv-unsent', { role: 'group', 'aria-label': 'Unsent comment' },
+        h('p.rv-pin', `Not posted · Version ${comment.version} · ${when}`),
+        h('p.rv-text', comment.text), message, h('div.rv-form-actions', discard, retry));
+      const remove = () => {
+        const focused = row.contains(document.activeElement);
+        row.remove();
+        if (focused) text.focus();
+      };
+      discard.addEventListener('click', remove);
+      retry.addEventListener('click', async () => {
+        if (retry.disabled) return;
+        retry.disabled = discard.disabled = true;
+        row.setAttribute('aria-busy', 'true');
+        try {
+          await page.session.addComment(comment);
+          remove();
+          announce('Comment posted');
+        } catch (error) {
+          message.textContent = error?.message || 'Could not post the comment.';
+        } finally {
+          retry.disabled = discard.disabled = false;
+          row.setAttribute('aria-busy', 'false');
+        }
+      });
+      unsent.append(row);
+    };
     el.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (posting) return;
       const problem = textProblem(text.value);
       if (problem) {
         err.textContent = problem;
         text.focus();
         return;
       }
-      const body = text.value;
-      const t = pin.t;
-      const end = rangeBox.checked && pin.end !== null && pin.end > pin.t ? pin.end : null;
+      const comment = { version: page.version, text: text.value, t: pin.t,
+        end: rangeBox.checked && pin.end !== null && pin.end > pin.t ? pin.end : null };
+      const revision = draftRevision;
+      const fps = page.fps;
+      posting = true;
       post.disabled = true;
       text.value = '';
+      err.textContent = '';
+      rangeBox.checked = false;
+      pin.end = null;
+      pin.held = false;
+      pinHere();
       try {
-        await page.session.addComment({ version: page.version, text: body, t, end });
-        rangeBox.checked = false;
-        pin.end = null;
-        pin.held = false;
-        pinHere();
+        await page.session.addComment(comment);
         announce('Comment posted');
       } catch (error) {
-        text.value = body;
-        err.textContent = error?.message || 'Could not post the comment.';
+        const message = error?.message || 'Could not post the comment.';
+        if (draftRevision === revision && page.version === comment.version && !text.value) {
+          text.value = comment.text;
+          Object.assign(pin, { t: comment.t, end: comment.end, held: true });
+          rangeBox.checked = comment.end !== null;
+          err.textContent = message;
+          render();
+        } else keepUnsent(comment, fps, message);
       } finally {
+        posting = false;
         post.disabled = false;
       }
     });
@@ -575,6 +628,7 @@ export class ReviewPage {
         if (!pin.held) pinHere();
       },
       startHere() {
+        draftRevision++;
         pin.held = true;
         pinHere();
         text.focus();
@@ -584,6 +638,7 @@ export class ReviewPage {
        * the pin follows the frame shown again (the words stay).
        */
       release() {
+        draftRevision++;
         pin.held = false;
         pin.end = null;
         rangeBox.checked = false;

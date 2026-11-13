@@ -511,6 +511,121 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('keeps a newer draft and range when an earlier comment finishes posting', async () => {
+    const { page, root } = await opened();
+    try {
+      let finish;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      const text = root.querySelector('.rv-compose-text'), form = text.closest('form');
+      page.seek(s(1));text.value = 'First';text.dispatchEvent(new Event('input'));
+      form.requestSubmit();
+      page.seek(s(5));page.composer.startHere();
+      text.value = 'Second';text.dispatchEvent(new Event('input'));
+      const range = root.querySelector('#rv-range');range.checked = true;range.dispatchEvent(new Event('change'));
+      page.seek(s(7));btn(root, 'Set end to current frame').click();
+      finish({});await tick();
+      expect(text.value).toBe('Second');
+      expect(page.pin).toMatchObject({ t: s(5), end: s(7), held: true });
+      expect(range.checked).toBe(true);
+      expect(root.querySelector('.rv-composer .rv-form-error').textContent).toBe('');
+    } finally { page.dispose(); }
+  });
+
+  it('ignores a second composer submission while its post is pending', async () => {
+    const { page, root } = await opened();
+    try {
+      let finish;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+      const text = root.querySelector('.rv-compose-text');
+      text.value = 'First';text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      text.value = 'Next draft';text.dispatchEvent(new Event('input'));
+      text.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      expect(add).toHaveBeenCalledTimes(1);
+      finish({});await tick();
+    } finally { page.dispose(); }
+  });
+
+  it('keeps both drafts when an earlier post fails and retries its original version and range', async () => {
+    const { page, root } = await opened('commenter', { versions: 2 });
+    try {
+      let fail;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; })).mockResolvedValue({});
+      await page.setVersion(1);page.seek(s(1));page.composer.startHere();
+      const text = root.querySelector('.rv-compose-text'), form = text.closest('form');
+      const range = root.querySelector('#rv-range');range.checked = true;range.dispatchEvent(new Event('change'));
+      page.seek(s(3));btn(root, 'Set end to current frame').click();
+      text.value = 'First draft';text.dispatchEvent(new Event('input'));form.requestSubmit();
+      await page.setVersion(2);page.seek(s(5));page.composer.startHere();
+      text.value = 'Newer draft';text.dispatchEvent(new Event('input'));
+      fail(new Error('Offline'));await tick();
+      expect(text.value).toBe('Newer draft');
+      expect(page.pin).toMatchObject({ t: s(5), end: null, held: true });
+      const failed = root.querySelector('.rv-unsent');
+      expect(failed?.textContent).toContain('First draft');
+      expect(failed?.textContent).toContain('Offline');
+      btn(failed, 'Retry').click();await tick();
+      expect(add).toHaveBeenLastCalledWith({ version: 1, text: 'First draft', t: s(1), end: s(3) });
+      expect(root.querySelector('.rv-unsent')).toBe(null);
+      expect(text.value).toBe('Newer draft');
+    } finally { page.dispose(); }
+  });
+
+  it('restores an untouched failed draft with its original time range', async () => {
+    const { page, root } = await opened();
+    try {
+      let fail;
+      vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
+      page.seek(s(2));page.composer.startHere();
+      const range = root.querySelector('#rv-range');range.checked = true;range.dispatchEvent(new Event('change'));
+      page.seek(s(4));btn(root, 'Set end to current frame').click();
+      const text = root.querySelector('.rv-compose-text');text.value = 'Keep me';text.dispatchEvent(new Event('input'));
+      text.closest('form').requestSubmit();page.seek(s(8));
+      fail(new Error('Offline'));await tick();
+      expect(text.value).toBe('Keep me');
+      expect(page.pin).toMatchObject({ t: s(2), end: s(4), held: true });
+      expect(range.checked).toBe(true);
+      expect(root.querySelector('.rv-unsent')).toBe(null);
+    } finally { page.dispose(); }
+  });
+
+  it('keeps a failed retry available and discards it without changing the current draft', async () => {
+    const { page, root } = await opened();
+    try {
+      let fail;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; })).mockRejectedValue(new Error('Still offline'));
+      const text = root.querySelector('.rv-compose-text');
+      text.value = 'Unsent';text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      text.value = 'Current';text.dispatchEvent(new Event('input'));
+      fail(new Error('Offline'));await tick();
+      const row = root.querySelector('.rv-unsent');
+      btn(row, 'Retry').click();btn(row, 'Retry').click();
+      expect(add).toHaveBeenCalledTimes(2);
+      expect(btn(row, 'Discard').disabled).toBe(true);
+      await tick();
+      expect(row.textContent).toContain('Still offline');
+      expect(btn(row, 'Retry').disabled).toBe(false);
+      expect(await violations(row)).toEqual([]);
+      btn(row, 'Discard').focus();btn(row, 'Discard').click();
+      expect(row.isConnected).toBe(false);
+      expect(text.value).toBe('Current');
+      expect(document.activeElement === text).toBe(true);
+    } finally { page.dispose(); }
+  });
+
+  it('pins the next draft to its own frame while the previous post is pending', async () => {
+    const { page, root } = await opened();
+    try {
+      let finish;
+      vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      const text = root.querySelector('.rv-compose-text');
+      page.seek(s(1));text.value = 'First';text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      page.seek(s(5));text.value = 'Next';text.dispatchEvent(new Event('input'));
+      expect(page.pin).toMatchObject({ t: s(5), held: true, end: null });
+      finish({});await tick();
+      expect(page.pin.t).toBe(s(5));
+    } finally { page.dispose(); }
+  });
+
   it.each(['Escape', 'Enter'])('keeps composition %s in the review composer', async (key) => {
     const { page, root } = await opened();
     try {
