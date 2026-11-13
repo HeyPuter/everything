@@ -797,14 +797,15 @@ test('image dimensions reflect a clipping limit without creating a false edit', 
       PDFName.of('Resources'),
       doc.context.obj({ XObject: { Picture: doc.context.getObjectRef(image) } }),
     );
-  doc
-    .getPage(0)
-    .node.set(
-      PDFName.of('Contents'),
-      doc.context.register(
-        doc.context.flateStream('q 40 220 80 60 re W n 80 0 0 60 40 220 cm /Picture Do Q'),
+  doc.getPage(0).node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      // A frame holding a mark besides the picture stays where it is as the picture moves.
+      doc.context.flateStream(
+        'q 40 220 80 60 re W n 0 g 40 220 4 4 re f 80 0 0 60 40 220 cm /Picture Do Q',
       ),
-    );
+    ),
+  );
   await openPdf(page, doc);
   await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
   const width = page.getByLabel('Image width in points', { exact: true });
@@ -4038,14 +4039,15 @@ test('rotation rejects invalid angles and clipped turns without history, then al
       PDFName.of('Resources'),
       doc.context.obj({ XObject: { Picture: doc.context.getObjectRef(image) } }),
     );
-  doc
-    .getPage(0)
-    .node.set(
-      PDFName.of('Contents'),
-      doc.context.register(
-        doc.context.flateStream('q 40 220 80 60 re W n 80 0 0 60 40 220 cm /Picture Do Q'),
+  doc.getPage(0).node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      // A frame holding a mark besides the picture stays where it is as the picture moves.
+      doc.context.flateStream(
+        'q 40 220 80 60 re W n 0 g 40 220 4 4 re f 80 0 0 60 40 220 cm /Picture Do Q',
       ),
-    );
+    ),
+  );
   await openPdf(page, doc);
   await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
   const angle = page.getByLabel('Image rotation in degrees', { exact: true }),
