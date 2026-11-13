@@ -186,9 +186,18 @@ export async function readZip(zip) {
   let cdSize = tail.getUint32(eocd + 12, true);
   let cdStart = tail.getUint32(eocd + 16, true);
   if (count === 0xffff || cdSize === MAX32 || cdStart === MAX32) {
-    const locAt = eocd - 20;
-    if (locAt < 0 || tail.getUint32(locAt, true) !== 0x07064b50) throw new Error('This archive is damaged.');
-    const e64At = Number(tail.getBigUint64(locAt + 8, true));
+    let locator = tail;
+    let locAt = eocd - 20;
+    // A long comment can push part or all of the locator outside the tail
+    // window. Read just those 20 bytes; ordinary archives reuse the tail.
+    if (locAt < 0) {
+      const start = tailStart + locAt;
+      if (start < 0) throw new Error('This archive is damaged.');
+      locator = await view(zip, start, start + 20);
+      locAt = 0;
+    }
+    if (locator.getUint32(locAt, true) !== 0x07064b50) throw new Error('This archive is damaged.');
+    const e64At = Number(locator.getBigUint64(locAt + 8, true));
     const e64 = await view(zip, e64At, e64At + 56);
     if (e64.getUint32(0, true) !== 0x06064b50) throw new Error('This archive is damaged.');
     count = Number(e64.getBigUint64(32, true));
