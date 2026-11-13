@@ -286,11 +286,21 @@ export class Engine extends Emitter {
   /** Browsers may keep the context suspended until the next click or key press. */
   #resumeOnGesture() {
     if (this._resumeHook || typeof document === 'undefined') return;
-    const resume = () => {
+    const clear = () => {
+      if (this._resumeHook !== resume) return;
       document.removeEventListener('pointerdown', resume, true);
       document.removeEventListener('keydown', resume, true);
       this._resumeHook = null;
-      this.ctx?.resume().catch(() => {});
+    };
+    const resume = () => {
+      const ctx = this.ctx;
+      if (!ctx || ctx.state === 'running' || ctx.state === 'closed') {
+        clear();
+        return;
+      }
+      ctx.resume().then(() => {
+        if (this.ctx === ctx && ctx.state === 'running') clear();
+      }, () => {});
     };
     this._resumeHook = resume;
     document.addEventListener('pointerdown', resume, true);
