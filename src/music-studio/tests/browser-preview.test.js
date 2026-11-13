@@ -590,3 +590,32 @@ it('keeps instrument previews available across ordinary project edits', async ()
   await vi.advanceTimersByTimeAsync(0);
   expect(app.engine.audition).toHaveBeenCalledOnce();
 });
+
+it.each(['escape', 'button'])('clears an obsolete no-results announcement when the search is cleared by %s', async (method) => {
+  const { body } = setup();
+  const search = body.querySelector('input[type=search]');
+  search.value = 'zzznomatchinginstrument';
+  search.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.advanceTimersByTimeAsync(140);
+  const status = body.querySelector('[aria-live=polite]');
+  expect(status.textContent).toBe('No results');
+  if (method === 'escape') search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  else body.querySelector('.br-empty button').click();
+  expect(body.querySelector('[data-id="inst:synth"]')).not.toBe(null);
+  expect(status.textContent).toBe('');
+});
+
+it('updates the search result announcement when an asynchronous listing arrives', async () => {
+  const pending = deferred();
+  const { body } = setup({ library: { listLocal: () => pending.promise } });
+  const search = body.querySelector('input[type=search]');
+  search.value = 'Fresh project';
+  search.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.advanceTimersByTimeAsync(140);
+  const status = body.querySelector('[aria-live=polite]');
+  expect(status.textContent).toBe('No results');
+  pending.resolve([{ key: 'fresh', name: 'Fresh project' }]);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="local:fresh"]')).not.toBe(null);
+  expect(status.textContent).toBe('1 result');
+});

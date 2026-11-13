@@ -236,6 +236,9 @@ function createBrowser(app, host) {
   function render() {
     needsRender = false;
     const nodes = filterNodes(tree(), query);
+    const count = query ? countLeaves(nodes) : 0;
+    const resultMessage = query ? (count ? `${count} result${count === 1 ? '' : 's'}` : 'No results') : '';
+    if (status.textContent !== resultMessage) status.textContent = resultMessage;
     rows = flattenNodes(nodes, expanded, { expandAll: Boolean(query) });
     const hadFocus = treeEl.contains(document.activeElement);
     if (!rows.some((r) => r.node.id === focusId)) focusId = rows.find((r) => r.node.kind !== 'note')?.node.id || rows[0]?.node.id || null;
@@ -345,10 +348,6 @@ function createBrowser(app, host) {
     query = q;
     if (search.value !== q) search.value = q;
     render();
-    if (q) {
-      const n = countLeaves(filterNodes(tree(), q));
-      status.textContent = n ? `${n} result${n === 1 ? '' : 's'}` : 'No results';
-    }
   }
 
   // ---------------------------------------------------------------- actions
