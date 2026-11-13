@@ -761,6 +761,7 @@ export async function applyParagraph(e: Editor, patch: Partial<ParagraphStyle>) 
   notify();
 }
 // Layer-wide properties (anti-aliasing, orientation, warp, point/paragraph).
+// These callbacks are pure: reapply them to the latest text after a font wait.
 export async function applyLayer(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData) {
   const s = session;
   if (s) {
@@ -768,7 +769,7 @@ export async function applyLayer(e: Editor, label: string, fn: (d: TextLayerData
     updateData(e, (d) => fn(d, l));
     return;
   }
-  return editLayers(e, label, fn);
+  return editLayers(e, label, fn, undefined, undefined, { rebase: true });
 }
 
 const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');

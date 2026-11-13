@@ -147,6 +147,79 @@ async function prepareTwoFonts(page: Page) {
   });
 }
 
+for (const ending of ['committed', 'live']) test(`delayed anti-aliasing preserves newer ${ending} text`, async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  await page.locator('#type-aa').selectOption('none');
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate(async (first) => {
+    const e = window.photoStudio;
+    e.selectLayers([first]);
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, first, 'all');
+  }, first);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('New words');
+  if (ending === 'committed') await run(page, 'type.commit');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => ({
+    text: l.text, antiAlias: l.textData!.antiAlias,
+  })))).toEqual([{ text: 'New words', antiAlias: 'none' }, { text: 'Second', antiAlias: 'none' }]);
+  await run(page, 'edit.undo');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => ({
+    text: l.text, antiAlias: l.textData!.antiAlias,
+  })))).toEqual([{ text: 'New words', antiAlias: 'smooth' }, { text: 'Second', antiAlias: 'smooth' }]);
+  await run(page, 'edit.redo');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => l.textData!.antiAlias))).toEqual(['none', 'none']);
+  if (ending === 'live') {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText(' more');
+    await run(page, 'type.commit');
+    expect(await page.evaluate((first) => window.photoStudio.doc.layers.find((l) => l.id === first)!.text, first)).toBe('New words more');
+  }
+});
+
+test('delayed anti-aliasing preserves newer formatting and text shape', async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  await page.locator('#type-aa').selectOption('none');
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate(async (first) => {
+    const e = window.photoStudio;
+    e.selectLayers([first]);
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    await m.applyChar(e, { size: 72, color: [255, 0, 0] });
+    await m.applyParagraph(e, { align: 'right' });
+  }, first);
+  await run(page, 'type.vertical');
+  await run(page, 'type.convert-paragraph');
+  const data = () => page.evaluate((first) => window.photoStudio.doc.layers.find((l) => l.id === first)!.textData!, first);
+  const before = await data();
+  expect(before).toMatchObject({ orientation: 'vertical', mode: 'paragraph', antiAlias: 'smooth' });
+  expect(before.content.paragraphs[0]).toMatchObject({ style: { align: 'right' }, runs: [{ text: 'Original', style: { size: 72, color: [255, 0, 0] } }] });
+  await page.evaluate(async () => {
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await idle(page);
+  expect(await data()).toEqual({ ...before, antiAlias: 'none' });
+  await run(page, 'edit.undo');
+  expect(await data()).toEqual(before);
+  await run(page, 'edit.redo');
+  expect(await data()).toEqual({ ...before, antiAlias: 'none' });
+});
+
 for (const kind of ['character', 'paragraph']) test(`a newer ${kind} choice survives an older multi-layer edit waiting on another font`, async ({ page }) => {
   const first = await prepareTwoFonts(page);
   if (kind === 'character') {
