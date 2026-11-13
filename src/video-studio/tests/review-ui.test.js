@@ -91,6 +91,29 @@ describe('thread list', () => {
   const me = { uuid: 'u-bob', username: 'bob' };
   const thread = (f = {}) => ({ id: 'c_one0001', version: 1, parent: null, text: 'Too dark', t: 2_000_000, end: null, author: me, created: Date.now(), seq: 1, resolved: false, deleted: false, replies: [], ...f });
 
+  it.each(['Reply', 'Edit'].flatMap((mode) => ['Escape', 'Enter'].map((key) => [mode, key])))('preserves the %s draft when composition uses %s', async (mode, key) => {
+    const onReply = vi.fn(async () => {}), onEdit = vi.fn(async () => {});
+    const list = createThreadList({ onReply, onEdit });
+    document.body.append(list.el);
+    list.update([thread()], { fps: 30, me, role: 'commenter' });
+    btn(list.el, mode).click();
+    const input = list.el.querySelector('textarea');
+    input.value = 'Draft';
+    input.dispatchEvent(new Event('input'));
+    input.focus();
+    for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+      const e = new KeyboardEvent('keydown', { key, ctrlKey: key === 'Enter', bubbles: true, cancelable: true, ...composition });
+      input.dispatchEvent(e);
+      expect(input.isConnected).toBe(true);
+      expect(e.defaultPrevented).toBe(false);
+      expect(onReply).not.toHaveBeenCalled();
+      expect(onEdit).not.toHaveBeenCalled();
+    }
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    await tick();
+    expect(mode === 'Reply' ? onReply : onEdit).toHaveBeenCalledTimes(1);
+  });
+
   it('shows time, author, text and replies, and seeks on the time', () => {
     const onSeek = vi.fn();
     const list = createThreadList({ onSeek });
@@ -431,6 +454,26 @@ describe('review page (reviewer flow)', () => {
     expect(root.querySelectorAll('.rv-thread').length).toBe(1);
     expect(root.querySelector('.rv-composer .rv-form-error').textContent).toBe('');
     page.dispose();
+  });
+
+  it.each(['Escape', 'Enter'])('keeps composition %s in the review composer', async (key) => {
+    const { page, root } = await opened();
+    try {
+      const add = vi.spyOn(page.session, 'addComment').mockResolvedValue({});
+      const input = root.querySelector('.rv-compose-text');
+      input.value = 'Draft';input.dispatchEvent(new Event('input'));input.focus();
+      for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+        const e = new KeyboardEvent('keydown', { key, ctrlKey: key === 'Enter', bubbles: true, cancelable: true, ...composition });
+        input.dispatchEvent(e);
+        expect(document.activeElement === input).toBe(true);
+        expect(input.value).toBe('Draft');
+        expect(add).not.toHaveBeenCalled();
+        expect(e.defaultPrevented).toBe(false);
+      }
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      await tick();
+      expect(add).toHaveBeenCalledTimes(1);
+    } finally { page.dispose(); }
   });
 
   it('stops polling and commenting once the owner removes someone', async () => {

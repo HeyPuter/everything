@@ -530,6 +530,7 @@ export class ReviewPage {
     });
     text.addEventListener('focus', () => page.video.pause());
     text.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         submitForm(el);

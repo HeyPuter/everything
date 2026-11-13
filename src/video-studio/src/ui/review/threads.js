@@ -44,6 +44,7 @@ export function createThreadList(handlers) {
     const f = h('form.rv-inline-form', input, err, h('div.rv-form-actions', cancel, save));
     cancel.addEventListener('click', onCancel);
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
