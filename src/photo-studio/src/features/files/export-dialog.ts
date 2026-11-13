@@ -56,7 +56,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
         <div class="export-size-grid">
           ${row('Width', `<input type="number" name="outWidth" min="1" max="8192" step="1">`)}
           ${row('Height', `<input type="number" name="outHeight" min="1" max="8192" step="1">`)}
-          ${row('Scale %', `<input type="number" name="scale" min="1" max="1000" step="any">`)}
+          ${row('Scale %', `<input type="number" name="scale" min="0.01" max="819200" step="any">`)}
         </div>
         ${row('Resample', `<select name="resample"><option value="bicubic">Bicubic</option><option value="lanczos">Lanczos (sharper)</option><option value="bilinear">Bilinear</option><option value="nearest">Nearest neighbor (hard edges)</option></select>`)}
       `)}
