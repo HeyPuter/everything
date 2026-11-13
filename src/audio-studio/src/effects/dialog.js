@@ -13,7 +13,7 @@ import { slotSpec } from './registry.js';
 import { normalizeValues, paramType, setLinked, linkGroups, coerce } from './params.js';
 import { paramControls as buildControls } from './param-ui.js';
 import { channelNames, defaultRoute, routeSummary, rememberRoute, recallRoute, sameRoute } from './routing.js';
-import { allPresets, savePreset, deletePreset, matchPreset, lastValues } from './presets.js';
+import { allPresets, userPresets, savePreset, deletePreset, matchPreset, lastValues } from './presets.js';
 import { editorFor } from './displays.js';
 import { isRealtime, latencyFrames } from './apply.js';
 
@@ -37,9 +37,10 @@ export function paramControls(def, getValues, onSet, opts = {}) {
  * Inline name entry inside `bar` (a nested modal would fight the open
  * dialog's keyboard handling, so Enter and Escape are caught at the window
  * before the dialog sees them). onSave(name) may throw to show a message.
+ * exists(name) true asks before replacing: Save again confirms.
  * Returns a function that dismisses the prompt.
  */
-export function inlinePrompt(bar, { label, value = '', onSave, returnFocus }) {
+export function inlinePrompt(bar, { label, value = '', onSave, returnFocus, exists }) {
   // A new prompt in the same bar replaces the open one (and its key handler).
   bar.fxPromptDismiss?.();
   const input = h('input.input', { type: 'text', value, 'aria-label': label.replace(/:$/, '') });
@@ -54,7 +55,14 @@ export function inlinePrompt(bar, { label, value = '', onSave, returnFocus }) {
     bar.replaceChildren();
     if (refocus) returnFocus?.focus();
   };
+  let replacing = null;
   const ok = () => {
+    const name = input.value.trim();
+    if (name && exists?.(name) && replacing !== name) {
+      replacing = name;
+      error.textContent = `"${name}" already exists. Save again to replace it.`;
+      return;
+    }
     try {
       onSave(input.value);
       done();
@@ -223,13 +231,13 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }
 
   const nameBar = h('div.fx-namebar', { hidden: true });
-  const askName = (labelText, initialName, confirm) => cleanups.push(inlinePrompt(nameBar, { label: labelText, value: initialName, onSave: confirm, returnFocus: presetSel }));
+  const askName = (labelText, initialName, confirm, exists) => cleanups.push(inlinePrompt(nameBar, { label: labelText, value: initialName, onSave: confirm, returnFocus: presetSel, exists }));
   const saveBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Save settings as a preset', title: 'Save settings as a preset', onclick: () => {
     askName('Preset name:', matchPreset(app.prefs, def, values) && !allPresets(app.prefs, def).find((p) => p.name === presetSel.value && !p.user) ? presetSel.value : 'My Preset', (name) => {
       const saved = savePreset(app.prefs, def, name, values);
       syncPresetSelect();
       announce(`Preset ${saved} saved`);
-    });
+    }, (name) => userPresets(app.prefs, def.id).some((p) => p.name === name));
   } }, icon('save', 15));
   const favBtn = app.favorites
     ? h('button.icon-btn', { type: 'button', 'aria-label': 'Save settings as a favorite', title: 'Save settings as a favorite', onclick: () => {

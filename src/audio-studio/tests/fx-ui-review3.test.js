@@ -8,6 +8,9 @@ import { openEffectDialog } from '../src/effects/dialog.js';
 import { getEffect } from '../src/effects/index.js';
 import { Session } from '../src/model/session.js';
 import { fakeApp } from './fx-helpers.js';
+import { userPresets } from '../src/effects/presets.js';
+import { effectsRackPanel, rackPresets, saveRackPreset } from '../src/effects/rack-panel.js';
+import { createRack } from '../src/effects/rack.js';
 
 /** Opens a value field for typing and commits it unchanged; returns the text it offered. */
 const commitUnchanged = (el) => {
@@ -228,5 +231,56 @@ describe('slot lists of chains without empty slots (clip effects)', () => {
     expect([...ed.el.querySelectorAll('.rack-name')].findIndex((b) => b.tabIndex === 0)).toBe(1);
     ed.el.remove();
     live.remove();
+  });
+});
+
+describe('saving a preset under a name in use', () => {
+  const save = (bar, name) => {
+    bar.querySelector('input').value = name;
+    [...bar.querySelectorAll('button')].find((b) => b.textContent === 'Save').click();
+  };
+
+  it('asks before replacing an effect preset', async () => {
+    const app = fakeApp();
+    const done = openEffectDialog(app, getEffect('amplify'), { values: { left: 2, right: 2 } });
+    const dlg = [...document.querySelectorAll('.fx-dialog')].at(-1);
+    const saveBtn = dlg.querySelector('[aria-label="Save settings as a preset"]');
+    saveBtn.click();
+    const bar = dlg.querySelector('.fx-namebar');
+    save(bar, 'My Preset');
+    expect(userPresets(app.prefs, 'amplify').map((p) => p.values.left)).toEqual([2]);
+    // Other settings saved under the default name again used to replace it without a word.
+    const left = [...dlg.querySelectorAll('input[type=range]')].find(
+      (i) => i.getAttribute('aria-label') === 'Left',
+    );
+    left.value = '5';
+    left.dispatchEvent(new Event('input'));
+    saveBtn.click();
+    save(bar, 'My Preset');
+    expect(userPresets(app.prefs, 'amplify').map((p) => p.values.left)).toEqual([2]);
+    expect(bar.hidden).toBe(false);
+    expect(bar.querySelector('.fx-name-error').textContent).toMatch(/already exists/);
+    // Saving again confirms.
+    save(bar, 'My Preset');
+    expect(userPresets(app.prefs, 'amplify').map((p) => p.values.left)).toEqual([5]);
+    expect(bar.hidden).toBe(true);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await done;
+  });
+
+  it('asks before replacing a rack preset', () => {
+    const app = fakeApp();
+    saveRackPreset(app.prefs, 'Chain', { ...createRack(), mix: 0.5 });
+    const panel = effectsRackPanel(app);
+    app.active = { kind: 'audio', name: 'a.wav' };
+    panel.show();
+    document.body.append(panel.el);
+    panel.el.querySelector('[aria-label="Save rack as a preset"]').click();
+    const bar = panel.el.querySelector('.rack-namebar');
+    save(bar, 'Chain');
+    expect(rackPresets(app.prefs)[0].rack.mix).toBe(0.5);
+    save(bar, 'Chain');
+    expect(rackPresets(app.prefs)[0].rack.mix).toBe(1);
+    panel.el.remove();
   });
 });
