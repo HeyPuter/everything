@@ -26,6 +26,22 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it.each([129, 256])('preserves all %i mixer tracks, routing and automation on reopen', (count) => {
+    let p = richProject();
+    while (p.mixer.length < count) p = E.addMixerTrack(p).project;
+    const last = count - 1;
+    p = E.updateMixerTrack(p, last, { fx: [createSlot('delay')], volume: 0.4 });
+    p = E.updateChannel(p, p.channels[0].id, { mixer: last });
+    p = E.setRoute(p, 1, last, 0.7);
+    p = E.addAutomation(p, { name: 'Insert volume', target: { kind: 'mixer', track: last, param: 'volume' }, points: [{ t: 0, v: 0.4 }] }).project;
+    p = E.addAutomation(p, { name: 'Delay wet', target: { kind: 'fx', track: last, slot: p.mixer[last].fx[0].id, param: 'wet' }, points: [{ t: 0, v: 0.8 }] }).project;
+    const back = parseProject(serializeProject(p));
+    expect(back.mixer).toHaveLength(count);
+    expect(back.mixer).toEqual(p.mixer);
+    expect(back.channels).toEqual(p.channels);
+    expect(back.automation).toEqual(p.automation);
+  });
+
   it.each([1, 15])('preserves a playlist reduced to %i tracks after reopening', (count) => {
     let p = richProject();
     while (p.tracks.length > count) p = deleteTrack(p, p.tracks.length - 1);

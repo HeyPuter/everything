@@ -46,6 +46,8 @@ import { PPQ } from './time.js';
 export const PROJECT_VERSION = 1;
 export const FILE_EXT = '.msproj';
 export const MAX_FX_SLOTS = 10;
+// Includes the master; matches the DSP engine's track limit.
+export const MAX_MIXER_TRACKS = 256;
 export const DEFAULT_INSERTS = 16;
 export const DEFAULT_TRACKS = 16;
 export const DEFAULT_KEY = 60;

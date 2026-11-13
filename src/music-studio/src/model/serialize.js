@@ -5,7 +5,7 @@
 import { uid, clamp } from '../lib/util.js';
 import { INSTRUMENTS, defaultParams } from '../instruments/catalog.js';
 import { EFFECTS, defaultEffectParams } from '../effects/catalog.js';
-import { createMixerTrack, createTrack, createPattern, PROJECT_VERSION, MAX_FX_SLOTS, DEFAULT_KEY, COLORS } from './project.js';
+import { createMixerTrack, createTrack, createPattern, PROJECT_VERSION, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY, COLORS } from './project.js';
 
 export const KIND = 'music-studio-project';
 
@@ -69,7 +69,7 @@ export function parseProject(input) {
     }
   }
 
-  const mixerIn = Array.isArray(data.mixer) && data.mixer.length ? data.mixer.slice(0, 128) : [];
+  const mixerIn = Array.isArray(data.mixer) && data.mixer.length ? data.mixer.slice(0, MAX_MIXER_TRACKS) : [];
   const slotId = uniqueId(new Set());
   const mixer = (mixerIn.length ? mixerIn : Array.from({ length: 17 }, () => ({}))).map((t, i) => {
     const base = createMixerTrack(i);
@@ -225,9 +225,9 @@ function sanitizeTarget(t) {
     case 'channel':
       return { kind: 'channel', id: str(t.id, ''), param: str(t.param, 'volume', 40) };
     case 'mixer':
-      return { kind: 'mixer', track: Math.round(num(t.track, 0, 0, 127)), param: ['volume', 'pan', 'width'].includes(t.param) ? t.param : 'volume' };
+      return { kind: 'mixer', track: Math.round(num(t.track, 0, 0, MAX_MIXER_TRACKS - 1)), param: ['volume', 'pan', 'width'].includes(t.param) ? t.param : 'volume' };
     case 'fx':
-      return { kind: 'fx', track: Math.round(num(t.track, 0, 0, 127)), slot: Number.isInteger(t.slot) && t.slot >= 0 && t.slot < MAX_FX_SLOTS ? t.slot : str(t.slot, ''), param: str(t.param, 'mix', 40) };
+      return { kind: 'fx', track: Math.round(num(t.track, 0, 0, MAX_MIXER_TRACKS - 1)), slot: Number.isInteger(t.slot) && t.slot >= 0 && t.slot < MAX_FX_SLOTS ? t.slot : str(t.slot, ''), param: str(t.param, 'mix', 40) };
     case 'tempo':
       return { kind: 'tempo' };
     default:
