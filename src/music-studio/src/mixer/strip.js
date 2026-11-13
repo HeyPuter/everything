@@ -10,7 +10,7 @@
 //   send = null (nothing to show) | { mode: 'self'|'off'|'on'|'blocked', gain, color, from }
 
 import { h } from '../lib/dom.js';
-import { formatPan } from '../lib/util.js';
+import { formatPan, parsePan } from '../lib/util.js';
 import { createKnob } from '../ui/knob.js';
 import { icon } from '../ui/icons.js';
 import { createFader } from './fader.js';
@@ -32,6 +32,7 @@ export function createStrip(ctx, index) {
     size: 24,
     label: 'Pan',
     format: formatPan,
+    parse: parsePan,
     ...ctl.trackGesture(index, 'pan', 'Insert pan'),
   });
   const width = createKnob({

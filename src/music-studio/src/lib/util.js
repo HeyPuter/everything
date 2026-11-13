@@ -42,6 +42,18 @@ export function formatPan(p) {
   return `${pct}% ${p < 0 ? 'left' : 'right'}`;
 }
 
+/** Parse displayed pan text, signed percentages, or a normalized -1..1 value. */
+export function parsePan(text) {
+  const s = String(text).trim().toLowerCase();
+  if (s === 'centered' || s === 'center') return 0;
+  const direction = s.match(/^(\d*\.?\d+)\s*%?\s*(left|right)$/);
+  if (direction) return clamp(Number(direction[1]) / 100, 0, 1) * (direction[2] === 'left' ? -1 : 1);
+  const numeric = s.match(/^([-+]?\d*\.?\d+)\s*(%)?$/);
+  if (!numeric) return null;
+  const value = Number(numeric[1]) / (numeric[2] ? 100 : 1);
+  return Number.isFinite(value) ? clamp(value, -1, 1) : null;
+}
+
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 /** MIDI key number to a name such as "C5" (key 60 = C5, matching the app's octave numbering). */

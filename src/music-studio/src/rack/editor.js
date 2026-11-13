@@ -10,7 +10,7 @@
 // automation, the rack), closing itself when its channel is deleted.
 
 import { h, announce } from '../lib/dom.js';
-import { clamp, formatDb, formatPan } from '../lib/util.js';
+import { clamp, formatDb, formatPan, parsePan } from '../lib/util.js';
 import * as E from '../model/edits.js';
 import { COLORS, channelById } from '../model/project.js';
 import { INSTRUMENTS, defaultParams } from '../instruments/catalog.js';
@@ -518,7 +518,7 @@ class ChannelEditor {
     const knobs = h(
       'div.ed-knobs',
       this.channelKnob(VOLUME, formatDb, 'volume', parseGain),
-      this.channelKnob(PAN, formatPan),
+      this.channelKnob(PAN, formatPan, 'pan', parsePan),
       this.channelKnob(PITCH, null),
       this.channelKnob(ROOT, null, null),
     );
