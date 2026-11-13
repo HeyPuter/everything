@@ -97,8 +97,10 @@ export function probeAudio(head, size, tail = null) {
     return { format, needTail: !tail && size > head.length };
   }
   if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return { format: str(head, 0, 64).includes('webm') ? 'WebM' : 'Matroska' };
-  // MPEG audio (after an optional ID3v2 tag).
+  // MPEG audio (after an optional ID3v2 tag), or FLAC that a tagger put behind one.
   const tag = id3v2Size(head);
+  const flacAt = tag && tag + 42 <= head.length && str(head, tag, 4) === 'fLaC';
+  if (flacAt) return probeAudio(head.subarray(tag), size - tag);
   if (tag && tag + 4096 > head.length && size > head.length) return { format: 'MP3', skip: tag };
   for (let i = tag; i + 4 < Math.min(head.length, tag + 8192); i++) {
     const h = parseMp3Header(head, i);
@@ -131,7 +133,7 @@ export async function probeSource(read, size) {
   if (p.needTail && size > HEAD_BYTES) p = probeAudio(head, size, await read(Math.max(0, size - TAIL_BYTES), Math.min(TAIL_BYTES, size)));
   else if (p.skip) {
     const rest = probeAudio(await read(p.skip, Math.min(HEAD_BYTES, size - p.skip)), size - p.skip);
-    p = rest.format === 'MP3' ? rest : { format: 'MP3' };
+    p = rest.format === 'MP3' || rest.format === 'FLAC' ? rest : { format: 'MP3' };
   }
   return p;
 }

@@ -197,6 +197,22 @@ describe('file probing and decoding', () => {
     expect(first).toMatchObject({ format: 'Opus', needTail: true });
     expect(probeAudio(ogg.subarray(0, 100), ogg.length, ogg).duration).toBeCloseTo(1, 5);
   });
+  it('probes FLAC files behind an ID3v2 tag', async () => {
+    // fLaC, then a STREAMINFO block: 48 kHz mono 24-bit, 96000 frames.
+    const flac = new Uint8Array(4096);
+    flac.set([0x66, 0x4c, 0x61, 0x43, 0, 0, 0, 34]);
+    flac.set([0x0b, 0xb8, 0x01, 0x70, 0x00, 0x01, 0x77, 0x00], 18);
+    const want = { format: 'FLAC', sampleRate: 48000, channels: 1, bitDepth: 24, duration: 2 };
+    expect(probeAudio(flac, flac.length)).toEqual(want);
+    for (const art of [100, 300000]) {
+      const tagged = new Uint8Array(10 + art + flac.length);
+      const size = [21, 14, 7, 0].map((bit) => (art >> bit) & 0x7f);
+      tagged.set([0x49, 0x44, 0x33, 3, 0, 0, ...size]);
+      tagged.set(flac, 10 + art);
+      const read = async (at, n) => tagged.slice(at, at + n);
+      expect(await probeSource(read, tagged.length)).toEqual(want);
+    }
+  });
   it('decodes AIFF natively with markers and metadata', async () => {
     const w = new AiffWriter({ sampleRate: 44100, channels: 1, bitDepth: 16, dither: 'none', frames: 100, markers: [{ start: 5, name: 'X' }], meta: { title: 'Name', album: 'Alb' } });
     w.write([new Float32Array(100).fill(0.25)], 100);
