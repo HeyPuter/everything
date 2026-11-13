@@ -33,7 +33,7 @@
  * Sets persist in preferences ('actionSets').
  */
 import { uid } from '../../lib/ids.js';
-import { UserError } from '../../lib/errors.js';
+import { UserError, isUserError } from '../../lib/errors.js';
 import { multiply, translate } from '../../lib/matrix.js';
 import { dialogHooks } from '../../ui/dialogs/dialog.js';
 import { paintHooks, applyStyle } from '../../ops/paint-ops.js';
@@ -245,11 +245,11 @@ export class ActionEngine {
     const app = this.app;
     const commands = app.commands;
     const run = commands.run.bind(commands);
-    commands.run = async (id, args) => {
+    commands.run = async (id, args, options) => {
       if (!this.recording || this.depth > 0 || this.playing || !isRecordable(id) || !commands.isEnabled(id, args)) {
         this.depth++;
         try {
-          return await run(id, args);
+          return await run(id, args, options);
         } finally {
           this.depth--;
         }
@@ -259,7 +259,7 @@ export class ActionEngine {
       this.depth++;
       let result;
       try {
-        result = await run(id, args);
+        result = await run(id, args, options);
       } finally {
         this.depth--;
         this.current = null;
@@ -406,7 +406,13 @@ export class ActionEngine {
           app.notify('Action stopped because the active document changed.', { polite: true });
           return { ok: false, done, stoppedAt: i };
         }
-        const res = await this.#playStep(st);
+        let res;
+        try {
+          res = await this.#playStep(st);
+        } catch (err) {
+          if (!isUserError(err)) console.error(err);
+          res = err?.message || String(err);
+        }
         if (res === 'stop') return { ok: false, done, stoppedAt: i };
         if (res === true && i < steps.length - 1) await this.#between();
         if (typeof res === 'string') {
@@ -475,7 +481,7 @@ export class ActionEngine {
       if (!app.commands.isEnabled(st.cmd, st.args ?? undefined)) return `"${st.label}" cannot be used with the current selection.`;
       this.queue = { entries: (st.dialogs || []).map((d) => ({ ...d, used: false })), modal: Boolean(st.modal) };
       try {
-        await app.commands.run(st.cmd, st.args ?? undefined);
+        await app.commands.run(st.cmd, st.args ?? undefined, { throwOnError: true });
       } finally {
         this.queue = null;
       }
