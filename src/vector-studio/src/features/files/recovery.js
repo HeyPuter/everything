@@ -144,7 +144,12 @@ export class RecoveryStore {
     for (const b of backends) {
       try {
         const candidate = (await this.#readIndex(b, { strict: true })).find((e) => e.id === entry.id);
-        if (!candidate) continue;
+        if (!candidate) {
+          // A missing/damaged index is not proof that the selected bytes are gone.
+          // Returning null would make the recovery dialog discard those bytes.
+          if (await b.readBlob(snapshotPath(entry))) failure ||= new Error('Recovery metadata is unavailable. Try recovery again.');
+          continue;
+        }
         if (!sameSnapshot(candidate, entry) || (b === entry.backend && candidate.snapshot !== entry.snapshot)) {
           failure ||= new Error('The selected recovery snapshot is not available right now.');
           continue;
