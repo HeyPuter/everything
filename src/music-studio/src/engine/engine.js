@@ -802,9 +802,12 @@ export class Engine extends Emitter {
       }
     };
     w.onerror = (ev) => {
+      if (this._renderWorker !== w) return;
+      this._renderWorker = null;
+      w.onmessage = w.onerror = null;
+      w.terminate();
       for (const job of this._renderJobs.values()) job.reject(new Error(ev.message || 'Rendering failed.'));
       this._renderJobs.clear();
-      this._renderWorker = null;
     };
     this._renderWorker = w;
     return w;
