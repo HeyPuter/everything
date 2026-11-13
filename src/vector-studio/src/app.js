@@ -351,13 +351,13 @@ export class App extends Emitter {
   #finishDocumentInteraction() {
     this.tool?.commit?.();
     this.input?.reset();
-    this.tool?.deactivate?.();
   }
 
   activate(editor) {
     // activate(null) after the last tab closed must still show the home screen.
     if (this.editor === editor && editor) return;
     this.#finishDocumentInteraction();
+    this.tool?.deactivate?.();
     const prevView = this.editor && this.views.get(this.editor);
     if (prevView) prevView.host.hidden = true;
     this.editor = editor;
