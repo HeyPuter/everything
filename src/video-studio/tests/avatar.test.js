@@ -247,7 +247,7 @@ describe('creating avatars', () => {
   it('speaks a script, adds the avatar and its voice grouped together', async () => {
     const { store, ctx, imported } = env();
     const c = await createAvatar(ctx, { character: 'noor', framing: 'waist', position: 'br', script: 'Hello there', voice: 'openai-nova', start: s(1) });
-    expect(ctx.avatarServices.synthesize).toHaveBeenCalledWith('Hello there', 'openai-nova');
+    expect(ctx.avatarServices.synthesize).toHaveBeenCalledWith('Hello there', 'openai-nova', { signal: expect.any(AbortSignal) });
     expect(imported[0].name).toMatch(/^Speech - Hello there/);
     const av = findClip(store.project, c.id);
     expect(av.track.kind).toBe('video');
@@ -344,7 +344,7 @@ describe('avatar panel', () => {
     expect(hint.textContent).toMatch(/added at the playhead/);
     tab.el.querySelector('.avatar-add').click();
     await vi.waitFor(() => expect(allClips(store.project).some((x) => x.type === 'avatar')).toBe(true));
-    expect(ctx.avatarServices.synthesize).toHaveBeenCalledWith('Welcome to the show', expect.any(String));
+    expect(ctx.avatarServices.synthesize).toHaveBeenCalledWith('Welcome to the show', expect.any(String), { signal: expect.any(AbortSignal) });
     tab.dispose();
   });
 });
