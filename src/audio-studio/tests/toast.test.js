@@ -69,4 +69,24 @@ describe('toast stacking', () => {
     first.querySelector('button').blur();
     vi.runAllTimers();
   });
+
+  it('lets plain notices give way before a toast with an action button', () => {
+    vi.useFakeTimers();
+    const undo = toast('Deleted 3 clips', { action: { label: 'Undo', run: () => {} } });
+    for (let i = 0; i < 8; i++) toast(`Message ${i}`);
+    const shown = [...document.querySelectorAll('.toast')];
+    expect(shown).toHaveLength(MAX_TOASTS);
+    expect(undo.isConnected).toBe(true);
+    expect(shown.slice(1).map((t) => t.textContent)).toEqual(
+      Array.from({ length: MAX_TOASTS - 1 }, (_, i) => `Message ${8 - MAX_TOASTS + 1 + i}`),
+    );
+    // Only action toasts left: the oldest of them gives way, so the cap still holds.
+    const more = Array.from({ length: MAX_TOASTS }, (_, i) =>
+      toast(`Removed ${i}`, { action: { label: 'Undo', run: () => {} } }),
+    );
+    expect(document.querySelectorAll('.toast')).toHaveLength(MAX_TOASTS);
+    expect(undo.isConnected).toBe(false);
+    expect(more.every((t) => t.isConnected)).toBe(true);
+    vi.runAllTimers();
+  });
 });

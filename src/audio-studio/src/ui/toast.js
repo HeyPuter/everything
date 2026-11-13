@@ -30,10 +30,13 @@ export function toast(message, { error = false, action, timeout = action ? ACTIO
     if (!action && old.dataset.key === key && !old.contains(document.activeElement)) old.remove();
   }
   host.append(el);
+  // Oldest first, but plain notices give way before toasts with an action, so a burst of status
+  // messages cannot take an Undo or Open button away before there was time to use it.
   const shown = [...host.querySelectorAll('.toast')];
-  for (const old of shown.slice(0, Math.max(0, shown.length - MAX_TOASTS))) {
-    if (!old.contains(document.activeElement)) old.remove();
-  }
+  const spare = shown.filter((t) => t !== el && !t.contains(document.activeElement));
+  const hasAction = (t) => !!t.querySelector('button');
+  const order = [...spare.filter((t) => !hasAction(t)), ...spare.filter(hasAction)];
+  order.slice(0, Math.max(0, shown.length - MAX_TOASTS)).forEach((t) => t.remove());
   if (!error) announce(message);
   // The countdown pauses while the toast is hovered or holds focus, and resumes with the time left.
   let left = timeout;
