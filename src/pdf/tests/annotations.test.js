@@ -579,6 +579,42 @@ describe('shapes and pencil', () => {
     expect(view.count({ x: 110, y: 160, width: 180, height: 100 }).inside).toBe(0);
   });
 
+  // A filled polygon or cloud without a line color was outlined in black, unlike a filled
+  // rectangle or ellipse, both when added and when another writer's was redrawn after an edit.
+  it('draws a filled polygon or cloud without a line color with no outline', async () => {
+    const doc = await blank();
+    addShapeAnnotation(doc, 0, {
+      kind: 'polygon',
+      points: [
+        { x: 100, y: 500 },
+        { x: 300, y: 500 },
+        { x: 200, y: 700 },
+      ],
+      color: null,
+      fill: '#ff0000',
+      width: 3,
+    });
+    const cloud = addShapeAnnotation(doc, 0, {
+      kind: 'cloud',
+      rect: { x: 100, y: 100, width: 200, height: 150 },
+      color: null,
+      fill: '#ff0000',
+      width: 3,
+    });
+    await editAnnotation(doc, 0, cloud, { opacity: 1 });
+    const view = await render(await doc.save());
+    let red = 0,
+      dark = 0;
+    for (let i = 0; i < view.data.length; i += 4) {
+      const [r, g, b] = [view.data[i], view.data[i + 1], view.data[i + 2]];
+      if (r > 200 && g < 60 && b < 60) red++;
+      // Anything darker than red blended with the white page is an outline.
+      if (r < 180) dark++;
+    }
+    expect(red).toBeGreaterThan(20000);
+    expect(dark).toBe(0);
+  });
+
   it('draws pencil strokes as smoothed Ink with an InkList', async () => {
     const doc = await blank();
     const strokes = [
