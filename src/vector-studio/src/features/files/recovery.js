@@ -23,6 +23,15 @@ const INDEXES = [INDEX, `${DIR}/index.next.json`];
 const validToken = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value);
 const validEntry = (entry) => Boolean(entry && validToken(entry.id) && (entry.snapshot == null || validToken(entry.snapshot)));
 const indexPaths = (id) => [0, 1].map((slot) => `${DIR}/index.${slot}.${encodeURIComponent(id)}.json`);
+const textOrNull = (value) => typeof value === 'string' && value ? value : null;
+
+/** Display and file metadata can be repaired without changing snapshot identity. */
+function normalizeEntry(entry) {
+  const file = entry.file && typeof entry.file === 'object' && !Array.isArray(entry.file) ? entry.file : null;
+  return { ...entry, name: textOrNull(entry.name) || 'Untitled', file: file ? {
+    kind: textOrNull(file.kind), path: textOrNull(file.path), name: textOrNull(file.name), handleId: textOrNull(file.handleId),
+  } : null };
+}
 
 function indexedId(file) {
   const match = !file.isDir && /^index\.[01]\.(.+)\.json$/.exec(file.name);
@@ -96,7 +105,7 @@ export class RecoveryStore {
         continue;
       }
       const generation = legacy ? 0 : value.generation;
-      const entries = (legacy ? value : value.entries).filter(validEntry);
+      const entries = (legacy ? value : value.entries).filter(validEntry).map(normalizeEntry);
       if (!latest || generation > latest.generation) latest = { entries, generation, slot, legacy: value.legacy === true };
     }
     if (failure && strict) throw failure;
@@ -154,8 +163,8 @@ export class RecoveryStore {
       let lastErr = null;
       for (const b of this.backends) {
         const snapshot = uid('snapshot');
-        const next = { id, snapshot, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null,
-          saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session };
+        const next = normalizeEntry({ id, snapshot, name, file,
+          saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session });
         let previous, blobAttempted = false, indexAttempted = false;
         try {
           const state = await this.#readState(b, id, { strict: true });
