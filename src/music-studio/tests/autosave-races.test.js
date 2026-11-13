@@ -74,3 +74,20 @@ it('flushAll drains a newer cloud save queued behind an active write', async () 
   await Promise.all([first, all]);
   expect(whileSecondPending).toEqual({ writes: 2, done: false });
 });
+
+it.each([false, true])('retries a failed draft once on a later flush without looping (persistent failure: %s)', async (persistent) => {
+  const error = new Error('Temporary storage failure');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const write = persistent ? vi.fn().mockRejectedValue(error) : vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined);
+    const a = new Autosave({ store: new Store(newProject()), writeDraft: write });
+    await a.flushDraft();
+    expect(a.pending).toBe(true);
+    await a.flushAll();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(a.pending).toBe(persistent);
+    expect(a.lastError).toBe(persistent ? error : null);
+  } finally {
+    warn.mockRestore();
+  }
+});

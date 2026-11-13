@@ -132,8 +132,12 @@ export class Autosave {
 
   /** Page hidden or closing: write everything that is waiting. */
   async flushAll() {
+    // A failed draft remains pending even after its debounce timer is gone.
+    // Retry once per flush, without spinning if storage keeps rejecting it.
+    let retryDraft = this.lastError !== null && !this.writing;
     do {
-      const draft = this.draftTimer !== null || this.again ? this.flushDraft() : this.writing;
+      const draft = this.draftTimer !== null || this.again || retryDraft ? this.flushDraft() : this.writing;
+      retryDraft = false;
       const cloud = this.cloudTimer !== null ? this.flushCloud() : this.cloudWriting;
       await Promise.all([draft, cloud]);
       // Completing a save can queue another write (including the saved file's
