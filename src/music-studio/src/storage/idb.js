@@ -6,7 +6,7 @@
 //   await db.get(store, key) / put(store, key, value) / delete(store, key)
 //   await db.put(store, key, value, { overwrite: false }) // atomic insert; false if occupied
 //   await db.all(store) -> [[key, value], ...]
-//   await db.batch([{ type: 'put' | 'delete', store, key, value? }, ...]) // atomic
+//   await db.batch([{ type: 'put' | 'add' | 'delete', store, key, value? }, ...]) // atomic; add rejects occupied keys
 //   await db.deleteIf(store, key, matches) // atomic conditional deletion
 //   db.persistent                        // false for the memory fallback
 //
@@ -105,11 +105,15 @@ function wrap(db) {
       if (!operations.length) return;
       const t = db.transaction([...new Set(operations.map((op) => op.store))], 'readwrite');
       const completed = done(t);
+      let failure;
       try {
         for (const op of operations) {
           const s = t.objectStore(op.store);
           if (op.type === 'put') s.put(op.value, op.key);
-          else if (op.type === 'delete') s.delete(op.key);
+          else if (op.type === 'add') {
+            const request = s.add(op.value, op.key);
+            request.onerror = () => { failure ||= request.error; };
+          } else if (op.type === 'delete') s.delete(op.key);
           else throw new TypeError(`Unknown storage operation: ${op.type}`);
         }
       } catch (err) {
@@ -118,7 +122,7 @@ function wrap(db) {
         await completed.catch(() => {});
         throw err;
       }
-      await completed;
+      await completed.catch((err) => { throw failure || err; });
     },
     async all(store) {
       const s = tx(store, 'readonly');
@@ -156,11 +160,21 @@ export function memoryDB() {
     async batch(operations) {
       // Validate and clone everything before changing any store.
       const prepared = operations.map((op) => {
-        if (op.type !== 'put' && op.type !== 'delete') throw new TypeError(`Unknown storage operation: ${op.type}`);
-        return { ...op, value: op.type === 'put' ? clone(op.value) : null };
+        if (op.type !== 'put' && op.type !== 'add' && op.type !== 'delete') throw new TypeError(`Unknown storage operation: ${op.type}`);
+        return { ...op, value: op.type !== 'delete' ? clone(op.value) : null };
       });
+      if (prepared.some((op) => op.type === 'add')) {
+        const occupied = new Map();
+        for (const op of prepared) {
+          if (!occupied.has(op.store)) occupied.set(op.store, new Map());
+          const keys = occupied.get(op.store);
+          const exists = keys.has(op.key) ? keys.get(op.key) : get(op.store).has(op.key);
+          if (op.type === 'add' && exists) throw new DOMException('That storage key is already in use.', 'ConstraintError');
+          keys.set(op.key, op.type !== 'delete');
+        }
+      }
       for (const op of prepared) {
-        if (op.type === 'put') get(op.store).set(op.key, op.value);
+        if (op.type !== 'delete') get(op.store).set(op.key, op.value);
         else get(op.store).delete(op.key);
       }
     },

@@ -45,7 +45,7 @@ describe('save as after switching projects', () => {
     release('Copy');
     expect(await pending).toBe(true);
     expect(app.store.project).toMatchObject({ name: 'Copy', bpm: 99 });
-    expect(save).toHaveBeenCalledWith(expect.any(String), 'Copy');
+    expect(save).toHaveBeenCalledWith(undefined, 'Copy');
   });
 });
 

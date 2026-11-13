@@ -19,7 +19,7 @@ import { readMidi, isMidi, writeMidi } from '../io/midi.js';
 import { importMidi, projectToMidi } from '../io/midi-project.js';
 import { downloadBlob, chooseFiles, safeFileName, stripExtension } from '../io/download.js';
 import { AUDIO_EXTENSIONS, isAudioName } from '../io/wav.js';
-import { uid, reserveId } from '../lib/util.js';
+import { reserveId } from '../lib/util.js';
 import { h } from '../lib/dom.js';
 import { openDialog, confirmDialog, promptDialog } from '../ui/dialog.js';
 
@@ -248,7 +248,7 @@ export class ProjectFiles {
     if (auto) return false;
     // A first save of a project nobody has named yet asks for a name.
     if (!file?.local && this.store.project.name === 'Untitled') return this.saveAs();
-    return this.saveLocalProject(file?.local || uid(), file?.name || this.store.project.name);
+    return this.saveLocalProject(file?.local, file?.name || this.store.project.name);
   }
 
   /** File > Save as: asks for a name and saves a new copy. */
@@ -282,7 +282,7 @@ export class ProjectFiles {
     while (this.app.saving) await this.whenIdle();
     if (this.loads !== loads) return false;
     this.renameProject(clean);
-    return cloud ? this.saveCloudTo(path) : this.saveLocalProject(uid(), clean);
+    return cloud ? this.saveCloudTo(path) : this.saveLocalProject(undefined, clean);
   }
 
   renameProject(name) {
@@ -325,6 +325,7 @@ export class ProjectFiles {
     const loads = this.loads;
     try {
       const saved = await this.lib.saveLocal(snapshot, view, { key, name });
+      key = saved?.key ?? key;
       this.addRecent({ local: key, name });
       if (this.loads === loads) {
         if (this.store.project === snapshot) {

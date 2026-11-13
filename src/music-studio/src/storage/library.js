@@ -17,7 +17,7 @@ import { serializeProject, parseProject } from '../model/serialize.js';
 import { decodeAudio } from '../audio/samples.js';
 import { audioExtension } from '../io/wav.js';
 import { safeFileName } from '../io/download.js';
-import { uid } from '../lib/util.js';
+import { uid, reserveId } from '../lib/util.js';
 import { FILE_EXT } from '../model/project.js';
 
 /** Largest audio file accepted for import. */
@@ -62,14 +62,24 @@ export class Library {
     return (await db.all('projects')).map(([, v]) => v).filter(Boolean).sort((a, b) => b.modified - a.modified);
   }
 
-  async saveLocal(project, view, { key = uid(), name = project.name } = {}) {
+  /** An omitted key creates a new copy; an explicit key updates that project. */
+  async saveLocal(project, view, { key, name = project.name } = {}) {
     const db = await this.db();
     const json = serializeProject(project, view);
-    await db.batch([
-      { type: 'put', store: 'projectData', key, value: json },
-      { type: 'put', store: 'projects', key, value: { key, name, modified: this.now(), size: json.length } },
-    ]);
-    return { key, name, persistent: db.persistent !== false };
+    const create = key === undefined, used = new Set();
+    const type = create ? 'add' : 'put';
+    for (;;) {
+      if (create) key = reserveId(used);
+      try {
+        await db.batch([
+          { type, store: 'projectData', key, value: json },
+          { type, store: 'projects', key, value: { key, name, modified: this.now(), size: json.length } },
+        ]);
+        return { key, name, persistent: db.persistent !== false };
+      } catch (err) {
+        if (!create || err?.name !== 'ConstraintError') throw err;
+      }
+    }
   }
 
   async loadLocal(key) {
