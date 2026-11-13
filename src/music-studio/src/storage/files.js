@@ -461,14 +461,15 @@ export class ProjectFiles {
     }
     const insert = freeInsert(p);
     const ch = createChannel({ type: as === 'audio' ? 'audio' : 'sampler', name: label, sample: id, color: colorAt(p.channels.length), mixer: insert });
-    this.store.apply(`Import ${label}`, (proj) => {
+    const added = this.store.apply(`Import ${label}`, (proj) => {
       let next = E.addSample(proj, ref).project;
-      next = E.addChannel(next, ch);
+      const result = E.addChannel(next, ch);
+      next = result.project;
       if (insert > 0) next = E.updateMixerTrack(next, insert, { name: ch.name, color: ch.color });
-      return next;
+      return { project: next, id: result.id };
     });
-    this.store.selectChannels([ch.id]);
-    return { sampleId: id, channelId: ch.id, duration };
+    this.store.selectChannels([added.id]);
+    return { sampleId: id, channelId: added.id, duration };
   }
 
   /** Imports an audio file already in Puter (the browser's My files). */

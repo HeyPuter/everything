@@ -5,15 +5,22 @@ import { createProject, createChannel, createNote, createPattern, COLORS } from 
 import { drumPreset, synthPreset, STARTER_KIT } from '../instruments/presets.js';
 import { createSlot } from './project.js';
 import { STEP, PPQ } from './time.js';
-import { uid } from '../lib/util.js';
+import { uid, reserveId } from '../lib/util.js';
 import { uniqueNoteIds } from './note-ids.js';
 
 const drum = (preset, color, mixer) => createChannel({ type: 'drum', name: preset, color, params: drumPreset(preset).params, mixer });
 const synth = (preset, name, color, mixer) => createChannel({ type: 'synth', name, color, params: synthPreset(preset).params, mixer });
 
+// Reserve freshly created channels before their IDs become note references.
+function uniqueChannels(channels) {
+  const used = new Set();
+  for (const ch of channels) ch.id = reserveId(used, ch.id);
+  return channels;
+}
+
 /** A new project: the starter drum kit on inserts 1..4 and an empty pattern. */
 export function newProject(name = 'Untitled') {
-  const channels = STARTER_KIT.map((k, i) => drum(k.preset, k.color, i + 1));
+  const channels = uniqueChannels(STARTER_KIT.map((k, i) => drum(k.preset, k.color, i + 1)));
   const p = createProject({ name, channels });
   p.mixer = p.mixer.map((t, i) => (i >= 1 && i <= channels.length ? { ...t, name: channels[i - 1].name, color: channels[i - 1].color } : t));
   return p;
@@ -33,7 +40,7 @@ export function demoProject() {
   const bass = synth('Acid Bass', 'Bass', COLORS[5], 4);
   const chords = synth('Warm Pad', 'Chords', COLORS[7], 5);
   const lead = synth('Pluck', 'Lead', COLORS[9], 6);
-  const channels = [kick, clap, hat, ohat, bass, chords, lead];
+  const channels = uniqueChannels([kick, clap, hat, ohat, bass, chords, lead]);
   const p = createProject({ name: 'Demo Song', channels });
   p.bpm = 124;
 

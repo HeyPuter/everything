@@ -135,7 +135,7 @@ describe('free mixer inserts', () => {
     p = E.updateMixerTrack(p, first + 2, { fx: [{ id: 'x', type: 'reverb', on: true, mix: 1, params: {} }] });
     // `first` stays free (it only sends), the bus and the insert with effects are skipped.
     expect(freeInsert(p)).toBe(first);
-    p = E.addChannel(p, createChannel({ mixer: first }), p.channels.length);
+    p = E.addChannel(p, createChannel({ mixer: first }), p.channels.length).project;
     expect(freeInsert(p)).toBe(first + 3);
   });
 });

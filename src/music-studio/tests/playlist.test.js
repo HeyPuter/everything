@@ -24,7 +24,7 @@ describe('sources and placement', () => {
     let r = E.addSample(p, { id: 's1', duration: 2 });
     p = { ...r.project, bpm: 120 };
     const ch = createChannel({ type: 'audio', name: 'Vox', sample: 's1' });
-    p = E.addChannel(p, ch);
+    p = E.addChannel(p, ch).project;
     expect(C.sourceLength(p, { kind: 'audio', id: ch.id })).toBe(PPQ * 4);
     expect(C.sourceLength(p, { kind: 'audio', id: ch.id }, { s1: 1 })).toBe(PPQ * 2);
     r = E.addAutomation(p, { points: [{ t: 0, v: 0 }, { t: BAR * 2, v: 1 }] });

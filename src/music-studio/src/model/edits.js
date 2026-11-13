@@ -46,10 +46,12 @@ export function setProjectProps(project, changes) {
 
 // ------------------------------------------------------------------ channels
 
+/** Inserts a channel and returns { project, id }; callers must use the reserved ID. */
 export function addChannel(project, channel = createChannel(), index = project.channels.length) {
+  const id = reserveId(new Set(project.channels.map((c) => c.id)), channel.id);
   const channels = project.channels.slice();
-  channels.splice(clamp(index, 0, channels.length), 0, channel);
-  return { ...project, channels };
+  channels.splice(clamp(index, 0, channels.length), 0, id === channel.id ? channel : { ...channel, id });
+  return { project: { ...project, channels }, id };
 }
 
 export function updateChannel(project, id, changes) {
@@ -92,18 +94,18 @@ export function cloneChannel(project, id, { withNotes = false } = {}) {
   if (i < 0) return { project, id: null };
   const src = project.channels[i];
   const copy = { ...structuredClone(src), id: uid(), name: cloneName(src.name), solo: false };
-  let next = addChannel(project, copy, i + 1);
+  let { project: next, id: copyId } = addChannel(project, copy, i + 1);
   if (withNotes) {
     next = {
       ...next,
       patterns: next.patterns.map((p) => {
         if (!p.notes[id]) return p;
         const nextId = noteIdGenerator(p.notes[id]);
-        return { ...p, notes: { ...p.notes, [copy.id]: p.notes[id].map((n) => ({ ...n, id: nextId() })) } };
+        return { ...p, notes: { ...p.notes, [copyId]: p.notes[id].map((n) => ({ ...n, id: nextId() })) } };
       }),
     };
   }
-  return { project: next, id: copy.id };
+  return { project: next, id: copyId };
 }
 
 /** Solo toggle the way the rack does it: solo this one alone, or clear solo when it already is. */

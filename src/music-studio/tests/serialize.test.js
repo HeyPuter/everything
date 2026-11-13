@@ -65,7 +65,7 @@ describe('project files', () => {
     let read;
     if (kind === 'channels') {
       p.channels = Array.from({ length: 512 }, () => createChannel());
-      p = E.addChannel(p, createChannel({ name: 'Keep this channel' }));
+      p = E.addChannel(p, createChannel({ name: 'Keep this channel' })).project;
       read = (project) => project.channels;
     } else if (kind === 'patterns') {
       p.patterns = Array.from({ length: 999 }, (_, i) => createPattern(i));

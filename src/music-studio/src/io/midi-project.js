@@ -95,9 +95,11 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
   const addChannel = (ch) => {
     const insert = nextInsert();
     ch.mixer = insert;
-    p = E.addChannel(p, ch);
+    const result = E.addChannel(p, ch);
+    p = result.project;
     if (insert > 0) p = E.updateMixerTrack(p, insert, { name: ch.name, color: ch.color });
-    channelIds.push(ch.id);
+    channelIds.push(result.id);
+    return result.id;
   };
   const addPattern = (pname, color, notesByChannel) => {
     const pat = { ...createPattern(p.patterns.length, pname.slice(0, 60)), color, notes: notesByChannel };
@@ -119,8 +121,8 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     const color = colorAt(colorIndex++);
     const label = part.name || `${name} ${partNo}`;
     const ch = createChannel({ type: 'synth', name: label.slice(0, 60), color, params: synthPreset(preset).params });
-    addChannel(ch);
-    addPattern(label, color, { [ch.id]: part.notes.map((n) => note(n)).sort((a, b) => a.pos - b.pos || a.key - b.key) });
+    const id = addChannel(ch);
+    addPattern(label, color, { [id]: part.notes.map((n) => note(n)).sort((a, b) => a.pos - b.pos || a.key - b.key) });
   }
 
   // Percussion: one drum channel per kind, one pattern for the kit.
@@ -136,9 +138,9 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     for (const kind of [...byKind.keys()].sort((a, b) => a - b)) {
       const preset = drumPreset(DRUM_PRESET_FOR_KIND[kind]);
       const ch = createChannel({ type: 'drum', name: preset.name, color: colorAt(colorIndex++), params: preset.params });
-      addChannel(ch);
+      const id = addChannel(ch);
       // Toms follow the key (key_track), so keep their pitch; other drums sit on the channel's root.
-      notes[ch.id] = byKind.get(kind).map((n) => note(n, kind === 5 ? Math.min(127, n.key + 15) : ch.root)).sort((a, b) => a.pos - b.pos || a.key - b.key);
+      notes[id] = byKind.get(kind).map((n) => note(n, kind === 5 ? Math.min(127, n.key + 15) : ch.root)).sort((a, b) => a.pos - b.pos || a.key - b.key);
     }
     addPattern('Drums', colorAt(0), notes);
   }

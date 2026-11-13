@@ -113,14 +113,15 @@ export class App extends Emitter {
     const p = this.store.project;
     const insert = freeInsert(p);
     const ch = createChannel({ type, name, params, sample, color: colorAt(p.channels.length), mixer: insert });
-    this.store.apply(`Add ${name || 'channel'}`, (proj) => {
-      let next = E.addChannel(proj, ch, index ?? proj.channels.length);
+    const added = this.store.apply(`Add ${name || 'channel'}`, (proj) => {
+      const result = E.addChannel(proj, ch, index ?? proj.channels.length);
+      let next = result.project;
       if (insert > 0) next = E.updateMixerTrack(next, insert, { name: ch.name, color: ch.color });
-      return next;
+      return { project: next, id: result.id };
     });
-    if (select) this.store.selectChannels([ch.id]);
+    if (select) this.store.selectChannels([added.id]);
     this.notify(`Added ${ch.name}`);
-    return ch.id;
+    return added.id;
   }
 
   /** Replaces the project after asking about unsaved changes. `make` builds the new project. */
