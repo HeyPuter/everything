@@ -49,6 +49,8 @@ function cancellable(p) {
 }
 
 export class FileService {
+  #saveStates = new WeakMap();
+
   constructor(app, { recent, recovery = null, handles = handleStore } = {}) {
     this.app = app;
     this.recent = recent;
@@ -155,23 +157,26 @@ export class FileService {
   /** Save in place (Save As when the document has no file yet). Resolves true when saved. */
   save(editor = this.app.editor) {
     if (!editor) return Promise.resolve(false);
-    if (editor._saving) {
+    const doc = editor.doc;
+    let state = this.#saveStates.get(doc);
+    if (!state) this.#saveStates.set(doc, (state = { saving: null, again: null }));
+    if (state.saving) {
       // A save is still writing: once it lands, save again if the document changed meanwhile,
       // so Save (or Close > Save) never reports success for edits that were not written.
-      if (!editor._saveAgain) {
-        const again = editor._saving
-          .then((ok) => (ok && editor.doc.dirty ? this.save(editor) : ok))
+      if (!state.again) {
+        const again = state.saving
+          .then((ok) => (ok && doc.dirty ? this.save(editor) : ok))
           .finally(() => {
-            if (editor._saveAgain === again) editor._saveAgain = null;
+            if (state.again === again) state.again = null;
           });
-        editor._saveAgain = again;
+        state.again = again;
       }
-      return editor._saveAgain;
+      return state.again;
     }
     const job = this.#save(editor).finally(() => {
-      editor._saving = null;
+      state.saving = null;
     });
-    editor._saving = job;
+    state.saving = job;
     return job;
   }
 
