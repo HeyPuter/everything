@@ -74,7 +74,8 @@ export function demoProject() {
   for (const pattern of p.patterns) pattern.id = reserveId(patternIds, pattern.id);
 
   const bar = PPQ * 4;
-  const clip = (track, ref, start, len) => ({ id: uid(), kind: 'pattern', track, start: start * bar, len: len * bar, offset: 0, ref, mute: false });
+  const clipIds = new Set();
+  const clip = (track, ref, start, len) => ({ id: reserveId(clipIds, uid()), kind: 'pattern', track, start: start * bar, len: len * bar, offset: 0, ref, mute: false });
   p.clips = [
     clip(0, beat.id, 0, 1), clip(0, beat.id, 1, 1), clip(0, beat.id, 2, 1), clip(0, beat.id, 3, 1), clip(0, beat.id, 4, 1), clip(0, beat.id, 5, 1), clip(0, beat.id, 6, 1), clip(0, beat.id, 7, 1),
     clip(1, bassLine.id, 0, 4), clip(1, bassLine.id, 4, 4),

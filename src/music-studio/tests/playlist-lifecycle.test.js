@@ -7,6 +7,8 @@ import * as E from '../src/model/edits.js';
 import { App } from '../src/app.js';
 import { Commands } from '../src/commands/registry.js';
 import { registerCoreCommands } from '../src/commands/core.js';
+import { demoProject } from '../src/model/demo.js';
+import * as U from '../src/lib/util.js';
 
 vi.mock('../src/render/gfx.js', () => ({ createGfx: () => ({ canvas: document.createElement('canvas'), overlay: document.createElement('canvas'), frame: vi.fn(), resize: vi.fn() }) }));
 const keyboardListeners = [];
@@ -538,5 +540,37 @@ it.each(['rename', 'drag', 'delete'])('keeps a newly added marker independent du
   store.undo(); expect(store.project).toBe(afterAdd);
   store.undo(); expect(store.project).toBe(original);
   store.redo(); store.redo(); expect(store.project).toBe(edited);
+  panel.onHide();
+});
+
+
+it.each(['delete', 'drag'])('edits only the chosen demo clip during %s after generated IDs collide', (action) => {
+  const { store, pointer, view, body, panel } = setup();
+  pointer('pointerup');
+  const expected = demoProject();
+  let allocations = 0;
+  vi.spyOn(U, 'uid').mockImplementation(() => `test-${Math.floor(allocations++ / 2)}`);
+  const project = demoProject();
+  const arrangement = (p) => p.clips.map(({ id, ref, ...c }) => ({ ...c, source: p.patterns.find((pat) => pat.id === ref)?.name }));
+  const music = (p) => p.patterns.map((pat) => ({ name: pat.name, notes: Object.values(pat.notes).map((list) => list.map(({ id, ...n }) => n)) }));
+  expect(arrangement(project)).toEqual(arrangement(expected));
+  expect(music(project)).toEqual(music(expected));
+  store.load(project);
+  const clip = project.clips[1];
+  view.selectClips([clip.id], { announce: false });
+  if (action === 'delete') {
+    panel.actions.delete();
+    expect(store.project.clips).toEqual(project.clips.filter((c) => c !== clip));
+  } else {
+    const surface = body.querySelector('.pl-scroller');
+    const x = view.vp.x(clip.start + clip.len / 2);
+    const send = (type, dx) => surface.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: 28, button: 0, altKey: true, bubbles: true }));
+    send('pointerdown', 0); send('pointermove', 24); send('pointerup', 24);
+    expect(store.project.clips.map((c) => c.start)).toEqual(project.clips.map((c) => c.start + (c === clip ? 48 : 0)));
+  }
+  expect(new Set(project.clips.map((c) => c.id)).size).toBe(project.clips.length);
+  const edited = store.project;
+  store.undo(); expect(store.project).toBe(project);
+  store.redo(); expect(store.project).toBe(edited);
   panel.onHide();
 });
