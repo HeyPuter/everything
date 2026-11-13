@@ -342,10 +342,10 @@ export function installTaskbar(app) {
 
   let frame = 0;
   const schedule = () => {
-    if (frame) return;
+    if (frame || !bar.isConnected) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      refresh();
+      if (bar.isConnected) refresh();
     });
   };
 
@@ -388,16 +388,23 @@ export function installTaskbar(app) {
     suppressed = true;
     if (!bar.contains(document.activeElement)) bar.hidden = true;
   }, true);
-  window.addEventListener('pointerup', () => {
+  const finishInteraction = () => {
     if (!suppressed) return;
     suppressed = false;
     clearTimeout(settleTimer);
     settleTimer = setTimeout(schedule, 60);
-  });
+  };
+  window.addEventListener('pointerup', finishInteraction);
+  window.addEventListener('pointercancel', finishInteraction);
   app.canvasHost.addEventListener('wheel', onView, { passive: true });
 
   let unsubs = [];
   const attach = () => {
+    // A new active document must not inherit the old view's settle callback or
+    // remain hidden because its pointer interaction ended during the switch.
+    clearTimeout(settleTimer);
+    settleTimer = 0;
+    suppressed = false;
     for (const u of unsubs) u();
     unsubs = [];
     const ed = app.editor;
