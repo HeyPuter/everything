@@ -49,3 +49,38 @@ it.each(['edit', 'replace'])('keeps every stem on the original project, pattern,
   }
   expect(downloadBlob).toHaveBeenCalledOnce();
 });
+
+it('closes stale export settings when another project replaces the one shown', async () => {
+  vi.stubGlobal('puter', undefined);
+  const store = new Store(demoProject());
+  const engine = new Engine(store);
+  const render = vi.spyOn(engine, 'render');
+  const app = { store, engine, prefs: { get: () => ({ rate: 48000, bits: 16, tail: false }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app, { stems: true });
+  try {
+    // A pending file-open can finish while this modal displays the old inserts.
+    store.load({ ...newProject(), channels: [] });
+    document.querySelector('.dlg-export .btn.primary')?.click();
+    await done;
+    expect(downloadBlob).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(document.querySelector('.dlg-export')).toBeNull();
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/different project/i));
+  } finally {
+    document.querySelector('.dlg-export [aria-label="Close"]')?.click();
+    await done;
+  }
+});
+
+it('keeps export settings open for ordinary edits and stops watching after cancellation', async () => {
+  vi.stubGlobal('puter', undefined);
+  const store = new Store(demoProject());
+  const app = { store, engine: new Engine(store), prefs: { get: () => ({ rate: 48000, bits: 16, tail: false }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app);
+  store.apply('Tempo', (p) => ({ ...p, bpm: 100 }));
+  expect(document.querySelector('.dlg-export')).not.toBeNull();
+  document.querySelector('.dlg-export [aria-label="Close"]').click();
+  await done;
+  store.load(newProject());
+  expect(app.notify).not.toHaveBeenCalled();
+});

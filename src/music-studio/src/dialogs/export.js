@@ -102,16 +102,24 @@ export async function openExportDialog(app, { stems = false } = {}) {
 
   let controller = null;
   let busy = false;
+  let replaced = false;
+  let closeDialog;
+  const closeReplaced = () => {
+    if (!body.isConnected) return;
+    closeDialog(null);
+    app.notify('Export closed because a different project was opened.');
+  };
   const dialogDone = openDialog({
     title: stems ? 'Export stems' : 'Export audio',
     className: 'dlg-export',
-    body,
+    body: (close) => { closeDialog = close; return body; },
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'Export', value: 'export', primary: true },
     ],
     onSubmit: async () => {
       if (busy) return false;
+      if (replaced) { closeReplaced(); return false; }
       busy = true;
       const exportBtn = body.closest('.dialog')?.querySelector('.btn.primary');
       if (exportBtn) exportBtn.disabled = true;
@@ -139,7 +147,15 @@ export async function openExportDialog(app, { stems = false } = {}) {
       }
     },
   });
+  const off = store.on('change', (_project, _previous, info) => {
+    if (info?.source !== 'load') return;
+    replaced = true;
+    // A running export already owns a snapshot. Only unsubmitted settings
+    // still refer to the mutable project and must be discarded on replacement.
+    if (!busy) closeReplaced();
+  });
   const result = await dialogDone;
+  off();
   // Closed (Cancel, Escape, close button) while rendering: stop the render.
   if (result === null && controller && !controller.signal.aborted) controller.abort();
 }
