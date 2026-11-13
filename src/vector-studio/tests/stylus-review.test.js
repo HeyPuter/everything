@@ -256,3 +256,59 @@ describe('draggable in the element builder', () => {
     expect(h('li', {}).hasAttribute('draggable')).toBe(false);
   });
 });
+
+describe('Artboards panel rows and a pen', () => {
+  async function setup() {
+    const { ArtboardsPanel } = await import('../src/features/artboards/artboards-panel.js');
+    const ed = app.newDocument({ name: 'Boards', width: 100, height: 100 });
+    ed.doc.transact('Boards', () =>
+      ed.doc.updateRoot({ artboards: ['A', 'B', 'C', 'D'].map((name, i) => ({ id: `ab${i}`, name, x: i * 120, y: 0, w: 100, h: 100 })) }),
+    );
+    const panel = new ArtboardsPanel(app);
+    document.body.append(panel.el);
+    panel.ensureBuilt();
+    panel.update();
+    const rows = () => [...panel.el.querySelectorAll('.ab-row')];
+    for (const [k, r] of rows().entries()) r.getBoundingClientRect = () => ({ top: k * 30, bottom: k * 30 + 30, height: 30, left: 0, right: 200, width: 200 });
+    const names = () => ed.doc.artboards.map((a) => a.name);
+    return { panel, rows, names, ed };
+  }
+  const fire = (target, type, y, extra = {}) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, buttons: 1, pointerId: 9, pointerType: 'pen', clientX: 10, clientY: y, ...extra }));
+
+  it('a drag the browser cancels to scroll the list moves nothing, then or at the next release', async () => {
+    const { rows, names } = await setup();
+    fire(rows()[0], 'pointerdown', 15);
+    fire(window, 'pointermove', 60);
+    fire(window, 'pointercancel', 60);
+    expect(names()).toEqual(['A', 'B', 'C', 'D']);
+    // A later tap elsewhere ends no drag.
+    fire(window, 'pointerdown', 400, { pointerId: 10 });
+    fire(window, 'pointerup', 95, { pointerId: 9 });
+    expect(names()).toEqual(['A', 'B', 'C', 'D']);
+    expect(document.querySelector('.ab-row.dragging')).toBe(null);
+  });
+
+  it('another pointer lifting does not drop the row being dragged', async () => {
+    const { rows, names } = await setup();
+    fire(rows()[0], 'pointerdown', 15);
+    fire(window, 'pointermove', 60);
+    fire(window, 'pointerup', 60, { pointerId: 11 });
+    fire(window, 'pointermove', 95);
+    fire(window, 'pointerup', 95);
+    expect(names()).toEqual(['B', 'C', 'A', 'D']);
+  });
+
+  it('a hovering pen makes rows drag instead of scrolling the list; a finger scrolls it', async () => {
+    const { panel } = await setup();
+    const list = panel.el.querySelector('.ab-list');
+    fire(list, 'pointermove', 20, { buttons: 0 });
+    expect(list.classList.contains('pen-direct')).toBe(true);
+    fire(list, 'pointerleave', 20, { buttons: 0 });
+    expect(list.classList.contains('pen-direct')).toBe(false);
+    fire(list, 'pointermove', 20, { buttons: 0 });
+    fire(list, 'pointermove', 20, { pointerType: 'touch', pointerId: 30 });
+    expect(list.classList.contains('pen-direct')).toBe(false);
+    const css = fs.readFileSync(path.resolve(__dirname, '../src/features/artboards/styles.css'), 'utf8');
+    expect(css).toMatch(/\.ab-list\.pen-direct \.ab-row \{\s*touch-action: none;/);
+  });
+});

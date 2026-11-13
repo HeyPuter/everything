@@ -20,6 +20,7 @@ import { h } from '../../lib/dom.js';
 import { Panel } from './panel.js';
 import { icon } from '../icons.js';
 import { iconButton } from '../widgets.js';
+import { trackPenHover } from '../pen-direct.js';
 import { defaultLabel } from '../../model/nodes.js';
 import { drawNode } from '../../render/draw.js';
 import { visualBounds } from '../../model/geometry.js';
@@ -171,22 +172,8 @@ export class LayersPanel extends Panel {
     const release = () => (this.pressed = false);
     window.addEventListener('pointerup', release, true);
     window.addEventListener('pointercancel', release, true);
-    // A pen hovering over the list drags rows right away: its rows stop panning (touch-action is
-    // read when the pen touches down, so it is set while the pen hovers and cleared when it leaves,
-    // which keeps finger scrolling).
-    this.penDirect = false;
-    const penMode = (on) => {
-      if (this.penDirect === on) return;
-      this.penDirect = on;
-      this.viewport.classList.toggle('pen-direct', on);
-    };
-    this.viewport.addEventListener('pointermove', (e) => {
-      if (e.pointerType !== 'pen') penMode(false);
-      else if (!e.buttons) penMode(true);
-    });
-    this.viewport.addEventListener('pointerleave', (e) => {
-      if (!this.drag || e.pointerType !== 'pen') penMode(false);
-    });
+    // A pen hovering over the list drags rows right away; a finger scrolls the list.
+    this.penHovering = trackPenHover(this.viewport, { holding: () => Boolean(this.drag) });
     // Once a held row is picked up, the finger moves the row instead of scrolling the list.
     this.viewport.addEventListener('touchmove', (e) => this.drag?.active && e.cancelable && e.preventDefault(), { passive: false });
     // A long press must not also open a context menu over the row being dragged.
@@ -486,7 +473,7 @@ export class LayersPanel extends Panel {
   /** A press on a row: the start of a drag once the pointer moves (mouse, hovering pen) or holds still (finger). */
   #dragPress(e, n) {
     if (this.drag || e.button > 0 || e.isPrimary === false || e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
-    const direct = e.pointerType === 'mouse' || !e.pointerType || (e.pointerType === 'pen' && this.penDirect);
+    const direct = e.pointerType === 'mouse' || !e.pointerType || (e.pointerType === 'pen' && this.penHovering());
     const d = { pointerId: e.pointerId, id: n.id, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, direct, timer: 0, frame: 0 };
     this.drag = d;
     if (!direct) d.timer = setTimeout(() => this.drag === d && this.#dragBegin(d), HOLD_MS);
