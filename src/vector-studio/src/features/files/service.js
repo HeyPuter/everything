@@ -785,8 +785,8 @@ export class FileService {
       this.app.notify('Revert cancelled because the document changed while its saved file was loading. Run Revert again to discard those changes.', { polite: true });
       return false;
     }
-    // Every window showing the document shows the saved one (none keeps the discarded changes to
-    // save over the file later); the window reverted from is replaced last, so it stays active.
+    // Every window shows the saved document. Only the window active now is activated
+    // when replaced: the user may have switched windows or documents during the read.
     const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
     for (const o of others) await this.replaceDocument(o, parsed.doc, f);
     const ed = await this.replaceDocument(editor, parsed.doc, f);
@@ -798,6 +798,7 @@ export class FileService {
   async replaceDocument(old, doc, file) {
     const app = this.app;
     const index = app.editors.indexOf(old);
+    const active = app.editor === old;
     const view = { zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, rotation: old.view.rotation };
     const floating = app.floating?.has(old);
     const style = app.views.get(old)?.host.style;
@@ -809,8 +810,10 @@ export class FileService {
     if (floating) app.floating.add(ed);
     app.editors.splice(app.editors.indexOf(ed), 1);
     app.editors.splice(index, 0, ed);
+    if (app.views.has(old)) app.ensureView(ed);
+    if (app.lastDocked === old) app.lastDocked = ed;
     await app.closeDocument(old, { force: true });
-    app.activate(ed);
+    if (active) app.activate(ed);
     if (frame) {
       const canvasView = app.views.get(ed);
       Object.assign(canvasView.host.style, frame);

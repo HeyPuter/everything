@@ -353,6 +353,18 @@ export class App extends Emitter {
     this.input?.reset();
   }
 
+  /** Create a document's canvas without changing the active editor or its interaction. */
+  ensureView(editor) {
+    let view = this.views.get(editor);
+    if (!view) {
+      const host = h('div.view-host', { hidden: editor !== this.editor });
+      this.canvasHost.append(host);
+      view = new CanvasView(host, editor, { theme: this.prefs.get('theme') });
+      this.views.set(editor, view);
+    }
+    return view;
+  }
+
   activate(editor) {
     // activate(null) after the last tab closed must still show the home screen.
     if (this.editor === editor && editor) return;
@@ -363,13 +375,7 @@ export class App extends Emitter {
     this.editor = editor;
     if (editor) {
       editor.doc.selection = editor.selectionBinding;
-      let view = this.views.get(editor);
-      if (!view) {
-        const host = h('div.view-host');
-        this.canvasHost.append(host);
-        view = new CanvasView(host, editor, { theme: this.prefs.get('theme') });
-        this.views.set(editor, view);
-      }
+      const view = this.ensureView(editor);
       view.host.hidden = false;
       view.resize();
       view.invalidate();
