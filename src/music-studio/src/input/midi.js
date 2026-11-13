@@ -22,6 +22,7 @@ export class MidiInput {
     this.app = app;
     this.live = live;
     this.access = null;
+    this.request = 0;
     this.sources = new Map(); // device/channel -> held keys and pedal state
     this.onMessage = (e) => this.handle(e.data, e.target?.id);
     this.onState = (e) => {
@@ -45,13 +46,17 @@ export class MidiInput {
   /** Requests access and listens to every input. Resolves true on success. */
   async enable({ quiet = false } = {}) {
     if (this.access) return true;
+    const request = ++this.request;
     if (!this.supported) {
       if (!quiet) this.app.notify?.('MIDI input is not supported in this browser. Try a Chromium-based browser or Firefox.', { error: true });
       return false;
     }
     try {
-      this.access = await navigator.requestMIDIAccess({ sysex: false });
+      const access = await navigator.requestMIDIAccess({ sysex: false });
+      if (request !== this.request) return false;
+      this.access = access;
     } catch {
+      if (request !== this.request) return false;
       if (!quiet) this.app.notify?.('MIDI access was not allowed. Allow MIDI devices for this site in the browser settings to use a MIDI keyboard.', { error: true });
       return false;
     }
@@ -63,6 +68,7 @@ export class MidiInput {
   }
 
   disable() {
+    this.request++;
     if (!this.access) return;
     for (const input of this.access.inputs.values()) input.onmidimessage = null;
     this.access.onstatechange = null;

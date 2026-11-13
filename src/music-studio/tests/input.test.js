@@ -3,6 +3,7 @@ import { keyForCode, octaveRange, clampOctave, LOWER_ROW, UPPER_ROW, BASE_KEY } 
 import { TypingKeyboard } from '../src/input/typing.js';
 import { LiveInput } from '../src/input/live.js';
 import { parseMidi, MidiInput } from '../src/input/midi.js';
+import { install as installInput } from '../src/input/index.js';
 import { msToTicks, patternTick, recordedNote, clipAt, Recorder } from '../src/input/recorder.js';
 import { Store } from '../src/model/store.js';
 import { Emitter } from '../src/lib/emitter.js';
@@ -107,6 +108,31 @@ describe('typing keyboard map', () => {
 });
 
 describe('MIDI input', () => {
+  it('keeps a newer toggle enabled when a canceled startup request completes', async () => {
+    const app = fakeApp();
+    app.prefs.set('midiInput', true);
+    const commands = [];
+    app.commands = { register: (...items) => commands.push(...items) };
+    let finishStartup;
+    const startup = new Promise((resolve) => { finishStartup = resolve; });
+    const current = { inputs: new Map(), onstatechange: null };
+    vi.stubGlobal('navigator', { requestMIDIAccess: vi.fn().mockReturnValueOnce(startup).mockResolvedValueOnce(current) });
+    try {
+      const { midi } = installInput(app);
+      const toggle = commands.find((c) => c.id === 'options.midiInput');
+      await toggle.run(); // off while startup is pending
+      await toggle.run(); // on with a new request
+      finishStartup({ inputs: new Map(), onstatechange: null });
+      await startup;
+      await Promise.resolve();
+      expect(app.prefs.get('midiInput')).toBe(true);
+      expect(midi.access).toBe(current);
+      midi.disable();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('releases only the disconnected device and clears its sustain state', () => {
     const app = fakeApp();
     const live = new LiveInput(app, null);
