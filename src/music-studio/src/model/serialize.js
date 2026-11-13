@@ -168,7 +168,7 @@ export function parseProject(input) {
   }
 
   const trackId = uniqueId(new Set());
-  const trackCount = Math.max(16, Array.isArray(data.tracks) ? Math.min(data.tracks.length, 500) : 0);
+  const trackCount = Array.isArray(data.tracks) && data.tracks.length ? Math.min(data.tracks.length, 500) : 16;
   const tracks = Array.from({ length: trackCount }, (_, i) => {
     const t = data.tracks?.[i];
     const base = createTrack(i);

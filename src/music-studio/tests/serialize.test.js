@@ -5,7 +5,7 @@ import { serializeProject, parseProject, KIND } from '../src/model/serialize.js'
 import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
 import { createSlot } from '../src/model/project.js';
-import { addMarker } from '../src/playlist/clips.js';
+import { addMarker, deleteTrack } from '../src/playlist/clips.js';
 import { resolveTarget } from '../src/automation/targets.js';
 import { compileAutomation } from '../src/engine/compile.js';
 
@@ -26,6 +26,15 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it.each([1, 15])('preserves a playlist reduced to %i tracks after reopening', (count) => {
+    let p = richProject();
+    while (p.tracks.length > count) p = deleteTrack(p, p.tracks.length - 1);
+    const back = parseProject(serializeProject(p));
+    expect(back.tracks).toHaveLength(count);
+    expect(back.tracks).toEqual(p.tracks);
+    expect(back.clips).toEqual(p.clips);
+  });
+
   it('preserves effect automation addressed by slot index across save and load', () => {
     let p = richProject();
     const added = E.addAutomation(p, { name: 'Delay wet', target: { kind: 'fx', track: 2, slot: 0, param: 'wet' }, points: [{ t: 0, v: 0.2 }, { t: 96, v: 0.8 }] });
