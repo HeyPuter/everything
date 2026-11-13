@@ -203,9 +203,18 @@ export class WindowManager {
     const name = siblings.length > 1 ? `${s.doc.name} : ${siblings.indexOf(v) + 1}` : s.doc.name;
     const meta = `(${mode}/${s.doc.bitsPerChannel ?? 8}${badges.map((b) => `, ${escapeXML(b)}`).join('')})`;
     const label = `${escapeXML(name)} @ ${Math.round(v.zoom * 100)}% ${meta}`;
-    const dirty = s.dirty || (active && e.transform.changed);
+    const dirty = s.dirty || s.hasPendingEdits || e.hasPendingChanges(s);
     const shown = !this.multi ? active : this.visible.includes(v);
     return `<div class="document-tab ${shown ? 'active' : ''} ${active ? 'focused' : ''}" role="tab" aria-selected="${shown}" data-session="${s.id}" data-view="${v.id}" tabindex="${active ? 0 : -1}" title="${label}">${svg('image', 13)}<span ${active ? 'id="document-name"' : ''} class="tab-name">${escapeXML(s.doc.name)}</span>${siblings.length > 1 ? `<span class="tab-window">:${siblings.indexOf(v) + 1}</span>` : ''}<span class="tab-meta" ${active ? 'id="tab-zoom"' : ''}>@ ${Math.round(v.zoom * 100)}%</span><span class="document-mode">${meta}</span><span ${active ? 'id="dirty"' : ''} class="dirty-dot" aria-label="Unsaved changes" ${dirty ? '' : 'hidden'}>*</span><button class="tab-close" data-close-view="${v.id}" aria-label="Close ${label}" title="Close">${svg('x', 12)}</button></div>`;
+  }
+  /** Update only the marker: previews must not replace focused tab controls. */
+  updateDirtyIndicators(s: DocumentSession = this.e.session) {
+    const dirty = s.dirty || s.hasPendingEdits || this.e.hasPendingChanges(s);
+    for (const tab of this.e.root.querySelectorAll<HTMLElement>('.document-tab')) {
+      if (tab.dataset.session !== s.id) continue;
+      const marker = tab.querySelector<HTMLElement>('.dirty-dot');
+      if (marker && marker.hidden === dirty) marker.hidden = !dirty;
+    }
   }
   renderTabs() {
     const e = this.e;

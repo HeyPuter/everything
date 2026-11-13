@@ -109,9 +109,11 @@ export class FreeTransform {
     return !!this.session;
   }
   get changed() {
-    return (
-      !!this.session && JSON.stringify(this.session.before) !== JSON.stringify(this.session.draft)
-    );
+    if (!this.session) return false;
+    const { before, draft } = this.session;
+    // Preview indicators query this each frame. Most edits differ in geometry;
+    // avoid serializing pixel maps, masks and unrelated layers in that case.
+    return geometryChanged(before.layers, draft.layers) || JSON.stringify(before) !== JSON.stringify(draft);
   }
   get dragging() {
     return !!this.drag || !!this.floatMove || this.pending.length > 0;
@@ -737,4 +739,15 @@ export class FreeTransform {
     html += `<line class="transform-frame" x1="${top[0]}" y1="${top[1]}" x2="${rx}" y2="${ry}" stroke-width="${1 / z}"/><g class="transform-handle handle-rotate" data-transform-handle="rotate"><circle class="handle-hit" cx="${rx}" cy="${ry}" r="${10 / z}"/><circle cx="${rx}" cy="${ry}" r="${4 / z}" stroke-width="${1 / z}"/></g>`;
     return html;
   }
+}
+
+/** A changed transform proves the document differs; other edits use the full comparison. */
+function geometryChanged(before: Layer[], after: Layer[]): boolean {
+  if (before.length !== after.length) return true;
+  for (let i = 0; i < before.length; i++) {
+    const a = before[i], b = after[i], t = a.transform, u = b.transform;
+    if (a.id !== b.id || t.x !== u.x || t.y !== u.y || t.width !== u.width || t.height !== u.height || t.rotation !== u.rotation
+      || geometryChanged(a.children, b.children)) return true;
+  }
+  return false;
 }

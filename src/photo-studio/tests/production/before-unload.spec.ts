@@ -78,7 +78,7 @@ for (const state of ['unchanged', 'preview', 'asset write', 'background asset wr
     await apply.click();
     await page.waitForFunction(() => !!(window as unknown as { finishUnloadAsset?: () => void }).finishUnloadAsset);
     await expect(apply).toHaveCount(0);
-    await expect(page.locator('#dirty')).toBeHidden();
+    await expect(page.locator('#dirty')).toBeVisible();
   }
   if (state === 'background asset write') {
     await page.locator('#file-input').setInputFiles(photoFile(newDocument(32, 24, 'Other'), [], 'other.photo'));

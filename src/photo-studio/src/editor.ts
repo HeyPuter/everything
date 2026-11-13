@@ -84,6 +84,7 @@ export class Editor {
   newSession(doc = newDocument()) {
     const s = new DocumentSession(doc);
     s.pendingEditsChanged = () => {
+      this.windows.updateDirtyIndicators(s);
       if (s === this.activeView?.session) this.dock?.update();
     };
     s.history.limit = this.preferences.historyStates;
@@ -588,6 +589,7 @@ export class Editor {
     this.renderFrame = requestAnimationFrame(() => {
       this.renderFrame = 0;
       const d = this.lastDoc;
+      this.windows.updateDirtyIndicators();
       if (d) void this.render(d).catch((e) => this.message(String(e)));
     });
   }
