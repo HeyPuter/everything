@@ -47,6 +47,7 @@ export async function autosaveVersions(e: Editor) {
 }
 
 function refresh(e: Editor) {
+  for (const u of listed?.urls ?? []) if (u) URL.revokeObjectURL(u);
   listed = undefined;
   e.dock?.update();
 }
