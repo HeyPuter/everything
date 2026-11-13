@@ -4,9 +4,10 @@ import { Engine } from '../src/engine/engine.js';
 import { Store } from '../src/model/store.js';
 import { demoProject, newProject } from '../src/model/demo.js';
 import { downloadBlob } from '../src/io/download.js';
+import * as puterApi from '../src/storage/puter.js';
 
 vi.mock('../src/io/download.js', async (original) => ({ ...await original(), downloadBlob: vi.fn() }));
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); document.body.replaceChildren(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.clearAllMocks(); document.body.replaceChildren(); });
 
 it.each(['edit', 'replace'])('keeps every stem on the original project, pattern, and samples after %s', async (change) => {
   const messages = [];
@@ -83,4 +84,29 @@ it('keeps export settings open for ordinary edits and stops watching after cance
   await done;
   store.load(newProject());
   expect(app.notify).not.toHaveBeenCalled();
+});
+
+it.each([true, false])('respects cancellation while resolving the cloud folder (canceled=%s)', async (cancel) => {
+  vi.spyOn(puterApi, 'isSignedIn').mockReturnValue(true);
+  let release;
+  const directory = new Promise((resolve) => { release = resolve; });
+  const folder = vi.spyOn(puterApi, 'appSubdir').mockReturnValue(directory);
+  const write = vi.spyOn(puterApi, 'writeNew').mockResolvedValue({ name: 'Demo Song.wav' });
+  const store = new Store(demoProject());
+  const engine = new Engine(store);
+  vi.spyOn(engine, 'render').mockResolvedValue({ channels: [new Float32Array(4), new Float32Array(4)], rate: 48000 });
+  const app = { store, engine, prefs: { get: () => ({ rate: 48000, bits: 16, tail: false, cloudCopy: true }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app);
+  document.querySelector('.dlg-export .btn.primary').click();
+  await vi.waitFor(() => expect(folder).toHaveBeenCalledOnce());
+  expect(downloadBlob).toHaveBeenCalledOnce();
+  if (cancel) {
+    document.querySelector('.dlg-export [aria-label="Close"]').click();
+    await done;
+  }
+  release('/Exports');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await done;
+  expect(write).toHaveBeenCalledTimes(cancel ? 0 : 1);
+  expect(app.notify).toHaveBeenCalledTimes(cancel ? 0 : 1);
 });

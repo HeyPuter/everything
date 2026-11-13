@@ -210,9 +210,12 @@ async function runExport(app, { mode, rate, bits, tail, stems, signal, cloudCopy
   if (cloudCopy && puter.isSignedIn()) {
     setStatus('Saving a copy to Puter...');
     try {
-      const item = await puter.writeNew(puter.joinPath(await puter.appSubdir('Exports'), filename), blob);
+      const directory = await puter.appSubdir('Exports');
+      if (signal.aborted) return true;
+      const item = await puter.writeNew(puter.joinPath(directory, filename), blob);
       app.notify(`Exported ${filename} (a copy is in Exports in your Puter cloud as ${item?.name || filename})`);
     } catch (err) {
+      if (signal.aborted) return true;
       app.notify(`Downloaded ${filename}, but the Puter copy failed: ${puter.errorMessage(err)}`, { error: true });
     }
   } else {
