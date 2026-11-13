@@ -156,6 +156,71 @@ struct Event {
     pan: f32,
 }
 
+/// Stable bounded-cost ordering for dense queues. Tiny queues keep their
+/// allocation-free insertion sort; large queues reuse one merge buffer.
+fn sort_events_by<F>(events: &mut [Event], scratch: &mut Vec<Event>, mut less: F)
+where
+    F: FnMut(&Event, &Event) -> bool,
+{
+    if events.len() <= 64 {
+        for i in 1..events.len() {
+            let mut j = i;
+            while j > 0 && less(&events[j], &events[j - 1]) {
+                events.swap(j - 1, j);
+                j -= 1;
+            }
+        }
+        return;
+    }
+    // Keep ordered and lightly edited queues cheap, but cap swaps so
+    // dense interleaved starts/releases cannot take quadratic time.
+    let mut budget = events.len() * 2;
+    'insertion: {
+        for i in 1..events.len() {
+            let mut j = i;
+            while j > 0 && less(&events[j], &events[j - 1]) {
+                if budget == 0 {
+                    break 'insertion;
+                }
+                events.swap(j - 1, j);
+                j -= 1;
+                budget -= 1;
+            }
+        }
+        return;
+    }
+    scratch.clear();
+    scratch.extend_from_slice(events);
+    let n = events.len();
+    let mut source = events;
+    let mut target = scratch.as_mut_slice();
+    let mut width = 1;
+    let mut in_scratch = false;
+    while width < n {
+        for start in (0..n).step_by(width * 2) {
+            let mid = (start + width).min(n);
+            let end = (mid + width).min(n);
+            let (mut left, mut right) = (start, mid);
+            for out in &mut target[start..end] {
+                // Prefer the left run on ties, preserving submission order.
+                if left < mid && (right == end || !less(&source[right], &source[left])) {
+                    *out = source[left];
+                    left += 1;
+                } else {
+                    *out = source[right];
+                    right += 1;
+                }
+            }
+        }
+        std::mem::swap(&mut source, &mut target);
+        in_scratch = !in_scratch;
+        width *= 2;
+    }
+    if in_scratch {
+        target.copy_from_slice(source);
+    }
+}
+
 const EV_OFF: u8 = 0;
 const EV_ALL_SOFT: u8 = 1;
 const EV_ALL_HARD: u8 = 2;
@@ -181,6 +246,7 @@ pub struct Engine {
     tracks: Vec<Box<Track>>,
     order: Vec<u32>,
     events: Vec<Event>,
+    event_scratch: Vec<Event>,
     start_max: Option<u32>,
     release_min: Option<u32>,
     note_releases: HashMap<u64, u32>,
@@ -205,6 +271,7 @@ impl Engine {
             tracks: Vec::with_capacity(32),
             order: Vec::with_capacity(32),
             events: Vec::with_capacity(4096),
+            event_scratch: Vec::new(),
             start_max: None,
             release_min: None,
             note_releases: HashMap::new(),
@@ -401,14 +468,9 @@ impl Engine {
             }
         }
         // Events in time order; at equal offsets note-offs come before note-ons.
-        let evs = &mut self.events;
-        for i in 1..evs.len() {
-            let mut j = i;
-            while j > 0 && (evs[j - 1].offset, evs[j - 1].kind) > (evs[j].offset, evs[j].kind) {
-                evs.swap(j - 1, j);
-                j -= 1;
-            }
-        }
+        sort_events_by(&mut self.events, &mut self.event_scratch, |a, b| {
+            (a.offset, a.kind) < (b.offset, b.kind)
+        });
         for ch in self.channels.iter_mut() {
             ch.live = ch.active();
         }
@@ -1049,4 +1111,72 @@ pub extern "C" fn track_count() -> u32 {
 #[no_mangle]
 pub extern "C" fn active_channels() -> u32 {
     eng().map(|e| e.active_voices()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod event_sort_tests {
+    use super::*;
+
+    fn event(id: u32, offset: u32, kind: u8) -> Event {
+        Event { id, offset, kind, slot: id % 4, key: (id % 128) as u8, vel: 0.5, pan: 0.0 }
+    }
+
+    #[test]
+    fn preserves_stable_order_across_run_sizes_and_full_offset_range() {
+        let mut scratch = Vec::new();
+        for n in [0u32, 1, 2, 31, 32, 33, 63, 64, 65, 127, 129, 1001, 8192] {
+            for mode in 0..4 {
+                let mut events: Vec<_> = (0..n).map(|i| {
+                    let offset = match mode {
+                        0 => n - i,
+                        1 => i % 3,
+                        2 => i.wrapping_mul(2654435761),
+                        _ => u32::MAX - i % 3,
+                    };
+                    event(i, offset, (i % 7) as u8)
+                }).collect();
+                let mut expected = events.clone();
+                expected.sort_by_key(|e| (e.offset, e.kind));
+                sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+                assert_eq!(events.iter().map(|e| e.id).collect::<Vec<_>>(), expected.iter().map(|e| e.id).collect::<Vec<_>>());
+            }
+        }
+    }
+
+    #[test]
+    fn dense_interleaved_starts_and_releases_have_bounded_comparison_cost() {
+        let mut events = Vec::new();
+        for i in 0..4096 {
+            events.push(event(i, 0, EV_ON));
+            events.push(event(i, 58, EV_OFF));
+        }
+        let mut comparisons = 0;
+        sort_events_by(&mut events, &mut Vec::new(), |a, b| {
+            comparisons += 1;
+            (a.offset, a.kind) < (b.offset, b.kind)
+        });
+        assert!(comparisons <= events.len() * 17, "{comparisons} comparisons");
+        assert!(events[..4096].iter().all(|e| e.kind == EV_ON));
+        assert!(events[4096..].iter().all(|e| e.kind == EV_OFF));
+        assert!(events[..4096].windows(2).all(|p| p[0].id < p[1].id));
+    }
+
+    #[test]
+    fn skips_scratch_for_ordered_queues_and_reuses_dense_capacity() {
+        let mut scratch = Vec::new();
+        let mut events: Vec<_> = (0..4096).map(|i| event(i, i, EV_ON)).collect();
+        sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+        assert_eq!(scratch.capacity(), 0);
+        events.swap(2047, 2048);
+        sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+        assert_eq!(scratch.capacity(), 0);
+        events.reverse();
+        sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+        let capacity = scratch.capacity();
+        for _ in 0..10 {
+            events.reverse();
+            sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+            assert_eq!(scratch.capacity(), capacity);
+        }
+    }
 }
