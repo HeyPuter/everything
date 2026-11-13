@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createProject } from '../src/model/project.js';
+import { createProject, colorAt } from '../src/model/project.js';
 import { parseProject, serializeProject } from '../src/model/serialize.js';
 import { Viewport } from '../src/render/timeline.js';
 import { drawCanvas, resetColors } from '../src/playlist/render.js';
@@ -61,4 +61,61 @@ it('refreshes source labels and colors after an immutable edit and theme reset',
     expect(d.rect.mock.calls.find((call) => call[1] === 1 && call[3] === TITLE_H)?.[4]).toEqual(parseColor('#abcdef'));
     resetColors();
   }
+});
+
+function manyPatterns(count, color = null) {
+  const p = createProject();
+  p.patterns = Array.from({ length: count }, (_, i) => ({ id: `p${i}`, name: `Pattern ${i}`, color, notes: {} }));
+  p.clips = p.patterns.map((pat, i) => ({ id: `clip${i}`, kind: 'pattern', ref: pat.id, track: 0, start: 0, len: 192, offset: 0, mute: false }));
+  return p;
+}
+
+function countPatternReads(p) {
+  let reads = 0;
+  for (const pat of p.patterns) {
+    const id = pat.id;
+    Object.defineProperty(pat, 'id', { get() { reads++; return id; } });
+  }
+  return () => reads;
+}
+
+it.each([null, '#abcdef'])('resolves visible patterns with linear work (color %s)', (color) => {
+  const p = manyPatterns(100, color);
+  const reads = countPatternReads(p);
+  const d = draw(p);
+  expect(d.text.mock.calls.map((call) => call[0])).toEqual(Array.from({ length: 100 }, (_, i) => `Pattern ${i}`));
+  expect(d.rect.mock.calls.filter((call) => call[1] === 1 && call[3] === TITLE_H).map((call) => call[4]))
+    .toEqual(Array.from({ length: 100 }, (_, i) => parseColor(color || colorAt(i + 6))));
+  expect(reads()).toBeLessThanOrEqual(400);
+  const before = reads();
+  draw(p);
+  expect(reads()).toBe(before);
+});
+
+it('does not scan unused trailing patterns for a small visible selection', () => {
+  const p = manyPatterns(100);
+  p.clips = [p.clips[0]];
+  const reads = countPatternReads(p);
+  expect(draw(p).text.mock.calls.map((call) => call[0])).toEqual(['Pattern 0']);
+  expect(reads()).toBeLessThanOrEqual(5);
+});
+
+it('preserves fallback colors after reorder and resolves earlier patterns after a later one', () => {
+  const p = manyPatterns(3);
+  p.clips = [p.clips[2], p.clips[0], { ...p.clips[0], id: 'repeat' }];
+  for (const project of [p, { ...p, patterns: [p.patterns[2], p.patterns[0], p.patterns[1]] }, p]) {
+    const d = draw(project);
+    expect(d.text.mock.calls.map((call) => call[0])).toEqual(['Pattern 2', 'Pattern 0', 'Pattern 0']);
+    const indices = project === p ? [2, 0, 0] : [0, 1, 1];
+    expect(d.rect.mock.calls.filter((call) => call[1] === 1 && call[3] === TITLE_H).map((call) => call[4]))
+      .toEqual(indices.map((index) => parseColor(colorAt(index + 6))));
+  }
+});
+
+it('resolves valid sources after a missing pattern and refreshes when that pattern appears', () => {
+  const p = manyPatterns(3);
+  p.clips = [{ ...p.clips[0], ref: 'missing' }, p.clips[2], p.clips[0]];
+  expect(draw(p).text.mock.calls.map((call) => call[0])).toEqual(['Missing pattern', 'Pattern 2', 'Pattern 0']);
+  const changed = { ...p, patterns: [...p.patterns, { id: 'missing', name: 'Recovered', color: null, notes: {} }] };
+  expect(draw(changed).text.mock.calls.map((call) => call[0])).toEqual(['Recovered', 'Pattern 2', 'Pattern 0']);
 });

@@ -10,7 +10,8 @@ import { cssVar, parseColor } from '../ui/theme.js';
 import { ticksToSeconds } from '../model/time.js';
 import { evaluateAutomation } from '../automation/evaluate.js';
 import { tempoMap } from '../engine/compile.js';
-import { sourceColor, sourceName } from './clips.js';
+import { sourceColor, sourceName, AUTO_COLOR } from './clips.js';
+import { patternColor } from '../model/project.js';
 import { trackTop, trackHeight } from './geometry.js';
 import { TITLE_H, LOOP_STRIP_H, RULER_H } from './constants.js';
 
@@ -217,21 +218,46 @@ export function drawCanvas(V, d) {
 // Per-source draw info (palette, label, pattern), rebuilt when the project changes.
 let infoProject = null;
 const infoMap = new Map();
+const patternPositions = new Map();
+let nextPattern = 0;
+let firstPatternLookup = true;
 function sourceInfo(p, clip) {
   if (infoProject !== p) {
     infoProject = p;
     infoMap.clear();
+    patternPositions.clear();
+    nextPattern = 0;
+    firstPatternLookup = true;
   }
   // IDs are unique within each source collection, not across source kinds.
   const key = `${clip.kind}:${clip.ref}`;
   let info = infoMap.get(key);
   if (!info) {
-    const src = { kind: clip.kind, id: clip.ref };
-    info = {
-      pal: palette(sourceColor(p, src)),
-      name: sourceName(p, src),
-      pattern: clip.kind === 'pattern' ? p.patterns.find((x) => x.id === clip.ref) || null : null,
-    };
+    if (clip.kind === 'pattern') {
+      // A single visible source needs no full index, even at the end of the
+      // list. Further lookups share a lazy scan, keeping total work linear.
+      if (firstPatternLookup) {
+        firstPatternLookup = false;
+        const index = p.patterns.findIndex((pattern) => pattern.id === clip.ref);
+        if (index !== -1) patternPositions.set(clip.ref, index);
+      } else {
+        while (!patternPositions.has(clip.ref) && nextPattern < p.patterns.length) {
+          const index = nextPattern++;
+          const id = p.patterns[index].id;
+          if (!patternPositions.has(id)) patternPositions.set(id, index);
+        }
+      }
+      const index = patternPositions.get(clip.ref);
+      const pattern = index === undefined ? null : p.patterns[index];
+      info = {
+        pal: palette(pattern ? patternColor(p, pattern, index) : AUTO_COLOR),
+        name: pattern?.name || 'Missing pattern',
+        pattern,
+      };
+    } else {
+      const src = { kind: clip.kind, id: clip.ref };
+      info = { pal: palette(sourceColor(p, src)), name: sourceName(p, src), pattern: null };
+    }
     infoMap.set(key, info);
   }
   return info;

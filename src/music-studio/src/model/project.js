@@ -179,9 +179,9 @@ export function patternIndex(project, id) {
   return project.patterns.findIndex((p) => p.id === id);
 }
 
-/** Color a pattern is drawn with: its own, else the palette by pattern number. */
-export function patternColor(project, pattern) {
-  return pattern.color || colorAt(patternIndex(project, pattern.id) + 6);
+/** Color a pattern is drawn with: its own, else the palette by pattern number (if known). */
+export function patternColor(project, pattern, index) {
+  return pattern.color || colorAt((index ?? patternIndex(project, pattern.id)) + 6);
 }
 
 /**
