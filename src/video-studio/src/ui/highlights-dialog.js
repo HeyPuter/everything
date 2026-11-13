@@ -30,10 +30,8 @@ export function highlightSource(project, selectedIds = []) {
   return T.allClips(project).filter(usable).sort((a, b) => b.duration - a.duration)[0] || null;
 }
 
-/** Clip-local timed words (µs) for a clip: from the project transcript when it covers the clip, else transcribed. */
-async function clipWords(ctx, clip, { language, reuseTranscript, signal, onStatus }) {
-  const reuse = reuseTranscript ? wordsInClip(transcriptWords(ctx.store.project), clip) : [];
-  if (reuse.length >= 20) return { words: reuse, reused: true };
+/** Transcribe clip-local timed words (µs) when project words are unavailable. */
+async function clipWords(ctx, clip, { language, signal, onStatus }) {
   // Only this clip, from 0, at full volume, so the words line up with the clip.
   const project = ctx.store.project;
   const solo = { ...structuredClone(clip), start: 0, muted: false, audioDetached: false, volume: 1, fadeIn: 0, fadeOut: 0, disabled: false };
@@ -44,7 +42,7 @@ async function clipWords(ctx, clip, { language, reuseTranscript, signal, onStatu
   onStatus('Listening to the speech...', 0.3);
   const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
   const words = fake ? await fake(mix, STT_RATE) : await transcribeMix(mix, STT_RATE, { language, signal, onProgress: (f) => onStatus(`Listening to the speech... ${Math.round(f * 100)}%`, 0.3 + f * 0.5) });
-  return { words: words.map((w) => ({ text: w.text, start: Math.round(w.start * US), end: Math.round(w.end * US) })), reused: false };
+  return words.map((w) => ({ text: w.text, start: Math.round(w.start * US), end: Math.round(w.end * US) }));
 }
 
 // These fields change which speech is heard, where it falls, or the media used for reframing.
@@ -109,13 +107,15 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
 
   // ---- Options -------------------------------------------------------------------
   // Keep the mode shown here: a later transcript must not override a language choice.
-  const reuse = wordsInClip(transcriptWords(store.project), clip).length >= 20;
+  let reuse = wordsInClip(transcriptWords(store.project), clip).length >= 20;
+  const makeLanguageField = () => field('Spoken language', select('Spoken language', LANGUAGES, 'language'));
+  const transcriptHint = h('p.aic-hint', 'Uses the project transcript, so the speech is not sent again.');
   const optionsEl = h('div.aic-step',
     h('p.dialog-text', `Finds the moments in ${asset?.name || 'this clip'} (${clock(clip.duration)}) that work best on their own, so you can turn them into short clips.`),
     h('div.aic-grid',
       field('How many', select('How many', HIGHLIGHT_COUNTS.map((n) => ({ value: n, label: `Up to ${n}` })), 'count')),
       field('Length of each', select('Length of each', HIGHLIGHT_LENGTHS.map((l) => ({ value: l.id, label: l.label })), 'length')),
-      reuse ? h('p.aic-hint', 'Uses the project transcript, so the speech is not sent again.') : field('Spoken language', select('Spoken language', LANGUAGES, 'language'))),
+      reuse ? transcriptHint : makeLanguageField()),
   );
 
   // ---- Progress ------------------------------------------------------------------
@@ -242,15 +242,30 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
 
   async function search() {
     if (abort || !active()) return;
+    // Project words are live data; only generated speech is cached between searches.
+    const projectWords = reuse ? wordsInClip(transcriptWords(store.project), clip) : null;
+    if (projectWords && projectWords.length < 20) {
+      reuse = false;
+      words = [];
+      wordsLanguage = null;
+      const languageField = makeLanguageField();
+      transcriptHint.replaceWith(languageField);
+      show('options');
+      toast('The project transcript no longer covers this clip. Choose a spoken language, then find highlights again to transcribe it.', { kind: 'info' });
+      languageField.querySelector('select').focus();
+      return;
+    }
     abort = new AbortController();
     const { signal } = abort;
     const language = opts.language;
     show('progress');
     try {
-      if (!words.length || wordsLanguage !== language) {
-        const res = await clipWords(ctx, clip, { language, reuseTranscript: reuse, signal, onStatus });
+      if (projectWords) {
+        words = projectWords;
+      } else if (!words.length || wordsLanguage !== language) {
+        const nextWords = await clipWords(ctx, clip, { language, signal, onStatus });
         check(signal);
-        words = res.words;
+        words = nextWords;
         wordsLanguage = language;
       }
       check(signal);
