@@ -290,7 +290,7 @@ export class ReviewService {
       const n = await this.kv.incr(`vsr:r:${rid}:mseq`);
       await this.kv.set(`vsr:r:${rid}:mi:${n}`, user.uuid);
     }
-    await this.kv.set(`vsr:invite:${tokenHash}`, { ...invite, uses: (invite.uses || 0) + 1 }).catch(() => {});
+    await this.kv.incr(`vsr:invite:${tokenHash}`, { uses: 1 }).catch(() => {});
     return { review: await this.view(rid, member.role, user, meta) };
   }
 
@@ -333,8 +333,7 @@ export class ReviewService {
     const rid = reviewId(input.review);
     const found = (await this.inviteRecords(rid)).find((x) => x.invite.id === input.invite);
     if (!found) fail(404, 'That invite link no longer exists.');
-    const next = { ...found.invite, revoked: true };
-    await this.kv.set(`vsr:invite:${found.hash}`, next);
+    const next = await this.kv.update(`vsr:invite:${found.hash}`, { revoked: true });
     return { invite: this.inviteView(next) };
   }
 

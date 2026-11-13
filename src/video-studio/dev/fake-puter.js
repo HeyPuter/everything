@@ -116,11 +116,20 @@ export function createWorld({ storage = memoryStorage(), now = () => Date.now(),
       },
       async incr(key, amount = 1) {
         await wait();
+        const fields = amount && typeof amount === 'object' ? Object.entries(amount) : null;
+        if (fields && (!fields.length || fields.some(([path, delta]) => !/^[a-zA-Z_$][\w$]*$/.test(path) || typeof delta !== 'number' || !Number.isFinite(delta)))) {
+          throw puterError('The fake supports finite increments of flat fields only', 'bad_request', 400);
+        }
         const rec = await storage.update('kv', k(key), (cur) => {
           const c = live(cur);
-          return { v: (Number(c?.v) || 0) + amount, ...(c?.exp ? { exp: c.exp } : {}) };
+          let v;
+          if (fields) {
+            v = { ...c?.v };
+            for (const [path, delta] of fields) v[path] = (Number(v[path]) || 0) + delta;
+          } else v = (Number(c?.v) || 0) + amount;
+          return { v, ...(c?.exp ? { exp: c.exp } : {}) };
         });
-        return rec.v;
+        return structuredClone(rec.v);
       },
       async expire(key, seconds) {
         await storage.update('kv', k(key), (cur) => (cur ? { ...cur, exp: world.now() + seconds * 1000 } : undefined));
