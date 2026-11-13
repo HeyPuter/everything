@@ -203,8 +203,9 @@ export function createFxPanel(ctx) {
   }
 
   // Pointer reorder by the grip (mouse, touch and pen).
+  let activeReorder = null;
   function startReorder(e, api) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || activeReorder) return;
     e.preventDefault();
     const grip = e.currentTarget;
     grip.setPointerCapture?.(e.pointerId);
@@ -226,20 +227,32 @@ export function createFxPanel(ctx) {
     };
     place();
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       to = dropIndex(mids, ev.clientY, from);
       place();
     };
-    const up = () => {
+    const finish = (apply) => {
+      if (activeReorder !== cancel) return;
+      activeReorder = null;
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
-      grip.removeEventListener('pointercancel', up);
+      grip.removeEventListener('pointercancel', interrupted);
+      grip.removeEventListener('lostpointercapture', interrupted);
+      window.removeEventListener('blur', cancel);
       api.el.classList.remove('dragging');
       marker.remove();
-      if (to !== from) ctl.moveEffect(state.index, api.slot.id, to);
+      try { grip.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      if (apply && to !== from) ctl.moveEffect(state.index, api.slot.id, to);
     };
+    const cancel = () => finish(false);
+    const up = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+    const interrupted = (ev) => { if (ev.pointerId === e.pointerId) cancel(); };
+    activeReorder = cancel;
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
-    grip.addEventListener('pointercancel', up);
+    grip.addEventListener('pointercancel', interrupted);
+    grip.addEventListener('lostpointercapture', interrupted);
+    window.addEventListener('blur', cancel);
   }
 
   // ---------------------------------------------------------------- routing

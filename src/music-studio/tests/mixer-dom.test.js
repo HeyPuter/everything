@@ -380,6 +380,85 @@ describe('mixer panel', () => {
     expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb']);
   });
 
+  function effectDrag() {
+    env.ctl.select(6);
+    const rows = [...document.querySelectorAll('.mx-slot[data-id]')];
+    rows.forEach((row, i) => {
+      row.getBoundingClientRect = () => ({ top: 100 + i * 40, height: 40 });
+    });
+    const grip = rows[0].querySelector('.mx-grip');
+    grip.setPointerCapture = vi.fn();
+    grip.releasePointerCapture = vi.fn();
+    const pointer = (type, y = 190, id = 1) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
+      Object.defineProperty(event, 'pointerId', { value: id });
+      grip.dispatchEvent(event);
+    };
+    pointer('pointerdown', 120);
+    pointer('pointermove');
+    return { grip, pointer, row: rows[0] };
+  }
+
+  it.each(['pointercancel', 'lostpointercapture', 'blur'])('discards an effect reorder on %s and ignores late events', (end) => {
+    const { store } = env;
+    const before = store.project;
+    const history = store.undoStack.length;
+    const { pointer, row } = effectDrag();
+    if (end === 'blur') window.dispatchEvent(new Event('blur'));
+    else pointer(end);
+    expect(store.project).toBe(before);
+    expect(row.classList.contains('dragging')).toBe(false);
+    expect(document.querySelector('.mx-drop-line')).toBeNull();
+    pointer('pointermove');
+    pointer('pointerup');
+    expect(store.project).toBe(before);
+    expect(store.undoStack).toHaveLength(history);
+    const fresh = effectDrag();
+    fresh.pointer('pointerup');
+    expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb', 'delay']);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('ignores a competing effect-reorder pointer and its %s', (end) => {
+    const { store } = env;
+    const before = store.project;
+    const history = store.undoStack.length;
+    const { pointer, row } = effectDrag();
+    pointer('pointerdown', 120, 2);
+    pointer('pointermove', 110, 2);
+    pointer(end, 110, 2);
+    expect(store.project).toBe(before);
+    expect(row.classList.contains('dragging')).toBe(true);
+    expect(document.querySelectorAll('.mx-drop-line')).toHaveLength(1);
+    pointer('pointerup');
+    expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb', 'delay']);
+    expect(store.undoStack).toHaveLength(history + 1);
+    pointer('lostpointercapture');
+    pointer('pointermove', 110, 2);
+    pointer('pointerup', 110, 2);
+    expect(store.undoStack).toHaveLength(history + 1);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
+  it('commits a normal effect reorder once and leaves a no-move drag unchanged', () => {
+    const { store } = env;
+    const before = store.project;
+    const history = store.undoStack.length;
+    const { pointer } = effectDrag();
+    pointer('pointerup');
+    pointer('lostpointercapture');
+    expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb', 'delay']);
+    expect(store.undoStack).toHaveLength(history + 1);
+    store.undo();
+    expect(store.project).toBe(before);
+    pointer('pointerdown', 120);
+    pointer('pointerup', 120);
+    expect(store.project).toBe(before);
+    expect(store.canRedo).toBe(true);
+  });
+
   it('provides effect menu items for the selected insert', () => {
     const { app, ctl, store } = env;
     ctl.select(4);
