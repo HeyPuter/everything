@@ -85,9 +85,12 @@ export async function imageNodeData(blob, { name = '' } = {}) {
  * larger than the active artboard are scaled down to fit it.
  */
 export async function placeImage(app, editor, blob, { point, name = '', select = true } = {}) {
+  if (!targetParent(app, editor)) return null;
+  const { node, assetId, asset, width, height } = await imageNodeData(blob, { name: name || baseName(blob.name) });
+  // Decoding can outlive the window or the layer's availability, just like an SVG import.
+  if (app.editors && !app.editors.includes(editor)) return null;
   const parent = targetParent(app, editor);
   if (!parent) return null;
-  const { node, assetId, asset, width, height } = await imageNodeData(blob, { name: name || baseName(blob.name) });
   const doc = editor.doc;
   const p = point || viewCenter(editor);
   const board = editor.artboard();
