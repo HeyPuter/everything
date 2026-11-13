@@ -138,7 +138,7 @@ export function deleteLayers(doc, ids) {
   for (const id of ids) {
     const layer = doc.get(id);
     if (!layer || layer.type !== 'layer') continue;
-    if (layer.parent === 'root' && doc.layers().length <= 1) break;
+    if (layer.parent === 'root' && doc.layers().length <= 1) continue;
     doc.remove(id);
     n++;
   }

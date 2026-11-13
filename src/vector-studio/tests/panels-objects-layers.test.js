@@ -322,3 +322,26 @@ it('duplicates nested picked layers once without modifying the original hierarch
   expect(doc.get(layer.id).children).toEqual(originalChildren);
   expect(doc.get(copy.id).children).toEqual(copy.children);
 });
+
+
+it('deletes picked sublayers even when their picked parent is the last document layer', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let sub;
+  doc.transact('Sublayer', () => {
+    sub = doc.addLayer('Nested');
+    doc.move(sub.id, layer.id);
+    doc.move(ids[1], sub.id);
+  });
+  layerPicks(ed).add(layer.id);
+  layerPicks(ed).add(sub.id);
+  await run('layers.delete');
+  expect(doc.has(sub.id)).toBe(false);
+  expect(doc.has(ids[1])).toBe(false);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+  expect(doc.get(layer.id).children).toEqual([ids[0], ids[2]]);
+  doc.undo();
+  expect(doc.get(sub.id).children).toEqual([ids[1]]);
+  doc.redo();
+  expect(doc.has(sub.id)).toBe(false);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+});
