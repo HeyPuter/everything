@@ -836,6 +836,8 @@ export class WaveformView {
     const pointers = new Map();
     let pinch = null;
     let longPress = 0;
+    // Set when a long press opened the context menu: that touch's release must not click it.
+    let menuTouch = false;
 
     s.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -850,6 +852,7 @@ export class WaveformView {
 
     s.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.hud, .fade-handle')) return;
+      menuTouch = false;
       s.focus({ preventScroll: true });
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
@@ -906,12 +909,20 @@ export class WaveformView {
         longPress = setTimeout(() => {
           if (drag && !drag.started) {
             drag = null;
+            menuTouch = true;
             contextMenu(this.app, WAVEFORM_CONTEXT, e.clientX, e.clientY, 'Waveform context menu');
           }
         }, 550);
       }
     });
 
+    // The menu can open under the finger (kept on screen near an edge); cancelling the
+    // touch's end keeps the browser from clicking the item there, which ran that command.
+    s.addEventListener('touchend', (e) => {
+      if (!menuTouch) return;
+      menuTouch = false;
+      if (e.cancelable) e.preventDefault();
+    });
     s.addEventListener('pointerleave', () => this.app.emit('cursor-data', null));
     s.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });

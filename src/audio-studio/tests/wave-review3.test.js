@@ -1,5 +1,5 @@
 // Regression tests for the third Waveform editor review.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 
 /** A 2D context stand-in: every method is a no-op, every property settable. */
 function fakeContext() {
@@ -123,5 +123,38 @@ describe('Copy to New and Paste to New', () => {
     await app.commands.run('edit.pasteToNew');
     expect(app.active.info.bitDepth).toBe(16);
     expect(app.active.length).toBe(1000);
+  });
+});
+
+describe('touch long press on the waveform', () => {
+  it('keeps the release of the press that opened the context menu from clicking an item', async () => {
+    const { view } = await makeView();
+    const s = view.surface;
+    s.setPointerCapture = () => {};
+    const touch = (type, x) => {
+      const e = pointer(type, x, 50);
+      Object.defineProperty(e, 'pointerType', { value: 'touch' });
+      return e;
+    };
+    const touchEnd = () => {
+      const e = new Event('touchend', { bubbles: true, cancelable: true });
+      s.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    vi.useFakeTimers();
+    try {
+      s.dispatchEvent(touch('pointerdown', 300));
+      vi.advanceTimersByTime(600);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(document.querySelector('[role=menu]')).not.toBe(null);
+    s.dispatchEvent(touch('pointerup', 300));
+    expect(touchEnd()).toBe(true);
+    document.querySelector('[role=menu]').remove();
+    // A plain tap still ends as usual.
+    s.dispatchEvent(touch('pointerdown', 100));
+    s.dispatchEvent(touch('pointerup', 100));
+    expect(touchEnd()).toBe(false);
   });
 });
