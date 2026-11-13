@@ -203,6 +203,12 @@ export class App extends Emitter {
       }
       const combo = eventCombo(e);
       if (!combo) return;
+      // F10 shares the modal, composition, and focused-control guards above.
+      if (combo === 'F10') {
+        e.preventDefault();
+        this.toolbar.menubar.focus();
+        return;
+      }
       // Keys a focused control handles itself (Space on buttons, arrows on sliders).
       const t = e.target;
       if ((combo === 'Space' || combo === 'Enter') && t?.matches?.('button, [role="button"], [role="menuitem"], a, [role="radio"], [role="checkbox"], [role="tab"], [role="option"]')) {
@@ -217,13 +223,6 @@ export class App extends Emitter {
     });
     document.addEventListener('keyup', (e) => {
       if (this.prefs.get('typingKeyboard') && !e.target?.closest?.('puter-user-menu')) this.emitKeyboardNote?.(e, false);
-    });
-    // F10 focuses the menu bar, like desktop apps.
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'F10' && !e.shiftKey && !isTyping(e.target)) {
-        e.preventDefault();
-        this.toolbar.menubar.focus();
-      }
     });
   }
 
