@@ -352,9 +352,13 @@ export class ActionEngine {
   #replayDialog(opts, next) {
     const q = this.queue;
     const rec = q.entries.find((d) => d.title === (opts.title || '') && !d.used) || (q.entries.length === 1 && !q.entries[0].used ? q.entries[0] : null);
-    if (!rec) return next(opts);
+    const show = () => Promise.resolve(next(opts)).then((value) => {
+      if (value === null || value === undefined || value === false) q.cancelled = true;
+      return value;
+    });
+    if (!rec) return show();
     if (q.modal || rec.value === undefined) {
-      return Promise.resolve(next(opts)).then((v) => {
+      return show().then((v) => {
         rec.used = true;
         return v;
       });
@@ -482,6 +486,7 @@ export class ActionEngine {
       this.queue = { entries: (st.dialogs || []).map((d) => ({ ...d, used: false })), modal: Boolean(st.modal) };
       try {
         await app.commands.run(st.cmd, st.args ?? undefined, { throwOnError: true });
+        if (this.queue.cancelled) return 'stop';
       } finally {
         this.queue = null;
       }
