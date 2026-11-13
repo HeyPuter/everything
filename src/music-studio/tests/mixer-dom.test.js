@@ -5,6 +5,7 @@ import { demoProject } from '../src/model/demo.js';
 import { createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
 import * as E from '../src/model/edits.js';
 import { getWindow, closeWindows } from '../src/ui/windows.js';
+import { createHeaders } from '../src/playlist/headers.js';
 
 // jsdom has no canvas: a 2D context whose methods do nothing.
 const ctx2d = new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => ({ width: 0 })), set: (t, k, v) => ((t[k] = v), true) });
@@ -47,6 +48,42 @@ describe('mixer panel', () => {
     expect(strips[0].classList.contains('master')).toBe(true);
     expect(strips[1].querySelector('.mx-name').textContent).toBe('Kick');
     expect(strips[3].querySelector('.mx-in').getAttribute('aria-label')).toBe('Inputs: Closed Hat, Open Hat');
+  });
+
+  it.each(['mixer', 'playlist'].flatMap((surface) => ['replacement', 'undo rename', 'tempo edit'].map((change) => [surface, change])))('keeps %s inline rename ownership across %s', (surface, change) => {
+    const { store, panel } = env;
+    const initial = store.project;
+    const update = surface === 'mixer' ? E.updateMixerTrack : E.updateTrack;
+    const name = (p) => (surface === 'mixer' ? p.mixer : p.tracks)[1].name;
+    if (change === 'undo rename') store.apply('Rename', (p) => update(p, 1, { name: 'Before undo' }));
+    let headers;
+    if (surface === 'playlist') {
+      headers = createHeaders({ store, selectedTrack: 1, scrollY: 0 });
+      document.body.append(headers.el);
+      headers.render();
+    }
+    const off = headers ? store.on('change', () => headers.render()) : () => {};
+    try {
+      if (headers) headers.startRename(1);
+      else panel.rename(1);
+      const input = document.querySelector(headers ? '.pl-track-input' : '.mx-rename');
+      input.value = 'Draft name';
+      if (change === 'replacement') store.load({ ...structuredClone(store.project), name: 'Replacement' });
+      else if (change === 'undo rename') store.undo();
+      else store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 151 }));
+      const beforeEnter = store.project;
+      key(input, 'Enter');
+      if (change === 'tempo edit') {
+        expect(name(store.project)).toBe('Draft name');
+        store.undo();
+        expect(name(store.project)).toBe(name(initial));
+        expect(store.project.bpm).toBe(151);
+      } else {
+        expect(store.project === beforeEnter).toBe(true);
+        expect(store.canUndo).toBe(false);
+      }
+      expect(input.isConnected).toBe(false);
+    } finally { off(); }
   });
 
   it('disables insert buttons at capacity and re-enables them after undo', () => {

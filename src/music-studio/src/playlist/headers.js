@@ -16,6 +16,7 @@ export function createHeaders(V) {
   const el = h('div.pl-headers', list);
   let rows = [];
   let renaming = -1;
+  let activeRename = null;
 
   el.addEventListener(
     'wheel',
@@ -129,6 +130,7 @@ export function createHeaders(V) {
   }
 
   function render() {
+    if (activeRename && !activeRename.current()) activeRename.finish(false, false);
     const tracks = store.project.tracks;
     const active = document.activeElement;
     const focusIndex = list.contains(active) ? Number(active.closest('.pl-track')?.dataset.index) : -1;
@@ -165,19 +167,23 @@ export function createHeaders(V) {
     r.name.after(input);
     input.focus();
     input.select();
+    const loadVersion = store.loadVersion;
+    const current = () => store.loadVersion === loadVersion && store.project.tracks[i]?.id === t.id && store.project.tracks[i]?.name === t.name;
     let done = false;
-    const finish = (ok) => {
+    const finish = (ok, focus = true) => {
       if (done) return;
       done = true;
+      activeRename = null;
       renaming = -1;
       input.remove();
       r.name.hidden = false;
       const v = input.value.trim();
       r.track = null;
-      if (ok && v && v !== t.name) store.apply('Rename track', (p) => E.updateTrack(p, i, { name: v.slice(0, 60) }));
-      else sync(r, i, store.project.tracks[i]);
-      r.name.focus({ preventScroll: true });
+      if (ok && current() && v && v !== t.name) store.apply('Rename track', (p) => E.updateTrack(p, i, { name: v.slice(0, 60) }));
+      else if (store.project.tracks[i]) sync(r, i, store.project.tracks[i]);
+      if (focus && r.name.isConnected) r.name.focus({ preventScroll: true });
     };
+    activeRename = { current, finish };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') finish(true);

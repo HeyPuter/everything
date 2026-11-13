@@ -128,7 +128,10 @@ export function createMixer(app, host, ctl) {
     return { mode: canRoute(p, sel, i).ok ? 'off' : 'blocked', from: sel, color, gain: 0 };
   }
 
+  let activeRename = null;
+
   function render() {
+    if (activeRename && !activeRename.current()) activeRename.close(false, false);
     addBtn.disabled = addTool.disabled = !ctl.canAddInsert;
     const p = store.project;
     ensureStrips(p.mixer.length);
@@ -183,15 +186,19 @@ export function createMixer(app, host, ctl) {
     s.nameBtn.after(input);
     input.focus();
     input.select();
+    const loadVersion = store.loadVersion;
+    const current = () => store.loadVersion === loadVersion && store.project.mixer[i]?.id === t.id && store.project.mixer[i]?.name === t.name;
     let done = false;
-    const close = (apply) => {
+    const close = (apply, focus = true) => {
       if (done) return;
       done = true;
-      if (apply && input.value.trim() && input.value.trim() !== t.name) ctl.rename(i, input.value);
+      activeRename = null;
+      if (apply && current() && input.value.trim() && input.value.trim() !== t.name) ctl.rename(i, input.value);
       input.remove();
       s.nameBtn.hidden = false;
-      s.nameBtn.focus({ preventScroll: true });
+      if (focus && s.nameBtn.isConnected) s.nameBtn.focus({ preventScroll: true });
     };
+    activeRename = { current, close };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') close(true);
@@ -427,6 +434,7 @@ export function createMixer(app, host, ctl) {
       },
     },
     destroy() {
+      activeRename?.close(false, false);
       offFrame();
       offChange();
       offPrefs();
