@@ -41,7 +41,8 @@ it.each(['truncated JSON', 'invalid shape', 'invalid record', 'missing index'])(
 
 it('can read a valid selected entry despite an unrelated damaged index record', async () => {
   const { backend, store, index, entry } = await setup();
-  backend.files.set('recovery/index.json', JSON.stringify([...JSON.parse(index), null]));
+  const value = JSON.parse(index);
+  backend.files.set('recovery/index.json', JSON.stringify({ ...value, entries: [...value.entries, null] }));
   expect((await parseDocument(await store.read(entry))).doc.root.name).toBe('Keep my work');
 });
 

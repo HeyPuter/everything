@@ -20,8 +20,9 @@ it.each([5000, 4000])('recovers a later Undo snapshot from fallback storage when
     ed.doc.undo();
     now.mockReturnValue(laterTime);
     // Cloud writing and stale-copy cleanup fail, leaving both snapshots on disk.
-    cloud.failNext = 2;
+    const readIndex = vi.spyOn(cloud, 'readJSON').mockRejectedValue(new Error('Cloud offline'));
     expect(await saver.flush()).toBe(1);
+    readIndex.mockRestore();
     expect([...cloud.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
     expect([...local.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
     const [entry] = await new RecoveryStore([cloud, local]).list();

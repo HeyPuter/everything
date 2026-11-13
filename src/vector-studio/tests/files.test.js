@@ -297,7 +297,7 @@ describe('recovery bookkeeping', () => {
     expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([4]);
     await store.remove('r1');
     expect((await store.list()).map((e) => e.id)).toEqual(['r2']);
-    expect([...b.files.keys()].some((k) => k.includes('r1'))).toBe(false);
+    expect([...b.files.keys()].some((k) => k === 'recovery/r1.vstudio' || k.startsWith('recovery/r1/'))).toBe(false);
     await store.clear();
     expect(await store.list()).toEqual([]);
   });
