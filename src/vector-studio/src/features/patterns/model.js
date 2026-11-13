@@ -197,8 +197,28 @@ export function patternView(doc, def) {
   let v = viewCache.get(def);
   if (v && v.assets === (doc?.assets || v.assets)) return v;
   const map = new Map();
-  for (const n of def.art?.nodes || []) map.set(n.id, n);
-  const roots = (def.art?.roots || []).filter((id) => map.has(id));
+  for (const n of Array.isArray(def.art?.nodes) ? def.art.nodes : []) {
+    if (n && typeof n.id === 'string' && n.id !== '__pattern') map.set(n.id, n);
+  }
+  // Pattern art can come from libraries or damaged files. Give each node one
+  // place in the tree so bounds and rendering cannot recurse through a cycle.
+  // Repair only the view; the stored definition and valid node identities stay intact.
+  const claimed = new Set(['__pattern']);
+  const claimChildren = (ids) => (Array.isArray(ids) ? ids : []).filter((id) => {
+    if (!map.has(id) || claimed.has(id)) return false;
+    claimed.add(id);
+    return true;
+  });
+  const roots = claimChildren(def.art?.roots);
+  const pending = roots.slice().reverse();
+  while (pending.length) {
+    const id = pending.pop();
+    const node = map.get(id);
+    if (node.children === undefined) continue;
+    const children = claimChildren(node.children);
+    if (!Array.isArray(node.children) || children.length !== node.children.length) map.set(id, { ...node, children });
+    for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
+  }
   const root = { id: '__pattern', type: 'root', children: roots, artboards: [], patterns: doc?.root?.patterns || [] };
   v = {
     get: (id) => (id === root.id ? root : map.get(id)),

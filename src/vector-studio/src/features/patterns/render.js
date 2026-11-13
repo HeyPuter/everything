@@ -39,8 +39,9 @@ export function scaleBucket(s) {
 
 /** True when every image in the art has decoded (otherwise the bitmap is not kept). */
 function imagesReady(doc, def) {
-  for (const n of def.art?.nodes || []) if (n.type === 'image' && !imageFor(doc, n.asset)) return false;
-  return true;
+  let ready = true;
+  patternView(doc, def).walk((node) => { if (node.type === 'image' && !imageFor(doc, node.asset)) ready = false; });
+  return ready;
 }
 
 /**
