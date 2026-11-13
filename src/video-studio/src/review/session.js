@@ -28,6 +28,7 @@ export class ReviewSession extends Emitter {
     this._syncing = null;
     this._failures = 0;
     this._links = new Map();
+    this._linkRequests = new Map();
     this._onVisible = () => {
       if (typeof document !== 'undefined' && !document.hidden && this._timer !== null) this.sync().catch(() => {});
     };
@@ -186,9 +187,15 @@ export class ReviewSession extends Emitter {
   async videoLink(version, { fresh = false } = {}) {
     const cached = this._links.get(version);
     if (!fresh && cached && cached.expires - 5 * 60_000 > Date.now()) return cached;
-    const r = await this.call('video.url', { version });
-    this._links.set(version, r);
-    return r;
+    const request = {};
+    this._linkRequests.set(version, request);
+    try {
+      const r = await this.call('video.url', { version });
+      if (this._linkRequests.get(version) === request) this._links.set(version, r);
+      return r;
+    } finally {
+      if (this._linkRequests.get(version) === request) this._linkRequests.delete(version);
+    }
   }
 
   dispose() {
