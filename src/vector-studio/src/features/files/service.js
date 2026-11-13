@@ -749,12 +749,8 @@ export class FileService {
     // Every window showing the document shows the saved one (none keeps the discarded changes to
     // save over the file later); the window reverted from is replaced last, so it stays active.
     const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
-    const replaced = new Map();
-    for (const o of others) replaced.set(o, await this.replaceDocument(o, parsed.doc, f));
+    for (const o of others) await this.replaceDocument(o, parsed.doc, f);
     const ed = await this.replaceDocument(editor, parsed.doc, f);
-    replaced.set(editor, ed);
-    // Each view keeps its number even if the original window has already closed.
-    for (const [o, w] of replaced) w.windowNumber = o.windowNumber;
     this.app.renderTabs();
     return ed;
   }
@@ -764,13 +760,23 @@ export class FileService {
     const app = this.app;
     const index = app.editors.indexOf(old);
     const view = { zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, rotation: old.view.rotation };
+    const floating = app.floating?.has(old);
+    const style = app.views.get(old)?.host.style;
+    const frame = floating && style ? { left: style.left, top: style.top, width: style.width, height: style.height } : null;
     const ed = app.addDocument(doc, { file, activate: false });
+    ed.windowNumber = old.windowNumber;
     ed.viewOptions = { ...old.viewOptions };
     ed.activeArtboard = Math.max(0, Math.min(old.activeArtboard, doc.artboards.length - 1));
+    if (floating) app.floating.add(ed);
     app.editors.splice(app.editors.indexOf(ed), 1);
     app.editors.splice(index, 0, ed);
     await app.closeDocument(old, { force: true });
     app.activate(ed);
+    if (frame) {
+      const canvasView = app.views.get(ed);
+      Object.assign(canvasView.host.style, frame);
+      canvasView.resize();
+    }
     ed.viewInitialized = true;
     ed.view.set(view);
     ed.viewChanged();
