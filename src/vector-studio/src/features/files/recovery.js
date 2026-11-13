@@ -50,7 +50,7 @@ export class RecoveryStore {
         try {
           await b.writeBlob(`${DIR}/${id}.vstudio`, data instanceof Blob ? data : new Blob([data]));
           const index = (await this.#readIndex(b, { strict: true })).filter((e) => e.id !== id);
-          index.push({ id, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null } : null, saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session });
+          index.push({ id, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null, saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session });
           await b.writeJSON(INDEX, index);
           // A stale copy in a lower-priority store would resurrect old work.
           for (const other of this.backends) if (other !== b) await this.#removeFrom(other, id).catch(() => {});
