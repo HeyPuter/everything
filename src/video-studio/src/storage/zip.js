@@ -221,13 +221,23 @@ export async function readZip(zip) {
       size: f.size,
       method,
       async blob() {
+        // Blob.slice clamps out-of-bounds ranges silently. Validate before slicing so
+        // a damaged length cannot turn directory bytes (or a truncated file) into media.
+        if (![f.offset, f.size, f.compressed].every((n) => Number.isSafeInteger(n) && n >= 0) || f.offset + 30 > cdStart) {
+          throw new Error('This archive is damaged or incomplete.');
+        }
         const lh = await view(zip, f.offset, f.offset + 30);
         if (lh.getUint32(0, true) !== 0x04034b50) throw new Error('This archive is damaged.');
         const start = f.offset + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+        if (start + f.compressed > cdStart || (method === 0 && f.compressed !== f.size)) {
+          throw new Error('This archive is damaged or incomplete.');
+        }
         const raw = zip.slice(start, start + f.compressed);
         if (method === 0) return raw;
         if (method === 8 && typeof DecompressionStream === 'function' && raw.stream) {
-          return new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
+          const decoded = await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
+          if (decoded.size !== f.size) throw new Error('This archive is damaged or incomplete.');
+          return decoded;
         }
         throw new Error(`${name} uses a compression this browser cannot read.`);
       },

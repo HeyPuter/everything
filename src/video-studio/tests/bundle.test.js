@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { deflateRawSync } from 'node:zlib';
+import { Blob as StreamBlob } from 'node:buffer';
 import { zipBlobs, readZip, crc32 } from '../src/storage/zip.js';
 import { exportProjectBundle, importProjectBundle, BUNDLE_SUFFIX } from '../src/storage/bundle.js';
 import { Library } from '../src/storage/library.js';
@@ -38,6 +40,36 @@ describe('zip', () => {
     const b = await bytesOf(zip);
     expect(b.slice(0, 4)).toEqual([0x50, 0x4b, 0x03, 0x04]);
     expect(b.slice(-22, -18)).toEqual([0x50, 0x4b, 0x05, 0x06]);
+  });
+
+  it.each(['size mismatch', 'overlapping directory'])('rejects damaged stored entries with %s', async (damage) => {
+    const zip = await zipBlobs([{ name: 'media/video.mp4', data: 'video' }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    const size = view.getUint32(directory + 24, true);
+    view.setUint32(directory + 24, size + 1, true);
+    if (damage === 'overlapping directory') view.setUint32(directory + 20, size + 1, true);
+    const entries = await readZip(new Blob([buffer]));
+    await expect(entries[0].blob()).rejects.toThrow(/damaged|incomplete/);
+  });
+
+  it.each([0, 1])('checks the decoded size of deflated entries (extra declared bytes: %s)', async (extra) => {
+    const data = new TextEncoder().encode('video'.repeat(100));
+    const zip = await zipBlobs([{ name: 'media/video.mp4', data: deflateRawSync(data) }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    view.setUint16(8, 8, true);
+    view.setUint16(directory + 10, 8, true);
+    view.setUint32(14, crc32(data), true);
+    view.setUint32(directory + 16, crc32(data), true);
+    view.setUint32(22, data.length + extra, true);
+    view.setUint32(directory + 24, data.length + extra, true);
+    // jsdom Blob has no stream(); use the native streaming Blob for decompression.
+    const [entry] = await readZip(new StreamBlob([buffer]));
+    if (extra) await expect(entry.blob()).rejects.toThrow(/damaged|incomplete/);
+    else expect(await bytesOf(await entry.blob())).toEqual([...data]);
   });
 
   it('rejects files that are not archives and duplicate names', async () => {
