@@ -203,6 +203,7 @@ const compsPanel: Panel = {
     });
   },
   update: (e, el) => {
+    const scrollTop = el.querySelector('.comps-list')?.scrollTop ?? 0;
     const s = state(e);
     const list = comps(e);
     const on = shown(e);
@@ -226,6 +227,7 @@ const compsPanel: Panel = {
     const button = (cmd: string, icon: string, label: string, enabled: boolean) =>
       `<button data-command="${cmd}" aria-label="${label}" title="${label}" ${enabled ? '' : 'disabled'}>${svg(icon, 15)}</button>`;
     el.innerHTML = `<div class="comps-list" role="list">${lastRow}${rows}</div>${empty}<div class="layer-footer">${button('comps.prev', 'chevron-left', 'Apply previous comp', list.length > 0)}${button('comps.next', 'chevron-right', 'Apply next comp', list.length > 0)}<span class="comps-spacer"></span>${button('comps.update', 'refresh-cw', 'Update the selected comp', !!selected)}${button('comps.new', 'plus', 'Create new layer comp', e.hasDocument)}${button('comps.delete', 'trash-2', 'Delete the selected comp', !!selected)}</div>`;
+    el.querySelector('.comps-list')!.scrollTop = scrollTop;
   },
   menu: (): MenuItem[] => ['comps.new', 'comps.duplicate', 'comps.delete', '-', 'comps.update', 'comps.update-all', 'comps.options', '-', 'comps.apply', 'comps.prev', 'comps.next', 'comps.restore-last', '-', 'file.export-comps-files', 'file.export-comps-pdf'],
 };
