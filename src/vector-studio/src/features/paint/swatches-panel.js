@@ -815,11 +815,18 @@ export class SwatchesPanel extends Panel {
   async deleteSelected() {
     const ed = this.app.editor;
     if (!ed || !this.selected.size) return;
+    const selected = [...this.selected];
     const ok = await this.app.dialogs.confirm({ title: 'Delete Swatches', message: 'Delete the swatch selection?', okLabel: 'Delete', danger: true });
-    if (!ok) return;
     const doc = ed.doc;
-    doc.transact('Delete Swatches', () => removeSwatches(doc, [...this.selected]));
-    this.selected.clear();
+    if (!ok || !this.app.editors.includes(ed) || doc.readOnly || doc.tx) return;
+    const existing = new Set([...swatchesOf(doc), ...groupsOf(doc)].map((item) => item.id));
+    const ids = selected.filter((id) => existing.has(id));
+    if (!ids.length) return;
+    doc.transact('Delete Swatches', () => removeSwatches(doc, ids));
+    if (this.app.editor === ed) {
+      const remaining = new Set([...swatchesOf(doc), ...groupsOf(doc)].map((item) => item.id));
+      for (const id of this.selected) if (!remaining.has(id)) this.selected.delete(id);
+    }
   }
 
   openKinds(anchor) {
