@@ -79,6 +79,7 @@ class ChannelEditor {
     this.actions = channelActions(app);
     this.inst = [];
     this.chan = [];
+    this.activeKnob = null;
     this.held = new Map(); // pitch -> current audition request
     this.win = null;
     this.build();
@@ -189,6 +190,28 @@ class ChannelEditor {
     if (id === 'instrument') requestAnimationFrame(() => this.drawWave());
   }
 
+  /** Keep delayed and captured knob input attached to its original edit. */
+  knobGesture(label, edit, tweaked) {
+    const identity = {};
+    const current = () => this.activeKnob?.identity === identity && this.activeKnob.owner === this.store.gesture;
+    return {
+      onStart: (cancel) => {
+        this.store.begin(label);
+        this.activeKnob = { identity, owner: this.store.gesture, cancel };
+      },
+      onInput: (v) => {
+        if (!current()) return;
+        this.store.preview((p) => edit(p, v));
+        if (tweaked) this.app.lastTweaked = tweaked();
+      },
+      onEnd: () => {
+        if (!current()) return;
+        this.activeKnob = null;
+        this.store.commit();
+      },
+    };
+  }
+
   /** Knob for an instrument parameter. */
   paramKnob(def, group) {
     const id = this.id;
@@ -198,12 +221,9 @@ class ChannelEditor {
       label: def.label,
       ariaLabel: `${group} ${def.label.toLowerCase()}`,
       size: 34,
-      onStart: () => this.store.begin(`Change ${def.label.toLowerCase()}`),
-      onInput: (v) => {
-        this.store.preview((p) => E.setChannelParam(p, id, def.id, v));
-        this.app.lastTweaked = { label: `${this.ch.name} ${group === def.label ? def.label : `${group} ${def.label}`}`.trim(), target: { kind: 'channel', id, param: def.id } };
-      },
-      onEnd: () => this.store.commit(),
+      ...this.knobGesture(`Change ${def.label.toLowerCase()}`, (p, v) => E.setChannelParam(p, id, def.id, v), () => ({
+        label: `${this.ch.name} ${group === def.label ? def.label : `${group} ${def.label}`}`.trim(), target: { kind: 'channel', id, param: def.id },
+      })),
     });
     k.el.classList.add('ed-knob');
     this.inst.push({ sync: (ch) => k.set(ch.params[def.id] ?? def.def) });
@@ -500,12 +520,9 @@ class ChannelEditor {
       size: 38,
       format,
       parse,
-      onStart: () => this.store.begin(`Channel ${param.label.toLowerCase()}`),
-      onInput: (v) => {
-        this.store.preview((p) => E.updateChannel(p, id, { [param.id]: v }));
-        if (target) this.app.lastTweaked = { label: `${this.ch.name} ${param.label.toLowerCase()}`, target: { kind: 'channel', id, param: target } };
-      },
-      onEnd: () => this.store.commit(),
+      ...this.knobGesture(`Channel ${param.label.toLowerCase()}`, (p, v) => E.updateChannel(p, id, { [param.id]: v }), target ? () => ({
+        label: `${this.ch.name} ${param.label.toLowerCase()}`, target: { kind: 'channel', id, param: target },
+      }) : null),
     });
     k.el.classList.add('ed-knob');
     this.chan.push({ sync: (ch) => k.set(ch[param.id]) });
@@ -675,6 +692,11 @@ class ChannelEditor {
   // ---------------------------------------------------------------- sync
 
   onChange(p, meta) {
+    if (this.activeKnob && this.activeKnob.owner !== this.store.gesture) {
+      const old = this.activeKnob;
+      this.activeKnob = null;
+      old.cancel?.();
+    }
     if (this.markerCurrent && !this.markerCurrent(p)) this.finishMarkerDrag?.(false);
     const ch = channelById(p, this.id);
     if (!ch) {
