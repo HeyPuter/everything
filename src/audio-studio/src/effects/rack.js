@@ -117,14 +117,14 @@ export function gainSpec(key, db) {
   return def ? slotSpec(def, { left: db, right: db, linked: true }, { key }) : null;
 }
 
-/** The rack's full chain: input gain then the slots. */
-export function rackChain(rack, prefix = 'rack', doc = null) {
+/** The rack's full chain: input gain then the slots (on `channels`, 6 for a 5.1 file). */
+export function rackChain(rack, prefix = 'rack', doc = null, channels = 2) {
   const specs = [];
   if (rack.input) {
     const s = gainSpec(`${prefix}:in`, rack.input);
     if (s) specs.push(s);
   }
-  return specs.concat(slotSpecs(rack.slots, prefix, doc));
+  return specs.concat(slotSpecs(rack.slots, prefix, doc, channels));
 }
 
 /**
@@ -181,7 +181,8 @@ export async function renderRack({ rack, state, start, end, mask = null, signal,
   if (!rackActive(rack)) throw new UserError('The rack has no enabled effects.');
   const rate = state.sampleRate;
   const { tail, latency } = rackTiming(rack, rate);
-  const wet = await applyChain(state.channels, rate, rackChain(rack, 'render', doc), { start, end, tail, latency, onProgress, signal });
+  // A 5.1 file runs surround-capable slots (Surround Reverb) on all six channels, as applying the effect alone does.
+  const wet = await applyChain(state.channels, rate, rackChain(rack, 'render', doc, state.channels.length), { start, end, tail, latency, onProgress, signal });
   const out = dbGain(rack.output);
   const mix = Math.min(1, Math.max(0, rack.mix ?? 1));
   const inG = dbGain(rack.input);
