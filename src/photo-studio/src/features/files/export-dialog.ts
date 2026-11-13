@@ -184,7 +184,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
   let generation = 0,
     timer = 0,
     url = '';
-  let last: { key: string; bytes: Uint8Array; mime: string } | undefined;
+  let last: { key: string; bytes: Uint8Array; mime: string; prepared?: SourceImage } | undefined;
   const key = () => JSON.stringify(s);
   const schedule = () => {
     clearTimeout(timer);
@@ -195,7 +195,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     if (last?.key === k) return last;
     source ??= await documentSource(e, doc);
     const out = await encodeDocument(e, { ...s }, doc, source);
-    last = { key: k, bytes: out.bytes, mime: out.mime };
+    last = { key: k, bytes: out.bytes, mime: out.mime, prepared: undisplayable.has(s.format) ? out.prepared : undefined };
     return { ...last, prepared: out.prepared, width: out.width, height: out.height };
   };
   const refresh = async () => {
