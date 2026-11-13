@@ -314,6 +314,8 @@ export class PianoRollEditor {
     try {
       await engine.start();
     } catch (err) {
+      if (this.auditioning !== list) return;
+      this.stopAudition();
       this.app.reportError?.(err);
       return;
     }
