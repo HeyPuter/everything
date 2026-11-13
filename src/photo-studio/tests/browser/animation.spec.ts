@@ -161,7 +161,7 @@ test.describe('frame animation', () => {
     await page.waitForFunction(() => window.photoStudio.session.fileName === 'squares.webm' && !window.photoStudio.busy, null, { timeout: 60_000 });
     await idle(page);
     const a = await animation(page);
-    expect(a!.frames.length).toBeGreaterThanOrEqual(5);
+    expect(a!.frames.length).toBe(5);
     expect(a!.frames.every((f) => f.delay === 80)).toBe(true);
   });
 });

@@ -2067,7 +2067,7 @@ dialog.data-points-host { width: 560px; max-width: calc(100vw - 32px); }
 
 /* ----- Layout: layer comps ----- */
 .comps-panel { display: flex; flex-direction: column; min-height: 0; }
-.comps-list { display: grid; max-height: 360px; overflow: auto; }
+.comps-list { display: grid; max-height: 360px; overflow: auto; overflow-anchor: none; }
 .comp-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; column-gap: 4px; min-height: 26px; padding-right: 8px; border-bottom: 1px solid var(--line); font-size: 11px; cursor: default; user-select: none; }
 .comp-row:hover { background: var(--hover); }
 .comp-row.selected { background: var(--row-selected); }

@@ -5,6 +5,8 @@ interface State {
 }
 /** A position remembered by `History.mark`, for combining later edits. */
 export type HistoryMark = { state: State; existing: Set<State>; open: boolean };
+/** A history row retained while an asynchronous edit finishes. */
+export type HistoryPosition = { restore(): void; release(): void };
 /** Metadata snapshots share immutable asset IDs. Pixel data never enters history.
  * States form one list; `position` is the current one. Linear history drops the
  * states after the current one on a new edit; non-linear history keeps them and
@@ -141,6 +143,25 @@ export class History {
   /** The oldest retained state (the opened document until history trims it). */
   get oldest(): PhotoDocument {
     return this.states[0].doc;
+  }
+  /** Keep the chosen state available without combining the intervening edits. */
+  holdPosition(index: number): HistoryPosition {
+    const target = this.states[Math.max(0, Math.min(this.states.length - 1, Math.floor(index)))];
+    this.holds++;
+    let held = true;
+    return {
+      restore: () => {
+        const position = this.states.indexOf(target);
+        if (position < 0) throw new Error('That history state is no longer available.');
+        this.goto(position);
+      },
+      release: () => {
+        if (!held) return;
+        held = false;
+        this.holds--;
+        this.trim();
+      },
+    };
   }
   /** Jump to a history state: 0 = before the first retained edit. */
   goto(index: number) {

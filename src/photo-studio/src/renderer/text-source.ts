@@ -48,7 +48,7 @@ export function usesTextFallback(l: Layer): boolean {
 
 export type TextRaster = { image: RGBA8; rect: Rect };
 export async function renderTextLayer(data: TextLayerData, ppi: number, scale: number): Promise<TextRaster> {
-  await prepareFonts(data);
+  await prepareFonts(data, { allowFallback: true });
   const r = renderText(data, { resolution: ppi, scale });
   if (!r.image.width || !r.image.height)
     return { image: { width: 1, height: 1, data: new Uint8ClampedArray(4) }, rect: { x: r.x, y: r.y, width: 1 / scale, height: 1 / scale } };

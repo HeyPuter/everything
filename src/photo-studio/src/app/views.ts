@@ -1,6 +1,7 @@
+import { measurementGeneration } from '../imaging/text/layout';
 import type { Editor } from '../editor';
 import type { DocumentSession } from './session';
-import type { PhotoDocument } from '../model/document';
+import { allLayers, type PhotoDocument } from '../model/document';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
 import { cascade, cellRect, clampFloat, distribute, layoutCells, type LayoutKind, type Rect } from './view-layout';
@@ -27,7 +28,7 @@ export class DocumentView {
 const modeLabels: Record<string, string> = { rgb: 'RGB', grayscale: 'Gray', cmyk: 'CMYK', lab: 'Lab', indexed: 'Index', bitmap: 'Bitmap', duotone: 'Duotone', multichannel: 'Multichannel' };
 // Preview canvases of inactive views are capped so many windows stay cheap.
 const SNAPSHOT_MAX = 4096;
-type Snapshot = { canvas: HTMLCanvasElement; doc: PhotoDocument };
+type Snapshot = { canvas: HTMLCanvasElement; doc: PhotoDocument; fonts?: number };
 
 /** Document windows in the canvas area: the classic tab strip, tiled and
  * n-up layouts (each cell a tab group) and floating windows. Only the active
@@ -203,9 +204,18 @@ export class WindowManager {
     const name = siblings.length > 1 ? `${s.doc.name} : ${siblings.indexOf(v) + 1}` : s.doc.name;
     const meta = `(${mode}/${s.doc.bitsPerChannel ?? 8}${badges.map((b) => `, ${escapeXML(b)}`).join('')})`;
     const label = `${escapeXML(name)} @ ${Math.round(v.zoom * 100)}% ${meta}`;
-    const dirty = s.dirty || (active && e.transform.changed);
+    const dirty = s.dirty || s.hasPendingEdits || e.hasPendingChanges(s);
     const shown = !this.multi ? active : this.visible.includes(v);
     return `<div class="document-tab ${shown ? 'active' : ''} ${active ? 'focused' : ''}" role="tab" aria-selected="${shown}" data-session="${s.id}" data-view="${v.id}" tabindex="${active ? 0 : -1}" title="${label}">${svg('image', 13)}<span ${active ? 'id="document-name"' : ''} class="tab-name">${escapeXML(s.doc.name)}</span>${siblings.length > 1 ? `<span class="tab-window">:${siblings.indexOf(v) + 1}</span>` : ''}<span class="tab-meta" ${active ? 'id="tab-zoom"' : ''}>@ ${Math.round(v.zoom * 100)}%</span><span class="document-mode">${meta}</span><span ${active ? 'id="dirty"' : ''} class="dirty-dot" aria-label="Unsaved changes" ${dirty ? '' : 'hidden'}>*</span><button class="tab-close" data-close-view="${v.id}" aria-label="Close ${label}" title="Close">${svg('x', 12)}</button></div>`;
+  }
+  /** Update only the marker: previews must not replace focused tab controls. */
+  updateDirtyIndicators(s: DocumentSession = this.e.session) {
+    const dirty = s.dirty || s.hasPendingEdits || this.e.hasPendingChanges(s);
+    for (const tab of this.e.root.querySelectorAll<HTMLElement>('.document-tab')) {
+      if (tab.dataset.session !== s.id) continue;
+      const marker = tab.querySelector<HTMLElement>('.dirty-dot');
+      if (marker && marker.hidden === dirty) marker.hidden = !dirty;
+    }
   }
   renderTabs() {
     const e = this.e;
@@ -229,16 +239,16 @@ export class WindowManager {
     if (!this.multi) return;
     const s = this.e.session;
     if (doc.width !== s.doc.width || doc.height !== s.doc.height) return;
-    this.capture(s, canvas);
+    this.capture(s, canvas, doc);
     if (this.visible.some((v) => v.session === s && v !== this.e.activeView)) this.queueDraw();
   }
-  private capture(s: DocumentSession, source: HTMLCanvasElement) {
+  private capture(s: DocumentSession, source: HTMLCanvasElement, doc: PhotoDocument, fonts = measurementGeneration()) {
     let snap = this.snapshots.get(s);
     const k = Math.min(1, SNAPSHOT_MAX / Math.max(source.width, source.height));
     const w = Math.max(1, Math.round(source.width * k)),
       h = Math.max(1, Math.round(source.height * k));
     if (!snap) {
-      snap = { canvas: document.createElement('canvas'), doc: s.doc };
+      snap = { canvas: document.createElement('canvas'), doc };
       this.snapshots.set(s, snap);
     }
     if (snap.canvas.width !== w || snap.canvas.height !== h) {
@@ -248,24 +258,39 @@ export class WindowManager {
     const c = snap.canvas.getContext('2d')!;
     c.clearRect(0, 0, w, h);
     c.drawImage(source, 0, 0, w, h);
-    snap.doc = s.doc;
+    snap.doc = doc;
+    snap.fonts = allLayers(doc.layers).some((l) => !!l.textData) ? fonts : undefined;
   }
   /** Render documents of visible inactive views that have no current frame. */
   async ensureSnapshots() {
     if (!this.multi || !this.e.renderer) return;
     if (this.capturing) return this.capturing;
-    this.capturing = (async () => {
+    // Install the promise before a no-op pass can finish. Clear it in the
+    // same turn as completion, before queued edits can request another pass.
+    this.capturing = Promise.resolve().then(async () => {
       try {
-        const stale = [...new Set(this.visible.map((v) => v.session))].filter((s) => s !== this.e.session && this.snapshots.get(s)?.doc !== s.doc && s.hasDocument);
-        for (const s of stale) await this.e.renderer.drawFrame(s.doc, s.assets, (canvas) => this.capture(s, canvas));
-        if (stale.length) await this.e.render(this.e.displayDoc);
+        // A document or font can change while an earlier frame is rendering.
+        // Keep the revisions actually rendered, then catch up before completing
+        // refresh requests that arrived during the same pass.
+        while (true) {
+          const stale = [...new Set(this.visible.map((v) => v.session))].filter((s) => {
+            const snap = this.snapshots.get(s);
+            return s !== this.e.session && s.hasDocument && (snap?.doc !== s.doc || (snap.fonts !== undefined && snap.fonts !== measurementGeneration()));
+          });
+          if (!stale.length) break;
+          for (const s of stale) {
+            const doc = s.doc, fonts = measurementGeneration();
+            await this.e.renderer.drawFrame(doc, s.assets, (canvas) => this.capture(s, canvas, doc, fonts));
+          }
+          await this.e.render(this.e.displayDoc);
+        }
       } catch (error) {
         console.error(error);
       } finally {
         this.capturing = undefined;
       }
       this.queueDraw();
-    })();
+    });
     return this.capturing;
   }
   queueDraw() {

@@ -11,6 +11,7 @@ import {
   applyParagraph,
   backspace,
   cancel,
+  cancelPendingStart,
   commit,
   currentSession,
   focusInput,
@@ -35,7 +36,7 @@ import {
   updateData,
 } from './session';
 import { layerMatrix, localScale, textLayerAt, toLocal, warpLocal, warpedRect } from './text-utils';
-import { typeOptions, bindTypeOptions } from './options';
+import { typeOptions, bindTypeOptions, syncTypeOptions } from './options';
 import { wordAt, paragraphAt, plainText } from '../../imaging/text/model';
 import { AREA_TYPE_CURSOR, newTypePath, PATH_TYPE_CURSOR, pathTextMarkup, typePathAt } from './path-type';
 import { isIdentityWarp } from '../../imaging/text/warp';
@@ -394,7 +395,9 @@ export function installTypeTools(e: Editor) {
     cursor: () => (vertical ? 'vertical-text' : 'text'),
     options: (e) => typeOptions(e),
     bindOptions: (ctx) => bindTypeOptions(ctx),
+    updateOptions: ({ e }) => syncTypeOptions(e),
     deactivate: (e) => {
+      cancelPendingStart();
       gesture = undefined;
       if (session) return commit(e);
     },

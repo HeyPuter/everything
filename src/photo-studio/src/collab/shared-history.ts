@@ -6,7 +6,7 @@
 // or tile since, and never removes other people's work. The History panel
 // lists this person's steps; other people's edits appear without steps.
 import * as Y from 'yjs';
-import { History, type HistoryMark } from '../history/history';
+import { History, type HistoryMark, type HistoryPosition } from '../history/history';
 import type { PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
 import { ORIGIN } from './shared-project';
@@ -67,6 +67,9 @@ export class SharedHistory extends History {
     const target = Math.max(0, Math.min(this.position + this.binding.redoCount, Math.floor(index)));
     while (this.position > target && this.canUndo) this.undo();
     while (this.position < target && this.canRedo) this.redo();
+  }
+  override holdPosition(index: number): HistoryPosition {
+    return this.binding.holdPosition(index);
   }
   override reset(doc: PhotoDocument) {
     if (doc !== this.document && this.binding.canEdit) this.binding.replace(this.document, doc);
@@ -134,6 +137,7 @@ export class SharedBinding {
   private queued = 0;
   private entries: Entry[] = [];
   private redoEntries: Entry[] = [];
+  private navigationHolds = 0;
   private shown: PhotoDocument;
   private projectTimer?: ReturnType<typeof setTimeout>;
   private fetching = false;
@@ -185,6 +189,34 @@ export class SharedBinding {
   documents() {
     return [...this.entries, ...this.redoEntries].flatMap((e) => [e.before, e.after]);
   }
+  holdPosition(index: number): HistoryPosition {
+    const all = [...this.entries, ...[...this.redoEntries].reverse()];
+    const position = Math.max(0, Math.min(all.length, Math.floor(index)));
+    const target = all[position ? position - 1 : 0];
+    this.navigationHolds++;
+    let held = true;
+    return {
+      restore: () => {
+        const current = [...this.entries, ...[...this.redoEntries].reverse()];
+        const at = target ? current.indexOf(target) : 0;
+        if (at < 0) throw new Error('That history state is no longer available.');
+        this.history.goto(at + (position ? 1 : 0));
+      },
+      release: () => {
+        if (!held) return;
+        held = false;
+        this.navigationHolds--;
+        this.trimEntries(this.history.limit);
+      },
+    };
+  }
+  private trimEntries(limit: number) {
+    if (this.navigationHolds) return;
+    while (this.entries.length > Math.max(1, limit) && this.entries[0].written) {
+      const old = this.entries.shift()!;
+      this.undoManager.undoStack.splice(0, old.items);
+    }
+  }
   /** Write one editor step into the shared document (in order, after its tiles are hashed). */
   commit(before: PhotoDocument, after: PhotoDocument, label: string, merge: boolean, limit = 60) {
     const top = this.entries.at(-1);
@@ -211,10 +243,7 @@ export class SharedBinding {
       this.undoManager.clear(false, true);
       entry.written = true;
       // Older steps beyond the history limit are forgotten.
-      while (this.entries.length > Math.max(1, limit) && this.entries[0].written) {
-        const old = this.entries.shift()!;
-        this.undoManager.undoStack.splice(0, old.items);
-      }
+      this.trimEntries(limit);
     });
   }
   /** Replace the whole document (Revert and similar) without an Undo step. */

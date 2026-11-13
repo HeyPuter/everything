@@ -11,6 +11,8 @@ import {
   captureLayers,
   compMatches,
   missingLayers,
+  maxCompNameLength,
+  maxLayerComps,
   newLayerComp,
   recaptureAspects,
   updateLayerComp,
@@ -37,6 +39,11 @@ function state(e: Editor): CompSession {
 }
 const comps = (e: Editor) => e.doc.layerComps ?? [];
 const find = (e: Editor, id: string | undefined) => comps(e).find((c) => c.id === id);
+function canAddComp(e: Editor) {
+  if (comps(e).length < maxLayerComps) return true;
+  e.message(`This document already has ${maxLayerComps} layer comps. Delete one before adding another.`);
+  return false;
+}
 /** Selected comp, or the last applied one. */
 function current(e: Editor) {
   return find(e, state(e).selected) ?? find(e, e.doc.lastComp);
@@ -62,7 +69,7 @@ async function compDialog(title: string, submit: string, init: { name: string; c
     title,
     submit,
     className: 'comp-dialog',
-    body: `<label class="dialog-field">Name<input name="name" type="text" required maxlength="256" value="${escapeXML(init.name)}"></label>
+    body: `<label class="dialog-field">Name<input name="name" type="text" required maxlength="${maxCompNameLength}" value="${escapeXML(init.name)}"></label>
       <fieldset class="comp-capture"><legend>Apply to layers</legend>${check('visibility', 'Visibility')}${check('position', 'Position')}${check('appearance', 'Appearance (opacity, blending, style)')}</fieldset>
       <label class="dialog-field">Comment<textarea name="comment" rows="3" maxlength="4096" placeholder="Optional">${escapeXML(init.comment ?? '')}</textarea></label>`,
     bind: (dialog) => dialog.querySelector<HTMLInputElement>('[name=name]')?.select(),
@@ -88,8 +95,9 @@ function setComps(e: Editor, label: string, edit: (list: LayerComp[], d: PhotoDo
 }
 
 async function newComp(e: Editor) {
+  if (!canAddComp(e)) return;
   const v = await compDialog('New Layer Comp', 'OK', { name: nextName(e), capture: { visibility: true, position: true, appearance: false } });
-  if (!v) return;
+  if (!v || !canAddComp(e)) return;
   const comp = newLayerComp(e.doc, v.name, v.capture, v.comment || undefined);
   setComps(e, 'New Layer Comp', (list, d) => {
     d.lastComp = comp.id;
@@ -195,6 +203,7 @@ const compsPanel: Panel = {
     });
   },
   update: (e, el) => {
+    const scrollTop = el.querySelector('.comps-list')?.scrollTop ?? 0;
     const s = state(e);
     const list = comps(e);
     const on = shown(e);
@@ -218,6 +227,7 @@ const compsPanel: Panel = {
     const button = (cmd: string, icon: string, label: string, enabled: boolean) =>
       `<button data-command="${cmd}" aria-label="${label}" title="${label}" ${enabled ? '' : 'disabled'}>${svg(icon, 15)}</button>`;
     el.innerHTML = `<div class="comps-list" role="list">${lastRow}${rows}</div>${empty}<div class="layer-footer">${button('comps.prev', 'chevron-left', 'Apply previous comp', list.length > 0)}${button('comps.next', 'chevron-right', 'Apply next comp', list.length > 0)}<span class="comps-spacer"></span>${button('comps.update', 'refresh-cw', 'Update the selected comp', !!selected)}${button('comps.new', 'plus', 'Create new layer comp', e.hasDocument)}${button('comps.delete', 'trash-2', 'Delete the selected comp', !!selected)}</div>`;
+    el.querySelector('.comps-list')!.scrollTop = scrollTop;
   },
   menu: (): MenuItem[] => ['comps.new', 'comps.duplicate', 'comps.delete', '-', 'comps.update', 'comps.update-all', 'comps.options', '-', 'comps.apply', 'comps.prev', 'comps.next', 'comps.restore-last', '-', 'file.export-comps-files', 'file.export-comps-pdf'],
 };
@@ -233,8 +243,10 @@ export function installLayerComps(e: Editor) {
       enabled: hasCurrent,
       run: (e) => {
         const c = current(e);
-        if (!c) return;
-        const copy = { ...structuredClone(c), id: crypto.randomUUID(), name: `${c.name} copy` };
+        if (!c || !canAddComp(e)) return;
+        // Reserve room for the suffix without splitting a Unicode surrogate pair.
+        const name = c.name.slice(0, maxCompNameLength - 5).replace(/[\uD800-\uDBFF]$/, '');
+        const copy = { ...structuredClone(c), id: crypto.randomUUID(), name: `${name} copy` };
         setComps(e, 'Duplicate Layer Comp', (list) => {
           list.splice(list.findIndex((x) => x.id === c.id) + 1, 0, copy);
           return list;
@@ -279,9 +291,9 @@ export function installLayerComps(e: Editor) {
     {
       id: 'comps.apply',
       label: 'Apply Layer Comp',
-      enabled: hasCurrent,
+      enabled: hasComps,
       run: (e, arg) => {
-        const c = find(e, typeof arg === 'string' ? arg : undefined) ?? current(e);
+        const c = find(e, typeof arg === 'string' ? arg : undefined) ?? current(e) ?? comps(e)[0];
         if (c) applyComp(e, c);
       },
     },

@@ -64,12 +64,13 @@ export function installCore(e: Editor) {
   cmd('app.account', 'Puter Account', () => performAction(e, 'account'), { hidden: true, recordable: false });
 
   // ----- Edit -----
-  cmd('edit.undo', 'Undo', () => performAction(e, 'undo'), { shortcut: 'Mod+Z', enabled: (e) => e.history.canUndo || e.transform.active, recordable: false });
+  cmd('edit.undo', 'Undo', () => performAction(e, 'undo'), { shortcut: 'Mod+Z', enabled: (e) => e.history.canUndo || e.transform.active || e.session.hasPendingEdits, recordable: false });
   cmd('edit.redo', 'Redo', () => performAction(e, 'redo'), { shortcut: 'Mod+Shift+Z', enabled: (e) => e.history.canRedo, recordable: false });
   // Toggle Last State flips between the latest state and the one before it:
   // it redoes only the step it undid itself.
   let toggledTo: PhotoDocument | undefined;
   cmd('edit.toggle-last-state', 'Toggle Last State', async () => {
+    await e.session.waitForEdits();
     const back = toggledTo === e.doc && e.history.canRedo;
     if (back || !e.history.canUndo) {
       await performAction(e, 'redo');
@@ -119,6 +120,9 @@ export function installCore(e: Editor) {
   cmd('image.duplicate', 'Duplicate…', async () => {
     const v = await formDialog('Duplicate Image', [{ name: 'name', label: 'As', value: `${e.doc.name} copy` }], 'Duplicate');
     if (!v) return;
+    e.transform.apply();
+    await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
+    const selected = [...e.selectedIds];
     const blob = await serialize(e.doc, e.assets);
     const { deserialize } = await import('../model/serialization');
     const loaded = await deserialize(blob);
@@ -130,6 +134,7 @@ export function installCore(e: Editor) {
     s.history.reset(doc);
     s.hasDocument = true;
     e.session = s;
+    e.selectLayers(selected);
     e.fit();
     e.update();
   }, { enabled: hasDoc, recordable: false });

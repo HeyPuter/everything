@@ -5,7 +5,7 @@ import type { Editor } from '../../editor';
 import { commands, contributeMenu, registerCommand, registerPanel } from '../../app/registry';
 import { lazy, lazyPanel, lazyRun } from '../../app/lazy';
 import { allLayers } from '../../model/document';
-import { ensureFont } from '../../imaging/text/fonts';
+import { ensureFont, onFontsLoaded } from '../../imaging/text/fonts';
 import { installTypeTools, isTypeTool } from './tools';
 import { installTypeOptions } from './options';
 import { installTypePanels } from './panels';
@@ -24,6 +24,7 @@ const matchFont = lazy(() => import('./match-font'));
 
 export function installType(e: Editor) {
   installTypeTools(e);
+  e.closeHooks.push((s) => typeSession.cancelPendingStart(s));
   installTypeOptions(e);
   installTypePanels(e);
   installTypeCommands(e);
@@ -61,8 +62,8 @@ export function installType(e: Editor) {
   );
   contributeMenu('edit', ['edit.check-spelling', 'edit.find-replace-text'], 'edit.search');
   installPathType(e);
-  // Any other command ends the editing session first, so its edit (or an
-  // undo) applies to committed text rather than to the live draft.
+  // Commands outside text editing commit the draft first. Find works with
+  // the live selection and commits it itself when replacing across layers.
   // Edit › Undo and Redo (menu bar, History menus) step through the text
   // edits while there are any, as Mod+Z does in the text.
   const textStep = (id: string) => {
@@ -82,7 +83,7 @@ export function installType(e: Editor) {
       focusInput(e);
       return;
     }
-    if (session && commands.has(id) && !/^(type|window|view|help)\./.test(id)) await commit(e);
+    if (session && commands.has(id) && id !== 'edit.find-replace-text' && !/^(type|window|view|help)\./.test(id)) await commit(e);
     return run(id, arg);
   };
   e.onUpdate(() => {
@@ -108,11 +109,19 @@ export function installType(e: Editor) {
     },
     true,
   );
-  const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
-  fonts?.addEventListener?.('loadingdone', () => {
+  const refreshFonts = () => {
     forgetLayout();
-    if (session) e.overlay();
-  });
+    if (!e.renderer) return;
+    if (e.sessions.some((s) => allLayers(s.doc.layers).some((l) => !!l.textData))) {
+      e.update();
+      void e.windows.ensureSnapshots();
+    }
+  };
+  // Bundled faces load before being added to document.fonts, so the font
+  // manager also notifies us directly instead of relying on loadingdone.
+  onFontsLoaded(refreshFonts);
+  const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+  fonts?.addEventListener?.('loadingdone', refreshFonts);
   void ensureFont('Inter', 400, false);
   // Browser tests inspect the live session through the same module instance.
   if (import.meta.env.DEV) Object.assign(window, { photoStudioType: typeSession });

@@ -113,6 +113,7 @@ Destructive pixel content is stored as 256 px immutable tiles shared between his
 npm test            # unit tests (vitest)
 npm run test:rust   # Rust Wasm engine tests
 npm run test:browser
+npx playwright test -c playwright.production.config.ts # production unload guards
 npm run build       # also bundles the room worker (npm run build:worker)
 ```
 

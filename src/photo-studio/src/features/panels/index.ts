@@ -11,7 +11,7 @@ import { canvasRect } from '../../model/selection';
 import { commitSelectionMask, selectionOp } from '../selection';
 import { compositeRGBA, hexRgb, rgbHex } from '../pixels';
 import type { RGBA8 } from '../../imaging/types';
-import { sessionSnapshots } from '../history-tools';
+import { historySourceId, sessionSnapshots } from '../history-tools';
 import { infoPanel } from '../measure/info';
 import { centerPoint, panToCenter } from '../../app/view-transform';
 
@@ -37,9 +37,17 @@ const historyPanel: Panel = {
       }
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-history]');
       if (!row) return;
-      e.transform.apply();
-      e.history.goto(Number(row.dataset.history));
-      e.restoreSelection();
+      void e.run(async () => {
+        const position = e.history.holdPosition(Number(row.dataset.history));
+        try {
+          e.transform.apply();
+          await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
+          position.restore();
+        } finally {
+          position.release();
+          e.restoreSelection();
+        }
+      });
     });
   },
   update: (e, el) => {
@@ -55,9 +63,9 @@ const historyPanel: Panel = {
       ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
     ];
     const snaps = sessionSnapshots(e);
-    const source = (e.settings.historySource as string | undefined) ?? '';
+    const source = historySourceId(e) ?? '';
     const snapRows = snaps.map((sn) => `<div class="history-snapshot"><button class="history-source" data-history-source="${sn.id}" aria-pressed="${source === sn.id}" title="Set the source for the History Brush" aria-label="Use ${escapeXML(sn.name)} as History Brush source">${svg('history', 13)}</button><button class="history-row" data-snapshot="${sn.id}">${svg('camera', 14)}<span>${escapeXML(sn.name)}</span></button></div>`).join('');
-    const html = `${snapRows ? `<div class="history-snapshots">${snapRows}</div>` : ''}<div class="history-entries">${rows.join('')}</div><div class="history-controls"><button data-command="history.snapshot" aria-label="Create new snapshot" title="Create new snapshot">${svg('camera', 15)}</button><button data-command="edit.undo" aria-label="Undo" title="Undo" ${e.history.canUndo ? '' : 'disabled'}>${svg('undo-2', 15)}</button><button data-command="edit.redo" aria-label="Redo" title="Redo" ${e.history.canRedo ? '' : 'disabled'}>${svg('redo-2', 15)}</button></div>`;
+    const html = `${snapRows ? `<div class="history-snapshots">${snapRows}</div>` : ''}<div class="history-entries">${rows.join('')}</div><div class="history-controls"><button data-command="history.snapshot" aria-label="Create new snapshot" title="Create new snapshot">${svg('camera', 15)}</button><button data-command="edit.undo" aria-label="Undo" title="Undo" ${e.history.canUndo || e.session.hasPendingEdits ? '' : 'disabled'}>${svg('undo-2', 15)}</button><button data-command="edit.redo" aria-label="Redo" title="Redo" ${e.history.canRedo ? '' : 'disabled'}>${svg('redo-2', 15)}</button></div>`;
     // Unchanged (an update that is not a history step): keep the list as it
     // is, scrolled where the user left it.
     if (historyMarkup.get(el) === html) return;

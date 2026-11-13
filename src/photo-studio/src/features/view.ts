@@ -14,7 +14,7 @@ import { installGuides, setGuidesShown } from './guides';
 import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 
 // Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
-let lastQuickMaskUrl: { grid: TileGrid; url: string; time: number } | undefined;
+let lastQuickMaskUrl: { grid: TileGrid; width: number; height: number; url: string; time: number } | undefined;
 
 /** Same tiles, fill and origin (history copies grids on every edit). */
 function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
@@ -26,14 +26,15 @@ function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
 function quickMaskOverlay(e: Editor) {
   const grid = (e.settings.quickMaskPreview as TileGrid | undefined) ?? (e.settings.quickMask as TileGrid | undefined);
   if (!grid) return '';
+  const doc = e.doc;
   const now = performance.now();
-  if (!lastQuickMaskUrl || lastQuickMaskUrl.grid !== grid) {
-    if (lastQuickMaskUrl && now - lastQuickMaskUrl.time < 80) {
+  const resized = lastQuickMaskUrl?.width !== doc.width || lastQuickMaskUrl?.height !== doc.height;
+  if (!lastQuickMaskUrl || lastQuickMaskUrl.grid !== grid || resized) {
+    if (lastQuickMaskUrl && !resized && now - lastQuickMaskUrl.time < 80) {
       // Throttle redraws while painting; schedule a catch-up frame.
       requestAnimationFrame(() => e.overlay());
     } else {
       // Unselected areas are tinted, like a translucent red film.
-      const doc = e.doc;
       const scale = Math.min(1, 2048 / Math.max(doc.width, doc.height));
       const w = Math.max(1, Math.round(doc.width * scale)),
         h = Math.max(1, Math.round(doc.height * scale));
@@ -46,17 +47,32 @@ function quickMaskOverlay(e: Editor) {
         for (let x = 0; x < w; x++) {
           const dx = Math.floor((x + 0.5) / scale),
             dy = Math.floor((y + 0.5) / scale);
-          const id = grid.tiles[tileKey(Math.floor(dx / TILE), Math.floor(dy / TILE))];
-          const v = id ? e.assets.tiles.get(id)[(dy % TILE) * TILE + (dx % TILE)] : (grid.fill ?? 0);
+          const lx = dx - grid.x, ly = dy - grid.y;
+          const id = grid.tiles[tileKey(Math.floor(lx / TILE), Math.floor(ly / TILE))];
+          const v = id ? e.assets.tiles.get(id)[(((ly % TILE) + TILE) % TILE) * TILE + ((lx % TILE) + TILE) % TILE] : (grid.fill ?? 0);
           const o = (y * w + x) * 4;
           img.data[o] = 255;
           img.data[o + 3] = Math.round((255 - v) * 0.5);
         }
       c.putImageData(img, 0, 0);
-      lastQuickMaskUrl = { grid, url: canvas.toDataURL(), time: now };
+      lastQuickMaskUrl = { grid, width: doc.width, height: doc.height, url: canvas.toDataURL(), time: now };
     }
   }
   return lastQuickMaskUrl ? `<image href="${lastQuickMaskUrl.url}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" style="image-rendering:auto"/>` : '';
+}
+
+/** Resolve stale choices after undo or a mode change without losing the choice
+ * if undo/redo brings its channel back. Panels and commands use the same source. */
+function activeChannel(e: Editor): string {
+  const chosen = e.session.activeChannel;
+  if (chosen && e.doc.channels?.some((c) => c.id === chosen)) return chosen;
+  const ink = e.doc.mode === 'multichannel' && e.doc.channels?.find((c) => c.spot);
+  if (ink) return ink.id;
+  return chosen && ['rgb', 'red', 'green', 'blue'].includes(chosen) ? chosen : 'rgb';
+}
+function activeSavedChannel(e: Editor) {
+  const id = activeChannel(e);
+  return e.doc.channels?.find((c) => c.id === id);
 }
 
 const channelsPanel: Panel = {
@@ -79,7 +95,7 @@ const channelsPanel: Panel = {
         void loadChannel(e, id, selectionOp(e, { shift: ev.shiftKey, alt: ev.altKey }));
         return;
       }
-      e.settings.activeChannel = id;
+      e.session.activeChannel = id;
       e.dock.update();
       // A double-click opens Channel Options. The first click redraws the
       // panel, so the second lands on a new row: count clicks instead of
@@ -89,12 +105,12 @@ const channelsPanel: Panel = {
   },
   update: (e, el) => {
     const doc = e.doc;
-    const active = e.settings.activeChannel as string | undefined;
+    const active = activeChannel(e);
     const composite = doc.layers.length ? '' : '';
     const spots = doc.mode === 'multichannel' ? (doc.channels ?? []).filter((c) => c.spot) : [];
     // Each row is chosen with its name button (Tab to it, Enter or Space).
-    const name = (id: string, label: string, selected = false) =>
-      `<button type="button" class="channel-name" aria-pressed="${selected || active === id}" title="Select channel; double-click for Channel Options">${escapeXML(label)}</button>`;
+    const name = (id: string, label: string) =>
+      `<button type="button" class="channel-name" aria-pressed="${active === id}" title="Select channel; double-click for Channel Options">${escapeXML(label)}</button>`;
     const thumb = (c: (typeof spots)[number]) => `<button class="channel-thumb" aria-label="Load ${escapeXML(c.name)} as selection" title="Click to load as selection"><img src="${gridThumbnail(e.assets.tiles, c.grid, doc.width, doc.height, 34, true)}" alt=""></button>`;
     // Multichannel documents list their ink channels in place of RGB.
     const inkRows = spots
@@ -106,7 +122,7 @@ const channelsPanel: Panel = {
       ['green', 'Green'],
       ['blue', 'Blue'],
     ]
-      .map(([id, label]) => `<div class="channel-row ${!active || active === id ? 'selected' : ''}" data-channel="${id}"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb ${id}"></span>${name(id, label, !active)}</div>`)
+      .map(([id, label]) => `<div class="channel-row ${active === id ? 'selected' : ''}" data-channel="${id}"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb ${id}"></span>${name(id, label)}</div>`)
       .join('');
     const alpha = (doc.channels ?? [])
       .filter((c) => !spots.includes(c))
@@ -338,7 +354,12 @@ export function installView(e: Editor) {
           // Type, shapes, fills and embedded images are rendered first.
           const img = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, area) : await (await import('./pixels')).layerRGBA(e, l);
           m = { width: area.width, height: area.height, data: new Uint8Array(area.width * area.height).map((_, i) => img.data[i * 4 + 3]) };
-        } else m = readMask(e.assets.tiles, e.doc.channels!.find((c) => c.id === v.channel)!.grid, area);
+        } else {
+          const channel = e.doc.channels!.find((c) => c.id === v.channel)!;
+          m = readMask(e.assets.tiles, channel.grid, area);
+          // Match loading from the Channels panel: spot channels select ink.
+          if (channel.spot) for (let i = 0; i < m.data.length; i++) m.data[i] = 255 - m.data[i];
+        }
         if (v.invert === 'yes') for (let i = 0; i < m.data.length; i++) m.data[i] = 255 - m.data[i];
         commitSelectionMask(e, m, v.op as never, 'Load Selection');
       },
@@ -347,7 +368,7 @@ export function installView(e: Editor) {
       id: 'select.load-active-channel',
       label: 'Load Channel as Selection',
       hidden: true,
-      run: (e) => loadChannel(e, (e.settings.activeChannel as string) ?? 'rgb', 'replace'),
+      run: (e) => loadChannel(e, activeChannel(e), 'replace'),
     },
     {
       id: 'channel.new',
@@ -363,9 +384,9 @@ export function installView(e: Editor) {
     {
       id: 'channel.duplicate',
       label: 'Duplicate Channel',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
+      enabled: (e) => !!activeSavedChannel(e),
       run: (e) => {
-        const ch = e.doc.channels!.find((c) => c.id === e.settings.activeChannel)!;
+        const ch = activeSavedChannel(e)!;
         e.command('Duplicate Channel', (d) => {
           d.channels = [...d.channels!, { ...ch, id: crypto.randomUUID(), name: `${ch.name} copy` }];
           syncMultichannel(e.assets.tiles, d);
@@ -375,21 +396,21 @@ export function installView(e: Editor) {
     {
       id: 'channel.options',
       label: 'Channel Options…',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
-      run: (e) => channelOptions(e, e.settings.activeChannel as string),
+      enabled: (e) => !!activeSavedChannel(e),
+      run: (e) => channelOptions(e, activeChannel(e)),
     },
     {
       id: 'channel.delete',
       label: 'Delete Channel',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
+      enabled: (e) => !!activeSavedChannel(e),
       run: (e) => {
-        const id = e.settings.activeChannel;
+        const id = activeChannel(e);
         e.command('Delete Channel', (d) => {
           d.channels = d.channels!.filter((c) => c.id !== id);
           if (!d.channels.length) d.channels = undefined;
           syncMultichannel(e.assets.tiles, d);
         });
-        delete e.settings.activeChannel;
+        delete e.session.activeChannel;
       },
     },
   );

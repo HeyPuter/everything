@@ -11,11 +11,12 @@ import { emitAppEvent } from '../../app/app-events';
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const projectName = (name: string) => (/\.photo$/i.test(name) ? name : `${name}.photo`);
 
-function markSaved(e: Editor, s: DocumentSession, doc: DocumentSession['saved'], item: { name: string; path: string }, blob: Blob) {
+function markSaved(e: Editor, s: DocumentSession, doc: DocumentSession['saved'], item: { name: string; path: string }, blob: Blob, extrasRevision: number) {
   s.storage.path = item.path;
   s.fileName = item.name;
   // Edits made while the picker was open stay dirty relative to what was written.
   s.saved = doc;
+  s.savedExtrasRevision = extrasRevision;
   noteRecent(e, item.name, { kind: 'puter', path: item.path });
   for (const hook of e.saveHooks) hook(s, blob);
   e.update();
@@ -27,17 +28,18 @@ export async function save(e: Editor) {
   if (e.session.saveHandler) return e.session.saveHandler();
   await emitAppEvent('before-save', e.session);
   const s = e.session,
-    doc = s.doc;
+    doc = s.doc,
+    extrasRevision = s.extrasRevision;
   const blob = await serialize(doc, s.assets);
   if (s.storage.path) {
     const item = await cloudWrite(s.storage.path, blob);
-    markSaved(e, s, doc, item, blob);
+    markSaved(e, s, doc, item, blob, extrasRevision);
     e.message(`Saved ${item.name} to Puter`);
     return;
   }
-  saveAsWith(e, s, doc, blob);
+  saveAsWith(e, s, doc, blob, extrasRevision);
 }
-function saveAsWith(e: Editor, s: DocumentSession, doc: NonNullable<DocumentSession['saved']>, blob: Blob, copy = false) {
+function saveAsWith(e: Editor, s: DocumentSession, doc: NonNullable<DocumentSession['saved']>, blob: Blob, extrasRevision: number, copy = false) {
   // The Puter picker never settles when dismissed: do not hold the editor busy.
   e.release();
   void cloudSaveAs(blob, projectName(s.fileName?.replace(/\.[^.]+$/, '') || doc.name))
@@ -47,7 +49,7 @@ function saveAsWith(e: Editor, s: DocumentSession, doc: NonNullable<DocumentSess
         e.message(`Saved a copy as ${item.name}`);
         return;
       }
-      markSaved(e, s, doc, item, blob);
+      markSaved(e, s, doc, item, blob, extrasRevision);
       e.message(`Saved ${item.name} to Puter`);
     })
     .catch((error) => e.message(errorText(error)));
@@ -55,13 +57,15 @@ function saveAsWith(e: Editor, s: DocumentSession, doc: NonNullable<DocumentSess
 export async function saveAs(e: Editor, copy = false) {
   await emitAppEvent('before-save', e.session);
   const s = e.session,
-    doc = s.doc;
-  saveAsWith(e, s, doc, await serialize(doc, s.assets), copy);
+    doc = s.doc,
+    extrasRevision = s.extrasRevision;
+  saveAsWith(e, s, doc, await serialize(doc, s.assets), extrasRevision, copy);
 }
 export async function downloadProject(e: Editor) {
   await emitAppEvent('before-save', e.session);
   const s = e.session,
-    doc = s.doc;
+    doc = s.doc,
+    extrasRevision = s.extrasRevision;
   const name = projectName(s.fileName?.replace(/\.[^.]+$/, '') || doc.name);
   const blob = await serialize(doc, s.assets);
   download(blob, name);
@@ -72,6 +76,7 @@ export async function downloadProject(e: Editor) {
     return;
   }
   s.saved = doc;
+  s.savedExtrasRevision = extrasRevision;
   for (const hook of e.saveHooks) hook(s, blob);
   e.update();
   e.message(`Downloaded ${name}`);

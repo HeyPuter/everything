@@ -2,7 +2,7 @@
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 
-type Owner = { parent: DocumentSession; contents?: string; layerId: string; name: string };
+export type Owner = { parent: DocumentSession; contents?: string; layerId: string; name: string };
 export const owners = new WeakMap<DocumentSession, Owner>();
 
 export const ownerOf = (s: DocumentSession) => owners.get(s);

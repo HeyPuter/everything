@@ -1,4 +1,4 @@
-import { newDocument, findLayer, allLayers, type PhotoDocument, type Layer } from './model/document';
+import { newDocument, findLayer, allLayers, MAX_LAYERS, type PhotoDocument, type Layer } from './model/document';
 import { ImageEngine } from './engine/engine';
 import { Renderer } from './renderer/renderer';
 import { FreeTransform } from './ui/transform';
@@ -51,7 +51,7 @@ export class Editor {
   transform: FreeTransform;
   // A feature-owned modal edit (advanced transform, crop) that finishes before
   // any other edit and supplies the document shown on the canvas meanwhile.
-  modal?: { document?: PhotoDocument; apply(): void; cancel(): void };
+  modal?: { document?: PhotoDocument; readonly pendingChanges?: boolean; apply(): void | Promise<void>; cancel(): void };
   menubar!: MenuBar;
   toolbar!: Toolbar;
   dock!: Dock;
@@ -83,11 +83,15 @@ export class Editor {
   // ----- Sessions -----
   newSession(doc = newDocument()) {
     const s = new DocumentSession(doc);
+    s.pendingEditsChanged = () => {
+      this.windows.updateDirtyIndicators(s);
+      if (s === this.activeView?.session) this.dock?.update();
+    };
     s.history.limit = this.preferences.historyStates;
     s.history.nonLinear = () => this.preferences.nonLinearHistory;
     s.history.normalize = (d, before) => {
       followLinkedMasks(before, d, s.assets.tiles);
-      this.normalizePixelLayers(d, s.assets);
+      this.normalizePixelLayers(d, s.assets, before);
       for (const hook of this.documentHooks) hook(d, before);
     };
     this.sessions.push(s);
@@ -236,10 +240,23 @@ export class Editor {
   closeHooks: ((s: DocumentSession) => void)[] = [];
   // Called after a document is saved (the project blob written).
   saveHooks: ((s: DocumentSession, project: Blob) => void)[] = [];
+  /** Edits still held by the active tool, outside the session's history. */
+  hasPendingChanges(s = this.session) {
+    return s === this.session && (this.transform.changed || !!this.modal?.pendingChanges);
+  }
   async closeSession(s: DocumentSession, force = false) {
+    if (!force) {
+      try {
+        await s.waitForEdits();
+      } catch (error) {
+        this.message(error instanceof Error ? error.message : String(error));
+        return false;
+      }
+    }
+    if (!this.sessions.includes(s)) return true;
     if (!force && s.closeHandler) {
       if (!(await s.closeHandler())) return false;
-    } else if (!force && s.dirty) {
+    } else if (!force && (s.dirty || this.hasPendingChanges(s))) {
       const { saveChangesDialog } = await import('./ui/dialog');
       const choice = await saveChangesDialog(`Save changes to “${s.doc.name}” before closing?`, 'Your changes will be lost if you don’t save them.');
       if (choice === 'cancel' || (choice === 'save' && !(await this.saveBeforeClose(s)))) return false;
@@ -272,11 +289,11 @@ export class Editor {
     const save = findCommand('file.save');
     if (!save) return false;
     if (s !== this.session) await this.switchSession(s);
-    this.transform.apply();
-    this.modal?.apply();
     let failed = false;
     const task = async () => {
       try {
+        this.transform.apply();
+        await Promise.all([this.modal?.apply(), s.waitForEdits()]);
         await save.run(this);
       } catch (error) {
         failed = true;
@@ -465,16 +482,18 @@ export class Editor {
       return;
     }
     if (c.enabled && !c.enabled(this)) return;
-    // Saving and exporting read the document directly; commit a pending
-    // transform first so the file matches what is on screen.
-    if (id.startsWith('file.') && !this.toolBusy) {
-      this.transform.apply();
-      this.modal?.apply();
-    }
     const outer = this.currentCommand;
     this.currentCommand = this.lastCommand = id;
     try {
       await this.run(async () => {
+        // File commands read the document directly. Embedded transforms can
+        // finish asynchronously, so keep the task busy until they commit.
+        if (id.startsWith('file.') && !this.toolBusy) {
+          this.transform.apply();
+          // Observe pending-edit failures before a tool reports and handles
+          // its error; otherwise a failed transform can look complete here.
+          await Promise.all([this.modal?.apply(), this.session.waitForEdits()]);
+        }
         // Recorded only when it runs: a command skipped because another
         // task is running must not become an action step.
         this.recorder?.(id, arg);
@@ -538,8 +557,14 @@ export class Editor {
     });
   }
   /** Bake pending pixel-layer moves (origin shift) and transforms (resample). */
-  normalizePixelLayers(doc: PhotoDocument, assets: Assets) {
-    for (const l of allLayers(doc.layers)) {
+  normalizePixelLayers(doc: PhotoDocument, assets: Assets, before?: PhotoDocument) {
+    const layers = allLayers(doc.layers);
+    // Guard every local history edit, including insertions outside the Layers
+    // menu. Older projects above the editing limit can still be edited or
+    // reduced; only further growth is refused, before history is committed.
+    if (before && layers.length > MAX_LAYERS && layers.length > allLayers(before.layers).length)
+      throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
+    for (const l of layers) {
       if (l.textData) bakeTextScale(l);
       if (l.kind !== 'pixel' || !l.pixels) continue;
       const kind = pixelTransformKind(l);
@@ -564,6 +589,7 @@ export class Editor {
     this.renderFrame = requestAnimationFrame(() => {
       this.renderFrame = 0;
       const d = this.lastDoc;
+      this.windows.updateDirtyIndicators();
       if (d) void this.render(d).catch((e) => this.message(String(e)));
     });
   }
@@ -602,16 +628,17 @@ export class Editor {
     this.el('#tool-name').textContent = tool?.label ?? '';
     this.el('#tool-icon').innerHTML = tool ? svg(tool.icon, 18) : '';
     const el = this.el('#tool-options');
-    let html = '';
-    if (this.transform.active)
-      html = `<span class="transform-label">Free Transform</span><label class="transform-setting"><input id="transform-proportions" type="checkbox" ${this.transform.shared || this.transform.proportional ? 'checked' : ''} ${this.transform.shared ? 'disabled' : ''}>Proportions</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${this.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.transform-cancel" class="icon-button" title="Cancel transform (Escape)" aria-label="Cancel">${svg('ban', 16)}</button><button data-command="edit.transform-commit" class="icon-button transform-apply" title="Commit transform (Enter)" aria-label="Apply">${svg('check', 16)}</button>`;
-    else html = tool?.options?.(this) ?? '';
-    // The bar is rebuilt after every edit; a control that had the keyboard
-    // focus (often the one Tab just moved to) gets it back, with its caret.
+    // Keep native controls mounted when their tool can refresh them in place.
     const focused = document.activeElement as HTMLInputElement | null;
     const keep = focused && el.contains(focused) && focused.id ? { id: focused.id, start: caret(focused, 'selectionStart'), end: caret(focused, 'selectionEnd') } : this.optionsTab ? { id: this.optionsTab.id, start: null, end: null } : undefined;
-    el.innerHTML = html;
-    if (!this.transform.active) tool?.bindOptions?.({ e: this, el });
+    if (this.transform.active || !tool?.updateOptions?.({ e: this, el })) {
+      let html = '';
+      if (this.transform.active)
+        html = `<span class="transform-label">Free Transform</span><label class="transform-setting"><input id="transform-proportions" type="checkbox" ${this.transform.shared || this.transform.proportional ? 'checked' : ''} ${this.transform.shared ? 'disabled' : ''}>Proportions</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${this.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.transform-cancel" class="icon-button" title="Cancel transform (Escape)" aria-label="Cancel">${svg('ban', 16)}</button><button data-command="edit.transform-commit" class="icon-button transform-apply" title="Commit transform (Enter)" aria-label="Apply">${svg('check', 16)}</button>`;
+      else html = tool?.options?.(this) ?? '';
+      el.innerHTML = html;
+      if (!this.transform.active) tool?.bindOptions?.({ e: this, el });
+    }
     if (keep) {
       const again = el.querySelector<HTMLInputElement>(`#${CSS.escape(keep.id)}`);
       again?.focus({ preventScroll: true });
@@ -924,7 +951,7 @@ export class Editor {
     }).observe(viewport);
     window.addEventListener('beforeunload', (e) => {
       if (import.meta.env.DEV) return;
-      if (this.sessions.some((s) => s.dirty)) {
+      if (this.sessions.some((s) => s.dirty || s.hasPendingEdits) || this.hasPendingChanges()) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -979,6 +1006,8 @@ export class Editor {
     }
     const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
+    // Tab navigates focused controls; the canvas keeps its hide-panels shortcut.
+    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey && target.closest('button,a[href],[tabindex]:not(#viewport)')) return;
     const shortcut = eventShortcut(e);
     // Modified shortcuts work while typing in numeric fields; bare keys never do,
     // and the field keeps the keys that edit its own text (select all, copy, cut, paste).

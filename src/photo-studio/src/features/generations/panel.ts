@@ -25,9 +25,12 @@ onGenerationsChange(() => {
   revision++;
 });
 
-async function load() {
+async function load(): Promise<GenerationEntry[]> {
   if (!entries) {
-    const list = await generationStore().list().catch(() => [] as GenerationEntry[]);
+    const requestedRevision = revision;
+    const list = await generationStore().list();
+    // A result added/deleted during the read invalidates its cached snapshot.
+    if (revision !== requestedRevision) return load();
     const next = new Map<string, string>();
     for (const x of list) next.set(x.id, urls.get(x.id) ?? (x.thumb ? URL.createObjectURL(x.thumb) : ''));
     for (const [id, u] of urls) if (!next.has(id) && u) URL.revokeObjectURL(u);
@@ -194,6 +197,14 @@ export function mountGenerations(e: Editor, el: HTMLElement) {
   });
   el.addEventListener('click', (ev) => {
     const t = ev.target as HTMLElement;
+    const retry = t.closest<HTMLButtonElement>('[data-gen-retry]');
+    if (retry) {
+      retry.disabled = true;
+      retry.textContent = 'Loading…';
+      el.querySelector<HTMLInputElement>('.gen-search')?.focus({ preventScroll: true });
+      draw(e, el, true);
+      return;
+    }
     const act = t.closest<HTMLElement>('[data-gen-act]')?.dataset.genAct;
     const id = t.closest<HTMLElement>('[data-gen]')?.dataset.gen;
     const x = entries?.find((y) => y.id === id);
@@ -222,5 +233,8 @@ function draw(e: Editor, el: HTMLElement, force: boolean) {
         ? `<p class="gen-count muted">${shown.length === list.length ? `${list.length} result${list.length === 1 ? '' : 's'}` : `${shown.length} of ${list.length}`}</p><div class="gen-list" role="list">${shown.map(rowHTML).join('')}</div>`
         : '<p class="gen-empty">No results match.</p>';
     void e;
+  }, () => {
+    if (body.dataset.key !== key) return;
+    body.innerHTML = '<p class="gen-empty" role="alert">Could not load Generation History from this browser. Try again.</p><button type="button" class="secondary" data-gen-retry>Retry</button>';
   });
 }

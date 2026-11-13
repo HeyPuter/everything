@@ -128,6 +128,8 @@ export class TransformSession {
   private previousTool: string;
   private hideEdges: unknown;
   private ended = false;
+  private preparing?: Promise<void>;
+  private applying?: Promise<void>;
   // Floating selections: the lifted pixels as tiles (drawn while the frame is
   // a rotated rectangle), the ids of the preview layers, and the tiles the
   // committed layer keeps.
@@ -173,6 +175,15 @@ export class TransformSession {
     const f = Math.min(1, 1400 / Math.max(src.width, src.height));
     this.small = f < 1 ? resize(src, Math.max(1, Math.round(src.width * f)), Math.max(1, Math.round(src.height * f)), 'bilinear') : src;
     if (!this.ended) this.schedule(true);
+  }
+  prepareSource(source: Promise<RGBA8>) {
+    this.preparing = source.then((src) => this.setSource(src));
+    // Report preview failures even without a Commit request, while keeping
+    // the rejection available to operations waiting for that commit.
+    void this.preparing.catch((error) => {
+      this.e.message(error instanceof Error ? error.message : String(error));
+      this.cancel();
+    });
   }
   get ready() {
     return !!this.source;
@@ -226,13 +237,40 @@ export class TransformSession {
     const q0 = rectQuad(this.rect);
     return !!this.mesh || this.quad.some((p, i) => Math.abs(p.x - q0[i].x) > 1e-6 || Math.abs(p.y - q0[i].y) > 1e-6);
   }
-  apply(restoreTool = true) {
+  /** Close prompts compare against the existing document placement. */
+  get pendingChanges() {
+    const layer = this.target.kind === 'layer' && this.target.layerKind === 'image' ? this.layer : undefined;
+    const frame = layer && effectiveFrame(layer);
+    const quad = layer ? frame?.quad ?? transformQuad(layer.transform) : rectQuad(this.rect);
+    if (this.quad.some((p, i) => Math.abs(p.x - quad[i].x) > 1e-6 || Math.abs(p.y - quad[i].y) > 1e-6)) return true;
+    if (!this.mesh) return !!frame?.mesh;
+    // Opening Warp creates an identity grid; that alone is not an edit.
+    const before = frame?.mesh ?? mapMesh(rectToQuad(this.rect, quad), identityGrid(this.rect, this.mesh.cols, this.mesh.rows, this.mesh.mode));
+    return this.mesh.cols !== before.cols || this.mesh.rows !== before.rows || this.mesh.mode !== before.mode
+      || this.mesh.points.some((v, i) => Math.abs(v - before.points[i]) > 1e-6)
+      || JSON.stringify(this.mesh.uKnots) !== JSON.stringify(before.uKnots)
+      || JSON.stringify(this.mesh.vKnots) !== JSON.stringify(before.vKnots);
+  }
+  apply(restoreTool = true): void | Promise<void> {
+    if (this.applying) return this.applying;
+    const session = this.e.session;
+    const task = this.applyWhenReady(restoreTool);
+    // Commit starts when requested, including time spent loading the source.
+    // Repeated requests share completion so document actions wait for it all.
+    if (task) {
+      // Session waiters must see failures before the UI reports them.
+      this.applying = session.trackEdit(task).catch((error) => this.e.message(error instanceof Error ? error.message : String(error)));
+      return this.applying;
+    }
+  }
+  private applyWhenReady(restoreTool: boolean): void | Promise<void> {
     if (this.ended) return;
     if (this.e.doc !== this.base || !this.changed) {
       this.cancel(restoreTool);
       return;
     }
     if (!this.source) {
+      if (this.preparing) return this.preparing.then(() => this.applyWhenReady(restoreTool));
       this.e.message('The layer is still being prepared; try again in a moment.');
       return;
     }
@@ -272,9 +310,7 @@ export class TransformSession {
     if (this.target.layerKind === 'image') {
       // Embedded objects keep their content: the frame is stored and the
       // layer draws a render of the content through it.
-      const e = this.e;
-      void commitFrame(e, this.target.id, quad, mesh, label, result).catch((error) => e.message(error instanceof Error ? error.message : String(error)));
-      return;
+      return commitFrame(this.e, this.target.id, quad, mesh, label, result);
     }
     const id = this.target.id;
     // Every frame of a video layer follows its transform; a mesh warp cannot.
@@ -1309,14 +1345,6 @@ export function startSession(e: Editor, opts: StartOptions): TransformSession | 
   const mesh = opts.quad ? opts.mesh : frame?.mesh;
   if (mesh) s.mesh = mesh;
   s.begin();
-  void (async () => {
-    try {
-      const src = await contentRGBA(e, l);
-      s.setSource(src);
-    } catch (error) {
-      e.message((error as Error).message);
-      s.cancel();
-    }
-  })();
+  s.prepareSource(contentRGBA(e, l));
   return s;
 }

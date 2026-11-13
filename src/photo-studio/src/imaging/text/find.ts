@@ -33,11 +33,23 @@ export function nextMatch(text: string, query: string, from: number, opts: FindO
   const all = findMatches(text, query, opts);
   return all.find(([a]) => a >= from) ?? (wrap ? all[0] : undefined);
 }
-/** Replace every match; returns the new content and the count. */
-export function replaceAll(content: TextContent, query: string, replacement: string, opts: FindOptions = {}): { content: TextContent; count: number } {
+/** Replace every match; map old caret/selection offsets into the new content. */
+export function replaceAll(content: TextContent, query: string, replacement: string, opts: FindOptions = {}): { content: TextContent; count: number; mapIndex: (index: number) => number } {
   const matches = findMatches(plainText(content), query, opts);
   let out = content;
   // From the end, so earlier offsets stay valid.
   for (let k = matches.length - 1; k >= 0; k--) out = replaceRange(out, matches[k][0], matches[k][1], replacement);
-  return { content: out, count: matches.length };
+  const length = replacement.replace(/\r\n?/g, '\n').length;
+  const mapIndex = (index: number) => {
+    let shift = 0;
+    for (const [start, end] of matches) {
+      if (index <= start) break;
+      // An offset inside removed text follows its replacement. Boundaries
+      // still delimit the entire replacement, including adjacent matches.
+      if (index < end) return start + shift + length;
+      shift += length - (end - start);
+    }
+    return index + shift;
+  };
+  return { content: out, count: matches.length, mapIndex };
 }

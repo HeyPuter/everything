@@ -1,19 +1,24 @@
+import { measurementGeneration } from '../../imaging/text/layout';
 // Rendered frames for the Timeline: small thumbnails for the frame strip and
 // larger images for onion skins. Each frame is composited by the renderer
 // (one at a time, between edits) and cached by the content it shows, so
 // selecting another frame or editing one layer only re-renders what changed.
 import type { Editor } from '../../editor';
-import type { PhotoDocument } from '../../model/document';
-import { frameContent, frameDocument, sharedContent } from '../../model/animation';
+import { allLayers, type PhotoDocument } from '../../model/document';
+import { frameContent, frameDocument, maxFrames, sharedContent } from '../../model/animation';
 
-export type FrameImage = { thumb: string; onion: string; width: number; height: number };
-const cache = new Map<string, FrameImage>();
-const maxEntries = 600;
+export type FrameImage = { url: string; width: number; height: number };
+// A visible strip requests every frame, so its small thumbnails must fit even
+// at the animation frame limit. Large onion images have a separate budget:
+// at most eight neighbors on either side are visible at once.
+const thumbnails = new Map<string, FrameImage>();
+const onions = new Map<string, FrameImage>();
+const maxOnions = 32;
 const thumbBox = { width: 112, height: 72 };
 const onionMax = 1280;
-// Jobs carry their document, or build it when they run (timeline times
-// whose video frames decode first).
-let queue: { key: string; doc: PhotoDocument | (() => Promise<PhotoDocument>); e: Editor }[] = [];
+// Build frame documents only when their job runs. Queued thumbnails share
+// the source snapshot instead of retaining a full document copy per frame.
+let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor; assets: Editor['assets']; onion: boolean }[] = [];
 let running = false;
 const listeners = new Set<() => void>();
 
@@ -35,40 +40,43 @@ function hash(s: string) {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
-const keys = new WeakMap<PhotoDocument, { base: string; frames: Map<number, string> }>();
+const textDocuments = new WeakMap<PhotoDocument, boolean>();
+function hasText(doc: PhotoDocument) {
+  let text = textDocuments.get(doc);
+  if (text === undefined) textDocuments.set(doc, (text = allLayers(doc.layers).some((l) => !!l.textData)));
+  return text;
+}
+const keys = new WeakMap<PhotoDocument, { base: string; frames: Map<number, string>; text: boolean }>();
 /** Cache key of what frame `index` shows (memoized per document state). It is
  * built from the shared content and the frame's records, so selecting another
  * frame keeps every key and no frame document is built. */
 export function frameKey(e: Editor, doc: PhotoDocument, index: number) {
   let entry = keys.get(doc);
-  if (!entry) keys.set(doc, (entry = { base: `${e.session.id}:${doc.width}x${doc.height}:${doc.bitsPerChannel ?? 8}:${hash(sharedContent(doc))}`, frames: new Map() }));
+  if (!entry) keys.set(doc, (entry = { base: `${e.session.id}:${doc.width}x${doc.height}:${doc.bitsPerChannel ?? 8}:${hash(sharedContent(doc))}:${hash(JSON.stringify([doc.globalLight, doc.patterns]))}`, frames: new Map(), text: hasText(doc) }));
   let key = entry.frames.get(index);
   if (key === undefined) entry.frames.set(index, (key = `${entry.base}:${hash(frameContent(doc, index))}`));
-  return key;
+  return entry.text ? `${key}:fonts:${measurementGeneration()}` : key;
 }
 
-/** The cached render of frame `index`, queueing it when missing. */
-export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = frameKey(e, doc, index)): FrameImage | undefined {
-  const hit = cache.get(key);
-  if (hit) {
-    // Refresh recency.
-    cache.delete(key);
-    cache.set(key, hit);
-    return hit;
-  }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: frameDocument(doc, index), e });
-  void pump();
+/** The cached thumbnail of frame `index`, or its larger onion image. */
+export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = frameKey(e, doc, index), onion = false): FrameImage | undefined {
+  return requestImage(e, key, () => frameDocument(doc, index), onion);
 }
 
-/** The cached render for `key`, queueing `build` when missing. */
+/** The cached onion image for `key`, queueing `build` when missing. */
 export function docImage(e: Editor, key: string, build: () => Promise<PhotoDocument>): FrameImage | undefined {
+  return requestImage(e, hasText(e.doc) ? `${key}:fonts:${measurementGeneration()}` : key, build, true);
+}
+
+function requestImage(e: Editor, key: string, doc: () => PhotoDocument | Promise<PhotoDocument>, onion: boolean): FrameImage | undefined {
+  const cache = onion ? onions : thumbnails;
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
     cache.set(key, hit);
     return hit;
   }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: build, e });
+  if (!queue.some((q) => q.key === key && q.onion === onion)) queue.push({ key, doc, e, assets: e.assets, onion });
   void pump();
 }
 
@@ -90,13 +98,13 @@ async function pump() {
         continue;
       }
       queue.shift();
+      const cache = job.onion ? onions : thumbnails;
       if (cache.has(job.key)) continue;
       try {
-        cache.set(job.key, await render(e, typeof job.doc === 'function' ? await job.doc() : job.doc));
-        while (cache.size > maxEntries) {
+        cache.set(job.key, await render(e, await job.doc(), job.assets, job.onion));
+        while (cache.size > (job.onion ? maxOnions : maxFrames)) {
           const [oldest, img] = cache.entries().next().value!;
-          URL.revokeObjectURL(img.thumb);
-          URL.revokeObjectURL(img.onion);
+          URL.revokeObjectURL(img.url);
           cache.delete(oldest);
         }
         for (const fn of listeners) fn();
@@ -110,8 +118,8 @@ async function pump() {
 }
 
 /** Composite a document and return straight 8-bit RGBA. */
-export async function compositeFrame(e: Editor, doc: PhotoDocument): Promise<ImageData> {
-  const samples = await e.renderer.documentPixels({ ...doc, selection: null }, e.assets);
+export async function compositeFrame(e: Editor, doc: PhotoDocument, assets = e.assets): Promise<ImageData> {
+  const samples = await e.renderer.documentPixels({ ...doc, selection: null }, assets);
   const n = doc.width * doc.height * 4;
   const data = new Uint8ClampedArray(n);
   if (samples instanceof Float32Array) for (let i = 0; i < n; i++) data[i] = samples[i] * 255 + 0.5;
@@ -119,8 +127,8 @@ export async function compositeFrame(e: Editor, doc: PhotoDocument): Promise<Ima
   return new ImageData(data, doc.width, doc.height);
 }
 
-async function render(e: Editor, doc: PhotoDocument): Promise<FrameImage> {
-  const img = await compositeFrame(e, doc);
+async function render(e: Editor, doc: PhotoDocument, assets: Editor['assets'], onion: boolean): Promise<FrameImage> {
+  const img = await compositeFrame(e, doc, assets);
   const full = new OffscreenCanvas(img.width, img.height);
   full.getContext('2d')!.putImageData(img, 0, 0);
   const scaled = async (k: number) => {
@@ -132,7 +140,6 @@ async function render(e: Editor, doc: PhotoDocument): Promise<FrameImage> {
     g.drawImage(full, 0, 0, w, h);
     return URL.createObjectURL(await c.convertToBlob({ type: 'image/png' }));
   };
-  const thumb = await scaled(Math.min(1, thumbBox.width / img.width, thumbBox.height / img.height));
-  const onion = await scaled(Math.min(1, onionMax / Math.max(img.width, img.height)));
-  return { thumb, onion, width: img.width, height: img.height };
+  const k = onion ? Math.min(1, onionMax / Math.max(img.width, img.height)) : Math.min(1, thumbBox.width / img.width, thumbBox.height / img.height);
+  return { url: await scaled(k), width: img.width, height: img.height };
 }

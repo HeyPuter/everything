@@ -4,16 +4,33 @@
 // Records are removed when a document is saved or closed.
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
-import type { PhotoDocument } from '../../model/document';
+import { findLayer, type PhotoDocument } from '../../model/document';
+import { instancesOf } from '../../model/embedded';
 import { escapeXML } from '../../model/assets';
 import { deserialize, serialize } from '../../model/serialization';
 import { liveInstances, RecoveryStore, relativeTime, type RecoveryRecord } from '../../persistence/versions';
 import { documentThumbnail } from './thumbs';
+import { ownerOf } from '../embedded/owners';
 
 const store = new RecoveryStore();
 const instance = crypto.randomUUID();
 const BEATS = 'photo-studio-instances';
-const recovered = new WeakMap<DocumentSession, PhotoDocument>();
+const recovered = new WeakMap<DocumentSession, { doc: PhotoDocument; extrasRevision: number; clean: boolean; metadataKey: string }>();
+
+/** Unsaved tabs plus the ancestors needed to restore their save destinations. */
+function recoverySessions(e: Editor) {
+  const needed = new Set<DocumentSession>();
+  const open = new Set(e.sessions);
+  for (const s of e.sessions) {
+    if (!s.hasDocument || !s.dirty) continue;
+    let next: DocumentSession | undefined = s;
+    while (next && open.has(next) && !needed.has(next)) {
+      needed.add(next);
+      next = ownerOf(next)?.parent;
+    }
+  }
+  return needed;
+}
 
 function readBeats(): Record<string, number> {
   try {
@@ -38,26 +55,52 @@ function heartbeat(alive = true) {
   writeBeats(beats);
 }
 
-/** Write recovery records for unsaved documents changed since the last write. */
+const pending = new WeakMap<Editor, Promise<void>>();
+/** Write changed recovery records in order, even when interval/manual passes overlap. */
 export async function recoveryTick(e: Editor) {
-  for (const s of e.sessions) {
-    // Embedded object contents recover through their parent document.
-    if (!s.hasDocument || s.saveHandler) continue;
-    if (!s.dirty) {
+  const previous = pending.get(e);
+  const task = previous ? previous.catch(() => {}).then(() => writeRecovery(e)) : writeRecovery(e);
+  pending.set(e, task);
+  try {
+    await task;
+  } finally {
+    if (pending.get(e) === task) pending.delete(e);
+  }
+}
+
+async function writeRecovery(e: Editor) {
+  const needed = recoverySessions(e);
+  for (const s of [...e.sessions]) {
+    if (!s.hasDocument || !e.sessions.includes(s)) continue;
+    if (!needed.has(s)) {
       if (recovered.has(s)) {
         recovered.delete(s);
         await store.remove(s.id);
       }
       continue;
     }
-    if (recovered.get(s) === s.doc) continue;
+    const owner = ownerOf(s);
+    const parent = owner && e.sessions.includes(owner.parent)
+      ? { sessionId: owner.parent.id, contents: owner.contents, layerId: owner.layerId, name: owner.name, parentName: owner.parent.doc.name }
+      : undefined;
+    const fileName = s.fileName;
+    const path = s.storage.path;
+    const metadataKey = JSON.stringify([parent, fileName, path]);
+    const clean = !s.dirty;
+    const previous = recovered.get(s);
+    if (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision && previous.clean === clean && previous.metadataKey === metadataKey) continue;
     const doc = s.doc;
+    const extrasRevision = s.extrasRevision;
     const project = await serialize(doc, s.assets);
-    const thumb = await documentThumbnail(e, s, 160).catch(() => undefined);
+    const thumb = await documentThumbnail(e, s, 160, doc).catch(() => undefined);
     // Saved or closed while the record was being written: nothing to recover.
-    if (!e.sessions.includes(s) || !s.dirty) continue;
-    await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName: s.fileName, path: s.storage.path, time: Date.now(), project, thumb });
-    recovered.set(s, doc);
+    if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) continue;
+    await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName, path, time: Date.now(), project, thumb, clean, parent });
+    recovered.set(s, { doc, extrasRevision, clean, metadataKey });
+    if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) {
+      recovered.delete(s);
+      await store.remove(s.id);
+    }
   }
 }
 
@@ -77,10 +120,10 @@ async function offerRecovery(e: Editor) {
   // Checked documents survive a trip to the Discard All question and back.
   let checked = new Set(records.map((_, i) => i));
   const list = (back = false) => {
-    dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Restore Unsaved Documents?</h2><p>Photo Studio closed with unsaved changes. These documents were kept in this browser.</p><div class="recovery-list">${records
+    dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Restore Unsaved Documents?</h2><p>Photo Studio closed with unsaved changes. These documents were kept in this browser. Unchecked documents stay available to restore later.</p>${records.some((r) => r.parent) ? '<p>Restore parent documents with their contents tabs to keep them connected. Contents restored alone open as separate documents.</p>' : ''}<div class="recovery-list">${records
       .map(
         (r, i) =>
-          `<label class="recovery-item"><input type="checkbox" name="keep" value="${i}" ${checked.has(i) ? 'checked' : ''}><span class="recovery-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : ''}</span><span class="recovery-meta"><strong>${escapeXML(r.name)}</strong><small>${escapeXML(r.path ?? r.fileName ?? 'Never saved')} · ${relativeTime(r.time)}</small></span></label>`,
+          `<label class="recovery-item"><input type="checkbox" name="keep" value="${i}" ${checked.has(i) ? 'checked' : ''}><span class="recovery-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : ''}</span><span class="recovery-meta"><strong>${escapeXML(r.name)}</strong><small>${escapeXML(r.parent ? `Contents of ${r.parent.parentName}` : r.path ?? r.fileName ?? 'Never saved')} · ${relativeTime(r.time)}</small></span></label>`,
       )
       .join('')}</div><div class="dialog-actions"><button type="button" data-discard class="dialog-discard">Discard All</button><button type="button" data-later>Not Now</button><button type="submit" class="primary">Restore</button></div></form>`;
     // Escape is Not Now: the documents are offered again next time.
@@ -90,7 +133,11 @@ async function offerRecovery(e: Editor) {
       checked = new Set(new FormData(dialog.querySelector('form')!).getAll('keep').map(Number));
       confirmDiscard();
     });
-    dialog.querySelector('form')!.onsubmit = restore;
+    const form = dialog.querySelector('form')!;
+    form.onsubmit = restore;
+    const sync = () => { form.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled = !form.querySelector('input[name=keep]:checked'); };
+    form.addEventListener('change', sync);
+    sync();
     if (back) dialog.querySelector<HTMLButtonElement>('[data-discard]')!.focus();
   };
   // Discarding cannot be undone: ask, naming what is lost, with Go Back focused.
@@ -121,20 +168,40 @@ async function offerRecovery(e: Editor) {
   const restore = (ev: SubmitEvent) => {
     ev.preventDefault();
     const chosen = new FormData(ev.currentTarget as HTMLFormElement).getAll('keep').map((v) => records[Number(v)]);
+    if (!chosen.length) return;
     done();
     void e.run(async () => {
       // One damaged record must not stop the others; it stays to be offered again.
       const failed: RecoveryRecord[] = [];
+      const restoredSessions = new Map<string, DocumentSession>();
+      const editing = chosen.some((r) => r.parent) ? await import('../embedded/edit') : undefined;
       for (const r of chosen) {
         try {
-          await restoreRecord(e, r);
+          restoredSessions.set(r.sessionId, await restoreRecord(e, r));
         } catch (error) {
           console.error(error);
           failed.push(r);
         }
       }
-      // Unchecked documents are discarded too: the dialog asked once.
-      for (const r of records) if (!failed.includes(r)) await store.remove(r.sessionId);
+      // Records are newest first, so reconnect only after all selected tabs exist.
+      for (const r of chosen) {
+        const link = r.parent;
+        const s = restoredSessions.get(r.sessionId);
+        const parent = link && restoredSessions.get(link.sessionId);
+        if (!s || !parent || !link || !editing) continue;
+        const seen = new Set([s]);
+        let ancestor: DocumentSession | undefined = parent;
+        while (ancestor && !seen.has(ancestor)) { seen.add(ancestor); ancestor = ownerOf(ancestor)?.parent; }
+        if (ancestor) continue;
+        const valid = link.contents
+          ? !!parent.doc.embeds?.[link.contents] && instancesOf(parent.doc, link.contents).length > 0
+          : findLayer(parent.doc.layers, link.layerId)?.kind === 'image';
+        if (valid) editing.attachContentsTab(e, s, { parent, contents: link.contents, layerId: link.layerId, name: link.name });
+      }
+      e.update();
+      // Restore consumes only the chosen successes; unchecked documents stay
+      // recoverable until the user explicitly chooses Discard All.
+      for (const r of chosen) if (!failed.includes(r)) await store.remove(r.sessionId);
       const restored = chosen.length - failed.length;
       if (failed.length)
         e.message(`${failed.map((r) => `“${r.name}”`).join(', ')} could not be restored${restored ? `; restored ${restored} other document${restored === 1 ? '' : 's'}` : ''}. ${failed.length === 1 ? 'It is' : 'They are'} offered again next time, or choose Discard All.`);
@@ -152,11 +219,12 @@ async function restoreRecord(e: Editor, r: RecoveryRecord) {
   s.hasDocument = true;
   s.fileName = r.fileName;
   if (r.path) s.storage.path = r.path;
-  // Restored content is unsaved until the user saves it.
-  s.saved = undefined;
+  // Unchanged ancestors retain their saved state; edited contents stay dirty.
+  s.saved = r.clean ? s.doc : undefined;
   e.session = s;
   e.fit();
   e.update();
+  return s;
 }
 
 export function installRecovery(e: Editor, tick: () => Promise<void>) {
@@ -173,12 +241,25 @@ export function installRecovery(e: Editor, tick: () => Promise<void>) {
   });
   // Saved or closed documents need no recovery.
   e.saveHooks.push((s) => {
-    recovered.delete(s);
-    void store.remove(s.id);
+    const needed = recoverySessions(e);
+    if (!needed.has(s)) {
+      recovered.delete(s);
+      void store.remove(s.id);
+    }
+    // Saving the parent after its contents also retires those clean child copies.
+    for (const other of e.sessions) if (!needed.has(other) && recovered.has(other)) {
+      recovered.delete(other);
+      void store.remove(other.id);
+    }
   });
   e.closeHooks.push((s) => {
     recovered.delete(s);
     void store.remove(s.id);
+    const needed = recoverySessions(e);
+    for (const other of e.sessions) if (!needed.has(other) && recovered.has(other)) {
+      recovered.delete(other);
+      void store.remove(other.id);
+    }
   });
   e.whenReady(() => void offerRecovery(e).catch((error) => console.error(error)));
 }

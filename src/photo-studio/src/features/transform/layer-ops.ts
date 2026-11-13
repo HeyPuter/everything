@@ -322,12 +322,14 @@ export async function transformCanvasBy(e: Editor, label: string, m: Mat3, width
     for (const p of prepared.values()) if (p.pixels) p.pixels = trimGrid(store, p.pixels, { x: 0, y: 0, width, height });
   const sel = selectionGrid(doc, store);
   const selection = sel ? transformMaskGrid(store, sel, m, method, after) : null;
+  const quickMask = doc.quickMask && transformMaskGrid(store, doc.quickMask, m, method, after);
   const channels = doc.channels?.map((c) => ({ ...c, grid: transformMaskGrid(store, c.grid, m, method, after) }));
   e.command(label, (d) => {
     d.width = width;
     d.height = height;
     applyPrepared(d, prepared, m, e.assets);
     if (channels) d.channels = channels;
+    if (quickMask) d.quickMask = quickMask;
     applySelection(d, selection);
     const map = (x: number, y: number): [number, number] => {
       const p = applyMat3(m, x, y);

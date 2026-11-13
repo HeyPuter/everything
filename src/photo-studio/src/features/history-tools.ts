@@ -12,6 +12,8 @@ import type { DocumentSession } from '../app/session';
 // the History Brush paints pixels back from the chosen source state.
 export type Snapshot = { id: string; name: string; doc: PhotoDocument };
 const snapshots = new WeakMap<DocumentSession, Snapshot[]>();
+const sources = new WeakMap<DocumentSession, string>();
+export const historySourceId = (e: Editor) => sources.get(e.session);
 export function sessionSnapshots(e: Editor, s: DocumentSession = e.session) {
   let list = snapshots.get(s);
   if (!list) {
@@ -26,7 +28,7 @@ export function sessionSnapshots(e: Editor, s: DocumentSession = e.session) {
 /** Source state for the History Brush: a snapshot, or the opened state
  * (also once history has dropped the steps after it). */
 export function historySourceDoc(e: Editor): PhotoDocument {
-  const id = e.settings.historySource as string | undefined;
+  const id = historySourceId(e);
   const snap = sessionSnapshots(e).find((s) => s.id === id);
   if (snap) return snap.doc;
   return e.history.opened;
@@ -78,6 +80,10 @@ export function installHistoryTools(e: Editor) {
         const list = sessionSnapshots(e);
         const v = await formDialog('New Snapshot', [{ name: 'name', label: 'Name', value: `Snapshot ${list.length + 1}` }], 'OK');
         if (!v) return;
+        // Capture the visible edit only after it reaches the document. Waiting
+        // concurrently also preserves failures handled by the tool's UI.
+        e.transform.apply();
+        await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
         list.push({ id: crypto.randomUUID(), name: v.name, doc: e.doc });
         e.dock.update();
       },
@@ -86,9 +92,12 @@ export function installHistoryTools(e: Editor) {
       id: 'history.restore-snapshot',
       label: 'Revert to Snapshot',
       hidden: true,
-      run: (e, arg) => {
+      run: async (e, arg) => {
         const snap = sessionSnapshots(e).find((s) => s.id === arg);
         if (!snap) return;
+        // Keep the completed edit in Undo before replacing its document state.
+        e.transform.apply();
+        await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
         e.command(`Revert to ${snap.name}`, (d) => replaceDocument(d, snap.doc));
       },
     },
@@ -97,7 +106,8 @@ export function installHistoryTools(e: Editor) {
       label: 'Set History Brush Source',
       hidden: true,
       run: (e, arg) => {
-        e.settings.historySource = arg ? String(arg) : undefined;
+        if (arg) sources.set(e.session, String(arg));
+        else sources.delete(e.session);
         e.dock.update();
       },
     },

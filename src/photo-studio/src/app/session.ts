@@ -19,12 +19,22 @@ export class DocumentSession {
   collapsedGroups = new Set<string>();
   selectionAnchor = '';
   selections = new WeakMap<PhotoDocument, string[]>();
-  // Changes kept outside history (review comments) since the last save.
-  unsavedExtras = false;
+  // Data kept outside history (review comments) can change while a save waits.
+  extrasRevision = 0;
+  savedExtrasRevision = 0;
+  get unsavedExtras() {
+    return this.extrasRevision !== this.savedExtrasRevision;
+  }
+  set unsavedExtras(dirty: boolean) {
+    if (dirty) this.extrasRevision++;
+    else this.savedExtrasRevision = this.extrasRevision;
+  }
   // A transparent, zero-layer document is still an open editing workspace.
   hasDocument = false;
   saved?: PhotoDocument;
   maskTarget = '';
+  // The channel selected in this document's Channels panel.
+  activeChannel?: string;
   // The previous selection, restored by Select → Reselect.
   lastSelection?: TileGrid | null;
   // File name/handle for Save; undefined until saved or opened from a file.
@@ -35,6 +45,26 @@ export class DocumentSession {
   closeHandler?: () => Promise<boolean>;
   // Other document states features keep (History snapshots) whose tiles must survive cleanup.
   retained: (() => PhotoDocument[])[] = [];
+  // Edits can finish storing assets after their tool has closed. Readers of
+  // the document must still wait for those edits to enter history.
+  private pendingEdits = new Set<Promise<void>>();
+  get hasPendingEdits() {
+    return this.pendingEdits.size > 0;
+  }
+  pendingEditsChanged?: () => void;
+  trackEdit(task: Promise<void>): Promise<void> {
+    const pending = this.hasPendingEdits;
+    this.pendingEdits.add(task);
+    if (!pending) this.pendingEditsChanged?.();
+    const done = () => {
+      if (this.pendingEdits.delete(task) && !this.hasPendingEdits) this.pendingEditsChanged?.();
+    };
+    void task.then(done, done);
+    return task;
+  }
+  async waitForEdits(): Promise<void> {
+    while (this.pendingEdits.size) await Promise.all([...this.pendingEdits]);
+  }
   constructor(doc = newDocument()) {
     this.history = new History(doc);
   }

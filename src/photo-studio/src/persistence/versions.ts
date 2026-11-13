@@ -82,6 +82,9 @@ export type RecoveryRecord = {
   time: number;
   project: Blob;
   thumb?: Blob;
+  // An unchanged ancestor is kept so an unsaved contents tab can reconnect.
+  clean?: boolean;
+  parent?: { sessionId: string; contents?: string; layerId: string; name: string; parentName: string };
 };
 
 export class RecoveryStore {

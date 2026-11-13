@@ -4,6 +4,7 @@
 // stale (content edited, layer scaled or rotated), so quality never degrades
 // however often the object is transformed.
 import type { Editor } from '../../editor';
+import type { DocumentSession } from '../../app/session';
 import { findLayer, type Layer, type PhotoDocument } from '../../model/document';
 import { contentsOf } from '../../model/embedded';
 import type { Assets } from '../../model/assets';
@@ -13,7 +14,7 @@ import { renderFrame } from '../transform/render';
 import type { Quad } from '../transform/math';
 import { addRGBA, assetRGBA } from './render';
 import { ensureEmbed } from './contents';
-import { effectiveFrame, fromMesh, fromQuad, pendingFrame, plainPlacement, staleFrames } from './frame-math';
+import { effectiveFrame, fromMesh, fromQuad, pendingFrame, plainPlacement, rescaleFrame, staleFrames } from './frame-math';
 
 export { staleFrames } from './frame-math';
 import { renderPinFrame } from '../warp/pin-render';
@@ -73,13 +74,17 @@ const near = (a: Quad, b: Quad) => a.every((p, i) => Math.abs(p.x - b[i].x) < 1e
 
 /** Commit a transform of an image layer as one undo step: a rotated
  * rectangle stays a plain transform, anything else becomes a frame. */
-export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered) {
-  const l = findLayer(e.doc.layers, id);
+export function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered): Promise<void> {
+  const session = e.session;
+  return session.trackEdit(storeFrame(e, session, id, quad, mesh, label, rendered));
+}
+async function storeFrame(e: Editor, session: DocumentSession, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered) {
+  const doc = session.doc, assets = session.assets;
+  const l = findLayer(doc.layers, id);
   if (!l || l.kind !== 'image') return;
   const before = effectiveFrame(l);
   if (before && !mesh && !before.mesh && near(before.quad, quad)) return;
   const plain = plainPlacement(quad, mesh);
-  const assets = e.assets;
   if (plain) {
     e.command(label, (d) => {
       const t = findLayer(d.layers, id);
@@ -88,11 +93,11 @@ export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshG
       const s = contentSource(d, t);
       if (t.embed) delete t.embed.frame;
       Object.assign(t, { asset: s.asset, assetColorSpace: s.colorSpace, sourceWidth: s.width, sourceHeight: s.height, transform: plain });
-    });
+    }, { session });
     return;
   }
-  const source = contentSource(e.doc, l);
-  const r = trimToFrame(rendered ?? renderFrame(await contentRGBA(e, l), { x: 0, y: 0, width: source.width, height: source.height }, quad, mesh, { method: 'bicubic', doc: e.doc }), quad, mesh);
+  const source = contentSource(doc, l);
+  const r = trimToFrame(rendered ?? renderFrame(await contentRGBA(e, l, doc, assets), { x: 0, y: 0, width: source.width, height: source.height }, quad, mesh, { method: 'bicubic', doc }), quad, mesh);
   const image = r?.image ?? transparent();
   const rect = r ? { x: r.rect.x, y: r.rect.y, width: image.width, height: image.height } : { ...quadRect(quad), width: 1, height: 1 };
   const asset = await addRGBA(assets, image);
@@ -101,9 +106,12 @@ export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshG
     if (!t) return;
     ensureEmbed(d, t, assets);
     const s = contentSource(d, t);
-    t.embed!.frame = { quad: fromQuad(quad), mesh: mesh && fromMesh(mesh), rect, source: s.asset };
+    // The cache was rendered from `source`, even if contents were saved while
+    // its image was being stored. Keep it stale and carry any content resize
+    // through the frame, just as saving contents after the transform would.
+    t.embed!.frame = rescaleFrame({ quad: fromQuad(quad), mesh: mesh && fromMesh(mesh), rect, source: source.asset }, source, s);
     Object.assign(t, { asset, assetColorSpace: 'document', sourceWidth: image.width, sourceHeight: image.height, transform: { ...rect, rotation: 0 } });
-  });
+  }, { session });
 }
 const quadRect = (q: Quad) => ({ x: Math.min(...q.map((p) => p.x)), y: Math.min(...q.map((p) => p.y)) });
 

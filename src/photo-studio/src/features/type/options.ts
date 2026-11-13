@@ -6,11 +6,12 @@ import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { rgbHexString, hexRgb } from '../../model/text-layer';
 import { BUNDLED_FONTS, ensureFont, fontFamilies, localizedFamilies, type FontFamilyInfo } from '../../imaging/text/fonts';
-import type { AntiAlias, CharStyle } from '../../imaging/text/model';
-import { applyChar, applyLayer, applyParagraph, focusInput, onSessionChange, session, styleContext, typeDefaults } from './session';
+import type { AntiAlias, CharStyle, TextLayerData } from '../../imaging/text/model';
+import { applyChar, applyLayer, applyParagraph, editLayers, focusInput, onSessionChange, restoreInputFocus, selectedTextLayers, session, styleContext, typeDefaults } from './session';
 import { fontPreviewSize } from './language';
 import { typeUnit } from './units';
 import { whenIdle } from '../../app/lazy';
+import { StyleRequests } from './style-requests';
 
 // ------------------------------------------------------------ fonts
 
@@ -147,6 +148,13 @@ const SIZES = [6, 8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72];
 const AA: [AntiAlias, string][] = [['none', 'None'], ['sharp', 'Sharp'], ['crisp', 'Crisp'], ['strong', 'Strong'], ['smooth', 'Smooth']];
 const fmt = (v: number | undefined) => (v === undefined ? '' : String(Math.round(v * 100) / 100));
 
+function pathOptionsButton(data?: TextLayerData): string {
+  return data?.path ? `<button type="button" class="icon-button" data-command="type.path-options" title="${data.path.kind === 'area' ? 'Area type options' : 'Path type options'}" aria-label="${data.path.kind === 'area' ? 'Area type options' : 'Path type options'}">${svg('spline', 16)}</button>` : `<button type="button" class="icon-button" data-command="type.warp" title="Create warped text" aria-label="Create warped text">${svg('waves', 16)}</button>`;
+}
+function editingButtons(): string {
+  return `<span class="type-edit-actions"><span class="divider"></span><button type="button" data-command="type.cancel" class="icon-button" title="Cancel editing (discard changes)" aria-label="Cancel editing">${svg('ban', 16)}</button><button type="button" data-command="type.commit" class="icon-button transform-apply" title="Commit text (Escape or ${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}Enter)" aria-label="Commit text">${svg('check', 16)}</button></span>`;
+}
+
 function layerAntiAlias(e: Editor): AntiAlias | undefined {
   const c = styleContext(e);
   if (c.editing) return c.data?.antiAlias;
@@ -171,64 +179,73 @@ export function typeOptions(e: Editor): string {
 <label title="Anti-aliasing method">aa<select id="type-aa" aria-label="Anti-aliasing method">${aa ? '' : '<option value="" selected></option>'}${AA.map(([v, l]) => `<option value="${v}" ${aa === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
 <span class="segmented" role="group" aria-label="Alignment">${(['left', 'center', 'right'] as const).map((a) => `<button type="button" class="type-align" data-align="${a}" aria-pressed="${align === a}" title="Align ${a}" aria-label="Align ${a}">${svg(`align-${a}`, 15)}</button>`).join('')}</span>
 <input id="type-color" type="color" value="${color}" class="type-color ${ch.color ? '' : 'mixed'}" title="Text color" aria-label="Text color">
-${c.data?.path ? `<button type="button" class="icon-button" data-command="type.path-options" title="${c.data.path.kind === 'area' ? 'Area type options' : 'Path type options'}" aria-label="${c.data.path.kind === 'area' ? 'Area type options' : 'Path type options'}">${svg('spline', 16)}</button>` : `<button type="button" class="icon-button" data-command="type.warp" title="Create warped text" aria-label="Create warped text">${svg('waves', 16)}</button>`}
+${pathOptionsButton(c.data)}
 <button type="button" class="icon-button" data-command="type.toggle-panels" title="Toggle the Character and Paragraph panels" aria-label="Toggle the Character and Paragraph panels">${svg('case-upper', 16)}</button>
-${editing ? `<span class="type-edit-actions"><span class="divider"></span><button type="button" data-command="type.cancel" class="icon-button" title="Cancel editing (discard changes)" aria-label="Cancel editing">${svg('ban', 16)}</button><button type="button" data-command="type.commit" class="icon-button transform-apply" title="Commit text (Escape or ${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}Enter)" aria-label="Commit text">${svg('check', 16)}</button></span>` : ''}`;
+${editing ? editingButtons() : ''}`;
 }
 
 export function bindTypeOptions({ e, el }: ToolOptionsContext) {
-  const refocus = () => {
-    if (session) setTimeout(() => focusInput(e), 0);
-  };
   const family = el.querySelector<HTMLButtonElement>('#type-family');
   family?.addEventListener('click', () => {
     const cur = styleContext(e).char;
-    openFontPicker(e, family, (f) => void applyChar(e, familyPatch(f, cur)).then(refocus), cur.family);
+    openFontPicker(e, family, (f) => void applyChar(e, familyPatch(f, cur)).then(restoreInputFocus(e)), cur.family);
   });
   el.querySelector<HTMLSelectElement>('#type-style')?.addEventListener('change', (ev) => {
     const [w, i] = (ev.target as HTMLSelectElement).value.split('|');
-    if (w) void applyChar(e, { weight: Number(w), italic: i === '1' }).then(refocus);
+    if (w) void applyChar(e, { weight: Number(w), italic: i === '1' }).then(restoreInputFocus(e));
   });
   const size = el.querySelector<HTMLInputElement>('#type-size');
   size?.addEventListener('change', () => {
     const v = Number(size.value) / typeUnit(e).k;
-    if (Number.isFinite(v) && v > 0) void applyChar(e, { size: Math.min(1296, Math.max(0.5, v)) }).then(refocus);
+    if (Number.isFinite(v) && v > 0) void applyChar(e, { size: Math.min(1296, Math.max(0.5, v)) }).then(restoreInputFocus(e));
   });
   size?.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') {
       size.dispatchEvent(new Event('change'));
-      refocus();
+      restoreInputFocus(e)();
     }
   });
   el.querySelector<HTMLSelectElement>('#type-aa')?.addEventListener('change', (ev) => {
     const v = (ev.target as HTMLSelectElement).value as AntiAlias;
-    if (v) void setAntiAlias(e, v).then(refocus);
+    if (v) void setAntiAlias(e, v).then(restoreInputFocus(e));
   });
   for (const b of el.querySelectorAll<HTMLButtonElement>('.type-align'))
-    b.addEventListener('click', () => void applyParagraph(e, { align: b.dataset.align as 'left' }).then(refocus));
+    b.addEventListener('click', () => void applyParagraph(e, { align: b.dataset.align as 'left' }).then(restoreInputFocus(e)));
   const color = el.querySelector<HTMLInputElement>('#type-color');
   // Applied when the picker closes, as one change.
-  color?.addEventListener('change', () => void applyChar(e, { color: hexRgb(color.value) }).then(refocus));
+  color?.addEventListener('change', () => void applyChar(e, { color: hexRgb(color.value) }).then(restoreInputFocus(e)));
 }
 
+const antiAliasRequests = new StyleRequests<Pick<TextLayerData, 'antiAlias'>>();
+
 export async function setAntiAlias(e: Editor, aa: AntiAlias) {
-  if (!session && !styleContext(e).layers.length) {
+  if (session) {
+    antiAliasRequests.cancel(e.session, session.layerId, ['antiAlias']);
+    await applyLayer(e, 'Change Anti-Aliasing', (d) => ({ ...d, antiAlias: aa }));
+    return;
+  }
+  const layers = selectedTextLayers(e);
+  if (!layers.length) {
     typeDefaults(e).antiAlias = aa;
     syncTypeOptions(e);
     return;
   }
-  await applyLayer(e, 'Change Anti-Aliasing', (d) => ({ ...d, antiAlias: aa }));
+  const request = antiAliasRequests.begin(e.session, layers.map((l) => l.id), { antiAlias: aa });
+  try {
+    await editLayers(e, 'Change Anti-Aliasing', (d, l) => ({ ...d, ...request.patch(l.id) }), undefined, undefined,
+      { rebase: true, isCurrent: request.isCurrent, revision: request.revision });
+  } finally {
+    request.finish();
+  }
 }
 
 // Refreshes control values in place (rebuilding would close open popups).
-export function syncTypeOptions(e: Editor) {
+export function syncTypeOptions(e: Editor): boolean {
   const el = e.root.querySelector<HTMLElement>('#tool-options');
-  if (!el || !el.querySelector('#type-family')) return;
-  const hasButtons = !!el.querySelector('[data-command="type.commit"]');
-  if (hasButtons !== !!session) {
-    e.options();
-    return;
-  }
+  if (!el || !el.querySelector('#type-family')) return false;
+  const buttons = el.querySelector('.type-edit-actions');
+  if (session && !buttons) el.insertAdjacentHTML('beforeend', editingButtons());
+  else if (!session) buttons?.remove();
   const c = styleContext(e);
   const ch = c.char;
   const fam = el.querySelector<HTMLElement>('#type-family');
@@ -244,7 +261,16 @@ export function syncTypeOptions(e: Editor) {
     if (v && !styles.some((s) => `${s.weight}|${s.italic ? 1 : 0}` === v)) st.insertAdjacentHTML('afterbegin', `<option value="${v}" selected>${styleName(ch.weight!, !!ch.italic)}</option>`);
   }
   const size = el.querySelector<HTMLInputElement>('#type-size');
-  if (size && document.activeElement !== size) size.value = fmt(ch.size === undefined ? undefined : ch.size * typeUnit(e).k);
+  const unit = typeUnit(e);
+  if (size) {
+    if (document.activeElement !== size) size.value = fmt(ch.size === undefined ? undefined : ch.size * unit.k);
+    size.max = String(Math.round(1296 * unit.k));
+    size.setAttribute('aria-label', `Font size in ${unit.name}`);
+    if (size.nextSibling?.nodeType === Node.TEXT_NODE) size.nextSibling.textContent = ` ${unit.suffix}`;
+  }
+  const path = el.querySelector<HTMLElement>('[data-command="type.path-options"], [data-command="type.warp"]');
+  const pathTitle = c.data?.path ? c.data.path.kind === 'area' ? 'Area type options' : 'Path type options' : 'Create warped text';
+  if (path && path.title !== pathTitle) path.outerHTML = pathOptionsButton(c.data);
   const aa = el.querySelector<HTMLSelectElement>('#type-aa');
   if (aa && document.activeElement !== aa) aa.value = layerAntiAlias(e) ?? '';
   for (const b of el.querySelectorAll<HTMLElement>('.type-align')) b.setAttribute('aria-pressed', String(c.paragraph.align === b.dataset.align));
@@ -253,6 +279,7 @@ export function syncTypeOptions(e: Editor) {
     color.value = ch.color ? rgbHexString(ch.color) : '#000000';
     color.classList.toggle('mixed', !ch.color);
   }
+  return true;
 }
 
 export function installTypeOptions(e: Editor) {

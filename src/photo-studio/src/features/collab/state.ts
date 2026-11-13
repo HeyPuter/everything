@@ -23,7 +23,7 @@ export interface SharedHandle {
 export const shared = new Map<DocumentSession, SharedHandle>();
 export const sharedOf = (s: DocumentSession) => shared.get(s);
 
-const local = new WeakMap<DocumentSession, LocalComments>();
+const local = new WeakMap<DocumentSession, { docId: string; store: LocalComments }>();
 let puterName = '';
 onSignOut(() => (puterName = ''));
 /** The name local comments are signed with: the Puter account when signed in. */
@@ -55,7 +55,9 @@ export function localAuthor(): CommentAuthor {
 export function commentsOf(e: Editor, s: DocumentSession = e.session): CommentStore {
   const sh = shared.get(s);
   if (sh) return sh.comments;
-  let store = local.get(s);
+  const current = local.get(s);
+  // Opening into an untouched workspace reuses its session, not its comments.
+  let store = current?.docId === s.doc.id ? current.store : undefined;
   if (!store) {
     let initial: CommentThread[] = [];
     try {
@@ -64,7 +66,7 @@ export function commentsOf(e: Editor, s: DocumentSession = e.session): CommentSt
       /* A malformed list is dropped; the rest of the document opened. */
     }
     store = makeLocal(e, s, initial);
-    local.set(s, store);
+    local.set(s, { docId: s.doc.id, store });
   }
   // Saving writes the current comments into the project (see serialize).
   const st = store;
@@ -73,7 +75,7 @@ export function commentsOf(e: Editor, s: DocumentSession = e.session): CommentSt
 }
 /** Give a session local comments (a shared document became a local copy). */
 export function adoptLocalComments(e: Editor, s: DocumentSession, threads: CommentThread[]) {
-  local.set(s, makeLocal(e, s, threads));
+  local.set(s, { docId: s.doc.id, store: makeLocal(e, s, threads) });
   commentsOf(e, s);
   s.unsavedExtras = threads.length > 0;
 }

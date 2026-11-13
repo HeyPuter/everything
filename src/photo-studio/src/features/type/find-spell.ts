@@ -5,12 +5,13 @@ import type { Editor } from '../../editor';
 import { escapeXML } from '../../model/assets';
 import { allLayers, type Layer } from '../../model/document';
 import { layerLock } from '../../model/locks';
-import { plainText } from '../../imaging/text/model';
+import { plainText, type TextContent } from '../../imaging/text/model';
 import { findMatches, replaceAll, type FindOptions } from '../../imaging/text/find';
 import { englishChecker, matchCase, type Misspelling, type SpellChecker } from '../../imaging/text/spelling';
 import { openWorkspace } from '../retouch/workspace';
-import { commit, editLayers, insert, ordered, session, setSelection, startEdit } from './session';
+import { activatePendingEdit, commit, editLayers, inputFocused, insert, ordered, session, setSelection, startEdit } from './session';
 import { editable, ppiOf } from './text-utils';
+import { SpellingSkips } from './spelling-skips';
 import './find-spell.css';
 
 /** Text layers to search, top of the stack first, starting at the current one. */
@@ -31,24 +32,29 @@ function position(): { id?: string; at: number } {
   return { id: session.layerId, at: ordered(session)[1] };
 }
 /** Show a range as the text selection (editing that layer). */
-async function reveal(e: Editor, id: string, a: number, b: number) {
-  if (session?.layerId !== id) {
-    if (!e.tool.startsWith('type')) e.setTool('type');
-    await startEdit(e, id, 'end');
+async function reveal(e: Editor, id: string, a: number, b: number, isCurrent: () => boolean) {
+  if (!isCurrent()) return false;
+  if (session?.layerId === id) {
+    setSelection(e, a, b);
+    return true;
   }
-  if (session?.layerId === id) setSelection(e, a, b);
+  if (!e.tool.startsWith('type')) e.setTool('type');
+  const started = await startEdit(e, id, { anchor: a, focus: b }, isCurrent);
+  // Early keyboard/IME input already used the selected match. Completion
+  // must not select it again or take focus from the ongoing edit.
+  return !!started && !started.startedEarly && isCurrent() && session?.layerId === id;
 }
 /** First hit after the current position, wrapping once through the layers. */
-function search<T extends { start: number; end: number }>(e: Editor, all: boolean, hits: (text: string) => T[]): { layer: Layer; hit: T } | undefined {
+function search<T extends { start: number; end: number }>(e: Editor, all: boolean, hits: (text: string, layer: Layer) => T[]): { layer: Layer; hit: T } | undefined {
   const layers = textLayers(e, all);
   const pos = position();
   for (const l of layers) {
-    const hit = hits(textOf(e, l)).find((h) => l.id !== pos.id || h.start >= pos.at);
+    const hit = hits(textOf(e, l), l).find((h) => l.id !== pos.id || h.start >= pos.at);
     if (hit) return { layer: l, hit };
   }
   // Wrapped around: the start of the layer the search began in.
   const first = layers.find((l) => l.id === pos.id);
-  const hit = first && hits(textOf(e, first)).find((h) => h.start < pos.at);
+  const hit = first && hits(textOf(e, first), first).find((h) => h.start < pos.at);
   return first && hit ? { layer: first, hit } : undefined;
 }
 const lockedMessage = 'Some text layers are locked; unlock them to change their text.';
@@ -89,7 +95,12 @@ export async function findReplace(e: Editor) {
     const [a, b] = ordered(session);
     return findMatches(plainText(session.data.content), s.query, opts()).some(([x, y]) => x === a && y === b);
   };
+  let searchRevision = 0;
   const next = async () => {
+    const revision = ++searchRevision;
+    const owner = e.session;
+    const isCurrent = () => ws.dialog.isConnected && e.session === owner && revision === searchRevision;
+    if (!isCurrent()) return;
     read();
     if (!s.query) return status('Type the text to find.');
     const found = search(e, s.all, (t) => findMatches(t, s.query, opts()).map(([start, end]) => ({ start, end })));
@@ -97,8 +108,8 @@ export async function findReplace(e: Editor) {
       status(textLayers(e, s.all).length ? 'No matches.' : 'There are no text layers to search.');
       return;
     }
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end);
-    ws.q<HTMLElement>('#fr-next').focus();
+    if (!(await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent)) || !isCurrent()) return;
+    if (inputFocused()) ws.q<HTMLElement>('#fr-next').focus();
     status(`Found in “${found.layer.name}”.`);
   };
   const changeOne = () => {
@@ -121,25 +132,34 @@ export async function findReplace(e: Editor) {
   });
   ws.q('#fr-change-all').addEventListener('click', async () => {
     read();
-    if (!s.query) return status('Type the text to find.');
-    if (session) await commit(e);
-    const ids = textLayers(e, s.all)
-      .filter((l) => findMatches(textOf(e, l), s.query, opts()).length)
+    // The non-modal dialog can change or close while fonts are prepared.
+    // Every layer in this operation must use the settings from its click.
+    const { query, replace, all } = s;
+    const options = opts();
+    if (!query) return status('Type the text to find.');
+    if (session) await commit(e, { preserveFocus: ws.dialog.contains(document.activeElement) });
+    const ids = textLayers(e, all)
+      .filter((l) => findMatches(textOf(e, l), query, options).length)
       .map((l) => l.id);
     if (!ids.length) return status('No matches.');
     if (ids.some((id) => layerLock(e.doc.layers, id, 'all'))) return status(lockedMessage);
-    let count = 0;
-    await editLayers(e, 'Replace Text', (d) => {
-      const r = replaceAll(d.content, s.query, s.replace, opts());
-      count += r.count;
+    const replacements = new Map<string, ReturnType<typeof replaceAll>>();
+    await editLayers(e, 'Replace Text', (d, l) => {
+      const r = replaceAll(d.content, query, replace, options);
+      // A font wait can require another pass over newer text. Count only the
+      // final replacement in each layer, not every preparation attempt.
+      replacements.set(l.id, r);
       return { ...d, content: r.content };
-    }, ids);
-    status(`Changed ${count} occurrence${count === 1 ? '' : 's'} in ${ids.length} layer${ids.length === 1 ? '' : 's'}.`);
+    }, ids, undefined, { rebase: true, mapIndex: (id, index) => replacements.get(id)?.mapIndex(index) ?? index });
+    const changed = [...replacements.values()].map((r) => r.count).filter((n) => n > 0);
+    const count = changed.reduce((sum, n) => sum + n, 0);
+    status(`Changed ${count} occurrence${count === 1 ? '' : 's'} in ${changed.length} layer${changed.length === 1 ? '' : 's'}.`);
   });
   ws.q('#fr-done').addEventListener('click', ws.close);
   ws.dialog.addEventListener('keydown', (ev) => {
     ev.stopPropagation();
-    if (ev.key === 'Enter') {
+    // Buttons keep their native Enter activation; fields use Find Next.
+    if (ev.key === 'Enter' && !(ev.target as HTMLElement).closest('button')) {
       ev.preventDefault();
       void next();
     } else if (ev.key === 'Escape') ws.close();
@@ -185,11 +205,18 @@ export async function checkSpelling(e: Editor) {
 <footer class="rw-footer sp-footer"><button id="sp-done" type="button">Done</button><span class="rw-spacer"></span><button id="sp-add" type="button" title="Add the word to your dictionary in this browser">Add</button><button id="sp-ignore-all" type="button">Ignore All</button><button id="sp-ignore" type="button">Ignore</button><button id="sp-change-all" type="button">Change All</button><button id="sp-change-one" type="button" class="primary">Change</button></footer>`,
     { modal: false },
   );
+  ws.q('#sp-done').addEventListener('click', ws.close);
+  ws.dialog.addEventListener('keydown', (ev) => {
+    ev.stopPropagation();
+    if (ev.key === 'Escape') ws.close();
+  });
   const status = (t: string) => (ws.q('#sp-status').textContent = t);
   const buttons = [...ws.dialog.querySelectorAll<HTMLButtonElement>('.sp-footer button:not(#sp-done)')];
   const enable = (on: boolean) => buttons.forEach((b) => (b.disabled = !on));
   enable(false);
-  let current: { layer: Layer; hit: Misspelling } | undefined;
+  const skipped = new SpellingSkips();
+  type Match = { owner: Editor['session']; layer: Layer; hit: Misspelling };
+  let current: Match | undefined;
   let spell: SpellChecker;
   try {
     spell = await checker();
@@ -207,9 +234,24 @@ export async function checkSpelling(e: Editor) {
       ? list.map((w, i) => `<div role="option" class="sp-option" data-word="${escapeXML(w)}" aria-selected="${i === 0}">${escapeXML(w)}</div>`).join('')
       : '<span class="muted">No suggestions</span>';
   };
+  // This dialog stays open while text and document tabs can change. Only
+  // apply the displayed suggestion while its original word still exists.
+  const currentMatch = () => {
+    const match = current;
+    if (!match || match.owner !== e.session) return;
+    const layer = textLayers(e, true).find((l) => l.id === match.layer.id);
+    if (!layer) return;
+    const text = textOf(e, layer);
+    if (spell.misspellings(text).some((hit) => hit.start === match.hit.start && hit.end === match.hit.end && hit.word === match.hit.word)) return { ...match, text };
+  };
+  let searchRevision = 0;
   const next = async () => {
-    const found = search(e, all(), (t) => spell.misspellings(t));
-    current = found;
+    const revision = ++searchRevision;
+    const owner = e.session;
+    const isCurrent = () => ws.dialog.isConnected && e.session === owner && revision === searchRevision;
+    if (!isCurrent()) return;
+    const found = search(e, all(), (t, l) => skipped.filter(owner, l.id, t, spell.misspellings(t)));
+    current = found && { ...found, owner };
     if (!found) {
       ws.q('#sp-word').textContent = '—';
       ws.q('#sp-suggestions').innerHTML = '';
@@ -217,15 +259,15 @@ export async function checkSpelling(e: Editor) {
       status(textLayers(e, all()).length ? 'Spell check complete.' : 'There are no text layers to check.');
       return;
     }
-    enable(true);
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end);
     show(found.hit.word);
-    ws.q<HTMLElement>('#sp-change-one').focus();
     status(`In “${found.layer.name}”.`);
+    enable(true);
+    if (!(await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent)) || !isCurrent()) return;
+    if (inputFocused()) ws.q<HTMLElement>('#sp-change-one').focus();
   };
   // Skip past the current word without changing it.
   const skip = async () => {
-    if (current && session?.layerId === current.layer.id) setSelection(e, current.hit.end, current.hit.end);
+    if (current && currentMatch() && session?.layerId === current.layer.id) setSelection(e, current.hit.end, current.hit.end);
     await next();
   };
   ws.q('#sp-suggestions').addEventListener('click', (ev) => {
@@ -235,7 +277,11 @@ export async function checkSpelling(e: Editor) {
     ws.q<HTMLInputElement>('#sp-change').value = o.dataset.word!;
   });
   ws.q('#sp-suggestions').addEventListener('dblclick', () => ws.q('#sp-change-one').click());
-  ws.q('#sp-ignore').addEventListener('click', () => void skip());
+  ws.q('#sp-ignore').addEventListener('click', () => {
+    const match = currentMatch();
+    if (match) skipped.ignore(match.owner, match.layer.id, match.text, match.hit);
+    void skip();
+  });
   ws.q('#sp-ignore-all').addEventListener('click', () => {
     if (current) spell.ignore(current.hit.word);
     void skip();
@@ -251,35 +297,63 @@ export async function checkSpelling(e: Editor) {
     void skip();
   });
   ws.q('#sp-change-one').addEventListener('click', () => {
-    if (!current || session?.layerId !== current.layer.id) return void next();
-    if (layerLock(e.doc.layers, current.layer.id, 'all')) return status(lockedMessage);
-    setSelection(e, current.hit.start, current.hit.end);
+    const match = currentMatch();
+    if (!match) return void next();
+    if (layerLock(e.doc.layers, match.layer.id, 'all')) return status(lockedMessage);
+    if (session?.layerId !== match.layer.id) activatePendingEdit(e, match.layer.id);
+    if (session?.layerId !== match.layer.id) return void next();
+    const { owner, layer, hit, text: before } = match;
+    setSelection(e, hit.start, hit.end);
     insert(e, ws.q<HTMLInputElement>('#sp-change').value, 'replace');
+    if (skipped.has(owner, layer.id)) {
+      const after = plainText(session.data.content), delta = after.length - before.length;
+      skipped.remap(owner, layer.id, before, after, (at) => at <= hit.start ? at : at >= hit.end ? at + delta : hit.end + delta);
+    }
     void next();
   });
   ws.q('#sp-change-all').addEventListener('click', async () => {
-    if (!current) return;
+    if (!current || !currentMatch()) return void next();
+    const owner = e.session;
     const word = current.hit.word,
       to = ws.q<HTMLInputElement>('#sp-change').value;
+    const revision = ++searchRevision;
     if (session) await commit(e);
     const ids = textLayers(e, all())
       .filter((l) => findMatches(textOf(e, l), word, { wholeWord: true }).length)
       .map((l) => l.id);
     if (ids.some((id) => layerLock(e.doc.layers, id, 'all'))) return status(lockedMessage);
-    // Each occurrence keeps its own capitalization pattern.
-    await editLayers(e, 'Change Spelling', (d) => {
+    // Each occurrence keeps its own capitalization pattern. Compose the
+    // position maps in the same order as these replacements on the latest text.
+    const mappings = new Map<string, (index: number) => number>();
+    const corrections = new Map<string, { before: TextContent; after: TextContent }>();
+    await editLayers(e, 'Change Spelling', (d, l) => {
       let content = d.content;
-      for (const variant of new Set(findMatches(plainText(content), word, { wholeWord: true }).map(([a, b]) => plainText(content).slice(a, b))))
-        content = replaceAll(content, variant, matchCase(variant, to), { caseSensitive: true, wholeWord: true }).content;
+      const maps: ((index: number) => number)[] = [];
+      for (const variant of new Set(findMatches(plainText(content), word, { wholeWord: true }).map(([a, b]) => plainText(content).slice(a, b)))) {
+        const r = replaceAll(content, variant, matchCase(variant, to), { caseSensitive: true, wholeWord: true });
+        content = r.content;
+        maps.push(r.mapIndex);
+      }
+      mappings.set(l.id, (index) => maps.reduce((at, map) => map(at), index));
+      corrections.set(l.id, { before: d.content, after: content });
       return { ...d, content };
-    }, ids);
+    }, ids, undefined, { rebase: true, mapIndex: (id, index) => mappings.get(id)?.(index) ?? index });
+    for (const [id, change] of corrections) {
+      const match: Match | undefined = revision !== searchRevision && current?.owner === owner && current.layer.id === id ? current : undefined;
+      if (!match && !skipped.has(owner, id)) continue;
+      const before = plainText(change.before), after = plainText(change.after), mapIndex = mappings.get(id)!;
+      skipped.remap(owner, id, before, after, mapIndex);
+      // A newer result can remain selected while this correction shifts it.
+      // Keep its offsets aligned without replacing its custom suggestion.
+      if (match) {
+        const { start, end, word } = match.hit;
+        const a = mapIndex(start), b = mapIndex(end);
+        if (before.slice(start, end) === word && after.slice(a, b) === word) current = { ...match, hit: { ...match.hit, start: a, end: b } };
+      }
+    }
+    if (!ws.dialog.isConnected || e.session !== owner || revision !== searchRevision) return;
     current = undefined;
     await next();
-  });
-  ws.q('#sp-done').addEventListener('click', ws.close);
-  ws.dialog.addEventListener('keydown', (ev) => {
-    ev.stopPropagation();
-    if (ev.key === 'Escape') ws.close();
   });
   await next();
   await ws.closed;

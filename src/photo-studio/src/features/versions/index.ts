@@ -26,39 +26,43 @@ let previewing: { id: string; name: string; docId: string } | undefined;
 
 /** Store a version of a session's current document. */
 export async function addVersion(e: Editor, s: DocumentSession, name: string, kind: VersionKind, project?: Blob) {
-  const doc = s.doc;
+  // Save pickers release the editor: their project can predate the current edits.
+  const doc = project ? s.saved ?? s.doc : s.doc;
+  const extrasRevision = project ? s.savedExtrasRevision : s.extrasRevision;
   const blob = project ?? (await serialize(doc, s.assets));
-  const thumb = await documentThumbnail(e, s).catch(() => undefined);
+  const thumb = await documentThumbnail(e, s, 192, doc).catch(() => undefined);
   const v = await store.add({ docId: doc.id, docName: doc.name, name, kind, width: doc.width, height: doc.height, thumb }, blob, e.preferences.versionsPerDocument);
-  lastVersioned.set(s, doc);
+  lastVersioned.set(s, { doc, extrasRevision });
   revision++;
   refresh(e);
   return v;
 }
 // The document state each session last stored as a version.
-const lastVersioned = new WeakMap<DocumentSession, PhotoDocument>();
+const lastVersioned = new WeakMap<DocumentSession, { doc: PhotoDocument; extrasRevision: number }>();
 /** Autosave interval: a version of every document changed since its last one. */
 export async function autosaveVersions(e: Editor) {
   if (!e.preferences.versionsOnSave) return;
   for (const s of e.sessions) {
-    if (!s.hasDocument || !s.dirty || lastVersioned.get(s) === s.doc || s.saveHandler) continue;
+    const previous = lastVersioned.get(s);
+    if (!s.hasDocument || !s.dirty || (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision) || s.saveHandler) continue;
     await addVersion(e, s, 'Autosave', 'auto');
   }
 }
 
 function refresh(e: Editor) {
+  for (const u of listed?.urls ?? []) if (u) URL.revokeObjectURL(u);
   listed = undefined;
   e.dock?.update();
 }
 
-async function loadDocument(e: Editor, id: string, into = e.assets) {
+async function loadDocument(id: string, into?: Editor['assets']) {
   const blob = await store.project(id);
   if (!blob) throw new Error('This version is no longer stored in this browser.');
   return deserialize(blob, into);
 }
 async function preview(e: Editor, v: VersionEntry) {
   if (previewing?.id === v.id) return exitPreview(e);
-  const { document } = await loadDocument(e, v.id);
+  const { document } = await loadDocument(v.id, e.assets);
   e.modal?.cancel();
   previewing = { id: v.id, name: v.name, docId: e.doc.id };
   // Any other edit or command ends the preview without changing the document.
@@ -74,14 +78,14 @@ function exitPreview(e: Editor) {
   e.update();
 }
 async function restore(e: Editor, v: VersionEntry) {
-  const { document } = await loadDocument(e, v.id);
+  const { document } = await loadDocument(v.id, e.assets);
   exitPreview(e);
   e.command(`Restore Version “${v.name}”`, (d) => replaceDocument(d, document, { id: d.id, name: d.name }));
   e.fit();
   e.message(`Restored “${v.name}”. Undo returns to the state before.`);
 }
 async function openCopy(e: Editor, v: VersionEntry) {
-  const loaded = await loadDocument(e, v.id, undefined);
+  const loaded = await loadDocument(v.id);
   exitPreview(e);
   const s = e.sessionForOpen();
   s.assets = loaded.assets;
@@ -152,6 +156,8 @@ const versionsPanel: Panel = {
     };
     if (listed?.docId === docId) return draw();
     void store.list(docId).then((list) => {
+      // A tab switch or refresh can supersede this request before it resolves.
+      if (el.dataset.key !== key) return;
       for (const u of listed?.urls ?? []) URL.revokeObjectURL(u);
       listed = { docId, list, urls: list.map((v) => (v.thumb ? URL.createObjectURL(v.thumb) : '')) };
       draw();

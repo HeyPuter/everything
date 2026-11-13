@@ -4,10 +4,10 @@
 import type { Editor } from '../../editor';
 import { registerPanel, type Panel } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
-import { BUNDLED_FONTS, ensureFont, findBundled, loadFontFile, prepareFonts } from '../../imaging/text/fonts';
+import { BUNDLED_FONTS, discardFontFile, ensureFont, findBundled, loadFontFile } from '../../imaging/text/fonts';
 import { parseFont } from '../../imaging/text/sfnt';
 import { focusInput, insert, onSessionChange, ordered, session, startEdit, styleContext } from './session';
-import { charStyleAt, fromPlainText, type CharStyle } from '../../imaging/text/model';
+import { charStyleAt, type CharStyle } from '../../imaging/text/model';
 import { familyList, familyStyles, styleName } from './options';
 import './type-panels.css';
 
@@ -42,7 +42,14 @@ export function codePointsFor(family: string, italic: boolean): Promise<number[]
   let p = fontCodePoints.get(key);
   if (!p) {
     p = bundled
-      ? loadFontFile(bundled.family, italic).then((buf) => parseFont(buf).codePoints().filter(isPrintable))
+      ? loadFontFile(bundled.family, italic).then(async (buf) => {
+        try {
+          return parseFont(buf).codePoints().filter(isPrintable);
+        } catch (error) {
+          await discardFontFile(bundled.family, italic, buf);
+          throw error;
+        }
+      })
       : Promise.resolve(COMMON_RANGES.flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, i) => a + i)).filter(isPrintable));
     p.catch(() => fontCodePoints.delete(key));
     fontCodePoints.set(key, p);
@@ -56,7 +63,7 @@ type Recent = { cp: number; family: string };
 function recentGlyphs(): Recent[] {
   try {
     const v = JSON.parse(localStorage.getItem(recentKey) ?? '[]');
-    return Array.isArray(v) ? v.filter((r) => r && Number.isInteger(r.cp) && typeof r.family === 'string').slice(0, 24) : [];
+    return Array.isArray(v) ? v.filter((r) => r && Number.isInteger(r.cp) && r.cp >= 0 && r.cp <= 0x10ffff && typeof r.family === 'string').slice(0, 24) : [];
   } catch {
     return [];
   }
@@ -79,8 +86,16 @@ export async function insertGlyph(e: Editor, ch: string, family?: string, face?:
       return false;
     }
     if (!e.tool.startsWith('type')) e.setTool('type');
-    await startEdit(e, l.id, 'end');
+    let inserted = false;
+    await startEdit(e, l.id, 'end', undefined, () => {
+      inserted = insertIntoText(e, ch, family, face, true);
+    });
+    return inserted;
   }
+  return insertIntoText(e, ch, family, face);
+}
+
+function insertIntoText(e: Editor, ch: string, family?: string, face?: { weight: number; italic: boolean }, softFocus = false) {
   if (!session) return false;
   // A glyph from another font than the text's is inserted in that font.
   let style: CharStyle | undefined;
@@ -91,12 +106,10 @@ export async function insertGlyph(e: Editor, ch: string, family?: string, face?:
     const next = { ...base, family, ...(face ?? {}) };
     if (next.family !== base.family || next.weight !== base.weight || next.italic !== base.italic) {
       style = next;
-      await prepareFonts({ ...s.data, content: fromPlainText(ch, style) });
-      if (session !== s) return false;
     }
   }
   insert(e, ch, 'glyph', style);
-  focusInput(e);
+  focusInput(e, softFocus);
   if (family) remember({ cp: ch.codePointAt(0)!, family });
   return true;
 }
@@ -144,6 +157,15 @@ export const glyphsPanel: Panel = {
       state.size = Number(t.value);
       el.style.setProperty('--glyph-size', `${state.size}px`);
     });
+    el.addEventListener('click', (ev) => {
+      const retry = (ev.target as HTMLElement).closest<HTMLButtonElement>('[data-gl-retry]');
+      if (!retry) return;
+      retry.disabled = true;
+      retry.textContent = 'Retrying…';
+      el.querySelector('.gl-info')!.textContent = 'Loading glyphs…';
+      renderedKey = '';
+      void render(e, el);
+    });
     const cell = (ev: Event) => (ev.target as HTMLElement).closest<HTMLElement>('[data-cp]');
     el.addEventListener('dblclick', (ev) => {
       const c = cell(ev);
@@ -154,6 +176,7 @@ export const glyphsPanel: Panel = {
       const c = cell(ev);
       if (c && ev.key === 'Enter') {
         ev.preventDefault();
+        ev.stopPropagation();
         void insertGlyph(e, String.fromCodePoint(Number(c.dataset.cp)), ...glyphFont(c)).then((ok) => ok && renderRecent(el));
       }
     });
@@ -199,7 +222,10 @@ async function render(e: Editor, el: HTMLElement) {
   try {
     cps = await codePointsFor(state.family, state.italic);
   } catch {
-    cps = [];
+    if (renderedKey !== key) return;
+    grid.innerHTML = '<button type="button" class="gl-retry secondary" data-gl-retry>Retry</button>';
+    el.querySelector('.gl-info')!.textContent = 'Could not load glyphs. Try again.';
+    return;
   }
   if (renderedKey !== key) return;
   const shown = state.category === 'all' ? cps : cps.filter((cp) => glyphCategory(cp) === state.category);

@@ -8,7 +8,7 @@ import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { hexRgb, rgbHexString } from '../../model/text-layer';
 import type { CharStyle, Kerning, ParagraphStyle } from '../../imaging/text/model';
-import { applyChar, applyParagraph, focusInput, onSessionChange, session, styleContext } from './session';
+import { applyChar, applyParagraph, onSessionChange, restoreInputFocus, styleContext } from './session';
 import { familyPatch, familyStyles, openFontPicker, styleName } from './options';
 import { typeUnit } from './units';
 
@@ -25,10 +25,6 @@ const TOGGLES: [keyof CharStyle, string, string][] = [
 const fmt = (v: unknown) => (typeof v === 'number' ? String(Math.round(v * 100) / 100) : '');
 const field = (key: string, icon: string, title: string, unit: string, attrs = '') =>
   `<label class="type-field" title="${title}">${svg(icon, 15)}<input data-char="${key}" aria-label="${title}" ${attrs}><span class="type-unit">${unit}</span></label>`;
-
-function refocus(e: Editor) {
-  if (session) setTimeout(() => focusInput(e), 0);
-}
 
 const characterPanel: Panel = {
   id: 'character',
@@ -56,7 +52,7 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
     const familyButton = el.querySelector<HTMLButtonElement>('[data-family]')!;
     familyButton.addEventListener('click', () => {
       const cur = styleContext(e).char;
-      openFontPicker(e, familyButton, (f) => void applyChar(e, familyPatch(f, cur)).then(() => refocus(e)), cur.family);
+      openFontPicker(e, familyButton, (f) => void applyChar(e, familyPatch(f, cur)).then(restoreInputFocus(e)), cur.family);
     });
     el.addEventListener('change', (ev) => {
       const t = ev.target as HTMLInputElement | HTMLSelectElement;
@@ -82,7 +78,7 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
           p = applyChar(e, { [key]: Math.max(lo, Math.min(hi, v)) });
         }
       }
-      void p?.then(() => refocus(e));
+      void p?.then(restoreInputFocus(e));
     });
     el.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && (ev.target as HTMLElement).matches('input')) (ev.target as HTMLInputElement).dispatchEvent(new Event('change', { bubbles: true }));
@@ -91,7 +87,7 @@ ${field('baselineShift', 'baseline-shift', 'Baseline shift', 'pt', 'type="number
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-toggle]');
       if (!b) return;
       const key = b.dataset.toggle as keyof CharStyle;
-      void applyChar(e, { [key]: b.getAttribute('aria-pressed') !== 'true' }).then(() => refocus(e));
+      void applyChar(e, { [key]: b.getAttribute('aria-pressed') !== 'true' }).then(restoreInputFocus(e));
     });
   },
   update: (e, el) => syncCharacter(e, el),
@@ -170,7 +166,7 @@ ${pfield('spaceAfter', 'space-after', 'Add space after paragraph')}
 <p class="hint">Justification and hyphenation apply to paragraph text (drag with a type tool to create a text frame).</p>`;
     el.addEventListener('click', (ev) => {
       const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-align]');
-      if (b) void applyParagraph(e, { align: b.dataset.align as ParagraphStyle['align'] }).then(() => refocus(e));
+      if (b) void applyParagraph(e, { align: b.dataset.align as ParagraphStyle['align'] }).then(restoreInputFocus(e));
     });
     el.addEventListener('change', (ev) => {
       const t = ev.target as HTMLInputElement;
@@ -179,7 +175,7 @@ ${pfield('spaceAfter', 'space-after', 'Add space after paragraph')}
       else if (t.dataset.para && t.value.trim() !== '' && Number.isFinite(Number(t.value)))
         // Entered in the type unit, stored in points.
         p = applyParagraph(e, { [t.dataset.para]: Math.max(-5000, Math.min(5000, Number(t.value) / typeUnit(e).k)) });
-      void p?.then(() => refocus(e));
+      void p?.then(restoreInputFocus(e));
     });
     el.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && (ev.target as HTMLElement).matches('input')) (ev.target as HTMLInputElement).dispatchEvent(new Event('change', { bubbles: true }));

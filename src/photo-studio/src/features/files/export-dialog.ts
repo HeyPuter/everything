@@ -56,7 +56,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
         <div class="export-size-grid">
           ${row('Width', `<input type="number" name="outWidth" min="1" max="8192" step="1">`)}
           ${row('Height', `<input type="number" name="outHeight" min="1" max="8192" step="1">`)}
-          ${row('Scale %', `<input type="number" name="scale" min="1" max="1000" step="any">`)}
+          ${row('Scale %', `<input type="number" name="scale" min="0.01" max="819200" step="any">`)}
         </div>
         ${row('Resample', `<select name="resample"><option value="bicubic">Bicubic</option><option value="lanczos">Lanczos (sharper)</option><option value="bilinear">Bilinear</option><option value="nearest">Nearest neighbor (hard edges)</option></select>`)}
       `)}
@@ -184,7 +184,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
   let generation = 0,
     timer = 0,
     url = '';
-  let last: { key: string; bytes: Uint8Array; mime: string } | undefined;
+  let last: { key: string; bytes: Uint8Array; mime: string; prepared?: SourceImage } | undefined;
   const key = () => JSON.stringify(s);
   const schedule = () => {
     clearTimeout(timer);
@@ -193,9 +193,10 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
   const encode = async () => {
     const k = key();
     if (last?.key === k) return last;
+    const settings = { ...s };
     source ??= await documentSource(e, doc);
-    const out = await encodeDocument(e, { ...s }, doc, source);
-    last = { key: k, bytes: out.bytes, mime: out.mime };
+    const out = await encodeDocument(e, settings, doc, source);
+    last = { key: k, bytes: out.bytes, mime: out.mime, prepared: undisplayable.has(settings.format) ? out.prepared : undefined };
     return { ...last, prepared: out.prepared, width: out.width, height: out.height };
   };
   const refresh = async () => {
@@ -262,8 +263,11 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     dialog.querySelector('[data-act="cancel"]')!.addEventListener('click', close);
     const finish = async (puter: boolean) => {
       // Cancel stays available: closing the dialog abandons the export.
-      const buttons = dialog.querySelectorAll<HTMLButtonElement>('.export-actions button:not([data-act="cancel"])');
-      buttons.forEach((b) => (b.disabled = true));
+      const controls = [...dialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input, select, button:not([data-act="cancel"])')];
+      const disabled = controls.map((c) => c.disabled);
+      controls.forEach((c) => (c.disabled = true));
+      clearTimeout(timer);
+      generation++;
       busy.hidden = false;
       busy.textContent = 'Encoding…';
       try {
@@ -292,7 +296,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
           void emitAppEvent('export', e.session);
         }
       } catch (error) {
-        buttons.forEach((b) => (b.disabled = false));
+        controls.forEach((c, i) => (c.disabled = disabled[i]));
         busy.textContent = error instanceof Error ? error.message : String(error);
       }
     };

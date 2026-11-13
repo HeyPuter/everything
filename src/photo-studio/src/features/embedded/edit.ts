@@ -9,10 +9,16 @@ import { findLayer, type Layer } from '../../model/document';
 import { contentsOf, instancesOf, type EmbeddedContents } from '../../model/embedded';
 import { isMac } from '../../app/shortcuts';
 import { contentsFromDocument, openContents, plainContents, setContents } from './contents';
-import { detach, owners } from './owners';
+import { detach, owners, type Owner } from './owners';
 
 export { ownerOf, parentClosed, tabBadge } from './owners';
 
+/** Connect an opened or recovered contents tab to its parent. */
+export function attachContentsTab(e: Editor, s: DocumentSession, owner: Owner) {
+  owners.set(s, owner);
+  s.saveHandler = () => saveContents(e, s);
+  s.closeHandler = () => closeContents(e, s);
+}
 
 /** Open the selected embedded object's content in a new tab (or its open tab). */
 export async function editContents(e: Editor, layerId = e.selected) {
@@ -40,9 +46,7 @@ export async function editContents(e: Editor, layerId = e.selected) {
   s.hasDocument = true;
   s.saved = s.doc;
   s.fileName = `${name}.photo`;
-  owners.set(s, { parent, contents: l.embed?.contents, layerId: l.id, name });
-  s.saveHandler = () => saveContents(e, s);
-  s.closeHandler = () => closeContents(e, s);
+  attachContentsTab(e, s, { parent, contents: l.embed?.contents, layerId: l.id, name });
   e.session = s;
   e.selected = s.doc.layers.at(-1)?.id ?? '';
   e.fit();
@@ -52,6 +56,13 @@ export async function editContents(e: Editor, layerId = e.selected) {
 
 /** Write a content tab back into its parent document. */
 export async function saveContents(e: Editor, s: DocumentSession) {
+  if (e.session === s) {
+    e.transform.apply();
+    const applying = e.modal?.apply();
+    // With no asynchronous edit, capture the document and comment revision
+    // synchronously so later edits remain dirty after this save.
+    if (applying || s.hasPendingEdits) await Promise.all([applying, s.waitForEdits()]);
+  } else if (s.hasPendingEdits) await s.waitForEdits();
   const o = owners.get(s);
   if (!o || !e.sessions.includes(o.parent)) {
     detach(s);
@@ -68,11 +79,8 @@ export async function saveContents(e: Editor, s: DocumentSession) {
     detach(s);
     return;
   }
-  if (e.session === s) {
-    e.transform.apply();
-    e.modal?.apply();
-  }
   const doc = s.doc;
+  const extrasRevision = s.extrasRevision;
   const next = await contentsFromDocument(e, pdoc, parent.assets, doc, s.assets, { name: o.name, stack: prev?.stack, id: o.contents });
   if (parent.doc !== pdoc) {
     e.message('The parent document changed while saving; save the contents again.');
@@ -91,6 +99,7 @@ export async function saveContents(e: Editor, s: DocumentSession) {
   parent.hasDocument = true;
   o.contents = next.id;
   s.saved = doc;
+  s.savedExtrasRevision = extrasRevision;
   e.update();
   e.message(`Updated ${target.length > 1 ? `${target.length} instances of “${o.name}”` : `“${o.name}”`} in ${parent.doc.name}.`);
 }
@@ -98,7 +107,7 @@ export async function saveContents(e: Editor, s: DocumentSession) {
 /** Closing a changed content tab offers to save into the parent first. */
 async function closeContents(e: Editor, s: DocumentSession): Promise<boolean> {
   const o = owners.get(s);
-  if (!s.dirty) return true;
+  if (!s.dirty && !e.hasPendingChanges(s)) return true;
   const { saveChangesDialog } = await import('../../ui/dialog');
   const choice = await saveChangesDialog(
     `Save changes to “${o?.name ?? s.doc.name}”?`,
@@ -107,8 +116,14 @@ async function closeContents(e: Editor, s: DocumentSession): Promise<boolean> {
   if (choice === 'cancel') return false;
   if (choice === 'save') {
     if (e.session !== s) await e.switchSession(s);
-    await saveContents(e, s);
-    return !s.dirty;
+    let saved = false;
+    const task = async () => {
+      await saveContents(e, s);
+      saved = !s.dirty;
+    };
+    if (e.busy) await task().catch((error) => e.message(error instanceof Error ? error.message : String(error)));
+    else await e.run(task);
+    return saved;
   }
   return true;
 }

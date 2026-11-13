@@ -17,19 +17,36 @@ import { libraries } from './service';
 import { ITEM_MIME, libState, saveViewState } from './state';
 
 const LIBRARY_MIME = 'application/x-photo-studio-library';
-import { groupByType, searchItems, TYPE_LABELS, type Library, type LibraryItem } from './model';
+import { groupByType, referencedAssets, searchItems, TYPE_LABELS, type Library, type LibraryIndex, type LibraryItem } from './model';
 import { applyItem, describeItem } from './apply';
 import { ADD_SOURCES } from './context';
 import './libraries.css';
 
 const assetUrls = new Map<string, Promise<string>>();
+let assetIndex: LibraryIndex | undefined;
+function releaseUnusedAssets(index: LibraryIndex) {
+  if (assetIndex === index) return;
+  assetIndex = index;
+  const keep = referencedAssets(index);
+  for (const [hash, url] of assetUrls) {
+    if (keep.has(hash)) continue;
+    assetUrls.delete(hash);
+    // Also release a deleted asset if its pending read finishes later.
+    void url.then((u) => { if (u) URL.revokeObjectURL(u); });
+  }
+}
 function assetUrl(hash: string): Promise<string> {
   let p = assetUrls.get(hash);
   if (!p) {
     p = libraries()
       .readAsset(hash)
       .then((b) => (b ? URL.createObjectURL(b) : ''))
-      .catch(() => '');
+      .catch(() => '')
+      .then((url) => {
+        // Missing/offline assets can become available on a later refresh.
+        if (!url && assetUrls.get(hash) === p) assetUrls.delete(hash);
+        return url;
+      });
     assetUrls.set(hash, p);
   }
   return p;
@@ -116,6 +133,7 @@ function statusHtml() {
 /** Fill thumbnails that load asynchronously (assets, style renders). */
 function fillThumbs(el: HTMLElement) {
   const lib = libraries();
+  releaseUnusedAssets(lib.index);
   for (const img of el.querySelectorAll<HTMLImageElement>('img[data-asset]')) {
     const h = img.dataset.asset!;
     if (!h) continue;
@@ -137,6 +155,7 @@ export function mount(e: Editor, el: HTMLElement) {
   el.innerHTML = `<div class="lib-head"></div><div class="lib-body"></div><div class="lib-status"></div>`;
   const lib = libraries();
   lib.subscribe(() => {
+    releaseUnusedAssets(lib.index);
     bump();
     // Keep the shown library valid when another tab deletes it.
     if (libState.libraryId && !lib.library(libState.libraryId)) libState.libraryId = '';

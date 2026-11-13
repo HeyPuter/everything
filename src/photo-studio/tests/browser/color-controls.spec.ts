@@ -1,6 +1,6 @@
 // Color panel, color picker and Swatches panel interaction details.
 import { test, expect } from '@playwright/test';
-import { boot, openImage } from './helpers';
+import { boot, openImage, panel } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -101,7 +101,11 @@ test('new channels get a name no other channel has', async ({ page }) => {
     const e = window.photoStudio;
     await e.runCommand('channel.new');
     await e.runCommand('channel.new');
-    e.settings.activeChannel = e.doc.channels![0].id;
+  });
+  const channels = await panel(page, 'Channels');
+  await channels.getByRole('button', { name: 'Alpha 1', exact: true }).click();
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
     await e.runCommand('channel.delete');
     await e.runCommand('channel.new');
   });
@@ -152,7 +156,7 @@ test('every channel row can be chosen from the keyboard and no unbound shortcuts
   }
   await panel.getByRole('button', { name: 'Alpha 1', exact: true }).focus();
   await page.keyboard.press('Enter');
-  expect(await page.evaluate(() => window.photoStudio.doc.channels![0].id === window.photoStudio.settings.activeChannel)).toBe(true);
+  await expect(panel.locator('.channel-row.selected')).toHaveAttribute('data-channel', await page.evaluate(() => window.photoStudio.doc.channels![0].id));
   await page.keyboard.press('Space');
   await expect(panel.getByRole('button', { name: 'Alpha 1', exact: true })).toBeFocused();
 });
