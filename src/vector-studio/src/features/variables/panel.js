@@ -100,7 +100,11 @@ export class VariablesPanel extends Panel {
   render() {
     const doc = this.doc;
     const sets = dataSetsOf(doc);
-    this.dsSelect.replaceChildren(...(sets.length ? sets.map((ds) => h('option', { value: ds.id, selected: ds.id === doc.root.dataSet }, ds.name)) : [h('option', { value: '' }, 'No data sets')]));
+    const options = sets.map((ds) => h('option', { value: ds.id, selected: ds.id === doc.root.dataSet }, ds.name));
+    if (!sets.some((ds) => ds.id === doc.root.dataSet)) {
+      options.unshift(h('option', { value: '', selected: true, disabled: true }, sets.length ? 'Choose a data set' : 'No data sets'));
+    }
+    this.dsSelect.replaceChildren(...options);
     this.dsSelect.disabled = !sets.length;
     this.prevBtn.disabled = this.nextBtn.disabled = sets.length < 2;
     this.captureBtn.disabled = !variablesOf(doc).length;
