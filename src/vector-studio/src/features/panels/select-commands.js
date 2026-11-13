@@ -448,10 +448,12 @@ async function saveSelectionDialog(app) {
   const ed = app.editor;
   const n = savedSelectionsOf(ed.doc).length + 1;
   const res = await app.dialogs.form({ title: 'Save Selection', fields: [{ key: 'name', label: 'Name', type: 'text', value: `Selection ${n}` }] });
+  if (!app.editors.includes(ed)) return;
   const name = res?.name?.trim();
   if (!name) return;
   const exists = savedSelectionsOf(ed.doc).some((s) => s.name === name);
   if (exists && !(await app.dialogs.confirm({ title: 'Save Selection', message: `Replace the saved selection "${name}"?`, okLabel: 'Replace' }))) return;
+  if (!app.editors.includes(ed)) return;
   ed.doc.transact('Save Selection', () => saveSelection(ed.doc, name, ed.topSelection()));
   ed.activeSavedSelection = savedSelectionsOf(ed.doc).find((s) => s.name === name)?.id || null;
 }
@@ -487,7 +489,7 @@ async function editSelectionsDialog(app) {
   };
   render();
   const ok = await app.dialogs.open({ title: 'Edit Selection', body: h('div.form', rows), buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: true }] });
-  if (!ok) return;
+  if (!ok || !app.editors.includes(ed)) return;
   // Apply only the dialog's renames and deletions to the latest document state.
   const edited = new Map(list.map((s) => [s.id, s.name]));
   const current = savedSelectionsOf(doc);
