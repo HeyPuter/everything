@@ -31,8 +31,8 @@ export function highlightSource(project, selectedIds = []) {
 }
 
 /** Clip-local timed words (µs) for a clip: from the project transcript when it covers the clip, else transcribed. */
-async function clipWords(ctx, clip, { language, signal, onStatus }) {
-  const reuse = wordsInClip(transcriptWords(ctx.store.project), clip);
+async function clipWords(ctx, clip, { language, reuseTranscript, signal, onStatus }) {
+  const reuse = reuseTranscript ? wordsInClip(transcriptWords(ctx.store.project), clip) : [];
   if (reuse.length >= 20) return { words: reuse, reused: true };
   // Only this clip, from 0, at full volume, so the words line up with the clip.
   const project = ctx.store.project;
@@ -84,6 +84,7 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
   const opts = { ...DEFAULTS, ...(prefs().highlights || {}) };
   const save = () => setPref('highlights', { ...opts });
   let words = [];
+  let wordsLanguage = null;
   let found = [];
   let abort = null;
   let stopPreview = null;
@@ -107,6 +108,7 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
   const field = (label, control) => h('label.aic-field', h('span.aic-label', label), control);
 
   // ---- Options -------------------------------------------------------------------
+  // Keep the mode shown here: a later transcript must not override a language choice.
   const reuse = wordsInClip(transcriptWords(store.project), clip).length >= 20;
   const optionsEl = h('div.aic-step',
     h('p.dialog-text', `Finds the moments in ${asset?.name || 'this clip'} (${clock(clip.duration)}) that work best on their own, so you can turn them into short clips.`),
@@ -241,12 +243,14 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
     if (abort || !active()) return;
     abort = new AbortController();
     const { signal } = abort;
+    const language = opts.language;
     show('progress');
     try {
-      if (!words.length) {
-        const res = await clipWords(ctx, clip, { language: opts.language, signal, onStatus });
+      if (!words.length || wordsLanguage !== language) {
+        const res = await clipWords(ctx, clip, { language, reuseTranscript: reuse, signal, onStatus });
         check(signal);
         words = res.words;
+        wordsLanguage = language;
       }
       check(signal);
       onStatus('Choosing the best moments...', 0.85);
