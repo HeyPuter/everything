@@ -6,6 +6,7 @@
 // editing ends. A hidden textarea receives keyboard, IME and clipboard input.
 
 import type { Editor } from '../../editor';
+import type { DocumentSession } from '../../app/session';
 import { findLayer, layer as newLayer, type Layer, type PhotoDocument, type Rect } from '../../model/document';
 import { layerLock } from '../../model/locks';
 import { fitTextFrame, syncLegacyFields, textLayerName, hexRgb } from '../../model/text-layer';
@@ -223,18 +224,36 @@ async function fontsReady(e: Editor, data: TextLayerData): Promise<void> {
 export type StartNew = { x: number; y: number; box?: Rect; vertical: boolean; mask: boolean; path?: TypePath };
 // Starting is asynchronous (fonts load first); overlapping requests, such
 // as a double-click that also reaches the layer list, start only once.
-let starting = false;
+type StartRequest = { owner: DocumentSession; doc: PhotoDocument; tool: string };
+let starting: StartRequest | undefined;
+function validStart(e: Editor, request: StartRequest) {
+  return starting === request && e.session === request.owner && e.doc === request.doc && e.tool === request.tool && e.sessions.includes(request.owner);
+}
+function startRequest(e: Editor) {
+  if (starting && validStart(e, starting)) return;
+  return starting = { owner: e.session, doc: e.doc, tool: e.tool };
+}
+/** Leaving a tool/document invalidates its font wait without blocking a new request. */
+export function cancelPendingStart(owner?: DocumentSession) {
+  if (!owner || starting?.owner === owner) starting = undefined;
+}
+async function finishCurrent(e: Editor, request: StartRequest) {
+  if (session) await commit(e);
+  if (starting !== request || e.session !== request.owner || e.tool !== request.tool) return false;
+  request.doc = e.doc;
+  return true;
+}
 export async function startNew(e: Editor, opt: StartNew) {
-  if (starting) return;
-  starting = true;
+  const request = startRequest(e);
+  if (!request) return;
   try {
-    await beginNew(e, opt);
+    await beginNew(e, opt, request);
   } finally {
-    starting = false;
+    if (starting === request) starting = undefined;
   }
 }
-async function beginNew(e: Editor, opt: StartNew) {
-  if (session) await commit(e);
+async function beginNew(e: Editor, opt: StartNew, request: StartRequest) {
+  if (!(await finishCurrent(e, request))) return;
   const d = typeDefaults(e);
   const style: CharStyle = { ...d.style, color: opt.mask ? d.style.color : hexRgb(e.color) };
   const data: TextLayerData = {
@@ -257,6 +276,7 @@ async function beginNew(e: Editor, opt: StartNew) {
     }
   }
   await fontsReady(e, data);
+  if (!validStart(e, request)) return;
   const l = newLayer('text', 'Text', 1, 1);
   l.textData = data;
   l.color = e.color;
@@ -283,16 +303,16 @@ async function beginNew(e: Editor, opt: StartNew) {
 }
 
 export async function startEdit(e: Editor, id: string, at?: { x: number; y: number } | 'all' | 'end') {
-  if (starting) return;
-  starting = true;
+  const request = startRequest(e);
+  if (!request) return;
   try {
-    await beginEdit(e, id, at);
+    await beginEdit(e, id, request, at);
   } finally {
-    starting = false;
+    if (starting === request) starting = undefined;
   }
 }
-async function beginEdit(e: Editor, id: string, at?: { x: number; y: number } | 'all' | 'end') {
-  if (session) await commit(e);
+async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x: number; y: number } | 'all' | 'end') {
+  if (!(await finishCurrent(e, request))) return;
   const l0 = findLayer(e.doc.layers, id);
   if (!l0 || l0.kind !== 'text') return;
   if (layerLock(e.doc.layers, id, 'all')) {
@@ -302,6 +322,7 @@ async function beginEdit(e: Editor, id: string, at?: { x: number; y: number } | 
   const ppi = ppiOf(e);
   const l = editable(l0, ppi);
   await fontsReady(e, l.textData);
+  if (!validStart(e, request)) return;
   const before = e.doc;
   // Legacy layers get engine data in place (their placement is unchanged).
   const draft = replaceLayer(before, id, () => l);

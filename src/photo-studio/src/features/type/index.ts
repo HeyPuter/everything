@@ -24,6 +24,7 @@ const matchFont = lazy(() => import('./match-font'));
 
 export function installType(e: Editor) {
   installTypeTools(e);
+  e.closeHooks.push((s) => typeSession.cancelPendingStart(s));
   installTypeOptions(e);
   installTypePanels(e);
   installTypeCommands(e);

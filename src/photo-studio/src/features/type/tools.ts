@@ -11,6 +11,7 @@ import {
   applyParagraph,
   backspace,
   cancel,
+  cancelPendingStart,
   commit,
   currentSession,
   focusInput,
@@ -395,6 +396,7 @@ export function installTypeTools(e: Editor) {
     options: (e) => typeOptions(e),
     bindOptions: (ctx) => bindTypeOptions(ctx),
     deactivate: (e) => {
+      cancelPendingStart();
       gesture = undefined;
       if (session) return commit(e);
     },
