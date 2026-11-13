@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PianoRollEditor } from '../src/pianoroll/editor.js';
+import { Engine } from '../src/engine/engine.js';
+import { Store } from '../src/model/store.js';
+import { createProject, createChannel } from '../src/model/project.js';
 
 function setup() {
   let start, fail;
@@ -13,7 +16,7 @@ function setup() {
   return { editor, engine, start, fail };
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('piano-roll audition startup', () => {
   it('does not attack after the key is released during startup', async () => {
@@ -91,4 +94,64 @@ it('ignores a canceled preview failure while a new preview is sounding', async (
   expect(editor.app.reportError).not.toHaveBeenCalled();
   editor.stopAudition();
   expect(engine.noteOff).toHaveBeenLastCalledWith('piano', 64);
+});
+
+it.each([true, false])('clears a preview when the real engine is unavailable (hold: %s)', async (hold) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('AudioContext', undefined);
+  vi.stubGlobal('webkitAudioContext', undefined);
+  const { editor } = setup();
+  const channel = createChannel();
+  const engine = new Engine(new Store(createProject({ channels: [channel] })));
+  editor.app.engine = engine;
+  editor.channel = channel;
+  const errors = vi.fn();
+  engine.on('error', errors);
+  const noteOn = vi.spyOn(engine, 'noteOn');
+  await editor.audition([60, 64], 0.8, { hold });
+  expect(noteOn).not.toHaveBeenCalled();
+  expect(editor.auditioning).toEqual([]);
+  expect(editor.pressed.size).toBe(0);
+  expect(vi.getTimerCount()).toBe(0);
+  expect(errors).toHaveBeenCalledTimes(1);
+  expect(editor.app.reportError).not.toHaveBeenCalled();
+  await editor.audition(67, 0.7, { hold });
+  expect(editor.auditioning).toEqual([]);
+  expect(editor.pressed.size).toBe(0);
+  expect(noteOn).not.toHaveBeenCalled();
+  expect(errors).toHaveBeenCalledTimes(1);
+});
+
+it.each([false, true])('clears an unsuccessful startup while preserving live input (live held: %s)', async (held) => {
+  vi.useFakeTimers();
+  const { editor, engine, start } = setup();
+  editor.app.liveInput = { isHeld: (key) => held && key === 60 };
+  const pending = editor.audition([60, 64], 0.8, { hold: false });
+  start(false);
+  await pending;
+  expect(engine.noteOn).not.toHaveBeenCalled();
+  expect(editor.auditioning).toEqual([]);
+  expect([...editor.pressed]).toEqual(held ? [60] : []);
+  expect(vi.getTimerCount()).toBe(0);
+  expect(editor.app.reportError).not.toHaveBeenCalled();
+  engine.start.mockResolvedValue(true);
+  await editor.audition(67, 0.7, { hold: false });
+  expect(engine.noteOn).toHaveBeenCalledExactlyOnceWith('piano', 67, 0.7);
+  vi.advanceTimersByTime(220);
+  expect([...editor.pressed]).toEqual(held ? [60] : []);
+});
+
+it('does not clear a newer preview when an obsolete startup resolves false', async () => {
+  const { editor, engine, start } = setup();
+  const pending = editor.audition(60);
+  engine.start.mockResolvedValue(true);
+  await editor.audition(64);
+  engine.noteOff.mockClear();
+  start(false);
+  await pending;
+  expect(engine.noteOn).toHaveBeenCalledExactlyOnceWith('piano', 64, 0.8);
+  expect(engine.noteOff).not.toHaveBeenCalled();
+  expect(editor.auditioning).toEqual([64]);
+  expect([...editor.pressed]).toEqual([64]);
+  editor.stopAudition();
 });

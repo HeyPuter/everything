@@ -314,8 +314,9 @@ export class PianoRollEditor {
     for (const k of list) this.pressed.add(k);
     this.dirty = true;
     const engine = this.app.engine;
+    let started;
     try {
-      await engine.start();
+      started = await engine.start();
     } catch (err) {
       if (this.auditioning !== list) return;
       this.stopAudition();
@@ -323,6 +324,10 @@ export class PianoRollEditor {
       return;
     }
     if (this.auditioning !== list) return;
+    if (started === false) {
+      this.stopAudition();
+      return;
+    }
     for (const k of list) engine.noteOn(ch.id, k, vel);
     this.auditionChannel = ch.id;
     if (!hold) {
