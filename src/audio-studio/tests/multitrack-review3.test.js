@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Session } from '../src/model/session.js';
 import * as S from '../src/model/session-edits.js';
 import { Channel } from '../src/audio/channel.js';
-import { parseWav } from '../src/audio/wav.js';
+import { parseWav, encodeWav } from '../src/audio/wav.js';
 import { buildSessionGraph } from '../src/model/session-graph.js';
 import { ChunkStore, renderBlock, createScratch, CHUNK } from '../src/engine/mixcore.js';
 
@@ -66,6 +66,12 @@ vi.mock('../src/storage/puter.js', async (orig) => ({
   sdk: () => ({}),
   isSignedIn: () => true,
   writeFile: async (path, blob) => puterFiles.set(path, new Uint8Array(await blob.arrayBuffer())),
+}));
+
+const picked = vi.hoisted(() => []);
+vi.mock('../src/storage/files.js', async (orig) => ({
+  ...(await orig()),
+  pickLocalFiles: async () => picked.splice(0),
 }));
 
 const { saveSession } = await import('../src/multitrack/storage.js');
@@ -155,5 +161,31 @@ describe('bouncing', () => {
     await bouncing;
     expect(app.documents.length).toBe(before - 1);
     expect(app.documents.some((d) => /Bounce/.test(d.name))).toBe(false);
+  });
+});
+
+describe('linking missing media', () => {
+  it('marks the session unsaved, so closing it asks to keep the link', async () => {
+    const { app, doc } = await appWithSession();
+    const t = doc.state.tracks[0].id;
+    doc.addSource({ id: 'gone', name: 'Take.wav', channels: [], offline: true });
+    doc.apply(
+      'Add',
+      S.addClips(doc.state, [
+        S.createClip({ trackId: t, sourceId: 'gone', start: 0, length: 4000 }),
+      ]),
+    );
+    doc.markSaved();
+    const wav = encodeWav({
+      sampleRate: 8000,
+      channels: [new Float32Array(4000).fill(0.5)],
+      bitDepth: 16,
+    });
+    picked.push(new File([wav], 'Take.wav', { type: 'audio/wav' }));
+    const { installMoreCommands } = await import('../src/multitrack/more-commands.js');
+    installMoreCommands(app);
+    await app.commands.run('clip.linkMedia');
+    expect(doc.pool.get('gone').offline).toBe(false);
+    expect(doc.dirty).toBe(true);
   });
 });
