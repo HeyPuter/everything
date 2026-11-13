@@ -20,6 +20,7 @@ export function gradientBarCss(paint) {
 export function createGradientSlider({ label = 'Gradient', onChange, onSelect, onEditStop, onGestureStart }) {
   let paint = null;
   let selected = 0;
+  let gesture = null;
   const bar = h('div.gs-bar', { 'aria-hidden': 'true' }, h('div.gs-fill'));
   const mids = h('div.gs-mids');
   const stopsEl = h('div.gs-stops', { role: 'group', 'aria-label': `${label} stops` });
@@ -45,7 +46,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
   };
 
   stopsEl.addEventListener('pointerdown', (e) => {
-    if (!paint || e.target !== stopsEl) return;
+    if (!paint || gesture || e.button !== 0 || e.target !== stopsEl) return;
     // Click in the empty area under the bar adds a stop.
     onGestureStart?.();
     const r = insertStop(paint, fraction(e.clientX));
@@ -55,28 +56,45 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
     stopsEl.children[r.index]?.focus();
   });
 
-  const startStopDrag = (e, index) => {
+  // Capture on the persistent container: duplicating/removing stops rebuilds
+  // the handles, which must not detach the active capture target.
+  const startDrag = (e, move, finish) => {
+    if (!paint || gesture || e.button !== 0) return false;
     e.preventDefault();
     e.stopPropagation();
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
+    const pointerId = e.pointerId;
+    try { el.setPointerCapture?.(pointerId); } catch { return false; }
+    const active = {};
+    gesture = active;
+    const owns = (ev) => gesture === active && ev.pointerId === pointerId;
+    const onMove = (ev) => { if (owns(ev)) move(ev); };
+    const end = (ev) => {
+      if (!owns(ev)) return;
+      gesture = null;
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', end);
+      el.removeEventListener('pointercancel', end);
+      el.removeEventListener('lostpointercapture', end);
+      try { el.releasePointerCapture?.(pointerId); } catch { /* Capture already ended. */ }
+      finish(ev.type === 'pointerup');
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
     onGestureStart?.();
+    return true;
+  };
+
+  const startStopDrag = (e, index) => {
     let idx = index;
     let cur = paint;
-    if (e.altKey) {
-      // Duplicate the stop and drag the copy.
-      const s = cur.stops[idx];
-      cur = { ...cur, stops: [...cur.stops, { ...s }] };
-      idx = cur.stops.length - 1;
-    }
-    select(idx);
     const startY = e.clientY;
     let removing = false;
     const move = (ev) => {
-      const off = Math.abs(ev.clientY - startY) > REMOVE_DISTANCE && cur.stops.length > 2;
-      removing = off;
-      target.classList.toggle('removing', off);
-      if (off) return;
+      removing = Math.abs(ev.clientY - startY) > REMOVE_DISTANCE && cur.stops.length > 2;
+      stopsEl.children[idx]?.classList.toggle('removing', removing);
+      if (removing) return;
       const r = moveStop(cur, idx, fraction(ev.clientX));
       cur = r.paint;
       idx = r.index;
@@ -85,10 +103,13 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       // The stop stays selected (and its fields follow it) when it passes another stop.
       onSelect?.(idx);
     };
-    const up = () => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      target.removeEventListener('pointercancel', up);
+    const finish = (released) => {
+      if (!released) {
+        // Keep completed live edits; cancellation must not perform the pending
+        // off-bar deletion or commit an unplaced Alt-drag duplicate.
+        select(Math.max(0, Math.min(selected, paint.stops.length - 1)));
+        return;
+      }
       if (removing) {
         const next = removeStop(cur, idx);
         selected = Math.max(0, Math.min(idx, next.stops.length - 1));
@@ -99,16 +120,18 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
         emit(cur, false);
       }
     };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up);
-    target.addEventListener('pointercancel', up);
+    if (!startDrag(e, move, finish)) return;
+    if (e.altKey) {
+      // Duplicate the stop and drag the copy.
+      const s = cur.stops[idx];
+      cur = { ...cur, stops: [...cur.stops, { ...s }] };
+      idx = cur.stops.length - 1;
+    }
+    select(idx);
   };
 
   const startMidDrag = (e, index) => {
-    e.preventDefault();
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-    onGestureStart?.();
+    if (!paint) return;
     const a = paint.stops[index];
     const b = paint.stops[index + 1];
     const move = (ev) => {
@@ -117,13 +140,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       if (span <= 1e-6) return;
       emit(setMidpoint(paint, index, (f - a.offset) / span), true);
     };
-    const up = () => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      emit(paint, false);
-    };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up);
+    startDrag(e, move, (released) => { if (released) emit(paint, false); });
   };
 
   const render = () => {
