@@ -92,9 +92,12 @@ export function installHistoryTools(e: Editor) {
       id: 'history.restore-snapshot',
       label: 'Revert to Snapshot',
       hidden: true,
-      run: (e, arg) => {
+      run: async (e, arg) => {
         const snap = sessionSnapshots(e).find((s) => s.id === arg);
         if (!snap) return;
+        // Keep the completed edit in Undo before replacing its document state.
+        e.transform.apply();
+        await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
         e.command(`Revert to ${snap.name}`, (d) => replaceDocument(d, snap.doc));
       },
     },
