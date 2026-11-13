@@ -105,6 +105,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       slider.removeEventListener('pointermove', move);
       slider.removeEventListener('pointerup', up);
       slider.removeEventListener('pointercancel', up);
+      slider.removeEventListener('lostpointercapture', up);
       if (slider.hasPointerCapture?.(e.pointerId)) slider.releasePointerCapture(e.pointerId);
       stopDrag = null;
     };
@@ -115,6 +116,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     slider.addEventListener('pointermove', move);
     slider.addEventListener('pointerup', up);
     slider.addEventListener('pointercancel', up);
+    slider.addEventListener('lostpointercapture', up);
   });
 
   slider.addEventListener('dblclick', (e) => {
@@ -175,7 +177,10 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       if (e.key !== 'Enter') deferEnd();
     }
   });
-  slider.addEventListener('blur', finish);
+  slider.addEventListener('blur', () => {
+    stopDrag?.();
+    finish();
+  });
 
   function typeIn() {
     const input = h('input.input.sm', { type: 'text', value: formatGain(v), 'aria-label': `${label} in dB`, style: { position: 'fixed', width: '84px', zIndex: 1300 } });

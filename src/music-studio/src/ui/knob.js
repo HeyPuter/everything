@@ -140,6 +140,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      el.removeEventListener('lostpointercapture', up);
       if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
       stopDrag = null;
     };
@@ -151,6 +152,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
   });
 
   el.addEventListener('dblclick', (e) => {
@@ -220,6 +222,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     }
   });
   el.addEventListener('blur', () => {
+    stopDrag?.();
     hideReadout();
     finish();
   });

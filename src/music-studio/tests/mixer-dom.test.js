@@ -180,6 +180,35 @@ describe('mixer panel', () => {
     expect(store.project.mixer[4].volume).toBe(1);
   });
 
+  it.each(['volume', 'pan'].flatMap((param) => ['lostpointercapture', 'blur', 'pointerup'].map((event) => [param, event])))('ends a %s drag on %s and ignores its later movement', (param, event) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    slider.setPointerCapture = vi.fn();
+    const pointer = (type, y) => slider.dispatchEvent(new MouseEvent(type, { bubbles: true, clientY: y, button: 0 }));
+    const original = store.project;
+    pointer('pointerdown', 300);
+    pointer('pointermove', 298);
+    const committed = store.project;
+    expect(committed).not.toBe(original);
+    if (event === 'blur') slider.blur();
+    else pointer(event, 298);
+    pointer('lostpointercapture', 298);
+    expect(Boolean(store.gesture)).toBe(false);
+    pointer('pointermove', 280);
+    pointer('pointerup', 280);
+    expect(store.project).toBe(committed);
+    expect(slider.classList.contains('dragging')).toBe(false);
+    expect(store.undoStack).toHaveLength(1);
+    pointer('pointerdown', 300);
+    pointer('pointermove', 298);
+    pointer('pointerup', 298);
+    expect(store.project.mixer[2][param]).toBeGreaterThan(committed.mixer[2][param]);
+    store.undo();
+    expect(store.project).toBe(committed);
+    store.undo();
+    expect(store.project).toBe(original);
+  });
+
   it('updates only strips whose track changed', () => {
     const { store, panel } = env;
     const spies = panel.strips.map((s) => vi.spyOn(s.fader, 'set'));
