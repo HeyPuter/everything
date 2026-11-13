@@ -218,6 +218,17 @@ export function outputFrames(frames, from, to) {
   return from === to ? frames : Math.round((frames * to) / from);
 }
 
+/**
+ * Why `frames` output frames cannot be written in this format, or ''. Only WAV and AIFF hold
+ * no audio at all: an empty FLAC, MP3, Opus or AAC file is one browsers cannot decode, so it
+ * would open again only as "damaged".
+ */
+export function emptyExportError(formatId, frames) {
+  if (frames > 0 || formatId === 'wav' || formatId === 'aiff') return '';
+  const ext = getFormat(formatId)?.ext || formatId;
+  return `There is no audio to save, and an empty .${ext} file cannot be opened again. Choose WAV or AIFF to save an empty file.`;
+}
+
 /** Markers moved into an export range and scaled to the output rate. */
 export function exportMarkers(markers, start, end, from, to) {
   const k = to / from;

@@ -456,3 +456,21 @@ describe('metadata readers', () => {
     expect(parseVorbisComment(Uint8Array.from(parts))).toEqual({ title: 'a', comment: 'd', year: '2020' });
   });
 });
+
+describe('exports with no audio', () => {
+  it('refuses FLAC, MP3, Opus and AAC files with no audio, which would not open again', async () => {
+    const { exportAudio } = await import('../src/export/export.js');
+    const { isUserError } = await import('../src/lib/errors.js');
+    const channels = [new Float32Array(0), new Float32Array(0)];
+    for (const format of ['flac', 'mp3', 'opus', 'm4a']) {
+      const err = await exportAudio({ channels, sampleRate: 48000 }, { format }).catch((e) => e);
+      expect(isUserError(err)).toBe(true);
+      expect(err.message).toMatch(/^There is no audio to save, and an empty \.\w+ file cannot/);
+    }
+    // One frame at 192 kHz is none at all once converted to 8 kHz.
+    const one = [new Float32Array(1)];
+    const options = { format: 'mp3', sampleRate: 8000 };
+    const err = await exportAudio({ channels: one, sampleRate: 192000 }, options).catch((e) => e);
+    expect(isUserError(err)).toBe(true);
+  });
+});

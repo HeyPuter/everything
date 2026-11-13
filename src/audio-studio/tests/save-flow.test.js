@@ -274,3 +274,38 @@ describe('Save after the document changed sample type', () => {
     expect(optionsForSave(doc, 'wav')).toMatchObject({ sampleRate: 48000, channels: 1 });
   });
 });
+
+describe('saving a document with no audio', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('refuses formats that cannot be empty and reopens the dialog for another', async () => {
+    const { Prefs } = await import('../src/lib/prefs.js');
+    const app = { ...fakeApp(), prefs: new Prefs(null) };
+    const doc = AudioFile.blank({ name: 'Empty.wav', sampleRate: 44100, channels: 2, seconds: 0 });
+    expect(doc.length).toBe(0);
+    const before = exports.length;
+    const saving = saveDocument(app, doc, { saveAs: true });
+    await wait(20);
+    const $ = (sel) => document.querySelector(sel);
+    const change = (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event('change'));
+    };
+    change($('.io-export-dialog select[aria-label="Format"]'), 'flac');
+    $('.io-export-dialog .dialog-foot .btn.primary').click();
+    await wait(20);
+    expect(exports.length).toBe(before);
+    const said = expect.stringContaining('an empty .flac file cannot be opened again');
+    expect(app.notify).toHaveBeenCalledWith(said, { error: true });
+    // The dialog is back with the same choices; WAV holds an empty file.
+    const dialog = $('.io-export-dialog');
+    expect(dialog.querySelector('select[aria-label="Format"]').value).toBe('flac');
+    change(dialog.querySelector('select[aria-label="Format"]'), 'wav');
+    dialog.querySelector('.dialog-foot .btn.primary').click();
+    expect(await saving).toBe(true);
+    expect(exports.length).toBe(before + 1);
+    expect(exports.at(-1)[1].format).toBe('wav');
+  });
+});

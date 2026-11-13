@@ -6,7 +6,15 @@
 import { exportAudio } from './export.js';
 import { exportFileDialog } from './dialog.js';
 import { withProgress } from './progress.js';
-import { conformOptions, defaultOptions, docBitDepth, formatForName, getFormat } from './formats.js';
+import {
+  conformOptions,
+  defaultOptions,
+  docBitDepth,
+  emptyExportError,
+  formatForName,
+  getFormat,
+  outputFrames,
+} from './formats.js';
 import { confirmDialog } from '../ui/dialog.js';
 import * as puter from '../storage/puter.js';
 import { downloadBlob, rememberRecent } from '../storage/files.js';
@@ -117,6 +125,14 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
   for (;;) {
     const r = await exportFileDialog(app, doc, { mode, frames: end - start, initial });
     if (!r) return false;
+    // Nothing to encode in a format that cannot be empty: say so and let another format be chosen.
+    const outFrames = outputFrames(end - start, doc.sampleRate, r.options.sampleRate);
+    const empty = emptyExportError(r.options.format, outFrames);
+    if (empty) {
+      app.notify(empty, { error: true });
+      initial = r;
+      continue;
+    }
     let path = null;
     let dir = null;
     if (r.location.type === 'puter') {
