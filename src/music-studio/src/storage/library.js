@@ -136,10 +136,10 @@ export class Library {
    * The encoded bytes of a sample: this device first (no download cost),
    * then the Puter copy when signed in (cached here afterwards). Null if missing.
    */
-  async sampleBytes(ref) {
+  async sampleBytes(ref, { bypassLocal = false } = {}) {
     const temporary = this.temporarySamples;
     // An unreadable local cache must not prevent recovery from another copy.
-    const rec = (await this.sampleRecord(ref.local || ref.id).catch(() => null)) || (ref.local && ref.local !== ref.id && !isEmbeddedKey(ref.local) ? await this.sampleRecord(ref.id).catch(() => null) : null);
+    const rec = bypassLocal ? null : (await this.sampleRecord(ref.local || ref.id).catch(() => null)) || (ref.local && ref.local !== ref.id && !isEmbeddedKey(ref.local) ? await this.sampleRecord(ref.id).catch(() => null) : null);
     if (rec?.data) return rec.data;
     if (!ref.path || !this.puter.isSignedIn()) return null;
     try {
@@ -180,6 +180,21 @@ export class Library {
         cache.set(ref.id, decoded);
         loaded++;
       } catch {
+        if (!isCurrent()) break;
+        // Stored bytes can be damaged while the explicit cloud copy is intact.
+        // Try it once, retaining normal missing-audio behavior if it also fails.
+        const recovered = await this.sampleBytes(ref, { bypassLocal: true });
+        if (!isCurrent()) break;
+        if (recovered) {
+          try {
+            const decoded = await this.decode(recovered);
+            if (!isCurrent()) break;
+            cache.set(ref.id, decoded);
+            loaded++;
+            continue;
+          } catch { /* Report this sample and continue loading the others. */ }
+        }
+        if (!isCurrent()) break;
         missing.push(ref.name);
       }
     }
