@@ -511,6 +511,28 @@ describe('Library media', () => {
     await expect(lib.mediaBlob({ hash: 'gone', ext: 'mp4', name: 'Gone' })).resolves.toBeTruthy();
   });
 
+  it.each([false, true])('does not retain media reads from an exited editor (reopened: %s)', async (reopened) => {
+    const backend = memoryBackend();
+    let finish;
+    backend.readBlob = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const lib = new Library(backend);
+    const asset = { hash: 'slow', ext: 'mp4', name: 'Slow video' };
+    const oldBlob = lib.mediaBlob(asset);
+    const oldURL = lib.mediaURL(asset).then(() => 'unexpected URL', (error) => error.name);
+    lib.releaseMedia();
+    // A new editor can still share the download; only its request may populate the cache.
+    const current = reopened ? lib.mediaURL(asset) : null;
+    const blob = new Blob(['video']);
+    finish(blob);
+    expect(await oldBlob).toBe(blob);
+    expect(await oldURL).toBe('AbortError');
+    expect(backend.readBlob).toHaveBeenCalledTimes(1);
+    if (reopened) expect(await current).toBe(lib.urls.get(asset.hash));
+    expect(lib.blobs.has(asset.hash)).toBe(reopened);
+    expect(lib.urls.has(asset.hash)).toBe(reopened);
+    lib.releaseMedia();
+  });
+
   it('shares one object URL between concurrent callers and releases it on exit', async () => {
     const backend = memoryBackend();
     backend.files.set('media/shared.mp4', new Blob(['video']));

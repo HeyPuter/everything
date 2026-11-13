@@ -36,6 +36,7 @@ export class Library extends Emitter {
     super();
     this.backend = backend;
     this.cache = cache !== undefined ? cache : backend.kind === 'puter' && opfsAvailable() ? opfsBackend('video-studio-cache') : null;
+    this.mediaGeneration = 0; // releaseMedia invalidates requests from the previous editor
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
     this.reads = new Map(); // hash -> Promise<Blob>: files being read, shared by everyone asking
@@ -529,6 +530,7 @@ export class Library extends Emitter {
    * storage). keep: false reads it without holding it in memory afterwards.
    */
   async mediaBlob(asset, { keep = true } = {}) {
+    const generation = this.mediaGeneration;
     const hit = this.blobs.get(asset.hash);
     if (hit) return hit;
     // Posters, waveforms, thumbnails and the player ask at once when a project opens: read it once.
@@ -538,7 +540,7 @@ export class Library extends Emitter {
       this.reads.set(asset.hash, read);
     }
     const blob = await read;
-    if (keep) this.blobs.set(asset.hash, blob);
+    if (keep && generation === this.mediaGeneration) this.blobs.set(asset.hash, blob);
     return blob;
   }
 
@@ -556,9 +558,11 @@ export class Library extends Emitter {
 
   /** Object URL for an asset, created once and reused. */
   async mediaURL(asset) {
+    const generation = this.mediaGeneration;
     const have = this.urls.get(asset.hash);
     if (have) return have;
     const blob = await this.mediaBlob(asset);
+    if (generation !== this.mediaGeneration) throw new DOMException('Media request canceled', 'AbortError');
     // Another caller may have created the URL while this one waited for the shared read.
     const shared = this.urls.get(asset.hash);
     if (shared) return shared;
@@ -629,6 +633,7 @@ export class Library extends Emitter {
 
   /** Release cached blobs and URLs (when leaving the editor). */
   releaseMedia() {
+    this.mediaGeneration++;
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     // Keep blobs for files not stored yet: they are the only copy.
