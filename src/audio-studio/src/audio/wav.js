@@ -48,14 +48,20 @@ export function isWav(buffer) {
   return (riff === 'RIFF' || riff === 'RF64' || riff === 'BW64') && ascii(dv, 8, 4) === 'WAVE';
 }
 
-/** Whether a well-formed chunk header (printable id, size within the file) starts at `o`. */
-function isChunkAt(dv, o) {
-  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+/** Whether the four bytes at `o` are printable ASCII, as chunk ids are. */
+function isChunkIdAt(dv, o) {
+  if (o + 4 > dv.byteLength) return false;
   for (let i = 0; i < 4; i++) {
     const c = dv.getUint8(o + i);
     if (c < 0x20 || c > 0x7e) return false;
   }
-  return o + 8 + dv.getUint32(o + 4, true) <= dv.byteLength;
+  return true;
+}
+
+/** Whether a well-formed chunk header (printable id, size within the file) starts at `o`. */
+function isChunkAt(dv, o) {
+  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+  return isChunkIdAt(dv, o) && o + 8 + dv.getUint32(o + 4, true) <= dv.byteLength;
 }
 
 const LITTLE_ENDIAN = new Uint8Array(Uint16Array.of(1).buffer)[0] === 1;
@@ -236,6 +242,9 @@ export function parseWav(buffer) {
       }
     }
     o = body + size + (size & 1);
+    // Some writers leave out the pad byte after an odd-sized chunk: the next chunk then
+    // starts one byte early (a pad byte is zero, never the first letter of an id).
+    if (size & 1 && !isChunkAt(dv, o) && isChunkIdAt(dv, o - 1)) o--;
   }
   if (!fmt && fmtBad) throw new Error('The WAV file header is damaged or cut off.');
   if (!fmt || dataOffset < 0) throw new Error('The WAV file has no audio data.');

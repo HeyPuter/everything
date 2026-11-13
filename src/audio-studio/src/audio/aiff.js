@@ -13,6 +13,22 @@ export function isAiff(buffer) {
   return str(b, 0, 4) === 'FORM' && (form === 'AIFF' || form === 'AIFC');
 }
 
+/** Whether a chunk header (printable id, size within the file) starts at `o`, or `o` is the end. */
+function isChunkAt(dv, o) {
+  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+  return isChunkIdAt(dv, o) && o + 8 + dv.getUint32(o + 4) <= dv.byteLength;
+}
+
+/** Whether the four bytes at `o` are printable ASCII, as chunk ids are. */
+function isChunkIdAt(dv, o) {
+  if (o + 4 > dv.byteLength) return false;
+  for (let i = 0; i < 4; i++) {
+    const c = dv.getUint8(o + i);
+    if (c < 0x20 || c > 0x7e) return false;
+  }
+  return true;
+}
+
 /** 80-bit IEEE 754 extended (big-endian) at `o`. */
 export function readExtended(dv, o) {
   const se = dv.getUint16(o);
@@ -112,6 +128,8 @@ export function parseAiff(buffer) {
       for (const [k, v] of Object.entries(tags)) if (!meta[k]) meta[k] = v;
     }
     o = body + size + (size & 1);
+    // A pad byte left out after an odd-sized chunk (see parseWav): the next id is a byte early.
+    if (size & 1 && !isChunkAt(dv, o) && isChunkIdAt(dv, o - 1)) o--;
   }
   if (!comm || ssnd < 0) throw new Error('The AIFF file has no audio data.');
   const { channels: nch, bits, rate, type } = comm;

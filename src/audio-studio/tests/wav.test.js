@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { encodeWav, parseWav } from '../src/audio/wav.js';
 import { Channel } from '../src/audio/channel.js';
-import { ulaw, alaw } from '../src/audio/aiff.js';
+import { ulaw, alaw, parseAiff } from '../src/audio/aiff.js';
 import { sniffSampleRate, decodeAudio, fixPositiveScale } from '../src/audio/decode.js';
 
 const tone = (n) => Float32Array.from({ length: n }, (_, i) => Math.sin(i / 7) * 0.5);
@@ -171,6 +171,37 @@ describe('wav', () => {
     // An empty data chunk followed by another chunk stays empty.
     const empty = encodeWav({ sampleRate: 44100, channels: [new Float32Array(0)], bitDepth: 16, markers: [{ start: 0, name: 'A' }] });
     expect(parseWav(await empty.arrayBuffer()).channels[0].length).toBe(0);
+  });
+  it('opens WAV and AIFF files that leave out the pad byte after odd-sized chunks', () => {
+    const ascii = (s) => Array.from(s, (c) => c.charCodeAt(0));
+    const u32 = (v, le) => {
+      const b = [v >>> 24, v >> 16, v >> 8, v].map((x) => x & 255);
+      return le ? b.reverse() : b;
+    };
+    const file = (form, kind, le, chunks) => {
+      const body = [...ascii(kind), ...chunks.flat()];
+      return Uint8Array.from([...ascii(form), ...u32(body.length, le), ...body]).buffer;
+    };
+    const chunk = (id, bytes, le) => [...ascii(id), ...u32(bytes.length, le), ...bytes];
+    // 8-bit mono WAV: an odd INFO list, then three samples, then a cue point, none padded.
+    const rate = u32(8000, true);
+    const fmt = chunk('fmt ', [1, 0, 1, 0, ...rate, ...rate, 1, 0, 8, 0], true);
+    const info = chunk('LIST', [...ascii('INFOINAM'), ...u32(3, true), ...ascii('Hi'), 0], true);
+    const data = chunk('data', [192, 64, 128], true);
+    const point = [1, 2, 'data', 0, 0, 2].flatMap((v) => (v.length ? ascii(v) : u32(v, true)));
+    const cue = chunk('cue ', [...u32(1, true), ...point], true);
+    const wav = parseWav(file('RIFF', 'WAVE', true, [fmt, info, data, cue]));
+    expect(Array.from(wav.channels[0])).toEqual([0.5, -0.5, 0]);
+    expect(wav.meta.title).toBe('Hi');
+    expect(wav.markers.map((m) => m.start)).toEqual([2]);
+    // AIFF: an odd NAME chunk before the sound data.
+    const rate80 = [0x40, 0x0b, 0xfa, 0, 0, 0, 0, 0, 0, 0]; // 8000 Hz
+    const comm = chunk('COMM', [0, 1, ...u32(2, false), 0, 16, ...rate80], false);
+    const name = chunk('NAME', ascii('Odd'), false);
+    const ssnd = chunk('SSND', [...u32(0, false), ...u32(0, false), 0x40, 0, 0xc0, 0], false);
+    const aiff = parseAiff(file('FORM', 'AIFF', false, [comm, name, ssnd]));
+    expect(Array.from(aiff.channels[0])).toEqual([0.5, -0.5]);
+    expect(aiff.meta.title).toBe('Odd');
   });
   it('reads BW64 files like RF64', async () => {
     const blob = encodeWav({ sampleRate: 48000, channels: [Float32Array.of(0.5, -0.5)], bitDepth: 16, dither: false });
