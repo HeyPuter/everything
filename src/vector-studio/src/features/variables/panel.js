@@ -304,6 +304,8 @@ export class VariablesPanel extends Panel {
 
   /** Load a library: variables with names not in use are added (bindings are not), data sets replace the document's. */
   async loadLibrary(file = null) {
+    const doc = this.doc;
+    if (!doc) return 0;
     if (!file) {
       const { pickWithInput } = await import('../files/service.js');
       [file] = await pickWithInput('.json,application/json');
@@ -317,7 +319,7 @@ export class VariablesPanel extends Panel {
       this.app.notify('This file is not a variable library.', { error: true });
       return 0;
     }
-    const doc = this.doc;
+    if (this.doc !== doc) return 0;
     let added = 0;
     // Entries that are not variables or data sets (a damaged file) are left out.
     const isObject = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x);
@@ -356,6 +358,8 @@ export class VariablesPanel extends Panel {
   }
 
   importData() {
+    const doc = this.doc;
+    if (!doc) return;
     const input = h('input', { type: 'file', accept: '.csv,.tsv,.txt,text/csv,text/tab-separated-values', hidden: true });
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
@@ -363,11 +367,12 @@ export class VariablesPanel extends Panel {
       if (!file) return;
       try {
         const text = await file.text();
+        if (this.doc !== doc) return;
         let n = 0;
-        this.doc.transact('Import Data Sets', () => {
-          n = importCSV(this.doc, text);
+        doc.transact('Import Data Sets', () => {
+          n = importCSV(doc, text);
         });
-        const first = dataSetsOf(this.doc)[dataSetsOf(this.doc).length - n];
+        const first = dataSetsOf(doc)[dataSetsOf(doc).length - n];
         if (first) this.apply(first.id);
         this.app.notify(`Imported ${n} data set${n === 1 ? '' : 's'}.`, { polite: true });
       } catch (err) {
