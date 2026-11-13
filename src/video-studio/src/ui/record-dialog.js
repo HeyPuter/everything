@@ -52,7 +52,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     if (state !== 'recording' && state !== 'paused') return;
     const camera = opts.mode === 'camera';
     stopRecording().then(() => {
-      if (open && camera) showError('The camera stopped. Connect it and try again.');
+      if (open === d && camera) showError('The camera stopped. Connect it and try again.');
     });
   };
 
@@ -247,6 +247,18 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         return;
       }
       preview = stream;
+      // The microphone can outlive the camera, so MediaRecorder may keep
+      // running after video ends. End this take when its video source ends.
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (preview !== stream || open !== d) return;
+        if (state === 'recording' || state === 'paused') recorder.onInterrupted();
+        else if (state === 'idle' || state === 'countdown') {
+          if (state === 'countdown') cancelCountdown();
+          closeStreams();
+          setState('idle');
+          showError('The camera stopped. Connect it and try again.');
+        }
+      }, { once: true });
       status.textContent = '';
       attach(stream);
       await fillDevices(my);
