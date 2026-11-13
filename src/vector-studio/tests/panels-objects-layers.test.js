@@ -260,3 +260,35 @@ describe('Layers panel menu', () => {
     expect(ed.activeLayerId).toBe(b.id);
   });
 });
+
+
+describe('nested layer selections', () => {
+  it('collects a picked parent and child without moving a layer into itself', async () => {
+    const { ed, doc, layer, ids, panel } = setup();
+    let sub;
+    doc.transact('Sublayer', () => {
+      sub = doc.addLayer('Nested');
+      doc.move(sub.id, layer.id);
+      doc.move(ids[1], sub.id);
+    });
+    panel.expanded.add(layer.id);
+    panel.update();
+    panel.pickLayer(doc.get(layer.id), {});
+    panel.pickLayer(doc.get(sub.id), { metaKey: true });
+    expect(new Set(layerPicks(ed))).toEqual(new Set([layer.id, sub.id]));
+    const before = doc.undoStack.length;
+    await run('layers.collect');
+    const collected = doc.get(ed.activeLayerId);
+    expect(collected.id).not.toBe(sub.id);
+    expect(collected.parent).toBe('root');
+    expect(collected.children).toEqual([layer.id]);
+    expect(doc.get(sub.id).parent).toBe(layer.id);
+    expect(doc.get(sub.id).children).toEqual([ids[1]]);
+    expect(doc.undoStack).toHaveLength(before + 1);
+    doc.undo();
+    expect(doc.get(layer.id).parent).toBe('root');
+    expect(doc.has(collected.id)).toBe(false);
+    doc.redo();
+    expect(doc.get(collected.id).children).toEqual([layer.id]);
+  });
+});

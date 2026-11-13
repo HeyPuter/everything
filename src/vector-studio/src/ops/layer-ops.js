@@ -184,7 +184,10 @@ export function flattenDiscards(doc) {
  * created where the frontmost of them was. Returns the new layer id.
  */
 export function collectInNewLayer(doc, ids) {
-  const sorted = doc.sortByPaintOrder(ids.filter((id) => doc.get(id)));
+  // Moving a selected parent already carries its selected descendants.
+  // Choose the insertion point from these roots too, so it cannot be inside one.
+  const selected = new Set(ids.filter((id) => doc.has(id)));
+  const sorted = doc.sortByPaintOrder([...selected].filter((id) => !doc.ancestors(id).some((n) => selected.has(n.id))));
   if (!sorted.length) return null;
   const front = doc.get(sorted.at(-1));
   let parent = doc.get(front.parent);
