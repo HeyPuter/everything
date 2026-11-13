@@ -694,6 +694,16 @@ export function createEditor({
           (point.y - before.top) / (before.height || 1),
         ];
         scaleMode = mode;
+        // The anchor is kept as the page is laid out at the new zoom, in the same frame, rather
+        // than once its words and fields are drawn too: a pinch's stretched picture stays until
+        // then instead of springing back to the old size first.
+        zoomPlacement = () => {
+          clearPinchScale();
+          const after = paper.getBoundingClientRect();
+          workspace.scrollLeft += after.left + fraction[0] * after.width - point.x;
+          workspace.scrollTop += after.top + fraction[1] * after.height - point.y;
+          stack.quiet();
+        };
         await renderPage();
         if (destroyed || pendingZoom !== request || paper.hidden) return;
         await restoreSelection(held);
@@ -2777,9 +2787,13 @@ export function createEditor({
     if (Math.abs(shift) > 1e-6) paper.style.left = `${shift}px`;
   }
   let pageRenderGeneration = 0;
+  /** What a zoom does once the page is laid out at its new scale (see setZoom). */
+  let zoomPlacement = null;
   async function renderPage(retainedScale = null) {
     if (!pdf || destroyed) return;
     const token = ++pageRenderGeneration;
+    const placed = zoomPlacement;
+    zoomPlacement = null;
     pageReady = false;
     commentThreads = null;
     textTargets.replaceChildren();
@@ -2887,6 +2901,7 @@ export function createEditor({
       paper.style.height = `${viewport.height}px`;
       paper.hidden = false;
       snapPaper();
+      placed?.();
       paper.style.setProperty('--scale-factor', zoom);
       paper.style.setProperty('--user-unit', page.userUnit || 1);
       const overlayRatio = Math.min(1, ratio);
@@ -13546,14 +13561,20 @@ export function createEditor({
       if (getComputedStyle(at).touchAction === 'none') return true;
     return false;
   };
+  /** The pages' stretch from a pinch, kept after the fingers lift until the zoom is drawn. */
+  function clearPinchScale() {
+    if (pinch) return;
+    pageStackElement.style.transform = pageStackElement.style.transformOrigin = '';
+  }
   function endPinch(commit) {
     if (!pinch) return;
     const { scale, x, y } = pinch;
     pinch = null;
-    pageStackElement.style.transform = pageStackElement.style.transformOrigin = '';
-    if (!commit || destroyed || Math.abs(scale - 1) < 0.02) return;
+    if (!commit || destroyed || Math.abs(scale - 1) < 0.02) return clearPinchScale();
     const next = Math.max(0.02, Math.round(zoom * scale * 100) / 100);
-    safe(() => setZoom(String(next), { x, y }))();
+    // The stretched pages stand in until the page is laid out at the new zoom. Clearing them
+    // at once showed the old size for as long as the page took to draw, then the new one.
+    safe(() => setZoom(String(next), { x, y }))().finally(clearPinchScale);
   }
   workspace.addEventListener(
     'touchstart',
@@ -13568,6 +13589,8 @@ export function createEditor({
         return;
       panning = null;
       editorRoot.classList.remove('panning');
+      // A pinch started while the last one is still being drawn starts from the pages as laid out.
+      clearPinchScale();
       const x = (touches[0].clientX + touches[1].clientX) / 2,
         y = (touches[0].clientY + touches[1].clientY) / 2;
       pinch = { span: touchSpan(touches) || 1, x, y, scale: 1 };
