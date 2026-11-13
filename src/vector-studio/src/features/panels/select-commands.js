@@ -9,6 +9,8 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { UserError } from '../../lib/errors.js';
+import { STYLE_KEYS } from '../../model/nodes.js';
+import { STROKE_ATTRS } from '../../model/appearance.js';
 import { reselect, walkSelectable } from '../../ops/select-ops.js';
 import { graphicStylesOf, styleOfNode } from '../paint/graphic-styles.js';
 
@@ -252,10 +254,15 @@ function shapeKey(doc, n) {
   return subs.map((s) => `${s.closed ? 'c' : 'o'}:${s.anchors.map((a) => [a.x - o.x, a.y - o.y, a.ix - o.x, a.iy - o.y, a.ox - o.x, a.oy - o.y].map(r).join(',')).join(';')}`).join('|');
 }
 
-const STYLE_FIELDS = ['fill', 'stroke', 'strokeWidth', 'strokeCap', 'strokeJoin', 'miterLimit', 'strokeAlign', 'dash', 'dashOffset', 'opacity', 'blendMode', 'effects', 'arrowStart', 'arrowEnd'];
+const STYLE_FIELDS = [...new Set([...STYLE_KEYS, ...STROKE_ATTRS, 'appearance'])];
 
 function styleKey(n) {
-  return JSON.stringify(STYLE_FIELDS.map((k) => (k === 'effects' ? stripIds(n[k]) : k === 'fill' || k === 'stroke' ? normPaint(n[k]) : n[k] ?? null)));
+  return JSON.stringify(STYLE_FIELDS.map((k) => {
+    if (k === 'effects') return stripIds(n[k]);
+    if (k === 'appearance') return normStack(n[k]);
+    if (k === 'fill' || k === 'stroke') return normPaint(n[k]);
+    return n[k] ?? null;
+  }));
 }
 
 /** Objects with the same geometry (up to position) and appearance as `ref`. */
