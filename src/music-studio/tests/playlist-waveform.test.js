@@ -83,6 +83,12 @@ it.each([0, 1])('does not draw waveform after the sample has ended (reverse %s)'
   expect(wave(setup(reverse, 193))).toEqual([]);
 });
 
+it.each([0, 1])('does not draw waveform at the exact sample end (reverse %s)', (reverse) => {
+  const s = setup(reverse, 192);
+  expect(onsetPeak(s)).toBe(0);
+  expect(wave(s)).toEqual([]);
+});
+
 it('includes a final partial peak bin at the start of a reversed sample', () => {
   const s = setup(1);
   const data = new Float32Array(RATE + 120);

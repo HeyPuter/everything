@@ -346,31 +346,26 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const { min, max, perSecond } = peaks;
   const nPeaks = min.length;
   const reverse = chan.params.reverse >= 0.5;
-  const k = perSecond * ticksToSeconds(1, bpm);
   // Under tempo automation the audio (not stretched) runs in seconds from
   // the clip's virtual start (start - offset), like the engine plays it.
   const map = tempoMap(p);
   const s0 = map.constant ? 0 : map.seconds(clip.start - clip.offset);
   for (let x = a; x < b; x++) {
     const t = clip.offset + (x - x0) / ppt;
+    const song = clip.start + (x - x0) / ppt;
+    const from = map.constant ? ticksToSeconds(t, bpm) : map.seconds(song) - s0;
+    const to = map.constant ? ticksToSeconds(t + 1 / ppt, bpm) : map.seconds(song + 1 / ppt) - s0;
+    if (from >= s.duration) break;
     let i0;
     let i1;
     if (reverse) {
-      const song = clip.start + (x - x0) / ppt;
-      const from = map.constant ? ticksToSeconds(t, bpm) : map.seconds(song) - s0;
-      const to = map.constant ? ticksToSeconds(t + 1 / ppt, bpm) : map.seconds(song + 1 / ppt) - s0;
-      if (from >= s.duration) break;
       // Reverse starts at the last sample frame. Use the actual duration,
       // since the final peak bin can contain less than a full bin of audio.
       i0 = Math.max(0, Math.floor((s.duration - to) * perSecond));
       i1 = Math.min(nPeaks, Math.ceil((s.duration - from) * perSecond));
-    } else if (map.constant) {
-      i0 = Math.floor(t * k);
-      i1 = Math.floor((t + 1 / ppt) * k);
     } else {
-      const song = clip.start + (x - x0) / ppt;
-      i0 = Math.floor((map.seconds(song) - s0) * perSecond);
-      i1 = Math.floor((map.seconds(song + 1 / ppt) - s0) * perSecond);
+      i0 = Math.floor(from * perSecond);
+      i1 = Math.floor(to * perSecond);
     }
     if (i0 >= nPeaks) break;
     if (i1 <= i0) i1 = i0 + 1;
