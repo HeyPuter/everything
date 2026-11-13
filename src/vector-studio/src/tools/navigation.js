@@ -273,7 +273,9 @@ export class EyedropperTool extends Tool {
 
   onPointerDown(e) {
     const editor = this.editor;
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { intoCompound: false });
+    // Sampling may reach outside isolation; applying paint must stay inside it.
+    const filter = e.alt && editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { intoCompound: false, filter });
     const doc = editor.doc;
     if (e.alt) {
       if (!hit) {
