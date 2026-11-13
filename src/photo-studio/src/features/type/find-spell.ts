@@ -33,12 +33,16 @@ function position(): { id?: string; at: number } {
 }
 /** Show a range as the text selection (editing that layer). */
 async function reveal(e: Editor, id: string, a: number, b: number, isCurrent: () => boolean) {
-  if (!isCurrent()) return;
-  if (session?.layerId !== id) {
-    if (!e.tool.startsWith('type')) e.setTool('type');
-    await startEdit(e, id, 'end', isCurrent);
+  if (!isCurrent()) return false;
+  if (session?.layerId === id) {
+    setSelection(e, a, b);
+    return true;
   }
-  if (isCurrent() && session?.layerId === id) setSelection(e, a, b);
+  if (!e.tool.startsWith('type')) e.setTool('type');
+  const started = await startEdit(e, id, { anchor: a, focus: b }, isCurrent);
+  // Early keyboard/IME input already used the selected match. Completion
+  // must not select it again or take focus from the ongoing edit.
+  return !!started && !started.startedEarly && isCurrent() && session?.layerId === id;
 }
 /** First hit after the current position, wrapping once through the layers. */
 function search<T extends { start: number; end: number }>(e: Editor, all: boolean, hits: (text: string, layer: Layer) => T[]): { layer: Layer; hit: T } | undefined {
@@ -104,8 +108,7 @@ export async function findReplace(e: Editor) {
       status(textLayers(e, s.all).length ? 'No matches.' : 'There are no text layers to search.');
       return;
     }
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
-    if (!isCurrent()) return;
+    if (!(await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent)) || !isCurrent()) return;
     if (inputFocused()) ws.q<HTMLElement>('#fr-next').focus();
     status(`Found in “${found.layer.name}”.`);
   };
@@ -258,8 +261,7 @@ export async function checkSpelling(e: Editor) {
     show(found.hit.word);
     status(`In “${found.layer.name}”.`);
     enable(true);
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
-    if (!isCurrent()) return;
+    if (!(await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent)) || !isCurrent()) return;
     if (inputFocused()) ws.q<HTMLElement>('#sp-change-one').focus();
   };
   // Skip past the current word without changing it.

@@ -350,6 +350,7 @@ test('closing Find preserves typing already started during its font wait', async
   await dlg.locator('#fr-find').fill('teh');
   await dlg.getByRole('button', { name: 'Find Next' }).click();
   await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.insertText(' more');
   await dlg.getByRole('button', { name: 'Done' }).click();
   await page.evaluate(async () => {
@@ -1278,4 +1279,53 @@ for (const ending of ['cancel', 'commit', 'lock']) test(`pending single spelling
     await run(page, 'edit.redo');
     expect(await layerTexts(page)).toEqual(['the custom']);
   } else expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+});
+
+for (const input of ['typing', 'arrow', 'IME']) for (const dialog of ['Find', 'Spelling']) test(`early ${input} in a pending ${dialog} result survives font arrival`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['prefix teh suffix']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded font', (d) => { d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat'; });
+  });
+  await page.evaluate((dialog) => window.photoStudio.runCommand(dialog === 'Find' ? 'edit.find-replace-text' : 'edit.check-spelling'), dialog);
+  if (dialog === 'Find') {
+    const dlg = page.locator('dialog.fr-workspace');
+    await dlg.locator('#fr-find').fill('teh');
+    await dlg.getByRole('button', { name: 'Find Next' }).click();
+  }
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  const cdp = input === 'IME' ? await page.context().newCDPSession(page) : undefined;
+  if (input === 'IME') await cdp!.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+  else if (input === 'arrow') await page.keyboard.press('ArrowLeft');
+  else await page.keyboard.insertText('custom');
+  expect(await layerTexts(page)).toEqual([input === 'IME' ? 'prefix にほん suffix' : input === 'arrow' ? 'prefix teh suffix' : 'prefix custom suffix']);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual(input === 'IME' ? [10, 10] : input === 'arrow' ? [7, 7] : [13, 13]);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  if (input === 'IME') {
+    expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!.composing)).toBe(true);
+    await cdp!.send('Input.insertText', { text: '日本' });
+  }
+  await page.keyboard.insertText('X');
+  const changed = input === 'IME' ? 'prefix 日本X suffix' : input === 'arrow' ? 'prefix Xteh suffix' : 'prefix customX suffix';
+  await run(page, 'type.commit');
+  expect(await layerTexts(page)).toEqual([changed]);
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['prefix teh suffix']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual([changed]);
 });

@@ -275,8 +275,10 @@ async function startWithFonts(e: Editor, request: StartRequest, data: TextLayerD
   el.style.top = `${Math.round(y)}px`;
   el.focus({ preventScroll: true });
   await fontsReady(e, data, refresh);
+  const startedEarly = !!editing;
   if (editing) refresh();
   else request.activate?.();
+  return { startedEarly };
 }
 
 function activatePending() {
@@ -347,16 +349,17 @@ async function beginNew(e: Editor, opt: StartNew, request: StartRequest) {
   });
 }
 
-export async function startEdit(e: Editor, id: string, at?: { x: number; y: number } | 'all' | 'end', isCurrent?: () => boolean) {
+type EditPosition = { x: number; y: number } | { anchor: number; focus: number } | 'all' | 'end';
+export async function startEdit(e: Editor, id: string, at?: EditPosition, isCurrent?: () => boolean) {
   const request = startRequest(e, isCurrent);
   if (!request) return;
   try {
-    await beginEdit(e, id, request, at);
+    return await beginEdit(e, id, request, at);
   } finally {
     if (starting === request) starting = undefined;
   }
 }
-async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x: number; y: number } | 'all' | 'end') {
+async function beginEdit(e: Editor, id: string, request: StartRequest, at?: EditPosition) {
   if (!(await finishCurrent(e, request))) return;
   const l0 = findLayer(e.doc.layers, id);
   if (!l0 || l0.kind !== 'text') return;
@@ -367,8 +370,8 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x:
   request.layerId = id;
   const ppi = ppiOf(e);
   const l = editable(l0, ppi);
-  const point: [number, number] = typeof at === 'object' ? [at.x, at.y] : toDoc(l, l.textData.origin.x, l.textData.origin.y);
-  await startWithFonts(e, request, l.textData, point, () => {
+  const point: [number, number] = typeof at === 'object' && 'x' in at ? [at.x, at.y] : toDoc(l, l.textData.origin.x, l.textData.origin.y);
+  return startWithFonts(e, request, l.textData, point, () => {
     const before = e.doc;
     // Legacy layers get engine data in place (their placement is unchanged).
     const draft = replaceLayer(before, id, () => l);
@@ -382,7 +385,10 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x:
     const len = textLength(l.textData.content);
     if (at === 'all') session.focus = len;
     else if (at === 'end' || !at) session.anchor = session.focus = len;
-    else session.anchor = session.focus = indexAt(e, at.x, at.y);
+    else if ('anchor' in at) {
+      session.anchor = Math.max(0, Math.min(len, at.anchor));
+      session.focus = Math.max(0, Math.min(len, at.focus));
+    } else session.anchor = session.focus = indexAt(e, at.x, at.y);
     e.selectLayers([id]);
     render(e);
     e.update();
