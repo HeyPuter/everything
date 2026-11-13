@@ -28,12 +28,12 @@ const cellCache = new WeakMap(); // dependency context -> Map(scaleKey -> entry)
 const contexts = new WeakMap();
 let depth = 0;
 
-/** A bitmap depends on nested patterns too, but unrelated pattern edits can reuse it. */
+/** Track nested patterns and decoded images while retaining caches for unrelated edits. */
 function cacheContext(doc, def) {
   const patterns = doc?.root?.patterns;
   const assets = doc?.assets;
   const previous = contexts.get(def);
-  if (previous && previous.assets === assets) {
+  if (previous && previous.assets === assets && [...previous.images].every(([id, image]) => imageFor(doc, id) === image)) {
     if (previous.patterns === patterns) return previous.key;
     if ([...previous.dependencies].every(([id, value]) => findPattern(doc, id) === value)) {
       previous.patterns = patterns;
@@ -41,6 +41,7 @@ function cacheContext(doc, def) {
     }
   }
   const dependencies = new Map();
+  const images = new Map();
   const seen = new Set([def]);
   const pending = [def];
   const visit = (paint) => {
@@ -50,13 +51,14 @@ function cacheContext(doc, def) {
     if (nested && !seen.has(nested)) { seen.add(nested); pending.push(nested); }
   };
   while (pending.length) patternView(doc, pending.pop()).walk((node) => {
+    if (node.type === 'image' && !images.has(node.asset)) images.set(node.asset, imageFor(doc, node.asset));
     visit(node.fill);
     visit(node.stroke);
     for (const paint of stackPaints(node)) visit(paint);
     if (Array.isArray(node.runs)) for (const run of node.runs) { visit(run.fill); visit(run.stroke); }
   });
   const key = {};
-  contexts.set(def, { patterns, assets, dependencies, key });
+  contexts.set(def, { patterns, assets, dependencies, images, key });
   return key;
 }
 
