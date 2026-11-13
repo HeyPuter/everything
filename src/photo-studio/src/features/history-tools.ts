@@ -80,6 +80,10 @@ export function installHistoryTools(e: Editor) {
         const list = sessionSnapshots(e);
         const v = await formDialog('New Snapshot', [{ name: 'name', label: 'Name', value: `Snapshot ${list.length + 1}` }], 'OK');
         if (!v) return;
+        // Capture the visible edit only after it reaches the document. Waiting
+        // concurrently also preserves failures handled by the tool's UI.
+        e.transform.apply();
+        await Promise.all([e.modal?.apply(), e.session.waitForEdits()]);
         list.push({ id: crypto.randomUUID(), name: v.name, doc: e.doc });
         e.dock.update();
       },
