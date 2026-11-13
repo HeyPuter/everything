@@ -18,7 +18,7 @@
 import * as E from '../model/edits.js';
 import { patternById, patternLength } from '../model/project.js';
 import { PPQ, snapRound } from '../model/time.js';
-import { uid } from '../lib/util.js';
+import { uid, reserveId } from '../lib/util.js';
 import { shared, sharedEvents } from '../pianoroll/state.js';
 import { playRange, tempoMap } from '../engine/compile.js';
 import { advanceRecordingClock } from './recording-clock.js';
@@ -80,8 +80,8 @@ export class Recorder {
   constructor(app, live) {
     this.app = app;
     this.live = live;
-    this.take = new Map(); // note id -> { id, key, vel, pattern, channel, pos, started, open, len }
-    this.byKey = new Map(); // key -> note id (open notes)
+    this.take = new Map(); // allocation id -> { identity, key, vel, pattern, channel, pos, started, open, len }
+    this.byKey = new Map(); // key -> allocation id (open notes)
     this.countInHeld = new Map(); // attacks held until the count-in finishes
     this.gesture = null;
     this.pending = false;
@@ -184,7 +184,7 @@ export class Recorder {
     if (this.active) {
       const { pattern, tick } = this.patternInfo();
       const id = this.newNoteId(pattern.id, channel);
-      this.take.set(id, { id, key, vel, pattern: pattern.id, channel, pos: tick, started: this.readClock(), open: true, len: 0 });
+      this.take.set(id, { identity: { id, inserted: false }, key, vel, pattern: pattern.id, channel, pos: tick, started: this.readClock(), open: true, len: 0 });
       this.byKey.set(key, id);
       this.takeTotal = (this.takeTotal || 0) + 1;
       this.write();
@@ -262,12 +262,30 @@ export class Recorder {
         const pat = patternById(next, pid);
         if (!pat || !next.channels.some((c) => c.id === cid)) continue;
         const patLen = patternLength(pat, next.sig);
-        const ids = new Set(list.map((n) => n.id));
-        const kept = E.getNotes(next, pid, cid).filter((n) => !ids.has(n.id));
+        const existing = E.getNotes(next, pid, cid);
+        let occupied = null;
+        let reserved = null;
+        for (const { identity } of list) {
+          if (identity.inserted) continue;
+          // A different gesture can allocate the same ID while this note is
+          // waiting. Resolve it at first insertion, then share the result with
+          // held notes and shallow snapshots of later loop passes.
+          occupied ??= new Set(existing.map((n) => n.id));
+          if (occupied.has(identity.id)) {
+            if (!reserved) {
+              reserved = new Set(occupied);
+              for (const n of list) reserved.add(n.identity.id);
+            }
+            identity.id = reserveId(reserved);
+          }
+          identity.inserted = true;
+        }
+        const ids = new Set(list.map((n) => n.identity.id));
+        const kept = existing.filter((n) => !ids.has(n.id));
         const added = list.map((n) => {
           const elapsed = n.open ? now - n.started : n.len;
           const r = recordedNote(n.pos, elapsed, { patLen, grid, quantize });
-          return { id: n.id, key: n.key, pos: r.pos, len: r.len, vel: n.vel, pan: 0 };
+          return { id: n.identity.id, key: n.key, pos: r.pos, len: r.len, vel: n.vel, pan: 0 };
         });
         next = E.setNotes(next, pid, cid, [...kept, ...added]);
       }

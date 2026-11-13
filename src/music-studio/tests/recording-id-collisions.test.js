@@ -112,3 +112,104 @@ it('keeps step-edited notes independent from existing notes', () => {
   store.undo();
   expect(store.project).toBe(project);
 });
+
+it.each([
+  ['commit', false], ['commit', true], ['cancel', false], ['cancel', true],
+])('keeps a later drawn note when the drag is %s and the take stopped=%s', (finish, stopped) => {
+  const { rec, now, notes, stop, cid, store, pid, app, project } = setup();
+  store.begin('Draw note');
+  rec.noteOn(67, 0.9, cid); // Waiting for the draw gesture; this ID is not in the model yet.
+  store.preview((p) => E.addNotes(p, pid, cid, [{ key: 60, pos: 96, len: 24, vel: 0.7, pan: 0 }]));
+  const drawn = notes()[0];
+  expect(drawn.id).toBe('000000'); // The next random allocation collides with the waiting take.
+  now.mockReturnValue(250);
+  if (stopped) stop();
+  store[finish]();
+  app.emit('frame');
+  if (!stopped) {
+    now.mockReturnValue(500);
+    rec.noteOff(67);
+    stop();
+  }
+  expect(notes().map((n) => [n.key, n.len])).toEqual(finish === 'commit' ? [[67, stopped ? 48 : 96], [60, 24]] : [[67, stopped ? 48 : 96]]);
+  expect(new Set(notes().map((n) => n.id)).size).toBe(notes().length);
+  if (finish === 'commit') expect(notes()[1]).toBe(drawn);
+  else expect(notes()[0].id).toBe('000000');
+  expect(Object.keys(notes()[0]).sort()).toEqual(['id', 'key', 'len', 'pan', 'pos', 'vel']);
+  store.undo();
+  expect(notes()).toEqual(finish === 'commit' ? [drawn] : []);
+  if (finish === 'commit') store.undo();
+  expect(store.project).toBe(project);
+});
+
+it.each([false, true])('keeps one held note across a colliding deferred loop and stopped=%s', (stopped) => {
+  const { rec, now, notes, stop, cid, store, pid, app, engine } = setup();
+  store.begin('Draw note');
+  rec.noteOn(67, 0.9, cid);
+  store.preview((p) => E.addNotes(p, pid, cid, [{ key: 60, pos: 96, len: 24, vel: 0.7, pan: 0 }]));
+  const drawn = notes()[0];
+  now.mockReturnValue(250);
+  engine.emit('loop');
+  if (stopped) {
+    now.mockReturnValue(500);
+    stop();
+  }
+  store.commit();
+  app.emit('frame');
+  const recordedId = notes().find((n) => n.key === 67)?.id;
+  if (!stopped) {
+    now.mockReturnValue(500);
+    rec.noteOff(67);
+    stop();
+  }
+  expect(notes().map((n) => [n.key, n.len])).toEqual([[67, 96], [60, 24]]);
+  expect(notes()[0].id).toBe(recordedId);
+  expect(notes()[1]).toBe(drawn);
+  expect(recordedId).not.toBe(drawn.id);
+  store.undo();
+  expect(notes().map((n) => [n.key, n.len])).toEqual([[67, 48], [60, 24]]);
+  expect(notes()[0].id).toBe(recordedId);
+  store.redo();
+  expect(notes().map((n) => [n.key, n.len])).toEqual([[67, 96], [60, 24]]);
+});
+
+it('keeps separately stopped queued takes distinct when a later draw collides', () => {
+  const { rec, now, notes, stop, cid, store, pid, app, engine } = setup();
+  store.begin('Draw note');
+  rec.noteOn(67, 0.9, cid);
+  store.preview((p) => E.addNotes(p, pid, cid, [{ key: 60, pos: 96, len: 24, vel: 0.7, pan: 0 }]));
+  const drawn = notes()[0];
+  now.mockReturnValue(250);
+  stop();
+  engine.playing = true;
+  rec.noteOn(69, 0.8, cid);
+  now.mockReturnValue(500);
+  stop();
+  store.commit();
+  app.emit('frame');
+  expect(notes().map((n) => n.key)).toEqual([67, 69, 60]);
+  expect(new Set(notes().map((n) => n.id)).size).toBe(3);
+  expect(notes()[2]).toBe(drawn);
+  store.undo();
+  expect(notes().map((n) => n.key)).toEqual([67, 60]);
+  store.undo();
+  expect(notes()).toEqual([drawn]);
+});
+
+it('does not recheck every existing ID twice while an already-inserted held note grows', () => {
+  let reads = 0;
+  const existing = Array.from({ length: 1000 }, (_, i) => ({
+    ...originalNote, pos: i * 24,
+    get id() { reads++; return `existing-${i}`; },
+  }));
+  const { rec, cid, now, app, notes, stop } = setup(existing);
+  rec.noteOn(67, 0.9, cid);
+  const id = notes().find((n) => n.key === 67).id;
+  reads = 0;
+  now.mockReturnValue(250);
+  app.emit('frame');
+  expect(reads).toBeLessThanOrEqual(1020);
+  expect(notes().filter((n) => n.id === id)).toHaveLength(1);
+  expect(notes().find((n) => n.id === id).len).toBe(48);
+  stop();
+});
