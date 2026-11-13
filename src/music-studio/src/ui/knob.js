@@ -79,6 +79,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   let v = value;
   let active = false;
   let endTimer = 0;
+  let stopDrag = null;
 
   const draw = () => {
     const n = toNorm(param, v);
@@ -135,10 +136,15 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       norm = clamp(norm + dy / (ev.shiftKey ? range * 10 : range), 0, 1);
       setNorm(norm);
     };
-    const up = () => {
+    stopDrag = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      stopDrag = null;
+    };
+    const up = () => {
+      stopDrag?.();
       finish();
       hideReadout();
     };
@@ -263,7 +269,12 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     el,
     get: () => v,
     set(next) {
-      if (active || next === v) return;
+      if (next === v) return;
+      // A different model value (undo, load, another control) supersedes this gesture.
+      clearTimeout(endTimer);
+      active = false;
+      stopDrag?.();
+      hideReadout();
       v = next;
       draw();
     },

@@ -43,6 +43,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   let v = value;
   let active = false;
   let endTimer = 0;
+  let stopDrag = null;
 
   const draw = () => {
     el.style.setProperty('--pos', gainToPos(v).toFixed(4));
@@ -99,11 +100,16 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       pos = clamp(pos + dy / (ev.shiftKey ? travel * 8 : travel), 0, 1);
       change(posToGain(pos));
     };
-    const up = () => {
+    stopDrag = () => {
       slider.classList.remove('dragging');
       slider.removeEventListener('pointermove', move);
       slider.removeEventListener('pointerup', up);
       slider.removeEventListener('pointercancel', up);
+      if (slider.hasPointerCapture?.(e.pointerId)) slider.releasePointerCapture(e.pointerId);
+      stopDrag = null;
+    };
+    const up = () => {
+      stopDrag?.();
       finish();
     };
     slider.addEventListener('pointermove', move);
@@ -220,7 +226,10 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     slider,
     get: () => v,
     set(next) {
-      if (active || next === v) return;
+      if (next === v) return;
+      clearTimeout(endTimer);
+      active = false;
+      stopDrag?.();
       v = next;
       draw();
     },

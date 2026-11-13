@@ -17,6 +17,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   let hi = max;
   let active = false;
   let endTimer = 0;
+  let stopDrag = null;
   let typed = '';
   let typedAt = 0;
 
@@ -63,11 +64,16 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     const base = v;
     el.classList.add('dragging');
     const move = (ev) => change(base + Math.round((y0 - ev.clientY) / 8));
-    const up = () => {
+    stopDrag = () => {
       el.classList.remove('dragging');
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      stopDrag = null;
+    };
+    const up = () => {
+      stopDrag?.();
       finish();
     };
     el.addEventListener('pointermove', move);
@@ -130,7 +136,11 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     el,
     get: () => v,
     set(next) {
-      if (active || next === v) return;
+      if (next === v) return;
+      clearTimeout(endTimer);
+      active = false;
+      stopDrag?.();
+      typed = '';
       v = next;
       draw();
     },

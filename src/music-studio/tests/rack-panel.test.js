@@ -36,6 +36,20 @@ const notes = (id = kickId()) => app.store.pattern.notes[id] || [];
 const pointer = (type, el, opts = {}) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 0, clientY: 0, ...opts }));
 
 describe('channel rack panel', () => {
+  it('resynchronizes the mixer insert picker when undo interrupts a key gesture', () => {
+    const spin = rowEl(0).querySelector('[role="spinbutton"]');
+    const press = () => spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    press();
+    expect(app.store.project.channels[0].mixer).toBe(2);
+    app.store.undo();
+    expect(spin.getAttribute('aria-valuenow')).toBe('1');
+    press();
+    expect(app.store.project.channels[0].mixer).toBe(2);
+    spin.dispatchEvent(new Event('blur'));
+    app.store.undo();
+    expect(app.store.project.channels[0].mixer).toBe(1);
+  });
+
   it('renders a row per channel with 16 steps', () => {
     expect(view.grid.querySelectorAll('.rack-row')).toHaveLength(4);
     expect(rowEl(0).querySelectorAll('.step')).toHaveLength(16);

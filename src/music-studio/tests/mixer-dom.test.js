@@ -81,6 +81,39 @@ describe('mixer panel', () => {
     expect(slider.getAttribute('aria-valuetext')).toBe('-1.9 dB');
   });
 
+  it.each(['volume', 'pan'])('resynchronizes %s after undo during a keyboard gesture', (param) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    const before = store.project.mixer[2][param];
+    key(slider, 'ArrowUp');
+    const after = store.project.mixer[2][param];
+    expect(after).toBeGreaterThan(before);
+    store.undo(); // before the 450 ms key gesture timer expires
+    expect(Number(slider.getAttribute('aria-valuenow'))).toBeCloseTo(before, 4);
+    key(slider, 'ArrowUp');
+    expect(store.project.mixer[2][param]).toBeCloseTo(after, 8);
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project.mixer[2][param]).toBe(before);
+  });
+
+  it.each(['volume', 'pan'])('stops a %s drag when undo restores the model', (param) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    slider.setPointerCapture = () => {};
+    const pointer = (type, y) => slider.dispatchEvent(new MouseEvent(type, { bubbles: true, clientY: y, button: 0 }));
+    const before = store.project.mixer[2][param];
+    pointer('pointerdown', 300);
+    pointer('pointermove', 298);
+    expect(store.project.mixer[2][param]).toBeGreaterThan(before);
+    store.undo();
+    pointer('pointermove', 296);
+    pointer('pointerup', 296);
+    expect(store.project.mixer[2][param]).toBe(before);
+    expect(store.gesture).toBeNull();
+    expect(store.canRedo).toBe(true);
+  });
+
   it('a fader drag is one undo step and double-click resets to 0 dB', () => {
     const { store, panel } = env;
     const slider = panel.strips[4].fader.slider;
