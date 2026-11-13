@@ -34,3 +34,16 @@ it('returns focus to the anchor on Escape even when a pointer opened the menu', 
   document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   expect(document.activeElement).toBe(launch);
 });
+
+it.each([false, true])('lets native Tab navigation continue from the menu trigger (reverse=%s)', (shiftKey) => {
+  document.body.innerHTML = '<button id="launch">Menu</button><input aria-label="Next control">';
+  const launch = document.getElementById('launch');
+  openMenu([{ label: 'Item' }], { anchor: launch });
+  const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+  document.activeElement.dispatchEvent(event);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  // jsdom does not perform native tab movement; the browser must receive an
+  // uncanceled event with focus anchored at the surviving trigger.
+  expect(event.defaultPrevented).toBe(false);
+  expect(document.activeElement).toBe(launch);
+});

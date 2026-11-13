@@ -164,10 +164,13 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
         e.preventDefault();
         if (i >= 0) activate(entries[i], true);
         break;
-      case 'Tab':
-        e.preventDefault();
+      case 'Tab': {
+        const root = stack[0];
         closeMenus();
+        root?.restoreFocus();
+        // Let the browser move to the next/previous control from the trigger.
         break;
+      }
       default:
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
           const now = performance.now();
