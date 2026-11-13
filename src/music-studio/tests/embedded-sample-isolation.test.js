@@ -157,3 +157,48 @@ it.each(['unavailable', 'rejected'])('keeps differing audio independent when con
   expect(app.samples.get('shared').channels[0][0]).toBeCloseTo(-0.5, 3);
   expect(bytes(await lib.sampleBytes(before.samples.shared))).toEqual(bytes(original));
 });
+
+it.each([
+  ['invalid base64', { data: '%%%broken%%%' }],
+  ['missing bytes', {}],
+  ['non-text bytes', { data: 42 }],
+  ['null entry', null],
+  ['undecodable audio', { data: toBase64(new Uint8Array([1, 2, 3]).buffer) }],
+])('reports %s in embedded audio instead of playing an older sample with the same ID', async (_name, embedded) => {
+  const { lib, app, files } = await setup();
+  const before = app.store.project;
+  const text = JSON.parse(await file().text());
+  text.embedded.shared = embedded;
+  const incoming = await lib.readProjectText(JSON.stringify(text));
+  expect(await files.loadProject(incoming, null)).toEqual({ loaded: 0, missing: ['tone.wav'] });
+  expect(app.samples.has('shared')).toBe(false);
+  expect(app.engine.captureRenderSnapshot().samples.has('shared')).toBe(false);
+  expect(app.notify).toHaveBeenCalledWith(expect.stringContaining('tone.wav'), expect.objectContaining({ error: true }));
+  expect(bytes(await lib.sampleBytes(before.samples.shared))).toEqual(bytes(original));
+  await files.loadProject(before, null);
+  expect(app.samples.get('shared').channels[0][0]).toBeCloseTo(0.25, 3);
+});
+
+it('recovers damaged embedded data from its explicit cloud copy without using a conflicting local sample', async () => {
+  const { lib, app, files } = await setup();
+  const before = app.store.project;
+  const text = JSON.parse(await file().text());
+  text.embedded.shared.data = '%%%broken%%%';
+  text.samples.shared.path = '/Samples/backup.wav';
+  lib.puter = { isSignedIn: () => true, readFile: vi.fn(async () => new Blob([replacement], { type: 'audio/wav' })) };
+  const incoming = await lib.readProjectText(JSON.stringify(text));
+  expect(await files.loadProject(incoming, null)).toEqual({ loaded: 1, missing: [] });
+  expect(app.samples.get('shared').channels[0][0]).toBeCloseTo(-0.5, 3);
+  expect(lib.puter.readFile).toHaveBeenCalledExactlyOnceWith('/Samples/backup.wav');
+  expect(bytes(await lib.sampleBytes(before.samples.shared))).toEqual(bytes(original));
+});
+
+it('retains ordinary external sample references when no embedded entry was supplied', async () => {
+  const { lib, app, files } = await setup();
+  const cached = app.samples.get('shared');
+  const text = JSON.parse(await file().text());
+  delete text.embedded.shared;
+  const incoming = await lib.readProjectText(JSON.stringify(text));
+  expect(await files.loadProject(incoming, null)).toEqual({ loaded: 0, missing: [] });
+  expect(app.samples.get('shared')).toBe(cached);
+});

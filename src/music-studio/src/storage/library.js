@@ -340,9 +340,10 @@ export class Library {
     if (embedded) {
       const samples = { ...project.samples };
       for (const ref of Object.values(project.samples)) {
+        if (!Object.hasOwn(embedded, ref.id)) continue;
         const e = embedded[ref.id];
-        if (!e || typeof e.data !== 'string') continue;
         try {
+          if (!e || typeof e.data !== 'string') throw new Error('Invalid embedded audio');
           const bytes = fromBase64(e.data);
           const oldKey = ref.local || ref.id;
           const existing = temporary.get(oldKey) || await this.sampleRecord(oldKey).catch(() => null);
@@ -359,7 +360,9 @@ export class Library {
             samples[ref.id] = { ...ref, local, path: reusable ? retained.path || null : null };
           }
         } catch {
-          // Invalid embedded data stays missing; failed writes remain available in memory.
+          // A damaged entry must not select older audio by its project ID.
+          // Keep an explicit cloud path available as the recovery source.
+          samples[ref.id] = { ...ref, local: `embedded-${uid(16)}` };
         }
       }
       project.samples = samples;
