@@ -86,9 +86,19 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       if (e.target === backdrop) close(null);
     });
     document.body.append(backdrop);
-    const target = (initialFocus && dialog.querySelector(initialFocus)) || dialog.querySelector('input, select, textarea') || dialog.querySelector('.btn.primary') || dialog.querySelector('button');
-    target?.focus();
-    if (target?.select && target.tagName === 'INPUT') target.select();
+    const candidates = [
+      ...(initialFocus ? dialog.querySelectorAll(initialFocus) : []),
+      ...dialog.querySelectorAll('input, select, textarea'),
+      ...dialog.querySelectorAll('.btn.primary'),
+      ...dialog.querySelectorAll('button'),
+    ];
+    for (const target of candidates) {
+      target.focus();
+      // Disabled or hidden controls cannot take focus; keep looking inside the modal.
+      if (document.activeElement !== target) continue;
+      if (target.select && target.tagName === 'INPUT') target.select();
+      break;
+    }
   });
 }
 
