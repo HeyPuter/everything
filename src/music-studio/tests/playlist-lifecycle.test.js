@@ -433,3 +433,48 @@ it.each(['interrupted', 'released'])('cleans up a %s touch clip drag when captur
   expect(store.project).toBe(original);
   panel.onHide();
 });
+
+it.each(['replacement', 'hide', 'Escape'])('ends a playlist pinch on %s and accepts the next single touch', (action) => {
+  const { store, pointer, view, panel } = setup();
+  pointer('pointerup');
+  pointer('pointerdown', 0, 1);
+  pointer('pointermove', 24, 1);
+  pointer('pointerdown', 100, 2);
+  expect(store.project.clips[0].start).toBe(96);
+  if (action === 'replacement') store.load(structuredClone(store.project));
+  else if (action === 'hide') panel.onHide();
+  else panel.actions.deselect();
+  const zoom = view.vp.pxPerTick;
+  const scroll = view.vp.scroll;
+  pointer('pointermove', 150, 2);
+  expect(view.vp.pxPerTick).toBe(zoom);
+  expect(view.vp.scroll).toBe(scroll);
+  if (action === 'hide') panel.onShow();
+  pointer('pointerdown', 0, 3);
+  pointer('pointermove', 150, 2);
+  pointer('pointerup', 150, 2);
+  expect(store.project.clips[0].start).toBe(96);
+  expect(view.hasGesture()).toBe(true);
+  pointer('pointermove', 24, 3);
+  pointer('pointerup', 24, 3);
+  expect(store.project.clips[0].start).toBe(144);
+  panel.onHide();
+});
+
+it('keeps ordinary two-finger playlist zoom working after canceling the first-finger preview', () => {
+  const { store, pointer, view, panel } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  pointer('pointerdown', 0, 1);
+  pointer('pointermove', 24, 1);
+  pointer('pointerdown', 100, 2);
+  const zoom = view.vp.pxPerTick;
+  expect(view.hasGesture()).toBe(true);
+  pointer('pointermove', 150, 2);
+  expect(view.vp.pxPerTick).toBeGreaterThan(zoom);
+  expect(store.project).toBe(original);
+  expect(store.canUndo).toBe(false);
+  pointer('pointerup', 150, 2);
+  pointer('pointerup', 24, 1);
+  panel.onHide();
+});

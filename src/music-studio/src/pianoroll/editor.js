@@ -723,6 +723,7 @@ export class PianoRollEditor {
   }
 
   cancelGesture() {
+    this.clearPointerTouches?.();
     const g = this.gesture;
     if (!g) return false;
     this.gesture = null;

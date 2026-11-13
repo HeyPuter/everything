@@ -30,7 +30,10 @@ export function installPointer(V, el) {
   let pinch = null;
 
   V.cancelGesture = () => {
-    if (!gesture) return false;
+    const active = Boolean(gesture || pinch);
+    touches.clear();
+    pinch = null;
+    if (!gesture) return active;
     const g = gesture;
     // Clear the pointer state before cancel emits a synchronous history change.
     endGesture();
@@ -38,7 +41,7 @@ export function installPointer(V, el) {
     store.cancel();
     return true;
   };
-  V.hasGesture = () => Boolean(gesture);
+  V.hasGesture = () => Boolean(gesture || pinch);
 
   function endGesture() {
     gesture = null;
@@ -466,7 +469,10 @@ export function installPointer(V, el) {
     if (e.pointerType === 'touch') {
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touches.size === 2) {
+        // Cancel the edit preview, then reuse these contacts for navigation.
+        const contacts = [...touches];
         V.cancelGesture();
+        for (const [id, point] of contacts) touches.set(id, point);
         startPinch();
         return;
       }
@@ -499,6 +505,7 @@ export function installPointer(V, el) {
   });
 
   el.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch) {
       movePinch();
@@ -518,6 +525,7 @@ export function installPointer(V, el) {
   });
 
   const finish = (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     touches.delete(e.pointerId);
     if (pinch) {
       if (touches.size < 2) pinch = null;
@@ -531,6 +539,7 @@ export function installPointer(V, el) {
   };
   el.addEventListener('pointerup', finish);
   const cancel = (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     touches.delete(e.pointerId);
     if (pinch && touches.size < 2) pinch = null;
     if (gesture) V.cancelGesture();

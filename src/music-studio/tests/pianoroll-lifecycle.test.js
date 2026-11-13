@@ -20,7 +20,7 @@ function setup() {
   let start;
   const ready = new Promise((resolve) => { start = resolve; });
   const engine = Object.assign(new Emitter(), { start: vi.fn(() => ready), noteOn: vi.fn(), noteOff: vi.fn() });
-  const prefs = Object.assign(new Emitter(), { get: () => null });
+  const prefs = Object.assign(new Emitter(), { get: () => null, merge: vi.fn() });
   const app = Object.assign(new Emitter(), { store, engine, prefs, tools: { pianoRoll: 'draw' }, hint: vi.fn() });
   const editor = new PianoRollEditor(app, { body: document.createElement('div') });
   editor.onViewChange();
@@ -123,6 +123,52 @@ it.each(['interrupted', 'released'])('cleans up a %s touch note drag when captur
   expect(editor.notes[0].pos).toBe(144);
   store.undo();
   expect(store.project).toBe(original);
+  editor.destroy();
+});
+
+it.each(['replacement', 'cancel'])('clears piano-roll pinch contacts on %s before the next single touch', (action) => {
+  const { editor, store } = setup();
+  editor.surface.setPointerCapture = vi.fn();
+  const pointer = beginNoteDrag(editor, store);
+  pointer('pointerup');
+  pointer('pointerdown', 0, 1);
+  pointer('pointermove', 24, 1);
+  pointer('pointerdown', 100, 2);
+  expect(editor.gesture.type).toBe('pinch');
+  expect(editor.notes[0].pos).toBe(96);
+  if (action === 'replacement') store.load(structuredClone(store.project));
+  else editor.cancelGesture();
+  const zoom = editor.vp.pxPerTick;
+  pointer('pointermove', 150, 2);
+  expect(editor.vp.pxPerTick).toBe(zoom);
+  pointer('pointerdown', 0, 3);
+  expect(editor.gesture?.type).toBe('move');
+  pointer('pointermove', 150, 2);
+  pointer('pointerup', 150, 2);
+  expect(editor.notes[0].pos).toBe(96);
+  expect(editor.gesture?.type).toBe('move');
+  pointer('pointermove', 24, 3);
+  pointer('pointerup', 24, 3);
+  expect(editor.notes[0].pos).toBe(144);
+  editor.destroy();
+});
+
+it('keeps ordinary piano-roll pinch zoom working after canceling a note preview', () => {
+  const { editor, store } = setup();
+  editor.surface.setPointerCapture = vi.fn();
+  const pointer = beginNoteDrag(editor, store);
+  pointer('pointerup');
+  const original = store.project;
+  pointer('pointerdown', 0, 1);
+  pointer('pointermove', 24, 1);
+  pointer('pointerdown', 100, 2);
+  const zoom = editor.vp.pxPerTick;
+  pointer('pointermove', 150, 2);
+  expect(editor.vp.pxPerTick).toBeGreaterThan(zoom);
+  expect(store.project).toBe(original);
+  pointer('pointerup', 150, 2);
+  pointer('pointerup', 24, 1);
+  expect(editor.gesture).toBeNull();
   editor.destroy();
 });
 

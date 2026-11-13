@@ -30,6 +30,7 @@ export function installPointer(ed) {
   const store = ed.store;
   const app = ed.app;
   const touches = new Map(); // pointerId -> { x, y }
+  ed.clearPointerTouches = () => touches.clear();
   let lastCreated = { id: null, at: 0 };
 
   const local = (e) => {
@@ -684,7 +685,10 @@ export function installPointer(ed) {
     if (e.pointerType === 'touch') {
       touches.set(e.pointerId, p);
       if (touches.size === 2) {
-        ed.gesture?.cancel?.();
+        // Cancel the edit preview, then reuse these contacts for navigation.
+        const contacts = [...touches];
+        ed.cancelGesture();
+        for (const [id, point] of contacts) touches.set(id, point);
         ed.gesture = pinchGesture();
         el.setPointerCapture(e.pointerId);
         return;
@@ -726,6 +730,7 @@ export function installPointer(ed) {
   });
 
   el.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     const p = local(e);
     if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, p);
     if (ed.gesture) {
@@ -739,6 +744,7 @@ export function installPointer(ed) {
 
   const up = (e, cancelled) => {
     const wasTouch = e.pointerType === 'touch' && touches.has(e.pointerId);
+    if (e.pointerType === 'touch' && !wasTouch) return;
     if (wasTouch) touches.delete(e.pointerId);
     const g = ed.gesture;
     if (!g) return;
