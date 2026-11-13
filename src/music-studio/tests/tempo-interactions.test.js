@@ -136,3 +136,39 @@ it.each(['Enter', 'Escape', 'blur'])('preserves ordinary typed tempo with %s acr
     expect(store.project).toBe(before);
   }
 });
+
+it.each(['pointerdown', 'dblclick', 'wheel'])('leaves native %s behavior available inside the tempo text field', (type) => {
+  const { store, tempo } = setup();
+  const original = store.project;
+  const input = typeTempo(tempo, '147.5');
+  const event = type === 'wheel'
+    ? new WheelEvent(type, { deltaY: -1, bubbles: true, cancelable: true })
+    : new MouseEvent(type, { button: 0, detail: type === 'dblclick' ? 2 : 1, bubbles: true, cancelable: true });
+  input.dispatchEvent(event);
+  expect(input.isConnected).toBe(true);
+  expect(input.value).toBe('147.5');
+  expect(document.activeElement).toBe(input);
+  expect(event.defaultPrevented).toBe(false);
+  expect(store.project.bpm).toBe(original.bpm);
+  expect(store.project).toBe(original);
+  expect(Boolean(store.gesture)).toBe(false);
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(store.project.bpm).toBe(147.5);
+});
+
+it('retains wheel, keyboard and double-click tempo editing outside the text field', () => {
+  const { store, tempo } = setup();
+  const initial = store.project.bpm;
+  tempo.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+  expect(store.project.bpm).toBe(initial + 1);
+  tempo.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+  expect(store.project.bpm).toBe(initial + 2);
+  tempo.dispatchEvent(new MouseEvent('dblclick', { detail: 2, bubbles: true }));
+  const input = tempo.querySelector('input');
+  expect(input.value).toBe(String(initial + 2));
+  input.value = '150';
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(store.project.bpm).toBe(150);
+  store.undo();
+  expect(store.project.bpm).toBe(initial + 2);
+});

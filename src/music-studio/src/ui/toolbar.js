@@ -90,7 +90,7 @@ export function createToolbar(app) {
   };
   let endTempoDrag = null;
   tempo.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || e.detail > 1 || endTempoDrag) return;
+    if (e.button !== 0 || e.detail > 1 || endTempoDrag || e.target.closest('input')) return;
     e.preventDefault();
     tempo.focus();
     tempo.setPointerCapture(e.pointerId);
@@ -134,6 +134,7 @@ export function createToolbar(app) {
   tempo.addEventListener(
     'wheel',
     (e) => {
+      if (e.target.closest('input')) return;
       e.preventDefault();
       setBpm(app.store.project.bpm + Math.sign(-e.deltaY) * (e.shiftKey ? 0.1 : 1));
     },
@@ -152,6 +153,7 @@ export function createToolbar(app) {
     }
   });
   function typeTempo() {
+    if (tempo.querySelector('input')) return;
     const input = h('input.input.sm.tempo-input', { type: 'text', inputmode: 'decimal', value: String(app.store.project.bpm), 'aria-label': 'Tempo in BPM' });
     tempo.replaceChildren(input);
     input.focus();
