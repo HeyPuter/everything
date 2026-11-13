@@ -330,3 +330,37 @@ describe('Convert Sample Type and range markers', () => {
     expect(out.markers[0].start + out.markers[0].duration).toBeLessThanOrEqual(len);
   });
 });
+
+describe('pasting markers across sample rates', () => {
+  it('keeps a range that ends with the clip inside the pasted audio', async () => {
+    const { app } = await makeView();
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const dsp = await import('../src/audio/dsp.js');
+    const resample = (x, from, to) => new Float32Array(Math.round((x.length * to) / from));
+    const spy = vi.spyOn(dsp, 'dsp').mockResolvedValue({ resample });
+    try {
+      app.prefs.set('markersWithClipboard', true);
+      // As in the conversion case: 6 frames at 8 kHz paste as 8 at 11.025 kHz.
+      app.clipboard = {
+        type: 'audio',
+        sampleRate: 8000,
+        channels: [Channel.silence(6)],
+        markers: [{ id: 'c', name: 'Track', type: 'cd', start: 2, duration: 4, description: '' }],
+      };
+      const doc = new AudioFile({
+        name: 'b.wav',
+        sampleRate: 11025,
+        channels: [Channel.silence(10)],
+      });
+      app.addDocument(doc);
+      doc.setCursor(10);
+      await app.commands.run('edit.paste');
+      expect(doc.length).toBe(18);
+      const [m] = doc.state.markers;
+      expect(m).toMatchObject({ start: 13, duration: 5 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

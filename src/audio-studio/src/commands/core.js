@@ -44,11 +44,19 @@ function clipFromSelection(app, doc) {
   return clip;
 }
 
-/** Adds clipboard markers (relative to the clip, at `fromRate`) to a state at frame `at`. */
-function withClipMarkers(app, state, clip, at, fromRate) {
+/**
+ * Adds clipboard markers (relative to the clip, at `fromRate`) to a state where the clip was
+ * pasted as `frames` frames at `at`.
+ */
+function withClipMarkers(app, state, clip, at, fromRate, frames) {
   if (!clip?.markers?.length || !app.prefs.get('markersWithClipboard')) return state;
   const ratio = state.sampleRate / (fromRate || state.sampleRate);
-  const added = clip.markers.map((m) => createMarker({ ...m, start: at + m.start * ratio, duration: m.duration * ratio }));
+  // Both ends scale, so a range ending with the clip does not run past the pasted audio.
+  const to = (f) => Math.min(at + frames, at + Math.round(f * ratio));
+  const added = clip.markers.map((m) => {
+    const start = to(m.start);
+    return createMarker({ ...m, start, duration: to(m.start + m.duration) - start });
+  });
   return { ...state, markers: sortMarkers([...state.markers, ...added]) };
 }
 
@@ -350,7 +358,7 @@ export function installCoreCommands(app) {
         const n = clip.channels[0]?.length ?? 0;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         let state = doc.hasSelection ? E.replaceRange(doc.state, doc.selection.start, doc.selection.end, clip, doc.channelMask) : E.insertClip(doc.state, at, clip, doc.channelMask);
-        if (!doc.channelMask) state = withClipMarkers(app, state, source, at, source.sampleRate);
+        if (!doc.channelMask) state = withClipMarkers(app, state, source, at, source.sampleRate, n);
         doc.apply('Paste', state, { selection: { start: at, end: at + n }, cursor: at });
       },
     },
