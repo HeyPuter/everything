@@ -101,6 +101,21 @@ describe('sheet', () => {
     expect(sheet.isOpen).toBe(false);
   });
 
+  it('does not apply the opening frame after the sheet has already closed', () => {
+    vi.useFakeTimers();
+    const { sheet, opener } = setup({ reduced: false });
+    try {
+      sheet.open(opener);
+      sheet.close();
+      vi.advanceTimersByTime(20);
+      expect(sheet.el.classList.contains('open')).toBe(false);
+      expect(sheet.isOpen).toBe(false);
+    } finally {
+      sheet.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for the slide-out without reduced motion', () => {
     vi.useFakeTimers();
     try {
@@ -136,6 +151,7 @@ describe('sheet', () => {
     handle.dispatchEvent(pe('pointermove', 260));
     handle.dispatchEvent(pe('pointerup', 260));
     expect(sheet.isOpen).toBe(false);
+    expect(panel.style.transform).toBe(''); // let the closed-state CSS animate it offscreen
   });
 
   it('ignores movement and release from a second pointer during a sheet swipe', () => {

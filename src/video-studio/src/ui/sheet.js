@@ -44,6 +44,7 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
   let opener = null;
   let inerted = [];
   let hideTimer = null;
+  let openFrame = null;
   let cancelDrag = null;
 
   function setInert(on) {
@@ -68,7 +69,10 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
     panel.style.transform = '';
     setInert(true);
     // Next frame so the slide-in transition runs from the closed position.
-    requestAnimationFrame(() => el.classList.add('open'));
+    openFrame = requestAnimationFrame(() => {
+      openFrame = null;
+      el.classList.add('open');
+    });
     onOpen?.();
     const first = body.querySelector('[autofocus]') || focusablesIn(body)[0];
     (first || panel).focus({ preventScroll: true });
@@ -77,7 +81,10 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
   function hide() {
     if (!open) return;
     open = false;
+    cancelAnimationFrame(openFrame);
+    openFrame = null;
     cancelDrag?.();
+    panel.style.transform = '';
     el.classList.remove('open');
     setInert(false);
     const done = () => {
