@@ -181,3 +181,26 @@ test('a digital ID that cannot be used hands the focus to the field to fix', asy
   await expect(error).toHaveText('Enter the name to sign with.');
   await expect(chooser.getByLabel('Name', { exact: true })).toBeFocused();
 });
+
+test('an expired digital ID is refused before the signature’s details are asked', async ({
+  page,
+}) => {
+  const { createSelfSignedId, exportPkcs12 } = await import('../../src/core/digital-signature.js');
+  const identity = await createSelfSignedId({
+    name: 'Old Key',
+    keyType: 'P-256',
+    notBefore: new Date('2020-01-01T00:00:00Z'),
+    validityYears: 1,
+  });
+  const p12 = await exportPkcs12(identity, 'right-password');
+  const chooser = await openChooser(page);
+  await chooser
+    .locator('#id-file')
+    .setInputFiles({ name: 'old.p12', mimeType: 'application/x-pkcs12', buffer: Buffer.from(p12) });
+  await chooser.getByLabel('Password', { exact: true }).fill('right-password');
+  await chooser.getByRole('button', { name: 'Continue' }).click();
+  // It was taken, and signing failed only after the details had been filled in.
+  await expect(chooser.locator('.dialog-error')).toContainText('This digital ID expired on');
+  await expect(chooser.locator('#id-file')).toBeFocused();
+  await expect(page.getByRole('dialog', { name: 'Certify document' })).toBeHidden();
+});
