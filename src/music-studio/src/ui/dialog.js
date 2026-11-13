@@ -55,7 +55,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       buttons.length ? foot : null,
     );
     const keys = (e) => {
-      if (!backdrop.isConnected) return;
+      if (!backdrop.isConnected || e.isComposing) return;
       // Only the topmost dialog handles keys (a dialog may open another).
       const all = document.querySelectorAll('.dialog-backdrop');
       if (all[all.length - 1] !== backdrop) return;
@@ -65,7 +65,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
         e.preventDefault();
         e.stopPropagation();
         close(null);
-      } else if (e.key === 'Enter' && !e.isComposing && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && dialog.contains(e.target) && !e.target.closest('[data-own-enter]')) {
+      } else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && dialog.contains(e.target) && !e.target.closest('[data-own-enter]')) {
         const primary = buttons.find((b) => b.primary);
         if (primary) {
           e.preventDefault();
