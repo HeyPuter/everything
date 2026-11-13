@@ -347,11 +347,36 @@ function lyricsPanel(ctx, opts, save) {
   const empty = h('p.asset-hint.lyr-empty', 'Add a song (an audio clip, or a video with sound) to the timeline first.');
   const { el: progress, cancel, setStep } = stepProgress(['Reading the song', 'Isolating vocals', 'Listening for words', 'Placing lines on the beat'], 'Creating lyrics');
   const STEP = { decode: 0, isolate: 1, transcribe: 2, phrase: 3 };
-  let abort = null;
-  cancel.addEventListener('click', () => abort?.abort());
+  let job = null;
+  let disposed = false;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted;
+  const atSource = (task) => {
+    const nest = store.nest || [];
+    if (store.project.id !== task.projectId || (store.project.timelineId ?? null) !== task.timelineId || nest.length !== task.compounds.length) return false;
+    for (let i = 0; i < nest.length; i++) if (nest[i].id !== task.compounds[i]) return false;
+    return true;
+  };
+  function finish(task) {
+    if (job !== task) return;
+    job = null;
+    progress.hidden = true;
+    syncButton();
+  }
+  function cancelJob(message) {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
+  cancel.addEventListener('click', () => {
+    const hadFocus = progress.contains(document.activeElement);
+    cancelJob('Lyrics cancelled.');
+    if (hadFocus) create.focus();
+  });
 
   function syncButton() {
-    create.disabled = Boolean(abort) || !song.value;
+    create.disabled = Boolean(job?.started) || !song.value;
   }
 
   function sync() {
@@ -369,28 +394,35 @@ function lyricsPanel(ctx, opts, save) {
   }
 
   async function run() {
-    if (abort || !song.value) return;
-    const mode = await askReplace(store);
-    if (!mode) return;
-    abort = new AbortController();
-    const { signal } = abort;
-    syncButton();
-    progress.hidden = false;
-    setStep(0);
-    announce('Reading the song');
-    const project = structuredClone(store.project);
+    if (job || disposed || !song.value) return;
+    const task = {
+      controller: new AbortController(), projectId: store.project.id, timelineId: store.project.timelineId ?? null,
+      compounds: (store.nest || []).map((f) => f.id), song: song.value, started: false,
+    };
+    job = task;
+    const { signal } = task.controller;
     try {
-      const res = await lyricsFromClip(project, song.value, {
+      const mode = await askReplace(store, { signal });
+      if (!mode || !current(task)) return;
+      task.started = true;
+      syncButton();
+      progress.hidden = false;
+      setStep(0);
+      announce('Reading the song');
+      const project = structuredClone(store.project);
+      const res = await lyricsFromClip(project, task.song, {
         library: ctx.library,
         language: opts.language,
         isolate: opts.lyricsIsolate !== false,
         signal,
         onStep: (step, f) => {
+          if (!current(task)) return;
           setStep(STEP[step], f);
           if (!f) announce(progress.querySelectorAll('.cap-step')[STEP[step]].textContent);
         },
         ...(ctx.lyricsDeps || {}),
       });
+      if (!current(task)) return;
       if (!res.cues.length) {
         toast('No singing was found in this clip.', { kind: 'info' });
         return;
@@ -399,15 +431,14 @@ function lyricsPanel(ctx, opts, save) {
       const n = applyCaptions(ctx, res.cues, { mode, preset: style.preset, position: opts.lyricsPosition, label: 'Lyrics from music', captionStyle: style.id });
       toast(`Added ${n} lyric line${n === 1 ? '' : 's'}.`, { kind: 'success' });
     } catch (err) {
-      if (err?.name === 'AbortError') announce('Lyrics cancelled');
+      if (!current(task)) return;
+      if (err?.name === 'AbortError') toast('Lyrics cancelled.', { kind: 'info' });
       else {
         console.error(err);
         toast(errorMessage(err, "Couldn't create lyrics."), { kind: 'error' });
       }
     } finally {
-      abort = null;
-      progress.hidden = true;
-      syncButton();
+      finish(task);
     }
   }
 
@@ -424,11 +455,16 @@ function lyricsPanel(ctx, opts, save) {
   );
   pos.el.setAttribute('aria-labelledby', 'lyr-pos');
   const refresh = () => {
-    if (el.isConnected && !abort) sync();
+    if (job && !atSource(job)) cancelJob('Lyrics cancelled because the open timeline changed.');
+    if (el.isConnected && !job) sync();
   };
   const offs = [store.on('change', refresh), store.on('select', refresh)];
   sync();
-  return { el, sync, dispose: () => offs.forEach((off) => off()) };
+  return { el, sync, dispose() {
+    disposed = true;
+    offs.forEach((off) => off());
+    cancelJob();
+  } };
 }
 
 const fieldSizing = typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content');
