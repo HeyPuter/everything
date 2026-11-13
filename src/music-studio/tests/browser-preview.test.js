@@ -22,10 +22,11 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function setup() {
+function setup({ library } = {}) {
   const gate = deferred();
   const stop = vi.fn();
   const app = {
+    library,
     store: new Store(newProject()),
     prefs: { get: () => undefined, set: vi.fn() },
     engine: { start: vi.fn(() => gate.promise), audition: vi.fn(() => stop) },
@@ -416,4 +417,24 @@ it('shows a recoverable error when the cloud files root fails to load', async ()
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="dir:/Recovered/Music"]')).not.toBe(null);
   expect(body.querySelector('[data-id="files:loading"]')).toBe(null);
+});
+
+it.each(['resolve', 'reject'])('keeps the latest saved-project listing when an older refresh %ss', async (outcome) => {
+  const old = deferred();
+  const library = { listLocal: vi.fn().mockReturnValueOnce(old.promise).mockResolvedValueOnce([{ key: 'current', name: 'Just saved' }]) };
+  const { app, body } = setup({ library });
+  body.querySelector('[data-id="sec:device"]').click();
+  await app.on.mock.calls.find(([event]) => event === 'file')[1]();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="local:current"]')).not.toBe(null);
+  if (outcome === 'resolve') old.resolve([{ key: 'old', name: 'Previous project' }]);
+  else old.reject(new Error('Old read failed'));
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="local:current"]')).not.toBe(null);
+  expect(body.querySelector('[data-id="local:old"]')).toBe(null);
+  library.listLocal.mockResolvedValueOnce([]);
+  app.on.mock.calls.find(([event]) => event === 'saving')[1]();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="local:current"]')).toBe(null);
+  expect(body.querySelector('[data-id="dev:none"]')).not.toBe(null);
 });

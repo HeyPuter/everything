@@ -80,6 +80,7 @@ function createBrowser(app, host) {
   let dirs = null; // { music } once the account folder is known
   let dirsError = false;
   let localProjects = [];
+  let localRequest = 0;
   const playing = { path: null, audio: null };
   const urls = new Map(); // path -> { url, at }: temporary read URLs (rate limited: reuse until near expiry)
   const URL_TTL = 100 * 60 * 1000; // they are made for 2 hours
@@ -107,9 +108,13 @@ function createBrowser(app, host) {
     invalidate();
   };
   const refreshLocal = async () => {
+    const request = ++localRequest;
     try {
-      localProjects = (await app.library?.listLocal()) || [];
+      const projects = (await app.library?.listLocal()) || [];
+      if (request !== localRequest) return;
+      localProjects = projects;
     } catch {
+      if (request !== localRequest) return;
       localProjects = [];
     }
     invalidate();
