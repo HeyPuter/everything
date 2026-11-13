@@ -40,7 +40,7 @@
 
 import { INSTRUMENT_TYPES, INSTRUMENTS, paramVector } from '../instruments/catalog.js';
 import { EFFECT_TYPES, EFFECTS, effectParamVector } from '../effects/catalog.js';
-import { channelAudible, patternById, patternLength, songLength } from '../model/project.js';
+import { channelAudible, patternById, patternResolver, patternLength, songLength } from '../model/project.js';
 import { STEP, ticksPerBar, ticksToSeconds } from '../model/time.js';
 import { mixerAudible } from '../mixer/routing.js';
 import { trackAudible as playlistTrackAudible } from '../playlist/clips.js';
@@ -269,12 +269,13 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     }
   } else {
     const audible = trackAudible(project);
+    const getPattern = patternResolver(project);
     for (const c of project.clips) {
       if (c.mute || audible[c.track] === false) continue;
       const cs = c.start;
       const ce = c.start + c.len;
       if (c.kind === 'pattern') {
-        const pat = patternById(project, c.ref);
+        const pat = getPattern(c.ref);
         if (!pat) continue;
         const off = c.offset || 0;
         for (const [cid, list] of Object.entries(pat.notes)) {

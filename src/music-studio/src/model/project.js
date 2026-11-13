@@ -158,6 +158,23 @@ export function patternById(project, id) {
   return project.patterns.find((p) => p.id === id) || null;
 }
 
+/** A lookup for one read-only pass: scan each pattern at most once, lazily. */
+export function patternResolver(project) {
+  const patterns = project.patterns;
+  const seen = new Map();
+  let next = 0;
+  return (id) => {
+    if (seen.has(id)) return seen.get(id);
+    while (next < patterns.length) {
+      const pattern = patterns[next++];
+      const key = pattern.id;
+      if (!seen.has(key)) seen.set(key, pattern);
+      if (key === id) return seen.get(key);
+    }
+    return null;
+  };
+}
+
 export function patternIndex(project, id) {
   return project.patterns.findIndex((p) => p.id === id);
 }

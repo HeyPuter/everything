@@ -15,7 +15,7 @@
 // not overwrite another part's program or release its notes.
 
 import { PPQ } from '../model/time.js';
-import { createChannel, createPattern, createClip, colorAt, patternById, patternLength, busyInserts, freeInsert } from '../model/project.js';
+import { createChannel, createPattern, createClip, colorAt, patternById, patternResolver, patternLength, busyInserts, freeInsert } from '../model/project.js';
 import * as E from '../model/edits.js';
 import { uid } from '../lib/util.js';
 import { trackAudible } from '../playlist/clips.js';
@@ -171,10 +171,11 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     for (const [cid, list] of Object.entries(pat.notes)) for (const n of list) push(cid, n, 0);
   } else {
     const anyTrackSolo = project.tracks.some((t) => t.solo);
+    const getPattern = patternResolver(project);
     for (const c of project.clips) {
       // Track mute and solo as playback applies them.
       if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track, anyTrackSolo)) continue;
-      const pat = patternById(project, c.ref);
+      const pat = getPattern(c.ref);
       if (!pat) continue;
       for (const [cid, list] of Object.entries(pat.notes)) {
         for (const n of list) {
