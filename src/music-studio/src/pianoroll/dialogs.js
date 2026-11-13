@@ -4,7 +4,8 @@
 // step through the editor (pianoroll/editor.js).
 
 import { h, announce } from '../lib/dom.js';
-import { clamp, keyName } from '../lib/util.js';
+import { clamp, keyName, parseKey } from '../lib/util.js';
+export { parseKey } from '../lib/util.js';
 import { openDialog, promptDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { SNAPS, STEP, PPQ, formatBST, ticksPerBar, snapTicks } from '../model/time.js';
@@ -226,20 +227,6 @@ export function closeNoteProps() {
   if (!popover) return false;
   popover.close();
   return true;
-}
-
-/** "C#5" or "61" to a MIDI key (null when invalid). */
-export function parseKey(text) {
-  const s = String(text).trim();
-  if (/^\d+$/.test(s)) {
-    const k = Number(s);
-    return k >= 0 && k <= 127 ? k : null;
-  }
-  const m = s.match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
-  if (!m) return null;
-  const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
-  const k = base + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + Number(m[3]) * 12;
-  return k >= 0 && k <= 127 ? k : null;
 }
 
 /** "bar:step:tick" (1-based bar and step) to ticks (null when invalid). */

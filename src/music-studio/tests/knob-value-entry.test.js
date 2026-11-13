@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from '../src/app.js';
 import * as E from '../src/model/edits.js';
+import { defaultParams } from '../src/instruments/catalog.js';
 import { demoProject } from '../src/model/demo.js';
 import * as rack from '../src/panels/channel-rack.js';
 import * as mixer from '../src/panels/mixer.js';
@@ -87,6 +88,36 @@ it.each(panCases)('interprets %s pan entry %s without changing its scale or dire
   expect(Number(control.getAttribute('aria-valuenow'))).toBeCloseTo(pan(), 3);
   expect(document.activeElement).toBe(control);
   if (expected === null || expected === -0.35) expect(app.store.project).toBe(before);
+  else {
+    app.store.undo();
+    expect(app.store.project).toBe(before);
+  }
+});
+
+const noteCases = ['step', 'sample'].flatMap((kind) => [
+  ['D5', 62], ['f#4', 54], ['Bb3', 46], ['0', 0], ['127', 127], ['200', null], ['61oops', null], ['H2', null], ['C5', 60],
+].map(([text, expected]) => [kind, text, expected]));
+it.each(noteCases)('interprets the %s key entry %s using the displayed note convention', (kind, text, expected) => {
+  const id = app.store.project.channels[0].id;
+  if (kind === 'sample') app.store.apply('Sampler', (p) => E.updateChannel(p, id, { type: 'sampler', params: defaultParams('sampler') }));
+  const win = openChannelEditor(app, id);
+  const tab = [...win.el.querySelectorAll('[role="tab"]')].find((el) => el.textContent === (kind === 'step' ? 'Channel' : 'Instrument'));
+  tab.click();
+  const control = win.el.querySelector(kind === 'step' ? '[aria-label="Channel step key"]' : '[aria-label="Sample root key"]');
+  expect(control).not.toBeNull();
+  const before = app.store.project;
+  const value = () => kind === 'step' ? app.store.project.channels[0].root : app.store.project.channels[0].params.root;
+  expect(value()).toBe(60);
+  control.focus();
+  control.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  const input = document.querySelector(kind === 'step' ? 'input[aria-label="Step key value"]' : 'input[aria-label="Root key value"]');
+  expect(input.value).toBe('C5');
+  input.value = text;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  expect(value()).toBe(expected ?? 60);
+  expect(Number(control.getAttribute('aria-valuenow'))).toBe(value());
+  expect(document.activeElement).toBe(control);
+  if (expected === null || expected === 60) expect(app.store.project).toBe(before);
   else {
     app.store.undo();
     expect(app.store.project).toBe(before);

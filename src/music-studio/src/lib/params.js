@@ -3,8 +3,7 @@
 // an optional curve: 'lin' (default), 'log' (frequencies, rates) or 'pow2'
 // (times: fine control near zero).
 
-import { clamp } from './util.js';
-import { keyName } from './util.js';
+import { clamp, keyName, parseKey } from './util.js';
 
 /** Value to a normalized 0..1 position. */
 export function toNorm(p, v) {
@@ -55,6 +54,10 @@ export function formatParam(p, v) {
 
 /** Parses typed text for a parameter ("2k", "-6", "350ms", "40%"). Returns null if invalid. */
 export function parseParam(p, text) {
+  if (p.unit === 'key') {
+    const key = parseKey(text);
+    return key === null ? null : clamp(key, p.min, p.max);
+  }
   const s = String(text).trim().toLowerCase();
   if (p.options) {
     const i = p.options.findIndex((o) => o.toLowerCase() === s);

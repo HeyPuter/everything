@@ -54,6 +54,20 @@ export function parsePan(text) {
   return Number.isFinite(value) ? clamp(value, -1, 1) : null;
 }
 
+/** "C#5" or "61" to a MIDI key (null when invalid). */
+export function parseKey(text) {
+  const s = String(text).trim();
+  if (/^\d+$/.test(s)) {
+    const k = Number(s);
+    return k >= 0 && k <= 127 ? k : null;
+  }
+  const m = s.match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
+  if (!m) return null;
+  const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
+  const k = base + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + Number(m[3]) * 12;
+  return k >= 0 && k <= 127 ? k : null;
+}
+
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 /** MIDI key number to a name such as "C5" (key 60 = C5, matching the app's octave numbering). */
