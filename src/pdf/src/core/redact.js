@@ -506,7 +506,28 @@ function overlayOps(text, area, mark, fontName, rotation) {
 
 /** Policy for filterContent: what lies under the areas goes. */
 function redactionPolicy(doc, areas, { codec } = {}) {
-  const hits = (quad) => areas.some(({ rect }) => quadOverlapsRect(quad, rect));
+  // A page found with many matches has hundreds of areas, nearly all far from any one glyph:
+  // comparing bounds first spares the exact test, which took most of the time to apply them.
+  const hits = (quad) => {
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (const [x, y] of quad) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    return areas.some(
+      ({ rect }) =>
+        x0 < rect[2] &&
+        x1 > rect[0] &&
+        y0 < rect[3] &&
+        y1 > rect[1] &&
+        quadOverlapsRect(quad, rect),
+    );
+  };
   // Pixels take the fill of the mark that covers them; overlapping marks apply in order.
   const groups = (quad) => {
     const byFill = new Map();
