@@ -156,7 +156,9 @@ export function createPageStack({
     }
     const drawn = paperRevision;
     paperRevision = getRevision();
-    if (node.parentNode === slot) return layout();
+    // Redrawn where it is at another zoom (a refit after the window or a panel changed size),
+    // every page above it changes height: the page stays where it is on screen.
+    if (node.parentNode === slot) return keepInPlace(layout);
     const previous = node.parentNode?.classList?.contains('page-slot') ? node.parentNode : null;
     // A page left by a jump is already out of the keep margin, whose observer passed it over
     // while it held the interactive page, so its picture would never be released. A page
