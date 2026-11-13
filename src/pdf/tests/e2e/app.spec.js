@@ -1929,7 +1929,7 @@ test('form errors are announced inside the dialog and can be corrected', async (
   await page.goto('/#library');
   await sample(page);
   await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
-  await page.getByLabel('Your name', { exact: true }).fill('你好');
+  await page.getByLabel('Your name', { exact: true }).fill('🦄');
   await page.getByRole('button', { name: 'Save form', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('alert')).toContainText('does not support');
@@ -2301,10 +2301,10 @@ test('download commits an active text draft and font errors preserve it for corr
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   await page.getByRole('button', { name: 'Edit text: Make it your own.', exact: true }).click();
   const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
-  await input.fill('你好');
+  await input.fill('🦄');
   await clickAway(page);
   await expect(page.locator('.text-edit-error')).toContainText('does not support');
-  await expect(input).toHaveValue('你好');
+  await expect(input).toHaveValue('🦄');
   await expect(page.locator('.textLayer')).toContainText('Make it your own.');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
@@ -2481,10 +2481,10 @@ test('inline form errors retain drafts, Escape restores values, and annotation t
   await page.goto('/#library');
   await sample(page);
   const field = page.getByRole('textbox', { name: 'Your name (on page)', exact: true });
-  await field.fill('你好');
+  await field.fill('🦄');
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   await expect(page.locator('.form-edit-error')).toContainText('does not support');
-  await expect(field).toHaveValue('你好');
+  await expect(field).toHaveValue('🦄');
   await expect(field).toBeFocused();
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -2856,10 +2856,10 @@ test('grouped text supports multiline typing, plain paste, error recovery and dr
   expect(pasted.runs.map((r) => r.text)).toEqual(['Plain', 'Paste', 'Neighbor']);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await target.click();
-  await input.fill('你好');
+  await input.fill('🦄');
   await clickAway(page);
   await expect(page.locator('.text-edit-error')).toContainText('does not support');
-  await expect(input).toHaveText('你好');
+  await expect(input).toHaveText('🦄');
   await input.press('Escape');
   await expect(input).toHaveCount(0);
   await expect(target).toBeVisible();

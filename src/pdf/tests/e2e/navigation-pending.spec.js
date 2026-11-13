@@ -163,7 +163,7 @@ test('a rejected text edit restores the page number and permits corrected naviga
 }) => {
   await prepare(page);
   const draft = page.getByRole('textbox', { name: 'Edit text', exact: true });
-  await draft.fill('你好');
+  await draft.fill('🦄');
   await goTo(page, 3);
   await expect(page.locator('.text-edit-error')).toContainText('does not support');
   await expect(page.getByLabel('Page number', { exact: true })).toHaveValue('1');
