@@ -328,6 +328,47 @@ describe('engine playhead and output latency', () => {
     vi.unstubAllGlobals();
   });
 
+  it('starts and seeks without audio left in latency-compensation delays from before', async () => {
+    const { compensateLatency } = await import('../src/engine/mixcore.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const { e, advance, proc } = await liveEngine(0);
+    // Sound for the first second, then silence.
+    const audio = new Float32Array(96000).fill(0.5, 0, 48000);
+    // The track sends to a bus with a latent effect: its own output is delayed to line up.
+    const graph = compensateLatency({
+      rate: 48000,
+      master: { gain: 1 },
+      tracks: [
+        { id: 't', gain: 1, pan: 0, sends: [{ target: 'b', gain: 0 }], clips: [{ id: 'c', source: 'k', channels: 1, start: 0, offset: 0, length: 96000, gain: 1 }] },
+        { id: 'b', bus: true, gain: 1, pan: 0, latency: 1000, clips: [] },
+      ],
+    });
+    expect(graph.tracks[0].outDelay).toBe(1000);
+    e.setGraph(graph, new Map([['k', [Channel.fromSamples(audio)]]]));
+    const out = [new Float32Array(128), new Float32Array(128)];
+    const loudest = (blocks) => {
+      let pk = 0;
+      for (let i = 0; i < blocks; i++) {
+        proc.process([], [out]);
+        for (const v of out[0]) pk = Math.max(pk, Math.abs(v));
+      }
+      return pk;
+    };
+    await e.play({ from: 0 });
+    advance(0.1);
+    e.stop();
+    // Playing the silent second half: nothing of the first half comes out.
+    await e.play({ from: 60000 });
+    expect(loudest(20)).toBe(0);
+    // Back into the sound and seeking into the silence again: the same.
+    e.seek(0);
+    advance(0.1);
+    e.seek(60000);
+    expect(loudest(20)).toBe(0);
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
   it('ignores an end of playback reported for an earlier play', async () => {
     const { e, advance } = await liveEngine(0);
     await e.play({ from: 0, to: 256 });

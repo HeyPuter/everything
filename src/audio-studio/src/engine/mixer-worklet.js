@@ -76,7 +76,7 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.playing = true;
         this.underrunReported.clear();
         if (this.host) this.host.reset();
-        this.scratch.dryDelay?.clear(); // rack dry/wet delay lines start empty, like the effects
+        this.clearDelays();
         this.report();
         break;
       case 'stop':
@@ -87,7 +87,7 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.seq = m.seq ?? this.seq;
         this.pos = m.frame;
         if (this.host) this.host.reset();
-        this.scratch.dryDelay?.clear(); // rack dry/wet delay lines start empty, like the effects
+        this.clearDelays();
         this.report();
         break;
       case 'loop':
@@ -101,6 +101,15 @@ class MixerProcessor extends AudioWorkletProcessor {
         this.tapOn = Boolean(m.on);
         break;
     }
+  }
+
+  /**
+   * Empties the delay lines (rack dry/wet and latency compensation) on a jump,
+   * like the effects, so audio from before it is not heard after it.
+   */
+  clearDelays() {
+    this.scratch.dryDelay?.clear();
+    this.scratch.delays?.clear();
   }
 
   /** Turns the graph's effect slot specs into live instances (once the host is ready; until then no effects run). */
