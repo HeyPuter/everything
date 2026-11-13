@@ -168,6 +168,49 @@ it('integrates an hour-long pitch ramp without replaying audio frames', () => {
   expect(rate.mock.calls.length).toBeLessThan(2000);
 });
 
+it('visits automation segments with linear work when resuming across many clips', () => {
+  const s = setup({ tune: 0 });
+  const count = 100, tick = count * 4;
+  s.p.clips[0].len = tick + 192;
+  s.p.automation.a = { id: 'a', target: { kind: 'channel', id: s.ch.id, param: 'tune' }, points: [{ t: 0, v: 0.75 }] };
+  s.p.clips.push(...Array.from({ length: count }, (_, i) => createClip({ kind: 'auto', ref: 'a', start: i * 4, len: 4 })));
+  const compiled = s.compile(s.p);
+  let reads = 0;
+  for (const seg of compiled.auto[0].segs) for (const field of ['start', 'end']) {
+    const value = seg[field];
+    Object.defineProperty(seg, field, { get() { reads++; return value; } });
+  }
+  s.seq.setSequence(compiled);
+  const on = vi.spyOn(s.core, 'audioOn');
+  s.seq.play(tick);
+  expect(on.mock.calls[0][2]).toBeCloseTo(tick / 192 * 2, 6);
+  expect(reads).toBeLessThanOrEqual(count * 30);
+});
+
+it('skips expired hidden segments after an earlier overlapping clip ends', () => {
+  const s = setup({ tune: 0 });
+  for (const [id, tune, start, len] of [['a', 12, 0, 80], ['b', -12, 10, 20], ['c', 0, 40, 56]]) {
+    s.p.automation[id] = { id, target: { kind: 'channel', id: s.ch.id, param: 'tune' }, points: [{ t: 0, v: (tune + 24) / 48 }] };
+    s.p.clips.push(createClip({ kind: 'auto', ref: id, start, len }));
+  }
+  s.seq.setSequence(s.compile(s.p));
+  const on = vi.spyOn(s.core, 'audioOn');
+  s.seq.play(96);
+  expect(on.mock.calls[0][2]).toBeCloseTo((80 * 2 + 16) / 192, 6);
+});
+
+it('combines independent pitch lanes and uses configured speed before and after them', () => {
+  const s = setup({ tune: 12 });
+  for (const [id, param, value, start] of [['a', 'tune', 0.5, 24], ['b', 'pitch', 1, 36]]) {
+    s.p.automation[id] = { id, target: { kind: 'channel', id: s.ch.id, param }, points: [{ t: 0, v: value }] };
+    s.p.clips.push(createClip({ kind: 'auto', ref: id, start, len: 24 }));
+  }
+  s.seq.setSequence(s.compile(s.p));
+  const on = vi.spyOn(s.core, 'audioOn');
+  s.seq.play(96);
+  expect(on.mock.calls[0][2]).toBeCloseTo((24 * 2 + 12 + 12 * 2 + 12 * 4 + 36 * 2) / 192, 6);
+});
+
 it.each(['tune', 'channel', 'master'])('uses updated %s pitch without recompiling the sequence', (control) => {
   const reference = setup();
   reference.seq.play(0);

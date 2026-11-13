@@ -227,16 +227,17 @@ export class Sequencer {
   #audioOffset(notes, i, tick) {
     const slot = notes.slot[i], start = notes.start[i];
     const lanes = (this.audioPitchLanes.get(slot) || []).filter((l) => l.segs.some((s) => s.start < tick && s.end > start));
+    const baseRate = this.core.audioPlaybackRate?.(slot) ?? 1;
+    if (!lanes.length) return notes.offset[i] + this.tempo.duration(start, tick) * baseRate;
+    let active = [];
     const rateAt = (seconds) => {
       const at = this.tempo.ticks(seconds);
       const values = {};
-      for (const lane of lanes) {
-        const seg = lane.segs.find((s) => s.start <= at && at < s.end);
-        if (seg) values[lane.target.kind === 'param' ? 'tune' : 'pitch'] = fromNorm(lane.def, automationValue(seg.pts, at, seg.cs));
+      for (const { lane, seg } of active) {
+        values[lane.target.kind === 'param' ? 'tune' : 'pitch'] = fromNorm(lane.def, automationValue(seg.pts, at, seg.cs));
       }
       return this.core.audioPlaybackRate?.(slot, values) ?? 1;
     };
-    if (!lanes.length) return notes.offset[i] + this.tempo.duration(start, tick) * (this.core.audioPlaybackRate?.(slot) ?? 1);
     // Split at clip/point boundaries before integrating, so automation gaps,
     // overlapping clips and abrupt changes retain the sequencer's precedence.
     const cuts = new Set([start, tick]);
@@ -247,9 +248,23 @@ export class Sequencer {
       audioStepCuts(lane.def, seg, Math.max(start, seg.start), Math.min(tick, seg.end), cut);
     }
     for (const t of this.tempo.T) cut(t);
-    const times = [...cuts].sort((a, b) => a - b).map((t) => this.tempo.seconds(t));
+    const ticks = [...cuts].sort((a, b) => a - b);
+    const times = ticks.map((t) => this.tempo.seconds(t));
+    const cursors = lanes.map((lane) => ({ lane, next: 0 }));
     let distance = notes.offset[i];
-    for (let j = 1; j < times.length; j++) distance += integrateAudioRate(rateAt, times[j - 1], times[j]);
+    for (let j = 1; j < times.length; j++) {
+      // Segment membership is fixed between the cuts. Walk the sorted lanes
+      // once; the first unexpired segment retains overlap precedence.
+      const mid = (ticks[j - 1] + ticks[j]) / 2;
+      active = [];
+      for (const cursor of cursors) {
+        const { lane } = cursor;
+        while (cursor.next < lane.segs.length && lane.segs[cursor.next].end <= mid) cursor.next++;
+        const seg = lane.segs[cursor.next];
+        if (seg && seg.start <= mid) active.push({ lane, seg });
+      }
+      distance += active.length ? integrateAudioRate(rateAt, times[j - 1], times[j]) : (times[j] - times[j - 1]) * baseRate;
+    }
     return distance;
   }
 
