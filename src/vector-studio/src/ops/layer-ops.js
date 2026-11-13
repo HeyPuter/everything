@@ -101,16 +101,24 @@ function selectedRoots(doc, ids) {
   return doc.sortByPaintOrder([...selected].filter((id) => !doc.ancestors(id).some((n) => selected.has(n.id))));
 }
 
+/** Prepare feature data before duplication; return a callback receiving the original -> copy id map. */
+export const duplicateHooks = [];
+
 /** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */
 export function duplicateNodes(doc, ids) {
   const out = [];
+  const roots = selectedRoots(doc, ids);
+  const placed = duplicateHooks.map((prepare) => prepare(doc, roots)).filter(Boolean);
+  const copiedIds = new Map();
   const byParent = new Map(); // parent id -> Map(original id -> copy id)
-  for (const id of selectedRoots(doc, ids)) {
+  for (const id of roots) {
     const n = doc.get(id);
     // (has, not get: reading the parent between inserts would make each insert copy its list.)
     const pid = n?.parent;
     if (!pid || !doc.has(pid)) continue;
-    const { node, descendants } = doc.cloneSubtree(id);
+    const idMap = placed.length ? new Map() : undefined;
+    const { node, descendants } = doc.cloneSubtree(id, idMap);
+    if (idMap) for (const [from, to] of idMap) copiedIds.set(from, to);
     if (n.type === 'layer') node.name = `${n.name || 'Layer'} copy`;
     doc.insert(node, pid, Infinity, descendants);
     if (!byParent.has(pid)) byParent.set(pid, new Map());
@@ -129,6 +137,7 @@ export function duplicateNodes(doc, ids) {
     }
     doc.update(pid, { children: next });
   }
+  for (const after of placed) after(copiedIds);
   return out;
 }
 

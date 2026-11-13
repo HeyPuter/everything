@@ -14,6 +14,7 @@ import { pathBounds } from '../../model/bezier.js';
 import { multiply } from '../../lib/matrix.js';
 import { isThreaded, threadFrames, headOf, linkFrames, insertFrame, releaseFrames, removeThreading, prepareFrameRemoval, copiedThreads, relinkPasted } from './thread-model.js';
 import { clipboardHooks } from '../../ops/clipboard.js';
+import { duplicateHooks } from '../../ops/layer-ops.js';
 import { session } from './type-ops.js';
 
 const PORT = 8;
@@ -401,7 +402,25 @@ const threadClipboardHook = {
   placed: (doc, idMap) => relinkPasted(doc, idMap),
 };
 
+/** Duplicates use the same story slices as copied frames, including when a group is duplicated. */
+function prepareThreadDuplicate(doc, ids) {
+  const links = copiedThreads(doc, ids);
+  if (!links.size) return null;
+  return (idMap) => {
+    for (const [id, patch] of links) {
+      const copy = idMap.get(id);
+      if (!copy) continue;
+      doc.update(copy, {
+        ...patch,
+        threadPrev: idMap.get(patch.threadPrev),
+        threadNext: idMap.get(patch.threadNext),
+      });
+    }
+  };
+}
+
 export function installThreads(app) {
+  if (!duplicateHooks.includes(prepareThreadDuplicate)) duplicateHooks.push(prepareThreadDuplicate);
   if (!clipboardHooks.includes(threadClipboardHook)) clipboardHooks.push(threadClipboardHook);
   textHooks.story = (node) => {
     const doc = docForNode(app, node);

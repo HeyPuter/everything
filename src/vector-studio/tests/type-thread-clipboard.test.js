@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
 import { createText } from '../src/model/nodes.js';
+import { TransformSession } from '../src/tools/transform-session.js';
 import { layoutText } from '../src/model/text-layout.js';
 import { threadFrames, isThreaded } from '../src/features/type/thread-model.js';
 
@@ -118,4 +119,63 @@ describe('copying threaded text', () => {
     expect(threadFrames(doc, doc.get(copies[0])).map((f) => f.id)).toEqual(copies);
     expect(doc.get(copies[0]).text).toBe(STORY);
   });
+});
+
+describe('duplicating threaded text', () => {
+  it('duplicates a full thread as independent linked frames', async () => {
+    const ids = thread();
+    app.editor.select(ids);
+    await app.commands.run('layers.duplicate');
+    const copies = app.editor.topSelection();
+    expect(copies).toHaveLength(ids.length);
+    expect(threadFrames(doc, doc.get(copies[0])).map((f) => f.id)).toEqual(copies);
+    expect(doc.get(copies[0]).text).toBe(STORY);
+    for (let i = 0; i < ids.length; i++) expect(shown(copies[i])).toBe(shown(ids[i]));
+    expect(threadFrames(doc, doc.get(ids[0])).map((f) => f.id)).toEqual(ids);
+    doc.undo();
+    expect(copies.every((id) => !doc.has(id))).toBe(true);
+    doc.redo();
+    expect(threadFrames(doc, doc.get(copies[0])).map((f) => f.id)).toEqual(copies);
+  });
+
+  it('duplicates a follower frame with its displayed story', async () => {
+    const ids = thread();
+    const text = shown(ids[1]);
+    expect(text).not.toBe('');
+    app.editor.select([ids[1]]);
+    await app.commands.run('layers.duplicate');
+    const [copy] = app.editor.topSelection();
+    expect(isThreaded(doc.get(copy))).toBe(false);
+    expect(doc.get(copy).text.trim()).toBe(text);
+    expect(threadFrames(doc, doc.get(ids[0])).map((f) => f.id)).toEqual(ids);
+  });
+});
+
+
+it('keeps duplicated group contents linked to the copied frames', async () => {
+  const ids = thread();
+  app.editor.select(ids);
+  await app.commands.run('object.group');
+  const [originalGroup] = app.editor.topSelection();
+  await app.commands.run('layers.duplicate');
+  const [copyGroup] = app.editor.topSelection();
+  const copies = doc.get(copyGroup).children;
+  expect(threadFrames(doc, doc.get(copies[0])).map((f) => f.id)).toEqual(copies);
+  expect(doc.get(copies[0]).text).toBe(STORY);
+  expect(doc.get(originalGroup).children).toEqual(ids);
+});
+
+it('retains displayed text when Alt-drag duplicates a follower and restores it on cancel', () => {
+  const ids = thread();
+  const text = shown(ids[1]);
+  app.editor.select([ids[1]]);
+  const drag = new TransformSession(app.editor, 'Move', { duplicate: true });
+  const [copy] = app.editor.topSelection();
+  drag.apply([1, 0, 0, 1, 20, 30]);
+  expect(doc.get(copy).text.trim()).toBe(text);
+  expect(isThreaded(doc.get(copy))).toBe(false);
+  drag.cancel();
+  expect(doc.has(copy)).toBe(false);
+  expect(app.editor.topSelection()).toEqual([ids[1]]);
+  expect(threadFrames(doc, doc.get(ids[0])).map((f) => f.id)).toEqual(ids);
 });
