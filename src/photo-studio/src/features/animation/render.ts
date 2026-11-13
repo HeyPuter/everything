@@ -13,7 +13,7 @@ const thumbBox = { width: 112, height: 72 };
 const onionMax = 1280;
 // Build frame documents only when their job runs. Queued thumbnails share
 // the source snapshot instead of retaining a full document copy per frame.
-let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor }[] = [];
+let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor; assets: Editor['assets'] }[] = [];
 let running = false;
 const listeners = new Set<() => void>();
 
@@ -56,7 +56,7 @@ export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = f
     cache.set(key, hit);
     return hit;
   }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: () => frameDocument(doc, index), e });
+  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: () => frameDocument(doc, index), e, assets: e.assets });
   void pump();
 }
 
@@ -68,7 +68,7 @@ export function docImage(e: Editor, key: string, build: () => Promise<PhotoDocum
     cache.set(key, hit);
     return hit;
   }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: build, e });
+  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: build, e, assets: e.assets });
   void pump();
 }
 
@@ -92,7 +92,7 @@ async function pump() {
       queue.shift();
       if (cache.has(job.key)) continue;
       try {
-        cache.set(job.key, await render(e, await job.doc()));
+        cache.set(job.key, await render(e, await job.doc(), job.assets));
         while (cache.size > maxEntries) {
           const [oldest, img] = cache.entries().next().value!;
           URL.revokeObjectURL(img.thumb);
@@ -110,8 +110,8 @@ async function pump() {
 }
 
 /** Composite a document and return straight 8-bit RGBA. */
-export async function compositeFrame(e: Editor, doc: PhotoDocument): Promise<ImageData> {
-  const samples = await e.renderer.documentPixels({ ...doc, selection: null }, e.assets);
+export async function compositeFrame(e: Editor, doc: PhotoDocument, assets = e.assets): Promise<ImageData> {
+  const samples = await e.renderer.documentPixels({ ...doc, selection: null }, assets);
   const n = doc.width * doc.height * 4;
   const data = new Uint8ClampedArray(n);
   if (samples instanceof Float32Array) for (let i = 0; i < n; i++) data[i] = samples[i] * 255 + 0.5;
@@ -119,8 +119,8 @@ export async function compositeFrame(e: Editor, doc: PhotoDocument): Promise<Ima
   return new ImageData(data, doc.width, doc.height);
 }
 
-async function render(e: Editor, doc: PhotoDocument): Promise<FrameImage> {
-  const img = await compositeFrame(e, doc);
+async function render(e: Editor, doc: PhotoDocument, assets: Editor['assets']): Promise<FrameImage> {
+  const img = await compositeFrame(e, doc, assets);
   const full = new OffscreenCanvas(img.width, img.height);
   full.getContext('2d')!.putImageData(img, 0, 0);
   const scaled = async (k: number) => {

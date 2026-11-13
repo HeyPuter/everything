@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Editor } from '../src/editor';
-import { clearQueue, frameImage, frameKey } from '../src/features/animation/render';
+import { clearQueue, docImage, frameImage, frameKey } from '../src/features/animation/render';
 import { createAnimation, duplicateFrames } from '../src/model/animation';
 import { newDocument } from '../src/model/document';
 import { TileStore, gridFromImage } from '../src/model/tiles';
 
-const editor = { session: { id: 'render-test' } } as Editor;
+const editor = { session: { id: 'render-test' } } as unknown as Editor;
 
 describe('animation thumbnail keys', () => {
   it('changes after document-wide lighting changes', () => {
@@ -35,7 +35,7 @@ describe('animation thumbnail queue', () => {
     const doc = newDocument(32, 32);
     doc.animation = createAnimation(doc);
     for (let i = 0; i < 12; i++) duplicateFrames(doc, [i]);
-    const busyEditor = { session: { id: 'busy-test' }, busy: true } as Editor;
+    const busyEditor = { session: { id: 'busy-test' }, busy: true } as unknown as Editor;
     vi.useFakeTimers();
     const clone = vi.spyOn(globalThis, 'structuredClone');
     try {
@@ -48,4 +48,19 @@ describe('animation thumbnail queue', () => {
       vi.useRealTimers();
     }
   });
+});
+
+
+it('renders delayed timeline thumbnails using their originating asset store', async () => {
+  const originalAssets = { name: 'original' };
+  let release!: (doc: ReturnType<typeof newDocument>) => void;
+  const waiting = new Promise<ReturnType<typeof newDocument>>((resolve) => { release = resolve; });
+  const pixels = vi.fn(async (_doc: unknown, _assets: unknown) => { throw new Error('Stop after recording the renderer arguments'); });
+  const e = { session: { id: 'original' }, assets: originalAssets, renderer: { documentPixels: pixels } } as unknown as Editor;
+  docImage(e, 'delayed-session-thumbnail', () => waiting);
+  // A video decoder finishes after the user activates another document.
+  Object.assign(e, { session: { id: 'other' }, assets: { name: 'other' } });
+  release(newDocument(32, 32));
+  await vi.waitFor(() => expect(pixels).toHaveBeenCalled());
+  expect(pixels.mock.calls[0]?.[1]).toBe(originalAssets);
 });
