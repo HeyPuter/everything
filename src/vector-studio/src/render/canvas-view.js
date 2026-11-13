@@ -76,7 +76,7 @@ export class CanvasView {
       editor.on('overlay', () => this.invalidateOverlay()),
       editor.on('view-options', () => this.#invalidateCachedArtwork()),
       imageEvents.on('ready', (consumers) => {
-        if (consumers.has(editor.doc.assets)) this.invalidate();
+        if (consumers.has(editor.doc.assets)) this.#invalidateCachedArtwork();
       }),
     ];
     this.resize();
@@ -135,7 +135,7 @@ export class CanvasView {
     this.#invalidateCachedArtwork();
   }
 
-  /** Rendering settings changed: every cached pixel and pan snapshot is stale. */
+  /** Rendering inputs changed: cached artwork and pan snapshots are stale. */
   #invalidateCachedArtwork() {
     this.interaction = null;
     this.previewCache = null;
