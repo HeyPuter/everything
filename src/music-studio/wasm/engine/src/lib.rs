@@ -28,6 +28,7 @@ use dsp::*;
 use params::*;
 use sampler::{AudioPlayer, Sample, Sampler};
 use std::alloc::{alloc as raw_alloc, dealloc as raw_dealloc, Layout};
+use std::collections::HashMap;
 use synth::Synth;
 
 pub const MAX_FX: usize = 10;
@@ -162,6 +163,7 @@ const EV_ON: u8 = 3;
 const EV_AUDIO: u8 = 4;
 const EV_CLICK: u8 = 5;
 const EV_AUDIO_AT: u8 = 6;
+const EV_CANCELLED: u8 = 7;
 
 struct Click {
     phase: f32,
@@ -179,6 +181,10 @@ pub struct Engine {
     tracks: Vec<Box<Track>>,
     order: Vec<u32>,
     events: Vec<Event>,
+    start_max: Option<u32>,
+    release_min: Option<u32>,
+    note_releases: HashMap<u64, u32>,
+    channel_releases: HashMap<u32, u32>,
     samples: Vec<Option<Sample>>,
     out: [f32; BLOCK * 2],
     meters: Vec<f32>,
@@ -199,6 +205,10 @@ impl Engine {
             tracks: Vec::with_capacity(32),
             order: Vec::with_capacity(32),
             events: Vec::with_capacity(4096),
+            start_max: None,
+            release_min: None,
+            note_releases: HashMap::new(),
+            channel_releases: HashMap::new(),
             samples: Vec::with_capacity(64),
             out: [0.0; BLOCK * 2],
             meters: Vec::with_capacity(64),
@@ -250,7 +260,52 @@ impl Engine {
     }
 
     fn push(&mut self, ev: Event) {
+        match ev.kind {
+            EV_ON | EV_AUDIO | EV_AUDIO_AT => {
+                self.start_max = Some(self.start_max.map_or(ev.offset, |n| n.max(ev.offset)));
+            }
+            EV_OFF | EV_ALL_SOFT | EV_ALL_HARD => {
+                self.release_min = Some(self.release_min.map_or(ev.offset, |n| n.min(ev.offset)));
+            }
+            _ => {}
+        }
         self.events.push(ev);
+    }
+
+    /// A later release cancels starts which have not reached their first frame.
+    /// Walk submission order backwards before sorting, preserving off/on
+    /// retriggers while avoiding a full queue scan for each released note.
+    fn cancel_pending_starts(&mut self, n: usize) {
+        self.note_releases.clear();
+        self.channel_releases.clear();
+        let mut all = u32::MAX;
+        for ev in self.events.iter_mut().rev() {
+            let at = ev.offset.min((n - 1) as u32);
+            let key = ((ev.slot as u64) << 32) | ev.id as u64;
+            match ev.kind {
+                EV_OFF => {
+                    let release = self.note_releases.entry(key).or_insert(at);
+                    *release = (*release).min(at);
+                }
+                EV_ALL_SOFT | EV_ALL_HARD => {
+                    if ev.slot == u32::MAX {
+                        all = all.min(at);
+                    } else {
+                        let release = self.channel_releases.entry(ev.slot).or_insert(at);
+                        *release = (*release).min(at);
+                    }
+                }
+                EV_ON | EV_AUDIO | EV_AUDIO_AT => {
+                    let note = self.note_releases.get(&key).copied().unwrap_or(u32::MAX);
+                    let channel = self.channel_releases.get(&ev.slot).copied().unwrap_or(u32::MAX);
+                    if at >= all.min(note).min(channel) {
+                        ev.kind = EV_CANCELLED;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.events.retain(|ev| ev.kind != EV_CANCELLED);
     }
 
     fn apply(&mut self, ev: Event) {
@@ -338,6 +393,13 @@ impl Engine {
 
     fn process(&mut self, n: usize) -> *const f32 {
         let n = n.clamp(1, BLOCK);
+        if let (Some(start), Some(release)) = (self.start_max, self.release_min) {
+            // Ordinary notes released after their attack need no index.
+            let last = (n - 1) as u32;
+            if start.min(last) >= release.min(last) {
+                self.cancel_pending_starts(n);
+            }
+        }
         // Events in time order; at equal offsets note-offs come before note-ons.
         let evs = &mut self.events;
         for i in 1..evs.len() {
@@ -382,6 +444,8 @@ impl Engine {
             self.render_channels(t, n);
         }
         self.events.clear();
+        self.start_max = None;
+        self.release_min = None;
 
         // Channel strips into mixer tracks.
         for tr in self.tracks.iter_mut() {
@@ -907,6 +971,8 @@ pub extern "C" fn mix_reset() {
         ch.all_off(true);
     }
     e.events.clear();
+    e.start_max = None;
+    e.release_min = None;
     e.click.env = 0.0;
 }
 
