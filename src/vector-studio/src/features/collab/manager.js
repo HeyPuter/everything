@@ -185,7 +185,11 @@ export class CollabManager extends Emitter {
     const ro = Boolean(session && !canEdit(session.role));
     if (editor.doc.readOnly !== ro) {
       editor.doc.readOnly = ro;
-      if (ro) editor.clearSelection?.();
+      if (ro) {
+        // Selection and anchor handles belong to each view, even though the
+        // document's editing permission is shared by all of its windows.
+        for (const view of this.app.editors) if (view.doc === editor.doc) view.clearSelection?.();
+      }
     }
     this.emit('role', editor);
   }
