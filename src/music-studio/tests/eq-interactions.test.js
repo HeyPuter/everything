@@ -94,3 +94,91 @@ it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('keeps an EQ drag 
   store.undo();
   expect(store.project === before).toBe(true);
 });
+
+it.each([['load', false], ['undo', false], ['redo', false], ['load', true], ['undo', true]])('discards obsolete EQ drags after %s (moved: %s)', (action, moved) => {
+  const { store, handle, pointer } = setup();
+  if (action !== 'load') {
+    store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+    if (action === 'redo') store.undo();
+  }
+  pointer('pointerdown');
+  if (moved) pointer('pointermove', 210, 100);
+  if (action === 'load') store.load(structuredClone(store.project));
+  else store[action]();
+  const restored = store.project;
+  const history = store.undoStack.length;
+  const canRedo = store.canRedo;
+  pointer('pointermove', 230, 80);
+  pointer('pointerup', 230, 80);
+  expect(store.project === restored).toBe(true);
+  expect(store.undoStack).toHaveLength(history);
+  expect(store.canRedo).toBe(canRedo);
+  expect(handle.classList.contains('dragging')).toBe(false);
+  pointer('pointerdown');
+  pointer('pointermove', 210, 100);
+  pointer('pointerup', 210, 100);
+  expect(store.project === restored).toBe(false);
+  store.undo();
+  expect(store.project === restored).toBe(true);
+});
+
+it.each(['key', 'wheel'].flatMap((kind) => [true, false].map((load) => [kind, load])))('prevents an old EQ %s timer from committing a newer edit (load: %s)', (kind, load) => {
+  const { store, handle } = setup();
+  if (kind === 'key') handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  else handle.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+  if (load) store.load(structuredClone(store.project));
+  store.begin('Tempo');
+  store.preview((p) => ({ ...p, bpm: 150 }));
+  const newer = store.gesture;
+  const history = store.undoStack.length;
+  vi.advanceTimersByTime(500);
+  expect(store.gesture === newer).toBe(true);
+  expect(store.undoStack).toHaveLength(history);
+  store.cancel();
+  expect(store.project.bpm).toBe(130);
+});
+
+it('does not let a superseded EQ drag overwrite or commit another edit', () => {
+  const { store, pointer } = setup();
+  pointer('pointerdown');
+  pointer('pointermove', 210, 100);
+  store.begin('Tempo');
+  store.preview((p) => ({ ...p, bpm: 150 }));
+  const newer = store.gesture;
+  const preview = store.project;
+  pointer('pointermove', 230, 80);
+  pointer('pointerup', 230, 80);
+  expect(store.project === preview).toBe(true);
+  expect(store.gesture === newer).toBe(true);
+  store.cancel();
+  expect(store.project.bpm).toBe(130);
+});
+
+it('preserves ordinary EQ keys, wheel, reset, fine dragging and unrelated tempo edits', () => {
+  const { store, handle, pointer, params } = setup();
+  const initial = store.project;
+  handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true }));
+  expect(params().m1_gain).toBe(0.1);
+  vi.advanceTimersByTime(500);
+  store.undo();
+  expect(store.project === initial).toBe(true);
+  const q = params().m1_q;
+  handle.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+  expect(params().m1_q).toBeCloseTo(q * 1.08);
+  vi.advanceTimersByTime(500);
+  store.undo();
+  expect(store.project === initial).toBe(true);
+  pointer('pointerdown');
+  store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+  const edited = store.project;
+  pointer('pointermove', 210, 100, 1, handle, { shiftKey: true });
+  pointer('pointerup', 210, 100);
+  expect(params().m1_gain).toBe(0.4);
+  expect(store.project.bpm).toBe(150);
+  handle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  expect(params().m1_gain).toBe(0);
+  store.undo();
+  expect(params().m1_gain).toBe(0.4);
+  store.undo();
+  expect(store.project === edited).toBe(true);
+});

@@ -10,6 +10,7 @@
 import { h } from '../../lib/dom.js';
 import { clamp } from '../../lib/util.js';
 import { cssVar } from '../../ui/theme.js';
+import { trackParameterInteraction } from '../../ui/parameter-interactions.js';
 import { EFFECTS, effectParamDef } from '../catalog.js';
 import { formatParam } from '../../lib/params.js';
 import * as E from '../../model/edits.js';
@@ -167,11 +168,22 @@ export function createEqEditor(ctx) {
   let gesture = null;
   let endTimer = 0;
   let stopDrag = null;
+  let untrack = null;
+  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
+  const unwatch = () => { untrack?.(); untrack = null; };
+  function cancel() {
+    clearTimeout(endTimer);
+    gesture = null;
+    stopDrag?.();
+    unwatch();
+  }
   const begin = (b) => {
-    if (gesture?.band === b.key) return;
+    if (gesture?.band === b.key && gesture.owner === ctl.store.gesture) return;
     end();
+    watch();
     gesture = { band: b.key, ...ctl.gesture(`EQ ${b.label}`, bandEdit, { label: () => `${ctl.label(track)} EQ ${b.label}`, target: { kind: 'fx', track, slot: slotId, param: b.gain || b.freq } }) };
     gesture.onStart();
+    gesture.owner = ctl.store.gesture;
   };
   const input = (b, changes) => {
     begin(b);
@@ -186,11 +198,12 @@ export function createEqEditor(ctx) {
     gesture.onInput(all);
   };
   function end() {
+    if (!stopDrag) unwatch();
     clearTimeout(endTimer);
     if (!gesture) return;
     const g = gesture;
     gesture = null;
-    g.onEnd();
+    if (g.owner === ctl.store.gesture) g.onEnd();
   }
   const endSoon = () => {
     clearTimeout(endTimer);
@@ -209,6 +222,7 @@ export function createEqEditor(ctx) {
       if (e.button !== 0 || stopDrag) return;
       e.preventDefault();
       el.focus({ preventScroll: true });
+      watch();
       el.setPointerCapture?.(e.pointerId);
       const rect = box.getBoundingClientRect();
       let lastX = e.clientX;
@@ -218,6 +232,7 @@ export function createEqEditor(ctx) {
       el.classList.add('dragging');
       const move = (ev) => {
         if (ev.pointerId !== e.pointerId) return;
+        if (gesture && gesture.owner !== ctl.store.gesture) { cancel(); return; }
         const k = ev.shiftKey ? 0.2 : 1;
         x += (ev.clientX - lastX) * k;
         y += (ev.clientY - lastY) * k;
