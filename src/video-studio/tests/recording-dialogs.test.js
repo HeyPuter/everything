@@ -125,6 +125,67 @@ describe('pending screen selection', () => {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   });
 
+  it.each(['choose', 'record'])('reopens the microphone after sharing stops (%s)', async (trigger) => {
+    setPref('record', { mode: 'screen', screenMic: true });
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      await grant();
+      choose(d);
+      const first = screen();
+      pending.shift()(first);
+      await flush();
+      first.getVideoTracks()[0].stop();
+      first.getVideoTracks()[0].dispatchEvent(new Event('ended'));
+      expect(live()).toBe(0);
+      if (trigger === 'record') d.el.querySelector('.vo-record').click();
+      else choose(d);
+      pending.shift()(screen());
+      await flush();
+      expect(pending).toHaveLength(1);
+      expect(d.el.querySelector('.vo-record').disabled).toBe(true);
+      await grant();
+      expect(live()).toBe(2);
+      expect(d.el.querySelector('.vo-record').disabled).toBe(false);
+      expect(d.el.querySelector('.rec-body').dataset.state).toBe(trigger === 'record' ? 'countdown' : 'idle');
+    } finally { d.close(); }
+    expect(live()).toBe(0);
+  });
+
+  it('still accepts the camera stream after switching away from screen mode', async () => {
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      await flush();
+      [...d.el.querySelectorAll('button')].find((b) => b.textContent === 'Camera').click();
+      const camera = screen();
+      pending.shift()(camera);
+      await flush();
+      expect(d.el.querySelector('video').srcObject).toBe(camera);
+      expect(d.el.querySelector('.vo-record').disabled).toBe(false);
+      expect(live()).toBe(1);
+    } finally { d.close(); }
+    expect(live()).toBe(0);
+  });
+
+  it('stops a pending microphone if screen sharing ends before access is granted', async () => {
+    setPref('record', { mode: 'screen', screenMic: true });
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      const microphone = pending.shift();
+      choose(d);
+      const selected = screen();
+      pending.shift()(selected);
+      await flush();
+      selected.getVideoTracks()[0].stop();
+      selected.getVideoTracks()[0].dispatchEvent(new Event('ended'));
+      const late = fakeStream();
+      streams.push(late);
+      microphone(late);
+      await flush();
+      expect(live()).toBe(0);
+      expect(d.el.querySelector('.vo-record').disabled).toBe(false);
+    } finally { d.close(); }
+  });
+
   it('waits for the selected microphone before enabling screen recording', async () => {
     const d = openRecordDialog(ctxFor(), { mode: 'screen' });
     try {

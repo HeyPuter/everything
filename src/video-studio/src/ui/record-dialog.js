@@ -178,7 +178,11 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     );
   }
 
-  function closeStreams() {
+  function closeStreams({ resetDevices = true } = {}) {
+    if (resetDevices) {
+      opening++;
+      preparing = false;
+    }
     screenOpening++;
     mixed?.close();
     mixed = null;
@@ -216,7 +220,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   async function prepareDevices(my, retry) {
     clearError();
     if (opts.mode === 'camera') {
-      closeStreams();
+      closeStreams({ resetDevices: false });
       if (!cameraSupported()) {
         showError(globalThis.isSecureContext === false ? 'Recording needs a secure (https) connection.' : 'This browser cannot record from a camera.');
         return;
@@ -306,6 +310,10 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         setState('idle');
       }
     });
+    // Ending the previous share stopped its microphone too. Reacquire it for
+    // this selection, while allowing an existing device request to finish.
+    if (!preparing && opts.screenMic && opts.micId !== 'none' && !micStream) await reopen();
+    if (stale()) return false;
     setState('idle');
     return true;
   }
@@ -422,7 +430,6 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   function cleanup() {
     open = null;
     prompter.dispose();
-    opening++;
     clearTimeout(countdownTimer);
     clearInterval(tick);
     if (state === 'recording' || state === 'paused') {
