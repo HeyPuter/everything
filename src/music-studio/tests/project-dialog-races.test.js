@@ -155,3 +155,58 @@ it.each(projectActions)('keeps %s usable across an unrelated track edit', async 
   ctx.store.undo();
   expect(ctx.store.project).toBe(before);
 });
+
+it.each(['channel', 'pattern', 'sample'])('does not purge a new unused %s that was absent from the confirmation', async (kind) => {
+  const { app, store } = setup();
+  const addUnused = (name) => {
+    if (kind === 'channel') {
+      const channel = createChannel({ name });
+      store.apply('Import channel', (p) => E.addChannel(p, channel));
+      return channel.id;
+    }
+    if (kind === 'pattern') return store.apply('Add pattern', (p) => E.addPattern(p, { name })).id;
+    return store.apply('Import sample', (p) => E.addSample(p, { id: name, name })).id;
+  };
+  const exists = (id) => kind === 'sample' ? Boolean(store.project.samples[id]) : store.project[`${kind}s`].some((item) => item.id === id);
+  const originalId = addUnused('Original');
+  const pending = purgeCommand(app);
+  const incomingId = addUnused('Incoming');
+  const before = store.project;
+  const dialog = document.querySelector('.dialog');
+  [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Remove').click();
+  await pending;
+  expect(exists(originalId)).toBe(false);
+  expect(exists(incomingId)).toBe(true);
+  store.undo();
+  expect(store.project).toBe(before);
+});
+
+it('does not report removing a confirmed channel that became used', async () => {
+  const { app, store } = setup();
+  const channel = createChannel({ name: 'Spare' });
+  store.apply('Add spare', (p) => E.addChannel(p, channel));
+  const pending = purgeCommand(app);
+  store.apply('Record note', (p) => E.addNotes(p, store.pattern.id, channel.id, [{ key: 60, pos: 0, len: 24, vel: 0.8, pan: 0 }]));
+  const before = store.project;
+  const history = store.undoStack.length;
+  [...document.querySelectorAll('.dialog button')].find((b) => b.textContent === 'Remove').click();
+  await pending;
+  expect(store.project).toBe(before);
+  expect(store.undoStack.length).toBe(history);
+  expect(app.notify).toHaveBeenLastCalledWith(expect.stringMatching(/^Nothing removed/));
+});
+
+it('preserves a confirmed sample when a newly added channel now references it', async () => {
+  const { app, store } = setup();
+  const original = createChannel({ type: 'audio', sample: 'shared', name: 'Old audio' });
+  store.apply('Import audio', (p) => E.addChannel(E.addSample(p, { id: 'shared', name: 'Shared audio' }).project, original));
+  const pending = purgeCommand(app);
+  const incoming = createChannel({ type: 'audio', sample: 'shared', name: 'New audio' });
+  store.apply('Reuse sample', (p) => E.addChannel(p, incoming));
+  [...document.querySelectorAll('.dialog button')].find((b) => b.textContent === 'Remove').click();
+  await pending;
+  expect(store.project.channels.some((c) => c.id === original.id)).toBe(false);
+  expect(store.project.channels.some((c) => c.id === incoming.id)).toBe(true);
+  expect(store.project.samples.shared).toBeDefined();
+  expect(app.notify).toHaveBeenLastCalledWith('Removed 1 unused channel');
+});

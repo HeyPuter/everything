@@ -144,41 +144,46 @@ export async function openTapTempo(app) {
 /**
  * Removes channels no pattern or audio clip uses, empty patterns not in the
  * playlist (one pattern always stays) and samples nothing refers to (pure).
+ * Optional allowed ID sets restrict removal to a previously confirmed list.
  */
-export function purgeUnused(project) {
+export function purgeUnused(project, allowed) {
   const used = new Set(project.patterns.flatMap((p) => Object.keys(p.notes).filter((k) => p.notes[k].length)));
   for (const c of project.clips) if (c.kind === 'audio') used.add(c.ref);
-  const channels = project.channels.filter((c) => !used.has(c.id)).map((c) => c.id);
+  const channels = project.channels.filter((c) => !used.has(c.id) && (!allowed || allowed.channels.has(c.id))).map((c) => c.id);
   let next = E.removeChannels(project, channels);
   const inPlaylist = new Set(next.clips.filter((c) => c.kind === 'pattern').map((c) => c.ref));
-  const empty = next.patterns.filter((p) => !inPlaylist.has(p.id) && !Object.values(p.notes).some((l) => l.length)).map((p) => p.id);
+  const empty = next.patterns.filter((p) => !inPlaylist.has(p.id) && !Object.values(p.notes).some((l) => l.length) && (!allowed || allowed.patterns.has(p.id))).map((p) => p.id);
   const keepOne = empty.length === next.patterns.length ? empty.slice(1) : empty;
   for (const id of keepOne) next = E.removePattern(next, id);
   const refs = new Set(next.channels.map((c) => c.sample).filter(Boolean));
-  const samples = Object.keys(next.samples).filter((id) => !refs.has(id));
+  const samples = Object.keys(next.samples).filter((id) => !refs.has(id) && (!allowed || allowed.samples.has(id)));
   if (samples.length) {
     const kept = { ...next.samples };
     for (const id of samples) delete kept[id];
     next = { ...next, samples: kept };
   }
-  return { project: next, channels: channels.length, patterns: keepOne.length, samples: samples.length };
+  return { project: next, channels: channels.length, patterns: keepOne.length, samples: samples.length, removed: { channels, patterns: keepOne, samples } };
 }
 
 export async function purgeCommand(app) {
   const { store } = app;
   const loadVersion = store.loadVersion;
   const preview = purgeUnused(store.project);
-  const parts = [];
   const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
-  if (preview.channels) parts.push(n(preview.channels, 'unused channel'));
-  if (preview.patterns) parts.push(n(preview.patterns, 'empty pattern'));
-  if (preview.samples) parts.push(n(preview.samples, 'unused sample'));
-  if (!parts.length) {
+  const describe = (result) => [
+    result.channels && n(result.channels, 'unused channel'),
+    result.patterns && n(result.patterns, 'empty pattern'),
+    result.samples && n(result.samples, 'unused sample'),
+  ].filter(Boolean).join(', ');
+  const summary = describe(preview);
+  if (!summary) {
     app.notify('Nothing to purge: every channel, pattern and sample is in use');
     return;
   }
-  const ok = await confirmDialog({ store, title: 'Purge unused', message: `Remove ${parts.join(', ')}? You can undo this.`, confirm: 'Remove', danger: true });
+  const allowed = Object.fromEntries(Object.entries(preview.removed).map(([kind, ids]) => [kind, new Set(ids)]));
+  const ok = await confirmDialog({ store, title: 'Purge unused', message: `Remove ${summary}? You can undo this.`, confirm: 'Remove', danger: true });
   if (!ok || store.loadVersion !== loadVersion) return;
-  store.apply('Purge unused', (p) => purgeUnused(p).project);
-  app.notify(`Removed ${parts.join(', ')}`);
+  const result = store.apply('Purge unused', (p) => purgeUnused(p, allowed));
+  const removed = describe(result);
+  app.notify(removed ? `Removed ${removed}` : 'Nothing removed: the confirmed items are now in use or no longer exist');
 }
