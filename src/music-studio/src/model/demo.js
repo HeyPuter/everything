@@ -6,6 +6,7 @@ import { drumPreset, synthPreset, STARTER_KIT } from '../instruments/presets.js'
 import { createSlot } from './project.js';
 import { STEP, PPQ } from './time.js';
 import { uid } from '../lib/util.js';
+import { uniqueNoteIds } from './note-ids.js';
 
 const drum = (preset, color, mixer) => createChannel({ type: 'drum', name: preset, color, params: drumPreset(preset).params, mixer });
 const synth = (preset, name, color, mixer) => createChannel({ type: 'synth', name, color, params: synthPreset(preset).params, mixer });
@@ -81,6 +82,7 @@ export function demoProject() {
   p.mixer[5] = { ...p.mixer[5], fx: [{ ...createSlot('reverb'), params: { ...createSlot('reverb').params, wet: 0.3 } }] };
   p.mixer[6] = { ...p.mixer[6], fx: [createSlot('delay'), createSlot('reverb')] };
   p.mixer[0] = { ...p.mixer[0], fx: [createSlot('limiter')] };
+  for (const pattern of p.patterns) for (const [cid, notes] of Object.entries(pattern.notes)) pattern.notes[cid] = uniqueNoteIds(notes);
   p.ui = { pattern: beat.id };
   return p;
 }

@@ -17,7 +17,7 @@
 import { PPQ } from '../model/time.js';
 import { createChannel, createPattern, createClip, colorAt, patternById, patternResolver, patternLength, busyInserts, freeInsert } from '../model/project.js';
 import * as E from '../model/edits.js';
-import { uid } from '../lib/util.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 import { trackAudible } from '../playlist/clips.js';
 import { synthPreset, drumPreset } from '../instruments/presets.js';
 
@@ -107,7 +107,8 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     clips.push(createClip({ kind: 'pattern', track: firstTrack + clips.length, start: 0, len, ref: pat.id }));
     return pat;
   };
-  const note = (n, key = n.key) => ({ id: uid(6), key, pos: toTicks(n.tick, ppq), len: Math.max(1, toTicks(n.len, ppq)), vel: Math.min(1, n.vel / 127), pan: 0 });
+  const nextNoteId = noteIdGenerator();
+  const note = (n, key = n.key) => ({ id: nextNoteId(), key, pos: toTicks(n.tick, ppq), len: Math.max(1, toTicks(n.len, ppq)), vel: Math.min(1, n.vel / 127), pan: 0 });
 
   // Melodic parts first, in file order.
   let partNo = 0;

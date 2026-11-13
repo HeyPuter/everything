@@ -5,10 +5,11 @@
 // piano-roll preview). Every edit here is pure: notes in, notes (or a
 // project) out, so the rack, its menus and the tests share one source.
 
-import { uid, clamp } from '../lib/util.js';
+import { clamp } from '../lib/util.js';
 import { STEP, ticksPerBeat, ticksPerBar } from '../model/time.js';
 import { patternLength, DEFAULT_KEY } from '../model/project.js';
 import { setNotes, getNotes } from '../model/edits.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 
 export const DEFAULT_VEL = 0.78;
 export const MAX_BARS = 16;
@@ -62,7 +63,7 @@ export function onSteps(notes, count = Infinity) {
   return [...set].sort((a, b) => a - b);
 }
 
-const stepNote = (key, s, vel = DEFAULT_VEL) => ({ id: uid(6), key, pos: s * STEP, len: STEP, vel, pan: 0 });
+const stepNote = (id, key, s, vel = DEFAULT_VEL) => ({ id, key, pos: s * STEP, len: STEP, vel, pan: 0 });
 
 /**
  * Turns the listed steps on or off. Steps already in the wanted state keep
@@ -75,7 +76,9 @@ export function paintSteps(notes, steps, on, root = DEFAULT_KEY) {
   const has = new Set(list.map((n) => Math.floor(n.pos / STEP)));
   if (on) {
     const add = [...want].filter((s) => s >= 0 && !has.has(s));
-    return add.length ? [...list, ...add.map((s) => stepNote(root, s))] : list;
+    if (!add.length) return list;
+    const nextId = noteIdGenerator(list);
+    return [...list, ...add.map((s) => stepNote(nextId(), root, s))];
   }
   const next = list.filter((n) => !want.has(Math.floor(n.pos / STEP)));
   return next.length === list.length ? list : next;
@@ -95,8 +98,9 @@ export function setStepVelocity(notes, step, vel) {
 
 /** Steps on every `every` steps from `offset` across `count` steps (replaces the row). */
 export function fillSteps(count, every, root = DEFAULT_KEY, offset = 0) {
+  const nextId = noteIdGenerator();
   const out = [];
-  for (let s = offset; s < count; s += Math.max(1, every)) out.push(stepNote(root, s));
+  for (let s = offset; s < count; s += Math.max(1, every)) out.push(stepNote(nextId(), root, s));
   return out;
 }
 
@@ -117,6 +121,7 @@ export function shiftNotes(notes, by, count) {
  * Velocities vary a little so the row breathes.
  */
 export function randomSteps(count, { root = DEFAULT_KEY, density = 0.5, rng = Math.random, sig = [4, 4] } = {}) {
+  const nextId = noteIdGenerator();
   const beat = stepsPerBeat(sig);
   const half = Math.max(1, beat / 2);
   const out = [];
@@ -129,7 +134,7 @@ export function randomSteps(count, { root = DEFAULT_KEY, density = 0.5, rng = Ma
     p = clamp(p * (0.4 + density * 1.2), 0, 0.95);
     if (rng() < p) {
       const accent = s % beat === 0 ? 0.1 : -0.08;
-      out.push(stepNote(root, s, clamp(DEFAULT_VEL + accent + (rng() - 0.5) * 0.2, 0.25, 1)));
+      out.push(stepNote(nextId(), root, s, clamp(DEFAULT_VEL + accent + (rng() - 0.5) * 0.2, 0.25, 1)));
     }
   }
   return out;
@@ -137,7 +142,8 @@ export function randomSteps(count, { root = DEFAULT_KEY, density = 0.5, rng = Ma
 
 /** Copies notes with fresh ids (paste between patterns or channels). */
 export function copyNotes(notes, { key } = {}) {
-  return (notes || []).map((n) => ({ ...n, id: uid(6), key: key ?? n.key }));
+  const nextId = noteIdGenerator(notes || []);
+  return (notes || []).map((n) => ({ ...n, id: nextId(), key: key ?? n.key }));
 }
 
 // ------------------------------------------------------------------ project wrappers

@@ -5,6 +5,7 @@
 import { uid, reserveId, clamp, moveItem } from '../lib/util.js';
 import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, cloneName, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY } from './project.js';
 import { STEP } from './time.js';
+import { noteIdGenerator, uniqueNoteIds } from './note-ids.js';
 
 // ------------------------------------------------------------------ helpers
 
@@ -95,7 +96,11 @@ export function cloneChannel(project, id, { withNotes = false } = {}) {
   if (withNotes) {
     next = {
       ...next,
-      patterns: next.patterns.map((p) => (p.notes[id] ? { ...p, notes: { ...p.notes, [copy.id]: p.notes[id].map((n) => ({ ...n, id: uid(6) })) } } : p)),
+      patterns: next.patterns.map((p) => {
+        if (!p.notes[id]) return p;
+        const nextId = noteIdGenerator(p.notes[id]);
+        return { ...p, notes: { ...p.notes, [copy.id]: p.notes[id].map((n) => ({ ...n, id: nextId() })) } };
+      }),
     };
   }
   return { project: next, id: copy.id };
@@ -139,7 +144,10 @@ export function clonePattern(project, id) {
   if (i < 0) return { project, id: null };
   const src = project.patterns[i];
   const notes = {};
-  for (const [k, list] of Object.entries(src.notes)) notes[k] = list.map((n) => ({ ...n, id: uid(6) }));
+  for (const [k, list] of Object.entries(src.notes)) {
+    const nextId = noteIdGenerator(list);
+    notes[k] = list.map((n) => ({ ...n, id: nextId() }));
+  }
   const copy = { ...src, id: uid(), name: cloneName(src.name), notes };
   const patterns = project.patterns.slice();
   patterns.splice(i + 1, 0, copy);
@@ -169,7 +177,8 @@ export function getNotes(project, patternId, channelId) {
 }
 
 export function addNotes(project, patternId, channelId, notes) {
-  return setNotes(project, patternId, channelId, [...getNotes(project, patternId, channelId), ...notes.map((n) => (n.id ? n : { ...n, id: uid(6) }))]);
+  const existing = getNotes(project, patternId, channelId);
+  return setNotes(project, patternId, channelId, [...existing, ...uniqueNoteIds(notes, existing)]);
 }
 
 export function removeNotes(project, patternId, channelId, ids) {
@@ -208,7 +217,7 @@ export function toggleStep(project, patternId, channelId, step, on) {
   if (want === has) return project;
   if (!want) return setNotes(project, patternId, channelId, list.filter((n) => !(n.pos >= a && n.pos < a + STEP)));
   const ch = project.channels.find((c) => c.id === channelId);
-  return setNotes(project, patternId, channelId, [...list, createNote({ key: ch?.root ?? DEFAULT_KEY, pos: a, len: STEP })]);
+  return addNotes(project, patternId, channelId, [createNote({ key: ch?.root ?? DEFAULT_KEY, pos: a, len: STEP })]);
 }
 
 // ------------------------------------------------------------------ playlist
