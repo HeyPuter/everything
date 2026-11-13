@@ -73,6 +73,7 @@ export async function saveContents(e: Editor, s: DocumentSession) {
     e.modal?.apply();
   }
   const doc = s.doc;
+  const extrasRevision = s.extrasRevision;
   const next = await contentsFromDocument(e, pdoc, parent.assets, doc, s.assets, { name: o.name, stack: prev?.stack, id: o.contents });
   if (parent.doc !== pdoc) {
     e.message('The parent document changed while saving; save the contents again.');
@@ -91,6 +92,7 @@ export async function saveContents(e: Editor, s: DocumentSession) {
   parent.hasDocument = true;
   o.contents = next.id;
   s.saved = doc;
+  s.savedExtrasRevision = extrasRevision;
   e.update();
   e.message(`Updated ${target.length > 1 ? `${target.length} instances of “${o.name}”` : `“${o.name}”`} in ${parent.doc.name}.`);
 }
