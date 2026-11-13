@@ -657,7 +657,9 @@ export class WaveformView {
       const { dir, frames, curve } = this.fadeDrag;
       ctx.strokeStyle = cssVar('--envelope-vol');
       ctx.lineWidth = 1.5;
-      for (const lane of lanes) {
+      lanes.forEach((lane, ch) => {
+        // Only the channels enabled for editing get the fade.
+        if (sel.channels[ch] === false) return;
         ctx.beginPath();
         const start = dir === 'in' ? 0 : doc.length - frames;
         for (let i = 0; i <= 64; i++) {
@@ -670,7 +672,7 @@ export class WaveformView {
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
-      }
+      });
       ctx.lineWidth = 1;
     }
     // Fade handles sit at the visible file edges.

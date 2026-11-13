@@ -263,3 +263,19 @@ describe('zooming in at the deepest zoom', () => {
     expect(doc.view).toMatchObject({ start: 100000, end: 100016 });
   });
 });
+
+describe('fade handle preview', () => {
+  it('draws the fade curve only on the channels the fade applies to', async () => {
+    const { doc, view } = await makeView({ channels: 6 });
+    doc.setChannelEnabled(2, false);
+    doc.setChannelEnabled(3, false);
+    let strokes = 0;
+    const ctx = fakeContext();
+    ctx.stroke = () => strokes++;
+    view.overlay.getContext = () => ctx;
+    view.fadeDrag = { dir: 'in', frames: 4800, curve: 0 };
+    view.invalidate('overlay');
+    view.frame();
+    expect(strokes).toBe(4);
+  });
+});
