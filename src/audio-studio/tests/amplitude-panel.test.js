@@ -131,3 +131,27 @@ describe('Amplitude Statistics theme', () => {
     }
   });
 });
+
+describe('Amplitude Statistics keyboard focus', () => {
+  it('keeps focus on Cancel during a scan and returns it to the scan button', async () => {
+    const { panel } = setup();
+    document.body.append(panel.el);
+    try {
+      const scanFile = [...panel.el.querySelectorAll('button')].find(
+        (b) => b.textContent === 'Scan File',
+      );
+      let release;
+      gate.hold = new Promise((r) => (release = r));
+      scanFile.focus();
+      scanFile.click();
+      // Scan File is disabled while scanning, which would drop focus to the page.
+      await expect.poll(() => document.activeElement.textContent).toBe('Cancel');
+      release();
+      gate.hold = null;
+      await expect.poll(() => scanFile.disabled).toBe(false);
+      expect(document.activeElement).toBe(scanFile);
+    } finally {
+      panel.el.remove();
+    }
+  });
+});
