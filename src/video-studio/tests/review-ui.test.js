@@ -114,6 +114,61 @@ describe('thread list', () => {
     expect(mode === 'Reply' ? onReply : onEdit).toHaveBeenCalledTimes(1);
   });
 
+  it('does not submit an edit twice while its save is pending, including after sync', async () => {
+    let finish;
+    const onEdit = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const list = createThreadList({ onEdit });
+    document.body.append(list.el);
+    const opts = { fps: 30, me, role: 'commenter' };
+    list.update([thread()], opts);
+    btn(list.el, 'Edit').click();
+    const input = list.el.querySelector('textarea');
+    input.value = 'Corrected';input.dispatchEvent(new Event('input'));
+    const submit = () => list.el.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    submit();
+    submit();
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    list.update([thread({ resolved: true })], opts);
+    expect(btn(list.el, 'Save').disabled).toBe(true);
+    submit();
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    finish();await tick();
+    expect(list.el.querySelector('textarea')).toBe(null);
+  });
+
+  it.each(['Reply', 'Edit'])('retains a pending %s draft across sync and lets a failed save retry', async (mode) => {
+    let fail;
+    const send = vi.fn().mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; })).mockResolvedValue(undefined);
+    const list = createThreadList({ onReply: send, onEdit: send });
+    document.body.append(list.el);
+    const opts = { fps: 30, me, role: 'commenter' };
+    list.update([thread()], opts);
+    btn(list.el, mode).click();
+    let input = list.el.querySelector('textarea');
+    input.value = 'Keep this draft';input.dispatchEvent(new Event('input'));input.focus();
+    input.closest('form').requestSubmit();
+    expect(input.isConnected).toBe(true);
+    expect(input.readOnly).toBe(true);
+    list.update([thread({ resolved: true })], opts);
+    input = list.el.querySelector('textarea');
+    expect(input.value).toBe('Keep this draft');
+    expect(input.readOnly).toBe(true);
+    expect(btn(input.closest('form'), 'Cancel').disabled).toBe(true);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(input.isConnected).toBe(true);
+    input.closest('form').requestSubmit();
+    expect(send).toHaveBeenCalledTimes(1);
+    fail(new Error('Offline'));await tick();
+    input = list.el.querySelector('textarea');
+    expect(input.value).toBe('Keep this draft');
+    expect(input.readOnly).toBe(false);
+    expect(list.el.querySelector('.rv-form-error').textContent).toBe('Offline');
+    expect(input.closest('form').querySelector('[type="submit"]').disabled).toBe(false);
+    input.closest('form').requestSubmit();await tick();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(list.el.querySelector('textarea')).toBe(null);
+  });
+
   it('shows time, author, text and replies, and seeks on the time', () => {
     const onSeek = vi.fn();
     const list = createThreadList({ onSeek });
