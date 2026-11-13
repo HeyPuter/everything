@@ -133,6 +133,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   const groups = linkGroups(def);
   const subscribers = new Set();
   const range = doc ? doc.editRange() : null;
+  // What Preview plays: the file being processed, or for a chain being edited (a rack
+  // slot, a session track's or clip's effects, track EQ) the document it plays in.
+  const playDoc = doc || (mode === 'edit' ? app.active : null);
   const cleanups = [];
 
   // ----------------------------------------------------------- values
@@ -374,7 +377,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     if (mode === 'edit') onPower?.(power);
     else if (previewing) pushPreview();
   } }, icon('power', 15));
-  const playBtn = h('button.icon-btn.fx-play', { type: 'button', 'aria-label': 'Preview', title: realtime || mode === 'edit' ? 'Play the selection through the effect' : 'Preview is not available for this effect', disabled: !doc || (!realtime && mode !== 'edit'), onclick: () => togglePreview() }, icon('transport-play', 15));
+  const playBtn = h('button.icon-btn.fx-play', { type: 'button', 'aria-label': 'Preview', title: realtime || mode === 'edit' ? 'Play the selection through the effect' : 'Preview is not available for this effect', disabled: !playDoc || (!realtime && mode !== 'edit'), onclick: () => togglePreview() }, icon('transport-play', 15));
   const loopBtn = h('button.icon-btn.fx-loop', { type: 'button', 'aria-pressed': String(app.prefs.get('fxPreviewLoop') !== false), 'aria-label': 'Loop preview', title: 'Loop the preview', onclick: () => {
     const on = loopBtn.getAttribute('aria-pressed') !== 'true';
     loopBtn.setAttribute('aria-pressed', String(on));
@@ -405,9 +408,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }
   function startPlayback() {
     const loop = loopBtn.getAttribute('aria-pressed') === 'true';
-    const sel = doc.selection;
+    const sel = playDoc.selection;
     const hasSel = sel.end > sel.start;
-    app.play({ from: hasSel ? sel.start : doc.cursor, loop });
+    app.play({ from: hasSel ? sel.start : playDoc.cursor, loop });
   }
   function setPreviewing(on) {
     previewing = on;
@@ -416,12 +419,12 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     playBtn.classList.toggle('on', on);
   }
   function togglePreview() {
-    if (!doc) return;
+    if (!playDoc) return;
     if (previewing) {
       app.stop();
       return;
     }
-    if (app.active !== doc) app.activate(doc);
+    if (app.active !== playDoc) app.activate(playDoc);
     setPreviewing(true);
     pushPreview();
     startPlayback();
@@ -445,8 +448,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }));
   const meterLoop = () => {
     meterRaf = 0;
-    if (!previewing || !doc) return;
-    meters.set(inputPeak(doc, app.engine.position), out);
+    if (!previewing || !playDoc) return;
+    // A session has no single input to read: its meters show the output.
+    meters.set(doc ? inputPeak(doc, app.engine.position) : [0, 0], out);
     out = out.map((v) => v * 0.8);
     meterRaf = requestAnimationFrame(meterLoop);
   };

@@ -4,6 +4,10 @@ import { numberField } from '../src/effects/layout.js';
 import { coerce } from '../src/effects/params.js';
 import { ratioField, parseClock } from '../src/effects/views/time-pitch.js';
 import { beatsField } from '../src/effects/time-units.js';
+import { openEffectDialog } from '../src/effects/dialog.js';
+import { getEffect } from '../src/effects/index.js';
+import { Session } from '../src/model/session.js';
+import { fakeApp } from './fx-helpers.js';
 
 /** Opens a value field for typing and commits it unchanged; returns the text it offered. */
 const commitUnchanged = (el) => {
@@ -148,5 +152,30 @@ describe('custom value fields with a decimal comma', () => {
     expect(parseClock('0:02,5')).toBe(2.5);
     expect(parseClock('2,5')).toBe(2.5);
     expect(parseClock('1:02.5')).toBe(62.5);
+  });
+});
+
+describe('effect dialogs for session chains', () => {
+  it('preview by playing the session', async () => {
+    const app = fakeApp();
+    const doc = new Session({ name: 'S', sampleRate: 48000, tracks: 2 });
+    doc.setSelection(4800, 9600);
+    app.active = doc;
+    const plays = [];
+    app.play = (o) => plays.push(o);
+    // A track's effect slot (rack.js) or track EQ: edit mode, no audio file.
+    const p = openEffectDialog(app, getEffect('studioReverb'), {
+      mode: 'edit',
+      onChange: () => {},
+    });
+    const dlg = [...document.querySelectorAll('.fx-dialog')].at(-1);
+    const play = dlg.querySelector('.fx-play');
+    // There was no way to hear the chain: Preview was off and the dialog holds the keyboard.
+    expect(play.disabled).toBe(false);
+    play.click();
+    expect(plays).toEqual([{ from: 4800, loop: true }]);
+    expect(play.getAttribute('aria-label')).toBe('Stop preview');
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    expect(await p).toBeNull();
   });
 });
