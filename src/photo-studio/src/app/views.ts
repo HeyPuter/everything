@@ -265,7 +265,9 @@ export class WindowManager {
   async ensureSnapshots() {
     if (!this.multi || !this.e.renderer) return;
     if (this.capturing) return this.capturing;
-    this.capturing = (async () => {
+    // Install the promise before a no-op pass can finish. Clear it in the
+    // same turn as completion, before queued edits can request another pass.
+    this.capturing = Promise.resolve().then(async () => {
       try {
         // A document or font can change while an earlier frame is rendering.
         // Keep the revisions actually rendered, then catch up before completing
@@ -284,11 +286,10 @@ export class WindowManager {
         }
       } catch (error) {
         console.error(error);
+      } finally {
+        this.capturing = undefined;
       }
       this.queueDraw();
-    })().finally(() => {
-      // Even a no-op pass finishes after the promise has been installed.
-      this.capturing = undefined;
     });
     return this.capturing;
   }
