@@ -229,6 +229,27 @@ describe('home project list', () => {
     expect(reads).toHaveBeenCalledTimes(1);
   });
 
+  it('shares pending cover reads across redraws and releases their only URL', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Cover' });
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const reads = vi.spyOn(lib, 'coverBlob').mockReturnValue(pending);
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:cover-${create.mock.calls.length}`);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const h = mount(lib);
+    await settle();
+    h.renderGrid();
+    h.renderGrid();
+    finish(new Blob(['jpg'], { type: 'image/jpeg' }));
+    await settle();
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('.project-cover img').getAttribute('src')).toBe('blob:cover-1');
+    h.dispose();
+    expect(revoke.mock.calls).toEqual([['blob:cover-1']]);
+  });
+
   it('reads covers as their cards come near the screen, not all at once', async () => {
     const watched = [];
     globalThis.IntersectionObserver = class {

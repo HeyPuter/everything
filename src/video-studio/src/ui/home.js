@@ -98,6 +98,7 @@ export class Home {
     this.trash = [];
     this.loaded = false;
     this.coverUrls = new Map();
+    this.coverLoads = new Map();
     this.noCover = new Set(); // projects without a cover, so redraws (search) don't ask again
     this.view = viewFromHash();
     this.onHash = () => {
@@ -421,13 +422,26 @@ export class Home {
     let url = this.coverUrls.get(id);
     if (!url) {
       if (this.noCover.has(id)) return;
-      const blob = await this.library.coverBlob(id);
-      if (!blob) {
-        this.noCover.add(id);
-        return;
+      let pending = this.coverLoads.get(id);
+      if (!pending) {
+        pending = (async () => {
+          const blob = await this.library.coverBlob(id);
+          if (!blob) {
+            this.noCover.add(id);
+            return null;
+          }
+          const loaded = URL.createObjectURL(blob);
+          this.coverUrls.set(id, loaded);
+          return loaded;
+        })();
+        this.coverLoads.set(id, pending);
       }
-      url = URL.createObjectURL(blob);
-      this.coverUrls.set(id, url);
+      try {
+        url = await pending;
+      } finally {
+        if (this.coverLoads.get(id) === pending) this.coverLoads.delete(id);
+      }
+      if (!url) return;
     }
     el.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async' }));
   }
