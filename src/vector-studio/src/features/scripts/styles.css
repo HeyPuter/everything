@@ -1,0 +1,154 @@
+/* Scripts: the running script in the status bar, the Script Editor and the Scripting Reference. */
+
+.status-script {
+  gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.status-script-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+  font-size: var(--fs-sm);
+}
+
+.status-script-bar {
+  width: 80px;
+  height: 6px;
+}
+
+.status-script-stop {
+  min-height: 22px;
+  padding: 0 10px;
+}
+
+.script-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.script-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.script-editor-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+}
+
+.script-editor-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.script-editor-code {
+  width: 100%;
+  min-height: 40dvh;
+  resize: vertical;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.script-editor-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.script-editor-output {
+  flex: 1;
+  margin: 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.script-editor-output.error {
+  color: var(--danger, #d33);
+}
+
+.script-editor-pos {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.script-editor-progress {
+  width: 120px;
+}
+
+.script-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.script-ref {
+  max-width: 72ch;
+}
+
+.script-ref-intro {
+  margin: 0 0 8px;
+}
+
+.script-ref-example {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  font-size: 12px;
+}
+
+.script-ref-title {
+  margin: 14px 0 6px;
+  font-size: var(--fs-md, 14px);
+}
+
+.script-ref-list {
+  margin: 0;
+}
+
+.script-ref-list dt {
+  margin-top: 8px;
+}
+
+.script-ref-list dt code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.script-ref-list dd {
+  margin: 2px 0 0 16px;
+  color: var(--text-2);
+}
+
+/* Finger-sized targets on touch screens. */
+@media (pointer: coarse) {
+  .script-editor .btn,
+  .script-editor-open,
+  .script-editor-name,
+  .script-editor-dialog .dialog-footer .btn,
+  .script-ref-dialog .dialog-footer .btn {
+    min-height: 44px;
+  }
+
+  .script-editor-code {
+    font-size: 15px;
+  }
+
+  .status-script-stop {
+    min-height: 34px;
+  }
+}
