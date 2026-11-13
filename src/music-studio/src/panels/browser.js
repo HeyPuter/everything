@@ -816,7 +816,8 @@ function createBrowser(app, host) {
   });
 
   // ---------------------------------------------------------------- live updates
-  store.on('change', (p, prev) => {
+  store.on('change', (p, prev, info) => {
+    if (info?.source === 'load') stopPreview();
     if (p.patterns === prev.patterns && p.channels === prev.channels && p.samples === prev.samples && p.automation === prev.automation) return;
     if (syncProject()) invalidate();
   });

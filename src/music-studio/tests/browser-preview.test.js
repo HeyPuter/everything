@@ -546,3 +546,32 @@ describe('browser search keyboard actions', () => {
     expect(body.querySelector('[data-id="inst:synth"]')).not.toBe(null);
   });
 });
+
+it('cancels pending instrument previews when another project is loaded', async () => {
+  const { app, gate, clickInstrument } = setup();
+  clickInstrument('synth');
+  app.store.load(newProject());
+  gate.resolve(true);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(app.engine.audition).not.toHaveBeenCalled();
+});
+
+it('stops cloud audio previews when a project is loaded even if its references are unchanged', async () => {
+  puter.readURL.mockResolvedValueOnce('https://example.test/tone.wav');
+  const { app, preview, audio } = await cloudSetup();
+  preview();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(audio.play).toHaveBeenCalledOnce();
+  app.store.load(app.store.project);
+  expect(audio.pause).toHaveBeenCalledOnce();
+  expect(audio.removeAttribute).toHaveBeenCalledWith('src');
+});
+
+it('keeps instrument previews available across ordinary project edits', async () => {
+  const { app, gate, clickInstrument } = setup();
+  clickInstrument('synth');
+  app.store.apply('Tempo', (p) => ({ ...p, bpm: 101 }));
+  gate.resolve(true);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(app.engine.audition).toHaveBeenCalledOnce();
+});
