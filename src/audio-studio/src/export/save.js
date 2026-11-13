@@ -86,16 +86,17 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
  */
 export async function saveFlow(app, doc, { mode = 'export', range = null } = {}) {
   const [start, end] = range || [0, doc.length];
-  let initialName;
+  // After a declined Replace or a failed sign-in the dialog reopens with the same choices.
+  let initial = null;
   for (;;) {
-    const r = await exportFileDialog(app, doc, { mode, frames: end - start, initialName });
+    const r = await exportFileDialog(app, doc, { mode, frames: end - start, initial });
     if (!r) return false;
     let path = null;
     let dir = null;
     if (r.location.type === 'puter') {
       if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) {
         app.notify('Sign in to Puter to save there, or choose This device.', { error: true });
-        initialName = r.fileName;
+        initial = r;
         continue;
       }
       dir = r.location.dir || (await puter.appDir());
@@ -104,7 +105,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
       if (!isCurrent && (await puter.exists(path))) {
         const ok = await confirmDialog({ title: 'Replace File?', message: `"${r.fileName}" already exists in ${dir}. Do you want to replace it?`, confirm: 'Replace', danger: true });
         if (!ok) {
-          initialName = r.fileName;
+          initial = { ...r, location: { ...r.location, dir } };
           continue;
         }
       }

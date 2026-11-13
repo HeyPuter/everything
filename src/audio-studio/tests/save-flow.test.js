@@ -145,3 +145,53 @@ describe('saving a WAV file opened with production sound chunks', () => {
     expect(exports.at(-1)[0].chunks).toBe(doc.info.wavChunks);
   });
 });
+
+describe('Save As when the file exists and Replace is declined', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.body.replaceChildren();
+  });
+
+  it('reopens the dialog with the folder, format and sample type chosen before', async () => {
+    const write = vi.fn(async () => ({ uid: 'u1' }));
+    window.puter = {
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) },
+      fs: { write, stat: async () => ({}) },
+      ui: { showDirectoryPicker: async () => ({ path: '/u/Other' }) },
+    };
+    const { Prefs } = await import('../src/lib/prefs.js');
+    const app = { ...fakeApp(), prefs: new Prefs(null) };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 44100, channels: 2, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/Music/Song.wav' };
+    const saving = saveDocument(app, doc, { saveAs: true });
+    await wait(20);
+    const $ = (sel) => document.querySelector(sel);
+    const button = (root, text) => [...root.querySelectorAll('.btn')].find((b) => b.textContent === text);
+    const change = (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event('change'));
+    };
+    button($('.io-export-dialog'), 'Browse...').click();
+    await wait(10);
+    change($('.io-export-dialog select[aria-label="Format"]'), 'mp3');
+    change($('.io-export-dialog select[aria-label="Bitrate (CBR)"]'), 128);
+    button($('.io-export-dialog'), 'Change...').click();
+    change($('.io-export-dialog select[aria-label="Channels"]'), 1);
+    button($('.io-export-dialog'), 'OK').click();
+    $('.io-export-dialog .dialog-foot .btn.primary').click();
+    await wait(20);
+    // "Song.mp3" exists in /u/Other: decline Replace.
+    expect($('.dialog-backdrop .dialog-title')?.textContent).toBe('Replace File?');
+    button(document, 'Cancel').click();
+    await wait(20);
+    const dialog = $('.io-export-dialog');
+    expect(dialog.querySelector('.io-name').value).toBe('Song.mp3');
+    expect(dialog.querySelector('.io-path').textContent).toBe('/u/Other');
+    expect(dialog.querySelector('select[aria-label="Format"]').value).toBe('mp3');
+    expect(dialog.querySelector('select[aria-label="Bitrate (CBR)"]').value).toBe('128');
+    expect(dialog.querySelector('.io-summary').textContent).toContain('Mono');
+    button(dialog.querySelector('.dialog-foot'), 'Cancel').click();
+    expect(await saving).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+  });
+});
