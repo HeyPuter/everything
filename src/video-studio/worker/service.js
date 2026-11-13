@@ -12,7 +12,8 @@
  *   vsr:r:<rid>:v:<n>                { n, path, size, mime, width, height, fps, duration, range, timelineId?, title, created }
  *   vsr:r:<rid>:url:<n>              { url, expires } read link for version n's video
  *   vsr:r:<rid>:m:<uuid>             base grant, grant_<invite> snapshots, blocked_<n> flags, scoped role/name overrides
- *   vsr:r:<rid>:mseq / :mi:<n>       join order -> uuid (the member list)
+ *   vsr:r:<rid>:mseq / :mi:<n>       legacy member list
+ *   vsr:r:<rid>:mdir                 member_<escaped uuid> -> uuid (written before granting access)
  *   vsr:invite:<sha256(token)>       { review, id, n?, role, created, expires, revoked, uses }
  *   vsr:r:<rid>:iseq / :ii:<n>       invite order -> token hash (the invite list)
  *   vsr:r:<rid>:seq                  change counter for comments
@@ -155,7 +156,7 @@ export class ReviewService {
     if (!meta) fail(404, 'This review no longer exists.');
     const owner = await this.owner();
     if (user.uuid === owner.uuid) return { meta, role: 'owner' };
-    const member = memberState(await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`));
+    const member = await this.ensureMemberIndexed(rid, memberState(await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`)));
     if (!member || member.removed) fail(403, 'You do not have access to this review. Ask the owner for an invite link.');
     return { meta, role: memberValue(member, 'role'), member };
   }
@@ -274,7 +275,8 @@ export class ReviewService {
     if (!meta) fail(404, 'This review no longer exists.');
     const owner = await this.owner();
     if (user.uuid === owner.uuid) return { review: await this.view(rid, 'owner', user, meta) };
-    const existing = memberState(await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`));
+    let existing = memberState(await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`));
+    existing = await this.ensureMemberIndexed(rid, existing);
     const validToken = typeof input.token === 'string' && TOKEN.test(input.token);
     const tokenHash = validToken ? await hash(input.token) : null;
     if (existing && !existing.removed) {
@@ -315,11 +317,15 @@ export class ReviewService {
     if (inviteBlocked(existing, invite)) fail(403, 'The owner removed you from this review. Ask them for a new link.');
     // People removed from the review don't count against its limit; someone removed coming back with a new link
     // does. Everyone who ever joined stays on the list, so the list itself is capped too.
-    const joinedEver = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
+    const index = await this.memberIndex(rid);
+    const joinedEver = index.count + index.uuids.length;
     const full = () => fail(403, 'This review has reached its limit of people.');
-    if (!existing && joinedEver >= LIMITS.members * MEMBER_LIST_FACTOR) full();
+    if (!existing && !index.uuids.includes(user.uuid) && joinedEver >= LIMITS.members * MEMBER_LIST_FACTOR) full();
     if (joinedEver >= LIMITS.members && (await this.memberRecords(rid)).filter((m) => !m.removed).length >= LIMITS.members) full();
-    let member = { uuid: user.uuid, username: user.username, role: invite.role, joined: this.now(), invite: invite.id, inviteN: invite.n || 0,
+    // Persist the directory first. Retrying either write reuses the same UUID
+    // entry, and a failed membership write leaves no undiscoverable access.
+    if (!existing) await this.indexMember(rid, user.uuid);
+    let member = { uuid: user.uuid, username: user.username, indexed: true, role: invite.role, joined: this.now(), invite: invite.id, inviteN: invite.n || 0,
       ...(invite.legacy ? { legacy: true } : {}) };
     const key = `vsr:r:${rid}:m:${user.uuid}`;
     const written = existing
@@ -334,10 +340,6 @@ export class ReviewService {
     if (existing) {
       member = memberState(written);
       if (member.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
-    }
-    if (!existing) {
-      const n = await this.kv.incr(`vsr:r:${rid}:mseq`);
-      await this.kv.set(`vsr:r:${rid}:mi:${n}`, user.uuid);
     }
     await this.kv.incr(`vsr:invite:${tokenHash}`, { uses: 1 }).catch(() => {});
     return { review: await this.view(rid, memberValue(member, 'role'), user, meta) };
@@ -388,10 +390,43 @@ export class ReviewService {
     return { invite: this.inviteView(next) };
   }
 
+  async ensureMemberIndexed(rid, member) {
+    if (!member || member.indexed) return member;
+    // Older workers granted access before writing the list entry. Repair it on
+    // the caller's next visit, preserving concurrent permission changes.
+    const index = await this.memberIndex(rid);
+    const listed = index.uuids.includes(member.uuid) || (await this.legacyMemberIds(rid, index.count)).includes(member.uuid);
+    if (!listed) await this.indexMember(rid, member.uuid);
+    return memberState(await this.kv.update(`vsr:r:${rid}:m:${member.uuid}`, { indexed: true }));
+  }
+
+  async memberIndex(rid) {
+    const [count, directory] = await this.kv.get([`vsr:r:${rid}:mseq`, `vsr:r:${rid}:mdir`]);
+    return { count: count || 0, uuids: Object.values(directory || {}).filter((v) => typeof v === 'string') };
+  }
+
+  async legacyMemberIds(rid, count) {
+    return (await this.many(range(1, count).map((n) => `vsr:r:${rid}:mi:${n}`))).filter((v) => typeof v === 'string');
+  }
+
+  async indexMember(rid, uuid) {
+    // Escape underscores too, so punctuation cannot collide with an existing
+    // escape or become a KV update path. This needs no extra cryptographic work.
+    const field = `member_${uuid.replace(/[^a-zA-Z0-9]/g, (c) => `_${c.charCodeAt(0).toString(16)}_`)}`;
+    await this.kv.update(`vsr:r:${rid}:mdir`, { [field]: uuid });
+  }
+
   async memberRecords(rid) {
-    const count = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
-    const uuids = [...new Set((await this.many(range(1, count).map((n) => `vsr:r:${rid}:mi:${n}`))).filter((x) => typeof x === 'string'))];
-    return (await this.many(uuids.map((u) => `vsr:r:${rid}:m:${u}`))).filter(Boolean).map(memberState);
+    const index = await this.memberIndex(rid);
+    const legacy = [...new Set(await this.legacyMemberIds(rid, index.count))];
+    const seen = new Set(legacy);
+    const uuids = [...legacy, ...index.uuids.filter((uuid) => !seen.has(uuid))];
+    const records = await this.many(uuids.map((u) => `vsr:r:${rid}:m:${u}`));
+    // Preserve the old list order. A KV map has no ordering guarantee, so new
+    // entries use their base grant's join time, unchanged by later rejoins.
+    const recent = records.slice(legacy.length).filter(Boolean)
+      .sort((a, b) => a.joined - b.joined || a.uuid.localeCompare(b.uuid));
+    return [...records.slice(0, legacy.length).filter(Boolean), ...recent].map(memberState);
   }
 
   async members(user, input) {

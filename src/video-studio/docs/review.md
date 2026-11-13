@@ -43,15 +43,15 @@ Owners share a render of a project with other Puter users, who watch it and leav
 
 ## Data (owner's app KV, no listing)
 
-Collections are numbered with `incr` and read back by key in batches, so nothing calls `kv.list`:
+Most collections are numbered with `incr` and read back by key in batches. New member entries use a directory map written with partial updates. Nothing calls `kv.list`:
 
 - `vsr:r:<id>` review; `vsr:r:<id>:vseq` and `:v:<n>` versions; `vsr:project:<projectId>` review of a project; `vsr:pub:<clientId>` finished publishes.
-- `vsr:r:<id>:m:<uuid>` members; `:mseq` and `:mi:<n>` the member list.
+- `vsr:r:<id>:m:<uuid>` members; `:mdir` maps escaped UUID fields to member UUIDs. Legacy `:mseq` and `:mi:<n>` entries remain readable.
 - `vsr:invite:<sha256(token)>` invites (tokens are never stored); `:iseq` and `:ii:<n>` the invite list.
 - `vsr:r:<id>:seq` change counter; `:log:<n>` comment snapshot saved as change n; `:c:<commentId>` latest snapshot.
 - `vsr:r:<id>:url:<n>` cached video read link; `vsr:rate:...`, `vsr:wrate:...` and `vsr:joinfail:...` counters with expiry.
 
-Member grant history is bounded by the review’s 50-invite limit; removal retires old grant payloads in the same update. Normal review polling still reads one member record. Other values stay small (a few KB at most). A change number taken but never written (a crashed request) is skipped once a later change is a minute old; until then sync waits for it, so nothing is missed.
+Member grant history is bounded by the review’s 50-invite limit; removal retires old grant payloads in the same update. Normal review polling still reads one member record. The member directory is about 100 KB for 1,000 UUIDs; other values stay small (a few KB at most). A change number taken but never written (a crashed request) is skipped once a later change is a minute old; until then sync waits for it, so nothing is missed.
 
 ## Authentication
 
@@ -71,7 +71,9 @@ Role changes, invite-based upgrades for current members, and removals use [Puter
 
 Role and display-name overrides are scoped to the membership's granting invite (`role_<invite>` and `username_<invite>`). Reads fall back to the original fields when no override exists. A delayed write for an older grant cannot raise the permissions of a new viewer membership; it returns 409 if the granting invite changed while saving. These fields use the same record and do not add storage calls to normal polling.
 
-First-time membership creation uses [`onlyIfAbsent`](https://docs.puter.com/KV/set/#writing-only-if-absent). If another join already created the record, the losing request rechecks membership and invite validity once rather than overwriting the saved record or adding a second member-list entry. Puter documents that simultaneous conditional writes and counters across regions can both succeed; these guards do not provide global serialization. Cross-region consistency remains a separate concern.
+First-time membership creation uses [`onlyIfAbsent`](https://docs.puter.com/KV/set/#writing-only-if-absent). If another join already created the record, the losing request rechecks membership and invite validity once rather than overwriting the saved record. Directory registration reuses the same UUID field, so simultaneous joins do not add duplicate list entries. Puter documents that simultaneous conditional writes and counters across regions can both succeed; these guards do not provide global serialization. Cross-region consistency remains a separate concern.
+
+New joins persist their UUID in the member directory before creating access. A failed directory write grants no access; a failed member write leaves a reusable directory entry that lists no active member. Retries and lost acknowledgements cannot create an active member without a discoverable entry. Existing numbered lists remain in their original order; new entries are ordered by the base grant's join time. Older records are checked once on their next join or authenticated visit: missing entries are repaired and an `indexed` marker is added with a partial update that preserves removals and role changes. Normal polling still reads one member record, with no directory read after that migration. A new join uses one fewer KV call than the previous numbered-index writes. These guarantees cover the local storage orderings tested; cross-region consistency and simultaneous old/new worker deployments remain unverified.
 
 Rejoins add `grant_<invite>` snapshots instead of replacing the member record. New invites carry their reserved list ordinal. Removal reads the member and current invite counter together, blocks all issued ordinals, and retires old grant payloads in one partial update. Those revocation flags are never cleared by a rejoin. If different fresh invites race, the grant with the later ordinal wins; scoped owner role changes still apply to that grant. Legacy records remain readable, and a legacy invite’s ordinal is recovered from the existing invite index only when needed for rejoining. A genuinely new invite can grant access after removal even in the same clock tick.
 

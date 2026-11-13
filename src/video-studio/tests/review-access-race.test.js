@@ -33,7 +33,7 @@ it.each(['removed', 'role changed', 'unchanged'])('does not overwrite a membersh
   release();await late;env.world.restartWorkers();
   if (change === 'removed') await expect(env.as('bob')('review.get', { review: review.id })).rejects.toMatchObject({ status: 403 });
   else expect((await env.as('bob')('review.get', { review: review.id })).review.role).toBe(change === 'role changed' ? 'viewer' : 'commenter');
-  expect(await env.sdk.alice.kv.get(`vsr:r:${review.id}:mseq`)).toBe(1);
+  expect(Object.values(await env.sdk.alice.kv.get(`vsr:r:${review.id}:mdir`))).toEqual([USERS.bob.uuid]);
 });
 
 it.each(['role change', 'invite upgrade'])('does not undo removal when an older %s finishes', async (mode) => {
