@@ -129,8 +129,8 @@ async function applyImageRequest(request, ids, load, { label = 'Relink', placeme
   const targets = ids.filter((id) => request.current(id));
   if (!targets.length) return null;
   const doc = request.doc;
-  doc.assets.set(data.assetId, data.asset);
   doc.transact(label, () => {
+    doc.assets.set(data.assetId, data.asset);
     for (const id of targets) {
       const node = doc.get(id);
       doc.update(id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(node, data.width, data.height, placement), link: link || undefined });

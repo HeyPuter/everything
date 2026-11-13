@@ -97,10 +97,10 @@ export async function placeImage(app, editor, blob, { point, name = '', select =
   let s = 1;
   if (board && (width > board.w || height > board.h)) s = Math.min(board.w / width, board.h / height);
   const m = multiply(translate(p.x - (width * s) / 2, p.y - (height * s) / 2), scaleM(s));
-  doc.assets.set(assetId, asset);
   const link = blob.puterPath ? { source: 'puter', path: blob.puterPath, name: blob.name || name, size: blob.size, modified: blob.lastModified || Date.now() } : null;
   let id = null;
   doc.transact('Place', () => {
+    doc.assets.set(assetId, asset);
     const t = drawTarget(editor, parent);
     id = doc.insert({ ...node, transform: m, ...(link ? { link } : {}) }, t.parentId, t.index).id;
   });
@@ -134,10 +134,10 @@ export function placeImported(app, editor, r, { point, name = '', select = true,
     return null;
   }
   const doc = editor.doc;
-  for (const [id, a] of Object.entries(r.assets)) doc.assets.set(id, a);
   const p = point || viewCenter(editor);
   let id = null;
   doc.transact('Place', () => {
+    for (const [id, a] of Object.entries(r.assets)) doc.assets.set(id, a);
     onInsert?.(doc);
     const root = { ...r.subtree.nodes[0] };
     if (name && !root.name) root.name = name;
