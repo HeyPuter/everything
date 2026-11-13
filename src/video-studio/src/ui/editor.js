@@ -304,14 +304,14 @@ export class Editor {
    * Export, Preferences and Keyboard shortcuts still work instead of the browser's own.
    */
   onFieldKey(e) {
-    if (e.defaultPrevented || document.querySelector('dialog[open]')) return;
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]')) return;
     const t = e.target;
     if (t.closest?.('.menu, puter-user-menu') || !t.matches?.(TYPING_FIELDS)) return;
     runKey(this.ctx.commands, e, 'field');
   }
 
   onKey(e) {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
     const t = e.target;
     // With a dialog open only Save works (instead of the browser's Save page).
     if (document.querySelector('dialog[open]')) return void runKey(this.ctx.commands, e, 'dialog');

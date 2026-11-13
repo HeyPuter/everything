@@ -531,6 +531,15 @@ describe('animation and color', () => {
 describe('text', () => {
   beforeEach(() => env.store.select(env.text.id));
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not blur text while canceling composition (%j)', (composition) => {
+    const ta = env.el.querySelector('.insp-textarea');
+    ta.focus();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, ...composition }));
+    expect(document.activeElement).toBe(ta);
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.activeElement).not.toBe(ta);
+  });
+
   it('edits text with one undo step and keeps typing focus', () => {
     const ta = env.el.querySelector('.insp-textarea');
     expect(ta.value).toBe('Hello');

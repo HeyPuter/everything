@@ -36,6 +36,19 @@ describe('shortcuts while typing', () => {
   };
   const mod = (key, code = `Key${key.toUpperCase()}`) => ({ key, code, metaKey: isMac, ctrlKey: !isMac });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('leaves composition keys with the text field (%j)', (composition) => {
+    const input = document.createElement('input');
+    root.append(input);
+    input.focus();
+    const save = vi.spyOn(editor.ctx.commands.get('save'), 'run');
+    expect(press(input, { ...mod('s'), ...composition }).defaultPrevented).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    press(input, { key: 'Escape', ...composition });
+    expect(document.activeElement).toBe(input);
+    press(input, { key: 'Escape' });
+    expect(document.activeElement).not.toBe(input);
+  });
+
   it('saves with Mod+S in a text field instead of letting the browser save the page', () => {
     const save = vi.spyOn(editor.ctx.commands.get('save'), 'run');
     const input = Object.assign(document.createElement('input'), { type: 'text' });

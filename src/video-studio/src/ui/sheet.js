@@ -103,6 +103,10 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
   // Focus trap and Escape. Keys stop here so editor shortcuts (Delete, Space)
   // do not act on the timeline while the sheet has focus.
   el.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) {
+      e.stopPropagation();
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();

@@ -101,6 +101,21 @@ describe('sheet', () => {
     expect(sheet.isOpen).toBe(false);
   });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('keeps a sheet open when Escape belongs to composition (%j)', (composition) => {
+    const { sheet, opener } = setup();
+    const input = document.createElement('input');
+    sheet.setContent(input);
+    sheet.open(opener);
+    try {
+      const event = key(input, 'Escape', composition);
+      expect(sheet.isOpen).toBe(true);
+      expect(document.activeElement).toBe(input);
+      expect(event.defaultPrevented).toBe(false);
+      key(input, 'Escape');
+      expect(sheet.isOpen).toBe(false);
+    } finally { sheet.dispose(); }
+  });
+
   it('does not apply the opening frame after the sheet has already closed', () => {
     vi.useFakeTimers();
     const { sheet, opener } = setup({ reduced: false });
