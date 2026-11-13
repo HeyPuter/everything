@@ -23,6 +23,44 @@ export const DEFAULTS = {
   mobilePanel: 'playlist',
 };
 
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+// Validate persisted settings once at the storage boundary. Keep unknown keys
+// for compatibility, and recover individual damaged fields from their defaults.
+function recover(value, fallback) {
+  if (Array.isArray(fallback)) {
+    if (!Array.isArray(value)) return structuredClone(fallback);
+    return fallback.length ? value.filter((v) => typeof v === typeof fallback[0]) : value;
+  }
+  if (isObject(fallback)) {
+    if (!isObject(value)) return structuredClone(fallback);
+    const result = { ...value };
+    for (const [key, def] of Object.entries(fallback)) result[key] = recover(value[key], def);
+    return result;
+  }
+  if (value === undefined) return fallback;
+  return fallback === null || typeof value === typeof fallback ? value : fallback;
+}
+
+function recoverValues(values) {
+  for (const key of Object.keys(values)) {
+    if (Object.hasOwn(DEFAULTS, key)) values[key] = recover(values[key], DEFAULTS[key]);
+  }
+  // These arrays have either no default entries or a consumer-owned default.
+  if (Object.hasOwn(values, 'browserExpanded')) {
+    if (Array.isArray(values.browserExpanded)) values.browserExpanded = values.browserExpanded.filter((v) => typeof v === 'string');
+    else delete values.browserExpanded;
+  }
+  if (values.dismissedNotices) values.dismissedNotices = values.dismissedNotices.filter((v) => typeof v === 'string');
+  if (values.recent) {
+    values.recent = values.recent.filter((entry) => isObject(entry) &&
+      (entry.path === undefined || typeof entry.path === 'string') &&
+      (entry.local === undefined || typeof entry.local === 'string') &&
+      (entry.path || entry.local)).map((entry) => ({ ...entry, name: typeof entry.name === 'string' ? entry.name : '' }));
+  }
+  return values;
+}
+
 export class Prefs extends Emitter {
   constructor(storage = globalThis.localStorage) {
     super();
@@ -30,7 +68,7 @@ export class Prefs extends Emitter {
     this.values = {};
     try {
       const values = JSON.parse(storage?.getItem(KEY) || '{}');
-      this.values = values && typeof values === 'object' && !Array.isArray(values) ? values : {};
+      this.values = isObject(values) ? recoverValues(values) : {};
     } catch {
       this.values = {};
     }
