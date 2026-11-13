@@ -276,14 +276,23 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
     render();
   };
 
+  // Where a slot is now: a chain without empty slots (a clip's) closes up around it.
+  const placed = (slot, fallback) => {
+    const at = slotsNow().findIndex((s) => s?.id === slot?.id);
+    return at >= 0 ? at : fallback;
+  };
+
   const choose = (i, def) => {
     const slots = slotsNow();
     const prev = slots[i];
     const slot = makeSlot(def.id, prev?.effect === def.id ? prev.values : undefined);
-    commit(setSlot(slots, i, slot), `${def.name} added to slot ${i + 1}`);
-    focusRow(i);
+    setSlots(setSlot(slots, i, slot));
+    const at = placed(slot, i);
+    render();
+    announce(`${def.name} added to slot ${at + 1}`);
+    focusRow(at);
     // Preferences > Effects: open the new effect's settings right away.
-    if (app?.prefs?.get('fxOpenOnAdd') && prev?.effect !== def.id) edit(i);
+    if (app?.prefs?.get('fxOpenOnAdd') && prev?.effect !== def.id) edit(at);
   };
 
   const chooser = (i, anchor = list.children[i]?.querySelector('.rack-name')) => {
@@ -317,8 +326,12 @@ export function createRackEditor({ app, getSlots, setSlots, label = 'Effects Rac
 
   const move = (from, to) => {
     if (to < 0 || to >= slotCount) return;
-    commit(moveSlot(slotsNow(), from, to), `Moved to slot ${to + 1}`);
-    focusRow(to);
+    const slot = slotsNow()[from];
+    setSlots(moveSlot(slotsNow(), from, to));
+    const at = placed(slot, to);
+    render();
+    announce(`Moved to slot ${at + 1}`);
+    focusRow(at);
   };
 
   // Pointer reordering by the grip: rows shift visually as the pointer passes them.

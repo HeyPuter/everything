@@ -179,3 +179,54 @@ describe('effect dialogs for session chains', () => {
     expect(await p).toBeNull();
   });
 });
+
+describe('slot lists of chains without empty slots (clip effects)', () => {
+  it('focus, announce and open the slot the effect lands in', async () => {
+    const { createRackEditor, makeSlot } = await import('../src/effects/rack.js');
+    const app = fakeApp();
+    app.prefs.set('fxOpenOnAdd', true);
+    let menus = 0;
+    let menu = null;
+    app.openMenu = (items) => {
+      menus++;
+      menu = items;
+    };
+    // A clip chain closes up: an effect chosen for slot 5 becomes the second.
+    let slots = [makeSlot('amplify')];
+    const ed = createRackEditor({
+      app,
+      getSlots: () => slots,
+      setSlots: (next) => (slots = next.filter(Boolean)),
+    });
+    const live = document.createElement('div');
+    live.id = 'live-region';
+    document.body.append(ed.el, live);
+    ed.chooser(4);
+    menu
+      .flatMap((g) => g.items || [])
+      .find((it) => it.label === 'Studio Reverb')
+      .run();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(slots.map((s) => s.effect)).toEqual(['amplify', 'studioReverb']);
+    expect(live.textContent).toBe('Studio Reverb added to slot 2');
+    // The new effect's settings open (the slot menu used to open again on the empty slot 5).
+    const dlg = [...document.querySelectorAll('.fx-dialog')].at(-1);
+    expect(menus).toBe(1);
+    expect(dlg?.querySelector('.dialog-title').textContent).toBe('Effect - Studio Reverb (Slot 2)');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => requestAnimationFrame(r));
+    // The slot list's keyboard stop is the new effect, not the empty slot 5.
+    const names = [...ed.el.querySelectorAll('.rack-name')];
+    expect(names.findIndex((b) => b.tabIndex === 0)).toBe(1);
+    // Moving the last effect down leaves it where it is, and its slot keeps the keyboard stop.
+    names[1].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(live.textContent).toBe('Moved to slot 2');
+    expect([...ed.el.querySelectorAll('.rack-name')].findIndex((b) => b.tabIndex === 0)).toBe(1);
+    ed.el.remove();
+    live.remove();
+  });
+});
