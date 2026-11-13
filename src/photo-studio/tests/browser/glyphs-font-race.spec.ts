@@ -255,3 +255,154 @@ for (const ending of ['undo', 'cancel', 'commit']) test(`a glyph's late font pre
     expect(await layerText()).toBe('ab&');
   }
 });
+
+async function startGlyphWithPendingFont(page: Page) {
+  await boot(page);
+  await openImage(page, 400, 200, '#ffffff');
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseGlyphFont: resolve })).then(() => load.call(this));
+    };
+    const l = layer('text', 'Original', 200, 80);
+    l.text = 'ab';
+    l.textData = textLayer(l.text, { family: 'Caveat' });
+    e.command('Text fixture', (d) => { d.layers = [l]; });
+    e.selectLayers([l.id]);
+    e.dock.show('glyphs');
+  });
+  const body = await panel(page, 'Glyphs');
+  const cell = body.locator('.gl-grid [data-cp="38"]');
+  await expect(cell).toBeVisible();
+  await cell.dblclick();
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.waitForFunction(() => !!(window as unknown as { releaseGlyphFont?: () => void }).releaseGlyphFont);
+  return body;
+}
+
+async function finishStartingGlyphFont(page: Page) {
+  await page.evaluate(async () => {
+    (window as unknown as { releaseGlyphFont(): void }).releaseGlyphFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+}
+
+for (const action of ['typing', 'selection']) test(`a glyph that starts editing preserves subsequent ${action}`, async ({ page }) => {
+  const body = await startGlyphWithPendingFont(page);
+  if (action === 'typing') await page.keyboard.insertText('X');
+  else {
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+ArrowRight');
+  }
+  await page.locator('#type-size').focus();
+  await finishStartingGlyphFont(page);
+  const layerText = () => page.evaluate(() => window.photoStudio.doc.layers[0].text);
+  expect(await layerText()).toBe(action === 'typing' ? 'ab&X' : 'ab&');
+  await expect(page.locator('#type-size')).toBeFocused();
+  expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual(action === 'typing' ? [4, 4] : [0, 1]);
+  await expect(body.locator('.gl-recent [data-cp="38"]')).toHaveCount(1);
+  await page.locator('textarea.type-input').focus();
+  await page.keyboard.insertText('Z');
+  const finalText = action === 'typing' ? 'ab&XZ' : 'Zb&';
+  expect(await layerText()).toBe(finalText);
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab&');
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab');
+  await run(page, 'edit.redo');
+  await run(page, 'edit.redo');
+  expect(await layerText()).toBe(finalText);
+  await run(page, 'type.commit');
+  expect(await layerText()).toBe(finalText);
+});
+
+for (const input of ['IME', 'soft keyboard', 'paste']) test(`a starting glyph precedes early ${input} input`, async ({ page }) => {
+  await startGlyphWithPendingFont(page);
+  const layerText = () => page.evaluate(() => window.photoStudio.doc.layers[0].text);
+  if (input === 'IME') {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+    expect(await layerText()).toBe('ab&にほん');
+    await finishStartingGlyphFont(page);
+    expect(await layerText()).toBe('ab&にほん');
+    expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!.composing)).toBe(true);
+    await cdp.send('Input.insertText', { text: '日本' });
+  } else if (input === 'soft keyboard') {
+    await page.evaluate(() => {
+      const el = document.activeElement!;
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 229, bubbles: true, cancelable: true }));
+      el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '日本', bubbles: true, cancelable: true }));
+      el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: '日本', bubbles: true }));
+    });
+  } else {
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', '日本');
+      document.activeElement!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+  }
+  expect(await layerText()).toBe('ab&日本');
+  if (input !== 'IME') await finishStartingGlyphFont(page);
+  expect(await layerText()).toBe('ab&日本');
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab&');
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab');
+  await run(page, 'edit.redo');
+  await run(page, 'edit.redo');
+  expect(await layerText()).toBe('ab&日本');
+});
+
+for (const ending of ['undo', 'cancel', 'commit']) test(`a starting glyph respects ${ending} before font arrival`, async ({ page }) => {
+  await startGlyphWithPendingFont(page);
+  await page.keyboard.insertText('X');
+  const layerText = () => page.evaluate(() => window.photoStudio.doc.layers[0].text);
+  expect(await layerText()).toBe('ab&X');
+  if (ending === 'undo') {
+    await run(page, 'edit.undo');
+    await run(page, 'edit.undo');
+  } else await run(page, ending === 'cancel' ? 'type.cancel' : 'type.commit');
+  const expected = ending === 'commit' ? 'ab&X' : 'ab';
+  expect(await layerText()).toBe(expected);
+  const history = await page.evaluate(() => window.photoStudio.history.labels);
+  await finishStartingGlyphFont(page);
+  expect(await layerText()).toBe(expected);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession())).toBe(ending === 'undo');
+  if (ending === 'undo') {
+    await run(page, 'edit.redo');
+    await run(page, 'edit.redo');
+    expect(await layerText()).toBe('ab&X');
+  } else if (ending === 'commit') {
+    await run(page, 'edit.undo');
+    expect(await layerText()).toBe('ab');
+    await run(page, 'edit.redo');
+    expect(await layerText()).toBe('ab&X');
+  }
+});
+
+for (const completion of ['font arrival', 'fallback timeout']) test(`a starting glyph retains field focus at ${completion}`, async ({ page }) => {
+  await startGlyphWithPendingFont(page);
+  await page.locator('#type-size').focus();
+  const layerText = () => page.evaluate(() => window.photoStudio.doc.layers[0].text);
+  if (completion === 'fallback timeout') await expect.poll(layerText).toBe('ab&');
+  await finishStartingGlyphFont(page);
+  expect(await layerText()).toBe('ab&');
+  await expect(page.locator('#type-size')).toBeFocused();
+  await page.locator('textarea.type-input').focus();
+  await page.keyboard.insertText('X');
+  expect(await layerText()).toBe('ab&X');
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab&');
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab');
+});

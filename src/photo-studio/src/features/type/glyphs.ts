@@ -78,11 +78,17 @@ export async function insertGlyph(e: Editor, ch: string, family?: string, face?:
       e.message('Click in text with the Type tool, or select a text layer, to insert glyphs.');
       return false;
     }
-    const owner = e.session;
     if (!e.tool.startsWith('type')) e.setTool('type');
-    const started = await startEdit(e, l.id, 'end');
-    if (e.session !== owner || !started?.editing || session !== started.editing) return false;
+    let inserted = false;
+    await startEdit(e, l.id, 'end', undefined, () => {
+      inserted = insertIntoText(e, ch, family, face, true);
+    });
+    return inserted;
   }
+  return insertIntoText(e, ch, family, face);
+}
+
+function insertIntoText(e: Editor, ch: string, family?: string, face?: { weight: number; italic: boolean }, softFocus = false) {
   if (!session) return false;
   // A glyph from another font than the text's is inserted in that font.
   let style: CharStyle | undefined;
@@ -96,7 +102,7 @@ export async function insertGlyph(e: Editor, ch: string, family?: string, face?:
     }
   }
   insert(e, ch, 'glyph', style);
-  focusInput(e);
+  focusInput(e, softFocus);
   if (family) remember({ cp: ch.codePointAt(0)!, family });
   return true;
 }

@@ -350,16 +350,16 @@ async function beginNew(e: Editor, opt: StartNew, request: StartRequest) {
 }
 
 type EditPosition = { x: number; y: number } | { anchor: number; focus: number } | 'all' | 'end';
-export async function startEdit(e: Editor, id: string, at?: EditPosition, isCurrent?: () => boolean) {
+export async function startEdit(e: Editor, id: string, at?: EditPosition, isCurrent?: () => boolean, onStart?: () => void) {
   const request = startRequest(e, isCurrent);
   if (!request) return;
   try {
-    return await beginEdit(e, id, request, at);
+    return await beginEdit(e, id, request, at, onStart);
   } finally {
     if (starting === request) starting = undefined;
   }
 }
-async function beginEdit(e: Editor, id: string, request: StartRequest, at?: EditPosition) {
+async function beginEdit(e: Editor, id: string, request: StartRequest, at?: EditPosition, onStart?: () => void) {
   if (!(await finishCurrent(e, request))) return;
   const l0 = findLayer(e.doc.layers, id);
   if (!l0 || l0.kind !== 'text') return;
@@ -393,6 +393,8 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: Edit
     render(e);
     e.update();
     focusInput(e, true);
+    // Apply the action that requested this edit before early keyboard/IME input.
+    onStart?.();
   });
 }
 
