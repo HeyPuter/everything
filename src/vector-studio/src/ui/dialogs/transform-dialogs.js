@@ -262,6 +262,10 @@ export async function transformDialog(app, kind, args = {}) {
 }
 
 export async function averageDialog(app) {
+  const editor = app.editor;
+  if (!editor) return;
+  const isolation = editor.isolation;
+  const selection = new Map([...editor.selection].map((id) => [id, new Set(editor.selectedAnchors(id))]));
   const v = await formDialog(app, {
     title: 'Average',
     fields: [
@@ -278,5 +282,11 @@ export async function averageDialog(app) {
       },
     ],
   });
-  if (v) average(app.editor, v.axis);
+  if (!v || app.editor !== editor || !app.editors.includes(editor) || editor.doc.readOnly ||
+      (app.home && !app.home.hidden) || editor.isolation !== isolation || editor.selection.size !== selection.size) return;
+  for (const [id, anchors] of selection) {
+    const current = editor.selectedAnchors(id);
+    if (!editor.selection.has(id) || current.size !== anchors.size || [...anchors].some((i) => !current.has(i))) return;
+  }
+  average(editor, v.axis);
 }
