@@ -197,6 +197,40 @@ describe('command search', () => {
     expect(document.querySelector('[role=menu]')).toBe(null);
     expect(document.activeElement).toBe(input);
   });
+  it('lists the best matches first, so Enter runs the command named', async () => {
+    const app = await makeApp();
+    const { createShell, searchRank } = await import('../src/ui/shell.js');
+    expect(searchRank('play', ['Play'])).toBe(0);
+    expect(searchRank('play', ['Play/Stop'])).toBe(1);
+    expect(searchRank('play', ['Move Playhead to Next Marker'])).toBe(2);
+    expect(searchRank('cut', ['Keyboard Shortcuts'])).toBe(3);
+    expect(searchRank('xyz', ['Play'], 'transport.play')).toBe(-1);
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    app.active = { kind: 'audio' };
+    const input = root.querySelector('.command-search');
+    input.focus();
+    const results = (q) => {
+      input.value = q;
+      input.dispatchEvent(new Event('input'));
+      const labels = document.querySelectorAll('[aria-label="Command results"] .menu-label');
+      return [...labels].map((e) => e.textContent);
+    };
+    const play = results('play');
+    expect(play[0]).toBe('Play');
+    const move = play.findIndex((l) => l.startsWith('Move Playhead'));
+    expect(play.indexOf('Play/Stop')).toBeLessThan(move);
+    expect(results('cut')[0]).toBe('Cut');
+    const ran = [];
+    const spy = vi.spyOn(app.commands, 'run').mockImplementation((id) => ran.push(id));
+    results('play');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(ran).toEqual(['transport.play']);
+    spy.mockRestore();
+    app.active = null;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
 });
 
 describe('shortcuts while typing', () => {

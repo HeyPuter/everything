@@ -232,7 +232,27 @@ export function createShell(app, root) {
   return { dock };
 }
 
-/** Command search: type to filter every command; Enter runs the first match. */
+/**
+ * How well command search text `q` (lower case) matches a command: 0 for the
+ * whole name, 1 for its start, 2 for the start of a word, 3 anywhere in it,
+ * 4 for the command id only, -1 for no match. `labels` are the names it is
+ * listed under (with and without its menu context).
+ */
+export function searchRank(q, labels, id = '') {
+  let best = -1;
+  for (const raw of labels) {
+    const l = String(raw).toLowerCase();
+    const at = l.indexOf(q);
+    if (at < 0) continue;
+    const wordStart = l.split(/[\s>/(]+/).some((w) => w.startsWith(q)) || /[\s>/(]/.test(l[at - 1]);
+    const r = l === q ? 0 : at === 0 ? 1 : wordStart ? 2 : 3;
+    if (best < 0 || r < best) best = r;
+  }
+  if (best < 0 && id.toLowerCase().includes(q)) best = 4;
+  return best;
+}
+
+/** Command search: type to filter every command; Enter runs the first (best) match. */
 function bindCommandSearch(app, input) {
   let menu = null;
   let paths = null;
@@ -244,14 +264,21 @@ function bindCommandSearch(app, input) {
     close();
     const q = input.value.trim().toLowerCase();
     if (!q) return;
-    const results = [];
     paths ??= commandMenuPaths();
+    const found = [];
     for (const id of app.commands.commands.keys()) {
-      const label = contextLabel(id, app.commands.label(id), paths);
-      if (!label.toLowerCase().includes(q) && !id.toLowerCase().includes(q)) continue;
-      results.push({ type: 'cmd', id, label, shortcut: app.commands.shortcutLabel(id), enabled: app.commands.isEnabled(id), checked: null });
-      if (results.length >= 14) break;
+      const name = app.commands.label(id);
+      const label = contextLabel(id, name, paths);
+      const rank = searchRank(q, [label, String(name).replace(/\.\.\.$/, '')], id);
+      if (rank < 0) continue;
+      found.push({ rank, i: found.length, id, label });
     }
+    // Best matches first ("play" lists Play before Move Playhead...), else in registration order.
+    found.sort((a, b) => a.rank - b.rank || a.i - b.i);
+    const results = found.slice(0, 14).map(({ id, label }) => {
+      const enabled = app.commands.isEnabled(id);
+      return { type: 'cmd', id, label, shortcut: app.commands.shortcutLabel(id), enabled, checked: null };
+    });
     if (!results.length) results.push({ type: 'cmd', label: 'No matching commands', enabled: false });
     const r = input.getBoundingClientRect();
     menu = openMenu(app, results, {
