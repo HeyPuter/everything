@@ -964,19 +964,30 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
  * reused, so read it before asking for the next frame.
  */
 export async function* renderFrames(project, library, { width, height, fps, start = 0, end, signal } = {}) {
+  checkAbort(signal);
   const snap = structuredClone(project);
   const stop = end ?? projectDuration(snap);
   const total = Math.max(1, frameCount(stop - start, fps));
   // Imported .cube LUTs, as the video export and stills load them.
   await ensureLuts(snap, library).catch(() => {});
+  checkAbort(signal);
   const r = new FrameRenderer(snap, library, even(width), even(height));
   try {
     await preloadFonts(snap);
     if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
+    let lastYield = performance.now();
     for (let i = 0; i < total; i++) {
       checkAbort(signal);
       await r.render(Math.min(stop - 1, start + Math.round((i * US) / fps)));
+      checkAbort(signal);
       yield { canvas: r.canvas, index: i, total };
+      // Include the consumer's GIF encoding work in the frame budget. Cached
+      // media can otherwise keep this entire loop in the microtask queue.
+      if (performance.now() - lastYield > 12) {
+        await yieldToEventLoop();
+        lastYield = performance.now();
+      }
+      checkAbort(signal);
     }
   } finally {
     await r.dispose();
