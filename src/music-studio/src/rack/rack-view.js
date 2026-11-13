@@ -764,12 +764,17 @@ export class RackView {
       return;
     }
     let at = index;
-    for (const f of files) if (await this.importFile(f, { name: f.name }, at)) at++;
+    const loads = app.files?.loads;
+    for (const f of files) {
+      if (app.files?.loads !== loads) break;
+      if (await this.importFile(f, { name: f.name }, at)) at++;
+    }
   }
 
   /** Imports an OS file (or a Puter file payload) as a sampler channel at `index`. */
   async importFile(file, { name, path } = {}, index) {
     const app = this.app;
+    const check = app.files?.importGuard();
     if (!app.importAudio) {
       app.notify('Audio import is not available yet.', { error: true });
       return false;
@@ -784,7 +789,9 @@ export class RackView {
         }
         blob = await puter.fs.read(path);
       }
+      check?.();
       const r = await app.importAudio(blob, { name: baseName(name), path, as: 'sampler' });
+      check?.();
       if (r?.channelId) {
         const from = this.store.project.channels.findIndex((c) => c.id === r.channelId);
         // Placing the new channel where it was dropped is part of the import's undo step.
@@ -821,11 +828,20 @@ export class RackView {
   }
 
   pickAudioFile() {
+    const check = this.app.files?.importGuard();
     const input = h('input', { type: 'file', accept: 'audio/*', multiple: true, hidden: true });
     input.addEventListener('change', async () => {
-      let at = this.store.project.channels.length;
-      for (const f of input.files) if (await this.importFile(f, { name: f.name }, at)) at++;
-      input.remove();
+      try {
+        let at = this.store.project.channels.length;
+        for (const f of input.files) {
+          check?.();
+          if (await this.importFile(f, { name: f.name }, at)) at++;
+        }
+      } catch (err) {
+        this.app.reportError(err);
+      } finally {
+        input.remove();
+      }
     });
     document.body.append(input);
     input.click();

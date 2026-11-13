@@ -149,7 +149,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       const name = item.name || baseName(item.path || '');
       try {
         if (name.toLowerCase().endsWith(FILE_EXT)) await files.openPath(item.path);
-        else if (/\.midi?$/i.test(name)) await files.importMidiBlob(await puter.readFile(item.path), name);
+        else if (/\.midi?$/i.test(name)) await files.importMidiBlob(puter.readFile(item.path), name);
         else if (isAudioName(name)) await files.runImport(() => files.importAudioFromPath(item.path), name);
       } catch (err) {
         app.reportError(err);

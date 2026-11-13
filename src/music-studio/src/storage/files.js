@@ -151,7 +151,7 @@ export class ProjectFiles {
     const items = await puter.pickFiles({ multiple: false, accept: FILE_EXT, path: dir });
     const item = items[0];
     if (!item) return;
-    if (/\.midi?$/i.test(item.name || '')) return this.importMidiBlob(await item.read(), item.name);
+    if (/\.midi?$/i.test(item.name || '')) return this.importMidiBlob(item.read(), item.name);
     return this.openPath(item.path);
   }
 
@@ -502,9 +502,11 @@ export class ProjectFiles {
     if (file) await this.importMidiBlob(file, file.name);
   }
 
-  /** Adds a MIDI file's parts to the project in one undo step. */
+  /** Adds a MIDI file (or pending download) to the project in one undo step. */
   async importMidiBlob(blob, name = 'MIDI') {
     const check = this.importGuard();
+    blob = await blob;
+    check();
     const bytes = await blob.arrayBuffer();
     check();
     const midi = readMidi(bytes);

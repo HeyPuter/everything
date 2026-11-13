@@ -876,6 +876,7 @@ export function createPlaylistView(app, host) {
   });
 
   async function dropPayload(payload, track, tick) {
+    const check = app.files?.importGuard();
     const p = store.project;
     if (payload.kind === 'pattern' && patternById(p, payload.id)) {
       V.setSource({ kind: 'pattern', id: payload.id });
@@ -917,12 +918,14 @@ export function createPlaylistView(app, host) {
         return;
       }
       const blob = await readFile(payload.path);
+      check?.();
       await importOne(blob, payload.name, track, tick, payload.path);
     }
   }
 
   const AUDIO_EXT = /\.(wav|wave|mp3|ogg|oga|flac|m4a|aac|aif|aiff|webm|opus)$/i;
   async function dropAudioFiles(files, track, tick) {
+    const check = app.files?.importGuard();
     const audio = files.filter((f) => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name));
     if (!audio.length) {
       app.notify('Drop audio files (WAV, MP3, OGG, FLAC...) to make audio clips');
@@ -932,13 +935,18 @@ export function createPlaylistView(app, host) {
       app.notify('Audio import is not available yet');
       return;
     }
-    for (let i = 0; i < audio.length; i++) await importOne(audio[i], audio[i].name, track + i, tick);
+    for (let i = 0; i < audio.length; i++) {
+      check?.();
+      await importOne(audio[i], audio[i].name, track + i, tick);
+    }
   }
 
   async function importOne(blob, name, track, tick, path) {
+    const check = app.files?.importGuard();
     const clean = String(name || 'Audio').replace(/\.[^.]+$/, '');
     app.notify(`Importing ${clean}...`);
     const r = await app.importAudio(blob, { name: clean, path, as: 'audio' });
+    check?.();
     if (!r?.channelId) return;
     const len = r.duration > 0 ? C.audioTicks(store.project, r.duration, tick) : ticksPerBar(store.project.sig);
     // Importing and placing the clip are one undo step.

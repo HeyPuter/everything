@@ -436,7 +436,7 @@ function createBrowser(app, host) {
 
   async function openFileNode(data) {
     if (data.project) return app.openProjectPath?.(data.path);
-    if (data.midi) return app.files?.importMidiBlob(await puter.readFile(data.path), data.name);
+    if (data.midi) return app.files?.importMidiBlob(puter.readFile(data.path), data.name);
     return importFile(data);
   }
 

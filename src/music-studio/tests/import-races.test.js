@@ -4,6 +4,7 @@ import { Store } from '../src/model/store.js';
 import { newProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
 import { writeMidi } from '../src/io/midi.js';
+import { RackView } from '../src/rack/rack-view.js';
 
 const deferred = () => {
   let resolve;
@@ -27,6 +28,55 @@ function setup() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('imports while switching projects', () => {
+  it('cancels a MIDI picker download when the open project changes', async () => {
+    const { app, lib, files } = setup();
+    const gate = deferred();
+    const read = vi.fn(() => gate.promise);
+    lib.cloudProjectsDir = async () => '/Projects';
+    vi.stubGlobal('puter', { auth: { isSignedIn: () => true }, ui: { showOpenFilePicker: async () => [{ name: 'song.mid', read }] } });
+    const pending = files.openFromPuter().then(() => null, (err) => err);
+    await vi.waitFor(() => expect(read).toHaveBeenCalled());
+    const next = newProject();
+    app.store.load(next);
+    const bytes = writeMidi({ ppq: 96, bpm: 120, tracks: [{ notes: [{ key: 60, tick: 0, len: 96, vel: 100 }] }] });
+    gate.resolve({ arrayBuffer: async () => bytes.buffer });
+    expect(await pending).toMatchObject({ message: 'Import cancelled because another project was opened.' });
+    expect(app.store.project === next).toBe(true);
+  });
+
+  it('stops a rack drop batch when the project changes during its first file', async () => {
+    const { app, files } = setup();
+    app.files = files;
+    const view = {
+      app, store: app.store, dropLine: {}, dropIndex: () => 0,
+      importFile: vi.fn(async () => { app.store.load(newProject()); return false; }),
+    };
+    await RackView.prototype.onDrop.call(view, {
+      preventDefault() {}, clientY: 0,
+      dataTransfer: { types: ['Files'], getData: () => '', files: [{ name: 'a.wav', type: 'audio/wav' }, { name: 'b.wav', type: 'audio/wav' }] },
+    });
+    expect(view.importFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a rack cloud drop when a new project opens during download', async () => {
+    const { app, files } = setup();
+    app.files = files;
+    app.importAudio = (blob, opts) => files.importAudio(blob, opts);
+    app.reportError = vi.fn();
+    const gate = deferred();
+    const read = vi.fn(() => gate.promise);
+    vi.stubGlobal('puter', { auth: { isSignedIn: () => true }, fs: { read } });
+    const view = { app, store: app.store, actions: { moveTo: vi.fn() } };
+    const pending = RackView.prototype.importFile.call(view, null, { path: '/tone.wav', name: 'tone.wav' }, 0);
+    await vi.waitFor(() => expect(read).toHaveBeenCalled());
+    const next = newProject();
+    app.store.load(next);
+    gate.resolve({ size: 4, arrayBuffer: async () => new ArrayBuffer(4) });
+    expect(await pending).toBe(false);
+    expect(app.store.project === next).toBe(true);
+    expect(app.samples.set).not.toHaveBeenCalled();
+  });
+
   it.each(['read', 'decode', 'persist'])('cancels audio import if the project changes during %s', async (stage) => {
     const { app, lib, files, decode, decoded } = setup();
     const gate = deferred();
