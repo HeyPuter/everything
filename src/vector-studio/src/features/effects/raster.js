@@ -307,7 +307,7 @@ export async function renderToImage(doc, ids, rect, { ppi, background, antialias
  */
 export async function rasterizeObjects(editor, ids, opts, render = renderToImage) {
   const doc = editor.doc;
-  if (doc.readOnly || doc.tx) return null;
+  if (doc.readOnly || doc.tx || opts.signal?.aborted) return null;
   const ordered = doc.sortByPaintOrder(ids.filter((id) => doc.get(id)));
   if (!ordered.length) return null;
   const vb = selectionBounds(doc, ordered, true);
@@ -318,7 +318,7 @@ export async function rasterizeObjects(editor, ids, opts, render = renderToImage
   for (const id of ordered) for (const n of [doc.get(id), ...doc.descendants(id)]) snap.set(n.id, n);
   const rect = inflate(vb, Math.max(0, opts.padding || 0));
   const img = await render(doc, ordered, rect, { ppi: opts.resolution, background: opts.background, antialias: opts.antialias, colorModel: opts.colorModel });
-  if (doc.readOnly || doc.tx) return null;
+  if (doc.readOnly || doc.tx || opts.signal?.aborted) return null;
   for (const [id, node] of snap) if (doc.get(id) !== node) return null;
   // Moving a parent layer can reorder the inputs without changing them.
   if (doc.sortByPaintOrder(ordered).some((id, i) => id !== ordered[i])) return null;
@@ -370,22 +370,43 @@ export async function rasterizeObjectDialog(app) {
   const last = app.prefs?.get?.('rasterizeObject');
   const start = { ...docRasterSettings(ed.doc), clip: false, ...(last || {}) };
   const ctl = rasterControls(start, ed.doc.root.units || 'pt', { clip: { value: start.clip } });
-  const res = await openDialog({
-    title: 'Rasterize',
-    className: 'fx-dialog',
-    body: h('div.fx-body', ...ctl.els),
-    buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
-    initialFocus: ctl.focus,
-  });
-  if (!res) return false;
-  app.prefs?.set?.('rasterizeObject', res);
+  const controller = new AbortController();
+  const selection = [...ed.selection], isolation = ed.isolation;
+  let closeDialog = null;
+  const check = () => {
+    if (controller.signal.aborted) return false;
+    if (app.editor === ed && app.editors.includes(ed) && !ed.doc.readOnly &&
+        (!app.home || app.home.hidden) && ed.isolation === isolation &&
+        ed.selection.size === selection.length && selection.every((id) => ed.selection.has(id)) &&
+        ids.every((id) => ed.doc.has(id) && !ed.doc.isLocked(id) && !ed.doc.isHidden(id))) return true;
+    controller.abort();
+    closeDialog?.(null);
+    return false;
+  };
+  const offs = ['active-editor', 'closed', 'show-home'].map((event) => app.on(event, check));
+  for (const event of ['selection', 'isolation']) offs.push(ed.on(event, check));
+  offs.push(ed.on('doc-change', (event) => { if (event.commit) check(); }));
+  if (app.collab) offs.push(app.collab.on('role', check));
   try {
-    const id = await rasterizeObjects(ed, ids, res);
-    if (!id) app.notify('Rasterize was canceled because the artwork changed.');
+    const res = await openDialog({
+      title: 'Rasterize',
+      className: 'fx-dialog',
+      body: h('div.fx-body', ...ctl.els),
+      buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
+      initialFocus: ctl.focus,
+      onOpen: ({ close }) => { closeDialog = close; if (!check()) close(null); },
+    });
+    closeDialog = null;
+    if (!res || !check()) return false;
+    app.prefs?.set?.('rasterizeObject', res);
+    const id = await rasterizeObjects(ed, ids, { ...res, signal: controller.signal });
+    if (!id && !controller.signal.aborted) app.notify('Rasterize was canceled because the artwork changed.');
     return Boolean(id);
   } catch (err) {
     app.notify(err?.message || 'The artwork could not be rasterized.', { error: true });
     return false;
+  } finally {
+    for (const off of offs) off();
   }
 }
 
