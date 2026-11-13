@@ -54,13 +54,18 @@ async function videoDuration(video: HTMLVideoElement) {
   return Number.isFinite(video.duration) ? video.duration : 0;
 }
 
-/** Times (seconds) of the frames to take: every `step`th frame at `fps`
- * between `from` and `to`, sampled mid-frame. */
+/** Number of samples in [from, to); an equal start/end requests one still.
+ * Count arithmetically so the import preview never allocates a whole movie. */
+export function frameCount(from: number, to: number, fps: number, step: number) {
+  if (![from, to, fps, step].every(Number.isFinite) || to < from || fps <= 0 || step <= 0) return 0;
+  return Math.max(1, Math.ceil(((to - from) * fps) / step - 1e-9));
+}
+
+/** Times of every `step`th frame, sampled mid-frame. The range end is a
+ * boundary, not another frame: seeking there duplicates the final picture. */
 export function frameTimes(from: number, to: number, fps: number, step: number, limit = maxFrames) {
-  const out: number[] = [];
-  const dt = step / fps;
-  for (let k = 0, t = from; t <= to + 1e-9 && out.length < limit; t = from + ++k * dt) out.push(Math.min(to, t + 0.5 / fps));
-  return out;
+  const count = Math.min(frameCount(from, to, fps, step), Math.max(0, Math.floor(limit)));
+  return Array.from({ length: count }, (_, k) => Math.min(to, from + (k * step + 0.5) / fps));
 }
 
 export async function importVideoFrames(e: Editor, arg?: unknown) {
@@ -96,7 +101,7 @@ export async function importVideoFrames(e: Editor, arg?: unknown) {
         const form = dialog.querySelector('form')!;
         const sync = () => {
           const o = options(form, duration, vw, vh, fit);
-          const total = frameTimes(o.from, o.to, o.fps, o.step, Infinity).length;
+          const total = frameCount(o.from, o.to, o.fps, o.step);
           dialog.querySelector('.animation-export-size')!.textContent = `${Math.min(total, o.limit)} frames at ${o.width} × ${o.height} px${total > o.limit ? ` (limited from ${total})` : ''}`;
         };
         form.addEventListener('input', sync);
