@@ -777,6 +777,8 @@ export class Engine extends Emitter {
   async #getRenderWorker() {
     if (this._renderWorker) return this._renderWorker;
     const { default: RenderWorker } = await import('./offline-worker.js?worker');
+    // Another render may have created the shared worker while the module loaded.
+    if (this._renderWorker) return this._renderWorker;
     const w = new RenderWorker();
     w.onmessage = (ev) => {
       const m = ev.data;
