@@ -66,9 +66,9 @@ registerLive('groupEffects', {
 /**
  * Shapes of objects that are not made of anchors, from the modules that
  * know them: text(doc, node) -> [{ style, subpaths, fillRule }] | null
- * (glyph outlines; null while fonts load). clip(item, clipSubpaths) -> the
- * item's subpaths cut to a clipping path, null to leave them, or undefined
- * while the result is being computed.
+ * (glyph outlines; null while fonts load). clip(item, clipSubpaths, fillRule)
+ * -> the item's subpaths cut to a clipping path (filled by `fillRule`), null
+ * to leave them, or undefined while the result is being computed.
  */
 export const shapeHooks = { text: null, clip: null };
 
@@ -89,12 +89,18 @@ export function shapeItems(doc, g) {
     } else if (n.type === 'group' && !liveDef(n) && n.clip && n.children.length) {
       // The clipping path (the last child) shapes the contents and paints nothing.
       const from = out.length;
-      visit(vdoc, vdoc.get(n.children[n.children.length - 1]));
+      const mask = vdoc.get(n.children[n.children.length - 1]);
+      visit(vdoc, mask);
       const clip = out.splice(from).flatMap((it) => it.subpaths.filter((s) => s.closed));
+      // As drawn: a path or compound path clips by its fill rule, a group by all its parts (non-zero).
+      const rule =
+        (mask?.type === 'path' || mask?.type === 'compound') && mask.fillRule === 'evenodd'
+          ? 'evenodd'
+          : 'nonzero';
       for (const c of n.children.slice(0, -1)) visit(vdoc, vdoc.get(c));
       if (!shapeHooks.clip) return;
       for (let i = out.length - 1; i >= from; i--) {
-        const subpaths = clip.length ? shapeHooks.clip(out[i], clip) : [];
+        const subpaths = clip.length ? shapeHooks.clip(out[i], clip, rule) : [];
         if (subpaths === null || subpaths === undefined) continue;
         if (subpaths.length) out[i] = { ...out[i], subpaths };
         else out.splice(i, 1);

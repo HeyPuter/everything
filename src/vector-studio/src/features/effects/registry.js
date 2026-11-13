@@ -169,7 +169,7 @@ function withoutMeta(preset) {
 export const VECTOR_EFFECT_TYPES = Object.keys(DEFS);
 
 // Pathfinder and 3D on a group see the contents of clipping groups cut to their clipping paths.
-shapeHooks.clip = (item, clip) => clipItem(item, clip);
+shapeHooks.clip = (item, clip, rule) => clipItem(item, clip, { evenodd: rule === 'evenodd' });
 
 for (const [type, def] of Object.entries(DEFS)) {
   const { apply, outset, combine, ...meta } = def;

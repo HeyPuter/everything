@@ -158,15 +158,15 @@ export function pathfinderOnShape(subs, fx, info) {
 
 /**
  * A shape item's outlines cut to a clipping path (shapeHooks.clip): the
- * filled area inside the clip, or undefined while the engine computes it.
- * Open outlines are left alone.
+ * filled area inside the clip (filled even-odd with `info.evenodd`), or
+ * undefined while the engine computes it. Open outlines are left alone.
  */
 export function clipItem(item, clip, info = {}) {
   const own = item.subpaths.filter((s) => !s.paint && s.anchors.length > 1);
   if (!own.length || own.every((s) => !s.closed)) return null;
   const shapes = [
     { subpaths: own, filled: true, evenodd: item.fillRule === 'evenodd' },
-    { subpaths: clip, filled: true },
+    { subpaths: clip, filled: true, evenodd: Boolean(info.evenodd) },
   ];
   const r = engineResult(OP.INTERSECT, shapes, [], { pending: info.pending });
   if (r === undefined) return undefined;

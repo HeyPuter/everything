@@ -371,6 +371,39 @@ describe('engine effects', () => {
     expect(b.y + b.h).toBeCloseTo(60, 3);
   });
 
+  it('cuts to a compound clipping path by its fill rule, as the clip is drawn', () => {
+    const big = createPath(rectangle(0, 0, 100, 100), true, { fill: red, stroke: null });
+    // Both subpaths wound the same way: only the even-odd rule makes the inner one a hole.
+    const o = createPath(rectangle(0, 0, 100, 100), true);
+    const h = createPath(rectangle(25, 25, 50, 50), true);
+    const ring = createCompound(
+      [o.id, h.id],
+      { fill: null, stroke: null },
+      { fillRule: 'evenodd' },
+    );
+    const cg = createGroup([big.id, ring.id], { clip: true });
+    const g = createGroup([cg.id], { effects: [createEffect('pathfinder', { kind: 'unite' })] });
+    const doc = docWith({
+      node: g,
+      descendants: [
+        { ...cg, parent: g.id },
+        { ...big, parent: cg.id },
+        { ...ring, parent: cg.id },
+        { ...o, parent: ring.id },
+        { ...h, parent: ring.id },
+      ],
+    });
+    const { items, vdoc } = liveArtwork(doc, doc.get(g.id));
+    const kids = items[0].children.map((id) => vdoc.get(id));
+    expect(kids).toHaveLength(1);
+    const subs =
+      kids[0].type === 'compound' ? kids[0].children.map((id) => vdoc.get(id)) : [kids[0]];
+    expect(area(subs.map((n) => ({ anchors: n.anchors, closed: true })))).toBeCloseTo(
+      10000 - 2500,
+      0,
+    );
+  });
+
   it('applies Pathfinder effects to a group as a whole', () => {
     const a = createPath(rectangle(0, 0, 60, 60), true, { fill: red, stroke: null });
     const b = createPath(rectangle(30, 30, 60, 60), true, { fill: blue, stroke: null });

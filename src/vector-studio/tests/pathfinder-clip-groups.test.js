@@ -20,8 +20,12 @@ import { flattenPath, anchor } from '../src/model/bezier.js';
 import { runPathfinder, canRun } from '../src/features/geometry/pathfinder.js';
 import { geometryLeaves, subpathsOf } from '../src/features/geometry/nodes-io.js';
 import { nodeBounds } from '../src/model/geometry.js';
+import { makeClipMask } from '../src/ops/object-ops.js';
+import { hitTest } from '../src/render/hit.js';
+import { installCanvasStub } from './helpers.js';
 
 beforeAll(() => {
+  installCanvasStub();
   setGeomSource(fs.readFileSync(path.resolve(__dirname, '../src/wasm/geom.wasm')));
 });
 
@@ -385,5 +389,76 @@ describe('Pathfinder on paths picked inside a clipping group', () => {
     expect(g.children[0]).toBe(a.id);
     expect(g.children).toHaveLength(2);
     expect(doc.get(g.children[1]).type).toBe('group');
+  });
+});
+
+describe('clipping masks made of Pathfinder results', () => {
+  const signed = (anchors) => {
+    const pts = flattenPath(anchors, true, 0.01);
+    let a = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const q = pts[(i + 1) % pts.length];
+      a += p.x * q.y - q.x * p.y;
+    }
+    return a / 2;
+  };
+
+  it('a compound path with holes clips by the non-zero rule as drawn and as Pathfinder sees it', async () => {
+    // Minus Front of a square inside a bigger one: a frame with a hole.
+    const outer = filled(0, 0, 100, 100, '#000000');
+    const inner = filled(25, 25, 50, 50, '#ffffff');
+    const art = filled(-50, -50, 200, 200, '#ff0000');
+    const { doc, editor, app, layer } = setup([art, outer, inner]);
+    editor.select([outer.id, inner.id]);
+    expect(await runPathfinder(app, 'minusFront')).toBe(true);
+    const frame = doc.get(doc.get(layer.id).children[1]);
+    expect(frame.type).toBe('compound');
+    expect(frame.fillRule).toBe('nonzero');
+    // Under the non-zero rule the hole needs the other winding.
+    const [a, b] = frame.children.map((id) => signed(doc.get(id).anchors));
+    expect(Math.sign(a)).toBe(-Math.sign(b));
+    editor.select([art.id, frame.id]);
+    makeClipMask(editor);
+    const [g] = editor.selection;
+    expect(doc.get(g).clip).toBe(true);
+    // Clicking the hole hits nothing; the frame shows the art.
+    expect(hitTest(doc, 50, 50, 1)).toBe(null);
+    expect(hitTest(doc, 10, 10, 1)?.id).toBe(art.id);
+    // Pathfinder on the new clip group sees the frame.
+    const p = filled(300, 0, 10, 10, '#00ff00');
+    doc.transact('add', () => doc.insert(p, layer.id));
+    editor.select([g, p.id]);
+    expect(await runPathfinder(app, 'unite')).toBe(true);
+    const kids = kidsOf(doc, layer.id);
+    expect(kids).toHaveLength(1);
+    expect(kids[0].fill.color).toBe('#00ff00');
+    expect(areaOf(doc, kids[0])).toBeCloseTo(10000 - 2500 + 100, 0);
+  });
+
+  it('a group of Divide pieces clips to all of them', async () => {
+    const a = filled(0, 0, 100, 100, '#000000');
+    const b = filled(50, 0, 100, 100, '#ffffff');
+    const art = filled(-50, -50, 300, 200, '#ff0000');
+    const { doc, editor, app, layer } = setup([art, a, b]);
+    editor.select([a.id, b.id]);
+    expect(await runPathfinder(app, 'divide')).toBe(true);
+    const pieces = doc.get(layer.id).children[1];
+    editor.select([art.id, pieces]);
+    makeClipMask(editor);
+    const [g] = editor.selection;
+    expect(hitTest(doc, 25, 50, 1)?.id).toBe(art.id);
+    expect(hitTest(doc, 75, 50, 1)?.id).toBe(art.id);
+    expect(hitTest(doc, 125, 50, 1)?.id).toBe(art.id);
+    expect(hitTest(doc, 175, 50, 1)).toBe(null);
+    editor.select([g]);
+    expect(await runPathfinder(app, 'unite')).toBe(false);
+    const p = filled(140, 40, 100, 20, '#00ff00');
+    doc.transact('add', () => doc.insert(p, layer.id));
+    editor.select([g, p.id]);
+    expect(await runPathfinder(app, 'unite')).toBe(true);
+    const kids = kidsOf(doc, layer.id);
+    expect(kids).toHaveLength(1);
+    expect(areaOf(doc, kids[0])).toBeCloseTo(150 * 100 + 90 * 20, 0);
   });
 });

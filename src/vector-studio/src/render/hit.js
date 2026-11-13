@@ -194,6 +194,7 @@ function layerStackHit(doc, layer, x, y, tol, opts) {
 
 function hitChildren(doc, container, x, y, tol, opts) {
   const kids = container.children;
+  const isClip = container.type === 'group' && container.clip && kids.length && !liveDef(container);
   if (container.type === 'group' && container.clip && kids.length) {
     if (!clipContains(doc, container, x, y, tol)) {
       // The clipping path's own outline is still clickable (type only on its glyphs, tested above).
@@ -210,6 +211,41 @@ function hitChildren(doc, container, x, y, tol, opts) {
     if (liveDef(n) && n.type !== 'path' && n.type !== 'compound') {
       const r = liveHit(doc, n, x, y, tol, opts);
       if (r) return r;
+      continue;
+    }
+    if (
+      isClip &&
+      i === kids.length - 1 &&
+      (n.type === 'group' || n.type === 'path' || n.type === 'compound')
+    ) {
+      // The clipping path paints no fill (a path's stroke is drawn over the contents):
+      // only its outline and stroke are clickable, not the area that shows the contents.
+      if (n.type === 'group') {
+        const r = hitChildren(doc, n, x, y, tol, { ...opts, outline: true });
+        if (r) return r;
+        continue;
+      }
+      if (n.type === 'compound' && opts.intoCompound) {
+        if (!hitNode(doc, { ...n, fill: null }, x, y, tol, opts)) continue;
+        for (let j = n.children.length - 1; j >= 0; j--) {
+          const c = doc.get(n.children[j]);
+          if (
+            c &&
+            hitNode(
+              doc,
+              { ...c, fill: null, stroke: n.stroke, strokeWidth: n.strokeWidth },
+              x,
+              y,
+              tol,
+              { outline: true },
+            )
+          )
+            return c;
+        }
+        return n;
+      }
+      if (opts.filter && !opts.filter(n)) continue;
+      if (hitNode(doc, { ...n, fill: null }, x, y, tol, opts)) return n;
       continue;
     }
     if (n.type === 'group') {
