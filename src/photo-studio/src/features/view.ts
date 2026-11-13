@@ -14,7 +14,7 @@ import { installGuides, setGuidesShown } from './guides';
 import { syncMultichannel, toggleSpotVisibility } from './color/spot-channels';
 
 // Grid, pixel grid, Quick Mask and the Channels panel (guides: features/guides.ts).
-let lastQuickMaskUrl: { grid: TileGrid; url: string; time: number } | undefined;
+let lastQuickMaskUrl: { grid: TileGrid; width: number; height: number; url: string; time: number } | undefined;
 
 /** Same tiles, fill and origin (history copies grids on every edit). */
 function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
@@ -26,14 +26,15 @@ function sameGrid(a: TileGrid | undefined, b: TileGrid | undefined) {
 function quickMaskOverlay(e: Editor) {
   const grid = (e.settings.quickMaskPreview as TileGrid | undefined) ?? (e.settings.quickMask as TileGrid | undefined);
   if (!grid) return '';
+  const doc = e.doc;
   const now = performance.now();
-  if (!lastQuickMaskUrl || lastQuickMaskUrl.grid !== grid) {
-    if (lastQuickMaskUrl && now - lastQuickMaskUrl.time < 80) {
+  const resized = lastQuickMaskUrl?.width !== doc.width || lastQuickMaskUrl?.height !== doc.height;
+  if (!lastQuickMaskUrl || lastQuickMaskUrl.grid !== grid || resized) {
+    if (lastQuickMaskUrl && !resized && now - lastQuickMaskUrl.time < 80) {
       // Throttle redraws while painting; schedule a catch-up frame.
       requestAnimationFrame(() => e.overlay());
     } else {
       // Unselected areas are tinted, like a translucent red film.
-      const doc = e.doc;
       const scale = Math.min(1, 2048 / Math.max(doc.width, doc.height));
       const w = Math.max(1, Math.round(doc.width * scale)),
         h = Math.max(1, Math.round(doc.height * scale));
@@ -53,7 +54,7 @@ function quickMaskOverlay(e: Editor) {
           img.data[o + 3] = Math.round((255 - v) * 0.5);
         }
       c.putImageData(img, 0, 0);
-      lastQuickMaskUrl = { grid, url: canvas.toDataURL(), time: now };
+      lastQuickMaskUrl = { grid, width: doc.width, height: doc.height, url: canvas.toDataURL(), time: now };
     }
   }
   return lastQuickMaskUrl ? `<image href="${lastQuickMaskUrl.url}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" style="image-rendering:auto"/>` : '';
