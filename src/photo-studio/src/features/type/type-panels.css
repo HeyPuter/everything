@@ -10,6 +10,7 @@
 .gl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--glyph-size), 1fr)); gap: 1px; overflow: auto; min-height: 120px; max-height: 50vh; background: var(--line-soft); border: 1px solid var(--line-soft); }
 .gl-cell { min-height: 0; height: var(--glyph-size); padding: 0; border: 0; border-radius: 0; background: var(--input); color: var(--text); font-size: calc(var(--glyph-size) * 0.6); line-height: 1; display: grid; place-items: center; font-family: inherit; font-weight: inherit; font-style: inherit; }
 .gl-cell:hover, .gl-cell:focus-visible { background: var(--accent-fill); color: var(--accent-text); outline: none; }
+.gl-retry { grid-column: 1 / -1; align-self: center; justify-self: center; font: 12px system-ui, sans-serif; }
 .gl-info { color: var(--muted); min-height: 14px; font-variant-numeric: tabular-nums; }
 
 /* Character and Paragraph Styles panels */

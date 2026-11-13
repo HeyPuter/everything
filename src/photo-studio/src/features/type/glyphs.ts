@@ -150,6 +150,15 @@ export const glyphsPanel: Panel = {
       state.size = Number(t.value);
       el.style.setProperty('--glyph-size', `${state.size}px`);
     });
+    el.addEventListener('click', (ev) => {
+      const retry = (ev.target as HTMLElement).closest<HTMLButtonElement>('[data-gl-retry]');
+      if (!retry) return;
+      retry.disabled = true;
+      retry.textContent = 'Retrying…';
+      el.querySelector('.gl-info')!.textContent = 'Loading glyphs…';
+      renderedKey = '';
+      void render(e, el);
+    });
     const cell = (ev: Event) => (ev.target as HTMLElement).closest<HTMLElement>('[data-cp]');
     el.addEventListener('dblclick', (ev) => {
       const c = cell(ev);
@@ -206,7 +215,10 @@ async function render(e: Editor, el: HTMLElement) {
   try {
     cps = await codePointsFor(state.family, state.italic);
   } catch {
-    cps = [];
+    if (renderedKey !== key) return;
+    grid.innerHTML = '<button type="button" class="gl-retry secondary" data-gl-retry>Retry</button>';
+    el.querySelector('.gl-info')!.textContent = 'Could not load glyphs. Try again.';
+    return;
   }
   if (renderedKey !== key) return;
   const shown = state.category === 'all' ? cps : cps.filter((cp) => glyphCategory(cp) === state.category);
