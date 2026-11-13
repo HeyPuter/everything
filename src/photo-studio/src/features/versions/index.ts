@@ -152,6 +152,8 @@ const versionsPanel: Panel = {
     };
     if (listed?.docId === docId) return draw();
     void store.list(docId).then((list) => {
+      // A tab switch or refresh can supersede this request before it resolves.
+      if (el.dataset.key !== key) return;
       for (const u of listed?.urls ?? []) URL.revokeObjectURL(u);
       listed = { docId, list, urls: list.map((v) => (v.thumb ? URL.createObjectURL(v.thumb) : '')) };
       draw();
