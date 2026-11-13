@@ -1,4 +1,4 @@
-import { newDocument, findLayer, allLayers, type PhotoDocument, type Layer } from './model/document';
+import { newDocument, findLayer, allLayers, MAX_LAYERS, type PhotoDocument, type Layer } from './model/document';
 import { ImageEngine } from './engine/engine';
 import { Renderer } from './renderer/renderer';
 import { FreeTransform } from './ui/transform';
@@ -87,7 +87,7 @@ export class Editor {
     s.history.nonLinear = () => this.preferences.nonLinearHistory;
     s.history.normalize = (d, before) => {
       followLinkedMasks(before, d, s.assets.tiles);
-      this.normalizePixelLayers(d, s.assets);
+      this.normalizePixelLayers(d, s.assets, before);
       for (const hook of this.documentHooks) hook(d, before);
     };
     this.sessions.push(s);
@@ -538,8 +538,14 @@ export class Editor {
     });
   }
   /** Bake pending pixel-layer moves (origin shift) and transforms (resample). */
-  normalizePixelLayers(doc: PhotoDocument, assets: Assets) {
-    for (const l of allLayers(doc.layers)) {
+  normalizePixelLayers(doc: PhotoDocument, assets: Assets, before?: PhotoDocument) {
+    const layers = allLayers(doc.layers);
+    // Guard every local history edit, including insertions outside the Layers
+    // menu. Older projects above the editing limit can still be edited or
+    // reduced; only further growth is refused, before history is committed.
+    if (before && layers.length > MAX_LAYERS && layers.length > allLayers(before.layers).length)
+      throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
+    for (const l of layers) {
       if (l.textData) bakeTextScale(l);
       if (l.kind !== 'pixel' || !l.pixels) continue;
       const kind = pixelTransformKind(l);
