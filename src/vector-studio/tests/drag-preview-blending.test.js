@@ -66,6 +66,16 @@ function sampleOverlap(view) {
   };
 }
 
+function primePanSnapshot(view) {
+  const canvas = document.createElement('canvas');
+  canvas.width = view.art.width;
+  canvas.height = view.art.height;
+  canvas.getContext('2d').drawImage(view.art, 0, 0);
+  view.snapshot = { canvas, matrix: view.editor.view.matrix.slice() };
+  view.lastRenderMs = 20;
+  view.fastMode = true;
+}
+
 it.each([
   { count: 1, moving: 'background' },
   { count: PREVIEW_THRESHOLD + 1, moving: 'background' },
@@ -75,6 +85,10 @@ it.each([
   { count: PREVIEW_THRESHOLD + 1, moving: 'blend', kind: 'group' },
   { count: PREVIEW_THRESHOLD + 1, moving: 'blend', kind: 'isolated' },
   { count: PREVIEW_THRESHOLD + 1, moving: 'blend', kind: 'overprint' },
+  { count: 1, moving: 'background', kind: 'overprint-toggle' },
+  { count: PREVIEW_THRESHOLD + 1, moving: 'blend', kind: 'overprint-toggle' },
+  { count: 1, moving: 'background', kind: 'outline-toggle' },
+  { count: PREVIEW_THRESHOLD + 1, moving: 'blend', kind: 'outline-toggle' },
 ])('preserves Multiply over its backdrop while dragging $count $moving objects ($kind)', ({ count, moving, kind }) => {
   const app = bootApp();
   const ed = app.newDocument();
@@ -96,16 +110,16 @@ it.each([
       group = createGroup([], { isolate: kind === 'isolated' });
       ed.doc.insert(group, ed.targetLayer().id);
     }
-    blend = add('#00ffff', kind === 'appearance' || kind === 'overprint' ? 'normal' : 'multiply', group?.id);
+    blend = add('#00ffff', kind === 'appearance' || kind?.startsWith('overprint') || kind === 'outline-toggle' ? 'normal' : 'multiply', group?.id);
     if (kind === 'appearance') ed.doc.update(blend, { appearance: [{ type: 'fill', base: true, blendMode: 'multiply' }, { type: 'stroke', base: true }] });
-    if (kind === 'overprint') ed.doc.update(blend, { overprintFill: true });
+    if (kind?.startsWith('overprint')) ed.doc.update(blend, { overprintFill: true });
     if (group) blend = group.id;
   });
   ed.select([moving === 'background' ? background : blend, ...fillers]);
   ed.viewOptions.overprint = kind === 'overprint';
   const overprintOptions = (editor, options) => ({ ...options, overprint: editor.viewOptions.overprint });
   viewHooks.artOptions.push(overprintOptions);
-  const expected = kind === 'isolated' ? [0, 1, 1, 1] : [0, 0, 0, 1];
+  let expected = kind === 'isolated' || kind?.endsWith('toggle') ? [0, 1, 1, 1] : [0, 0, 0, 1];
   const pixel = sampleOverlap(view);
   let session;
   try {
@@ -117,6 +131,15 @@ it.each([
     view.renderNow();
     expect(pixel.color()).toEqual(expected);
     if (kind === 'isolated') expect(ed.dragPreview).toBeTruthy();
+    if (kind?.endsWith('toggle')) {
+      expect(ed.dragPreview || view.interaction).toBeTruthy();
+      if (count > PREVIEW_THRESHOLD) primePanSnapshot(view);
+      ed.setViewOption(kind === 'outline-toggle' ? 'mode' : 'overprint', kind === 'outline-toggle' ? 'outline' : true);
+      view.slowScene = true;
+      view.renderNow();
+      expected = kind === 'outline-toggle' ? [1, 1, 1, 1] : [0, 0, 0, 1];
+      expect(pixel.color()).toEqual(expected);
+    }
     session.commit();
     view.renderNow();
     expect(pixel.color()).toEqual(expected);
@@ -124,5 +147,41 @@ it.each([
     if (ed.doc.tx) session?.cancel();
     pixel.restore();
     viewHooks.artOptions.splice(viewHooks.artOptions.indexOf(overprintOptions), 1);
+  }
+});
+
+it.each([1, PREVIEW_THRESHOLD + 1])('refreshes cached pasteboard colors during a %s-object drag', (count) => {
+  const app = bootApp();
+  const ed = app.newDocument();
+  const view = app.views.get(ed);
+  ed.view.set({ width: 64, height: 64, zoom: 1, panX: 0, panY: 0 });
+  view.art.width = view.art.height = 64;
+  ed.setViewOption('artboards', false);
+  view.host.style.setProperty('--pasteboard', '#111111');
+  const ids = [];
+  ed.doc.transact('Geometry', () => {
+    for (let i = 0; i < count; i++) {
+      const n = createPath(rectangle(0, 0, 20, 20), true, { fill: null, stroke: null });
+      ed.doc.insert(n, ed.targetLayer().id);
+      ids.push(n.id);
+    }
+  });
+  ed.select(ids);
+  const pixel = sampleOverlap(view);
+  const session = new TransformSession(ed, 'Move');
+  try {
+    session.apply([1, 0, 0, 1, 1, 0]);
+    view.slowScene = true;
+    view.renderNow();
+    expect(pixel.color()).toEqual([17 / 255, 17 / 255, 17 / 255, 1]);
+    if (count > PREVIEW_THRESHOLD) primePanSnapshot(view);
+    view.host.style.setProperty('--pasteboard', '#222222');
+    view.refreshColors();
+    view.slowScene = true;
+    view.renderNow();
+    expect(pixel.color()).toEqual([34 / 255, 34 / 255, 34 / 255, 1]);
+  } finally {
+    session.cancel();
+    pixel.restore();
   }
 });

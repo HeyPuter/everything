@@ -74,7 +74,7 @@ export class CanvasView {
       editor.on('view', () => this.viewChanged()),
       editor.on('selection', () => this.invalidateOverlay()),
       editor.on('overlay', () => this.invalidateOverlay()),
-      editor.on('view-options', () => this.invalidate()),
+      editor.on('view-options', () => this.#invalidateCachedArtwork()),
     ];
     imageEvents.onReady = () => this.invalidate();
     this.resize();
@@ -130,6 +130,16 @@ export class CanvasView {
   /** Re-read theme colors (theme switch, document preferences). */
   refreshColors() {
     this.colorCache = null;
+    this.#invalidateCachedArtwork();
+  }
+
+  /** Rendering settings changed: every cached pixel and pan snapshot is stale. */
+  #invalidateCachedArtwork() {
+    this.interaction = null;
+    this.previewCache = null;
+    this.snapshot = null;
+    this.fastMode = false;
+    clearTimeout(this.settleTimer);
     this.invalidate();
   }
 
