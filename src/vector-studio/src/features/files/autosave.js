@@ -205,6 +205,10 @@ export class Autosaver {
     let n = 0;
     for (const editor of this.#changed()) {
       const doc = editor.doc;
+      // Earlier documents may have awaited slow storage since this list was
+      // built. Never capture a gesture that began meanwhile, or a closed/saved
+      // document; cancelled gestures keep the previous revision number.
+      if (!doc.dirty || doc.tx || !this.app.editors.some((e) => e.doc === doc)) continue;
       const discardToken = this.discarded.get(doc);
       const rev = doc.revision;
       const commentsRevision = doc.commentsRevision;
