@@ -22,6 +22,7 @@ import { FILE_EXT } from '../model/project.js';
 import { isAudioName } from '../io/wav.js';
 import { installDialogs } from '../dialogs/index.js';
 import { saveChangesDialog } from '../ui/dialog.js';
+import { uid } from '../lib/util.js';
 import '../styles/dialogs.css';
 
 /** Longest the startup waits for the last session before showing the app. */
@@ -103,6 +104,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       };
       const picked = await (slot.withRecovery ? slot.withRecovery(recover) : recover());
       const draft = picked.draft;
+      let restoredDraft = false;
       if (picked.busy && !firstLaunch) app.notify('Your last session is open in another tab, so this tab started a new project.');
       // A file opened by the Puter desktop, a project opened meanwhile, or
       // edits made meanwhile win over the draft.
@@ -114,7 +116,16 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
           project = await lib.loadCloud(draft.file.path).catch(() => project);
           if (changedDuringRestore || files.loads !== startLoads || store.undoStack.length) project = null;
         }
-        if (project) files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
+        if (project) {
+          files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
+          restoredDraft = true;
+        }
+      }
+      if (draft?.json && !restoredDraft) {
+        // Autosaving the new work will replace this tab's slot. Preserve the
+        // skipped session under a fresh, unowned key for the next tab to recover.
+        await lib.saveDraft(draft, `tab:${uid(10)}`);
+        app.notify('Your previous session was kept for recovery in a new tab.', { timeout: 9000 });
       }
     } catch (err) {
       console.warn('Music Studio: the last session could not be restored.', err);

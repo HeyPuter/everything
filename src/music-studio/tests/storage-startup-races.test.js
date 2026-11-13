@@ -5,6 +5,7 @@ import { serializeProject } from '../src/model/serialize.js';
 import * as E from '../src/model/edits.js';
 import { install, RESTORE_WAIT_MS } from '../src/storage/index.js';
 import { memoryDB } from '../src/storage/idb.js';
+import { pickDraft } from '../src/storage/tabs.js';
 
 let app;
 afterEach(() => {
@@ -15,14 +16,14 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function delayedRestore(stage = 'local') {
+async function delayedRestore(stage = 'local', { abandoned = false } = {}) {
   vi.useFakeTimers();
   vi.stubGlobal('puter', stage === 'cloud' ? { env: 'web', auth: { isSignedIn: () => true } } : undefined);
   const db = memoryDB();
   db.persistent = true;
   const original = { json: serializeProject(newProject('Previous session'), {}), dirty: true, at: Date.now() };
   if (stage === 'cloud') Object.assign(original, { dirty: false, file: { path: '/cloud/song.msproj' } });
-  await db.put('drafts', 'tab:own', original);
+  await db.put('drafts', abandoned ? 'tab:closed' : 'tab:own', original);
   const entries = await db.all('drafts');
   let release;
   const waiting = new Promise((resolve) => { release = resolve; });
@@ -84,4 +85,17 @@ it.each(['local', 'cloud'])('still restores a delayed %s session when there was 
   const { finish } = await delayedRestore(stage);
   await finish();
   expect(app.store.project.name).toBe(stage === 'local' ? 'Previous session' : 'Updated cloud session');
+});
+
+it.each([
+  ['local', false], ['local', true], ['cloud', false],
+])('keeps the skipped %s session recoverable after autosaving new work (abandoned: %s)', async (stage, abandoned) => {
+  const { db, finish } = await delayedRestore(stage, { abandoned });
+  app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 101 }));
+  await finish();
+  await app.autosave.flushAll();
+  expect(JSON.parse((await db.get('drafts', 'tab:own')).json).bpm).toBe(101);
+  const next = pickDraft(await db.all('drafts'), { own: 'tab:new', live: new Set(['tab:own', 'tab:new']) });
+  expect(next.draft).not.toBe(null);
+  expect(JSON.parse(next.draft.json).name).toBe('Previous session');
 });
