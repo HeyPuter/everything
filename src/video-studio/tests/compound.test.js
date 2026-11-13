@@ -319,6 +319,64 @@ describe('closing a compound clip whose contents got longer or empty', () => {
     return inner;
   };
 
+  it.each([true, false])('autosaves the full extended compound and following clips before it is closed (ripple: %s)', (ripple) => {
+    const { store, title, comp } = setup({ ripple });
+    extend(store);
+    const before = structuredClone(store.project);
+    const outer = structuredClone(store.nest[0].outer);
+    const undoDepth = store.history.undoStack.length;
+    const saved = normalizeProject(store.projectForSave());
+    expect(findClip(saved, comp.id).clip.duration).toBe(s(7));
+    expect(mainTrack(saved).clips.map((c) => [c.start / 1e6, c.duration / 1e6])).toEqual([[0, 5], [5, 7], [12, 5]]);
+    if (ripple) expect(findClip(saved, title.id).clip.start).toBe(s(13));
+    expect(store.project).toEqual(before);
+    expect(store.nest[0].outer).toEqual(outer);
+    expect(store.nest).toHaveLength(1);
+    expect(store.history.undoStack).toHaveLength(undoDepth);
+    store.closeCompound();
+    expect(saved.tracks).toEqual(normalizeProject(store.projectForSave()).tracks);
+  });
+
+  it('keeps an existing outer trim when autosaving extended contents', () => {
+    const { store, comp } = setup({}, true);
+    extend(store);
+    const saved = store.projectForSave();
+    expect(findClip(saved, comp.id).clip.duration).toBe(s(3));
+    expect(mainTrack(saved).clips.map((c) => [c.start / 1e6, c.duration / 1e6])).toEqual([[0, 5], [5, 3], [8, 5]]);
+    store.closeCompound();
+    expect(saved.tracks).toEqual(store.project.tracks);
+  });
+
+  it('propagates autosaved duration changes through multiple open compounds', () => {
+    const p = fixture();
+    const [, target] = onMain(p, clip('video', 0, 5), clip('video', 5, 4), clip('video', 9, 5));
+    const child = createCompound(p, [target.id], RIPPLE);
+    const parent = createCompound(p, [child.id], RIPPLE);
+    const store = new EditorStore(p);
+    store.openCompound(parent.id);
+    store.openCompound(child.id);
+    extend(store);
+    const saved = store.projectForSave();
+    const outer = findClip(saved, parent.id).clip;
+    expect(outer.duration).toBe(s(7));
+    expect(findClip(outer.sequence, child.id).clip.duration).toBe(s(7));
+    expect(mainTrack(saved).clips.map((c) => c.start / 1e6)).toEqual([0, 5, 12]);
+    expect(store.nest).toHaveLength(2);
+    store.closeCompound();
+    store.closeCompound();
+    expect(saved.tracks).toEqual(store.project.tracks);
+  });
+
+  it('autosaves deletion of an emptied compound before it is closed', () => {
+    const { store, comp } = setup({});
+    store.update('Delete', (pp) => deleteClips(pp, allClips(pp).map((c) => c.id), store.opts) > 0);
+    const saved = store.projectForSave();
+    expect(findClip(saved, comp.id)).toBeNull();
+    expect(mainTrack(saved).clips.map((c) => [c.start / 1e6, c.duration / 1e6])).toEqual([[0, 5], [5, 5]]);
+    store.closeCompound();
+    expect(saved.tracks).toEqual(store.project.tracks);
+  });
+
   it('grows to show what was added at the end, rippling the base track', () => {
     const { store, title, comp } = setup({});
     extend(store);

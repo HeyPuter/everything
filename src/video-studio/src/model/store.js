@@ -29,6 +29,28 @@ function adoptProjectFields(to, from) {
   for (const k of Object.keys(from)) if (!NEST_FIELDS.has(k)) to[k] = structuredClone(from[k]);
 }
 
+/** Fold the edited contents into their parent, identically for closing and autosaving. */
+function applyCompoundEdits(project, id, inner, opts) {
+  const found = findClip(project, id);
+  if (!found) return false;
+  const cc = found.clip;
+  const ripple = rippleResize(project, id, opts);
+  // An untrimmed compound follows its contents; an existing shorter trim stays shorter.
+  const toEnd = cc.in + cc.duration >= sequenceLength(cc.sequence) - 1;
+  cc.sequence = { tracks: structuredClone(inner.tracks) };
+  adoptProjectFields(project, inner);
+  const len = sequenceLength(cc.sequence);
+  if (!len) {
+    found.track.clips.splice(found.index, 1);
+    ripple();
+    return;
+  }
+  cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
+  cc.duration = Math.max(MIN_CLIP, toEnd ? len - cc.in : Math.min(cc.duration, len - cc.in));
+  ripple();
+  makeRoom(project, found.track, cc, opts);
+}
+
 export class EditorStore extends Emitter {
   constructor(project, { toggles } = {}) {
     super();
@@ -102,28 +124,7 @@ export class EditorStore extends Emitter {
     let t = frame.time;
     if (c) t = c.start + Math.max(0, Math.min(c.duration, this.time - c.in));
     if (changed && c) {
-      this.update('Edit compound clip', (p) => {
-        const cc = findClip(p, frame.id)?.clip;
-        if (!cc) return false;
-        const ripple = rippleResize(p, frame.id, this.opts);
-        // Showing its contents to their end, it follows that end (as nested timelines do in
-        // other editors); trimmed shorter, it keeps its trim and only shrinks to what is left.
-        const toEnd = cc.in + cc.duration >= sequenceLength(cc.sequence) - 1;
-        cc.sequence = { tracks: structuredClone(inner.tracks) };
-        adoptProjectFields(p, inner);
-        const len = sequenceLength(cc.sequence);
-        const f = findClip(p, frame.id);
-        if (!len) {
-          // Everything inside was deleted: the clip goes too (not a 1-frame leftover).
-          f.track.clips.splice(f.index, 1);
-          ripple();
-          return;
-        }
-        cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
-        cc.duration = Math.max(MIN_CLIP, toEnd ? len - cc.in : Math.min(cc.duration, len - cc.in));
-        ripple();
-        makeRoom(p, f.track, cc, this.opts);
-      });
+      this.update('Edit compound clip', (p) => applyCompoundEdits(p, frame.id, inner, this.opts));
     }
     this._afterSwap(t);
     return true;
@@ -133,11 +134,22 @@ export class EditorStore extends Emitter {
   projectForSave() {
     if (!this.nest.length) return structuredClone(this.project);
     let inner = this.project;
+    let changed = this.history.canUndo();
     for (let i = this.nest.length - 1; i >= 0; i--) {
-      const outer = structuredClone(this.nest[i].outer);
-      const c = findClip(outer, this.nest[i].id)?.clip;
-      if (c) c.sequence = { tracks: structuredClone(inner.tracks) };
-      adoptProjectFields(outer, inner);
+      const frame = this.nest[i];
+      const outer = structuredClone(frame.outer);
+      const folded = changed && applyCompoundEdits(outer, frame.id, inner, this.opts) !== false;
+      if (folded) {
+        // Match closing the compound through update(), without changing the live edit or history.
+        cleanupTransitions(outer);
+        resolveOverlaps(outer);
+        pruneTracks(outer);
+      } else {
+        const c = findClip(outer, frame.id)?.clip;
+        if (c) c.sequence = { tracks: structuredClone(inner.tracks) };
+        adoptProjectFields(outer, inner);
+      }
+      changed = folded || frame.history.canUndo();
       inner = outer;
     }
     return inner;
