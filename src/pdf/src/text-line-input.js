@@ -245,7 +245,9 @@ export function textLineInput(group) {
   });
   input.addEventListener('paste', (e) => {
     e.preventDefault();
-    document.execCommand('insertText', false, draftText(e.clipboardData.getData('text/plain')));
+    // A picture or file on the clipboard has no text: inserting none would delete the selection.
+    const text = e.clipboardData?.getData('text/plain');
+    if (text) document.execCommand('insertText', false, draftText(text));
   });
   let dragging = false;
   input.addEventListener('dragstart', (e) => {

@@ -206,3 +206,45 @@ test('line breaks pasted as vertical tabs or line separators start new lines', a
   expect(text).toMatch(/First\s+Second\s+Third/);
   expect(text).toMatch(/Mixed\s+bold\s+more/);
 });
+
+test('pasting a picture into styled text keeps the selected words', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([612, 792]);
+  const font = await doc.embedFont(StandardFonts.Helvetica),
+    bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  sheet.drawText('Mixed ', { x: 60, y: 500, size: 20, font });
+  sheet.drawText('bold', {
+    x: 60 + font.widthOfTextAtSize('Mixed ', 20),
+    y: 500,
+    size: 20,
+    font: bold,
+  });
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'picture-paste.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await settled(page);
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit text: Mixed bold', exact: true }).click();
+  const edited = page.getByRole('textbox', { name: 'Edit text', exact: true });
+  await expect(edited).toBeFocused();
+  await edited.evaluate((node) => {
+    node.select();
+    // A screenshot on the clipboard: a file and no text.
+    const data = new DataTransfer();
+    data.items.add(
+      new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' }),
+    );
+    node.dispatchEvent(
+      new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }),
+    );
+  });
+  await expect(edited).toHaveText('Mixed bold');
+});
