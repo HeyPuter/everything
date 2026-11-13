@@ -457,7 +457,7 @@ export class Engine extends Emitter {
     const node = new AudioWorkletNode(this.ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
     const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
     const map = this.inputMap;
-    let mapped = false;
+    let route = [];
     if (!(map[0] === 0 && map[1] === 1)) {
       // Pick device channels for the recorded left and right channels.
       const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
@@ -468,14 +468,14 @@ export class Engine extends Emitter {
         if (dev >= 0 && dev < n) split.connect(merge, dev, ch);
       });
       merge.connect(node);
-      mapped = true;
+      route = [split, merge];
     } else src.connect(node);
     node.port.onmessage = (e) => {
       const m = e.data;
       if (m.type === 'data') this.emit('record-data', m.channels);
       else if (m.type === 'meter') this.emit('input-meter', m.peak);
     };
-    this.input = { stream, src, node, channels: mapped ? 2 : deviceChannels };
+    this.input = { stream, src, node, route, channels: route.length ? 2 : deviceChannels };
     return this.input;
   }
 
@@ -485,8 +485,12 @@ export class Engine extends Emitter {
 
   closeInput() {
     if (!this.input) return;
+    // The processor sends what it still holds, then stops: one left running
+    // would cost render time for good (and a mapped one kept posting silent meters).
     this.input.node.port.postMessage({ type: 'record', on: false });
+    this.input.node.port.postMessage({ type: 'close' });
     this.input.src.disconnect();
+    for (const n of this.input.route) n.disconnect();
     for (const t of this.input.stream.getTracks()) t.stop();
     this.input = null;
   }

@@ -386,3 +386,51 @@ describe('engine playhead and output latency', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('engine input capture', () => {
+  it('a closed input hands over what it recorded, then its processor stops', async () => {
+    let Capture = null;
+    globalThis.sampleRate = 48000;
+    globalThis.currentTime = 0;
+    globalThis.AudioWorkletProcessor = class {
+      constructor() {
+        this.port = { postMessage() {}, onmessage: null };
+      }
+    };
+    globalThis.registerProcessor = (name, cls) => (Capture = cls);
+    await import('../src/engine/capture-worklet.js');
+    const { e } = fakeEngine();
+    const node = (name) => ({ name, connected: true, connect() {}, disconnect() { this.connected = false; } });
+    const made = [];
+    Object.assign(e.ctx, {
+      audioWorklet: { addModule: async () => {} },
+      createMediaStreamSource: () => node('source'),
+      createChannelSplitter: () => (made.push(node('split')), made.at(-1)),
+      createChannelMerger: () => (made.push(node('merge')), made.at(-1)),
+    });
+    const track = { stop() {}, getSettings: () => ({ channelCount: 2 }) };
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }) } });
+    let proc = null;
+    vi.stubGlobal('AudioWorkletNode', function () {
+      proc = new Capture();
+      const n = node('capture');
+      n.port = { onmessage: null, postMessage: (m) => proc.port.onmessage({ data: m }) };
+      proc.port.postMessage = (m) => n.port.onmessage?.({ data: m });
+      return n;
+    });
+    // Input channels swapped: the input goes through a splitter and a merger.
+    e.setInputMap([1, 0]);
+    await e.openInput();
+    let frames = 0;
+    e.on('record-data', (ch) => (frames += ch[0].length));
+    e.setRecording(true);
+    const block = [new Float32Array(128).fill(0.1), new Float32Array(128).fill(0.2)];
+    for (let i = 0; i < 20; i++) expect(proc.process([block])).toBe(true);
+    e.closeInput();
+    // Every recorded frame arrived, and the processor lets its node go.
+    expect(frames).toBe(20 * 128);
+    expect(proc.process([block])).toBe(false);
+    expect(made.map((n) => n.connected)).toEqual([false, false]);
+    vi.unstubAllGlobals();
+  });
+});
