@@ -554,3 +554,74 @@ for (const sharedId of [true, false]) for (const dialog of ['Find', 'Spelling'])
     })).toEqual([11, 15]);
   }
 });
+
+for (const [changed, newText, action] of [
+  ['text', 'Other text', 'Change'],
+  ['document', 'Other text', 'Change'],
+  ['text', 'new teh', 'Change'],
+  ['text', 'new teh', 'Change All'],
+  ['document', 'teh', 'Change'],
+  ['document', 'teh', 'Change All'],
+  ['text', 'teh2', 'Change'],
+  ['text', 'teh2', 'Change All'],
+  ['text', 'teh more', 'Change'],
+  ['text', 'Other text', 'Ignore'],
+  ['document', 'Other text', 'Ignore'],
+]) test(`spelling ${action} validates its match after changing ${changed} to '${newText}'`, async ({ page }) => {
+  await boot(page);
+  let other: string | undefined;
+  if (changed === 'document') {
+    await openImage(page, 240, 160, '#ffffff', 'other.png');
+    other = await page.evaluate(() => window.photoStudio.session.id);
+    await openImage(page, 240, 160, '#ffffff', 'original.png');
+  }
+  await textDoc(page, ['teh']);
+  if (other) await page.evaluate(async ({ other, newText }) => {
+    const e = window.photoStudio;
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    const l = e.doc.layers[0];
+    const s = e.sessions.find((s) => s.id === other)!;
+    s.history.reset({ ...s.doc, layers: [{ ...l, name: newText, text: newText, textData: textLayer(newText, { family: 'Inter' }) }] });
+  }, { other, newText });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  await expect(dlg.locator('#sp-word')).toHaveText('teh');
+  if (other) {
+    await page.locator(`.document-tab[data-session="${other}"]`).click();
+    await page.evaluate(async () => {
+      const e = window.photoStudio;
+      await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers[0].id, 'end');
+    });
+  } else {
+    await page.locator('textarea.type-input').focus();
+    await page.keyboard.insertText(newText);
+  }
+  await dlg.getByRole('button', { name: action, exact: true }).click();
+  await idle(page);
+  const valid = newText === 'teh more';
+  expect(await layerTexts(page)).toEqual([valid ? 'the more' : newText]);
+  const refreshed = newText === 'new teh' || newText === 'teh';
+  if (refreshed) {
+    await expect(dlg.locator('#sp-word')).toHaveText('teh');
+    const at = newText.indexOf('teh');
+    expect(await page.evaluate(() => {
+      const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+      return [s.anchor, s.focus];
+    })).toEqual([at, at + 3]);
+    await dlg.getByRole('button', { name: action, exact: true }).click();
+  }
+  await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+  if (action === 'Ignore') expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual([newText.length, newText.length]);
+  await run(page, 'type.commit');
+  const finalText = refreshed || valid ? newText.replace('teh', 'the') : newText;
+  expect(await layerTexts(page)).toEqual([finalText]);
+  if (refreshed || valid) {
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual([action === 'Change All' ? newText : 'teh']);
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual([finalText]);
+  }
+});

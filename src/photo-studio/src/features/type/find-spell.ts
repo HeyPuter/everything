@@ -209,7 +209,7 @@ export async function checkSpelling(e: Editor) {
   const buttons = [...ws.dialog.querySelectorAll<HTMLButtonElement>('.sp-footer button:not(#sp-done)')];
   const enable = (on: boolean) => buttons.forEach((b) => (b.disabled = !on));
   enable(false);
-  let current: { layer: Layer; hit: Misspelling } | undefined;
+  let current: { owner: Editor['session']; layer: Layer; hit: Misspelling } | undefined;
   let spell: SpellChecker;
   try {
     spell = await checker();
@@ -227,12 +227,21 @@ export async function checkSpelling(e: Editor) {
       ? list.map((w, i) => `<div role="option" class="sp-option" data-word="${escapeXML(w)}" aria-selected="${i === 0}">${escapeXML(w)}</div>`).join('')
       : '<span class="muted">No suggestions</span>';
   };
+  // This dialog stays open while text and document tabs can change. Only
+  // apply the displayed suggestion while its original word still exists.
+  const currentMatches = () => {
+    const match = current;
+    if (!match || match.owner !== e.session) return false;
+    const layer = textLayers(e, true).find((l) => l.id === match.layer.id);
+    return !!layer && spell.misspellings(textOf(e, layer)).some((hit) =>
+      hit.start === match.hit.start && hit.end === match.hit.end && hit.word === match.hit.word);
+  };
   const next = async () => {
     const owner = e.session;
     const isCurrent = () => ws.dialog.isConnected && e.session === owner;
     if (!isCurrent()) return;
     const found = search(e, all(), (t) => spell.misspellings(t));
-    current = found;
+    current = found && { ...found, owner };
     if (!found) {
       ws.q('#sp-word').textContent = '—';
       ws.q('#sp-suggestions').innerHTML = '';
@@ -249,7 +258,7 @@ export async function checkSpelling(e: Editor) {
   };
   // Skip past the current word without changing it.
   const skip = async () => {
-    if (current && session?.layerId === current.layer.id) setSelection(e, current.hit.end, current.hit.end);
+    if (current && currentMatches() && session?.layerId === current.layer.id) setSelection(e, current.hit.end, current.hit.end);
     await next();
   };
   ws.q('#sp-suggestions').addEventListener('click', (ev) => {
@@ -275,14 +284,14 @@ export async function checkSpelling(e: Editor) {
     void skip();
   });
   ws.q('#sp-change-one').addEventListener('click', () => {
-    if (!current || session?.layerId !== current.layer.id) return void next();
+    if (!current || !currentMatches() || session?.layerId !== current.layer.id) return void next();
     if (layerLock(e.doc.layers, current.layer.id, 'all')) return status(lockedMessage);
     setSelection(e, current.hit.start, current.hit.end);
     insert(e, ws.q<HTMLInputElement>('#sp-change').value, 'replace');
     void next();
   });
   ws.q('#sp-change-all').addEventListener('click', async () => {
-    if (!current) return;
+    if (!current || !currentMatches()) return void next();
     const word = current.hit.word,
       to = ws.q<HTMLInputElement>('#sp-change').value;
     if (session) await commit(e);
