@@ -222,7 +222,9 @@ function sourceInfo(p, clip) {
     infoProject = p;
     infoMap.clear();
   }
-  let info = infoMap.get(clip.ref);
+  // IDs are unique within each source collection, not across source kinds.
+  const key = `${clip.kind}:${clip.ref}`;
+  let info = infoMap.get(key);
   if (!info) {
     const src = { kind: clip.kind, id: clip.ref };
     info = {
@@ -230,7 +232,7 @@ function sourceInfo(p, clip) {
       name: sourceName(p, src),
       pattern: clip.kind === 'pattern' ? p.patterns.find((x) => x.id === clip.ref) || null : null,
     };
-    infoMap.set(clip.ref, info);
+    infoMap.set(key, info);
   }
   return info;
 }
