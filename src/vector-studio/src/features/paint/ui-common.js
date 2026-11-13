@@ -150,10 +150,7 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
         onInput?.(def.to(values), values.slice());
       });
       range.addEventListener('change', () => onCommit?.(def.to(values), values.slice()));
-      const commitField = () => {
-        // Values are kept unrounded: committing the rounded text the field shows would shift the color.
-        if (!hasDraft()) return;
-        const v = parseChannel(ch, field.value);
+      const commitValue = (v) => {
         if (v == null) {
           render();
           return;
@@ -170,6 +167,10 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
         onInput?.(hex, values.slice());
         onCommit?.(hex, values.slice());
       };
+      const commitField = () => {
+        // Values are kept unrounded: committing the rounded text the field shows would shift the color.
+        if (hasDraft()) commitValue(parseChannel(ch, field.value));
+      };
       field.addEventListener('keydown', (e) => {
         e.stopPropagation();
         if (e.key === 'Enter') {
@@ -179,8 +180,8 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
           const step = (ch.step || 1) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
-          field.value = formatChannel(ch, Math.min(ch.max, Math.max(ch.min, values[i] + step)));
-          commitField();
+          const base = (hasDraft() ? parseChannel(ch, field.value) : null) ?? values[i];
+          commitValue(Math.min(ch.max, Math.max(ch.min, base + step)));
         }
       });
       field.addEventListener('blur', commitField);
