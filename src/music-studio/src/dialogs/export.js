@@ -8,7 +8,7 @@ import { openDialog } from '../ui/dialog.js';
 import { encodeWav } from '../io/wav.js';
 import { zipBytes } from '../io/zip.js';
 import { downloadBlob, safeFileName } from '../io/download.js';
-import { songLength, patternLength } from '../model/project.js';
+import { songLength, patternLength, patternById } from '../model/project.js';
 import { formatTime } from '../model/time.js';
 import { tempoMap } from '../engine/compile.js';
 import * as puter from '../storage/puter.js';
@@ -126,7 +126,7 @@ export async function openExportDialog(app, { stems = false } = {}) {
       progress.hidden = false;
       setProgress(0);
       try {
-        const ok = await runExport(app, { ...opts, stems, inserts, signal: controller.signal, cloudCopy: signedIn && cloud.checked, setProgress, setStatus: (t) => (status.textContent = t) });
+        const ok = await runExport(app, { ...opts, stems, signal: controller.signal, cloudCopy: signedIn && cloud.checked, setProgress, setStatus: (t) => (status.textContent = t) });
         return ok;
       } catch (err) {
         if (controller.signal.aborted) return true;
@@ -150,14 +150,16 @@ function renderError(err) {
   return `The export failed: ${msg}`;
 }
 
-async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, cloudCopy, setProgress, setStatus }) {
-  const store = app.store;
-  const p = store.project;
-  const base = safeFileName(mode === 'pattern' ? `${p.name} - ${store.pattern.name}` : p.name);
+async function runExport(app, { mode, rate, bits, tail, stems, signal, cloudCopy, setProgress, setStatus }) {
+  const snapshot = app.engine.captureRenderSnapshot();
+  const p = snapshot.project;
+  const pattern = patternById(p, snapshot.patternId) || p.patterns[0];
+  const inserts = stems ? stemInserts(p) : [];
+  const base = safeFileName(mode === 'pattern' ? `${p.name} - ${pattern.name}` : p.name);
   const render = (isolate, part, parts) =>
     app.engine.render({
       mode,
-      patternId: store.view.pattern,
+      snapshot,
       rate,
       // Seconds at most: the render ends early once the tails fall silent.
       tail: tail ? TAIL_MAX : 0,

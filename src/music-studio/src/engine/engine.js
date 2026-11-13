@@ -23,12 +23,14 @@
 //   engine.audition({ type, params, sample }, key, vel)   one-off preview voice (browser presets),
 //                                                         played through the master; returns a stop()
 //                                                         (`sample`: a loaded sample id or { channels, rate })
-//   engine.render({ mode, patternId, start, end, rate, tail, isolate, onProgress, signal })
+//   engine.captureRenderSnapshot()   capture project, pattern and sample references for a render batch
+//   engine.render({ mode, patternId, start, end, rate, tail, isolate, onProgress, signal, snapshot })
 //     -> { channels: [Float32Array, Float32Array], rate }
 //     mode 'song' (default; start/end default to the whole song) or 'pattern' (patternId
 //     defaults to the selected pattern); tail: seconds rendered after `end` at most (stops
 //     early after 0.25 s of silence); isolate: a mixer insert index, only signal that passes
 //     through it reaches the master (stems); signal: an AbortSignal (rejects with AbortError).
+//     snapshot: optional state from captureRenderSnapshot(), shared across every stem in an export.
 //   engine.ready, engine.ctx, engine.sampleRate, engine.unavailable (reason string or null)
 //   engine.restart()               recreate the context (prefs 'latencyHint', 'sampleRate'
 //                                  ('auto' or Hz) and 'outputDevice' are read on start)
@@ -722,10 +724,16 @@ export class Engine extends Emitter {
 
   // ---------------------------------------------------------------- offline render
 
-  async render({ mode = 'song', patternId = null, start, end, rate = 48000, tail = 2, isolate = null, onProgress, signal } = {}) {
+  /** Immutable project state and decoded sample references shared by a batch of renders. */
+  captureRenderSnapshot() {
+    return { project: this.store.project, patternId: this.store.view.pattern, samples: new Map(this._sampleData) };
+  }
+
+  async render({ mode = 'song', patternId = null, start, end, rate = 48000, tail = 2, isolate = null, onProgress, signal, snapshot } = {}) {
     if (signal?.aborted) throw abortError();
-    const p = this.store.project;
-    const pid = patternId || this.store.view.pattern;
+    const p = snapshot?.project || this.store.project;
+    const pid = patternId || snapshot?.patternId || this.store.view.pattern;
+    const sampleData = snapshot?.samples || this._sampleData;
     const bar = ticksPerBar(p.sig);
     let s = Number.isFinite(start) ? Math.max(0, start) : 0;
     let e = end;
@@ -742,7 +750,7 @@ export class Engine extends Emitter {
     const samples = [];
     const idxOf = (id) => {
       if (sampleIdx.has(id)) return sampleIdx.get(id);
-      const data = this._sampleData.get(id);
+      const data = sampleData.get(id);
       if (!data) return -1;
       const i = samples.length;
       sampleIdx.set(id, i);
