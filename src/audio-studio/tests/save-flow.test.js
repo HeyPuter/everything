@@ -11,7 +11,7 @@ vi.mock('../src/export/export.js', () => ({
   cancelledError: () => Object.assign(new Error('Cancelled'), { name: 'AbortError' }),
 }));
 
-const { saveDocument } = await import('../src/export/save.js');
+const { saveDocument, optionsForSave } = await import('../src/export/save.js');
 const { AudioFile } = await import('../src/model/audio-file.js');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -193,5 +193,51 @@ describe('Save As when the file exists and Replace is declined', () => {
     button(dialog.querySelector('.dialog-foot'), 'Cancel').click();
     expect(await saving).toBe(false);
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+describe('Save after the document changed sample type', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.body.replaceChildren();
+  });
+
+  it("writes the document's new channel count, keeping the other saved choices", async () => {
+    const { convertChannels } = await import('../src/model/edits.js');
+    const { Prefs } = await import('../src/lib/prefs.js');
+    window.puter = {
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) },
+      fs: {
+        write: async () => ({ uid: 'u1' }),
+        stat: async () => Promise.reject({ code: 'subject_does_not_exist' }),
+      },
+    };
+    const app = { ...fakeApp(), prefs: new Prefs(null) };
+    const doc = AudioFile.blank({ name: 'Mono.wav', sampleRate: 44100, channels: 1, seconds: 0.1 });
+    // Save As 16-bit WAV with noise-shaped dither.
+    const saving = saveDocument(app, doc, { saveAs: true });
+    await wait(20);
+    const change = (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event('change'));
+    };
+    const button = (text) =>
+      [...document.querySelectorAll('.io-export-dialog .btn')].find((b) => b.textContent === text);
+    button('Change...').click();
+    change(document.querySelector('select[aria-label="Bit depth"]'), 16);
+    change(document.querySelector('select[aria-label="Dither"]'), 'shaped');
+    button('OK').click();
+    document.querySelector('.io-export-dialog .dialog-foot .btn.primary').click();
+    expect(await saving).toBe(true);
+    expect(exports.at(-1)[1]).toMatchObject({ channels: 1, sampleRate: 44100, bitDepth: 16 });
+    // Edit > Convert Sample Type to stereo, then Save.
+    doc.apply('Convert', convertChannels(doc.state, 2));
+    expect(await saveDocument(app, doc)).toBe(true);
+    const saved = { channels: 2, sampleRate: 44100, bitDepth: 16, dither: 'shaped' };
+    expect(exports.at(-1)[1]).toMatchObject(saved);
+    // A rate and channel count chosen in Save As hold while the document keeps its own.
+    const from = { sampleRate: 44100, channels: 2 };
+    doc.info.exportOptions = { ...doc.info.exportOptions, sampleRate: 48000, channels: 1, from };
+    expect(optionsForSave(doc, 'wav')).toMatchObject({ sampleRate: 48000, channels: 1 });
   });
 });

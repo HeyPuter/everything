@@ -22,10 +22,20 @@ export function encodeDoc(doc, options, { start = 0, end = doc.length, onProgres
   return exportAudio(source, options, { onProgress, signal });
 }
 
-/** Options for re-saving a document in `format`: what it was last saved with, else its own sample type. */
+/**
+ * Options for re-saving a document in `format`: what it was last saved with, else its own
+ * sample type. A rate or channel count chosen for that save holds only while the document
+ * keeps the sample type it had then (`from`): after Convert Sample Type the file gets the new one.
+ */
 export function optionsForSave(doc, format) {
   const last = doc.info?.exportOptions;
-  if (last && last.format === format) return conformOptions(format, last).options;
+  if (last && last.format === format) {
+    const from = last.from;
+    const { sampleRate, channelCount: channels } = doc;
+    const converted = from && (from.sampleRate !== sampleRate || from.channels !== channels);
+    const opts = converted ? { ...last, sampleRate, channels } : last;
+    return conformOptions(format, opts).options;
+  }
   const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) };
   return defaultOptions(source, format);
 }
@@ -124,7 +134,9 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
     } else downloadBlob(blob, r.fileName);
     if (mode === 'saveAs') {
       doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
-      doc.info = { ...doc.info, format: r.options.format, exportOptions: r.options, size: blob.size };
+      const from = { sampleRate: state.sampleRate, channels: state.channels.length };
+      const exportOptions = { ...r.options, from };
+      doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
       if (doc.name !== r.fileName) doc.rename(r.fileName);
       if (doc.state === state) doc.markSaved();
       else doc.emit('change', { kind: 'saved' });
