@@ -80,12 +80,24 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
   let exiting = false;
   let discarding = false;
   let ownedDraft = null;
+  let pendingRecovery = null;
   // Modern drafts need only their revision; avoid retaining another project JSON.
   const draftIdentity = (draft) => draft?.revision ? { revision: draft.revision } : draft;
+  const preserveRecovery = async () => {
+    const pending = pendingRecovery;
+    if (!pending) return;
+    await lib.saveDraft(pending.draft, pending.key);
+    ownedDraft ??= draftIdentity(pending.draft);
+    if (pendingRecovery === pending) pendingRecovery = null;
+  };
   const autosave = new Autosave({
     store,
     writeDraft: async () => {
+      // Recovery must preserve the previous slot before an early file event can replace it.
+      await app.restored;
       const slot = await tab;
+      if (discarding || exiting) return;
+      await preserveRecovery();
       if (discarding || exiting) return;
       ownedDraft = draftIdentity(await lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, slot.key));
     },
@@ -135,9 +147,18 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       if (draft?.json && !restoredDraft) {
         // Autosaving the new work will replace this tab's slot. Preserve the
         // skipped session under a fresh, unowned key for the next tab to recover.
-        await lib.saveDraft(draft, `tab:${uid(10)}`);
-        ownedDraft ??= draftIdentity(draft);
-        app.notify('Your previous session was kept for recovery in a new tab.', { timeout: 9000 });
+        pendingRecovery = { draft, key: `tab:${uid(10)}` };
+        try {
+          await preserveRecovery();
+          app.notify('Your previous session was kept for recovery in a new tab.', { timeout: 9000 });
+        } catch (err) {
+          // Do not overwrite the only old copy while the recovery write is failing.
+          app.notify('Your previous session is kept, but this browser could not keep both sessions. Save your current work to your device before closing.', {
+            error: true, timeout: 12000,
+            action: { label: 'Save current work to device', run: () => files.download().catch((error) => app.reportError(error)) },
+          });
+          console.warn('Music Studio: the previous session could not be copied for recovery.', err);
+        }
       }
     } catch (err) {
       console.warn('Music Studio: the last session could not be restored.', err);

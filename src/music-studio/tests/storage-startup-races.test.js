@@ -8,8 +8,10 @@ import { memoryDB } from '../src/storage/idb.js';
 import { pickDraft } from '../src/storage/tabs.js';
 
 let app;
+const listeners = [];
 afterEach(() => {
   app?.autosave.stop();
+  for (const [target, args] of listeners.splice(0)) target.removeEventListener(...args);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -32,6 +34,10 @@ async function delayedRestore(stage = 'local', { abandoned = false } = {}) {
   document.body.append(root);
   app = new App(root, { storage: { getItem: () => null, setItem() {} } });
   app.prefs.set('launched', true);
+  for (const target of [window, document]) {
+    const add = target.addEventListener.bind(target);
+    vi.spyOn(target, 'addEventListener').mockImplementation((...args) => { listeners.push([target, args]); add(...args); });
+  }
   install(app, { db, tab: { key: 'tab:own', liveKeys: async () => new Set(['tab:own']) } });
   if (stage === 'cloud') vi.spyOn(app.library, 'loadCloud').mockImplementationOnce(() => waiting);
   app.emit('started');
@@ -98,4 +104,46 @@ it.each([
   const next = pickDraft(await db.all('drafts'), { own: 'tab:new', live: new Set(['tab:own', 'tab:new']) });
   expect(next.draft).not.toBe(null);
   expect(JSON.parse(next.draft.json).name).toBe('Previous session');
+});
+
+it.each([false, true])('preserves the previous session when recovery storage is full (early draft: %s)', async (earlyDraft) => {
+  const { db, finish } = await delayedRestore();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const notify = vi.spyOn(app, 'notify');
+  const put = db.put.bind(db);
+  let full = true;
+  const quota = new DOMException('No room for another draft', 'QuotaExceededError');
+  vi.spyOn(db, 'put').mockImplementation((store, key, value) => {
+    if (full && store === 'drafts' && key !== 'tab:own') return Promise.reject(quota);
+    return put(store, key, value);
+  });
+  app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 101 }));
+  if (earlyDraft) {
+    app.files.setFile({ local: 'current', name: 'Current work' });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(JSON.parse((await db.get('drafts', 'tab:own')).json).name).toBe('Previous session');
+  }
+  await finish();
+  await app.autosave.flushAll();
+  expect(JSON.parse((await db.get('drafts', 'tab:own')).json).name).toBe('Previous session');
+  expect(app.store.project.bpm).toBe(101);
+  expect(app.autosave.lastError).toBe(quota);
+  const warning = notify.mock.calls.find(([, options]) => options?.error && options?.action);
+  expect(warning).toBeDefined();
+  const download = vi.spyOn(app.files, 'download').mockResolvedValue();
+  await warning[1].action.run();
+  expect(download).toHaveBeenCalledOnce();
+  const closing = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(closing);
+  expect(closing.defaultPrevented).toBe(true);
+  await app.autosave.flushAll();
+  full = false;
+  await app.autosave.flushAll();
+  expect(app.autosave.lastError).toBe(null);
+  expect(JSON.parse((await db.get('drafts', 'tab:own')).json).bpm).toBe(101);
+  const previous = pickDraft(await db.all('drafts'), { own: 'tab:new', live: new Set(['tab:own', 'tab:new']) });
+  expect(JSON.parse(previous.draft.json).name).toBe('Previous session');
+  const savedClose = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(savedClose);
+  expect(savedClose.defaultPrevented).toBe(false);
 });
