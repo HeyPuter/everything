@@ -53,6 +53,7 @@ export class Autosaver {
     this.cached = null;
     this.recovered = new WeakMap(); // document -> original snapshot and store, until safely superseded
     this.saved = new WeakMap(); // document -> artwork and comment revisions last written
+    this.discarded = new WeakMap(); // document -> token invalidating captures from before Save/Close
     this.pending = new WeakMap(); // document -> revisions of the write that will replace its copy
     this.watched = new WeakSet(); // documents whose saved event removes their copy
     this.stashed = new Map(); // recovery id -> revisions and capture sequence kept at page close
@@ -204,6 +205,7 @@ export class Autosaver {
     let n = 0;
     for (const editor of this.#changed()) {
       const doc = editor.doc;
+      const discardToken = this.discarded.get(doc);
       const rev = doc.revision;
       const commentsRevision = doc.commentsRevision;
       this.pending.set(doc, { revision: rev, commentsRevision });
@@ -212,11 +214,14 @@ export class Autosaver {
         const reuse = kept?.rev === rev && kept.commentsRevision === commentsRevision;
         const sequence = reuse ? kept.sequence : ++this.sequence;
         const data = reuse ? await encodeText(kept.text) : await serializeDocument(doc);
-        // Saved or closed while the copy was being encoded: a copy written now would outlive the
-        // discard and be offered for recovery later.
-        if (!doc.dirty || !this.app.editors.some((e) => e.doc === doc)) continue;
+        // Save/Close invalidates this capture even if Undo or another edit has
+        // already made the same document dirty again while encoding finished.
+        if (this.discarded.get(doc) !== discardToken || !doc.dirty || !this.app.editors.some((e) => e.doc === doc)) continue;
         const id = this.recoveryId(editor);
         await store.put(id, { ...this.#entry(editor), data, revision: rev, commentsRevision, sequence, session: this.session });
+        // Its queued discard owns this completed write. Do not claim the
+        // deleted copy still covers Undo or clear a newer page-close stash.
+        if (this.discarded.get(doc) !== discardToken) continue;
         this.saved.set(doc, { revision: rev, commentsRevision });
         this.#watchShared(doc);
         this.#unstash(id, sequence);
@@ -259,6 +264,7 @@ export class Autosaver {
   /** Forget a document's recovery copy (saved, or closed without saving). */
   async discard(editor) {
     if (!editor) return;
+    if (editor.doc) this.discarded.set(editor.doc, Symbol());
     this.saved.delete(editor.doc);
     const source = this.recovered.get(editor.doc);
     if (source) source.discarded = true;
