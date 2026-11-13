@@ -18,6 +18,8 @@ import {
   insertionPoint,
   snapshot,
   unchangedSince,
+  visibleShapes,
+  withMasks,
 } from '../geometry/nodes-io.js';
 import { offsetRecords, insertOffsets, outlineStrokeNodes } from '../geometry/path-ops.js';
 
@@ -28,9 +30,14 @@ const JOINS = ['miter', 'round', 'bevel'];
 const changedMeanwhile = (what) =>
   new Error(`${what} was canceled because the artwork changed while it ran.`);
 
-/** Paths and compound paths of the given objects (groups give their contents), back to front. */
-function pathsOf(doc, ids) {
-  return geometryLeaves(doc, ids, { skipLocked: false, intoLive: false });
+/**
+ * Paths and compound paths of the given objects (groups give their
+ * contents), back to front. The clipping path of a clipping group given as
+ * a whole is not one of them; `clipped` maps each clipped path to the
+ * clipping paths over it.
+ */
+function pathsOf(doc, ids, clipped = new Map()) {
+  return geometryLeaves(doc, ids, { skipLocked: false, intoLive: false, clipped });
 }
 
 /**
@@ -45,20 +52,26 @@ export async function pathfinderOn(doc, kind, ids, opts, commit) {
   if (!def)
     throw new Error(`Unknown pathfinder "${kind}". Use one of: ${PATHFINDER_KINDS.join(', ')}.`);
   const o = { ...pathfinderOptions, ...opts };
-  const leaves = pathsOf(doc, ids);
+  const clipped = new Map();
+  const leaves = pathsOf(doc, ids, clipped);
   const oneCompound = leaves.length === 1 && leaves[0].type === 'compound';
   const single = kind === 'unite' || kind === 'divide' || kind === 'outline';
   if (leaves.length < 2 && !(single && oneCompound)) {
     throw new Error(`${def.label} needs two or more paths${single ? ', or a compound path' : ''}.`);
   }
-  const shapes = shapesFor(doc, kind, leaves);
-  if (emptyShapeModeReason(kind, shapes)) return [];
-  const snap = snapshot(doc, leaves);
-  const records = await runGeom(def.op, shapes, [], { tol: o.precision });
+  const snap = snapshot(doc, withMasks(doc, leaves, clipped));
+  const tol = { tol: o.precision };
+  // Clipped objects take part with what they show (as from the Pathfinder panel).
+  const all = await visibleShapes(doc, leaves, shapesFor(doc, kind, leaves), clipped, tol);
+  const used = leaves.filter((_, i) => all[i]);
+  const shapes = all.filter(Boolean);
+  if (!shapes.length || emptyShapeModeReason(kind, shapes)) return [];
+  if (shapes.length < 2 && shapes.length < leaves.length && !single) return [];
+  const records = await runGeom(def.op, shapes, [], tol);
   if (!unchangedSince(doc, snap)) throw changedMeanwhile(def.label);
-  const items = buildResults(kind, leaves, records, o);
+  const items = buildResults(kind, used, records, o);
   if (!items.length) return [];
-  return commit(() => replaceWith(doc, leaves, items, insertionPoint(doc, leaves)));
+  return commit(() => replaceWith(doc, leaves, items, insertionPoint(doc, leaves, clipped)));
 }
 
 /**

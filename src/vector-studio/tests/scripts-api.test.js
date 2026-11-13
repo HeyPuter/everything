@@ -10,7 +10,7 @@ import {
   SCRIPT_CORE,
   API_REFERENCE,
 } from '../src/features/scripts/runner.js';
-import { createPath, createCompound } from '../src/model/nodes.js';
+import { createPath, createCompound, createGroup } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 
 let app;
@@ -152,6 +152,27 @@ describe('script API: path operations', () => {
     await expect(api.pathfinder('glue', [red])).rejects.toThrow(/Unknown pathfinder/);
     await expect(api.pathfinder('intersect', [ids[0]])).rejects.toThrow(/two or more/);
     expect(document.querySelector('dialog[open]')).toBeNull();
+  });
+
+  it('combines what a clipping group shows, leaving its clipping path out', async () => {
+    const ed = app.newDocument();
+    const doc = ed.doc;
+    const layer = ed.targetLayer().id;
+    // A 100-wide square clipped to its left half, and a square outside the group.
+    const art = createPath(rectangle(0, 0, 100, 100), true, { fill: solid('#ff0000'), stroke: null });
+    const mask = createPath(rectangle(0, 0, 50, 100), true, { fill: null, stroke: null });
+    const g = createGroup([art.id, mask.id], { clip: true });
+    const other = createPath(rectangle(200, 0, 50, 100), true, { fill: solid('#0000ff'), stroke: null });
+    doc.transact('setup', () => {
+      doc.insert(g, layer, Infinity, [art, mask]);
+      doc.insert(other, layer);
+    });
+    const { api } = scriptAPI(app, ed, 'Test');
+    const ids = await api.pathfinder('unite', [g.id, other.id]);
+    expect(ids).toHaveLength(1);
+    // The visible half of the clipped square plus the other square: the hidden half is left out.
+    expect(await api.area(ids[0])).toBeCloseTo(10000, 0);
+    expect(doc.get(ids[0]).fill).toBeTruthy();
   });
 
   it('divides into a group of faces', async () => {
