@@ -438,3 +438,22 @@ it.each(['resolve', 'reject'])('keeps the latest saved-project listing when an o
   expect(body.querySelector('[data-id="local:current"]')).toBe(null);
   expect(body.querySelector('[data-id="dev:none"]')).not.toBe(null);
 });
+
+it.each([
+  ['tone.one.wav', 'tone_one.wav'],
+  ['音.wav', '名.wav'],
+])('focuses the selected file when names contain distinct punctuation or Unicode (%s, %s)', async (firstName, secondName) => {
+  puter.readdir.mockResolvedValueOnce([firstName, secondName].map((name) => ({ name, path: `/Music/${name}` })));
+  const { body } = await cloudSetup();
+  const files = [...body.querySelectorAll('.k-file')];
+  expect(files).toHaveLength(2);
+  const first = files[0], second = files[1];
+  second.click();
+  expect(document.activeElement.dataset.id).toBe(second.dataset.id);
+  expect(first.id).not.toBe(second.id);
+  expect(first.tabIndex).toBe(-1);
+  expect(second.tabIndex).toBe(0);
+  first.click();
+  expect(document.activeElement).toBe(first);
+  expect(second.tabIndex).toBe(-1);
+});

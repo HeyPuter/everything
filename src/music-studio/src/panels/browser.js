@@ -285,7 +285,7 @@ function createBrowser(app, host) {
     return [label.slice(0, i), h('mark', label.slice(i, i + w.length)), label.slice(i + w.length)];
   }
 
-  const rowDomId = (id) => `br-${id.replace(/[^\w-]/g, '_')}`;
+  const rowDomId = (id) => `br-${id.replace(/[^a-zA-Z0-9-]/g, (c) => `_${c.charCodeAt(0).toString(16)}_`)}`;
   const rowIndex = (id) => rows.findIndex((r) => r.node.id === id);
   const rowAt = (id) => rows[rowIndex(id)] || null;
 
