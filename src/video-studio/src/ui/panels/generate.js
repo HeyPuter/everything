@@ -54,6 +54,7 @@ export function generatePanel(ctx, { getFolder = () => null } = {}) {
   };
   text.addEventListener('input', update);
   text.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (!go.disabled) go.click();
