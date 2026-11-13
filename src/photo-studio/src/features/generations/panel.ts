@@ -25,9 +25,12 @@ onGenerationsChange(() => {
   revision++;
 });
 
-async function load() {
+async function load(): Promise<GenerationEntry[]> {
   if (!entries) {
+    const requestedRevision = revision;
     const list = await generationStore().list().catch(() => [] as GenerationEntry[]);
+    // A result added/deleted during the read invalidates its cached snapshot.
+    if (revision !== requestedRevision) return load();
     const next = new Map<string, string>();
     for (const x of list) next.set(x.id, urls.get(x.id) ?? (x.thumb ? URL.createObjectURL(x.thumb) : ''));
     for (const [id, u] of urls) if (!next.has(id) && u) URL.revokeObjectURL(u);
