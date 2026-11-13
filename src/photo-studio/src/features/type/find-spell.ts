@@ -158,7 +158,8 @@ export async function findReplace(e: Editor) {
   ws.q('#fr-done').addEventListener('click', ws.close);
   ws.dialog.addEventListener('keydown', (ev) => {
     ev.stopPropagation();
-    if (ev.key === 'Enter') {
+    // Buttons keep their native Enter activation; fields use Find Next.
+    if (ev.key === 'Enter' && !(ev.target as HTMLElement).closest('button')) {
       ev.preventDefault();
       void next();
     } else if (ev.key === 'Escape') ws.close();

@@ -1329,3 +1329,82 @@ for (const input of ['typing', 'arrow', 'IME']) for (const dialog of ['Find', 'S
   await run(page, 'edit.redo');
   expect(await layerTexts(page)).toEqual([changed]);
 });
+
+for (const key of ['Enter', 'Space']) for (const button of ['Done', 'Change', 'Change/Find', 'Change All', 'Find Next']) test(`${key} activates the focused Find ${button} button`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog dog']);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.locator('#fr-change').fill('cat');
+  await dlg.getByRole('button', { name: 'Find Next', exact: true }).click();
+  await expect(dlg.locator('#fr-status')).toContainText('Found in');
+  const target = dlg.getByRole('button', { name: button, exact: true });
+  await target.evaluate((el) => {
+    const w = window as unknown as { findButtonClicks: number };
+    w.findButtonClicks = 0;
+    el.addEventListener('click', () => { w.findButtonClicks++; });
+  });
+  await target.focus();
+  await page.keyboard.press(key);
+  const expected = button === 'Change All' ? 'cat cat' : button.startsWith('Change') ? 'cat dog' : 'dog dog';
+  if (button === 'Done') await expect(dlg).toHaveCount(0, { timeout: 5000 });
+  await expect.poll(() => layerTexts(page), { timeout: 5000 }).toEqual([expected]);
+  expect(await page.evaluate(() => (window as unknown as { findButtonClicks: number }).findButtonClicks)).toBe(1);
+  if (button !== 'Done' && button !== 'Change All') await expect(target).toBeFocused();
+  if (button === 'Find Next' || button === 'Change/Find') {
+    await expect.poll(() => page.evaluate(() => {
+      const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+      return [s.anchor, s.focus];
+    })).toEqual([4, 7]);
+  }
+  if (button.startsWith('Change')) {
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['dog dog']);
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual([expected]);
+  }
+});
+
+for (const field of ['#fr-find', '#fr-change']) test(`Enter in Find field ${field} searches without changing canvas text`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog dog']);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.locator('#fr-change').fill('cat');
+  for (const range of [[0, 3], [4, 7]]) {
+    await dlg.locator(field).press('Enter');
+    await expect(dlg.locator('#fr-status')).toContainText('Found in');
+    await expect.poll(() => page.evaluate(() => {
+      const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+      return [s.anchor, s.focus];
+    })).toEqual(range);
+    expect(await layerTexts(page)).toEqual(['dog dog']);
+  }
+  await dlg.locator(field).press('Escape');
+  await expect(dlg).toHaveCount(0);
+  expect(await layerTexts(page)).toEqual(['dog dog']);
+});
+
+test('Find checkbox Space and Escape retain their native actions', async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog dog']);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.getByRole('button', { name: 'Find Next', exact: true }).click();
+  await expect(dlg.locator('#fr-status')).toContainText('Found in');
+  const checkbox = dlg.getByLabel('Case Sensitive');
+  await checkbox.focus();
+  await page.keyboard.press('Space');
+  await expect(checkbox).toBeChecked();
+  expect(await layerTexts(page)).toEqual(['dog dog']);
+  expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual([0, 3]);
+  await page.keyboard.press('Escape');
+  await expect(dlg).toHaveCount(0);
+  expect(await layerTexts(page)).toEqual(['dog dog']);
+});
