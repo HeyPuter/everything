@@ -114,14 +114,17 @@ function createBrowser(app, host) {
     if (!puter.isSignedIn()) return;
     const cur = folders.get(path);
     if (cur && !force && (cur.loading || cur.items)) return;
-    folders.set(path, { loading: true });
+    const request = { loading: true };
+    folders.set(path, request);
     invalidate();
     try {
       const list = await puter.readdir(path);
+      if (folders.get(path) !== request) return;
       const items = (Array.isArray(list) ? list : list?.items || []).filter((it) => puter.isDir(it) || isAudioName(it.name) || SHOWN_EXT.test(it.name));
       items.sort((a, b) => Number(puter.isDir(b)) - Number(puter.isDir(a)) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
       folders.set(path, { items });
     } catch (err) {
+      if (folders.get(path) !== request) return;
       folders.set(path, { error: err?.code === 'subject_does_not_exist' || err?.status === 404 ? 'missing' : 'error' });
     }
     invalidate();

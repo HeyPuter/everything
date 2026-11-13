@@ -8,7 +8,8 @@ vi.mock('../src/storage/puter.js', () => ({
   sdk: vi.fn(() => null),
   isSignedIn: vi.fn(() => false),
   appDir: vi.fn(async () => '/Music'),
-  readdir: async () => [{ path: '/Music/tone.wav', name: 'tone.wav' }],
+  readdir: vi.fn(),
+  pickDirectory: vi.fn(),
   isDir: () => false,
   readURL: vi.fn(),
   readFile: vi.fn(),
@@ -49,6 +50,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   puter.appDir.mockReset().mockResolvedValue('/Music');
+  puter.readdir.mockReset().mockResolvedValue([{ path: '/Music/tone.wav', name: 'tone.wav' }]);
+  puter.pickDirectory.mockReset();
   puter.sdk.mockReturnValue(null);
   puter.isSignedIn.mockReturnValue(false);
 });
@@ -264,4 +267,41 @@ it.each(['resolve', 'reject'])('keeps the current account root when an older loo
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="dir:/Current"]')).not.toBe(null);
   expect(body.querySelector('[data-id="dir:/Previous"]')).toBe(null);
+});
+
+function refreshFolder(body, path = '/Music') {
+  body.querySelector(`[data-id="dir:${path}"]`).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  const refresh = [...document.querySelectorAll('[role=menuitem]')].find((el) => el.textContent.trim() === 'Refresh');
+  expect(refresh).toBeTruthy();
+  refresh.click();
+}
+
+it.each(['resolve', 'reject'])('preserves the latest folder refresh when the earlier listing %ss', async (outcome) => {
+  const old = deferred();
+  const { body } = await cloudSetup();
+  puter.readdir.mockReturnValueOnce(old.promise).mockResolvedValueOnce([{ path: '/Music/current.wav', name: 'current.wav' }]);
+  refreshFolder(body);
+  refreshFolder(body);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="file:/Music/current.wav"]')).not.toBe(null);
+  if (outcome === 'resolve') old.resolve([{ path: '/Music/old.wav', name: 'old.wav' }]);
+  else old.reject(new Error('Old request failed'));
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="file:/Music/current.wav"]')).not.toBe(null);
+  expect(body.querySelector('[data-id="file:/Music/old.wav"]')).toBe(null);
+});
+
+it('ignores a folder listing that finishes after the account cache is cleared', async () => {
+  const old = deferred();
+  const { app, body } = await cloudSetup();
+  puter.readdir.mockReturnValueOnce(old.promise);
+  refreshFolder(body);
+  await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+  await vi.advanceTimersByTimeAsync(20);
+  old.resolve([{ path: '/Music/old-account.wav', name: 'old-account.wav' }]);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="file:/Music/old-account.wav"]')).toBe(null);
+  refreshFolder(body);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
 });
