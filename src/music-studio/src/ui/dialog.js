@@ -24,7 +24,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       if (done) return;
       if (value !== null && value !== undefined && onSubmit) {
         const ok = await onSubmit(value);
-        if (ok === false) return;
+        if (done || ok === false) return;
       }
       done = true;
       backdrop.remove();

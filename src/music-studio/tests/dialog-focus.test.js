@@ -29,3 +29,24 @@ it('keeps the primary button as the initial focus when there are no form control
   expect(await done).toBe(true);
   expect(focused).toBe(primary);
 });
+
+it('does not steal focus from a new dialog when a canceled submission finishes', async () => {
+  document.body.innerHTML = '<button id="launch">Export</button>';
+  const launch = document.getElementById('launch');
+  launch.focus();
+  let finish;
+  const submitting = new Promise((resolve) => { finish = resolve; });
+  const first = openDialog({ title: 'Export', body: 'Rendering', onSubmit: () => submitting });
+  document.querySelector('.dialog .btn.primary').click();
+  document.querySelector('.dialog-head button').click();
+  expect(await first).toBeNull();
+  const second = openDialog({ title: 'Settings', body: 'Settings' });
+  const focused = document.activeElement;
+  finish(true);
+  await submitting;
+  await Promise.resolve();
+  const after = document.activeElement;
+  document.querySelector('.dialog-head button').click();
+  await second;
+  expect(after).toBe(focused);
+});
