@@ -135,7 +135,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
 
   // Pointer drag: 200px for the full range, 10x finer with Shift.
   el.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || stopDrag) return;
     e.preventDefault();
     el.focus({ preventScroll: true });
     el.setPointerCapture(e.pointerId);
@@ -144,6 +144,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     let norm = toNorm(param, v);
     showReadout(el, fmt(v));
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       const dy = lastY - ev.clientY;
       lastY = ev.clientY;
       const range = param.options ? 80 + param.options.length * 12 : 200;
@@ -158,7 +159,8 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
       stopDrag = null;
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       stopDrag?.();
       finish();
       hideReadout();

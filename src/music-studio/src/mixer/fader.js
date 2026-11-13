@@ -94,7 +94,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   };
 
   slider.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || stopDrag) return;
     e.preventDefault();
     slider.focus({ preventScroll: true });
     if (e.altKey || e.metaKey || e.ctrlKey) {
@@ -107,6 +107,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     let lastY = e.clientY;
     let pos = gainToPos(v);
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       const dy = lastY - ev.clientY;
       lastY = ev.clientY;
       const travel = Math.max(80, slider.clientHeight - 16) || DRAG_PX;
@@ -122,7 +123,8 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       if (slider.hasPointerCapture?.(e.pointerId)) slider.releasePointerCapture(e.pointerId);
       stopDrag = null;
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       stopDrag?.();
       finish();
     };

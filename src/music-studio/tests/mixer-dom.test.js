@@ -307,6 +307,43 @@ describe('mixer panel', () => {
     }
   });
 
+  it.each(['volume', 'pan'].flatMap((param) => ['pointerup', 'pointercancel', 'lostpointercapture'].map((event) => [param, event])))('keeps the first pointer in control of %s when another pointer sends %s', (param, event) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    slider.setPointerCapture = vi.fn();
+    const pointer = (type, y, id) => {
+      const e = new MouseEvent(type, { bubbles: true, clientY: y, button: 0 });
+      Object.defineProperties(e, { pointerId: { value: id }, pointerType: { value: 'touch' } });
+      slider.dispatchEvent(e);
+    };
+    const original = store.project;
+    pointer('pointerdown', 300, 1);
+    pointer('pointermove', 298, 1);
+    const value = store.project.mixer[2][param];
+    const gesture = store.gesture;
+    pointer('pointermove', 350, 2);
+    expect(store.project.mixer[2][param]).toBe(value);
+    pointer('pointerdown', 350, 2);
+    pointer('pointermove', 300, 2);
+    pointer(event, 300, 2);
+    expect(store.project.mixer[2][param]).toBe(value);
+    expect(store.gesture === gesture).toBe(true);
+    pointer('pointermove', 296, 1);
+    pointer('pointerup', 296, 1);
+    const committed = store.project;
+    expect(committed.mixer[2][param]).toBeGreaterThan(value);
+    pointer('pointermove', 270, 1);
+    pointer('pointermove', 270, 2);
+    expect(store.project).toBe(committed);
+    expect(store.undoStack).toHaveLength(1);
+    store.undo();
+    expect(store.project).toBe(original);
+    pointer('pointerdown', 300, 2);
+    pointer('pointermove', 298, 2);
+    pointer('pointerup', 298, 2);
+    expect(store.project.mixer[2][param]).toBeCloseTo(value);
+  });
+
   it('updates only strips whose track changed', () => {
     const { store, panel } = env;
     const spies = panel.strips.map((s) => vi.spyOn(s.fader, 'set'));
