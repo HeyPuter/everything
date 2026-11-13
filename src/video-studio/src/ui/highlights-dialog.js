@@ -67,6 +67,13 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   let found = [];
   let abort = null;
   let stopPreview = null;
+  let closed = false, off = () => {};
+  const projectId = store.project.id, timelineId = store.project.timelineId, nest = (store.nest || []).map(f => f.id);
+  const sameContext = () => store.project.id === projectId && store.project.timelineId === timelineId && (store.nest?.length || 0) === nest.length && nest.every((id, i) => store.nest[i].id === id);
+  const active = () => !closed && sameContext();
+  const check = (signal) => {
+    if (!active() || signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+  };
 
   const select = (label, options, key) => {
     const el = h('select.select', { 'aria-label': label }, options.map((o) => h('option', { value: String(o.value), selected: String(o.value) === String(opts[key]) }, o.label)));
@@ -94,6 +101,7 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   const status = h('p.dialog-text', { role: 'status' }, 'Starting...');
   const progressEl = h('div.aic-step', status, h('div.progress', bar));
   const onStatus = (text, f) => {
+    if (!active() || abort?.signal.aborted) return;
     status.textContent = text;
     bar.style.width = `${Math.round(Math.min(1, f) * 100)}%`;
   };
@@ -120,6 +128,7 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   }
 
   function preview(item, btn) {
+    if (!active()) return;
     stopPreview?.();
     const from = clip.start + item.start;
     const to = clip.start + Math.min(item.end, clip.duration);
@@ -177,11 +186,19 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
     wide: true,
     closeOnBackdrop: false,
     onClose: () => {
+      closed = true;
+      off();
       abort?.abort();
       stopPreview?.();
     },
   });
+  off = store.on('change', () => {
+    if (sameContext()) return;
+    d.close();
+    toast('Find highlights closed because the open timeline changed.', { kind: 'info' });
+  });
   const show = (step) => {
+    if (!active()) return;
     d.el.dataset.step = step;
     body.replaceChildren(step === 'options' ? optionsEl : step === 'progress' ? progressEl : resultsEl);
     findBtn.hidden = step !== 'options';
@@ -197,26 +214,28 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   });
 
   async function search() {
-    if (abort) return;
+    if (abort || !active()) return;
     abort = new AbortController();
     const { signal } = abort;
     show('progress');
     try {
       if (!words.length) {
         const res = await clipWords(ctx, clip, { language: opts.language, signal, onStatus });
+        check(signal);
         words = res.words;
       }
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      check(signal);
       onStatus('Choosing the best moments...', 0.85);
-      found = (await findHighlights(words, { count: opts.count, length: opts.length, ...(chat ? { chat } : {}) })).map((x) => ({ ...x, keep: true }));
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const results = (await findHighlights(words, { count: opts.count, length: opts.length, ...(chat ? { chat } : {}) })).map((x) => ({ ...x, keep: true }));
+      check(signal);
+      found = results;
       onStatus('Done', 1);
       resultNote.textContent = `${found.length} moment${found.length === 1 ? '' : 's'} found. Untick any you do not want, and edit the titles if you like.`;
       renderResults();
       show('results');
       announce(`${found.length} highlights found`);
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (active() && !signal.aborted && err?.name !== 'AbortError') {
         console.error(err);
         toast(errorMessage(err, "Couldn't find highlights."), { kind: 'error' });
       }
@@ -228,7 +247,7 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   findBtn.addEventListener('click', search);
 
   async function make() {
-    if (abort) return;
+    if (abort || !active()) return;
     stopPreview?.();
     const chosen = found.filter((x) => x.keep);
     if (!chosen.length) return;
@@ -262,7 +281,9 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
     try {
       const ratio = RATIOS.find((r) => r.id === opts.shape) || null;
       const blob = ratio && asset ? await library.mediaBlob(asset) : null;
+      check(signal);
       for (let i = 0; i < chosen.length; i++) {
+        check(signal);
         const item = chosen[i];
         const base = (i / chosen.length);
         onStatus(`Making "${item.title}" (${i + 1} of ${chosen.length})...`, base);
@@ -274,10 +295,11 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
           const v = T.mainTrack(short).clips[0];
           if (v) applyReframePlan(v, await reframePlan(v, asset, blob, { dstAR: size.width / size.height, signal, onProgress: (f) => onStatus(`Following the subject in "${item.title}"... ${Math.round(f * 100)}%`, base + f / chosen.length) }));
         }
-        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        check(signal);
         const saved = normalizeProject(short);
         await library.saveProject(saved);
         ids.push(saved.id);
+        check(signal);
       }
       d.close('done');
       toast(`Made ${ids.length} short project${ids.length === 1 ? '' : 's'}. Find ${ids.length === 1 ? 'it' : 'them'} on the home screen.`, {
@@ -287,10 +309,10 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
       });
       announce(`${ids.length} short projects made`);
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (active() && !signal.aborted && err?.name !== 'AbortError') {
         console.error(err);
         toast(errorMessage(err, "Couldn't make the clips."), { kind: 'error' });
-      } else if (ids.length) toast(`Stopped after ${ids.length} project${ids.length === 1 ? '' : 's'}.`, { kind: 'info' });
+      } else if (active() && ids.length) toast(`Stopped after ${ids.length} project${ids.length === 1 ? '' : 's'}.`, { kind: 'info' });
       if (d.el.isConnected) show('results');
     } finally {
       abort = null;
