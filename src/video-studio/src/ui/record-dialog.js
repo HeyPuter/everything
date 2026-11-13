@@ -420,7 +420,6 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
 
   sync();
   setState('idle');
-  if (opts.mode === 'camera') reopen();
-  else fillDevices().then(() => setState(state));
+  reopen();
   return d;
 }

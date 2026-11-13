@@ -82,6 +82,20 @@ describe('Record voiceover dialog', () => {
 });
 
 describe('Record dialog', () => {
+  it('opens the remembered microphone when the dialog starts in screen mode', async () => {
+    setPref('record', { mode: 'screen', screenMic: true, micId: 'saved-mic' });
+    const getUserMedia = vi.spyOn(navigator.mediaDevices, 'getUserMedia');
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      expect(getUserMedia).toHaveBeenCalledWith({ audio: {
+        deviceId: { exact: 'saved-mic' }, echoCancellation: true, noiseSuppression: true,
+      } });
+      await grant();
+      expect(live()).toBe(1);
+    } finally { d.close(); }
+    expect(live()).toBe(0);
+  });
+
   it('stops a screen recording microphone that opens after the dialog closed', async () => {
     setPref('record', { mode: 'screen', screenMic: false });
     const d = openRecordDialog(ctxFor(), { mode: 'screen' });
