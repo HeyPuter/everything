@@ -95,6 +95,7 @@ export class PianoRollEditor {
     const store = this.store;
     store.on('change', (p, prev, meta) => {
       if (meta?.source === 'load') {
+        this.stopAudition();
         this.selected.clear();
         this.fitted = false;
       }
@@ -348,6 +349,7 @@ export class PianoRollEditor {
       const channelChanged = v.channel !== this.lastView.channel;
       this.lastView = { pattern: v.pattern, channel: v.channel };
       this.selected.clear();
+      this.stopAudition();
       this.cancelGesture();
       if (this.fitted && channelChanged) this.revealNotes();
       this.updateLabel();
