@@ -155,8 +155,12 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
 
 /** The writer's input (see writeMidi) for a pattern or the whole song. */
 export function projectToMidi(project, { mode = 'song', patternId = null } = {}) {
+  // Apply the rack's mute/solo rule once, before collecting either mode's notes.
+  const anySolo = project.channels.some((ch) => ch.solo);
+  const audibleChannels = new Set(project.channels.filter((ch) => !ch.mute && (!anySolo || ch.solo)).map((ch) => ch.id));
   const byChannel = new Map(); // channel id -> notes in ticks
   const push = (cid, n, shift) => {
+    if (!audibleChannels.has(cid)) return;
     if (!byChannel.has(cid)) byChannel.set(cid, []);
     byChannel.get(cid).push({ key: n.key, tick: n.pos + shift, len: n.len, vel: n.vel * 127 });
   };
