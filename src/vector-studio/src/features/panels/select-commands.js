@@ -460,6 +460,7 @@ async function editSelectionsDialog(app) {
   const ed = app.editor;
   const doc = ed.doc;
   let list = savedSelectionsOf(doc).map((s) => ({ ...s }));
+  const originalNames = new Map(list.map((s) => [s.id, s.name]));
   if (!list.length) {
     app.notify('There are no saved selections in this document.');
     return;
@@ -487,7 +488,16 @@ async function editSelectionsDialog(app) {
   render();
   const ok = await app.dialogs.open({ title: 'Edit Selection', body: h('div.form', rows), buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: true }] });
   if (!ok) return;
-  const next = list.filter((s) => s.name.trim()).map((s) => ({ id: s.id, name: s.name.trim(), ids: s.ids }));
+  // Apply only the dialog's renames and deletions to the latest document state.
+  const edited = new Map(list.map((s) => [s.id, s.name]));
+  const current = savedSelectionsOf(doc);
+  const next = current.flatMap((s) => {
+    if (!originalNames.has(s.id)) return [s];
+    const name = edited.get(s.id);
+    if (!name?.trim()) return [];
+    return [name === originalNames.get(s.id) || name.trim() === s.name ? s : { ...s, name: name.trim() }];
+  });
+  if (next.length === current.length && next.every((s, i) => s === current[i])) return;
   doc.transact('Edit Selection', () => doc.updateRoot({ savedSelections: next }));
 }
 
