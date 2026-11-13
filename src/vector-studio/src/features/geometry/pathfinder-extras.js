@@ -21,6 +21,7 @@ import {
   insertionPoint,
   shapeOf,
   visibleShapes,
+  isClipMask,
 } from './nodes-io.js';
 import { fillShapes, trapStrips } from './mix-trap.js';
 import { expandNodeAppearance } from '../../ops/expand-appearance.js';
@@ -73,8 +74,19 @@ export function makeCompoundShape(editor, kind = 'unite') {
     const top = doc.get(sorted.at(-1));
     const parent = doc.get(top.parent);
     const g = createGroup([], { compoundShape: true, name: '', effects: [{ type: 'pathfinder', kind }] });
+    // Clipping groups whose clipping path moves into the compound shape.
+    const lostMask = sorted
+      .filter((id) => isClipMask(doc, doc.get(id)))
+      .map((id) => doc.get(id).parent);
     doc.insert(g, parent.id, parent.children.indexOf(top.id) + 1);
     for (const id of sorted) doc.move(id, g.id);
+    // The compound shape clips in its place when it lands there; otherwise the
+    // group stops clipping rather than being clipped by the object below.
+    for (const cid of lostMask) {
+      const c = doc.get(cid);
+      if (c?.clip && c.children.length && c.children.at(-1) !== g.id)
+        doc.update(cid, { clip: false });
+    }
     gid = g.id;
   });
   editor.select([gid]);

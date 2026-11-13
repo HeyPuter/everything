@@ -21,7 +21,7 @@ import { runPathfinder, canRun } from '../src/features/geometry/pathfinder.js';
 import { geometryLeaves, subpathsOf } from '../src/features/geometry/nodes-io.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { makeClipMask } from '../src/ops/object-ops.js';
-import { trapCommand } from '../src/features/geometry/pathfinder-extras.js';
+import { trapCommand, makeCompoundShape } from '../src/features/geometry/pathfinder-extras.js';
 import { hitTest } from '../src/render/hit.js';
 import { installCanvasStub } from './helpers.js';
 
@@ -485,5 +485,22 @@ describe('Pathfinder Trap on a clipping group', () => {
     expect(traps.name).toBe('Traps');
     const bb = nodeBounds(doc, traps);
     expect(bb.y + bb.h).toBeLessThanOrEqual(50 + 1e-3);
+  });
+});
+
+describe('Make Compound Shape with a clipping path picked', () => {
+  it('a clipping path moved into a compound shape outside its group does not hand the clip on', () => {
+    const a = filled(0, 0, 100, 100, '#ff0000');
+    const b = filled(0, 0, 20, 20, '#0000ff');
+    const mask = rect(50, 50, 100, 100);
+    const clip = clipOf([a, b], mask);
+    const p = filled(140, 60, 100, 30, '#00ff00');
+    const { doc, editor } = setup([clip, p]);
+    editor.select([mask.id, p.id]);
+    const id = makeCompoundShape(editor, 'unite');
+    expect(doc.get(id).children).toEqual([mask.id, p.id]);
+    const g = doc.get(clip[0].id);
+    expect(g.children).toEqual([a.id, b.id]);
+    expect(g.clip).toBe(false);
   });
 });
