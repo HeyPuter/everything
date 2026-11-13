@@ -321,7 +321,11 @@ function createBrowser(app, host) {
 
   // ---------------------------------------------------------------- actions
   let stopAudition = null;
+  let previewGeneration = 0;
+  let auditionPending = false;
   const stopPreview = () => {
+    previewGeneration++;
+    auditionPending = false;
     stopAudition?.();
     stopAudition = null;
     if (playing.audio) {
@@ -344,8 +348,11 @@ function createBrowser(app, host) {
     stopPreview();
     const engine = app.engine;
     if (!engine?.audition) return;
+    const generation = previewGeneration;
+    auditionPending = true;
     try {
       await engine.start();
+      if (generation !== previewGeneration) return;
       const stop = engine.audition(spec, spec.type === 'drum' ? 60 : 60, 0.8);
       stopAudition = typeof stop === 'function' ? stop : null;
       const mine = stopAudition;
@@ -357,6 +364,8 @@ function createBrowser(app, host) {
       }, ms);
     } catch (err) {
       console.warn('Music Studio: preview failed.', err);
+    } finally {
+      if (generation === previewGeneration) auditionPending = false;
     }
   }
 
@@ -699,7 +708,7 @@ function createBrowser(app, host) {
         else preview(row);
         break;
       case 'Escape':
-        if (playing.path || stopAudition) stopPreview();
+        if (playing.path || stopAudition || auditionPending) stopPreview();
         else if (query) setQuery('');
         else return;
         break;
