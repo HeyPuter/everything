@@ -544,6 +544,7 @@ function normalizeWords(result) {
  * (silence, music) is final: asking again would only pay twice.
  */
 export async function transcribePiece(samples, sampleRate, { language = 'auto', testMode = false, signal } = {}) {
+  if (signal?.aborted) throw abortError();
   const file = new File([encodeWav([samples], sampleRate)], 'captions.wav', { type: 'audio/wav' });
   const lang = language && language !== 'auto' ? language : null;
   let firstError = null;
@@ -558,6 +559,7 @@ export async function transcribePiece(samples, sampleRate, { language = 'auto', 
     const text = typeof res === 'string' ? res : res?.text;
     return text ? distributeText(text, regionsOrAll(samples, sampleRate)) : [];
   } catch (err) {
+    if (signal?.aborted) throw abortError();
     if (err?.name === 'AbortError') throw err;
     firstError = err;
   }
@@ -572,6 +574,7 @@ export async function transcribePiece(samples, sampleRate, { language = 'auto', 
     const text = typeof res === 'string' ? res : res?.text;
     return text ? distributeText(text, regionsOrAll(samples, sampleRate)) : [];
   } catch (err) {
+    if (signal?.aborted) throw abortError();
     if (err?.name === 'AbortError') throw err;
     throw new Error(errorMessage(err, errorMessage(firstError, "Couldn't transcribe the audio.")));
   }
