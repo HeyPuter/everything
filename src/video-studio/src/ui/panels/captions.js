@@ -504,6 +504,7 @@ function listPanel(ctx, opts) {
     });
     text.addEventListener('blur', () => store.seal());
     text.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       // Enter moves to the next caption; Shift+Enter adds a line break.
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
