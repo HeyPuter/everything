@@ -72,10 +72,11 @@ export class FileService {
 
   async encode(editor, { thumbnail = true, copy = false } = {}) {
     const doc = editor.doc;
-    const rev = doc.revision;
     const thumb = thumbnail ? await renderThumbnail(doc) : null;
     // A saved file carries the document's identity (its version history follows it); a copy gets its own.
     const id = copy ? newFileId() : documentId(doc);
+    // Both revision counters describe the synchronous snapshot taken by serializeDocument.
+    const rev = doc.revision;
     const commentsRevision = doc.commentsRevision;
     const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
     return { bytes, thumb, rev, commentsRevision };
