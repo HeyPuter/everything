@@ -54,6 +54,22 @@ it.each(['new', 'open'])('asks before %s discards an active edit in an otherwise
   expect(app.store.project === preview).toBe(true);
 });
 
+it('ignores an old New Project confirmation after another project is opened', async () => {
+  let confirm;
+  confirmDialog.mockReturnValueOnce(new Promise((r) => { confirm = r; }));
+  const app = { store: new Store(newProject()), engine: { stop: vi.fn() }, emit: vi.fn() };
+  edit(app.store);
+  app.store.commit();
+  const make = vi.fn(newProject);
+  const pending = App.prototype.newProject.call(app, make);
+  const newer = { ...newProject(), name: 'Newer project' };
+  app.store.load(newer);
+  confirm(true);
+  expect(await pending).toBe(false);
+  expect(app.store.project === newer).toBe(true);
+  expect(make).not.toHaveBeenCalled();
+});
+
 it('warns on browser close when a persistent draft does not include an active gesture', async () => {
   vi.stubGlobal('requestAnimationFrame', () => 0);
   vi.stubGlobal('puter', undefined);
