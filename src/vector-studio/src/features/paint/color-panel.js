@@ -80,20 +80,31 @@ export class ColorPanel extends Panel {
       const hex = spectrumColor((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
       this.apply(hex);
     };
+    let spectrumPointer = null;
     this.spectrum.addEventListener('pointerdown', (e) => {
-      if (!app.editor) return;
+      if (!app.editor || e.button !== 0 || spectrumPointer !== null) return;
+      try {
+        this.spectrum.setPointerCapture?.(e.pointerId);
+      } catch {
+        // An ended pointer cannot begin a color edit.
+        return;
+      }
+      spectrumPointer = e.pointerId;
       this.coalesce = gestureKey('color');
-      this.spectrum.setPointerCapture(e.pointerId);
-      pick(e);
-      const move = (ev) => pick(ev);
-      const up = () => {
+      const move = (ev) => { if (ev.pointerId === spectrumPointer) pick(ev); };
+      const up = (ev) => {
+        if (ev.pointerId !== spectrumPointer) return;
+        spectrumPointer = null;
         this.spectrum.removeEventListener('pointermove', move);
         this.spectrum.removeEventListener('pointerup', up);
-      this.spectrum.removeEventListener('pointercancel', up);
+        this.spectrum.removeEventListener('pointercancel', up);
+        this.spectrum.removeEventListener('lostpointercapture', up);
       };
       this.spectrum.addEventListener('pointermove', move);
       this.spectrum.addEventListener('pointerup', up);
       this.spectrum.addEventListener('pointercancel', up);
+      this.spectrum.addEventListener('lostpointercapture', up);
+      pick(e);
     });
     const chip = (label, cls, onclick) => h(`button.cp-chip.${cls}`, { type: 'button', 'aria-label': label, 'data-tip': label, onclick });
     this.chips = h(
