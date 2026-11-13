@@ -268,6 +268,8 @@ export class Shell {
 
   /** Splitters between side-by-side dock panels; widths are flex weights in prefs.layout.dockSizes. */
   layoutDockSplitters(L) {
+    const focusedPair = this.dock.contains(document.activeElement) ? document.activeElement.dataset.dockPair : null;
+    let restoreFocus = null;
     for (const s of this.dock.querySelectorAll(':scope > .splitter-dock')) s.remove();
     const visible = [...this.dock.children].filter((el) => el.classList.contains('panel') && !el.hidden);
     const sizes = L.dockSizes || {};
@@ -276,6 +278,9 @@ export class Shell {
       const a = visible[i - 1];
       const b = visible[i];
       const s = h('div.splitter.splitter-v.splitter-dock', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize panels', tabindex: '0' });
+      const pair = JSON.stringify([a.dataset.panel, b.dataset.panel]);
+      s.dataset.dockPair = pair;
+      if (pair === focusedPair) restoreFocus = s;
       b.before(s);
       const weights = () => [Number(a.style.flexGrow) || 1, Number(b.style.flexGrow) || 1];
       const apply = (dx) => {
@@ -314,6 +319,7 @@ export class Shell {
         save();
       });
     }
+    restoreFocus?.focus({ preventScroll: true });
   }
 
   resized() {

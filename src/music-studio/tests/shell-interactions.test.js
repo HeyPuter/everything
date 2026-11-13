@@ -88,3 +88,41 @@ it.each(['browser', 'dock'])('preserves %s arrow-key resizing and clamps large p
   pointer(el, 'pointerup');
   expect(value()).toBe(which === 'browser' ? 520 : 720);
 });
+
+function dockPair() {
+  const env = setup();
+  const a = env.shell.panels.get('rack').host;
+  const b = env.shell.panels.get('mixer').host;
+  for (const el of [a, b]) Object.defineProperty(el, 'offsetWidth', {
+    get: () => 800 * Number(el.style.flexGrow) / (Number(a.style.flexGrow) + Number(b.style.flexGrow)),
+  });
+  const separator = () => env.shell.dock.querySelector('.splitter-dock');
+  return { ...env, a, b, separator };
+}
+
+it.each(['ArrowLeft', 'ArrowRight'])('keeps the dock separator focused for repeated %s resizing', (key) => {
+  const { prefs, a, b, separator } = dockPair();
+  separator().focus();
+  const delta = key === 'ArrowRight' ? 20 : -20;
+  for (const shiftKey of [false, false, true]) {
+    const before = a.offsetWidth;
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }));
+    expect(a.offsetWidth).toBeCloseTo(before + delta * (shiftKey ? 3 : 1));
+    expect(document.activeElement === separator()).toBe(true);
+    expect(prefs.get('layout').dockSizes).toEqual({ rack: Number(a.style.flexGrow), mixer: Number(b.style.flexGrow) });
+  }
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: key === 'ArrowRight' ? 'ArrowLeft' : 'ArrowRight', bubbles: true }));
+  expect(a.offsetWidth).toBeCloseTo(400 + delta * 4);
+});
+
+it('retains dock separator focus across unrelated layout updates without stealing other focus', () => {
+  const { prefs, separator } = dockPair();
+  separator().focus();
+  prefs.merge('layout', { browser: 300 });
+  expect(document.activeElement === separator()).toBe(true);
+  const input = document.createElement('input');
+  document.body.append(input);
+  input.focus();
+  prefs.merge('layout', { browser: 310 });
+  expect(document.activeElement).toBe(input);
+});
