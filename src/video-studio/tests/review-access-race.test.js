@@ -1,6 +1,41 @@
 import { it, expect } from 'vitest';
 import { setup, publish, invite, USERS } from './review-helpers.js';
 
+it.each(['removed', 'role changed', 'unchanged'])('does not overwrite a membership %s after another tab completed the first join', async (change) => {
+  const env = await setup();
+  const { review } = await publish(env);
+  const token = await invite(env, review.id);
+  const workerPuter = env.world.workerPuter;
+  let release, ready;
+  const entered = new Promise((resolve) => { ready = resolve; });
+  let held = false;
+  env.world.workerPuter = (owner) => {
+    const p = workerPuter(owner), write = p.kv.set.bind(p.kv);
+    p.kv.set = async (key, ...args) => {
+      if (!held && key.endsWith(`:m:${USERS.bob.uuid}`)) {
+        held = true;ready();await new Promise((resolve) => { release = resolve; });
+      }
+      return write(key, ...args);
+    };
+    return p;
+  };
+  env.world.restartWorkers();
+  const late = env.as('bob')('join', { review: review.id, token }).then(() => 200, (error) => error.status);
+  await entered;env.world.restartWorkers();
+  await env.as('bob')('join', { review: review.id, token });
+  if (change === 'removed') await env.as('alice')('member.remove', { review: review.id, uuid: USERS.bob.uuid });
+  else if (change === 'role changed') {
+    await env.as('alice')('member.role', { review: review.id, uuid: USERS.bob.uuid, role: 'viewer' });
+    // A revoked commenter invite cannot raise the viewer again.
+    const links = await env.as('alice')('invite.list', { review: review.id });
+    await env.as('alice')('invite.revoke', { review: review.id, invite: links.invites[0].id });
+  }
+  release();await late;env.world.restartWorkers();
+  if (change === 'removed') await expect(env.as('bob')('review.get', { review: review.id })).rejects.toMatchObject({ status: 403 });
+  else expect((await env.as('bob')('review.get', { review: review.id })).review.role).toBe(change === 'role changed' ? 'viewer' : 'commenter');
+  expect(await env.sdk.alice.kv.get(`vsr:r:${review.id}:mseq`)).toBe(1);
+});
+
 it.each(['role change', 'invite upgrade'])('does not undo removal when an older %s finishes', async (mode) => {
   const env = await setup();
   const { review } = await publish(env);

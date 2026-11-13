@@ -69,6 +69,8 @@ What a link does and does not protect: anyone holding a link can fetch that one 
 
 Role changes, invite-based upgrades for current members, and removals use [Puter's partial KV updates](https://docs.puter.com/KV/update/). They update only their own fields so a delayed role save cannot erase a removal. If the updated record is already removed, the role change returns 404 and an invite upgrade returns 403. These operations keep the existing member record format and use the same number of KV calls.
 
+First-time membership creation uses [`onlyIfAbsent`](https://docs.puter.com/KV/set/#writing-only-if-absent). If another join already created the record, the losing request rechecks membership and invite validity once rather than overwriting the saved record or adding a second member-list entry. Puter documents that simultaneous conditional writes and counters across regions can both succeed; these guards do not provide global serialization. Fresh rejoins after removal and cross-region races remain separate concurrency concerns.
+
 ## Limits (enforced by the worker)
 
 Comment text up to 2000 characters; 12 comments and 60 edits, deletes, resolves or reopens a minute per person per review; ranges up to 10 minutes and inside the video; 20,000 comment changes, 50 versions, 200 people (people removed don't count; 1,000 ever joined) and 50 invite links per review; 10 failed joins per person per 10 minutes; review videos up to 4 GB; request bodies up to 64 KB.

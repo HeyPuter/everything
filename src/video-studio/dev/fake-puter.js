@@ -79,10 +79,19 @@ export function createWorld({ storage = memoryStorage(), now = () => Date.now(),
         if (Array.isArray(key)) return Promise.all(key.map(one));
         return one(key);
       },
-      async set(key, value) {
+      async set(key, value, options = {}) {
         await wait();
         const size = JSON.stringify(value ?? null).length;
         if (size > 400 * 1024) throw puterError('Value too large', 'value_too_large', 400);
+        if (options?.onlyIfAbsent) {
+          let written = false;
+          await storage.update('kv', k(key), (cur) => {
+            if (live(cur)) return cur;
+            written = true;
+            return { v: structuredClone(value) };
+          });
+          return written;
+        }
         await storage.put('kv', k(key), { v: structuredClone(value) });
         return true;
       },

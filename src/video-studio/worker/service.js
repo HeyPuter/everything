@@ -238,7 +238,7 @@ export class ReviewService {
 
   /* Joining and access --------------------------------------------------------- */
 
-  async join(user, input) {
+  async join(user, input, retried = false) {
     const rid = reviewId(input.review);
     const meta = await this.kv.get(`vsr:r:${rid}`);
     if (!meta) fail(404, 'This review no longer exists.');
@@ -279,7 +279,13 @@ export class ReviewService {
     if (!existing && joinedEver >= LIMITS.members * MEMBER_LIST_FACTOR) full();
     if (joinedEver >= LIMITS.members && (await this.memberRecords(rid)).filter((m) => !m.removed).length >= LIMITS.members) full();
     const member = { uuid: user.uuid, username: user.username, role: invite.role, joined: this.now(), invite: invite.id };
-    await this.kv.set(`vsr:r:${rid}:m:${user.uuid}`, member);
+    const written = await this.kv.set(`vsr:r:${rid}:m:${user.uuid}`, member, existing ? {} : { onlyIfAbsent: true });
+    if (!written) {
+      // Another tab joined first. Recheck membership, removals and the invite;
+      // a stale first join must never replace that tab's saved membership.
+      if (retried) fail(409, 'Membership changed while joining. Try again.');
+      return this.join(user, input, true);
+    }
     if (!existing) {
       const n = await this.kv.incr(`vsr:r:${rid}:mseq`);
       await this.kv.set(`vsr:r:${rid}:mi:${n}`, user.uuid);
