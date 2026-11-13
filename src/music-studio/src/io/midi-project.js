@@ -11,6 +11,8 @@
 // Export: one MIDI track per channel with notes, from the current pattern or
 // from the song (every pattern clip in the playlist). Drum Synth channels go
 // to MIDI channel 10 with the General MIDI note for their drum kind.
+// Melodic parts use separate port/channel pairs so larger arrangements do
+// not overwrite another part's program or release its notes.
 
 import { PPQ } from '../model/time.js';
 import { createChannel, createPattern, createClip, colorAt, patternById, patternLength, busyInserts, freeInsert } from '../model/project.js';
@@ -191,11 +193,13 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     if (ch.type === 'drum') {
       const kind = Math.round(ch.params.kind ?? 0);
       const gm = DRUM_NOTES[kind] ?? 37;
-      tracks.push({ name: ch.name, channel: 9, notes: notes.map((n) => ({ ...n, key: kind === 5 ? Math.max(0, n.key - 15) : gm })) });
+      tracks.push({ name: ch.name, port: 0, channel: 9, notes: notes.map((n) => ({ ...n, key: kind === 5 ? Math.max(0, n.key - 15) : gm })) });
     } else {
+      const port = Math.floor(melodic / 15);
+      if (port > 255) throw new Error('This MIDI export needs too many MIDI ports. At most 3840 melodic parts can be exported.');
       const midiCh = melodic % 15 >= 9 ? (melodic % 15) + 1 : melodic % 15;
       melodic++;
-      tracks.push({ name: ch.name, channel: midiCh, program: programForChannel(ch), notes });
+      tracks.push({ name: ch.name, port, channel: midiCh, program: programForChannel(ch), notes });
     }
   }
   return { ppq: PPQ, bpm: project.bpm, sig: project.sig, name: project.name, tracks };

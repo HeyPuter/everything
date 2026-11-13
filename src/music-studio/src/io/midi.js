@@ -5,7 +5,7 @@
 //     tracks: [{ name, notes: [{ ch, key, tick, len, vel (1..127) }], programs: { [ch]: program } }],
 //     tempos: [{ tick, bpm }], sigs: [{ tick, num, den }],
 //   }
-//   writeMidi({ ppq, bpm, sig, name, tracks: [{ name, channel, program, notes }] }) -> Uint8Array
+//   writeMidi({ ppq, bpm, sig, name, tracks: [{ name, port?, channel, program, notes }] }) -> Uint8Array
 //
 // The reader handles running status, note on with velocity 0 as note off,
 // overlapping notes on the same key (first in, first out), sysex and meta
@@ -245,6 +245,9 @@ function chunk(w, id, body) {
 /** Writes a format 1 file: a tempo track, then one track per entry of `tracks`. */
 export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks = [] }) {
   if (tracks.length > 0xfffe) throw new Error('This MIDI export has too many tracks. At most 65534 musical tracks can be exported with the tempo track.');
+  for (const t of tracks) {
+    if (t.port != null && (!Number.isInteger(t.port) || t.port < 0 || t.port > 255)) throw new Error('This MIDI export contains an unsupported port. MIDI ports must be between 0 and 255.');
+  }
   const out = new Writer();
   const ntrks = tracks.length + 1;
   chunk(out, 'MThd', [0, 1, (ntrks >> 8) & 0xff, ntrks & 0xff, (ppq >> 8) & 0xff, ppq & 0xff]);
@@ -263,6 +266,7 @@ export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks
     const ch = t.channel & 0x0f;
     w.u8(0);
     w.text(0x03, t.name || '');
+    if (t.port != null) w.u8(0, 0xff, 0x21, 1, t.port);
     if (t.program !== undefined && t.program !== null && ch !== 9) w.u8(0, 0xc0 | ch, t.program & 0x7f);
     // Offs sort before ons at the same tick so repeated notes retrigger.
     const events = [];
