@@ -31,10 +31,17 @@ function scopeText(ed) {
   return sel ? `Applies to the ${plural(sel, 'selected note')}.` : `Applies to all ${plural(ed.notes.length, 'note')} of ${ed.channel?.name || 'this channel'} in ${ed.pattern?.name || 'this pattern'}.`;
 }
 
+// A tool's pattern/channel can change when an asynchronous import selects its result.
+function editorScope(ed) {
+  const { loadVersion } = ed.store;
+  const { pattern, channel } = ed.store.view;
+  return () => ed.store.loadVersion === loadVersion && ed.store.view.pattern === pattern && ed.store.view.channel === channel;
+}
+
 // ------------------------------------------------------------------ quantize
 
 export async function quantizeDialog(ed) {
-  const loadVersion = ed.store.loadVersion;
+  const isCurrent = editorScope(ed);
   if (!ed.channel) return;
   if (!ed.notes.length) {
     ed.app.notify('There are no notes to quantize in this pattern');
@@ -54,8 +61,8 @@ export async function quantizeDialog(ed) {
     h('div.form-grid', ...row('Grid', grid, 'pr-q-grid'), h('label', { for: 'pr-q-strength' }, 'Strength'), h('div.pr-range', strength, out), h('span', 'Move'), h('div.pr-checks', h('label.check', starts, 'Note starts'), h('label.check', ends, 'Note ends'))),
     h('p.pr-note', scopeText(ed)),
   );
-  const r = await openDialog({ store: ed.store, title: 'Quantize', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Quantize', value: 'ok', primary: true }] });
-  if (r !== 'ok' || ed.store.loadVersion !== loadVersion) return;
+  const r = await openDialog({ store: ed.store, isCurrent, title: 'Quantize', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Quantize', value: 'ok', primary: true }] });
+  if (r !== 'ok' || !isCurrent()) return;
   const opts = { grid: snapTicks(grid.value, 1, ed.sig), strength: Number(strength.value) / 100, starts: starts.checked, ends: ends.checked };
   ed.setPref({ quantize: { grid: grid.value, strength: Number(strength.value), starts: starts.checked, ends: ends.checked } });
   if (!opts.starts && !opts.ends) return;
@@ -72,7 +79,7 @@ const INVERSIONS = [
 ];
 
 export async function chordsDialog(ed) {
-  const loadVersion = ed.store.loadVersion;
+  const isCurrent = editorScope(ed);
   if (!ed.channel) return;
   const stamp = shared.stamp;
   const saved = ed.prefs.chord || {};
@@ -90,8 +97,8 @@ export async function chordsDialog(ed) {
   if (stamp) buttons.push({ label: 'Stamp off', value: 'off' });
   buttons.push({ label: 'Cancel', value: null }, { label: 'Use as stamp', value: 'stamp', primary: !hasSel });
   if (hasSel) buttons.push({ label: 'Chordize selection', value: 'chordize', primary: true });
-  const r = await openDialog({ store: ed.store, title: 'Chords', body, buttons });
-  if (!r || ed.store.loadVersion !== loadVersion) return;
+  const r = await openDialog({ store: ed.store, isCurrent, title: 'Chords', body, buttons });
+  if (!r || !isCurrent()) return;
   const settings = { chord: chord.value, inversion: Number(inversion.value) };
   ed.setPref({ chord: settings });
   if (r === 'off') {
@@ -114,7 +121,7 @@ export async function chordsDialog(ed) {
 // ------------------------------------------------------------------ riff
 
 export async function riffDialog(ed) {
-  const loadVersion = ed.store.loadVersion;
+  const isCurrent = editorScope(ed);
   if (!ed.channel) return;
   const p = ed.prefs;
   const saved = p.riff || {};
@@ -161,8 +168,8 @@ export async function riffDialog(ed) {
     ),
     h('p.pr-note', `Writes into ${ed.channel.name}. The same seed always gives the same riff; undo removes it.`),
   );
-  const r = await openDialog({ store: ed.store, title: 'Riff generator', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Generate', value: 'ok', primary: true }] });
-  if (r !== 'ok' || ed.store.loadVersion !== loadVersion) return;
+  const r = await openDialog({ store: ed.store, isCurrent, title: 'Riff generator', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Generate', value: 'ok', primary: true }] });
+  if (r !== 'ok' || !isCurrent()) return;
   const opts = {
     seed: clamp(Math.round(Number(seed.value) || 1), 1, 999999),
     style: style.value,
@@ -192,20 +199,21 @@ export async function riffDialog(ed) {
 // ------------------------------------------------------------------ transpose
 
 export async function transposeDialog(ed) {
-  const loadVersion = ed.store.loadVersion;
+  const isCurrent = editorScope(ed);
   if (!ed.notes.length) {
     ed.app.notify('There are no notes to transpose');
     return;
   }
   const v = await promptDialog({
     store: ed.store,
+    isCurrent,
     title: 'Transpose notes',
     label: `Semitones (negative moves down). ${scopeText(ed)}`,
     value: '12',
     confirm: 'Transpose',
     validate: (s) => (Number.isInteger(Number(s)) && Math.abs(Number(s)) <= 96 ? '' : 'Enter a whole number between -96 and 96.'),
   });
-  if (v === null || ed.store.loadVersion !== loadVersion) return;
+  if (v === null || !isCurrent()) return;
   const st = Number(v);
   ed.runTool('Transpose', (list, ids) => N.transposeNotes(list, ids, st), `Transposed ${st > 0 ? 'up' : 'down'} ${plural(Math.abs(st), 'semitone')}`);
 }

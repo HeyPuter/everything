@@ -88,3 +88,34 @@ it('keeps a pending rename usable across ordinary edits and undo', async () => {
   await action;
   expect(ctx.store.project.channels.find((c) => c.id === id).name).toBe('New name');
 });
+
+const noteActions = scenarios.filter(([name]) => ['pattern transpose', 'note transpose', 'quantize', 'chordize', 'riff'].includes(name));
+it.each(noteActions.flatMap(([name, run, label]) => (name === 'pattern transpose' ? ['pattern'] : ['pattern', 'channel']).map((target) => [name, target, run, label])))('cancels %s when the selected %s changes in the same project', async (_name, target, run, label) => {
+  const ctx = setup();
+  const action = run(ctx);
+  const dialog = document.querySelector('.dialog');
+  const submit = [...dialog.querySelectorAll('.dialog-foot button')].find((button) => button.textContent === label);
+  if (target === 'pattern') ctx.store.setPattern(ctx.store.project.patterns[1].id);
+  else ctx.store.selectChannels([ctx.store.project.channels[1].id]);
+  const project = ctx.store.project;
+  submit.click();
+  await action;
+  expect(ctx.store.project === project).toBe(true);
+  expect(ctx.ed.runTool).not.toHaveBeenCalled();
+  expect(ctx.ed.applyNotes).not.toHaveBeenCalled();
+  expect(ctx.store.canUndo).toBe(false);
+});
+
+it.each(noteActions)('keeps %s usable across an unrelated tempo edit', async (name, run, label) => {
+  const ctx = setup();
+  const action = run(ctx);
+  ctx.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 151 }));
+  const before = ctx.store.project;
+  const dialog = document.querySelector('.dialog');
+  expect(Boolean(dialog)).toBe(true);
+  [...dialog.querySelectorAll('.dialog-foot button')].find((button) => button.textContent === label).click();
+  await action;
+  expect(ctx.store.project.bpm).toBe(151);
+  if (name === 'pattern transpose') expect(ctx.store.project === before).toBe(false);
+  else expect(ctx.ed.runTool.mock.calls.length + ctx.ed.applyNotes.mock.calls.length).toBe(1);
+});

@@ -188,8 +188,10 @@ export function registerCoreCommands(app) {
       label: 'Transpose pattern...',
       run: async () => {
         const loadVersion = store.loadVersion;
-        const v = await promptDialog({ store, title: 'Transpose pattern', label: 'Semitones (negative moves down)', value: '12', confirm: 'Transpose', validate: (s) => (Number.isInteger(Number(s)) && Math.abs(Number(s)) <= 96 ? '' : 'Enter a whole number between -96 and 96.') });
-        if (v === null || store.loadVersion !== loadVersion) return;
+        const patternId = store.view.pattern;
+        const isCurrent = () => store.loadVersion === loadVersion && store.view.pattern === patternId;
+        const v = await promptDialog({ store, isCurrent, title: 'Transpose pattern', label: 'Semitones (negative moves down)', value: '12', confirm: 'Transpose', validate: (s) => (Number.isInteger(Number(s)) && Math.abs(Number(s)) <= 96 ? '' : 'Enter a whole number between -96 and 96.') });
+        if (v === null || !isCurrent()) return;
         const st = Number(v);
         const pat = store.pattern;
         store.apply('Transpose pattern', (p) => {
