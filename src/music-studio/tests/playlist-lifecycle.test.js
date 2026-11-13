@@ -499,3 +499,44 @@ it.each([['pointerup', 1], ['pointercancel', 1], ['lostpointercapture', 1], ['po
   expect(store.canUndo).toBe(false);
   panel.onHide();
 });
+
+it.each(['rename', 'drag', 'delete'])('keeps a newly added marker independent during %s after an ID collision', async (action) => {
+  const { store, pointer, view, body, panel } = setup();
+  pointer('pointerup');
+  store.project.markers[0].id = '00000000';
+  const original = store.project;
+  let calls = 0;
+  vi.spyOn(crypto, 'getRandomValues').mockImplementation((bytes) => bytes.fill(Math.max(0, calls++ - 1)));
+  const pending = view.addMarker(192);
+  const dialog = document.querySelector('.dialog');
+  dialog.querySelector('input').value = 'Verse';
+  [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Add').click();
+  await pending;
+  const added = store.project.markers.find((m) => m.name === 'Verse');
+  const afterAdd = store.project;
+  expect(view.markerAt(96, 16)).toBe(added);
+  view.jumpToMarker(added);
+  if (action === 'rename') {
+    const rename = view.renameMarker(added);
+    const form = document.querySelector('.dialog');
+    form.querySelector('input').value = 'Chorus';
+    [...form.querySelectorAll('button')].find((b) => b.textContent === 'Rename').click();
+    await rename;
+    expect(store.project.markers.map((m) => m.name)).toEqual(['Start', 'Chorus']);
+  } else if (action === 'drag') {
+    const ruler = rulerPointer(body, 'marker');
+    ruler('pointerdown', 48);
+    ruler('pointermove', 72);
+    ruler('pointerup', 72);
+    expect(store.project.markers.map((m) => m.pos)).toEqual([96, 240]);
+  } else {
+    view.deleteMarker(added);
+    expect(store.project.markers).toEqual(original.markers);
+  }
+  expect(added.id).not.toBe(original.markers[0].id);
+  const edited = store.project;
+  store.undo(); expect(store.project).toBe(afterAdd);
+  store.undo(); expect(store.project).toBe(original);
+  store.redo(); store.redo(); expect(store.project).toBe(edited);
+  panel.onHide();
+});

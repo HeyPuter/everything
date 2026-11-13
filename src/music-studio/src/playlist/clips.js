@@ -411,7 +411,7 @@ export function trackAudible(project, index, anySolo) {
 
 /** Adds a marker; markers stay sorted by position. Returns { project, id }. */
 export function addMarker(project, { pos, name }) {
-  const m = { id: uid(), pos: Math.max(0, Math.round(pos)), name: name || 'Marker' };
+  const m = { id: reserveId(new Set(project.markers.map((m) => m.id))), pos: Math.max(0, Math.round(pos)), name: name || 'Marker' };
   const markers = [...project.markers, m].sort((a, b) => a.pos - b.pos);
   return { project: { ...project, markers }, id: m.id };
 }
