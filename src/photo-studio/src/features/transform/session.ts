@@ -129,6 +129,7 @@ export class TransformSession {
   private hideEdges: unknown;
   private ended = false;
   private preparing?: Promise<void>;
+  private applying?: Promise<void>;
   // Floating selections: the lifted pixels as tiles (drawn while the frame is
   // a rotated rectangle), the ids of the preview layers, and the tiles the
   // committed layer keeps.
@@ -234,13 +235,25 @@ export class TransformSession {
     return !!this.mesh || this.quad.some((p, i) => Math.abs(p.x - q0[i].x) > 1e-6 || Math.abs(p.y - q0[i].y) > 1e-6);
   }
   apply(restoreTool = true): void | Promise<void> {
+    if (this.applying) return this.applying;
+    const session = this.e.session;
+    const task = this.applyWhenReady(restoreTool);
+    // Commit starts when requested, including time spent loading the source.
+    // Repeated requests share completion so document actions wait for it all.
+    if (task) {
+      // Session waiters must see failures before the UI reports them.
+      this.applying = session.trackEdit(task).catch((error) => this.e.message(error instanceof Error ? error.message : String(error)));
+      return this.applying;
+    }
+  }
+  private applyWhenReady(restoreTool: boolean): void | Promise<void> {
     if (this.ended) return;
     if (this.e.doc !== this.base || !this.changed) {
       this.cancel(restoreTool);
       return;
     }
     if (!this.source) {
-      if (this.preparing) return this.preparing.then(() => this.apply(restoreTool));
+      if (this.preparing) return this.preparing.then(() => this.applyWhenReady(restoreTool));
       this.e.message('The layer is still being prepared; try again in a moment.');
       return;
     }
@@ -280,8 +293,7 @@ export class TransformSession {
     if (this.target.layerKind === 'image') {
       // Embedded objects keep their content: the frame is stored and the
       // layer draws a render of the content through it.
-      const e = this.e;
-      return commitFrame(e, this.target.id, quad, mesh, label, result).catch((error) => e.message(error instanceof Error ? error.message : String(error)));
+      return commitFrame(this.e, this.target.id, quad, mesh, label, result);
     }
     const id = this.target.id;
     // Every frame of a video layer follows its transform; a mesh warp cannot.
