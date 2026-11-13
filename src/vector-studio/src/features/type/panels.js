@@ -34,6 +34,10 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
   const input = h('input.ty-input', { id, type: 'text', inputmode: 'decimal', autocomplete: 'off', spellcheck: false, 'aria-label': label });
   let value = null;
   let shownAuto = false;
+  let computedAuto = null;
+  let displayed = '', edited = false;
+  const hasDraft = () => edited || input.value !== displayed;
+  input.addEventListener('input', () => { edited = true; });
   const word = (v) => words?.find(([t]) => t === v);
   const fmt = (v, isAuto) => {
     if (v === MIXED || v === undefined) return '';
@@ -54,8 +58,14 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
   const set = (v, { autoValue } = {}) => {
     value = v;
     shownAuto = auto && v == null && autoValue != null;
-    if (document.activeElement !== input) input.value = shownAuto ? fmt(autoValue, true) : fmt(v);
+    computedAuto = autoValue;
+    if (document.activeElement !== input) render();
     input.placeholder = v === MIXED ? 'Mixed' : '';
+  };
+  const render = () => {
+    input.value = shownAuto ? fmt(computedAuto, true) : fmt(value);
+    displayed = input.value;
+    edited = false;
   };
   const commit = (v) => {
     if (v === undefined) {
@@ -63,20 +73,25 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
       return;
     }
     value = v;
+    shownAuto = false;
+    render();
     onCommit(v);
   };
+  // Rounded displays and computed Auto values are not edits. Parsing them
+  // on confirmation would change the underlying type and add an Undo step.
+  const commitInput = () => { if (hasDraft()) commit(parse(input.value)); };
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') {
       e.preventDefault();
-      commit(parse(input.value));
+      commitInput();
       input.select();
     } else if (e.key === 'Escape') {
       set(value);
       input.blur();
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
-      const cur = parse(input.value);
+      const cur = hasDraft() ? parse(input.value) : shownAuto ? computedAuto : value;
       // Mixed values step each from their own (onStep), never from zero.
       if (typeof cur !== 'number' && value === MIXED) {
         onStep?.((e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1));
@@ -84,11 +99,10 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
       }
       const base = typeof cur === 'number' ? cur : typeof value === 'number' ? value : 0;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1)));
-      input.value = fmt(v);
       commit(v);
     }
   });
-  input.addEventListener('change', () => commit(parse(input.value)));
+  input.addEventListener('change', commitInput);
   input.addEventListener('focus', () => input.select());
   const lab = h('label.ty-label', { for: id, 'data-tip': label }, icon(iconName, 16));
   const parts = [lab, input];
