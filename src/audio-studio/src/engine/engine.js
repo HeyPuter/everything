@@ -97,6 +97,8 @@ export class Engine extends Emitter {
 
   async #create(rate) {
     this.stop();
+    // An open input (input metering) moves to the new context.
+    const input = this.input ? { deviceId: this.input.deviceId } : null;
     if (this.ctx) {
       this.closeInput();
       try {
@@ -145,6 +147,14 @@ export class Engine extends Emitter {
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
     if (ctx.state === 'suspended') await ctx.resume();
     this.emit('context', ctx);
+    if (input) {
+      try {
+        await this.#openInput(input);
+      } catch (err) {
+        console.warn('[engine] input', err);
+        this.emit('engine-error', 'The input stopped and could not be reopened.');
+      }
+    }
     return ctx;
   }
 
@@ -442,6 +452,10 @@ export class Engine extends Emitter {
   /** Opens an input device for metering and recording. */
   async openInput({ deviceId } = {}) {
     await this.ensure(this.graph.rate || this.rate);
+    return this.#openInput({ deviceId });
+  }
+
+  async #openInput({ deviceId }) {
     this.closeInput();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -475,7 +489,7 @@ export class Engine extends Emitter {
       if (m.type === 'data') this.emit('record-data', m.channels);
       else if (m.type === 'meter') this.emit('input-meter', m.peak);
     };
-    this.input = { stream, src, node, route, channels: route.length ? 2 : deviceChannels };
+    this.input = { deviceId, stream, src, node, route, channels: route.length ? 2 : deviceChannels };
     return this.input;
   }
 

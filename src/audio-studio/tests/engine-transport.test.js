@@ -434,3 +434,43 @@ describe('engine input capture', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('engine input across audio contexts', () => {
+  it('moves an open input to a context made for another sample rate', async () => {
+    const node = () => ({ connect() {}, disconnect() {}, port: { postMessage() {}, onmessage: null } });
+    const made = [];
+    vi.stubGlobal('AudioContext', function (opts) {
+      const ctx = {
+        sampleRate: opts?.sampleRate || 48000,
+        currentTime: 0,
+        state: 'running',
+        destination: { channelCount: 2, maxChannelCount: 2 },
+        audioWorklet: { addModule: async () => {} },
+        resume: async () => {},
+        close: async () => (ctx.state = 'closed'),
+        sources: 0,
+        createMediaStreamSource: () => (ctx.sources++, node()),
+      };
+      made.push(ctx);
+      return ctx;
+    });
+    vi.stubGlobal('AudioWorkletNode', function () {
+      return node();
+    });
+    const asked = [];
+    const track = { stop() {}, getSettings: () => ({ channelCount: 2 }) };
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async (c) => (asked.push(c.audio.deviceId), { getTracks: () => [track], getAudioTracks: () => [track] }) } });
+    const e = new Engine();
+    e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    await e.openInput({ deviceId: 'mic' }); // input metering on
+    expect(made[0].sources).toBe(1);
+    // A 44.1 kHz file plays: the context is made again at its rate.
+    await e.ensure(44100);
+    expect(made.length).toBe(2);
+    expect(made[1].sources).toBe(1);
+    expect(e.input).not.toBe(null);
+    expect(asked).toEqual([{ exact: 'mic' }, { exact: 'mic' }]);
+    e.closeInput();
+    vi.unstubAllGlobals();
+  });
+});
