@@ -8,12 +8,31 @@
  *   Trim, Merge, Crop                      fills only (strokes removed); Merge joins same-colored fills
  *   Outline                                edges stroked with their face's fill, 0 pt weight, no fill
  * Results replace the operands at the topmost operand's position; pathfinder
- * results are grouped.
+ * results are grouped. A clipping group selected as a whole takes part with
+ * what it shows: each object in it cut to its clipping path (the clipping
+ * path is not an operand), and the results go above the group, which goes
+ * away once nothing is left in it.
  */
 import { OP, runGeom } from './engine/index.js';
 import { withBusy } from './busy.js';
 import { flattenPath } from '../../model/bezier.js';
-import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, groupOf, replaceWith, insertionPoint, fillOnly, solidKey, snapshot, unchangedSince, isOpenLine, expandLiveFirst } from './nodes-io.js';
+import {
+  geometryLeaves,
+  shapeOf,
+  styleOf,
+  nodeFromSubpaths,
+  groupOf,
+  replaceWith,
+  insertionPoint,
+  fillOnly,
+  solidKey,
+  snapshot,
+  unchangedSince,
+  isOpenLine,
+  expandLiveFirst,
+  visibleShapes,
+  withMasks,
+} from './nodes-io.js';
 
 export const SHAPE_MODES = [
   { kind: 'unite', label: 'Unite', icon: 'pathfinder-unite', op: OP.UNITE },
@@ -89,7 +108,8 @@ const operandCache = new WeakMap();
  * Path/compound leaves of the selection, back to front (cached until the
  * document or selection changes). The inputs of live groups (a blend's
  * keys, a Repeat's source, ...) are not operands: combining them would
- * leave a broken live object behind.
+ * leave a broken live object behind. The clipping path of a clipping group
+ * selected as a whole is not an operand either (see operandInfo().clipped).
  */
 export function operands(editor) {
   return operandInfo(editor).leaves;
@@ -100,8 +120,15 @@ function operandInfo(editor) {
   const hit = operandCache.get(editor);
   if (hit && hit.sig === sig) return hit;
   const live = [];
-  const leaves = geometryLeaves(editor.doc, editor.topSelection(), { intoLive: false, skippedLive: live });
-  const info = { sig, leaves, live };
+  const clipped = new Map();
+  const typeClips = [];
+  const leaves = geometryLeaves(editor.doc, editor.topSelection(), {
+    intoLive: false,
+    skippedLive: live,
+    clipped,
+    skippedClip: typeClips,
+  });
+  const info = { sig, leaves, live, clipped, typeClips };
   operandCache.set(editor, info);
   return info;
 }
@@ -208,32 +235,52 @@ export async function runPathfinder(app, kind) {
   const doc = editor.doc;
   const leaves = operands(editor);
   if (!canRun(editor, kind)) {
-    const { live } = operandInfo(editor);
+    const { live, typeClips } = operandInfo(editor);
     if (live.length) app.notify(expandLiveFirst(def.label, live[0]));
-    else app.notify(kind === 'unite' ? 'Select two or more paths, or a compound path.' : 'Select two or more paths.');
+    else if (typeClips.length)
+      app.notify(`${def.label} cannot clip to type. Create outlines of the clipping type first.`);
+    else
+      app.notify(
+        kind === 'unite'
+          ? 'Select two or more paths, or a compound path.'
+          : 'Select two or more paths.',
+      );
     return false;
   }
   app.lastPathfinder = kind;
-  const snap = snapshot(doc, leaves);
-  const shapes = shapesFor(doc, kind, leaves);
-  const empty = emptyShapeModeReason(kind, shapes);
-  if (empty) {
-    app.notify(`${def.label} produced no shapes: ${empty}.`);
-    return false;
-  }
-  const records = await withBusy(app, def.label, () => runGeom(def.op, shapes, [], { tol: pathfinderOptions.precision }));
+  const { clipped } = operandInfo(editor);
+  const snap = snapshot(doc, withMasks(doc, leaves, clipped));
+  const tol = { tol: pathfinderOptions.precision };
+  const work = async () => {
+    // Clipped objects take part with what they show; objects that show nothing drop out.
+    const all = await visibleShapes(doc, leaves, shapesFor(doc, kind, leaves), clipped, tol);
+    const used = leaves.filter((_, i) => all[i]);
+    const shapes = all.filter(Boolean);
+    const one = kind === 'unite' || kind === 'divide' || kind === 'outline';
+    let empty = emptyShapeModeReason(kind, shapes);
+    if (!shapes.length) empty = 'the selected objects are clipped out of sight';
+    else if (shapes.length < 2 && shapes.length < leaves.length && !one)
+      empty = 'only one of the selected objects shows';
+    if (empty) return { empty };
+    return { used, records: await runGeom(def.op, shapes, [], tol) };
+  };
+  const res = await withBusy(app, def.label, work);
   if (app.editor !== editor || !unchangedSince(doc, snap)) {
     app.notify(`${def.label} was canceled because the artwork changed.`);
     return false;
   }
-  const items = buildResults(kind, leaves, records, pathfinderOptions);
+  if (res.empty) {
+    app.notify(`${def.label} produced no shapes: ${res.empty}.`);
+    return false;
+  }
+  const items = buildResults(kind, res.used, res.records, pathfinderOptions);
   if (!items.length) {
     app.notify(`${def.label} produced no shapes.`);
     return false;
   }
   let ids = [];
   doc.transact(def.label, () => {
-    ids = replaceWith(doc, leaves, items, insertionPoint(doc, leaves));
+    ids = replaceWith(doc, leaves, items, insertionPoint(doc, leaves, clipped));
   });
   editor.select(ids);
   return true;
