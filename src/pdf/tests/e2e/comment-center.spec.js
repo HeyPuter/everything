@@ -102,10 +102,10 @@ test('a text box keeps its words when they cannot be added', async ({ page }) =>
   await page.getByRole('button', { name: 'Place at page center', exact: true }).press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Text box' });
   const text = dialog.getByLabel('Text');
-  await text.fill('Total ≈ 40 units');
+  await text.fill('Total 🦄 40 units');
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('does not support “≈”');
-  await expect(text).toHaveValue('Total ≈ 40 units');
+  await expect(dialog.getByRole('alert')).toContainText('does not support “🦄”');
+  await expect(text).toHaveValue('Total 🦄 40 units');
   await expect(text).toBeFocused();
   await text.fill('Total about 40 units');
   await text.press('ControlOrMeta+Enter');

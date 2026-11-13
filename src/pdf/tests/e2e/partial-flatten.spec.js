@@ -45,12 +45,12 @@ for (const kind of ['text', 'dropdown', 'list', 'widget-layout', 'rectangle', 'w
       kind === 'dropdown' || kind === 'list' ? fields[0].getSelected() : fields[0].getText(),
     ).toEqual(
       kind === 'dropdown' || kind === 'list'
-        ? ['漢字']
+        ? ['🦄']
         : kind === 'widgets'
           ? 'Old'
           : ['widget-layout', 'rectangle'].includes(kind)
             ? 'Updated retained'
-            : '漢字',
+            : '🦄',
     );
     expect(saved.getPage(0).node.Annots().size()).toBe(
       ['widget-layout', 'rectangle'].includes(kind) ? 2 : 1,
