@@ -12,6 +12,7 @@
  *   local  a File System Access handle stored in IndexedDB under handleId
  */
 import { isMissing } from './backends.js';
+import { baseName } from './naming.js';
 
 export const RECENT_KEY = 'recentFiles';
 export const RECENT_MAX = 20;
@@ -32,6 +33,7 @@ export function entryKey(e) {
 
 export class RecentFiles {
   #validating = new Map();
+  #normalized = new WeakMap();
   #thumbJobs = new Map();
   #thumbLoads = new Map();
 
@@ -53,7 +55,24 @@ export class RecentFiles {
   list() {
     const raw = this.prefs.get(RECENT_KEY);
     if (!Array.isArray(raw)) return [];
-    return raw.filter((e) => e && typeof e === 'object' && (e.kind === 'puter' ? typeof e.path === 'string' : e.kind === 'local' && e.handleId)).slice(0, this.limit);
+    return raw.filter((e) => e && typeof e === 'object' && (e.kind === 'puter'
+      ? typeof e.path === 'string' && e.path.length > 0
+      : e.kind === 'local' && typeof e.handleId === 'string' && e.handleId.length > 0))
+      .slice(0, this.limit).map((e) => this.#normalize(e));
+  }
+
+  #normalize(entry) {
+    const path = typeof entry.path === 'string' ? entry.path : null;
+    const name = typeof entry.name === 'string' && entry.name ? entry.name : (entry.kind === 'puter' && baseName(path)) || 'Untitled';
+    const when = typeof entry.when === 'number' || typeof entry.when === 'string' ? entry.when : null;
+    if (path === entry.path && name === entry.name && when === entry.when) return entry;
+    // Keep identity stable for validation's stale-result guard. Reuse only an
+    // unchanged source record, and never mutate the preferences while reading.
+    const cached = this.#normalized.get(entry), keys = Object.keys(entry);
+    if (cached && keys.length === Object.keys(cached.source).length && keys.every((key) => Object.is(entry[key], cached.source[key]))) return cached.value;
+    const value = { ...entry, path, name, when };
+    this.#normalized.set(entry, { source: { ...entry }, value });
+    return value;
   }
 
   #store(list) {
