@@ -9010,13 +9010,22 @@ export function createEditor({
     if (destroyed) return;
     const bytes = await exportBytes(extracted, savedProtection);
     if (destroyed) return;
-    const label = formatPageRange(list);
-    download(bytes, exportName(list.length === 1 ? ` page ${list[0] + 1}` : ` pages ${label}`));
-    toast(
-      list.length === 1
-        ? `Page ${list[0] + 1} downloaded as a new PDF.`
-        : `Pages ${label} downloaded as a new PDF.`,
-    );
+    const { file, message } = extractedPages(list);
+    download(bytes, file);
+    toast(message);
+  }
+  /**
+   * The file name and message for downloaded pages: their numbers, or their count when the
+   * numbers of scattered pages would not fit a file name.
+   */
+  function extractedPages(indices) {
+    const label = formatPageRange(indices);
+    const suffix = indices.length === 1 ? ` page ${label}` : ` pages ${label}`;
+    const short = suffix.length <= 64;
+    return {
+      file: exportName(short ? suffix : ` ${indices.length} pages`),
+      message: `${short ? `${indices.length === 1 ? 'Page' : 'Pages'} ${label}` : `${indices.length} pages`} downloaded as a new PDF.`,
+    };
   }
   async function deletePageAt(index) {
     requireAccess('assemble');
@@ -12973,13 +12982,12 @@ export function createEditor({
         if (destroyed || !d.open) return;
         const bytes = await exportBytes(extracted);
         if (destroyed || !d.open) return;
-        const label = formatPageRange(indices);
         // A long list of scattered pages would not fit a file name; their count does. One
         // page is named as Extract page in the page's menu names it.
-        const suffix = indices.length === 1 ? ` page ${label}` : ` pages ${label}`;
-        download(bytes, exportName(suffix.length <= 64 ? suffix : ` ${indices.length} pages`));
+        const { file, message } = extractedPages(indices);
+        download(bytes, file);
         d.close();
-        toast(`${indices.length === 1 ? 'Page' : 'Pages'} ${label} downloaded as a new PDF.`);
+        toast(message);
       } catch (error) {
         if (!destroyed && d.open) throw error;
       } finally {

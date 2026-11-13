@@ -790,3 +790,34 @@ test('a long count in the Organize pages toolbar reads whole on a small phone', 
   const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
   expect((await toolbar.boundingBox()).height).toBeLessThan(100);
 });
+
+test('pages scattered through a long PDF extract under a file name of a usable length', async ({
+  page,
+}) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 80; i++) doc.addPage([200, 260]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option')).toHaveCount(80);
+  // Every other page: forty separate numbers.
+  for (let n = 3; n <= 79; n += 2)
+    await grid.getByRole('option', { name: `Page ${n}`, exact: true }).click({
+      modifiers: ['ControlOrMeta'],
+    });
+  await expect(page.locator('.organize-status')).toHaveText('40 of 80 pages selected');
+  const pending = page.waitForEvent('download');
+  await page
+    .getByRole('toolbar', { name: 'Organize pages' })
+    .getByRole('button', { name: 'Extract pages', exact: true })
+    .click();
+  // As Extract pages… names such a file: by the count of its pages.
+  expect((await pending).suggestedFilename()).toBe('test 40 pages.pdf');
+  await expect(page.locator('#toast')).toHaveText('40 pages downloaded as a new PDF.');
+});
