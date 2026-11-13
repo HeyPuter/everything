@@ -365,6 +365,13 @@ export class Engine extends Emitter {
     const latest = this.reports.length ? this.reports[this.reports.length - 1] : this.lastPos;
     const jump = this.playing && loop && loop.end > loop.start && latest.frame >= loop.end;
     if (jump) this.#jumped(loop.start);
+    // Turned off past where playback was to stop (the loop followed a new
+    // selection there): play on to the end rather than stopping on the spot.
+    if (this.playing && !loop && this.range.loop && this.range.to != null && latest.frame >= this.range.to) {
+      this.range.to = graphLength(this.graph);
+      this.toEnd = true;
+      this.node?.port.postMessage({ type: 'range', to: this.range.to });
+    }
     this.range.loop = loop;
     this.node?.port.postMessage(jump ? { type: 'loop', loop, seq: this.seq } : { type: 'loop', loop });
     if (this.playing) this.#feed();

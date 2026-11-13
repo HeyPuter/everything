@@ -369,6 +369,25 @@ describe('engine playhead and output latency', () => {
     vi.unstubAllGlobals();
   });
 
+  it('turning the loop off past the stop point plays on instead of stopping on the spot', async () => {
+    const { e, advance } = await liveEngine(0);
+    const len = 960000;
+    e.setGraph({ rate: 48000, master: { gain: 1 }, tracks: [{ id: 'file', gain: 1, pan: 0, clips: [{ id: 'file', source: 'k', channels: 1, start: 0, offset: 0, length: len, gain: 1 }] }] }, new Map());
+    // Looping a selection, playing to its end.
+    await e.play({ from: 48000, to: 96000, loop: { start: 48000, end: 96000 } });
+    advance(0.3);
+    // The selection is cleared: the loop covers the whole file and playback goes past the old end.
+    e.setLoop({ start: 0, end: len });
+    advance(1.2);
+    expect(e.position).toBeGreaterThan(96000);
+    e.setLoop(null);
+    advance(0.2);
+    expect(e.playing).toBe(true);
+    expect(e.range.to).toBe(len);
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
   it('ignores an end of playback reported for an earlier play', async () => {
     const { e, advance } = await liveEngine(0);
     await e.play({ from: 0, to: 256 });
