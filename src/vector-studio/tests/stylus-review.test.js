@@ -221,3 +221,27 @@ describe('brush outlines when the pen leaves', () => {
     });
   }
 });
+
+describe('dragging a dialog by its title bar', () => {
+  it('a pen drag the browser cancels ends the drag, so the hovering pen no longer moves the dialog', async () => {
+    const { openDialog } = await import('../src/ui/dialogs/dialog.js');
+    const matchMedia = window.matchMedia;
+    window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+    try {
+      openDialog({ title: 'Drag me', content: document.createElement('div') });
+      const header = [...document.querySelectorAll('.dialog-header')].at(-1);
+      const dialog = header.closest('dialog');
+      const fire = (type, x, y, buttons = 1) => header.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 3, pointerType: 'pen', clientX: x, clientY: y, buttons }));
+      header.setPointerCapture = () => {};
+      fire('pointerdown', 100, 100);
+      fire('pointermove', 120, 110);
+      const left = dialog.style.left;
+      fire('pointercancel', 120, 110, 0);
+      fire('pointermove', 300, 300, 0);
+      expect(dialog.style.left).toBe(left);
+      dialog.close?.();
+    } finally {
+      window.matchMedia = matchMedia;
+    }
+  });
+});
