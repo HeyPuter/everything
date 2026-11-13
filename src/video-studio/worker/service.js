@@ -316,6 +316,10 @@ export class ReviewService {
     const invite = { review: rid, id: tokenHash.slice(0, 16), role, created: now, expires: now + inviteDays(input.days) * DAY, revoked: false, uses: 0 };
     await this.kv.set(`vsr:invite:${tokenHash}`, invite);
     const n = await this.kv.incr(`vsr:r:${rid}:iseq`);
+    if (n > LIMITS.invites) {
+      await this.kv.del(`vsr:invite:${tokenHash}`).catch(() => {});
+      fail(409, `A review can have at most ${LIMITS.invites} invite links.`);
+    }
     await this.kv.set(`vsr:r:${rid}:ii:${n}`, tokenHash);
     return { token, invite: this.inviteView(invite) };
   }
