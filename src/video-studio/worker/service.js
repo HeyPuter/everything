@@ -19,6 +19,7 @@
  *   vsr:r:<rid>:seq                  change counter for comments
  *   vsr:r:<rid>:log:<n>              { at, comment } comment snapshot saved as change n
  *   vsr:r:<rid>:c:<commentId>        latest snapshot of a comment
+ *   vsr:r:<rid>:wait:<n>             first observation of an unfilled slot and reservation count
  *   vsr:rate:<rid>:<uuid>:<minute>   comments posted this minute (expires)
  *   vsr:wrate:<rid>:<uuid>:<minute>  comment edits, deletes and resolves this minute (expires)
  *   vsr:rrate:<rid>:<uuid>:<minute>  recovery deliveries this minute (expires)
@@ -32,7 +33,7 @@ import {
 /** How long a video read link lives, and how much of that is left when a new one is made. */
 export const VIDEO_LINK_HOURS = 4;
 export const VIDEO_LINK_RENEW_MS = 30 * 60_000;
-/** How long a later change must wait before sync can mark a missing slot skipped. */
+/** How long a reservation must be known to exist before sync can skip its slot. */
 export const LOST_CHANGE_MS = 60_000;
 /** Bound resends if every delivery is so slow that sync skips its slot. */
 export const LOG_DELIVERY_ATTEMPTS = 3;
@@ -525,8 +526,8 @@ export class ReviewService {
 
   /**
    * Changes after `since`, in order. The cursor stops at a change still being
-   * written (its number is taken but its record is not there yet) unless a
-   * later change is old enough to skip it. Persisting that decision lets a
+   * written until a log entry or stored observation proves its reservation
+   * is old enough to skip. Persisting that decision lets a
    * delayed writer detect it and deliver at a fresh cursor before succeeding.
    */
   async sync(user, input) {
@@ -536,23 +537,62 @@ export class ReviewService {
     const seq = (await this.kv.get(`vsr:r:${rid}:seq`)) || 0;
     const upto = Math.min(seq, since + LIMITS.syncBatch);
     const entries = upto > since ? await this.many(range(since + 1, upto).map((n) => `vsr:r:${rid}:log:${n}`)) : [];
+    const now = this.now();
+    let proof = null;
+    const consider = (entry, n) => {
+      if (!entry) return;
+      for (const [at, through] of [[entry.at, n], [entry.observedAt, entry.observedThrough]]) {
+        if (Number.isFinite(at) && Number.isInteger(through) && now - at > LOST_CHANGE_MS && through > (proof?.through || 0)) {
+          proof = { at, through: Math.min(through, seq) };
+        }
+      }
+    };
     const changes = [];
     let cursor = since;
     let blocked = false;
+    let checkedInside = false;
+    let checkedOutside = false;
     for (let i = 0; i < entries.length; i++) {
+      const n = since + i + 1;
       let e = entries[i];
-      if (!e) {
-        const later = entries.slice(i + 1).find(Boolean);
-        if (later && this.now() - later.at > LOST_CHANGE_MS) {
+      if (!e?.comment && !e?.skip) {
+        if (!checkedInside) {
+          checkedInside = true;
+          entries.forEach((entry, j) => consider(entry, since + j + 1));
+        }
+        if ((proof?.through || 0) < n && !checkedOutside) {
+          // One bounded read, not a scan of every page: the previous cursor can
+          // carry an observation across pages, and the tail can prove age.
+          checkedOutside = true;
+          const outside = [...(since > 0 ? [since] : []), ...(seq > upto ? [seq] : [])];
+          const values = await this.many(outside.map((index) => `vsr:r:${rid}:log:${index}`));
+          values.forEach((entry, j) => consider(entry, outside[j]));
+        }
+        if ((proof?.through || 0) < n) {
+          // Even an entirely empty range has a known reservation count now.
+          // Keep the first observation in its own key: initializing it cannot
+          // replace a concurrent comment, and repeated polls do not reset it.
+          const key = `vsr:r:${rid}:wait:${n}`;
+          let observed = await this.kv.get(key);
+          if (!observed) {
+            const first = { observedAt: now, observedThrough: seq };
+            observed = await this.kv.set(key, first, { onlyIfAbsent: true }) ? first : await this.kv.get(key);
+          }
+          consider(observed, n);
+        }
+        if (!e?.comment && !e?.skip && (proof?.through || 0) >= n) {
           // If the writer finished since our read, include its returned
           // snapshot. Otherwise it will see this marker when it finishes.
-          e = await this.kv.update(`vsr:r:${rid}:log:${since + i + 1}`, { at: this.now(), skip: true });
-        } else {
+          e = await this.kv.update(`vsr:r:${rid}:log:${n}`, {
+            at: now, skip: true, observedAt: proof.at, observedThrough: proof.through,
+          });
+        }
+        if (!e?.comment && !e?.skip) {
           blocked = true;
           break;
         }
       }
-      cursor = since + i + 1;
+      cursor = n;
       if (e.comment) changes.push(e.comment);
     }
     const versions = (await this.kv.get(`vsr:r:${rid}:vseq`)) || 0;
