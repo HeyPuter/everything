@@ -237,6 +237,15 @@ export class Editor {
   // Called after a document is saved (the project blob written).
   saveHooks: ((s: DocumentSession, project: Blob) => void)[] = [];
   async closeSession(s: DocumentSession, force = false) {
+    if (!force) {
+      try {
+        await s.waitForEdits();
+      } catch (error) {
+        this.message(error instanceof Error ? error.message : String(error));
+        return false;
+      }
+    }
+    if (!this.sessions.includes(s)) return true;
     if (!force && s.closeHandler) {
       if (!(await s.closeHandler())) return false;
     } else if (!force && s.dirty) {
