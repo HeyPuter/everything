@@ -90,8 +90,10 @@ export function tapBpm(times) {
 }
 
 export async function openTapTempo(app) {
+  const { store } = app;
+  const loadVersion = store.loadVersion;
   const taps = [];
-  const value = h('div.tap-value', { 'aria-live': 'polite' }, String(app.store.project.bpm));
+  const value = h('div.tap-value', { 'aria-live': 'polite' }, String(store.project.bpm));
   const unit = h('div.tap-unit.faint', 'Tap at least twice');
   let bpm = null;
   const tap = () => {
@@ -112,6 +114,7 @@ export async function openTapTempo(app) {
   const body = h('div.tap', pad, h('div.tap-readout', value, unit));
   const applyBtn = () => body.closest('.dialog')?.querySelector('.btn.primary') || { disabled: false };
   const done = openDialog({
+    store,
     title: 'Tap tempo',
     className: 'dlg-tap',
     body,
@@ -130,7 +133,7 @@ export async function openTapTempo(app) {
     }
   });
   const r = await done;
-  if (r === 'apply' && bpm) {
+  if (r === 'apply' && bpm && store.loadVersion === loadVersion) {
     app.setTempo(bpm, 'Tap tempo');
     app.notify(`Tempo set to ${bpm} BPM`);
   }

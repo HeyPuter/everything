@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openProjectSettings } from '../src/dialogs/project-settings.js';
-import { purgeCommand } from '../src/dialogs/tools.js';
+import { purgeCommand, openTapTempo } from '../src/dialogs/tools.js';
 import { addAutomationClip } from '../src/automation/create.js';
 import { createChannel } from '../src/model/project.js';
 import { Store } from '../src/model/store.js';
@@ -18,6 +18,7 @@ function setup() {
   const store = new Store(demoProject());
   const commands = new Map();
   const app = { store, engine: { mode: 'song', position: 0 }, notify: vi.fn(), commands: { register: (...items) => items.forEach((item) => commands.set(item.id, item)) } };
+  app.setTempo = (bpm, label) => store.apply(label, (p) => E.setProjectProps(p, { bpm }));
   registerCoreCommands(app);
   const rack = channelActions(app);
   const ed = {
@@ -32,6 +33,14 @@ function setup() {
 }
 
 const scenarios = [
+  ['tap tempo', (x) => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const pending = openTapTempo(x.app);
+    document.querySelector('.tap-pad').click();
+    now.mockReturnValue(1600);
+    document.querySelector('.tap-pad').click();
+    return pending;
+  }, 'Apply tempo'],
   ['project settings', (x) => openProjectSettings(x.app), 'Apply'],
   ['automation creation', (x) => addAutomationClip(x.app), 'Create clip'],
   ['purge unused', (x) => {
@@ -56,6 +65,7 @@ const scenarios = [
 afterEach(() => {
   document.querySelectorAll('.dialog-head button').forEach((button) => button.click());
   document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
 for (const timing of ['before confirmation', 'immediately after confirmation']) {
@@ -130,7 +140,7 @@ it.each(noteActions)('keeps %s usable across an unrelated tempo edit', async (na
   else expect(ctx.ed.runTool.mock.calls.length + ctx.ed.applyNotes.mock.calls.length).toBe(1);
 });
 
-const projectActions = scenarios.filter(([name]) => ['project settings', 'automation creation', 'purge unused'].includes(name));
+const projectActions = scenarios.filter(([name]) => ['project settings', 'automation creation', 'purge unused', 'tap tempo'].includes(name));
 it.each(projectActions)('keeps %s usable across an unrelated track edit', async (name, run, label) => {
   const ctx = setup();
   const pending = run(ctx);
