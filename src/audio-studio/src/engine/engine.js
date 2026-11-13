@@ -282,7 +282,7 @@ export class Engine extends Emitter {
    */
   get position() {
     if (!this.ctx || this.state !== 'playing') return this.lastPos.frame;
-    const heard = this.ctx.currentTime - (this.ctx.outputLatency || this.ctx.baseLatency || 0);
+    const heard = this.#heardTime();
     const reports = this.reports;
     let n = 0;
     while (n < reports.length && reports[n].time <= heard) n++;
@@ -293,6 +293,23 @@ export class Engine extends Emitter {
     if (loop && loop.end > loop.start && f >= loop.end) f = loop.start + ((f - loop.start) % (loop.end - loop.start));
     if (!loop && this.range.to != null) f = Math.min(f, this.range.to);
     return Math.max(0, f);
+  }
+
+  /**
+   * Context time of the audio leaving the speakers now. The output timestamp
+   * carried forward on the performance clock moves smoothly; currentTime moves
+   * in steps of the device buffer, which made the playhead stutter (some
+   * frames about 30% too far, others not at all).
+   */
+  #heardTime() {
+    const ctx = this.ctx;
+    const ts = ctx.getOutputTimestamp?.();
+    if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
+      const t = ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+      // Never past what the mixer has rendered (a suspended context stops its clock).
+      if (Number.isFinite(t)) return Math.min(t, ctx.currentTime);
+    }
+    return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
   }
 
   /**

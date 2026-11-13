@@ -405,6 +405,36 @@ describe('engine playhead and output latency', () => {
     vi.unstubAllGlobals();
   });
 
+  it('moves the playhead smoothly although the context clock moves in device-buffer steps', async () => {
+    const { e, advance } = await liveEngine(0.02);
+    await e.play({ from: 0 });
+    advance(0.5);
+    // The device takes 512 frames per callback: currentTime jumps by 512 frames, and the
+    // output timestamp says which context time is heard at which performance time.
+    let now = 10000;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const ctx = e.ctx;
+    const step = 512 / 48000;
+    const rendered = ctx.currentTime;
+    ctx.getOutputTimestamp = () => {
+      const callbacks = Math.floor((now - 10000) / 1000 / step);
+      return { contextTime: rendered + callbacks * step - 0.02, performanceTime: 10000 + callbacks * step * 1000 };
+    };
+    // The mixer renders ahead of what is heard.
+    advance(0.6);
+    const seen = [];
+    for (let i = 0; i < 20; i++) {
+      now += 1000 / 60;
+      seen.push(e.position);
+    }
+    const steps = seen.slice(1).map((p, i) => p - seen[i]);
+    // Each animation frame moves 800 frames (1/60 s), not 512 one time and 1024 the next.
+    for (const s of steps) expect(Math.abs(s - 800)).toBeLessThan(2);
+    spy.mockRestore();
+    e.stop();
+    vi.unstubAllGlobals();
+  });
+
   it('turning the loop off past the stop point plays on instead of stopping on the spot', async () => {
     const { e, advance } = await liveEngine(0);
     const len = 960000;
