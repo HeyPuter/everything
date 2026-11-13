@@ -47,6 +47,10 @@ async function clipWords(ctx, clip, { language, signal, onStatus }) {
   return { words: words.map((w) => ({ text: w.text, start: Math.round(w.start * US), end: Math.round(w.end * US) })), reused: false };
 }
 
+// These fields change which speech is heard, where it falls, or the media used for reframing.
+const SOURCE_FIELDS = ['type', 'assetId', 'start', 'in', 'duration', 'speed', 'freeze', 'reversed'];
+const MEDIA_FIELDS = ['kind', 'hash', 'ext', 'mime', 'size', 'duration', 'width', 'height', 'hasAudio', 'hasVideo'];
+
 const DEFAULTS = { count: 5, length: 'short', language: 'auto', target: 'projects', shape: '9:16', captions: 'yellow-caption' };
 
 /**
@@ -55,12 +59,27 @@ const DEFAULTS = { count: 5, length: 'short', language: 'auto', target: 'project
  */
 export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   const { store, library } = ctx;
-  const clip = clipId ? T.findClip(store.project, clipId)?.clip : highlightSource(store.project, store.selectedIds);
+  let clip = clipId ? T.findClip(store.project, clipId)?.clip : highlightSource(store.project, store.selectedIds);
   if (!clip) {
     toast('Add or select a video with speech to find its highlights.', { kind: 'info' });
     return null;
   }
-  const asset = store.project.assets[clip.assetId];
+  let asset = store.project.assets[clip.assetId];
+  const sourceId = clip.id;
+  const source = SOURCE_FIELDS.map(key => clip[key]);
+  const media = MEDIA_FIELDS.map(key => asset?.[key]);
+  const curve = (clip.speedCurve || []).map(p => ({ t: p.t, v: p.v, k: p.k }));
+  function refreshSource() {
+    const next = T.findClip(store.project, sourceId)?.clip;
+    const nextAsset = next && store.project.assets[next.assetId];
+    if (!next || !nextAsset || !SOURCE_FIELDS.every((key, i) => next[key] === source[i]) || !MEDIA_FIELDS.every((key, i) => nextAsset[key] === media[i])) return false;
+    const nextCurve = next.speedCurve || [];
+    if (nextCurve.length !== curve.length || !curve.every((p, i) => p.t === nextCurve[i].t && p.v === nextCurve[i].v && p.k === nextCurve[i].k)) return false;
+    // Undo/redo replaces objects even when the speech mapping is unchanged.
+    clip = next;
+    asset = nextAsset;
+    return true;
+  }
   const opts = { ...DEFAULTS, ...(prefs().highlights || {}) };
   const save = () => setPref('highlights', { ...opts });
   let words = [];
@@ -193,9 +212,10 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
     },
   });
   off = store.on('change', () => {
-    if (sameContext()) return;
+    const contextChanged = !sameContext();
+    if (!contextChanged && refreshSource()) return;
     d.close();
-    toast('Find highlights closed because the open timeline changed.', { kind: 'info' });
+    toast(contextChanged ? 'Find highlights closed because the open timeline changed.' : 'Find highlights closed because the source clip changed. Search again to use the updated clip.', { kind: 'info' });
   });
   const show = (step) => {
     if (!active()) return;
