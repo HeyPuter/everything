@@ -124,6 +124,7 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
   if (width) input.style.width = width;
   let current = value;
   let displayed = '';
+  let displayedUnit = unit;
   let edited = false;
   const fmt = (v) => {
     if (v === 'mixed' || v == null || Number.isNaN(v)) return '';
@@ -132,13 +133,16 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
     if (kind === 'percent') return `${Number(v.toFixed(digits ?? 1))}%`;
     return String(Number(v.toFixed(digits ?? 3)));
   };
-  const parse = (s) => (kind === 'length' ? parseLength(s, unit) : parseNumber(s));
+  // A pending expression keeps the units it was entered in until rendered
+  // again, even if the document changes display units while the field is active.
+  const parse = (s) => (kind === 'length' ? parseLength(s, displayedUnit) : parseNumber(s));
   const render = (v, preserveSelection = false) => {
     const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = input;
     const selectedAll = start === 0 && end === input.value.length;
     const text = fmt(v), changed = text !== input.value;
     input.value = text;
     displayed = input.value;
+    displayedUnit = unit;
     edited = false;
     if (preserveSelection && changed) input.setSelectionRange(selectedAll ? 0 : start, selectedAll ? input.value.length : end, direction);
   };
@@ -182,7 +186,7 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       // A Mixed value has nothing to step from (stepping from 0 set every object to one step).
       if (!Number.isFinite(typed) && current === 'mixed') return e.stopPropagation();
       const base = hasDraft() && Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
-      const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
+      const factor = kind === 'length' ? UNITS[displayedUnit]?.factor || 1 : 1;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * factor * (e.shiftKey ? 10 : 1)));
       render(v);
       onCommit?.(v);
