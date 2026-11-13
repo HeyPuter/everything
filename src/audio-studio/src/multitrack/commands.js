@@ -176,8 +176,9 @@ async function clipGainDialog(app, doc, clips) {
       { label: 'OK', value: 'ok', primary: true },
     ],
   });
-  if (r !== 'ok') return;
-  const g = Math.max(-48, Math.min(24, Number(input.value) || 0));
+  // An emptied field is not a value (Number('') would read as 0 dB).
+  if (r !== 'ok' || !input.value.trim() || !Number.isFinite(Number(input.value))) return;
+  const g = Math.max(-48, Math.min(24, Number(input.value)));
   doc.apply('Clip Gain', S.updateClips(doc.state, clips.map((c) => c.id), { gain: g }));
 }
 
@@ -209,7 +210,8 @@ async function matchLoudnessDialog(app, doc, clips) {
       { label: 'Match', value: 'ok', primary: true },
     ],
   });
-  if (r !== 'ok') return;
+  // An emptied field is not a target (Number('') would read as 0 dB and raise every clip).
+  if (r !== 'ok' || !target.value.trim() || !Number.isFinite(Number(target.value))) return;
   const t = Number(target.value);
   const gains = new Map();
   clips.forEach((c, i) => {

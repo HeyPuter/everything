@@ -266,3 +266,38 @@ describe('reopened session markers', () => {
     expect(new Set(state.markers.map((m) => m.id)).size).toBe(50);
   });
 });
+
+describe('clip gain dialogs', () => {
+  it('leave the gain alone when their number field is emptied', async () => {
+    const { app, doc } = await appWithSession();
+    const t = doc.state.tracks[0].id;
+    const c = S.createClip({
+      trackId: t,
+      sourceId: dc(doc, 0.01),
+      start: 0,
+      length: 4000,
+      gain: -6,
+    });
+    doc.apply('Add', S.addClips(doc.state, [c]));
+    doc.selectClips([c.id]);
+    const steps = doc.history.index;
+    for (const [id, label] of [
+      ['clip.matchLoudness', 'Target level in dB RMS'],
+      ['clip.gain', 'Clip gain in dB'],
+    ]) {
+      const run = app.commands.run(id);
+      const dlg = document.querySelector('.dialog');
+      dlg.querySelector(`[aria-label="${label}"]`).value = '';
+      dlg.querySelector('.btn.primary').click();
+      await run;
+    }
+    expect(S.findClip(doc.state, c.id).gain).toBe(-6);
+    expect(doc.history.index).toBe(steps);
+    const run = app.commands.run('clip.gain');
+    const dlg = document.querySelector('.dialog');
+    dlg.querySelector('[aria-label="Clip gain in dB"]').value = '-3';
+    dlg.querySelector('.btn.primary').click();
+    await run;
+    expect(S.findClip(doc.state, c.id).gain).toBe(-3);
+  });
+});
