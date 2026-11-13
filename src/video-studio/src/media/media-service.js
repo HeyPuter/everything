@@ -38,7 +38,10 @@ export class MediaService extends Emitter {
     this.worker.onmessage = (e) => {
       const { id, ok, result, error, partial } = e.data;
       const p = this.pending.get(id);
-      if (!p) return;
+      if (!p) {
+        partial?.bitmap?.close?.();
+        return;
+      }
       if (partial) {
         p.onPartial?.(partial);
         return;
@@ -51,6 +54,7 @@ export class MediaService extends Emitter {
   }
 
   _call(msg, onPartial) {
+    if (this.disposed) return Promise.reject(new DOMException('Media service closed', 'AbortError'));
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onPartial });
@@ -70,6 +74,7 @@ export class MediaService extends Emitter {
    * Returns an ImageBitmap or null.
    */
   thumb(asset, sec, step) {
+    if (this.disposed) return null;
     if (asset.kind === 'image') return this.poster(asset, true);
     if (asset.kind !== 'video') return null;
     let strip = this.strips.get(asset.hash);
@@ -111,13 +116,14 @@ export class MediaService extends Emitter {
   }
 
   async _pump() {
-    if (this.busy >= 2) return;
+    if (this.disposed || this.busy >= 2) return;
     const job = this.queue.find((j) => !j.started);
     if (!job) return;
     job.started = true;
     this.busy++;
     try {
       const blob = await this._pictureBlob(job.asset);
+      if (this.disposed) return;
       const items = job.items.sort((a, b) => a.sec - b.sec);
       const strip = this.strips.get(job.asset.hash);
       await this._call({ op: 'thumbs', blob, times: items.map((i) => i.sec), height: THUMB_H }, ({ index, bitmap }) => {
@@ -128,18 +134,21 @@ export class MediaService extends Emitter {
       // Leave 'pending' markers so we do not retry a file that cannot be decoded.
     } finally {
       this.busy--;
-      this.queue.splice(this.queue.indexOf(job), 1);
+      const index = this.queue.indexOf(job);
+      if (index >= 0) this.queue.splice(index, 1);
       if (this.queue.some((j) => !j.started)) this._pump();
     }
   }
 
   /** First frame (video) or the image itself, scaled for the media library. */
   poster(asset, sync = false) {
+    if (this.disposed) return sync ? null : Promise.resolve(null);
     let entry = this.posters.get(asset.hash);
     if (!entry) {
       entry = { value: null, promise: null };
       entry.promise = (async () => {
         const blob = asset.kind === 'video' ? await this._pictureBlob(asset) : await this.library.mediaBlob(asset);
+        if (this.disposed) return null;
         if (asset.kind === 'image') {
           const bmp = await createImageBitmap(blob, { resizeHeight: 240, resizeQuality: 'medium' });
           return bmp;
@@ -147,11 +156,20 @@ export class MediaService extends Emitter {
         if (asset.kind !== 'video') return null;
         let first = null;
         const t = Math.min(1, (asset.duration || 0) / 2e6);
-        await this._call({ op: 'thumbs', blob, times: [t], height: 240 }, ({ bitmap }) => (first = bitmap));
+        try {
+          await this._call({ op: 'thumbs', blob, times: [t], height: 240 }, ({ bitmap }) => (first = bitmap));
+        } catch (err) {
+          first?.close?.();
+          throw err;
+        }
         return first;
       })()
         .catch(() => null)
         .then((v) => {
+          if (this.disposed) {
+            v?.close?.();
+            return null;
+          }
           entry.value = v;
           this.emit('poster', { hash: asset.hash });
           return v;
@@ -163,6 +181,7 @@ export class MediaService extends Emitter {
 
   /** Waveform peaks { rate, data (min,max pairs), duration } for an asset with audio. */
   peaks(asset) {
+    if (this.disposed) return Promise.resolve({ rate: 100, data: new Float32Array(0), duration: 0 });
     let p = this.peakCache.get(asset.hash);
     if (!p) {
       p = this.library
@@ -172,7 +191,7 @@ export class MediaService extends Emitter {
         .then((r) => {
           p.settled = true;
           p.value = r;
-          this.emit('peaks', { hash: asset.hash });
+          if (!this.disposed) this.emit('peaks', { hash: asset.hash });
           return r;
         });
       this.peakCache.set(asset.hash, p);
@@ -191,14 +210,23 @@ export class MediaService extends Emitter {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    clearTimeout(this._flushTimer);
+    this.queue.length = 0;
     this.worker?.terminate();
+    this.worker = null;
+    // Termination sends no reply: explicitly settle every request waiting on the worker.
+    for (const { reject } of this.pending.values()) reject(new DOMException('Media service closed', 'AbortError'));
+    this.pending.clear();
     for (const strip of this.strips.values()) for (const v of strip.values()) v?.close?.();
     this.strips.clear();
-    // Posters still being made are closed when they arrive.
+    // Completed posters close now; pending requests return null after disposing their bitmap.
     for (const entry of this.posters.values()) {
       entry.value?.close?.();
       if (!entry.value) entry.promise?.then((v) => v?.close?.());
     }
     this.posters.clear();
+    this.peakCache.clear();
   }
 }
