@@ -110,6 +110,25 @@ describe('find and replace dialog', () => {
     localStorage.clear();
   });
 
+  it.each(['Find', 'Replace with'])('keeps composition Enter in the %s field', (label) => {
+    const { p, clips } = withTexts('pear', 'apple');
+    const store = new EditorStore(p);
+    const d = openFindReplace({ store }, { query: 'apple' });
+    try {
+      const input = d.el.querySelector(`input[aria-label="${label}"]`);
+      for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...composition });
+        input.dispatchEvent(event);
+        expect(store.time).toBe(0);
+        expect(store.selection.size).toBe(0);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(store.time).toBe(s(2));
+      expect([...store.selection]).toEqual([clips[1].id]);
+    } finally { d.close(); }
+  });
+
   it('lists matches, jumps to one and replaces all in one undo step', () => {
     const { p, clips } = withTexts('red apple', 'green apple', 'pear');
     const store = new EditorStore(p);

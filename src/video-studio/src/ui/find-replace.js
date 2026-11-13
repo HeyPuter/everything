@@ -93,6 +93,7 @@ export function openFindReplace(ctx, { query = '' } = {}) {
     input.addEventListener('keydown', (e) => {
       // Keep editor shortcuts out of the fields.
       e.stopPropagation();
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         if (matches[0]) jump(matches[0]);
