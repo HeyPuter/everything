@@ -241,7 +241,12 @@ describe('Path commands on clipping groups', () => {
     expect(doc.get(g).children).toHaveLength(3);
     expect(doc.get(g).children).toContain(art);
     // Picked by itself, its inset copy (put above an object) goes below it, so it keeps clipping.
-    app.dialogs.form = vi.fn(async () => ({ offset: -5, joins: 'miter', miter: 4, preview: false }));
+    app.dialogs.form = vi.fn(async () => ({
+      offset: -5,
+      joins: 'miter',
+      miter: 4,
+      preview: false,
+    }));
     ed.select([mask]);
     expect(await offsetPathDialog(app)).toBe(true);
     expectMaskIntact(doc, g, mask);

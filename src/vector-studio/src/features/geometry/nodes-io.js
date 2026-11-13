@@ -4,6 +4,8 @@
  */
 import { createPath, createCompound, createGroup, pickStyle, STYLE_KEYS } from '../../model/nodes.js';
 import { liveDef } from '../../model/live.js';
+import { nodeBounds } from '../../model/geometry.js';
+import { rectangle } from '../../model/shapes.js';
 import { OP, runGeom } from './engine/index.js';
 
 /** Live kinds of groups whose children are ordinary artwork (drawn as they are). */
@@ -119,14 +121,22 @@ export function maskLeaves(doc, mask) {
   return [mask];
 }
 
-/** Engine shape of a clipping path's area, as the renderer clips: a group by all its parts under non-zero. */
+/**
+ * Engine shape of a clipping path's area, as the renderer clips: a path by
+ * its fill rule, a group by all its parts under non-zero, anything else
+ * (an image) by its bounding box.
+ */
 function maskShape(doc, mask) {
   if (mask.type === 'path' || mask.type === 'compound')
     return { ...shapeOf(doc, mask), filled: true, string: false };
-  const subpaths = maskLeaves(doc, mask)
-    .filter((n) => n.type === 'path' || n.type === 'compound')
-    .flatMap((n) => subpathsOf(doc, n));
-  return { subpaths, filled: true, evenodd: false, string: false, key: -1 };
+  const parts = (n) => {
+    if (!n) return [];
+    if (n.type === 'path' || n.type === 'compound') return subpathsOf(doc, n);
+    if (n.type === 'group') return n.children.flatMap((c) => parts(doc.get(c)));
+    const b = nodeBounds(doc, n);
+    return b ? [{ anchors: rectangle(b.x, b.y, b.w, b.h), closed: true }] : [];
+  };
+  return { subpaths: parts(mask), filled: true, evenodd: false, string: false, key: -1 };
 }
 
 /** Bounding box of subpaths' anchors and handles. */

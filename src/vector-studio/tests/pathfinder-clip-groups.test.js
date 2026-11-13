@@ -255,6 +255,19 @@ describe('Pathfinder with a clipping group selected as a whole', () => {
     expect(doc.has(maskGroup.id)).toBe(false);
   });
 
+  it('clips to the box of an image used as the clipping path, as it is drawn', async () => {
+    const a = filled(0, 0, 100, 100, '#ff0000');
+    const img = createImage('asset-1', 50, 40, [1, 0, 0, 1, 10, 20]);
+    const clip = clipOf([a], img);
+    const p = filled(300, 0, 10, 10, '#00ff00');
+    const { doc, editor, app, layer } = setup([clip, p]);
+    editor.select([clip[0].id, p.id]);
+    expect(await runPathfinder(app, 'unite')).toBe(true);
+    const kids = kidsOf(doc, layer.id);
+    expect(kids).toHaveLength(1);
+    expect(areaOf(doc, kids[0])).toBeCloseTo(50 * 40 + 100, 0);
+  });
+
   it('keeps a stroked clipping path as an ordinary stroked path when its group is used up', async () => {
     const a = filled(0, 0, 100, 100, '#ff0000');
     const mask = rect(50, 50, 100, 100, { stroke: solid('#000000'), strokeWidth: 2 });
