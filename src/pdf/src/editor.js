@@ -67,7 +67,7 @@ import {
   annotationAccepts,
   REVIEW_STATES,
 } from './core/annotations.js';
-import { ensureStyledFontFaces, ensureCjkFontFaces, cjkDraftFace } from './text-fonts.js';
+import { ensureStyledFontFaces, cjkDraftFace } from './text-fonts.js';
 import {
   documentAccess,
   requireDocumentAccess,
@@ -1620,9 +1620,23 @@ export function createEditor({
       ligatures: 'normal',
     };
   }
+  /**
+   * Load the CJK faces a draft previews in: only the weights its parts are drawn with, as
+   * loading both doubled what typing Chinese, Japanese, or Korean downloads.
+   */
+  function loadDraftCjkFaces(edit) {
+    const text = edit.input.value;
+    const weights = new Set(
+      (edit.run?.parts || [edit.run]).map((run) => {
+        const { weight } = draftFace(edit, run || null);
+        return weight === 'bold' || Number(weight) >= 600 ? 'bold' : 'regular';
+      }),
+    );
+    return Promise.all([...weights].map((weight) => ensureStyledFontFaces(weight, text)));
+  }
   function applyDraftStyle(edit) {
     if (hasCjkText(edit.input.value))
-      ensureCjkFontFaces(edit.input.value).then(() => {
+      loadDraftCjkFaces(edit).then(() => {
         if (textEdit === edit) layoutTextEdit();
       });
     const face = draftFace(edit);
@@ -5378,7 +5392,7 @@ export function createEditor({
       edit.positionControl.validate();
       edit.widthControl?.validate();
       if (hasCjkText(edit.input.value)) {
-        await ensureCjkFontFaces(edit.input.value);
+        await loadDraftCjkFaces(edit);
         if (textEdit !== edit) return;
         layoutTextEdit();
       }

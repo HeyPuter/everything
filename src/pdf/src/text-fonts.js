@@ -19,12 +19,6 @@ export function cjkDraftFace(run, text, variant) {
   };
 }
 
-export function ensureCjkFontFaces(text) {
-  return hasCjkText(text)
-    ? Promise.all(['regular', 'bold'].map((variant) => ensureStyledFontFaces(variant, text)))
-    : Promise.resolve([]);
-}
-
 const loading = new Map();
 /**
  * Load only the selected face, under the same family for regular and styled drafts.

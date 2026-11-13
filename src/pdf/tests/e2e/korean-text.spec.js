@@ -141,3 +141,32 @@ test('a failed Korean font download preserves the draft and can be retried', asy
     page.getByRole('button', { name: 'Edit text: 회원정보 수정', exact: true }),
   ).toBeVisible();
 });
+
+test('typing Chinese downloads only the weight it is drawn in', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  const slices = [];
+  page.on('requestfinished', (request) => {
+    const match = /\/fonts\/cjk\/(regular|bold)\//.exec(request.url());
+    if (match) slices.push(match[1]);
+  });
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([500, 300]);
+  await openPdf(page, await doc.save());
+  await page.getByRole('button', { name: 'Place at page center', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Text to add', exact: true });
+  await input.fill('我们今天去公园散步');
+  await clickAway(page);
+  await expect(
+    page.getByRole('button', { name: 'Edit text: 我们今天去公园散步', exact: true }),
+  ).toBeVisible();
+  expect(slices).toContain('regular');
+  expect(slices).not.toContain('bold');
+  // Bold text takes the bold slices.
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await page.getByRole('button', { name: 'Place at page center', exact: true }).click();
+  await input.fill('公园');
+  await clickAway(page);
+  await expect(page.getByRole('button', { name: 'Edit text: 公园', exact: true })).toBeVisible();
+  expect(slices).toContain('bold');
+});
