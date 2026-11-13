@@ -13,7 +13,7 @@ import { documentThumbnail } from './thumbs';
 const store = new RecoveryStore();
 const instance = crypto.randomUUID();
 const BEATS = 'photo-studio-instances';
-const recovered = new WeakMap<DocumentSession, PhotoDocument>();
+const recovered = new WeakMap<DocumentSession, { doc: PhotoDocument; extrasRevision: number }>();
 
 function readBeats(): Record<string, number> {
   try {
@@ -50,14 +50,16 @@ export async function recoveryTick(e: Editor) {
       }
       continue;
     }
-    if (recovered.get(s) === s.doc) continue;
+    const previous = recovered.get(s);
+    if (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision) continue;
     const doc = s.doc;
+    const extrasRevision = s.extrasRevision;
     const project = await serialize(doc, s.assets);
     const thumb = await documentThumbnail(e, s, 160).catch(() => undefined);
     // Saved or closed while the record was being written: nothing to recover.
     if (!e.sessions.includes(s) || !s.dirty) continue;
     await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName: s.fileName, path: s.storage.path, time: Date.now(), project, thumb });
-    recovered.set(s, doc);
+    recovered.set(s, { doc, extrasRevision });
   }
 }
 
