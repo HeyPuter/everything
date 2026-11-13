@@ -239,10 +239,23 @@ export async function readZip(zip) {
           return raw;
         }
         if (method === 8 && typeof DecompressionStream === 'function' && raw.stream) {
-          const decoded = await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
-          if (decoded.size !== f.size) throw new Error('This archive is damaged or incomplete.');
-          if (await crcOfBlob(decoded) !== checksum) throw new Error('This archive is damaged (checksum mismatch).');
-          return decoded;
+          let size = 0;
+          let crc = 0;
+          // Validate while streaming: never buffer output beyond the declared size,
+          // and calculate the checksum without rereading the complete decoded Blob.
+          const validate = new TransformStream({
+            transform(chunk, controller) {
+              size += chunk.byteLength;
+              if (size > f.size) throw new Error('This archive is damaged or incomplete.');
+              crc = crc32(chunk, crc);
+              controller.enqueue(chunk);
+            },
+            flush() {
+              if (size !== f.size) throw new Error('This archive is damaged or incomplete.');
+              if (crc !== checksum) throw new Error('This archive is damaged (checksum mismatch).');
+            },
+          });
+          return new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw')).pipeThrough(validate)).blob();
         }
         throw new Error(`${name} uses a compression this browser cannot read.`);
       },

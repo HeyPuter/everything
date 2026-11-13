@@ -54,8 +54,8 @@ describe('zip', () => {
     await expect(entries[0].blob()).rejects.toThrow(/damaged|incomplete/);
   });
 
-  it.each([0, 1])('checks the decoded size of deflated entries (extra declared bytes: %s)', async (extra) => {
-    const data = new TextEncoder().encode('video'.repeat(100));
+  it.each([[0, 100], [1, 100], [0, 0], [0, 20_000]])('checks deflated entries (extra declared bytes: %s, repetitions: %s)', async (extra, repeats) => {
+    const data = new TextEncoder().encode('video'.repeat(repeats));
     const zip = await zipBlobs([{ name: 'media/video.mp4', data: deflateRawSync(data) }]);
     const buffer = await zip.arrayBuffer();
     const view = new DataView(buffer);
@@ -70,6 +70,51 @@ describe('zip', () => {
     const [entry] = await readZip(new StreamBlob([buffer]));
     if (extra) await expect(entry.blob()).rejects.toThrow(/damaged|incomplete/);
     else expect(await bytesOf(await entry.blob())).toEqual([...data]);
+  });
+
+  it('stops decompressing as soon as output exceeds the declared entry size', async () => {
+    const data = new Uint8Array(1024 * 1024);
+    const packed = deflateRawSync(data);
+    const zip = await zipBlobs([{ name: 'x', data: packed }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    view.setUint16(8, 8, true);
+    view.setUint16(directory + 10, 8, true);
+    view.setUint32(directory + 16, crc32(data), true);
+    view.setUint32(directory + 24, 1, true);
+    const source = new StreamBlob([buffer]);
+    let decodedBytes = 0;
+    let cancelled = false;
+    const observed = {
+      size: source.size,
+      slice(start, end) {
+        const part = source.slice(start, end);
+        if (start !== 31 || end !== 31 + packed.length) return part;
+        return {
+          stream: () => ({
+            pipeThrough(transform) {
+              const reader = part.stream().pipeThrough(transform).getReader();
+              return new ReadableStream({
+                async pull(controller) {
+                  const { value, done } = await reader.read();
+                  if (done) controller.close();
+                  else {
+                    decodedBytes += value.byteLength;
+                    controller.enqueue(value);
+                  }
+                },
+                cancel() { cancelled = true; return reader.cancel(); },
+              }, { highWaterMark: 0 });
+            },
+          }),
+        };
+      },
+    };
+    const [entry] = await readZip(observed);
+    await expect(entry.blob()).rejects.toThrow(/damaged|incomplete/);
+    expect(cancelled).toBe(true);
+    expect(decodedBytes).toBeLessThan(data.length);
   });
 
   it.each([0, 8])('rejects corrupted contents with unchanged lengths (method: %s)', async (method) => {
