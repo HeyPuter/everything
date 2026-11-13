@@ -166,6 +166,7 @@ export function createEqEditor(ctx) {
   };
   let gesture = null;
   let endTimer = 0;
+  let stopDrag = null;
   const begin = (b) => {
     if (gesture?.band === b.key) return;
     end();
@@ -205,7 +206,7 @@ export function createEqEditor(ctx) {
 
   for (const { b, el } of handles) {
     el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || stopDrag) return;
       e.preventDefault();
       el.focus({ preventScroll: true });
       el.setPointerCapture?.(e.pointerId);
@@ -216,6 +217,7 @@ export function createEqEditor(ctx) {
       let y = b.gain ? dy(slot.params[b.gain]) : 0;
       el.classList.add('dragging');
       const move = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
         const k = ev.shiftKey ? 0.2 : 1;
         x += (ev.clientX - lastX) * k;
         y += (ev.clientY - lastY) * k;
@@ -225,16 +227,24 @@ export function createEqEditor(ctx) {
         if (b.gain) c[b.gain] = Math.round(clamp(yd(y), -DB, DB) * 10) / 10;
         input(b, c);
       };
-      const up = () => {
+      stopDrag = () => {
+        stopDrag = null;
         el.classList.remove('dragging');
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
         el.removeEventListener('pointercancel', up);
+        el.removeEventListener('lostpointercapture', up);
+        try { el.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      };
+      const up = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        stopDrag?.();
         end();
       };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
+      el.addEventListener('lostpointercapture', up);
     });
     el.addEventListener('dblclick', (e) => {
       e.preventDefault();
@@ -303,6 +313,7 @@ export function createEqEditor(ctx) {
     el.addEventListener('focus', focusOn);
     el.addEventListener('pointerenter', focusOn);
     el.addEventListener('blur', () => {
+      stopDrag?.();
       end();
       focusOff();
     });
@@ -341,6 +352,7 @@ export function createEqEditor(ctx) {
       placeHandles();
     },
     destroy() {
+      stopDrag?.();
       end();
       graph.destroy();
     },
