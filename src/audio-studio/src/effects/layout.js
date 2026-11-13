@@ -7,7 +7,7 @@
 import { h } from '../lib/dom.js';
 import { hotNumber } from '../ui/controls.js';
 import { paramControls } from './dialog.js';
-import { toPosition, fromPosition, formatValue, parseValue } from './params.js';
+import { toPosition, fromPosition, formatValue, parseValue, editValueText } from './params.js';
 
 const param = (ctx, id) => ctx.def.params.find((p) => p.id === id);
 
@@ -108,6 +108,7 @@ export function vSlider(ctx, id, { label } = {}) {
     label: name,
     pixelsPerStep: Math.max(0.01, (240 * (p.step || 1)) / ((p.max ?? 1) - (p.min ?? 0) || 1)),
     format: (v) => formatValue(p, v),
+    editText: (v) => editValueText(p, v),
     parse: (s) => parseValue(p, s),
     onInput: (v) => ctx.set(id, v),
     onChange: (v) => ctx.set(id, v),
@@ -216,6 +217,7 @@ export function numberField(ctx, id, { label } = {}) {
     label: label ?? p.label,
     pixelsPerStep: Math.max(0.01, (240 * (p.step || 1)) / ((p.max ?? 1) - (p.min ?? 0) || 1)),
     format: (v) => formatValue(p, v),
+    editText: (v) => editValueText(p, v),
     parse: (s) => parseValue(p, s),
     onInput: (v) => ctx.set(id, v),
     onChange: (v) => ctx.set(id, v),

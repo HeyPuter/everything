@@ -10,7 +10,7 @@ import { icon } from '../ui/icons.js';
 import { hotNumber } from '../ui/controls.js';
 import { cssVar } from '../ui/theme.js';
 import { plot, gridLines, labelText, transferCurveEditor } from './editors.js';
-import { formatValue, formatParts, parseValue } from './params.js';
+import { formatValue, formatParts, parseValue, editValueText } from './params.js';
 import { splineOutput } from './defs/transfer-curve.js';
 import { levelMeter } from './meters-ui.js';
 import { glyph } from './layout.js';
@@ -23,10 +23,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 /** Hot-text value for a param: { el, show(values) }. */
 export function paramHot(ctx, id, { label, set = (v) => ctx.set(id, v) } = {}) {
   const p = ctx.def.params.find((q) => q.id === id);
-  const editText = (v) => {
-    const [n, u] = formatParts(p, v);
-    return !u || u === (p.unit || '') ? n : `${n} ${u}`;
-  };
+  const editText = (v) => editValueText(p, v);
   const hot = hotNumber({
     value: ctx.values[id],
     min: p.min ?? -Infinity,
