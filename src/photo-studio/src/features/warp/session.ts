@@ -135,7 +135,7 @@ export abstract class WarpSession<S = unknown> {
     this.e.update();
   }
   /** Commit the result as one history step (or cancel if nothing changed). */
-  abstract apply(restoreTool?: boolean): void;
+  abstract apply(restoreTool?: boolean): void | Promise<void>;
 
   // ----- Session undo -----
   protected abstract snapshot(): S;

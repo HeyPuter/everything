@@ -373,8 +373,7 @@ class PerspectiveWarpSession extends WarpSession<Snap> {
         R = mesh.rows;
       const at = (i: number, j: number) => ({ x: P[(j * C + i) * 2], y: P[(j * C + i) * 2 + 1] });
       const quad: Quad = [at(0, 0), at(C - 1, 0), at(C - 1, R - 1), at(0, R - 1)];
-      void commitFrame(this.e, id, quad, mesh, 'Perspective Warp').catch((error: unknown) => this.e.message(error instanceof Error ? error.message : String(error)));
-      return;
+      return commitFrame(this.e, id, quad, mesh, 'Perspective Warp').catch((error: unknown) => this.e.message(error instanceof Error ? error.message : String(error)));
     }
     const out = this.outRect(1),
       map = this.map(1, 1);
