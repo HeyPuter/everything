@@ -419,6 +419,9 @@ export class Autosaver {
     }
     // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
     if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
+    // Decoding and handle lookup can outlive the selected backup. Opening stale
+    // work under its recovery id would let a later Save discard the newer copy.
+    if (!await store.isCurrent(entry)) throw new Error('The recovery copy changed while opening. Try recovery again.');
     const editor = this.app.addDocument(doc, { file });
     editor.recoveryId = doc.recoveryId = entry.id;
     this.app.renderTabs();

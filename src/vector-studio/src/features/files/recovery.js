@@ -186,6 +186,13 @@ export class RecoveryStore {
     });
   }
 
+  /** Recheck after decoding or handle lookup, including writes already queued. */
+  async isCurrent(entry) {
+    const current = (await this.list()).find((e) => e.id === entry.id);
+    return Boolean(current && sameSnapshot(current, entry) &&
+      (current.backend !== entry.backend || current.snapshot === entry.snapshot));
+  }
+
   /**
    * The stored bytes for an entry from list(), or null when no store has
    * them. Only an identical snapshot may substitute for the selected copy.
