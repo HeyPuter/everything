@@ -19,8 +19,16 @@ export class DocumentSession {
   collapsedGroups = new Set<string>();
   selectionAnchor = '';
   selections = new WeakMap<PhotoDocument, string[]>();
-  // Changes kept outside history (review comments) since the last save.
-  unsavedExtras = false;
+  // Data kept outside history (review comments) can change while a save waits.
+  extrasRevision = 0;
+  savedExtrasRevision = 0;
+  get unsavedExtras() {
+    return this.extrasRevision !== this.savedExtrasRevision;
+  }
+  set unsavedExtras(dirty: boolean) {
+    if (dirty) this.extrasRevision++;
+    else this.savedExtrasRevision = this.extrasRevision;
+  }
   // A transparent, zero-layer document is still an open editing workspace.
   hasDocument = false;
   saved?: PhotoDocument;
