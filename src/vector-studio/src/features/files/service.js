@@ -48,8 +48,18 @@ function cancellable(p) {
   return p && p.undefinedOnCancel ? p.undefinedOnCancel : p;
 }
 
+async function sameHandle(a, b) {
+  if (a === b) return true;
+  try {
+    return Boolean(await a?.isSameEntry?.(b));
+  } catch {
+    return false;
+  }
+}
+
 export class FileService {
   #saveStates = new WeakMap();
+  #openingLocal = new Set();
 
   constructor(app, { recent, recovery = null, handles = handleStore } = {}) {
     this.app = app;
@@ -577,6 +587,42 @@ export class FileService {
     return job;
   }
 
+  /** Match pending and open handles before relying on optional IndexedDB persistence. */
+  #openLocal(handle, open, handleId = null) {
+    // Only await earlier requests, so overlapping identity checks cannot form a cycle.
+    const earlier = [...this.#openingLocal];
+    const request = { handle, job: null };
+    request.job = (async () => {
+      for (const pending of earlier) {
+        if (!(await sameHandle(handle, pending.handle))) continue;
+        const editor = await pending.job;
+        if (editor && (!this.app.editors.includes(editor) || editor.file !== pending.file)) continue;
+        return editor;
+      }
+      for (const editor of [...this.app.editors]) {
+        const file = editor.file;
+        if (file?.kind !== 'local' || !file.handle || !(await sameHandle(handle, file.handle))) continue;
+        if (!this.app.editors.includes(editor) || editor.file !== file) continue;
+        this.app.activate(editor);
+        return editor;
+      }
+      const id = handleId || (await this.handles.find(handle)) || uid('h');
+      return this.#openOnce(`local:${id}`, async () => {
+        const existing = this.findOpen({ kind: 'local', handleId: id });
+        if (existing) {
+          this.app.activate(existing);
+          return existing;
+        }
+        return open(id);
+      });
+    })().then((editor) => {
+      request.file = editor?.file;
+      return editor;
+    }).finally(() => this.#openingLocal.delete(request));
+    this.#openingLocal.add(request);
+    return request.job;
+  }
+
   /** Open a file from the Puter cloud by path. */
   openPath(path, opts = {}) {
     return this.#openOnce(`puter:${path}`, () => this.#openPath(path, opts));
@@ -606,17 +652,16 @@ export class FileService {
   /** Open a File or Blob (drag and drop, file input, File System Access). */
   async openFileBlob(file, { handle = null } = {}) {
     const name = file?.name || 'Untitled';
-    let fileInfo = null;
     if (handle) {
-      const handleId = (await this.handles.find(handle)) || uid('h');
-      const existing = this.findOpen({ kind: 'local', handleId });
-      if (existing) {
-        this.app.activate(existing);
-        return existing;
-      }
-      await this.handles.put(handleId, handle);
-      fileInfo = { kind: 'local', name: handle.name || name, handle, handleId };
+      return this.#openLocal(handle, async (handleId) => {
+        await this.handles.put(handleId, handle);
+        return this.#openBlob(file, name, { kind: 'local', name: handle.name || name, handle, handleId });
+      });
     }
+    return this.#openBlob(file, name, null);
+  }
+
+  async #openBlob(file, name, fileInfo) {
     let bytes;
     try {
       bytes = await toBytes(file);
@@ -705,7 +750,7 @@ export class FileService {
   /** Reopen an entry from the recent list. */
   openRecent(entry) {
     if (entry.kind !== 'local') return this.#openRecent(entry);
-    return this.#openOnce(`local:${entry.handleId}`, () => this.#openRecent(entry));
+    return this.#openOnce(`recent-local:${entry.handleId}`, () => this.#openRecent(entry));
   }
 
   async #openRecent(entry) {
@@ -718,24 +763,21 @@ export class FileService {
         this.#refreshHome();
         return null;
       }
-      const existing = this.findOpen({ kind: 'local', handleId: entry.handleId });
-      if (existing) {
-        this.app.activate(existing);
-        return existing;
-      }
-      try {
-        if (!(await ensurePermission(handle, 'readwrite'))) return null;
-        const f = await handle.getFile();
-        const bytes = await toBytes(f);
-        return this.openBytes(bytes, { name: handle.name, file: { kind: 'local', name: handle.name, handle, handleId: entry.handleId } });
-      } catch (err) {
-        if (isMissing(err)) {
-          await this.recent?.remove(entry);
-          await this.app.dialogs.alert({ title: 'File Not Found', message: `"${entry.name}" could not be found. It may have been moved or deleted.` });
-          this.#refreshHome();
-        } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${entry.name}" could not be opened. ${errorText(err)}` });
-        return null;
-      }
+      return this.#openLocal(handle, async (handleId) => {
+        try {
+          if (!(await ensurePermission(handle, 'readwrite'))) return null;
+          const f = await handle.getFile();
+          const bytes = await toBytes(f);
+          return await this.openBytes(bytes, { name: handle.name, file: { kind: 'local', name: handle.name, handle, handleId } });
+        } catch (err) {
+          if (isMissing(err)) {
+            await this.recent?.remove(entry);
+            await this.app.dialogs.alert({ title: 'File Not Found', message: `"${entry.name}" could not be found. It may have been moved or deleted.` });
+            this.#refreshHome();
+          } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${entry.name}" could not be opened. ${errorText(err)}` });
+          return null;
+        }
+      }, entry.handleId);
     }
     return null;
   }
