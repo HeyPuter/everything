@@ -1076,8 +1076,14 @@ export function installMultitrackCommands(app) {
         app.addDocument(file, { activate: false });
         app.activate(doc);
         const sourceId = await linkSource(doc, file);
-        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length });
-        doc.apply('Merge Clips', S.addClips(S.removeClips(doc.state, [...graphClips]), [merged]), { clips: [merged.id] });
+        // The merged clip takes the place of the frontmost merged clip, so the clips it overlapped
+        // stay in front of it or behind it as they were (the render already left out the parts
+        // that clips in front hid).
+        const order = S.frontOrder(doc.state);
+        const front = doc.state.clips.filter((c) => graphClips.has(c.id)).reduce((p, c) => (!p || order.get(c.id) > order.get(p.id) ? c : p), null);
+        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length, z: front?.z || 0 });
+        const state = front ? { ...doc.state, clips: doc.state.clips.flatMap((c) => (c === front ? [merged] : graphClips.has(c.id) ? [] : [c])) } : S.addClips(S.removeClips(doc.state, [...graphClips]), [merged]);
+        doc.apply('Merge Clips', state, { clips: [merged.id] });
       },
     },
     {

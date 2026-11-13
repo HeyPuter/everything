@@ -4,6 +4,61 @@ import { Session } from '../src/model/session.js';
 import * as S from '../src/model/session-edits.js';
 import { Channel } from '../src/audio/channel.js';
 import { parseWav } from '../src/audio/wav.js';
+import { buildSessionGraph } from '../src/model/session-graph.js';
+import { ChunkStore, renderBlock, createScratch, CHUNK } from '../src/engine/mixcore.js';
+
+// Offline renders run through mixcore on the main thread (no worker in jsdom).
+function renderNow(graph, sources, { start = 0, end }) {
+  const store = new ChunkStore();
+  for (const [key, chans] of sources) {
+    const n = chans[0].length;
+    for (let i = 0; i * CHUNK < n; i++) {
+      store.put(
+        key,
+        i,
+        chans.map((c) => c.toArray(i * CHUNK, Math.min(n, (i + 1) * CHUNK))),
+      );
+    }
+  }
+  const out = [new Float32Array(end - start), new Float32Array(end - start)];
+  const scratch = createScratch(128);
+  const block = [new Float32Array(128), new Float32Array(128)];
+  for (let at = start; at < end; at += 128) {
+    const n = Math.min(128, end - at);
+    renderBlock(graph, store, at, n, block, scratch);
+    for (let c = 0; c < 2; c++) out[c].set(block[c].subarray(0, n), at - start);
+  }
+  return out;
+}
+
+vi.mock('../src/engine/offline.js', () => ({
+  renderGraph: async (graph, sources, o) => renderNow(graph, sources, o),
+}));
+
+async function appWithSession() {
+  HTMLCanvasElement.prototype.getContext = () => null;
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    disconnect() {}
+  };
+  localStorage.clear();
+  const { App } = await import('../src/app.js');
+  const { installCore } = await import('../src/features/core.js');
+  const { installMultitrack } = await import('../src/features/multitrack.js');
+  const app = new App();
+  installCore(app);
+  installMultitrack(app);
+  app.syncGraph = () => {};
+  const doc = new Session({ name: 'Test.asesx', sampleRate: 8000, tracks: 2 });
+  app.addDocument(doc);
+  return { app, doc };
+}
+
+const dc = (doc, v) =>
+  doc.addSource({
+    name: `dc${v}.wav`,
+    channels: [Channel.fromSamples(new Float32Array(8000).fill(v))],
+  });
 
 const puterFiles = vi.hoisted(() => new Map());
 vi.mock('../src/storage/puter.js', async (orig) => ({
@@ -57,5 +112,28 @@ describe('saving sessions to Puter', () => {
     await saveSession(app, doc);
     expect([...puterFiles.keys()]).toEqual(['/u/Song.asesx']);
     expect(writes).toBe(3);
+  });
+});
+
+describe('merging clips', () => {
+  it('keeps the merged audio in front of a clip the merged clips were in front of', async () => {
+    const { app, doc } = await appWithSession();
+    const t = doc.state.tracks[0].id;
+    // A bed clip that was moved (so it is above unmoved clips), and two clips moved onto it after.
+    const bed = S.createClip({ trackId: t, sourceId: dc(doc, 0.1), start: 0, length: 8000, z: 1 });
+    const loud = dc(doc, 0.5);
+    const a = S.createClip({ trackId: t, sourceId: loud, start: 2000, length: 2000, z: 2 });
+    const b = S.createClip({ trackId: t, sourceId: loud, start: 4000, length: 2000, z: 3 });
+    doc.apply('Setup', S.addClips(doc.state, [bed, a, b]));
+    const heard = () => {
+      const { graph, sources } = buildSessionGraph(doc.state, doc.pool);
+      return renderNow(graph, sources, { start: 0, end: 8000 })[0];
+    };
+    const before = heard();
+    doc.selectClips([a.id, b.id]);
+    await app.commands.run('clip.merge');
+    expect(doc.state.clips.length).toBe(2);
+    const after = heard();
+    for (const i of [1000, 2500, 4500, 5900, 7000]) expect(after[i]).toBeCloseTo(before[i], 5);
   });
 });
