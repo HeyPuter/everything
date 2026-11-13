@@ -15,6 +15,16 @@ import { saveSessionVideo, prepareVideoBytes, videoZipEntry, loadSessionVideo } 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
 
+// What each media file a session saved to Puter holds: path -> the channels written there. Media
+// names follow the sources in use, so a file can come to hold another source's audio (a source that
+// stops being used gives its name to the next one); a source is skipped only while its file still
+// holds its audio.
+const savedMedia = new WeakMap();
+const savedMediaOf = (session) => {
+  if (!savedMedia.has(session)) savedMedia.set(session, new Map());
+  return savedMedia.get(session);
+};
+
 function mediaBlob(session, m) {
   return encodeWav({ sampleRate: session.sampleRate, channels: m.channels, bitDepth: 32, float: true });
 }
@@ -42,19 +52,19 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
     const saved = doc.state;
     const { text, media, video } = serializeSession(doc, { name });
     await saveSessionVideo(app, doc, video, dir, { copy });
+    const onDisk = savedMediaOf(doc);
     let written = 0;
     for (const m of media) {
       const src = doc.pool.get(m.id);
       const target = `${dir}/${m.file}`;
       if (!src?.channels?.length) continue;
-      if (src.savedPath === target && src.savedRef === m.channels) continue;
+      if (onDisk.get(target) === m.channels) continue;
       app.setStatus(`Saving media ${++written}...`);
+      // Unknown while it uploads (a failed write may leave it partly written).
+      onDisk.delete(target);
       await puter.writeFile(target, mediaBlob(doc, m));
-      if (!copy) {
-        // The audio written (the source may change during the upload: then the next save writes it again).
-        src.savedPath = target;
-        src.savedRef = m.channels;
-      }
+      // The audio written (the source may change during the upload: then the next save writes it again).
+      if (!copy) onDisk.set(target, m.channels);
     }
     await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
     if (!copy) {
@@ -160,12 +170,8 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       app.addDocument(doc, { activate: false });
       const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
       session.addSource({ id: src.id, name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: mediaSource.path || null });
-      const entry = session.pool.get(src.id);
-      entry.stateRef = doc.state;
-      if (mediaSource.path) {
-        entry.savedPath = mediaSource.path;
-        entry.savedRef = channels;
-      }
+      session.pool.get(src.id).stateRef = doc.state;
+      if (mediaSource.path) savedMediaOf(session).set(mediaSource.path, channels);
     } catch {
       session.addSource({ id: src.id, name: src.name, channels: [], offline: true });
       missing.push(src.name);
