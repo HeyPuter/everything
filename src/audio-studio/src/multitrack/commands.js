@@ -52,6 +52,11 @@ const selTrack = (app, args) => {
   if (!doc) return null;
   return S.findTrack(doc.state, args?.id || doc.selectedTrack);
 };
+/** The selected track when it is a shown audio track: clips on hidden tracks cannot be picked. */
+const shownAudioTrack = (app) => {
+  const t = selTrack(app);
+  return t?.type === 'audio' && !t.hidden ? t : null;
+};
 const view = (app) => app.currentView?.();
 /** False once a session was closed (while a command awaited audio work): it must not be reopened. */
 const isOpen = (app, doc) => app.documents.includes(doc);
@@ -1043,7 +1048,7 @@ export function installMultitrackCommands(app) {
         const doc = session(app);
         const at = Math.round(app.playhead);
         let ids = [...doc.selectedClips];
-        if (!ids.length) ids = doc.state.clips.filter((c) => c.trackId === doc.selectedTrack).map((c) => c.id);
+        if (!ids.length) ids = doc.state.clips.filter((c) => c.trackId === shownAudioTrack(app)?.id).map((c) => c.id);
         const next = S.splitClips(doc.state, ids, at);
         if (next === doc.state) return app.setStatus('No clip under the playhead to split');
         doc.apply('Split', next);
@@ -1354,11 +1359,11 @@ export function installMultitrackCommands(app) {
         await insertDocs(app, target, [file], { at: target.cursor, range });
       },
     },
-    { id: 'edit.selectAllClipsTrack', label: 'All Clips in Selected Track', enabled: (a) => selTrack(a)?.type === 'audio', run: () => session(app).selectClips(session(app).state.clips.filter((c) => c.trackId === session(app).selectedTrack).map((c) => c.id)) },
+    { id: 'edit.selectAllClipsTrack', label: 'All Clips in Selected Track', enabled: (a) => Boolean(shownAudioTrack(a)), run: () => session(app).selectClips(session(app).state.clips.filter((c) => c.trackId === session(app).selectedTrack).map((c) => c.id)) },
     {
       id: 'edit.selectNextClip',
       label: 'Next Clip in Selected Track',
-      enabled: (a) => selTrack(a)?.type === 'audio',
+      enabled: (a) => Boolean(shownAudioTrack(a)),
       run: () => {
         const doc = session(app);
         const clips = S.clipsOnTrack(doc.state, doc.selectedTrack);
@@ -1372,7 +1377,7 @@ export function installMultitrackCommands(app) {
     {
       id: 'edit.selectClipsToTrackEnd',
       label: 'Clips to End of Selected Track',
-      enabled: (a) => selTrack(a)?.type === 'audio',
+      enabled: (a) => Boolean(shownAudioTrack(a)),
       run: () => {
         const doc = session(app);
         doc.selectClips(S.clipsFrom(doc.state, app.playhead, 'end', doc.selectedTrack).map((c) => c.id));

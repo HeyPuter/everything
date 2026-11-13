@@ -17,6 +17,13 @@ import { videoEnd } from './session-video.js';
 
 let nextId = 1;
 
+/** Ids of the clips on tracks hidden in the Multitrack editor. */
+function hiddenClipIds(state) {
+  const tracks = new Set(state.tracks.filter((t) => t.hidden).map((t) => t.id));
+  if (!tracks.size) return new Set();
+  return new Set(state.clips.filter((c) => tracks.has(c.trackId)).map((c) => c.id));
+}
+
 export class Session extends Emitter {
   /**
    * @param {object} o
@@ -222,8 +229,13 @@ export class Session extends Emitter {
 
   // -------------------------------------------------------- clip selection
 
-  /** Selects clips (expanding to whole groups). `mode`: 'set' | 'add' | 'toggle'. */
+  /**
+   * Selects clips (expanding to whole groups). `mode`: 'set' | 'add' | 'toggle'.
+   * Clips on hidden tracks cannot be seen, so they are only selected as part of a group.
+   */
   selectClips(ids, mode = 'set') {
+    const hidden = hiddenClipIds(this.state);
+    if (hidden.size) ids = ids.filter((id) => !hidden.has(id));
     const expanded = this.groupsSuspended ? [...new Set(ids)] : expandGroups(this.state, ids);
     if (ids.length) this.focusClipId = ids[0];
     let next;
@@ -262,6 +274,15 @@ export class Session extends Emitter {
   #pruneSelection() {
     const ids = new Set(this.state.clips.map((c) => c.id));
     for (const id of [...this.selectedClips]) if (!ids.has(id)) this.selectedClips.delete(id);
+    // A hidden track's clips leave the selection, unless a shown clip's group keeps them.
+    if (this.selectedClips.size) {
+      const hidden = hiddenClipIds(this.state);
+      if ([...this.selectedClips].some((id) => hidden.has(id))) {
+        const shown = [...this.selectedClips].filter((id) => !hidden.has(id));
+        const keep = new Set(this.groupsSuspended ? shown : expandGroups(this.state, shown));
+        for (const id of [...this.selectedClips]) if (!keep.has(id)) this.selectedClips.delete(id);
+      }
+    }
     if (this.selectedTrack && !findTrack(this.state, this.selectedTrack)) this.selectedTrack = this.state.tracks[0]?.id || null;
   }
 
