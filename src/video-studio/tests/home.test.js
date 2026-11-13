@@ -300,3 +300,71 @@ describe('home project list', () => {
   });
 });
 
+
+describe('leaving the home screen', () => {
+  it.each(['purgeTrash', 'listProjects', 'listTrash'])('does not resume rendering when %s finishes after leaving', async (method) => {
+    const lib = new Library(memoryBackend());
+    let finish;
+    const blocked = vi.spyOn(lib, method).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const usage = vi.spyOn(lib, 'storageUsage');
+    const h = mount(lib);
+    await vi.waitFor(() => expect(blocked).toHaveBeenCalled());
+    const render = vi.spyOn(h, 'renderView');
+    h.dispose();
+    document.title = 'Editor - Current project';
+    root.replaceChildren(document.createElement('canvas'));
+    finish([]);
+    await settle();
+    expect(render).not.toHaveBeenCalled();
+    expect(document.title).toBe('Editor - Current project');
+    expect(usage).not.toHaveBeenCalled();
+  });
+
+  it('does not render an old load error after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    let fail;
+    vi.spyOn(lib, 'listProjects').mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = mount(lib);
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+    const render = vi.spyOn(h, 'renderView');
+    h.dispose();
+    fail(new Error('Offline'));
+    await settle();
+    expect(render).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('does not allocate cover URLs or start reads after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    const reads = vi.spyOn(lib, 'coverBlob').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const create = vi.spyOn(URL, 'createObjectURL');
+    const cover = document.createElement('div');
+    const first = h.loadCover('p', cover);
+    h.dispose();
+    const second = h.loadCover('other', cover);
+    finish(new Blob(['jpg']));
+    await Promise.all([first, second]);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+    expect(cover.children).toHaveLength(0);
+    expect(h.coverUrls.size).toBe(0);
+  });
+
+  it('does not update detached storage usage after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    vi.spyOn(lib, 'storageUsage').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const before = h.usageEl.textContent;
+    const pending = h.refreshUsage();
+    h.dispose();
+    finish({ projects: 99, mediaBytes: 0, trashed: 0 });
+    await pending;
+    expect(h.usageEl.textContent).toBe(before);
+  });
+});
