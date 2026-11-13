@@ -211,7 +211,8 @@ export async function checkSpelling(e: Editor) {
   const enable = (on: boolean) => buttons.forEach((b) => (b.disabled = !on));
   enable(false);
   const skipped = new SpellingSkips();
-  let current: { owner: Editor['session']; layer: Layer; hit: Misspelling } | undefined;
+  type Match = { owner: Editor['session']; layer: Layer; hit: Misspelling };
+  let current: Match | undefined;
   let spell: SpellChecker;
   try {
     spell = await checker();
@@ -310,7 +311,7 @@ export async function checkSpelling(e: Editor) {
     const owner = e.session;
     const word = current.hit.word,
       to = ws.q<HTMLInputElement>('#sp-change').value;
-    ++searchRevision;
+    const revision = ++searchRevision;
     if (session) await commit(e);
     const ids = textLayers(e, all())
       .filter((l) => findMatches(textOf(e, l), word, { wholeWord: true }).length)
@@ -332,8 +333,20 @@ export async function checkSpelling(e: Editor) {
       corrections.set(l.id, { before: d.content, after: content });
       return { ...d, content };
     }, ids, undefined, { rebase: true, mapIndex: (id, index) => mappings.get(id)?.(index) ?? index });
-    for (const [id, change] of corrections)
-      if (skipped.has(owner, id)) skipped.remap(owner, id, plainText(change.before), plainText(change.after), mappings.get(id)!);
+    for (const [id, change] of corrections) {
+      const match: Match | undefined = revision !== searchRevision && current?.owner === owner && current.layer.id === id ? current : undefined;
+      if (!match && !skipped.has(owner, id)) continue;
+      const before = plainText(change.before), after = plainText(change.after), mapIndex = mappings.get(id)!;
+      skipped.remap(owner, id, before, after, mapIndex);
+      // A newer result can remain selected while this correction shifts it.
+      // Keep its offsets aligned without replacing its custom suggestion.
+      if (match) {
+        const { start, end, word } = match.hit;
+        const a = mapIndex(start), b = mapIndex(end);
+        if (before.slice(start, end) === word && after.slice(a, b) === word) current = { ...match, hit: { ...match.hit, start: a, end: b } };
+      }
+    }
+    if (!ws.dialog.isConnected || e.session !== owner || revision !== searchRevision) return;
     current = undefined;
     await next();
   });

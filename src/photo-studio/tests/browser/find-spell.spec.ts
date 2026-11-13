@@ -1073,3 +1073,109 @@ test('opening Find on newly typed text leaves the new layer cancellable', async 
   expect(await layerTexts(page)).toEqual([]);
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
 });
+
+for (const sharedId of [false, true]) test(`bulk spelling completion preserves another document${sharedId ? ' with matching layer IDs' : ''}`, async ({ page }) => {
+  await boot(page);
+  await openImage(page, 240, 160, '#ffffff', 'other.png');
+  const other = await page.evaluate(() => window.photoStudio.session.id);
+  await openImage(page, 240, 160, '#ffffff', 'original.png');
+  await textDoc(page, ['teh']);
+  const original = await page.evaluate(() => window.photoStudio.session.id);
+  await page.evaluate(async ({ other, sharedId }) => {
+    const e = window.photoStudio;
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    const l = e.doc.layers[0];
+    const s = e.sessions.find((s) => s.id === other)!;
+    s.history.reset({ ...s.doc, layers: [{ ...l, id: sharedId ? l.id : crypto.randomUUID(), name: 'Other', text: 'teh other', textData: textLayer('teh other', { family: 'Inter' }) }] });
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    e.command('Unloaded font', (d) => { d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat'; });
+  }, { other, sharedId });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  await expect(dlg.locator('#sp-word')).toHaveText('teh');
+  await dlg.getByRole('button', { name: 'Change All' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers[0].id, 'end');
+  });
+  await dlg.locator('#sp-change').fill('custom');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await expect.poll(() => page.evaluate((original) => window.photoStudio.sessions.find((s) => s.id === original)!.doc.layers[0].text, original)).toBe('the');
+  await idle(page);
+  expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual([9, 9]);
+  await expect(dlg.locator('#sp-change')).toHaveValue('custom');
+  await expect(dlg.locator('#sp-change')).toBeFocused();
+  await page.locator('textarea.type-input').focus();
+  await page.keyboard.insertText(' more');
+  await run(page, 'type.commit');
+  expect(await layerTexts(page)).toEqual(['teh other more']);
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['teh other']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(['teh other more']);
+  await page.locator(`.document-tab[data-session="${original}"]`).click();
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['teh']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(['the']);
+});
+
+for (const action of ['Change', 'Change All']) for (const correction of ['the', 'these', 'a']) test(`bulk spelling completion preserves a newer spelling result for ${action} after '${correction}'`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh', 'teh wrod wrod']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => { d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat'; });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  await expect(dlg.locator('#sp-word')).toHaveText('teh');
+  await dlg.locator('#sp-change').fill(correction);
+  await dlg.getByRole('button', { name: 'Change All' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await dlg.getByRole('button', { name: 'Ignore', exact: true }).click();
+  await expect(dlg.locator('#sp-word')).toHaveText('wrod');
+  await dlg.locator('#sp-change').fill('custom');
+  const selection = () => page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  });
+  expect(await selection()).toEqual([4, 8]);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await expect.poll(() => layerTexts(page)).toEqual([correction, `${correction} wrod wrod`]);
+  await idle(page);
+  expect(await selection()).toEqual([correction.length + 1, correction.length + 5]);
+  await expect(dlg.locator('#sp-change')).toHaveValue('custom');
+  await expect(dlg.locator('#sp-change')).toBeFocused();
+  await dlg.getByRole('button', { name: action, exact: true }).click();
+  const changed = [correction, `${correction} custom ${action === 'Change All' ? 'custom' : 'wrod'}`];
+  await expect.poll(() => layerTexts(page)).toEqual(changed);
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual([correction, `${correction} wrod wrod`]);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(changed);
+  await run(page, 'type.commit');
+  expect(await layerTexts(page)).toEqual(changed);
+});
