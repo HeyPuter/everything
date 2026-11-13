@@ -876,7 +876,7 @@ export function installCoreCommands(app) {
     if (!doc) return [];
     return doc.state.channels.map((_, i) => ({
       type: 'cmd',
-      label: doc.channelCount === 1 ? 'Mono' : ['Left', 'Right'][i] || `Channel ${i + 1}`,
+      label: E.channelLabel(i, doc.channelCount),
       enabled: true,
       checked: doc.selection.channels[i] !== false,
       run: () => doc.setChannelEnabled(i, doc.selection.channels[i] === false),

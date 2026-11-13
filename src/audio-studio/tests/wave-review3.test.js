@@ -231,3 +231,21 @@ describe('time ruler markers on touch', () => {
     expect(doc.cursor).toBe(Math.round(r.frameAt(x - 10)));
   });
 });
+
+describe('5.1 channel names', () => {
+  it('Edit > Enable Channels and Extract Channels name the centre, LFE and surrounds', async () => {
+    const { app, doc } = await makeView({ channels: 6, frames: 1000 });
+    expect(app.channelMenuItems().map((i) => i.label)).toEqual([
+      'Left',
+      'Right',
+      'Center',
+      'LFE',
+      'Left Surround',
+      'Right Surround',
+    ]);
+    doc.setChannelEnabled(0, false);
+    await app.commands.run('edit.extractChannels');
+    const names = app.documents.filter((d) => d !== doc).map((d) => d.name);
+    expect(names).toEqual(['r Right', 'r Center', 'r LFE', 'r Left Surround', 'r Right Surround']);
+  });
+});

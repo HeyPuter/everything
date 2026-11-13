@@ -12,6 +12,16 @@ export function lengthOf(state) {
   return state.channels.length ? state.channels[0].length : 0;
 }
 
+/** Speaker names in WAV channel order (L, R, C, LFE, Ls, Rs), as the channel commands use. */
+const CHANNEL_LABELS = ['Left', 'Right', 'Center', 'LFE', 'Left Surround', 'Right Surround'];
+
+/** A channel's name for menus and file names: Mono, a stereo or 5.1 speaker, or "Channel n". */
+export function channelLabel(index, count) {
+  if (count === 1) return 'Mono';
+  const named = (count === 2 || count === 6) && CHANNEL_LABELS[index];
+  return named || `Channel ${index + 1}`;
+}
+
 export function allChannels(state) {
   return state.channels.map(() => true);
 }
