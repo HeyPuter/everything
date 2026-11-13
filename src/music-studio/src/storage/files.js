@@ -10,7 +10,7 @@
 // app.saving (+ app 'saving' event) and store.markSaved().
 
 import * as puter from './puter.js';
-import { MAX_IMPORT_BYTES, SampleExistsError } from './library.js';
+import { MAX_IMPORT_BYTES, SampleExistsError, SampleRecoveryError } from './library.js';
 import * as E from '../model/edits.js';
 import { createChannel, colorAt, freeInsert, FILE_EXT } from '../model/project.js';
 import { decodeAudio } from '../audio/samples.js';
@@ -452,16 +452,18 @@ export class ProjectFiles {
     }
     check();
     const usedIds = sampleIdsInHistory(this.store, this.app.samples);
-    let id, local = null;
+    let id, local = null, durable = false, discardRecovery;
     for (;;) {
       check();
       id = reserveId(usedIds);
       try {
         await this.lib.putSample(id, { data, name: fileName, type: blob.type || '', path }, { overwrite: false });
         local = id;
+        durable = true;
         break;
       } catch (err) {
         if (err instanceof SampleExistsError) continue;
+        if (err instanceof SampleRecoveryError) { local = err.local; discardRecovery = err.discard; }
         console.warn('Music Studio: could not keep the sample on this device.', err);
         break;
       }
@@ -473,14 +475,16 @@ export class ProjectFiles {
       target = channel ? p.channels.find((c) => c.id === channel) : null;
       if (channel && !target) throw new Error('That channel no longer exists.');
     } catch (err) {
-      this.lib.dropTemporarySample?.(id);
+      if (discardRecovery) {
+        if (!sampleIdsInHistory(this.store, this.app.samples).has(local)) discardRecovery();
+      } else this.lib.dropTemporarySample?.(id);
       throw err;
     }
     const duration = decoded.channels[0].length / decoded.rate;
     const label = stripExtension(fileName).slice(0, 60) || 'Sample';
     const ref = { id, name: fileName.slice(0, 200), path, local, duration, rate: decoded.rate, channels: decoded.channels.length };
     this.app.samples.set(id, decoded);
-    if (!local && !path) this.temporarySampleNotice();
+    if (!durable && !path) this.temporarySampleNotice();
     if (target) {
       const type = target.type === 'sampler' || target.type === 'audio' ? target.type : 'sampler';
       this.store.apply(`Load ${label}`, (proj) => {

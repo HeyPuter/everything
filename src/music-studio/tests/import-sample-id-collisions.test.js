@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
 import { IDBFactory } from 'fake-indexeddb';
 import { Library } from '../src/storage/library.js';
 import { ProjectFiles } from '../src/storage/files.js';
@@ -160,11 +161,11 @@ it('does not shadow durable audio in temporary recovery after a quota failure', 
 });
 
 it('retains newly imported audio when the database connection has closed', async () => {
-  const db = await database('indexed'), lib = library(db), { files } = appFor(lib);
+  const db = await database('indexed'), lib = library(db), { app, files } = appFor(lib);
   db.close();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   const result = await importFile(files);
-  expect(bytes(lib.temporarySamples.get(result.sampleId)?.data)).toEqual(bytes(incoming));
+  expect(bytes(lib.temporarySamples.get(app.store.project.samples[result.sampleId].local)?.data)).toEqual(bytes(incoming));
   expect(lib.pendingSampleIds.size).toBe(0);
 });
 
@@ -188,4 +189,166 @@ it('collects shared sample history once during an import', async () => {
   await importFile(files);
   expect(reads).toBeLessThanOrEqual(2100);
   expect(Object.keys(app.store.project.samples)).toHaveLength(1001);
+});
+
+it.each(['read failure', 'connection failure'])('isolates recovery audio when collision detection cannot read storage: %s', async (failure) => {
+  const db = await database(), lib = library(db), { app, files } = appFor(lib);
+  await lib.putSample(ref.id, { data: original, name: ref.name });
+  const get = db.get, put = db.put;
+  if (failure === 'connection failure') lib.dbReady = Promise.reject(new Error('Storage unavailable'));
+  else {
+    db.put = vi.fn().mockRejectedValueOnce(new Error('Storage full')).mockImplementation(put);
+    db.get = vi.fn().mockRejectedValueOnce(new Error('Read failed')).mockImplementation(get);
+  }
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  collide();
+  const result = await importFile(files);
+  lib.dbReady = Promise.resolve(db);
+  db.get = get; db.put = put;
+  expect(bytes(await lib.sampleBytes(ref))).toEqual(bytes(original));
+  const added = app.store.project.samples[result.sampleId];
+  expect(bytes(await lib.sampleBytes(added))).toEqual(bytes(incoming));
+  expect(lib.hasTemporarySamples(app.store.project)).toBe(true);
+  expect(app.notify).toHaveBeenCalledWith(expect.stringContaining('only for this session'), expect.anything());
+  app.store.undo(); app.store.redo();
+  expect(bytes(await lib.sampleBytes(app.store.project.samples[result.sampleId]))).toEqual(bytes(incoming));
+  await lib.putSample(added.local || added.id, await lib.sampleRecord(added.local || added.id));
+  expect(lib.hasTemporarySamples(app.store.project)).toBe(false);
+  expect(bytes(await lib.sampleBytes(ref))).toEqual(bytes(original));
+});
+
+it('exports the right audio for both projects after unreadable storage during import', async () => {
+  const db = await database(), lib = library(db), { app, files } = appFor(lib);
+  const older = createProject(); older.samples[ref.id] = ref;
+  await lib.putSample(ref.id, { data: original, name: ref.name });
+  const get = vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  const put = vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  collide();
+  await importFile(files);
+  get.mockRestore(); put.mockRestore();
+  const { fromBase64 } = await import('../src/storage/library.js');
+  for (const [p, expected] of [[older, original], [app.store.project, incoming]]) {
+    const exported = await lib.exportFile(p, {});
+    expect(exported.missing).toEqual([]);
+    const saved = JSON.parse(await exported.blob.text());
+    expect(bytes(fromBase64(Object.values(saved.embedded)[0].data))).toEqual(bytes(expected));
+  }
+});
+
+it('uploads recovery audio under its own path without replacing the older project’s sample', async () => {
+  const db = await database(), lib = library(db), { app, files } = appFor(lib);
+  const older = createProject(); older.samples[ref.id] = ref;
+  await lib.putSample(ref.id, { data: original, name: ref.name });
+  const get = vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  const put = vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  collide();
+  await importFile(files);
+  get.mockRestore(); put.mockRestore();
+  const uploads = new Map();
+  lib.puter = { requireSignedIn() {}, isSignedIn: () => true, appSubdir: async () => '/Samples', joinPath: (dir, file) => `${dir}/${file}`, writeFile: vi.fn(async (path, blob) => { uploads.set(path, await blob.arrayBuffer()); return { path }; }) };
+  const a = await lib.uploadSamples(app.store.project), b = await lib.uploadSamples(older);
+  const recent = Object.values(a.samples)[0].path, old = b.samples[ref.id].path;
+  expect(bytes(uploads.get(old))).toEqual(bytes(original));
+  expect(recent).not.toBe(old);
+  expect(bytes(uploads.get(recent))).toEqual(bytes(incoming));
+});
+
+it.each([true, false])('preserves isolated recovery references through save/reload (Web Crypto %s)', async (hashing) => {
+  const db = await database(), lib = library(db), { app, files } = appFor(lib);
+  await lib.putSample(ref.id, { data: original, name: ref.name });
+  vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto), subtle: hashing ? webcrypto.subtle : undefined });
+  vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  collide();
+  const result = await importFile(files);
+  const { parseProject, serializeProject } = await import('../src/model/serialize.js');
+  const loaded = parseProject(serializeProject(app.store.project));
+  const added = loaded.samples[result.sampleId];
+  expect(added.local).toMatch(hashing ? /^embedded-[a-f0-9]{64}$/ : /^embedded-[a-z0-9]{16}$/);
+  lib.pruneTemporarySamples(loaded);
+  expect(bytes(await lib.sampleBytes(added))).toEqual(bytes(incoming));
+  expect(await lib.sampleBytes({ ...added, local: `embedded-${'z'.repeat(16)}` })).toBeNull();
+  expect(bytes(await lib.sampleBytes(ref))).toEqual(bytes(original));
+});
+
+it.each(['delete', 'replace'])('cleans up isolated recovery after %s while hashing is pending', async (action) => {
+  const db = await database(), lib = library(db), p = createProject({ channels: [createChannel()] });
+  const next = createProject(), target = p.channels[0].id;
+  const { app, files } = appFor(lib, p);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const digest = vi.fn(async (...args) => { await gate; return webcrypto.subtle.digest(...args); });
+  vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto), subtle: { digest } });
+  vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const pending = importFile(files, incoming, { channel: target }).catch((err) => err);
+  await vi.waitFor(() => expect(digest).toHaveBeenCalled());
+  if (action === 'delete') app.store.apply('Delete target', (q) => ({ ...q, channels: [] }));
+  else app.store.load(next);
+  release();
+  expect(await pending).toMatchObject({ message: action === 'delete' ? 'That channel no longer exists.' : 'Import cancelled because another project was opened.' });
+  expect(lib.temporarySamples.size).toBe(0);
+  expect(lib.pendingSampleIds.size).toBe(0);
+  expect(app.samples.ids()).toEqual([]);
+});
+
+it('keeps shared recovery audio when another import of the same bytes is cancelled', async () => {
+  const db = await database(), lib = library(db), p = createProject({ channels: [createChannel()] });
+  const target = p.channels[0].id;
+  const hash = [...new Uint8Array(await webcrypto.subtle.digest('SHA-256', new Uint8Array(incoming)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const local = `embedded-${hash}`;
+  p.samples.shared = { ...ref, id: 'shared', local };
+  lib.temporarySamples.set(local, { id: local, name: 'Shared.wav', data: incoming, path: null });
+  const { app, files } = appFor(lib, p);
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const digest = vi.fn(async (...args) => { await gate; return webcrypto.subtle.digest(...args); });
+  vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto), subtle: { digest } });
+  vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const pending = importFile(files, incoming, { channel: target }).catch((err) => err);
+  await vi.waitFor(() => expect(digest).toHaveBeenCalled());
+  app.store.apply('Delete target', (q) => ({ ...q, channels: [] }));
+  release();
+  expect(await pending).toMatchObject({ message: 'That channel no longer exists.' });
+  expect(bytes(await lib.sampleBytes(app.store.project.samples.shared))).toEqual(bytes(incoming));
+  expect(lib.temporarySamples.size).toBe(1);
+});
+
+it('reloads the older decoded audio when switching away from an isolated recovery import', async () => {
+  const db = await database(), lib = library(db), { app, files } = appFor(lib);
+  const old = createProject(); old.samples[ref.id] = ref;
+  app.engine = { stop() {} }; app.emit = () => {};
+  await lib.putSample(ref.id, { data: original, name: ref.name });
+  vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  collide();
+  await importFile(files);
+  expect(app.samples.get(ref.id).channels[0][0]).toBeCloseTo(-0.5, 3);
+  expect(await files.loadProject(old, null)).toEqual({ loaded: 1, missing: [] });
+  expect(app.samples.get(ref.id).channels[0][0]).toBeCloseTo(0.25, 3);
+  expect(lib.temporarySamples.size).toBe(0);
+});
+
+it('retries random recovery keys already holding different temporary bytes without Web Crypto', async () => {
+  const db = await database(), lib = library(db), { app, files } = appFor(lib);
+  const occupied = `embedded-${'0'.repeat(16)}`;
+  lib.temporarySamples.set(occupied, { id: occupied, name: 'Earlier.wav', data: original, path: null });
+  const random = webcrypto.getRandomValues.bind(webcrypto);
+  let calls = 0;
+  vi.stubGlobal('crypto', { getRandomValues: (data) => data.length === 16 && calls++ < 2 ? data.fill(0) : random(data) });
+  vi.spyOn(db, 'put').mockRejectedValueOnce(new Error('Storage full'));
+  vi.spyOn(db, 'get').mockRejectedValueOnce(new Error('Read failed'));
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const result = await importFile(files);
+  const added = app.store.project.samples[result.sampleId];
+  expect(added.local).not.toBe(occupied);
+  expect(bytes(await lib.sampleBytes(added))).toEqual(bytes(incoming));
+  expect(bytes(await lib.sampleBytes({ id: 'earlier', local: occupied }))).toEqual(bytes(original));
 });

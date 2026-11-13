@@ -35,6 +35,16 @@ export class SampleExistsError extends Error {
   constructor() { super('That sample ID is already in use.'); this.name = 'SampleExistsError'; }
 }
 
+/** A failed new import retained under an isolated key instead of its unverified ID. */
+export class SampleRecoveryError extends Error {
+  constructor(cause, local, discard) {
+    super(cause?.message || 'Could not save audio to this device.', { cause });
+    this.name = 'SampleRecoveryError';
+    this.local = local;
+    this.discard = discard;
+  }
+}
+
 export class Library {
   /**
    * @param {object} o
@@ -124,10 +134,23 @@ export class Library {
       if (err instanceof SampleExistsError) throw err;
       // A failed write must not shadow another project's durable audio in the
       // recovery cache when storage is full but still readable.
+      let unverified = !db;
       if (!overwrite && db) {
         let existing;
-        try { existing = await db.get('samples', id); } catch { /* Storage may also be unreadable. */ }
+        try { existing = await db.get('samples', id); } catch { unverified = true; }
         if (existing) throw new SampleExistsError();
+      }
+      if (!overwrite && unverified) {
+        // Never let an uncertain project ID shadow older durable bytes. These
+        // keys already have isolated read, export and cloud-upload semantics.
+        const hash = await hashBytes(data);
+        let local = `embedded-${hash || uid(16)}`;
+        while (temporary.has(local) && !sameBytes(temporary.get(local).data, data)) local = `embedded-${uid(16)}`;
+        const recovery = { ...record, id: local, path: path || temporary.get(local)?.path || null };
+        temporary.set(local, recovery);
+        throw new SampleRecoveryError(err, local, () => {
+          if (temporary.get(local) === recovery) temporary.delete(local);
+        });
       }
       temporary.set(id, record);
       if (retained()) this.temporarySamples.set(id, record);
