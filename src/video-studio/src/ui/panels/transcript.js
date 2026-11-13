@@ -43,6 +43,9 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   let pauseMin = opts.pauseMin || 1.2;
   let soft = Boolean(opts.softFillers);
   let abort = null;
+  let sourceContext = null;
+  let disposed = false;
+  const editingContext = () => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
   let wordEls = [];
   let current = -1;
 
@@ -65,26 +68,50 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   const goBtn = h('button.btn.primary.block', { type: 'button' }, icon('subtitles', 16), 'Transcribe');
   const status = h('p.asset-hint', { role: 'status' });
   const cancelBtn = h('button.btn.small', { type: 'button', hidden: true }, 'Cancel');
-  cancelBtn.addEventListener('click', () => abort?.abort());
+  cancelBtn.addEventListener('click', () => cancelTranscription());
   goBtn.addEventListener('click', () => transcribe());
 
+  function resetProgress() {
+    goBtn.disabled = false;
+    cancelBtn.hidden = true;
+    status.textContent = '';
+  }
+
+  function cancelTranscription() {
+    abort?.abort();
+    abort = null;
+    sourceContext = null;
+    resetProgress();
+  }
+
   async function transcribe() {
-    if (abort) return;
+    if (abort || disposed) return;
     if (!clipsForScope(store.project, opts.scope).length) {
       toast('There is no speech to transcribe. Add clips with sound first.', { kind: 'info' });
       return;
     }
-    abort = new AbortController();
-    const { signal } = abort;
+    // A cancelled provider request may still finish after a new job starts.
+    const controller = new AbortController();
+    abort = controller;
+    sourceContext = editingContext();
+    const { signal } = controller;
+    const isCurrent = () => !disposed && abort === controller && !signal.aborted;
+    const language = opts.language;
     goBtn.disabled = true;
     cancelBtn.hidden = false;
     status.textContent = 'Preparing audio...';
     const snap = structuredClone(store.project);
     try {
-      const mix = await mixdown(snap, ctx.library, { scope: opts.scope, signal, onProgress: (f) => (status.textContent = `Preparing audio... ${Math.round(f * 100)}%`) });
+      const mix = await mixdown(snap, ctx.library, { scope: opts.scope, signal, onProgress: (f) => {
+        if (isCurrent()) status.textContent = `Preparing audio... ${Math.round(f * 100)}%`;
+      } });
+      if (!isCurrent()) return;
       status.textContent = 'Transcribing...';
       const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
-      const w = fake ? await fake(mix, STT_RATE) : await transcribeMix(mix, STT_RATE, { language: opts.language, signal, onProgress: (f) => (status.textContent = `Transcribing... ${Math.round(f * 100)}%`) });
+      const w = fake ? await fake(mix, STT_RATE) : await transcribeMix(mix, STT_RATE, { language, signal, onProgress: (f) => {
+        if (isCurrent()) status.textContent = `Transcribing... ${Math.round(f * 100)}%`;
+      } });
+      if (!isCurrent()) return;
       if (!w.length) {
         toast('No speech was found.', { kind: 'info' });
         return;
@@ -92,19 +119,20 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
       store.update('Transcribe', (p) => {
         const timed = w.map((x) => ({ text: x.text, start: Math.round(x.start * US), end: Math.round(x.end * US) }));
         // Anchored to the media heard, so later edits move the words with it.
-        p.transcript = { language: opts.language, words: anchorWords(snap, timed) };
+        p.transcript = { language, words: anchorWords(snap, timed) };
       }, { structural: false });
       announce(`Transcript ready, ${w.length} words`);
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (isCurrent() && err?.name !== 'AbortError') {
         console.error(err);
         toast(errorMessage(err, "Couldn't transcribe the audio."), { kind: 'error' });
       }
     } finally {
-      abort = null;
-      goBtn.disabled = false;
-      cancelBtn.hidden = true;
-      status.textContent = '';
+      if (abort === controller) {
+        abort = null;
+        sourceContext = null;
+        resetProgress();
+      }
     }
   }
 
@@ -307,6 +335,10 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   let shown = null;
   let shownLang = null;
   function sync() {
+    if (abort && sourceContext !== editingContext()) {
+      cancelTranscription();
+      toast('Transcription cancelled because the open timeline changed.', { kind: 'info' });
+    }
     const w = words();
     if (!w.length) {
       shown = null;
@@ -331,8 +363,9 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     el,
     sync,
     dispose() {
+      disposed = true;
       offs.forEach((f) => f?.());
-      abort?.abort();
+      cancelTranscription();
     },
   };
 }
