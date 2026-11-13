@@ -23,6 +23,7 @@ const OCTAVES = 2;
 export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboard' }) {
   let lo = base;
   const sounding = new Map(); // source ('p:<id>' | 'k:<code>') -> key
+  const pointers = new Map(); // pointer source -> listener cleanup and note release
   const keysEl = h('div.kb-keys', { 'aria-hidden': 'true' });
   const octLabel = h('span.kb-oct');
   const down = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Octave down', title: 'Octave down' }, icon('chevron-left', 14));
@@ -74,6 +75,7 @@ export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboa
   }
 
   function releaseAll() {
+    for (const finish of [...pointers.values()]) finish();
     for (const src of [...sounding.keys()]) stop(src);
   }
 
@@ -99,29 +101,31 @@ export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboa
     const t = e.target.closest('.kb-key');
     if (!t) return;
     const src = `p:${e.pointerId}`;
+    if (pointers.has(src)) return;
     const r = t.getBoundingClientRect();
     const vel = r.height ? clamp(0.35 + 0.65 * ((e.clientY - r.top) / r.height), 0.1, 1) : 0.8;
-    start(src, Number(t.dataset.key), vel);
-    try {
-      keysEl.setPointerCapture(e.pointerId);
-    } catch {
-      // Synthetic events.
-    }
     const move = (ev) => {
       if (ev.pointerId !== e.pointerId) return;
       const k = hit(ev.clientX, ev.clientY);
       if (k && k.key !== sounding.get(src)) start(src, k.key, k.vel);
     };
-    const end = (ev) => {
-      if (ev.pointerId !== e.pointerId) return;
-      stop(src);
+    const finish = () => {
+      if (!pointers.delete(src)) return;
       keysEl.removeEventListener('pointermove', move);
       keysEl.removeEventListener('pointerup', end);
       keysEl.removeEventListener('pointercancel', end);
+      keysEl.removeEventListener('lostpointercapture', end);
+      try { keysEl.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      stop(src);
     };
+    const end = (ev) => { if (ev.pointerId === e.pointerId) finish(); };
+    pointers.set(src, finish);
     keysEl.addEventListener('pointermove', move);
     keysEl.addEventListener('pointerup', end);
     keysEl.addEventListener('pointercancel', end);
+    keysEl.addEventListener('lostpointercapture', end);
+    try { keysEl.setPointerCapture(e.pointerId); } catch { /* synthetic or ended pointer */ }
+    start(src, Number(t.dataset.key), vel);
   });
 
   /** Computer keyboard: returns true when the event played or released a note. */

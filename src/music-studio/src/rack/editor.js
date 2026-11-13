@@ -89,6 +89,8 @@ class ChannelEditor {
     ].filter(Boolean);
     this.onTheme = () => this.drawWave();
     window.addEventListener('themechange', this.onTheme);
+    this.onBlur = () => this.kb.releaseAll();
+    window.addEventListener('blur', this.onBlur);
   }
 
   // ---------------------------------------------------------------- build
@@ -687,6 +689,7 @@ class ChannelEditor {
     for (const off of this.offs) off();
     this.offs = [];
     window.removeEventListener('themechange', this.onTheme);
+    window.removeEventListener('blur', this.onBlur);
     this.ro?.disconnect();
     this.kb.releaseAll();
   }
