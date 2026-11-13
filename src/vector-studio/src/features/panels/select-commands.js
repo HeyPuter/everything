@@ -259,11 +259,11 @@ function styleKey(n) {
 }
 
 /** Objects with the same geometry (up to position) and appearance as `ref`. */
-export function similarObjects(doc, ref) {
+export function similarObjects(doc, ref, editor = null) {
   const sk = shapeKey(doc, ref);
   if (sk == null) return [];
   const st = styleKey(ref);
-  return candidates(doc)
+  return candidates(doc, editor)
     .filter((n) => n.type === ref.type && (n.id === ref.id || (shapeKey(doc, n) === sk && styleKey(n) === st)))
     .map((n) => n.id);
 }
@@ -309,7 +309,9 @@ export class GlobalEdit {
   onChange(e) {
     if (this.syncing) return;
     const doc = this.doc;
-    for (const id of [...this.members.keys()]) if (!doc.has(id)) this.members.delete(id);
+    for (const id of this.members.keys()) {
+      if (!doc.has(id) || doc.isHidden(id) || doc.isLocked(id) || !this.editor.inIsolation(id)) this.members.delete(id);
+    }
     if (this.members.size < 2) {
       this.app.stopGlobalEdit?.();
       return;
@@ -374,7 +376,7 @@ export function startGlobalEdit(app) {
   const editor = app.editor;
   const ref = referenceNode(editor);
   if (!ref || (ref.type !== 'path' && ref.type !== 'compound')) throw new UserError('Select a path or compound path to start a global edit.');
-  const ids = similarObjects(editor.doc, ref);
+  const ids = similarObjects(editor.doc, ref, editor);
   if (ids.length < 2) throw new UserError('No other objects match the selected object.');
   app.stopGlobalEdit?.();
   const session = new GlobalEdit(app, editor, ids);
