@@ -82,8 +82,16 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   let endTimer = 0;
   let stopDrag = null;
   let untrack = null;
-  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
-  const unwatch = () => { untrack?.(); untrack = null; };
+  const watch = () => {
+    if (untrack) return;
+    untrack = trackParameterInteraction(cancel);
+    window.addEventListener('blur', onBlur);
+  };
+  const unwatch = () => {
+    untrack?.();
+    untrack = null;
+    window.removeEventListener('blur', onBlur);
+  };
   function cancel() {
     const hadInput = active || stopDrag;
     clearTimeout(endTimer);
@@ -238,11 +246,12 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       if (e.key !== 'Enter') deferEnd();
     }
   });
-  el.addEventListener('blur', () => {
+  function onBlur() {
     stopDrag?.();
     hideReadout();
     finish();
-  });
+  }
+  el.addEventListener('blur', onBlur);
 
   function typeIn() {
     const initial = fmt(v);

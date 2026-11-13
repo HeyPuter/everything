@@ -46,8 +46,16 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   let endTimer = 0;
   let stopDrag = null;
   let untrack = null;
-  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
-  const unwatch = () => { untrack?.(); untrack = null; };
+  const watch = () => {
+    if (untrack) return;
+    untrack = trackParameterInteraction(cancel);
+    window.addEventListener('blur', onBlur);
+  };
+  const unwatch = () => {
+    untrack?.();
+    untrack = null;
+    window.removeEventListener('blur', onBlur);
+  };
   function cancel() {
     clearTimeout(endTimer);
     active = false;
@@ -192,10 +200,11 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       if (e.key !== 'Enter') deferEnd();
     }
   });
-  slider.addEventListener('blur', () => {
+  function onBlur() {
     stopDrag?.();
     finish();
-  });
+  }
+  slider.addEventListener('blur', onBlur);
 
   function typeIn() {
     const initial = formatGain(v);

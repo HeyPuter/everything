@@ -141,3 +141,32 @@ it.each(['instrument', 'channel'])('closing an inactive %s editor preserves anot
   app.store.undo();
   expect(app.store.project === first).toBe(true);
 });
+
+it.each(['knob', 'fader'].flatMap((kind) => ['pointer', 'pending pointer', 'key', 'wheel'].map((mode) => [kind, mode])))('ends a %s %s interaction when the browser window loses focus', (kind, mode) => {
+  const { old, next } = controls('channel', 'mixer');
+  const control = kind === 'knob' ? old : next;
+  const store = app.store;
+  const initial = store.project;
+  control.el.focus();
+  if (mode.includes('pointer')) {
+    control.pointer('pointerdown');
+    if (mode === 'pointer') control.pointer('pointermove', 292);
+  } else control[mode]();
+  const edited = store.project;
+  window.dispatchEvent(new Event('blur'));
+  expect(store.gesture === null).toBe(true);
+  expect(control.el.classList.contains('dragging')).toBe(false);
+  expect(store.undoStack).toHaveLength(mode === 'pending pointer' ? 0 : 1);
+  control.pointer('pointermove', 276);
+  control.pointer('pointerup', 276);
+  vi.advanceTimersByTime(500);
+  expect(store.project === edited).toBe(true);
+  control.pointer('pointerdown');
+  control.pointer('pointermove', 298);
+  control.pointer('pointerup', 298);
+  expect(store.project === edited).toBe(false);
+  store.undo();
+  expect(store.project === edited).toBe(true);
+  if (mode !== 'pending pointer') store.undo();
+  expect(store.project === initial).toBe(true);
+});
