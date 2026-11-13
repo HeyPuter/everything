@@ -25,6 +25,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   cancelAnimationFrame(app.raf);
   document.querySelectorAll('.float-win .win-head > button').forEach((b) => b.click());
 });
@@ -109,6 +111,69 @@ describe('channel rack panel', () => {
     expect(store.project.channels[0].mixer).toBe(3);
     store.undo();
     expect(store.project).toBe(before);
+  });
+
+  it.each(['load', 'undo', 'redo'])('discards a pending mixer-assignment drag after %s with the same displayed value', (action) => {
+    const store = app.store;
+    if (action !== 'load') {
+      store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+      if (action === 'redo') store.undo();
+    }
+    const { send } = insertControl();
+    send('pointerdown');
+    if (action === 'load') store.load(structuredClone(store.project));
+    else store[action]();
+    const restored = store.project;
+    const history = store.undoStack.length;
+    const canRedo = store.canRedo;
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(store.project === restored).toBe(true);
+    expect(store.undoStack).toHaveLength(history);
+    expect(store.canRedo).toBe(canRedo);
+    const current = insertControl();
+    current.send('pointerdown');
+    current.send('pointermove', 292);
+    current.send('pointerup', 292);
+    expect(store.project.channels[0].mixer).toBe(2);
+    store.undo();
+    expect(store.project === restored).toBe(true);
+  });
+
+  it.each(['key', 'wheel'])('does not let an obsolete assignment %s timer commit a newer edit', (input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const { spin } = insertControl();
+    if (input === 'key') spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    else spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    expect(store.project.channels[0].mixer).toBe(2);
+    store.load(structuredClone(store.project));
+    store.begin('Tempo');
+    store.preview((p) => ({ ...p, bpm: 150 }));
+    const newer = store.gesture;
+    vi.advanceTimersByTime(600);
+    expect(store.gesture === newer).toBe(true);
+    expect(store.undoStack).toHaveLength(0);
+    store.cancel();
+    expect(store.project.bpm).toBe(130);
+    expect(store.project.channels[0].mixer).toBe(2);
+  });
+
+  it('preserves a pending assignment drag through an unrelated edit and keeps separate undo steps', () => {
+    const store = app.store;
+    const { send } = insertControl();
+    send('pointerdown');
+    store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+    const edited = store.project;
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(store.project.channels[0].mixer).toBe(3);
+    expect(store.project.bpm).toBe(150);
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project === edited).toBe(true);
+    store.undo();
+    expect(store.project.bpm).toBe(130);
   });
 
   it('renders a row per channel with 16 steps', () => {

@@ -8,6 +8,7 @@
 
 import { h } from '../lib/dom.js';
 import { clamp } from '../lib/util.js';
+import { trackParameterInteraction } from '../ui/parameter-interactions.js';
 
 export const insertText = (i) => (i > 0 ? String(i) : '--');
 
@@ -20,6 +21,16 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   let stopDrag = null;
   let typed = '';
   let typedAt = 0;
+  let untrack = null;
+  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
+  const unwatch = () => { untrack?.(); untrack = null; };
+  function cancel() {
+    clearTimeout(endTimer);
+    active = false;
+    stopDrag?.();
+    typed = '';
+    unwatch();
+  }
 
   const describe = () => (v > 0 ? `Insert ${v}${nameOf(v) ? `: ${nameOf(v)}` : ''}` : 'Master');
   const draw = () => {
@@ -32,10 +43,12 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   };
   const begin = () => {
     if (active) return;
+    watch();
     active = true;
     onStart?.();
   };
   const finish = () => {
+    unwatch();
     clearTimeout(endTimer);
     if (!active) return;
     active = false;
@@ -59,6 +72,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     e.preventDefault();
     e.stopPropagation();
     el.focus({ preventScroll: true });
+    watch();
     el.setPointerCapture?.(e.pointerId);
     const y0 = e.clientY;
     const base = v;
@@ -142,10 +156,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     get: () => v,
     set(next) {
       if (next === v) return;
-      clearTimeout(endTimer);
-      active = false;
-      stopDrag?.();
-      typed = '';
+      cancel();
       v = next;
       draw();
     },
