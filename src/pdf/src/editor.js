@@ -3656,6 +3656,9 @@ export function createEditor({
       // Pressed from the keyboard, the button is disabled while the PDF is redrawn, which drops
       // the focus; it takes it back for the next press unless the focus has moved meanwhile.
       const pressed = [undoButton, redoButton].find((b) => b === document.activeElement);
+      // A selected picture's or shape's handle goes with the redrawn page; the page keeps the
+      // focus then, as it does when a draft is undone.
+      const onObject = pageImages.controls.contains(document.activeElement);
       busy = true;
       updateStatus();
       try {
@@ -3665,6 +3668,8 @@ export function createEditor({
         updateStatus();
         if (pressed && !pressed.disabled && document.activeElement === document.body)
           pressed.focus({ preventScroll: true });
+        else if (onObject && !destroyed && document.activeElement === document.body)
+          overlay.focus({ preventScroll: true });
       }
     }
   }

@@ -59,3 +59,31 @@ for (const kind of ['image', 'shape'])
     await page.waitForTimeout(400);
     expect((await move.boundingBox()).x).toBeCloseTo(frame.x, 0);
   });
+
+test('undoing a picture move from the keyboard keeps the focus on the page', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]).drawImage(await doc.embedPng(Buffer.from(PIXEL, 'base64')), {
+    x: 40,
+    y: 200,
+    width: 80,
+    height: 60,
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
+  const move = page.getByRole('button', { name: 'Move selected image', exact: true });
+  await move.press('Shift+ArrowRight');
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  // Let the nudge be saved as an edit; undone before then, it is only discarded.
+  await page.waitForTimeout(400);
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(move).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(undo).toBeDisabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  expect(await page.evaluate(() => !!document.activeElement.closest('.paper'))).toBe(true);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(undo).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  expect(await page.evaluate(() => !!document.activeElement.closest('.paper'))).toBe(true);
+});
