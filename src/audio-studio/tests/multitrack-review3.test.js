@@ -189,3 +189,21 @@ describe('linking missing media', () => {
     expect(doc.dirty).toBe(true);
   });
 });
+
+describe('send destinations', () => {
+  it('stop offering a bus once that bus sends back to this one', async () => {
+    const { app, doc } = await appWithSession();
+    const { SendControls } = await import('../src/multitrack/send-eq.js');
+    const a = S.createTrack({ type: 'bus', name: 'Bus A' });
+    const b = S.createTrack({ type: 'bus', name: 'Bus B' });
+    doc.apply('Buses', S.addTrack(S.addTrack(doc.state, a), b));
+    const ctl = new SendControls(app, doc, a.id);
+    const offered = () => [...ctl.target.options].map((o) => o.textContent);
+    ctl.update(S.findTrack(doc.state, a.id));
+    expect(offered()).toEqual(['None', 'Bus B']);
+    // Bus B now sends to Bus A: sending A to B would make a loop.
+    doc.apply('Send', S.setSend(doc.state, b.id, 0, { target: a.id }));
+    ctl.update(S.findTrack(doc.state, a.id));
+    expect(offered()).toEqual(['None']);
+  });
+});
