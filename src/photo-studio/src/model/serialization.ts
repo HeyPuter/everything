@@ -71,6 +71,7 @@ export async function serialize(
   for (const c of doc.channels ?? []) c.grid = (await pack(c.grid)) as unknown as TileGrid;
   for (const p of doc.patterns ?? []) p.grid = (await pack(p.grid)) as unknown as TileGrid;
   // The active selection is session state and is not saved; channels persist.
+  doc.selection = null;
   doc.selectionMask = undefined;
   delete doc.quickMask;
   // Content left over from deleted embedded objects is not written; a layer
