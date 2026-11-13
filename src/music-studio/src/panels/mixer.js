@@ -388,6 +388,7 @@ export function createMixer(app, host, ctl) {
   });
   const syncPrefs = () => {
     const show = app.prefs.get('mixer')?.fx !== false;
+    if (!show) fx.cancelReorder();
     root.classList.toggle('mx-no-side', !show);
     fx.el.hidden = !show;
     fxToggle.setAttribute('aria-pressed', String(show));
@@ -407,6 +408,7 @@ export function createMixer(app, host, ctl) {
       lastT = 0;
     },
     onHide() {
+      fx.cancelReorder();
       visible = false;
     },
     onResize() {
@@ -434,6 +436,7 @@ export function createMixer(app, host, ctl) {
       },
     },
     destroy() {
+      fx.cancelReorder();
       activeRename?.close(false, false);
       offFrame();
       offChange();

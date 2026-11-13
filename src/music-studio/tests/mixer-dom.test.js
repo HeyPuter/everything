@@ -459,6 +459,52 @@ describe('mixer panel', () => {
     expect(store.canRedo).toBe(true);
   });
 
+  it.each(['load', 'undo', 'redo', 'select insert', 'hide mixer', 'hide effects', 'change chain', 'destroy'])('cancels obsolete effect reorders after %s', (change) => {
+    const { app, store, panel, ctl } = env;
+    if (change === 'undo' || change === 'redo') {
+      store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 151 }));
+      if (change === 'redo') store.undo();
+    }
+    const { pointer, row } = effectDrag();
+    if (change === 'load') store.load(structuredClone(store.project));
+    else if (change === 'undo') store.undo();
+    else if (change === 'redo') store.redo();
+    else if (change === 'select insert') ctl.select(3);
+    else if (change === 'hide mixer') app.shell.hide('mixer');
+    else if (change === 'hide effects') app.commands.run('mixer.toggleEffectsPanel');
+    else if (change === 'change chain') ctl.addEffect(6, 'eq', 0);
+    else panel.destroy();
+    const restored = store.project;
+    const history = store.undoStack.length;
+    expect(row.classList.contains('dragging')).toBe(false);
+    expect(document.querySelector('.mx-drop-line')).toBeNull();
+    pointer('pointermove');
+    pointer('pointerup');
+    expect(store.project).toBe(restored);
+    expect(store.undoStack).toHaveLength(history);
+    expect(row.classList.contains('dragging')).toBe(false);
+    expect(document.querySelector('.mx-drop-line')).toBeNull();
+  });
+
+  it.each(['tempo', 'volume', 'effect parameter'])('preserves an effect reorder across an unrelated %s edit', (change) => {
+    const { store } = env;
+    const { pointer } = effectDrag();
+    const id = store.project.mixer[6].fx[0].id;
+    if (change === 'tempo') store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 151 }));
+    else if (change === 'volume') store.apply('Volume', (p) => E.updateMixerTrack(p, 6, { volume: 0.5 }));
+    else store.apply('Effect mix', (p) => E.updateSlot(p, 6, id, { mix: 0.5 }));
+    const edited = store.project;
+    const history = store.undoStack.length;
+    expect(document.querySelector('.mx-slot.dragging')).not.toBeNull();
+    pointer('pointerup');
+    expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb', 'delay']);
+    expect(store.undoStack).toHaveLength(history + 1);
+    store.undo();
+    expect(store.project).toBe(edited);
+    store.redo();
+    expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb', 'delay']);
+  });
+
   it('provides effect menu items for the selected insert', () => {
     const { app, ctl, store } = env;
     ctl.select(4);
