@@ -182,6 +182,7 @@ export function installTaskbar(app) {
           width: '64px',
           onCommit: (v) => {
             const ed = app.editor;
+            if (!ed) return;
             const texts = ed.selectedNodes().filter((n) => n.type === 'text');
             ed.doc.transact('Font Size', () => texts.forEach((t) => ed.doc.update(t.id, { char: { ...t.char, fontSize: v } })));
           },
@@ -247,12 +248,16 @@ export function installTaskbar(app) {
     return { bottom: (bar.offsetHeight || 34) + REST_GAP };
   };
 
+  function available() {
+    return enabled() && Boolean(app.editor) && (!app.home || app.home.hidden) &&
+      app.toolId !== 'artboard' && !app.root.classList.contains('hide-panels');
+  }
+
   function shouldShow() {
     const ed = app.editor;
-    if (!enabled() || !ed || suppressed) return false;
+    if (!available() || suppressed) return false;
     if (ed.textEdit || app.input?.active || app.input?.pan || app.input?.gesture) return false;
-    if (app.toolId === 'artboard' || app.root.classList.contains('hide-panels')) return false;
-    return !app.home || app.home.hidden;
+    return true;
   }
 
   function position() {
@@ -303,8 +308,17 @@ export function installTaskbar(app) {
   function refresh() {
     const show = shouldShow();
     if (!show) {
-      // Keep focus inside if the user is working in the bar.
-      if (!bar.contains(document.activeElement)) bar.hidden = true;
+      // Focus can keep the bar visible during a temporary canvas interaction,
+      // but must not retain unavailable controls after closing or hiding it.
+      const focused = bar.contains(document.activeElement);
+      if (!available()) {
+        if (focused) {
+          const home = app.home && !app.home.hidden;
+          const target = home ? app.home.querySelector('button:not(:disabled)') : app.editor ? app.canvasHost : null;
+          (target || app.root.querySelector('.home-btn'))?.focus();
+        }
+        bar.hidden = true;
+      } else if (!focused) bar.hidden = true;
       return;
     }
     const ctx = taskbarContext(app.editor);
