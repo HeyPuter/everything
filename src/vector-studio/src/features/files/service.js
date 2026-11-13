@@ -13,7 +13,7 @@
  *     Save writes through the handle or downloads, and offers sign-in.
  *
  * editor.file = { kind: 'puter', path, name } | { kind: 'local', name, handle, handleId }
- *             | { kind: 'download', name } | { kind: 'import', name, path?, format }
+ *             | { kind: 'download', name } | { kind: 'import', name, path?, format, source? }
  */
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
@@ -55,6 +55,12 @@ async function sameHandle(a, b) {
   } catch {
     return false;
   }
+}
+
+/** An import remembers its source for Open, while Save still creates a new native file. */
+function localSource(file) {
+  if (file?.kind === 'local') return file;
+  return file?.kind === 'import' && file.source?.kind === 'local' ? file.source : null;
 }
 
 export class FileService {
@@ -571,7 +577,7 @@ export class FileService {
         if (file.kind === 'puter' && f.kind === 'puter') return f.path === file.path;
         // An SVG opened from the cloud is shown as an imported document that remembers its path.
         if (file.kind === 'puter' && f.kind === 'import' && f.path) return f.path === file.path;
-        if (file.kind === 'local' && f.kind === 'local' && file.handleId) return f.handleId === file.handleId;
+        if (file.kind === 'local' && file.handleId) return localSource(f)?.handleId === file.handleId;
         return false;
       }) || null
     );
@@ -601,7 +607,8 @@ export class FileService {
       }
       for (const editor of [...this.app.editors]) {
         const file = editor.file;
-        if (file?.kind !== 'local' || !file.handle || !(await sameHandle(handle, file.handle))) continue;
+        const source = localSource(file);
+        if (!source?.handle || !(await sameHandle(handle, source.handle))) continue;
         if (!this.app.editors.includes(editor) || editor.file !== file) continue;
         this.app.activate(editor);
         return editor;
@@ -723,7 +730,7 @@ export class FileService {
     }
     if (!doc) return null;
     // Saving an imported SVG writes a new .vstudio file (Save As); the SVG is left untouched.
-    const editor = this.app.addDocument(doc, { file: { kind: 'import', format: 'svg', name, path: file?.path || null } });
+    const editor = this.app.addDocument(doc, { file: { kind: 'import', format: 'svg', name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) } });
     if (file?.kind === 'puter') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     else if (file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     this.app.emit('file-opened', editor);
@@ -740,7 +747,7 @@ export class FileService {
     }
     if (!doc) return null;
     // Like SVG, an imported file saves as a new .vstudio document; the original is left untouched.
-    const editor = this.app.addDocument(doc, { file: { kind: 'import', format, name, path: file?.path || null } });
+    const editor = this.app.addDocument(doc, { file: { kind: 'import', format, name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) } });
     if (file?.kind === 'puter' || file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     if (doc.importWarnings?.length) this.app.importers.report?.(doc.importWarnings);
     this.app.emit('file-opened', editor);
