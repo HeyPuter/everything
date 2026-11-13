@@ -40,6 +40,27 @@ describe('scripts', () => {
     expect(doc.get(a.id).fill.color).toBe('#ffffff');
   });
 
+  it('does not number objects after the starting-number prompt is cancelled', async () => {
+    const { app, doc } = await setup();
+    const before = doc.undoStack.length;
+    const objects = doc.nodes.size;
+    app.dialogs.form = async () => null;
+    const r = await runInline(app, BUILT_IN_SCRIPTS.find((s) => s.id === 'number-objects').source);
+    expect(r.changes).toBe(0);
+    expect(doc.nodes.size).toBe(objects);
+    expect(doc.undoStack.length).toBe(before);
+  });
+
+  it('numbers the selected objects from an accepted zero', async () => {
+    const { app, doc } = await setup();
+    app.dialogs.form = async () => ({ v: '0' });
+    const r = await runInline(app, BUILT_IN_SCRIPTS.find((s) => s.id === 'number-objects').source);
+    expect(r.value).toBe('Numbered 2 objects.');
+    expect([...doc.nodes.values()].filter((n) => n.type === 'text').map((n) => n.text)).toEqual(['0', '1']);
+    doc.undo();
+    expect([...doc.nodes.values()].filter((n) => n.type === 'text')).toHaveLength(0);
+  });
+
   it('creates and removes objects, guards ids and structure', async () => {
     const { app, doc, a } = await setup();
     const { api } = scriptAPI(app, app.editor, 'Test');

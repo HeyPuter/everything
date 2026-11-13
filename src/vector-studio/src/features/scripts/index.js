@@ -40,7 +40,9 @@ return 'Recolored ' + sel.length + ' object' + (sel.length === 1 ? '' : 's') + '
     source: `
 const sel = await vs.selection();
 if (!sel.length) return 'Select objects to number.';
-const start = Number(await vs.prompt('Start at', '1'));
+const answer = await vs.prompt('Start at', '1');
+if (answer == null) return;
+const start = Number(answer);
 if (!Number.isFinite(start)) return;
 let i = start;
 for (const n of sel) {
