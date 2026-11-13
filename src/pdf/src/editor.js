@@ -2058,6 +2058,9 @@ export function createEditor({
             role: 'option',
             'aria-selected': 'false',
             'aria-label': `Open tool: ${entry.label}`,
+            // A tool this PDF does not allow is offered as the pane shows it, dimmed: choosing
+            // it used to close the find bar and do nothing.
+            disabled: !toolsPanel.allows(entry.id),
             onclick: safe(async () => {
               closeSearch();
               if (entry.run && !entry.sections) return toolsPanel.open(entry.id);

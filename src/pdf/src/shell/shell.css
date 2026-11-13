@@ -1039,7 +1039,7 @@
   text-align: left;
   color: var(--ink);
 }
-.find-tool-item:hover,
+.find-tool-item:hover:not(:disabled),
 .find-tool-item:focus-visible,
 .find-tool-item.active {
   background: var(--surface-2);

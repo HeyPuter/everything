@@ -223,6 +223,11 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
     get current() {
       return current;
     },
+    /** Whether a tool can be opened now: this PDF's permissions allow it and it is enabled. */
+    allows(id) {
+      const tool = find(id);
+      return !!tool && allowed(tool) && !tool.disabled;
+    },
     /** Redraw with fresh enabled and pressed states, keeping keyboard focus where it was. */
     refresh() {
       const focused = document.activeElement;
