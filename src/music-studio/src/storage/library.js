@@ -95,7 +95,8 @@ export class Library {
    * then the Puter copy when signed in (cached here afterwards). Null if missing.
    */
   async sampleBytes(ref) {
-    const rec = (await this.sampleRecord(ref.local || ref.id)) || (ref.local ? await this.sampleRecord(ref.id) : null);
+    // An unreadable local cache must not prevent recovery from another copy.
+    const rec = (await this.sampleRecord(ref.local || ref.id).catch(() => null)) || (ref.local && ref.local !== ref.id ? await this.sampleRecord(ref.id).catch(() => null) : null);
     if (rec?.data) return rec.data;
     if (!ref.path || !this.puter.isSignedIn()) return null;
     try {
@@ -241,7 +242,7 @@ export class Library {
         continue;
       }
       total += bytes.byteLength;
-      const rec = await this.sampleRecord(ref.local || ref.id);
+      const rec = await this.sampleRecord(ref.local || ref.id).catch(() => null);
       embedded[ref.id] = { name: ref.name, type: rec?.type || '', data: toBase64(bytes) };
     }
     let text = serializeProject(project, view);
