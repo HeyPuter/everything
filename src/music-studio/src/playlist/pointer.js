@@ -31,9 +31,11 @@ export function installPointer(V, el) {
 
   V.cancelGesture = () => {
     if (!gesture) return false;
-    gesture.cancel?.();
-    store.cancel();
+    const g = gesture;
+    // Clear the pointer state before cancel emits a synchronous history change.
     endGesture();
+    g.cancel?.();
+    store.cancel();
     return true;
   };
   V.hasGesture = () => Boolean(gesture);
