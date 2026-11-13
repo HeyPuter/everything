@@ -5,6 +5,7 @@
 //   const db = await openDB()            // IndexedDB, or memory when unavailable
 //   await db.get(store, key) / put(store, key, value) / delete(store, key)
 //   await db.all(store) -> [[key, value], ...]
+//   await db.batch([{ type: 'put' | 'delete', store, key, value? }, ...]) // atomic
 //   db.persistent                        // false for the memory fallback
 //
 // Stores:
@@ -62,6 +63,25 @@ function wrap(db) {
       s.delete(key);
       await done(s.transaction);
     },
+    async batch(operations) {
+      if (!operations.length) return;
+      const t = db.transaction([...new Set(operations.map((op) => op.store))], 'readwrite');
+      const completed = done(t);
+      try {
+        for (const op of operations) {
+          const s = t.objectStore(op.store);
+          if (op.type === 'put') s.put(op.value, op.key);
+          else if (op.type === 'delete') s.delete(op.key);
+          else throw new TypeError(`Unknown storage operation: ${op.type}`);
+        }
+      } catch (err) {
+        // A synchronous request error does not automatically abort earlier writes.
+        t.abort();
+        await completed.catch(() => {});
+        throw err;
+      }
+      await completed;
+    },
     async all(store) {
       const s = tx(store, 'readonly');
       const [keys, values] = await Promise.all([req(s.getAllKeys()), req(s.getAll())]);
@@ -85,6 +105,17 @@ export function memoryDB() {
     get: async (store, key) => clone(get(store).get(key)),
     put: async (store, key, value) => void get(store).set(key, clone(value)),
     delete: async (store, key) => void get(store).delete(key),
+    async batch(operations) {
+      // Validate and clone everything before changing any store.
+      const prepared = operations.map((op) => {
+        if (op.type !== 'put' && op.type !== 'delete') throw new TypeError(`Unknown storage operation: ${op.type}`);
+        return { ...op, value: op.type === 'put' ? clone(op.value) : null };
+      });
+      for (const op of prepared) {
+        if (op.type === 'put') get(op.store).set(op.key, op.value);
+        else get(op.store).delete(op.key);
+      }
+    },
     all: async (store) => [...get(store)].map(([k, v]) => [k, clone(v)]),
     close() {},
   };

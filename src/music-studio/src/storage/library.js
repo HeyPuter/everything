@@ -54,8 +54,10 @@ export class Library {
   async saveLocal(project, view, { key = uid(), name = project.name } = {}) {
     const db = await this.db();
     const json = serializeProject(project, view);
-    await db.put('projectData', key, json);
-    await db.put('projects', key, { key, name, modified: this.now(), size: json.length });
+    await db.batch([
+      { type: 'put', store: 'projectData', key, value: json },
+      { type: 'put', store: 'projects', key, value: { key, name, modified: this.now(), size: json.length } },
+    ]);
     return { key, name, persistent: db.persistent !== false };
   }
 
@@ -68,8 +70,10 @@ export class Library {
 
   async deleteLocal(key) {
     const db = await this.db();
-    await db.delete('projectData', key);
-    await db.delete('projects', key);
+    await db.batch([
+      { type: 'delete', store: 'projectData', key },
+      { type: 'delete', store: 'projects', key },
+    ]);
   }
 
   async renameLocal(key, name) {
