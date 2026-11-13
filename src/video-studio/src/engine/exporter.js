@@ -387,10 +387,15 @@ class MediaFrames {
       p = (async () => {
         const blob = await this.library.mediaBlob(asset);
         const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
-        const track = await input.getPrimaryVideoTrack();
-        if (!track) throw new Error(`${asset.name} has no video track`);
-        if (!(await track.canDecode())) throw new Error(`${asset.name} cannot be decoded in this browser`);
-        return { input, track };
+        try {
+          const track = await input.getPrimaryVideoTrack();
+          if (!track) throw new Error(`${asset.name} has no video track`);
+          if (!(await track.canDecode())) throw new Error(`${asset.name} cannot be decoded in this browser`);
+          return { input, track };
+        } catch (err) {
+          input.dispose();
+          throw err;
+        }
       })();
       this.inputs.set(asset.id, p);
     }
