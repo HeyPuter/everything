@@ -170,6 +170,8 @@ export function flattenLayers(doc, targetId) {
   const target = doc.layerOf(targetId);
   let top = target;
   while (top && top.parent !== 'root') top = doc.get(top.parent);
+  // Templates keep their artwork and settings even when the active layer is one.
+  if (top?.template) top = doc.layers().find((l) => !l.template);
   if (!top) return false;
   // The destination survives, but its hidden artwork follows the same discard rule.
   if (top.hidden && !top.template) for (const id of top.children) doc.remove(id);

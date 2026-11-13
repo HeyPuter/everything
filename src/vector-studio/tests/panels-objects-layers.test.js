@@ -372,3 +372,48 @@ it('discards hidden artwork when the hidden layer is the flatten destination', a
   doc.redo();
   expect(doc.get(layer.id).children).toEqual([ids[2]]);
 });
+
+
+it('preserves the active template layer when flattening artwork', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let template;
+  let other;
+  doc.transact('Layers', () => {
+    template = doc.addLayer('Template');
+    doc.update(template.id, { template: true, locked: true, print: false });
+    doc.move(ids[1], template.id);
+    other = doc.addLayer('Other');
+    doc.move(ids[2], other.id);
+  });
+  const originalTemplate = doc.get(template.id);
+  ed.activeLayerId = template.id;
+  await run('layers.flatten');
+  expect(doc.get(template.id)).toEqual(originalTemplate);
+  expect(doc.get(ids[1]).parent).toBe(template.id);
+  const art = doc.layers().find((l) => !l.template);
+  expect(art.children).toEqual([ids[0], ids[2]]);
+  expect(doc.isLocked(ids[0])).toBe(false);
+  expect(doc.layers()).toHaveLength(2);
+  expect(ed.activeLayerId).toBe(art.id);
+  doc.undo();
+  expect(doc.get(layer.id).children).toEqual([ids[0]]);
+  expect(doc.get(other.id).children).toEqual([ids[2]]);
+  doc.redo();
+  expect(doc.get(template.id)).toEqual(originalTemplate);
+  expect(doc.get(art.id).children).toEqual([ids[0], ids[2]]);
+});
+
+
+it('leaves an all-template document unchanged when flattening', async () => {
+  const { doc, layer } = setup();
+  doc.transact('Templates', () => {
+    doc.update(layer.id, { template: true, locked: true, print: false });
+    const other = doc.addLayer('Reference');
+    doc.update(other.id, { template: true, hidden: true });
+  });
+  const layers = doc.layers();
+  const before = doc.undoStack.length;
+  await run('layers.flatten');
+  expect(doc.layers()).toEqual(layers);
+  expect(doc.undoStack).toHaveLength(before);
+});
