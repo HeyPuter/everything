@@ -31,6 +31,8 @@ export class MidiInput {
         port.onmidimessage = this.onMessage;
         if (e.port.connection !== 'open') this.app.notify?.(`MIDI input connected: ${port.name || 'device'}`);
       } else if (port.state === 'disconnected') {
+        port.onmidimessage = null;
+        this.releaseAll(port.id ?? 'default');
         this.app.notify?.(`MIDI input disconnected: ${port.name || 'device'}`);
       }
     };
@@ -105,8 +107,11 @@ export class MidiInput {
     }
   }
 
-  releaseAll() {
-    for (const source of this.sources.keys()) this.live.releaseAll(source);
-    this.sources.clear();
+  releaseAll(port = null) {
+    for (const [source, state] of this.sources) {
+      if (port !== null && state.port !== port) continue;
+      this.live.releaseAll(source);
+      this.sources.delete(source);
+    }
   }
 }

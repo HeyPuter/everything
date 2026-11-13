@@ -107,6 +107,28 @@ describe('typing keyboard map', () => {
 });
 
 describe('MIDI input', () => {
+  it('releases only the disconnected device and clears its sustain state', () => {
+    const app = fakeApp();
+    const live = new LiveInput(app, null);
+    const midi = new MidiInput(app, live);
+    const port = { id: 'a', name: 'Keyboard A', type: 'input', state: 'disconnected', onmidimessage: midi.onMessage };
+    midi.onMessage({ target: port, data: [0xb0, 64, 127] });
+    midi.onMessage({ target: port, data: [0x90, 60, 100] });
+    midi.onMessage({ target: port, data: [0x80, 60, 0] });
+    midi.handle([0x90, 62, 100], 'b');
+    live.noteOn(64, 0.8, 'typing');
+    midi.onState({ port });
+    expect(live.isHeld(60)).toBe(false);
+    expect(port.onmidimessage).toBeNull();
+    expect(live.isHeld(62)).toBe(true);
+    expect(live.isHeld(64)).toBe(true);
+    port.state = 'connected';
+    midi.onState({ port });
+    port.onmidimessage({ target: port, data: [0x90, 60, 100] });
+    port.onmidimessage({ target: port, data: [0x80, 60, 0] });
+    expect(live.isHeld(60)).toBe(false);
+  });
+
   it.each([
     ['channels', 0x91, 'keyboard-a'],
     ['devices', 0x90, 'keyboard-b'],
