@@ -399,11 +399,13 @@ export class App extends Emitter {
       });
       if (!save) return false;
       if (save === 'save') {
-        const rev = editor.doc.revision;
+        const nodeVersion = editor.doc.nodes.version;
+        const commentsRevision = editor.doc.commentsRevision;
         const ok = await this.commands.run('file.save', { editor });
         if (!ok) return false;
         // Edited while the file was being written (the prompt was already gone): ask again.
-        if (editor.doc.revision !== rev && editor.doc.dirty && this.editors.includes(editor)) return this.closeDocument(editor);
+        const changed = editor.doc.nodes.version !== nodeVersion || editor.doc.commentsRevision !== commentsRevision;
+        if (changed && editor.doc.dirty && this.editors.includes(editor)) return this.closeDocument(editor);
       }
     }
     const i = this.editors.indexOf(editor);
