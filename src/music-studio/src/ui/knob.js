@@ -285,7 +285,10 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     ];
     contextMenu(e, items, `${label} options`);
   }
-  el.addEventListener('contextmenu', openContext);
+  el.addEventListener('contextmenu', (e) => {
+    e.stopPropagation();
+    openContext(e);
+  });
 
   draw();
   return {

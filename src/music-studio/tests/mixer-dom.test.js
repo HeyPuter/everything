@@ -5,6 +5,7 @@ import { demoProject } from '../src/model/demo.js';
 import { createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
 import * as E from '../src/model/edits.js';
 import { getWindow, closeWindows } from '../src/ui/windows.js';
+import { closeMenus } from '../src/ui/menu.js';
 import { createHeaders } from '../src/playlist/headers.js';
 
 // jsdom has no canvas: a 2D context whose methods do nothing.
@@ -37,6 +38,7 @@ describe('mixer panel', () => {
     env = start();
   });
   afterEach(() => {
+    closeMenus();
     closeWindows();
     env.panel.onHide();
     cancelAnimationFrame(env.app.raf);
@@ -498,11 +500,11 @@ describe('mixer panel', () => {
 
   it.each(['add', 'remove', 'blocked'])('keeps the source selected throughout a send-button pointer click (%s)', (action) => {
     const { ctl, panel, store } = env;
+    const notify = vi.spyOn(env.app, 'notify').mockImplementation(() => {});
     vi.advanceTimersByTime(50);
     if (action === 'remove') ctl.toggleRoute(2, 8);
     if (action === 'blocked') ctl.toggleRoute(8, 2);
     ctl.select(2);
-    const notify = action === 'blocked' ? vi.spyOn(env.app, 'notify').mockImplementation(() => {}) : null;
     const before = store.project;
     const button = panel.strips[8].el.querySelector('.mx-send-btn');
     sendPointer(button, 'pointerdown');
@@ -516,12 +518,12 @@ describe('mixer panel', () => {
     if (action === 'blocked') {
       expect(store.project === before).toBe(true);
       expect(notify).toHaveBeenCalledWith(expect.stringMatching(/feedback loop/), { error: true });
-      notify.mockRestore();
     }
     else {
       store.undo();
       expect(store.project === before).toBe(true);
     }
+    notify.mockRestore();
   });
 
   it.each(['pointer', 'keyboard'])('keeps a strip send gain attached to its source during %s input', (input) => {
@@ -561,6 +563,32 @@ describe('mixer panel', () => {
     ctl.select(2);
     strip.fader.slider.focus();
     expect(ctl.selected).toBe(8);
+  });
+
+  it.each(['pan', 'width', 'send', 'volume'])('preserves the %s control context menu and its reset action', (param) => {
+    const { ctl, panel, store } = env;
+    vi.advanceTimersByTime(50);
+    ctl.select(2);
+    const label = param === 'pan' ? 'Pan' : param === 'width' ? 'Width' : param === 'send' ? 'Send level' : `${store.project.mixer[2].name} volume`;
+    const control = param === 'send' ? panel.strips[0].el.querySelector('.mx-send-knob') : param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector(`[aria-label="${label}"]`);
+    control.focus();
+    control.dispatchEvent(new WheelEvent('wheel', { deltaY: 10, bubbles: true, cancelable: true }));
+    vi.advanceTimersByTime(500);
+    const before = store.project;
+    control.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true, cancelable: true }));
+    control.dispatchEvent(new MouseEvent('contextmenu', { button: 2, clientX: 100, clientY: 100, bubbles: true, cancelable: true }));
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu.getAttribute('aria-label')).toBe(`${label} options`);
+    expect(ctl.selected).toBe(2);
+    const items = [...menu.querySelectorAll('[role="menuitem"]')];
+    expect(items.some((item) => item.textContent.startsWith('Type in value'))).toBe(true);
+    items.find((item) => item.textContent.startsWith('Reset')).click();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(control);
+    const value = param === 'send' ? store.project.mixer[2].routes[0] : store.project.mixer[2][param];
+    expect(value).toBe(param === 'pan' ? 0 : 1);
+    store.undo();
+    expect(store.project === before).toBe(true);
   });
 
   it('send buttons route the selected insert and refuse loops with a toast', () => {
@@ -807,6 +835,7 @@ describe('effect editor windows', () => {
     env = start();
   });
   afterEach(() => {
+    closeMenus();
     closeWindows();
     cancelAnimationFrame(env.app.raf);
   });
