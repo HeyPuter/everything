@@ -6,6 +6,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { previewSession } from '../../ui/dialogs/preview-session.js';
 import { icon } from '../../ui/icons.js';
 import { colorTargets, colorPatches, collectColors, invertColor, grayscaleColor, adjustColor, saturateColor, blendFills, recolorFn } from './edit-colors.js';
 import { hexToRgb, rgbToHex, rgbToHsb, hsbToRgb } from '../../lib/color.js';
@@ -58,12 +59,13 @@ async function previewDialog(app, { title, body, read, compute, previewBox, opts
   const doc = ed.doc;
   const nodes = selectedColorNodes(ed);
   const originals = new Map(nodes.map((n) => [n.id, n]));
-  const tx = doc.begin(title);
+  const session = previewSession(app, ed, title);
   const restore = () => {
     // Extra fills and strokes too: a preview that maps nothing leaves them as they were.
     for (const n of originals.values()) doc.update(n.id, { fill: n.fill, stroke: n.stroke, appearance: n.appearance, ...(n.type === 'text' ? { runs: n.runs } : {}), ...(n.type === 'mesh' ? { points: n.points } : {}) });
   };
   const preview = () => {
+    if (!session.check()) return;
     restore();
     if (!previewBox.checked) return;
     const fn = compute(read());
@@ -77,25 +79,22 @@ async function previewDialog(app, { title, body, read, compute, previewBox, opts
     ok = await openDialog({
       title,
       body,
-      onOpen: () => preview(),
+      onOpen: (context) => { session.onOpen(context); preview(); },
       buttons: [
         { label: 'Cancel', value: null },
         { label: 'OK', primary: true, value: () => read() },
       ],
     });
-  } catch (err) {
-    tx.cancel();
-    throw err;
+    if (!ok || !session.check()) return false;
+    restore();
+    const fn = compute(ok);
+    if (fn) for (const [id, p] of colorPatches([...originals.values()], fn, opts(ok))) doc.update(id, p);
+    return session.commit();
+  } finally {
+    body.removeEventListener('input', preview);
+    body.removeEventListener('change', preview);
+    session.dispose();
   }
-  if (!ok) {
-    tx.cancel();
-    return false;
-  }
-  restore();
-  const fn = compute(ok);
-  if (fn) for (const [id, p] of colorPatches([...originals.values()], fn, opts(ok))) doc.update(id, p);
-  tx.commit();
-  return true;
 }
 
 let sid = 0;
@@ -216,7 +215,7 @@ async function groupPreviewDialog(app, { title, body, read, compute, previewBox,
   const ed = app.editor;
   const doc = ed.doc;
   const ids = ed.topSelection();
-  let tx = doc.begin(title);
+  const session = previewSession(app, ed, title);
   const apply = (v) => {
     const fn = compute(v);
     if (!fn) return;
@@ -228,8 +227,7 @@ async function groupPreviewDialog(app, { title, body, read, compute, previewBox,
   };
   const preview = () => {
     // Start over from the document as it was, then show the current settings.
-    tx.cancel();
-    tx = doc.begin(title);
+    if (!session.reset()) return;
     if (previewBox.checked) apply(read());
   };
   body.addEventListener('input', preview);
@@ -240,20 +238,20 @@ async function groupPreviewDialog(app, { title, body, read, compute, previewBox,
       title,
       body,
       className: 'recolor-dialog',
-      onOpen: () => preview(),
+      onOpen: (context) => { session.onOpen(context); preview(); },
       buttons: [
         { label: 'Cancel', value: null },
         { label: 'OK', primary: true, value: () => read() },
       ],
     });
-  } catch (err) {
-    tx.cancel();
-    throw err;
+    if (!ok || !session.reset()) return false;
+    apply(ok);
+    return session.commit();
+  } finally {
+    body.removeEventListener('input', preview);
+    body.removeEventListener('change', preview);
+    session.dispose();
   }
-  tx.cancel();
-  if (!ok) return false;
-  doc.transact(title, () => apply(ok));
-  return true;
 }
 
 /**

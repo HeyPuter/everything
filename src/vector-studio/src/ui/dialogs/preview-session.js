@@ -2,7 +2,7 @@
 export function previewSession(app, editor, label) {
   const doc = editor.doc;
   const selection = [...editor.selection], isolation = editor.isolation;
-  let tx = doc.begin(label), closeDialog = null, stopped = false;
+  let tx = doc.begin(label), closeDialog = null, stopped = false, resetting = false;
   const rollback = (preserveSelection = false) => {
     const pending = tx;
     tx = null;
@@ -14,7 +14,8 @@ export function previewSession(app, editor, label) {
   };
   const check = () => {
     if (stopped) return false;
-    if (doc.tx === tx && app.editor === editor && app.editors.includes(editor) && !doc.readOnly &&
+    if (resetting) return true;
+    if (tx && doc.tx === tx && app.editor === editor && app.editors.includes(editor) && !doc.readOnly &&
         (!app.home || app.home.hidden) && editor.isolation === isolation &&
         editor.selection.size === selection.length && selection.every((id) => editor.selection.has(id))) return true;
     stopped = true;
@@ -31,6 +32,18 @@ export function previewSession(app, editor, label) {
     onOpen({ close }) {
       closeDialog = close;
       if (!check()) close(null);
+    },
+    reset() {
+      if (!check()) return false;
+      // Restoring our own preview emits selection events in the same context.
+      resetting = true;
+      try {
+        rollback();
+        tx = doc.begin(label);
+      } finally {
+        resetting = false;
+      }
+      return check();
     },
     commit() {
       if (!check()) return false;
