@@ -345,3 +345,30 @@ it('deletes picked sublayers even when their picked parent is the last document 
   expect(doc.has(sub.id)).toBe(false);
   expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
 });
+
+
+it('discards hidden artwork when the hidden layer is the flatten destination', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let visible;
+  doc.transact('Layers', () => {
+    visible = doc.addLayer('Visible');
+    doc.move(ids[2], visible.id);
+    doc.update(layer.id, { hidden: true });
+  });
+  ed.activeLayerId = layer.id;
+  let confirmed = false;
+  app.dialogs.confirm = async () => { confirmed = true; return true; };
+  await run('layers.flatten');
+  expect(confirmed).toBe(true);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+  expect(doc.get(layer.id).hidden).toBe(false);
+  expect(doc.get(layer.id).children).toEqual([ids[2]]);
+  expect(doc.has(ids[0])).toBe(false);
+  expect(doc.has(ids[1])).toBe(false);
+  doc.undo();
+  expect(doc.get(layer.id).hidden).toBe(true);
+  expect(doc.get(layer.id).children).toEqual(ids.slice(0, 2));
+  expect(doc.get(visible.id).children).toEqual([ids[2]]);
+  doc.redo();
+  expect(doc.get(layer.id).children).toEqual([ids[2]]);
+});

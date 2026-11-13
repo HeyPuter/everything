@@ -171,6 +171,8 @@ export function flattenLayers(doc, targetId) {
   let top = target;
   while (top && top.parent !== 'root') top = doc.get(top.parent);
   if (!top) return false;
+  // The destination survives, but its hidden artwork follows the same discard rule.
+  if (top.hidden && !top.template) for (const id of top.children) doc.remove(id);
   const others = doc.layers().filter((l) => l.id !== top.id && !l.template);
   const items = [];
   for (const l of [top, ...others]) if (!l.hidden) for (const c of l.children) items.push(c);
