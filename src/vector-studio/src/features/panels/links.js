@@ -81,14 +81,19 @@ export function fitTransform(node, w, h, mode = 'fit') {
   return multiply(node.transform, multiply(translate((node.width - w * sx) / 2, (node.height - h * sy) / 2), scaleM(sx, sy)));
 }
 
-/** Swap the image of placed nodes for a new blob (one undo step). */
+/** Swap placed images for a new blob (one undo step); null if the window or targets are gone. */
 export async function replaceImage(app, editor, nodeIds, blob, { link = null, label = 'Relink', placement = app.prefs?.get('linkPlacement') || 'fit' } = {}) {
   const doc = editor.doc;
+  const alive = () => !app.editors || app.editors.includes(editor);
+  if (!alive() || !nodeIds.some((id) => doc.get(id)?.type === 'image')) return null;
   const io = await import('../io/lazy.js');
   const data = await io.imageNodeData(blob, { name: blob.name?.replace(/\.[^.]+$/, '') || '' });
+  if (!alive()) return null;
+  const targets = nodeIds.filter((id) => doc.get(id)?.type === 'image');
+  if (!targets.length) return null;
   doc.assets.set(data.assetId, data.asset);
   doc.transact(label, () => {
-    for (const id of nodeIds) {
+    for (const id of targets) {
       const n = doc.get(id);
       if (!n || n.type !== 'image') continue;
       doc.update(id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(n, data.width, data.height, placement), link: link || undefined });
@@ -124,7 +129,7 @@ async function pickImage(app) {
 export async function relink(app, editor, ids) {
   const picked = await pickImage(app);
   if (!picked) return false;
-  await replaceImage(app, editor, ids, picked.file, { link: picked.link, label: 'Relink' });
+  if (!(await replaceImage(app, editor, ids, picked.file, { link: picked.link, label: 'Relink' }))) return false;
   app.notify(`Relinked to ${picked.file.name}.`, { polite: true });
   return true;
 }
@@ -135,13 +140,13 @@ export async function updateLinks(app, editor, ids) {
   const fs = app.puter?.fs;
   let n = 0;
   for (const id of ids) {
+    if (app.editors && !app.editors.includes(editor)) break;
     const node = doc.get(id);
     if (!node?.link?.path) continue;
     if (!fs?.read) throw new UserError('Linked files can be updated when Vector Studio runs with Puter.');
     const blob = await fs.read(node.link.path);
     const file = new File([blob], node.link.name || 'image', { type: blob.type });
-    await replaceImage(app, editor, [id], file, { link: { ...node.link, size: blob.size, modified: Date.now() }, label: 'Update Link' });
-    n++;
+    if (await replaceImage(app, editor, [id], file, { link: { ...node.link, size: blob.size, modified: Date.now() }, label: 'Update Link' })) n++;
   }
   return n;
 }
