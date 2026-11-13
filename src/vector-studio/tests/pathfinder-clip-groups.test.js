@@ -21,6 +21,7 @@ import { runPathfinder, canRun } from '../src/features/geometry/pathfinder.js';
 import { geometryLeaves, subpathsOf } from '../src/features/geometry/nodes-io.js';
 import { nodeBounds } from '../src/model/geometry.js';
 import { makeClipMask } from '../src/ops/object-ops.js';
+import { trapCommand } from '../src/features/geometry/pathfinder-extras.js';
 import { hitTest } from '../src/render/hit.js';
 import { installCanvasStub } from './helpers.js';
 
@@ -460,5 +461,29 @@ describe('clipping masks made of Pathfinder results', () => {
     const kids = kidsOf(doc, layer.id);
     expect(kids).toHaveLength(1);
     expect(areaOf(doc, kids[0])).toBeCloseTo(150 * 100 + 90 * 20, 0);
+  });
+});
+
+describe('Pathfinder Trap on a clipping group', () => {
+  it('traps where the shown colors meet and keeps the clipping path clipping', async () => {
+    const a = filled(0, 0, 100, 100, '#ffff00');
+    const b = filled(100, 0, 100, 100, '#000000');
+    const mask = rect(50, 0, 100, 50);
+    const clip = clipOf([a, b], mask);
+    const { doc, editor, app, layer } = setup([clip]);
+    app.prefs = { get: () => undefined, set: () => {} };
+    app.dialogs = { form: async () => ({ thickness: 2, tint: 40, reverse: false }) };
+    editor.select([clip[0].id]);
+    expect(await trapCommand(app)).toBe(true);
+    const g = doc.get(clip[0].id);
+    expect(g.clip).toBe(true);
+    expect(g.children.at(-1)).toBe(mask.id);
+    // The traps go above the group, along the shown part of the edge only.
+    const kids = doc.get(layer.id).children;
+    expect(kids).toHaveLength(2);
+    const traps = doc.get(kids[1]);
+    expect(traps.name).toBe('Traps');
+    const bb = nodeBounds(doc, traps);
+    expect(bb.y + bb.h).toBeLessThanOrEqual(50 + 1e-3);
   });
 });

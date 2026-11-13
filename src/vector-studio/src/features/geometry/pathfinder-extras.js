@@ -12,7 +12,16 @@
  */
 import { createGroup } from '../../model/nodes.js';
 import { OP, loadGeom, runGeomSync } from './engine/index.js';
-import { geometryLeaves, styleOf, subpathsOf, nodeFromSubpaths, groupOf, insertionPoint } from './nodes-io.js';
+import {
+  geometryLeaves,
+  styleOf,
+  subpathsOf,
+  nodeFromSubpaths,
+  groupOf,
+  insertionPoint,
+  shapeOf,
+  visibleShapes,
+} from './nodes-io.js';
 import { fillShapes, trapStrips } from './mix-trap.js';
 import { expandNodeAppearance } from '../../ops/expand-appearance.js';
 import { SHAPE_MODES } from './pathfinder.js';
@@ -121,9 +130,20 @@ export function expandCompoundShapes(editor) {
 /**
  * Trap the selected objects (inside the caller's transaction, the engine
  * loaded): a group of trap strips goes above them. Returns its id or null.
+ * `clip` ({ clipped, visible }) gives what objects of clipping groups taken
+ * as a whole show (see geometryLeaves and visibleShapes): they trap where
+ * they show, and the traps go above those groups.
  */
-export function trapSelection(doc, leaves, opts) {
-  const items = leaves.map((n) => ({ style: styleOf(n), subpaths: subpathsOf(doc, n), fillRule: n.fillRule }));
+export function trapSelection(doc, leaves, opts, clip = null) {
+  const items = leaves
+    .map((n, i) => {
+      const v = clip?.visible?.[i];
+      if (v === null) return null;
+      return v
+        ? { style: styleOf(n), subpaths: v.subpaths, fillRule: 'nonzero' }
+        : { style: styleOf(n), subpaths: subpathsOf(doc, n), fillRule: n.fillRule };
+    })
+    .filter(Boolean);
   const { shapes, owners } = fillShapes(items);
   if (shapes.length < 2) return null;
   const engine = (op, s, params) => {
@@ -139,7 +159,7 @@ export function trapSelection(doc, leaves, opts) {
   const traps = trapStrips(faces, opts, engine) || [];
   const built = traps.map((t) => nodeFromSubpaths(t.subpaths, { ...t.style, effects: [] }, { overprintFill: true })).filter(Boolean);
   if (!built.length) return null;
-  const at = insertionPoint(doc, leaves);
+  const at = insertionPoint(doc, leaves, clip?.clipped);
   const group = groupOf(built, { name: 'Traps' });
   doc.insert(group.node, at.parentId, at.index, group.descendants);
   return group.node.id;
@@ -149,7 +169,9 @@ export function trapSelection(doc, leaves, opts) {
 export async function trapCommand(app) {
   const ed = app.editor;
   if (!ed) return false;
-  const leaves = geometryLeaves(ed.doc, ed.topSelection());
+  // A clipping group selected as a whole traps what it shows, not its clipping path.
+  const clipped = new Map();
+  const leaves = geometryLeaves(ed.doc, ed.topSelection(), { clipped });
   if (leaves.filter((n) => n.fill).length < 2) {
     app.notify('Select two or more filled objects to trap.');
     return false;
@@ -168,9 +190,19 @@ export async function trapCommand(app) {
   app.prefs.set('trapOptions', opts);
   await loadGeom();
   if (app.editor !== ed) return false;
+  const live = leaves.map((n) => ed.doc.get(n.id)).filter(Boolean);
+  const visible = clipped.size
+    ? await visibleShapes(
+        ed.doc,
+        live,
+        live.map((n) => shapeOf(ed.doc, n)),
+        clipped,
+      )
+    : null;
+  if (app.editor !== ed) return false;
   let id = null;
   ed.doc.transact('Trap', () => {
-    id = trapSelection(ed.doc, leaves.filter((n) => ed.doc.has(n.id)), opts);
+    id = trapSelection(ed.doc, live, opts, { clipped, visible });
   });
   if (!id) {
     app.notify('The selected objects do not meet, so there is nothing to trap.', { polite: true });
