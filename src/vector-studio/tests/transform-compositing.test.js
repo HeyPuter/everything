@@ -91,3 +91,51 @@ it('retains the bitmap fast path when an ancestor opacity mask is disabled', () 
     session.cancel();
   }
 });
+
+it.each([false, true])('renders moving children of an appearance group (slow scene: %s)', (slowScene) => {
+  const { ed, ids, view } = scene({ appearance: [{ type: 'contents' }, { type: 'stroke', stroke: { type: 'solid', color: '#ff0000' }, strokeWidth: 2 }] }, PREVIEW_THRESHOLD + 1);
+  ed.select(ids);
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  const contexts = new Map();
+  const getSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (...args) {
+    const ctx = getContext.apply(this, args);
+    if (!contexts.has(ctx)) {
+      contexts.set(ctx, ctx.fill);
+      ctx.fill = vi.fn(ctx.fill);
+    }
+    return ctx;
+  });
+  // Include the already-created art context in the draw instrumentation.
+  view.art.getContext('2d');
+  const session = new TransformSession(ed, 'Move');
+  try {
+    session.apply([1, 0, 0, 1, 4, 0]);
+    view.slowScene = slowScene;
+    view.renderNow();
+    const movingCanvas = view.previewCache?.mov || view.art;
+    expect(movingCanvas.getContext('2d').fill.mock.calls.length).toBeGreaterThan(0);
+    expect(nodeBounds(ed.doc, ed.doc.get(ids[0])).x).toBe(4);
+    session.cancel();
+    expect(nodeBounds(ed.doc, ed.doc.get(ids[0])).x).toBe(0);
+  } finally {
+    if (ed.doc.tx) session.cancel();
+    for (const [ctx, fill] of contexts) ctx.fill = fill;
+    getSpy.mockRestore();
+  }
+});
+
+it('keeps the bitmap fast path when the entire appearance group moves', () => {
+  const { ed, group } = scene({ appearance: [{ type: 'contents' }] }, PREVIEW_THRESHOLD + 1);
+  ed.select([group.id]);
+  const session = new TransformSession(ed, 'Move');
+  try {
+    session.apply([1, 0, 0, 1, 4, 0]);
+    expect(ed.dragPreview).toBeTruthy();
+    session.commit();
+    expect(nodeBounds(ed.doc, ed.doc.get(group.id)).x).toBe(4);
+    ed.doc.undo();
+    expect(nodeBounds(ed.doc, ed.doc.get(group.id)).x).toBe(0);
+  } finally {
+    if (ed.doc.tx) session.cancel();
+  }
+});

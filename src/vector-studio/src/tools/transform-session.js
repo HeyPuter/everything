@@ -8,6 +8,7 @@
  */
 import { collectOriginals, transformFromOriginals } from '../model/geometry.js';
 import { duplicateNodes } from '../ops/layer-ops.js';
+import { liveDef } from '../model/live.js';
 
 /**
  * Above this many nodes a drag previews the transform as a bitmap and
@@ -39,13 +40,14 @@ export class TransformSession {
 
   /**
    * Moving content inside a group with opacity, blending, effects, masks or
-   * isolation cannot be split out as a bitmap, nor opacity mask art edited in
+   * isolation cannot be split out as a bitmap. Live ancestors (such as group
+   * appearance stacks) must regenerate from their moving children, as must mask art edited in
    * place (the masked object redraws as it moves).
    */
   #isolatedAncestor() {
     for (const id of this.ids) {
       for (const a of this.doc.ancestors(id)) {
-        if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.blend || a.maskEdit || a.isolate || a.knockout || (a.opacityMask && !a.opacityMask.disabled)) return true;
+        if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.blend || a.maskEdit || a.isolate || a.knockout || liveDef(a) || (a.opacityMask && !a.opacityMask.disabled)) return true;
       }
     }
     return false;
