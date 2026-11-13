@@ -1,6 +1,11 @@
 // Stylus review: palm rejection, the pen's eraser end, menus tapped with a pen, and brush cursors.
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { bootApp } from './helpers.js';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { bootAppWithFeatures } from './helpers.js';
+import { setGeomSource, loadGeom } from '../src/features/geometry/engine/index.js';
+import { createPath } from '../src/model/nodes.js';
+import { rectangle } from '../src/model/shapes.js';
 
 // Presses a second apart, so no two count as a double-click.
 let clock = 0;
@@ -9,8 +14,10 @@ const pen = (x, y, extra = {}) => ptr(x, y, { pointerId: 7, pointerType: 'pen', 
 const touch = (x, y, id = 20, extra = {}) => ptr(x, y, { pointerId: id, pointerType: 'touch', ...extra });
 
 let app;
-beforeAll(() => {
-  app = bootApp();
+beforeAll(async () => {
+  setGeomSource(fs.readFileSync(path.resolve(__dirname, '../src/wasm/geom.wasm')));
+  await loadGeom();
+  app = await bootAppWithFeatures();
   app.newDocument();
 });
 
@@ -139,5 +146,55 @@ describe('menus tapped with a pen', () => {
     row.click();
     expect(document.querySelectorAll('.menu').length).toBe(2);
     m.close();
+  });
+});
+
+describe("the pen's eraser end", () => {
+  // Chrome and Firefox report the eraser end pressed as button 5 (buttons 32).
+  const eraserPen = (x, y, extra = {}) => pen(x, y, { button: 5, buttons: 32, ...extra });
+
+  function rect() {
+    const doc = app.editor.doc;
+    const p = createPath(rectangle(100, 100, 200, 200), true, { fill: { type: 'solid', color: '#ff0000' }, stroke: null });
+    doc.transact('Rect', () => app.editor.insertDrawn(p));
+    app.editor.clearSelection();
+    return p.id;
+  }
+
+  it('erases with the Eraser while another tool is in use, and draws nothing', async () => {
+    const id = rect();
+    app.setTool('pencil');
+    const before = paths().length;
+    const input = app.input;
+    input.down(eraserPen(80, 200));
+    expect(app.editor.pressTool?.id).toBe('eraser');
+    for (let x = 90; x <= 320; x += 10) input.move(eraserPen(x, 200, { buttons: 32, button: -1 }));
+    input.up(eraserPen(320, 200, { buttons: 0 }));
+    expect(app.editor.pressTool).toBe(null);
+    expect(app.tool.id).toBe('pencil');
+    // The rectangle is cut in two, and the Pencil drew no path.
+    await vi.waitFor(() => expect(app.editor.doc.has(id)).toBe(false));
+    expect(paths().length).toBe(before + 1);
+  });
+
+  it('the tip still draws with the tool in use afterwards', () => {
+    app.setTool('pencil');
+    const before = paths().length;
+    const input = app.input;
+    input.down(pen(500, 500));
+    input.move(pen(550, 540));
+    input.move(pen(600, 560));
+    input.up(pen(600, 560, { buttons: 0 }));
+    expect(paths().length).toBe(before + 1);
+  });
+
+  it('a cancelled eraser press puts the tool back', () => {
+    app.setTool('pencil');
+    const input = app.input;
+    input.down(eraserPen(80, 200));
+    input.move(eraserPen(120, 200, { button: -1 }));
+    input.cancel(eraserPen(120, 200));
+    expect(app.editor.pressTool).toBe(null);
+    expect(app.getTool('eraser').pts).toBe(null);
   });
 });
