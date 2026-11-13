@@ -111,3 +111,83 @@ describe('media service disposal', () => {
     expect(await poster).toBeNull();
   });
 });
+
+describe('media worker failures', () => {
+  it.each(['error', 'messageerror'])('settles and retries waveform jobs after a worker %s', async (type) => {
+    vi.useFakeTimers();
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['audio']) });
+    let result;
+    service.peaks(video).then((value) => { result = value; });
+    await flush();
+    made[0][`on${type}`]?.({ message: 'Worker failed', preventDefault() {} });
+    await flush();
+    expect(result).toMatchObject({ duration: 0 });
+    expect(service.pending.size).toBe(0);
+    expect(made[0].terminate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    const retry = service.peaks(video);
+    await flush();
+    expect(made).toHaveLength(2);
+    const { id } = made[1].postMessage.mock.calls[0][0];
+    const recovered = { rate: 100, data: new Float32Array([0, 1]), duration: 1 };
+    made[1].onmessage({ data: { id, ok: true, result: recovered } });
+    expect(await retry).toBe(recovered);
+    service.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retries thumbnail and poster jobs after failure and cancels retries on exit', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    service.thumb(video, 0, 1);
+    const firstPoster = service.poster(video);
+    await vi.advanceTimersByTimeAsync(16);
+    made[0].onerror?.({ message: 'Worker failed' });
+    await flush();
+    expect(await firstPoster).toBeNull();
+    expect(service.busy).toBe(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(service.thumb(video, 0, 1)).toBeNull();
+    const poster = service.poster(video);
+    await vi.advanceTimersByTimeAsync(16);
+    expect(made).toHaveLength(2);
+    const worker = made[1];
+    expect(worker.postMessage).toHaveBeenCalledTimes(2);
+    const bitmap = { close: vi.fn() };
+    const thumbBitmap = { close: vi.fn() };
+    for (const [message] of worker.postMessage.mock.calls) {
+      const image = message.height === 240 ? bitmap : thumbBitmap;
+      worker.onmessage({ data: { id: message.id, partial: { index: 0, bitmap: image } } });
+      worker.onmessage({ data: { id: message.id, ok: true } });
+    }
+    expect(await poster).toBe(bitmap);
+    expect(service.thumb(video, 0, 1)).toBe(thumbBitmap);
+    // A later failure queues a retry, which exiting must cancel.
+    service.peaks(video);
+    await flush();
+    worker.onerror({ message: 'Worker failed again' });
+    await flush();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    service.dispose();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(made).toHaveLength(2);
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+    expect(thumbBitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['construct', 'post'])('removes requests whose worker dispatch fails during %s', async (where) => {
+    vi.stubGlobal('Worker', class {
+      constructor() { if (where === 'construct') throw new Error('Cannot start worker'); }
+      postMessage() { throw new Error('Cannot send request'); }
+      terminate() {}
+    });
+    const service = new MediaService({ mediaBlob: async () => new Blob(['audio']) });
+    const result = await service.peaks(video);
+    expect(result.duration).toBe(0);
+    expect(service.pending.size).toBe(0);
+    service.dispose();
+  });
+});

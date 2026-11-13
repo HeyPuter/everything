@@ -12,6 +12,8 @@ export class MediaService extends Emitter {
     super();
     this.library = library;
     this.worker = null;
+    this.workerFailures = 0;
+    this.retryTimers = new Set();
     this.seq = 0;
     this.pending = new Map(); // id -> { resolve, reject, onPartial }
     this.strips = new Map(); // hash -> Map(quantKey -> ImageBitmap | 'pending')
@@ -34,8 +36,20 @@ export class MediaService extends Emitter {
 
   _worker() {
     if (this.worker) return this.worker;
-    this.worker = new Worker(new URL('../workers/media-worker.js', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (e) => {
+    const worker = this.worker = new Worker(new URL('../workers/media-worker.js', import.meta.url), { type: 'module' });
+    const fail = (event) => {
+      if (this.worker !== worker) return;
+      event.preventDefault?.();
+      worker.terminate();
+      this.worker = null;
+      this.workerFailures++;
+      const error = Object.assign(new Error(event.message || 'Media worker failed'), { workerFailed: true });
+      for (const { reject } of this.pending.values()) reject(error);
+      this.pending.clear();
+    };
+    worker.onerror = fail;
+    worker.onmessageerror = fail;
+    worker.onmessage = (e) => {
       const { id, ok, result, error, partial } = e.data;
       const p = this.pending.get(id);
       if (!p) {
@@ -47,6 +61,7 @@ export class MediaService extends Emitter {
         return;
       }
       this.pending.delete(id);
+      this.workerFailures = 0;
       if (ok) p.resolve(result);
       else p.reject(new Error(error));
     };
@@ -58,8 +73,24 @@ export class MediaService extends Emitter {
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onPartial });
-      this._worker().postMessage({ ...msg, id });
+      try {
+        this._worker().postMessage({ ...msg, id });
+      } catch (err) {
+        this.pending.delete(id);
+        reject(err);
+      }
     });
+  }
+
+  /** Retry only a worker failure, with backoff; unsupported media stays cached as unavailable. */
+  _retryWorkerFailure(error, retry) {
+    if (!error?.workerFailed || this.disposed) return;
+    const delay = Math.min(60_000, 2000 * 2 ** Math.min(5, Math.max(0, this.workerFailures - 1)));
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(timer);
+      if (!this.disposed) retry();
+    }, delay);
+    this.retryTimers.add(timer);
   }
 
   /** Quantization step (seconds) for a timeline zoom in px per second. */
@@ -130,8 +161,13 @@ export class MediaService extends Emitter {
         strip.set(items[index].key, bitmap);
         this.emit('thumb', { hash: job.asset.hash });
       });
-    } catch {
-      // Leave 'pending' markers so we do not retry a file that cannot be decoded.
+    } catch (error) {
+      this._retryWorkerFailure(error, () => {
+        const strip = this.strips.get(job.asset.hash);
+        for (const { key } of job.items) if (strip?.get(key) === 'pending') strip.delete(key);
+        this.emit('thumb', { hash: job.asset.hash });
+      });
+      // Leave 'pending' markers for files that cannot be decoded.
     } finally {
       this.busy--;
       const index = this.queue.indexOf(job);
@@ -164,7 +200,14 @@ export class MediaService extends Emitter {
         }
         return first;
       })()
-        .catch(() => null)
+        .catch((error) => {
+          this._retryWorkerFailure(error, () => {
+            if (this.posters.get(asset.hash) !== entry) return;
+            this.posters.delete(asset.hash);
+            this.emit('poster', { hash: asset.hash });
+          });
+          return null;
+        })
         .then((v) => {
           if (this.disposed) {
             v?.close?.();
@@ -187,7 +230,14 @@ export class MediaService extends Emitter {
       p = this.library
         .mediaBlob(asset)
         .then((blob) => this._call({ op: 'peaks', blob, rate: 100 }))
-        .catch(() => ({ rate: 100, data: new Float32Array(0), duration: 0 }))
+        .catch((error) => {
+          this._retryWorkerFailure(error, () => {
+            if (this.peakCache.get(asset.hash) !== p) return;
+            this.peakCache.delete(asset.hash);
+            this.emit('peaks', { hash: asset.hash });
+          });
+          return { rate: 100, data: new Float32Array(0), duration: 0 };
+        })
         .then((r) => {
           p.settled = true;
           p.value = r;
@@ -213,6 +263,8 @@ export class MediaService extends Emitter {
     if (this.disposed) return;
     this.disposed = true;
     clearTimeout(this._flushTimer);
+    for (const timer of this.retryTimers) clearTimeout(timer);
+    this.retryTimers.clear();
     this.queue.length = 0;
     this.worker?.terminate();
     this.worker = null;
