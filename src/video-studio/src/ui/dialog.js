@@ -155,6 +155,7 @@ export function installTooltips() {
     current = null;
   };
   const show = (el) => {
+    if (!el.isConnected) return;
     const text = el.getAttribute('data-tip');
     if (!text) return;
     hide();
@@ -191,6 +192,6 @@ export function installTooltips() {
   root.addEventListener('focusout', hide);
   root.addEventListener('pointerdown', hide, true);
   root.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && tip) hide();
+    if (e.key === 'Escape') hide();
   });
 }
