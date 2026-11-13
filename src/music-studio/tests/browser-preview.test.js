@@ -534,6 +534,21 @@ describe('browser search keyboard actions', () => {
     expect(document.activeElement).toBe(search);
   });
 
+  it.each(['Enter', 'ArrowDown', 'Escape'])('leaves %s to the input method while text is composing', (pressed) => {
+    const { app, body } = setup();
+    const search = type(body, 'drum');
+    const composing = new KeyboardEvent('keydown', { key: pressed, isComposing: true, bubbles: true, cancelable: true });
+    expect(composing.isComposing).toBe(true);
+    search.dispatchEvent(composing);
+    expect(composing.defaultPrevented).toBe(false);
+    expect(app.addChannel).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(search);
+    expect(search.value).toBe('drum');
+    key(search, 'Enter');
+    expect(app.addChannel).toHaveBeenCalledOnce();
+    expect(app.addChannel.mock.calls[0][0].type).toBe('drum');
+  });
+
   it('keeps the current query after normal debouncing and Escape clears it', async () => {
     const { app, body } = setup();
     const search = type(body, 'drum');

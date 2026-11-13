@@ -769,6 +769,7 @@ function createBrowser(app, host) {
   const updateSearch = debounce(() => setQuery(search.value), 120);
   search.addEventListener('input', updateSearch);
   search.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
     if (e.key === 'Enter' || e.key === 'ArrowDown') updateSearch.flush();
     if (e.key === 'ArrowDown' && rows.length) {
       e.preventDefault();
