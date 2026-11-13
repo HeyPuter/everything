@@ -68,8 +68,8 @@ export function effectIndex(type) {
 
 // ------------------------------------------------------------------ channels
 
-export function compileChannel(project, ch, slot, sampleIndex = () => -1, { isolate = null, feeds = null } = {}) {
-  let gain = channelAudible(project, ch) ? 1 : 0;
+export function compileChannel(project, ch, slot, sampleIndex = () => -1, { isolate = null, feeds = null, anySolo } = {}) {
+  let gain = channelAudible(project, ch, anySolo) ? 1 : 0;
   if (isolate !== null && feeds && !feeds.has(clampTrack(project, ch.mixer))) gain = 0;
   return {
     slot,

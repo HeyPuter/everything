@@ -211,10 +211,9 @@ export function songLength(project) {
 }
 
 /** Whether a channel is audible given the rack's mute and solo states. */
-export function channelAudible(project, ch) {
+export function channelAudible(project, ch, anySolo) {
   if (ch.mute) return false;
-  const anySolo = project.channels.some((c) => c.solo);
-  return !anySolo || ch.solo;
+  return !(anySolo ?? project.channels.some((c) => c.solo)) || ch.solo;
 }
 
 /** Default name for a new pattern: the lowest "Pattern N" not in use. */

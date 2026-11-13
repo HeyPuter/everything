@@ -639,7 +639,7 @@ export class Engine extends Emitter {
       const sent = this._sentChannels.get(ch.id);
       if (sent && sent.ref === ch && sent.gain === gain && sent.sample === sample && sent.count === p.mixer.length) continue;
       this._sentChannels.set(ch.id, { ref: ch, gain, sample, count: p.mixer.length });
-      if (this.node || this._starting) this.#post({ type: 'channel', cfg: compileChannel(p, ch, slot, (id) => this.#sampleIdx(id)) });
+      if (this.node || this._starting) this.#post({ type: 'channel', cfg: compileChannel(p, ch, slot, (id) => this.#sampleIdx(id), { anySolo }) });
     }
     for (const [id, slot] of this._slots) {
       if (seen.has(id)) continue;
@@ -771,7 +771,8 @@ export class Engine extends Emitter {
       samples.push({ index: i, channels: data.channels, rate: data.rate });
       return i;
     };
-    const channels = p.channels.map((c, i) => compileChannel(p, c, i, idxOf, { isolate: Number.isInteger(isolate) ? isolate : null, feeds: mixer.feeds }));
+    const anySolo = p.channels.some((c) => c.solo);
+    const channels = p.channels.map((c, i) => compileChannel(p, c, i, idxOf, { isolate: Number.isInteger(isolate) ? isolate : null, feeds: mixer.feeds, anySolo }));
     delete mixer.feeds;
     const seq = compileSequence(p, { mode, patternId: pid, slotOf: (id) => slots.get(id) ?? -1, range: { start: s, end: e } });
     const module = await engineModule();
