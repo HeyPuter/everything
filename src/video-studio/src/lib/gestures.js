@@ -60,6 +60,13 @@ export function createPinch({ onStart, onChange, onEnd } = {}) {
         onEnd?.();
         return true;
       }
+      if (active) {
+        // A third finger can replace one of the original pair. Rebase the
+        // distance without changing the accumulated scale or creating a zoom step.
+        const total = lastDist / startDist;
+        lastDist = pair().dist;
+        startDist = lastDist / total;
+      }
       return active;
     },
     reset() {
