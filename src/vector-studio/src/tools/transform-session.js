@@ -98,6 +98,14 @@ export class TransformSession {
     transformFromOriginals(this.doc, this.originals, m, this.opts);
   }
 
+  /** Switch an oversized bitmap preview to exact geometry without ending the drag. */
+  useLivePreview() {
+    if (!this.preview) return;
+    this.preview = false;
+    this.#clearPreview();
+    transformFromOriginals(this.doc, this.originals, this.matrix, this.opts);
+  }
+
   #clearPreview() {
     if (this.editor.dragPreview?.session === this) {
       this.editor.dragPreview = null;
