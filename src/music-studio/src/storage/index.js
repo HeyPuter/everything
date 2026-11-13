@@ -95,8 +95,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
         await Promise.all(picked.remove.map((key) => lib.clearDraft(key).catch(() => {})));
         // Finish the transfer before another tab selects an abandoned session.
         if (picked.draft && picked.key !== slot.key) {
-          await lib.saveDraft(picked.draft, slot.key);
-          await lib.clearDraft(picked.key).catch(() => {});
+          await lib.adoptDraft(picked.draft, picked.key, slot.key);
         }
         return picked;
       };

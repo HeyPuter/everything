@@ -242,6 +242,15 @@ export class Library {
     await db.put('drafts', key, { ...draft, at: this.now() });
   }
 
+  /** Transfer recovery ownership without leaving a second abandoned copy on failure. */
+  async adoptDraft(draft, from, to) {
+    const db = await this.db();
+    await db.batch([
+      { type: 'put', store: 'drafts', key: to, value: { ...draft, at: this.now() } },
+      { type: 'delete', store: 'drafts', key: from },
+    ]);
+  }
+
   async loadDraft(key = 'session') {
     const db = await this.db();
     return db.get('drafts', key);

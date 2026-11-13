@@ -3,7 +3,8 @@ import { App } from '../src/app.js';
 import { newProject } from '../src/model/demo.js';
 import { serializeProject } from '../src/model/serialize.js';
 import { install } from '../src/storage/index.js';
-import { memoryDB } from '../src/storage/idb.js';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+import { openDB, memoryDB } from '../src/storage/idb.js';
 import { claimTab, STALE_MS } from '../src/storage/tabs.js';
 
 let app;
@@ -12,6 +13,7 @@ afterEach(() => {
   app?.autosave.stop();
   for (const instance of apps.splice(0)) instance.autosave.stop();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
@@ -134,4 +136,45 @@ it('waits to claim a reload slot until an active recovery releases it', async ()
   await recovery;
   expect((await reload).key).toBe('tab:closed');
   expect((await locks.query()).held.map((lock) => lock.name)).toContain('music-studio-tab-closed');
+});
+
+it('keeps a single recoverable draft when deleting the source aborts its storage transaction', async () => {
+  vi.stubGlobal('puter', undefined);
+  vi.stubGlobal('indexedDB', new IDBFactory());
+  const db = await openDB('draft-transfer');
+  const original = { json: serializeProject(newProject('Recovered session'), {}), dirty: true, at: Date.now() };
+  await db.put('drafts', 'tab:closed', original);
+  const nativeDelete = IDBObjectStore.prototype.delete;
+  const failure = vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation(function (key) {
+    const request = nativeDelete.call(this, key);
+    if (this.name === 'drafts' && key === 'tab:closed') request.addEventListener('success', () => this.transaction.abort());
+    return request;
+  });
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const locks = queuedLocks();
+  const start = async (id) => {
+    const tab = await claimTab({ locks, session: { getItem: () => id, setItem() {} } });
+    const root = document.createElement('div');
+    document.body.append(root);
+    const instance = new App(root, { storage: { getItem: () => null, setItem() {} } });
+    instance.prefs.set('launched', true);
+    install(instance, { db, tab });
+    apps.push(instance);
+    instance.emit('started');
+    await instance.restored;
+    return instance;
+  };
+  try {
+    const first = await start('a');
+    expect(await db.get('drafts', 'tab:closed')).toEqual(original);
+    expect(await db.get('drafts', 'tab:a')).toBe(null);
+    expect(first.store.project.name).not.toBe('Recovered session');
+    failure.mockRestore();
+    const second = await start('b');
+    expect(second.store.project.name).toBe('Recovered session');
+    expect(await db.get('drafts', 'tab:closed')).toBe(null);
+    expect(JSON.parse((await db.get('drafts', 'tab:b')).json).name).toBe('Recovered session');
+  } finally {
+    db.close();
+  }
 });
