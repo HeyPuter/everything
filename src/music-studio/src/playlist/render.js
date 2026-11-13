@@ -12,7 +12,7 @@ import { evaluateAutomation } from '../automation/evaluate.js';
 import { tempoMap } from '../engine/compile.js';
 import { sourceColor, sourceName, AUTO_COLOR } from './clips.js';
 import { patternColor } from '../model/project.js';
-import { clamp } from '../lib/util.js';
+import { audioPlaybackRate } from '../engine/audio-rate.js';
 import { trackTop, trackHeight } from './geometry.js';
 import { TITLE_H, LOOP_STRIP_H, RULER_H } from './constants.js';
 
@@ -347,8 +347,7 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const { min, max, perSecond } = peaks;
   const nPeaks = min.length;
   const reverse = chan.params.reverse >= 0.5;
-  const semitones = (chan.params.tune || 0) + ((chan.pitch || 0) + (p.masterPitch || 0)) / 100;
-  const playbackRate = 2 ** (clamp(semitones, -96, 96) / 12);
+  const playbackRate = audioPlaybackRate(chan.params.tune || 0, chan.pitch || 0, p.masterPitch || 0);
   // The engine starts at an unpitched source offset, then advances at the
   // pitched playback rate. Tempo automation determines elapsed seconds.
   const map = tempoMap(p);
