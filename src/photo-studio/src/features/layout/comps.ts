@@ -279,9 +279,9 @@ export function installLayerComps(e: Editor) {
     {
       id: 'comps.apply',
       label: 'Apply Layer Comp',
-      enabled: hasCurrent,
+      enabled: hasComps,
       run: (e, arg) => {
-        const c = find(e, typeof arg === 'string' ? arg : undefined) ?? current(e);
+        const c = find(e, typeof arg === 'string' ? arg : undefined) ?? current(e) ?? comps(e)[0];
         if (c) applyComp(e, c);
       },
     },
