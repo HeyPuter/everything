@@ -79,7 +79,7 @@ const channelsPanel: Panel = {
         void loadChannel(e, id, selectionOp(e, { shift: ev.shiftKey, alt: ev.altKey }));
         return;
       }
-      e.settings.activeChannel = id;
+      e.session.activeChannel = id;
       e.dock.update();
       // A double-click opens Channel Options. The first click redraws the
       // panel, so the second lands on a new row: count clicks instead of
@@ -89,7 +89,7 @@ const channelsPanel: Panel = {
   },
   update: (e, el) => {
     const doc = e.doc;
-    const active = e.settings.activeChannel as string | undefined;
+    const active = e.session.activeChannel;
     const composite = doc.layers.length ? '' : '';
     const spots = doc.mode === 'multichannel' ? (doc.channels ?? []).filter((c) => c.spot) : [];
     // Each row is chosen with its name button (Tab to it, Enter or Space).
@@ -347,7 +347,7 @@ export function installView(e: Editor) {
       id: 'select.load-active-channel',
       label: 'Load Channel as Selection',
       hidden: true,
-      run: (e) => loadChannel(e, (e.settings.activeChannel as string) ?? 'rgb', 'replace'),
+      run: (e) => loadChannel(e, e.session.activeChannel ?? 'rgb', 'replace'),
     },
     {
       id: 'channel.new',
@@ -363,9 +363,9 @@ export function installView(e: Editor) {
     {
       id: 'channel.duplicate',
       label: 'Duplicate Channel',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
+      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.session.activeChannel),
       run: (e) => {
-        const ch = e.doc.channels!.find((c) => c.id === e.settings.activeChannel)!;
+        const ch = e.doc.channels!.find((c) => c.id === e.session.activeChannel)!;
         e.command('Duplicate Channel', (d) => {
           d.channels = [...d.channels!, { ...ch, id: crypto.randomUUID(), name: `${ch.name} copy` }];
           syncMultichannel(e.assets.tiles, d);
@@ -375,21 +375,21 @@ export function installView(e: Editor) {
     {
       id: 'channel.options',
       label: 'Channel Options…',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
-      run: (e) => channelOptions(e, e.settings.activeChannel as string),
+      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.session.activeChannel),
+      run: (e) => channelOptions(e, e.session.activeChannel as string),
     },
     {
       id: 'channel.delete',
       label: 'Delete Channel',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.settings.activeChannel),
+      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.session.activeChannel),
       run: (e) => {
-        const id = e.settings.activeChannel;
+        const id = e.session.activeChannel;
         e.command('Delete Channel', (d) => {
           d.channels = d.channels!.filter((c) => c.id !== id);
           if (!d.channels.length) d.channels = undefined;
           syncMultichannel(e.assets.tiles, d);
         });
-        delete e.settings.activeChannel;
+        delete e.session.activeChannel;
       },
     },
   );

@@ -33,6 +33,8 @@ export class DocumentSession {
   hasDocument = false;
   saved?: PhotoDocument;
   maskTarget = '';
+  // The channel selected in this document's Channels panel.
+  activeChannel?: string;
   // The previous selection, restored by Select → Reselect.
   lastSelection?: TileGrid | null;
   // File name/handle for Save; undefined until saved or opened from a file.
