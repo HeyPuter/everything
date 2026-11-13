@@ -52,6 +52,126 @@ async function state(page: Page) {
   return page.evaluate(() => window.photoStudio.sessions.map((s) => ({ id: s.id, text: s.doc.layers.at(-1)!.text, family: s.doc.layers.at(-1)!.textData?.content.paragraphs[0].runs[0].style.family, history: s.history.labels })));
 }
 
+test('a font finishing during text editing preserves the live edit and its undo steps', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+  });
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('New text');
+  await finishFont(page);
+  const editing = () => page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession();
+    return s && { text: s.data.content.paragraphs[0].runs.map((r) => r.text).join(''), family: s.data.content.paragraphs[0].runs[0].style.family };
+  });
+  expect(await editing()).toEqual({ text: 'New text', family: 'Caveat' });
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await run(page, 'edit.undo');
+  expect(await editing()).toEqual({ text: 'New text', family: 'Inter' });
+  await run(page, 'edit.undo');
+  expect(await editing()).toEqual({ text: 'Original', family: 'Inter' });
+  await run(page, 'edit.redo');
+  await run(page, 'edit.redo');
+  await page.keyboard.insertText(' more');
+  await run(page, 'type.commit');
+  expect((await state(page)).at(-1)).toMatchObject({ text: 'New text more', family: 'Caveat' });
+});
+
+for (const ending of ['commit', 'cancel', 'empty', 'other layer']) test(`delayed multi-layer formatting stays in the live edit through ${ending}`, async ({ page }) => {
+  await prepare(page);
+  const active = await page.evaluate((ending) => {
+    const e = window.photoStudio;
+    const first = e.doc.layers.at(-1)!;
+    const second = { ...structuredClone(first), id: crypto.randomUUID() };
+    e.command('Second fixture', (d) => { d.layers.push(second); });
+    e.selectLayers(ending === 'other layer' ? [first.id] : [first.id, second.id]);
+    return ending === 'other layer' ? second.id : first.id;
+  }, ending);
+  await pickFont(page);
+  await page.evaluate(async (id) => {
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(window.photoStudio, id, 'all');
+  }, active);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  if (ending === 'empty') await page.keyboard.press('Backspace');
+  else if (ending !== 'other layer') await page.keyboard.insertText('New text');
+  await finishFont(page);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession())).toBe(true);
+  const layers = () => page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => ({ text: l.text, family: l.textData!.content.paragraphs[0].runs[0].style.family })));
+  expect((await layers()).map((l) => l.family)).toEqual(['Caveat', ending === 'other layer' ? 'Inter' : 'Caveat']);
+  await run(page, 'edit.undo');
+  expect((await layers()).map((l) => l.family)).toEqual(['Inter', 'Inter']);
+  await run(page, 'edit.redo');
+  await run(page, ending === 'cancel' ? 'type.cancel' : 'type.commit');
+  if (ending === 'cancel') expect(await layers()).toEqual([{ text: 'Original', family: 'Inter' }, { text: 'Original', family: 'Inter' }]);
+  else if (ending === 'empty') expect(await layers()).toEqual([{ text: 'Original', family: 'Caveat' }]);
+  else expect(await layers()).toEqual([{ text: ending === 'commit' ? 'New text' : 'Original', family: 'Caveat' }, { text: 'Original', family: ending === 'other layer' ? 'Inter' : 'Caveat' }]);
+  if (ending !== 'cancel') {
+    await run(page, 'edit.undo');
+    expect(await layers()).toEqual([{ text: 'Original', family: 'Inter' }, { text: 'Original', family: 'Inter' }]);
+  }
+});
+
+for (const mask of [false, true]) test(`delayed formatting survives committing ${mask ? 'a type mask' : 'an empty new text layer'}`, async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async (mask) => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startNew(e, { x: 40, y: 40, vertical: false, mask });
+  }, mask);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  if (mask) await page.keyboard.insertText('Mask');
+  await finishFont(page);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession())).toBe(true);
+  await run(page, 'type.commit');
+  expect(await page.evaluate(() => {
+    const d = window.photoStudio.doc;
+    return { layers: d.layers.length, family: d.layers.at(-1)!.textData!.content.paragraphs[0].runs[0].style.family, selected: !!d.selection };
+  })).toEqual({ layers: 2, family: 'Caveat', selected: mask });
+});
+
+test('a delayed font preserves the size chosen at the live caret', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    await m.startEdit(e, e.selected!, 'end');
+    await m.applyChar(e, { size: 48 });
+  });
+  await finishFont(page);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText(' BIG');
+  await run(page, 'type.commit');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.textData!.content.paragraphs[0].runs.map((r) => [r.text, r.style.family, r.style.size]))).toEqual([['Original', 'Caveat', 24], [' BIG', 'Caveat', 48]]);
+});
+
+test('a delayed font waits for composition and keeps its separate undo step', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+  });
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', { text: 'draft', selectionStart: 5, selectionEnd: 5 });
+  await finishFont(page);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()?.composing)).toBe(true);
+  await cdp.send('Input.insertText', { text: 'Final' });
+  await idle(page);
+  const edited = () => page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!;
+    return { text: s.data.content.paragraphs[0].runs.map((r) => r.text).join(''), family: s.data.content.paragraphs[0].runs[0].style.family };
+  });
+  expect(await edited()).toEqual({ text: 'Final', family: 'Caveat' });
+  await run(page, 'edit.undo');
+  expect(await edited()).toEqual({ text: 'Final', family: 'Inter' });
+  await run(page, 'edit.undo');
+  expect(await edited()).toEqual({ text: 'Original', family: 'Inter' });
+});
+
 test('a pending font choice preserves text committed while its download is delayed', async ({ page }) => {
   await prepare(page);
   await pickFont(page);

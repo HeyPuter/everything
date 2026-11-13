@@ -46,7 +46,7 @@ import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale,
 
 // `place`: the layer's placement, which Mod-dragging the text changes.
 // `caretStyle`: a style chosen at a collapsed caret, waiting for typing.
-type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement; caretStyle?: CharStyle };
+type Snapshot = { data: TextLayerData; anchor: number; focus: number; place: Placement; caretStyle?: CharStyle; context: PhotoDocument };
 type Placement = Pick<Layer, 'transform' | 'textFrame'>;
 export type Session = {
   layerId: string;
@@ -55,6 +55,10 @@ export type Session = {
   autoName: boolean;
   before: PhotoDocument;
   draft: PhotoDocument;
+  // Shared by ordinary typing snapshots; replaced only when an asynchronous
+  // layer edit also changes the surrounding document during this session.
+  context: PhotoDocument;
+  initialContext: PhotoDocument;
   original: string;
   originalPlace: string;
   data: TextLayerData;
@@ -102,6 +106,7 @@ let listeners: (() => void)[] = [];
 // UI that mirrors the caret's style (options bar, panels) subscribes here.
 export function onSessionChange(fn: () => void) {
   listeners.push(fn);
+  return () => { listeners = listeners.filter((l) => l !== fn); };
 }
 function notify() {
   for (const fn of listeners) fn();
@@ -145,7 +150,7 @@ function placement(s: Session): Placement {
   const l = findLayer(s.draft.layers, s.layerId);
   return { transform: l?.transform ?? { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, textFrame: l?.textFrame };
 }
-const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s), caretStyle: s.caretStyle });
+const snapshot = (s: Session): Snapshot => ({ data: s.data, anchor: s.anchor, focus: s.focus, place: placement(s), caretStyle: s.caretStyle, context: s.context });
 // Records an undo step unless this edit continues the previous one of the same kind.
 function remember(s: Session, kind?: string) {
   if (kind === undefined || kind !== s.lastKind) {
@@ -325,7 +330,7 @@ async function beginNew(e: Editor, opt: StartNew, request: StartRequest) {
     const draft = insertLayer(before, l, e.selected || undefined);
     if (e.preferences.missingGlyphProtection) prefetchGlyphMaps();
     session = {
-      layerId: l.id, mask: opt.mask, isNew: true, autoName: true, before, draft, original: '', originalPlace: '', data,
+      layerId: l.id, mask: opt.mask, isNew: true, autoName: true, before, draft, context: draft, initialContext: draft, original: '', originalPlace: '', data,
       anchor: 0, focus: 0, undo: [], redo: [],
     };
     if (!opt.mask) e.selectLayers([l.id]);
@@ -362,7 +367,7 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x:
     if (e.preferences.missingGlyphProtection) prefetchGlyphMaps();
     const autoName = l0.name === textLayerName(l.textData.content) || l0.name === 'Text' || l0.name === (l0.text.replace(/\s+/g, ' ').trim() || 'Text');
     session = {
-      layerId: id, mask: false, isNew: false, autoName, before, draft, original: JSON.stringify(l0.textData ?? null), originalPlace: '', data: l.textData,
+      layerId: id, mask: false, isNew: false, autoName, before, draft, context: draft, initialContext: draft, original: JSON.stringify(l0.textData ?? null), originalPlace: '', data: l.textData,
       anchor: 0, focus: 0, undo: [], redo: [],
     };
     session.originalPlace = JSON.stringify(placement(session));
@@ -400,6 +405,10 @@ export async function commit(e: Editor) {
   e.history.document = s.before;
   const empty = textLength(s.data.content) === 0;
   if (s.mask) {
+    if (s.context !== s.initialContext) {
+      const background = replaceLayer(s.draft, s.layerId, () => null);
+      e.command('Text Formatting', (d) => Object.assign(d, structuredClone(background)));
+    }
     e.update();
     if (empty) return;
     const l = findLayer(s.draft.layers, s.layerId);
@@ -413,7 +422,10 @@ export async function commit(e: Editor) {
     return;
   }
   if (empty) {
-    if (!s.isNew)
+    if (s.context !== s.initialContext) {
+      const withoutText = replaceLayer(s.draft, s.layerId, () => null);
+      e.command(s.isNew ? 'Type Tool' : 'Delete Type Layer', (d) => Object.assign(d, structuredClone(withoutText)));
+    } else if (!s.isNew)
       e.command('Delete Type Layer', (d) => {
         const walk = (layers: Layer[]) => {
           const i = layers.findIndex((x) => x.id === s.layerId);
@@ -427,7 +439,7 @@ export async function commit(e: Editor) {
     return;
   }
   // Unchanged text that was not moved either needs no history step.
-  if (!s.isNew && JSON.stringify(s.data) === s.original && JSON.stringify(placement(s)) === s.originalPlace) {
+  if (!s.isNew && s.context === s.initialContext && JSON.stringify(s.data) === s.original && JSON.stringify(placement(s)) === s.originalPlace) {
     e.update();
     notify();
     return;
@@ -534,7 +546,8 @@ export function undoEdit(e: Editor, redo = false) {
   const snap = from.pop();
   if (!snap) return;
   to.push(snapshot(s));
-  s.draft = replaceLayer(s.draft, s.layerId, (l) => ({ ...l, ...snap.place }));
+  s.context = snap.context;
+  s.draft = replaceLayer(s.context, s.layerId, (l) => ({ ...l, ...snap.place }));
   s.data = snap.data;
   s.anchor = snap.anchor;
   s.focus = snap.focus;
@@ -722,7 +735,7 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
     }
     try {
       return await editLayers(e, 'Change Character Style', (d) => ({ ...d, content: applyCharStyle(d.content, 0, textLength(d.content), patch) }), undefined, undefined,
-        { rebase: true, isCurrent: fontChange ? (id) => pending?.get(id) === request : undefined });
+        { rebase: true, charPatch: patch, isCurrent: fontChange ? (id) => pending?.get(id) === request : undefined });
     } finally {
       if (fontChange) for (const l of layers) if (pending?.get(l.id) === request) pending.delete(l.id);
     }
@@ -762,7 +775,7 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 // `isCurrent` discards superseded per-layer requests after font loading.
 // Pure formatting callbacks can opt into `rebase`: if text changes while fonts
 // load, reapply the patch to that text and prepare any newly required faces.
-export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; rebase?: boolean } = {}) {
+export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; rebase?: boolean; charPatch?: Partial<CharStyle> } = {}) {
   const owner = e.session;
   const ppi = ppiOf(owner.doc);
   const targets = (ids ? ids.map((id) => findLayer(e.doc.layers, id)).filter((l): l is Layer => !!l) : selectedTextLayers(e)).filter((l) => l.kind === 'text');
@@ -785,6 +798,14 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
       if (!e.sessions.includes(owner)) return;
       next.set(l.id, { base: t.textData, data });
     }
+    // A composing insertion owns its undo snapshot until compositionend.
+    // Wait for it before recording a separate formatting step, then rebase.
+    if (e.session === owner && session?.composing) await new Promise<void>((resolve) => {
+      const off = onSessionChange(() => {
+        if (e.session !== owner || !session?.composing) { off(); resolve(); }
+      });
+    });
+    if (!e.sessions.includes(owner)) return;
     pending = options.rebase ? allLayers(owner.doc.layers).filter((l) => {
       const prepared = next.get(l.id);
       if (!prepared || l.kind !== 'text' || (options.isCurrent && !options.isCurrent(l.id))) return false;
@@ -792,7 +813,7 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
       return current !== prepared.base && JSON.stringify(current) !== JSON.stringify(prepared.base);
     }) : [];
   } while (pending.length);
-  e.command(label, (d) => {
+  const edit = (d: PhotoDocument) => {
     const walk = (layers: Layer[]) => {
       for (let i = 0; i < layers.length; i++) {
         const l = layers[i];
@@ -811,7 +832,28 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     };
     walk(d.layers);
     patchDoc?.(d);
-  }, { session: owner });
+  };
+  const s = session;
+  if (s && e.session === owner && owner.doc === s.draft) {
+    const draft = structuredClone(s.draft);
+    edit(draft);
+    if (JSON.stringify(draft) !== JSON.stringify(s.draft)) {
+      // Keep the live caret and its local undo stack. Context snapshots share
+      // the surrounding document until another delayed edit changes it.
+      remember(s);
+      s.context = s.draft = draft;
+      const data = next.get(s.layerId)?.data;
+      if (data && (!options.isCurrent || options.isCurrent(s.layerId))) {
+        s.data = structuredClone(data);
+        const length = textLength(s.data.content);
+        s.anchor = Math.min(s.anchor, length);
+        s.focus = Math.min(s.focus, length);
+        if (s.caretStyle && options.charPatch)
+          s.caretStyle = charStyleAt(applyCharStyle(fromPlainText('x', s.caretStyle), 0, 1, options.charPatch), 0);
+      }
+      render(e);
+    }
+  } else e.command(label, edit, { session: owner });
   notify();
 }
 
