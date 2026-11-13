@@ -307,14 +307,21 @@ export async function renderToImage(doc, ids, rect, { ppi, background, antialias
  */
 export async function rasterizeObjects(editor, ids, opts, render = renderToImage) {
   const doc = editor.doc;
+  if (doc.readOnly || doc.tx) return null;
   const ordered = doc.sortByPaintOrder(ids.filter((id) => doc.get(id)));
   if (!ordered.length) return null;
   const vb = selectionBounds(doc, ordered, true);
   if (!vb || !(vb.w > 0) || !(vb.h > 0)) return null;
+  // A group can stay unchanged while a child is edited. Capture the entire
+  // input tree before rendering yields, so the image never replaces newer art.
+  const snap = new Map();
+  for (const id of ordered) for (const n of [doc.get(id), ...doc.descendants(id)]) snap.set(n.id, n);
   const rect = inflate(vb, Math.max(0, opts.padding || 0));
   const img = await render(doc, ordered, rect, { ppi: opts.resolution, background: opts.background, antialias: opts.antialias, colorModel: opts.colorModel });
-  const snap = ordered.map((id) => doc.get(id));
-  if (ordered.some((id, i) => doc.get(id) !== snap[i])) return null;
+  if (doc.readOnly || doc.tx) return null;
+  for (const [id, node] of snap) if (doc.get(id) !== node) return null;
+  // Moving a parent layer can reorder the inputs without changing them.
+  if (doc.sortByPaintOrder(ordered).some((id, i) => id !== ordered[i])) return null;
   const assetId = uid('img');
   doc.assets.set(assetId, { mime: 'image/png', data: img.data, name: 'Rasterized artwork' });
   const top = doc.get(ordered[ordered.length - 1]);
