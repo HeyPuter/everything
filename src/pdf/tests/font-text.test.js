@@ -107,3 +107,15 @@ it('names the characters a font cannot draw, so the message says what to change'
     'This font does not support U+0007 in this text.',
   );
 });
+
+it('isolates right-to-left letters it names, so the message keeps its order', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  // Without isolates an LTR message displays “م”, “ر” as “ر” ,“م”.
+  expect(() => assertSupportedText(font, 'مر')).toThrow(
+    'This font does not support “⁨م⁩” or “⁨ر⁩” in this text.',
+  );
+  expect(() => assertSupportedText(font, '✓')).toThrow(
+    'This font does not support “✓” in this text.',
+  );
+});

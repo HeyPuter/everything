@@ -178,7 +178,8 @@ it('honors clipping frames and avoids edits to partially clipped or stencil imag
     PDFName.of('Contents'),
     doc.context.register(
       doc.context.flateStream(
-        'q 30 200 160 120 re W n 80 0 0 60 40 240 cm /Image Do Q q 30 200 20 20 re W n 80 0 0 60 40 240 cm /Image Do Q',
+        // The first frame also holds a mark of its own, so it stays put as the image moves.
+        'q 30 200 160 120 re W n 0 g 30 200 4 4 re f 80 0 0 60 40 240 cm /Image Do Q q 30 200 20 20 re W n 80 0 0 60 40 240 cm /Image Do Q',
       ),
     ),
   );
@@ -294,7 +295,9 @@ it('rejects rotation outside a clipping frame without changing the PDF or distor
     .node.set(
       PDFName.of('Contents'),
       doc.context.register(
-        doc.context.flateStream('q 40 220 80 60 re W n 80 0 0 60 40 220 cm /Picture Do Q'),
+        doc.context.flateStream(
+          'q 40 220 80 60 re W n 0 g 40 220 4 4 re f 80 0 0 60 40 220 cm /Picture Do Q',
+        ),
       ),
     );
   const entry = inspectImages(doc, 0)[0],
@@ -517,4 +520,55 @@ it('finds the images of a page whose content ends with a stray Q, as readers dra
   const entries = inspectImages(doc, 0);
   expect(entries).toHaveLength(2);
   expect(entries.every((i) => i.editable)).toBe(true);
+});
+
+it('moves, turns, resizes and replaces a picture together with a clip of its own, as Word frames them', async () => {
+  const doc = await fixture(),
+    image = inspectImages(doc, 0)[0].object,
+    page = doc.getPage(0);
+  page.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({ XObject: { Im: doc.context.getObjectRef(image) } }),
+  );
+  // Word clips each picture to a rectangle a hair smaller than the picture itself.
+  page.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.flateStream(
+        '0.8 0.9 0.7 rg 0 0 400 400 re f ' +
+          'q 40 240 80 59.99 re W* n 80 0 0 60 40 240 cm /Im Do Q ' +
+          'q 200 40 100 100 re W n q 80 0 0 60 210 50 cm /Im Do Q Q ' +
+          'q 240 240 40 60 re W n 80 0 0 60 240 240 cm /Im Do Q',
+      ),
+    ),
+  );
+  const entries = inspectImages(doc, 0);
+  // The third clip crops half of its picture away: it stays a fixed frame.
+  expect(entries.map((i) => i.editable)).toEqual([true, true, false]);
+  expect(entries[0].clips).toEqual([]);
+  expect(constrainImage(entries[0], [80, 0, 0, 60, 200, 100])).toEqual([80, 0, 0, 60, 200, 100]);
+  const before = await raster(await doc.save());
+  editImage(doc, 0, entries[0], { transform: [80, 0, 0, 60, 200, 300] });
+  let after = await raster(await doc.save());
+  const at = (r, x, y) => [...r.pixels.slice((y * 400 + x) * 4, (y * 400 + x) * 4 + 3)];
+  // The picture shows where it went, and its old place shows the page behind it.
+  expect(at(after, 210, 70)).toEqual(at(before, 50, 130));
+  expect(at(after, 50, 130)).toEqual(at(before, 10, 10));
+  let moved = inspectImages(doc, 0)[0];
+  expect(moved.editable).toBe(true);
+  moved.transform.forEach((n, i) => expect(n).toBeCloseTo([80, 0, 0, 60, 200, 300][i], 8));
+  editImage(doc, 0, moved, { transform: rotateAroundCenter(moved.transform, 90) });
+  moved = inspectImages(doc, 0)[0];
+  moved.transform.forEach((n, i) => expect(n).toBeCloseTo([0, 80, -60, 0, 270, 290][i], 8));
+  // The nested group resizes with its clip; the clip grows with it, so nothing is cut off.
+  editImage(doc, 0, inspectImages(doc, 0)[1], { transform: [160, 0, 0, 120, 100, 20] });
+  after = await raster(await doc.save());
+  expect(at(after, 110, 370)).toEqual(at(before, 50, 130));
+  expect(inspectImages(doc, 0)[1].editable).toBe(true);
+  await replaceImage(doc, 0, inspectImages(doc, 0)[1], new Uint8Array(imagePng()));
+  const replaced = inspectImages(doc, 0)[1];
+  replaced.transform.forEach((n, i) => expect(n).toBeCloseTo([160, 0, 0, 120, 100, 20][i], 8));
+  editImage(doc, 0, replaced, { remove: true });
+  expect(inspectImages(doc, 0)).toHaveLength(2);
+  expect(pageSource(page)).not.toContain('200 40 100 100 re');
 });

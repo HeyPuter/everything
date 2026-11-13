@@ -429,3 +429,54 @@ test('the Print button keeps the keyboard focus once the pages are printed', asy
   // Disabled while the pages were prepared, the button had dropped the focus on the page.
   await expect(printButton).toBeFocused();
 });
+
+test('a layer hidden in the Layers panel is not printed', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    window.printedColors = null;
+    window.print = () => {
+      const image = document.querySelector('.print-sheet img');
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 200;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, 200, 200);
+      window.printedColors = [40, 140].map((x) => context.getImageData(x, 100, 1, 1).data[1]);
+      window.dispatchEvent(new Event('afterprint'));
+    };
+  });
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([200, 200]);
+  const ctx = doc.context;
+  const groups = ['Draft', 'Final'].map((name) =>
+    ctx.register(ctx.obj({ Type: 'OCG', Name: PDFString.of(name) })),
+  );
+  doc.catalog.set(PDFName.of('OCProperties'), ctx.obj({ OCGs: groups, D: { BaseState: 'ON' } }));
+  sheet.node.set(
+    PDFName.of('Resources'),
+    ctx.obj({ Properties: { Draft: groups[0], Final: groups[1] } }),
+  );
+  sheet.node.set(
+    PDFName.of('Contents'),
+    ctx.register(
+      ctx.flateStream(
+        '/OC /Draft BDC 1 0 0 rg 20 60 40 80 re f EMC /OC /Final BDC 1 0 0 rg 120 60 40 80 re f EMC',
+      ),
+    ),
+  );
+  await openPdf(page, doc);
+  const tabs = page.getByRole('tablist', { name: 'Side panel' });
+  if (!(await tabs.isVisible()))
+    await page.getByRole('button', { name: 'Toggle pages panel', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Layers' }).click();
+  await page.getByRole('checkbox', { name: 'Draft', exact: true }).uncheck();
+  await page.keyboard.press('ControlOrMeta+p');
+  await page
+    .getByRole('dialog', { name: 'Print', exact: true })
+    .getByRole('button', { name: 'Print', exact: true })
+    .click();
+  await expect.poll(() => page.evaluate(() => window.printedColors)).not.toBeNull();
+  const printed = await page.evaluate(() => window.printedColors);
+  // The hidden layer leaves white paper; the shown one prints red (a near-zero green channel).
+  expect(printed.map((channel) => channel > 240)).toEqual([true, false]);
+});

@@ -307,27 +307,37 @@ export function writeRtf(model) {
     return s;
   };
   let body = '';
+  const paragraph = (block) => {
+    const align = { center: '\\qc', right: '\\qr', justify: '\\qj' }[block.align] || '\\ql';
+    const before = Math.max(0, Math.min(72, block.gapAbove ?? 0));
+    const outline = block.heading ? `\\outlinelevel${block.heading - 1}` : '';
+    const marker = block.list ? `${markerText(block.list, counters)}\\tab ` : '';
+    const indent = block.list
+      ? `\\li${tw(block.indent)}\\fi${tw(block.firstLine || -18)}`
+      : `\\li${tw(block.indent || 0)}\\fi${tw(block.firstLine || 0)}`;
+    const tabs = block.tabs
+      ? block.tabs
+          .map(
+            (t) =>
+              `${t.kind === 'right' ? '\\tqr' : t.kind === 'center' ? '\\tqc' : ''}\\tx${tw(t.pos)}`,
+          )
+          .join('')
+      : '';
+    return `\\pard\\plain${outline}${align}${indent}\\sb${tw(before)}\\sa0${tabs} ${marker ? `{\\f0 ${marker}}` : ''}${runs(block.runs)}\\par\n`;
+  };
   model.pages.forEach((page, k) => {
     const m = page.margins;
     body += `${k ? '\\sect' : ''}\\sectd\\sbkpage\\pgwsxn${tw(page.width)}\\pghsxn${tw(page.height)}${page.width > page.height ? '\\lndscpsxn' : ''}\\marglsxn${tw(m.left)}\\margrsxn${tw(m.right)}\\margtsxn${tw(m.top)}\\margbsxn${tw(m.bottom)}\n`;
+    // Each page is a section of its own, with the running heads that page shows.
+    for (const [kind, blocks] of [
+      ['header', page.header],
+      ['footer', page.footer],
+    ])
+      if (blocks.length)
+        body += `{\\${kind} ${blocks.map((block) => paragraph({ ...block, gapAbove: 0 })).join('')}}\n`;
     for (const block of page.blocks) {
       if (block.type === 'paragraph') {
-        const align = { center: '\\qc', right: '\\qr', justify: '\\qj' }[block.align] || '\\ql';
-        const before = Math.max(0, Math.min(72, block.gapAbove ?? 0));
-        const outline = block.heading ? `\\outlinelevel${block.heading - 1}` : '';
-        const marker = block.list ? `${markerText(block.list, counters)}\\tab ` : '';
-        const indent = block.list
-          ? `\\li${tw(block.indent)}\\fi${tw(block.firstLine || -18)}`
-          : `\\li${tw(block.indent || 0)}\\fi${tw(block.firstLine || 0)}`;
-        const tabs = block.tabs
-          ? block.tabs
-              .map(
-                (t) =>
-                  `${t.kind === 'right' ? '\\tqr' : t.kind === 'center' ? '\\tqc' : ''}\\tx${tw(t.pos)}`,
-              )
-              .join('')
-          : '';
-        body += `\\pard\\plain${outline}${align}${indent}\\sb${tw(before)}\\sa0${tabs} ${marker ? `{\\f0 ${marker}}` : ''}${runs(block.runs)}\\par\n`;
+        body += paragraph(block);
       } else if (block.type === 'table') {
         for (const row of block.rows) {
           let def = `\\trowd\\trgaph43\\trleft${tw(Math.max(0, block.columns[0] - (block.column?.x0 ?? block.columns[0])))}`;

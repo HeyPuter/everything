@@ -795,10 +795,11 @@ const documentFonts = (doc) => {
  * Embed the face for text in a style. Latin, Greek, Cyrillic, and the like take bundled Noto
  * Sans; Chinese, Japanese, and Korean take a face built from only the glyphs they need. Text
  * Noto Sans cannot write otherwise, such as circled numbers, falls back to the CJK face when
- * that covers it.
+ * that covers it. `context`, the whole text that `text` is a part of, picks the regional forms,
+ * so each line of a Japanese paragraph takes the Japanese face whether or not it has kana.
  */
-export async function embedFont(doc, variant = 'regular', text = '') {
-  if (hasCjkText(text)) return embedCjkFont(doc, cjkWeight(variant, text), text);
+export async function embedFont(doc, variant = 'regular', text = '', context = text) {
+  if (hasCjkText(text)) return embedCjkFont(doc, cjkWeight(variant, text), text, context);
   const font = await embedTextFont(doc, textFontFile(variant));
   // Emoji are in neither face; do not download CJK glyphs only to report them.
   if (
@@ -809,7 +810,7 @@ export async function embedFont(doc, variant = 'regular', text = '') {
   )
     return font;
   try {
-    const fallback = await embedCjkFont(doc, cjkWeight(variant, text), text);
+    const fallback = await embedCjkFont(doc, cjkWeight(variant, text), text, context);
     if (writes(fallback, text)) return fallback;
   } catch {
     // The person's text is reported as unsupported by the Noto Sans face below.
@@ -890,11 +891,12 @@ async function embedChecked(doc, fontkit, bytes) {
  * with every earlier glyph at its old number and swapped in beneath pdf-lib's subset, which
  * reads glyph outlines only when the document is saved.
  */
-function embedCjkFont(doc, weight, text) {
+function embedCjkFont(doc, weight, text, context = text) {
   const fonts = documentFonts(doc);
-  const key = `cjk:${cjkRegions(text).join(',')}:${weight}`;
+  const regions = cjkRegions(context);
+  const key = `cjk:${regions.join(',')}:${weight}`;
   let entry = fonts.get(key);
-  if (!entry) fonts.set(key, (entry = { face: new CjkFace(cjkRegions(text), weight) }));
+  if (!entry) fonts.set(key, (entry = { face: new CjkFace(regions, weight) }));
   // One growth at a time, so two edits never rebuild the face from the same old glyphs.
   const grow = async () => {
     await entry.face.include(text);
@@ -1029,6 +1031,8 @@ export async function textFonts(doc, texts) {
   return [...fonts];
 }
 const characterSets = new WeakMap();
+// Hebrew, Arabic, Syriac, Thaana, N'Ko and the other right-to-left scripts.
+const RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefe\u{10800}-\u{10fff}\u{1e800}-\u{1efff}]/u;
 /** Return the supported canonical spelling, composing accents where the face permits it. */
 export function assertSupportedText(font, text) {
   let supported = characterSets.get(font);
@@ -1047,13 +1051,12 @@ export function assertSupportedText(font, text) {
     .join('');
   if (missing.size) {
     // Name what to change; a character that shows nothing is named by its code.
-    const names = [...missing]
-      .slice(0, 3)
-      .map((char) =>
-        /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
-          ? `“${char}”`
-          : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
-      );
+    const names = [...missing].slice(0, 3).map((char) =>
+      /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
+        ? // Isolate a right-to-left letter, or the message reorders around it: “ر” ,“م”.
+          `“${RTL.test(char) ? `\u2068${char}\u2069` : char}”`
+        : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
+    );
     const list =
       names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];
     throw new Error(`This font does not support ${list} in this text.`);

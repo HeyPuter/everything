@@ -290,3 +290,71 @@ test('a layer hidden in the Layers panel stays hidden in Organize pages', async 
     )
     .toBeGreaterThan(700);
 });
+
+test('switching on one of a set of exclusive layers shows the others switched off', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username: 'test-user'}) }, fs: { readdir: async () => [] }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`,
+    }),
+  );
+  await page.goto('/#library');
+  // A map in two languages: one label layer at a time, as a radio button set allows.
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([200, 200]);
+  const ctx = doc.context;
+  const [english, french] = ['English', 'French'].map((name) =>
+    ctx.register(ctx.obj({ Type: 'OCG', Name: PDFString.of(name) })),
+  );
+  doc.catalog.set(
+    PDFName.of('OCProperties'),
+    ctx.obj({
+      OCGs: [english, french],
+      D: { OFF: [french], Order: [english, french], RBGroups: [[english, french]] },
+    }),
+  );
+  sheet.node.set(PDFName.of('Resources'), ctx.obj({ Properties: { En: english, Fr: french } }));
+  sheet.node.set(
+    PDFName.of('Contents'),
+    ctx.register(
+      ctx.flateStream(
+        '/OC /En BDC 1 0 0 rg 20 60 40 80 re f EMC /OC /Fr BDC 0 0 1 rg 120 60 40 80 re f EMC',
+      ),
+    ),
+  );
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'map.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  const tabs = page.getByRole('tablist', { name: 'Side panel' });
+  if (!(await tabs.isVisible()))
+    await page.getByRole('button', { name: 'Toggle pages panel', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Layers' }).click();
+  const englishBox = page.getByRole('checkbox', { name: 'English', exact: true });
+  const frenchBox = page.getByRole('checkbox', { name: 'French', exact: true });
+  await expect(englishBox).toBeChecked();
+  await expect(frenchBox).not.toBeChecked();
+  await frenchBox.check();
+  // The page now shows French alone, and so does the panel.
+  await expect(englishBox).not.toBeChecked();
+  await expect(frenchBox).toBeChecked();
+  await expect(frenchBox).toBeFocused();
+  // The last choice holds through the reload every edit makes.
+  await englishBox.check();
+  await expect(frenchBox).not.toBeChecked();
+  await frenchBox.check();
+  await page.getByRole('region', { name: 'PDF page view' }).focus();
+  await page.keyboard.press('ControlOrMeta+Shift+R');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await expect(frenchBox).toBeChecked();
+  await expect(englishBox).not.toBeChecked();
+});

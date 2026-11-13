@@ -61,11 +61,18 @@ for (const kind of ['image', 'shape'])
       window.objectGesture = { layer, commits };
     }, kind);
     const cdp = await page.context().newCDPSession(page);
+    // A tap selects the object; a finger then moves it.
+    const unselected = await page
+      .getByRole('button', { name: `Select ${kind} 1`, exact: true })
+      .boundingBox();
+    const tap = { id: 1, x: unselected.x + unselected.width / 2, y: unselected.y + 10 };
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [tap] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(() => page.evaluate(() => typeof window.finishSelection)).toBe('function');
+    await page.evaluate(() => window.finishSelection());
+    await expect.poll(() => page.evaluate(() => window.objectGesture.layer.selected)).toBe(true);
     for (const phase of ['release', 'cancel', 'lost capture', 'active capture', 'tap']) {
-      const target =
-        phase === 'release'
-          ? page.getByRole('button', { name: `Select ${kind} 1`, exact: true })
-          : page.getByRole('button', { name: `Move selected ${kind}`, exact: true });
+      const target = page.getByRole('button', { name: `Move selected ${kind}`, exact: true });
       const box = await target.boundingBox();
       const touch = { id: 1, x: box.x + box.width / 2, y: box.y + box.height / 2 };
       await page.evaluate(() => {

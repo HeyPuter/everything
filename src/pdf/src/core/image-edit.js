@@ -65,11 +65,47 @@ const inside = (m, clip) =>
       y <= clip.rect[3] + 1e-6,
   );
 
+/** Operators that paint something other than an image XObject. */
+const PAINTS = new Set([
+  'S',
+  's',
+  'f',
+  'F',
+  'f*',
+  'B',
+  'B*',
+  'b',
+  'b*',
+  'sh',
+  'BI',
+  'Tj',
+  'TJ',
+  "'",
+  '"',
+]);
+/** Whether a clip leaves a picture all but whole: it may trim up to 2% of each side. */
+function encloses(m, clip) {
+  const corners = imageCorners(matrix(clip.inverse, m)),
+    xs = corners.map((p) => p[0]),
+    ys = corners.map((p) => p[1]);
+  const x = Math.min(...xs),
+    y = Math.min(...ys),
+    dx = (Math.max(...xs) - x) * 0.02 + 1e-6,
+    dy = (Math.max(...ys) - y) * 0.02 + 1e-6;
+  return (
+    x >= clip.rect[0] - dx &&
+    Math.max(...xs) <= clip.rect[2] + dx &&
+    y >= clip.rect[1] - dy &&
+    Math.max(...ys) <= clip.rect[3] + dy
+  );
+}
+
 /** Locate each image paint command, including individual calls through shared forms.
  * No bitmap matching or modifications to the shared image resource are involved.
  * An optional set receives resources whose image placements could not all be measured. */
 export function inspectImages(doc, index, { unmeasuredResources } = {}) {
-  const images = [];
+  const images = [],
+    editableWithin = new Map();
   function walk(source, resources, initial, path = [], ancestors = new Set()) {
     const first = images.length;
     try {
@@ -81,21 +117,36 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
         pendingClip = false,
         currentPath = [];
       const stack = [],
-        marked = [];
+        marked = [],
+        // Each saved state's group: where its q starts, and what it paints before its Q.
+        groups = [];
+      const painted = (count, image = null) => {
+        const group = groups.at(-1);
+        if (!group || !count) return;
+        group.paints += count;
+        group.image = image;
+      };
       for (const command of parseContent(source, { inlineImages: true })) {
         const a = command.args.map((t) => t.value);
+        if (PAINTS.has(command.op)) painted(2);
         switch (command.op) {
           case 'q':
             stack.push({ ...s });
+            groups.push({ start: command.start, ctm: s.ctm, clips: s.clips, paints: 0 });
             break;
-          case 'Q':
+          case 'Q': {
             // A stray Q in the page's own content restores nothing, as readers treat it.
             if (!stack.length) {
               if (path.length) throw error();
               break;
             }
             s = stack.pop();
+            const group = groups.pop();
+            painted(group.paints, group.paints === 1 ? group.image : null);
+            if (group.paints === 1 && group.image)
+              ownClipGroup(group, command.end, source, images.at(-1) === group.image);
             break;
+          }
           case 'cm':
             if (a.length !== 6 || !a.every(Number.isFinite)) throw error();
             s.ctm = matrix(s.ctm, a);
@@ -177,6 +228,7 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
             const object = get(get(resources, 'XObject'), a[0]);
             const subtype = get(object?.dict, 'Subtype')?.toString();
             if (subtype === '/Form') {
+              painted(2);
               if (ancestors.has(object)) throw error();
               const ctm = matrix(s.ctm, numbers(get(object.dict, 'Matrix')) || identity);
               // A form squashed flat shows nothing; there is nothing in it to edit.
@@ -217,7 +269,16 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
               const valid =
                 Math.abs(s.ctm[0] * s.ctm[3] - s.ctm[1] * s.ctm[2]) > 1e-10 &&
                 s.ctm.every(Number.isFinite);
-              images.push({
+              const ctm = s.ctm,
+                plain =
+                  valid &&
+                  !s.unsafe &&
+                  !s.optional &&
+                  !s.softMask &&
+                  s.opacity > 0 &&
+                  !get(object.dict, 'OC') &&
+                  get(object.dict, 'ImageMask')?.toString() !== 'true';
+              const entry = {
                 ...command,
                 path,
                 id: [...path.map((p) => p.start), command.start].join(':'),
@@ -231,17 +292,12 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
                 opacity: s.opacity,
                 blend: s.blend,
                 source: source.slice(command.start, command.end),
-                editable:
-                  valid &&
-                  !s.unsafe &&
-                  !s.optional &&
-                  !s.softMask &&
-                  s.opacity > 0 &&
-                  !get(object.dict, 'OC') &&
-                  get(object.dict, 'ImageMask')?.toString() !== 'true' &&
-                  s.clips.every((clip) => inside(s.ctm, clip)),
-              });
-            }
+                editable: plain && s.clips.every((clip) => inside(ctm, clip)),
+              };
+              editableWithin.set(entry, (clips) => plain && clips.every((c) => inside(ctm, c)));
+              images.push(entry);
+              painted(1, entry);
+            } else painted(2);
             break;
           }
         }
@@ -250,6 +306,28 @@ export function inspectImages(doc, index, { unmeasuredResources } = {}) {
       images.splice(first);
       unmeasuredResources?.add(resources);
     }
+  }
+  /**
+   * A picture alone in a q…Q group with clips of its own, as Word and many other producers
+   * frame every picture, is that whole group: its clips crop only it and move, turn and
+   * resize with it. Left as a fixed frame, a clip the size of the picture (or a hair smaller)
+   * would stop it from moving at all.
+   */
+  function ownClipGroup(group, end, source, last) {
+    const entry = group.image,
+      own = entry.clips.slice(group.clips.length);
+    if (!last || !own.length || !own.every((clip) => encloses(entry.pixelTransform, clip))) return;
+    const editable = editableWithin.get(entry)?.(group.clips);
+    if (!editable) return;
+    Object.assign(entry, {
+      start: group.start,
+      end,
+      id: [...entry.path.map((p) => p.start), group.start].join(':'),
+      source: source.slice(group.start, end),
+      clips: group.clips,
+      outer: group.ctm,
+      editable,
+    });
   }
   const page = doc.getPage(index);
   walk(pageSource(page), page.node.Resources(), {
@@ -292,10 +370,14 @@ export function editImage(doc, index, entry, { transform = entry.transform, remo
   )
     throw new Error('The image changed. Select it again before editing.');
   if (!remove && transform.every((n, i) => Math.abs(n - entry.transform[i]) < 1e-8)) return false;
-  const local = matrix(
-    inverse(entry.pixelTransform || entry.transform),
-    matrix(transform, imageOrientationMatrix(entry.orientation || 1)),
-  );
+  const pixels = matrix(transform, imageOrientationMatrix(entry.orientation || 1));
+  // A picture with its own clips is changed outside its group, where the clips follow it.
+  const local = entry.outer
+    ? matrix(
+        inverse(entry.outer),
+        matrix(pixels, matrix(inverse(entry.pixelTransform), entry.outer)),
+      )
+    : matrix(inverse(entry.pixelTransform || entry.transform), pixels);
   const replacement = remove
     ? ''
     : `q\n${local.map((n) => PDFNumber.of(n).toString()).join(' ')} cm\n${entry.source}\nQ`;
@@ -356,7 +438,7 @@ export async function replaceImage(doc, index, entry, bytes, transform = entry.t
   const fitted = matrix(transform, [sx, 0, 0, sy, (1 - sx) / 2, (1 - sy) / 2]);
   editImage(doc, index, entry); // The caller may have changed this document during decoding.
   const oriented = matrix(fitted, imageOrientationMatrix(image.orientation));
-  const local = matrix(inverse(entry.pixelTransform || entry.transform), oriented),
+  const local = matrix(inverse(entry.outer || entry.pixelTransform || entry.transform), oriented),
     name = uniqueName(get(entry.resources, 'XObject'), 'ReplacementImage');
   const updateResources = hasImageProtection(entry.object)
     ? (resources) => {

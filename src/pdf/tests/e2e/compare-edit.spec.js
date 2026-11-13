@@ -380,3 +380,39 @@ test("on a phone the comparison's toolbar takes two rows, not three", async ({ p
   // The filters keep their group name for assistive technology.
   await expect(page.getByRole('group', { name: 'Show changes' })).toBeVisible();
 });
+
+test('Organize pages opened during a comparison shows its grid, not the comparison', async ({
+  page,
+}) => {
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const opened = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await opened
+  ).setFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Alpha') });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Compare files', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Compare files' });
+  const chosen = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Choose file…' }).click();
+  await (
+    await chosen
+  ).setFiles({ name: 'new.pdf', mimeType: 'application/pdf', buffer: await pdfBytes('Beta') });
+  await dialog.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Compare files' })).toBeVisible();
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await expect(grid.getByRole('option')).toHaveCount(12);
+  // The grid is on top, where a click reaches it, and the comparison has closed.
+  await expect(page.getByRole('region', { name: 'Compare files' })).toHaveCount(0);
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click();
+  await expect(page.locator('.organize-status')).toHaveText('1 of 12 pages selected');
+  await expect(grid.getByRole('option', { name: 'Page 3', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});

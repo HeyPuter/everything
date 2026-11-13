@@ -189,3 +189,21 @@ it('matches hyphens typed in a query to the non-breaking hyphens and dashes on t
   );
   expect(indexPageText([{ str: 'exam‐', hasEOL: true }, { str: 'ple' }]).text).toBe('example');
 });
+
+it('finds Chinese and Japanese phrases that wrap onto the next line', () => {
+  // Neither script spaces its words, so a line break inside a phrase is not a word break.
+  const index = indexPageText([
+    { str: '東京大學中', hasEOL: true },
+    { str: '', hasEOL: true },
+    { str: '文化研究所です', hasEOL: true },
+    { str: 'カタ', hasEOL: true },
+    { str: 'カナ', hasEOL: true },
+    { str: 'Latin', hasEOL: true },
+    { str: '漢字' },
+  ]);
+  expect(index.text).toBe('東京大學中文化研究所ですカタカナ latin 漢字');
+  expect(index.text.includes(searchQuery('中文'))).toBe(true);
+  expect(index.text.includes(searchQuery('カタカナ'))).toBe(true);
+  // Korean spaces its words, so its line breaks stay word breaks.
+  expect(indexPageText([{ str: '한국', hasEOL: true }, { str: '어' }]).text).toBe('한국 어');
+});

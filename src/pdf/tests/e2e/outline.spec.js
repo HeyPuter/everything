@@ -816,6 +816,16 @@ test('a bookmark menu opens from the keyboard with Shift+F10', async ({ page }) 
   await expect(page.locator('#toast')).toHaveText('Bookmark removed.');
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   await expect(tree.getByRole('treeitem')).toHaveCount(1);
+  // The last bookmark takes the Outline tab with it; the keyboard carries on from the Pages
+  // tab in its place, not from the top of the app.
+  await expect(tree.getByRole('treeitem', { name: 'Intro' })).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const tabs = page.getByRole('tablist', { name: 'Side panel' });
+  await expect(tabs.getByRole('tab', { name: 'Outline', exact: true })).toBeHidden();
+  await expect(tabs.getByRole('tab', { name: 'Pages', exact: true })).toBeFocused();
 });
 
 test("a bookmark added from a thumbnail's menu leaves the focus on the Outline tab", async ({

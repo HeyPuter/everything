@@ -181,3 +181,43 @@ it('retries a failed slice download', async () => {
   await addText(doc, 0, { text: '重试', x: 20, y: 200 });
   expect((await runs(await doc.save())).map((run) => run.text)).toEqual(['重试']);
 });
+
+it('draws every line of an edited Japanese block in the Japanese face', async () => {
+  serveFonts();
+  vi.stubGlobal('navigator', { language: 'en-US' });
+  try {
+    const { inspectText } = await import('../src/core/text-edit.js');
+    const { groupTextRuns, replaceTextGroup } = await import('../src/core/text-group.js');
+    const { StandardFonts } = await import('pdf-lib');
+    const source = await PDFDocument.create();
+    const page = source.addPage([400, 400]);
+    const regular = await source.embedFont(StandardFonts.Helvetica),
+      bold = await source.embedFont(StandardFonts.HelveticaBold);
+    page.node.set(
+      PDFName.of('Resources'),
+      source.context.obj({ Font: { F: regular.ref, B: bold.ref } }),
+    );
+    page.node.set(
+      PDFName.of('Contents'),
+      source.context.register(
+        source.context.flateStream('BT /F 18 Tf 40 300 Td (Hello ) Tj /B 18 Tf (bold) Tj ET'),
+      ),
+    );
+    const bytes = await source.save();
+    const task = pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false });
+    tasks.push(task);
+    const doc = await PDFDocument.load(bytes);
+    const [group] = groupTextRuns(
+      await inspectText(doc, 0, await (await task.promise).getPage(1), pdfjs.OPS),
+    );
+    // Only the first part has kana; the kanji of the second are Japanese all the same.
+    const segments = [
+      { text: '東京の', part: 0 },
+      { text: '写真集', part: 1 },
+    ];
+    await replaceTextGroup(doc, 0, group, '東京の写真集', { segments });
+    expect(await fontNames(await doc.save())).toEqual(['NotoSansJP-Regular', 'NotoSansJP-Bold']);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

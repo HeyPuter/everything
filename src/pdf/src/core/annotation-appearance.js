@@ -544,8 +544,10 @@ function drawBoxShape(doc, dict, box, unit = 1) {
 /** Line, Polygon and PolyLine from their own points. */
 function drawPolyShape(doc, dict, unit = 1) {
   const subtype = dict.lookup(name('Subtype')).decodeText();
-  const color = colorOf(dict, 'C') ?? [0, 0, 0],
-    fill = colorOf(dict, 'IC');
+  const fill = colorOf(dict, 'IC');
+  // A filled polygon or cloud without a line color has no outline, as a filled box shape has
+  // none; a line needs one to be seen at all.
+  const color = colorOf(dict, 'C') ?? (subtype === 'Polygon' && fill ? null : [0, 0, 0]);
   const { width, dash } = borderOf(dict);
   const points =
     subtype === 'Line'
@@ -554,7 +556,7 @@ function drawPolyShape(doc, dict, unit = 1) {
   if (!points.length || !points.every((p) => Number.isFinite(p.x + p.y)))
     throw new Error('This shape has no points to draw.');
   if (subtype === 'Line' && points.length !== 2) throw new Error('A line needs two points.');
-  const stroke = width > 0;
+  const stroke = !!color && width > 0;
   const ops = ['1 j', ...(stroke ? strokeSetup(color, width, null) : [])];
   if (subtype === 'Polygon') {
     const cloud = cloudOf(dict);

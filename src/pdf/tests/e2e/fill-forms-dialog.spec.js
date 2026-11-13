@@ -70,6 +70,32 @@ test('Fill forms with nothing to fill in says so instead of opening', async ({ p
   await expect(page.getByRole('dialog', { name: 'Fill forms' })).toHaveCount(0);
 });
 
+test('Fill forms tells an XFA form, whose fields only Adobe readers fill in', async ({ page }) => {
+  // A dynamic XFA form, as LiveCycle Designer saves it: no AcroForm fields, and a page that
+  // asks to be shown by a reader that renders XFA.
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]).drawText('Please wait...', { x: 40, y: 300, size: 14 });
+  const template = doc.context.register(
+    doc.context.flateStream('<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"></xdp:xdp>'),
+  );
+  doc.catalog.set(PDFName.of('AcroForm'), doc.context.obj({ Fields: [], XFA: template }));
+  doc.catalog.set(PDFName.of('NeedsRendering'), doc.context.obj(true));
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'xfa.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save({ updateFieldAppearances: false })),
+  });
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
+  // It said the PDF had no fillable fields, as if it were not a form at all.
+  await expect(page.getByText('This PDF is an XFA form')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Fill forms' })).toHaveCount(0);
+});
+
 test('Fill forms points at the field whose value it refused', async ({ page }) => {
   const doc = await PDFDocument.create();
   const sheet = doc.addPage([400, 500]);

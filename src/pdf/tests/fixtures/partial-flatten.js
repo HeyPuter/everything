@@ -32,9 +32,9 @@ export async function partialFlattenPdf(kind = 'text', stale = false) {
     form.acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True);
   } else {
     if (kind === 'dropdown' || kind === 'list') {
-      field.setOptions(['漢字', 'Old']);
-      field.select('漢字');
-    } else field.setText('漢字');
+      field.setOptions(['🦄', 'Old']);
+      field.select('🦄');
+    } else field.setText('🦄');
     if (stale) form.acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True);
     else field.acroField.getWidgets()[0].dict.delete(PDFName.of('AP'));
   }

@@ -633,3 +633,26 @@ it('moving a note keeps its own icon and carries its popup along', async () => {
   expect(numbersOf(moved.lookup(PDFName.of('Popup')))).toEqual([180, 130, 360, 250]);
   expect(listNotes(doc, 0)[0]).toMatchObject({ x: 150, y: 250, text: 'Moved' });
 });
+
+// Acrobat ends a note's lines with CR, which a text box gives back as LF: opening such a note
+// and closing it unchanged read as an edit, which marked the PDF changed and dropped the
+// note's rich text (RC).
+it('reads a note’s CR and CR LF line breaks as a text box gives them back', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const rich = '<body xmlns="http://www.w3.org/1999/xhtml"><p>One</p><p>Two</p></body>';
+  const ref = doc.context.register(
+    doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      Rect: [100, 300, 120, 320],
+      Contents: PDFHexString.fromText('One\rTwo\r\nThree'),
+      RC: PDFString.of(rich),
+    }),
+  );
+  page.node.set(PDFName.of('Annots'), doc.context.obj([ref]));
+  const [note] = listNotes(doc, 0);
+  expect(note.text).toBe('One\nTwo\nThree');
+  expect(editNote(doc, 0, note.id, { text: 'One\nTwo\nThree', hex: note.hex })).toBe(false);
+  expect(doc.context.lookup(ref).lookup(PDFName.of('RC')).decodeText()).toBe(rich);
+});

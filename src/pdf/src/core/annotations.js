@@ -1076,12 +1076,24 @@ export function addReply(doc, page, parentId, { text: body, author = '' } = {}) 
 function addState(doc, page, parentId, model, states, state, author) {
   if (!states.includes(state)) throw new Error(`Choose one of: ${states.join(', ')}.`);
   page = pageAt(doc, page);
-  return threadAnnotation(doc, page, parentId, {
+  // The newest state is the current one. A state dated ahead of this clock (another writer's
+  // local time read as UTC, or a clock set fast) would stay current over the one set now, so
+  // the new one is dated just after it instead.
+  const latest = Math.max(
+    0,
+    ...(pageThreads(doc, page).children.get(parentId) || [])
+      .filter(({ dict }) => stateModelOf(dict) === model)
+      .map(({ dict }) => (dateOf(dict, 'M') || dateOf(dict, 'CreationDate'))?.getTime() ?? 0),
+  );
+  const id = threadAnnotation(doc, page, parentId, {
     // Acrobat's own wording, shown in other readers' comment lists.
     contents: author ? `${state} set by ${author}` : state,
     author,
     extra: { StateModel: PDFString.of(model), State: PDFString.of(state) },
   });
+  if (latest > Date.now())
+    locate(doc, page, id).dict.set(name('M'), PDFString.of(pdfDate(new Date(latest + 1000))));
+  return id;
 }
 /** Record a review status (Accepted, Rejected, Cancelled, Completed or None) on a comment. */
 export function setReviewState(doc, page, parentId, { state, author = '' } = {}) {

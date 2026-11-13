@@ -15,6 +15,15 @@ const field = (id, label, control, hint) =>
   );
 
 const WRONG_PASSWORD = 'The password is not right for this digital ID file.';
+/** Why a digital ID cannot sign now: its certificate expired or is not valid yet; or null. */
+function validityProblem(summary, now = new Date()) {
+  const day = (date) => date.toLocaleDateString(undefined, { dateStyle: 'medium' });
+  if (now > summary.validTo)
+    return `This digital ID expired on ${day(summary.validTo)}. Choose another one to sign with.`;
+  if (now < summary.validFrom)
+    return `This digital ID is valid from ${day(summary.validFrom)}. Choose another one to sign with.`;
+  return null;
+}
 function errorText(error) {
   if (error?.name === 'Pkcs12PasswordError' || /password|mac/i.test(error?.message || ''))
     return WRONG_PASSWORD;
@@ -155,7 +164,11 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
         const { importPkcs12, exportPkcs12, createSelfSignedId, describeIdentity } =
           await import('./core/digital-signature.js');
         if (choice?.startsWith('open-')) {
-          result = identities[Number(choice.slice(5))];
+          const chosen = identities[Number(choice.slice(5))];
+          // Asked before the signature's details, which a signing refused afterwards loses.
+          const problem = validityProblem(chosen.summary);
+          if (problem) return fail(problem);
+          result = chosen;
         } else if (choice === 'file') {
           const chosen = file.files?.[0];
           if (!chosen) return fail('Choose a digital ID file.', file);
@@ -164,7 +177,10 @@ export function chooseDigitalId(identities = [], { signal } = {}) {
             filePassword.value,
           );
           if (!dialog.open) return;
-          result = { identity, summary: describeIdentity(identity) };
+          const summary = describeIdentity(identity);
+          const problem = validityProblem(summary);
+          if (problem) return fail(problem, file);
+          result = { identity, summary };
         } else {
           if (!name.value.trim()) return fail('Enter the name to sign with.', name);
           // The address goes into the certificate, where readers show it as the signer's.

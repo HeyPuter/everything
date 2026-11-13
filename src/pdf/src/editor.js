@@ -67,7 +67,7 @@ import {
   annotationAccepts,
   REVIEW_STATES,
 } from './core/annotations.js';
-import { ensureStyledFontFaces, ensureCjkFontFaces, cjkDraftFace } from './text-fonts.js';
+import { ensureStyledFontFaces, cjkDraftFace } from './text-fonts.js';
 import {
   documentAccess,
   requireDocumentAccess,
@@ -694,6 +694,16 @@ export function createEditor({
           (point.y - before.top) / (before.height || 1),
         ];
         scaleMode = mode;
+        // The anchor is kept as the page is laid out at the new zoom, in the same frame, rather
+        // than once its words and fields are drawn too: a pinch's stretched picture stays until
+        // then instead of springing back to the old size first.
+        zoomPlacement = () => {
+          clearPinchScale();
+          const after = paper.getBoundingClientRect();
+          workspace.scrollLeft += after.left + fraction[0] * after.width - point.x;
+          workspace.scrollTop += after.top + fraction[1] * after.height - point.y;
+          stack.quiet();
+        };
         await renderPage();
         if (destroyed || pendingZoom !== request || paper.hidden) return;
         await restoreSelection(held);
@@ -907,9 +917,13 @@ export function createEditor({
   const layerChoices = new Map();
   const layers = createLayersPanel({
     onToggle: safe(async (id, visible) => {
+      // The choices are made again in order after each edit; the latest goes last, so it
+      // wins over earlier ones in the same radio button set.
+      layerChoices.delete(id);
       layerChoices.set(id, visible);
       const config = await documentLayers;
       config?.setVisibility(id, visible);
+      layers.sync();
       if (destroyed) return;
       await renderPage();
       stack.invalidate();
@@ -974,9 +988,20 @@ export function createEditor({
   }
   async function validateSignatures(announce = false) {
     const token = ++signatureCheck;
-    const hasFields = hasSignatureValue(signedBytes());
+    const source = pdf;
+    // A file rewritten after it was signed, here or by another program, can keep its
+    // signature dictionaries in compressed object streams; its form still says it is signed.
+    const raw = hasSignatureValue(signedBytes());
+    const flagged =
+      !raw &&
+      !!source &&
+      (await source.getMetadata().then(
+        ({ info }) => !!info?.IsSignaturesPresent,
+        () => false,
+      ));
+    if (token !== signatureCheck || destroyed) return;
     let reports = [];
-    if (hasFields) {
+    if (raw || flagged) {
       const { verifySignatures } = await import('./core/digital-signature.js');
       // An encrypted file's text strings (reason, field names) need the password it opened with.
       reports = await verifySignatures(signedBytes(), {
@@ -987,6 +1012,7 @@ export function createEditor({
     signatureReports = reports;
     signaturesPanel.show(reports);
     signatureBar.show(reports);
+    const hasFields = raw || reports.length > 0;
     const tab = sidebarTabs.querySelector('[data-tab="signatures"]');
     tab.hidden = !hasFields;
     if (!hasFields && sidebarTab === 'signatures') showSidebarTab('pages');
@@ -1465,6 +1491,8 @@ export function createEditor({
     if (!pdf) return;
     safe(async () => {
       await finishDrafts();
+      // Compare files fills the same place; the grid would open hidden underneath it.
+      closeComparison();
       editorRoot.classList.add('organizing');
       organizer.show();
     })();
@@ -1602,9 +1630,23 @@ export function createEditor({
       ligatures: 'normal',
     };
   }
+  /**
+   * Load the CJK faces a draft previews in: only the weights its parts are drawn with, as
+   * loading both doubled what typing Chinese, Japanese, or Korean downloads.
+   */
+  function loadDraftCjkFaces(edit) {
+    const text = edit.input.value;
+    const weights = new Set(
+      (edit.run?.parts || [edit.run]).map((run) => {
+        const { weight } = draftFace(edit, run || null);
+        return weight === 'bold' || Number(weight) >= 600 ? 'bold' : 'regular';
+      }),
+    );
+    return Promise.all([...weights].map((weight) => ensureStyledFontFaces(weight, text)));
+  }
   function applyDraftStyle(edit) {
     if (hasCjkText(edit.input.value))
-      ensureCjkFontFaces(edit.input.value).then(() => {
+      loadDraftCjkFaces(edit).then(() => {
         if (textEdit === edit) layoutTextEdit();
       });
     const face = draftFace(edit);
@@ -2026,6 +2068,9 @@ export function createEditor({
             role: 'option',
             'aria-selected': 'false',
             'aria-label': `Open tool: ${entry.label}`,
+            // A tool this PDF does not allow is offered as the pane shows it, dimmed: choosing
+            // it used to close the find bar and do nothing.
+            disabled: !toolsPanel.allows(entry.id),
             onclick: safe(async () => {
               closeSearch();
               if (entry.run && !entry.sections) return toolsPanel.open(entry.id);
@@ -2473,6 +2518,11 @@ export function createEditor({
             textEdit.offset.some((n) => Math.abs(n) > 1e-8)))),
     );
   }
+  // Rewriting text that has not changed still replaces it, and Chrome then closes the typing
+  // step of an open text draft: Undo there took back one character at a time.
+  const setText = (node, text) => {
+    if (node.textContent !== text) node.textContent = text;
+  };
   function updateStatus() {
     if (destroyed) return;
     // A brief refresh must still block duplicate actions, without flashing every control
@@ -2503,7 +2553,7 @@ export function createEditor({
     });
     setStepOff(zoomInButton, busy || !pdf || zoom >= ZOOM_LEVELS.at(-1) - 1e-9);
     setStepOff(zoomOutButton, busy || !pdf || zoom <= ZOOM_LEVELS[0] + 1e-9);
-    nameButton.querySelector('span').textContent = name.replace(/\.pdf$/i, '');
+    setText(nameButton.querySelector('span'), name.replace(/\.pdf$/i, ''));
     nameButton.setAttribute('aria-label', `Rename ${name}`);
     // The name is clipped on narrow screens, so the tooltip carries it in full.
     nameButton.title = name;
@@ -2512,39 +2562,48 @@ export function createEditor({
     const pendingText =
       pendingTextEdit() || pendingNoteEdit() || pageForms.draft.dirty || pageImages.dirty;
     const unsaved = session.dirty || pendingText || protectionDirty;
-    document.title = `${unsaved ? '* ' : ''}${shownTitle || name} · PDF Editor`;
+    const title = `${unsaved ? '* ' : ''}${shownTitle || name} · PDF Editor`;
+    if (document.title !== title) document.title = title;
     // The desktop window shows the file, marked while it has unsaved changes, as its neighbours do.
     P.setWindowTitle(`${unsaved ? '● ' : ''}${name}`);
     protectionBadge.hidden = !protection;
     if (tool === 'select' && !access().owner)
-      hint.textContent =
-        'This PDF has document permissions. Select Protected to view them or unlock editing.';
+      setText(
+        hint,
+        'This PDF has document permissions. Select Protected to view them or unlock editing.',
+      );
     protectionBadge.disabled = busy;
     protectionBadge.title = access().owner
       ? 'Protected. Change or remove the password and restrictions.'
       : 'View permissions or unlock editing with the permissions password.';
     document.body.classList.toggle('pdf-restricted-print', !access().printHighQuality);
-    printNotice.textContent = access().print
-      ? 'Use File → Print in PDF Editor to print this document at its allowed resolution.'
-      : 'Printing is not allowed by this PDF’s permissions.';
-    saveStatus.textContent = activity
-      ? activity
-      : saving
-        ? 'Saving…'
-        : initializing
-          ? 'Opening PDF…'
-          : unsaved
-            ? 'Unsaved changes'
-            : path && cloudRevision === session.revision
-              ? 'Saved to Puter'
-              : downloadedRevision === session.revision
-                ? 'Downloaded'
-                : 'Local file';
+    setText(
+      printNotice,
+      access().print
+        ? 'Use File → Print in PDF Editor to print this document at its allowed resolution.'
+        : 'Printing is not allowed by this PDF’s permissions.',
+    );
+    setText(
+      saveStatus,
+      activity
+        ? activity
+        : saving
+          ? 'Saving…'
+          : initializing
+            ? 'Opening PDF…'
+            : unsaved
+              ? 'Unsaved changes'
+              : path && cloudRevision === session.revision
+                ? 'Saved to Puter'
+                : downloadedRevision === session.revision
+                  ? 'Downloaded'
+                  : 'Local file',
+    );
     saveStatus.title = saveStatus.textContent;
     saveButton.disabled = saving || busy;
     // Without a session the button says what saving needs first.
     const saveLabel = signedOut() ? 'Sign in to save' : path ? 'Save' : 'Save to Puter';
-    saveButton.querySelector('span').textContent = saveLabel;
+    setText(saveButton.querySelector('span'), saveLabel);
     saveButton.setAttribute('aria-label', saveLabel);
     saveButton.title = withShortcut(saveLabel, 'Mod+S');
     nameButton.disabled = busy || saving;
@@ -2571,8 +2630,8 @@ export function createEditor({
     if (pdf) {
       if (!pageInputDirty) pageInput.value = String(pageIndex + 1);
       pageInput.max = String(pdf.numPages);
-      pageTotal.textContent = `/ ${pdf.numPages}`;
-      statusPage.textContent = `${pdf.numPages} ${pdf.numPages === 1 ? 'page' : 'pages'}`;
+      setText(pageTotal, `/ ${pdf.numPages}`);
+      setText(statusPage, `${pdf.numPages} ${pdf.numPages === 1 ? 'page' : 'pages'}`);
     }
     const destination = clampPageIndex(pendingNavigation?.index ?? pageIndex);
     // Side by side, the buttons turn pairs: the other page of the pair on view is in sight.
@@ -2671,7 +2730,14 @@ export function createEditor({
       outline.load(next, { isCurrent }).then((hasOutline) => {
         if (destroyed || pdf !== next) return;
         sidebarTabs.querySelector('[data-tab="outline"]').hidden = !hasOutline;
-        if (!hasOutline && sidebarTab === 'outline') showSidebarTab('pages');
+        if (!hasOutline && sidebarTab === 'outline') {
+          // The last bookmark removed takes the tab and the focus with it; the keyboard goes
+          // on from the Pages tab that takes its place rather than from the top of the app.
+          const lost = !document.activeElement || document.activeElement === document.body;
+          showSidebarTab('pages');
+          if (lost && !editorRoot.classList.contains('hide-pages'))
+            sidebarTabs.querySelector('[data-tab="pages"]').focus({ preventScroll: true });
+        }
         if (hasOutline) outline.setCurrent(pageIndex);
       });
       loadAttachments(next);
@@ -2721,9 +2787,13 @@ export function createEditor({
     if (Math.abs(shift) > 1e-6) paper.style.left = `${shift}px`;
   }
   let pageRenderGeneration = 0;
+  /** What a zoom does once the page is laid out at its new scale (see setZoom). */
+  let zoomPlacement = null;
   async function renderPage(retainedScale = null) {
     if (!pdf || destroyed) return;
     const token = ++pageRenderGeneration;
+    const placed = zoomPlacement;
+    zoomPlacement = null;
     pageReady = false;
     commentThreads = null;
     textTargets.replaceChildren();
@@ -2831,6 +2901,7 @@ export function createEditor({
       paper.style.height = `${viewport.height}px`;
       paper.hidden = false;
       snapPaper();
+      placed?.();
       paper.style.setProperty('--scale-factor', zoom);
       paper.style.setProperty('--user-unit', page.userUnit || 1);
       const overlayRatio = Math.min(1, ratio);
@@ -2928,6 +2999,17 @@ export function createEditor({
         editDocument = doc;
         listSelections = sharedChoiceSelections(doc);
       }
+      // The page's tab order (/Tabs), which PDF.js does not report, for a page with fields to
+      // visit. The document is loaded already to edit in Select; a form that may only be
+      // filled in is read for it.
+      let tabs;
+      if (annotations.filter((a) => a.fieldName && a.fieldType !== 'Sig').length > 1) {
+        const doc =
+          editDocument || (await loadPdfDocument(session.bytes, { updateMetadata: false }));
+        if (token !== pageRenderGeneration || destroyed) return;
+        editDocument = doc;
+        tabs = doc.getPage(pageIndex).node.lookup(PDFName.of('Tabs'))?.asString?.().slice(1);
+      }
       pageForms.render(
         annotations,
         viewport,
@@ -2937,6 +3019,7 @@ export function createEditor({
         tooltips,
         radioChoices,
         listSelections,
+        tabs,
       );
       pageForms.setBusy(busy || !pageReady || !access().fill);
       pageForms.setEnabled(tool === 'select' && !preparing);
@@ -3656,6 +3739,9 @@ export function createEditor({
       // Pressed from the keyboard, the button is disabled while the PDF is redrawn, which drops
       // the focus; it takes it back for the next press unless the focus has moved meanwhile.
       const pressed = [undoButton, redoButton].find((b) => b === document.activeElement);
+      // A selected picture's or shape's handle goes with the redrawn page; the page keeps the
+      // focus then, as it does when a draft is undone.
+      const onObject = pageImages.controls.contains(document.activeElement);
       busy = true;
       updateStatus();
       try {
@@ -3665,6 +3751,8 @@ export function createEditor({
         updateStatus();
         if (pressed && !pressed.disabled && document.activeElement === document.body)
           pressed.focus({ preventScroll: true });
+        else if (onObject && !destroyed && document.activeElement === document.body)
+          overlay.focus({ preventScroll: true });
       }
     }
   }
@@ -3718,7 +3806,7 @@ export function createEditor({
       crop: 'Drag over the part of the page to keep, then choose which pages to crop.',
       link: 'Drag over the text or area that should open a web address or another page.',
       hand: 'Drag to move through the pages. Hold Space with any tool to do the same.',
-      certsign: 'Drag a box where the signature should appear.',
+      certsign: 'Drag a box where the signature should appear, or click an empty signature field.',
       textbox: 'Drag a box for the text comment, or click to place one.',
       callout: 'Drag from the spot the comment points at to where its box goes.',
       cshape: 'Drag to draw a shape. Hold Shift to keep it regular.',
@@ -4020,18 +4108,29 @@ export function createEditor({
       commentThread(found, (operation, message, control) =>
         changeHighlightThread(entry, operation, message, control),
       );
+    // Who marked it, when, and what they wrote: a markup's words were shown nowhere in full.
+    const date = found?.modified ?? found?.created;
+    const meta = [
+      found?.author,
+      date?.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const words = entry.text.trim();
     properties.show(
       'highlight',
       Label,
-      thread
+      thread || meta || words
         ? el(
             'div',
             { class: 'annotation-props' },
+            meta ? el('p', { class: 'muted annotation-meta' }, meta) : null,
+            words ? el('p', { class: 'markup-comment' }, words) : null,
             panel,
-            thread.status,
-            thread.replies,
-            thread.replyText,
-            el('div', { class: 'annotation-actions' }, thread.replyButton),
+            thread && thread.status,
+            thread && thread.replies,
+            thread && thread.replyText,
+            thread && el('div', { class: 'annotation-actions' }, thread.replyButton),
           )
         : panel,
     );
@@ -4402,7 +4501,12 @@ export function createEditor({
       } else if (g.type === 'certsign') {
         clearOverlay();
         const end = screenPoint(e);
-        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 8) return;
+        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 8) {
+          // A click on a signature field the form left empty signs that field.
+          const empty = await emptySignatureField(g.page, pdfPoint(end));
+          if (empty) await signWithCertificate({ fieldName: empty.name, page: g.page });
+          return;
+        }
         await signWithCertificate({
           rect: normalizeRect(pdfPoint(g.start), pdfPoint(end)),
           page: g.page,
@@ -5320,7 +5424,7 @@ export function createEditor({
       edit.positionControl.validate();
       edit.widthControl?.validate();
       if (hasCjkText(edit.input.value)) {
-        await ensureCjkFontFaces(edit.input.value);
+        await loadDraftCjkFaces(edit);
         if (textEdit !== edit) return;
         layoutTextEdit();
       }
@@ -5867,7 +5971,11 @@ export function createEditor({
     }
     if (tool === 'certsign') {
       if (busy || !pageReady) return;
-      await signWithCertificate({ rect: centered(200, 60), page: pageIndex });
+      // The page's empty signature field is the place to sign, when the form has one.
+      const page = pageIndex;
+      const empty = await emptySignatureField(page);
+      if (empty) await signWithCertificate({ fieldName: empty.name, page });
+      else await signWithCertificate({ rect: centered(200, 60), page });
       return;
     }
     if (tool === 'link') {
@@ -6640,10 +6748,19 @@ export function createEditor({
     // Push buttons hold nothing to fill in.
     const fields = listFields(doc).filter((field) => !field.button);
     if (!fields.some((field) => field.type !== 'unsupported')) {
+      // An XFA form keeps its fields in XFA alone, which only Adobe's readers fill in; what
+      // its pages show here is usually a note to that effect.
+      const xfa = await pdf
+        .getMetadata()
+        .then(({ info }) => !!info?.IsXFAPresent)
+        .catch(() => false);
+      if (!canOpenDialog(version)) return;
       toast(
-        fields.some((field) => field.signature)
-          ? 'This PDF has no fields to fill in. Sign its signature fields with Sign with a certificate.'
-          : 'This PDF has no fillable fields. Use Text to write on the page.',
+        xfa
+          ? 'This PDF is an XFA form, which can be filled in only in Adobe Acrobat or Adobe Reader. Use Text to write on the page.'
+          : fields.some((field) => field.signature)
+            ? 'This PDF has no fields to fill in. Sign its signature fields with Sign with a certificate.'
+            : 'This PDF has no fillable fields. Use Text to write on the page.',
       );
       return;
     }
@@ -8827,7 +8944,29 @@ export function createEditor({
    * Sign with a certificate: choose a digital ID, then append a signature to the PDF as it is
    * now. A rectangle gives a visible signature on that page; none gives an invisible one.
    */
-  async function signWithCertificate({ rect = null, page = pageIndex, certify = false } = {}) {
+  /**
+   * The page's unsigned, visible signature field under `point` (PDF user space), or with no
+   * point its first one; null when there is none.
+   */
+  async function emptySignatureField(page, point = null) {
+    const { listSignatureFields } = await import('./core/digital-signature.js');
+    const fields = (await listSignatureFields(session.bytes)).filter(
+      (field) => !field.signed && !field.invisible && field.page === page,
+    );
+    if (!point) return fields[0] ?? null;
+    return (
+      fields.find(
+        ({ rect: [x0, y0, x1, y1] }) =>
+          point.x >= x0 && point.x <= x1 && point.y >= y0 && point.y <= y1,
+      ) ?? null
+    );
+  }
+  async function signWithCertificate({
+    rect = null,
+    page = pageIndex,
+    certify = false,
+    fieldName,
+  } = {}) {
     requireAccess('fill');
     if (protection)
       throw new Error(
@@ -8847,6 +8986,7 @@ export function createEditor({
       const signed = await signPdf(session.bytes, chosen.identity, {
         page,
         rect,
+        fieldName,
         reason: details.reason,
         location: details.location,
         contactInfo: details.contactInfo,
@@ -8927,13 +9067,22 @@ export function createEditor({
     if (destroyed) return;
     const bytes = await exportBytes(extracted, savedProtection);
     if (destroyed) return;
-    const label = formatPageRange(list);
-    download(bytes, exportName(list.length === 1 ? ` page ${list[0] + 1}` : ` pages ${label}`));
-    toast(
-      list.length === 1
-        ? `Page ${list[0] + 1} downloaded as a new PDF.`
-        : `Pages ${label} downloaded as a new PDF.`,
-    );
+    const { file, message } = extractedPages(list);
+    download(bytes, file);
+    toast(message);
+  }
+  /**
+   * The file name and message for downloaded pages: their numbers, or their count when the
+   * numbers of scattered pages would not fit a file name.
+   */
+  function extractedPages(indices) {
+    const label = formatPageRange(indices);
+    const suffix = indices.length === 1 ? ` page ${label}` : ` pages ${label}`;
+    const short = suffix.length <= 64;
+    return {
+      file: exportName(short ? suffix : ` ${indices.length} pages`),
+      message: `${short ? `${indices.length === 1 ? 'Page' : 'Pages'} ${label}` : `${indices.length} pages`} downloaded as a new PDF.`,
+    };
   }
   async function deletePageAt(index) {
     requireAccess('assemble');
@@ -9001,6 +9150,9 @@ export function createEditor({
     const status = el('p', { class: 'muted', role: 'status' });
     let found = [];
     const search = safe(async () => {
+      // Enter submits the form even while the Search button is disabled; a second search
+      // would add its matches to the first one's list.
+      if (searchButton.disabled) return;
       const text = query.value.trim();
       const patterns = patternBoxes.filter((entry) => entry.box.checked);
       if (!text && !patterns.length) throw new Error('Enter text or choose a pattern to find.');
@@ -9286,7 +9438,7 @@ export function createEditor({
     requireAccess('edit');
     const { sanitizeDocument, sanitizedCount, SANITIZE_DEFAULTS } = await loadSanitize();
     const LABELS = {
-      metadata: 'Document metadata (author, title, XMP)',
+      metadata: 'Metadata (author, title, XMP, and the camera, time, and location in photos)',
       privateData: 'Private data of other applications',
       javascript: 'Scripts',
       actions: 'Links and actions that open other files or sites',
@@ -10069,6 +10221,22 @@ export function createEditor({
       button('Print', 'Printer', print, 'btn primary'),
     ]);
   }
+  /**
+   * The layers to print: the PDF's print settings, less the layers switched off in the Layers
+   * panel, which print only when visible as other PDF apps do. A layer switched on there still
+   * stays off paper when the PDF says it never prints.
+   */
+  function printLayers() {
+    if (!layerChoices.size) return undefined;
+    return pdf.getOptionalContentConfig({ intent: 'print' }).then((config) => {
+      for (const [id, visible] of layerChoices) {
+        const group = config.getGroup(id);
+        if (group && (!visible || group.usage?.print?.printState !== 'OFF'))
+          config.setVisibility(id, visible);
+      }
+      return config;
+    });
+  }
   async function runPrint(indices) {
     requireAccess('print');
     if (busy || destroyed) return;
@@ -10091,6 +10259,7 @@ export function createEditor({
     try {
       await printPages(pdf, indices, {
         maxDpi: access().printHighQuality ? Infinity : 150,
+        layers: printLayers(),
         signal: controller.signal,
         onProgress: (done, total) => {
           if (done < total) {
@@ -10740,7 +10909,7 @@ export function createEditor({
             { class: 'reply-meta muted' },
             [item.author, when(item.modified)].filter(Boolean).join(' · '),
           ),
-          el('span', {}, item.contents || ''),
+          el('span', { class: 'reply-text' }, item.contents || ''),
           item.replies?.length > 0 &&
             el('ul', { class: 'annotation-replies' }, ...replyItems(item.replies)),
         ),
@@ -11869,6 +12038,8 @@ export function createEditor({
         onClose: () => closeComparison(),
       });
       comparison = { view, tasks };
+      // The comparison takes the page area, as Organize pages does; one of them at a time.
+      closeOrganizer();
       editorRoot.querySelector('.document-view').append(view.root);
       editorRoot.classList.add('comparing');
       view.focus();
@@ -12868,13 +13039,12 @@ export function createEditor({
         if (destroyed || !d.open) return;
         const bytes = await exportBytes(extracted);
         if (destroyed || !d.open) return;
-        const label = formatPageRange(indices);
         // A long list of scattered pages would not fit a file name; their count does. One
         // page is named as Extract page in the page's menu names it.
-        const suffix = indices.length === 1 ? ` page ${label}` : ` pages ${label}`;
-        download(bytes, exportName(suffix.length <= 64 ? suffix : ` ${indices.length} pages`));
+        const { file, message } = extractedPages(indices);
+        download(bytes, file);
         d.close();
-        toast(`${indices.length === 1 ? 'Page' : 'Pages'} ${label} downloaded as a new PDF.`);
+        toast(message);
       } catch (error) {
         if (!destroyed && d.open) throw error;
       } finally {
@@ -13391,14 +13561,20 @@ export function createEditor({
       if (getComputedStyle(at).touchAction === 'none') return true;
     return false;
   };
+  /** The pages' stretch from a pinch, kept after the fingers lift until the zoom is drawn. */
+  function clearPinchScale() {
+    if (pinch) return;
+    pageStackElement.style.transform = pageStackElement.style.transformOrigin = '';
+  }
   function endPinch(commit) {
     if (!pinch) return;
     const { scale, x, y } = pinch;
     pinch = null;
-    pageStackElement.style.transform = pageStackElement.style.transformOrigin = '';
-    if (!commit || destroyed || Math.abs(scale - 1) < 0.02) return;
+    if (!commit || destroyed || Math.abs(scale - 1) < 0.02) return clearPinchScale();
     const next = Math.max(0.02, Math.round(zoom * scale * 100) / 100);
-    safe(() => setZoom(String(next), { x, y }))();
+    // The stretched pages stand in until the page is laid out at the new zoom. Clearing them
+    // at once showed the old size for as long as the page took to draw, then the new one.
+    safe(() => setZoom(String(next), { x, y }))().finally(clearPinchScale);
   }
   workspace.addEventListener(
     'touchstart',
@@ -13413,6 +13589,8 @@ export function createEditor({
         return;
       panning = null;
       editorRoot.classList.remove('panning');
+      // A pinch started while the last one is still being drawn starts from the pages as laid out.
+      clearPinchScale();
       const x = (touches[0].clientX + touches[1].clientX) / 2,
         y = (touches[0].clientY + touches[1].clientY) / 2;
       pinch = { span: touchSpan(touches) || 1, x, y, scale: 1 };

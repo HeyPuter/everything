@@ -265,8 +265,9 @@ export function listNotes(doc, index) {
         width: Math.abs(rect[2] - rect[0]),
         height: Math.abs(rect[3] - rect[1]),
         // The editor saves trimmed text; trimming here too keeps an untouched note from
-        // other writers (which may end in a newline) from reading as an edit.
-        text: (dict.lookup(name('Contents'))?.decodeText?.() || '').trim(),
+        // other writers (which may end in a newline) from reading as an edit. Its line breaks
+        // are read as a text box gives them back: Acrobat writes CR, and CR LF is common too.
+        text: (dict.lookup(name('Contents'))?.decodeText?.() || '').replace(/\r\n?/g, '\n').trim(),
         author: dict.lookup(name('T'))?.decodeText?.() || '',
         modified: parsePdfDate(
           dict.lookup(name('M'))?.decodeText?.() ?? dict.lookup(name('M'))?.asString?.(),

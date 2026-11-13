@@ -12,7 +12,9 @@ import {
   decodePDFRawStream,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { PdfSession } from '../src/core/document.js';
+import { createCanvas } from '@napi-rs/canvas';
+import { JpegImage } from 'pdfjs-dist/image_decoders/pdf.image_decoders.mjs';
+import { PdfSession, drawOrientedImage, embedOrientedImage } from '../src/core/document.js';
 import { SANITIZE_DEFAULTS, sanitizeDocument, sanitizedCount } from '../src/core/sanitize.js';
 
 const n = PDFName.of;
@@ -426,6 +428,66 @@ describe('sanitizeDocument', () => {
     const corpus = await recoverable(bytes);
     expect(corpus).not.toContain('SEARCHIDX');
     expect(corpus).toContain('NOTES');
+  });
+
+  it('removes what a photo carries of its own: EXIF with its location, XMP, IPTC, comments', async () => {
+    const canvas = createCanvas(64, 48);
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#3366cc';
+    g.fillRect(0, 0, 64, 48);
+    const plain = new Uint8Array(canvas.toBuffer('image/jpeg'));
+    const segment = (marker, text) => {
+      const body = Buffer.from(text, 'latin1');
+      return Buffer.concat([
+        Buffer.from([0xff, marker, (body.length + 2) >> 8, (body.length + 2) & 255]),
+        body,
+      ]);
+    };
+    const photo = new Uint8Array(
+      Buffer.concat([
+        plain.subarray(0, 2),
+        segment(0xe1, 'Exif\0\0GPS 52.37N 4.89E EXIFSECRET'),
+        segment(0xe1, 'http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>XMPSECRET</x:xmpmeta>'),
+        segment(0xed, 'Photoshop 3.0\0IPTCSECRET'),
+        segment(0xe0, 'JFXX\0THUMBSECRET'),
+        segment(0xfe, 'COMMENTSECRET'),
+        plain.subarray(2),
+      ]),
+    );
+    const make = async () => {
+      const doc = await PDFDocument.create();
+      const embedded = await embedOrientedImage(doc, photo);
+      drawOrientedImage(doc.addPage([200, 200]), embedded, { x: 10, y: 10, width: 64, height: 48 });
+      return new PdfSession(await doc.save());
+    };
+    const secrets = ['EXIFSECRET', 'XMPSECRET', 'IPTCSECRET', 'THUMBSECRET', 'COMMENTSECRET'];
+    const kept = await make();
+    await kept.change((doc) => sanitizeDocument(doc, { metadata: false }));
+    for (const secret of secrets) expect(await recoverable(kept.bytes)).toContain(secret);
+
+    const session = await make();
+    let report;
+    await session.change(async (doc) => {
+      report = await sanitizeDocument(doc);
+    });
+    const corpus = await recoverable(session.bytes);
+    for (const secret of secrets) expect(corpus).not.toContain(secret);
+    expect(report.metadata).toBeGreaterThan(0);
+    // The picture itself is untouched.
+    const doc = await PDFDocument.load(session.bytes);
+    const image = [...doc.context.enumerateIndirectObjects()]
+      .map(([, object]) => object)
+      .find(
+        (object) => object instanceof PDFRawStream && object.dict.get(n('Subtype')) === n('Image'),
+      );
+    const jpeg = new JpegImage();
+    jpeg.parse(image.getContents());
+    expect([jpeg.width, jpeg.height]).toEqual([64, 48]);
+    const original = new JpegImage();
+    original.parse(plain);
+    expect(jpeg.getData({ width: 64, height: 48, forceRGB: true })).toEqual(
+      original.getData({ width: 64, height: 48, forceRGB: true }),
+    );
   });
 
   it('counts nothing when the chosen kinds are absent', async () => {

@@ -3,8 +3,9 @@ import { openMenu } from './lib/menu.js';
 
 /**
  * The Organize pages view: every page as a tile in a grid that replaces the document while
- * it is open. Tiles are selected with a click (Ctrl or Command adds one, Shift a range),
- * dragged to a new place, and turned, duplicated, extracted, or deleted together.
+ * it is open. Tiles are selected with a click (Ctrl or Command adds one, Shift a range) or a
+ * tap (which adds one or takes it away), dragged to a new place, and turned, duplicated,
+ * extracted, or deleted together.
  *
  * actions: { rotate(indices, delta), remove(indices), extract(indices), duplicate(indices),
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
@@ -26,6 +27,10 @@ export function createOrganizeView({
 }) {
   let selected = new Set();
   let anchor = null; // the tile a Shift range starts from
+  // The page chosen for the reader on opening, rather than by them: a first tap replaces it.
+  let autoChosen = false;
+  // Fingers have no Ctrl or Shift, so a tap adds a page to the choice or takes it away.
+  let touching = false;
   let size = 1;
   // Until a size is picked with the slider, a phone shows the smallest tiles: two columns of
   // pages rather than one.
@@ -296,6 +301,7 @@ export function createOrganizeView({
   }
 
   function select(i, e = {}) {
+    autoChosen = false;
     if (e.shiftKey && anchor != null) {
       const [a, b] = anchor < i ? [anchor, i] : [i, anchor];
       if (!(e.ctrlKey || e.metaKey)) selected.clear();
@@ -361,8 +367,12 @@ export function createOrganizeView({
     }
     if (e.key === ' ') select(i, { ctrlKey: true });
     else if (e.key === 'Enter') actions.open(i);
-    else if ((e.key === 'Delete' || e.key === 'Backspace') && !isBusy()) commands.remove.click();
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Run even when the toolbar's Delete is off (every page is chosen), so the key says
+      // why no page goes rather than doing nothing.
+      if (!isBusy() && can('assemble')) run(removeChosen)();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      autoChosen = false;
       selected = new Set(tiles.map((_, k) => k));
       updateState();
     } else return false;
@@ -410,7 +420,8 @@ export function createOrganizeView({
         draggable: String(can('assemble')),
         onclick: (e) => {
           if (e.target.closest('button')) return;
-          select(i, e);
+          const tap = touching && !e.shiftKey && !e.ctrlKey && !e.metaKey;
+          select(i, tap && !autoChosen ? { ctrlKey: true } : e);
         },
         ondblclick: (e) => {
           if (!e.target.closest('button')) actions.open(i);
@@ -472,6 +483,7 @@ export function createOrganizeView({
 
   // The grid is one tab stop, on the tile last focused however it got there (a click too), so
   // Tab leaves the grid and Shift+Tab comes back to the same tile.
+  grid.addEventListener('pointerdown', (e) => (touching = e.pointerType === 'touch'), true);
   grid.addEventListener('focusin', (e) => {
     const tile = e.target.closest?.('.organize-tile');
     if (tile && tile.tabIndex !== 0) tiles.forEach((t) => (t.tabIndex = t === tile ? 0 : -1));
@@ -610,6 +622,7 @@ export function createOrganizeView({
       if (!selected.size) {
         selected = new Set([currentIndex()]);
         anchor = currentIndex();
+        autoChosen = true;
       }
       rebuild();
       tiles[anchor ?? currentIndex()]?.scrollIntoView({ block: 'nearest' });
@@ -636,6 +649,7 @@ export function createOrganizeView({
     /** Whether the chosen pages can move a place earlier (-1) or later (1). */
     canMove: (delta) => visible && canMove(delta),
     select(list) {
+      autoChosen = false;
       selected = new Set(list);
       anchor = list[0] ?? null;
       updateState();

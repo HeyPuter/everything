@@ -506,7 +506,28 @@ function overlayOps(text, area, mark, fontName, rotation) {
 
 /** Policy for filterContent: what lies under the areas goes. */
 function redactionPolicy(doc, areas, { codec } = {}) {
-  const hits = (quad) => areas.some(({ rect }) => quadOverlapsRect(quad, rect));
+  // A page found with many matches has hundreds of areas, nearly all far from any one glyph:
+  // comparing bounds first spares the exact test, which took most of the time to apply them.
+  const hits = (quad) => {
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (const [x, y] of quad) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    return areas.some(
+      ({ rect }) =>
+        x0 < rect[2] &&
+        x1 > rect[0] &&
+        y0 < rect[3] &&
+        y1 > rect[1] &&
+        quadOverlapsRect(quad, rect),
+    );
+  };
   // Pixels take the fill of the mark that covers them; overlapping marks apply in order.
   const groups = (quad) => {
     const byFill = new Map();
@@ -1184,7 +1205,49 @@ function runRect(run) {
   const xs = points.map((p) => p[0]),
     ys = points.map((p) => p[1]);
   const rect = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-  return rect[2] - rect[0] > 0.1 && rect[3] - rect[1] > 0.1 ? rect : null;
+  if (!(rect[2] - rect[0] > 0.1 && rect[3] - rect[1] > 0.1)) return null;
+  return unsheared(run, rect) || rect;
+}
+/**
+ * Slanted text (an italic made by shearing upright letters) leans each letter's box into its
+ * neighbours': the rect around the run's boxes reaches the next word's first letter at the
+ * bottom and the previous word's last letter at the top, and applying it took them too. Along a
+ * horizontal or vertical line, keep the rect between the run's slanted ends instead, which
+ * still meets every letter of the run. Null for upright text, or when too little is left.
+ */
+function unsheared(run, rect) {
+  const [p0, p1, , p3] = run[0].quad;
+  const along = [p1[0] - p0[0], p1[1] - p0[1]],
+    up = [p3[0] - p0[0], p3[1] - p0[1]];
+  // The axis the line runs along: 0 for x, 1 for y. Other angles keep the plain rect.
+  const axis = Math.abs(along[0]) >= Math.abs(along[1]) ? 0 : 1;
+  const length = Math.abs(along[axis]),
+    height = Math.abs(up[1 - axis]);
+  if (!(length > 0 && height > 0) || Math.abs(along[1 - axis]) > length * 0.02) return null;
+  if (Math.abs(up[axis]) < height * 0.05) return null;
+  const forward = along[axis] > 0;
+  // Where an edge of the run (a line through two points of a glyph box) crosses the rect's
+  // low and high sides.
+  const low = rect[1 - axis],
+    high = rect[3 - axis];
+  const edge = (glyph, u) => {
+    const a = boxPoint(glyph, u, 0),
+      b = boxPoint(glyph, u, 1);
+    const span = b[1 - axis] - a[1 - axis];
+    if (!span) return null;
+    return [low, high].map((at) => a[axis] + ((b[axis] - a[axis]) * (at - a[1 - axis])) / span);
+  };
+  const start = edge(run[0], 0.1),
+    end = edge(run.at(-1), 0.9);
+  if (!start || !end) return null;
+  const from = forward ? Math.max(...start) : Math.min(...end),
+    to = forward ? Math.min(...end) : Math.max(...start);
+  // A rect much narrower than the run's letters would leave too much of them uncovered.
+  if (to - from < (rect[2 + axis] - rect[axis]) * 0.5) return null;
+  const out = [...rect];
+  out[axis] = from;
+  out[2 + axis] = to;
+  return out;
 }
 function originalText(items, index, start, end) {
   let text = '';

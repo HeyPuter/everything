@@ -231,7 +231,7 @@ test('a rejected edit retains its preview and restores native typing for correct
   await page.getByRole('button', { name: 'Edit text: Original words', exact: true }).click();
   await expect(page.locator('.text-draft-background')).toBeVisible();
   const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
-  await input.fill('你好');
+  await input.fill('🦄');
   await watchFrames(page);
   await clickAway(page);
   await expect(page.locator('.text-edit-error')).toContainText('does not support');

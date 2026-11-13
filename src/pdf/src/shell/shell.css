@@ -1039,7 +1039,7 @@
   text-align: left;
   color: var(--ink);
 }
-.find-tool-item:hover,
+.find-tool-item:hover:not(:disabled),
 .find-tool-item:focus-visible,
 .find-tool-item.active {
   background: var(--surface-2);
@@ -1845,7 +1845,6 @@
   background: transparent;
   pointer-events: auto;
   cursor: move;
-  touch-action: none;
 }
 .annotation-target:hover {
   border-color: color-mix(in srgb, var(--select) 60%, transparent);
@@ -1873,6 +1872,8 @@
 .annotation-target.is-selected {
   border: 1.5px solid var(--select);
   background: color-mix(in srgb, var(--select) 8%, transparent);
+  /* A finger moves the chosen comment; on any other it scrolls or zooms the page. */
+  touch-action: none;
 }
 .annotation-target:focus-visible {
   outline: 2px solid var(--select);
@@ -1887,6 +1888,12 @@
 .annotation-meta {
   margin: 0;
   font-size: 11px;
+}
+/* A highlight's own words, with their line breaks, wrapped within the panel. */
+.markup-comment {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .annotation-style {
   display: grid;
@@ -1931,6 +1938,11 @@
 }
 .reply-meta {
   font-size: 11px;
+}
+/* A reply keeps its line breaks, and a long link wraps instead of running out of the panel. */
+.reply-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .annotation-actions {
   display: flex;

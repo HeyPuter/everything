@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { PDFDocument, PDFName, degrees } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import {
   OCR_TAG,
   addOcrTextLayer,
@@ -17,6 +17,9 @@ import { createOcrEngine } from '../src/ocr-engine.js';
 import { autotagDocument } from '../src/core/autotag.js';
 
 const fontFile = new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url);
+// Canvas text is drawn in the bundled face: a CI machine may have no system font for 'sans-serif',
+// which then draws nothing.
+GlobalFonts.registerFromPath(fileURLToPath(fontFile), 'OCR Test Sans');
 const langPath = fileURLToPath(
   new URL('../node_modules/@tesseract.js-data/eng/4.0.0_best_int', import.meta.url),
 );
@@ -150,7 +153,7 @@ describe('OCR end to end', () => {
     context.fillStyle = '#fff';
     context.fillRect(0, 0, 600, 120);
     context.fillStyle = '#000';
-    context.font = '40px sans-serif';
+    context.font = "40px 'OCR Test Sans'";
     context.fillText('Cancel and retry', 20, 75);
     const controller = new AbortController();
     const job = engine.recognize(canvas, { signal: controller.signal });

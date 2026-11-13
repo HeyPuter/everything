@@ -247,6 +247,10 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
           title: entry.contents || entry.kind,
           onpointerdown: (e) => {
             if (e.button !== 0) return;
+            // A finger on a comment not yet chosen scrolls or zooms the page, as it does
+            // anywhere else on it; a tap (the click below) chooses the comment, and a finger
+            // then moves it. Otherwise swiping past a large comment dragged it along.
+            if (e.pointerType === 'touch' && selected !== entry.id) return;
             e.preventDefault();
             e.stopPropagation();
             saveNudge();
@@ -330,6 +334,10 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
           },
           onfocus: () => {
             if (selected !== entry.id) select(entry);
+          },
+          // A tap: not every browser focuses a tapped button.
+          onclick: () => {
+            if (selected !== entry.id) select(entry, true);
           },
         });
         const box = screenBox(entry.rect);

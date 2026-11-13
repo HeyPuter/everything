@@ -8,6 +8,11 @@ const SINGLE_QUOTES = /[\u2018-\u201b\u2032]/g,
 // Hyphens as word processors set them, which a typed query has as "-": non-breaking hyphens
 // keep a phone number on one line, and figure and en dashes or minus signs stand in for hyphens.
 const HYPHENS = /[\u2010-\u2013\u2212]/g;
+// Scripts written without spaces between words, and their punctuation.
+const UNSPACED =
+  '[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\u3000-\\u303f\\uff00-\\uffef]';
+const ENDS_UNSPACED = new RegExp(`${UNSPACED}$`, 'u'),
+  STARTS_UNSPACED = new RegExp(`^${UNSPACED}`, 'u');
 // Lowercasing is context-sensitive for Greek sigma, so fold the final form to match prefixes.
 // Accents are ignored, as PDF readers ignore them by default: "cafe" finds "café".
 const fold = (value) =>
@@ -102,7 +107,15 @@ export function indexPageText(items) {
       tail = (tail + chunk).slice(-2);
       held = [i, chunks.length - 1];
     }
-    if (item.hasEOL && !trailingSpace && !hyphenated) {
+    // Chinese and Japanese put no space between words, so a line break inside a phrase is
+    // not one either: "中" ending a line and "文" starting the next are found as "中文".
+    const unspaced = () => {
+      if (!ENDS_UNSPACED.test(tail)) return false;
+      let next = i + 1;
+      while (next < strings.length && !strings[next].str) next++;
+      return STARTS_UNSPACED.test(strings[next]?.str || '');
+    };
+    if (item.hasEOL && !trailingSpace && !hyphenated && !unspaced()) {
       chunks.push(' ');
       length++;
       trailingSpace = true;

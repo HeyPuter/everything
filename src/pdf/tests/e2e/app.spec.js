@@ -315,9 +315,12 @@ test('touch selects a shape outline, cancels its draft and commits a later drag'
     scale = (await page.locator('.paper').boundingBox()).width / 400;
   const touch = { id: 1, x: box.x + scale, y: box.y + box.height / 2 },
     cdp = await page.context().newCDPSession(page);
+  // A tap selects the shape; a finger then moves it.
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [touch] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   const move = page.getByRole('button', { name: 'Move selected shape', exact: true });
   await expect(move).toBeVisible();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [touch] });
   touch.x += 20;
   touch.y += 10;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [touch] });
@@ -722,10 +725,13 @@ test('image touch gestures ignore a second finger and cancel without creating hi
   const first = { id: 1, x: box.x + box.width / 2, y: box.y + box.height / 2 },
     second = { id: 2, x: other.x + other.width / 2, y: other.y + other.height / 2 };
   const cdp = await page.context().newCDPSession(page);
+  // A tap selects the image; a finger then moves it.
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect(
     page.getByRole('button', { name: 'Move selected image', exact: true }),
   ).toBeVisible();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first] });
   first.x += 20;
   first.y += 10;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [first] });
@@ -797,14 +803,15 @@ test('image dimensions reflect a clipping limit without creating a false edit', 
       PDFName.of('Resources'),
       doc.context.obj({ XObject: { Picture: doc.context.getObjectRef(image) } }),
     );
-  doc
-    .getPage(0)
-    .node.set(
-      PDFName.of('Contents'),
-      doc.context.register(
-        doc.context.flateStream('q 40 220 80 60 re W n 80 0 0 60 40 220 cm /Picture Do Q'),
+  doc.getPage(0).node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      // A frame holding a mark besides the picture stays where it is as the picture moves.
+      doc.context.flateStream(
+        'q 40 220 80 60 re W n 0 g 40 220 4 4 re f 80 0 0 60 40 220 cm /Picture Do Q',
       ),
-    );
+    ),
+  );
   await openPdf(page, doc);
   await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
   const width = page.getByLabel('Image width in points', { exact: true });
@@ -1922,7 +1929,7 @@ test('form errors are announced inside the dialog and can be corrected', async (
   await page.goto('/#library');
   await sample(page);
   await page.getByRole('button', { name: 'Fill forms', exact: true }).click();
-  await page.getByLabel('Your name', { exact: true }).fill('你好');
+  await page.getByLabel('Your name', { exact: true }).fill('🦄');
   await page.getByRole('button', { name: 'Save form', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('alert')).toContainText('does not support');
@@ -2294,10 +2301,10 @@ test('download commits an active text draft and font errors preserve it for corr
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   await page.getByRole('button', { name: 'Edit text: Make it your own.', exact: true }).click();
   const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
-  await input.fill('你好');
+  await input.fill('🦄');
   await clickAway(page);
   await expect(page.locator('.text-edit-error')).toContainText('does not support');
-  await expect(input).toHaveValue('你好');
+  await expect(input).toHaveValue('🦄');
   await expect(page.locator('.textLayer')).toContainText('Make it your own.');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
@@ -2474,10 +2481,10 @@ test('inline form errors retain drafts, Escape restores values, and annotation t
   await page.goto('/#library');
   await sample(page);
   const field = page.getByRole('textbox', { name: 'Your name (on page)', exact: true });
-  await field.fill('你好');
+  await field.fill('🦄');
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   await expect(page.locator('.form-edit-error')).toContainText('does not support');
-  await expect(field).toHaveValue('你好');
+  await expect(field).toHaveValue('🦄');
   await expect(field).toBeFocused();
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute(
     'aria-pressed',
@@ -2849,10 +2856,10 @@ test('grouped text supports multiline typing, plain paste, error recovery and dr
   expect(pasted.runs.map((r) => r.text)).toEqual(['Plain', 'Paste', 'Neighbor']);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await target.click();
-  await input.fill('你好');
+  await input.fill('🦄');
   await clickAway(page);
   await expect(page.locator('.text-edit-error')).toContainText('does not support');
-  await expect(input).toHaveText('你好');
+  await expect(input).toHaveText('🦄');
   await input.press('Escape');
   await expect(input).toHaveCount(0);
   await expect(target).toBeVisible();
@@ -4038,14 +4045,15 @@ test('rotation rejects invalid angles and clipped turns without history, then al
       PDFName.of('Resources'),
       doc.context.obj({ XObject: { Picture: doc.context.getObjectRef(image) } }),
     );
-  doc
-    .getPage(0)
-    .node.set(
-      PDFName.of('Contents'),
-      doc.context.register(
-        doc.context.flateStream('q 40 220 80 60 re W n 80 0 0 60 40 220 cm /Picture Do Q'),
+  doc.getPage(0).node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      // A frame holding a mark besides the picture stays where it is as the picture moves.
+      doc.context.flateStream(
+        'q 40 220 80 60 re W n 0 g 40 220 4 4 re f 80 0 0 60 40 220 cm /Picture Do Q',
       ),
-    );
+    ),
+  );
   await openPdf(page, doc);
   await page.getByRole('button', { name: 'Select image 1', exact: true }).click();
   const angle = page.getByLabel('Image rotation in degrees', { exact: true }),

@@ -506,7 +506,7 @@ test('a rejected text draft keeps the zoom control on the rendered zoom', async 
   await page.getByRole('button', { name: 'Edit text: Page 1 words', exact: true }).click();
   await expect(page.locator('.text-draft-background')).toBeVisible();
   const draft = page.getByRole('textbox', { name: 'Edit text', exact: true });
-  await draft.fill('你好');
+  await draft.fill('🦄');
   const zoom = page.getByLabel('Zoom', { exact: true });
   const { width } = await page.locator('.paper').boundingBox();
   await zoom.selectOption('2');

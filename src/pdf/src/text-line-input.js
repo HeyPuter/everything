@@ -106,7 +106,7 @@ export function textLineInput(group) {
       const ratio =
         Math.hypot(run.transform[2], run.transform[3]) /
         Math.hypot(group.transform[2], group.transform[3]);
-      const fallback = face?.(run) || cjkDraftFace(run, span.textContent);
+      const fallback = face?.(run) || cjkDraftFace(run, span.textContent, undefined, input.value);
       Object.assign(span.style, {
         fontFamily: fallback?.family ? `${fallback.family}, sans-serif` : run.fontFamily,
         fontWeight: fallback?.weight || run.fontWeight,
@@ -245,7 +245,9 @@ export function textLineInput(group) {
   });
   input.addEventListener('paste', (e) => {
     e.preventDefault();
-    document.execCommand('insertText', false, draftText(e.clipboardData.getData('text/plain')));
+    // A picture or file on the clipboard has no text: inserting none would delete the selection.
+    const text = e.clipboardData?.getData('text/plain');
+    if (text) document.execCommand('insertText', false, draftText(text));
   });
   let dragging = false;
   input.addEventListener('dragstart', (e) => {

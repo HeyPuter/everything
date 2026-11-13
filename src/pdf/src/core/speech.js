@@ -1,3 +1,7 @@
+// Chinese and Japanese put no space between words, so a line break inside a phrase is no
+// pause: a voice read "中" ending one line and "文" starting the next as two words.
+const UNSPACED = '[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\u3000-\\u303f\\uff00-\\uffef]';
+const UNSPACED_BREAK = new RegExp(`(?<=${UNSPACED})\\n(?=${UNSPACED})`, 'gu');
 /**
  * The words of a page's text items, line by line. A word hyphenated at the end of a line is
  * spoken whole, as it is found by Find: a voice reads "exam- ple" as two words.
@@ -7,6 +11,7 @@ export function pageSpeechText(items) {
     .map((item) => (item.str ?? '') + (item.hasEOL ? '\n' : ''))
     .join('')
     .replace(/(\p{L})[-\u00ad\u2010]\n[ \t]*(?=\p{Ll})/gu, '$1')
+    .replace(UNSPACED_BREAK, '')
     .replace(/[ \t]+/g, ' ')
     .trim();
 }

@@ -1802,8 +1802,11 @@ puter-user-menu::part(apps-panel) {
   border: 0;
   background: transparent;
   pointer-events: auto;
-  touch-action: none;
   cursor: move;
+}
+/* A finger moves the selected object; on any other it scrolls or zooms the page. */
+.image-move {
+  touch-action: none;
 }
 .image-target:hover,
 .image-target:focus-visible,

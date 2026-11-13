@@ -1471,3 +1471,23 @@ it("removes the page's private application data, which holds a copy of what was 
   expectGone(await recoverable(out), 'PAGESECRET');
   expect((await PDFDocument.load(out)).getPage(0).node.has(n('PieceInfo'))).toBe(false);
 });
+
+it('finds slanted words without taking the letters of the words beside them', async () => {
+  // An italic made by shearing upright letters, as word processors draw fonts without one.
+  const line = (y, text) => `BT /F 14 Tf 1 0 0.33 1 60 ${y} Tm (${text}) Tj ET`;
+  const bytes = await makePdf([
+    { content: [line(300, 'See \\(AVATAR\\) here'), line(200, 'AVATARs B')].join('\n') },
+  ]);
+  const doc = await PDFDocument.load(bytes);
+  const matches = await findTextRects(doc, 0, 'AVATAR');
+  expect(matches.map((m) => m.text)).toEqual(['AVATAR', 'AVATAR']);
+  const { bytes: out } = await redact(
+    bytes,
+    matches.map((m) => [0, m.rects]),
+  );
+  expect((await textItems(out)).map((i) => i.str.trim()).filter(Boolean)).toEqual([
+    'See (',
+    ') here',
+    's B',
+  ]);
+});

@@ -339,7 +339,7 @@ export async function replaceTextGroup(
         const original = line === run.text && !variantFor(run);
         const data = original
           ? { encoded: [run.source], font: null }
-          : await prepareText(doc, run, line, variantFor(run));
+          : await prepareText(doc, run, line, variantFor(run), text);
         prepared.push({
           run,
           text: line,
