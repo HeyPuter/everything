@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page, type Locator } from '@playwright/test';
 import { boot, idle, openImage, panel, run } from './helpers';
 
 type TypeModule = typeof import('../../src/features/type/session');
@@ -117,4 +117,141 @@ for (const completion of ['font arrival', 'fallback timeout']) test(`a pending g
   expect(await layerText()).toBe('Original&');
   await run(page, 'type.commit');
   expect(await layerText()).toBe('Original&');
+});
+
+for (const action of ['typing', 'selection']) test(`a slow glyph font preserves subsequent ${action}`, async ({ page }) => {
+  await boot(page);
+  await openImage(page, 400, 200, '#ffffff');
+  await run(page, 'type.add');
+  await page.keyboard.insertText('ab');
+  if (action === 'selection') await page.keyboard.press('Shift+ArrowLeft');
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseGlyphFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.dock.show('glyphs');
+  });
+  const body = await panel(page, 'Glyphs');
+  await body.locator('select[aria-label="Font family"]').selectOption('Caveat');
+  const cell = body.locator('.gl-grid [data-cp="38"]');
+  await expect(cell).toBeVisible();
+  await cell.dblclick();
+  await page.waitForFunction(() => !!(window as unknown as { releaseGlyphFont?: () => void }).releaseGlyphFont);
+  await page.locator('textarea.type-input').focus();
+  if (action === 'typing') await page.keyboard.insertText('X');
+  else {
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+ArrowRight');
+  }
+  await page.locator('#type-size').focus();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseGlyphFont(): void }).releaseGlyphFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  const layerText = () => page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.text);
+  expect(await layerText()).toBe(action === 'typing' ? 'ab&X' : 'a&');
+  await expect(page.locator('#type-size')).toBeFocused();
+  expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual(action === 'typing' ? [4, 4] : [0, 1]);
+  if (action === 'selection') {
+    await page.locator('textarea.type-input').focus();
+    await page.keyboard.insertText('Z');
+  }
+  const finalText = action === 'typing' ? 'ab&X' : 'Z&';
+  expect(await layerText()).toBe(finalText);
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe(action === 'typing' ? 'ab&' : 'a&');
+  await run(page, 'edit.undo');
+  expect(await layerText()).toBe('ab');
+  await run(page, 'edit.redo');
+  await run(page, 'edit.redo');
+  expect(await layerText()).toBe(finalText);
+  await run(page, 'type.commit');
+  expect(await layerText()).toBe(finalText);
+});
+
+async function editingWithGlyphFontWaits(page: Page) {
+  await boot(page);
+  await openImage(page, 400, 200, '#ffffff');
+  await run(page, 'type.add');
+  await page.keyboard.insertText('ab');
+  await page.evaluate(() => {
+    const waits: Record<string, () => void> = {};
+    Object.assign(window, { releaseGlyphFonts: waits });
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      const family = ['Caveat', 'Crimson Pro'].find((f) => this.family.includes(f));
+      if (!family) return load.call(this);
+      return new Promise<void>((resolve) => { waits[family] = resolve; }).then(() => load.call(this));
+    };
+    window.photoStudio.dock.show('glyphs');
+  });
+  return panel(page, 'Glyphs');
+}
+
+async function pickGlyph(body: Locator, family: string, cp: number) {
+  await body.locator('select[aria-label="Font family"]').selectOption(family);
+  const cell = body.locator(`.gl-grid [data-cp="${cp}"]`);
+  await expect(cell).toBeVisible();
+  await cell.dblclick();
+}
+
+async function releaseGlyphFont(page: Page, family: string) {
+  await page.evaluate(async (family) => {
+    (window as unknown as { releaseGlyphFonts: Record<string, () => void> }).releaseGlyphFonts[family]();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont(family);
+  }, family);
+  await idle(page);
+}
+
+for (const first of ['Caveat', 'Crimson Pro']) test(`glyph order and fonts survive ${first} finishing first`, async ({ page }) => {
+  const body = await editingWithGlyphFontWaits(page);
+  await pickGlyph(body, 'Caveat', 38);
+  await pickGlyph(body, 'Crimson Pro', 64);
+  const runs = () => page.evaluate(() => (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!.data.content.paragraphs[0].runs.map((r) => [r.text, r.style.family]));
+  const expected = [['ab', 'Inter'], ['&', 'Caveat'], ['@', 'Crimson Pro']];
+  expect(await runs()).toEqual(expected);
+  await page.locator('#type-size').focus();
+  for (const family of [first, first === 'Caveat' ? 'Crimson Pro' : 'Caveat']) {
+    await releaseGlyphFont(page, family);
+    expect(await runs()).toEqual(expected);
+    await expect(page.locator('#type-size')).toBeFocused();
+  }
+  await expect(body.locator('.gl-recent [data-cp="38"]')).toHaveCount(1);
+  await expect(body.locator('.gl-recent [data-cp="64"]')).toHaveCount(1);
+  // Consecutive glyph insertions share the editor's existing undo group.
+  await run(page, 'edit.undo');
+  expect(await runs()).toEqual(expected.slice(0, 1));
+  await run(page, 'edit.redo');
+  expect(await runs()).toEqual(expected);
+});
+
+for (const ending of ['undo', 'cancel', 'commit']) test(`a glyph's late font preserves an early ${ending}`, async ({ page }) => {
+  const body = await editingWithGlyphFontWaits(page);
+  await pickGlyph(body, 'Caveat', 38);
+  const layerText = () => page.evaluate(() => window.photoStudio.doc.layers.find((l) => l.kind === 'text')?.text ?? null);
+  expect(await layerText()).toBe('ab&');
+  await run(page, ending === 'undo' ? 'edit.undo' : ending === 'cancel' ? 'type.cancel' : 'type.commit');
+  const expected = ending === 'undo' ? 'ab' : ending === 'cancel' ? null : 'ab&';
+  expect(await layerText()).toBe(expected);
+  const history = await page.evaluate(() => window.photoStudio.history.labels);
+  await releaseGlyphFont(page, 'Caveat');
+  expect(await layerText()).toBe(expected);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession())).toBe(ending === 'undo');
+  if (ending === 'undo') {
+    await run(page, 'edit.redo');
+    expect(await layerText()).toBe('ab&');
+  } else if (ending === 'commit') {
+    await run(page, 'edit.undo');
+    expect(await layerText()).toBeNull();
+    await run(page, 'edit.redo');
+    expect(await layerText()).toBe('ab&');
+  }
 });

@@ -4,10 +4,10 @@
 import type { Editor } from '../../editor';
 import { registerPanel, type Panel } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
-import { BUNDLED_FONTS, ensureFont, findBundled, loadFontFile, prepareFonts } from '../../imaging/text/fonts';
+import { BUNDLED_FONTS, ensureFont, findBundled, loadFontFile } from '../../imaging/text/fonts';
 import { parseFont } from '../../imaging/text/sfnt';
 import { focusInput, insert, onSessionChange, ordered, session, startEdit, styleContext } from './session';
-import { charStyleAt, fromPlainText, type CharStyle } from '../../imaging/text/model';
+import { charStyleAt, type CharStyle } from '../../imaging/text/model';
 import { familyList, familyStyles, styleName } from './options';
 import './type-panels.css';
 
@@ -93,8 +93,6 @@ export async function insertGlyph(e: Editor, ch: string, family?: string, face?:
     const next = { ...base, family, ...(face ?? {}) };
     if (next.family !== base.family || next.weight !== base.weight || next.italic !== base.italic) {
       style = next;
-      await prepareFonts({ ...s.data, content: fromPlainText(ch, style) });
-      if (session !== s) return false;
     }
   }
   insert(e, ch, 'glyph', style);

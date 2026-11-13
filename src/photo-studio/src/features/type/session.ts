@@ -498,6 +498,7 @@ export function insert(e: Editor, str: string, kind = 'type', forced?: CharStyle
   const s = session!;
   const [a, b] = ordered(s);
   const clean = str.replace(/\r\n?/g, '\n');
+  const ready = forced ? fontsReady(e, { ...s.data, content: fromPlainText(clean, forced) }) : undefined;
   const style = forced ?? (a === b && s.caretStyle ? s.caretStyle : undefined);
   let content = replaceRange(s.data.content, a, b, clean, style);
   // Preferences → Type → Missing glyph protection: characters the font lacks
@@ -522,6 +523,11 @@ export function insert(e: Editor, str: string, kind = 'type', forced?: CharStyle
   if (style) s.caretStyle = style;
   e.overlay();
   positionInput(e);
+  // A font download may refresh metrics, but never replay the insertion
+  // against a newer selection or move it after subsequent typing.
+  if (ready) void ready.then(() => {
+    if (session === s) render(e);
+  });
 }
 export function insertStyled(e: Editor, piece: TextContent) {
   const s = session!;
