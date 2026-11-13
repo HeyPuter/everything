@@ -192,7 +192,14 @@ export async function importProjectBundle(library, file, { onProgress } = {}) {
   delete project.deletedAt;
   await library.saveProject(project);
   const cover = byName.get('cover.jpg');
-  if (cover) await library.saveCover(project.id, await cover.blob()).catch(() => {});
+  if (cover) {
+    try {
+      await library.saveCover(project.id, await cover.blob());
+    } catch {
+      // The project is saved already; an unreadable optional cover must not
+      // report a failed import and encourage the user to create another copy.
+    }
+  }
   return { project, missing };
 }
 

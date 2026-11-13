@@ -186,6 +186,24 @@ describe('project files', () => {
     expect(await other.openProject(copy.id)).toEqual(copy);
   });
 
+  it('imports a project even when its optional cover is damaged', async () => {
+    const zip = await zipBlobs([
+      { name: 'project.json', data: JSON.stringify(project) },
+      { name: 'cover.jpg', data: 'jpeg' },
+    ]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    const coverRecord = directory + 46 + 'project.json'.length;
+    // A damaged stored length must not make an otherwise saved import look failed.
+    view.setUint32(coverRecord + 24, 5, true);
+    const other = new Library(memoryBackend());
+    const { project: copy } = await importProjectBundle(other, new Blob([buffer]));
+    expect((await other.listProjects()).map((p) => p.id)).toEqual([copy.id]);
+    expect(await other.openProject(copy.id)).toEqual(copy);
+    expect(await other.coverBlob(copy.id)).toBeNull();
+  });
+
   it('imports into the same library as a separate project', async () => {
     const { blob } = await exportProjectBundle(lib, project.id);
     const { project: copy } = await importProjectBundle(lib, blob);
