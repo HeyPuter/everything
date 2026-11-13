@@ -67,7 +67,7 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
 
   let stopDrag = null;
   head.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || stopDrag || e.target.closest('button, input, select')) return;
+    if (e.defaultPrevented || e.button !== 0 || stopDrag || e.target.closest('button, input, select')) return;
     e.preventDefault();
     head.setPointerCapture(e.pointerId);
     const sx = e.clientX - x;

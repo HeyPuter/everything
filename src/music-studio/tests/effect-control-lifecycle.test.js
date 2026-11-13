@@ -98,3 +98,37 @@ it.each(['mix', 'reverb', 'delay', 'compressor', 'eq'])('closing an inactive %s 
   app.store.undo();
   expect(app.store.project === first).toBe(true);
 });
+
+it('keeps pointer capture on the effect mix knob and still allows title-bar dragging', () => {
+  const { win, control } = effect('mix');
+  const head = win.el.querySelector('.win-head');
+  let captured = null;
+  for (const el of [head, control.el]) {
+    el.setPointerCapture = vi.fn(() => { captured = el; });
+    el.hasPointerCapture = () => captured === el;
+    el.releasePointerCapture = vi.fn(() => { if (captured === el) captured = null; });
+  }
+  const pointer = (type, target, y) => {
+    const event = new MouseEvent(type, { button: 0, clientX: 200, clientY: y, bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    (type === 'pointerdown' ? target : captured || target).dispatchEvent(event);
+  };
+  const position = { left: win.el.style.left, top: win.el.style.top };
+  const before = app.store.project;
+  pointer('pointerdown', control.el.querySelector('circle'), 300);
+  pointer('pointermove', control.el, 316);
+  pointer('pointerup', control.el, 316);
+  expect(app.store.project.mixer[3].fx[0].mix).toBeLessThan(1);
+  expect({ left: win.el.style.left, top: win.el.style.top }).toEqual(position);
+  expect(head.setPointerCapture).not.toHaveBeenCalled();
+  expect(control.el.setPointerCapture).toHaveBeenCalledWith(1);
+  app.store.undo();
+  expect(app.store.project === before).toBe(true);
+  pointer('pointerdown', head.querySelector('.win-title'), 300);
+  pointer('pointermove', head, 320);
+  pointer('pointerup', head, 320);
+  expect(parseFloat(win.el.style.top)).toBe(parseFloat(position.top) + 20);
+  expect(head.setPointerCapture).toHaveBeenCalledWith(1);
+  expect(captured).toBeNull();
+  expect(app.store.project === before).toBe(true);
+});
