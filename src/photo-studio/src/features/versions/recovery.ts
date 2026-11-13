@@ -77,7 +77,7 @@ async function offerRecovery(e: Editor) {
   // Checked documents survive a trip to the Discard All question and back.
   let checked = new Set(records.map((_, i) => i));
   const list = (back = false) => {
-    dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Restore Unsaved Documents?</h2><p>Photo Studio closed with unsaved changes. These documents were kept in this browser.</p><div class="recovery-list">${records
+    dialog.innerHTML = `<form method="dialog" class="recovery-dialog"><h2>Restore Unsaved Documents?</h2><p>Photo Studio closed with unsaved changes. These documents were kept in this browser. Unchecked documents stay available to restore later.</p><div class="recovery-list">${records
       .map(
         (r, i) =>
           `<label class="recovery-item"><input type="checkbox" name="keep" value="${i}" ${checked.has(i) ? 'checked' : ''}><span class="recovery-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : ''}</span><span class="recovery-meta"><strong>${escapeXML(r.name)}</strong><small>${escapeXML(r.path ?? r.fileName ?? 'Never saved')} · ${relativeTime(r.time)}</small></span></label>`,
@@ -90,7 +90,11 @@ async function offerRecovery(e: Editor) {
       checked = new Set(new FormData(dialog.querySelector('form')!).getAll('keep').map(Number));
       confirmDiscard();
     });
-    dialog.querySelector('form')!.onsubmit = restore;
+    const form = dialog.querySelector('form')!;
+    form.onsubmit = restore;
+    const sync = () => { form.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled = !form.querySelector('input[name=keep]:checked'); };
+    form.addEventListener('change', sync);
+    sync();
     if (back) dialog.querySelector<HTMLButtonElement>('[data-discard]')!.focus();
   };
   // Discarding cannot be undone: ask, naming what is lost, with Go Back focused.
@@ -121,6 +125,7 @@ async function offerRecovery(e: Editor) {
   const restore = (ev: SubmitEvent) => {
     ev.preventDefault();
     const chosen = new FormData(ev.currentTarget as HTMLFormElement).getAll('keep').map((v) => records[Number(v)]);
+    if (!chosen.length) return;
     done();
     void e.run(async () => {
       // One damaged record must not stop the others; it stays to be offered again.
@@ -133,8 +138,9 @@ async function offerRecovery(e: Editor) {
           failed.push(r);
         }
       }
-      // Unchecked documents are discarded too: the dialog asked once.
-      for (const r of records) if (!failed.includes(r)) await store.remove(r.sessionId);
+      // Restore consumes only the chosen successes; unchecked documents stay
+      // recoverable until the user explicitly chooses Discard All.
+      for (const r of chosen) if (!failed.includes(r)) await store.remove(r.sessionId);
       const restored = chosen.length - failed.length;
       if (failed.length)
         e.message(`${failed.map((r) => `“${r.name}”`).join(', ')} could not be restored${restored ? `; restored ${restored} other document${restored === 1 ? '' : 's'}` : ''}. ${failed.length === 1 ? 'It is' : 'They are'} offered again next time, or choose Discard All.`);
