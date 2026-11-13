@@ -41,7 +41,7 @@ const keys = new WeakMap<PhotoDocument, { base: string; frames: Map<number, stri
  * frame keeps every key and no frame document is built. */
 export function frameKey(e: Editor, doc: PhotoDocument, index: number) {
   let entry = keys.get(doc);
-  if (!entry) keys.set(doc, (entry = { base: `${e.session.id}:${doc.width}x${doc.height}:${doc.bitsPerChannel ?? 8}:${hash(sharedContent(doc))}`, frames: new Map() }));
+  if (!entry) keys.set(doc, (entry = { base: `${e.session.id}:${doc.width}x${doc.height}:${doc.bitsPerChannel ?? 8}:${hash(sharedContent(doc))}:${hash(JSON.stringify([doc.globalLight, doc.patterns]))}`, frames: new Map() }));
   let key = entry.frames.get(index);
   if (key === undefined) entry.frames.set(index, (key = `${entry.base}:${hash(frameContent(doc, index))}`));
   return key;
