@@ -11,6 +11,8 @@ import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
 import { shared } from '../src/pianoroll/state.js';
 import { PPQ, STEP } from '../src/model/time.js';
+import { tempoMap } from '../src/engine/compile.js';
+import { tempoToNorm } from '../src/engine/tempo.js';
 
 function fakeApp() {
   const store = new Store(demoProject());
@@ -245,6 +247,64 @@ describe('recording timing', () => {
 });
 
 describe('recorder', () => {
+  it('does not count a transport seek as held note duration and finishes at stop before position resets', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true, position: 0 });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      rec.noteOn(67, 0.9, app.store.view.channel);
+      now.mockReturnValue(1500);
+      app.engine.position = 240;
+      app.engine.emit('state'); // seek while recording
+      now.mockReturnValue(2000);
+      Object.assign(app.engine, { playing: false, position: 0 });
+      app.engine.emit('state');
+      const note = E.getNotes(app.store.project, app.store.view.pattern, app.store.view.channel).find((n) => n.key === 67);
+      expect(note.len).toBe(192);
+      expect(app.store.gesture).toBeNull();
+    } finally { now.mockRestore(); }
+  });
+
+  it('measures a held note across a manual tempo change without retiming its earlier portion', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true, position: 0 });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      rec.noteOn(67, 0.9, app.store.view.channel);
+      now.mockReturnValue(1500);
+      app.engine.position = 96;
+      app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 60 }));
+      now.mockReturnValue(2000);
+      rec.noteOff(67);
+      const note = E.getNotes(app.store.project, app.store.view.pattern, app.store.view.channel).find((n) => n.key === 67);
+      expect(note.len).toBe(144); // 96 ticks at 120 BPM, then 48 at 60 BPM
+    } finally { now.mockRestore(); }
+  });
+
+  it('measures recorded note lengths through a song tempo ramp', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo ramp', (p) => ({
+      ...p, bpm: 120,
+      automation: { tempo: { id: 'tempo', target: { kind: 'tempo' }, points: [{ t: 0, v: tempoToNorm(60) }, { t: 384, v: tempoToNorm(180) }] } },
+      clips: [{ id: 'tempo-clip', kind: 'auto', ref: 'tempo', start: 0, len: 384, offset: 0, track: 0 }],
+    }));
+    const elapsed = tempoMap(app.store.project).seconds(192) * 1000;
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true, mode: 'song', position: 0 });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      rec.noteOn(67, 0.9, app.store.view.channel);
+      now.mockReturnValue(1000 + elapsed);
+      rec.noteOff(67);
+      const note = E.getNotes(app.store.project, app.store.view.pattern, app.store.view.channel).find((n) => n.key === 67);
+      expect(note.len).toBe(192);
+    } finally { now.mockRestore(); }
+  });
+
   it('keeps released notes when a loop ends during another editing gesture', () => {
     const app = fakeApp();
     const rec = new Recorder(app, null);

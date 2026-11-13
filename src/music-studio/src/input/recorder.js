@@ -20,6 +20,8 @@ import { patternById, patternLength } from '../model/project.js';
 import { PPQ, snapRound } from '../model/time.js';
 import { uid } from '../lib/util.js';
 import { shared, sharedEvents } from '../pianoroll/state.js';
+import { playRange, tempoMap } from '../engine/compile.js';
+import { advanceRecordingClock } from './recording-clock.js';
 
 // ------------------------------------------------------------------ timing math
 
@@ -86,22 +88,30 @@ export class Recorder {
     this.lastGrow = 0;
     this.stepHeld = 0;
     this.stepAdvance = 0;
+    this.clock = null;
     const engine = app.engine;
     engine.on('state', () => {
       if (!(engine.recording && engine.playing) && this.take.size) this.endTake();
+      if (this.active) this.resetClock();
+      else this.clock = null;
     });
     engine.on('loop', () => {
       if (this.take.size) this.commitPass();
     });
     app.on('frame', () => this.frame());
-    app.store.on('change', (_p, _prev, info) => {
-      if (info?.source !== 'load') return;
+    app.store.on('view', () => this.resetClock());
+    app.store.on('change', (p, prev, info) => {
+      if (info?.source !== 'load') {
+        if (p.bpm !== prev.bpm || p.automation !== prev.automation || p.clips !== prev.clips || p.tracks !== prev.tracks || p.loop !== prev.loop || p.sig !== prev.sig) this.resetClock();
+        return;
+      }
       this.finished = [];
       this.pending = false;
       this.take.clear();
       this.byKey.clear();
       this.gesture = null;
       this.takeTotal = 0;
+      this.clock = null;
     });
   }
 
@@ -112,6 +122,28 @@ export class Recorder {
 
   get stepEditing() {
     return Boolean(this.app.prefs.get('stepEditing')) && !this.app.engine.playing;
+  }
+
+  clockConfig() {
+    const { store, engine } = this.app;
+    return { map: tempoMap(store.project, engine.mode), range: engine.range?.() || playRange(store.project, engine.mode, store.view.pattern), tick: engine.position };
+  }
+
+  /** Elapsed musical ticks, excluding seeks and preserving earlier tempo segments. */
+  readClock(now = performance.now()) {
+    if (!this.clock) this.clock = { ...this.clockConfig(), at: now, elapsed: 0 };
+    const c = this.clock;
+    const next = advanceRecordingClock(c.map, c.tick, (now - c.at) / 1000, c.range);
+    c.tick = next.tick;
+    c.elapsed += next.elapsed;
+    c.at = now;
+    return c.elapsed;
+  }
+
+  resetClock() {
+    if (!this.clock) return;
+    this.readClock(); // finish the old tempo segment before reading the new map
+    Object.assign(this.clock, this.clockConfig());
   }
 
   patternInfo() {
@@ -127,7 +159,7 @@ export class Recorder {
     if (this.active) {
       const { pattern, tick } = this.patternInfo();
       const id = uid(6);
-      this.take.set(id, { id, key, vel, pattern: pattern.id, channel, pos: tick, started: performance.now(), open: true, len: 0 });
+      this.take.set(id, { id, key, vel, pattern: pattern.id, channel, pos: tick, started: this.readClock(), open: true, len: 0 });
       this.byKey.set(key, id);
       this.takeTotal = (this.takeTotal || 0) + 1;
       this.write();
@@ -155,7 +187,7 @@ export class Recorder {
     const n = this.take.get(id);
     if (!n) return;
     n.open = false;
-    n.len = msToTicks(performance.now() - n.started, this.app.store.project.bpm);
+    n.len = this.readClock() - n.started;
     this.write();
   }
 
@@ -187,10 +219,9 @@ export class Recorder {
 
   /** Captures this pass so a stopped take can be applied after another drag. */
   editTake(snapshot = false) {
-    const bpm = this.app.store.project.bpm;
     const quantize = Boolean(this.app.prefs.get('recordQuantize'));
     const grid = shared.grid;
-    const now = performance.now();
+    const now = this.readClock();
     const notes = snapshot ? [...this.take.values()].map((n) => ({ ...n })) : this.take.values();
     return (base) => {
       let next = base;
@@ -208,7 +239,7 @@ export class Recorder {
         const ids = new Set(list.map((n) => n.id));
         const kept = E.getNotes(next, pid, cid).filter((n) => !ids.has(n.id));
         const added = list.map((n) => {
-          const elapsed = n.open ? msToTicks(now - n.started, bpm) : n.len;
+          const elapsed = n.open ? now - n.started : n.len;
           const r = recordedNote(n.pos, elapsed, { patLen, grid, quantize });
           return { id: n.id, key: n.key, pos: r.pos, len: r.len, vel: n.vel, pan: 0 };
         });
@@ -250,12 +281,11 @@ export class Recorder {
   }
 
   endTake() {
-    const now = performance.now();
-    const bpm = this.app.store.project.bpm;
+    const now = this.readClock();
     for (const n of this.take.values()) {
       if (n.open) {
         n.open = false;
-        n.len = msToTicks(now - n.started, bpm);
+        n.len = now - n.started;
       }
     }
     const store = this.app.store;
@@ -272,6 +302,7 @@ export class Recorder {
     this.gesture = null;
     this.take.clear();
     this.byKey.clear();
+    this.clock = null;
   }
 
   notifyTake(count) {
