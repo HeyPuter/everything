@@ -484,7 +484,7 @@ function listPanel(ctx, opts) {
   readBtn?.addEventListener('click', readSelected);
   const list = h('div.cap-list', { role: 'list', 'aria-label': 'Captions' });
   const body = h('div.cap-list-body');
-  let translation = null, disposed = false;
+  let translation = null, speechJob = null, disposed = false;
   function translate() {
     if (disposed || translation) return;
     translation = openTranslate(ctx, { onClose: () => { translation = null; } });
@@ -526,20 +526,42 @@ function listPanel(ctx, opts) {
     r?.text.select();
   }
 
+  function finishRead(task) {
+    if (speechJob !== task) return;
+    speechJob = null;
+    task.off();
+    updateRead();
+  }
+  function cancelRead(message) {
+    if (!speechJob) return;
+    const task = speechJob;
+    finishRead(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
   async function readSelected() {
+    if (speechJob || disposed) return;
     const clip = store.selected?.clip;
     if (!clip || clip.type !== 'text') {
       toast('Select a text clip or caption first.', { kind: 'info' });
       return;
     }
-    readBtn.disabled = true;
+    const task = { controller: new AbortController(), source: editingContext(store), text: clip.text, start: clip.start };
+    speechJob = task;
+    const { signal } = task.controller;
+    const current = () => !disposed && speechJob === task && !signal.aborted && editingContext(store) === task.source;
+    task.off = store.on('change', () => {
+      if (editingContext(store) !== task.source) cancelRead('Speech cancelled because the open timeline changed.');
+    });
+    updateRead();
     try {
-      const blob = await synthesize(clip.text, prefs().ttsVoice);
-      await addSpeechToTimeline(ctx, blob, clip.text, { start: clip.start });
+      const blob = await synthesize(task.text, prefs().ttsVoice, { signal });
+      if (!current()) return;
+      await addSpeechToTimeline(ctx, blob, task.text, { start: task.start, signal });
     } catch (err) {
-      toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
+      if (current() && err?.name !== 'AbortError') toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
     } finally {
-      readBtn.disabled = false;
+      finishRead(task);
     }
   }
 
@@ -681,7 +703,7 @@ function listPanel(ctx, opts) {
   }
 
   const updateRead = () => {
-    if (readBtn) readBtn.disabled = !(store.selected?.clip?.type === 'text');
+    if (readBtn) readBtn.disabled = Boolean(speechJob) || !(store.selected?.clip?.type === 'text');
   };
   const offs = [
     store.on('change', render),
@@ -696,6 +718,7 @@ function listPanel(ctx, opts) {
   return { el, render, dispose() {
     disposed = true;
     translation?.close();
+    cancelRead();
     offs.forEach((off) => off());
   } };
 }

@@ -33,6 +33,10 @@ function clipBoard(project, ids) {
     .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main), _track: track.id }));
 }
 
+function checkImportSignal(signal) {
+  if (signal?.aborted) throw new DOMException('Import cancelled.', 'AbortError');
+}
+
 export function createActions(ctx) {
   const { store } = ctx;
   let clipboard = [];
@@ -59,25 +63,31 @@ export function createActions(ctx) {
   }
 
   /** The import itself (see actions.importFiles). */
-  async function importFilesNow(files, { addToTimeline = false, folder = null, origin } = {}) {
+  async function importFilesNow(files, { addToTimeline = false, folder = null, origin, signal } = {}) {
+    checkImportSignal(signal);
     const list = [...files];
     const assets = [];
     for (const file of list) {
+      checkImportSignal(signal);
       try {
-        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), onNote: (text) => toast(text, { kind: 'info', duration: 8000 }) });
+        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), onNote: (text) => { if (!signal?.aborted) toast(text, { kind: 'info', duration: 8000 }); } });
+        checkImportSignal(signal);
         // Into the media bin folder being viewed (see model/bins.js).
         if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
         assets.push(asset);
       } catch (err) {
+        checkImportSignal(signal);
         console.error(err);
         toast(importErrorText(file, err), { kind: 'error' });
       }
     }
+    checkImportSignal(signal);
     if (!assets.length) return [];
     store.update(assets.length === 1 ? `Import ${assets[0].name}` : `Import ${assets.length} files`, (p) => {
       for (const a of assets) p.assets[a.id] = a;
     }, { structural: false });
     // Several files go one after another from the playhead, as one undo step.
+    checkImportSignal(signal);
     if (addToTimeline) actions.addAssets(assets, { start: store.time });
     announce(assets.length === 1 ? `Imported ${assets[0].name}` : `Imported ${assets.length} files`);
     return assets;
@@ -87,6 +97,7 @@ export function createActions(ctx) {
     /**
      * Import local files into the project's media library. Returns the new assets.
      * Leaving the editor waits for imports in progress (ctx.imports), so they are saved.
+     * An optional signal stops further reads and registration; a media write already started may finish.
      */
     importFiles(files, opts) {
       const job = importFilesNow(files, opts);
