@@ -30,7 +30,7 @@ function setup(kind = 'pattern') {
   const pointer = (type, dx = 0) => surface.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: y, button: 0, altKey: true, bubbles: true }));
   pointer('pointerdown');
   expect(view.hasGesture()).toBe(true);
-  return { store, view, pointer, panel };
+  return { store, view, pointer, panel, body };
 }
 
 it.each(['replacement', 'undo', 'redo'])('prevents an old clip drag from changing the project after %s', (action) => {
@@ -103,4 +103,52 @@ it.each(['commit', 'undo'])('preserves automation point dragging with %s', (acti
   store.redo();
   expect(store.project.automation.volume.points[0].t).toBe(144);
   panel.onHide();
+});
+
+function resizePointer(body) {
+  const grip = body.querySelector('.pl-track-resize');
+  const send = (type, dy = 0, altKey = false) => grip.dispatchEvent(new MouseEvent(type, { clientY: 56 + dy, button: 0, altKey, bubbles: true }));
+  return { grip, send };
+}
+
+it.each(['replacement', 'undo', 'redo', 'hide'])('ends track resizing after %s', (action) => {
+  const { store, pointer, panel, body } = setup();
+  pointer('pointerup');
+  if (action === 'redo') {
+    store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+    store.undo();
+  }
+  const original = store.project;
+  const { grip, send } = resizePointer(body);
+  send('pointerdown');
+  if (action !== 'redo') send('pointermove', 20);
+  if (action === 'replacement') store.load(structuredClone(original));
+  else if (action === 'hide') panel.onHide();
+  else store[action]();
+  const restored = store.project;
+  const history = store.undoStack.length;
+  send('pointermove', 40);
+  send('pointerup', 40);
+  expect(store.project).toBe(restored);
+  expect(store.project.tracks[0].height).toBe(56);
+  expect(store.undoStack.length).toBe(history);
+  expect(grip.classList.contains('dragging')).toBe(false);
+  if (action === 'undo') {
+    store.redo();
+    expect(store.project.tracks[0].height).toBe(76);
+  }
+});
+
+it.each([false, true])('keeps track resizing and undo working with Alt=%s', (alt) => {
+  const { store, pointer, body } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  const { send } = resizePointer(body);
+  send('pointerdown');
+  send('pointermove', 20, alt);
+  send('pointerup', 20, alt);
+  expect(store.project.tracks[0].height).toBe(76);
+  expect(store.project.tracks[1].height).toBe(alt ? 76 : 56);
+  store.undo();
+  expect(store.project).toBe(original);
 });

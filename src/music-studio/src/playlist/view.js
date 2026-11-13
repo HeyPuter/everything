@@ -964,7 +964,10 @@ export function createPlaylistView(app, host) {
   }
 
   store.on('change', (p, prev, { source }) => {
-    if (source === 'load' || source === 'undo' || source === 'redo') V.cancelGesture();
+    if (source === 'load' || source === 'undo' || source === 'redo') {
+      V.cancelGesture();
+      headers.cancelResize();
+    }
     if (source === 'load') {
       V.selection = new Set();
       V.selectedTrack = 0;
@@ -1145,6 +1148,7 @@ export function createPlaylistView(app, host) {
     onHide() {
       V.visible = false;
       V.cancelGesture?.();
+      headers.cancelResize();
     },
     onResize() {
       resize();
