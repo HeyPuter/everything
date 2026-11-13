@@ -3735,7 +3735,7 @@ export function createEditor({
       crop: 'Drag over the part of the page to keep, then choose which pages to crop.',
       link: 'Drag over the text or area that should open a web address or another page.',
       hand: 'Drag to move through the pages. Hold Space with any tool to do the same.',
-      certsign: 'Drag a box where the signature should appear.',
+      certsign: 'Drag a box where the signature should appear, or click an empty signature field.',
       textbox: 'Drag a box for the text comment, or click to place one.',
       callout: 'Drag from the spot the comment points at to where its box goes.',
       cshape: 'Drag to draw a shape. Hold Shift to keep it regular.',
@@ -4430,7 +4430,12 @@ export function createEditor({
       } else if (g.type === 'certsign') {
         clearOverlay();
         const end = screenPoint(e);
-        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 8) return;
+        if (Math.hypot(end.x - g.start.x, end.y - g.start.y) < 8) {
+          // A click on a signature field the form left empty signs that field.
+          const empty = await emptySignatureField(g.page, pdfPoint(end));
+          if (empty) await signWithCertificate({ fieldName: empty.name, page: g.page });
+          return;
+        }
         await signWithCertificate({
           rect: normalizeRect(pdfPoint(g.start), pdfPoint(end)),
           page: g.page,
@@ -5895,7 +5900,11 @@ export function createEditor({
     }
     if (tool === 'certsign') {
       if (busy || !pageReady) return;
-      await signWithCertificate({ rect: centered(200, 60), page: pageIndex });
+      // The page's empty signature field is the place to sign, when the form has one.
+      const page = pageIndex;
+      const empty = await emptySignatureField(page);
+      if (empty) await signWithCertificate({ fieldName: empty.name, page });
+      else await signWithCertificate({ rect: centered(200, 60), page });
       return;
     }
     if (tool === 'link') {
@@ -8855,7 +8864,29 @@ export function createEditor({
    * Sign with a certificate: choose a digital ID, then append a signature to the PDF as it is
    * now. A rectangle gives a visible signature on that page; none gives an invisible one.
    */
-  async function signWithCertificate({ rect = null, page = pageIndex, certify = false } = {}) {
+  /**
+   * The page's unsigned, visible signature field under `point` (PDF user space), or with no
+   * point its first one; null when there is none.
+   */
+  async function emptySignatureField(page, point = null) {
+    const { listSignatureFields } = await import('./core/digital-signature.js');
+    const fields = (await listSignatureFields(session.bytes)).filter(
+      (field) => !field.signed && !field.invisible && field.page === page,
+    );
+    if (!point) return fields[0] ?? null;
+    return (
+      fields.find(
+        ({ rect: [x0, y0, x1, y1] }) =>
+          point.x >= x0 && point.x <= x1 && point.y >= y0 && point.y <= y1,
+      ) ?? null
+    );
+  }
+  async function signWithCertificate({
+    rect = null,
+    page = pageIndex,
+    certify = false,
+    fieldName,
+  } = {}) {
     requireAccess('fill');
     if (protection)
       throw new Error(
@@ -8875,6 +8906,7 @@ export function createEditor({
       const signed = await signPdf(session.bytes, chosen.identity, {
         page,
         rect,
+        fieldName,
         reason: details.reason,
         location: details.location,
         contactInfo: details.contactInfo,
