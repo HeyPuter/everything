@@ -123,11 +123,13 @@ export class AutosaveStore {
 
   /** Writes the document's audio and manifest. The manifest goes last, so a torn write is never offered. */
   async write(doc, manifest, { yieldEvery = 8 } = {}) {
+    // The audio of the state the manifest was built from: the document may change while
+    // the file opens, and a copy mixing two states would recover with the wrong length or markers.
+    const channels = doc.state.channels;
     const dir = await this.#dir();
     const file = await dir.getFileHandle(`${manifest.key}.wav`, { create: true });
     const out = await file.createWritable();
     try {
-      const channels = doc.state.channels;
       const nch = channels.length;
       const frames = manifest.frames;
       await out.write(floatWavHeader(doc.sampleRate, nch, frames));
