@@ -1806,10 +1806,11 @@ export function addBookmarksFromHeadings(doc) {
   if (!entries.length) return false;
   let rootRef = doc.catalog.get(N('Outlines'));
   let root = lookup(doc, rootRef);
-  // Choosing the fix again must not list every heading a second time.
+  // Choosing the fix again, or on a file whose bookmarks miss a few headings, adds only the
+  // headings without one: the others are not listed a second time.
   const listed = outlineTargets(doc, root);
-  if (entries.every((entry) => listed.has(`${pages[entry.page].ref}|${entry.title}`)))
-    throw new Error('Every tagged heading already has a bookmark.');
+  const missing = entries.filter((entry) => !listed.has(`${pages[entry.page].ref}|${entry.title}`));
+  if (!missing.length) throw new Error('Every tagged heading already has a bookmark.');
   if (!(root instanceof PDFDict)) {
     root = doc.context.obj({ Type: 'Outlines' });
     rootRef = doc.context.register(root);
@@ -1821,7 +1822,7 @@ export function addBookmarksFromHeadings(doc) {
   // Children per node as lists of { ref, dict, kids }, linked when complete.
   const top = { ref: rootRef, dict: root, kids: [] };
   const stack = [{ level: 0, node: top }];
-  for (const entry of entries) {
+  for (const entry of missing) {
     while (stack.length > 1 && stack.at(-1).level >= entry.level) stack.pop();
     const parent = stack.at(-1).node;
     const top_ = entry.bounds ? entry.bounds[3] : null;

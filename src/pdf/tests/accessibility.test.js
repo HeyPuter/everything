@@ -499,6 +499,22 @@ describe('accessibility check', () => {
     expect(outline.map((item) => item.title)).toEqual(['Annual Report', 'Chapter 2']);
   });
 
+  it('adds bookmarks only for the headings that have none', async () => {
+    const doc = await untaggedPdf({ pages: 2 });
+    autotagDocument(doc);
+    const tagged = await reload(doc);
+    addBookmarksFromHeadings(tagged);
+    // The second chapter's bookmark is deleted, the first one's stay.
+    const root = tagged.catalog.lookup(PDFName.of('Outlines'));
+    const first = root.lookup(PDFName.of('First'));
+    first.delete(PDFName.of('Next'));
+    root.set(PDFName.of('Last'), root.get(PDFName.of('First')));
+    addBookmarksFromHeadings(tagged);
+    const { outline } = await renderAll(await tagged.save());
+    expect(outline.map((item) => item.title)).toEqual(['Annual Report', 'Chapter 2']);
+    expect(outline[0].items.map((item) => item.title)).toEqual(['Overview', 'Details']);
+  });
+
   it('refuses bookmarks without headings', async () => {
     const doc = await taggedPdf([['P']]);
     expect(() => addBookmarksFromHeadings(doc)).toThrow(/no tagged headings/);
