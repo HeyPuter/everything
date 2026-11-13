@@ -368,3 +368,58 @@ describe('leaving the home screen', () => {
     expect(h.usageEl.textContent).toBe(before);
   });
 });
+
+describe('home refresh ordering', () => {
+  it('keeps the newest project list when an older refresh finishes last', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Before' });
+    const h = mount(lib);
+    await settle();
+    const old = h.projects.map((p) => ({ ...p }));
+    const latest = old.map((p) => ({ ...p, name: 'Latest' }));
+    let finish;
+    vi.spyOn(lib, 'listProjects').mockReturnValueOnce(new Promise((resolve) => { finish = resolve; })).mockResolvedValueOnce(latest);
+    const first = h.refreshLists();
+    await h.refreshLists();
+    expect(titles()).toEqual(['Latest']);
+    finish(old);
+    await first;
+    expect(titles()).toEqual(['Latest']);
+  });
+
+  it('keeps a successful refresh visible when an older load fails afterwards', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Latest' });
+    const h = mount(lib);
+    await settle();
+    let fail;
+    vi.spyOn(lib, 'listProjects').mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const old = h.load();
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+    await h.refreshLists();
+    fail(new Error('Old read failed'));
+    await old;
+    expect(titles()).toEqual(['Latest']);
+    expect(h.loaded).toBe(true);
+    expect(h.loadError).toBe(false);
+  });
+
+  it.each([false, true])('keeps newer storage usage when an older request settles (failure: %s)', async (failure) => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    let fail;
+    vi.spyOn(lib, 'storageUsage').mockReturnValueOnce(new Promise((resolve, reject) => { finish = resolve; fail = reject; })).mockResolvedValueOnce({ projects: 2, mediaBytes: 1024, trashed: 0 });
+    const old = h.refreshUsage();
+    await h.refreshUsage();
+    const latest = h.usageEl.textContent;
+    expect(latest).toContain('2 projects');
+    if (failure) fail(new Error('Old read failed'));
+    else finish({ projects: 1, mediaBytes: 0, trashed: 0 });
+    await old;
+    expect(h.usageEl.textContent).toBe(latest);
+    expect(h.mobileStorage.querySelector('.storage-usage').textContent).toBe(latest);
+  });
+});

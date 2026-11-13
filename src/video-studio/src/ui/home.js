@@ -98,6 +98,8 @@ export class Home {
     this.trash = [];
     this.loaded = false;
     this.disposed = false;
+    this.listRequest = 0;
+    this.usageRequest = 0;
     this.coverUrls = new Map();
     this.coverLoads = new Map();
     this.noCover = new Set(); // projects without a cover, so redraws (search) don't ask again
@@ -113,21 +115,22 @@ export class Home {
 
   async load() {
     if (this.disposed) return;
+    const request = ++this.listRequest;
     this.loaded = false;
     this.renderView();
     try {
       // Projects past their time in the Trash go for good when the home screen opens.
       const purged = await this.library.purgeTrash().catch(() => []);
-      if (this.disposed) return;
+      if (this.disposed || request !== this.listRequest) return;
       if (purged.length) announce(`${purged.length} project${purged.length === 1 ? '' : 's'} removed from the Trash after ${TRASH_DAYS} days`);
       const projects = await this.library.listProjects();
-      if (this.disposed) return;
+      if (this.disposed || request !== this.listRequest) return;
       const trash = await this.library.listTrash();
-      if (this.disposed) return;
+      if (this.disposed || request !== this.listRequest) return;
       this.projects = projects;
       this.trash = trash;
     } catch (err) {
-      if (this.disposed) return;
+      if (this.disposed || request !== this.listRequest) return;
       console.error(err);
       this.loadError = true;
       this.loaded = true;
@@ -142,12 +145,15 @@ export class Home {
 
   async refreshLists() {
     if (this.disposed) return;
+    const request = ++this.listRequest;
     const projects = await this.library.listProjects();
-    if (this.disposed) return;
+    if (this.disposed || request !== this.listRequest) return;
     const trash = await this.library.listTrash();
-    if (this.disposed) return;
+    if (this.disposed || request !== this.listRequest) return;
     this.projects = projects;
     this.trash = trash;
+    this.loaded = true;
+    this.loadError = false;
     this.renderView();
     this.refreshUsage();
   }
@@ -758,10 +764,11 @@ export class Home {
 
   async refreshUsage() {
     if (this.disposed) return;
+    const request = ++this.usageRequest;
     let text = '';
     try {
       const u = await this.library.storageUsage();
-      if (this.disposed) return;
+      if (this.disposed || request !== this.usageRequest) return;
       const parts = [`${u.projects} project${u.projects === 1 ? '' : 's'}`];
       let bytes = u.mediaBytes;
       if (bytes === null && this.library.backend.kind === 'local' && navigator.storage?.estimate) {
@@ -774,7 +781,7 @@ export class Home {
     } catch {
       text = '';
     }
-    if (this.disposed) return;
+    if (this.disposed || request !== this.usageRequest) return;
     for (const el of [this.usageEl, this.mobileStorage.querySelector('.storage-usage')]) el.textContent = text;
   }
 
