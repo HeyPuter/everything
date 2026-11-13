@@ -82,8 +82,9 @@ export function resampleDocument(e: Editor, width: number, height: number, metho
   }
   const sel = selectionGrid(doc, store);
   const selection = sel ? resizeGrid(store, sel, sx, sy, method) : null;
+  const quickMask = doc.quickMask && resizeGrid(store, doc.quickMask, sx, sy, method);
   const channels = doc.channels?.map((c) => ({ ...c, grid: resizeGrid(store, c.grid, sx, sy, method) }));
-  commitResampled(e, 'Image Size', width, height, { pixels, masks, live, selection, channels }, ppi, unit, undefined, scaleStyles);
+  commitResampled(e, 'Image Size', width, height, { pixels, masks, live, selection, quickMask, channels }, ppi, unit, undefined, scaleStyles);
 }
 export type ResampledGrids = {
   pixels: Map<string, TileGrid>;
@@ -91,6 +92,7 @@ export type ResampledGrids = {
   // Live Filter sources and filter masks of pixel layers.
   live?: Map<string, { source?: TileGrid; mask?: TileGrid }>;
   selection: TileGrid | null;
+  quickMask?: TileGrid;
   channels?: NonNullable<PhotoDocument['channels']>;
 };
 /** Store resampled layer, mask, selection and channel grids as one history
@@ -110,6 +112,7 @@ export function commitResampled(e: Editor, label: string, width: number, height:
       if (m) l.maskGrid = m;
     }
     if (g.channels) d.channels = g.channels;
+    if (g.quickMask) d.quickMask = g.quickMask;
     applySelection(d, g.selection);
     // Resampled pixel layers get new tile origins.
     remapCompPositions(before, d, (x, y) => [x * sx, y * sy]);

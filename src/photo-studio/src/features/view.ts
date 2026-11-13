@@ -47,8 +47,9 @@ function quickMaskOverlay(e: Editor) {
         for (let x = 0; x < w; x++) {
           const dx = Math.floor((x + 0.5) / scale),
             dy = Math.floor((y + 0.5) / scale);
-          const id = grid.tiles[tileKey(Math.floor(dx / TILE), Math.floor(dy / TILE))];
-          const v = id ? e.assets.tiles.get(id)[(dy % TILE) * TILE + (dx % TILE)] : (grid.fill ?? 0);
+          const lx = dx - grid.x, ly = dy - grid.y;
+          const id = grid.tiles[tileKey(Math.floor(lx / TILE), Math.floor(ly / TILE))];
+          const v = id ? e.assets.tiles.get(id)[(((ly % TILE) + TILE) % TILE) * TILE + ((lx % TILE) + TILE) % TILE] : (grid.fill ?? 0);
           const o = (y * w + x) * 4;
           img.data[o] = 255;
           img.data[o + 3] = Math.round((255 - v) * 0.5);

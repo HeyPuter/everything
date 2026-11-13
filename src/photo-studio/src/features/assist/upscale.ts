@@ -208,7 +208,7 @@ async function runUpscale(e: Editor, s: Settings, aiSource?: RGBA8) {
     const pixels = new Map<string, TileGrid>(), masks = new Map<string, TileGrid>();
     const live = new Map<string, { source?: TileGrid; mask?: TileGrid }>();
     const liveOf = (id: string) => live.get(id) ?? live.set(id, {}).get(id)!;
-    const total = work.length + (sel ? 1 : 0) + (doc.channels?.length ?? 0) || 1;
+    const total = work.length + (sel ? 1 : 0) + (doc.quickMask ? 1 : 0) + (doc.channels?.length ?? 0) || 1;
     let k = 0;
     const range = (): [number, number] => [k / total, (k + 1) / total];
     const upMask = async (grid: TileGrid): Promise<TileGrid> => {
@@ -234,12 +234,14 @@ async function runUpscale(e: Editor, s: Settings, aiSource?: RGBA8) {
     }
     const selection = sel ? await upMask(sel) : null;
     if (sel) k++;
+    const quickMask = doc.quickMask && await upMask(doc.quickMask);
+    if (quickMask) k++;
     const channels = doc.channels ? [] as NonNullable<typeof doc.channels> : undefined;
     for (const c of doc.channels ?? []) {
       channels!.push({ ...c, grid: await upMask(c.grid) });
       k++;
     }
-    return { pixels, masks, live, selection, channels };
+    return { pixels, masks, live, selection, quickMask, channels };
   });
   if (!result) {
     aiCtrl.abort();
