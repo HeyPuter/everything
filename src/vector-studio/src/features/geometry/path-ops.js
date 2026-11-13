@@ -140,6 +140,37 @@ function expandedStrokeItems(doc, node, rec, arrows = []) {
   return items.length === 1 ? items[0] : groupOf(items);
 }
 
+/**
+ * Outline the strokes of `nodes` (paths and compound paths with a stroke):
+ * each is replaced by its stroke as a filled shape (with a copy of its fill
+ * below when `expandFill`). `commit(fn)` runs the document change. Returns
+ * the new ids, or null when the artwork changed while the strokes were
+ * computed.
+ */
+export async function outlineStrokeNodes(app, doc, nodes, { expandFill = true, commit } = {}) {
+  const snap = snapshot(doc, nodes);
+  const strokes = nodes.map((n) => drawnStroke(app, doc, n));
+  const results = await Promise.all(
+    nodes.map((n, i) => {
+      const params = strokeParams(n, strokes[i].pattern, strokes[i].shape.subpaths);
+      // Many dashes take long even on a short path: keep the UI responsive.
+      const worker = strokeWork(params, strokes[i].shape.subpaths) > HEAVY_STROKE_WORK || undefined;
+      return runGeom(OP.STROKE, [strokes[i].shape], params, { tol: 0.01, worker });
+    }),
+  );
+  if (!unchangedSince(doc, snap)) return null;
+  const ids = [];
+  commit(() => {
+    nodes.forEach((n, i) => {
+      const src = expandFill ? n : { ...n, fill: null };
+      const item = expandedStrokeItems(doc, src, results[i][0], strokes[i].arrows);
+      if (!item) return;
+      ids.push(...replaceWith(doc, [n], [item], at(doc, n)));
+    });
+  });
+  return ids;
+}
+
 /** Outline Stroke (and Expand with Stroke): stroke becomes a filled shape. */
 export async function outlineStroke(app, { label = 'Outline Stroke', expandFill = true } = {}) {
   const editor = app.editor;
@@ -150,28 +181,10 @@ export async function outlineStroke(app, { label = 'Outline Stroke', expandFill 
     app.notify('Select a path with a stroke.');
     return false;
   }
-  const snap = snapshot(doc, nodes);
-  const strokes = nodes.map((n) => drawnStroke(app, doc, n));
-  const results = await withBusy(app, label, () =>
-    Promise.all(
-      nodes.map((n, i) => {
-        const params = strokeParams(n, strokes[i].pattern, strokes[i].shape.subpaths);
-        // Many dashes take long even on a short path: keep the UI responsive.
-        const worker = strokeWork(params, strokes[i].shape.subpaths) > HEAVY_STROKE_WORK || undefined;
-        return runGeom(OP.STROKE, [strokes[i].shape], params, { tol: 0.01, worker });
-      }),
-    ),
+  const ids = await withBusy(app, label, () =>
+    outlineStrokeNodes(app, doc, nodes, { expandFill, commit: (fn) => doc.transact(label, fn) }),
   );
-  if (!unchangedSince(doc, snap)) return false;
-  const ids = [];
-  doc.transact(label, () => {
-    nodes.forEach((n, i) => {
-      const src = expandFill ? n : { ...n, fill: null };
-      const item = expandedStrokeItems(doc, src, results[i][0], strokes[i].arrows);
-      if (!item) return;
-      ids.push(...replaceWith(doc, [n], [item], at(doc, n)));
-    });
-  });
+  if (!ids) return false;
   editor.select(ids);
   return true;
 }
@@ -345,6 +358,30 @@ export function convertToShapes(app) {
 
 // ---- Offset Path ----
 
+/** Engine records offsetting `nodes` by { offset, joins: 'miter' | 'round' | 'bevel', miter }. */
+export function offsetRecords(doc, nodes, v) {
+  const join = JOIN[v.joins] ?? 0;
+  const shapes = nodes.map((n) => shapeOf(doc, n));
+  return runGeom(OP.OFFSET, shapes, [v.offset, join, v.miter], { tol: 0.01 });
+}
+
+/**
+ * Insert offset results (inside a transaction): each with its path's style,
+ * above it (below it for a negative offset). Returns the new ids.
+ */
+export function insertOffsets(doc, nodes, v, records) {
+  const ids = [];
+  nodes.forEach((n, i) => {
+    const rec = records.find((r) => r.owner === i);
+    const built = rec && nodeFromSubpaths(rec.subpaths, styleOf(n));
+    if (!built) return;
+    const pos = at(doc, n, v.offset < 0);
+    doc.insert(built.node, pos.parentId, pos.index, built.descendants);
+    ids.push(built.node.id);
+  });
+  return ids;
+}
+
 export async function offsetPathDialog(app) {
   const editor = app.editor;
   const doc = editor.doc;
@@ -356,23 +393,8 @@ export async function offsetPathDialog(app) {
   const last = app.prefs.get('offsetPath') || { offset: 10, joins: 'miter', miter: 4 };
   const preview = new PreviewSession(doc, 'Offset Path');
   let seq = 0;
-  const compute = async (v) => {
-    const join = JOIN[v.joins] ?? 0;
-    const records = await runGeom(OP.OFFSET, nodes.map((n) => shapeOf(doc, n)), [v.offset, join, v.miter], { tol: 0.01 });
-    return records;
-  };
-  const apply = (v, records) => {
-    const ids = [];
-    nodes.forEach((n, i) => {
-      const rec = records.find((r) => r.owner === i);
-      const built = rec && nodeFromSubpaths(rec.subpaths, styleOf(n));
-      if (!built) return;
-      const pos = at(doc, n, v.offset < 0);
-      doc.insert(built.node, pos.parentId, pos.index, built.descendants);
-      ids.push(built.node.id);
-    });
-    return ids;
-  };
+  const compute = (v) => offsetRecords(doc, nodes, v);
+  const apply = (v, records) => insertOffsets(doc, nodes, v, records);
   const refresh = async (v) => {
     const my = ++seq;
     if (!v.preview) {

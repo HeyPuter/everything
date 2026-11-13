@@ -71,7 +71,7 @@ describe('scripts', () => {
     expect(doc.get(a.id).opacity).toBe(0.5);
     expect(doc.get(a.id).parent).not.toBe('root');
     expect(() => api.update('nope', {})).toThrow(/No object/);
-    expect(() => api.create({ type: 'image' })).toThrow(/path, text and group/);
+    expect(() => api.create({ type: 'image' })).toThrow(/path, compound, text, group and layer/);
     api.remove(id);
     expect(doc.get(id)).toBeUndefined();
   });
