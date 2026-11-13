@@ -50,6 +50,7 @@ export function installTaskbar(app) {
   let contextKey = null;
   let swatches = null;
   let fontField = null;
+  let fontEditor = null;
   let suppressed = false;
   let settleTimer = 0;
 
@@ -122,6 +123,7 @@ export function installTaskbar(app) {
   function buildContent(ctx) {
     swatches = null;
     fontField = null;
+    fontEditor = null;
     const items = [];
     if (ctx === 'none') {
       if (app.toolClasses.has('pencil')) items.push(button('Draw with Pencil', 'pencil', () => app.setTool('pencil')));
@@ -173,6 +175,11 @@ export function installTaskbar(app) {
         items.push(cmdButton('blend.options', 'Blend Options', 'blend'), cmdButton('blend.expand', 'Expand', null), cmdButton('blend.release', 'Release', null));
       } else if (ctx === 'text') {
         items.push(cmdButton('type.createOutlines', 'Create Outlines', 'type'));
+        // This field can remain focused while another canvas activates or a
+        // selection changes. Its pending value belongs to these original texts.
+        const ed = app.editor;
+        const ids = ed.selectedNodes().filter((n) => n.type === 'text').map((n) => n.id);
+        fontEditor = ed;
         fontField = numberField({
           label: 'Font size',
           icon: 'case-sensitive',
@@ -181,9 +188,10 @@ export function installTaskbar(app) {
           max: 1296,
           width: '64px',
           onCommit: (v) => {
-            const ed = app.editor;
-            if (!ed) return;
-            const texts = ed.selectedNodes().filter((n) => n.type === 'text');
+            if (!app.editors.includes(ed)) return;
+            const texts = ids.map((id) => ed.doc.get(id)).filter((n) => n?.type === 'text' &&
+              !ed.doc.isLocked(n.id) && !ed.doc.isHidden(n.id) && ed.inIsolation(n.id));
+            if (!texts.length) return;
             ed.doc.transact('Font Size', () => texts.forEach((t) => ed.doc.update(t.id, { char: { ...t.char, fontSize: v } })));
           },
         });
@@ -324,15 +332,22 @@ export function installTaskbar(app) {
     const ctx = taskbarContext(app.editor);
     const top = ctx === 'live' || ctx === 'other' ? app.editor.doc.get(app.editor.topSelection()[0]) : null;
     const liveKind = ctx === 'live' ? top?.live?.kind : ctx === 'other' ? top?.type : '';
-    const key = `${ctx}:${liveKind}:${Boolean(app.commands.get('pathfinder.unite'))}:${Boolean(app.commands.get('type.createOutlines'))}`;
-    if (key !== contextKey) {
+    const texts = ctx === 'text' ? app.editor.topSelection().join(',') : '';
+    const key = `${ctx}:${liveKind}:${texts}:${Boolean(app.commands.get('pathfinder.unite'))}:${Boolean(app.commands.get('type.createOutlines'))}`;
+    let focusTarget = null;
+    if (key !== contextKey || (fontField && fontEditor !== app.editor)) {
       const hadFocus = bar.contains(document.activeElement);
+      const fontFocused = fontField && document.activeElement === fontField.input;
+      // Finish before removing the input; removing a focused node need not
+      // fire blur. The bound handler ignores closed or unavailable targets.
+      fontField?.input.blur();
       contextKey = key;
       buildContent(ctx);
-      if (hadFocus) controls()[1]?.focus();
+      if (hadFocus) focusTarget = fontFocused && fontField ? fontField.input : controls()[1];
     }
     refreshValues();
     bar.hidden = false;
+    focusTarget?.focus();
     fit();
     position();
   }
