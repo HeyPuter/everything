@@ -321,7 +321,7 @@ export function newWindow(app, editor = app.editor) {
   const base = editor.windowOf || editor;
   const ed = app.addDocument(doc, { file: editor.file, activate: false });
   ed.windowOf = base;
-  Object.defineProperty(ed, 'name', { get: () => `${base.name}:${n}`, configurable: true });
+  Object.defineProperty(ed, 'name', { get: () => `${ed.file?.name || ed.doc.root.name}:${n}`, configurable: true });
   ed.view.set({ zoom: editor.view.zoom, panX: editor.view.panX, panY: editor.view.panY, rotation: editor.view.rotation, width: editor.view.width, height: editor.view.height, dpr: editor.view.dpr });
   ed.viewInitialized = true;
   ed.viewOptions = { ...editor.viewOptions };

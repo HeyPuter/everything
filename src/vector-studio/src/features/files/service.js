@@ -759,7 +759,7 @@ export class FileService {
       if (!n) continue;
       const base = replaced.get(o.windowOf) || o.windowOf;
       w.windowOf = base;
-      Object.defineProperty(w, 'name', { get: () => `${base.name}:${n}`, configurable: true });
+      Object.defineProperty(w, 'name', { get: () => `${w.file?.name || w.doc.root.name}:${n}`, configurable: true });
     }
     this.app.renderTabs();
     return ed;
