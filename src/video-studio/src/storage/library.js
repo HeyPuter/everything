@@ -559,6 +559,9 @@ export class Library extends Emitter {
     const have = this.urls.get(asset.hash);
     if (have) return have;
     const blob = await this.mediaBlob(asset);
+    // Another caller may have created the URL while this one waited for the shared read.
+    const shared = this.urls.get(asset.hash);
+    if (shared) return shared;
     const url = URL.createObjectURL(blob);
     this.urls.set(asset.hash, url);
     return url;

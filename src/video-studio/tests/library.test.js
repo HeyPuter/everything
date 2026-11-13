@@ -511,6 +511,28 @@ describe('Library media', () => {
     await expect(lib.mediaBlob({ hash: 'gone', ext: 'mp4', name: 'Gone' })).resolves.toBeTruthy();
   });
 
+  it('shares one object URL between concurrent callers and releases it on exit', async () => {
+    const backend = memoryBackend();
+    backend.files.set('media/shared.mp4', new Blob(['video']));
+    const lib = new Library(backend);
+    const asset = { hash: 'shared', ext: 'mp4', name: 'Shared' };
+    let serial = 0;
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:shared-${++serial}`);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    try {
+      const urls = await Promise.all([lib.mediaURL(asset), lib.mediaURL(asset), lib.mediaURL(asset)]);
+      expect(new Set(urls).size).toBe(1);
+      expect(create).toHaveBeenCalledTimes(1);
+      lib.releaseMedia();
+      expect(revoke.mock.calls).toEqual([[urls[0]]]);
+      expect(await lib.mediaURL(asset)).not.toBe(urls[0]);
+    } finally {
+      lib.releaseMedia();
+      create.mockRestore();
+      revoke.mockRestore();
+    }
+  });
+
   it('reads media from storage when it is not in memory and explains a missing file', async () => {
     const backend = memoryBackend();
     const lib = new Library(backend);
