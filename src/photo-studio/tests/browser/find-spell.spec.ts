@@ -1351,7 +1351,7 @@ for (const key of ['Enter', 'Space']) for (const button of ['Done', 'Change', 'C
   if (button === 'Done') await expect(dlg).toHaveCount(0, { timeout: 5000 });
   await expect.poll(() => layerTexts(page), { timeout: 5000 }).toEqual([expected]);
   expect(await page.evaluate(() => (window as unknown as { findButtonClicks: number }).findButtonClicks)).toBe(1);
-  if (button !== 'Done' && button !== 'Change All') await expect(target).toBeFocused();
+  if (button !== 'Done') await expect(target).toBeFocused();
   if (button === 'Find Next' || button === 'Change/Find') {
     await expect.poll(() => page.evaluate(() => {
       const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
@@ -1407,4 +1407,54 @@ test('Find checkbox Space and Escape retain their native actions', async ({ page
   await page.keyboard.press('Escape');
   await expect(dlg).toHaveCount(0);
   expect(await layerTexts(page)).toEqual(['dog dog']);
+});
+
+for (const result of ['no matches', 'delayed replacement']) test(`Find Change All preserves focus for ${result}`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog dog', 'dog dog']);
+  if (result === 'delayed replacement') await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded font on another layer', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.locator('#fr-change').fill('cat');
+  await dlg.getByRole('button', { name: 'Find Next', exact: true }).click();
+  await expect(dlg.locator('#fr-status')).toContainText('Found in');
+  if (result === 'no matches') await dlg.locator('#fr-find').fill('absent');
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession())).toBe(true);
+  const button = dlg.getByRole('button', { name: 'Change All', exact: true });
+  await button.click();
+  if (result === 'no matches') await expect(dlg.locator('#fr-status')).toHaveText('No matches.');
+  else await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await expect(button).toBeFocused({ timeout: 5000 });
+  if (result === 'no matches') {
+    expect(await layerTexts(page)).toEqual(['dog dog', 'dog dog']);
+    await page.keyboard.press('Tab');
+    await expect(dlg.getByRole('button', { name: 'Change', exact: true })).toBeFocused();
+  } else {
+    const field = dlg.locator('#fr-change');
+    await field.fill('custom');
+    await page.evaluate(async () => {
+      (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+      await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+    });
+    await expect(dlg.locator('#fr-status')).toContainText('Changed 4 occurrences in 2 layers');
+    await expect(field).toBeFocused();
+    await page.keyboard.insertText(' value');
+    await expect(field).toHaveValue('custom value');
+    expect(await layerTexts(page)).toEqual(['cat cat', 'cat cat']);
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['dog dog', 'dog dog']);
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual(['cat cat', 'cat cat']);
+  }
 });

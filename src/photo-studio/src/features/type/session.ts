@@ -398,20 +398,20 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: Edit
   });
 }
 
-function endSession(e: Editor) {
+function endSession(e: Editor, preserveFocus = false) {
   session = undefined;
   clearTimeout(updateTimer);
   if (input) {
     input.value = '';
     input.blur();
   }
-  e.el('#viewport').focus({ preventScroll: true });
+  if (!preserveFocus) e.el('#viewport').focus({ preventScroll: true });
 }
 
-export async function commit(e: Editor) {
+export async function commit(e: Editor, { preserveFocus = false }: { preserveFocus?: boolean } = {}) {
   const s = session;
   if (!s) return;
-  endSession(e);
+  endSession(e, preserveFocus);
   if (e.history.document !== s.draft) {
     // The document moved on while editing (another edit absorbed the draft).
     e.update();

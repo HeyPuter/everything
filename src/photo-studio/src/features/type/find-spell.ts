@@ -137,7 +137,7 @@ export async function findReplace(e: Editor) {
     const { query, replace, all } = s;
     const options = opts();
     if (!query) return status('Type the text to find.');
-    if (session) await commit(e);
+    if (session) await commit(e, { preserveFocus: ws.dialog.contains(document.activeElement) });
     const ids = textLayers(e, all)
       .filter((l) => findMatches(textOf(e, l), query, options).length)
       .map((l) => l.id);
