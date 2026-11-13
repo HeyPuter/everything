@@ -1,12 +1,19 @@
 // Small shared helpers with no DOM dependency (safe in workers and tests).
 
-/** Short random id (base 36). Collisions are vanishingly unlikely at project scale. */
+/** Short random id (base 36). Reserve it against its collection before insertion. */
 export function uid(len = 8) {
   let s = '';
   const bytes = new Uint8Array(len);
   globalThis.crypto.getRandomValues(bytes);
   for (const b of bytes) s += (b % 36).toString(36);
   return s;
+}
+
+/** Reserves a candidate ID, retrying random collisions within this collection. */
+export function reserveId(used, id = uid()) {
+  while (used.has(id)) id = uid();
+  used.add(id);
+  return id;
 }
 
 export function clamp(v, lo, hi) {

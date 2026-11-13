@@ -2,7 +2,7 @@
 // object when nothing changed), sharing untouched parts. No DOM, no engine:
 // these run in tests as-is. Views call them through store.apply(label, fn).
 
-import { uid, clamp, moveItem } from '../lib/util.js';
+import { uid, reserveId, clamp, moveItem } from '../lib/util.js';
 import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, cloneName, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY } from './project.js';
 import { STEP } from './time.js';
 
@@ -244,7 +244,12 @@ export function moveTrack(project, from, to) {
 }
 
 export function addClips(project, clips) {
-  const made = clips.map((c) => (c.id ? c : createClip(c)));
+  const used = new Set(project.clips.map((c) => c.id));
+  const made = clips.map((c) => {
+    const clip = c.id ? c : createClip(c);
+    const id = reserveId(used, clip.id);
+    return id === clip.id ? clip : { ...clip, id };
+  });
   const maxTrack = made.reduce((m, c) => Math.max(m, c.track), -1);
   const p = ensureTracks(project, maxTrack + 1);
   return { project: { ...p, clips: [...p.clips, ...made] }, ids: made.map((c) => c.id) };

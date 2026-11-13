@@ -18,7 +18,7 @@ import { secondsToTicks, ticksPerBar } from '../model/time.js';
 import { tempoMap } from '../engine/compile.js';
 import { automationLength } from '../automation/points.js';
 import { resolveTarget } from '../automation/targets.js';
-import { uid, clamp } from '../lib/util.js';
+import { uid, reserveId, clamp } from '../lib/util.js';
 
 export const AUTO_COLOR = COLORS[11];
 export const TRACK_HEIGHTS = { small: 32, medium: 56, large: 96 };
@@ -219,11 +219,11 @@ export function resizeClips(project, ids, edge, dt, { minLen = 1 } = {}) {
 }
 
 /** Splits one clip at `tick`: [left, right] with offsets kept correct, or null when outside. */
-export function splitClip(clip, tick) {
+export function splitClip(clip, tick, usedIds = null) {
   const t = Math.round(tick);
   if (t <= clip.start || t >= clip.start + clip.len) return null;
   const left = { ...clip, len: t - clip.start };
-  const right = { ...clip, id: uid(), start: t, len: clip.start + clip.len - t, offset: clip.offset + (t - clip.start) };
+  const right = { ...clip, id: reserveId(usedIds ?? new Set([clip.id])), start: t, len: clip.start + clip.len - t, offset: clip.offset + (t - clip.start) };
   return [left, right];
 }
 
@@ -232,10 +232,11 @@ export function splitClip(clip, tick) {
  * all). Returns { project, ids } with the ids of the new right halves.
  */
 export function sliceClips(project, tick, filter = () => true) {
+  const usedIds = new Set(project.clips.map((c) => c.id));
   const ids = [];
   const clips = [];
   for (const c of project.clips) {
-    const parts = filter(c) ? splitClip(c, tick) : null;
+    const parts = filter(c) ? splitClip(c, tick, usedIds) : null;
     if (parts) {
       clips.push(parts[0], parts[1]);
       ids.push(parts[1].id);
