@@ -391,12 +391,21 @@ export class ActionEngine {
     if (this.playing) return { ok: false, done: 0, message: 'An action is already playing.' };
     const app = this.app;
     if (!app.editor) throw new UserError('Open a document to play an action.');
+    const editor = app.editor;
+    let changedDocument = false;
+    const offActive = app.on('active-editor', (next) => {
+      if (next !== editor) changedDocument = true;
+    });
     const steps = only ? found.action.steps.filter((s) => only.includes(s.id)) : found.action.steps.slice(from);
     this.playing = true;
     let done = 0;
     try {
       for (const [i, st] of steps.entries()) {
         if (!st.on) continue;
+        if (changedDocument || app.editor !== editor || !app.editors.includes(editor)) {
+          app.notify('Action stopped because the active document changed.', { polite: true });
+          return { ok: false, done, stoppedAt: i };
+        }
         const res = await this.#playStep(st);
         if (res === 'stop') return { ok: false, done, stoppedAt: i };
         if (res === true && i < steps.length - 1) await this.#between();
@@ -408,6 +417,7 @@ export class ActionEngine {
       }
       return { ok: true, done };
     } finally {
+      offActive();
       this.playing = false;
       this.queue = null;
     }
