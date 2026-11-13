@@ -169,6 +169,10 @@
   flex: 1;
 }
 
+.tts-panel .tts-actions {
+  flex-wrap: wrap;
+}
+
 .tts-where {
   margin-top: 8px;
 }

@@ -348,8 +348,9 @@ function ttsPanel(ctx) {
   if (!aiAvailable(ctx)) return { el: signInHint(ctx, 'text to speech') };
   let voice = TTS_VOICES.some((v) => v.id === prefs().ttsVoice) ? prefs().ttsVoice : TTS_VOICES[0].id;
   let fromClip = null; // { id, start } when the text came from a clip
-  let busy = false;
-  let audio = null;
+  let job = null, disposed = false;
+  let audio = null, audioUrl = null, previewSource = null;
+  const context = () => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
 
   const text = h('textarea#tts-text.textarea.tts-text', { maxLength: TTS_MAX, rows: 5, placeholder: 'Type or paste what should be read aloud', 'aria-describedby': 'tts-count' });
   const count = h('span#tts-count.tts-count', `0 / ${TTS_MAX}`);
@@ -366,14 +367,16 @@ function ttsPanel(ctx) {
   });
   const previewBtn = h('button.btn', { type: 'button' }, icon('play', 16), 'Preview');
   const addBtn = h('button.btn.primary', { type: 'button' }, icon('plus', 16), 'Add to timeline');
+  const cancelBtn = h('button.btn', { type: 'button', hidden: true }, 'Cancel speech');
   const status = h('p.tts-status', { role: 'status' });
   const where = h('p.field-hint.tts-where');
 
   const update = () => {
     count.textContent = `${text.value.length} / ${TTS_MAX}`;
     const empty = !text.value.trim();
-    previewBtn.disabled = busy || empty;
-    addBtn.disabled = busy || empty;
+    previewBtn.disabled = !audio && (Boolean(job) || empty);
+    addBtn.disabled = Boolean(job) || empty;
+    cancelBtn.hidden = !job;
     const sel = store.selected?.clip;
     useClip.disabled = !(sel && sel.type === 'text');
     where.textContent = fromClip ? `Speech will start where the selected text starts (${clock(fromClip.start)}).` : 'Speech is added at the playhead.';
@@ -383,62 +386,100 @@ function ttsPanel(ctx) {
     const sel = store.selected?.clip;
     if (!sel || sel.type !== 'text') return;
     text.value = sel.text.slice(0, TTS_MAX);
-    fromClip = { id: sel.id, start: sel.start };
+    fromClip = { id: sel.id, start: sel.start, source: context() };
     update();
     text.focus();
   });
 
-  async function run(label, fn) {
-    busy = true;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted && context() === task.source;
+  function finish(task) {
+    if (job !== task) return;
+    const hadFocus = document.activeElement === cancelBtn;
+    job = null;
     update();
-    status.replaceChildren(h('span.spinner'), label);
-    try {
-      await fn();
-    } catch (err) {
-      status.replaceChildren();
-      toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
-      busy = false;
-      update();
-      return;
-    }
-    busy = false;
+    if (hadFocus && !disposed) (task.trigger.disabled ? text : task.trigger).focus();
+  }
+  function stopAudio(expected = audio) {
+    if (!expected || audio !== expected) return;
+    expected.pause();
+    URL.revokeObjectURL(audioUrl);
+    audio = audioUrl = previewSource = null;
+    previewBtn.replaceChildren(icon('play', 16), 'Preview');
     update();
   }
-
+  function cancelJob(message = '') {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (task.kind === 'preview') stopAudio();
+    status.textContent = message;
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
   const stopPreview = () => {
-    if (!audio) return;
-    audio.pause();
-    URL.revokeObjectURL(audio.src);
-    audio = null;
-    previewBtn.replaceChildren(icon('play', 16), 'Preview');
+    if (job?.kind === 'preview') cancelJob();
+    stopAudio();
   };
+  cancelBtn.addEventListener('click', () => cancelJob('Speech cancelled.'));
 
-  previewBtn.addEventListener('click', () => {
-    if (audio) {
-      stopPreview();
-      return;
+  async function run(kind) {
+    if (job || disposed || !text.value.trim()) return;
+    const task = {
+      controller: new AbortController(), source: context(), kind, words: text.value, voice,
+      start: (fromClip && findStart(store.project, fromClip.id)) ?? store.time,
+      trigger: kind === 'preview' ? previewBtn : addBtn,
+    };
+    job = task;
+    update();
+    status.replaceChildren(h('span.spinner'), 'Creating speech...');
+    const { signal } = task.controller;
+    try {
+      const blob = await synthesize(task.words, task.voice, { signal });
+      if (!current(task)) return;
+      if (kind === 'preview') {
+        status.replaceChildren();
+        audioUrl = URL.createObjectURL(blob);
+        const playing = new Audio(audioUrl);
+        audio = playing;
+        previewSource = task.source;
+        playing.addEventListener('ended', () => stopAudio(playing), { once: true });
+        previewBtn.replaceChildren(icon('stop', 16), 'Stop');
+        update();
+        await playing.play().catch(() => stopAudio(playing));
+      } else {
+        status.replaceChildren(h('span.spinner'), 'Adding to timeline...');
+        const clip = await addSpeechToTimeline(ctx, blob, task.words, { start: task.start, signal });
+        if (current(task)) status.textContent = clip ? 'Speech added to the timeline.' : '';
+      }
+    } catch (err) {
+      if (current(task) && err?.name !== 'AbortError') {
+        status.replaceChildren();
+        toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
+      }
+    } finally {
+      finish(task);
     }
-    run('Creating speech...', async () => {
-      const blob = await synthesize(text.value, voice);
-      status.replaceChildren();
-      audio = new Audio(URL.createObjectURL(blob));
-      audio.addEventListener('ended', stopPreview);
-      previewBtn.replaceChildren(icon('stop', 16), 'Stop');
-      await audio.play().catch(() => stopPreview());
-    });
+  }
+  previewBtn.addEventListener('click', () => {
+    if (audio) stopPreview();
+    else run('preview');
   });
-
   addBtn.addEventListener('click', () => {
-    stopPreview();
-    run('Creating speech...', async () => {
-      const blob = await synthesize(text.value, voice);
-      status.replaceChildren(h('span.spinner'), 'Adding to timeline...');
-      const start = fromClip && store.project && findStart(store.project, fromClip.id);
-      const clip = await addSpeechToTimeline(ctx, blob, text.value, { start: start ?? undefined });
-      status.textContent = clip ? 'Speech added to the timeline.' : '';
-    });
+    if (job || disposed) return;
+    stopAudio();
+    run('add');
   });
 
+  const offChange = store.on('change', () => {
+    if (!job && !audio && !fromClip) return;
+    const source = context();
+    if (job && job.source !== source) cancelJob('Speech cancelled because the open timeline changed.');
+    if (audio && previewSource !== source) stopAudio();
+    if (fromClip && fromClip.source !== source) {
+      fromClip = null;
+      update();
+    }
+  });
   const offSel = store.on('select', update);
   update();
   const el = h('div.tts-panel',
@@ -448,12 +489,18 @@ function ttsPanel(ctx) {
       count,
     ),
     h('div.field', h('span.field-label', { id: 'tts-voice-label' }, 'Voice'), voices.el),
-    h('div.tts-actions', previewBtn, addBtn),
+    h('div.tts-actions', previewBtn, addBtn, cancelBtn),
     where,
     status,
   );
   voices.el.setAttribute('aria-labelledby', 'tts-voice-label');
-  return { el, stop: stopPreview, dispose: () => { offSel(); stopPreview(); } };
+  return { el, stop: stopPreview, dispose() {
+    disposed = true;
+    cancelJob();
+    stopAudio();
+    offSel();
+    offChange();
+  } };
 }
 
 function findStart(project, clipId) {
@@ -520,6 +567,7 @@ export function audioTab(ctx) {
     menuLabel: 'Filter by mood',
     menuActive: () => Boolean(moodPref()),
     render(cat, q) {
+      if (cat !== 'tts') tts?.stop?.();
       const menuBtn = layout?.el.querySelector('.asset-menu-btn');
       if (menuBtn) menuBtn.hidden = cat !== 'music';
       if (cat === 'favorites') return renderFavorites(q);
