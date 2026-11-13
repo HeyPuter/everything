@@ -242,3 +242,27 @@ describe('nudging clips', () => {
     expect(S.findClip(doc.state, c.id).trackId).toBe(t2);
   });
 });
+
+describe('reopened session markers', () => {
+  it('get ids that new markers cannot take', async () => {
+    const { parseSession } = await import('../src/model/session-io.js');
+    const { createMarker } = await import('../src/model/markers.js');
+    // Saved in another page: ids from that page's marker counter.
+    const markers = Array.from({ length: 50 }, (_, i) => ({
+      id: `m${i + 1}`,
+      name: `M${i}`,
+      start: i * 10,
+    }));
+    const text = JSON.stringify({
+      format: 'audio-studio-session',
+      version: 1,
+      session: { tracks: [], clips: [], markers },
+      sources: [],
+    });
+    const { state } = parseSession(text);
+    expect(state.markers.map((m) => m.name)).toEqual(markers.map((m) => m.name));
+    const added = createMarker({ start: 5 });
+    expect(state.markers.map((m) => m.id)).not.toContain(added.id);
+    expect(new Set(state.markers.map((m) => m.id)).size).toBe(50);
+  });
+});
