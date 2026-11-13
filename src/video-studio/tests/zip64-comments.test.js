@@ -42,7 +42,7 @@ it.each([0, 65515, 65516, 65535])('reads only the missing 20-byte locator when n
   const entries = await readZip({ size: zip.size, slice(start, end) { ranges.push([start, end]);return zip.slice(start, end); } });
   expect(entries).toHaveLength(1);
   expect(ranges[0]).toEqual([zip.size - 22 - 65535, zip.size]);
-  expect(ranges).toHaveLength(length > 65515 ? 4 : 3);
+  expect(ranges).toHaveLength(length > 65515 ? 4 : length === 0 ? 1 : 3);
   if (length > 65515) expect(ranges[1]).toEqual([zip.size - 22 - length - 20, zip.size - 22 - length]);
 });
 

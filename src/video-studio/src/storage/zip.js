@@ -151,10 +151,12 @@ function readZip64Extra(dv, start, len, fields) {
   while (o + 4 <= start + len) {
     const id = dv.getUint16(o, true);
     const size = dv.getUint16(o + 2, true);
+    if (o + 4 + size > start + len) throw new Error('This archive is damaged.');
     if (id === 0x0001) {
       let p = o + 4;
       for (const key of Object.keys(fields)) {
         if (fields[key] !== MAX32) continue;
+        if (p + 8 > o + 4 + size) throw new Error('This archive is damaged.');
         fields[key] = Number(dv.getBigUint64(p, true));
         p += 8;
       }
@@ -165,67 +167,73 @@ function readZip64Extra(dv, start, len, fields) {
   return fields;
 }
 
-/**
- * Read a ZIP Blob. Returns [{ name, size, blob() }] where blob() resolves to
- * the file's contents (a slice of the input for stored entries).
- */
-export async function readZip(zip) {
-  if (zip.size < 22) throw new Error('This file is not a project file (too small).');
-  // End of central directory: the last 22 bytes plus up to 64 KB of comment.
-  const tailStart = Math.max(0, zip.size - 22 - 0xffff);
-  const tail = await view(zip, tailStart, zip.size);
-  let eocd = -1;
-  for (let i = tail.byteLength - 22; i >= 0; i--) {
-    if (tail.getUint32(i, true) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  }
-  if (eocd < 0) throw new Error('This file is not a project file (not a ZIP archive).');
+/** Validate a candidate footer and its directory before accepting a signature in a comment. */
+async function directoryAt(zip, tail, tailStart, eocd) {
   let count = tail.getUint16(eocd + 10, true);
   let cdSize = tail.getUint32(eocd + 12, true);
   let cdStart = tail.getUint32(eocd + 16, true);
-  if (count === 0xffff || cdSize === MAX32 || cdStart === MAX32) {
+  let directoryEnd = tailStart + eocd;
+  // ZIP64 records may also be present when the ordinary footer fields fit.
+  if (count === 0xffff || cdSize === MAX32 || cdStart === MAX32 || cdStart + cdSize !== directoryEnd) {
     let locator = tail;
     let locAt = eocd - 20;
-    // A long comment can push part or all of the locator outside the tail
-    // window. Read just those 20 bytes; ordinary archives reuse the tail.
     if (locAt < 0) {
       const start = tailStart + locAt;
-      if (start < 0) throw new Error('This archive is damaged.');
+      if (start < 0) return null;
       locator = await view(zip, start, start + 20);
       locAt = 0;
     }
-    if (locator.getUint32(locAt, true) !== 0x07064b50) throw new Error('This archive is damaged.');
+    if (locator.getUint32(locAt, true) !== 0x07064b50) return null;
     const e64At = Number(locator.getBigUint64(locAt + 8, true));
-    const e64 = await view(zip, e64At, e64At + 56);
-    if (e64.getUint32(0, true) !== 0x06064b50) throw new Error('This archive is damaged.');
+    const locatorStart = tailStart + eocd - 20;
+    if (!Number.isSafeInteger(e64At) || e64At < 0 || e64At + 56 > locatorStart) return null;
+    const e64 = e64At >= tailStart
+      ? new DataView(tail.buffer, e64At - tailStart, 56)
+      : await view(zip, e64At, e64At + 56);
+    if (e64.byteLength !== 56 || e64.getUint32(0, true) !== 0x06064b50) return null;
+    const recordSize = Number(e64.getBigUint64(4, true));
+    if (!Number.isSafeInteger(recordSize) || recordSize < 44 || e64At + 12 + recordSize !== locatorStart) return null;
     count = Number(e64.getBigUint64(32, true));
     cdSize = Number(e64.getBigUint64(40, true));
     cdStart = Number(e64.getBigUint64(48, true));
+    directoryEnd = e64At;
   }
-  if (cdStart + cdSize > zip.size) throw new Error('This archive is damaged or incomplete.');
-  const cd = await view(zip, cdStart, cdStart + cdSize);
+  if (![count, cdSize, cdStart].every(n => Number.isSafeInteger(n) && n >= 0)
+    || cdStart + cdSize !== directoryEnd || count > Math.floor(cdSize / 46)
+    // Three 16-bit variable lengths per entry, plus one optional signature.
+    // Reject impossible sizes before allocating a directory-sized buffer.
+    || cdSize > count * (46 + 3 * 0xffff) + 6 + 0xffff) return null;
+  const cd = cdStart >= tailStart
+    ? new DataView(tail.buffer, cdStart - tailStart, cdSize)
+    : await view(zip, cdStart, cdStart + cdSize);
+  if (cd.byteLength !== cdSize) return null;
   const dec = new TextDecoder();
   const out = [];
   let o = 0;
+  let encrypted = false;
   for (let i = 0; i < count; i++) {
-    if (o + 46 > cd.byteLength || cd.getUint32(o, true) !== 0x02014b50) throw new Error('This archive is damaged.');
+    if (o + 46 > cd.byteLength || cd.getUint32(o, true) !== 0x02014b50) return null;
     const flags = cd.getUint16(o + 8, true);
     const method = cd.getUint16(o + 10, true);
     const checksum = cd.getUint32(o + 16, true);
     const nameLen = cd.getUint16(o + 28, true);
     const extraLen = cd.getUint16(o + 30, true);
     const commentLen = cd.getUint16(o + 32, true);
-    const name = dec.decode(new Uint8Array(cd.buffer, o + 46, nameLen));
-    const f = readZip64Extra(cd, o + 46 + nameLen, extraLen, {
-      size: cd.getUint32(o + 24, true),
-      compressed: cd.getUint32(o + 20, true),
-      offset: cd.getUint32(o + 42, true),
-    });
+    if (o + 46 + nameLen + extraLen + commentLen > cd.byteLength) return null;
+    const name = dec.decode(new Uint8Array(cd.buffer, cd.byteOffset + o + 46, nameLen));
+    let f;
+    try {
+      f = readZip64Extra(cd, o + 46 + nameLen, extraLen, {
+        size: cd.getUint32(o + 24, true),
+        compressed: cd.getUint32(o + 20, true),
+        offset: cd.getUint32(o + 42, true),
+      });
+    } catch {
+      return null;
+    }
     o += 46 + nameLen + extraLen + commentLen;
     if (name.endsWith('/')) continue;
-    if (flags & 1) throw new Error('Encrypted archives are not supported.');
+    encrypted ||= Boolean(flags & 1);
     out.push({
       name,
       size: f.size,
@@ -270,5 +278,36 @@ export async function readZip(zip) {
       },
     });
   }
-  return out;
+  // A digital signature may follow the directory entries. Other leftover
+  // bytes mean this candidate did not actually describe the whole directory.
+  if (o !== cd.byteLength) {
+    if (o + 6 > cd.byteLength || cd.getUint32(o, true) !== 0x05054b50
+      || o + 6 + cd.getUint16(o + 4, true) !== cd.byteLength) return null;
+  }
+  return { entries: out, encrypted };
+}
+
+/**
+ * Read a ZIP Blob. Returns [{ name, size, blob() }] where blob() resolves to
+ * the file's contents (a slice of the input for stored entries).
+ */
+export async function readZip(zip) {
+  if (zip.size < 22) throw new Error('This file is not a project file (too small).');
+  // Search the bounded footer/comment window. Comments can contain signature
+  // bytes, so neither the signature nor the comment length alone is enough.
+  const tailStart = Math.max(0, zip.size - 22 - 0xffff);
+  const tail = await view(zip, tailStart, zip.size);
+  let sawSignature = false;
+  for (let i = tail.byteLength - 22; i >= 0; i--) {
+    if (tail.getUint32(i, true) !== 0x06054b50) continue;
+    sawSignature = true;
+    // Keep support for trailing bytes, but never accept a truncated comment.
+    if (i + 22 + tail.getUint16(i + 20, true) > tail.byteLength) continue;
+    const directory = await directoryAt(zip, tail, tailStart, i);
+    if (!directory) continue;
+    if (directory.encrypted) throw new Error('Encrypted archives are not supported.');
+    return directory.entries;
+  }
+  if (sawSignature) throw new Error('This archive is damaged or incomplete.');
+  throw new Error('This file is not a project file (not a ZIP archive).');
 }
