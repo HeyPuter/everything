@@ -176,6 +176,7 @@ export class Store extends Emitter {
   }
 
   redo() {
+    if (this.gesture) this.commit();
     const step = this.redoStack.pop();
     if (!step) return null;
     const prev = this.project;

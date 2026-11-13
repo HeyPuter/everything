@@ -4,6 +4,33 @@ import * as E from '../src/model/edits.js';
 import { newProject } from '../src/model/demo.js';
 
 describe('store', () => {
+  it('commits a changed gesture before redo invalidates the old history branch', () => {
+    const s = new Store(newProject());
+    const start = s.project;
+    s.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 90 }));
+    s.undo();
+    s.begin('Drag tempo');
+    s.preview((p) => E.setProjectProps(p, { bpm: 110 }));
+    s.redo();
+    expect(s.project.bpm).toBe(110);
+    expect(s.gesture).toBeNull();
+    expect(s.canRedo).toBe(false);
+    s.undo();
+    expect(s.project).toBe(start);
+    s.redo();
+    expect(s.project.bpm).toBe(110);
+  });
+
+  it('still redoes after a gesture with no changes', () => {
+    const s = new Store(newProject());
+    s.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 90 }));
+    s.undo();
+    s.begin('Drag tempo');
+    s.redo();
+    expect(s.project.bpm).toBe(90);
+    expect(s.gesture).toBeNull();
+  });
+
   it('records undo steps and redoes them', () => {
     const s = new Store(newProject());
     const before = s.project;
