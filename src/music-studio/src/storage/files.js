@@ -232,20 +232,22 @@ export class ProjectFiles {
     await this.whenIdle();
     if (this.loads !== loads) return false;
     const clean = name.trim().slice(0, 120);
+    let path;
     if (cloud) {
-      const path = await this.lib.cloudPathFor(clean);
+      path = await this.lib.cloudPathFor(clean);
       if (this.loads !== loads) return false;
       if (path !== this.app.file?.path && (await puter.exists(path))) {
         if (this.loads !== loads) return false;
         const ok = await confirmDialog({ title: 'Replace project?', message: `A project named "${baseName(path)}" already exists in your Puter cloud. Replace it?`, confirm: 'Replace', danger: true });
         if (!ok) return false;
       }
-      if (this.loads !== loads) return false;
-      this.renameProject(clean);
-      return this.saveCloudTo(path);
     }
+    // Cloud lookups and replacement prompts may outlast another autosave.
+    // Recheck after every wait: another queued Save As can start first.
+    while (this.app.saving) await this.whenIdle();
+    if (this.loads !== loads) return false;
     this.renameProject(clean);
-    return this.saveLocalProject(uid(), clean);
+    return cloud ? this.saveCloudTo(path) : this.saveLocalProject(uid(), clean);
   }
 
   renameProject(name) {

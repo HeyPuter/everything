@@ -48,3 +48,38 @@ describe('save as after switching projects', () => {
     expect(save).toHaveBeenCalledWith(expect.any(String), 'Copy');
   });
 });
+
+it('waits for an autosave that starts during cloud path lookup before saving the new copy', async () => {
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  };
+  const path = deferred();
+  const oldWrite = deferred();
+  const newWrite = deferred();
+  promptDialog.mockResolvedValue('Copy');
+  vi.stubGlobal('puter', { auth: { isSignedIn: () => true }, fs: { stat: async () => { throw new Error('Not found'); } } });
+  const { Emitter } = await import('../src/lib/emitter.js');
+  const app = new Emitter();
+  const values = {};
+  Object.assign(app, { store: new Store(newProject()), file: { path: '/Original.msproj', name: 'Original' }, notify: vi.fn(), prefs: { get: (k) => values[k], set: (k, v) => { values[k] = v; } } });
+  const lib = { cloudPathFor: vi.fn(() => path.promise), saveCloud: vi.fn().mockReturnValueOnce(oldWrite.promise).mockReturnValueOnce(newWrite.promise) };
+  const files = new ProjectFiles(app, lib);
+  const copy = files.saveAs();
+  await vi.waitFor(() => expect(lib.cloudPathFor).toHaveBeenCalled());
+  const auto = files.save({ auto: true });
+  expect(lib.saveCloud).toHaveBeenCalledTimes(1);
+  path.resolve('/Copy.msproj');
+  await new Promise((r) => setTimeout(r, 0));
+  const overlapped = lib.saveCloud.mock.calls.length > 1;
+  oldWrite.resolve({ path: '/Original.msproj', missing: [] });
+  await auto;
+  await vi.waitFor(() => expect(lib.saveCloud).toHaveBeenCalledTimes(2));
+  const savingDuringCopy = app.saving;
+  newWrite.resolve({ path: '/Copy.msproj', missing: [] });
+  await copy;
+  expect(overlapped).toBe(false);
+  expect(savingDuringCopy).toBe(true);
+  expect(app.file.path).toBe('/Copy.msproj');
+});
