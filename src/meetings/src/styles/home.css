@@ -129,6 +129,15 @@ puter-user-menu::part(avatar) {
   }
 }
 
+/* The app's :focus-visible ring (base.css) does not reach into the element's
+   shadow root, so its buttons take it here, as the header's own buttons. */
+puter-user-menu::part(apps-button):focus-visible,
+puter-user-menu::part(sign-in):focus-visible,
+puter-user-menu::part(avatar):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 puter-user-menu::part(menu),
 puter-user-menu::part(apps-panel) {
   background: var(--surface-raised);
