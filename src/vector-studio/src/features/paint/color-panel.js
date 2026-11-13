@@ -83,6 +83,13 @@ export class ColorPanel extends Panel {
     let spectrumPointer = null;
     this.spectrum.addEventListener('pointerdown', (e) => {
       if (!app.editor || e.button !== 0 || spectrumPointer !== null) return;
+      const editor = app.editor, key = editor.focusPaint, isolation = editor.isolation;
+      const selection = [...editor.selection];
+      const valid = () => this.visible && app.editor === editor && app.editors.includes(editor) && !editor.doc.readOnly &&
+        (!app.home || app.home.hidden) && editor.focusPaint === key && editor.isolation === isolation &&
+        editor.selection.size === selection.length && selection.every((id) => editor.selection.has(id) &&
+          editor.doc.has(id) && !editor.doc.isHidden(id) && !editor.doc.isLocked(id) && editor.inIsolation(id));
+      if (!valid()) return;
       try {
         this.spectrum.setPointerCapture?.(e.pointerId);
       } catch {
@@ -91,19 +98,39 @@ export class ColorPanel extends Panel {
       }
       spectrumPointer = e.pointerId;
       this.coalesce = gestureKey('color');
-      const move = (ev) => { if (ev.pointerId === spectrumPointer) pick(ev); };
-      const up = (ev) => {
-        if (ev.pointerId !== spectrumPointer) return;
+      const offs = [];
+      let active = true;
+      const end = () => {
+        if (!active) return;
+        active = false;
+        const pointerId = spectrumPointer;
         spectrumPointer = null;
+        this.endSpectrum = null;
         this.spectrum.removeEventListener('pointermove', move);
         this.spectrum.removeEventListener('pointerup', up);
         this.spectrum.removeEventListener('pointercancel', up);
         this.spectrum.removeEventListener('lostpointercapture', up);
+        for (const off of offs.splice(0)) off();
+        try { this.spectrum.releasePointerCapture?.(pointerId); } catch { /* Capture may already have ended. */ }
       };
+      const check = () => {
+        if (!active) return false;
+        if (valid()) return true;
+        end();
+        return false;
+      };
+      const move = (ev) => { if (ev.pointerId === spectrumPointer && check()) pick(ev); };
+      const up = (ev) => { if (ev.pointerId === spectrumPointer) end(); };
+      this.endSpectrum = end;
       this.spectrum.addEventListener('pointermove', move);
       this.spectrum.addEventListener('pointerup', up);
       this.spectrum.addEventListener('pointercancel', up);
       this.spectrum.addEventListener('lostpointercapture', up);
+      for (const event of ['active-editor', 'closed', 'show-home']) offs.push(app.on(event, check));
+      for (const event of ['selection', 'isolation', 'style']) offs.push(editor.on(event, check));
+      // Paint transactions update each object; validate only at their boundary.
+      offs.push(editor.on('doc-change', (event) => { if (event.commit) check(); }));
+      if (app.collab) offs.push(app.collab.on('role', check));
       pick(e);
     });
     const chip = (label, cls, onclick) => h(`button.cp-chip.${cls}`, { type: 'button', 'aria-label': label, 'data-tip': label, onclick });
@@ -154,6 +181,11 @@ export class ColorPanel extends Panel {
     this.setOptionsShown(app.prefs.get('colorPanelOptions') !== false);
     this.drawSpectrum();
     this.offStop = paintState.on('stop', () => this.visible && this.update());
+  }
+
+  hidden() {
+    this.endSpectrum?.();
+    super.hidden();
   }
 
   drawSpectrum() {
