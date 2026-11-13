@@ -33,6 +33,7 @@ function setup({ library } = {}) {
     commands: { register: vi.fn() },
     on: vi.fn(),
     notify: vi.fn(),
+    addChannel: vi.fn(),
     reportError: vi.fn(),
     registerPanel: vi.fn(),
   };
@@ -491,4 +492,57 @@ it('shows loading rather than an empty library while saved projects are being re
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="dev:loading"]')).toBe(null);
   expect(body.querySelector('[data-id="dev:none"]')).not.toBe(null);
+});
+
+describe('browser search keyboard actions', () => {
+  let scrollDescriptor;
+  beforeEach(() => {
+    scrollDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+  });
+  afterEach(() => {
+    if (scrollDescriptor) Object.defineProperty(Element.prototype, 'scrollIntoView', scrollDescriptor);
+    else delete Element.prototype.scrollIntoView;
+  });
+  const type = (body, text) => {
+    const search = body.querySelector('input[type=search]');
+    search.focus();
+    search.value = text;
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    return search;
+  };
+  const key = (target, value) => target.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true }));
+
+  it('adds a result matching the current search when Enter precedes the debounce', () => {
+    const { app, body } = setup();
+    key(type(body, 'drum'), 'Enter');
+    expect(app.addChannel).toHaveBeenCalledOnce();
+    expect(app.addChannel.mock.calls[0][0].type).toBe('drum');
+  });
+
+  it('focuses a current search result when ArrowDown precedes the debounce', () => {
+    const { body } = setup();
+    key(type(body, 'drum'), 'ArrowDown');
+    expect(document.activeElement.dataset.id).toBe('inst:drum');
+  });
+
+  it('does not add an old result when the current search has no matches', () => {
+    const { app, body } = setup();
+    const search = type(body, 'zzznomatchinginstrument');
+    key(search, 'Enter');
+    expect(app.addChannel).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(search);
+  });
+
+  it('keeps the current query after normal debouncing and Escape clears it', async () => {
+    const { app, body } = setup();
+    const search = type(body, 'drum');
+    await vi.advanceTimersByTimeAsync(140);
+    key(search, 'Enter');
+    expect(app.addChannel.mock.calls[0][0].type).toBe('drum');
+    search.focus();
+    key(search, 'Escape');
+    expect(search.value).toBe('');
+    expect(body.querySelector('[data-id="inst:synth"]')).not.toBe(null);
+  });
 });

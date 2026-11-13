@@ -766,8 +766,10 @@ function createBrowser(app, host) {
     e.stopPropagation();
   });
 
-  search.addEventListener('input', debounce(() => setQuery(search.value), 120));
+  const updateSearch = debounce(() => setQuery(search.value), 120);
+  search.addEventListener('input', updateSearch);
   search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === 'ArrowDown') updateSearch.flush();
     if (e.key === 'ArrowDown' && rows.length) {
       e.preventDefault();
       focusRow(rows.find((r) => r.node.kind !== 'section' && r.node.kind !== 'note')?.node.id || rows[0].node.id);
