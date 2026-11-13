@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixture, clip } from './helpers.js';
 import { addClip } from '../src/model/timeline.js';
 
@@ -55,6 +55,8 @@ vi.mock('mediabunny', async (original) => {
 });
 
 import { exportProject } from '../src/engine/exporter.js';
+
+afterEach(() => vi.unstubAllGlobals());
 
 beforeEach(() => {
   runtime.outputs.length = 0;
@@ -116,5 +118,28 @@ describe('audio encoder failures', () => {
     expect(runtime.samples).toHaveLength(1);
     expect(runtime.samples[0].close).toHaveBeenCalledTimes(1);
     expect(runtime.outputs[0].state).toBe('canceled');
+  });
+});
+
+describe('encoded audio storage selection', () => {
+  it.each([{ duration: 0.01 }, { duration: 21600, target: 'memory' }])('keeps the memory target for $duration seconds with override $target', async ({ duration, target }) => {
+    const getDirectory = vi.fn().mockRejectedValue(new Error('No disk access'));
+    vi.stubGlobal('navigator', { storage: { getDirectory } });
+    const p = projectWithAudio();
+    p.tracks.find((t) => t.kind === 'audio').clips[0].duration = duration * 1e6;
+    const library = { mediaBlob: async () => { throw new Error('Stop before mixing'); } };
+    await expect(exportProject(p, library, { audioFormat: 'm4a' }, { kind: 'audio', target })).rejects.toThrow('Stop before mixing');
+    expect(getDirectory).not.toHaveBeenCalled();
+  });
+
+  it.each(['m4a', 'ogg', 'flac'])('tries temporary storage for a large %s export before mixing', async (audioFormat) => {
+    const getDirectory = vi.fn().mockRejectedValue(new Error('No disk access'));
+    vi.stubGlobal('navigator', { storage: { getDirectory } });
+    const p = projectWithAudio();
+    p.tracks.find((t) => t.kind === 'audio').clips[0].duration = 21600 * 1e6;
+    const library = { mediaBlob: async () => { throw new Error('Stop before mixing'); } };
+    await expect(exportProject(p, library, { audioFormat }, { kind: 'audio' })).rejects.toThrow('Stop before mixing');
+    expect(getDirectory).toHaveBeenCalledTimes(1);
+    expect(runtime.samples).toHaveLength(0);
   });
 });

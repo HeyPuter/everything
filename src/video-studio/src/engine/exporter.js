@@ -904,7 +904,8 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
   if (!(await canEncodeAudio(f.codec, { numberOfChannels: channels, sampleRate }).catch(() => false))) {
     throw new Error(`This browser cannot encode ${f.label} audio (not supported). Choose WAV instead.`);
   }
-  sink = await openTarget(0, forceTarget);
+  const estimated = estimateSize({ ...s, video: false, audio: true }, duration);
+  sink = await openTarget(estimated, forceTarget);
   const format = s.audioFormat === 'm4a' ? new Mp4OutputFormat({ fastStart: sink.kind === 'file' ? false : 'in-memory' }) : s.audioFormat === 'ogg' ? new OggOutputFormat() : new FlacOutputFormat();
   const output = new Output({ format, target: sink.target });
   try {
