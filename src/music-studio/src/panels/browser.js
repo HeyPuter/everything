@@ -376,6 +376,7 @@ function createBrowser(app, host) {
     }
     stopPreview();
     if (!puter.isSignedIn()) return;
+    const generation = previewGeneration;
     playing.path = data.path;
     invalidate();
     try {
@@ -386,27 +387,31 @@ function createBrowser(app, host) {
         urls.delete(data.path);
         try {
           url = await puter.readURL(data.path, '2h');
+          if (generation !== previewGeneration) return;
           urls.set(data.path, { url, at: Date.now() });
         } catch {
+          if (generation !== previewGeneration) return;
           // Read URLs are rate limited: fall back to downloading the file.
           url = blobUrl = URL.createObjectURL(await puter.readFile(data.path));
         }
       }
-      if (playing.path !== data.path) {
+      if (generation !== previewGeneration) {
         if (blobUrl) URL.revokeObjectURL(blobUrl);
         return;
       }
       playing.blobUrl = blobUrl;
       playing.audio ||= new Audio();
       playing.audio.onended = () => {
-        if (playing.path === data.path) stopPreview();
+        if (generation === previewGeneration) stopPreview();
       };
       playing.audio.src = url;
       await playing.audio.play();
+      if (generation !== previewGeneration) return;
       announce(`Previewing ${data.name}`);
     } catch (err) {
+      if (generation !== previewGeneration) return;
       urls.delete(data.path); // maybe expired or revoked: make a new one next time
-      if (playing.path === data.path) stopPreview();
+      stopPreview();
       app.notify(`${data.name} could not be previewed: ${puter.errorMessage(err)}`, { error: true });
     }
   }
