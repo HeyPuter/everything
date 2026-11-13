@@ -12,6 +12,7 @@ import {
   compMatches,
   missingLayers,
   maxCompNameLength,
+  maxLayerComps,
   newLayerComp,
   recaptureAspects,
   updateLayerComp,
@@ -38,6 +39,11 @@ function state(e: Editor): CompSession {
 }
 const comps = (e: Editor) => e.doc.layerComps ?? [];
 const find = (e: Editor, id: string | undefined) => comps(e).find((c) => c.id === id);
+function canAddComp(e: Editor) {
+  if (comps(e).length < maxLayerComps) return true;
+  e.message(`This document already has ${maxLayerComps} layer comps. Delete one before adding another.`);
+  return false;
+}
 /** Selected comp, or the last applied one. */
 function current(e: Editor) {
   return find(e, state(e).selected) ?? find(e, e.doc.lastComp);
@@ -89,8 +95,9 @@ function setComps(e: Editor, label: string, edit: (list: LayerComp[], d: PhotoDo
 }
 
 async function newComp(e: Editor) {
+  if (!canAddComp(e)) return;
   const v = await compDialog('New Layer Comp', 'OK', { name: nextName(e), capture: { visibility: true, position: true, appearance: false } });
-  if (!v) return;
+  if (!v || !canAddComp(e)) return;
   const comp = newLayerComp(e.doc, v.name, v.capture, v.comment || undefined);
   setComps(e, 'New Layer Comp', (list, d) => {
     d.lastComp = comp.id;
@@ -234,7 +241,7 @@ export function installLayerComps(e: Editor) {
       enabled: hasCurrent,
       run: (e) => {
         const c = current(e);
-        if (!c) return;
+        if (!c || !canAddComp(e)) return;
         // Reserve room for the suffix without splitting a Unicode surrogate pair.
         const name = c.name.slice(0, maxCompNameLength - 5).replace(/[\uD800-\uDBFF]$/, '');
         const copy = { ...structuredClone(c), id: crypto.randomUUID(), name: `${name} copy` };

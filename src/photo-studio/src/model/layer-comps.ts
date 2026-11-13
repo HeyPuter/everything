@@ -3,6 +3,7 @@ import { validLayerStyle } from './layer-style';
 import { allLayers, blends, type Blend, type Layer, type PhotoDocument } from './document';
 
 export const maxCompNameLength = 256;
+export const maxLayerComps = 500;
 
 // A layer comp records, per layer, the visibility, position and appearance
 // (opacity, fill opacity, blend mode and layer style) captured at one moment,
@@ -144,7 +145,7 @@ export function validateLayerComps(comps: unknown, lastComp: unknown) {
     return;
   }
   const bad = () => new Error('Invalid layer comps.');
-  if (!Array.isArray(comps) || comps.length > 500) throw bad();
+  if (!Array.isArray(comps) || comps.length > maxLayerComps) throw bad();
   const ids = new Set<string>();
   const num = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isFinite(v));
   const unit = (v: unknown) => v === undefined || (typeof v === 'number' && v >= 0 && v <= 1);
