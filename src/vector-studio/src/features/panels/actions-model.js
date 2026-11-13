@@ -438,12 +438,24 @@ export class ActionEngine {
     const app = this.app;
     const back = app.editor;
     const results = [];
-    for (const ed of [...app.editors]) {
-      app.activate(ed);
-      results.push(await this.play(actionId));
-      if (results[results.length - 1].stoppedAt !== undefined && !results[results.length - 1].message) break;
+    let target = back;
+    let interrupted = false;
+    const offActive = app.on('active-editor', (next) => {
+      if (next !== target) interrupted = true;
+    });
+    try {
+      for (const ed of [...app.editors]) {
+        if (!app.editors.includes(ed)) continue;
+        target = ed;
+        app.activate(ed);
+        if (interrupted) break;
+        results.push(await this.play(actionId));
+        if (interrupted || (results[results.length - 1].stoppedAt !== undefined && !results[results.length - 1].message)) break;
+      }
+    } finally {
+      offActive();
+      if (!interrupted && back && app.editors.includes(back)) app.activate(back);
     }
-    if (back && app.editors.includes(back)) app.activate(back);
     return results;
   }
 
