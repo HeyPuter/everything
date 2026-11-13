@@ -145,6 +145,40 @@ export function paletteText(name, swatches) {
   return ['GIMP Palette', `Name: ${name}`, '#', ...rows, ''].join('\n');
 }
 
+const record = (value) => value && typeof value === 'object' && !Array.isArray(value);
+const optionalNumbers = (value, keys) => keys.every((key) => value[key] === undefined || Number.isFinite(value[key]));
+const vector = (value, length) => Array.isArray(value) && value.length === length && value.every(Number.isFinite);
+
+function colorRecord(value, required = [], optional = []) {
+  if (!record(value) || !required.every((key) => Number.isFinite(value[key])) || !optionalNumbers(value, optional) ||
+      typeof value.color !== 'string' || !isHex(value.color)) return null;
+  return { ...value, color: normalizeHex(value.color) };
+}
+
+/** Validate imported paints before preview, editing, or rendering consumes them. */
+function libraryPaint(paint) {
+  if (!record(paint) || !optionalNumbers(paint, ['opacity', 'tint'])) return null;
+  if (paint.type === 'solid') return colorRecord(paint);
+  if (paint.type === 'linear' || paint.type === 'radial') {
+    if (!Array.isArray(paint.stops) || !optionalNumbers(paint, ['angle', 'aspect', 'focalRadius'])) return null;
+    if (paint.x1 !== undefined && !['x1', 'y1', 'x2', 'y2'].every((key) => Number.isFinite(paint[key]))) return null;
+    if (paint.focal != null && !vector(paint.focal, 2)) return null;
+    const stops = paint.stops.map((s) => colorRecord(s, ['offset'], ['opacity', 'midpoint', 'tint']));
+    return stops.every(Boolean) ? { ...paint, stops } : null;
+  }
+  if (paint.type === 'freeform') {
+    if (!Array.isArray(paint.points)) return null;
+    const points = paint.points.map((p) => colorRecord(p, ['x', 'y'], ['opacity', 'spread']));
+    if (!points.every(Boolean)) return null;
+    if (paint.lines != null && (!Array.isArray(paint.lines) || !paint.lines.every((line) =>
+      Array.isArray(line) && line.every((i) => Number.isInteger(i) && i >= 0 && i < points.length)))) return null;
+    return { ...paint, points };
+  }
+  if (paint.type === 'pattern' && typeof paint.id === 'string' && paint.id &&
+      (paint.transform == null || vector(paint.transform, 6))) return { ...paint };
+  return null;
+}
+
 /** Parse a library file's text into { name, swatches } or null. */
 export function parseSwatchLibrary(text, fileName = 'Library') {
   const base = fileName.replace(/\.[^.]+$/, '');
@@ -155,7 +189,9 @@ export function parseSwatchLibrary(text, fileName = 'Library') {
       const list = Array.isArray(data.swatches) ? data.swatches : Array.isArray(data.items) ? data.items : null;
       if (!list) return null;
       const swatches = list
-        .filter((s) => s && s.paint && typeof s.paint.type === 'string')
+        .filter(record)
+        .map((s) => ({ ...s, paint: libraryPaint(s.paint) }))
+        .filter((s) => s.paint)
         .map((s) => ({
           name: String(s.name || 'Swatch'),
           paint: s.paint,
@@ -194,7 +230,9 @@ export function parseSwatchLibrary(text, fileName = 'Library') {
 export function parseSwatchFile(bytes, fileName = 'Library') {
   if (isSwatchExchange(bytes)) {
     try {
-      const { swatches } = decodeSwatchExchange(bytes);
+      const swatches = decodeSwatchExchange(bytes).swatches
+        .map((s) => ({ ...s, paint: libraryPaint(s.paint) }))
+        .filter((s) => s.paint);
       return swatches.length ? { name: fileName.replace(/\.[^.]+$/, ''), swatches } : null;
     } catch {
       return null;
