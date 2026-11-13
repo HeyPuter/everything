@@ -1,4 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Store } from '../src/model/store.js';
+import { createProject, createSlot } from '../src/model/project.js';
+import { effectPresetController } from '../src/effects/ui/presets.js';
+import * as E from '../src/model/edits.js';
 import { EFFECTS, EFFECT_TYPES, defaultEffectParams } from '../src/effects/catalog.js';
 import { EFFECT_PRESETS, effectPresetsFor, effectPresetParams } from '../src/effects/presets.js';
 import { UserPresets, PRESETS_DIR, PRESETS_FILE } from '../src/storage/user-presets.js';
@@ -52,6 +56,7 @@ beforeEach(() => {
   puterApi.resetAccountCache();
 });
 afterEach(() => {
+  document.querySelectorAll('.dialog-head button').forEach((button) => button.click());
   window.puter = saved;
   puterApi.resetAccountCache();
 });
@@ -248,4 +253,53 @@ describe('preset controller', () => {
     expect(items.some((i) => i.label === 'Rename preset...')).toBe(true);
     expect(items.find((i) => i.checked)?.label).toBe('My low cut');
   });
+});
+
+describe('saving an effect preset', () => {
+  it.each(['name', 'overwrite'].flatMap((stage) => ['replacement', 'deleted slot'].map((change) => [stage, change])))('saves the requested parameters despite %s prompt / %s', async (stage, change) => {
+    window.puter = fakePuter({ signedIn: false });
+    const project = createProject();
+    const slot = createSlot('eq');
+    slot.params.hp_freq = 777;
+    project.mixer[1].fx = [slot];
+    const app = { store: new Store(project), prefs: { storage: memoryStorage() }, on: () => () => {}, notify: () => {} };
+    const pc = effectPresetController(app, {}, 1, slot.id);
+    if (stage === 'overwrite') pc.store.save('effect:eq', 'Saved', { ...slot.params, hp_freq: 80 });
+    const pending = pc.saveAs();
+    const prompt = document.querySelector('.dialog');
+    prompt.querySelector('input').value = 'Saved';
+    const submit = [...prompt.querySelectorAll('button')].find((b) => b.textContent === 'Save');
+    if (stage === 'overwrite') {
+      submit.click();
+      await vi.waitFor(() => expect(document.querySelector('.dialog-title')?.textContent).toBe('Replace preset'));
+    }
+    if (change === 'replacement') {
+      const replacement = structuredClone(project);
+      replacement.mixer[1].fx[0].params.hp_freq = 900;
+      app.store.load(replacement);
+    } else app.store.apply('Remove effect', (p) => E.removeSlot(p, 1, slot.id));
+    if (stage === 'name') submit.click();
+    else [...document.querySelectorAll('.dialog button')].find((b) => b.textContent === 'Replace').click();
+    const result = await pending;
+    expect(result.params).toEqual(slot.params);
+    expect(pc.store.findByName('effect:eq', 'Saved').params).toEqual(slot.params);
+  });
+});
+
+it.each(['name', 'overwrite'])('keeps the existing preset when canceling the %s prompt', async (stage) => {
+  window.puter = fakePuter({ signedIn: false });
+  const a = { prefs: { storage: memoryStorage() }, on: () => () => {} };
+  const defaults = defaultEffectParams('eq');
+  const pc = presetController({ app: a, kind: 'effect:eq', builtins: [], defaults, params: () => ({ ...defaults, hp_freq: 777 }), apply: () => {} });
+  const existing = pc.store.save('effect:eq', 'Saved', defaults);
+  const pending = pc.saveAs();
+  const dialog = document.querySelector('.dialog');
+  dialog.querySelector('input').value = 'Saved';
+  if (stage === 'overwrite') {
+    [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Save').click();
+    await vi.waitFor(() => expect(document.querySelector('.dialog-title')?.textContent).toBe('Replace preset'));
+  }
+  [...document.querySelectorAll('.dialog button')].find((b) => b.textContent === 'Cancel').click();
+  expect(await pending).toBeNull();
+  expect(pc.store.get(existing.id)).toBe(existing);
 });
