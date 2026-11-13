@@ -338,7 +338,7 @@ async function beginNew(e: Editor, opt: StartNew, request: StartRequest) {
     if (!opt.mask) e.selectLayers([l.id]);
     render(e);
     e.update();
-    focusInput(e);
+    focusInput(e, true);
   });
 }
 

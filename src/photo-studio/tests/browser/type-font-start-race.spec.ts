@@ -273,3 +273,62 @@ test('an early text commit remains in its document when the font arrives during 
     });
   }, { other, original })).toEqual([{ text: 'First', history: ['Type Tool'] }, { text: 'Second', history: ['Type Tool'] }]);
 });
+
+for (const completion of ['font arrival', 'fallback timeout']) test(`starting new text preserves a numeric field during ${completion}`, async ({ page }) => {
+  await prepare(page);
+  await canvasClick(page, 50, 50);
+  await page.waitForFunction(() => !!(window as unknown as { finishTypeFont?: () => void }).finishTypeFont);
+  const size = page.locator('#type-size');
+  await size.fill('42');
+  await size.press('End');
+  await size.evaluate((input) => {
+    Object.assign(window, { newTextSizeBlurred: false });
+    input.addEventListener('blur', () => Object.assign(window, { newTextSizeBlurred: true }), { once: true });
+  });
+  if (completion === 'font arrival') await finishFont(page);
+  else await page.waitForFunction(() => !!(window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession());
+  await expect(size).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as { newTextSizeBlurred: boolean }).newTextSizeBlurred)).toBe(false);
+  await page.keyboard.insertText('9');
+  await expect(size).toHaveValue('429');
+  expect(await inputText(page)).toBe('');
+  if (completion === 'fallback timeout') await finishFont(page);
+  await size.press('Enter');
+  await page.waitForFunction(() => (window as unknown as { photoStudioType: TypeModule }).photoStudioType.inputFocused());
+  await page.keyboard.insertText('New text');
+  await run(page, 'type.commit');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.text)).toBe('New text');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.textData!.content.paragraphs[0].runs[0].style.size)).toBe(429);
+  await run(page, 'edit.undo');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(1);
+  await run(page, 'edit.redo');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.text)).toBe('New text');
+});
+
+for (const mode of ['point', 'paragraph', 'mask']) test(`starting ${mode} text preserves font-picker typing`, async ({ page }) => {
+  await prepare(page);
+  await page.evaluate((mode) => {
+    void (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startNew(window.photoStudio, {
+      x: 50, y: 50, vertical: false, mask: mode === 'mask',
+      box: mode === 'paragraph' ? { x: 50, y: 50, width: 100, height: 80 } : undefined,
+    });
+  }, mode);
+  await page.waitForFunction(() => !!(window as unknown as { finishTypeFont?: () => void }).finishTypeFont);
+  await page.getByRole('button', { name: 'Font family', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: 'Search fonts' });
+  await search.fill('Cav');
+  await search.evaluate((input) => {
+    Object.assign(window, { newTextSearchBlurred: false });
+    input.addEventListener('blur', () => Object.assign(window, { newTextSearchBlurred: true }), { once: true });
+  });
+  await finishFont(page);
+  await expect(search).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as { newTextSearchBlurred: boolean }).newTextSearchBlurred)).toBe(false);
+  await page.keyboard.insertText('eat');
+  await expect(search).toHaveValue('Caveat');
+  await expect(page.getByRole('option', { name: 'Caveat', exact: true })).toBeVisible();
+  expect(await inputText(page)).toBe('');
+  await search.press('Escape');
+  await run(page, 'type.cancel');
+  expect(await page.evaluate(() => ({ layers: window.photoStudio.doc.layers.length, history: window.photoStudio.history.labels }))).toEqual({ layers: 1, history: [] });
+});
