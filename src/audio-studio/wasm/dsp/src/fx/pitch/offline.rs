@@ -66,9 +66,12 @@ impl Input {
     fn new(channels: usize) -> Input {
         Input { data: vec![Vec::new(); channels], base: 0, total: 0, finished: false }
     }
+    /// A non-finite sample (a damaged float file) is taken as silence: the
+    /// analysis frames and interpolation kernels would otherwise spread it
+    /// to thousands of NaN output frames.
     fn push(&mut self, planar: &[f32], frames: usize) {
         for (c, d) in self.data.iter_mut().enumerate() {
-            d.extend_from_slice(&planar[c * frames..(c + 1) * frames]);
+            d.extend(planar[c * frames..(c + 1) * frames].iter().map(|&v| if v.is_finite() { v } else { 0.0 }));
         }
         self.total += frames as i64;
     }
@@ -570,6 +573,26 @@ mod tests {
         job.finish();
         drain(job, &mut out);
         out
+    }
+
+    #[test]
+    fn non_finite_input_samples_do_not_spread() {
+        let rate = 48000.0;
+        let mut x = sine(440.0, rate, 48000, 0.5);
+        x[10000] = f32::NAN;
+        x[20000] = f32::INFINITY;
+        x[30000] = f32::NEG_INFINITY;
+        let jobs = [
+            Job::Vocoder(Vocoder::new(1, rate, 1, 1.2, 1.0, true, false)),
+            Job::Wsola(Wsola::new(1, rate, 1.2 * 1.5), Some(Resampler::new(1, 1.5))),
+            Job::Resample(Resampler::new(1, 0.8)),
+        ];
+        for mut job in jobs {
+            let y = run_job(&mut job, &[x.clone()], 7000);
+            assert!(y[0].len() > 40000);
+            assert!(y[0].iter().all(|v| v.is_finite()));
+            assert!(rms(&y[0]) > 0.3);
+        }
     }
 
     #[test]

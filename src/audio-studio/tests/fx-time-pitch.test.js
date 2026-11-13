@@ -83,6 +83,24 @@ describe('time and pitch', () => {
     expect(freq(mid(out[0])) / (440 * pitchRatio(-1))).toBeCloseTo(1, 2);
   });
 
+  it('treats a damaged (NaN or infinite) sample as silence instead of spreading it', async () => {
+    const env = (a, b) => [0, 1].map((t) => ({ t, v: t ? b : a }));
+    const runs = [
+      ['stretchPitch', { algorithm: 0, stretch: 110 }],
+      ['stretchPitch', { algorithm: 1, stretch: 110, semitones: 3 }],
+      ['stretchPitch', { algorithm: 2, stretch: 90 }],
+      ['pitchBender', { envelope: env(2, -2), range: 2 }],
+      ['manualPitchCorrection', { envelope: env(50, 50) }],
+    ];
+    for (const [id, values] of runs) {
+      const input = sine(440, 0.5);
+      input[5000] = NaN;
+      input[15000] = Infinity;
+      const out = await getEffect(id).process({ channels: [input], rate: RATE, values });
+      expect(out[0].every(Number.isFinite), `${id} ${JSON.stringify(values)}`).toBe(true);
+    }
+  });
+
   it('honours cancellation', async () => {
     const def = getEffect('stretchPitch');
     const ctl = new AbortController();
