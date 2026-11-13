@@ -974,9 +974,20 @@ export function createEditor({
   }
   async function validateSignatures(announce = false) {
     const token = ++signatureCheck;
-    const hasFields = hasSignatureValue(signedBytes());
+    const source = pdf;
+    // A file rewritten after it was signed, here or by another program, can keep its
+    // signature dictionaries in compressed object streams; its form still says it is signed.
+    const raw = hasSignatureValue(signedBytes());
+    const flagged =
+      !raw &&
+      !!source &&
+      (await source.getMetadata().then(
+        ({ info }) => !!info?.IsSignaturesPresent,
+        () => false,
+      ));
+    if (token !== signatureCheck || destroyed) return;
     let reports = [];
-    if (hasFields) {
+    if (raw || flagged) {
       const { verifySignatures } = await import('./core/digital-signature.js');
       // An encrypted file's text strings (reason, field names) need the password it opened with.
       reports = await verifySignatures(signedBytes(), {
@@ -987,6 +998,7 @@ export function createEditor({
     signatureReports = reports;
     signaturesPanel.show(reports);
     signatureBar.show(reports);
+    const hasFields = raw || reports.length > 0;
     const tab = sidebarTabs.querySelector('[data-tab="signatures"]');
     tab.hidden = !hasFields;
     if (!hasFields && sidebarTab === 'signatures') showSidebarTab('pages');
