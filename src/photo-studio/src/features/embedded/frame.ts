@@ -13,7 +13,7 @@ import { renderFrame } from '../transform/render';
 import type { Quad } from '../transform/math';
 import { addRGBA, assetRGBA } from './render';
 import { ensureEmbed } from './contents';
-import { effectiveFrame, fromMesh, fromQuad, pendingFrame, plainPlacement, staleFrames } from './frame-math';
+import { effectiveFrame, fromMesh, fromQuad, pendingFrame, plainPlacement, rescaleFrame, staleFrames } from './frame-math';
 
 export { staleFrames } from './frame-math';
 import { renderPinFrame } from '../warp/pin-render';
@@ -101,7 +101,10 @@ export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshG
     if (!t) return;
     ensureEmbed(d, t, assets);
     const s = contentSource(d, t);
-    t.embed!.frame = { quad: fromQuad(quad), mesh: mesh && fromMesh(mesh), rect, source: s.asset };
+    // The cache was rendered from `source`, even if contents were saved while
+    // its image was being stored. Keep it stale and carry any content resize
+    // through the frame, just as saving contents after the transform would.
+    t.embed!.frame = rescaleFrame({ quad: fromQuad(quad), mesh: mesh && fromMesh(mesh), rect, source: source.asset }, source, s);
     Object.assign(t, { asset, assetColorSpace: 'document', sourceWidth: image.width, sourceHeight: image.height, transform: { ...rect, rotation: 0 } });
   }, { session });
 }
