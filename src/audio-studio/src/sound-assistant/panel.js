@@ -145,6 +145,23 @@ export function soundAssistantPanel(app) {
     }
   }
 
+  /**
+   * Work that disables the buttons (and Apply, which rebuilds them) drops keyboard focus to the
+   * page: put it back on `selector`, or the nearest control that can take it.
+   */
+  async function keepFocus(selector, work) {
+    const had = el.contains(document.activeElement);
+    try {
+      return await work();
+    } finally {
+      const at = document.activeElement;
+      if (had && (!at || at === document.body)) {
+        const next = [selector, '.sa-preview', 'button'].map((q) => el.querySelector(q));
+        next.find((b) => b && !b.disabled)?.focus();
+      }
+    }
+  }
+
   async function autoMatch() {
     const t = target(app);
     if (t.mode === 'session') {
@@ -374,7 +391,8 @@ export function soundAssistantPanel(app) {
     const bodies = {
       loudness: () => {
         const readout = h('div.sa-readout.faint', { 'aria-live': 'polite' });
-        const matchBtn = h('button.btn.sa-action', { type: 'button', onclick: autoMatch }, 'Auto-Match');
+        const match = () => keepFocus('.sa-loudness .sa-action', autoMatch);
+        const matchBtn = h('button.btn.sa-action', { type: 'button', onclick: match }, 'Auto-Match');
         refreshers.push((s) => {
           const m = s?.loudness?.measured;
           const g = loudnessGain(s);
@@ -395,7 +413,8 @@ export function soundAssistantPanel(app) {
         });
         input.addEventListener('keydown', (e) => e.stopPropagation());
         const info = h('div.sa-readout.faint');
-        const btn = sessionMode ? h('button.btn.sa-action', { type: 'button', onclick: applyDuration }, 'Apply Duration') : null;
+        const stretch = () => keepFocus('.sa-duration .sa-action', applyDuration);
+        const btn = sessionMode ? h('button.btn.sa-action', { type: 'button', onclick: stretch }, 'Apply Duration') : null;
         refreshers.push((s) => {
           if (document.activeElement !== input) input.value = String(s?.duration?.seconds ?? 30);
           const cur = target(app);
@@ -455,7 +474,8 @@ export function soundAssistantPanel(app) {
     let foot = null;
     if (!sessionMode) {
       const previewBtn = h('button.btn.sa-preview', { type: 'button', 'aria-pressed': 'false', onclick: () => setPreview(!preview) }, icon('headphones', 14), h('span', 'Preview'));
-      const applyBtn = h('button.btn.primary.sa-apply', { type: 'button', onclick: applyFile }, 'Apply');
+      const apply = () => keepFocus('.sa-apply', applyFile);
+      const applyBtn = h('button.btn.primary.sa-apply', { type: 'button', onclick: apply }, 'Apply');
       const note = h('span.sa-foot-note.faint');
       refreshers.push((s) => {
         previewBtn.setAttribute('aria-pressed', String(Boolean(preview)));
