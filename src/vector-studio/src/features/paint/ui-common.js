@@ -125,6 +125,20 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
       const range = h('input.cs-range', { type: 'range', id, min: ch.min, max: ch.max, step: ch.step === 51 ? 51 : ch.max > 100 ? 1 : 0.5, 'aria-label': `${label} ${ch.label}` });
       const field = h('input.cs-field', { type: 'text', inputmode: ch.hex ? 'text' : 'decimal', spellcheck: false, autocomplete: 'off', 'aria-label': `${label} ${ch.label} value` });
       const unit = h('span.cs-unit', { 'aria-hidden': 'true' }, ch.unit);
+      let displayed = '', edited = false;
+      const hasDraft = () => edited || field.value !== displayed;
+      const render = () => {
+        const text = formatChannel(ch, values[i]);
+        const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = field;
+        const all = start === 0 && end === field.value.length;
+        if (field.value !== text) {
+          field.value = text;
+          if (document.activeElement === field) field.setSelectionRange(all ? 0 : start, all ? text.length : end, direction);
+        }
+        displayed = text;
+        edited = false;
+      };
+      field.addEventListener('input', () => { edited = true; });
       range.addEventListener('pointerdown', () => onStart?.());
       range.addEventListener('keydown', (e) => {
         if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End' || e.key === 'PageUp' || e.key === 'PageDown') onStart?.();
@@ -138,15 +152,19 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
       range.addEventListener('change', () => onCommit?.(def.to(values), values.slice()));
       const commitField = () => {
         // Values are kept unrounded: committing the rounded text the field shows would shift the color.
-        if (field.value.trim() === formatChannel(ch, values[i])) return;
+        if (!hasDraft()) return;
         const v = parseChannel(ch, field.value);
         if (v == null) {
-          field.value = formatChannel(ch, values[i]);
+          render();
           return;
         }
-        if (v === values[i]) return;
+        if (v === values[i]) {
+          render();
+          return;
+        }
         onStart?.();
         values[i] = v;
+        render();
         sync();
         const hex = def.to(values);
         onInput?.(hex, values.slice());
@@ -167,7 +185,7 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
       });
       field.addEventListener('blur', commitField);
       field.addEventListener('focus', () => field.select());
-      return { ch, range, field, el: h('div.cs-row', h('label.cs-label', { for: id }, ch.label), range, field, unit) };
+      return { ch, range, field, hasDraft, render, el: h('div.cs-row', h('label.cs-label', { for: id }, ch.label), range, field, unit) };
     });
     el.replaceChildren(...rows.map((r) => r.el));
   };
@@ -175,7 +193,7 @@ export function colorSliders({ mode = 'rgb', label = 'Color', onInput, onCommit,
   const sync = (skip = -1) => {
     rows.forEach((r, i) => {
       if (i !== skip) r.range.value = String(values[i]);
-      if (document.activeElement !== r.field) r.field.value = formatChannel(r.ch, values[i]);
+      if (document.activeElement !== r.field || !r.hasDraft()) r.render();
       r.range.style.setProperty('--ramp', rampCss(curMode, values, i));
     });
   };
