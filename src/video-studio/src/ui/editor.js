@@ -103,7 +103,7 @@ export class Editor {
       newProject: () => this.exit({ create: true }),
       openProject: onOpenProject ? (id) => this.exit({ open: id }) : null,
       openScriptVideo: () => this.openScriptVideo(),
-      openHighlights: () => import('./highlights-dialog.js').then((m) => m.openHighlights(ctx)),
+      openHighlights: () => this.openHighlights(),
       openExport: () => {
         // Exports cover the whole project, so leave any compound clip being edited.
         while (store.nest?.length) store.closeCompound();
@@ -585,11 +585,28 @@ export class Editor {
     return this._scriptOpening;
   }
 
+  openHighlights() {
+    if (this._disposed) return Promise.resolve(null);
+    if (this._highlightsOpening) return this._highlightsOpening;
+    this._highlightsOpening = import('./highlights-dialog.js')
+      .then(m => m.openHighlights(this.ctx))
+      .catch(err => {
+        if (!this._disposed) {
+          console.error(err);
+          toast("Couldn't open Find highlights. Check your connection and try again.", { kind: 'error' });
+        }
+        return null;
+      })
+      .finally(() => { this._highlightsOpening = null; });
+    return this._highlightsOpening;
+  }
+
   dispose() {
     // Leaving disposes the editor, and the next screen disposes the view it replaces: once is enough.
     if (this._disposed) return;
     this._disposed = true;
     this._scriptLifetime?.abort();
+    this._highlightsLifetime?.abort();
     this._fitObserver?.disconnect();
     this._offTheme?.();
     this._offTipKeys?.();

@@ -57,7 +57,8 @@ const DEFAULTS = { count: 5, length: 'short', language: 'auto', target: 'project
  * Open the dialog for a clip.
  *  chat  injectable chat function (tests and browser checks)
  */
-export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
+export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
+  if (signal?.aborted) return null;
   const { store, library } = ctx;
   let clip = clipId ? T.findClip(store.project, clipId)?.clip : highlightSource(store.project, store.selectedIds);
   if (!clip) {
@@ -209,8 +210,11 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
       off();
       abort?.abort();
       stopPreview?.();
+      signal?.removeEventListener('abort', onAbort);
     },
   });
+  const onAbort = () => d.close();
+  signal?.addEventListener('abort', onAbort, { once: true });
   off = store.on('change', () => {
     const contextChanged = !sameContext();
     if (!contextChanged && refreshSource()) return;
@@ -345,6 +349,16 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
 
 /** Open the dialog from the editor, or explain that it needs a Puter account. */
 export function openHighlights(ctx, extra = {}) {
-  if (!aiReady(ctx) && !extra.chat) return needAiDialog(ctx.account, 'Find highlights');
-  return openHighlightsDialog(ctx, extra);
+  const owner = ctx.editor || ctx;
+  if (owner._disposed || owner.disposed) return null;
+  if (owner._highlightsDialog?.el.isConnected) return owner._highlightsDialog;
+  const signal = (owner._highlightsLifetime ||= new AbortController()).signal;
+  if (signal.aborted) return null;
+  const d = aiReady(ctx) || extra.chat
+    ? openHighlightsDialog(ctx, { ...extra, signal })
+    : needAiDialog(ctx.account, 'Find highlights', { signal });
+  if (!d) return null;
+  owner._highlightsDialog = d;
+  d.result.then(() => { if (owner._highlightsDialog === d) owner._highlightsDialog = null; });
+  return d;
 }
