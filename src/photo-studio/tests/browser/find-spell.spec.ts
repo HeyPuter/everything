@@ -207,3 +207,51 @@ for (const replacement of ['kitten', 'x']) for (const selection of ['caret', 'fo
   const [a, b] = [...after].sort((a, b) => a - b);
   expect(await layerTexts(page)).toEqual([replacement, replaced.slice(0, a) + 'X' + replaced.slice(b)]);
 });
+
+for (const ending of ['committed', 'live']) for (const correction of ['the', 'these', 'a']) for (const newText of ['new teh TEH Teh dog', 'new dog']) test(`bulk spelling preserves newer ${ending} '${newText}' with correction '${correction}' during a font wait`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh', 'teh']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  await expect(dlg.locator('#sp-word')).toHaveText('teh');
+  await dlg.locator('#sp-change').fill(correction);
+  await dlg.getByRole('button', { name: 'Change All' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers.at(-1)!.id, 'all');
+  });
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText(newText);
+  if (ending === 'committed') await run(page, 'type.commit');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  const corrected = newText.includes('teh') ? `new ${correction} ${correction.toUpperCase()} ${correction[0].toUpperCase() + correction.slice(1)} dog` : newText;
+  expect(await layerTexts(page)).toEqual([correction, corrected]);
+  await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['teh', newText]);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual([correction, corrected]);
+  if (ending === 'live') {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText(' more');
+    await run(page, 'type.commit');
+    expect(await layerTexts(page)).toEqual([correction, corrected + ' more']);
+  }
+});

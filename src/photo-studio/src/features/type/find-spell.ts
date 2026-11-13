@@ -274,13 +274,20 @@ export async function checkSpelling(e: Editor) {
       .filter((l) => findMatches(textOf(e, l), word, { wholeWord: true }).length)
       .map((l) => l.id);
     if (ids.some((id) => layerLock(e.doc.layers, id, 'all'))) return status(lockedMessage);
-    // Each occurrence keeps its own capitalization pattern.
-    await editLayers(e, 'Change Spelling', (d) => {
+    // Each occurrence keeps its own capitalization pattern. Compose the
+    // position maps in the same order as these replacements on the latest text.
+    const mappings = new Map<string, (index: number) => number>();
+    await editLayers(e, 'Change Spelling', (d, l) => {
       let content = d.content;
-      for (const variant of new Set(findMatches(plainText(content), word, { wholeWord: true }).map(([a, b]) => plainText(content).slice(a, b))))
-        content = replaceAll(content, variant, matchCase(variant, to), { caseSensitive: true, wholeWord: true }).content;
+      const maps: ((index: number) => number)[] = [];
+      for (const variant of new Set(findMatches(plainText(content), word, { wholeWord: true }).map(([a, b]) => plainText(content).slice(a, b)))) {
+        const r = replaceAll(content, variant, matchCase(variant, to), { caseSensitive: true, wholeWord: true });
+        content = r.content;
+        maps.push(r.mapIndex);
+      }
+      mappings.set(l.id, (index) => maps.reduce((at, map) => map(at), index));
       return { ...d, content };
-    }, ids);
+    }, ids, undefined, { rebase: true, mapIndex: (id, index) => mappings.get(id)?.(index) ?? index });
     current = undefined;
     await next();
   });
