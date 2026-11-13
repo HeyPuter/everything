@@ -181,6 +181,8 @@ export class VariablesPanel extends Panel {
   }
 
   async newVariable() {
+    const doc = this.doc;
+    if (!doc) return;
     const v = await this.app.dialogs.form({
       title: 'New Variable',
       fields: [
@@ -188,32 +190,36 @@ export class VariablesPanel extends Panel {
         { key: 'type', label: 'Type', type: 'select', value: 'text', options: Object.entries(VARIABLE_TYPES).map(([value, label]) => ({ value, label })) },
       ],
     });
-    if (!v) return;
-    this.doc.transact('New Variable', () => {
-      this.selected = addVariable(this.doc, v.type, v.name || null).id;
+    if (!v || this.doc !== doc) return;
+    doc.transact('New Variable', () => {
+      this.selected = addVariable(doc, v.type, v.name || null).id;
     });
   }
 
   async renameVariable(v) {
+    const doc = this.doc;
+    if (!doc) return;
     const r = await this.app.dialogs.form({ title: 'Variable Options', fields: [{ key: 'name', label: 'Name', type: 'text', value: v.name }] });
-    if (!r?.name) return;
+    if (!r?.name || this.doc !== doc) return;
     const name = cleanName(r.name);
-    if (variablesOf(this.doc).some((x) => x.name === name && x.id !== v.id)) {
+    if (variablesOf(doc).some((x) => x.name === name && x.id !== v.id)) {
       this.app.notify(`A variable named ${name} already exists.`, { error: true });
       return;
     }
-    this.doc.transact('Rename Variable', () => this.doc.updateRoot({ variables: variablesOf(this.doc).map((x) => (x.id === v.id ? { ...x, name } : x)) }));
+    doc.transact('Rename Variable', () => doc.updateRoot({ variables: variablesOf(doc).map((x) => (x.id === v.id ? { ...x, name } : x)) }));
   }
 
   async deleteVariable(id = this.selected) {
-    if (!id) return;
-    const v = variablesOf(this.doc).find((x) => x.id === id);
-    const bound = boundTo(this.doc, id).length;
+    const doc = this.doc;
+    if (!id || !doc) return;
+    const v = variablesOf(doc).find((x) => x.id === id);
+    if (!v) return;
+    const bound = boundTo(doc, id).length;
     if (bound) {
       const ok = await this.app.dialogs.confirm({ title: 'Delete Variable', message: `Delete ${v.name}? ${bound === 1 ? 'Its object stays' : `Its ${bound} objects stay`} as they are now.`, okLabel: 'Delete', danger: true });
-      if (!ok) return;
+      if (!ok || this.doc !== doc) return;
     }
-    this.doc.transact('Delete Variable', () => removeVariables(this.doc, [id]));
+    doc.transact('Delete Variable', () => removeVariables(doc, [id]));
   }
 
   capture() {
