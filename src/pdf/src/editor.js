@@ -10743,7 +10743,7 @@ export function createEditor({
             { class: 'reply-meta muted' },
             [item.author, when(item.modified)].filter(Boolean).join(' · '),
           ),
-          el('span', {}, item.contents || ''),
+          el('span', { class: 'reply-text' }, item.contents || ''),
           item.replies?.length > 0 &&
             el('ul', { class: 'annotation-replies' }, ...replyItems(item.replies)),
         ),

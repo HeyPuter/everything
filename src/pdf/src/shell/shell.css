@@ -1932,6 +1932,11 @@
 .reply-meta {
   font-size: 11px;
 }
+/* A reply keeps its line breaks, and a long link wraps instead of running out of the panel. */
+.reply-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .annotation-actions {
   display: flex;
   justify-content: space-between;
