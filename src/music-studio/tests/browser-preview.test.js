@@ -7,7 +7,7 @@ import * as puter from '../src/storage/puter.js';
 vi.mock('../src/storage/puter.js', () => ({
   sdk: vi.fn(() => null),
   isSignedIn: vi.fn(() => false),
-  appDir: async () => '/Music',
+  appDir: vi.fn(async () => '/Music'),
   readdir: async () => [{ path: '/Music/tone.wav', name: 'tone.wav' }],
   isDir: () => false,
   readURL: vi.fn(),
@@ -48,6 +48,7 @@ function setup() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  puter.appDir.mockReset().mockResolvedValue('/Music');
   puter.sdk.mockReturnValue(null);
   puter.isSignedIn.mockReturnValue(false);
 });
@@ -246,4 +247,21 @@ it('can preview again after an account change without reusing the old URL', asyn
   expect(puter.readURL).toHaveBeenCalledTimes(2);
   expect(audio.src).toBe('https://example.test/new.wav');
   expect(audio.play).toHaveBeenCalledTimes(2);
+});
+
+it.each(['resolve', 'reject'])('keeps the current account root when an older lookup later %ss', async (outcome) => {
+  const old = deferred();
+  puter.sdk.mockReturnValue({});
+  puter.isSignedIn.mockReturnValue(true);
+  puter.appDir.mockReturnValueOnce(old.promise).mockResolvedValueOnce('/Current');
+  const { app, body } = setup();
+  const refresh = app.on.mock.calls.find(([event]) => event === 'account')[1];
+  await refresh();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dir:/Current"]')).not.toBe(null);
+  if (outcome === 'resolve') old.resolve('/Previous');
+  else old.reject(new Error('Account changed'));
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dir:/Current"]')).not.toBe(null);
+  expect(body.querySelector('[data-id="dir:/Previous"]')).toBe(null);
 });

@@ -76,6 +76,7 @@ function createBrowser(app, host) {
   // My files: folder listings cached by path.
   const folders = new Map(); // path -> { loading, items, error }
   const extraRoots = [];
+  let accountRequest = 0;
   let dirs = null; // { music, home } once the username is known
   let localProjects = [];
   const playing = { path: null, audio: null };
@@ -83,14 +84,18 @@ function createBrowser(app, host) {
   const URL_TTL = 100 * 60 * 1000; // they are made for 2 hours
 
   const refreshAccount = async () => {
+    const request = ++accountRequest;
     if (playing.path) stopPreview();
     dirs = null;
     folders.clear();
     urls.clear();
     if (puter.isSignedIn()) {
       try {
-        dirs = { music: await puter.appDir() };
+        const music = await puter.appDir();
+        if (request !== accountRequest) return;
+        dirs = { music };
       } catch {
+        if (request !== accountRequest) return;
         dirs = null;
       }
     }
