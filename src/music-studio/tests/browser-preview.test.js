@@ -457,3 +457,38 @@ it.each([
   expect(document.activeElement).toBe(first);
   expect(second.tabIndex).toBe(-1);
 });
+
+it('distinguishes a failed saved-project listing from an empty library and can retry', async () => {
+  const library = { listLocal: vi.fn().mockRejectedValueOnce(new Error('Storage read failed')) };
+  const { body } = setup({ library });
+  body.querySelector('[data-id="sec:device"]').click();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dev:none"]')).toBe(null);
+  expect(body.textContent).toContain('Saved projects could not be loaded');
+  const retry = [...body.querySelectorAll('[role=treeitem]')].find((row) => row.textContent.includes('Retry loading saved projects'));
+  expect(retry).toBeTruthy();
+  const pending = deferred();
+  library.listLocal.mockReturnValueOnce(pending.promise);
+  retry.click();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dev:loading"]')).not.toBe(null);
+  expect(body.textContent).not.toContain('Saved projects could not be loaded');
+  pending.resolve([{ key: 'recovered', name: 'Recovered project' }]);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="local:recovered"]')).not.toBe(null);
+  expect(body.querySelector('[data-id="dev:loading"]')).toBe(null);
+});
+
+it('shows loading rather than an empty library while saved projects are being read', async () => {
+  const pending = deferred();
+  const library = { listLocal: vi.fn(() => pending.promise) };
+  const { body } = setup({ library });
+  body.querySelector('[data-id="sec:device"]').click();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dev:none"]')).toBe(null);
+  expect(body.querySelector('[data-id="dev:loading"]')).not.toBe(null);
+  pending.resolve([]);
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dev:loading"]')).toBe(null);
+  expect(body.querySelector('[data-id="dev:none"]')).not.toBe(null);
+});

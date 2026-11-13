@@ -81,6 +81,7 @@ function createBrowser(app, host) {
   let dirsError = false;
   let localProjects = [];
   let localRequest = 0;
+  let localState = 'loading';
   const playing = { path: null, audio: null };
   const urls = new Map(); // path -> { url, at }: temporary read URLs (rate limited: reuse until near expiry)
   const URL_TTL = 100 * 60 * 1000; // they are made for 2 hours
@@ -109,13 +110,17 @@ function createBrowser(app, host) {
   };
   const refreshLocal = async () => {
     const request = ++localRequest;
+    localState = 'loading';
+    invalidate();
     try {
       const projects = (await app.library?.listLocal()) || [];
       if (request !== localRequest) return;
       localProjects = projects;
+      localState = 'ready';
     } catch {
       if (request !== localRequest) return;
       localProjects = [];
+      localState = 'error';
     }
     invalidate();
   };
@@ -191,6 +196,11 @@ function createBrowser(app, host) {
   };
 
   const deviceSection = () => {
+    if (localState === 'error') return [
+      { id: 'dev:error', label: 'Saved projects could not be loaded.', kind: 'note' },
+      { id: 'dev:retry', label: 'Retry loading saved projects', kind: 'action', icon: 'folder-search', data: { run: refreshLocal } },
+    ];
+    if (localState === 'loading' && !localProjects.length) return [{ id: 'dev:loading', label: 'Loading saved projects...', kind: 'note' }];
     if (!localProjects.length) return [{ id: 'dev:none', label: puter.isSignedIn() ? 'No projects saved in this browser' : 'Projects you save while signed out appear here', kind: 'note' }];
     return localProjects.map((m) => ({ id: `local:${m.key}`, label: m.name, kind: 'project', icon: 'file-music', detail: m.key === app.file?.local ? 'Open' : '', data: { local: m.key, name: m.name } }));
   };
