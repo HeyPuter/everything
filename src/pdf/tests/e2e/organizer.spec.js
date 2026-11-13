@@ -282,6 +282,44 @@ test.describe('touch', () => {
     await expect(page.locator('.page-caption')).toHaveText('Page 3 of 3');
     expect((await exportedHeights(page)).map(([h]) => h)).toEqual([300, 400, 350]);
   });
+  test('taps in Organize pages choose several pages, as Ctrl+click does', async ({ page }) => {
+    await mockPuter(page);
+    await page.goto('/#library');
+    await openPdf(page, await tallPdf());
+    await page.getByRole('button', { name: 'Tools', exact: true }).tap();
+    await page
+      .getByRole('complementary', { name: 'Tools' })
+      .getByRole('button', { name: 'Organize pages', exact: true })
+      .tap();
+    const grid = page.getByRole('listbox', { name: 'Pages' });
+    const tile = (n) => grid.getByRole('option', { name: `Page ${n}`, exact: true });
+    const chosen = async () => {
+      const states = await grid
+        .getByRole('option')
+        .evaluateAll((tiles) => tiles.map((t) => t.getAttribute('aria-selected') === 'true'));
+      return states.flatMap((on, i) => (on ? [i + 1] : []));
+    };
+    await expect.poll(chosen).toEqual([1]);
+    // The page chosen on opening gives way to the first tap; later taps add and take away.
+    await tile(2).tap();
+    await expect.poll(chosen).toEqual([2]);
+    await tile(3).tap();
+    await expect.poll(chosen).toEqual([2, 3]);
+    await expect(page.locator('.organize-status')).toHaveText('2 of 3 pages selected');
+    await tile(2).tap();
+    await expect.poll(chosen).toEqual([3]);
+    await tile(1).tap();
+    await page
+      .getByRole('toolbar', { name: 'Organize pages' })
+      .getByRole('button', { name: 'Rotate clockwise', exact: true })
+      .tap();
+    await settled(page);
+    expect(await exportedHeights(page)).toEqual([
+      [300, 90],
+      [350, 0],
+      [400, 90],
+    ]);
+  });
 });
 
 test('pages keep a visible edge in forced colors, in the view and in the page grid', async ({
