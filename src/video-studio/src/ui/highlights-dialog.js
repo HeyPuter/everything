@@ -224,14 +224,21 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
     d.close();
     toast(contextChanged ? 'Find highlights closed because the open timeline changed.' : 'Find highlights closed because the source clip changed. Search again to use the updated clip.', { kind: 'info' });
   });
-  const show = (step) => {
+  const show = (step, focusTarget) => {
     if (!active()) return;
+    const focused = document.activeElement;
+    const content = step === 'options' ? optionsEl : step === 'progress' ? progressEl : resultsEl;
     d.el.dataset.step = step;
-    body.replaceChildren(step === 'options' ? optionsEl : step === 'progress' ? progressEl : resultsEl);
+    if (body.firstElementChild !== content) body.replaceChildren(content);
     findBtn.hidden = step !== 'options';
     againBtn.hidden = step !== 'results';
     makeBtn.hidden = step !== 'results';
     cancel.textContent = step === 'progress' ? 'Stop' : step === 'results' ? 'Close' : 'Cancel';
+    // Restore focus when its control disappears, without overriding a deliberate move.
+    if (!focused || focused === document.body || !focused.isConnected || focused.closest('[hidden]') || (focused === cancel && step !== 'progress')) {
+      const target = focusTarget || (step === 'progress' ? cancel : content.querySelector('input:not([type=hidden]), select, textarea')) || findBtn;
+      target.focus({ preventScroll: true });
+    }
   };
   show('options');
   cancel.addEventListener('click', () => {
@@ -289,7 +296,7 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
         console.error(err);
         toast(errorMessage(err, "Couldn't find highlights."), { kind: 'error' });
       }
-      if (d.el.isConnected) show('options');
+      if (d.el.isConnected) show('options', findBtn);
     } finally {
       abort = null;
     }
@@ -363,7 +370,7 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
         console.error(err);
         toast(errorMessage(err, "Couldn't make the clips."), { kind: 'error' });
       } else if (active() && ids.length) toast(`Stopped after ${ids.length} project${ids.length === 1 ? '' : 's'}.`, { kind: 'info' });
-      if (d.el.isConnected) show('results');
+      if (d.el.isConnected) show('results', makeBtn);
     } finally {
       abort = null;
     }
