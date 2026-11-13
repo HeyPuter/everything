@@ -51,19 +51,33 @@ export function anchorWords(project, words) {
   });
 }
 
+// Legacy words have no source anchor. Reuse their timeline times only when
+// overlapping speech could not have come from a different media mapping.
+function legacySourceIsClear(project, clip) {
+  const curve = JSON.stringify(clip.speedCurve || []);
+  return soundClips(project).every(c =>
+    clipEnd(c) <= clip.start || c.start >= clipEnd(clip)
+    || (c.type === 'video' && project.assets[c.assetId]?.hasAudio === false)
+    || (c.assetId === clip.assetId && c.start === clip.start && c.in === clip.in
+      && c.duration === clip.duration && c.speed === clip.speed
+      && JSON.stringify(c.speedCurve || []) === curve));
+}
+
 const placeCache = new WeakMap(); // words array -> { key, out }
 
 /**
  * The transcript's words where they now play on the timeline, sorted by
  * time: [{ text, start, end }] in µs. Words whose media is no longer on the
  * timeline are left out; media that plays twice gives its words twice.
+ * With clip, place anchors only against that source (including detached audio).
  */
-export function transcriptWords(project) {
+export function transcriptWords(project, { clip } = {}) {
   const words = project?.transcript?.words;
   if (!words?.length) return [];
-  if (!words.some((w) => w.a)) return words;
-  const clips = soundClips(project);
-  const key = clips.map((c) => `${c.assetId}:${c.start}:${c.duration}:${c.in}:${c.speed}:${c.speedCurve ? JSON.stringify(c.speedCurve) : ''}`).join('|');
+  const reuseLegacy = !clip || !words.some(w => !w.a) || legacySourceIsClear(project, clip);
+  if (!words.some((w) => w.a)) return reuseLegacy ? words : [];
+  const clips = clip ? [clip] : soundClips(project);
+  const key = (clip ? `clip:${Number(reuseLegacy)}|` : '') + clips.map((c) => `${c.assetId}:${c.start}:${c.duration}:${c.in}:${c.speed}:${c.speedCurve ? JSON.stringify(c.speedCurve) : ''}`).join('|');
   const hit = placeCache.get(words);
   if (hit?.key === key) return hit.out;
   // Per media, its clips by source in point, each with the furthest source end
@@ -81,6 +95,7 @@ export function transcriptWords(project) {
   const placed = [];
   for (const w of words) {
     if (!w.a) {
+      if (!reuseLegacy) continue;
       placed.push({ text: w.text, start: w.start, end: w.end });
       continue;
     }

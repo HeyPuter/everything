@@ -107,7 +107,7 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
 
   // ---- Options -------------------------------------------------------------------
   // Keep the mode shown here: a later transcript must not override a language choice.
-  let reuse = wordsInClip(transcriptWords(store.project), clip).length >= 20;
+  let reuse = wordsInClip(transcriptWords(store.project, { clip }), clip).length >= 20;
   const makeLanguageField = () => field('Spoken language', select('Spoken language', LANGUAGES, 'language'));
   const transcriptHint = h('p.aic-hint', 'Uses the project transcript, so the speech is not sent again.');
   const optionsEl = h('div.aic-step',
@@ -256,7 +256,7 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
   async function search() {
     if (abort || !active()) return;
     // Project words are live data; only generated speech is cached between searches.
-    const projectWords = reuse ? wordsInClip(transcriptWords(store.project), clip) : null;
+    const projectWords = reuse ? wordsInClip(transcriptWords(store.project, { clip }), clip) : null;
     if (projectWords && projectWords.length < 20) {
       reuse = false;
       words = [];
