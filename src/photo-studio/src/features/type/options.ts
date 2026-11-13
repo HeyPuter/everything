@@ -148,6 +148,13 @@ const SIZES = [6, 8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72];
 const AA: [AntiAlias, string][] = [['none', 'None'], ['sharp', 'Sharp'], ['crisp', 'Crisp'], ['strong', 'Strong'], ['smooth', 'Smooth']];
 const fmt = (v: number | undefined) => (v === undefined ? '' : String(Math.round(v * 100) / 100));
 
+function pathOptionsButton(data?: TextLayerData): string {
+  return data?.path ? `<button type="button" class="icon-button" data-command="type.path-options" title="${data.path.kind === 'area' ? 'Area type options' : 'Path type options'}" aria-label="${data.path.kind === 'area' ? 'Area type options' : 'Path type options'}">${svg('spline', 16)}</button>` : `<button type="button" class="icon-button" data-command="type.warp" title="Create warped text" aria-label="Create warped text">${svg('waves', 16)}</button>`;
+}
+function editingButtons(): string {
+  return `<span class="type-edit-actions"><span class="divider"></span><button type="button" data-command="type.cancel" class="icon-button" title="Cancel editing (discard changes)" aria-label="Cancel editing">${svg('ban', 16)}</button><button type="button" data-command="type.commit" class="icon-button transform-apply" title="Commit text (Escape or ${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}Enter)" aria-label="Commit text">${svg('check', 16)}</button></span>`;
+}
+
 function layerAntiAlias(e: Editor): AntiAlias | undefined {
   const c = styleContext(e);
   if (c.editing) return c.data?.antiAlias;
@@ -172,9 +179,9 @@ export function typeOptions(e: Editor): string {
 <label title="Anti-aliasing method">aa<select id="type-aa" aria-label="Anti-aliasing method">${aa ? '' : '<option value="" selected></option>'}${AA.map(([v, l]) => `<option value="${v}" ${aa === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
 <span class="segmented" role="group" aria-label="Alignment">${(['left', 'center', 'right'] as const).map((a) => `<button type="button" class="type-align" data-align="${a}" aria-pressed="${align === a}" title="Align ${a}" aria-label="Align ${a}">${svg(`align-${a}`, 15)}</button>`).join('')}</span>
 <input id="type-color" type="color" value="${color}" class="type-color ${ch.color ? '' : 'mixed'}" title="Text color" aria-label="Text color">
-${c.data?.path ? `<button type="button" class="icon-button" data-command="type.path-options" title="${c.data.path.kind === 'area' ? 'Area type options' : 'Path type options'}" aria-label="${c.data.path.kind === 'area' ? 'Area type options' : 'Path type options'}">${svg('spline', 16)}</button>` : `<button type="button" class="icon-button" data-command="type.warp" title="Create warped text" aria-label="Create warped text">${svg('waves', 16)}</button>`}
+${pathOptionsButton(c.data)}
 <button type="button" class="icon-button" data-command="type.toggle-panels" title="Toggle the Character and Paragraph panels" aria-label="Toggle the Character and Paragraph panels">${svg('case-upper', 16)}</button>
-${editing ? `<span class="type-edit-actions"><span class="divider"></span><button type="button" data-command="type.cancel" class="icon-button" title="Cancel editing (discard changes)" aria-label="Cancel editing">${svg('ban', 16)}</button><button type="button" data-command="type.commit" class="icon-button transform-apply" title="Commit text (Escape or ${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+'}Enter)" aria-label="Commit text">${svg('check', 16)}</button></span>` : ''}`;
+${editing ? editingButtons() : ''}`;
 }
 
 export function bindTypeOptions({ e, el }: ToolOptionsContext) {
@@ -233,14 +240,12 @@ export async function setAntiAlias(e: Editor, aa: AntiAlias) {
 }
 
 // Refreshes control values in place (rebuilding would close open popups).
-export function syncTypeOptions(e: Editor) {
+export function syncTypeOptions(e: Editor): boolean {
   const el = e.root.querySelector<HTMLElement>('#tool-options');
-  if (!el || !el.querySelector('#type-family')) return;
-  const hasButtons = !!el.querySelector('[data-command="type.commit"]');
-  if (hasButtons !== !!session) {
-    e.options();
-    return;
-  }
+  if (!el || !el.querySelector('#type-family')) return false;
+  const buttons = el.querySelector('.type-edit-actions');
+  if (session && !buttons) el.insertAdjacentHTML('beforeend', editingButtons());
+  else if (!session) buttons?.remove();
   const c = styleContext(e);
   const ch = c.char;
   const fam = el.querySelector<HTMLElement>('#type-family');
@@ -256,7 +261,16 @@ export function syncTypeOptions(e: Editor) {
     if (v && !styles.some((s) => `${s.weight}|${s.italic ? 1 : 0}` === v)) st.insertAdjacentHTML('afterbegin', `<option value="${v}" selected>${styleName(ch.weight!, !!ch.italic)}</option>`);
   }
   const size = el.querySelector<HTMLInputElement>('#type-size');
-  if (size && document.activeElement !== size) size.value = fmt(ch.size === undefined ? undefined : ch.size * typeUnit(e).k);
+  const unit = typeUnit(e);
+  if (size) {
+    if (document.activeElement !== size) size.value = fmt(ch.size === undefined ? undefined : ch.size * unit.k);
+    size.max = String(Math.round(1296 * unit.k));
+    size.setAttribute('aria-label', `Font size in ${unit.name}`);
+    if (size.nextSibling?.nodeType === Node.TEXT_NODE) size.nextSibling.textContent = ` ${unit.suffix}`;
+  }
+  const path = el.querySelector<HTMLElement>('[data-command="type.path-options"], [data-command="type.warp"]');
+  const pathTitle = c.data?.path ? c.data.path.kind === 'area' ? 'Area type options' : 'Path type options' : 'Create warped text';
+  if (path && path.title !== pathTitle) path.outerHTML = pathOptionsButton(c.data);
   const aa = el.querySelector<HTMLSelectElement>('#type-aa');
   if (aa && document.activeElement !== aa) aa.value = layerAntiAlias(e) ?? '';
   for (const b of el.querySelectorAll<HTMLElement>('.type-align')) b.setAttribute('aria-pressed', String(c.paragraph.align === b.dataset.align));
@@ -265,6 +279,7 @@ export function syncTypeOptions(e: Editor) {
     color.value = ch.color ? rgbHexString(ch.color) : '#000000';
     color.classList.toggle('mixed', !ch.color);
   }
+  return true;
 }
 
 export function installTypeOptions(e: Editor) {

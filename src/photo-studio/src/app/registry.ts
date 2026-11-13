@@ -51,6 +51,8 @@ export interface Tool {
   // HTML for the options bar; `bindOptions` wires it after insertion.
   options?: (e: Editor) => string;
   bindOptions?: (ctx: ToolOptionsContext) => void;
+  // Refresh mounted controls without replacing them; false requests a rebuild.
+  updateOptions?: (ctx: ToolOptionsContext) => boolean;
   activate?: (e: Editor) => void;
   // Ends the tool's work in the active document, because another tool is
   // chosen or another document is shown; a promise when finishing takes time

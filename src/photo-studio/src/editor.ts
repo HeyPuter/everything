@@ -628,16 +628,17 @@ export class Editor {
     this.el('#tool-name').textContent = tool?.label ?? '';
     this.el('#tool-icon').innerHTML = tool ? svg(tool.icon, 18) : '';
     const el = this.el('#tool-options');
-    let html = '';
-    if (this.transform.active)
-      html = `<span class="transform-label">Free Transform</span><label class="transform-setting"><input id="transform-proportions" type="checkbox" ${this.transform.shared || this.transform.proportional ? 'checked' : ''} ${this.transform.shared ? 'disabled' : ''}>Proportions</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${this.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.transform-cancel" class="icon-button" title="Cancel transform (Escape)" aria-label="Cancel">${svg('ban', 16)}</button><button data-command="edit.transform-commit" class="icon-button transform-apply" title="Commit transform (Enter)" aria-label="Apply">${svg('check', 16)}</button>`;
-    else html = tool?.options?.(this) ?? '';
-    // The bar is rebuilt after every edit; a control that had the keyboard
-    // focus (often the one Tab just moved to) gets it back, with its caret.
+    // Keep native controls mounted when their tool can refresh them in place.
     const focused = document.activeElement as HTMLInputElement | null;
     const keep = focused && el.contains(focused) && focused.id ? { id: focused.id, start: caret(focused, 'selectionStart'), end: caret(focused, 'selectionEnd') } : this.optionsTab ? { id: this.optionsTab.id, start: null, end: null } : undefined;
-    el.innerHTML = html;
-    if (!this.transform.active) tool?.bindOptions?.({ e: this, el });
+    if (this.transform.active || !tool?.updateOptions?.({ e: this, el })) {
+      let html = '';
+      if (this.transform.active)
+        html = `<span class="transform-label">Free Transform</span><label class="transform-setting"><input id="transform-proportions" type="checkbox" ${this.transform.shared || this.transform.proportional ? 'checked' : ''} ${this.transform.shared ? 'disabled' : ''}>Proportions</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${this.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.transform-cancel" class="icon-button" title="Cancel transform (Escape)" aria-label="Cancel">${svg('ban', 16)}</button><button data-command="edit.transform-commit" class="icon-button transform-apply" title="Commit transform (Enter)" aria-label="Apply">${svg('check', 16)}</button>`;
+      else html = tool?.options?.(this) ?? '';
+      el.innerHTML = html;
+      if (!this.transform.active) tool?.bindOptions?.({ e: this, el });
+    }
     if (keep) {
       const again = el.querySelector<HTMLInputElement>(`#${CSS.escape(keep.id)}`);
       again?.focus({ preventScroll: true });
