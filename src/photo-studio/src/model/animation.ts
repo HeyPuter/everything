@@ -10,6 +10,7 @@
 // frame is shown back into that frame. Position offsets are relative: moving a
 // layer in one frame adds to that frame's offset, and switching frames
 // translates each layer by the difference between the two offsets.
+import { followLinkedMasks } from './links';
 import { isDocumentId } from './ids';
 import { validLayerStyle } from './layer-style';
 import { allLayers, blends, type Blend, type Layer, type PhotoDocument } from './document';
@@ -193,6 +194,7 @@ export function frameDocument(doc: PhotoDocument, index: number): PhotoDocument 
   if (!anim || index === anim.current) return doc;
   const copy = structuredClone(doc);
   applyFrame(copy, index);
+  followLinkedMasks(doc, copy);
   for (const l of allLayers(copy.layers)) if (l.kind === 'pixel' && l.pixels && pixelTransformKind(l) === 'translate') commitPixelTranslation(l);
   return copy;
 }

@@ -23,9 +23,10 @@ import {
   validateAnimation,
   type FrameLayerState,
 } from '../src/model/animation';
+import { followLinkedMasks } from '../src/model/links';
 import { History } from '../src/history/history';
 import { newPixelLayer, commitPixelTranslation, pixelTransformKind, syncPixelTransform } from '../src/model/pixel-layer';
-import { TileStore, gridFromImage, writeRect } from '../src/model/tiles';
+import { TileStore, filledMask, gridFromImage, writeRect } from '../src/model/tiles';
 import { validateDocument } from '../src/model/serialization';
 
 const store = new TileStore();
@@ -38,6 +39,7 @@ function square(color: number, size = 8) {
 function session(doc: PhotoDocument) {
   const h = new History(doc);
   h.normalize = (d, before) => {
+    followLinkedMasks(before, d, store);
     for (const l of allLayers(d.layers)) if (l.kind === 'pixel' && pixelTransformKind(l) === 'translate') commitPixelTranslation(l);
     syncAnimation(d, before);
   };
@@ -111,6 +113,29 @@ describe('frame animation model', () => {
     h.execute('Select Frame', (d) => applyFrame(d, 1));
     expect(get(h, img).visible).toBe(false);
     expect(get(h, px).opacity).toBe(0.5);
+  });
+
+  it.each([false, true])('renders non-pixel masks like selecting a frame (unlinked=%s)', (unlinked) => {
+    const { h, img } = fixture();
+    h.execute('Mask', (d) => {
+      const l = findLayer(d.layers, img)!;
+      l.maskGrid = filledMask(store, { x: 50, y: 0, width: 10, height: 20 });
+      l.maskUnlinked = unlinked;
+      l.vectorMask = { unlinked, mask: { paths: [{ open: false, fillRule: 'non-zero', operation: 'combine', knots: [{ linked: false, points: [50, 0, 50, 0, 50, 0] }] }] } };
+    });
+    h.execute('New Frame', (d) => duplicateFrames(d, [0]));
+    h.execute('Move', (d) => {
+      const l = findLayer(d.layers, img)!;
+      l.transform.x += 12;
+      l.transform.y += 7;
+    });
+    const before = structuredClone(h.document);
+    const rendered = frameDocument(h.document, 0);
+    expect(h.document).toEqual(before);
+    h.execute('Select Frame', (d) => applyFrame(d, 0));
+    expect(findLayer(rendered.layers, img)).toEqual(get(h, img));
+    // The same comparison in the other direction catches double translations.
+    expect(findLayer(frameDocument(h.document, 1).layers, img)).toEqual(findLayer(before.layers, img));
   });
 
   it('ignores a frame index that is not a frame number', () => {
