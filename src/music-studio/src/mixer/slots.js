@@ -30,6 +30,7 @@ export function replaceEffect(project, track, slotId, type) {
   const old = t.fx[i];
   if (old.type === type) return { project, id: old.id };
   const slot = { ...createSlot(type), on: old.on, mix: old.mix };
+  slot.id = E.reserveSlotId(project, track, slot.id);
   const fx = t.fx.slice();
   fx[i] = slot;
   return { project: E.updateMixerTrack(project, track, { fx }), id: slot.id };
@@ -40,7 +41,7 @@ export function duplicateSlot(project, track, slotId) {
   const t = project.mixer[track];
   const i = slotIndex(project, track, slotId);
   if (i < 0 || t.fx.length >= MAX_FX_SLOTS) return { project, id: null };
-  const copy = { ...structuredClone(t.fx[i]), id: createSlot(t.fx[i].type).id };
+  const copy = { ...structuredClone(t.fx[i]), id: E.reserveSlotId(project, track) };
   const fx = t.fx.slice();
   fx.splice(i + 1, 0, copy);
   return { project: E.updateMixerTrack(project, track, { fx }), id: copy.id };

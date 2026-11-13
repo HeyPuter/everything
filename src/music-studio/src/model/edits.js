@@ -353,10 +353,20 @@ export function routesTo(project, from, to, seen = new Set()) {
   return false;
 }
 
+/** Keep new effects distinct from slots still addressed by retained automation. */
+export function reserveSlotId(project, track, candidate = uid()) {
+  const used = new Set((project.mixer[track]?.fx || []).map((s) => s.id));
+  for (const a of Object.values(project.automation)) {
+    if (a.target?.kind === 'fx' && a.target.track === track && typeof a.target.slot === 'string') used.add(a.target.slot);
+  }
+  return reserveId(used, candidate);
+}
+
 export function addSlot(project, track, type, at) {
   const t = project.mixer[track];
   if (!t || t.fx.length >= MAX_FX_SLOTS) return { project, id: null };
   const slot = createSlot(type);
+  slot.id = reserveSlotId(project, track, slot.id);
   const fx = t.fx.slice();
   fx.splice(at ?? fx.length, 0, slot);
   return { project: updateMixerTrack(project, track, { fx }), id: slot.id };

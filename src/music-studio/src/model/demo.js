@@ -91,6 +91,10 @@ export function demoProject() {
   p.mixer[5] = { ...p.mixer[5], fx: [{ ...createSlot('reverb'), params: { ...createSlot('reverb').params, wet: 0.3 } }] };
   p.mixer[6] = { ...p.mixer[6], fx: [createSlot('delay'), createSlot('reverb')] };
   p.mixer[0] = { ...p.mixer[0], fx: [createSlot('limiter')] };
+  for (const track of p.mixer) {
+    const slots = new Set();
+    for (const slot of track.fx) slot.id = reserveId(slots, slot.id);
+  }
   for (const pattern of p.patterns) for (const [cid, notes] of Object.entries(pattern.notes)) pattern.notes[cid] = uniqueNoteIds(notes);
   p.ui = { pattern: beat.id };
   return p;
