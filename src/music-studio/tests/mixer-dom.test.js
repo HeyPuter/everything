@@ -490,6 +490,79 @@ describe('mixer panel', () => {
     expect(spies.filter((s, i) => i !== 5 && s.mock.calls.length)).toHaveLength(0);
   });
 
+  function sendPointer(el, type, y = 300) {
+    const e = new MouseEvent(type, { button: 0, clientY: y, bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'pointerId', { value: 1 });
+    el.dispatchEvent(e);
+  }
+
+  it.each(['add', 'remove', 'blocked'])('keeps the source selected throughout a send-button pointer click (%s)', (action) => {
+    const { ctl, panel, store } = env;
+    vi.advanceTimersByTime(50);
+    if (action === 'remove') ctl.toggleRoute(2, 8);
+    if (action === 'blocked') ctl.toggleRoute(8, 2);
+    ctl.select(2);
+    const notify = action === 'blocked' ? vi.spyOn(env.app, 'notify').mockImplementation(() => {}) : null;
+    const before = store.project;
+    const button = panel.strips[8].el.querySelector('.mx-send-btn');
+    sendPointer(button, 'pointerdown');
+    button.focus();
+    sendPointer(button, 'pointerup');
+    button.click();
+    expect(ctl.selected).toBe(2);
+    expect(button.hidden).toBe(false);
+    expect(store.project.mixer[2].routes[8]).toBe(action === 'add' ? 1 : undefined);
+    expect(store.project.mixer[8].routes[2]).toBe(action === 'blocked' ? 1 : undefined);
+    if (action === 'blocked') {
+      expect(store.project === before).toBe(true);
+      expect(notify).toHaveBeenCalledWith(expect.stringMatching(/feedback loop/), { error: true });
+      notify.mockRestore();
+    }
+    else {
+      store.undo();
+      expect(store.project === before).toBe(true);
+    }
+  });
+
+  it.each(['pointer', 'keyboard'])('keeps a strip send gain attached to its source during %s input', (input) => {
+    const { ctl, panel, store } = env;
+    vi.advanceTimersByTime(50);
+    ctl.select(2);
+    const before = store.project;
+    const control = panel.strips[0].el.querySelector('.mx-send-knob');
+    control.setPointerCapture = vi.fn();
+    control.releasePointerCapture = vi.fn();
+    if (input === 'pointer') {
+      sendPointer(control, 'pointerdown');
+      sendPointer(control, 'pointermove', 308);
+      sendPointer(control, 'pointermove', 316);
+      sendPointer(control, 'pointerup', 316);
+    } else {
+      control.focus();
+      key(control, 'ArrowDown');
+      key(control, 'ArrowDown');
+      vi.advanceTimersByTime(500);
+    }
+    expect(ctl.selected).toBe(2);
+    expect(control.hidden).toBe(false);
+    expect(store.project.mixer[2].routes[0]).toBeLessThan(1);
+    expect(store.project.mixer[0].routes).toEqual({});
+    expect(Number(control.getAttribute('aria-valuenow'))).toBeCloseTo(store.project.mixer[2].routes[0], 3);
+    store.undo();
+    expect(store.project === before).toBe(true);
+  });
+
+  it('still selects a destination strip through its name and ordinary controls', () => {
+    const { ctl, panel } = env;
+    ctl.select(2);
+    const strip = panel.strips[8];
+    sendPointer(strip.nameBtn, 'pointerdown');
+    expect(ctl.selected).toBe(8);
+    ctl.select(2);
+    strip.fader.slider.focus();
+    expect(ctl.selected).toBe(8);
+  });
+
   it('send buttons route the selected insert and refuse loops with a toast', () => {
     const { store, panel, ctl } = env;
     ctl.select(2);

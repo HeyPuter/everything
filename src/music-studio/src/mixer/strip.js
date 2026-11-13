@@ -72,8 +72,9 @@ export function createStrip(ctx, index) {
   if (master) soloBtn.hidden = true;
 
   // Interactions ------------------------------------------------------------
-  el.addEventListener('pointerdown', () => ctx.select(index), true);
-  el.addEventListener('focusin', () => ctx.select(index, { fromFocus: true }));
+  // Send controls belong to the selected source, not to this destination strip.
+  el.addEventListener('pointerdown', (e) => { if (!sendRow.contains(e.target)) ctx.select(index); }, true);
+  el.addEventListener('focusin', (e) => { if (!sendRow.contains(e.target)) ctx.select(index, { fromFocus: true }); });
   nameBtn.addEventListener('dblclick', () => ctx.rename(index));
   muteBtn.addEventListener('click', () => ctl.toggleMute(index));
   soloBtn.addEventListener('click', (e) => ctl.solo(index, { add: e.ctrlKey || e.metaKey }));
