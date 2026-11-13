@@ -14,7 +14,7 @@ import { fitCurve, simplifyPolyline, nearestOnPath, insertAnchor } from '../../m
 import { newPathStyle } from '../../tools/pen.js';
 import { brushById } from './brush-model.js';
 import { brushState } from './brush-actions.js';
-import { pressureSamples, pressureWidthProfile, smoothPressures, pressureScale, traceRoundStroke } from './pressure.js';
+import { pressureSamples, pressureWidthProfile, smoothPressures, pressureScale, GrowingStrokePreview } from './pressure.js';
 
 export { pressureSamples };
 
@@ -89,6 +89,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
   }
 
   onPointerDown(e) {
+    this.preview?.reset();
     super.onPointerDown(e);
     this.pressures = e.pointerType === 'pen' ? [e.pressure ?? 0.5] : null;
     this.times = this.points ? this.points.map(() => e.native?.timeStamp ?? performance.now()) : null;
@@ -205,16 +206,19 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     const pressures = this.pressures;
     const brushed = Boolean(brushState(this.app).currentId && brushById(editor.doc, brushState(this.app).currentId));
     if (!pts || pts.length < 2 || !pressures || pressures.length !== pts.length || brushed || !this.pressureShapesWidth()) {
+      this.preview?.reset();
       super.drawOverlay(ctx, editor);
       return;
     }
     const half = Math.max(0.5, ((editor.style.strokeWidth > 0 ? editor.style.strokeWidth : 1) * editor.view.zoom) / 2);
     const st = editor.style.stroke || editor.style.fill;
-    ctx.save();
-    ctx.fillStyle = st?.type === 'solid' ? st.color : '#000000';
-    traceRoundStroke(ctx, pts.map((p) => editor.view.toScreen(p.x, p.y)), smoothPressures(pressures).map((p) => half * pressureScale(p)));
-    ctx.fill();
-    ctx.restore();
+    // Smoothing reaches two points ahead, so all but the last two keep their width.
+    (this.preview ||= new GrowingStrokePreview()).draw(
+      ctx,
+      pts.map((p) => editor.view.toScreen(p.x, p.y)),
+      smoothPressures(pressures).map((p) => half * pressureScale(p)),
+      { color: st?.type === 'solid' ? st.color : '#000000', settled: pts.length - 2, key: half },
+    );
   }
 
   async openOptions() {

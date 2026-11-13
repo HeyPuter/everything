@@ -426,3 +426,69 @@ describe('drags the browser cancels', () => {
     picker.el.remove();
   });
 });
+
+describe('the pressure stroke preview while drawing', () => {
+  // A 2D context that counts the discs traced into it.
+  const fakeCtx = (w = 400, h = 300) => {
+    const ctx = {
+      canvas: { width: w, height: h },
+      arcs: 0,
+      globalAlpha: 1,
+      getTransform: () => ({ a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 }),
+      setTransform() {},
+      save() {},
+      restore() {},
+      clearRect() {},
+      drawImage() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      fill() {},
+      arc() {
+        ctx.arcs++;
+      },
+    };
+    return ctx;
+  };
+
+  it('traces only what was added since the last frame, not the whole stroke', async () => {
+    const { GrowingStrokePreview } = await import('../src/features/brushes/pressure.js');
+    const layers = [];
+    const Offscreen = globalThis.OffscreenCanvas;
+    globalThis.OffscreenCanvas = class {
+      constructor(w, h) {
+        this.width = w;
+        this.height = h;
+        this.ctx = fakeCtx(w, h);
+        layers.push(this);
+      }
+      getContext() {
+        return this.ctx;
+      }
+    };
+    try {
+      const ctx = fakeCtx();
+      const preview = new GrowingStrokePreview();
+      const pts = [];
+      let traced = 0;
+      for (let n = 1; n <= 3000; n++) {
+        pts.push({ x: n * 0.1, y: 50 });
+        const before = ctx.arcs + layers.reduce((s, l) => s + l.ctx.arcs, 0);
+        preview.draw(ctx, pts, pts.map(() => 3), { color: '#000', settled: n - 2 });
+        traced = ctx.arcs + layers.reduce((s, l) => s + l.ctx.arcs, 0) - before;
+        // Never more than a batch and the last points, however long the stroke.
+        expect(traced).toBeLessThan(140);
+      }
+      // A change of view starts over.
+      const moved = pts.map((p) => ({ x: p.x + 5, y: p.y }));
+      const before = ctx.arcs + layers.reduce((s, l) => s + l.ctx.arcs, 0);
+      preview.draw(ctx, moved, moved.map(() => 3), { color: '#000', settled: moved.length - 2 });
+      expect(ctx.arcs + layers.reduce((s, l) => s + l.ctx.arcs, 0) - before).toBeGreaterThan(2900);
+      preview.reset();
+      expect(preview.layers).toBe(null);
+    } finally {
+      globalThis.OffscreenCanvas = Offscreen;
+    }
+  });
+});

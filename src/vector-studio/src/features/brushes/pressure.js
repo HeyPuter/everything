@@ -95,15 +95,18 @@ export function roundBrushOutline(anchors, diameterAt, maxDiameter) {
  * Trace a round stroke of varying width through `pts` ([{ x, y }] in canvas
  * pixels) with the radius radii[i] at each point, as one path to fill: a
  * disc at every point and a band between neighbors, all wound the same way
- * so a nonzero fill has no holes where they overlap.
+ * so a nonzero fill has no holes where they overlap. With `joined`, the
+ * first point's disc is left out (it was drawn with the points before).
  */
-export function traceRoundStroke(ctx, pts, radii) {
+export function traceRoundStroke(ctx, pts, radii, joined = false) {
   ctx.beginPath();
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     const r = Math.max(0.5, radii[i]);
-    ctx.moveTo(p.x + r, p.y);
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    if (i || !joined) {
+      ctx.moveTo(p.x + r, p.y);
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    }
     if (!i) continue;
     const q = pts[i - 1];
     const rq = Math.max(0.5, radii[i - 1]);
@@ -119,4 +122,114 @@ export function traceRoundStroke(ctx, pts, radii) {
     ctx.lineTo(q.x - nx * rq, q.y - ny * rq);
     ctx.closePath();
   }
+}
+
+/**
+ * The preview of a round stroke of varying width that grows while it is
+ * drawn. Filling the whole stroke as one path every frame takes longer the
+ * longer the stroke gets, far more than in proportion (a pen sends hundreds
+ * of points a second), so the part whose radii are settled is kept as
+ * pixels and only the points added since are traced. The kept pixels are
+ * dropped when the view, the canvas, the color or the size changes.
+ *
+ * `settled` is how many leading points keep their radius from now on (radii
+ * smoothed over neighbors change near the end until more points come).
+ */
+const BATCH = 64;
+
+export class GrowingStrokePreview {
+  constructor() {
+    this.kept = null;
+    this.layers = null;
+  }
+
+  /** The stroke ended: let go of the kept pixels. */
+  reset() {
+    this.kept = null;
+    this.layers = null;
+  }
+
+  /** Draw `pts` (canvas pixels, in ctx's transform) with `radii`, filled with `color` at `alpha`. */
+  draw(ctx, pts, radii, { color, alpha = 1, settled = pts.length, key = '' }) {
+    const canvas = ctx.canvas;
+    const t = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+    const w = canvas?.width || 0;
+    const h = canvas?.height || 0;
+    const keep = t && w > 0 && h > 0 && pts.length ? this.#layer('keep', w, h) : null;
+    // See-through strokes are put together on a layer of their own, so where parts overlap they do not darken.
+    const frame = keep && alpha < 1 ? this.#layer('frame', w, h) : null;
+    if (!keep || (alpha < 1 && !frame)) {
+      // Nothing to keep pixels in: trace it all.
+      ctx.save();
+      ctx.globalAlpha *= alpha;
+      ctx.fillStyle = color;
+      traceRoundStroke(ctx, pts, radii);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+    const k = [w, h, t.a, t.b, t.c, t.d, t.e, t.f, color, key, pts[0].x, pts[0].y].join(',');
+    let kept = this.kept;
+    if (!kept || kept.key !== k || kept.count > pts.length) {
+      kept = this.kept = { key: k, count: 0 };
+      keep.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      keep.ctx.clearRect(0, 0, w, h);
+    }
+    const upto = Math.max(0, Math.min(settled, pts.length));
+    // Points are kept in batches: each join between kept parts can differ from one fill by a
+    // shade at the edge, and a short rest costs little to trace again.
+    if (upto - kept.count >= BATCH) {
+      // Settled points join the kept pixels (from the last kept point, so the band between them is included).
+      const from = Math.max(0, kept.count - 1);
+      fillRound(keep.ctx, t, color, pts.slice(from, upto), radii.slice(from, upto), from > 0);
+      kept.count = upto;
+    }
+    const from = Math.max(0, kept.count - 1);
+    const target = frame ? frame.ctx : ctx;
+    target.save();
+    if (frame) {
+      target.setTransform(1, 0, 0, 1, 0, 0);
+      target.clearRect(0, 0, w, h);
+    }
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.drawImage(keep.canvas, 0, 0);
+    if (pts.length > from) fillRound(target, t, color, pts.slice(from), radii.slice(from), kept.count > 0);
+    target.restore();
+    if (frame) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha *= alpha;
+      ctx.drawImage(frame.canvas, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  #layer(name, w, h) {
+    const layers = (this.layers ||= {});
+    let l = layers[name];
+    if (l && l.canvas.width === w && l.canvas.height === h) return l;
+    try {
+      let canvas;
+      if (typeof OffscreenCanvas !== 'undefined') canvas = new OffscreenCanvas(w, h);
+      else {
+        canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+      }
+      const c = canvas.getContext('2d');
+      if (!c || typeof c.drawImage !== 'function' || typeof c.setTransform !== 'function') return null;
+      l = layers[name] = { canvas, ctx: c };
+      if (name === 'keep') this.kept = null;
+      return l;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function fillRound(ctx, t, color, pts, radii, joined) {
+  ctx.setTransform(t);
+  ctx.fillStyle = color;
+  traceRoundStroke(ctx, pts, radii, joined);
+  ctx.fill();
 }
