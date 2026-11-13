@@ -38,6 +38,7 @@ describe('mixer panel', () => {
   });
   afterEach(() => {
     closeWindows();
+    env.panel.onHide();
     cancelAnimationFrame(env.app.raf);
     vi.useRealTimers();
   });
@@ -380,21 +381,23 @@ describe('mixer panel', () => {
     expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb']);
   });
 
-  function effectDrag() {
+  function effectDrag(scroll = 0) {
     env.ctl.select(6);
+    const side = document.querySelector('.mx-side');
+    side.scrollTop = scroll;
     const rows = [...document.querySelectorAll('.mx-slot[data-id]')];
     rows.forEach((row, i) => {
-      row.getBoundingClientRect = () => ({ top: 100 + i * 40, height: 40 });
+      row.getBoundingClientRect = () => ({ top: 100 + i * 40 - side.scrollTop, height: 40 });
     });
     const grip = rows[0].querySelector('.mx-grip');
     grip.setPointerCapture = vi.fn();
     grip.releasePointerCapture = vi.fn();
-    const pointer = (type, y = 190, id = 1) => {
+    const pointer = (type, y = 190 - scroll, id = 1) => {
       const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
       Object.defineProperty(event, 'pointerId', { value: id });
       grip.dispatchEvent(event);
     };
-    pointer('pointerdown', 120);
+    pointer('pointerdown', 120 - scroll);
     pointer('pointermove');
     return { grip, pointer, row: rows[0] };
   }
@@ -488,6 +491,37 @@ describe('mixer panel', () => {
     pointer('pointerup', 120);
     expect(store.project).toBe(before);
     expect(store.canRedo).toBe(true);
+  });
+
+  it.each(['scroll', 'pointermove', 'pointerup'].flatMap((update) => [0, 40].map((scroll) => [update, scroll])))('keeps the effect drop target aligned after scrolling (%s update, starting at %s)', (update, scroll) => {
+    const { store, ctl } = env;
+    ctl.addEffect(6, 'eq');
+    ctl.addEffect(6, 'eq');
+    const before = store.project;
+    const ids = before.mixer[6].fx.map((slot) => slot.id);
+    const { pointer, row } = effectDrag(scroll);
+    const side = row.closest('.mx-side');
+    const rows = [...side.querySelectorAll('.mx-slot[data-id]')];
+    rows.forEach((row, i) => {
+      row.getBoundingClientRect = () => ({ top: 100 + i * 40 - side.scrollTop, height: 40 });
+      Object.defineProperties(row, { offsetTop: { value: i * 40 }, offsetHeight: { value: 40 } });
+    });
+    pointer('pointermove', 190 - scroll);
+    expect(side.querySelector('.mx-drop-line').style.top).toBe('79px');
+    side.scrollTop = scroll + 80;
+    if (update === 'scroll') side.dispatchEvent(new Event('scroll'));
+    else if (update === 'pointermove') pointer('pointermove', 190 - scroll);
+    if (update !== 'pointerup') expect(side.querySelector('.mx-drop-line').style.top).toBe('159px');
+    pointer('pointerup', 190 - scroll);
+    expect(store.project.mixer[6].fx.map((slot) => slot.id)).toEqual([...ids.slice(1), ids[0]]);
+    expect(side.querySelector('.mx-drop-line')).toBeNull();
+    side.scrollTop = 0;
+    side.dispatchEvent(new Event('scroll'));
+    pointer('pointermove', 110);
+    store.undo();
+    expect(store.project).toBe(before);
+    store.redo();
+    expect(store.project.mixer[6].fx.map((slot) => slot.id)).toEqual([...ids.slice(1), ids[0]]);
   });
 
   it.each(['load', 'undo', 'redo', 'select insert', 'hide mixer', 'hide effects', 'change chain', 'destroy'])('cancels obsolete effect reorders after %s', (change) => {

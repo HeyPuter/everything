@@ -215,6 +215,8 @@ export function createFxPanel(ctx) {
       const b = r.el.getBoundingClientRect();
       return b.top + b.height / 2;
     });
+    const scroll0 = el.scrollTop;
+    let pointerY = e.clientY;
     const from = api.i;
     const index = state.index;
     const trackId = state.track.id;
@@ -237,10 +239,14 @@ export function createFxPanel(ctx) {
       marker.hidden = to === from;
     };
     place();
+    const updateDrop = () => {
+      to = dropIndex(mids, pointerY + el.scrollTop - scroll0, from);
+      place();
+    };
     const move = (ev) => {
       if (ev.pointerId !== e.pointerId) return;
-      to = dropIndex(mids, ev.clientY, from);
-      place();
+      pointerY = ev.clientY;
+      updateDrop();
     };
     const finish = (apply) => {
       if (activeReorder?.cancel !== cancel) return;
@@ -253,6 +259,7 @@ export function createFxPanel(ctx) {
       grip.removeEventListener('lostpointercapture', interrupted);
       window.removeEventListener('blur', cancel);
       document.removeEventListener('keydown', onKey, true);
+      el.removeEventListener('scroll', updateDrop);
       api.el.classList.remove('dragging');
       marker.remove();
       try { grip.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
@@ -265,7 +272,11 @@ export function createFxPanel(ctx) {
       ev.stopPropagation();
       cancel();
     };
-    const up = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      move(ev);
+      finish(true);
+    };
     const interrupted = (ev) => { if (ev.pointerId === e.pointerId) cancel(); };
     const offChange = app.store.on('change', (p, prev, meta) => {
       if (['load', 'undo', 'redo'].includes(meta?.source) || !current(p, state.index)) cancel();
@@ -277,6 +288,7 @@ export function createFxPanel(ctx) {
     grip.addEventListener('lostpointercapture', interrupted);
     window.addEventListener('blur', cancel);
     document.addEventListener('keydown', onKey, true);
+    el.addEventListener('scroll', updateDrop);
   }
 
   // ---------------------------------------------------------------- routing
