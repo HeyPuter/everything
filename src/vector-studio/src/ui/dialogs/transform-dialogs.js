@@ -220,13 +220,33 @@ export async function transformDialog(app, kind, args = {}) {
     objects: v.objects,
     patterns: patterns ? v.patterns : undefined,
   });
-  const rollback = () => {
-    if (tx) {
-      tx.cancel();
-      tx = null;
+  const selection = [...editor.selection], isolation = editor.isolation;
+  let closeDialog = null, cancelled = false, rollingBack = false;
+  const rollback = (preserveSelection = false) => {
+    const pending = tx;
+    tx = null;
+    if (!pending || doc.tx !== pending) return;
+    if (preserveSelection) {
+      // Keep the receiving window's selection when a context change cancels us.
+      pending.selectionBefore = doc.readOnly ? { ids: [], anchors: [] } : doc.selection?.get() ?? null;
     }
+    rollingBack = true;
+    try { pending.cancel(); } finally { rollingBack = false; }
+  };
+  const check = () => {
+    if (cancelled) return false;
+    if (rollingBack) return true;
+    if (app.editor === editor && app.editors.includes(editor) && !doc.readOnly &&
+        (!app.home || app.home.hidden) && editor.isolation === isolation &&
+        editor.selection.size === selection.length && selection.every((id) => editor.selection.has(id)) &&
+        (tx ? doc.tx === tx : !doc.tx)) return true;
+    cancelled = true;
+    rollback(true);
+    closeDialog?.(null);
+    return false;
   };
   const preview = (v) => {
+    if (!check()) return;
     rollback();
     if (!v.preview) return;
     if (v.objects === false && !(patterns && v.patterns)) return;
@@ -234,15 +254,25 @@ export async function transformDialog(app, kind, args = {}) {
     if (kind === 'each') transformEach(editor, eachParams(v));
     else transformNodes(doc, editor.topSelection(), matrixFor(kind, v, c), optsFor(v));
   };
-  const result = await formDialog(app, {
-    title: titles[kind],
-    fields,
-    onChange: preview,
-    previewToggle: last.preview,
-    className: kind === 'each' ? 'transform-each-dialog' : '',
-    extraButtons: [{ label: 'Copy', action: 'copy', left: true }],
-  });
-  rollback();
+  let result = null;
+  const offs = ['active-editor', 'closed', 'show-home'].map((event) => app.on(event, check));
+  for (const event of ['selection', 'isolation']) offs.push(editor.on(event, check));
+  if (app.collab) offs.push(app.collab.on('role', check));
+  try {
+    result = await formDialog(app, {
+      title: titles[kind],
+      fields,
+      onChange: preview,
+      onOpen: ({ close }) => { closeDialog = close; if (!check()) close(null); },
+      previewToggle: last.preview,
+      className: kind === 'each' ? 'transform-each-dialog' : '',
+      extraButtons: [{ label: 'Copy', action: 'copy', left: true }],
+    });
+  } finally {
+    for (const off of offs) off();
+    if (!check()) result = null;
+    rollback();
+  }
   if (!result) return;
   const copy = result.__action === 'copy';
   if ('strokes' in result) app.prefs.set('scaleStrokes', result.strokes);
@@ -262,6 +292,10 @@ export async function transformDialog(app, kind, args = {}) {
 }
 
 export async function averageDialog(app) {
+  const editor = app.editor;
+  if (!editor) return;
+  const isolation = editor.isolation;
+  const selection = new Map([...editor.selection].map((id) => [id, new Set(editor.selectedAnchors(id))]));
   const v = await formDialog(app, {
     title: 'Average',
     fields: [
@@ -278,5 +312,11 @@ export async function averageDialog(app) {
       },
     ],
   });
-  if (v) average(app.editor, v.axis);
+  if (!v || app.editor !== editor || !app.editors.includes(editor) || editor.doc.readOnly ||
+      (app.home && !app.home.hidden) || editor.isolation !== isolation || editor.selection.size !== selection.size) return;
+  for (const [id, anchors] of selection) {
+    const current = editor.selectedAnchors(id);
+    if (!editor.selection.has(id) || current.size !== anchors.size || [...anchors].some((i) => !current.has(i))) return;
+  }
+  average(editor, v.axis);
 }

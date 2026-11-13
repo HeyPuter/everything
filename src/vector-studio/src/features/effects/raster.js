@@ -10,6 +10,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { watchEditingContext } from '../../ui/dialogs/editing-context.js';
 import { registerContentEffect } from '../../render/effects.js';
 import { registerEffectType } from '../paint/effects-model.js';
 import { selectionBounds, inflate, visualBounds } from '../../model/geometry.js';
@@ -307,14 +308,21 @@ export async function renderToImage(doc, ids, rect, { ppi, background, antialias
  */
 export async function rasterizeObjects(editor, ids, opts, render = renderToImage) {
   const doc = editor.doc;
+  if (doc.readOnly || doc.tx || opts.signal?.aborted) return null;
   const ordered = doc.sortByPaintOrder(ids.filter((id) => doc.get(id)));
   if (!ordered.length) return null;
   const vb = selectionBounds(doc, ordered, true);
   if (!vb || !(vb.w > 0) || !(vb.h > 0)) return null;
+  // A group can stay unchanged while a child is edited. Capture the entire
+  // input tree before rendering yields, so the image never replaces newer art.
+  const snap = new Map();
+  for (const id of ordered) for (const n of [doc.get(id), ...doc.descendants(id)]) snap.set(n.id, n);
   const rect = inflate(vb, Math.max(0, opts.padding || 0));
   const img = await render(doc, ordered, rect, { ppi: opts.resolution, background: opts.background, antialias: opts.antialias, colorModel: opts.colorModel });
-  const snap = ordered.map((id) => doc.get(id));
-  if (ordered.some((id, i) => doc.get(id) !== snap[i])) return null;
+  if (doc.readOnly || doc.tx || opts.signal?.aborted) return null;
+  for (const [id, node] of snap) if (doc.get(id) !== node) return null;
+  // Moving a parent layer can reorder the inputs without changing them.
+  if (doc.sortByPaintOrder(ordered).some((id, i) => id !== ordered[i])) return null;
   const assetId = uid('img');
   doc.assets.set(assetId, { mime: 'image/png', data: img.data, name: 'Rasterized artwork' });
   const top = doc.get(ordered[ordered.length - 1]);
@@ -363,22 +371,26 @@ export async function rasterizeObjectDialog(app) {
   const last = app.prefs?.get?.('rasterizeObject');
   const start = { ...docRasterSettings(ed.doc), clip: false, ...(last || {}) };
   const ctl = rasterControls(start, ed.doc.root.units || 'pt', { clip: { value: start.clip } });
-  const res = await openDialog({
-    title: 'Rasterize',
-    className: 'fx-dialog',
-    body: h('div.fx-body', ...ctl.els),
-    buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
-    initialFocus: ctl.focus,
-  });
-  if (!res) return false;
-  app.prefs?.set?.('rasterizeObject', res);
+  const scope = watchEditingContext(app, ed, ids);
   try {
-    const id = await rasterizeObjects(ed, ids, res);
-    if (!id) app.notify('Rasterize was canceled because the artwork changed.');
+    const res = await openDialog({
+      title: 'Rasterize',
+      className: 'fx-dialog',
+      body: h('div.fx-body', ...ctl.els),
+      buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
+      initialFocus: ctl.focus,
+      onOpen: scope.onOpen,
+    });
+    if (!res || !scope.check()) return false;
+    app.prefs?.set?.('rasterizeObject', res);
+    const id = await rasterizeObjects(ed, ids, { ...res, signal: scope.signal });
+    if (!id && !scope.signal.aborted) app.notify('Rasterize was canceled because the artwork changed.');
     return Boolean(id);
   } catch (err) {
     app.notify(err?.message || 'The artwork could not be rasterized.', { error: true });
     return false;
+  } finally {
+    scope.dispose();
   }
 }
 

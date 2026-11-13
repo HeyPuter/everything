@@ -17,6 +17,8 @@ import { iconButton, paintSwatch, updatePaintSwatch } from '../../ui/widgets.js'
 import { trackPenHover } from '../../ui/pen-direct.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { previewSession } from '../../ui/dialogs/preview-session.js';
+import { watchEditingContext } from '../../ui/dialogs/editing-context.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
 import { applyStyle } from '../../ops/paint-ops.js';
 import { isHex, normalizeHex } from '../../lib/color.js';
@@ -41,7 +43,7 @@ import { setStop, moveStop, reverseGradient, setGradientType, gradientAngle, set
  * and location), angle and aspect ratio; pattern swatches show their tile
  * and open pattern editing.
  */
-export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onPreview }) {
+export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onPreview, onOpen }) {
   const paint = swatch.paint;
   const isSolid = paint?.type === 'solid';
   const isGrad = isGradient(paint);
@@ -110,7 +112,10 @@ export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onP
     className: 'swatch-options',
     initialFocus: () => name,
     // The Edit Pattern button closes the dialog with that action.
-    onOpen: ({ close: done }) => (close = (action) => done(result(action))),
+    onOpen: (context) => {
+      close = (action) => context.close(result(action));
+      onOpen?.(context);
+    },
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', primary: true, value: () => result() },
@@ -229,16 +234,21 @@ export async function createSwatchFromFocused(app, { direct = false } = {}) {
   delete p.swatchId;
   delete p.tint;
   const base = { name: p.type === 'solid' ? colorName(p.color) : p.type === 'pattern' ? 'New Pattern Swatch' : 'New Gradient Swatch', paint: p };
-  const res = direct ? { ...base, global: false } : await swatchOptionsDialog(app, { title: 'New Swatch', swatch: base });
-  if (!res || app.editor !== ed) return null;
   const doc = ed.doc;
-  let id = null;
-  doc.transact('New Swatch', () => {
-    id = addSwatch(doc, { name: res.name, paint: res.paint, global: res.global, spot: res.spot, mode: res.mode });
-    // The object that supplied the color now uses the new swatch.
-    if (res.global && res.paint.type === 'solid') applyStyle(ed, { [key]: { ...res.paint, swatchId: id } }, 'New Swatch');
-  });
-  return id;
+  const scope = direct ? null : watchEditingContext(app, ed);
+  try {
+    const res = direct ? { ...base, global: false } : await swatchOptionsDialog(app, { title: 'New Swatch', swatch: base, onOpen: scope.onOpen });
+    if (!res || app.editor !== ed || !app.editors.includes(ed) || doc.readOnly || (scope && (doc.tx || !scope.check()))) return null;
+    let id = null;
+    doc.transact('New Swatch', () => {
+      id = addSwatch(doc, { name: res.name, paint: res.paint, global: res.global, spot: res.spot, mode: res.mode });
+      // The object that supplied the color now uses the new swatch.
+      if (res.global && res.paint.type === 'solid') applyStyle(ed, { [key]: { ...res.paint, swatchId: id } }, 'New Swatch');
+    });
+    return id;
+  } finally {
+    scope?.dispose();
+  }
 }
 
 export class SwatchesPanel extends Panel {
@@ -751,27 +761,31 @@ export class SwatchesPanel extends Panel {
     const sw = findSwatch(doc, id);
     if (!sw) return;
     // Preview runs inside an open transaction that Cancel rolls back.
-    const tx = doc.begin('Swatch Options');
+    const session = previewSession(this.app, ed, 'Swatch Options');
     const preview = (r) => {
+      if (!session.check()) return;
       updateSwatch(doc, id, r ? { paint: r.paint, global: sw.global } : { paint: sw.paint, global: sw.global });
     };
     let res = null;
     try {
-      res = await swatchOptionsDialog(this.app, { swatch: sw, onPreview: sw.global && sw.paint?.type === 'solid' ? preview : null });
+      res = await swatchOptionsDialog(this.app, { swatch: sw, onPreview: sw.global && sw.paint?.type === 'solid' ? preview : null, onOpen: session.onOpen });
+      if (!res || !session.check()) return;
+      updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.paint?.type === 'solid' ? res.mode : undefined });
+      if (!session.commit()) return;
     } finally {
-      if (!res) tx.cancel();
+      session.dispose();
     }
-    if (!res) return;
-    updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.paint?.type === 'solid' ? res.mode : undefined });
-    tx.commit();
     if (sw.global && swatchUsage(doc, id)) this.app.notify(`Updated objects using "${res.name}".`, { polite: true });
     if (res.action === 'editPattern' && sw.paint?.type === 'pattern') this.app.commands.run('pattern.edit', { patternId: sw.paint.id });
   }
 
   async renameGroup(g) {
+    const ed = this.app.editor;
+    if (!ed) return;
+    const doc = ed.doc;
     const res = await this.app.dialogs.form({ title: 'Color Group Options', fields: [{ key: 'name', label: 'Name', type: 'text', value: g.name }] });
-    if (!res || !res.name.trim()) return;
-    const doc = this.app.editor.doc;
+    if (!res || !res.name.trim() || !this.app.editors.includes(ed) || doc.readOnly || doc.tx) return;
+    if (!groupsOf(doc).some((group) => group.id === g.id)) return;
     doc.transact('Rename Color Group', () => renameGroup(doc, g.id, res.name.trim()));
   }
 
@@ -791,25 +805,34 @@ export class SwatchesPanel extends Panel {
       fields.push({ key: 'from', label: 'Create From', type: 'radio', value: 'swatches', options: [{ value: 'swatches', label: 'Selected Swatches' }, { value: 'art', label: 'Selected Artwork' }] });
     }
     const res = await this.app.dialogs.form({ title: 'New Color Group', fields });
-    if (!res) return;
+    if (!res || !this.app.editors.includes(ed) || doc.readOnly || doc.tx) return;
     const fromArt = res.from ? res.from === 'art' : !swIds.length;
     doc.transact('New Color Group', () => {
       const gid = fromArt
         ? addGroup(doc, res.name, { paints: artColors.map((c) => ({ name: colorName(c.color), paint: { type: 'solid', color: c.color } })) })
         : addGroup(doc, res.name, { swatchIds: swIds });
-      this.selected = new Set([gid]);
-      this.focusId = gid;
+      if (this.app.editor === ed) {
+        this.selected = new Set([gid]);
+        this.focusId = gid;
+      }
     });
   }
 
   async deleteSelected() {
     const ed = this.app.editor;
     if (!ed || !this.selected.size) return;
+    const selected = [...this.selected];
     const ok = await this.app.dialogs.confirm({ title: 'Delete Swatches', message: 'Delete the swatch selection?', okLabel: 'Delete', danger: true });
-    if (!ok) return;
     const doc = ed.doc;
-    doc.transact('Delete Swatches', () => removeSwatches(doc, [...this.selected]));
-    this.selected.clear();
+    if (!ok || !this.app.editors.includes(ed) || doc.readOnly || doc.tx) return;
+    const existing = new Set([...swatchesOf(doc), ...groupsOf(doc)].map((item) => item.id));
+    const ids = selected.filter((id) => existing.has(id));
+    if (!ids.length) return;
+    doc.transact('Delete Swatches', () => removeSwatches(doc, ids));
+    if (this.app.editor === ed) {
+      const remaining = new Set([...swatchesOf(doc), ...groupsOf(doc)].map((item) => item.id));
+      for (const id of this.selected) if (!remaining.has(id)) this.selected.delete(id);
+    }
   }
 
   openKinds(anchor) {

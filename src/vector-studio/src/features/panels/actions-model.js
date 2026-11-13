@@ -33,7 +33,7 @@
  * Sets persist in preferences ('actionSets').
  */
 import { uid } from '../../lib/ids.js';
-import { UserError } from '../../lib/errors.js';
+import { UserError, isUserError } from '../../lib/errors.js';
 import { multiply, translate } from '../../lib/matrix.js';
 import { dialogHooks } from '../../ui/dialogs/dialog.js';
 import { paintHooks, applyStyle } from '../../ops/paint-ops.js';
@@ -105,6 +105,7 @@ export function exportSetsData(sets) {
 /** Sets from a file, with fresh ids so they never clash with existing ones. */
 export function parseSetsData(data) {
   if (!data || data.format !== ACTIONS_FORMAT || !Array.isArray(data.sets)) throw new UserError('This file does not contain Vector Studio actions.');
+  const finiteVector = (v, length) => Array.isArray(v) && v.length === length && v.every(Number.isFinite);
   return data.sets.map((s) => ({
     id: uid('set'),
     name: String(s.name || 'Imported Set'),
@@ -112,7 +113,15 @@ export function parseSetsData(data) {
       id: uid('act'),
       name: String(a.name || 'Action'),
       ...(a.color ? { color: String(a.color) } : {}),
-      steps: (a.steps || []).filter((st) => st && ['command', 'style', 'transform', 'stop', 'select', 'path'].includes(st.kind)).map((st) => ({ ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) })),
+      steps: (a.steps || []).filter((st) => st && ['command', 'style', 'transform', 'stop', 'select', 'path'].includes(st.kind)).map((st) => {
+        if (st.kind === 'transform' && (!finiteVector(st.m, 4) || !finiteVector(st.d, 2))) {
+          throw new UserError(`This Vector Studio actions file contains an invalid transform in "${a.name || 'Action'}".`);
+        }
+        if (st.kind === 'command' && st.dialogs != null && (!Array.isArray(st.dialogs) || !st.dialogs.every((d) => d && typeof d.title === 'string' && isPlain(d.value)))) {
+          throw new UserError(`This Vector Studio actions file contains invalid dialog records in "${a.name || 'Action'}".`);
+        }
+        return { ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) };
+      }),
     })),
   }));
 }
@@ -245,11 +254,11 @@ export class ActionEngine {
     const app = this.app;
     const commands = app.commands;
     const run = commands.run.bind(commands);
-    commands.run = async (id, args) => {
+    commands.run = async (id, args, options) => {
       if (!this.recording || this.depth > 0 || this.playing || !isRecordable(id) || !commands.isEnabled(id, args)) {
         this.depth++;
         try {
-          return await run(id, args);
+          return await run(id, args, options);
         } finally {
           this.depth--;
         }
@@ -259,7 +268,7 @@ export class ActionEngine {
       this.depth++;
       let result;
       try {
-        result = await run(id, args);
+        result = await run(id, args, options);
       } finally {
         this.depth--;
         this.current = null;
@@ -352,9 +361,13 @@ export class ActionEngine {
   #replayDialog(opts, next) {
     const q = this.queue;
     const rec = q.entries.find((d) => d.title === (opts.title || '') && !d.used) || (q.entries.length === 1 && !q.entries[0].used ? q.entries[0] : null);
-    if (!rec) return next(opts);
+    const show = () => Promise.resolve(next(opts)).then((value) => {
+      if (value === null || value === undefined || value === false) q.cancelled = true;
+      return value;
+    });
+    if (!rec) return show();
     if (q.modal || rec.value === undefined) {
-      return Promise.resolve(next(opts)).then((v) => {
+      return show().then((v) => {
         rec.used = true;
         return v;
       });
@@ -391,13 +404,28 @@ export class ActionEngine {
     if (this.playing) return { ok: false, done: 0, message: 'An action is already playing.' };
     const app = this.app;
     if (!app.editor) throw new UserError('Open a document to play an action.');
+    const editor = app.editor;
+    let changedDocument = false;
+    const offActive = app.on('active-editor', (next) => {
+      if (next !== editor) changedDocument = true;
+    });
     const steps = only ? found.action.steps.filter((s) => only.includes(s.id)) : found.action.steps.slice(from);
     this.playing = true;
     let done = 0;
     try {
       for (const [i, st] of steps.entries()) {
         if (!st.on) continue;
-        const res = await this.#playStep(st);
+        if (changedDocument || app.editor !== editor || !app.editors.includes(editor)) {
+          app.notify('Action stopped because the active document changed.', { polite: true });
+          return { ok: false, done, stoppedAt: i };
+        }
+        let res;
+        try {
+          res = await this.#playStep(st);
+        } catch (err) {
+          if (!isUserError(err)) console.error(err);
+          res = err?.message || String(err);
+        }
         if (res === 'stop') return { ok: false, done, stoppedAt: i };
         if (res === true && i < steps.length - 1) await this.#between();
         if (typeof res === 'string') {
@@ -408,6 +436,7 @@ export class ActionEngine {
       }
       return { ok: true, done };
     } finally {
+      offActive();
       this.playing = false;
       this.queue = null;
     }
@@ -418,12 +447,24 @@ export class ActionEngine {
     const app = this.app;
     const back = app.editor;
     const results = [];
-    for (const ed of [...app.editors]) {
-      app.activate(ed);
-      results.push(await this.play(actionId));
-      if (results[results.length - 1].stoppedAt !== undefined && !results[results.length - 1].message) break;
+    let target = back;
+    let interrupted = false;
+    const offActive = app.on('active-editor', (next) => {
+      if (next !== target) interrupted = true;
+    });
+    try {
+      for (const ed of [...app.editors]) {
+        if (!app.editors.includes(ed)) continue;
+        target = ed;
+        app.activate(ed);
+        if (interrupted) break;
+        results.push(await this.play(actionId));
+        if (interrupted || (results[results.length - 1].stoppedAt !== undefined && !results[results.length - 1].message)) break;
+      }
+    } finally {
+      offActive();
+      if (!interrupted && back && app.editors.includes(back)) app.activate(back);
     }
-    if (back && app.editors.includes(back)) app.activate(back);
     return results;
   }
 
@@ -465,7 +506,8 @@ export class ActionEngine {
       if (!app.commands.isEnabled(st.cmd, st.args ?? undefined)) return `"${st.label}" cannot be used with the current selection.`;
       this.queue = { entries: (st.dialogs || []).map((d) => ({ ...d, used: false })), modal: Boolean(st.modal) };
       try {
-        await app.commands.run(st.cmd, st.args ?? undefined);
+        await app.commands.run(st.cmd, st.args ?? undefined, { throwOnError: true });
+        if (this.queue.cancelled) return 'stop';
       } finally {
         this.queue = null;
       }

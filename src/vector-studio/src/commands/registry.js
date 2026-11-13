@@ -93,7 +93,7 @@ export class CommandRegistry {
     return typeof c.label === 'function' ? c.label(this.app) : c.label;
   }
 
-  async run(id, args) {
+  async run(id, args, { throwOnError = false } = {}) {
     const c = this.commands.get(id);
     if (!c) {
       console.warn(`Unknown command ${id}`);
@@ -103,6 +103,8 @@ export class CommandRegistry {
     try {
       return await c.run(this.app, args);
     } catch (err) {
+      // Playback needs to stop dependent steps when a command fails.
+      if (throwOnError) throw err;
       // Validation messages (UserError) are expected: a notification is enough.
       if (!isUserError(err)) console.error(err);
       this.app.notify?.(err?.message || 'Something went wrong.', { error: true });

@@ -197,7 +197,28 @@ async function smoothDialog(app) {
   const info = h('p.form-help', { 'aria-live': 'polite' });
   const preview = h('input', { type: 'checkbox', id: 'smooth-preview', checked: true });
   let tx = doc.begin('Smooth');
+  let closeDialog = null;
+  const selection = [...ed.selection], isolation = ed.isolation;
+  const valid = () => tx && doc.tx === tx && app.editor === ed && app.editors.includes(ed) && !doc.readOnly &&
+    (!app.home || app.home.hidden) && ed.isolation === isolation && ed.selection.size === selection.length && selection.every((id) => ed.selection.has(id));
+  const cancel = (preserveSelection = false) => {
+    const pending = tx;
+    tx = null;
+    if (pending && doc.tx === pending && preserveSelection) {
+      // A context change must not undo the receiving window's newer selection.
+      pending.selectionBefore = doc.readOnly ? { ids: [], anchors: [] } : doc.selection?.get() ?? null;
+    }
+    pending?.cancel();
+    closeDialog?.(null);
+  };
+  const check = () => {
+    if (!tx) return false;
+    if (valid()) return true;
+    cancel(true);
+    return false;
+  };
   const apply = () => {
+    if (!check()) return;
     const v = Number(range.value);
     out.textContent = String(v);
     for (const n of nodes) doc.update(n.id, { anchors: n.anchors, shape: n.shape });
@@ -207,6 +228,7 @@ async function smoothDialog(app) {
   const auto = h('button.btn.small', {
     type: 'button',
     onclick: () => {
+      if (!check()) return;
       // The smallest amount that removes at least a fifth of the anchors (or the strongest).
       let pick = 100;
       for (let v = 45; v <= 100; v += 5) {
@@ -229,13 +251,19 @@ async function smoothDialog(app) {
     h('div.smooth-actions', auto, h('div.check-row', preview, h('label', { for: 'smooth-preview' }, 'Preview'))),
   );
   let res = null;
+  const offs = ['active-editor', 'closed', 'show-home'].map((event) => app.on(event, check));
+  for (const event of ['selection', 'isolation']) offs.push(ed.on(event, check));
+  if (app.collab) offs.push(app.collab.on('role', check));
   try {
-    res = await app.dialogs.open({ title: 'Smooth', body, buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ({ amount: Number(range.value) }) }] });
+    res = await app.dialogs.open({
+      title: 'Smooth', body,
+      onOpen: ({ close }) => { closeDialog = close; if (!check()) close(null); },
+      buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ({ amount: Number(range.value) }) }],
+    });
   } finally {
-    if (!res) {
-      tx.cancel();
-      tx = null;
-    }
+    for (const off of offs) off();
+    if (!check()) res = null;
+    if (!res) cancel();
   }
   if (!res) return;
   if (!(res.amount > 0)) {

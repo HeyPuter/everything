@@ -23,6 +23,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { watchEditingContext } from '../../ui/dialogs/editing-context.js';
 import { OP, runGeom } from '../geometry/engine/index.js';
 import { strokeParams } from '../geometry/path-ops.js';
 import { liveDef } from '../../model/live.js';
@@ -247,6 +248,9 @@ export async function flattenSelection(editor, opts, deps = {}) {
   const run = deps.run || ((op, shapes, params = []) => runGeom(op, shapes, params, { tol: 0.02 }));
   const render = deps.render || renderToImage;
   const doc = editor.doc;
+  const unavailable = () => doc.readOnly || doc.tx || opts.signal?.aborted;
+  const cancelled = { error: 'Flatten Transparency was canceled because the editing context changed.' };
+  if (unavailable()) return cancelled;
   const ids = editor.topSelection().filter((id) => doc.get(id) && doc.get(id).type !== 'layer');
   if (!ids.length) return { error: 'Select the artwork to flatten.' };
   const snap = new Map();
@@ -320,6 +324,7 @@ export async function flattenSelection(editor, opts, deps = {}) {
       }
     }
   }
+  if (unavailable()) return cancelled;
   for (const [id, n] of snap) {
     if (doc.get(id) !== n) return { error: 'Flatten Transparency was canceled because the artwork changed.' };
   }
@@ -417,25 +422,28 @@ export async function flattenDialog(app) {
   const balance = sliderField({ label: 'Raster/Vector balance', value: last.balance, min: 0, max: 100, integer: true, ends: ['Rasters', 'Vectors'] });
   const res = selectRow({ label: 'Raster resolution', value: String(last.resolution), options: [...RESOLUTIONS, { value: 600, label: 'Very high (600 ppi)' }].map((r) => ({ value: String(r.value), label: r.label })) });
   const aa = checkField({ label: 'Anti-alias rasters', value: last.antialias });
-  const v = await openDialog({
-    title: 'Flatten Transparency',
-    className: 'fx-dialog',
-    body: h('div.fx-body', h('p.fx-note', 'Transparent artwork becomes opaque shapes that look the same on white. Where colors cannot be reproduced as shapes, an image of the artwork fills in.'), balance.el, res.el, aa.el),
-    buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ({ balance: balance.get(), resolution: Number(res.get()), antialias: aa.get() }) }],
-    initialFocus: () => balance.field,
-  });
-  if (!v) return false;
-  app.prefs?.set?.('flattenTransparency', v);
-  let r;
+  const scope = watchEditingContext(app, ed);
   try {
-    r = await flattenSelection(ed, v);
+    const v = await openDialog({
+      title: 'Flatten Transparency',
+      className: 'fx-dialog',
+      body: h('div.fx-body', h('p.fx-note', 'Transparent artwork becomes opaque shapes that look the same on white. Where colors cannot be reproduced as shapes, an image of the artwork fills in.'), balance.el, res.el, aa.el),
+      buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ({ balance: balance.get(), resolution: Number(res.get()), antialias: aa.get() }) }],
+      initialFocus: () => balance.field,
+      onOpen: scope.onOpen,
+    });
+    if (!v || !scope.check()) return false;
+    app.prefs?.set?.('flattenTransparency', v);
+    const r = await flattenSelection(ed, { ...v, signal: scope.signal });
+    if (r.error) {
+      if (!scope.signal.aborted) app.notify(r.error);
+      return false;
+    }
+    return true;
   } catch (err) {
     app.notify(err?.message || 'The artwork could not be flattened.', { error: true });
     return false;
+  } finally {
+    scope.dispose();
   }
-  if (r.error) {
-    app.notify(r.error);
-    return false;
-  }
-  return true;
 }

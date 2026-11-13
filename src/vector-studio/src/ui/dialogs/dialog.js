@@ -278,7 +278,7 @@ export function refPointPicker({ value = { x: 0.5, y: 0.5 }, label = 'Reference 
  *   inline: true             shares a line with the previous checkbox/radio
  * `onChange(values)` runs on every edit (for live previews).
  */
-export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = [], onChange, description, previewToggle = false, className = '' }) {
+export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = [], onChange, onOpen, description, previewToggle = false, className = '' }) {
   fields = dialogHooks.fields?.(title, fields) || fields;
   const unit = app?.editor?.doc.root.units || 'pt';
   const inputs = new Map();
@@ -536,8 +536,9 @@ export function formDialog(app, { title, fields, okLabel = 'OK', extraButtons = 
       { label: 'Cancel', value: null },
       { label: okLabel, primary: true, value: () => read(), validate },
     ],
-    onOpen: () => {
-      if (previewToggle && onChange) onChange(read());
+    onOpen: (context) => {
+      onOpen?.(context);
+      if (context.dialog.open && previewToggle && onChange) onChange(read());
     },
   });
 }

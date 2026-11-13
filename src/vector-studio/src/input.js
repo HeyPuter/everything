@@ -173,6 +173,8 @@ export class CanvasInput {
     const p = this.pendingTouch;
     if (!p) return;
     clearTimeout(p.timer);
+    // Keep the press origin after settling so later movement cancels the hold.
+    this.touchStart = { x: p.x, y: p.y };
     this.pendingTouch = null;
     if (this.pointers.has(p.e.pointerId) || this.lifting === p.e.pointerId)
       this.#startTool(p.e, dragged);
@@ -237,7 +239,7 @@ export class CanvasInput {
     if (this.sidePressed) return;
     this.sidePressed = true;
     // A tap with the button held already opened it through contextmenu.
-    if (performance.now() - (this.lastContextMenu || 0) < 1500) return;
+    if (this.lastContextMenu && performance.now() - this.lastContextMenu < 1500) return;
     this.lastPressMenu = performance.now();
     this.#openContextMenu(e);
   }
@@ -249,7 +251,7 @@ export class CanvasInput {
    * so it is not one of these.
    */
   #penHold() {
-    return this.#penDown() || performance.now() - (this.penLifted || 0) < 500;
+    return this.#penDown() || (this.penLifted && performance.now() - this.penLifted < 500);
   }
 
   /**
@@ -312,7 +314,6 @@ export class CanvasInput {
       const p = this.pendingTouch;
       const start = p || this.touchStart;
       if (p && p.e.pointerId === e.pointerId && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
-        this.touchStart = { x: p.x, y: p.y };
         this.#flushTouch(true);
       }
       if (this.longPressTimer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > TOUCH_SLOP) {
@@ -326,6 +327,7 @@ export class CanvasInput {
       return;
     }
     if (this.pan) {
+      if (this.pan.id !== e.pointerId) return;
       const v = this.editor.view;
       v.set({ panX: this.pan.panX + e.clientX - this.pan.x, panY: this.pan.panY + e.clientY - this.pan.y });
       this.editor.viewChanged();
@@ -369,6 +371,7 @@ export class CanvasInput {
       return;
     }
     if (this.pan) {
+      if (this.pan.id !== e.pointerId) return;
       this.pan = null;
       this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
       this.#applyPendingTempTool();
@@ -430,7 +433,10 @@ export class CanvasInput {
       this.#endPress(this.active.tool);
       this.active = null;
     }
-    this.pan = null;
+    if (this.pan?.id === e.pointerId) {
+      this.pan = null;
+      this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
+    }
     if (this.pointers.size < 2) this.gesture = null;
     this.#applyPendingTempTool();
   }
@@ -443,12 +449,20 @@ export class CanvasInput {
    * pointerup or pointercancel nothing is active and this does nothing.
    */
   lostCapture(e) {
-    if (this.pan && !this.active && this.pointers.has(e.pointerId)) {
+    if (this.pan?.id === e.pointerId && !this.active) {
       this.pointers.delete(e.pointerId);
       this.pan = null;
       this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
       this.#applyPendingTempTool();
       return;
+    }
+    if (this.pointers.get(e.pointerId)?.type === 'touch') {
+      this.#clearTouchTimers();
+      this.pendingTouch = null;
+      this.touchStart = null;
+      this.longPressed = false;
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.gesture = null;
     }
     if (!this.active || this.active.id !== e.pointerId) return;
     const { tool, last } = this.active;
@@ -472,7 +486,7 @@ export class CanvasInput {
 
   startPan(e) {
     const v = this.editor.view;
-    this.pan = { x: e.clientX, y: e.clientY, panX: v.panX, panY: v.panY };
+    this.pan = { id: e.pointerId, x: e.clientX, y: e.clientY, panX: v.panX, panY: v.panY };
     this.app.setCanvasCursor('grabbing');
   }
 

@@ -100,7 +100,11 @@ export class VariablesPanel extends Panel {
   render() {
     const doc = this.doc;
     const sets = dataSetsOf(doc);
-    this.dsSelect.replaceChildren(...(sets.length ? sets.map((ds) => h('option', { value: ds.id, selected: ds.id === doc.root.dataSet }, ds.name)) : [h('option', { value: '' }, 'No data sets')]));
+    const options = sets.map((ds) => h('option', { value: ds.id, selected: ds.id === doc.root.dataSet }, ds.name));
+    if (!sets.some((ds) => ds.id === doc.root.dataSet)) {
+      options.unshift(h('option', { value: '', selected: true, disabled: true }, sets.length ? 'Choose a data set' : 'No data sets'));
+    }
+    this.dsSelect.replaceChildren(...options);
     this.dsSelect.disabled = !sets.length;
     this.prevBtn.disabled = this.nextBtn.disabled = sets.length < 2;
     this.captureBtn.disabled = !variablesOf(doc).length;
@@ -177,6 +181,8 @@ export class VariablesPanel extends Panel {
   }
 
   async newVariable() {
+    const doc = this.doc;
+    if (!doc) return;
     const v = await this.app.dialogs.form({
       title: 'New Variable',
       fields: [
@@ -184,32 +190,36 @@ export class VariablesPanel extends Panel {
         { key: 'type', label: 'Type', type: 'select', value: 'text', options: Object.entries(VARIABLE_TYPES).map(([value, label]) => ({ value, label })) },
       ],
     });
-    if (!v) return;
-    this.doc.transact('New Variable', () => {
-      this.selected = addVariable(this.doc, v.type, v.name || null).id;
+    if (!v || this.doc !== doc) return;
+    doc.transact('New Variable', () => {
+      this.selected = addVariable(doc, v.type, v.name || null).id;
     });
   }
 
   async renameVariable(v) {
+    const doc = this.doc;
+    if (!doc) return;
     const r = await this.app.dialogs.form({ title: 'Variable Options', fields: [{ key: 'name', label: 'Name', type: 'text', value: v.name }] });
-    if (!r?.name) return;
+    if (!r?.name || this.doc !== doc) return;
     const name = cleanName(r.name);
-    if (variablesOf(this.doc).some((x) => x.name === name && x.id !== v.id)) {
+    if (variablesOf(doc).some((x) => x.name === name && x.id !== v.id)) {
       this.app.notify(`A variable named ${name} already exists.`, { error: true });
       return;
     }
-    this.doc.transact('Rename Variable', () => this.doc.updateRoot({ variables: variablesOf(this.doc).map((x) => (x.id === v.id ? { ...x, name } : x)) }));
+    doc.transact('Rename Variable', () => doc.updateRoot({ variables: variablesOf(doc).map((x) => (x.id === v.id ? { ...x, name } : x)) }));
   }
 
   async deleteVariable(id = this.selected) {
-    if (!id) return;
-    const v = variablesOf(this.doc).find((x) => x.id === id);
-    const bound = boundTo(this.doc, id).length;
+    const doc = this.doc;
+    if (!id || !doc) return;
+    const v = variablesOf(doc).find((x) => x.id === id);
+    if (!v) return;
+    const bound = boundTo(doc, id).length;
     if (bound) {
       const ok = await this.app.dialogs.confirm({ title: 'Delete Variable', message: `Delete ${v.name}? ${bound === 1 ? 'Its object stays' : `Its ${bound} objects stay`} as they are now.`, okLabel: 'Delete', danger: true });
-      if (!ok) return;
+      if (!ok || this.doc !== doc) return;
     }
-    this.doc.transact('Delete Variable', () => removeVariables(this.doc, [id]));
+    doc.transact('Delete Variable', () => removeVariables(doc, [id]));
   }
 
   capture() {
@@ -220,8 +230,9 @@ export class VariablesPanel extends Panel {
   async apply(id) {
     if (!id) return false;
     const doc = this.doc;
+    const request = (this.applyRequest = {});
     const options = await this.#applyOptions(doc, id);
-    if (this.doc !== doc) return false;
+    if (this.doc !== doc || this.applyRequest !== request) return false;
     doc.transact('Apply Data Set', () => applyDataSet(doc, id, setText, options));
     return true;
   }
@@ -304,6 +315,8 @@ export class VariablesPanel extends Panel {
 
   /** Load a library: variables with names not in use are added (bindings are not), data sets replace the document's. */
   async loadLibrary(file = null) {
+    const doc = this.doc;
+    if (!doc) return 0;
     if (!file) {
       const { pickWithInput } = await import('../files/service.js');
       [file] = await pickWithInput('.json,application/json');
@@ -317,7 +330,7 @@ export class VariablesPanel extends Panel {
       this.app.notify('This file is not a variable library.', { error: true });
       return 0;
     }
-    const doc = this.doc;
+    if (this.doc !== doc) return 0;
     let added = 0;
     // Entries that are not variables or data sets (a damaged file) are left out.
     const isObject = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x);
@@ -356,6 +369,8 @@ export class VariablesPanel extends Panel {
   }
 
   importData() {
+    const doc = this.doc;
+    if (!doc) return;
     const input = h('input', { type: 'file', accept: '.csv,.tsv,.txt,text/csv,text/tab-separated-values', hidden: true });
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
@@ -363,11 +378,12 @@ export class VariablesPanel extends Panel {
       if (!file) return;
       try {
         const text = await file.text();
+        if (this.doc !== doc) return;
         let n = 0;
-        this.doc.transact('Import Data Sets', () => {
-          n = importCSV(this.doc, text);
+        doc.transact('Import Data Sets', () => {
+          n = importCSV(doc, text);
         });
-        const first = dataSetsOf(this.doc)[dataSetsOf(this.doc).length - n];
+        const first = dataSetsOf(doc)[dataSetsOf(doc).length - n];
         if (first) this.apply(first.id);
         this.app.notify(`Imported ${n} data set${n === 1 ? '' : 's'}.`, { polite: true });
       } catch (err) {

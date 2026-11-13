@@ -9,6 +9,10 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { UserError } from '../../lib/errors.js';
+import { STYLE_KEYS } from '../../model/nodes.js';
+import { STROKE_ATTRS, mapStackPaints } from '../../model/appearance.js';
+import { transformPaint } from '../../model/geometry.js';
+import { translate } from '../../lib/matrix.js';
 import { reselect, walkSelectable } from '../../ops/select-ops.js';
 import { graphicStylesOf, styleOfNode } from '../paint/graphic-styles.js';
 
@@ -124,6 +128,8 @@ function normPaint(p) {
   delete out.swatchId;
   delete out.cmyk;
   delete out.mode;
+  // Freeform mode changes the rendered gradient; other paints use mode as color metadata.
+  if (p.type === 'freeform') out.mode = p.mode === 'lines' ? 'lines' : 'points';
   // Where a gradient was dragged on the object is not part of its style.
   if (out.type === 'linear' || out.type === 'radial') {
     delete out.x1;
@@ -250,18 +256,23 @@ function shapeKey(doc, n) {
   return subs.map((s) => `${s.closed ? 'c' : 'o'}:${s.anchors.map((a) => [a.x - o.x, a.y - o.y, a.ix - o.x, a.iy - o.y, a.ox - o.x, a.oy - o.y].map(r).join(',')).join(';')}`).join('|');
 }
 
-const STYLE_FIELDS = ['fill', 'stroke', 'strokeWidth', 'strokeCap', 'strokeJoin', 'miterLimit', 'strokeAlign', 'dash', 'dashOffset', 'opacity', 'blendMode', 'effects', 'arrowStart', 'arrowEnd'];
+const STYLE_FIELDS = [...new Set([...STYLE_KEYS, ...STROKE_ATTRS, 'appearance'])];
 
 function styleKey(n) {
-  return JSON.stringify(STYLE_FIELDS.map((k) => (k === 'effects' ? stripIds(n[k]) : k === 'fill' || k === 'stroke' ? normPaint(n[k]) : n[k] ?? null)));
+  return JSON.stringify(STYLE_FIELDS.map((k) => {
+    if (k === 'effects') return stripIds(n[k]);
+    if (k === 'appearance') return normStack(n[k]);
+    if (k === 'fill' || k === 'stroke') return normPaint(n[k]);
+    return n[k] ?? null;
+  }));
 }
 
 /** Objects with the same geometry (up to position) and appearance as `ref`. */
-export function similarObjects(doc, ref) {
+export function similarObjects(doc, ref, editor = null) {
   const sk = shapeKey(doc, ref);
   if (sk == null) return [];
   const st = styleKey(ref);
-  return candidates(doc)
+  return candidates(doc, editor)
     .filter((n) => n.type === ref.type && (n.id === ref.id || (shapeKey(doc, n) === sk && styleKey(n) === st)))
     .map((n) => n.id);
 }
@@ -307,7 +318,9 @@ export class GlobalEdit {
   onChange(e) {
     if (this.syncing) return;
     const doc = this.doc;
-    for (const id of [...this.members.keys()]) if (!doc.has(id)) this.members.delete(id);
+    for (const id of this.members.keys()) {
+      if (!doc.has(id) || doc.isHidden(id) || doc.isLocked(id) || !this.editor.inIsolation(id)) this.members.delete(id);
+    }
     if (this.members.size < 2) {
       this.app.stopGlobalEdit?.();
       return;
@@ -341,20 +354,33 @@ export class GlobalEdit {
       const origin = prev.origin;
       if (shape !== prev.shape) {
         // Reshaped: copy the new outline to every other member, relative to each one's own origin.
-        const rel = pathsOf(doc, src).map((p) => p.anchors.map((a) => ({ x: a.x - origin.x, y: a.y - origin.y, ix: a.ix - origin.x, iy: a.iy - origin.y, ox: a.ox - origin.x, oy: a.oy - origin.y })));
+        const sourcePaths = pathsOf(doc, src);
+        const rel = sourcePaths.map((p) => p.anchors.map((a) => ({ x: a.x - origin.x, y: a.y - origin.y, ix: a.ix - origin.x, iy: a.iy - origin.y, ox: a.ox - origin.x, oy: a.oy - origin.y })));
         for (const [id, st] of this.members) {
           if (id === changed) continue;
           const o = st.origin;
           pathsOf(doc, doc.get(id)).forEach((p, i) => {
             if (!p || !rel[i]) return;
-            doc.update(p.id, { anchors: rel[i].map((a) => ({ x: a.x + o.x, y: a.y + o.y, ix: a.ix + o.x, iy: a.iy + o.y, ox: a.ox + o.x, oy: a.oy + o.y })), shape: undefined });
+            doc.update(p.id, { anchors: rel[i].map((a) => ({ x: a.x + o.x, y: a.y + o.y, ix: a.ix + o.x, iy: a.iy + o.y, ox: a.ox + o.x, oy: a.oy + o.y })), closed: sourcePaths[i].closed, shape: undefined });
           });
         }
       }
       if (style !== prev.style) {
         const patch = {};
-        for (const k of STYLE_FIELDS) patch[k] = src[k] === undefined ? undefined : structuredClone(src[k]);
-        for (const [id] of this.members) if (id !== changed) doc.update(id, patch);
+        // Unchanged fields keep each member's own paint placement and metadata.
+        for (const k of STYLE_FIELDS) if (JSON.stringify(src[k]) !== JSON.stringify(prev.node[k])) patch[k] = structuredClone(src[k]);
+        const sourceOrigin = originOf(doc, src);
+        for (const [id] of this.members) {
+          if (id === changed) continue;
+          const targetOrigin = originOf(doc, doc.get(id));
+          const move = translate(targetOrigin.x - sourceOrigin.x, targetOrigin.y - sourceOrigin.y);
+          const moveGradient = (p) => p && (p.type === 'linear' || p.type === 'radial') ? transformPaint(p, move) : p;
+          const own = { ...patch };
+          for (const k of ['fill', 'stroke']) if (own[k]) own[k] = moveGradient(own[k]);
+          const appearance = mapStackPaints({ type: src.type, appearance: own.appearance }, moveGradient);
+          if (appearance) own.appearance = appearance;
+          doc.update(id, own);
+        }
       }
     } finally {
       this.syncing = false;
@@ -372,7 +398,7 @@ export function startGlobalEdit(app) {
   const editor = app.editor;
   const ref = referenceNode(editor);
   if (!ref || (ref.type !== 'path' && ref.type !== 'compound')) throw new UserError('Select a path or compound path to start a global edit.');
-  const ids = similarObjects(editor.doc, ref);
+  const ids = similarObjects(editor.doc, ref, editor);
   if (ids.length < 2) throw new UserError('No other objects match the selected object.');
   app.stopGlobalEdit?.();
   const session = new GlobalEdit(app, editor, ids);
@@ -422,10 +448,12 @@ async function saveSelectionDialog(app) {
   const ed = app.editor;
   const n = savedSelectionsOf(ed.doc).length + 1;
   const res = await app.dialogs.form({ title: 'Save Selection', fields: [{ key: 'name', label: 'Name', type: 'text', value: `Selection ${n}` }] });
+  if (!app.editors.includes(ed)) return;
   const name = res?.name?.trim();
   if (!name) return;
   const exists = savedSelectionsOf(ed.doc).some((s) => s.name === name);
   if (exists && !(await app.dialogs.confirm({ title: 'Save Selection', message: `Replace the saved selection "${name}"?`, okLabel: 'Replace' }))) return;
+  if (!app.editors.includes(ed)) return;
   ed.doc.transact('Save Selection', () => saveSelection(ed.doc, name, ed.topSelection()));
   ed.activeSavedSelection = savedSelectionsOf(ed.doc).find((s) => s.name === name)?.id || null;
 }
@@ -434,6 +462,7 @@ async function editSelectionsDialog(app) {
   const ed = app.editor;
   const doc = ed.doc;
   let list = savedSelectionsOf(doc).map((s) => ({ ...s }));
+  const originalNames = new Map(list.map((s) => [s.id, s.name]));
   if (!list.length) {
     app.notify('There are no saved selections in this document.');
     return;
@@ -460,8 +489,17 @@ async function editSelectionsDialog(app) {
   };
   render();
   const ok = await app.dialogs.open({ title: 'Edit Selection', body: h('div.form', rows), buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: true }] });
-  if (!ok) return;
-  const next = list.filter((s) => s.name.trim()).map((s) => ({ id: s.id, name: s.name.trim(), ids: s.ids }));
+  if (!ok || !app.editors.includes(ed)) return;
+  // Apply only the dialog's renames and deletions to the latest document state.
+  const edited = new Map(list.map((s) => [s.id, s.name]));
+  const current = savedSelectionsOf(doc);
+  const next = current.flatMap((s) => {
+    if (!originalNames.has(s.id)) return [s];
+    const name = edited.get(s.id);
+    if (!name?.trim()) return [];
+    return [name === originalNames.get(s.id) || name.trim() === s.name ? s : { ...s, name: name.trim() }];
+  });
+  if (next.length === current.length && next.every((s, i) => s === current[i])) return;
   doc.transact('Edit Selection', () => doc.updateRoot({ savedSelections: next }));
 }
 

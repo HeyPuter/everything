@@ -86,6 +86,11 @@ function paintKey(p) {
   if (!p) return 'none';
   if (p.type === 'solid') return JSON.stringify({ t: p.type, c: p.color.toLowerCase() });
   if (p.type === 'pattern') return JSON.stringify({ t: p.type, id: p.id });
+  if (p.type === 'freeform') return JSON.stringify({
+    t: p.type,
+    points: (p.points || []).map(({ x, y, color, opacity = 1, spread = 0 }) => ({ x, y, color: color.toLowerCase(), opacity, spread })),
+    lines: p.mode === 'lines' ? (p.lines || []) : [],
+  });
   return JSON.stringify({ t: p.type, s: p.stops });
 }
 
