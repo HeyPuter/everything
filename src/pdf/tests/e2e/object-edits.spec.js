@@ -87,3 +87,60 @@ test('undoing a picture move from the keyboard keeps the focus on the page', asy
   await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
   expect(await page.evaluate(() => !!document.activeElement.closest('.paper'))).toBe(true);
 });
+
+test('a finger scrolls and zooms a scanned page, and moves a picture only once it is tapped', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'Needs a touch screen.');
+  const doc = await PDFDocument.create(),
+    scan = await doc.embedPng(Buffer.from(PIXEL, 'base64'));
+  // A scan is one picture from edge to edge of every page.
+  for (let i = 0; i < 3; i++)
+    doc.addPage([612, 792]).drawImage(scan, { x: 0, y: 0, width: 612, height: 792 });
+  await open(page, doc);
+  const workspace = page.locator('.workspace'),
+    undo = page.getByRole('button', { name: 'Undo', exact: true }),
+    cdp = await page.context().newCDPSession(page);
+  const touch = (type, touchPoints) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+  const area = await workspace.boundingBox(),
+    x = area.x + area.width / 2,
+    y = area.y + area.height * 0.7;
+  const before = await workspace.evaluate((node) => node.scrollTop);
+  await touch('touchStart', [{ id: 1, x, y }]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [{ id: 1, x, y: y - i * 25 }]);
+  await touch('touchEnd', []);
+  await expect.poll(() => workspace.evaluate((node) => node.scrollTop)).toBeGreaterThan(before);
+  await expect(page.getByRole('button', { name: 'Move selected image', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(undo).toBeDisabled();
+  // Two fingers zoom the page, also where they rest on the picture.
+  const zoom = page.getByLabel('Zoom', { exact: true });
+  const zoomBefore = await zoom.inputValue();
+  await touch('touchStart', [
+    { id: 1, x: x - 30, y },
+    { id: 2, x: x + 30, y },
+  ]);
+  for (let i = 1; i <= 5; i++)
+    await touch('touchMove', [
+      { id: 1, x: x - 30 - i * 12, y },
+      { id: 2, x: x + 30 + i * 12, y },
+    ]);
+  await touch('touchEnd', []);
+  await expect.poll(() => zoom.inputValue()).not.toBe(zoomBefore);
+  await expect(undo).toBeDisabled();
+  // A tap selects the picture, and a finger then moves it.
+  await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+  const view = await workspace.boundingBox(),
+    at = { id: 1, x: view.x + view.width / 2, y: view.y + view.height / 3 };
+  await touch('touchStart', [at]);
+  await touch('touchEnd', []);
+  const move = page.getByRole('button', { name: 'Move selected image', exact: true });
+  await expect(move).toBeVisible();
+  const frame = await move.boundingBox();
+  await touch('touchStart', [at]);
+  for (let i = 1; i <= 4; i++) await touch('touchMove', [{ ...at, x: at.x + i * 5 }]);
+  await touch('touchEnd', []);
+  await expect(undo).toBeEnabled();
+  await expect.poll(async () => (await move.boundingBox())?.x ?? 0).toBeGreaterThan(frame.x + 10);
+});

@@ -315,9 +315,12 @@ test('touch selects a shape outline, cancels its draft and commits a later drag'
     scale = (await page.locator('.paper').boundingBox()).width / 400;
   const touch = { id: 1, x: box.x + scale, y: box.y + box.height / 2 },
     cdp = await page.context().newCDPSession(page);
+  // A tap selects the shape; a finger then moves it.
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [touch] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   const move = page.getByRole('button', { name: 'Move selected shape', exact: true });
   await expect(move).toBeVisible();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [touch] });
   touch.x += 20;
   touch.y += 10;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [touch] });
@@ -722,10 +725,13 @@ test('image touch gestures ignore a second finger and cancel without creating hi
   const first = { id: 1, x: box.x + box.width / 2, y: box.y + box.height / 2 },
     second = { id: 2, x: other.x + other.width / 2, y: other.y + other.height / 2 };
   const cdp = await page.context().newCDPSession(page);
+  // A tap selects the image; a finger then moves it.
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect(
     page.getByRole('button', { name: 'Move selected image', exact: true }),
   ).toBeVisible();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first] });
   first.x += 20;
   first.y += 10;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [first] });

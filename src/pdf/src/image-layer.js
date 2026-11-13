@@ -52,6 +52,8 @@ export function createImageLayer({
     background,
     previewKey;
   const heldArrows = new Set();
+  // The object target a finger last went down on, to tell its tap from a keyboard click.
+  let touched = null;
   let renderKey, pageKey;
   let keepRatio = true;
   const dirty = () => !!(selected && draft && !same(selected.transform, draft));
@@ -380,8 +382,11 @@ export function createImageLayer({
         ...(entry.invisible
           ? { title: 'Unpainted path. Select to restore its fill or stroke.' }
           : {}),
+        // Keyboard activation, or a tap: not every browser focuses a tapped button.
         onclick: (e) => {
-          if (!e.detail && !busy && !committing) safe(choose)(entry, true);
+          const tap = touched === target;
+          touched = null;
+          if ((!e.detail || tap) && !busy && !committing) safe(choose)(entry, true);
         },
       });
       const corners = setPolygon(target, entry.transform);
@@ -437,7 +442,16 @@ export function createImageLayer({
         svg.append(path);
         target.append(svg);
       }
-      target.addEventListener('pointerdown', (e) => begin(e, entry));
+      target.addEventListener('pointerdown', (e) => {
+        // A finger on an object not yet selected scrolls or zooms the page, as it does anywhere
+        // else on it; a tap (the click above) selects the object, and a finger then moves it.
+        // Otherwise a scanned page, one picture from edge to edge, could not be scrolled.
+        if (e.pointerType === 'touch') {
+          touched = e.isPrimary ? target : null;
+          return;
+        }
+        begin(e, entry);
+      });
       targets.append(target);
     }
     targets.hidden = !enabled;
