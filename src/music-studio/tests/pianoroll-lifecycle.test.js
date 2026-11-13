@@ -138,3 +138,31 @@ it('keeps note properties usable for successive edits and unrelated tempo change
   expect(editor.root.querySelector('.pr-popover')).toBe(popup);
   editor.destroy();
 });
+
+it.each(['undo', 'redo'])('ends a note drag when %s changes history', (action) => {
+  const { editor, store } = setup();
+  const pointer = beginNoteDrag(editor, store);
+  if (action === 'undo') {
+    pointer('pointermove', 24);
+  } else {
+    pointer('pointerup');
+    store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+    store.undo();
+    pointer('pointerdown');
+    expect(editor.gesture?.type).toBe('move');
+  }
+  store[action]();
+  const restored = store.project;
+  const history = store.undoStack.length;
+  pointer('pointermove', 48);
+  pointer('pointerup', 48);
+  expect(store.project).toBe(restored);
+  expect(store.undoStack.length).toBe(history);
+  expect(editor.gesture).toBeNull();
+  if (action === 'undo') {
+    expect(store.canRedo).toBe(true);
+    store.redo();
+    expect(editor.notes[0].pos).toBe(144);
+  } else expect(store.project.bpm).toBe(150);
+  editor.destroy();
+});

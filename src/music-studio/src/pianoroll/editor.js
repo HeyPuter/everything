@@ -94,8 +94,9 @@ export class PianoRollEditor {
 
     const store = this.store;
     store.on('change', (p, prev, meta) => {
-      if (meta?.source === 'load') {
-        this.cancelGesture();
+      const source = meta?.source;
+      if (source === 'load' || source === 'undo' || source === 'redo') this.cancelGesture();
+      if (source === 'load') {
         this.stopAudition();
         this.selected.clear();
         this.fitted = false;
