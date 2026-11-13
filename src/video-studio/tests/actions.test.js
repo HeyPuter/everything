@@ -23,6 +23,28 @@ const toasts = () => [...document.querySelectorAll('.toast')].map((t) => t.textC
 // The toast host stays in the body; only old toasts are cleared.
 beforeEach(() => document.querySelectorAll('.toast').forEach((t) => t.remove()));
 
+describe('marker editing', () => {
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not save a marker while Enter confirms composition (%j)', (composition) => {
+    const { store, actions } = setup();
+    store.project.markers.push({ id: 'm1', time: 0, label: 'Original', color: '#f5b83d' });
+    actions.editMarker('m1');
+    const dialog = document.querySelector('dialog');
+    try {
+      const name = dialog.querySelector('[aria-label="Marker name"]');
+      name.value = 'Draft';
+      name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...composition }));
+      expect(dialog.isConnected).toBe(true);
+      expect(store.project.markers[0].label).toBe('Original');
+      expect(store.history.canUndo()).toBe(false);
+      name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(dialog.isConnected).toBe(false);
+      expect(store.project.markers[0].label).toBe('Draft');
+    } finally {
+      dialog.querySelector('.dialog-close')?.click();
+    }
+  });
+});
+
 describe('split, delete and trim actions', () => {
   it('splits every clip under the playhead in one undo step', () => {
     const { store, actions, main, p } = setup(clip('video', 0, 4));
