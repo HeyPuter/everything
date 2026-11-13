@@ -170,6 +170,9 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
           b.addEventListener('pointerdown', (e) => startStopDrag(e, Number(b.dataset.index)));
           b.addEventListener('dblclick', () => onEditStop?.(Number(b.dataset.index), b));
           b.addEventListener('keydown', (e) => {
+            // A discrete keyboard action supersedes the held pointer gesture;
+            // its stale paint must not restore a deleted or moved stop.
+            if (['ArrowLeft', 'ArrowRight', 'Delete', 'Backspace', 'Enter'].includes(e.key)) gesture?.end();
             const i2 = Number(b.dataset.index);
             const step = e.shiftKey ? 0.1 : 0.01;
             if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {

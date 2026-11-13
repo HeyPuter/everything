@@ -4,6 +4,7 @@ import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { setArrangement, newWindow } from '../src/features/workspace/window.js';
 import { paintState } from '../src/features/paint/ui-common.js';
+import { closePopover } from '../src/ui/popover.js';
 
 const gradient = (color = '#ff0000') => ({ type: 'linear', angle: 0, stops: [
   { offset: 0, color, opacity: 1 }, { offset: 0.5, color: '#ffffff', opacity: 1 }, { offset: 1, color: '#000000', opacity: 1 },
@@ -27,6 +28,7 @@ beforeEach(async () => {
   slider.querySelector('.gs-bar').getBoundingClientRect = () => ({ left: 0, width: 100 });
 });
 afterEach(() => {
+  closePopover();
   app.root.remove();
   for (const args of listeners.mock.calls) window.removeEventListener(...args);
   for (const args of documentListeners.mock.calls) document.removeEventListener(...args);
@@ -261,6 +263,57 @@ it('continues a drag when another document changes or loses editing access', () 
   other.doc.transact('Other edit', () => other.doc.updateRoot({ name: 'Other' }));
   app.collab.sessions.set(other, { role: 'viewer' });
   app.collab.applyRole(other);
+  pointer('pointermove', { x: 20 });
+  pointer('pointerup');
+  expect(fill().stops[0].offset).toBeCloseTo(0.2);
+});
+
+
+for (const kind of ['stop', 'midpoint']) {
+  it.each(['ArrowLeft', 'ArrowRight', 'Delete', 'Backspace'])(`ends a held ${kind} drag before a %s keyboard edit`, (key) => {
+    const focused = slider.querySelectorAll('.gs-stop')[kind === 'midpoint' && key === 'ArrowLeft' ? 1 : 0];
+    focused.focus();
+    start(kind);
+    const dragged = fill();
+    expect(document.activeElement).toBe(focused);
+    focused.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const edited = fill();
+    expect(edited).not.toEqual(dragged);
+    stale();
+    expect(fill()).toEqual(edited);
+    expect(slider.releasePointerCapture).toHaveBeenCalledExactlyOnceWith(1);
+    editor.doc.undo();
+    expect(fill()).toEqual(dragged);
+    editor.doc.undo();
+    expect(fill()).toEqual(gradient());
+    editor.doc.redo();
+    editor.doc.redo();
+    expect(fill()).toEqual(edited);
+  });
+
+  it(`ends a held ${kind} drag before opening its stop color editor with Enter`, () => {
+    const focused = slider.querySelector('.gs-stop');
+    focused.focus();
+    start(kind);
+    const dragged = fill();
+    focused.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const popover = document.querySelector('.popover');
+    expect(popover).not.toBeNull();
+    stale();
+    expect(fill()).toEqual(dragged);
+    expect(popover.isConnected).toBe(true);
+    const input = popover.querySelector('.cp-hex');
+    input.value = '0000FF';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(fill().stops[0].color).toBe('#0000ff');
+  });
+}
+
+it('keeps a held drag active when an unrelated key is pressed', () => {
+  const focused = slider.querySelector('.gs-stop');
+  focused.focus();
+  start('stop');
+  focused.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
   pointer('pointermove', { x: 20 });
   pointer('pointerup');
   expect(fill().stops[0].offset).toBeCloseTo(0.2);
