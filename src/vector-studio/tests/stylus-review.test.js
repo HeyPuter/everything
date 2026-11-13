@@ -99,3 +99,45 @@ describe('palm rejection', () => {
     input.up(touch(250, 100, 22));
   });
 });
+
+describe('menus tapped with a pen', () => {
+  const enter = (el, pointerType, buttons) => {
+    const e = new Event('pointerenter');
+    e.pointerType = pointerType;
+    e.buttons = buttons;
+    el.dispatchEvent(e);
+  };
+  const menus = () => [...document.querySelectorAll('.menu')].map((m) => m.getAttribute('aria-label'));
+  const closeAll = () => document.querySelectorAll('.menu').forEach((m) => m.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+
+  it('tapping another menu title with a pen that cannot hover opens that menu', () => {
+    const titles = [...document.querySelectorAll('.menubar-item')];
+    titles[0].click();
+    expect(menus()).toEqual(['File']);
+    // The pen enters the title as its tip lands, then the tap clicks it.
+    enter(titles[1], 'pen', 1);
+    titles[1].click();
+    expect(menus()).toEqual(['Edit']);
+    closeAll();
+  });
+
+  it('a hovering pen still switches menus as it moves across the bar', () => {
+    const titles = [...document.querySelectorAll('.menubar-item')];
+    titles[0].click();
+    enter(titles[1], 'pen', 0);
+    expect(menus()).toEqual(['Edit']);
+    closeAll();
+  });
+
+  it('a submenu opens with the pen tap, not as the pen lands', async () => {
+    const { openMenu } = await import('../src/ui/menubar.js');
+    const items = [{ type: 'sub', label: 'More', items: [{ type: 'cmd', label: 'Inner', enabled: true, run: () => {} }] }];
+    const m = openMenu({}, items, { x: 10, y: 10 });
+    const row = m.el.querySelector('.menu-item');
+    enter(row, 'pen', 1);
+    expect(document.querySelectorAll('.menu').length).toBe(1);
+    row.click();
+    expect(document.querySelectorAll('.menu').length).toBe(2);
+    m.close();
+  });
+});

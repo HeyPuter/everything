@@ -7,6 +7,13 @@
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 
+/**
+ * A pointer entering because it touched down there: a finger, or a pen that
+ * cannot hover (it enters as it lands, with its tip pressed). Its tap opens
+ * menus with the click instead.
+ */
+const landed = (e) => e.pointerType === 'touch' || (e.pointerType === 'pen' && e.buttons > 0);
+
 /** Resolve a menu spec into concrete entries for the current app state. */
 export function resolveItems(app, spec) {
   const out = [];
@@ -144,11 +151,11 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         submenu.row = row;
       };
       // Hovering opens the submenu and keeps focus on its row, so Right or Enter moves into it.
-      // A touch opens it with the tap instead: opened as the finger lands, the
-      // submenu (which covers its menu on a phone) took the tap and opened the
-      // row under the finger too.
+      // A touch, or a pen that cannot hover, opens it with the tap instead: opened
+      // as the finger lands, the submenu (which covers its menu on a phone) took
+      // the tap and opened the row under the finger too.
       row.addEventListener('pointerenter', (e) => {
-        if (e.pointerType === 'touch') return;
+        if (landed(e)) return;
         row.focus();
         openSub(false);
       });
@@ -367,10 +374,10 @@ export function createMenubar(app, menus) {
         'aria-expanded': 'false',
         tabindex: i === 0 ? '0' : '-1',
         onclick: () => (open && openIndex === i ? open.close('toggle') : openAt(i)),
-        // Moving across the bar switches menus; a touch switches with its tap (opened as the
-        // finger landed, the menu was then closed again by the tap's click).
+        // Moving across the bar switches menus; a touch or a pen switches with its tap (opened
+        // as it landed, the menu was then closed again by the tap's click).
         onpointerenter: (e) => {
-          if (open && openIndex !== i && e.pointerType !== 'touch') openAt(i, 'none');
+          if (open && openIndex !== i && !landed(e)) openAt(i, 'none');
         },
         onkeydown: (e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
