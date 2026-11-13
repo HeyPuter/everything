@@ -60,15 +60,19 @@ export function newerSnapshot(a, b) {
     (a.revision === b.revision && orderNumber(a.commentsRevision) > orderNumber(b.commentsRevision));
 }
 
+function hasLegacyIdentity(entry) {
+  return Number.isFinite(entry.saved) && recoveryTime(entry.saved) === entry.saved &&
+    (entry.revision == null || Number.isFinite(entry.revision)) &&
+    (entry.commentsRevision == null || Number.isFinite(entry.commentsRevision));
+}
+
 /** Different stores may use different snapshot tokens, so metadata must identify the capture. */
 function hasCaptureIdentity(entry) {
   if (entry.session != null && typeof entry.session !== 'string') return false;
   if (entry.sequence != null) return Number.isFinite(entry.sequence);
   // Missing sequence is a genuine legacy format; an invalid sequence is not.
   // Legacy counters may be absent, but the capture needs a usable timestamp.
-  return Number.isFinite(entry.saved) && recoveryTime(entry.saved) === entry.saved &&
-    (entry.revision == null || Number.isFinite(entry.revision)) &&
-    (entry.commentsRevision == null || Number.isFinite(entry.commentsRevision));
+  return hasLegacyIdentity(entry);
 }
 
 function sameSnapshot(a, b, { fallback = false } = {}) {
@@ -81,6 +85,17 @@ function sameSnapshot(a, b, { fallback = false } = {}) {
   if (sequenced || otherSequenced) return sequenced && otherSequenced && a.sequence === b.sequence;
   return (a.saved || 0) === (b.saved || 0) && (a.revision || 0) === (b.revision || 0) &&
     (a.commentsRevision || 0) === (b.commentsRevision || 0);
+}
+
+/** Automatic cleanup needs proof of supersession, not just a display ordering. */
+function supersedes(selected, other) {
+  if (sameSnapshot(selected, other, { fallback: true })) return true;
+  if (!hasCaptureIdentity(selected) || !hasCaptureIdentity(other)) return false;
+  if (selected.session === other.session && Number.isFinite(selected.sequence) && Number.isFinite(other.sequence)) return selected.sequence > other.sequence;
+  // Capture sequences from different sessions cannot establish their order.
+  if (recoveryTime(selected.saved) !== selected.saved || recoveryTime(other.saved) !== other.saved) return false;
+  if (selected.saved !== other.saved || selected.session !== other.session) return selected.saved > other.saved;
+  return hasLegacyIdentity(selected) && hasLegacyIdentity(other) && newerSnapshot(selected, other);
 }
 
 export class RecoveryStore {
@@ -220,7 +235,7 @@ export class RecoveryStore {
     });
   }
 
-  async #removeFrom(b, id, expected = null) {
+  async #removeFrom(b, id, expected = null, superseded = false) {
     const state = await this.#readState(b, id, { strict: true });
     const index = state.entries;
     if (expected) {
@@ -230,6 +245,11 @@ export class RecoveryStore {
       if (!observed) return !current && !(await this.#otherSnapshots(b, id));
       if (!validEntry(observed) || observed.id !== id) return false;
       if (current && (!sameSnapshot(current, observed) || current.snapshot !== observed.snapshot)) return false;
+      if (superseded && b !== expected.backend && !supersedes(expected, observed)) {
+        // An uncertain copy might contain work newer than the recovered copy.
+        // If it disappeared independently, allow the pending cleanup to finish.
+        return !current && !await b.readBlob(snapshotPath(observed)) && !await this.#otherSnapshots(b, id);
+      }
       if (current) await this.#publishIndex(b, id, state, []);
       // The dialog authorized only the copies it displayed. A later publication
       // or an unindexed snapshot must survive cleanup of this observed copy.
@@ -248,12 +268,12 @@ export class RecoveryStore {
     return true;
   }
 
-  remove(id, { expected = null } = {}) {
-    if (!validToken(id)) return Promise.resolve(false);
+  remove(id, { expected = null, superseded = false } = {}) {
+    if (!validToken(id) || (superseded && !expected)) return Promise.resolve(false);
     return this.#run(async () => {
       let removed = true;
       for (const b of this.backends) {
-        if (!await this.#removeFrom(b, id, expected).catch(() => false)) removed = false;
+        if (!await this.#removeFrom(b, id, expected, superseded).catch(() => false)) removed = false;
       }
       return removed;
     });

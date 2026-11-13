@@ -271,7 +271,7 @@ export class Autosaver {
     try {
       // A different app may have replaced the original since we opened it.
       // Cleanup authorizes only the snapshot this document actually recovered.
-      if (await source.store.remove(source.entry.id, { expected: source.entry }) !== false) this.recovered.delete(doc);
+      if (await source.store.remove(source.entry.id, { expected: source.entry, superseded: true }) !== false) this.recovered.delete(doc);
     } catch {
       // Keep the source available for cleanup after another backup or discard.
     }
