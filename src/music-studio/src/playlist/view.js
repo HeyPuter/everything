@@ -565,6 +565,24 @@ export function createPlaylistView(app, host) {
 
   // ---------------------------------------------------------------- ruler
 
+  let cancelRulerDrag = null;
+  function bindRulerDrag(move, finish) {
+    const close = (cancelled, event) => {
+      if (cancelRulerDrag !== cancel) return;
+      cancelRulerDrag = null;
+      rulerHost.removeEventListener('pointermove', move);
+      rulerHost.removeEventListener('pointerup', up);
+      rulerHost.removeEventListener('pointercancel', up);
+      finish(cancelled, event);
+    };
+    const up = (event) => close(event.type === 'pointercancel', event);
+    const cancel = () => close(true);
+    cancelRulerDrag = cancel;
+    rulerHost.addEventListener('pointermove', move);
+    rulerHost.addEventListener('pointerup', up);
+    rulerHost.addEventListener('pointercancel', up);
+  }
+
   rulerHost.addEventListener('contextmenu', (e) => e.preventDefault());
   rulerHost.addEventListener('pointerdown', (e) => {
     const r = rulerHost.getBoundingClientRect();
@@ -575,6 +593,7 @@ export function createPlaylistView(app, host) {
       return;
     }
     if (e.button !== 0) return;
+    cancelRulerDrag?.();
     e.preventDefault();
     rulerHost.focus({ preventScroll: true });
     try {
@@ -588,11 +607,13 @@ export function createPlaylistView(app, host) {
       dragMarker(e, marker, x);
       return;
     }
-    let move;
+    let move, gesture;
     if (loopMode) {
       const a = V.snapRound(tick, e);
       store.begin('Set loop');
+      gesture = store.gesture;
       move = (ev) => {
+        if (store.gesture !== gesture) return cancelRulerDrag?.();
         const b = V.snapRound(Math.max(0, V.vp.tick(ev.clientX - r.left)), ev);
         store.preview((p) => E.setLoop(p, { start: Math.min(a, b), end: Math.max(a, b) }));
       };
@@ -601,19 +622,14 @@ export function createPlaylistView(app, host) {
       move = (ev) => engine.seek(V.snapFloor(Math.max(0, V.vp.tick(ev.clientX - r.left)), ev));
       move(e);
     }
-    const up = () => {
-      rulerHost.removeEventListener('pointermove', move);
-      rulerHost.removeEventListener('pointerup', up);
-      rulerHost.removeEventListener('pointercancel', up);
-      if (loopMode) {
+    bindRulerDrag(move, (cancelled) => {
+      if (loopMode && store.gesture === gesture) {
+        if (cancelled) return store.cancel();
         store.commit();
         const l = store.project.loop;
         announce(l ? `Loop from bar ${barLabel(l.start, store.project.sig)} to bar ${barLabel(l.end, store.project.sig)}` : 'Loop cleared');
       }
-    };
-    rulerHost.addEventListener('pointermove', move);
-    rulerHost.addEventListener('pointerup', up);
-    rulerHost.addEventListener('pointercancel', up);
+    });
   });
   // Markers: drag to move (snapped, one undo step), click to jump, double-click to rename.
   const measure = typeof document !== 'undefined' ? document.createElement('canvas').getContext?.('2d') : null;
@@ -656,31 +672,30 @@ export function createPlaylistView(app, host) {
     const r = rulerHost.getBoundingClientRect();
     const grab = V.vp.tick(x0) - m.pos;
     let moved = false;
+    let gesture;
     rulerHost.classList.add('marker-drag');
     const move = (ev) => {
+      if (moved && store.gesture !== gesture) return cancelRulerDrag?.();
       const x = ev.clientX - r.left;
       if (!moved && Math.abs(x - x0) < 4) return;
       if (!moved) {
         moved = true;
         store.begin('Move marker');
+        gesture = store.gesture;
       }
       const pos = V.snapRound(Math.max(0, V.vp.tick(x) - grab), ev);
       store.preview((p) => C.updateMarker(p, m.id, { pos }));
     };
-    const up = (ev) => {
-      rulerHost.removeEventListener('pointermove', move);
-      rulerHost.removeEventListener('pointerup', up);
-      rulerHost.removeEventListener('pointercancel', up);
+    bindRulerDrag(move, (cancelled, ev) => {
       rulerHost.classList.remove('marker-drag');
       if (moved) {
+        if (store.gesture !== gesture) return;
+        if (cancelled) return store.cancel();
         store.commit();
         const now = store.project.markers.find((k) => k.id === m.id);
         if (now) announce(`Marker ${now.name} moved to bar ${formatBST(now.pos, store.project.sig)}`);
-      } else if (ev.type === 'pointerup') V.jumpToMarker(m);
-    };
-    rulerHost.addEventListener('pointermove', move);
-    rulerHost.addEventListener('pointerup', up);
-    rulerHost.addEventListener('pointercancel', up);
+      } else if (!cancelled && ev.type === 'pointerup') V.jumpToMarker(m);
+    });
   }
   rulerHost.addEventListener('pointermove', (e) => {
     if (e.buttons) return;
@@ -967,6 +982,7 @@ export function createPlaylistView(app, host) {
     if (source === 'load' || source === 'undo' || source === 'redo') {
       V.cancelGesture();
       headers.cancelResize();
+      cancelRulerDrag?.();
     }
     if (source === 'load') {
       V.selection = new Set();
@@ -1149,6 +1165,7 @@ export function createPlaylistView(app, host) {
       V.visible = false;
       V.cancelGesture?.();
       headers.cancelResize();
+      cancelRulerDrag?.();
     },
     onResize() {
       resize();
