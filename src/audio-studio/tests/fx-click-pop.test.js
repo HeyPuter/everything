@@ -178,6 +178,21 @@ describe('Click/Pop Eliminator dialog', () => {
     await dlg;
   });
 
+  it('keeps keyboard focus in the dialog while its buttons are disabled', async () => {
+    const { app, doc } = setup(withClicks(music(RATE / 2), [6000]));
+    // Opens with focus on Find Clicks, which the automatic scan disables at once.
+    const dlg = openClickPopDialog(app, doc);
+    const root = [...document.querySelectorAll('.cpe-dialog')].at(-1);
+    expect(document.activeElement.textContent).toBe('Cancel');
+    expect(root.contains(document.activeElement)).toBe(true);
+    const caption = () => root.querySelector('.cpe-caption').textContent;
+    await expect.poll(caption, { timeout: 5000 }).toMatch(/detected/);
+    expect(document.activeElement).toBe(root.querySelector('.cpe-toolbar .btn'));
+    expect(document.activeElement.textContent).toBe('Scan Again');
+    root.querySelector('.dialog-head .icon-btn').click();
+    await dlg;
+  });
+
   it('measures threshold levels and sets the curves from them', async () => {
     const { app, doc } = setup(withClicks(music(RATE / 2), [6000]));
     const dlg = openClickPopDialog(app, doc, { autoScan: false });
