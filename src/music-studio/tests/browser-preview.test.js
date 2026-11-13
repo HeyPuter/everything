@@ -378,3 +378,20 @@ it('can open the files root normally after its account cache is cleared', async 
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
 });
+
+it('removes previous account files while the next account root is loading', async () => {
+  const { app, body } = await cloudSetup();
+  expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
+  const pending = deferred();
+  puter.appDir.mockReturnValueOnce(pending.promise);
+  const refresh = app.on.mock.calls.find(([event]) => event === 'account')[1]();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).toBe(null);
+  expect(body.querySelector('[data-id="dir:/Music"]')).toBe(null);
+  expect(body.querySelector('[data-id="files:loading"]')).not.toBe(null);
+  pending.resolve('/Current/Music');
+  await refresh;
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dir:/Current/Music"]')).not.toBe(null);
+  expect(body.querySelector('[data-id="files:loading"]')).toBe(null);
+});

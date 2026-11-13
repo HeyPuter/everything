@@ -91,6 +91,7 @@ function createBrowser(app, host) {
     extraRoots.length = 0;
     for (const id of expanded) if (id.startsWith('dir:')) expanded.delete(id);
     urls.clear();
+    invalidate();
     if (puter.isSignedIn()) {
       try {
         const music = await puter.appDir();
