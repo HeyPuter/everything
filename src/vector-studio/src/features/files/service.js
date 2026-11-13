@@ -763,7 +763,17 @@ export class FileService {
   async #openRecent(entry) {
     if (entry.kind === 'puter') return this.openPath(entry.path, { name: entry.name });
     if (entry.kind === 'local') {
+      let existing = this.findOpen(entry);
+      if (existing) {
+        this.app.activate(existing);
+        return existing;
+      }
       const handle = await this.handles.get(entry.handleId);
+      existing = this.findOpen(entry);
+      if (existing) {
+        this.app.activate(existing);
+        return existing;
+      }
       if (!handle) {
         await this.recent?.remove(entry);
         await this.app.dialogs.alert({ title: 'File Not Available', message: `"${entry.name}" can no longer be opened from here. Use Open to choose it again.` });
