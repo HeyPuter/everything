@@ -1898,7 +1898,10 @@ export class MultitrackView {
     const shown = new Set(this.rows.map((r) => r.id));
     const clips = doc.state.clips.filter((c) => shown.has(c.trackId)).sort((a, b) => a.start - b.start || this.#audioIndex(a.trackId) - this.#audioIndex(b.trackId));
     if (!clips.length) return false;
-    const cur = clips.findIndex((c) => doc.selectedClips.has(c.id));
+    // Tab goes on from the clip it last reached: selecting a grouped clip selects its whole
+    // group, whose first clip may come before it.
+    const focus = clips.findIndex((c) => c.id === doc.focusClipId && doc.selectedClips.has(c.id));
+    const cur = focus >= 0 ? focus : clips.findIndex((c) => doc.selectedClips.has(c.id));
     // Past the last (or before the first) clip, Tab leaves the editor as usual.
     const i = cur < 0 ? (dir > 0 ? 0 : -1) : cur + dir;
     if (i < 0 || i >= clips.length) return false;
