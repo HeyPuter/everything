@@ -547,7 +547,7 @@ export class ActionsPanel extends Panel {
     downloadBlob(blob, `${set ? set.name : 'Actions'}.actions.json`);
   }
 
-  async loadActions() {
+  async loadActions({ replace = false } = {}) {
     const [file] = await pickWithInput('.json,application/json');
     if (!file) return 0;
     let sets;
@@ -557,7 +557,12 @@ export class ActionsPanel extends Panel {
       this.app.notify(err?.message?.includes('Vector Studio') ? err.message : 'This file could not be read as actions.', { error: true });
       return 0;
     }
-    this.engine.sets.push(...sets);
+    if (replace && sets.length) {
+      this.engine.sets = sets;
+      this.sel = null;
+      this.expanded.clear();
+      syncActionCommands(this.app, this.engine);
+    } else this.engine.sets.push(...sets);
     for (const s of sets) this.expanded.add(s.id);
     this.saveExpanded();
     this.engine.save();
@@ -633,12 +638,7 @@ export class ActionsPanel extends Panel {
   }
 
   async replaceActions() {
-    const before = this.engine.sets;
-    this.engine.sets = [];
-    const n = await this.loadActions();
-    if (!n) this.engine.sets = before;
-    else syncActionCommands(this.app, this.engine);
-    this.engine.save();
+    return this.loadActions({ replace: true });
   }
 
   menu() {
