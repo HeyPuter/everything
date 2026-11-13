@@ -13,6 +13,15 @@
 const DIR = 'recovery';
 const INDEX = `${DIR}/index.json`;
 
+/** Capture order wins within one session, even when Undo or the system clock goes backward. */
+export function newerSnapshot(a, b) {
+  if (a.session === b.session && Number.isFinite(a.sequence) && Number.isFinite(b.sequence)) return a.sequence > b.sequence;
+  // Older versions did not record capture order. Prefer time, then revisions for ties.
+  if (a.saved !== b.saved || a.session !== b.session) return (a.saved || 0) > (b.saved || 0);
+  return a.revision > b.revision ||
+    (a.revision === b.revision && (a.commentsRevision || 0) > (b.commentsRevision || 0));
+}
+
 export class RecoveryStore {
   constructor(backends) {
     this.backends = (Array.isArray(backends) ? backends : [backends]).filter(Boolean);
@@ -83,7 +92,7 @@ export class RecoveryStore {
       for (const b of this.backends) {
         for (const e of await this.#readIndex(b)) {
           const prev = byId.get(e.id);
-          if (!prev || (e.saved || 0) > (prev.entry.saved || 0)) byId.set(e.id, { entry: e, backend: b });
+          if (!prev || newerSnapshot(e, prev.entry)) byId.set(e.id, { entry: e, backend: b });
         }
       }
       return [...byId.values()].sort((a, b) => (b.entry.saved || 0) - (a.entry.saved || 0)).map(({ entry, backend }) => ({ ...entry, store: backend.kind, backend }));

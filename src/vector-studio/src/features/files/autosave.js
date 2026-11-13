@@ -15,7 +15,7 @@ import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { serializeDocument, parseDocument, documentData, canCompress, gzip } from './format.js';
-import { RecoveryStore, recoverableEntries } from './recovery.js';
+import { RecoveryStore, recoverableEntries, newerSnapshot } from './recovery.js';
 import { puterBackend, opfsBackend, opfsAvailable } from './backends.js';
 import { relativeTime } from './naming.js';
 import { handleStore } from './handles.js';
@@ -27,14 +27,6 @@ const STASH = 'vs-recovery-unwritten:';
 const STASH_LIMIT = 2_500_000;
 
 const sameRevisions = (a, b) => a?.revision === b.revision && a?.commentsRevision === b.commentsRevision;
-
-function newerSnapshot(a, b) {
-  if (a.session === b.session && Number.isFinite(a.sequence) && Number.isFinite(b.sequence)) return a.sequence > b.sequence;
-  // Older versions did not record capture order. Prefer time, then revisions for ties.
-  if (a.saved !== b.saved || a.session !== b.session) return (a.saved || 0) > (b.saved || 0);
-  return a.revision > b.revision ||
-    (a.revision === b.revision && (a.commentsRevision || 0) > (b.commentsRevision || 0));
-}
 
 function storage() {
   try {
