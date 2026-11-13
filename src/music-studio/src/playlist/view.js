@@ -419,8 +419,9 @@ export function createPlaylistView(app, host) {
   };
 
   V.addMarker = async (tick) => {
-    const name = await promptDialog({ title: 'Add marker', label: 'Name', value: C.nextMarkerName(store.project), confirm: 'Add', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
-    if (!name) return;
+    const loadVersion = store.loadVersion;
+    const name = await promptDialog({ store, title: 'Add marker', label: 'Name', value: C.nextMarkerName(store.project), confirm: 'Add', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
+    if (!name || store.loadVersion !== loadVersion) return;
     store.apply('Add marker', (p) => C.addMarker(p, { pos: tick, name: name.trim().slice(0, 60) }));
     announce(`Marker ${name.trim()} at ${formatBST(tick, store.project.sig)}`);
   };

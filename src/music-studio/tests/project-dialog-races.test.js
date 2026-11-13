@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { openProjectSettings } from '../src/dialogs/project-settings.js';
+import { purgeCommand } from '../src/dialogs/tools.js';
+import { addAutomationClip } from '../src/automation/create.js';
+import { createChannel } from '../src/model/project.js';
 import { Store } from '../src/model/store.js';
 import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
@@ -13,7 +17,7 @@ vi.mock('../src/ui/menu.js', async (original) => ({ ...await original(), openMen
 function setup() {
   const store = new Store(demoProject());
   const commands = new Map();
-  const app = { store, notify: vi.fn(), commands: { register: (...items) => items.forEach((item) => commands.set(item.id, item)) } };
+  const app = { store, engine: { mode: 'song', position: 0 }, notify: vi.fn(), commands: { register: (...items) => items.forEach((item) => commands.set(item.id, item)) } };
   registerCoreCommands(app);
   const rack = channelActions(app);
   const ed = {
@@ -28,6 +32,12 @@ function setup() {
 }
 
 const scenarios = [
+  ['project settings', (x) => openProjectSettings(x.app), 'Apply'],
+  ['automation creation', (x) => addAutomationClip(x.app), 'Create clip'],
+  ['purge unused', (x) => {
+    x.store.apply('Unused channel', (p) => E.addChannel(p, createChannel()));
+    return purgeCommand(x.app);
+  }, 'Remove'],
   ['source rename', (x) => renameSource({ store: x.store }, { kind: 'pattern', id: x.store.pattern.id }), 'Rename'],
   ['source delete', (x) => deleteSource({ store: x.store, app: x.app }, { kind: 'pattern', id: x.store.pattern.id }), 'Delete'],
   ['channel rename', (x) => x.rack.rename(x.store.channel.id), 'Rename'],
@@ -118,4 +128,20 @@ it.each(noteActions)('keeps %s usable across an unrelated tempo edit', async (na
   expect(ctx.store.project.bpm).toBe(151);
   if (name === 'pattern transpose') expect(ctx.store.project === before).toBe(false);
   else expect(ctx.ed.runTool.mock.calls.length + ctx.ed.applyNotes.mock.calls.length).toBe(1);
+});
+
+const projectActions = scenarios.filter(([name]) => ['project settings', 'automation creation', 'purge unused'].includes(name));
+it.each(projectActions)('keeps %s usable across an unrelated track edit', async (name, run, label) => {
+  const ctx = setup();
+  const pending = run(ctx);
+  ctx.store.apply('Mute track', (p) => E.updateTrack(p, 0, { mute: true }));
+  const before = ctx.store.project;
+  const dialog = document.querySelector('.dialog');
+  if (name === 'project settings') dialog.querySelector('input[type=text]').value = 'Edited';
+  [...dialog.querySelectorAll('.dialog-foot button')].find((button) => button.textContent === label).click();
+  await pending;
+  expect(ctx.store.project).not.toBe(before);
+  expect(ctx.store.project.tracks[0].mute).toBe(true);
+  ctx.store.undo();
+  expect(ctx.store.project).toBe(before);
 });

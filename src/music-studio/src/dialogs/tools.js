@@ -162,7 +162,9 @@ export function purgeUnused(project) {
 }
 
 export async function purgeCommand(app) {
-  const preview = purgeUnused(app.store.project);
+  const { store } = app;
+  const loadVersion = store.loadVersion;
+  const preview = purgeUnused(store.project);
   const parts = [];
   const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
   if (preview.channels) parts.push(n(preview.channels, 'unused channel'));
@@ -172,8 +174,8 @@ export async function purgeCommand(app) {
     app.notify('Nothing to purge: every channel, pattern and sample is in use');
     return;
   }
-  const ok = await confirmDialog({ title: 'Purge unused', message: `Remove ${parts.join(', ')}? You can undo this.`, confirm: 'Remove', danger: true });
-  if (!ok) return;
-  app.store.apply('Purge unused', (p) => purgeUnused(p).project);
+  const ok = await confirmDialog({ store, title: 'Purge unused', message: `Remove ${parts.join(', ')}? You can undo this.`, confirm: 'Remove', danger: true });
+  if (!ok || store.loadVersion !== loadVersion) return;
+  store.apply('Purge unused', (p) => purgeUnused(p).project);
   app.notify(`Removed ${parts.join(', ')}`);
 }

@@ -13,7 +13,9 @@ import { firstFreeTrack, placeClip } from '../playlist/clips.js';
 
 /** Asks which parameter to automate. Resolves a target or null. */
 export async function chooseTarget(app) {
-  const groups = listTargets(app.store.project);
+  const { store } = app;
+  const loadVersion = store.loadVersion;
+  const groups = listTargets(store.project);
   const select = h('select.select', { 'aria-label': 'Parameter to automate', style: { width: '100%' } });
   let n = 0;
   const targets = [];
@@ -33,6 +35,7 @@ export async function chooseTarget(app) {
     h('p.faint', { style: { margin: '6px 0 0', maxWidth: '360px' } }, 'Tip: move any knob first, then add an automation clip to automate it directly.'),
   );
   const r = await openDialog({
+    store,
     title: 'Automate a parameter',
     body,
     buttons: [
@@ -41,7 +44,7 @@ export async function chooseTarget(app) {
     ],
     initialFocus: 'select',
   });
-  return r === 'ok' ? targets[Number(select.value)] : null;
+  return r === 'ok' && store.loadVersion === loadVersion ? targets[Number(select.value)] : null;
 }
 
 /**
@@ -51,11 +54,12 @@ export async function chooseTarget(app) {
  */
 export async function addAutomationClip(app, { target, at } = {}) {
   const { store, engine } = app;
+  const loadVersion = store.loadVersion;
   let tgt = target ?? app.lastTweaked?.target ?? null;
   let info = tgt ? resolveTarget(store.project, tgt) : null;
   if (!info) {
     tgt = await chooseTarget(app);
-    if (!tgt) return null;
+    if (!tgt || store.loadVersion !== loadVersion) return null;
     info = resolveTarget(store.project, tgt);
     if (!info) return null;
   }

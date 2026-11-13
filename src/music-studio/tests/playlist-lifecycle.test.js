@@ -263,3 +263,36 @@ it('keeps marker rename usable across an unrelated tempo edit', async () => {
   expect(store.project.markers[0].name).toBe('Start');
   expect(store.project.bpm).toBe(150);
 });
+
+it.each(['before confirmation', 'just after confirmation'])('does not add a marker to a replacement project %s', async (timing) => {
+  const { store, pointer, view } = setup();
+  pointer('pointerup');
+  const pending = view.addMarker(192);
+  const dialog = document.querySelector('.dialog');
+  dialog.querySelector('input').value = 'Verse';
+  const submit = [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Add');
+  if (timing === 'just after confirmation') submit.click();
+  const replacement = structuredClone(store.project);
+  store.load(replacement);
+  if (timing === 'before confirmation') submit.click();
+  await pending;
+  expect(store.project).toBe(replacement);
+  expect(store.canUndo).toBe(false);
+  expect(document.querySelector('.dialog')).toBeNull();
+});
+
+it('keeps Add Marker usable across a tempo edit', async () => {
+  const { store, pointer, view } = setup();
+  pointer('pointerup');
+  const pending = view.addMarker(192);
+  store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+  const before = store.project;
+  const dialog = document.querySelector('.dialog');
+  dialog.querySelector('input').value = 'Verse';
+  [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Add').click();
+  await pending;
+  expect(store.project.markers.at(-1)).toMatchObject({ name: 'Verse', pos: 192 });
+  expect(store.project.bpm).toBe(150);
+  store.undo();
+  expect(store.project).toBe(before);
+});

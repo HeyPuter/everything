@@ -52,7 +52,9 @@ export function projectInfo(project) {
 }
 
 export async function openProjectSettings(app) {
-  const p = app.store.project;
+  const { store } = app;
+  const loadVersion = store.loadVersion;
+  const p = store.project;
   const field = (label, control, hint) => {
     const id = `ps-${Math.random().toString(36).slice(2, 8)}`;
     control.id = id;
@@ -110,6 +112,7 @@ export async function openProjectSettings(app) {
     masterPitch: Number(pitch.value),
   });
   const r = await openDialog({
+    store,
     title: 'Project settings',
     className: 'dlg-project',
     body,
@@ -124,8 +127,8 @@ export async function openProjectSettings(app) {
       return !msg;
     },
   });
-  if (r !== 'apply') return false;
+  if (r !== 'apply' || store.loadVersion !== loadVersion) return false;
   const values = read();
-  app.store.apply('Project settings', (proj) => applyProjectSettings(proj, values));
+  store.apply('Project settings', (proj) => applyProjectSettings(proj, values));
   return true;
 }
