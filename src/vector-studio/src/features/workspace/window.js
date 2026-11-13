@@ -340,6 +340,8 @@ export function layoutViews(app) {
   if (!host) return;
   const floating = app.floating || new Set();
   const docked = app.editors.filter((e) => !floating.has(e));
+  if (docked.includes(app.editor)) app.lastDocked = app.editor;
+  else if (!docked.includes(app.lastDocked)) app.lastDocked = docked.at(-1) || null;
   const tiled = mode !== 'tabs' && docked.length > 1;
   host.classList.toggle('arrange-tile', tiled && mode === 'tile');
   host.classList.toggle('arrange-stack', tiled && mode === 'stack');
@@ -546,10 +548,7 @@ export function installWindow(app) {
     app.canvasHost.addEventListener('pointerdown', pick, true);
     app.canvasHost.addEventListener('wheel', pick, { capture: true, passive: true });
   });
-  app.on('active-editor', (ed) => {
-    if (ed && !app.floating?.has(ed)) app.lastDocked = ed;
-    layoutViews(app);
-  });
+  app.on('active-editor', () => layoutViews(app));
   app.on('closed', (ed) => {
     app.floating?.delete(ed);
     layoutViews(app);
