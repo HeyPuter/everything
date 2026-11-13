@@ -44,6 +44,7 @@ export class ReviewPage {
     this._disposers = [];
     this._linkTries = 0;
     this._disposed = false;
+    this._videoLoad = 0;
     document.title = 'Review - Video Studio';
     this.start();
   }
@@ -262,14 +263,17 @@ export class ReviewPage {
   }
 
   async loadVideo({ fresh = false } = {}) {
+    if (this._disposed) return;
+    const request = ++this._videoLoad;
     const n = this.version;
     this.videoState.textContent = 'Loading video...';
     this.videoState.hidden = false;
     try {
       const link = await this.session.videoLink(n, { fresh });
-      if (n !== this.version) return;
+      if (this._disposed || request !== this._videoLoad || n !== this.version) return;
       this.video.src = link.url;
     } catch (err) {
+      if (this._disposed || request !== this._videoLoad || n !== this.version) return;
       this.videoState.textContent = err?.message || 'The video could not be loaded.';
     }
   }

@@ -430,6 +430,36 @@ describe('review page (reviewer flow)', () => {
     expect(root.textContent).toBe('Home');
   });
 
+  it.each(['success', 'failure'])('ignores an older same-version video link %s after a refresh', async (outcome) => {
+    const { page } = await opened();
+    try {
+      await until(() => page.video.getAttribute('src'));
+      let finish, fail;
+      vi.spyOn(page.session, 'videoLink').mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; })).mockResolvedValue({ url: 'https://example.test/current.mp4' });
+      const old = page.loadVideo();
+      await page.loadVideo({ fresh: true });
+      if (outcome === 'success') finish({ url: 'https://example.test/expired.mp4' });else fail(new Error('Obsolete failure'));
+      await old;
+      expect(page.video.src).toBe('https://example.test/current.mp4');
+      expect(page.videoState.textContent).not.toContain('Obsolete failure');
+    } finally { page.dispose(); }
+  });
+
+  it.each(['success', 'failure'])('ignores a video link %s after leaving the review', async (outcome) => {
+    const { page } = await opened();
+    await until(() => page.video.getAttribute('src'));
+    let finish, fail;
+    const link = vi.spyOn(page.session, 'videoLink').mockImplementation(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    const pending = page.loadVideo();
+    page.dispose();
+    if (outcome === 'success') finish({ url: 'https://example.test/late.mp4' });else fail(new Error('Late failure'));
+    await pending;
+    expect(page.video.getAttribute('src')).toBe(null);
+    expect(page.videoState.textContent).not.toContain('Late failure');
+    await page.loadVideo();
+    expect(link).toHaveBeenCalledTimes(1);
+  });
+
   it('joins with the invite, drops the token from the address, and shows the review', async () => {
     const { env, page, root, rid } = await opened();
     expect(location.hash).toBe(cleanReviewHash(rid, env.server));
