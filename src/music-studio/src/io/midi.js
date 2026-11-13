@@ -153,6 +153,7 @@ function readTrack(r, tempos, sigs) {
       throw new Error('The MIDI file is damaged (data without a status byte).');
     }
     // `b` is now the first data byte (running status reuses the last status).
+    if (b > 0x7f) throw new Error('The MIDI file is damaged (invalid channel data byte).');
     const type = status & 0xf0;
     const ch = status & 0x0f;
     if (type === 0xc0 || type === 0xd0) {
@@ -160,6 +161,7 @@ function readTrack(r, tempos, sigs) {
       continue;
     }
     const d2 = r.u8();
+    if (d2 > 0x7f) throw new Error('The MIDI file is damaged (invalid channel data byte).');
     if (type === 0x90 && d2 > 0) {
       const k = (ch << 7) | (b & 0x7f);
       if (!open.has(k)) open.set(k, { items: [], head: 0 });

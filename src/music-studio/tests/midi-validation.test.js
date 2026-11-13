@@ -58,3 +58,46 @@ it('accepts a correctly terminated four-byte MIDI delta', () => {
   const midi = readMidi(Uint8Array.from([...header(), ...chunk(body)]));
   expect(midi.tracks[0].notes).toEqual([{ ch: 0, key: 60, tick: 0x0fffffff, len: 96, vel: 100 }]);
 });
+
+it.each([
+  ['note-on pitch', [0, 0x90, 0x80, 100]],
+  ['note-on velocity', [0, 0x90, 60, 0x80]],
+  ['note-off pitch', [0, 0x80, 0x80, 64]],
+  ['note-off velocity', [0, 0x80, 60, 0x80]],
+  ['aftertouch', [0, 0xa0, 60, 0x80]],
+  ['controller', [0, 0xb0, 7, 0x80]],
+  ['program', [0, 0xc0, 0x80]],
+  ['channel pressure', [0, 0xd0, 0x80]],
+  ['pitch bend', [0, 0xe0, 0, 0x80]],
+  ['running-status velocity', [0, 0x90, 60, 100, 0, 62, 0x80]],
+])('rejects an out-of-range MIDI %s byte', (_name, events) => {
+  const body = [...events, 0, 0xff, 0x2f, 0];
+  expect(() => readMidi(Uint8Array.from([...header(), ...chunk(body)]))).toThrow(/damaged/i);
+});
+
+it('does not import a corrupted pitch as a different note', async () => {
+  const store = new Store(newProject());
+  const app = { store, notify: vi.fn() };
+  const files = new ProjectFiles(app, {});
+  const before = store.project;
+  const body = [0, 0x90, 0x80, 100, 96, 0x80, 0, 64, 0, 0xff, 0x2f, 0];
+  const bytes = Uint8Array.from([...header(), ...chunk(body)]);
+  const result = await files.importMidiBlob(new Blob([bytes]), 'Corrupted.mid').catch((error) => error);
+  expect(result instanceof Error).toBe(true);
+  expect(store.project === before).toBe(true);
+  expect(store.undoStack).toHaveLength(0);
+  expect(app.notify).not.toHaveBeenCalled();
+});
+
+it('keeps valid seven-bit boundary data and running-status notes', () => {
+  const body = [
+    0, 0xc0, 127, 0, 0xd0, 127, 0, 0xb0, 127, 127, 0, 0xe0, 127, 127, 0, 0xa0, 127, 127,
+    0, 0x90, 127, 127, 0, 0, 127, 96, 127, 0, 0, 0, 0, 0, 0xff, 0x2f, 0,
+  ];
+  const track = readMidi(Uint8Array.from([...header(), ...chunk(body)])).tracks[0];
+  expect(track.programs).toEqual({ 0: 127 });
+  expect(track.notes).toEqual([
+    { ch: 0, key: 0, tick: 0, len: 96, vel: 127 },
+    { ch: 0, key: 127, tick: 0, len: 96, vel: 127 },
+  ]);
+});
