@@ -768,23 +768,37 @@ export function createImageLayer({
       if (selecting === request) selecting = null;
     }
   }
+  /** A screen shift of the object limited so at least 16 px of it stays on the page. With
+   * `stop`, a shift that would leave more of it off the page stops at the edge rather than
+   * pulling an object that is already outside back in. */
+  function visibleShift(m, dx, dy, stop = false) {
+    const bounds = imageCorners(matrix(viewport.transform, m)),
+      limit = (delta, values, size) => {
+        const low = 16 - Math.max(...values),
+          high = size - 16 - Math.min(...values);
+        if (!stop) return Math.max(low, Math.min(high, delta));
+        return delta < 0 ? Math.max(delta, Math.min(0, low)) : Math.min(delta, Math.max(0, high));
+      };
+    return {
+      dx: limit(
+        dx,
+        bounds.map((p) => p[0]),
+        viewport.width,
+      ),
+      dy: limit(
+        dy,
+        bounds.map((p) => p[1]),
+        viewport.height,
+      ),
+    };
+  }
   function updateGesture(position) {
     if (!gesture || !selected) return;
     const g = gesture,
       m = g.original;
     if (Math.hypot(position[0] - g.initial[0], position[1] - g.initial[1]) < 2 && !draft) return;
     if (g.corner == null) {
-      const bounds = imageCorners(matrix(viewport.transform, m)),
-        xs = bounds.map((p) => p[0]),
-        ys = bounds.map((p) => p[1]);
-      const dx = Math.max(
-        16 - Math.max(...xs),
-        Math.min(viewport.width - 16 - Math.min(...xs), position[0] - g.start[0]),
-      );
-      const dy = Math.max(
-        16 - Math.max(...ys),
-        Math.min(viewport.height - 16 - Math.min(...ys), position[1] - g.start[1]),
-      );
+      const { dx, dy } = visibleShift(m, position[0] - g.start[0], position[1] - g.start[1]);
       const a = pdfPoint(g.start),
         b = pdfPoint([g.start[0] + dx, g.start[1] + dy]);
       setDraft([...m.slice(0, 4), m[4] + b[0] - a[0], m[5] + b[1] - a[1]]);
@@ -907,9 +921,12 @@ export function createImageLayer({
     // nudge would shift that preview and its release timer would end the drag.
     if (gesture || selecting) return;
     const step = (e.shiftKey ? 10 : 1) * viewport.scale,
+      m = current(),
+      // Keyboard moves stop where a drag would, so a held arrow cannot push the object out
+      // of sight off the page.
+      { dx, dy } = visibleShift(m, vector[0] * step, vector[1] * step, true),
       a = pdfPoint([0, 0]),
-      b = pdfPoint(vector.map((n) => n * step)),
-      m = current();
+      b = pdfPoint([dx, dy]);
     setDraft([...m.slice(0, 4), m[4] + b[0] - a[0], m[5] + b[1] - a[1]]);
     heldArrows.add(e.key);
     clearTimeout(keyboardTimer);
