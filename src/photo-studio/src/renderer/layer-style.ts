@@ -59,7 +59,7 @@ type Result = {
   layer: Texture | null;
   above: Pass[];
 };
-type Entry = { result?: Result; inflight?: Promise<void>; seen: number };
+type Entry = { result?: Result; inflight?: Promise<void>; scheduled?: object; seen: number };
 export type StyleContext = {
   backend: Backend;
   white: Texture;
@@ -191,19 +191,25 @@ export class StyleCache {
           // that frame to be shown, which may not happen until the page
           // repaints for another reason: capture after the frame instead.
           const e = entry;
-          const deferred = ctx.afterFrame(start).then(
-            (started) => {
-              if (!started) e.inflight = undefined;
-              return started?.task;
-            },
-            (error: unknown) => {
-              e.inflight = undefined;
-              console.error(error);
-            },
-          );
-          e.inflight = deferred.then(() => {});
+          const scheduled = e.scheduled = {};
+          const deferred: Promise<void> = ctx.afterFrame(async () => {
+            if (e.scheduled !== scheduled) return;
+            e.scheduled = undefined;
+            return start();
+          }).then((started) => started?.task).catch((error: unknown) => {
+            console.error(error);
+          }).finally(() => {
+            if (e.inflight === deferred) e.inflight = undefined;
+          });
+          e.inflight = deferred;
         }
       } else {
+        // This readback owns the compositor. A capture still queued behind it
+        // cannot run until we finish, so supersede that capture and render here.
+        if (entry.scheduled) {
+          entry.scheduled = undefined;
+          entry.inflight = undefined;
+        }
         for (let attempt = 0; attempt < 3 && !matches(entry.result); attempt++) {
           if (entry.inflight) await entry.inflight.catch(() => {});
           else {
