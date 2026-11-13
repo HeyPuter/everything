@@ -301,6 +301,36 @@ describe('share for review (owner flow)', () => {
 });
 
 describe('share dialog', () => {
+  it('keeps the displayed role consistent when another change is attempted during a save', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    const pub = await publish(env, { projectId: store.project.id });
+    await env.as('bob')('join', { review: pub.review.id, token: await invite(env, pub.review.id) });
+    let finish, writes = 0;
+    const call = async (p, server, input) => {
+      if (input.op === 'member.role') {
+        if (++writes === 1) await new Promise((resolve) => { finish = resolve; });
+        else throw new Error('Second save failed');
+      }
+      return callWorker(p, server, input);
+    };
+    const dlg = openShareDialog({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice }, { deps: { call } });
+    try {
+      const sel = await until(() => dlg.el.querySelector('[aria-label="Role for bob"]'));
+      sel.value = 'viewer';sel.dispatchEvent(new Event('change'));
+      // A disabled native select cannot be changed by the user.
+      if (!sel.disabled) { sel.value = 'commenter';sel.dispatchEvent(new Event('change')); }
+      await tick();finish();
+      await until(() => env.world.calls.some((c) => c.op === 'member.role'));
+      await tick();
+      const saved = (await env.as('alice')('members', { review: pub.review.id })).members[0];
+      expect(saved.role).toBe('viewer');
+      expect(sel.value).toBe(saved.role);
+      expect(writes).toBe(1);
+      expect(sel.disabled).toBe(false);
+    } finally { dlg.close(); }
+  });
+
   it('shares, creates an invite link, lists links and people, and removes someone', async () => {
     const env = await setup();
     const store = new EditorStore(projectWithClips());
