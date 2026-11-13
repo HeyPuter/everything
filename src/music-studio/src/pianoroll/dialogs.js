@@ -256,6 +256,11 @@ export function openNoteProps(ed, note) {
   closeNoteProps();
   const sig = ed.sig;
   const id = note.id;
+  const isCurrent = editorScope(ed);
+  let expected = note;
+  let applying = false;
+  let offChange, offView;
+  const unchanged = () => isCurrent() && ed.noteById(id) === expected;
   const field = (label, input, hint) => h('label.pr-pop-field', h('span', label), input, hint ? h('span.pr-pop-hint', hint) : null);
   const key = h('input.input.sm', { type: 'text', value: keyName(note.key), 'aria-label': 'Pitch', spellcheck: false });
   const pos = h('input.input.sm', { type: 'text', value: formatBST(note.pos, sig), 'aria-label': 'Start (bar:step:tick)', spellcheck: false });
@@ -272,9 +277,10 @@ export function openNoteProps(ed, note) {
     error,
   );
   const apply = () => {
+    if (!popover || popover.el !== el) return;
     const current = ed.noteById(id);
-    if (!current) {
-      close();
+    if (!unchanged()) {
+      close(false);
       return;
     }
     const k = parseKey(key.value);
@@ -290,7 +296,13 @@ export function openNoteProps(ed, note) {
     error.textContent = '';
     const changes = { key: k, pos: p, len: l, vel: Math.round(v) / 100, pan: Math.round(pn) / 100 };
     if (Object.keys(changes).every((f) => current[f] === changes[f] || (f === 'pan' && (current.pan ?? 0) === changes.pan))) return;
-    ed.applyNotes('Edit note', (list) => N.patchNotes(list, { [id]: changes }));
+    applying = true;
+    try {
+      ed.applyNotes('Edit note', (list) => N.patchNotes(list, { [id]: changes }));
+      expected = ed.noteById(id);
+    } finally {
+      applying = false;
+    }
     ed.remember({ len: l, vel: changes.vel });
     if (k !== current.key) ed.audition(k, changes.vel, { hold: false });
     announce(`${keyName(k)} updated`);
@@ -310,6 +322,8 @@ export function openNoteProps(ed, note) {
   const close = (refocus = true) => {
     if (!popover || popover.el !== el) return;
     popover = null;
+    offChange?.();
+    offView?.();
     el.remove();
     document.removeEventListener('pointerdown', outside, true);
     if (refocus) ed.surface.focus({ preventScroll: true });
@@ -342,6 +356,11 @@ export function openNoteProps(ed, note) {
     if (el.isConnected) document.addEventListener('pointerdown', outside, true);
   }, 0);
   popover = { el, close };
+  const check = () => {
+    if (!applying && !unchanged()) close(false);
+  };
+  offChange = ed.store.on('change', check);
+  offView = ed.store.on('view', check);
   key.focus();
   key.select();
 }

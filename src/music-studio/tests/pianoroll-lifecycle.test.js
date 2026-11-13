@@ -4,11 +4,12 @@ import { Store } from '../src/model/store.js';
 import { createProject, createChannel, createPattern, createNote } from '../src/model/project.js';
 import { Emitter } from '../src/lib/emitter.js';
 import * as E from '../src/model/edits.js';
+import { openNoteProps, closeNoteProps } from '../src/pianoroll/dialogs.js';
 import { computeLayout, rowY, centerScrollY } from '../src/pianoroll/geometry.js';
 
 vi.mock('../src/render/gfx.js', () => ({ createGfx: () => ({ destroy: vi.fn() }) }));
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { closeNoteProps(); vi.useRealTimers(); });
 
 function setup() {
   vi.useFakeTimers();
@@ -92,5 +93,48 @@ it('still commits an ordinary note drag as one undo step', () => {
   expect(editor.gesture).toBeNull();
   store.undo();
   expect(store.project).toBe(original);
+  editor.destroy();
+});
+
+function noteProperties(editor, store) {
+  const note = createNote({ key: 60, pos: 96, len: 96 });
+  store.apply('Add note', (p) => E.setNotes(p, store.pattern.id, store.channel.id, [note]));
+  store.apply('Velocity', (p) => E.setNotes(p, store.pattern.id, store.channel.id, [{ ...note, vel: 0.5 }]));
+  openNoteProps(editor, editor.notes[0]);
+  return editor.root.querySelector('.pr-popover');
+}
+
+it.each(['replacement', 'undo', 'deletion', 'channel', 'pattern'])('closes stale note properties after %s', (change) => {
+  const { editor, store } = setup();
+  const popup = noteProperties(editor, store);
+  const pitch = popup.querySelector('[aria-label="Pitch"]');
+  if (change === 'replacement') store.load(structuredClone(store.project));
+  else if (change === 'undo') store.undo();
+  else if (change === 'deletion') store.apply('Delete', (p) => E.setNotes(p, store.pattern.id, store.channel.id, []));
+  else if (change === 'channel') store.setChannel(store.project.channels[1].id);
+  else store.setPattern(store.project.patterns[1].id);
+  const current = store.project;
+  expect(editor.root.querySelector('.pr-popover')).toBeNull();
+  pitch.value = 'D5';
+  pitch.dispatchEvent(new Event('change', { bubbles: true }));
+  expect(store.project).toBe(current);
+  expect(editor.root.querySelector('.pr-popover')).toBeNull();
+  editor.destroy();
+});
+
+it('keeps note properties usable for successive edits and unrelated tempo changes', () => {
+  const { editor, store } = setup();
+  const popup = noteProperties(editor, store);
+  const pitch = popup.querySelector('[aria-label="Pitch"]');
+  pitch.value = 'D5';
+  pitch.dispatchEvent(new Event('change', { bubbles: true }));
+  expect(editor.notes[0].key).toBe(62);
+  store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+  expect(editor.root.querySelector('.pr-popover')).toBe(popup);
+  const pan = popup.querySelector('[aria-label="Pan in percent, negative is left"]');
+  pan.value = '50';
+  pan.dispatchEvent(new Event('change', { bubbles: true }));
+  expect(editor.notes[0]).toMatchObject({ key: 62, vel: 0.5, pan: 0.5 });
+  expect(editor.root.querySelector('.pr-popover')).toBe(popup);
   editor.destroy();
 });
