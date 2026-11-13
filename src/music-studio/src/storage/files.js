@@ -43,6 +43,7 @@ export class ProjectFiles {
     // Counts project replacements (open, new, restore): a save that finishes
     // after one must not point the app at the file it was writing.
     this.loads = 0;
+    this.openRequest = 0;
     this.store.on('change', (_p, _prev, info) => {
       if (info?.source === 'load') this.loads++;
     });
@@ -113,6 +114,28 @@ export class ProjectFiles {
 
   // ---------------------------------------------------------------- open
 
+  #openAttempt() {
+    const request = ++this.openRequest;
+    const loads = this.loads;
+    return { approved: null, current: () => this.openRequest === request && this.loads === loads };
+  }
+
+  async #approveOpen(attempt) {
+    if (!attempt.current()) return false;
+    const before = this.store.project;
+    if (before !== attempt.approved && !(await this.confirmDiscard())) return false;
+    if (!attempt.current() || this.store.project !== before) return false;
+    attempt.approved = before;
+    return true;
+  }
+
+  async #finishOpen(attempt, project, file, { dirty = false } = {}) {
+    if (!(await this.#approveOpen(attempt)) || !attempt.current() || this.store.project !== attempt.approved) return false;
+    this.loadProject(project, file, { dirty });
+    this.app.notify(`Opened ${project.name}${dirty ? '. Save to keep it in Music Studio.' : ''}`);
+    return true;
+  }
+
   async open() {
     if (this.signedIn()) return this.openFromPuter();
     return this.app.openLocalProjects?.();
@@ -134,7 +157,8 @@ export class ProjectFiles {
 
   async openPath(path) {
     puter.requireSignedIn();
-    if (!(await this.confirmDiscard())) return false;
+    const attempt = this.#openAttempt();
+    if (!(await this.#approveOpen(attempt)) || !attempt.current()) return false;
     let project;
     try {
       project = await this.lib.loadCloud(path);
@@ -142,18 +166,16 @@ export class ProjectFiles {
       throw new Error(puter.errorMessage(err, 'The project could not be opened.'));
     }
     const name = stripExtension(baseName(path));
-    this.loadProject(project, { path, name });
-    this.app.notify(`Opened ${project.name}`);
-    return true;
+    return this.#finishOpen(attempt, project, { path, name });
   }
 
   async openLocalKey(key) {
-    if (!(await this.confirmDiscard())) return false;
+    const attempt = this.#openAttempt();
+    if (!(await this.#approveOpen(attempt)) || !attempt.current()) return false;
     const meta = (await this.lib.listLocal()).find((m) => m.key === key);
+    if (!attempt.current()) return false;
     const project = await this.lib.loadLocal(key);
-    this.loadProject(project, { local: key, name: meta?.name || project.name });
-    this.app.notify(`Opened ${project.name}`);
-    return true;
+    return this.#finishOpen(attempt, project, { local: key, name: meta?.name || project.name });
   }
 
   /** File > Open from this device: a .msproj (or a .mid, imported into the current project). */
@@ -168,14 +190,13 @@ export class ProjectFiles {
     const name = file.name || '';
     if (/\.midi?$/i.test(name)) return this.importMidiBlob(file, name);
     if (isAudioName(name) || file.type?.startsWith('audio/')) return this.app.importAudio(file, { name });
+    const attempt = this.#openAttempt();
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    if (!attempt.current()) return false;
     if (isMidi(head)) return this.importMidiBlob(file, name);
     if (file.size > MAX_PROJECT_BYTES) throw new Error(`"${name}" is ${mb(file.size)}, too large for a Music Studio project.`);
     const project = await this.lib.readProjectText(await file.text());
-    if (!(await this.confirmDiscard())) return false;
-    this.loadProject(project, null, { dirty: true });
-    this.app.notify(`Opened ${project.name}. Save to keep it in Music Studio.`);
-    return true;
+    return this.#finishOpen(attempt, project, null, { dirty: true });
   }
 
   // ---------------------------------------------------------------- save
