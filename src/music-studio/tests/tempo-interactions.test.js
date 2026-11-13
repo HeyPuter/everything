@@ -100,6 +100,23 @@ function typeTempo(tempo, value = '147,5') {
   return input;
 }
 
+it.each(['Enter', 'Escape'])('keeps the tempo text field open during composing %s', (key) => {
+  const { store, tempo } = setup();
+  const before = store.project;
+  const input = typeTempo(tempo, '147.5');
+  const event = new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true });
+  input.dispatchEvent(event);
+  expect(input.isConnected).toBe(true);
+  expect(document.activeElement).toBe(input);
+  expect(event.defaultPrevented).toBe(false);
+  expect(store.project).toBe(before);
+  expect(store.undoStack).toHaveLength(0);
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(store.project.bpm).toBe(147.5);
+  store.undo();
+  expect(store.project).toBe(before);
+});
+
 it.each(['replacement', 'undo', 'redo'])('discards a typed tempo after %s', (action) => {
   const { store, tempo } = setup();
   if (action !== 'replacement') store.apply('Earlier tempo', (p) => E.setProjectProps(p, { bpm: 99 }));

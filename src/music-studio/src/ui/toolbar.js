@@ -173,6 +173,7 @@ export function createToolbar(app) {
     untrack = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      if (e.isComposing) return;
       if (e.key === 'Enter') close(true);
       if (e.key === 'Escape') close(false);
     });

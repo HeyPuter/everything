@@ -281,6 +281,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     untrackInput = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      if (e.isComposing) return;
       if (e.key === 'Enter') close(true);
       else if (e.key === 'Escape') close(false);
     });

@@ -41,6 +41,27 @@ function controlFor(surface, param = 'volume') {
   return surface === 'strip' ? app.panel('mixer').strips[0].el.querySelector('.mx-send-knob') : document.querySelector('.mx-route-list [role="slider"]');
 }
 
+it.each(['Enter', 'Escape'])('keeps a knob value editor open during composing %s', (key) => {
+  const control = controlFor('rack');
+  const before = app.store.project;
+  control.focus();
+  control.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  const input = document.querySelector('input[aria-label="Volume value"]');
+  expect(input).not.toBeNull();
+  input.value = '-6 dB';
+  const event = new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true });
+  input.dispatchEvent(event);
+  expect(input.isConnected).toBe(true);
+  expect(document.activeElement).toBe(input);
+  expect(event.defaultPrevented).toBe(false);
+  expect(app.store.project).toBe(before);
+  expect(app.store.undoStack).toHaveLength(0);
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(app.store.project.channels[0].volume).toBeCloseTo(10 ** (-6 / 20), 8);
+  app.store.undo();
+  expect(app.store.project).toBe(before);
+});
+
 const cases = ['rack', 'channel', 'strip', 'sidebar'].flatMap((surface) => [
   ['-6 dB', 10 ** (-6 / 20)], ['0', 1], ['+1 dB', 10 ** (1 / 20)], ['-inf dB', 0], ['-6oops', null],
 ].map(([text, expected]) => [surface, text, expected]));
