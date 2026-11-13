@@ -293,7 +293,8 @@ export class App extends Emitter {
   #scheduleDescribe(editor) {
     clearTimeout(this.#describeTimer);
     this.#describeTimer = setTimeout(() => {
-      if (editor !== this.editor || !this.canvasDesc || !this.root.isConnected || !this.root.ownerDocument.defaultView) return;
+      if (typeof document === 'undefined' || this.root.ownerDocument !== document ||
+          editor !== this.editor || !this.canvasDesc || !this.root.isConnected || !document.defaultView) return;
       const text = this.describeSelection(editor);
       if (text === this.canvasDesc.textContent) return;
       this.canvasDesc.textContent = text;
