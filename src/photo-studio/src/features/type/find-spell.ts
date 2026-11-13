@@ -132,15 +132,15 @@ export async function findReplace(e: Editor) {
       .map((l) => l.id);
     if (!ids.length) return status('No matches.');
     if (ids.some((id) => layerLock(e.doc.layers, id, 'all'))) return status(lockedMessage);
-    const counts = new Map<string, number>();
+    const replacements = new Map<string, ReturnType<typeof replaceAll>>();
     await editLayers(e, 'Replace Text', (d, l) => {
       const r = replaceAll(d.content, query, replace, options);
       // A font wait can require another pass over newer text. Count only the
       // final replacement in each layer, not every preparation attempt.
-      counts.set(l.id, r.count);
+      replacements.set(l.id, r);
       return { ...d, content: r.content };
-    }, ids, undefined, { rebase: true });
-    const changed = [...counts.values()].filter((n) => n > 0);
+    }, ids, undefined, { rebase: true, mapIndex: (id, index) => replacements.get(id)?.mapIndex(index) ?? index });
+    const changed = [...replacements.values()].map((r) => r.count).filter((n) => n > 0);
     const count = changed.reduce((sum, n) => sum + n, 0);
     status(`Changed ${count} occurrence${count === 1 ? '' : 's'} in ${changed.length} layer${changed.length === 1 ? '' : 's'}.`);
   });

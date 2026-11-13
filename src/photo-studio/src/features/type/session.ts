@@ -779,7 +779,8 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 // `isCurrent` discards superseded per-layer requests after font loading.
 // Pure formatting callbacks can opt into `rebase`: if text changes while fonts
 // load, reapply the patch to that text and prepare any newly required faces.
-export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; revision?: (id: string) => string; rebase?: boolean; charPatch?: (id: string) => Partial<CharStyle> } = {}) {
+// Content replacements can map the live selection through their final changes.
+export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; revision?: (id: string) => string; rebase?: boolean; mapIndex?: (id: string, index: number) => number; charPatch?: (id: string) => Partial<CharStyle> } = {}) {
   const owner = e.session;
   const task = e.idle;
   const ppi = ppiOf(owner.doc);
@@ -858,8 +859,8 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
       if (data && (!options.isCurrent || options.isCurrent(s.layerId))) {
         s.data = structuredClone(data);
         const length = textLength(s.data.content);
-        s.anchor = Math.min(s.anchor, length);
-        s.focus = Math.min(s.focus, length);
+        s.anchor = Math.min(options.mapIndex?.(s.layerId, s.anchor) ?? s.anchor, length);
+        s.focus = Math.min(options.mapIndex?.(s.layerId, s.focus) ?? s.focus, length);
         if (s.caretStyle && options.charPatch)
           s.caretStyle = charStyleAt(applyCharStyle(fromPlainText('x', s.caretStyle), 0, 1, options.charPatch(s.layerId)), 0);
       }

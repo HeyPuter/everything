@@ -32,4 +32,26 @@ describe('find and replace text', () => {
     expect(charStyleOfRange(r.content, 12, 17).size).toBe(30);
     expect(charStyleOfRange(r.content, 0, 5).size).toBe(12);
   });
+  it.each([
+    ['kitten', [0, 6, 6, 7, 11, 12, 18, 18]],
+    ['x', [0, 1, 1, 2, 6, 7, 8, 8]],
+    ['', [0, 0, 0, 1, 5, 6, 6, 6]],
+  ] as const)('maps positions through replacements with %j', (replacement, expected) => {
+    const r = replaceAll(fromPlainText('dog tail dog'), 'dog', replacement);
+    expect([0, 1, 3, 4, 8, 9, 10, 12].map(r.mapIndex)).toEqual(expected);
+  });
+  it('retains the boundary between adjacent replacements', () => {
+    const r = replaceAll(fromPlainText('aaaa'), 'aa', 'b');
+    expect([0, 1, 2, 3, 4].map(r.mapIndex)).toEqual([0, 1, 1, 2, 2]);
+  });
+  it('maps UTF-16 offsets using normalized paragraph breaks', () => {
+    const r = replaceAll(fromPlainText('red\nred'), 'red', '😀\r\nx');
+    expect(plainText(r.content)).toBe('😀\nx\n😀\nx');
+    expect([0, 3, 4, 7].map(r.mapIndex)).toEqual([0, 4, 5, 9]);
+  });
+  it('leaves offsets untouched when no text matches', () => {
+    const r = replaceAll(fromPlainText('hi'), 'dog', 'cat');
+    expect([0, 1, 2].map(r.mapIndex)).toEqual([0, 1, 2]);
+  });
+
 });

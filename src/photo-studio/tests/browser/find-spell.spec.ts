@@ -147,3 +147,63 @@ for (const ending of ['committed', 'live']) for (const newText of ['New dog dog'
     expect(await layerTexts(page)).toEqual(['cat', replaced + ' more']);
   }
 });
+
+for (const replacement of ['kitten', 'x']) for (const selection of ['caret', 'forward range', 'backward range', 'matched word', 'newly typed']) test(`delayed Change All keeps ${selection} after replacing dog with ${replacement}`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog', 'dog tail']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.locator('#fr-change').fill(replacement);
+  await dlg.getByRole('button', { name: 'Change All' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await page.evaluate(async (selection) => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    await m.startEdit(e, e.doc.layers.at(-1)!.id, 'end');
+    const [anchor, focus] = selection === 'forward range' ? [4, 8] : selection === 'backward range' ? [8, 4] : selection === 'matched word' ? [0, 3] : [4, 4];
+    m.setSelection(e, anchor, focus);
+  }, selection);
+  if (selection === 'newly typed') {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText('dog ');
+  }
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  const n = replacement.length;
+  const original = selection === 'newly typed' ? 'dog dog tail' : 'dog tail';
+  const replaced = original.replaceAll('dog', replacement);
+  const before = selection === 'forward range' ? [4, 8] : selection === 'backward range' ? [8, 4] : selection === 'matched word' ? [0, 3] : selection === 'newly typed' ? [8, 8] : [4, 4];
+  const after = selection === 'forward range' ? [n + 1, n + 5] : selection === 'backward range' ? [n + 5, n + 1] : selection === 'matched word' ? [0, n] : selection === 'newly typed' ? [2 * n + 2, 2 * n + 2] : [n + 1, n + 1];
+  const offsets = () => page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  });
+  expect(await layerTexts(page)).toEqual([replacement, replaced]);
+  expect(await offsets()).toEqual(after);
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['dog', original]);
+  expect(await offsets()).toEqual(before);
+  await run(page, 'edit.redo');
+  expect(await offsets()).toEqual(after);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('X');
+  await run(page, 'type.commit');
+  const [a, b] = [...after].sort((a, b) => a - b);
+  expect(await layerTexts(page)).toEqual([replacement, replaced.slice(0, a) + 'X' + replaced.slice(b)]);
+});
