@@ -60,7 +60,22 @@ export function newerSnapshot(a, b) {
     (a.revision === b.revision && orderNumber(a.commentsRevision) > orderNumber(b.commentsRevision));
 }
 
-function sameSnapshot(a, b) {
+/** Different stores may use different snapshot tokens, so metadata must identify the capture. */
+function hasCaptureIdentity(entry) {
+  if (entry.session != null && typeof entry.session !== 'string') return false;
+  if (entry.sequence != null) return Number.isFinite(entry.sequence);
+  // Missing sequence is a genuine legacy format; an invalid sequence is not.
+  // Legacy counters may be absent, but the capture needs a usable timestamp.
+  return Number.isFinite(entry.saved) && recoveryTime(entry.saved) === entry.saved &&
+    (entry.revision == null || Number.isFinite(entry.revision)) &&
+    (entry.commentsRevision == null || Number.isFinite(entry.commentsRevision));
+}
+
+function sameSnapshot(a, b, { fallback = false } = {}) {
+  // An exact mirrored token identifies the capture too. Otherwise a fallback
+  // needs usable metadata to stand in for its different storage location/token.
+  const sameToken = a.snapshot && a.snapshot === b.snapshot;
+  if (fallback && !sameToken && (!hasCaptureIdentity(a) || !hasCaptureIdentity(b))) return false;
   if ((a.session || null) !== (b.session || null)) return false;
   const sequenced = Number.isFinite(a.sequence), otherSequenced = Number.isFinite(b.sequence);
   if (sequenced || otherSequenced) return sequenced && otherSequenced && a.sequence === b.sequence;
@@ -270,7 +285,7 @@ export class RecoveryStore {
         const candidate = state?.entries[0];
         if (candidate && (!current || newerSnapshot(candidate, current))) { current = candidate; backend = b; }
       }
-      return Boolean(current && sameSnapshot(current, entry) &&
+      return Boolean(current && sameSnapshot(current, entry, { fallback: backend !== entry.backend }) &&
         (backend !== entry.backend || current.snapshot === entry.snapshot));
     });
   }
@@ -295,7 +310,7 @@ export class RecoveryStore {
           if (await b.readBlob(snapshotPath(entry)) || await this.#otherSnapshots(b, entry.id)) failure ||= new Error('Recovery metadata is unavailable. Try recovery again.');
           continue;
         }
-        if (!sameSnapshot(candidate, entry) || (b === entry.backend && candidate.snapshot !== entry.snapshot)) {
+        if (!sameSnapshot(candidate, entry, { fallback: b !== entry.backend }) || (b === entry.backend && candidate.snapshot !== entry.snapshot)) {
           failure ||= new Error('The selected recovery snapshot is not available right now.');
           continue;
         }
@@ -307,7 +322,7 @@ export class RecoveryStore {
         if (blob) return blob;
         // A concurrent publication can remove the selected file while it is read.
         const current = (await this.#readState(b, entry.id, { strict: true })).entries.find((e) => e.id === entry.id);
-        if ((current && (!sameSnapshot(current, entry) || current.snapshot !== candidate.snapshot)) || await this.#otherSnapshots(b, entry.id, candidate.snapshot ? `${candidate.snapshot}.vstudio` : null)) failure ||= new Error('The selected recovery snapshot changed. Try recovery again.');
+        if ((current && (!sameSnapshot(current, entry, { fallback: b !== entry.backend }) || current.snapshot !== candidate.snapshot)) || await this.#otherSnapshots(b, entry.id, candidate.snapshot ? `${candidate.snapshot}.vstudio` : null)) failure ||= new Error('The selected recovery snapshot changed. Try recovery again.');
       } catch (err) {
         // Try the next store.
         failure = failure || err;
