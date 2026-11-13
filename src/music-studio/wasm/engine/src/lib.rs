@@ -324,6 +324,13 @@ impl Engine {
         };
         ch.cur_l = -1.0;
         ch.cur_r = -1.0;
+        // Replacing/removing an instrument stops its queued voices as well
+        // as its rendered ones. Clicks use slot zero but belong to transport.
+        self.events.retain(|ev| ev.slot != slot || ev.kind == EV_CLICK);
+        if self.events.is_empty() {
+            self.start_max = None;
+            self.release_min = None;
+        }
     }
 
     fn push(&mut self, ev: Event) {
