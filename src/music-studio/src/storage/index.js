@@ -90,15 +90,18 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
     try {
       // This tab's own draft (a reload), else the newest one no open tab owns.
       const slot = await tab;
-      const picked = pickDraft(await lib.allDrafts(), { own: slot.key, live: await slot.liveKeys() });
-      for (const k of picked.remove) lib.clearDraft(k).catch(() => {});
+      const recover = async (exclusive = true) => {
+        const picked = pickDraft(await lib.allDrafts(), { own: slot.key, live: exclusive ? await slot.liveKeys() : null });
+        await Promise.all(picked.remove.map((key) => lib.clearDraft(key).catch(() => {})));
+        // Finish the transfer before another tab selects an abandoned session.
+        if (picked.draft && picked.key !== slot.key) {
+          await lib.saveDraft(picked.draft, slot.key);
+          await lib.clearDraft(picked.key).catch(() => {});
+        }
+        return picked;
+      };
+      const picked = await (slot.withRecovery ? slot.withRecovery(recover) : recover());
       const draft = picked.draft;
-      // Adopt another tab's leftover draft: copy it to this tab's slot first,
-      // so a crash in between never loses it, and no other tab restores it too.
-      if (draft && picked.key !== slot.key) {
-        await lib.saveDraft(draft, slot.key);
-        await lib.clearDraft(picked.key).catch(() => {});
-      }
       if (picked.busy && !firstLaunch) app.notify('Your last session is open in another tab, so this tab started a new project.');
       // A file opened by the Puter desktop, a project opened meanwhile, or
       // edits made meanwhile win over the draft.

@@ -9,7 +9,8 @@ function fakeLocks(held = []) {
     async request(name, opts, cb) {
       if (names.has(name)) return cb(null);
       names.add(name);
-      return cb({ name });
+      try { return await cb({ name }); }
+      finally { names.delete(name); }
     },
     async query() {
       return { held: [...names].map((name) => ({ name })) };

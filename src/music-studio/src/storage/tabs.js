@@ -16,6 +16,7 @@ import { uid } from '../lib/util.js';
 
 const SLOT_KEY = 'music-studio:tab';
 const LOCK_PREFIX = 'music-studio-tab-';
+const RECOVERY_LOCK = 'music-studio-recovery';
 export const LEGACY_KEY = 'session';
 /** Unowned drafts older than this are deleted at startup. */
 export const STALE_MS = 30 * 24 * 3600 * 1000;
@@ -45,26 +46,45 @@ export async function claimTab({ locks = globalThis.navigator?.locks, session = 
   if (!locks?.request || !locks?.query) {
     return { key: LEGACY_KEY, liveKeys: async () => new Set([LEGACY_KEY]), shared: true };
   }
-  let slot = session?.getItem(SLOT_KEY) || uid(10);
-  for (let i = 0; i < 4 && !(await tryLock(locks, slot)); i++) slot = uid(10);
+  // Claiming a reload slot must not race another tab adopting its old draft.
+  return withRecovery(locks, async () => {
+    let slot = session?.getItem(SLOT_KEY) || uid(10);
+    for (let i = 0; i < 4 && !(await tryLock(locks, slot)); i++) slot = uid(10);
+    try {
+      session?.setItem(SLOT_KEY, slot);
+    } catch {
+      // Blocked storage: this tab gets a new slot after a reload.
+    }
+    return {
+      key: keyFor(slot),
+      shared: false,
+      withRecovery: (action) => withRecovery(locks, action),
+      async liveKeys() {
+        try {
+          const { held = [] } = await locks.query();
+          return new Set(held.filter((l) => l.name?.startsWith(LOCK_PREFIX)).map((l) => keyFor(l.name.slice(LOCK_PREFIX.length))));
+        } catch {
+          // Unknown ownership must not be treated as proof that other tabs closed.
+          return null;
+        }
+      },
+    };
+  });
+}
+
+// Serialize selection, transfer and cleanup; a failed lock request permits only
+// recovery of the caller's own draft. Never rerun an action that itself failed.
+async function withRecovery(locks, action) {
+  let entered = false;
   try {
-    session?.setItem(SLOT_KEY, slot);
-  } catch {
-    // Blocked storage: this tab gets a new slot after a reload.
+    return await locks.request(RECOVERY_LOCK, {}, () => {
+      entered = true;
+      return action(true);
+    });
+  } catch (err) {
+    if (entered) throw err;
+    return action(false);
   }
-  return {
-    key: keyFor(slot),
-    shared: false,
-    async liveKeys() {
-      try {
-        const { held = [] } = await locks.query();
-        return new Set(held.filter((l) => l.name?.startsWith(LOCK_PREFIX)).map((l) => keyFor(l.name.slice(LOCK_PREFIX.length))));
-      } catch {
-        // Unknown ownership must not be treated as proof that other tabs closed.
-        return null;
-      }
-    },
-  };
 }
 
 function safeSession() {
