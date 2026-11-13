@@ -14,7 +14,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { serializeDocument, parseDocument, documentData, canCompress, gzip, FileFormatError } from './format.js';
+import { serializeDocument, parseDocument, toBytes, documentData, canCompress, gzip, FileFormatError } from './format.js';
 import { RecoveryStore, recoverableEntries, newerSnapshot } from './recovery.js';
 import { puterBackend, opfsBackend, opfsAvailable } from './backends.js';
 import { relativeTime } from './naming.js';
@@ -51,6 +51,7 @@ export class Autosaver {
     this.fixedStore = store;
     this.storeKey = null;
     this.cached = null;
+    this.recovered = new WeakMap(); // document -> original snapshot and store, until safely superseded
     this.saved = new WeakMap(); // document -> artwork and comment revisions last written
     this.pending = new WeakMap(); // document -> revisions of the write that will replace its copy
     this.watched = new WeakSet(); // documents whose saved event removes their copy
@@ -219,6 +220,7 @@ export class Autosaver {
         this.saved.set(doc, { revision: rev, commentsRevision });
         this.#watchShared(doc);
         this.#unstash(id, sequence);
+        await this.#discardRecoveredSource(doc);
         n++;
       } catch (err) {
         console.warn('Autosave failed', err);
@@ -242,10 +244,24 @@ export class Autosaver {
     });
   }
 
+  async #discardRecoveredSource(doc) {
+    const source = this.recovered.get(doc);
+    if (!source) return;
+    try {
+      // A different app may have replaced the original since we opened it.
+      // Cleanup authorizes only the snapshot this document actually recovered.
+      if (await source.store.remove(source.entry.id, { expected: source.entry }) !== false) this.recovered.delete(doc);
+    } catch {
+      // Keep the source available for cleanup after another backup or discard.
+    }
+  }
+
   /** Forget a document's recovery copy (saved, or closed without saving). */
   async discard(editor) {
     if (!editor) return;
     this.saved.delete(editor.doc);
+    const source = this.recovered.get(editor.doc);
+    if (source) source.discarded = true;
     const id = editor.doc?.recoveryId || editor.recoveryId;
     if (!id) return;
     this.#unstash(id);
@@ -254,6 +270,7 @@ export class Autosaver {
     } catch {
       // Best effort.
     }
+    await this.#discardRecoveredSource(editor.doc);
   }
 
   /** Sessions still running in other tabs of this browser. */
@@ -400,9 +417,10 @@ export class Autosaver {
     const store = this.store;
     const blob = await store.read(entry);
     if (!blob) return null;
-    let doc;
+    let doc, data;
     try {
-      ({ doc } = await parseDocument(blob));
+      data = await toBytes(blob);
+      ({ doc } = await parseDocument(data));
     } catch (err) {
       if (!(err instanceof FileFormatError) || !DAMAGED_CODES.has(err.code)) throw err;
       console.warn('Recovery failed', err);
@@ -419,12 +437,36 @@ export class Autosaver {
     }
     // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
     if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
-    // Decoding and handle lookup can outlive the selected backup. Opening stale
-    // work under its recovery id would let a later Save discard the newer copy.
+    // Decoding and handle lookup can outlive the selected backup. Do not open
+    // work that another writer replaced while these readers were running.
     if (!await store.isCurrent(entry)) throw new Error('The recovery copy changed while opening. Try recovery again.');
+    // Capture the revisions of the bytes we read before editor-opening hooks
+    // can change the document, save it, or close it.
+    const revision = doc.revision, commentsRevision = doc.commentsRevision;
+    const source = { store, entry, discarded: false };
+    // Every recovered document owns its next backup. Other tabs/devices can
+    // recover the same source and then edit, save, or discard independently.
+    doc.recoveryId = uid('r');
+    this.recovered.set(doc, source);
     const editor = this.app.addDocument(doc, { file });
-    editor.recoveryId = doc.recoveryId = entry.id;
+    editor.recoveryId = doc.recoveryId;
     this.app.renderTabs();
+    if (source.discarded) return editor;
+    try {
+      // Preserve the selected bytes under this document's own id before
+      // retiring the source. Even an unchanged recovered document needs its
+      // own backup if another instance saves or discards its recovered copy.
+      await store.put(doc.recoveryId, { name: entry.name, file: entry.file, data,
+        revision, commentsRevision, sequence: ++this.sequence, session: this.session });
+      if (!source.discarded) {
+        this.saved.set(doc, { revision, commentsRevision });
+        this.#watchShared(doc);
+      }
+      await this.#discardRecoveredSource(doc);
+    } catch {
+      // Readable backups remain recoverable when storage cannot accept writes.
+      // The source stays until a later autosave succeeds or this copy is discarded.
+    }
     return editor;
   }
 }

@@ -53,9 +53,9 @@ it.each(['/', '//'])('does not let closing a malformed recovered document %j era
   const malformed = opened.find((ed) => ed.recoveryId === id);
   if (malformed) await saver.discard(malformed);
   const entries = await store.list();
-  expect(entries.map((entry) => entry.id)).toEqual(['valid']);
+  expect(entries.map((entry) => entry.id)).toEqual(opened.map((ed) => ed.recoveryId));
   expect((await parseDocument(await store.read(entries[0]))).doc.root.name).toBe('Keep this artwork');
-  expect(opened.map((ed) => ed.recoveryId)).toEqual(['valid']);
+  expect(opened.map((ed) => ed.doc.root.name)).toEqual(['Keep this artwork']);
 });
 
 it.each(['', '/', '..', '../other', 'nested/id', 'nested\\id', 'bad\u0000id'])('rejects invalid recovery id %j before writing or deleting storage', async (id) => {
