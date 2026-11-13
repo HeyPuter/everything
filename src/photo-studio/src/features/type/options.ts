@@ -6,11 +6,12 @@ import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { rgbHexString, hexRgb } from '../../model/text-layer';
 import { BUNDLED_FONTS, ensureFont, fontFamilies, localizedFamilies, type FontFamilyInfo } from '../../imaging/text/fonts';
-import type { AntiAlias, CharStyle } from '../../imaging/text/model';
-import { applyChar, applyLayer, applyParagraph, focusInput, onSessionChange, restoreInputFocus, session, styleContext, typeDefaults } from './session';
+import type { AntiAlias, CharStyle, TextLayerData } from '../../imaging/text/model';
+import { applyChar, applyLayer, applyParagraph, editLayers, focusInput, onSessionChange, restoreInputFocus, selectedTextLayers, session, styleContext, typeDefaults } from './session';
 import { fontPreviewSize } from './language';
 import { typeUnit } from './units';
 import { whenIdle } from '../../app/lazy';
+import { StyleRequests } from './style-requests';
 
 // ------------------------------------------------------------ fonts
 
@@ -208,13 +209,27 @@ export function bindTypeOptions({ e, el }: ToolOptionsContext) {
   color?.addEventListener('change', () => void applyChar(e, { color: hexRgb(color.value) }).then(restoreInputFocus(e)));
 }
 
+const antiAliasRequests = new StyleRequests<Pick<TextLayerData, 'antiAlias'>>();
+
 export async function setAntiAlias(e: Editor, aa: AntiAlias) {
-  if (!session && !styleContext(e).layers.length) {
+  if (session) {
+    antiAliasRequests.cancel(e.session, session.layerId, ['antiAlias']);
+    await applyLayer(e, 'Change Anti-Aliasing', (d) => ({ ...d, antiAlias: aa }));
+    return;
+  }
+  const layers = selectedTextLayers(e);
+  if (!layers.length) {
     typeDefaults(e).antiAlias = aa;
     syncTypeOptions(e);
     return;
   }
-  await applyLayer(e, 'Change Anti-Aliasing', (d) => ({ ...d, antiAlias: aa }));
+  const request = antiAliasRequests.begin(e.session, layers.map((l) => l.id), { antiAlias: aa });
+  try {
+    await editLayers(e, 'Change Anti-Aliasing', (d, l) => ({ ...d, ...request.patch(l.id) }), undefined, undefined,
+      { rebase: true, isCurrent: request.isCurrent, revision: request.revision });
+  } finally {
+    request.finish();
+  }
 }
 
 // Refreshes control values in place (rebuilding would close open popups).

@@ -147,6 +147,92 @@ async function prepareTwoFonts(page: Page) {
   });
 }
 
+for (const editing of [false, true]) for (const aa of ['sharp', 'smooth']) test(`the latest anti-aliasing choice ${aa} survives a pending multi-layer change while ${editing ? 'editing' : 'selected'}`, async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  await page.locator('#type-aa').selectOption('none');
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate(async ({ first, editing }) => {
+    const e = window.photoStudio;
+    e.selectLayers([first]);
+    if (editing) await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, first, 'end');
+  }, { first, editing });
+  // The menu command can explicitly choose the existing value again.
+  if (aa === 'smooth') await run(page, 'type.aa-smooth');
+  else await page.locator('#type-aa').selectOption(aa);
+  const values = () => page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => l.textData!.antiAlias));
+  await expect.poll(async () => (await values())[0]).toBe(aa);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await idle(page);
+  expect(await values()).toEqual([aa, 'none']);
+  await run(page, 'edit.undo');
+  expect(await values()).toEqual([aa, 'smooth']);
+  await run(page, 'edit.redo');
+  expect(await values()).toEqual([aa, 'none']);
+  if (editing) {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText('X');
+    await run(page, 'type.commit');
+    expect(await page.evaluate((first) => {
+      const l = window.photoStudio.doc.layers.find((l) => l.id === first)!;
+      return { text: l.text, antiAlias: l.textData!.antiAlias };
+    }, first)).toEqual({ text: 'OriginalX', antiAlias: aa });
+  }
+});
+
+test('anti-aliasing choices in another document do not supersede matching layer IDs', async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  await page.locator('#type-aa').selectOption('none');
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  const other = await page.evaluate(() => window.photoStudio.sessions[0].id);
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate((first) => window.photoStudio.selectLayers([first]), first);
+  await page.locator('#type-aa').selectOption('sharp');
+  await expect.poll(() => page.evaluate(() => window.photoStudio.layer!.textData!.antiAlias)).toBe('sharp');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.sessions.map((s) => s.doc.layers.filter((l) => l.kind === 'text').map((l) => l.textData!.antiAlias)))).toEqual([['sharp'], ['none', 'none']]);
+});
+
+test('repeated pending anti-aliasing changes commit only the latest choice', async ({ page }) => {
+  await prepareTwoFonts(page);
+  await page.locator('#type-aa').selectOption('none');
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.locator('#type-aa').selectOption('sharp');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await idle(page);
+  const values = () => page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => l.textData!.antiAlias));
+  expect(await values()).toEqual(['sharp', 'sharp']);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.filter((label) => label === 'Change Anti-Aliasing'))).toHaveLength(1);
+  await run(page, 'edit.undo');
+  expect(await values()).toEqual(['smooth', 'smooth']);
+  await run(page, 'edit.redo');
+  expect(await values()).toEqual(['sharp', 'sharp']);
+});
+
 for (const ending of ['committed', 'live']) test(`delayed anti-aliasing preserves newer ${ending} text`, async ({ page }) => {
   const first = await prepareTwoFonts(page);
   await page.locator('#type-aa').selectOption('none');
