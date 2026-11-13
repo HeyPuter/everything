@@ -200,15 +200,23 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
   const lab = h('label.num-label', { for: id }, iconName ? icon(iconName, 14) : label);
   if (iconName) lab.setAttribute('data-tip', label);
   // Scrub: drag horizontally on the label.
+  let scrubPointer = null;
   lab.addEventListener('pointerdown', (e) => {
-    if (!Number.isFinite(current)) return;
+    if (e.button !== 0 || scrubPointer !== null || !Number.isFinite(current)) return;
     e.preventDefault();
-    lab.setPointerCapture(e.pointerId);
+    try {
+      lab.setPointerCapture?.(e.pointerId);
+    } catch {
+      // An already-ended pointer must not leave a scrub listening.
+      return;
+    }
+    scrubPointer = e.pointerId;
     const x0 = e.clientX;
     const v0 = current;
     const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
     let moved = false;
     const move = (ev) => {
+      if (ev.pointerId !== scrubPointer) return;
       const dx = ev.clientX - x0;
       if (Math.abs(dx) > 2) moved = true;
       if (!moved) return;
@@ -217,17 +225,21 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       current = v;
       onCommit?.(v, { live: true });
     };
-    // A cancelled pointer (the browser taking a touch for scrolling) ends the scrub too:
-    // left listening, the next mouse pass over the label went on changing the value.
+    // Cancellation or lost capture ends the scrub too; later hovering must
+    // not keep changing the value, and another pointer cannot end this scrub.
     const up = (ev) => {
+      if (ev.pointerId !== scrubPointer) return;
+      scrubPointer = null;
       lab.removeEventListener('pointermove', move);
       lab.removeEventListener('pointerup', up);
       lab.removeEventListener('pointercancel', up);
+      lab.removeEventListener('lostpointercapture', up);
       if (!moved && ev.type === 'pointerup') input.focus();
     };
     lab.addEventListener('pointermove', move);
     lab.addEventListener('pointerup', up);
     lab.addEventListener('pointercancel', up);
+    lab.addEventListener('lostpointercapture', up);
   });
   set(value);
   const el = h('div.num-field', lab, input);
