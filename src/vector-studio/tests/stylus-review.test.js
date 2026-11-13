@@ -312,3 +312,49 @@ describe('Artboards panel rows and a pen', () => {
     expect(css).toMatch(/\.ab-list\.pen-direct \.ab-row \{\s*touch-action: none;/);
   });
 });
+
+describe('Swatches panel drags', () => {
+  function setup() {
+    app.newDocument();
+    app.openPanel('swatches');
+    const panel = app.dock.panels.get('swatches');
+    panel.ensureBuilt?.();
+    panel.update?.();
+    const items = () => [...panel.el.querySelectorAll('.sw-list .sw-item')].filter((e) => e.dataset.id !== '__none');
+    const order = () => (app.editor.doc.root.swatches || []).map((s) => s.id).join(',');
+    return { panel, items, order };
+  }
+  const fire = (el, type, x, extra = {}) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, buttons: 1, pointerId: 4, pointerType: 'touch', clientX: x, clientY: 10, ...extra }));
+
+  it('a swipe the browser takes over to scroll the list moves no swatch', () => {
+    const { items, order } = setup();
+    const before = order();
+    const [a, , c] = items();
+    const elementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => c;
+    try {
+      fire(a, 'pointerdown', 0);
+      fire(a, 'pointermove', 40);
+      fire(a, 'pointercancel', 0);
+    } finally {
+      document.elementFromPoint = elementFromPoint;
+    }
+    expect(order()).toBe(before);
+  });
+
+  it('a mouse drag still moves the swatch', () => {
+    const { items, order, panel } = setup();
+    const before = order();
+    const [a, , c] = items();
+    const elementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => c;
+    try {
+      fire(a, 'pointerdown', 0, { pointerType: 'mouse' });
+      fire(a, 'pointermove', 40, { pointerType: 'mouse' });
+      fire(a, 'pointerup', 40, { pointerType: 'mouse', buttons: 0 });
+    } finally {
+      document.elementFromPoint = elementFromPoint;
+    }
+    expect(order()).not.toBe(before);
+  });
+});

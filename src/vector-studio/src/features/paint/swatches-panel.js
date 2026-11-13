@@ -691,13 +691,15 @@ export class SwatchesPanel extends Panel {
         target = under && this.list.contains(under) && under.dataset.id !== '__none' ? under : null;
         if (target) target.classList.add(target.dataset.group ? 'drop-into' : 'drop-before');
       };
-      const up = () => {
+      const up = (ev) => {
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
         el.removeEventListener('pointercancel', up);
         this.list.classList.remove('dragging');
         if (!dragging) return;
         this.list.querySelectorAll('.drop-before, .drop-into').forEach((n) => n.classList.remove('drop-before', 'drop-into'));
+        // A press the browser took over (a finger scrolling the list) moves nothing.
+        if (ev?.type === 'pointercancel') return;
         const doc = this.app.editor?.doc;
         if (!doc || !target) return;
         const ids = [...this.selected].filter((s) => findSwatch(doc, s));
