@@ -183,7 +183,8 @@ export function parseProject(input) {
       track: Math.round(num(c.track, 0, 0, tracks.length - 1)),
       start: Math.max(0, Math.round(num(c.start, 0))),
       len: Math.max(1, Math.round(num(c.len, 384, 1, 1e8))),
-      offset: Math.max(0, Math.round(num(c.offset, 0))),
+      offset: Math.max(0, c.kind === 'audio' ? num(c.offset, 0) : Math.round(num(c.offset, 0))),
+      ...(c.kind === 'audio' && Number.isFinite(c.audioOffset) && c.audioOffset >= 0 ? { audioOffset: Math.min(c.audioOffset, Math.max(0, num(c.offset, 0))) } : {}),
       ref: c.ref,
       mute: bool(c.mute),
     }));

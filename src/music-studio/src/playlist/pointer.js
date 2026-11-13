@@ -75,7 +75,7 @@ export function installPointer(V, el) {
         const g = V.grid(ev);
         const raw = p2.tick - pt.tick;
         const ns = g ? snapRound(clip.start + raw, g) : Math.round(clip.start + raw);
-        const r = store.preview((p) => C.moveClips(p, ids, ns - clip.start, p2.track - pt.track, { duplicate: dup }));
+        const r = store.preview((p) => C.moveClips(p, ids, ns - clip.start, p2.track - pt.track, { duplicate: dup, sampleInfo: (id) => app.samples.get(id) }));
         if (r?.ids) V.setSelection(r.ids);
         app.hint(dup ? 'Duplicating: release to drop the copies. Escape cancels.' : 'Moving: hold Alt to move freely, Shift at the start of a drag duplicates. Escape cancels.');
       },
@@ -104,7 +104,7 @@ export function installPointer(V, el) {
         const at = edge === 'right' ? clip.start + clip.len : clip.start;
         const raw = at + p2.tick - pt.tick;
         const ne = g ? snapRound(raw, g) : Math.round(raw);
-        store.preview((p) => C.resizeClips(p, ids, edge, ne - at, { minLen: g || 1 }));
+        store.preview((p) => C.resizeClips(p, ids, edge, ne - at, { minLen: g || 1, sampleInfo: (id) => app.samples.get(id) }));
       },
       up() {
         store.commit();

@@ -23,10 +23,10 @@
 //   audio (indices of audio events), auto (automation lanes), tempo (tempo
 //   map pieces, engine/tempo.js: song mode follows tempo automation clips,
 //   pattern mode always plays at project.bpm) } where notes is
-//   a struct of typed arrays sorted by start: start, end (ticks), slot, key,
+//   a struct of typed arrays sorted by start: start, sourceStart (audio anchor), end (ticks), slot, key,
 //   vel, pan, kind (0 note, 1 audio clip), offset (audio: seconds into the
-//   sample; under a tempo map, the time from the clip's virtual start
-//   (start - offset ticks) to its start). Swing delays odd sixteenths by up to half a step (swing 1) and
+//   sample at sourceStart; under a tempo map, the time from the clip's virtual
+//   start (start - offset ticks) to its source anchor). Swing delays odd sixteenths by up to half a step (swing 1) and
 //   is applied in pattern time; note ends are warped too so back-to-back
 //   steps never overlap. Notes are cut at the end of the loop range so every
 //   note gets its note-off before playback wraps.
@@ -297,8 +297,9 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
         let end = ce;
         if (cut && cs < r.end && end > r.end) end = r.end;
         const off = c.offset || 0;
-        const offset = map ? map.seconds(cs) - map.seconds(cs - off) : ticksToSeconds(off, project.bpm);
-        ev.push({ start: cs, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset, origin: c.id ? `audio:${c.id}` : null });
+        const sourceStart = cs - off + (c.audioOffset ?? off);
+        const offset = map ? map.seconds(sourceStart) - map.seconds(cs - off) : ticksToSeconds(c.audioOffset ?? off, project.bpm);
+        ev.push({ start: cs, sourceStart, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset, origin: c.id ? `audio:${c.id}` : null });
       }
     }
   }
@@ -308,6 +309,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
   const notes = {
     count: n,
     start: new Float64Array(n),
+    sourceStart: new Float64Array(n),
     end: new Float64Array(n),
     slot: new Int32Array(n),
     key: new Uint8Array(n),
@@ -320,6 +322,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
   const audio = [];
   ev.forEach((e, i) => {
     notes.start[i] = e.start;
+    notes.sourceStart[i] = e.sourceStart ?? e.start;
     notes.end[i] = e.end;
     notes.slot[i] = e.slot;
     notes.key[i] = e.key;

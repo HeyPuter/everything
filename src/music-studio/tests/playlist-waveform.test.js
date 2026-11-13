@@ -8,7 +8,7 @@ import { compileChannel, compileMixer, compileSequence } from '../src/engine/com
 import { Viewport } from '../src/render/timeline.js';
 import { drawCanvas, colors, resetColors } from '../src/playlist/render.js';
 import { trackLayout } from '../src/playlist/geometry.js';
-import { clipsByTrack } from '../src/playlist/clips.js';
+import { clipsByTrack, resizeClips, sliceClips } from '../src/playlist/clips.js';
 import { mix } from '../src/render/gfx.js';
 import { parseColor } from '../src/ui/theme.js';
 
@@ -193,4 +193,17 @@ it('preserves the unpitched waveform when pitch controls cancel each other', () 
   const balanced = { ...s, ch, p: { ...s.p, masterPitch: -450, channels: [ch] } };
   expect(wave(balanced)).toEqual(normal);
   expect(onsetPeak(balanced, 0.1)).toBeCloseTo(onsetPeak(s, 0.1), 6);
+});
+
+it.each(['trim', 'slice'])('keeps the pitched waveform content in place after %s', (action) => {
+  const s = setup();
+  s.ch.params.tune = 12;
+  const before = wave(s);
+  const id = s.p.clips[0].id;
+  if (action === 'trim') s.p = resizeClips(s.p, [id], 'left', 48);
+  else {
+    const r = sliceClips(s.p, 48);
+    s.p = { ...r.project, clips: r.project.clips.filter((c) => r.ids.includes(c.id)) };
+  }
+  expect(wave(s)).toEqual(before.filter((bar) => bar[0] >= 48));
 });

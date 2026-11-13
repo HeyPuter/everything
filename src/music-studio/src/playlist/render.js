@@ -7,7 +7,6 @@
 import { drawRuler, drawGrid } from '../render/timeline.js';
 import { mix } from '../render/gfx.js';
 import { cssVar, parseColor } from '../ui/theme.js';
-import { ticksToSeconds } from '../model/time.js';
 import { evaluateAutomation } from '../automation/evaluate.js';
 import { tempoMap } from '../engine/compile.js';
 import { sourceColor, sourceName, AUTO_COLOR } from './clips.js';
@@ -338,7 +337,6 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
     return;
   }
   const ppt = V.vp.pxPerTick;
-  const bpm = p.bpm;
   const W = d.w;
   const a = Math.max(0, Math.floor(x0));
   const b = Math.min(W, Math.ceil(x0 + w));
@@ -348,20 +346,19 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const nPeaks = min.length;
   const reverse = chan.params.reverse >= 0.5;
   const playbackRate = audioPlaybackRate(chan.params.tune || 0, chan.pitch || 0, p.masterPitch || 0);
-  // The engine starts at an unpitched source offset, then advances at the
-  // pitched playback rate. Tempo automation determines elapsed seconds.
+  // An edited clip retains the original unpitched source offset and the
+  // elapsed playback before its visible start, including tempo changes.
   const map = tempoMap(p);
-  const s0 = map.constant ? 0 : map.seconds(clip.start - clip.offset);
-  const offset = map.constant ? ticksToSeconds(clip.offset, bpm) : map.seconds(clip.start) - s0;
+  const anchor = clip.start - clip.offset + (clip.audioOffset ?? clip.offset);
+  const anchorSeconds = map.seconds(anchor);
+  const offset = anchorSeconds - map.seconds(clip.start - clip.offset);
+  const secondsPerTick = map.constant ? 60 / (96 * map.B0[0]) : 0;
   for (let x = a; x < b; x++) {
-    const t = clip.offset + (x - x0) / ppt;
     const song = clip.start + (x - x0) / ppt;
-    let from = map.constant ? ticksToSeconds(t, bpm) : map.seconds(song) - s0;
-    let to = map.constant ? ticksToSeconds(t + 1 / ppt, bpm) : map.seconds(song + 1 / ppt) - s0;
-    if (playbackRate !== 1) {
-      from = offset + (from - offset) * playbackRate;
-      to = offset + (to - offset) * playbackRate;
-    }
+    const elapsed = map.constant ? (song - anchor) * secondsPerTick : map.seconds(song) - anchorSeconds;
+    const end = map.constant ? (song + 1 / ppt - anchor) * secondsPerTick : map.seconds(song + 1 / ppt) - anchorSeconds;
+    const from = offset + elapsed * playbackRate;
+    const to = offset + end * playbackRate;
     if (from >= s.duration) break;
     let i0;
     let i1;

@@ -711,7 +711,7 @@ export class Engine extends Emitter {
     if (!this.node && !this._starting) return;
     const seq = compileSequence(p, { mode: this._mode, patternId: this.store.view.pattern, slotOf: this.#slotOf });
     const n = seq.notes;
-    const transfer = [n.start.buffer, n.end.buffer, n.slot.buffer, n.key.buffer, n.vel.buffer, n.pan.buffer, n.kind.buffer, n.offset.buffer, seq.audio.buffer];
+    const transfer = [n.start.buffer, n.sourceStart.buffer, n.end.buffer, n.slot.buffer, n.key.buffer, n.vel.buffer, n.pan.buffer, n.kind.buffer, n.offset.buffer, seq.audio.buffer];
     for (const lane of seq.auto) for (const s of lane.segs) {
       transfer.push(s.pts.buffer);
       if (s.cs) transfer.push(s.cs.buffer);

@@ -2,8 +2,8 @@
 // and waveform drawing. Tuning is in semitones; strip/master pitch in cents.
 // The combined range matches AudioPlayer::render in wasm/engine/src/sampler.rs.
 import { INSTRUMENTS } from '../instruments/catalog.js';
-import { toNorm } from '../lib/params.js';
-import { curveShape } from '../automation/evaluate.js';
+import { toNorm, fromNorm } from '../lib/params.js';
+import { curveShape, automationValue } from '../automation/evaluate.js';
 
 export const AUDIO_TUNE = INSTRUMENTS.audio.params.findIndex((p) => p.id === 'tune');
 export const AUDIO_REVERSE = INSTRUMENTS.audio.params.findIndex((p) => p.id === 'reverse');
@@ -56,4 +56,81 @@ export function integrateAudioRate(rateAt, start, end) {
     return refine(a, mid, left, tolerance / 2, depth - 1) + refine(mid, b, right, tolerance / 2, depth - 1);
   };
   return refine(start, end, gauss(start, end), 1e-7, 16);
+}
+
+/** Source position after following a clip's pitch/direction history from its anchor. */
+export function audioSourceAt({ start, offset, lanes: allLanes = [], tempo, playbackRate, sampleInfo }, tick) {
+  const backwards = tick < start;
+  const lo = Math.min(start, tick), hi = Math.max(start, tick);
+  const lanes = allLanes.filter((l) => l.segs.some((s) => s.start < hi && s.end > lo));
+  const baseRate = playbackRate();
+  if (!lanes.length) return offset + tempo.duration(start, tick) * baseRate;
+  let active = [];
+  const valuesAt = (at) => {
+    const values = {};
+    for (const { lane, seg } of active) {
+      const field = lane.target.kind === 'strip' ? 'pitch' : lane.target.index === AUDIO_REVERSE ? 'reverse' : 'tune';
+      values[field] = fromNorm(lane.def, automationValue(seg.pts, at, seg.cs));
+    }
+    return values;
+  };
+  const rateAt = (seconds) => playbackRate(valuesAt(tempo.ticks(seconds)));
+  const changesDirection = lanes.some((l) => l.target.kind === 'param' && l.target.index === AUDIO_REVERSE) && typeof sampleInfo === 'function';
+  const sample = changesDirection ? sampleInfo() : null;
+  if (changesDirection && !sample) return null;
+  let position = 0;
+  if (sample) {
+    for (const lane of lanes) {
+      const seg = lane.segs.find((s) => s.start <= start && start < s.end);
+      if (seg) active.push({ lane, seg });
+    }
+    const reverse = (valuesAt(start).reverse ?? Number(sample.reverse)) >= 0.5;
+    position = reverse ? sample.last - offset : offset;
+    if (!backwards && (position < 0 || position >= sample.duration)) return null;
+  }
+  const cuts = new Set([start, tick]);
+  const cut = (t) => { if (t > lo && t < hi) cuts.add(t); };
+  for (const lane of lanes) for (const seg of lane.segs) {
+    cut(seg.start); cut(seg.end);
+    for (let j = 0; j < seg.pts.length; j += 2) cut(seg.pts[j]);
+    audioStepCuts(lane.def, seg, Math.max(lo, seg.start), Math.min(hi, seg.end), cut);
+  }
+  for (const t of tempo.T) cut(t);
+  const ticks = [...cuts].sort((a, b) => a - b);
+  const times = ticks.map((t) => tempo.seconds(t));
+  const cursors = lanes.map((lane) => ({ lane, next: 0 }));
+  const history = backwards && sample ? [] : null;
+  let distance = offset;
+  for (let j = 1; j < times.length; j++) {
+    const mid = (ticks[j - 1] + ticks[j]) / 2;
+    active = [];
+    for (const cursor of cursors) {
+      const { lane } = cursor;
+      while (cursor.next < lane.segs.length && lane.segs[cursor.next].end <= mid) cursor.next++;
+      const seg = lane.segs[cursor.next];
+      if (seg && seg.start <= mid) active.push({ lane, seg });
+    }
+    const travel = active.length ? integrateAudioRate(rateAt, times[j - 1], times[j]) : (times[j] - times[j - 1]) * baseRate;
+    if (sample) {
+      const reverse = (valuesAt(mid).reverse ?? Number(sample.reverse)) >= 0.5;
+      const delta = reverse ? -travel : travel;
+      if (backwards) history.push(delta);
+      else {
+        position += delta;
+        // An exhausted voice cannot restart after a later direction change.
+        if (position < 0 || position >= sample.duration) return null;
+      }
+    } else distance += backwards ? -travel : travel;
+  }
+  if (history) {
+    let inside = position >= 0 && position < sample.duration;
+    for (let j = history.length - 1; j >= 0; j--) {
+      position -= history[j];
+      const valid = position >= 0 && position < sample.duration;
+      if (inside && !valid) return null;
+      inside ||= valid;
+    }
+    if (position < 0 || position >= sample.duration) return null;
+  }
+  return sample ? { position } : distance;
 }

@@ -5,7 +5,9 @@ import { Core, BLOCK } from '../src/engine/core.js';
 import { Sequencer } from '../src/engine/sequencer.js';
 import { compileChannel, compileMixer, compileSequence } from '../src/engine/compile.js';
 import { createChannel, createClip, createProject } from '../src/model/project.js';
+import { parseProject, serializeProject } from '../src/model/serialize.js';
 import { curveShape } from '../src/automation/evaluate.js';
+import { resizeClips, sliceClips, moveClips, copyClips, pasteClips, makeUnique } from '../src/playlist/clips.js';
 
 const RATE = 48000;
 const module = new WebAssembly.Module(fs.readFileSync(path.resolve(import.meta.dirname, '../src/engine/engine.wasm')));
@@ -18,6 +20,7 @@ function setup({ tune = 12, pitch = 0, master = 0, reverse = 0, offset = 0, mute
   const ch = createChannel({ type: 'audio', sample: 's', params: { tune, reverse }, mixer: 1 });
   ch.pitch = pitch;
   p.channels = [ch];
+  p.samples = { s: { id: 's', duration: 1, rate: RATE, channels: 1 } };
   p.clips = [{ ...createClip({ kind: 'audio', ref: ch.id, start: 0, len: 384, offset }), mute }];
   if (tempo) {
     p.automation = { tempo: { id: 'tempo', target: { kind: 'tempo' }, points: [{ t: 0, v: (60 - 20) / 280 }] } };
@@ -312,4 +315,150 @@ it.each(['loop', 'count-in'])('resumes pitched audio correctly after %s', (mode)
   }
   render(s.seq, 0.02);
   expect(render(s.seq, 0.04)).toBeCloseTo(expected, 4);
+});
+
+for (const action of ['trim', 'slice']) {
+  it.each([
+    ['raised pitch', { tune: 12 }, 48],
+    ['lowered pitch', { tune: -12 }, 120],
+    ['reversed raised pitch', { tune: 12, reverse: 1 }, 48],
+    ['source offset', { tune: 12, offset: 48 }, 24],
+    ['automated tuning', { tune: 0, automatedTune: 12 }, 48],
+    ['tempo automation', { tune: 12, tempo: true }, 24],
+    ['reverse automation', { tune: 0, offset: 24, reverseAutomation: { start: 24 } }, 48],
+    ['unchanged pitch', { tune: 0 }, 48],
+  ])(`${action} preserves the remaining audio with %s`, (_name, options, tick) => {
+    const original = setup(options);
+    original.seq.play(0);
+    render(original.seq, original.seq.tempo.duration(0, tick) + 0.02);
+    const expected = render(original.seq, 0.04);
+    const edited = setup(options);
+    const clip = edited.p.clips.find((c) => c.kind === 'audio');
+    const project = action === 'trim'
+      ? resizeClips(edited.p, [clip.id], 'left', tick)
+      : sliceClips(edited.p, tick, (c) => c.id === clip.id).project;
+    edited.seq.setSequence(edited.compile(project));
+    edited.seq.play(0);
+    render(edited.seq, edited.seq.tempo.duration(0, tick) + 0.02);
+    expect(render(edited.seq, 0.04)).toBeCloseTo(expected, 4);
+  });
+}
+
+it.each([
+  ['raised pitch boundary', { tune: 12, offset: 96 }, 96, -96, 48],
+  ['lowered pitch boundary', { tune: -12, offset: 48 }, 192, -192, 96],
+  ['partial extension', { tune: 12, offset: 96 }, 96, -24, 72],
+  ['reversed boundary', { tune: 12, reverse: 1, offset: 96 }, 96, -96, 48],
+  ['automated tuning', { tune: 0, automatedTune: 12, offset: 96 }, 96, -96, 48],
+  ['reverse history', { tune: 0, offset: 96, reverseAutomation: { start: 72 } }, 96, -48, 48],
+  ['tempo map', { tune: 12, offset: 48, tempo: true }, 96, -96, 72],
+])('extends audio left without moving its remaining content: %s', (_name, options, start, delta, expectedStart) => {
+  const original = setup(options);
+  original.p.clips[0].start = start;
+  original.seq.setSequence(original.compile(original.p));
+  original.seq.play(0);
+  render(original.seq, original.seq.tempo.duration(0, start) + 0.02);
+  const expected = render(original.seq, 0.04);
+  const edited = setup(options);
+  edited.p.clips[0].start = start;
+  const project = resizeClips(edited.p, [edited.p.clips[0].id], 'left', delta);
+  expect(project.clips[0].start).toBe(expectedStart);
+  edited.seq.setSequence(edited.compile(project));
+  edited.seq.play(0);
+  render(edited.seq, edited.seq.tempo.duration(0, start) + 0.02);
+  expect(render(edited.seq, 0.04)).toBeCloseTo(expected, 3);
+});
+
+it.each(['move', 'duplicate', 'paste', 'make unique'])('preserves cropped source content when %s leaves earlier pitch automation', (action) => {
+  const s = setup({ tune: 0, automatedTune: 12 });
+  s.p.clips.find((c) => c.kind === 'auto').len = 48;
+  const clip = s.p.clips[0];
+  const cropped = resizeClips(s.p, [clip.id], 'left', 48);
+  s.seq.setSequence(s.compile(cropped));
+  s.seq.play(48);
+  render(s.seq, 0.02);
+  const expected = render(s.seq, 0.04);
+  const unique = action === 'make unique';
+  const changed = unique ? { ...makeUnique(cropped, clip.id), ids: [clip.id] } : action === 'paste'
+    ? pasteClips(cropped, copyClips(cropped, [clip.id]), 192, 0)
+    : moveClips(cropped, [clip.id], 144, 0, { duplicate: action === 'duplicate' });
+  const audible = { ...changed.project, clips: changed.project.clips.filter((c) => c.kind !== 'audio' || changed.ids.includes(c.id)) };
+  const moved = setup({ tune: 0 });
+  moved.p.channels = s.p.channels;
+  moved.seq.setSequence(unique ? compileSequence(audible, { mode: 'song', slotOf: (id) => id === changed.id ? 0 : -1 }) : s.compile(audible));
+  moved.seq.play(unique ? 48 : 192);
+  render(moved.seq, 0.02);
+  expect(render(moved.seq, 0.04)).toBeCloseTo(expected, 4);
+});
+
+it('preserves fractional source offsets and trimmed anchors through save and reload', () => {
+  const s = setup({ tune: 0, pitch: 750, offset: 96 });
+  s.p.clips[0].start = 96;
+  let p = resizeClips(s.p, [s.p.clips[0].id], 'left', -24);
+  expect(Number.isInteger(p.clips[0].offset)).toBe(false);
+  p = resizeClips(p, [p.clips[0].id], 'left', 12);
+  const loaded = parseProject(serializeProject(p));
+  expect(loaded.clips[0].offset).toBe(p.clips[0].offset);
+  expect(loaded.clips[0].audioOffset).toBe(p.clips[0].audioOffset);
+  const expected = setup({ tune: 0, pitch: 750, offset: 96 });
+  expected.p.clips[0].start = 96;
+  expected.seq.setSequence(expected.compile(expected.p));
+  expected.seq.play(96);
+  render(expected.seq, 0.02);
+  const peak = render(expected.seq, 0.04);
+  s.seq.setSequence(s.compile(loaded));
+  s.seq.play(96);
+  render(s.seq, 0.02);
+  expect(render(s.seq, 0.04)).toBeCloseTo(peak, 4);
+});
+
+it.each(['trim', 'slice'])('does not revive exhausted source history after %s', (action) => {
+  const s = setup({ tune: 0, reverseAutomation: { start: 240 } });
+  const id = s.p.clips[0].id;
+  const p = action === 'trim' ? resizeClips(s.p, [id], 'left', 336) : sliceClips(s.p, 336, (c) => c.id === id).project;
+  s.seq.setSequence(s.compile(p));
+  s.seq.play(336);
+  expect(render(s.seq, 0.04)).toBe(0);
+});
+
+it('keeps an original anchor across repeated trims, slices and leftward restoration', () => {
+  const s = setup({ tune: 12 });
+  let p = resizeClips(s.p, [s.p.clips[0].id], 'left', 24);
+  const split = sliceClips(p, 36, (c) => c.kind === 'audio');
+  p = resizeClips(split.project, split.ids, 'left', 12);
+  p = resizeClips(p, split.ids, 'left', -24);
+  p = { ...p, clips: p.clips.filter((c) => split.ids.includes(c.id)) };
+  expect(p.clips[0]).toMatchObject({ start: 24, offset: 24, audioOffset: 0 });
+  const continuous = setup({ tune: 12 });
+  continuous.seq.play(0);
+  render(continuous.seq, 24 / 192 + 0.02);
+  const peak = render(continuous.seq, 0.04);
+  s.seq.setSequence(s.compile(p));
+  s.seq.play(24);
+  render(s.seq, 0.02);
+  expect(render(s.seq, 0.04)).toBeCloseTo(peak, 4);
+});
+
+it('starts uncropped audio without scanning its future automation history', () => {
+  const s = setup({ tune: 0 });
+  const count = 100;
+  s.p.automation.a = { id: 'a', target: { kind: 'channel', id: s.ch.id, param: 'tune' }, points: [{ t: 0, v: 0.75 }] };
+  s.p.clips = [
+    ...Array.from({ length: count }, () => createClip({ kind: 'audio', ref: s.ch.id, len: 384 })),
+    ...Array.from({ length: count }, (_, i) => createClip({ kind: 'auto', ref: 'a', start: 4800 + i * 4, len: 4 })),
+  ];
+  const compiled = s.compile(s.p);
+  let reads = 0;
+  for (const seg of compiled.auto[0].segs) for (const field of ['start', 'end']) {
+    const value = seg[field];
+    Object.defineProperty(seg, field, { get() { reads++; return value; } });
+  }
+  s.seq.setSequence(compiled);
+  const on = vi.spyOn(s.core, 'audioOn');
+  reads = 0;
+  s.seq.play(0);
+  s.seq.block(BLOCK);
+  expect(on).toHaveBeenCalledTimes(count);
+  expect(on.mock.calls.every((call) => call[2] === 0)).toBe(true);
+  expect(reads).toBeLessThanOrEqual(count * 10);
 });

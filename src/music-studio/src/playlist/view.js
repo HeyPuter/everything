@@ -385,7 +385,7 @@ export function createPlaylistView(app, host) {
   V.renameSource = (src) => M.renameSource(V, src);
 
   V.makeUnique = (clipId) => {
-    const r = store.apply('Make unique', (p) => C.makeUnique(p, clipId));
+    const r = store.apply('Make unique', (p) => C.makeUnique(p, clipId, { sampleInfo: (id) => app.samples.get(id) }));
     if (!r?.id) return;
     const clip = store.project.clips.find((c) => c.id === clipId);
     V.setSource(C.sourceOf(clip));
@@ -836,7 +836,7 @@ export function createPlaylistView(app, host) {
         if (e.shiftKey && dx) {
           store.apply('Resize clips', (q) => C.resizeClips(q, ids, 'right', dx * g, { minLen: g }));
         } else if (!e.shiftKey) {
-          store.apply('Move clips', (q) => C.moveClips(q, ids, dx * g, dy));
+          store.apply('Move clips', (q) => C.moveClips(q, ids, dx * g, dy, { sampleInfo: (id) => app.samples.get(id) }));
         }
         const first = C.timeOrder(store.project.clips.filter((c) => V.selection.has(c.id)))[0];
         if (first) {
@@ -1118,13 +1118,13 @@ export function createPlaylistView(app, host) {
   };
   V.actions = {
     copy() {
-      const board = C.copyClips(store.project, [...V.selection]);
+      const board = C.copyClips(store.project, [...V.selection], { sampleInfo: (id) => app.samples.get(id) });
       if (!board) return;
       clipboard = board;
       app.notify(`Copied ${board.clips.length} clip${board.clips.length === 1 ? '' : 's'}`);
     },
     cut() {
-      const board = C.copyClips(store.project, [...V.selection]);
+      const board = C.copyClips(store.project, [...V.selection], { sampleInfo: (id) => app.samples.get(id) });
       if (!board) return;
       clipboard = board;
       store.apply('Cut clips', (p) => E.removeClips(p, [...V.selection]));
@@ -1161,7 +1161,7 @@ export function createPlaylistView(app, host) {
     duplicate() {
       const ids = [...V.selection];
       if (!ids.length) return;
-      const r = store.apply('Duplicate clips', (p) => C.duplicateClips(p, ids));
+      const r = store.apply('Duplicate clips', (p) => C.duplicateClips(p, ids, { sampleInfo: (id) => app.samples.get(id) }));
       V.selectClips(r.ids, { announce: false, reveal: true });
       announce(`Duplicated ${r.ids.length} clip${r.ids.length === 1 ? '' : 's'}`);
     },
