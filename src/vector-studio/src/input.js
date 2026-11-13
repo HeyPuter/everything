@@ -327,6 +327,7 @@ export class CanvasInput {
       return;
     }
     if (this.pan) {
+      if (this.pan.id !== e.pointerId) return;
       const v = this.editor.view;
       v.set({ panX: this.pan.panX + e.clientX - this.pan.x, panY: this.pan.panY + e.clientY - this.pan.y });
       this.editor.viewChanged();
@@ -370,6 +371,7 @@ export class CanvasInput {
       return;
     }
     if (this.pan) {
+      if (this.pan.id !== e.pointerId) return;
       this.pan = null;
       this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
       this.#applyPendingTempTool();
@@ -431,7 +433,10 @@ export class CanvasInput {
       this.#endPress(this.active.tool);
       this.active = null;
     }
-    this.pan = null;
+    if (this.pan?.id === e.pointerId) {
+      this.pan = null;
+      this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
+    }
     if (this.pointers.size < 2) this.gesture = null;
     this.#applyPendingTempTool();
   }
@@ -444,7 +449,7 @@ export class CanvasInput {
    * pointerup or pointercancel nothing is active and this does nothing.
    */
   lostCapture(e) {
-    if (this.pan && !this.active && this.pointers.has(e.pointerId)) {
+    if (this.pan?.id === e.pointerId && !this.active) {
       this.pointers.delete(e.pointerId);
       this.pan = null;
       this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
@@ -481,7 +486,7 @@ export class CanvasInput {
 
   startPan(e) {
     const v = this.editor.view;
-    this.pan = { x: e.clientX, y: e.clientY, panX: v.panX, panY: v.panY };
+    this.pan = { id: e.pointerId, x: e.clientX, y: e.clientY, panX: v.panX, panY: v.panY };
     this.app.setCanvasCursor('grabbing');
   }
 
