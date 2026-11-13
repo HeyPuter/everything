@@ -123,8 +123,11 @@ export class App extends Emitter {
     const before = this.store.project;
     if (this.store.dirty && !(await confirmDialog({ title: 'New project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true }))) return false;
     if (this.store.project !== before) return false;
+    const project = make();
     this.engine.stop();
-    this.store.load(make());
+    const keep = new Set(Object.keys(project.samples || {}));
+    for (const id of this.samples.ids()) if (!keep.has(id)) this.samples.delete(id);
+    this.store.load(project);
     this.file = null;
     this.emit('file');
     return true;
