@@ -192,7 +192,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
 
   window.addEventListener('beforeunload', (e) => {
     if (!store.dirty) return;
-    const unsaved = !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
+    const unsaved = Boolean(store.gesture && store.project !== store.gesture.start) || !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
     autosave.flushAll();
     if (unsaved) {
       e.preventDefault();

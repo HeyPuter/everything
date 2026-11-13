@@ -16,6 +16,8 @@ import { createProject, patternById } from './project.js';
 const LIMIT = 300;
 
 export class Store extends Emitter {
+  #dirty = false;
+
   constructor(project = createProject()) {
     super();
     this.project = project;
@@ -29,6 +31,15 @@ export class Store extends Emitter {
       channel: project.channels[0]?.id ?? null, // the channel the piano roll edits
       selectedChannels: new Set(project.channels[0] ? [project.channels[0].id] : []),
     };
+  }
+
+  /** A changed preview is unsaved too; cancelling it restores the committed state. */
+  get dirty() {
+    return this.#dirty || Boolean(this.gesture && this.project !== this.gesture.start);
+  }
+
+  set dirty(value) {
+    this.#dirty = Boolean(value);
   }
 
   /** Replaces the whole document (open, new) and clears the history. */
