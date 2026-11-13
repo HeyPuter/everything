@@ -263,9 +263,12 @@ pub fn design(proto: &Proto, mode: Mode, chebyshev_even_ripple: Option<f64>, rat
             (k.atan() * rate as f64 / std::f64::consts::PI) as f32
         }
     };
+    // Measured as Cascade runs the sections: one whose poles sit very close
+    // to DC (a 10 Hz edge at 192 kHz) runs with its double-precision
+    // coefficients, and its f32 ones would misread the gain by several dB.
     let mut g = 1.0f64;
     for c in &out[..n] {
-        g *= c.magnitude(fref, rate) as f64;
+        g *= super::section_magnitude(c, fref, rate) as f64;
     }
     let target = match chebyshev_even_ripple {
         Some(r) => 1.0 / (10f64.powf(r / 10.0)).sqrt(),

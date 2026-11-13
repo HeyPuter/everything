@@ -54,6 +54,20 @@ describe('filter response curves match the processors', () => {
     }
     expect(def.latency(values, RATE)).toBe(4096);
   });
+
+  it('scientificFilter keeps a 0 dB passband with band edges near DC at 192 kHz', async () => {
+    const d = await dsp();
+    const def = getEffect('scientificFilter');
+    const rate = 192000;
+    const values = { ...defaults(def), mode: 3, order: 8, cutoff: 10, highCutoff: 200 };
+    for (const f of [2000, 20000]) {
+      const x = new Float32Array(rate);
+      for (let i = 0; i < rate; i++) x[i] = 0.25 * Math.sin((2 * Math.PI * f * i) / rate);
+      const [y] = d.runEffect(def.kind, rate, [x], paramArray(def, values));
+      const db = 20 * Math.log10(rms(y.subarray(rate / 2)) / rms(x.subarray(rate / 2)));
+      expect(Math.abs(db), `${f} Hz`).toBeLessThan(0.1);
+    }
+  });
 });
 
 describe('filter definitions', () => {
