@@ -252,12 +252,19 @@ export function createFxPanel(ctx) {
       grip.removeEventListener('pointercancel', interrupted);
       grip.removeEventListener('lostpointercapture', interrupted);
       window.removeEventListener('blur', cancel);
+      document.removeEventListener('keydown', onKey, true);
       api.el.classList.remove('dragging');
       marker.remove();
       try { grip.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
       if (apply && valid && to !== from) ctl.moveEffect(index, slotId, to);
     };
     const cancel = () => finish(false);
+    const onKey = (ev) => {
+      if (ev.key !== 'Escape' || ev.isComposing) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancel();
+    };
     const up = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
     const interrupted = (ev) => { if (ev.pointerId === e.pointerId) cancel(); };
     const offChange = app.store.on('change', (p, prev, meta) => {
@@ -269,6 +276,7 @@ export function createFxPanel(ctx) {
     grip.addEventListener('pointercancel', interrupted);
     grip.addEventListener('lostpointercapture', interrupted);
     window.addEventListener('blur', cancel);
+    document.addEventListener('keydown', onKey, true);
   }
 
   // ---------------------------------------------------------------- routing

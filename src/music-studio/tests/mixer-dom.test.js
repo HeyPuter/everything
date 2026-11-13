@@ -420,6 +420,37 @@ describe('mixer panel', () => {
     expect(store.project).toBe(before);
   });
 
+  it.each(['grip', 'text field'])('cancels an effect reorder with Escape while focus is on the %s', (target) => {
+    const { store } = env;
+    const before = store.project;
+    const history = store.undoStack.length;
+    const { pointer, row, grip } = effectDrag();
+    let focused = grip;
+    if (target === 'text field') {
+      focused = document.createElement('input');
+      document.body.append(focused);
+    }
+    focused.focus();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    focused.dispatchEvent(escape);
+    expect(row.classList.contains('dragging')).toBe(false);
+    expect(document.querySelector('.mx-drop-line')).toBeNull();
+    expect(escape.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(focused);
+    pointer('pointermove');
+    pointer('pointerup');
+    expect(store.project).toBe(before);
+    expect(store.undoStack).toHaveLength(history);
+    const nextEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    focused.dispatchEvent(nextEscape);
+    expect(nextEscape.defaultPrevented).toBe(false);
+    const fresh = effectDrag();
+    fresh.pointer('pointerup');
+    expect(store.project.mixer[6].fx.map((s) => s.type)).toEqual(['reverb', 'delay']);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
   it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('ignores a competing effect-reorder pointer and its %s', (end) => {
     const { store } = env;
     const before = store.project;
