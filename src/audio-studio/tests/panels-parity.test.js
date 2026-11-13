@@ -578,3 +578,29 @@ describe('Playlist panel focus', () => {
     expect(document.activeElement).toBe(row('e-m2'));
   });
 });
+
+describe('Levels panel', () => {
+  it('keeps the clip indicator buttons outside the meter and its value in range', async () => {
+    const app = makeApp();
+    app.prefs.set('meterRange', 96);
+    const panel = create(app, 'levels');
+    const meter = panel.el.querySelector('[role=meter]');
+    // A meter's children are presentational: buttons inside it would be hidden from screen readers.
+    expect(meter.querySelector('button')).toBeNull();
+    expect(meter.getAttribute('aria-label')).toBe('Output level');
+    expect(panel.el.querySelectorAll('.clip-led')).toHaveLength(2);
+    Object.defineProperty(panel.el, 'clientWidth', { value: 300 });
+    Object.defineProperty(panel.el, 'clientHeight', { value: 60 });
+    const noop = () => ({ addColorStop() {} });
+    const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : noop) });
+    meter.getContext = () => ctx;
+    const frames = [];
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((f) => frames.push(f));
+    panel.show();
+    frames.shift()(16);
+    raf.mockRestore();
+    panel.hide();
+    expect(meter.getAttribute('aria-valuemin')).toBe('-96');
+    expect(meter.getAttribute('aria-valuenow')).toBe('-96');
+  });
+});

@@ -34,11 +34,18 @@ export function scaleSteps(range, len) {
 }
 
 export function levelsPanel(app) {
-  const canvas = h('canvas', { 'aria-hidden': 'true' });
+  // The canvas is the meter: a meter's children are hidden from assistive
+  // technology, and the clip indicators beside it are buttons.
+  const canvas = h('canvas', {
+    role: 'meter',
+    'aria-label': 'Output level',
+    'aria-valuemin': '-60',
+    'aria-valuemax': '0',
+  });
   const clipL = h('button.clip-led', { type: 'button', 'aria-label': 'Left channel clip indicator. Click to reset.' });
   const clipR = h('button.clip-led', { type: 'button', 'aria-label': 'Right channel clip indicator. Click to reset.' });
   const readout = h('div.sr-only', { 'aria-live': 'off' });
-  const el = h('div.levels-panel', { role: 'meter', 'aria-label': 'Output level', 'aria-valuemin': '-60', 'aria-valuemax': '0' }, canvas, h('div.clip-leds', clipL, clipR), readout);
+  const el = h('div.levels-panel', canvas, h('div.clip-leds', clipL, clipR), readout);
   const state = { level: [0, 0], hold: [0, 0], holdAt: [0, 0], valley: [1, 1], valleyAt: [0, 0], clip: [false, false], last: 0 };
   let raf = 0;
   let visible = false;
@@ -210,7 +217,9 @@ export function levelsPanel(app) {
     }
     if (!app.engine.playing) state.valley = [1, 1];
     const peakDb = toDb(Math.max(state.hold[0], state.hold[1]));
-    el.setAttribute('aria-valuenow', String(Number.isFinite(peakDb) ? Math.round(peakDb) : -range));
+    canvas.setAttribute('aria-valuemin', String(-range));
+    const shown = Number.isFinite(peakDb) ? Math.max(-range, Math.round(peakDb)) : -range;
+    canvas.setAttribute('aria-valuenow', String(shown));
     if (active || app.engine.playing) schedule();
     else state.last = 0;
   };
