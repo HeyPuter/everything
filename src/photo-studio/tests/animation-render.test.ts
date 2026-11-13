@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Editor } from '../src/editor';
-import { frameKey } from '../src/features/animation/render';
-import { createAnimation } from '../src/model/animation';
+import { clearQueue, frameImage, frameKey } from '../src/features/animation/render';
+import { createAnimation, duplicateFrames } from '../src/model/animation';
 import { newDocument } from '../src/model/document';
 import { TileStore, gridFromImage } from '../src/model/tiles';
 
@@ -26,5 +26,26 @@ describe('animation thumbnail keys', () => {
     const changed = structuredClone(doc);
     changed.patterns![0].grid = grid(255);
     expect(frameKey(editor, changed, 0)).not.toBe(frameKey(editor, doc, 0));
+  });
+});
+
+
+describe('animation thumbnail queue', () => {
+  it('does not clone frame documents while waiting for an editing gesture', async () => {
+    const doc = newDocument(32, 32);
+    doc.animation = createAnimation(doc);
+    for (let i = 0; i < 12; i++) duplicateFrames(doc, [i]);
+    const busyEditor = { session: { id: 'busy-test' }, busy: true } as Editor;
+    vi.useFakeTimers();
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      for (let i = 0; i < doc.animation.frames.length; i++) frameImage(busyEditor, doc, i, `busy-${i}`);
+      expect(clone.mock.calls.length).toBe(0);
+    } finally {
+      clearQueue();
+      await vi.advanceTimersByTimeAsync(120);
+      clone.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

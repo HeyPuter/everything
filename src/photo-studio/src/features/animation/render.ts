@@ -11,9 +11,9 @@ const cache = new Map<string, FrameImage>();
 const maxEntries = 600;
 const thumbBox = { width: 112, height: 72 };
 const onionMax = 1280;
-// Jobs carry their document, or build it when they run (timeline times
-// whose video frames decode first).
-let queue: { key: string; doc: PhotoDocument | (() => Promise<PhotoDocument>); e: Editor }[] = [];
+// Build frame documents only when their job runs. Queued thumbnails share
+// the source snapshot instead of retaining a full document copy per frame.
+let queue: { key: string; doc: () => PhotoDocument | Promise<PhotoDocument>; e: Editor }[] = [];
 let running = false;
 const listeners = new Set<() => void>();
 
@@ -56,7 +56,7 @@ export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = f
     cache.set(key, hit);
     return hit;
   }
-  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: frameDocument(doc, index), e });
+  if (!queue.some((q) => q.key === key)) queue.push({ key, doc: () => frameDocument(doc, index), e });
   void pump();
 }
 
@@ -92,7 +92,7 @@ async function pump() {
       queue.shift();
       if (cache.has(job.key)) continue;
       try {
-        cache.set(job.key, await render(e, typeof job.doc === 'function' ? await job.doc() : job.doc));
+        cache.set(job.key, await render(e, await job.doc()));
         while (cache.size > maxEntries) {
           const [oldest, img] = cache.entries().next().value!;
           URL.revokeObjectURL(img.thumb);
