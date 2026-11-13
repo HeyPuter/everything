@@ -93,15 +93,16 @@ async function keepLocal(e: Editor, entry: Entry, blob: Blob) {
   // Replaced while the copy was being written.
   if (!load().includes(entry)) return forget(entry);
   persist();
-  pruneStored();
+  pruneStored(e);
 }
-function pruneStored() {
+function pruneStored(e: Editor) {
   const stored = load().filter((x) => x.source.kind === 'stored');
   for (const old of stored.slice(STORE_MAX_FILES)) {
     entries = load().filter((x) => x !== old);
     forget(old);
   }
-  persist();
+  if (stored.length > STORE_MAX_FILES) syncRecentCommands(e);
+  else persist();
 }
 /** The file behind a stored entry. */
 export async function storedBlob(key: string): Promise<Blob | undefined> {

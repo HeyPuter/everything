@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStore, setLocalStore } from '../src/persistence/local-store';
 import { clearRecent, noteRecent, recentEntries, syncRecentCommands } from '../src/features/files/recent';
 import type { Editor } from '../src/editor';
+import { commands } from '../src/app/registry';
 
 let store: MemoryStore;
 const editor = (recentCount = 10) => ({ preferences: { recentCount } }) as unknown as Editor;
@@ -67,5 +68,17 @@ describe('recent files kept in browser storage', () => {
     expect(recentEntries().map((x) => x.name)).toEqual(['c.png', 'b.png']);
     expect(await stored()).toHaveLength(2);
     expect(await store.get('thumbs', `stored:${oldest}`)).toBeUndefined();
+  });
+
+  it('removes commands for local files pruned by the stored-file limit', async () => {
+    const e = editor();
+    for (let i = 0; i < 9; i++) {
+      noteRecent(e, `file-${i}.png`, { kind: 'local', blob: file(`file-${i}.png`) });
+      await settle();
+    }
+    expect(recentEntries()).toHaveLength(8);
+    expect(await stored()).toHaveLength(8);
+    const menu = [...commands.values()].filter((c) => /^file\.recent\.\d+$/.test(c.id));
+    expect(menu.map((c) => c.label)).toEqual(recentEntries().map((entry) => `${entry.name}  (this device)`));
   });
 });
