@@ -9,6 +9,7 @@ import { VDocument } from '../../model/document.js';
 import { createGroup, createImage } from '../../model/nodes.js';
 import { nodeBounds, unionRect } from '../../model/geometry.js';
 import { uid } from '../../lib/ids.js';
+import { afterEditorTransaction } from '../../lib/deferred-edit.js';
 import { withProgress } from '../io/progress.js';
 import { placeImported, reportWarnings } from '../io/place.js';
 import { exportRegion, renderRegion } from '../io/raster.js';
@@ -238,18 +239,20 @@ export async function placeForeign(app, editor, file, kind, opts = {}) {
     throw friendly(err, file.name || 'The file');
   }
   if (!r) return null;
-  // Spot inks the document already has keep their swatch: paints are linked to it.
-  const remap = new Map();
-  for (const sw of r.swatches || []) {
-    const same = (editor.doc.root.swatches || []).find((s) => s.spot && s.name === sw.name);
-    if (same) remap.set(sw.id, same.id);
-  }
-  r = relinkSpots(r, remap);
-  return placeImported(app, editor, r, {
-    point: opts.point,
-    name: r.name || name,
-    select: opts.select !== false,
-    onInsert: (doc) => addDefinitions(doc, (r.swatches || []).filter((s) => !remap.has(s.id)), r.patterns),
+  return afterEditorTransaction(app, editor, () => {
+    // Spot inks the document already has keep their swatch: paints are linked to it.
+    const remap = new Map();
+    for (const sw of r.swatches || []) {
+      const same = (editor.doc.root.swatches || []).find((s) => s.spot && s.name === sw.name);
+      if (same) remap.set(sw.id, same.id);
+    }
+    r = relinkSpots(r, remap);
+    return placeImported(app, editor, r, {
+      point: opts.point,
+      name: r.name || name,
+      select: opts.select !== false,
+      onInsert: (doc) => addDefinitions(doc, (r.swatches || []).filter((s) => !remap.has(s.id)), r.patterns),
+    });
   });
 }
 

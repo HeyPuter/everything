@@ -15,6 +15,7 @@ import { Panel } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
 import { icon } from '../../ui/icons.js';
 import { UserError } from '../../lib/errors.js';
+import { afterEditorTransaction } from '../../lib/deferred-edit.js';
 import { multiply, translate, scale as scaleM } from '../../lib/matrix.js';
 import { nodeBounds } from '../../model/geometry.js';
 import { formatBytes } from '../files/naming.js';
@@ -99,6 +100,7 @@ function beginImageRequest(app, editor, ids) {
   }
   return {
     doc, ids: [...originals.keys()], alive,
+    whenIdle: (apply) => afterEditorTransaction(app, editor, apply),
     current(id) {
       const before = originals.get(id);
       const node = doc.get(id);
@@ -126,17 +128,19 @@ async function applyImageRequest(request, ids, load, { label = 'Relink', placeme
     throw err;
   }
   const { link } = source;
-  const targets = ids.filter((id) => request.current(id));
-  if (!targets.length) return null;
-  const doc = request.doc;
-  doc.transact(label, () => {
-    doc.assets.set(data.assetId, data.asset);
-    for (const id of targets) {
-      const node = doc.get(id);
-      doc.update(id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(node, data.width, data.height, placement), link: link || undefined });
-    }
+  return request.whenIdle(() => {
+    const targets = ids.filter((id) => request.current(id));
+    if (!targets.length) return null;
+    const doc = request.doc;
+    doc.transact(label, () => {
+      doc.assets.set(data.assetId, data.asset);
+      for (const id of targets) {
+        const node = doc.get(id);
+        doc.update(id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(node, data.width, data.height, placement), link: link || undefined });
+      }
+    });
+    return data;
   });
-  return data;
 }
 
 async function replaceFromSource(app, editor, ids, load, options = {}) {
@@ -249,8 +253,12 @@ export async function unembedImages(app, editor, ids) {
       const p = ui.showSaveFilePicker(blob, name);
       const item = await (p && p.undefinedOnCancel ? p.undefinedOnCancel : p);
       if (!item?.path || !current()) continue;
-      doc.transact('Unembed', () => doc.update(id, { link: { source: 'puter', path: item.path, name: item.name || name, size: blob.size, modified: Date.now() } }));
-      n++;
+      const applied = await afterEditorTransaction(app, editor, () => {
+        if (!current()) return false;
+        doc.transact('Unembed', () => doc.update(id, { link: { source: 'puter', path: item.path, name: item.name || name, size: blob.size, modified: Date.now() } }));
+        return true;
+      });
+      if (applied) n++;
     } else {
       const { downloadBlob } = await import('../io/deliver.js');
       if (!current()) continue;

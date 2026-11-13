@@ -8,6 +8,7 @@ import { createImage, createText } from '../../model/nodes.js';
 import { transformNodes } from '../../model/geometry.js';
 import { translate, scale as scaleM, multiply } from '../../lib/matrix.js';
 import { uid } from '../../lib/ids.js';
+import { afterEditorTransaction } from '../../lib/deferred-edit.js';
 import { svgToNodesAsync } from './svg-import.js';
 import { withProgress } from './progress.js';
 import { blobToDataUrl, imageSize, sniffMime } from './image-info.js';
@@ -87,25 +88,26 @@ export async function imageNodeData(blob, { name = '' } = {}) {
 export async function placeImage(app, editor, blob, { point, name = '', select = true } = {}) {
   if (!targetParent(app, editor)) return null;
   const { node, assetId, asset, width, height } = await imageNodeData(blob, { name: name || baseName(blob.name) });
-  // Decoding can outlive the window or the layer's availability, just like an SVG import.
-  if (app.editors && !app.editors.includes(editor)) return null;
-  const parent = targetParent(app, editor);
-  if (!parent) return null;
-  const doc = editor.doc;
-  const p = point || viewCenter(editor);
-  const board = editor.artboard();
-  let s = 1;
-  if (board && (width > board.w || height > board.h)) s = Math.min(board.w / width, board.h / height);
-  const m = multiply(translate(p.x - (width * s) / 2, p.y - (height * s) / 2), scaleM(s));
-  const link = blob.puterPath ? { source: 'puter', path: blob.puterPath, name: blob.name || name, size: blob.size, modified: blob.lastModified || Date.now() } : null;
-  let id = null;
-  doc.transact('Place', () => {
-    doc.assets.set(assetId, asset);
-    const t = drawTarget(editor, parent);
-    id = doc.insert({ ...node, transform: m, ...(link ? { link } : {}) }, t.parentId, t.index).id;
+  return afterEditorTransaction(app, editor, () => {
+    // Decoding and waiting for an edit can outlive the target layer's availability.
+    const parent = targetParent(app, editor);
+    if (!parent) return null;
+    const doc = editor.doc;
+    const p = point || viewCenter(editor);
+    const board = editor.artboard();
+    let s = 1;
+    if (board && (width > board.w || height > board.h)) s = Math.min(board.w / width, board.h / height);
+    const m = multiply(translate(p.x - (width * s) / 2, p.y - (height * s) / 2), scaleM(s));
+    const link = blob.puterPath ? { source: 'puter', path: blob.puterPath, name: blob.name || name, size: blob.size, modified: blob.lastModified || Date.now() } : null;
+    let id = null;
+    doc.transact('Place', () => {
+      doc.assets.set(assetId, asset);
+      const t = drawTarget(editor, parent);
+      id = doc.insert({ ...node, transform: m, ...(link ? { link } : {}) }, t.parentId, t.index).id;
+    });
+    if (select) editor.select([id]);
+    return id;
   });
-  if (select) editor.select([id]);
-  return id;
 }
 
 /**
@@ -117,7 +119,7 @@ export async function placeSVG(app, editor, text, { point, name = '', select = t
   if (!targetParent(app, editor)) return null;
   const r = await withProgress(app, 'Importing SVG', (onProgress, signal) => svgToNodesAsync(text, { onProgress, signal }), { cancelable: true });
   if (!r) return null;
-  return placeImported(app, editor, r, { point, name, select, empty: 'The SVG has no visible artwork.' });
+  return afterEditorTransaction(app, editor, () => placeImported(app, editor, r, { point, name, select, empty: 'The SVG has no visible artwork.' }));
 }
 
 /**
