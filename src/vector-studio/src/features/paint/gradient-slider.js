@@ -96,6 +96,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
     let cur = paint;
     const startY = e.clientY;
     let removing = false;
+    let pendingDuplicate = e.altKey;
     const move = (ev) => {
       removing = Math.abs(ev.clientY - startY) > REMOVE_DISTANCE && cur.stops.length > 2;
       stopsEl.children[idx]?.classList.toggle('removing', removing);
@@ -104,6 +105,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       cur = r.paint;
       idx = r.index;
       selected = idx;
+      pendingDuplicate = false;
       emit(cur, true);
       // The stop stays selected (and its fields follow it) when it passes another stop.
       onSelect?.(idx);
@@ -121,8 +123,17 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
         onSelect?.(selected);
         emit(next, false);
       } else {
-        onSelect?.(idx);
+        if (pendingDuplicate) {
+          // An Alt-click may release without a move event. Place the copy in
+          // sorted order just as the first drag movement would.
+          const r = moveStop(cur, idx, cur.stops[idx].offset);
+          cur = r.paint;
+          idx = r.index;
+        }
+        selected = idx;
         emit(cur, false);
+        // Model feedback can clamp selection while the copy is still pending.
+        onSelect?.(idx);
       }
     };
     if (!startDrag(e, move, finish)) return;
