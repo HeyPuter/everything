@@ -48,6 +48,7 @@ export class Sequencer {
     this.loop = loop;
     this.free = false; // playing past a playlist loop toward the song end
     this.seq = null;
+    this.removedSlots = null;
     this.playing = false;
     this.pos = 0;
     this.cursor = 0;
@@ -95,6 +96,7 @@ export class Sequencer {
   }
 
   setSequence(seq) {
+    this.removedSlots = null;
     this.seq = seq;
     this.tempo = new TempoMap(seq.tempo || seq.bpm || 120);
     this.core.setTempo(this.tempo.bpmAt(this.pos));
@@ -125,6 +127,21 @@ export class Sequencer {
         this.#reconcile(seq);
       }
     }
+  }
+
+  /** A removed slot can be reused before the next compiled sequence arrives. */
+  removeChannel(slot) {
+    (this.removedSlots ||= new Set()).add(slot);
+    for (let i = 0; i < this.active; ) {
+      if (this.aSlot[i] === slot) this.#removeActive(i);
+      else i++;
+    }
+    const lanes = this.lanes.filter(l => l.target.slot !== slot);
+    if (lanes.length !== this.lanes.length) {
+      this.lanes = lanes;
+      this.automationBoundaries = automationBoundaries(lanes);
+    }
+    this.audioMotionLanes.delete(slot);
   }
 
   /**
@@ -223,6 +240,7 @@ export class Sequencer {
   }
 
   #startAudio(notes, i, tick, offset, endOffset = null) {
+    if (this.removedSlots?.has(notes.slot[i])) return;
     const source = this.#audioSource(notes, i, tick);
     if (source === null || (typeof source === 'number' && source < 0)) return;
     const id = this.nextId++ >>> 0;
@@ -317,6 +335,7 @@ export class Sequencer {
       const k = this.#frameOf(n.start[i], s0);
       if (k >= frames) break;
       this.cursor++;
+      if (this.removedSlots?.has(n.slot[i])) continue;
       const off = f0 + k;
       const ke = this.#frameOf(n.end[i], s0);
       // A note shorter than a frame still gets its note-off after the note-on.
