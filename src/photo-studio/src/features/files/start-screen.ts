@@ -34,11 +34,6 @@ async function render(e: Editor) {
     section.className = 'start-recent';
     section.setAttribute('aria-label', 'Recent documents');
     host.querySelector('.start-drop')?.before(section);
-    section.addEventListener('click', (ev) => {
-      const i = (ev.target as HTMLElement).closest<HTMLElement>('[data-recent]')?.dataset.recent;
-      const entry = i !== undefined ? recentEntries()[Number(i)] : undefined;
-      if (entry) void e.run(async () => openRecent(e, entry));
-    });
   }
   host.classList.add('has-recent');
   const thumbs = await Promise.all(list.map((x) => (thumbKey(x.source) ? localStore().get<Blob>('thumbs', thumbKey(x.source)).catch(() => undefined) : undefined)));
@@ -52,6 +47,12 @@ async function render(e: Editor) {
         `<button type="button" class="start-recent-item" data-recent="${i}" title="${escapeXML(x.source.kind === 'puter' ? x.source.path : x.name)}"><span class="start-recent-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : svg(x.source.kind === 'puter' ? 'cloud' : 'image', 22)}</span><span class="start-recent-name">${escapeXML(x.name)}</span><span class="start-recent-where">${escapeXML(where(x))}${x.time ? ` · ${relativeTime(x.time)}` : ''}</span></button>`,
     )
     .join('')}</div>`;
+  // Bind actions to the displayed snapshot while the next list loads.
+  section.onclick = (ev) => {
+    const i = (ev.target as HTMLElement).closest<HTMLElement>('[data-recent]')?.dataset.recent;
+    const entry = i !== undefined ? list[Number(i)] : undefined;
+    if (entry) void e.run(async () => openRecent(e, entry));
+  };
 }
 
 function renderPresets(e: Editor) {
