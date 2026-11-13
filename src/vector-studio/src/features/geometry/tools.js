@@ -20,7 +20,23 @@ import { OP, runGeom, loadGeom } from './engine/index.js';
 import { withBusy, isBusy } from './busy.js';
 import { pressureFunction } from '../brushes/generate.js';
 import { pressureSamples, pressureScale, pressureVaries, smoothPressures, roundBrushOutline, GrowingStrokePreview } from '../brushes/pressure.js';
-import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, replaceWith, snapshot, unchangedSince, solidKey, insertionPoint, insideLive, expandLiveFirst } from './nodes-io.js';
+import {
+  geometryLeaves,
+  shapeOf,
+  styleOf,
+  nodeFromSubpaths,
+  replaceWith,
+  snapshot,
+  unchangedSince,
+  solidKey,
+  insertionPoint,
+  insideLive,
+  expandLiveFirst,
+  isClipGroup,
+  isClipMask,
+  visibleShapes,
+  withMasks,
+} from './nodes-io.js';
 
 function withDocTransform(ctx, view, fn) {
   ctx.save();
@@ -48,9 +64,11 @@ function path2dOf(subpaths) {
 /**
  * All visible, unlocked path/compound leaves the editor can work on (paint
  * order): inside the isolated group in isolation mode, and not the inputs of
- * live objects.
+ * live objects. With `masks: false`, not clipping paths either (the Knife
+ * and the Eraser cut what a clipping group shows; cutting its clipping path
+ * into pieces would leave only one of them clipping).
  */
-function editableLeaves(editor) {
+function editableLeaves(editor, { masks = true } = {}) {
   const doc = editor.doc;
   return doc
     .leaves()
@@ -60,20 +78,33 @@ function editableLeaves(editor) {
         !doc.isHidden(n.id) &&
         !doc.isLocked(n.id) &&
         editor.inIsolation(n.id) &&
-        !insideLive(doc, n),
+        !insideLive(doc, n) &&
+        (masks || !isClipMask(doc, n)),
     );
 }
 
 /**
  * Path/compound leaves of the selection, leaving out the inputs of live
  * objects (cutting a blend's keys or a Repeat's source in place breaks
- * it). With only live objects selected, tells the user to expand them.
+ * it), and the clipping paths of clipping groups selected as a whole. With
+ * only live objects selected, tells the user to expand them.
  */
 function selectedLeaves(tool, what) {
   const live = [];
-  const leaves = geometryLeaves(tool.editor.doc, tool.editor.topSelection(), { intoLive: false, skippedLive: live });
+  const leaves = geometryLeaves(tool.editor.doc, tool.editor.topSelection(), {
+    intoLive: false,
+    skippedLive: live,
+    clipped: new Map(),
+  });
   if (!leaves.length && live.length && what) tool.app.notify(expandLiveFirst(what, live[0]));
   return leaves;
+}
+
+/** Clipping groups a node is inside of (nearest first). */
+function clipGroupsOver(doc, n) {
+  const out = [];
+  for (let p = doc.get(n.parent); p; p = doc.get(p.parent)) if (isClipGroup(p)) out.push(p.id);
+  return out;
 }
 
 function polylineBounds(pts, pad = 0) {
@@ -166,12 +197,24 @@ export class ShapeBuilderTool extends Tool {
     const editor = this.editor;
     if (!editor) return;
     const live = [];
-    const leaves = geometryLeaves(editor.doc, editor.topSelection(), { intoLive: false, skippedLive: live });
-    const key = leaves.map((n) => n.id).join('|');
-    const same = this.facesKey === key && this.leaves.length === leaves.length && this.leaves.every((n, i) => n === leaves[i]);
+    // A clipping group selected as a whole gives what it shows, not its clipping path.
+    const clipped = new Map();
+    const leaves = geometryLeaves(editor.doc, editor.topSelection(), {
+      intoLive: false,
+      skippedLive: live,
+      clipped,
+    });
+    const masks = withMasks(editor.doc, leaves, clipped);
+    const key = masks.map((n) => n.id).join('|');
+    const same =
+      this.facesKey === key &&
+      this.inputs?.length === masks.length &&
+      this.inputs.every((n, i) => n === masks[i]);
     if (same) return;
     this.facesKey = key;
+    this.inputs = masks;
     this.leaves = leaves;
+    this.clipped = clipped;
     this.faces = null;
     this.hoverFace = -1;
     if (leaves.length < 1) {
@@ -180,9 +223,15 @@ export class ShapeBuilderTool extends Tool {
       return;
     }
     const doc = editor.doc;
-    const shapes = leaves.map((n) => shapeOf(doc, n, { string: n.type === 'path' && !n.closed && !n.fill }));
+    const all = leaves.map((n) =>
+      shapeOf(doc, n, { string: n.type === 'path' && !n.closed && !n.fill }),
+    );
     try {
-      const records = await runGeom(OP.DIVIDE, shapes, []);
+      const visible = await visibleShapes(doc, leaves, all, clipped);
+      if (this.facesKey !== key || this.app.tool !== this) return;
+      // Objects clipped out of sight have no regions.
+      this.leaves = leaves.filter((_, i) => visible[i]);
+      const records = await runGeom(OP.DIVIDE, visible.filter(Boolean), []);
       if (this.facesKey !== key || this.app.tool !== this) return;
       this.faces = records.map((r) => ({ ...r, path: path2dOf(r.subpaths), bounds: subpathBounds(r.subpaths) }));
       this.status();
@@ -255,7 +304,7 @@ export class ShapeBuilderTool extends Tool {
     const doc = editor.doc;
     const leaves = this.leaves;
     const faces = this.faces;
-    const snap = snapshot(doc, leaves);
+    const snap = snapshot(doc, this.inputs || leaves);
     const plan = shapeBuilderPlan(faces, touched, first, erase);
     if (!plan) return;
     const records = await withBusy(this.app, 'Shape Builder', () => runGeom(OP.UNITE_GROUPS, plan.shapes, []));
@@ -263,7 +312,8 @@ export class ShapeBuilderTool extends Tool {
     const affected = plan.affected.map((i) => leaves[i]);
     const ids = [];
     doc.transact(erase ? 'Shape Builder Delete' : 'Shape Builder Merge', () => {
-      const where = insertionPoint(doc, affected);
+      // Above a clipping group the shapes came from: the results are what it showed.
+      const where = insertionPoint(doc, affected, this.clipped);
       const items = [];
       for (const rec of records) {
         const group = plan.groupOfShape[rec.owner];
@@ -544,8 +594,14 @@ export class KnifeTool extends Tool {
     const anchors = this.cutAnchors(pts);
     const bounds = polylineBounds(pts);
     const hadSelection = editor.selection.size > 0;
-    const pool = hadSelection ? selectedLeaves(this, 'The Knife') : editableLeaves(editor);
-    const targets = pool.filter((n) => (n.closed || n.type === 'compound' || n.fill) && rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds));
+    const pool = hadSelection
+      ? selectedLeaves(this, 'The Knife')
+      : editableLeaves(editor, { masks: false });
+    const targets = pool.filter(
+      (n) =>
+        (n.closed || n.type === 'compound' || n.fill) &&
+        rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds),
+    );
     if (!targets.length) return;
     const shapes = [...targets.map((n) => shapeOf(doc, n)), { subpaths: [{ anchors, closed: false }], filled: false, string: true }];
     const snap = snapshot(doc, targets);
@@ -813,7 +869,9 @@ export class EraserTool extends RoundBrushTool {
     try {
       const pad = rect ? 0 : this.size / 2;
       const bounds = polylineBounds(pts, pad);
-      const pool = hadSelection ? selectedLeaves(this, 'The Eraser') : editableLeaves(editor);
+      const pool = hadSelection
+        ? selectedLeaves(this, 'The Eraser')
+        : editableLeaves(editor, { masks: false });
       const targets = pool.filter((n) => {
         const b = nodeBounds(doc, n);
         const sw = n.stroke ? (n.strokeWidth || 0) / 2 : 0;
@@ -953,11 +1011,18 @@ export class BlobBrushTool extends RoundBrushTool {
       // Hard pressure paints up to twice the size.
       const bounds = polylineBounds(pts, this.strokePressures() ? this.size : this.size / 2);
       const layer = editor.targetLayer();
+      // A blob is drawn where new artwork goes: merging it into clipped
+      // artwork there would hide what is painted outside the clipping path.
+      const target = doc.get(editor.drawTarget().parentId);
+      const drawClips = new Set(
+        target ? [...(isClipGroup(target) ? [target.id] : []), ...clipGroupsOver(doc, target)] : [],
+      );
       // Merge with overlapping blobs: same solid fill, no stroke, in the target layer.
       const candidates = key
-        ? editableLeaves(editor).filter(
+        ? editableLeaves(editor, { masks: false }).filter(
             (n) =>
               doc.layerOf(n.id)?.id === layer.id &&
+              clipGroupsOver(doc, n).every((id) => drawClips.has(id)) &&
               !(n.stroke && n.strokeWidth > 0) &&
               solidKey(n) === key &&
               rectsIntersect(nodeBounds(doc, n) || { x: 0, y: 0, w: -1, h: -1 }, bounds),
