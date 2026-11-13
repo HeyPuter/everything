@@ -32,8 +32,10 @@ import {
 /** How long a video read link lives, and how much of that is left when a new one is made. */
 export const VIDEO_LINK_HOURS = 4;
 export const VIDEO_LINK_RENEW_MS = 30 * 60_000;
-/** A missing change older than this (judged by a later one) was lost, not in flight. */
+/** How long a later change must wait before sync can mark a missing slot skipped. */
 export const LOST_CHANGE_MS = 60_000;
+/** Bound resends if every delivery is so slow that sync skips its slot. */
+export const LOG_DELIVERY_ATTEMPTS = 3;
 
 /** Everyone who ever joined a review (removed people too) stays on its member list, up to this many times its limit. */
 export const MEMBER_LIST_FACTOR = 5;
@@ -524,7 +526,8 @@ export class ReviewService {
   /**
    * Changes after `since`, in order. The cursor stops at a change still being
    * written (its number is taken but its record is not there yet) unless a
-   * later change is old enough to show it was lost.
+   * later change is old enough to skip it. Persisting that decision lets a
+   * delayed writer detect it and deliver at a fresh cursor before succeeding.
    */
   async sync(user, input) {
     const rid = reviewId(input.review);
@@ -537,15 +540,17 @@ export class ReviewService {
     let cursor = since;
     let blocked = false;
     for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
+      let e = entries[i];
       if (!e) {
         const later = entries.slice(i + 1).find(Boolean);
         if (later && this.now() - later.at > LOST_CHANGE_MS) {
-          cursor = since + i + 1;
-          continue;
+          // If the writer finished since our read, include its returned
+          // snapshot. Otherwise it will see this marker when it finishes.
+          e = await this.kv.update(`vsr:r:${rid}:log:${since + i + 1}`, { at: this.now(), skip: true });
+        } else {
+          blocked = true;
+          break;
         }
-        blocked = true;
-        break;
       }
       cursor = since + i + 1;
       if (e.comment) changes.push(e.comment);
@@ -559,12 +564,30 @@ export class ReviewService {
     const saved = { ...comment, seq: n };
     try {
       await this.kv.set(`vsr:r:${rid}:c:${comment.id}`, saved);
-      await this.kv.set(`vsr:r:${rid}:log:${n}`, { at: this.now(), comment: saved });
     } catch (err) {
       await this.skipChange(rid, n);
       throw err;
     }
+    const delivered = await this.deliverComment(rid, saved, n);
+    if (delivered !== n) await this.recoveredChange(rid, n, delivered);
     return saved;
+  }
+
+  async deliverComment(rid, comment, n) {
+    for (let attempt = 0; attempt < LOG_DELIVERY_ATTEMPTS; attempt++) {
+      let entry;
+      try {
+        entry = await this.kv.update(`vsr:r:${rid}:log:${n}`, { at: this.now(), comment });
+      } catch (err) {
+        await this.skipChange(rid, n);
+        throw err;
+      }
+      if (!entry.skip) return n;
+      // A reader already passed this slot. The original revision still wins
+      // only over older snapshots, even when delivered at a newer cursor.
+      if (attempt + 1 < LOG_DELIVERY_ATTEMPTS) n = await this.kv.incr(`vsr:r:${rid}:seq`);
+    }
+    fail(503, 'The review is taking too long to confirm this comment. Try again.');
   }
 
   async skipChange(rid, n) {
@@ -585,17 +608,15 @@ export class ReviewService {
     // the snapshot at a new cursor but retain its original revision, so it
     // cannot replace a newer edit/delete. Never rewrite the canonical comment.
     // Recovery of an accepted change is allowed even when new changes are full.
-    const n = await this.kv.incr(`vsr:r:${rid}:seq`);
-    try {
-      await this.kv.set(`vsr:r:${rid}:log:${n}`, { at: this.now(), comment });
-    } catch (err) {
-      await this.skipChange(rid, n);
-      throw err;
-    }
+    const n = await this.deliverComment(rid, comment, await this.kv.incr(`vsr:r:${rid}:seq`));
     // Only acknowledge recovery after its delivery is durable. Failure to save
     // this receipt can cause a repeated delivery, which clients deduplicate.
-    await this.kv.update(key, { at: this.now(), skip: true, recovered: n }).catch(() => {});
+    await this.recoveredChange(rid, comment.seq, n);
     return comment;
+  }
+
+  async recoveredChange(rid, revision, delivered) {
+    await this.kv.update(`vsr:r:${rid}:log:${revision}`, { at: this.now(), skip: true, recovered: delivered }).catch(() => {});
   }
 
   async roomForChange(rid) {
