@@ -270,11 +270,12 @@ export class WindowManager {
         if (stale.length) await this.e.render(this.e.displayDoc);
       } catch (error) {
         console.error(error);
-      } finally {
-        this.capturing = undefined;
       }
       this.queueDraw();
-    })();
+    })().finally(() => {
+      // Even a no-op pass finishes after the promise has been installed.
+      this.capturing = undefined;
+    });
     return this.capturing;
   }
   queueDraw() {
