@@ -614,6 +614,16 @@ export class ReviewService {
     const n = await this.kv.incr(`vsr:r:${rid}:seq`);
     let saved = { ...comment, seq: n };
     const key = `vsr:r:${rid}:c:${comment.id}`;
+    if (n > LIMITS.changesPerReview) {
+      // Other writers/recovery can consume the last slot after the precheck.
+      // Retire this cursor; decrementing would let a later delivery reuse it.
+      await this.skipChange(rid, n);
+      if (create) {
+        const existing = commentState(await this.kv.get(key));
+        if (existing?.author?.uuid === user.uuid) return this.recoverComment(rid, existing, user);
+      }
+      fail(409, 'This review has reached its limit of comments.');
+    }
     try {
       if (create) {
         if (!(await this.kv.set(key, saved, { onlyIfAbsent: true }))) {
