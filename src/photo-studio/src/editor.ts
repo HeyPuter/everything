@@ -948,7 +948,7 @@ export class Editor {
     }).observe(viewport);
     window.addEventListener('beforeunload', (e) => {
       if (import.meta.env.DEV) return;
-      if (this.sessions.some((s) => s.dirty)) {
+      if (this.sessions.some((s) => s.dirty || s.hasPendingEdits) || this.hasPendingChanges()) {
         e.preventDefault();
         e.returnValue = '';
       }
