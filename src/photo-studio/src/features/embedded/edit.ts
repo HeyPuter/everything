@@ -56,6 +56,13 @@ export async function editContents(e: Editor, layerId = e.selected) {
 
 /** Write a content tab back into its parent document. */
 export async function saveContents(e: Editor, s: DocumentSession) {
+  if (e.session === s) {
+    e.transform.apply();
+    const applying = e.modal?.apply();
+    // With no asynchronous edit, capture the document and comment revision
+    // synchronously so later edits remain dirty after this save.
+    if (applying || s.hasPendingEdits) await Promise.all([applying, s.waitForEdits()]);
+  } else if (s.hasPendingEdits) await s.waitForEdits();
   const o = owners.get(s);
   if (!o || !e.sessions.includes(o.parent)) {
     detach(s);
@@ -71,10 +78,6 @@ export async function saveContents(e: Editor, s: DocumentSession) {
     e.message(`“${o.name}” is no longer in ${parent.doc.name}. Use Save As to keep these contents as a separate document.`);
     detach(s);
     return;
-  }
-  if (e.session === s) {
-    e.transform.apply();
-    e.modal?.apply();
   }
   const doc = s.doc;
   const extrasRevision = s.extrasRevision;
@@ -113,8 +116,14 @@ async function closeContents(e: Editor, s: DocumentSession): Promise<boolean> {
   if (choice === 'cancel') return false;
   if (choice === 'save') {
     if (e.session !== s) await e.switchSession(s);
-    await saveContents(e, s);
-    return !s.dirty;
+    let saved = false;
+    const task = async () => {
+      await saveContents(e, s);
+      saved = !s.dirty;
+    };
+    if (e.busy) await task().catch((error) => e.message(error instanceof Error ? error.message : String(error)));
+    else await e.run(task);
+    return saved;
   }
   return true;
 }
