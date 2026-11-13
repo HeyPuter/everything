@@ -484,9 +484,14 @@ function listPanel(ctx, opts) {
   readBtn?.addEventListener('click', readSelected);
   const list = h('div.cap-list', { role: 'list', 'aria-label': 'Captions' });
   const body = h('div.cap-list-body');
+  let translation = null, disposed = false;
+  function translate() {
+    if (disposed || translation) return;
+    translation = openTranslate(ctx, { onClose: () => { translation = null; } });
+  }
   const aiBtn = aiAvailable(ctx) ? h('button.btn.small', { type: 'button', 'aria-haspopup': 'menu' }, icon('magic', 14), 'AI', icon('chevronDown', 12)) : null;
   aiBtn?.addEventListener('click', () => showMenu(aiBtn, [
-    { label: 'Translate captions...', icon: 'languages', onSelect: () => openTranslate(ctx) },
+    { label: 'Translate captions...', icon: 'languages', onSelect: translate },
     { label: 'Add emojis', icon: 'effects', onSelect: () => addEmojis(ctx) },
     { label: 'Dub into another language...', icon: 'speech', onSelect: () => import('../dub-dialog.js').then((m) => m.openDubDialog(ctx)) },
   ], { label: 'AI caption tools' }));
@@ -688,7 +693,11 @@ function listPanel(ctx, opts) {
   ];
   render();
   updateRead();
-  return { el, render, dispose: () => offs.forEach((off) => off()) };
+  return { el, render, dispose() {
+    disposed = true;
+    translation?.close();
+    offs.forEach((off) => off());
+  } };
 }
 
 function filesPanel(ctx, opts, save) {
@@ -809,7 +818,7 @@ function filesPanel(ctx, opts, save) {
 }
 
 /** Translate every caption, replacing it, adding it as a second line, or on a new track. */
-function openTranslate(ctx) {
+function openTranslate(ctx, { onClose } = {}) {
   const { store } = ctx;
   const clips = captionClips(store.project);
   if (!clips.length) {
@@ -829,21 +838,29 @@ function openTranslate(ctx) {
   const status = h('p.asset-hint', { role: 'status' });
   const go = h('button.btn.primary', { type: 'button' }, icon('languages', 16), 'Translate');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  let abort = null;
+  let abort = null, closed = false, off = () => {};
+  const source = editingContext(store);
+  const current = () => !closed && editingContext(store) === source;
   // However the dialog closes (Cancel, Escape, the X, the backdrop), stop translating.
-  const d = openDialog({ title: 'Translate captions', body: h('div.cap-form', h('p.dialog-text', `${clips.length} caption${clips.length === 1 ? '' : 's'} will be translated with Puter AI.`), lang.el, h('div.field', h('span.field-label', 'Put the translation'), how.el), status), actions: [cancel, go], className: 'small', onClose: () => abort?.abort() });
+  const d = openDialog({ title: 'Translate captions', body: h('div.cap-form', h('p.dialog-text', `${clips.length} caption${clips.length === 1 ? '' : 's'} will be translated with Puter AI.`), lang.el, h('div.field', h('span.field-label', 'Put the translation'), how.el), status), actions: [cancel, go], className: 'small', onClose: () => { closed = true; abort?.abort(); off(); onClose?.(); } });
+  off = store.on('change', () => {
+    if (current()) return;
+    d.close();
+    toast('Translation cancelled because the open timeline changed.', { kind: 'info' });
+  });
   cancel.addEventListener('click', () => d.close());
   go.addEventListener('click', async () => {
-    if (abort) return;
-    abort = new AbortController();
+    if (abort || !current()) return;
+    const controller = new AbortController();
+    abort = controller;
+    const { signal } = controller;
     go.disabled = true;
     setPref('translateTo', target);
     setPref('translateMode', mode);
     const label = targets.find((l) => l.value === target)?.label || target;
     try {
-      const { signal } = abort;
-      const lines = await translateLines(clips.map((c) => c.text), label, { signal, onProgress: (f) => (status.textContent = `Translating... ${Math.round(f * 100)}%`) });
-      if (signal.aborted) return;
+      const lines = await translateLines(clips.map((c) => c.text), label, { signal, onProgress: (f) => { if (!signal.aborted && current()) status.textContent = `Translating... ${Math.round(f * 100)}%`; } });
+      if (signal.aborted || !current()) return;
       const byId = new Map(clips.map((c, i) => [c.id, lines[i]]));
       store.update('Translate captions', (p) => {
         if (mode === 'track') {
@@ -867,15 +884,16 @@ function openTranslate(ctx) {
       toast(`Translated ${clips.length} caption${clips.length === 1 ? '' : 's'} to ${label}.`, { kind: 'success' });
       d.close();
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (!signal.aborted && current() && err?.name !== 'AbortError') {
         console.error(err);
         status.textContent = errorMessage(err, "Couldn't translate the captions.");
       }
     } finally {
-      abort = null;
-      go.disabled = false;
+      if (abort === controller) abort = null;
+      if (current()) go.disabled = false;
     }
   });
+  return d;
 }
 
 /** Let Puter AI pick an emoji for captions where one fits, appended to the line. */
