@@ -91,7 +91,7 @@ export class Recorder {
     this.clock = null;
     const engine = app.engine;
     engine.on('state', () => {
-      if (!(engine.recording && engine.playing) && this.take.size) this.endTake();
+      if (!(engine.recording && engine.playing) && (this.take.size || this.takeTotal)) this.endTake();
       if (this.active) this.resetClock();
       else this.clock = null;
     });

@@ -247,6 +247,25 @@ describe('recording timing', () => {
 });
 
 describe('recorder', () => {
+  it('reports and resets the take count when stopping after all notes were committed by a loop', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true });
+    rec.noteOn(67, 0.9, app.store.view.channel);
+    rec.noteOff(67);
+    app.engine.emit('loop');
+    app.engine.playing = false;
+    app.engine.emit('state');
+    expect(app.notify).toHaveBeenLastCalledWith('Recorded 1 note');
+    app.notify.mockClear();
+    app.engine.playing = true;
+    rec.noteOn(69, 0.9, app.store.view.channel);
+    rec.noteOff(69);
+    app.engine.playing = false;
+    app.engine.emit('state');
+    expect(app.notify).toHaveBeenCalledExactlyOnceWith('Recorded 1 note');
+  });
+
   it('does not count a transport seek as held note duration and finishes at stop before position resets', () => {
     const app = fakeApp();
     app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
