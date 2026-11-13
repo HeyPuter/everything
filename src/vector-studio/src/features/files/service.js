@@ -753,14 +753,8 @@ export class FileService {
     for (const o of others) replaced.set(o, await this.replaceDocument(o, parsed.doc, f));
     const ed = await this.replaceDocument(editor, parsed.doc, f);
     replaced.set(editor, ed);
-    // Windows keep their names ("Logo.vstudio:2"), now counted from the replaced first window.
-    for (const [o, w] of replaced) {
-      const n = o.windowOf && /:(\d+)$/.exec(o.name)?.[1];
-      if (!n) continue;
-      const base = replaced.get(o.windowOf) || o.windowOf;
-      w.windowOf = base;
-      Object.defineProperty(w, 'name', { get: () => `${w.file?.name || w.doc.root.name}:${n}`, configurable: true });
-    }
+    // Each view keeps its number even if the original window has already closed.
+    for (const [o, w] of replaced) w.windowNumber = o.windowNumber;
     this.app.renderTabs();
     return ed;
   }

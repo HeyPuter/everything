@@ -76,6 +76,7 @@ export class Editor extends Emitter {
     super();
     this.doc = doc;
     this.file = file; // { path, name, kind: 'puter'|'local'|null }
+    this.windowNumber = null; // secondary views of the same document have distinct numbered titles
     this.prefs = prefs;
     this.view = new Viewport();
     this.selection = new SelectionSet();
@@ -146,7 +147,8 @@ export class Editor extends Emitter {
 
   /** Tab and title name: the file name once saved or opened, else the document name. */
   get name() {
-    return this.file?.name || this.doc.root.name;
+    const name = this.file?.name || this.doc.root.name;
+    return this.windowNumber == null ? name : `${name}:${this.windowNumber}`;
   }
 
   /**

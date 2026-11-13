@@ -317,11 +317,9 @@ function setToolbarVisible(app, on) {
 export function newWindow(app, editor = app.editor) {
   if (!editor) return null;
   const doc = editor.doc;
-  const n = app.editors.filter((e) => e.doc === doc).length + 1;
-  const base = editor.windowOf || editor;
+  const n = app.editors.reduce((max, e) => e.doc === doc ? Math.max(max, e.windowNumber || 1) : max, 1) + 1;
   const ed = app.addDocument(doc, { file: editor.file, activate: false });
-  ed.windowOf = base;
-  Object.defineProperty(ed, 'name', { get: () => `${ed.file?.name || ed.doc.root.name}:${n}`, configurable: true });
+  ed.windowNumber = n;
   ed.view.set({ zoom: editor.view.zoom, panX: editor.view.panX, panY: editor.view.panY, rotation: editor.view.rotation, width: editor.view.width, height: editor.view.height, dpr: editor.view.dpr });
   ed.viewInitialized = true;
   ed.viewOptions = { ...editor.viewOptions };
