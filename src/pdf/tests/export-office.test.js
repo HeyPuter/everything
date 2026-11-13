@@ -1248,3 +1248,27 @@ it('gives Word pages whose running heads read differently, such as Bates numbers
     await loading.destroy();
   }
 });
+
+it('keeps the running heads of each page in rich text exports', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 3; i++) {
+    const page = doc.addPage([612, 792]);
+    page.drawText('Confidential', { x: 72, y: 750, size: 9, font });
+    page.drawText(`Body text of page ${i + 1}.`, { x: 72, y: 600, size: 11, font });
+    page.drawText(`ACME00010${i + 1}`, { x: 72, y: 40, size: 9, font });
+  }
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const rtf = text((await exportDocument(await loading.promise, bytes, 'rtf')).bytes);
+    const sections = rtf.split('\\sect\\sectd');
+    expect(sections).toHaveLength(3);
+    sections.forEach((section, i) => {
+      expect(section).toMatch(/\{\\header [^]*Confidential[^]*\\par\n\}/);
+      expect(section).toMatch(new RegExp(`\\{\\\\footer [^]*ACME00010${i + 1}[^]*\\\\par\\n\\}`));
+    });
+  } finally {
+    await loading.destroy();
+  }
+});
