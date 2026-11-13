@@ -14,7 +14,7 @@
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton, numberField, paintSwatch, updatePaintSwatch, segmented } from '../../ui/widgets.js';
-import { openPopover } from '../../ui/popover.js';
+import { openEditorPopover } from '../../ui/popover.js';
 import { createColorPicker } from '../../ui/color-picker.js';
 import { applyStyle } from '../../ops/paint-ops.js';
 import { createGradientSlider } from './gradient-slider.js';
@@ -28,9 +28,13 @@ import { setStrokeApply, strokeApplyOf } from './stroke-gradient.js';
 
 /** Popover to edit one color: swatches plus the color picker. */
 export function openColorPopover(app, anchor, { color, title = 'Color', onInput }) {
+  const editor = app.editor;
+  if (!editor || editor.doc.readOnly) return;
+  let popover;
+  const input = (hex, options) => popover?.run(() => onInput(hex, options));
   const swatches = (app.editor?.doc.root.swatches || []).filter((s) => s.paint?.type === 'solid');
   const grid = h('div.swatch-grid', { role: 'listbox', 'aria-label': `${title} swatches` });
-  const picker = createColorPicker({ value: color, label: title, onInput: (hex) => onInput(hex, { swatchId: null }) });
+  const picker = createColorPicker({ value: color, label: title, onInput: (hex) => input(hex, { swatchId: null }) });
   for (const s of swatches) {
     grid.append(
       h('button.swatch-cell', {
@@ -40,12 +44,12 @@ export function openColorPopover(app, anchor, { color, title = 'Color', onInput 
         'data-tip': s.name,
         onclick: () => {
           picker.set(s.paint.color);
-          onInput(s.paint.color, { swatchId: s.global ? s.id : null });
+          input(s.paint.color, { swatchId: s.global ? s.id : null });
         },
       }, paintSwatch(s.paint)),
     );
   }
-  openPopover(anchor, h('div.paint-popover', h('h3.popover-title', title), grid, picker.el), { label: title });
+  popover = openEditorPopover(app, anchor, h('div.paint-popover', h('h3.popover-title', title), grid, picker.el), { label: title, paintKey: editor.focusPaint });
 }
 
 export class GradientPanel extends Panel {
