@@ -85,7 +85,7 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     if (i) usedInserts.add(i);
     return i;
   };
-  const firstTrack = p.clips.length ? Math.max(...p.clips.map((c) => c.track)) + 1 : 0;
+  const firstTrack = p.clips.reduce((max, c) => Math.max(max, c.track), -1) + 1;
   const channelIds = [];
   const patternIds = [];
   const clips = [];

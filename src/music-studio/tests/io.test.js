@@ -4,7 +4,7 @@ import { readMidi, writeMidi, isMidi } from '../src/io/midi.js';
 import { importMidi, projectToMidi, drumKindForNote, presetForProgram } from '../src/io/midi-project.js';
 import { zipBytes, unzipStore, crc32 } from '../src/io/zip.js';
 import { safeFileName } from '../src/io/download.js';
-import { createProject, createChannel, createNote, createPattern } from '../src/model/project.js';
+import { createProject, createChannel, createNote, createPattern, createClip } from '../src/model/project.js';
 import { demoProject } from '../src/model/demo.js';
 import { PPQ } from '../src/model/time.js';
 
@@ -131,6 +131,22 @@ describe('midi reader', () => {
     expect(r.project.clips).toHaveLength(1);
     expect(r.project.tracks[0].name).toBe('Keys');
     expect(ch.mixer).toBe(1);
+  });
+
+  it.each([0, 3, 150000])('imports MIDI below existing clips without argument limits (%i clips)', (count) => {
+    const project = createProject();
+    const template = createClip({ kind: 'pattern', ref: project.patterns[0].id, len: PPQ });
+    project.clips = Array.from({ length: count }, (_, i) => ({ ...template, id: `existing-${i}`, track: i === 1 ? 7 : 0, start: i * PPQ }));
+    const original = project.clips;
+    const result = importMidi(project, readMidi(file));
+    expect(result.project.clips).toHaveLength(count + 1);
+    expect(original.every((clip, i) => result.project.clips[i] === clip)).toBe(true);
+    expect(project.clips).toBe(original);
+    expect(project.clips).toHaveLength(count);
+    const imported = result.project.clips[count];
+    expect(imported).toMatchObject({ track: count ? 8 : 0, start: 0, ref: result.patternIds[0] });
+    expect(result.project.tracks[imported.track].name).toBe('Keys');
+    expect(result.channelIds).toHaveLength(1);
   });
 
   it('skips sysex events exactly (a GM reset before the first note)', () => {
