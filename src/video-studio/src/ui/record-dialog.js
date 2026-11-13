@@ -43,6 +43,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   let state = 'idle'; // idle | countdown | recording | paused | saving
   let countdownTimer = 0;
   let tick = 0;
+  let preparing = false;
   let opening = 0;
   let screenOpening = 0;
   const recorder = new VideoRecorder();
@@ -165,8 +166,9 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     message.hidden = true;
   }
 
-  async function fillDevices() {
+  async function fillDevices(my) {
     const { cameras, mics } = await listDevices();
+    if (my !== opening || open !== d) return;
     const camNow = preview?.getVideoTracks()[0]?.getSettings?.().deviceId || opts.cameraId;
     const micNow = (opts.mode === 'camera' ? preview : micStream)?.getAudioTracks()[0]?.getSettings?.().deviceId || opts.micId;
     camSelect.replaceChildren(...(cameras.length ? cameras : [{ deviceId: '', label: 'Default camera' }]).map((c) => h('option', { value: c.deviceId, selected: c.deviceId === camNow }, c.label)));
@@ -198,12 +200,25 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   async function reopen(retry = false) {
     if (state !== 'idle') return;
     const my = ++opening;
+    preparing = true;
+    setState(state);
+    try {
+      await prepareDevices(my, retry);
+    } finally {
+      if (my === opening && open === d) {
+        preparing = false;
+        status.textContent = '';
+        setState(state);
+      }
+    }
+  }
+
+  async function prepareDevices(my, retry) {
     clearError();
     if (opts.mode === 'camera') {
       closeStreams();
       if (!cameraSupported()) {
         showError(globalThis.isSecureContext === false ? 'Recording needs a secure (https) connection.' : 'This browser cannot record from a camera.');
-        setState('idle');
         return;
       }
       status.textContent = 'Waiting for camera access...';
@@ -221,7 +236,6 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         }
         status.textContent = '';
         showError(captureErrorMessage(err, 'camera'));
-        setState('idle');
         return;
       }
       if (!open || my !== opening) {
@@ -231,17 +245,17 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
       preview = stream;
       status.textContent = '';
       attach(stream);
-      await fillDevices();
+      await fillDevices(my);
     } else {
       // The screen stays shared; only the microphone changes.
       stopStream(micStream);
       micStream = null;
       if (!screenSupported()) {
         showError('This browser cannot record the screen.');
-        setState('idle');
         return;
       }
       if (opts.screenMic && opts.micId !== 'none') {
+        status.textContent = 'Waiting for microphone access...';
         try {
           const mic = await openMic(opts.micId);
           if (!open || my !== opening) {
@@ -255,9 +269,8 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         }
       }
       if (!preview && retry) await shareScreen();
-      await fillDevices();
+      await fillDevices(my);
     }
-    setState('idle');
   }
 
   /** Ask the browser for a screen, window or tab (needs a click). */
@@ -306,7 +319,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     recBtn.setAttribute('aria-label', label);
     recBtn.setAttribute('aria-pressed', String(next === 'recording' || next === 'paused'));
     // Screen mode can start without a stream: the click asks what to share.
-    recBtn.disabled = next === 'saving' || (opts.mode === 'camera' && !preview);
+    recBtn.disabled = preparing || next === 'saving' || (opts.mode === 'camera' && !preview);
     pauseBtn.hidden = !(next === 'recording' || next === 'paused');
     pauseBtn.setAttribute('aria-label', next === 'paused' ? 'Resume recording' : 'Pause recording');
     pauseBtn.replaceChildren(icon(next === 'paused' ? 'play' : 'pause', 18));
@@ -315,8 +328,9 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   }
 
   async function begin() {
+    if (preparing || state !== 'idle') return;
     if (opts.mode === 'screen' && !preview && !(await shareScreen())) return;
-    if (!preview) return;
+    if (!preview || preparing || state !== 'idle') return;
     if (!opts.countdown) {
       startRecording();
       return;

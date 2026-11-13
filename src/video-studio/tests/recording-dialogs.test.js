@@ -125,6 +125,48 @@ describe('pending screen selection', () => {
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   });
 
+  it('waits for the selected microphone before enabling screen recording', async () => {
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      choose(d);
+      pending.shift()(screen());
+      await flush();
+      const record = d.el.querySelector('.vo-record');
+      expect(record.disabled).toBe(false);
+      [...d.el.querySelectorAll('[role=switch]')].find((x) => x.closest('.field, .switch-field, label')?.textContent.includes('Include microphone') || x.textContent.includes('Include microphone')).click();
+      expect(pending).toHaveLength(1);
+      expect(record.disabled).toBe(true);
+      record.click();
+      expect(d.el.querySelector('.rec-body').dataset.state).toBe('idle');
+      await grant();
+      expect(record.disabled).toBe(false);
+      record.click();
+      expect(d.el.querySelector('.rec-body').dataset.state).toBe('countdown');
+    } finally { d.close(); }
+    expect(live()).toBe(0);
+  });
+
+  it('keeps recording disabled until the newest microphone request settles', async () => {
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      choose(d);
+      pending.shift()(screen());
+      await flush();
+      const mic = [...d.el.querySelectorAll('[role=switch]')].find((x) => x.closest('.field, .switch-field, label')?.textContent.includes('Include microphone') || x.textContent.includes('Include microphone'));
+      mic.click();
+      mic.click();
+      mic.click();
+      expect(pending).toHaveLength(2);
+      await grant();
+      expect(d.el.querySelector('.vo-record').disabled).toBe(true);
+      expect(live()).toBe(1); // only the shared screen; the obsolete microphone was stopped
+      await grant();
+      expect(d.el.querySelector('.vo-record').disabled).toBe(false);
+      expect(live()).toBe(2);
+    } finally { d.close(); }
+    expect(live()).toBe(0);
+  });
+
   it('stops a screen granted to a closed dialog even if another dialog opened', async () => {
     const first = openRecordDialog(ctxFor(), { mode: 'screen' });
     choose(first);
