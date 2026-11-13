@@ -336,3 +336,17 @@ export function loadFontFile(family: string, italic = false): Promise<ArrayBuffe
   }
   return p;
 }
+
+/** Discard bytes rejected by a reader without evicting a newer download. */
+export async function discardFontFile(family: string, italic: boolean, data: ArrayBuffer): Promise<void> {
+  const hit = bundledFace(family, italic);
+  if (!hit) return;
+  const url = bundledFontUrl(hit.font, hit.face, 'woff');
+  const pending = fileCache.get(url);
+  if (!pending) return;
+  try {
+    if ((await pending) === data && fileCache.get(url) === pending) fileCache.delete(url);
+  } catch {
+    // Failed downloads already retire their own cache entry.
+  }
+}

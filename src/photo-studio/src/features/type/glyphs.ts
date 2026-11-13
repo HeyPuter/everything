@@ -4,7 +4,7 @@
 import type { Editor } from '../../editor';
 import { registerPanel, type Panel } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
-import { BUNDLED_FONTS, ensureFont, findBundled, loadFontFile } from '../../imaging/text/fonts';
+import { BUNDLED_FONTS, discardFontFile, ensureFont, findBundled, loadFontFile } from '../../imaging/text/fonts';
 import { parseFont } from '../../imaging/text/sfnt';
 import { focusInput, insert, onSessionChange, ordered, session, startEdit, styleContext } from './session';
 import { charStyleAt, type CharStyle } from '../../imaging/text/model';
@@ -42,7 +42,14 @@ export function codePointsFor(family: string, italic: boolean): Promise<number[]
   let p = fontCodePoints.get(key);
   if (!p) {
     p = bundled
-      ? loadFontFile(bundled.family, italic).then((buf) => parseFont(buf).codePoints().filter(isPrintable))
+      ? loadFontFile(bundled.family, italic).then(async (buf) => {
+        try {
+          return parseFont(buf).codePoints().filter(isPrintable);
+        } catch (error) {
+          await discardFontFile(bundled.family, italic, buf);
+          throw error;
+        }
+      })
       : Promise.resolve(COMMON_RANGES.flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, i) => a + i)).filter(isPrintable));
     p.catch(() => fontCodePoints.delete(key));
     fontCodePoints.set(key, p);

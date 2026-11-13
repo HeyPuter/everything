@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { boot, idle, openImage, panel, run } from './helpers';
 
-for (const failure of ['HTTP error', 'network error']) test(`Glyphs reports and retries a ${failure}`, async ({ page }) => {
+for (const failure of ['HTTP error', 'network error', 'HTML response', 'truncated font']) test(`Glyphs reports and retries a ${failure}`, async ({ page }) => {
   await boot(page);
   await openImage(page, 400, 200, '#ffffff');
   // Keep the panel request independent from missing-glyph protection prefetches.
@@ -16,7 +16,8 @@ for (const failure of ['HTTP error', 'network error']) test(`Glyphs reports and 
     requests++;
     if (!fail) return route.continue();
     if (failure === 'HTTP error') await route.fulfill({ status: 503, body: 'Unavailable' });
-    else await route.abort('failed');
+    else if (failure === 'network error') await route.abort('failed');
+    else await route.fulfill({ status: 200, contentType: failure === 'HTML response' ? 'text/html' : 'font/woff', body: failure === 'HTML response' ? '<html>Temporarily unavailable</html>' : Buffer.from([0x77, 0x4f, 0x46, 0x46, 0, 0, 0, 0]) });
   });
   await page.evaluate(() => window.photoStudio.dock.show('glyphs'));
   const body = await panel(page, 'Glyphs');
@@ -32,8 +33,8 @@ for (const failure of ['HTTP error', 'network error']) test(`Glyphs reports and 
   expect(requests).toBe(1);
   fail = false;
   await retry.click();
+  await expect.poll(() => requests, { timeout: 5000 }).toBe(2);
   await expect(body.locator('.gl-grid [data-cp="38"]')).toBeVisible();
-  expect(requests).toBe(2);
   expect(await body.locator('.gl-grid .gl-cell').count()).toBeGreaterThan(200);
   await expect(body.locator('.gl-info')).not.toContainText('Could not load');
   await expect(retry).toHaveCount(0);
@@ -49,10 +50,16 @@ for (const failure of ['HTTP error', 'network error']) test(`Glyphs reports and 
   expect(await text()).toBe('ab');
   await run(page, 'edit.redo');
   expect(await text()).toBe('ab&');
+  // Once corrected, the successful map remains cached across font switches.
+  await body.locator('select[aria-label="Font family"]').selectOption('Inter');
+  await expect(body.locator('.gl-grid [data-cp="38"]')).toBeVisible();
+  await body.locator('select[aria-label="Font family"]').selectOption('Caveat');
+  await expect(body.locator('.gl-grid [data-cp="38"]')).toBeVisible();
+  expect(requests).toBe(2);
   expect(errors).toEqual([]);
 });
 
-for (const next of ['retry again', 'change category', 'change font']) test(`a failed glyph retry supports ${next}`, async ({ page }) => {
+for (const next of ['retry again', 'corrupt retry', 'change category', 'change font']) test(`a failed glyph retry supports ${next}`, async ({ page }) => {
   await boot(page);
   await openImage(page, 400, 200, '#ffffff');
   let requests = 0;
@@ -60,6 +67,10 @@ for (const next of ['retry again', 'change category', 'change font']) test(`a fa
   const pending = new Promise<void>((resolve) => { release = resolve; });
   await page.route('**/fonts/caveat/*.woff', async (route) => {
     requests++;
+    if (next === 'corrupt retry' && requests <= 2) {
+      if (requests === 2) await pending;
+      return route.fulfill({ status: 200, contentType: 'font/woff', body: Buffer.from([0x77, 0x4f, 0x46, 0x46]) });
+    }
     if (requests === 1) return route.fulfill({ status: 503, body: 'Unavailable' });
     if (requests === 2) {
       await pending;
@@ -90,7 +101,7 @@ for (const next of ['retry again', 'change category', 'change font']) test(`a fa
   release();
   await (await response).finished();
   await idle(page);
-  if (next === 'retry again') {
+  if (next === 'retry again' || next === 'corrupt retry') {
     await expect(retry).toBeEnabled();
     await expect(body.locator('.gl-info')).toHaveText('Could not load glyphs. Try again.');
     await retry.click();
