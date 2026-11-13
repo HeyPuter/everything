@@ -304,6 +304,8 @@ export class App extends Emitter {
 
   // ---- documents ----
 
+  #documentTabSubscriptions = new Map();
+
   /** Open a document in a new tab and make it active. */
   addDocument(doc, { file = null, activate = true } = {}) {
     const editor = new Editor(doc, { file, prefs: this.prefs });
@@ -321,8 +323,12 @@ export class App extends Emitter {
     editor.on('active-layer', () => this.#onEditorEvent(editor));
     editor.on('isolation', () => this.#onEditorEvent(editor));
     editor.on('view-options', () => this.#onEditorEvent(editor));
-    doc.on('history', () => this.renderTabs());
-    doc.on('saved', () => this.renderTabs());
+    if (!this.#documentTabSubscriptions.has(doc)) {
+      this.#documentTabSubscriptions.set(doc, [
+        doc.on('history', () => this.renderTabs()),
+        doc.on('saved', () => this.renderTabs()),
+      ]);
+    }
     if (activate) this.activate(editor);
     else this.renderTabs();
     return editor;
@@ -393,6 +399,10 @@ export class App extends Emitter {
     // Closed meanwhile (a second close while the save prompt or the save was pending).
     if (i < 0) return true;
     this.editors.splice(i, 1);
+    if (!this.editors.some((e) => e.doc === editor.doc)) {
+      for (const off of this.#documentTabSubscriptions.get(editor.doc) || []) off();
+      this.#documentTabSubscriptions.delete(editor.doc);
+    }
     this.views.get(editor)?.destroy();
     this.views.get(editor)?.host.remove();
     this.views.delete(editor);
