@@ -61,6 +61,20 @@ describe('loading replacement action sets', () => {
     expect(panel.sel).toBeNull();
   });
 
+  it('rejects an imported transform that would crash when its steps are expanded', async () => {
+    pickWithInput.mockResolvedValueOnce([file([{ id: 'broken', name: 'Broken', actions: [
+      { id: 'broken-action', name: 'Broken action', steps: [{ kind: 'transform', on: true }] },
+    ] }])]);
+    const count = await panel.loadActions();
+    for (const set of engine.sets) {
+      panel.expanded.add(set.id);
+      for (const action of set.actions) panel.expanded.add(action.id);
+    }
+    expect(() => panel.update()).not.toThrow();
+    expect(count).toBe(0);
+    expect(engine.sets).toBe(original);
+  });
+
   it('still appends sets for Load Actions', async () => {
     pickWithInput.mockResolvedValueOnce([file([{ id: 'extra', name: 'Extra', actions: [] }])]);
     await panel.loadActions();

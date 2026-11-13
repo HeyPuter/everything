@@ -105,6 +105,7 @@ export function exportSetsData(sets) {
 /** Sets from a file, with fresh ids so they never clash with existing ones. */
 export function parseSetsData(data) {
   if (!data || data.format !== ACTIONS_FORMAT || !Array.isArray(data.sets)) throw new UserError('This file does not contain Vector Studio actions.');
+  const finiteVector = (v, length) => Array.isArray(v) && v.length === length && v.every(Number.isFinite);
   return data.sets.map((s) => ({
     id: uid('set'),
     name: String(s.name || 'Imported Set'),
@@ -112,7 +113,12 @@ export function parseSetsData(data) {
       id: uid('act'),
       name: String(a.name || 'Action'),
       ...(a.color ? { color: String(a.color) } : {}),
-      steps: (a.steps || []).filter((st) => st && ['command', 'style', 'transform', 'stop', 'select', 'path'].includes(st.kind)).map((st) => ({ ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) })),
+      steps: (a.steps || []).filter((st) => st && ['command', 'style', 'transform', 'stop', 'select', 'path'].includes(st.kind)).map((st) => {
+        if (st.kind === 'transform' && (!finiteVector(st.m, 4) || !finiteVector(st.d, 2))) {
+          throw new UserError(`This Vector Studio actions file contains an invalid transform in "${a.name || 'Action'}".`);
+        }
+        return { ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) };
+      }),
     })),
   }));
 }
