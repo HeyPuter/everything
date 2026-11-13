@@ -224,8 +224,9 @@ export class VariablesPanel extends Panel {
   async apply(id) {
     if (!id) return false;
     const doc = this.doc;
+    const request = (this.applyRequest = {});
     const options = await this.#applyOptions(doc, id);
-    if (this.doc !== doc) return false;
+    if (this.doc !== doc || this.applyRequest !== request) return false;
     doc.transact('Apply Data Set', () => applyDataSet(doc, id, setText, options));
     return true;
   }
