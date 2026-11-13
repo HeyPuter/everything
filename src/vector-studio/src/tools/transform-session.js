@@ -33,7 +33,8 @@ export class TransformSession {
     this.ids = this.editor.topSelection();
     if (duplicate) this.ids = duplicateInPlace(this.editor, this.ids);
     this.originals = collectOriginals(this.doc, this.ids);
-    this.preview = this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor();
+    // A bitmap transform moves the silhouettes too; pattern-only drags must repaint inside them.
+    this.preview = !this.patternsOnly && this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor();
   }
 
   /**

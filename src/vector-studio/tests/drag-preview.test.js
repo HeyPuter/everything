@@ -82,3 +82,27 @@ describe('large-selection drag preview with Alt', () => {
     view.renderNow();
   });
 });
+
+describe('large pattern-only drags', () => {
+  it('previews pattern movement without translating the object silhouettes', () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const ids = many(app, PREVIEW_THRESHOLD + 1);
+    ed.doc.transact('Pattern', () => {
+      for (const id of ids) ed.doc.update(id, { fill: { type: 'pattern', id: 'tile' } });
+    });
+    ed.patternsOnly = true;
+    const before = ed.doc.get(ids[0]);
+    const s = new TransformSession(ed, 'Move Patterns');
+    s.apply([1, 0, 0, 1, 10, 20]);
+    expect(ed.dragPreview).toBeFalsy();
+    expect(ed.doc.get(ids[0]).fill.transform).toEqual([1, 0, 0, 1, 10, 20]);
+    expect(ed.doc.get(ids[0]).anchors).toEqual(before.anchors);
+    s.apply([1, 0, 0, 1, 20, 30]);
+    s.commit();
+    expect(ed.doc.get(ids[0]).fill.transform).toEqual([1, 0, 0, 1, 20, 30]);
+    expect(ed.doc.get(ids[0]).anchors).toEqual(before.anchors);
+    ed.doc.undo();
+    expect(ed.doc.get(ids[0])).toEqual(before);
+  });
+});
