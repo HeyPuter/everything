@@ -352,6 +352,12 @@ const plain = (n) => (n ? JSON.parse(JSON.stringify(n)) : null);
 /** API calls that wait for the user to answer a dialog. */
 const ASKS_USER = new Set(['prompt', 'confirm', 'form']);
 
+/**
+ * API calls that work for a while in the app (geometry over many shapes):
+ * like waiting for the user, that time is not the script's own.
+ */
+const APP_WORK = new Set(['area', 'labelPoint', 'pathfinder', 'offsetPath', 'outlineStroke']);
+
 /** Object properties a script may change (structure stays with create/remove). */
 const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children']);
 
@@ -578,7 +584,7 @@ function paintTest(v, key) {
  * Run a script against the app's active editor. Resolves to
  * { ok, value?, error?, line?, stopped?, changes } when the script
  * finishes. A script that goes `timeoutMs` without reporting progress is
- * stopped (time spent waiting for the user does not count); `signal`
+ * stopped (time spent waiting for the user or on geometry work in the app does not count); `signal`
  * (an AbortSignal) and the Stop button in the status bar stop it any time.
  * `onProgress(fraction, message)` follows its progress reports.
  */
@@ -626,7 +632,7 @@ export function runScript(
     }
     signal?.addEventListener('abort', onAbort);
     status = scriptStatus(app, name, stop);
-    // The time limit stops runaway scripts; time spent waiting for the user does not count, and progress starts it over.
+    // The time limit stops runaway scripts; waiting for the user or for app work does not count, and progress starts it over.
     const resume = () => {
       since = Date.now();
       timer = setTimeout(
@@ -709,7 +715,7 @@ export function runScript(
         );
       } else if (m.__vs === 'call') {
         let reply;
-        const asks = ASKS_USER.has(m.method);
+        const asks = ASKS_USER.has(m.method) || APP_WORK.has(m.method);
         if (asks) hold();
         const unwatch = m.method === 'command' ? watchDialogs() : null;
         try {
