@@ -56,7 +56,7 @@ type Recent = { cp: number; family: string };
 function recentGlyphs(): Recent[] {
   try {
     const v = JSON.parse(localStorage.getItem(recentKey) ?? '[]');
-    return Array.isArray(v) ? v.filter((r) => r && Number.isInteger(r.cp) && typeof r.family === 'string').slice(0, 24) : [];
+    return Array.isArray(v) ? v.filter((r) => r && Number.isInteger(r.cp) && r.cp >= 0 && r.cp <= 0x10ffff && typeof r.family === 'string').slice(0, 24) : [];
   } catch {
     return [];
   }
