@@ -3,7 +3,7 @@
  * memoryStorage() backs the unit tests; idbStorage() backs the browser
  * harness, where several tabs (an owner and reviewers) share one IndexedDB
  * database the way they would share Puter's servers. update() is atomic in
- * both, which is what KV incr needs.
+ * both, which is what KV incr and partial field updates need.
  */
 
 export const TABLES = ['kv', 'files', 'tokens', 'workers', 'mints'];

@@ -67,6 +67,8 @@ Range requests: Puter's `/token-read` handler (read in Puter's public source, `L
 
 What a link does and does not protect: anyone holding a link can fetch that one video until it expires or is revoked; it grants nothing else. A removed person loses comments and new links at once; links they already hold stop working when revocation succeeds, otherwise within 4 hours.
 
+Role changes, invite-based upgrades for current members, and removals use [Puter's partial KV updates](https://docs.puter.com/KV/update/). They update only their own fields so a delayed role save cannot erase a removal. If the updated record is already removed, the role change returns 404 and an invite upgrade returns 403. These operations keep the existing member record format and use the same number of KV calls.
+
 ## Limits (enforced by the worker)
 
 Comment text up to 2000 characters; 12 comments and 60 edits, deletes, resolves or reopens a minute per person per review; ranges up to 10 minutes and inside the video; 20,000 comment changes, 50 versions, 200 people (people removed don't count; 1,000 ever joined) and 50 invite links per review; 10 failed joins per person per 10 minutes; review videos up to 4 GB; request bodies up to 64 KB.

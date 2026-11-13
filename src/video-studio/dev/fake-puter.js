@@ -86,6 +86,20 @@ export function createWorld({ storage = memoryStorage(), now = () => Date.now(),
         await storage.put('kv', k(key), { v: structuredClone(value) });
         return true;
       },
+      // The review service uses flat field updates. Like Puter's update(), these
+      // preserve unrelated fields and run atomically, including across dev tabs.
+      async update(key, fields) {
+        await wait();
+        if (!fields || !Object.keys(fields).length || Object.keys(fields).some((path) => !/^[a-zA-Z_$][\w$]*$/.test(path))) {
+          throw puterError('The fake supports nonempty flat field updates only', 'bad_request', 400);
+        }
+        const values = structuredClone(fields);
+        const rec = await storage.update('kv', k(key), (cur) => {
+          const c = live(cur);
+          return { v: { ...c?.v, ...values }, ...(c?.exp ? { exp: c.exp } : {}) };
+        });
+        return structuredClone(rec.v);
+      },
       async del(key) {
         await wait();
         await storage.del('kv', k(key));

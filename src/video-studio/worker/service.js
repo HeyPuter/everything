@@ -253,8 +253,8 @@ export class ReviewService {
       if (validToken && existing.role === 'viewer') {
         const invite = await this.kv.get(`vsr:invite:${tokenHash}`);
         if (invite?.review === rid && invite.role === 'commenter' && !invite.revoked && invite.expires > this.now()) {
-          const next = { ...existing, role: 'commenter', username: user.username };
-          await this.kv.set(`vsr:r:${rid}:m:${user.uuid}`, next);
+          const next = await this.kv.update(`vsr:r:${rid}:m:${user.uuid}`, { role: 'commenter', username: user.username });
+          if (next.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
           return { review: await this.view(rid, next.role, user, meta) };
         }
       }
@@ -352,8 +352,10 @@ export class ReviewService {
     const key = `vsr:r:${rid}:m:${input.uuid}`;
     const m = typeof input.uuid === 'string' && input.uuid.length <= 64 ? await this.kv.get(key) : null;
     if (!m || m.removed) fail(404, 'That person is not in this review.');
-    await this.kv.set(key, { ...m, role });
-    return { member: { uuid: m.uuid, username: m.username, role, joined: m.joined } };
+    // Updating only the role cannot erase a removal saved since the read above.
+    const saved = await this.kv.update(key, { role });
+    if (saved.removed) fail(404, 'That person is not in this review.');
+    return { member: { uuid: saved.uuid, username: saved.username, role: saved.role, joined: saved.joined } };
   }
 
   async removeMember(user, input) {
@@ -362,7 +364,7 @@ export class ReviewService {
     const key = `vsr:r:${rid}:m:${input.uuid}`;
     const m = typeof input.uuid === 'string' && input.uuid.length <= 64 ? await this.kv.get(key) : null;
     if (!m) fail(404, 'That person is not in this review.');
-    if (!m.removed) await this.kv.set(key, { ...m, removed: this.now() });
+    if (!m.removed) await this.kv.update(key, { removed: this.now() });
     // Video links already handed out stop working at once where Puter lets the
     // worker revoke them; new links are made for everyone else on demand.
     await this.dropVideoLinks(rid);
