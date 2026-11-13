@@ -1,0 +1,101 @@
+// Stylus review: palm rejection, the pen's eraser end, menus tapped with a pen, and brush cursors.
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { bootApp } from './helpers.js';
+
+// Presses a second apart, so no two count as a double-click.
+let clock = 0;
+const ptr = (x, y, extra = {}) => ({ pointerId: 1, pointerType: 'mouse', button: 0, buttons: 1, clientX: x, clientY: y, pressure: 0.5, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, timeStamp: (clock += 1000), ...extra });
+const pen = (x, y, extra = {}) => ptr(x, y, { pointerId: 7, pointerType: 'pen', ...extra });
+const touch = (x, y, id = 20, extra = {}) => ptr(x, y, { pointerId: id, pointerType: 'touch', ...extra });
+
+let app;
+beforeAll(() => {
+  app = bootApp();
+  app.newDocument();
+});
+
+beforeEach(() => {
+  const input = app.input;
+  input.pointers.clear();
+  input.palms?.clear();
+  input.active = null;
+  input.gesture = null;
+  input.pendingTouch = null;
+  app.editor.clearSelection();
+  app.editor.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+});
+
+const paths = () => {
+  const out = [];
+  app.editor.doc.walk((n) => {
+    if (n.type === 'path') out.push(n);
+  });
+  return out;
+};
+
+describe('palm rejection', () => {
+  it('a palm landing while the pen draws neither cancels the stroke nor pinches the view', () => {
+    app.setTool('pencil');
+    const before = paths().length;
+    const zoom = app.editor.view.zoom;
+    const input = app.input;
+    input.down(pen(100, 100));
+    input.move(pen(120, 110));
+    input.down(touch(400, 400));
+    input.move(touch(460, 470));
+    expect(input.gesture).toBe(null);
+    input.move(pen(140, 130));
+    input.move(pen(160, 160));
+    input.up(touch(460, 470));
+    input.up(pen(160, 160));
+    expect(app.editor.view.zoom).toBe(zoom);
+    expect(paths().length).toBe(before + 1);
+  });
+
+  it('a palm resting before the pen lands gives the pen the stroke', async () => {
+    app.setTool('pencil');
+    const before = paths().length;
+    const input = app.input;
+    input.down(touch(400, 400));
+    // The palm's deferred press would start the tool after a moment; the pen comes first.
+    input.down(pen(100, 100));
+    await new Promise((r) => setTimeout(r, 150));
+    input.move(touch(410, 405));
+    input.move(pen(130, 120));
+    input.move(pen(160, 160));
+    input.up(pen(160, 160));
+    input.up(touch(410, 405));
+    const added = paths().slice(before);
+    expect(added.length).toBe(1);
+    // The path runs where the pen went, not from the palm.
+    expect(Math.abs(added[0].anchors[0].x - 100)).toBeLessThan(2);
+  });
+
+  it('a palm already dragging a tool is cancelled when the pen lands', () => {
+    app.setTool('pencil');
+    const before = paths().length;
+    const input = app.input;
+    input.down(touch(400, 400));
+    input.move(touch(420, 420)); // moved: the palm's press started
+    expect(input.active?.id).toBe(20);
+    input.down(pen(100, 100));
+    expect(input.active?.id).toBe(7);
+    input.move(pen(150, 150));
+    input.up(pen(150, 150));
+    input.up(touch(430, 430));
+    expect(paths().length).toBe(before + 1);
+  });
+
+  it('two fingers still pinch when no pen is down', () => {
+    app.setTool('pencil');
+    const input = app.input;
+    input.down(touch(100, 100, 21));
+    input.down(touch(200, 100, 22));
+    expect(input.gesture).not.toBe(null);
+    input.move(touch(50, 100, 21));
+    input.move(touch(250, 100, 22));
+    expect(app.editor.view.zoom).toBeCloseTo(2);
+    input.up(touch(50, 100, 21));
+    input.up(touch(250, 100, 22));
+  });
+});

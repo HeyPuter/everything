@@ -11,6 +11,8 @@
  *   starts with one finger never selects or deselects anything.
  * - A touch long press opens the context menu (iPad Safari sends no
  *   contextmenu event for it).
+ * - Palm rejection: while a pen touches the canvas, touches are ignored, and
+ *   a pen landing ends whatever a touch (a resting palm) had started.
  */
 
 /** How long a single finger waits for a second one before the tool starts. */
@@ -30,6 +32,8 @@ export class CanvasInput {
     this.spaceDown = false;
     this.tempTool = null;
     this.lastClick = { t: 0, x: 0, y: 0 };
+    // Touches ignored because a pen is on the canvas (a palm resting while drawing).
+    this.palms = new Set();
     host.addEventListener('pointerdown', (e) => this.down(e));
     host.addEventListener('pointermove', (e) => this.move(e));
     host.addEventListener('pointerup', (e) => this.up(e));
@@ -79,6 +83,11 @@ export class CanvasInput {
 
   down(e) {
     if (!this.editor) return;
+    if (e.pointerType === 'touch' && this.#penDown()) {
+      this.palms.add(e.pointerId);
+      return;
+    }
+    if (e.pointerType === 'pen') this.#rejectPalms();
     this.host.focus({ preventScroll: true });
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (e.pointerType === 'touch' && this.pointers.size === 2) {
@@ -115,6 +124,38 @@ export class CanvasInput {
       return;
     }
     this.#startTool(e);
+  }
+
+  /** Whether a pen is touching the canvas. */
+  #penDown() {
+    for (const p of this.pointers.values()) if (p.type === 'pen') return true;
+    return false;
+  }
+
+  /**
+   * A pen landed: touches already on the canvas are a palm resting on the
+   * screen (or a hand steadying it), so whatever they started (a press
+   * waiting to start, a tool drag, a pinch, a long press) ends without
+   * effect, and they are ignored until they lift.
+   */
+  #rejectPalms() {
+    let any = false;
+    for (const [id, p] of this.pointers) {
+      if (p.type !== 'touch') continue;
+      any = true;
+      this.pointers.delete(id);
+      this.palms.add(id);
+    }
+    if (!any) return;
+    this.#clearTouchTimers();
+    this.pendingTouch = null;
+    this.touchStart = null;
+    this.longPressed = false;
+    this.gesture = null;
+    if (this.active && !this.pointers.has(this.active.id)) {
+      this.active.tool.cancel?.();
+      this.active = null;
+    }
   }
 
   /** Start the deferred one-finger tool press (it moved, lifted or waited long enough). */
@@ -192,7 +233,7 @@ export class CanvasInput {
   }
 
   move(e) {
-    if (!this.editor) return;
+    if (!this.editor || this.palms.has(e.pointerId)) return;
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (e.pointerType === 'touch' && this.pointers.has(e.pointerId)) {
       if (this.longPressed) return;
@@ -231,6 +272,7 @@ export class CanvasInput {
   }
 
   up(e) {
+    if (this.palms.delete(e.pointerId)) return;
     if (e.pointerType === 'touch') {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = 0;
@@ -268,6 +310,7 @@ export class CanvasInput {
   }
 
   cancel(e) {
+    if (this.palms.delete(e.pointerId)) return;
     if (this.pendingTouch?.e.pointerId === e.pointerId) this.pendingTouch = null;
     this.#clearTouchTimers();
     this.longPressed = false;
