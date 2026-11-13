@@ -873,6 +873,19 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
 let input: HTMLTextAreaElement | undefined;
 export const CLIPBOARD_TYPE = 'application/x-photo-studio-text';
 
+// A control's asynchronous completion may return focus only to the edit that
+// initiated it, and only while the user has not focused a different control.
+export function restoreInputFocus(e: Editor): () => void {
+  const editing = session;
+  const from = document.activeElement;
+  return () => {
+    if (!editing) return;
+    setTimeout(() => {
+      if (session === editing && (document.activeElement === from || document.activeElement === document.body)) focusInput(e);
+    }, 0);
+  };
+}
+
 // `soft` leaves focus alone while another field (a panel input) is in use.
 export function focusInput(e: Editor, soft = false) {
   if (!session) return;

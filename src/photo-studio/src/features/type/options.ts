@@ -7,7 +7,7 @@ import { escapeXML } from '../../model/assets';
 import { rgbHexString, hexRgb } from '../../model/text-layer';
 import { BUNDLED_FONTS, ensureFont, fontFamilies, localizedFamilies, type FontFamilyInfo } from '../../imaging/text/fonts';
 import type { AntiAlias, CharStyle } from '../../imaging/text/model';
-import { applyChar, applyLayer, applyParagraph, focusInput, onSessionChange, session, styleContext, typeDefaults } from './session';
+import { applyChar, applyLayer, applyParagraph, focusInput, onSessionChange, restoreInputFocus, session, styleContext, typeDefaults } from './session';
 import { fontPreviewSize } from './language';
 import { typeUnit } from './units';
 import { whenIdle } from '../../app/lazy';
@@ -177,38 +177,35 @@ ${editing ? `<span class="type-edit-actions"><span class="divider"></span><butto
 }
 
 export function bindTypeOptions({ e, el }: ToolOptionsContext) {
-  const refocus = () => {
-    if (session) setTimeout(() => focusInput(e), 0);
-  };
   const family = el.querySelector<HTMLButtonElement>('#type-family');
   family?.addEventListener('click', () => {
     const cur = styleContext(e).char;
-    openFontPicker(e, family, (f) => void applyChar(e, familyPatch(f, cur)).then(refocus), cur.family);
+    openFontPicker(e, family, (f) => void applyChar(e, familyPatch(f, cur)).then(restoreInputFocus(e)), cur.family);
   });
   el.querySelector<HTMLSelectElement>('#type-style')?.addEventListener('change', (ev) => {
     const [w, i] = (ev.target as HTMLSelectElement).value.split('|');
-    if (w) void applyChar(e, { weight: Number(w), italic: i === '1' }).then(refocus);
+    if (w) void applyChar(e, { weight: Number(w), italic: i === '1' }).then(restoreInputFocus(e));
   });
   const size = el.querySelector<HTMLInputElement>('#type-size');
   size?.addEventListener('change', () => {
     const v = Number(size.value) / typeUnit(e).k;
-    if (Number.isFinite(v) && v > 0) void applyChar(e, { size: Math.min(1296, Math.max(0.5, v)) }).then(refocus);
+    if (Number.isFinite(v) && v > 0) void applyChar(e, { size: Math.min(1296, Math.max(0.5, v)) }).then(restoreInputFocus(e));
   });
   size?.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') {
       size.dispatchEvent(new Event('change'));
-      refocus();
+      restoreInputFocus(e)();
     }
   });
   el.querySelector<HTMLSelectElement>('#type-aa')?.addEventListener('change', (ev) => {
     const v = (ev.target as HTMLSelectElement).value as AntiAlias;
-    if (v) void setAntiAlias(e, v).then(refocus);
+    if (v) void setAntiAlias(e, v).then(restoreInputFocus(e));
   });
   for (const b of el.querySelectorAll<HTMLButtonElement>('.type-align'))
-    b.addEventListener('click', () => void applyParagraph(e, { align: b.dataset.align as 'left' }).then(refocus));
+    b.addEventListener('click', () => void applyParagraph(e, { align: b.dataset.align as 'left' }).then(restoreInputFocus(e)));
   const color = el.querySelector<HTMLInputElement>('#type-color');
   // Applied when the picker closes, as one change.
-  color?.addEventListener('change', () => void applyChar(e, { color: hexRgb(color.value) }).then(refocus));
+  color?.addEventListener('change', () => void applyChar(e, { color: hexRgb(color.value) }).then(restoreInputFocus(e)));
 }
 
 export async function setAntiAlias(e: Editor, aa: AntiAlias) {

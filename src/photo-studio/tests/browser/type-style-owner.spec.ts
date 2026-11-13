@@ -52,6 +52,85 @@ async function state(page: Page) {
   return page.evaluate(() => window.photoStudio.sessions.map((s) => ({ id: s.id, text: s.doc.layers.at(-1)!.text, family: s.doc.layers.at(-1)!.textData?.content.paragraphs[0].runs[0].style.family, history: s.history.labels })));
 }
 
+for (const source of ['options', 'character panel']) test(`a delayed ${source} font choice does not steal focus in another document`, async ({ page }) => {
+  const { other } = await prepare(page);
+  if (source === 'options') await pickFont(page);
+  else {
+    await page.evaluate(() => window.photoStudio.dock.show('character', true));
+    await page.locator('.type-panel [data-family]').click();
+    await page.locator('.type-font-picker [data-family="Caveat"]').click();
+    await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  }
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.doc.layers.at(-1)!.id, 'all');
+  });
+  await page.locator('#type-size').focus();
+  await expect(page.locator('#type-size')).toBeFocused();
+  await finishFont(page);
+  await expect(page.locator('#type-size')).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!.data.content.paragraphs[0].runs[0].text)).toBe('Other');
+});
+
+test('a font chosen during editing returns focus for immediate typing', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+  });
+  await pickFont(page);
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('Typed while loading');
+  await finishFont(page);
+  await run(page, 'type.commit');
+  expect((await state(page)).at(-1)).toMatchObject({ text: 'Typed while loading', family: 'Caveat' });
+});
+
+for (const source of ['options', 'character panel']) for (const key of ['Enter', 'Tab']) test(`${key} after a ${source} size change restores the intended focus`, async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(async (source) => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'end');
+    if (source === 'character panel') e.dock.show('character', true);
+  }, source);
+  const size = page.locator(source === 'options' ? '#type-size' : '#panel-character [data-char="size"]');
+  await size.fill('48');
+  await size.press(key);
+  await idle(page);
+  if (key === 'Tab') {
+    await expect(page.locator(source === 'options' ? '#type-aa' : '#panel-character [data-char="leading"]')).toBeFocused();
+  } else {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText('X');
+    await run(page, 'type.commit');
+    expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.textData!.content.paragraphs[0].runs.map((r) => [r.text, r.style.size]))).toEqual([['Original', 24], ['X', 48]]);
+  }
+});
+
+for (const key of ['Enter', 'Tab']) test(`${key} after a paragraph-panel change restores the intended focus`, async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'end');
+    e.dock.show('paragraph', true);
+  });
+  const indent = page.locator('#panel-paragraph [data-para="indentLeft"]');
+  await indent.fill('12');
+  await indent.press(key);
+  await idle(page);
+  if (key === 'Tab') await expect(page.locator('#panel-paragraph [data-para="indentRight"]')).toBeFocused();
+  else {
+    await expect(page.locator('textarea.type-input')).toBeFocused();
+    await page.keyboard.insertText('X');
+    await run(page, 'type.commit');
+    expect(await page.evaluate(() => {
+      const l = window.photoStudio.doc.layers.at(-1)!;
+      return { text: l.text, indent: l.textData!.content.paragraphs[0].style.indentLeft };
+    })).toEqual({ text: 'OriginalX', indent: 12 });
+  }
+});
+
 async function prepareTwoFonts(page: Page) {
   await prepare(page, true);
   return page.evaluate(async () => {
