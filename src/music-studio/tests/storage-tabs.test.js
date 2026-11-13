@@ -39,6 +39,20 @@ describe('tab slots', () => {
     expect(session.m.get('music-studio:tab')).toBe(tab.key.slice(4));
   });
 
+  it('can inspect ownership again after a failed query', async () => {
+    const locks = fakeLocks(['music-studio-tab-other']);
+    const query = locks.query;
+    locks.query = async () => { throw new DOMException('Denied', 'SecurityError'); };
+    const tab = await claimTab({ locks, session: fakeSession({ 'music-studio:tab': 'own' }) });
+    expect(await tab.liveKeys()).toBe(null);
+    locks.query = query;
+    const live = await tab.liveKeys();
+    expect(live).toEqual(new Set(['tab:other', 'tab:own']));
+    const result = pickDraft([['tab:other', { at: Date.now() }], ['tab:closed', { at: Date.now() - 1 }]], { own: tab.key, live });
+    expect(result.key).toBe('tab:closed');
+    expect(result.remove).toEqual([]);
+  });
+
   it('shares the legacy key without the Web Locks API', async () => {
     const tab = await claimTab({ locks: undefined, session: fakeSession() });
     expect(tab.key).toBe(LEGACY_KEY);

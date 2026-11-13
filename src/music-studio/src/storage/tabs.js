@@ -60,7 +60,8 @@ export async function claimTab({ locks = globalThis.navigator?.locks, session = 
         const { held = [] } = await locks.query();
         return new Set(held.filter((l) => l.name?.startsWith(LOCK_PREFIX)).map((l) => keyFor(l.name.slice(LOCK_PREFIX.length))));
       } catch {
-        return new Set([keyFor(slot)]);
+        // Unknown ownership must not be treated as proof that other tabs closed.
+        return null;
       }
     },
   };
@@ -80,10 +81,12 @@ function safeSession() {
  * Returns { key, draft, busy, remove }: the tab's own draft (a reload) first,
  * else the newest draft no open tab owns. `busy` is true when drafts exist but
  * all belong to other open tabs (the tab then starts a new project).
+ * A null `live` means inspection failed: restore only our own draft, without cleanup.
  */
 export function pickDraft(entries, { own, live, now = Date.now() }) {
   const drafts = entries.filter(([, v]) => v && typeof v === 'object');
   const mine = drafts.find(([k]) => k === own);
+  if (live === null) return { key: mine ? own : null, draft: mine?.[1] || null, busy: false, remove: [] };
   const unowned = drafts.filter(([k]) => k !== own && !live.has(k)).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
   const remove = unowned.filter(([, v], i) => i >= KEEP_UNOWNED || now - (v.at || 0) > STALE_MS).map(([k]) => k);
   if (mine) return { key: own, draft: mine[1], busy: false, remove };
