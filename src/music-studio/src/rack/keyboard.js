@@ -61,17 +61,20 @@ export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboa
 
   function start(src, key, vel) {
     stop(src);
+    const alreadyHeld = [...sounding.values()].includes(key);
     sounding.set(src, key);
     light(key, true);
-    onNoteOn?.(key, vel);
+    if (!alreadyHeld) onNoteOn?.(key, vel);
   }
 
   function stop(src) {
     const key = sounding.get(src);
     if (key === undefined) return;
     sounding.delete(src);
-    if (![...sounding.values()].includes(key)) light(key, false);
-    onNoteOff?.(key);
+    if (![...sounding.values()].includes(key)) {
+      light(key, false);
+      onNoteOff?.(key);
+    }
   }
 
   function releaseAll() {

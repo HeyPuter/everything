@@ -209,3 +209,48 @@ it('keeps a held audition through ordinary parameter and tempo edits', async () 
   pointer('pointerup');
   expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 48);
 });
+
+it.each(['two pointers', 'two keys', 'pointer and key'].flatMap((input) => [false, true].map((pending) => [input, pending])))('keeps a shared pitch held by %s until the final release (startup pending: %s)', async (input, pending) => {
+  const { app, win, id, keys, ready, noteOn, noteOff, pointer, press } = setup();
+  const starting = deferred();
+  vi.spyOn(app.engine, 'start').mockReturnValue(starting.promise);
+  ready.mockReturnValue(!pending);
+  const key = (type, code) => win.el.querySelector('.ch-editor').dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true }));
+  if (input === 'two keys') { key('keydown', 'KeyQ'); key('keydown', 'Comma'); }
+  else {
+    press(60, 1);
+    if (input === 'two pointers') press(60, 2);
+    else key('keydown', 'KeyQ');
+  }
+  if (input === 'two keys') key('keyup', 'KeyQ');
+  else pointer('pointerup', 1);
+  expect(noteOff).not.toHaveBeenCalled();
+  expect(keys.querySelector('[data-key="60"]').classList.contains('down')).toBe(true);
+  ready.mockReturnValue(true);
+  starting.resolve();
+  await starting.promise;
+  expect(noteOn).toHaveBeenCalledExactlyOnceWith(id, 60, 0.8);
+  if (input === 'two keys') key('keyup', 'Comma');
+  else if (input === 'two pointers') pointer('pointerup', 2);
+  else key('keyup', 'KeyQ');
+  expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 60);
+  expect(keys.querySelector('.down')).toBeNull();
+});
+
+it('keeps a shared pitch sounding when one finger glides to another key', () => {
+  const { id, keys, noteOn, noteOff, pointer, press, hit } = setup();
+  press(60, 1);
+  press(60, 2);
+  hit(62);
+  pointer('pointermove', 1);
+  expect(noteOff).not.toHaveBeenCalled();
+  expect(noteOn.mock.calls).toEqual([[id, 60, 0.8], [id, 62, 0.8]]);
+  expect(keys.querySelector('[data-key="60"]').classList.contains('down')).toBe(true);
+  pointer('pointerup', 1);
+  expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 62);
+  pointer('pointerup', 2);
+  expect(noteOff.mock.calls).toEqual([[id, 62], [id, 60]]);
+  press(60, 3);
+  expect(noteOn).toHaveBeenCalledTimes(3);
+  pointer('pointerup', 3);
+});
