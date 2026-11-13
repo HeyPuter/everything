@@ -93,7 +93,8 @@ export async function findReplace(e: Editor) {
   let searchRevision = 0;
   const next = async () => {
     const revision = ++searchRevision;
-    const isCurrent = () => ws.dialog.isConnected && revision === searchRevision;
+    const owner = e.session;
+    const isCurrent = () => ws.dialog.isConnected && e.session === owner && revision === searchRevision;
     if (!isCurrent()) return;
     read();
     if (!s.query) return status('Type the text to find.');
@@ -227,7 +228,9 @@ export async function checkSpelling(e: Editor) {
       : '<span class="muted">No suggestions</span>';
   };
   const next = async () => {
-    if (!ws.dialog.isConnected) return;
+    const owner = e.session;
+    const isCurrent = () => ws.dialog.isConnected && e.session === owner;
+    if (!isCurrent()) return;
     const found = search(e, all(), (t) => spell.misspellings(t));
     current = found;
     if (!found) {
@@ -238,8 +241,8 @@ export async function checkSpelling(e: Editor) {
       return;
     }
     enable(true);
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end, () => ws.dialog.isConnected);
-    if (!ws.dialog.isConnected) return;
+    await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
+    if (!isCurrent()) return;
     show(found.hit.word);
     ws.q<HTMLElement>('#sp-change-one').focus();
     status(`In “${found.layer.name}”.`);

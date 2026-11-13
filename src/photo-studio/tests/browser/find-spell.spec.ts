@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, idle, run } from './helpers';
+import { boot, idle, openImage, run } from './helpers';
 
 async function textDoc(page: Page, texts: string[]) {
   await page.evaluate(async (texts) => {
@@ -487,4 +487,70 @@ for (const reset of [false, true]) test(`a newer Find result starts before an ab
   await idle(page);
   expect(await selection()).toEqual({ layer: target, anchor: 0, focus: 4 });
   await expect(dlg.getByRole('button', { name: 'Find Next' })).toBeFocused();
+});
+
+for (const sharedId of [true, false]) for (const dialog of ['Find', 'Spelling']) test(`a delayed ${dialog} result preserves another document's text selection and focus${sharedId ? ' with matching layer IDs' : ''}`, async ({ page }) => {
+  await boot(page);
+  await openImage(page, 240, 160, '#ffffff', 'other.png');
+  const other = await page.evaluate(() => window.photoStudio.session.id);
+  await openImage(page, 240, 160, '#ffffff', 'original.png');
+  await textDoc(page, ['teh']);
+  await page.evaluate(async ({ other, sharedId }) => {
+    const e = window.photoStudio;
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    const l = e.doc.layers[0];
+    const s = e.sessions.find((s) => s.id === other)!;
+    // Duplicated documents retain layer IDs while their text can diverge.
+    s.history.reset({ ...s.doc, layers: [{ ...l, id: sharedId ? l.id : crypto.randomUUID(), name: 'Other text', text: 'Other text', textData: textLayer('Other text', { family: 'Inter' }) }] });
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    e.command('Unloaded font', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  }, { other, sharedId });
+  await page.evaluate((dialog) => window.photoStudio.runCommand(dialog === 'Find' ? 'edit.find-replace-text' : 'edit.check-spelling'), dialog);
+  if (dialog === 'Find') {
+    const dlg = page.locator('dialog.fr-workspace');
+    await dlg.locator('#fr-find').fill('teh');
+    await dlg.getByRole('button', { name: 'Find Next' }).click();
+  }
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers[0].id, 'end');
+  });
+  await page.locator('#type-size').focus();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+    return [s.anchor, s.focus];
+  })).toEqual([10, 10]);
+  await expect(page.locator('#type-size')).toBeFocused();
+  await page.locator('textarea.type-input').focus();
+  await page.keyboard.insertText(' more');
+  await run(page, 'type.commit');
+  expect(await layerTexts(page)).toEqual(['Other text more']);
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['Other text']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(['Other text more']);
+  if (dialog === 'Find') {
+    const dlg = page.locator('dialog.fr-workspace');
+    await dlg.locator('#fr-find').fill('more');
+    await dlg.getByRole('button', { name: 'Find Next' }).click();
+    await expect(dlg.locator('#fr-status')).toContainText('Found in');
+    expect(await page.evaluate(() => {
+      const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+      return [s.anchor, s.focus];
+    })).toEqual([11, 15]);
+  }
 });
