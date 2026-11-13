@@ -1477,6 +1477,8 @@ export function createEditor({
     if (!pdf) return;
     safe(async () => {
       await finishDrafts();
+      // Compare files fills the same place; the grid would open hidden underneath it.
+      closeComparison();
       editorRoot.classList.add('organizing');
       organizer.show();
     })();
@@ -11970,6 +11972,8 @@ export function createEditor({
         onClose: () => closeComparison(),
       });
       comparison = { view, tasks };
+      // The comparison takes the page area, as Organize pages does; one of them at a time.
+      closeOrganizer();
       editorRoot.querySelector('.document-view').append(view.root);
       editorRoot.classList.add('comparing');
       view.focus();
