@@ -80,3 +80,16 @@ it.each(['detached', 'closed'])('ignores a pending description after the app is 
   vi.advanceTimersByTime(300);
   expect(app.canvasDesc.textContent).toBe('No selection');
 });
+
+it('keeps the active selection description pending when a background document selects an object', () => {
+  const a = drawing('Active'), b = drawing('Background');
+  app.activate(a.editor);
+  vi.advanceTimersByTime(300);
+  app.canvasHost.focus();
+  a.editor.select([a.node.id]);
+  vi.advanceTimersByTime(100);
+  b.editor.select([b.node.id]);
+  vi.advanceTimersByTime(180);
+  expect(app.canvasDesc.textContent).toBe(app.describeSelection(a.editor));
+  expect(document.getElementById('live-region').textContent).toBe(app.describeSelection(a.editor));
+});

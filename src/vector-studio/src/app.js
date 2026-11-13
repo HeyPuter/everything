@@ -291,6 +291,7 @@ export class App extends Emitter {
   #describeTimer = 0;
 
   #scheduleDescribe(editor) {
+    if (editor !== this.editor) return;
     clearTimeout(this.#describeTimer);
     this.#describeTimer = setTimeout(() => {
       if (typeof document === 'undefined' || this.root.ownerDocument !== document ||
