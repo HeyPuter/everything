@@ -314,7 +314,8 @@ export function scriptAPI(app, editor, name) {
       // Commands act on the active document: make it the script's again if another tab was chosen.
       if (!app.editors.includes(editor)) throw new Error('The document the script runs on was closed.');
       if (app.editor !== editor) app.activate(editor);
-      await app.commands.run(id);
+      if (!app.commands.isEnabled(id)) throw new Error(`Command "${id}" cannot be used with the current selection.`);
+      await app.commands.run(id, undefined, { throwOnError: true });
       changes++;
       asOneStep();
       return true;
