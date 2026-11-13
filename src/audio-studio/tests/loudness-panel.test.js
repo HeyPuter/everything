@@ -81,6 +81,44 @@ describe('Match Loudness panel', () => {
     expect(doc.length).toBe(RATE * 3);
   });
 
+  it('keeps keyboard focus in the list when files are removed', () => {
+    const { app, doc, panel } = setup();
+    document.body.append(panel.el);
+    try {
+      const more = ['b.wav', 'c.wav'].map(
+        (name) =>
+          new AudioFile({
+            name,
+            sampleRate: RATE,
+            channels: [Channel.fromSamples(tone(RATE, 0.05))],
+          }),
+      );
+      for (const d of more) app.addDocument(d, { activate: false });
+      for (const d of [doc, ...more]) app.matchLoudnessAdd(d);
+      const rows = () => [...panel.el.querySelectorAll('tbody tr')];
+      rows()[1].click();
+      const del = () =>
+        document.activeElement.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+        );
+      del();
+      // b.wav is gone; c.wav, now selected, has the focus.
+      expect(rows().map((r) => r.firstChild.textContent)).toEqual(['a.wav', 'c.wav']);
+      expect(document.activeElement).toBe(rows()[1]);
+      del();
+      del();
+      // The list is empty: focus moves to Add rather than the page.
+      expect(document.activeElement.getAttribute('aria-label')).toBe('Add all open files');
+      app.matchLoudnessAdd(doc);
+      const clear = panel.el.querySelector('[aria-label="Clear the list"]');
+      clear.focus();
+      clear.click();
+      expect(document.activeElement.getAttribute('aria-label')).toBe('Add all open files');
+    } finally {
+      panel.el.remove();
+    }
+  });
+
   it('reads total RMS and peak past NaN and infinite samples', async () => {
     const { measureLoudness } = await import('../src/analysis/loudness.js');
     const x = tone(RATE * 4, 0.5);
