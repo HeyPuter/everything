@@ -907,9 +907,13 @@ export function createEditor({
   const layerChoices = new Map();
   const layers = createLayersPanel({
     onToggle: safe(async (id, visible) => {
+      // The choices are made again in order after each edit; the latest goes last, so it
+      // wins over earlier ones in the same radio button set.
+      layerChoices.delete(id);
       layerChoices.set(id, visible);
       const config = await documentLayers;
       config?.setVisibility(id, visible);
+      layers.sync();
       if (destroyed) return;
       await renderPage();
       stack.invalidate();

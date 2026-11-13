@@ -129,6 +129,14 @@ export function createLayersPanel({ onToggle }) {
   }
   return {
     el: root,
+    /**
+     * Set the switches from the configuration again: switching on a layer of a radio button
+     * set (RBGroups) switches the others in the set off.
+     */
+    sync() {
+      for (const input of tree.querySelectorAll('input'))
+        input.checked = config?.getGroup(input.dataset.id)?.visible !== false;
+    },
     /** Show the layers of a configuration; resolves with whether there are any. */
     show(next) {
       // The list is drawn again after every change to the PDF (an Undo pressed on a switch,
