@@ -124,7 +124,9 @@ export function templatesView({ onChoose, initialCategory = 'all' }) {
 export function openTemplateDialog(tpl, { onUse, actionLabel = 'Use template', busyLabel = 'Creating your project' }) {
   const p = new TemplatePreview(tpl, { width: tpl.ratio === '9:16' ? 300 : tpl.ratio === '16:9' || tpl.ratio === '21:9' ? 640 : 420 });
   p.canvas.classList.add('tpl-dialog-canvas');
-  p.ready().then(() => p.play(), () => {});
+  p.ready().then(() => {
+    if (p.canvas.isConnected) p.play();
+  }, () => {});
   const slots = slotCount(tpl);
   const use = h('button.btn.primary', { type: 'button' }, icon('plus', 16), actionLabel);
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
