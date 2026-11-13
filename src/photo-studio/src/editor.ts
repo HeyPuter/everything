@@ -485,8 +485,9 @@ export class Editor {
         // finish asynchronously, so keep the task busy until they commit.
         if (id.startsWith('file.') && !this.toolBusy) {
           this.transform.apply();
-          await this.modal?.apply();
-          await this.session.waitForEdits();
+          // Observe pending-edit failures before a tool reports and handles
+          // its error; otherwise a failed transform can look complete here.
+          await Promise.all([this.modal?.apply(), this.session.waitForEdits()]);
         }
         // Recorded only when it runs: a command skipped because another
         // task is running must not become an action step.
