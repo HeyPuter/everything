@@ -118,7 +118,8 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       console.warn('Music Studio: the last session could not be restored.', err);
     }
     autosave.start();
-    if (firstLaunch) autosave.scheduleDraft();
+    // Edits made while startup was waiting happened before autosave subscribed.
+    if (firstLaunch || store.dirty) autosave.scheduleDraft();
   };
   app.restored = new Promise((resolve) => app.once('started', () => restore().then(resolve)));
 
