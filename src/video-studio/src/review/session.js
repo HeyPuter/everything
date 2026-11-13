@@ -24,6 +24,7 @@ export class ReviewSession extends Emitter {
     this.error = null;
     this.lastSync = 0;
     this._timer = null;
+    this._pollRun = 0;
     this._syncing = null;
     this._failures = 0;
     this._links = new Map();
@@ -109,19 +110,22 @@ export class ReviewSession extends Emitter {
   start(interval = this.interval) {
     this.interval = interval;
     if (this._timer !== null) return;
+    const run = ++this._pollRun;
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._onVisible);
     const tick = () => {
       // Back off after failures (up to 8 times the interval); skip while hidden.
       const delay = this.interval * Math.min(8, 2 ** this._failures);
       this._timer = setTimeout(async () => {
+        if (run !== this._pollRun) return;
         if (typeof document === 'undefined' || !document.hidden) await this.sync().catch(() => {});
-        if (this._timer !== null) tick();
+        if (run === this._pollRun) tick();
       }, delay);
     };
     tick();
   }
 
   stop() {
+    this._pollRun++;
     clearTimeout(this._timer);
     this._timer = null;
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this._onVisible);
