@@ -291,7 +291,7 @@ class DocxWriter {
     return out + '</w:tbl>';
   }
 
-  sectionProps(page, { type, columns, first, headers }) {
+  sectionProps(page, { type, columns, first, headers, change }) {
     const landscape = page.width > page.height;
     const m = page.margins;
     let refs = '';
@@ -302,6 +302,10 @@ class DocxWriter {
       if (headers.footer) refs += `<w:footerReference w:type="default" r:id="${headers.footer}"/>`;
       if (headers.footerFirst)
         refs += `<w:footerReference w:type="first" r:id="${headers.footerFirst}"/>`;
+    } else if (change) {
+      // A later page whose running head reads differently starts using its own.
+      if (change.header) refs += `<w:headerReference w:type="default" r:id="${change.header}"/>`;
+      if (change.footer) refs += `<w:footerReference w:type="default" r:id="${change.footer}"/>`;
     }
     const headerDistance =
       page.headerTop != null
@@ -327,10 +331,22 @@ class DocxWriter {
     );
   }
 
-  /** Header and footer parts from the running heads of the first page that has them. */
+  /**
+   * Header and footer parts from the running heads of the first page that has them, and, in
+   * `changes`, parts for later pages whose heads read differently (other than in page numbers),
+   * such as Bates numbers, which their sections then use.
+   */
   headersAndFooters(parts) {
     const pages = this.model.pages;
-    const pick = (key) => pages.find((p) => p[key].length || p[`${key}Images`]?.length);
+    const hasHead = (p, key) => p[key].length || p[`${key}Images`]?.length;
+    const pick = (key) => pages.find((p) => hasHead(p, key));
+    const signature = (kind, page) =>
+      JSON.stringify([
+        page[kind].map((block) =>
+          withPageFields(block.runs, page.index + 1, pages.length).map((r) => r.field || r.text),
+        ),
+        (page[`${kind}Images`] || []).map((image) => image.picture.key),
+      ]);
     const make = (kind, page, partRels) => {
       const tag = kind === 'header' ? 'hdr' : 'ftr';
       let body = '';
@@ -369,11 +385,9 @@ class DocxWriter {
       if (!body) body = '<w:p/>';
       return XML_HEADER + `<w:${tag} ${NS}>${body}</w:${tag}>`;
     };
-    const result = {};
+    const result = { changes: new Map() };
     let index = 1;
-    for (const kind of ['header', 'footer']) {
-      const page = pick(kind);
-      if (!page) continue;
+    const part = (kind, page) => {
       const name = `${kind}${index++}.xml`;
       const partRels = [];
       parts.push({
@@ -383,7 +397,21 @@ class DocxWriter {
       });
       if (partRels.length)
         parts.push({ name: `word/_rels/${name}.rels`, data: relationships(partRels) });
-      result[kind] = this.rel(kind, name);
+      return this.rel(kind, name);
+    };
+    for (const kind of ['header', 'footer']) {
+      const page = pick(kind);
+      if (!page) continue;
+      result[kind] = part(kind, page);
+      let shown = signature(kind, page);
+      for (const later of pages.slice(pages.indexOf(page) + 1)) {
+        if (!hasHead(later, kind)) continue;
+        const own = signature(kind, later);
+        if (own === shown) continue;
+        shown = own;
+        if (!result.changes.has(later)) result.changes.set(later, {});
+        result.changes.get(later)[kind] = part(kind, later);
+      }
       if (pages[0][kind].length === 0 && page !== pages[0]) {
         const blank = `${kind}${index++}.xml`;
         parts.push({
@@ -440,6 +468,7 @@ class DocxWriter {
           columns: section.band?.count === 2 ? section.band : null,
           first: pageIndex === 0 && s === 0,
           headers,
+          change: s === 0 ? headers.changes.get(page) : null,
         });
         // A section ends with the paragraph holding its properties; the last one lives in body.
         const holder = isLastSection ? '' : props;

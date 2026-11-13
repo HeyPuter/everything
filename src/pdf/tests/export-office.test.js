@@ -1193,3 +1193,58 @@ it('marks exported web pages, Word documents, and slides with the PDF’s own la
     await loading.destroy();
   }
 });
+
+it('gives Word pages whose running heads read differently, such as Bates numbers, their own', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 3; i++) {
+    const page = doc.addPage([612, 792]);
+    page.drawText('Confidential', { x: 72, y: 750, size: 9, font });
+    page.drawText(`Body text of page ${i + 1} that makes a paragraph.`, {
+      x: 72,
+      y: 600,
+      size: 11,
+      font,
+    });
+    page.drawText(`ACME00010${i + 1}`, { x: 72, y: 40, size: 9, font });
+    page.drawText(`Page ${i + 1}`, { x: 500, y: 40, size: 9, font });
+  }
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const pdf = await loading.promise;
+    const files = await unzip((await exportDocument(pdf, bytes, 'docx')).bytes);
+    const docs = checkPackage(files);
+    const partText = (name) =>
+      elements(docs[name], 'w:t')
+        .map((t) => t.textContent)
+        .join('');
+    const rels = Object.fromEntries(
+      elements(docs['word/_rels/document.xml.rels'], 'Relationship').map((r) => [
+        attr(r, 'Id'),
+        `word/${attr(r, 'Target')}`,
+      ]),
+    );
+    // What each page shows: its section's footer, or the one before it carries on.
+    let footer = null;
+    const shown = elements(docs['word/document.xml'], 'w:sectPr')
+      .filter((s) => elements(s, 'w:type')[0]?.getAttribute('w:val') === 'nextPage')
+      .map((section) => {
+        const ref = elements(section, 'w:footerReference')[0];
+        if (ref) footer = rels[attr(ref, 'r:id')];
+        return partText(footer);
+      });
+    expect(shown.map((t) => t.match(/ACME\d+/)?.[0])).toEqual([
+      'ACME000101',
+      'ACME000102',
+      'ACME000103',
+    ]);
+    // The header is the same on every page and stays one part; page numbers stay fields.
+    expect(Object.keys(files).filter((n) => /^word\/header\d+\.xml$/.test(n))).toHaveLength(1);
+    expect(elements(docs[footer], 'w:instrText').map((n) => n.textContent.trim())).toEqual([
+      'PAGE',
+    ]);
+  } finally {
+    await loading.destroy();
+  }
+});
