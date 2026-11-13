@@ -234,7 +234,13 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
     cancel.textContent = step === 'progress' ? 'Stop' : step === 'results' ? 'Close' : 'Cancel';
   };
   show('options');
-  cancel.addEventListener('click', () => (abort ? abort.abort() : d.close()));
+  cancel.addEventListener('click', () => {
+    if (abort && !abort.signal.aborted) {
+      abort.abort();
+      status.textContent = 'Stopping...';
+      cancel.textContent = 'Close';
+    } else d.close();
+  });
   againBtn.addEventListener('click', () => {
     stopPreview?.();
     show('options');
