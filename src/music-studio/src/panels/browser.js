@@ -88,6 +88,7 @@ function createBrowser(app, host) {
     if (playing.path) stopPreview();
     dirs = null;
     folders.clear();
+    extraRoots.length = 0;
     urls.clear();
     if (puter.isSignedIn()) {
       try {
@@ -464,15 +465,17 @@ function createBrowser(app, host) {
   }
 
   async function pickFolder() {
+    const account = accountRequest;
     try {
       const dir = await puter.pickDirectory();
-      if (!dir?.path) return;
+      if (account !== accountRequest || !dir?.path) return;
       if (!extraRoots.includes(dir.path)) extraRoots.push(dir.path);
       expanded.add(`dir:${dir.path}`);
       loadFolder(dir.path);
       render();
       focusRow(`dir:${dir.path}`);
     } catch (err) {
+      if (account !== accountRequest) return;
       app.reportError(err);
     }
   }

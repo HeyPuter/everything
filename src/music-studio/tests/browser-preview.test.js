@@ -32,6 +32,7 @@ function setup() {
     commands: { register: vi.fn() },
     on: vi.fn(),
     notify: vi.fn(),
+    reportError: vi.fn(),
     registerPanel: vi.fn(),
   };
   install(app);
@@ -304,4 +305,63 @@ it('ignores a folder listing that finishes after the account cache is cleared', 
   refreshFolder(body);
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
+});
+
+describe('picked folders and account changes', () => {
+  let scrollDescriptor;
+  beforeEach(() => {
+    scrollDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+  });
+  afterEach(() => {
+    if (scrollDescriptor) Object.defineProperty(Element.prototype, 'scrollIntoView', scrollDescriptor);
+    else delete Element.prototype.scrollIntoView;
+  });
+
+  it('removes folders selected in the previous account', async () => {
+    const { app, body } = await cloudSetup();
+    puter.pickDirectory.mockResolvedValueOnce({ path: '/Previous/Samples' });
+    body.querySelector('[data-id="files:pick"]').click();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(body.querySelector('[data-id="dir:/Previous/Samples"]')).not.toBe(null);
+    expect(app.reportError).not.toHaveBeenCalled();
+    puter.appDir.mockResolvedValueOnce('/Current/Music');
+    await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(body.querySelector('[data-id="dir:/Current/Music"]')).not.toBe(null);
+    expect(body.querySelector('[data-id="dir:/Previous/Samples"]')).toBe(null);
+  });
+
+  it.each(['resolve', 'reject'])('ignores an obsolete folder picker that %ss after an account change', async (outcome) => {
+    const pending = deferred();
+    const { app, body } = await cloudSetup();
+    puter.pickDirectory.mockReturnValueOnce(pending.promise);
+    body.querySelector('[data-id="files:pick"]').click();
+    puter.appDir.mockResolvedValueOnce('/Current/Music');
+    await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+    puter.readdir.mockClear();
+    if (outcome === 'resolve') pending.resolve({ path: '/Previous/Samples' });
+    else pending.reject(new Error('Old picker failed'));
+    await vi.advanceTimersByTimeAsync(20);
+    expect(puter.readdir).not.toHaveBeenCalled();
+    expect(body.querySelector('[data-id="dir:/Previous/Samples"]')).toBe(null);
+    expect(app.reportError).not.toHaveBeenCalled();
+  });
+
+  it('can pick a folder after changing accounts and reports a current picker error', async () => {
+    const { app, body } = await cloudSetup();
+    await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+    await vi.advanceTimersByTimeAsync(20);
+    puter.pickDirectory.mockResolvedValueOnce({ path: '/Current/Samples' });
+    body.querySelector('[data-id="files:pick"]').click();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(body.querySelector('[data-id="dir:/Current/Samples"]')).not.toBe(null);
+    expect(puter.readdir).toHaveBeenCalledWith('/Current/Samples');
+    expect(app.reportError).not.toHaveBeenCalled();
+    const failure = new Error('Picker failed');
+    puter.pickDirectory.mockRejectedValueOnce(failure);
+    body.querySelector('[data-id="files:pick"]').click();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(app.reportError).toHaveBeenCalledExactlyOnceWith(failure);
+  });
 });
