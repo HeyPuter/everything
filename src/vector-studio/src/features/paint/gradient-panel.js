@@ -16,7 +16,7 @@ import { Panel } from '../../ui/panels/panel.js';
 import { iconButton, numberField, paintSwatch, updatePaintSwatch, segmented } from '../../ui/widgets.js';
 import { openEditorPopover } from '../../ui/popover.js';
 import { createColorPicker } from '../../ui/color-picker.js';
-import { applyStyle } from '../../ops/paint-ops.js';
+import { applyStyle, paintTargets } from '../../ops/paint-ops.js';
 import { createGradientSlider } from './gradient-slider.js';
 import { DEFAULT_LINEAR, setStop, moveStop, removeStop, reverseGradient, setGradientType, gradientAngle, setGradientAngle, normalizeGradient, resetGradientVector } from './gradient-model.js';
 import { isGradient } from '../../model/gradients.js';
@@ -116,11 +116,16 @@ export class GradientPanel extends Panel {
     this.resetVec = iconButton('refresh-cw', 'Fit gradient to the object', () => this.commit(resetGradientVector(this.paint), 'Reset Gradient', null), { className: 'small' });
     this.slider = createGradientSlider({
       onGestureStart: () => (this.coalesce = gestureKey('gradient')),
+      onDragStart: (cancel) => this.trackSliderDrag(cancel),
       onSelect: (i) => {
         paintState.setStop(i);
         this.refreshStop();
       },
-      onChange: (p) => this.commit(p, 'Edit Gradient', this.coalesce),
+      onChange: (p) => {
+        const commit = () => this.commit(p, 'Edit Gradient', this.coalesce);
+        if (this.sliderGesture) this.sliderGesture.run(commit);
+        else commit();
+      },
       onEditStop: (i, anchor) => this.editStopColor(i, anchor),
     });
     this.stopChip = paintSwatch(null);
@@ -220,7 +225,56 @@ export class GradientPanel extends Panel {
     this.setOptionsShown(app.prefs.get('gradientOptions') !== false);
   }
 
+  trackSliderDrag(cancel) {
+    const app = this.app, editor = app.editor;
+    if (!editor) { cancel(); return; }
+    const key = editor.focusPaint, isolation = editor.isolation, selection = [...editor.selection];
+    // Include individual targets so a mixed selection cannot hide an external
+    // replacement; groups paint their leaves and compounds paint as one target.
+    const snapshot = () => JSON.stringify([focusedPaint(editor).paint,
+      paintTargets(editor).map((node) => [node.id, node[key], node.runs])]);
+    let expectedPaint = snapshot(), editing = false, active = true;
+    const offs = [];
+    const valid = () => this.visible && this.optionsShown && app.editor === editor && app.editors.includes(editor) &&
+      !editor.doc.readOnly && (!app.home || app.home.hidden) && editor.focusPaint === key && editor.isolation === isolation &&
+      editor.selection.size === selection.length && selection.every((id) => editor.selection.has(id) &&
+        editor.doc.has(id) && !editor.doc.isHidden(id) && !editor.doc.isLocked(id) && editor.inIsolation(id)) &&
+      (editing || snapshot() === expectedPaint);
+    const check = () => {
+      if (!active) return false;
+      if (valid()) return true;
+      cancel();
+      return false;
+    };
+    const state = { run: (callback) => {
+      if (!check()) return;
+      editing = true;
+      try { return callback(); }
+      finally { expectedPaint = snapshot(); editing = false; }
+    } };
+    this.sliderGesture = state;
+    const dispose = () => {
+      if (!active) return;
+      active = false;
+      for (const off of offs.splice(0)) off();
+      if (this.sliderGesture === state) this.sliderGesture = null;
+    };
+    for (const event of ['active-editor', 'closed', 'show-home']) offs.push(app.on(event, check));
+    for (const event of ['selection', 'isolation', 'style']) offs.push(editor.on(event, check));
+    // Validate at the transaction boundary, not once per object in a selection.
+    offs.push(editor.on('doc-change', (event) => { if (event.commit) check(); }));
+    if (app.collab) offs.push(app.collab.on('role', check));
+    check();
+    return dispose;
+  }
+
+  hidden() {
+    this.slider?.cancel();
+    super.hidden();
+  }
+
   setOptionsShown(on) {
+    if (!on) this.slider?.cancel();
     this.optionsShown = on;
     this.app.prefs.set('gradientOptions', on);
     this.options.hidden = !on;

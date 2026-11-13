@@ -17,7 +17,7 @@ export function gradientBarCss(paint) {
   return paintCss({ type: 'linear', angle: 0, stops: expandStops(paint.stops) });
 }
 
-export function createGradientSlider({ label = 'Gradient', onChange, onSelect, onEditStop, onGestureStart }) {
+export function createGradientSlider({ label = 'Gradient', onChange, onSelect, onEditStop, onGestureStart, onDragStart }) {
   let paint = null;
   let selected = 0;
   let gesture = null;
@@ -65,23 +65,28 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
     const pointerId = e.pointerId;
     try { el.setPointerCapture?.(pointerId); } catch { return false; }
     const active = {};
+    let dispose;
     gesture = active;
     const owns = (ev) => gesture === active && ev.pointerId === pointerId;
     const onMove = (ev) => { if (owns(ev)) move(ev); };
     const end = (ev) => {
-      if (!owns(ev)) return;
+      if (gesture !== active || (ev && !owns(ev))) return;
       gesture = null;
       el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', end);
       el.removeEventListener('pointercancel', end);
       el.removeEventListener('lostpointercapture', end);
       try { el.releasePointerCapture?.(pointerId); } catch { /* Capture already ended. */ }
-      finish(ev.type === 'pointerup');
+      dispose?.();
+      finish(ev?.type === 'pointerup');
     };
+    active.end = end;
     el.addEventListener('pointermove', onMove);
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
     el.addEventListener('lostpointercapture', end);
+    dispose = onDragStart?.(() => end());
+    if (gesture !== active) { dispose?.(); return false; }
     onGestureStart?.();
     return true;
   };
@@ -221,6 +226,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
 
   return {
     el,
+    cancel() { gesture?.end(); },
     set(p, sel = selected) {
       paint = p;
       selected = Math.max(0, Math.min(sel, p.stops.length - 1));
