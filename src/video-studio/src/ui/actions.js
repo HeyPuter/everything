@@ -56,7 +56,7 @@ export function createActions(ctx) {
       T.addClip(p, clip, { ...store.opts, ...opts });
     });
     if (ok) {
-      store.select(clip.id);
+      if (opts?.select !== false) store.select(clip.id);
       announce(`${label}`);
     }
     return ok ? clip : null;
@@ -136,7 +136,7 @@ export function createActions(ctx) {
       const toMain = isVisual && opts.trackId === undefined && (opts.main ?? true) && main && !main.locked;
       // An empty project adopts the first visual asset's shape and frame rate.
       const firstVisual = isVisual && !T.allClips(p).some((c) => c.type === 'video' || c.type === 'image');
-      const added = addClipAndSelect(`Add ${asset.name}`, clip, { main: toMain, trackId: opts.trackId });
+      const added = addClipAndSelect(`Add ${asset.name}`, clip, { main: toMain, trackId: opts.trackId, select: opts.select });
       if (added && firstVisual && opts.adoptRatio !== false) actions.adoptMediaShape(asset);
       return added;
     },

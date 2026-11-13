@@ -186,6 +186,7 @@ export function createInspector(ctx) {
     update();
     return {
       update,
+      dispose: () => view.scope.dispose(),
       tick: () => view.scope.tick(),
       fit: ts.fit,
       selectTab(id, { force = false } = {}) {
@@ -204,6 +205,7 @@ export function createInspector(ctx) {
       return;
     }
     const hadFocus = el.contains(document.activeElement);
+    current?.dispose?.();
     key = k;
     body.scrollTop = 0;
     if (k === 'project') current = buildProject();
@@ -255,6 +257,9 @@ export function createInspector(ctx) {
       ta.select();
       return true;
     },
-    dispose: () => offs.forEach((f) => f()),
+    dispose() {
+      current?.dispose?.();
+      offs.forEach((f) => f());
+    },
   };
 }

@@ -20,7 +20,15 @@ export const uidFor = (p) => `insp-${p}-${++seq}`;
 export function createScope() {
   const all = [];
   const timed = [];
+  const cleanups = [];
   return {
+    onDispose(fn) {
+      cleanups.push(fn);
+    },
+    dispose() {
+      for (const fn of cleanups.splice(0)) fn();
+      all.length = timed.length = 0;
+    },
     bind(fn, { time = false } = {}) {
       (time ? timed : all).push(fn);
     },
@@ -69,6 +77,7 @@ export function createClipView(ctx, id) {
     },
     /** Drop the updaters of the panel being replaced. */
     resetScope() {
+      view.scope.dispose();
       view.scope = createScope();
     },
     /**

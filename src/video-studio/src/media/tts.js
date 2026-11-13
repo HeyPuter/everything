@@ -73,7 +73,7 @@ export function speechFile(blob, text) {
 }
 
 /** Import speech audio and put it on an audio track at start (default: playhead). */
-export async function addSpeechToTimeline(ctx, blob, text, { start, signal } = {}) {
+export async function addSpeechToTimeline(ctx, blob, text, { start, signal, select = true } = {}) {
   checkSpeech(signal);
   const context = () => JSON.stringify([ctx.store.project.id, ctx.store.project.timelineId, ...(ctx.store.nest || []).map((f) => f.id)]);
   const source = context(), controller = new AbortController();
@@ -89,7 +89,7 @@ export async function addSpeechToTimeline(ctx, blob, text, { start, signal } = {
     const [asset] = await ctx.actions.importFiles([speechFile(blob, text)], { signal: controller.signal });
     checkSpeech(controller.signal);
     if (!asset) return null;
-    return ctx.actions.addAsset(asset, start !== undefined ? { start } : {});
+    return ctx.actions.addAsset(asset, { ...(start !== undefined ? { start } : {}), ...(select ? {} : { select: false }) });
   } finally {
     off?.();
     signal?.removeEventListener('abort', cancel);
