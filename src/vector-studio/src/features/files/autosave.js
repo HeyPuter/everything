@@ -14,7 +14,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { serializeDocument, parseDocument, documentData, canCompress, gzip } from './format.js';
+import { serializeDocument, parseDocument, documentData, canCompress, gzip, FileFormatError } from './format.js';
 import { RecoveryStore, recoverableEntries, newerSnapshot } from './recovery.js';
 import { puterBackend, opfsBackend, opfsAvailable } from './backends.js';
 import { relativeTime } from './naming.js';
@@ -25,6 +25,9 @@ const CHANNEL = 'vector-studio-recovery';
 const STASH = 'vs-recovery-unwritten:';
 /** Leave room in localStorage (about 5M characters) for preferences: larger documents rely on the regular write. */
 const STASH_LIMIT = 2_500_000;
+// Only known content errors establish damage. Compatibility, I/O, and editor
+// failures must leave the backup available to a working app/browser later.
+const DAMAGED_CODES = new Set(['invalid', 'empty', 'damaged', 'format', 'svg']);
 
 const sameRevisions = (a, b) => a?.revision === b.revision && a?.commentsRevision === b.commentsRevision;
 
@@ -314,6 +317,7 @@ export class Autosaver {
     const discard = unwanted.length && (await confirmDiscard(unwanted));
     const opened = [];
     const kept = [];
+    const reasons = new Set();
     const notRemoved = [];
     const damaged = [];
     for (let i = 0; i < entries.length; i++) {
@@ -322,9 +326,10 @@ export class Autosaver {
         let ed = null;
         try {
           ed = await this.recover(e);
-        } catch {
-          // The copy could not be read right now (offline): keep it to offer again next time.
+        } catch (err) {
+          // An unavailable reader or editor does not establish damaged bytes.
           kept.push(e.name || 'Untitled');
+          if (err instanceof FileFormatError) reasons.add(err.message);
           continue;
         }
         if (ed) opened.push(ed);
@@ -336,7 +341,7 @@ export class Autosaver {
     }
     if (opened.length) this.app.notify(`Recovered ${opened.length} document${opened.length === 1 ? '' : 's'}. Save to keep the changes.`);
     if (damaged.length) this.app.notify(`${damaged.map((n) => `"${n}"`).join(', ')} could not be recovered: the recovery copy is damaged.`, { error: true, timeout: 8000 });
-    if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. Check your connection; Vector Studio will offer ${kept.length === 1 ? 'it' : 'them'} again next time it starts.`, { error: true, timeout: 8000 });
+    if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. ${reasons.size ? [...reasons].join(' ') + ' ' : ''}The recovery ${kept.length === 1 ? 'copy was' : 'copies were'} kept for the next recovery attempt.`, { error: true, timeout: 8000 });
     if (notRemoved.length) this.app.notify(`Recovery data for ${notRemoved.map((n) => `"${n}"`).join(', ')} was kept because it changed or could not be removed. Try again.`, { error: true, timeout: 8000 });
     return opened;
   }
@@ -395,27 +400,29 @@ export class Autosaver {
     const store = this.store;
     const blob = await store.read(entry);
     if (!blob) return null;
+    let doc;
     try {
-      const { doc } = await parseDocument(blob);
-      // Recovered work is unsaved until the user saves it.
-      doc.savedRevision = -1;
-      let file = null;
-      const f = entry.file;
-      if (f?.kind === 'puter' && f.path) file = { kind: 'puter', path: f.path, name: f.name };
-      else if (f?.kind === 'local' && f.handleId) {
-        const handle = await handleStore.get(f.handleId);
-        if (handle) file = { kind: 'local', name: f.name, handle, handleId: f.handleId };
-      }
-      // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
-      if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
-      const editor = this.app.addDocument(doc, { file });
-      editor.recoveryId = doc.recoveryId = entry.id;
-      this.app.renderTabs();
-      return editor;
+      ({ doc } = await parseDocument(blob));
     } catch (err) {
+      if (!(err instanceof FileFormatError) || !DAMAGED_CODES.has(err.code)) throw err;
       console.warn('Recovery failed', err);
       return null;
     }
+    // Recovered work is unsaved until the user saves it.
+    doc.savedRevision = -1;
+    let file = null;
+    const f = entry.file;
+    if (f?.kind === 'puter' && f.path) file = { kind: 'puter', path: f.path, name: f.name };
+    else if (f?.kind === 'local' && f.handleId) {
+      const handle = await handleStore.get(f.handleId);
+      if (handle) file = { kind: 'local', name: f.name, handle, handleId: f.handleId };
+    }
+    // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
+    if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
+    const editor = this.app.addDocument(doc, { file });
+    editor.recoveryId = doc.recoveryId = entry.id;
+    this.app.renderTabs();
+    return editor;
   }
 }
 
