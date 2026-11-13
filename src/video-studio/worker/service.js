@@ -11,7 +11,7 @@
  *   vsr:r:<rid>:vseq                 version counter
  *   vsr:r:<rid>:v:<n>                { n, path, size, mime, width, height, fps, duration, range, timelineId?, title, created }
  *   vsr:r:<rid>:url:<n>              { url, expires } read link for version n's video
- *   vsr:r:<rid>:m:<uuid>             { uuid, username, role, joined, invite, removed? }
+ *   vsr:r:<rid>:m:<uuid>             { uuid, username, role, joined, invite, removed?, role_<invite>?, username_<invite>? }
  *   vsr:r:<rid>:mseq / :mi:<n>       join order -> uuid (the member list)
  *   vsr:invite:<sha256(token)>       { review, id, role, created, expires, revoked, uses }
  *   vsr:r:<rid>:iseq / :ii:<n>       invite order -> token hash (the invite list)
@@ -54,6 +54,11 @@ const reviewId = (v) => {
 };
 
 const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
+
+// A fresh invite grants a new membership. Delayed writes for the previous grant
+// must not change its role or display name. Older records keep their base fields.
+const memberField = (member, field) => `${field}_${member.invite || 'legacy'}`;
+const memberValue = (member, field) => member[memberField(member, field)] ?? member[field];
 
 /** Clean the video description the owner's app sends with a publish. */
 export function validateVideo(video) {
@@ -134,7 +139,7 @@ export class ReviewService {
     if (user.uuid === owner.uuid) return { meta, role: 'owner' };
     const member = await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`);
     if (!member || member.removed) fail(403, 'You do not have access to this review. Ask the owner for an invite link.');
-    return { meta, role: member.role, member };
+    return { meta, role: memberValue(member, 'role'), member };
   }
 
   async versions(rid) {
@@ -250,15 +255,19 @@ export class ReviewService {
     if (existing && !existing.removed) {
       // A member is let in with any link, even the one they joined with after it
       // expired or was turned off. A link never lowers a role; a working commenter link raises a viewer.
-      if (validToken && existing.role === 'viewer') {
+      if (validToken && memberValue(existing, 'role') === 'viewer') {
         const invite = await this.kv.get(`vsr:invite:${tokenHash}`);
         if (invite?.review === rid && invite.role === 'commenter' && !invite.revoked && invite.expires > this.now()) {
-          const next = await this.kv.update(`vsr:r:${rid}:m:${user.uuid}`, { role: 'commenter', username: user.username });
+          const next = await this.kv.update(`vsr:r:${rid}:m:${user.uuid}`, {
+            [memberField(existing, 'role')]: 'commenter',
+            [memberField(existing, 'username')]: user.username,
+          });
           if (next.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
-          return { review: await this.view(rid, next.role, user, meta) };
+          if (next.invite !== existing.invite) fail(409, 'Membership changed while joining. Try again.');
+          return { review: await this.view(rid, memberValue(next, 'role'), user, meta) };
         }
       }
-      return { review: await this.view(rid, existing.role, user, meta) };
+      return { review: await this.view(rid, memberValue(existing, 'role'), user, meta) };
     }
     const failKey = `vsr:joinfail:${user.uuid}:${Math.floor(this.now() / 600_000)}`;
     if (((await this.kv.get(failKey)) || 0) >= LIMITS.failedJoins) fail(429, 'Too many attempts with links that do not work. Try again in a few minutes.');
@@ -347,7 +356,7 @@ export class ReviewService {
     await this.requireOwner(user);
     const rid = reviewId(input.review);
     const list = (await this.memberRecords(rid)).filter((m) => !m.removed);
-    return { members: list.map((m) => ({ uuid: m.uuid, username: m.username, role: m.role, joined: m.joined })) };
+    return { members: list.map((m) => ({ uuid: m.uuid, username: memberValue(m, 'username'), role: memberValue(m, 'role'), joined: m.joined })) };
   }
 
   async setRole(user, input) {
@@ -358,9 +367,10 @@ export class ReviewService {
     const m = typeof input.uuid === 'string' && input.uuid.length <= 64 ? await this.kv.get(key) : null;
     if (!m || m.removed) fail(404, 'That person is not in this review.');
     // Updating only the role cannot erase a removal saved since the read above.
-    const saved = await this.kv.update(key, { role });
+    const saved = await this.kv.update(key, { [memberField(m, 'role')]: role });
     if (saved.removed) fail(404, 'That person is not in this review.');
-    return { member: { uuid: saved.uuid, username: saved.username, role: saved.role, joined: saved.joined } };
+    if (saved.invite !== m.invite) fail(409, 'Membership changed. Refresh and try again.');
+    return { member: { uuid: saved.uuid, username: memberValue(saved, 'username'), role: memberValue(saved, 'role'), joined: saved.joined } };
   }
 
   async removeMember(user, input) {

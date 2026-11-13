@@ -52,7 +52,8 @@ it.each(['role change', 'invite upgrade'])('does not undo removal when an older 
       if (!p.kv[method]) continue;
       const write = p.kv[method].bind(p.kv);
       p.kv[method] = async (key, value) => {
-        if (key.endsWith(`:m:${USERS.bob.uuid}`) && value.role === targetRole && !value.removed) {
+        const role = value.role ?? Object.entries(value).find(([field]) => field.startsWith('role_'))?.[1];
+        if (key.endsWith(`:m:${USERS.bob.uuid}`) && role === targetRole && !value.removed) {
           ready();await new Promise((resolve) => { release = resolve; });
         }
         return write(key, value);
