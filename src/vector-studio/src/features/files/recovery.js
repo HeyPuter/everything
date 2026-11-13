@@ -18,15 +18,20 @@ import { uid } from '../../lib/ids.js';
 const DIR = 'recovery';
 const INDEX = `${DIR}/index.json`;
 const INDEXES = [INDEX, `${DIR}/index.next.json`];
+// Recovery ids and snapshot names are opaque app-generated tokens, never paths.
+// Validate persisted metadata too: slash-only ids can resolve to the whole store.
+const validToken = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value);
+const validEntry = (entry) => Boolean(entry && validToken(entry.id) && (entry.snapshot == null || validToken(entry.snapshot)));
 const indexPaths = (id) => [0, 1].map((slot) => `${DIR}/index.${slot}.${encodeURIComponent(id)}.json`);
 
 function indexedId(file) {
   const match = !file.isDir && /^index\.[01]\.(.+)\.json$/.exec(file.name);
   if (!match) return null;
-  try { return decodeURIComponent(match[1]); } catch { return null; }
+  try { const id = decodeURIComponent(match[1]); return validToken(id) ? id : null; } catch { return null; }
 }
 
 function snapshotPath(entry) {
+  if (!validEntry(entry)) throw new Error('Invalid recovery identifier.');
   return entry.snapshot ? `${DIR}/${entry.id}/${entry.snapshot}.vstudio` : `${DIR}/${entry.id}.vstudio`;
 }
 
@@ -91,7 +96,7 @@ export class RecoveryStore {
         continue;
       }
       const generation = legacy ? 0 : value.generation;
-      const entries = (legacy ? value : value.entries).filter((e) => e && typeof e.id === 'string');
+      const entries = (legacy ? value : value.entries).filter(validEntry);
       if (!latest || generation > latest.generation) latest = { entries, generation, slot, legacy: value.legacy === true };
     }
     if (failure && strict) throw failure;
@@ -99,6 +104,7 @@ export class RecoveryStore {
   }
 
   async #readState(backend, id, { strict = false, legacyState } = {}) {
+    if (!validToken(id)) throw new Error('Invalid recovery identifier.');
     const own = await this.#readSlots(backend, indexPaths(id), { strict });
     if (own.found) return { ...own, entries: own.entries.filter((e) => e.id === id) };
     const old = legacyState === undefined ? await this.#readSlots(backend, INDEXES, { strict }) : legacyState;
@@ -187,9 +193,11 @@ export class RecoveryStore {
     const state = await this.#readState(b, id, { strict: true });
     const index = state.entries;
     if (expected) {
+      if (!validEntry(expected) || expected.id !== id) return false;
       const observed = expected.copies?.find((copy) => copy.backend === b)?.entry || (expected.backend === b ? expected : null);
       const current = index.find((e) => e.id === id);
       if (!observed) return !current && !(await this.#otherSnapshots(b, id));
+      if (!validEntry(observed) || observed.id !== id) return false;
       if (current && (!sameSnapshot(current, observed) || current.snapshot !== observed.snapshot)) return false;
       if (current) await this.#publishIndex(b, id, state, []);
       // The dialog authorized only the copies it displayed. A later publication
@@ -210,6 +218,7 @@ export class RecoveryStore {
   }
 
   remove(id, { expected = null } = {}) {
+    if (!validToken(id)) return Promise.resolve(false);
     return this.#run(async () => {
       let removed = true;
       for (const b of this.backends) {
@@ -237,6 +246,7 @@ export class RecoveryStore {
 
   /** Recheck after decoding or handle lookup, including writes already queued. */
   isCurrent(entry) {
+    if (!validEntry(entry)) return Promise.resolve(false);
     return this.#run(async () => {
       let current = null, backend = null;
       for (const b of this.backends) {
@@ -256,6 +266,7 @@ export class RecoveryStore {
    * snapshot remains, so recovery never silently substitutes stale work.
    */
   async read(entry) {
+    if (!validEntry(entry)) throw new Error('Invalid recovery identifier.');
     const backends = entry.backend ? [entry.backend, ...this.backends.filter((b) => b !== entry.backend)] : this.backends;
     let failure = null;
     for (const b of backends) {
