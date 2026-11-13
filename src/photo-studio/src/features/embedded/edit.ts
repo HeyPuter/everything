@@ -107,7 +107,7 @@ export async function saveContents(e: Editor, s: DocumentSession) {
 /** Closing a changed content tab offers to save into the parent first. */
 async function closeContents(e: Editor, s: DocumentSession): Promise<boolean> {
   const o = owners.get(s);
-  if (!s.dirty) return true;
+  if (!s.dirty && !e.hasPendingChanges(s)) return true;
   const { saveChangesDialog } = await import('../../ui/dialog');
   const choice = await saveChangesDialog(
     `Save changes to “${o?.name ?? s.doc.name}”?`,

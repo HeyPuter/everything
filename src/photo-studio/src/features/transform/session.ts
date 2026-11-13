@@ -237,6 +237,20 @@ export class TransformSession {
     const q0 = rectQuad(this.rect);
     return !!this.mesh || this.quad.some((p, i) => Math.abs(p.x - q0[i].x) > 1e-6 || Math.abs(p.y - q0[i].y) > 1e-6);
   }
+  /** Close prompts compare against the existing document placement. */
+  get pendingChanges() {
+    const layer = this.target.kind === 'layer' && this.target.layerKind === 'image' ? this.layer : undefined;
+    const frame = layer && effectiveFrame(layer);
+    const quad = layer ? frame?.quad ?? transformQuad(layer.transform) : rectQuad(this.rect);
+    if (this.quad.some((p, i) => Math.abs(p.x - quad[i].x) > 1e-6 || Math.abs(p.y - quad[i].y) > 1e-6)) return true;
+    if (!this.mesh) return !!frame?.mesh;
+    // Opening Warp creates an identity grid; that alone is not an edit.
+    const before = frame?.mesh ?? mapMesh(rectToQuad(this.rect, quad), identityGrid(this.rect, this.mesh.cols, this.mesh.rows, this.mesh.mode));
+    return this.mesh.cols !== before.cols || this.mesh.rows !== before.rows || this.mesh.mode !== before.mode
+      || this.mesh.points.some((v, i) => Math.abs(v - before.points[i]) > 1e-6)
+      || JSON.stringify(this.mesh.uKnots) !== JSON.stringify(before.uKnots)
+      || JSON.stringify(this.mesh.vKnots) !== JSON.stringify(before.vKnots);
+  }
   apply(restoreTool = true): void | Promise<void> {
     if (this.applying) return this.applying;
     const session = this.e.session;

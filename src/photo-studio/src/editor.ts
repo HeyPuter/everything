@@ -51,7 +51,7 @@ export class Editor {
   transform: FreeTransform;
   // A feature-owned modal edit (advanced transform, crop) that finishes before
   // any other edit and supplies the document shown on the canvas meanwhile.
-  modal?: { document?: PhotoDocument; apply(): void | Promise<void>; cancel(): void };
+  modal?: { document?: PhotoDocument; readonly pendingChanges?: boolean; apply(): void | Promise<void>; cancel(): void };
   menubar!: MenuBar;
   toolbar!: Toolbar;
   dock!: Dock;
@@ -239,6 +239,10 @@ export class Editor {
   closeHooks: ((s: DocumentSession) => void)[] = [];
   // Called after a document is saved (the project blob written).
   saveHooks: ((s: DocumentSession, project: Blob) => void)[] = [];
+  /** Edits still held by the active tool, outside the session's history. */
+  hasPendingChanges(s = this.session) {
+    return s === this.session && (this.transform.changed || !!this.modal?.pendingChanges);
+  }
   async closeSession(s: DocumentSession, force = false) {
     if (!force) {
       try {
@@ -251,7 +255,7 @@ export class Editor {
     if (!this.sessions.includes(s)) return true;
     if (!force && s.closeHandler) {
       if (!(await s.closeHandler())) return false;
-    } else if (!force && s.dirty) {
+    } else if (!force && (s.dirty || this.hasPendingChanges(s))) {
       const { saveChangesDialog } = await import('./ui/dialog');
       const choice = await saveChangesDialog(`Save changes to “${s.doc.name}” before closing?`, 'Your changes will be lost if you don’t save them.');
       if (choice === 'cancel' || (choice === 'save' && !(await this.saveBeforeClose(s)))) return false;

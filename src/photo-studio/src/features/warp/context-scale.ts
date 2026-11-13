@@ -180,7 +180,7 @@ class ContextScaleSession extends WarpSession<Snap> {
     this.s.skin = s.skin;
     if (reanalyze) this.analyze();
   }
-  private get changed() {
+  get changed() {
     const f = this.frame,
       r = this.rect;
     return Math.round(f.x) !== r.x || Math.round(f.y) !== r.y || Math.round(f.width) !== r.width || Math.round(f.height) !== r.height;

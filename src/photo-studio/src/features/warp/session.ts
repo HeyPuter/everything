@@ -136,6 +136,10 @@ export abstract class WarpSession<S = unknown> {
   }
   /** Commit the result as one history step (or cancel if nothing changed). */
   abstract apply(restoreTool?: boolean): void | Promise<void>;
+  abstract get changed(): boolean;
+  get pendingChanges() {
+    return this.changed;
+  }
 
   // ----- Session undo -----
   protected abstract snapshot(): S;
