@@ -75,7 +75,7 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
   };
   const commit = (v) => {
     if (v === undefined) {
-      set(value);
+      render();
       return;
     }
     value = v;
@@ -93,7 +93,8 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
       commitInput();
       input.select();
     } else if (e.key === 'Escape') {
-      set(value);
+      // Restore the display and clear the draft before blur can emit change.
+      render();
       input.blur();
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
