@@ -774,9 +774,12 @@ export class SwatchesPanel extends Panel {
   }
 
   async renameGroup(g) {
+    const ed = this.app.editor;
+    if (!ed) return;
+    const doc = ed.doc;
     const res = await this.app.dialogs.form({ title: 'Color Group Options', fields: [{ key: 'name', label: 'Name', type: 'text', value: g.name }] });
-    if (!res || !res.name.trim()) return;
-    const doc = this.app.editor.doc;
+    if (!res || !res.name.trim() || !this.app.editors.includes(ed) || doc.readOnly || doc.tx) return;
+    if (!groupsOf(doc).some((group) => group.id === g.id)) return;
     doc.transact('Rename Color Group', () => renameGroup(doc, g.id, res.name.trim()));
   }
 
@@ -796,14 +799,16 @@ export class SwatchesPanel extends Panel {
       fields.push({ key: 'from', label: 'Create From', type: 'radio', value: 'swatches', options: [{ value: 'swatches', label: 'Selected Swatches' }, { value: 'art', label: 'Selected Artwork' }] });
     }
     const res = await this.app.dialogs.form({ title: 'New Color Group', fields });
-    if (!res) return;
+    if (!res || !this.app.editors.includes(ed) || doc.readOnly || doc.tx) return;
     const fromArt = res.from ? res.from === 'art' : !swIds.length;
     doc.transact('New Color Group', () => {
       const gid = fromArt
         ? addGroup(doc, res.name, { paints: artColors.map((c) => ({ name: colorName(c.color), paint: { type: 'solid', color: c.color } })) })
         : addGroup(doc, res.name, { swatchIds: swIds });
-      this.selected = new Set([gid]);
-      this.focusId = gid;
+      if (this.app.editor === ed) {
+        this.selected = new Set([gid]);
+        this.focusId = gid;
+      }
     });
   }
 
