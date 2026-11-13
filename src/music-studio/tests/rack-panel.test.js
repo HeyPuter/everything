@@ -106,6 +106,29 @@ describe('channel rack panel', () => {
     expect(app.store.project.channels[0].volume).toBe(v0);
   });
 
+  it.each(['rack', 'master'])('cancels a pending %s volume drag when reopening identical values', (kind) => {
+    const control = () => kind === 'rack' ? rowEl(0).querySelector('.c-vol [role="slider"]') : document.querySelector('[aria-label="Master volume"]');
+    const volume = () => kind === 'rack' ? app.store.project.channels[0].volume : app.store.project.mixer[0].volume;
+    const knob = control();
+    knob.setPointerCapture = () => {};
+    pointer('pointerdown', knob, { clientY: 300 });
+    const replacement = structuredClone(app.store.project);
+    app.store.load(replacement);
+    const value = volume();
+    pointer('pointermove', knob, { clientY: 298 });
+    pointer('pointerup', knob, { clientY: 298 });
+    expect(volume()).toBe(value);
+    expect(app.store.project).toBe(replacement);
+    const current = control();
+    current.setPointerCapture = () => {};
+    pointer('pointerdown', current, { clientY: 300 });
+    pointer('pointermove', current, { clientY: 298 });
+    pointer('pointerup', current, { clientY: 298 });
+    expect(volume()).toBeGreaterThan(value);
+    app.store.undo();
+    expect(app.store.project).toBe(replacement);
+  });
+
   it('mutes on LED click and solos with Ctrl+click', () => {
     const led = rowEl(1).querySelector('.rack-mute');
     led.click();

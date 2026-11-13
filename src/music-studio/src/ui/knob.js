@@ -14,6 +14,7 @@ import { h } from '../lib/dom.js';
 import { toNorm, fromNorm, formatParam, parseParam } from '../lib/params.js';
 import { clamp } from '../lib/util.js';
 import { contextMenu, isContextKey } from './menu.js';
+import { trackParameterInteraction } from './parameter-interactions.js';
 
 const SWEEP = 270; // degrees
 const START = 135; // degrees from +x axis, clockwise (7:30 position)
@@ -80,6 +81,16 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   let active = false;
   let endTimer = 0;
   let stopDrag = null;
+  let untrack = null;
+  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
+  const unwatch = () => { untrack?.(); untrack = null; };
+  function cancel() {
+    clearTimeout(endTimer);
+    active = false;
+    stopDrag?.();
+    hideReadout();
+    unwatch();
+  }
 
   const draw = () => {
     const n = toNorm(param, v);
@@ -95,10 +106,12 @@ export function createKnob({ param, value = param.def, label = param.label, aria
 
   const begin = () => {
     if (active) return;
+    watch();
     active = true;
     onStart?.();
   };
   const finish = () => {
+    unwatch();
     clearTimeout(endTimer);
     if (!active) return;
     active = false;
@@ -126,6 +139,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     e.preventDefault();
     el.focus({ preventScroll: true });
     el.setPointerCapture(e.pointerId);
+    watch();
     let lastY = e.clientY;
     let norm = toNorm(param, v);
     showReadout(el, fmt(v));
@@ -274,10 +288,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     set(next) {
       if (next === v) return;
       // A different model value (undo, load, another control) supersedes this gesture.
-      clearTimeout(endTimer);
-      active = false;
-      stopDrag?.();
-      hideReadout();
+      cancel();
       v = next;
       draw();
     },

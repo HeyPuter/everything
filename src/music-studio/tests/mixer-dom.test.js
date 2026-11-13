@@ -209,6 +209,61 @@ describe('mixer panel', () => {
     expect(store.project).toBe(original);
   });
 
+  it.each(['volume', 'pan'].flatMap((param) => ['replacement', 'undo', 'redo'].map((action) => [param, action])))('discards a pending %s drag after %s with an unchanged displayed value', (param, action) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    slider.setPointerCapture = vi.fn();
+    const pointer = (type, y) => slider.dispatchEvent(new MouseEvent(type, { bubbles: true, clientY: y, button: 0 }));
+    if (action !== 'replacement') store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+    if (action === 'redo') store.undo();
+    pointer('pointerdown', 300);
+    if (action === 'replacement') store.load(structuredClone(store.project));
+    else store[action]();
+    const restored = store.project;
+    const history = store.undoStack.length;
+    pointer('pointermove', 298);
+    pointer('pointerup', 298);
+    expect(store.project.mixer[2][param]).toBe(restored.mixer[2][param]);
+    expect(store.project).toBe(restored);
+    expect(store.undoStack).toHaveLength(history);
+    pointer('pointerdown', 300);
+    pointer('pointermove', 298);
+    pointer('pointerup', 298);
+    expect(store.project.mixer[2][param]).toBeGreaterThan(restored.mixer[2][param]);
+    store.undo();
+    expect(store.project).toBe(restored);
+  });
+
+  it.each(['volume', 'pan'])('preserves a pending %s drag across an unrelated edit', (param) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    slider.setPointerCapture = vi.fn();
+    const pointer = (type, y) => slider.dispatchEvent(new MouseEvent(type, { bubbles: true, clientY: y, button: 0 }));
+    pointer('pointerdown', 300);
+    store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+    const before = store.project;
+    pointer('pointermove', 298);
+    pointer('pointerup', 298);
+    expect(store.project.mixer[2][param]).toBeGreaterThan(before.mixer[2][param]);
+    expect(store.project.bpm).toBe(150);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
+  it.each(['volume', 'pan'])('cancels the %s key timer on replacement even if the value is unchanged', (param) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    key(slider, 'ArrowUp');
+    store.load(structuredClone(store.project));
+    store.begin('Later edit');
+    store.preview((p) => E.setProjectProps(p, { bpm: 150 }));
+    const gesture = store.gesture;
+    vi.advanceTimersByTime(500);
+    expect(store.gesture === gesture).toBe(true);
+    expect(store.undoStack).toHaveLength(0);
+    store.cancel();
+  });
+
   it('updates only strips whose track changed', () => {
     const { store, panel } = env;
     const spies = panel.strips.map((s) => vi.spyOn(s.fader, 'set'));

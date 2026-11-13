@@ -14,6 +14,7 @@
 import { h } from '../lib/dom.js';
 import { clamp } from '../lib/util.js';
 import { contextMenu, isContextKey } from '../ui/menu.js';
+import { trackParameterInteraction } from '../ui/parameter-interactions.js';
 import { gainToPos, posToGain, formatGain, nudgeDb, parseGain, MAX_GAIN, UNITY } from './db.js';
 
 const DRAG_PX = 220; // full travel per this many px of pointer movement (roughly the visible height)
@@ -44,6 +45,15 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   let active = false;
   let endTimer = 0;
   let stopDrag = null;
+  let untrack = null;
+  const watch = () => { untrack ||= trackParameterInteraction(cancel); };
+  const unwatch = () => { untrack?.(); untrack = null; };
+  function cancel() {
+    clearTimeout(endTimer);
+    active = false;
+    stopDrag?.();
+    unwatch();
+  }
 
   const draw = () => {
     el.style.setProperty('--pos', gainToPos(v).toFixed(4));
@@ -55,10 +65,12 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
 
   const begin = () => {
     if (active) return;
+    watch();
     active = true;
     onStart?.();
   };
   const finish = () => {
+    unwatch();
     clearTimeout(endTimer);
     if (!active) return;
     active = false;
@@ -90,6 +102,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       return;
     }
     slider.setPointerCapture?.(e.pointerId);
+    watch();
     slider.classList.add('dragging');
     let lastY = e.clientY;
     let pos = gainToPos(v);
@@ -232,9 +245,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     get: () => v,
     set(next) {
       if (next === v) return;
-      clearTimeout(endTimer);
-      active = false;
-      stopDrag?.();
+      cancel();
       v = next;
       draw();
     },
