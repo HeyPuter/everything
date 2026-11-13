@@ -345,13 +345,14 @@ export class GlobalEdit {
       const origin = prev.origin;
       if (shape !== prev.shape) {
         // Reshaped: copy the new outline to every other member, relative to each one's own origin.
-        const rel = pathsOf(doc, src).map((p) => p.anchors.map((a) => ({ x: a.x - origin.x, y: a.y - origin.y, ix: a.ix - origin.x, iy: a.iy - origin.y, ox: a.ox - origin.x, oy: a.oy - origin.y })));
+        const sourcePaths = pathsOf(doc, src);
+        const rel = sourcePaths.map((p) => p.anchors.map((a) => ({ x: a.x - origin.x, y: a.y - origin.y, ix: a.ix - origin.x, iy: a.iy - origin.y, ox: a.ox - origin.x, oy: a.oy - origin.y })));
         for (const [id, st] of this.members) {
           if (id === changed) continue;
           const o = st.origin;
           pathsOf(doc, doc.get(id)).forEach((p, i) => {
             if (!p || !rel[i]) return;
-            doc.update(p.id, { anchors: rel[i].map((a) => ({ x: a.x + o.x, y: a.y + o.y, ix: a.ix + o.x, iy: a.iy + o.y, ox: a.ox + o.x, oy: a.oy + o.y })), shape: undefined });
+            doc.update(p.id, { anchors: rel[i].map((a) => ({ x: a.x + o.x, y: a.y + o.y, ix: a.ix + o.x, iy: a.iy + o.y, ox: a.ox + o.x, oy: a.oy + o.y })), closed: sourcePaths[i].closed, shape: undefined });
           });
         }
       }
