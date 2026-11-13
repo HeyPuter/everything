@@ -245,3 +245,14 @@ describe('dragging a dialog by its title bar', () => {
     }
   });
 });
+
+describe('draggable in the element builder', () => {
+  it("draggable: 'false' and draggable: false make an element that the browser does not drag", async () => {
+    const { h } = await import('../src/lib/dom.js');
+    expect(h('li', { draggable: 'false' }).draggable).toBe(false);
+    expect(h('img', { draggable: false }).draggable).toBe(false);
+    expect(h('li', { draggable: 'true' }).draggable).toBe(true);
+    expect(h('li', { draggable: true }).draggable).toBe(true);
+    expect(h('li', {}).hasAttribute('draggable')).toBe(false);
+  });
+});
