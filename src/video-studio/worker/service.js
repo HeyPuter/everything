@@ -11,9 +11,9 @@
  *   vsr:r:<rid>:vseq                 version counter
  *   vsr:r:<rid>:v:<n>                { n, path, size, mime, width, height, fps, duration, range, timelineId?, title, created }
  *   vsr:r:<rid>:url:<n>              { url, expires } read link for version n's video
- *   vsr:r:<rid>:m:<uuid>             { uuid, username, role, joined, invite, removed?, role_<invite>?, username_<invite>? }
+ *   vsr:r:<rid>:m:<uuid>             base grant, grant_<invite> snapshots, blocked_<n> flags, scoped role/name overrides
  *   vsr:r:<rid>:mseq / :mi:<n>       join order -> uuid (the member list)
- *   vsr:invite:<sha256(token)>       { review, id, role, created, expires, revoked, uses }
+ *   vsr:invite:<sha256(token)>       { review, id, n?, role, created, expires, revoked, uses }
  *   vsr:r:<rid>:iseq / :ii:<n>       invite order -> token hash (the invite list)
  *   vsr:r:<rid>:seq                  change counter for comments
  *   vsr:r:<rid>:log:<n>              { at, comment } comment snapshot saved as change n
@@ -59,6 +59,24 @@ const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
 // must not change its role or display name. Older records keep their base fields.
 const memberField = (member, field) => `${field}_${member.invite || 'legacy'}`;
 const memberValue = (member, field) => member[memberField(member, field)] ?? member[field];
+
+const inviteBlocked = (member, invite) => Boolean(member && (
+  member[`blocked_${invite.n}`] || ((!invite.n || invite.legacy) && member.blockLegacy)
+  || (!member.blockLegacy && (member.removedAt || member.removed) && invite.created <= (member.removedAt || member.removed))
+));
+
+// Rejoins add a grant, never replace the record containing revocations and role
+// overrides. At most LIMITS.invites grants can exist; removal retires their data.
+function memberState(record) {
+  if (!record?.hasGrants) return record;
+  let grant = record;
+  for (const field of Object.keys(record)) {
+    if (field.startsWith('grant_') && record[field]?.inviteN > (grant.inviteN || 0)) grant = record[field];
+  }
+  if (grant === record) return record;
+  return { ...record, ...grant, removedAt: record.removed,
+    removed: record[`blocked_${grant.inviteN}`] || (grant.legacy && record.blockLegacy) ? record.removed || 1 : null };
+}
 
 /** Clean the video description the owner's app sends with a publish. */
 export function validateVideo(video) {
@@ -137,7 +155,7 @@ export class ReviewService {
     if (!meta) fail(404, 'This review no longer exists.');
     const owner = await this.owner();
     if (user.uuid === owner.uuid) return { meta, role: 'owner' };
-    const member = await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`);
+    const member = memberState(await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`));
     if (!member || member.removed) fail(403, 'You do not have access to this review. Ask the owner for an invite link.');
     return { meta, role: memberValue(member, 'role'), member };
   }
@@ -249,7 +267,7 @@ export class ReviewService {
     if (!meta) fail(404, 'This review no longer exists.');
     const owner = await this.owner();
     if (user.uuid === owner.uuid) return { review: await this.view(rid, 'owner', user, meta) };
-    const existing = await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`);
+    const existing = memberState(await this.kv.get(`vsr:r:${rid}:m:${user.uuid}`));
     const validToken = typeof input.token === 'string' && TOKEN.test(input.token);
     const tokenHash = validToken ? await hash(input.token) : null;
     if (existing && !existing.removed) {
@@ -257,11 +275,11 @@ export class ReviewService {
       // expired or was turned off. A link never lowers a role; a working commenter link raises a viewer.
       if (validToken && memberValue(existing, 'role') === 'viewer') {
         const invite = await this.kv.get(`vsr:invite:${tokenHash}`);
-        if (invite?.review === rid && invite.role === 'commenter' && !invite.revoked && invite.expires > this.now()) {
-          const next = await this.kv.update(`vsr:r:${rid}:m:${user.uuid}`, {
+        if (invite?.review === rid && invite.role === 'commenter' && !invite.revoked && invite.expires > this.now() && !inviteBlocked(existing, invite)) {
+          const next = memberState(await this.kv.update(`vsr:r:${rid}:m:${user.uuid}`, {
             [memberField(existing, 'role')]: 'commenter',
             [memberField(existing, 'username')]: user.username,
-          });
+          }));
           if (next.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
           if (next.invite !== existing.invite) fail(409, 'Membership changed while joining. Try again.');
           return { review: await this.view(rid, memberValue(next, 'role'), user, meta) };
@@ -280,27 +298,42 @@ export class ReviewService {
     if (!invite || invite.review !== rid) return refuse('This invite link is not valid. Ask the owner for a new one.');
     if (invite.revoked) return refuse('This invite link was turned off. Ask the owner for a new one.');
     if (invite.expires <= this.now()) return refuse('This invite link has expired. Ask the owner for a new one.');
-    if (existing?.removed && invite.created <= existing.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
+    // Invites made by older workers lack their list ordinal. Recover it only
+    // when such an invite is used to rejoin; normal polling needs no extra read.
+    if (existing && !invite.n) {
+      invite.legacy = true;
+      invite.n = (await this.inviteRecords(rid)).find((entry) => entry.hash === tokenHash)?.n;
+      if (!invite.n) fail(409, 'This invite is not ready. Try again.');
+    }
+    if (inviteBlocked(existing, invite)) fail(403, 'The owner removed you from this review. Ask them for a new link.');
     // People removed from the review don't count against its limit; someone removed coming back with a new link
     // does. Everyone who ever joined stays on the list, so the list itself is capped too.
     const joinedEver = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
     const full = () => fail(403, 'This review has reached its limit of people.');
     if (!existing && joinedEver >= LIMITS.members * MEMBER_LIST_FACTOR) full();
     if (joinedEver >= LIMITS.members && (await this.memberRecords(rid)).filter((m) => !m.removed).length >= LIMITS.members) full();
-    const member = { uuid: user.uuid, username: user.username, role: invite.role, joined: this.now(), invite: invite.id };
-    const written = await this.kv.set(`vsr:r:${rid}:m:${user.uuid}`, member, existing ? {} : { onlyIfAbsent: true });
+    let member = { uuid: user.uuid, username: user.username, role: invite.role, joined: this.now(), invite: invite.id, inviteN: invite.n || 0,
+      ...(invite.legacy ? { legacy: true } : {}) };
+    const key = `vsr:r:${rid}:m:${user.uuid}`;
+    const written = existing
+      ? await this.kv.update(key, { hasGrants: true, [`grant_${invite.id}`]: member })
+      : await this.kv.set(key, member, { onlyIfAbsent: true });
     if (!written) {
       // Another tab joined first. Recheck membership, removals and the invite;
       // a stale first join must never replace that tab's saved membership.
       if (retried) fail(409, 'Membership changed while joining. Try again.');
       return this.join(user, input, true);
     }
+    if (existing) {
+      member = memberState(written);
+      if (member.removed) fail(403, 'The owner removed you from this review. Ask them for a new link.');
+    }
     if (!existing) {
       const n = await this.kv.incr(`vsr:r:${rid}:mseq`);
       await this.kv.set(`vsr:r:${rid}:mi:${n}`, user.uuid);
     }
     await this.kv.incr(`vsr:invite:${tokenHash}`, { uses: 1 }).catch(() => {});
-    return { review: await this.view(rid, member.role, user, meta) };
+    return { review: await this.view(rid, memberValue(member, 'role'), user, meta) };
   }
 
   async createInvite(user, input) {
@@ -313,13 +346,10 @@ export class ReviewService {
     const token = inviteToken();
     const tokenHash = await hash(token);
     const now = this.now();
-    const invite = { review: rid, id: tokenHash.slice(0, 16), role, created: now, expires: now + inviteDays(input.days) * DAY, revoked: false, uses: 0 };
-    await this.kv.set(`vsr:invite:${tokenHash}`, invite);
     const n = await this.kv.incr(`vsr:r:${rid}:iseq`);
-    if (n > LIMITS.invites) {
-      await this.kv.del(`vsr:invite:${tokenHash}`).catch(() => {});
-      fail(409, `A review can have at most ${LIMITS.invites} invite links.`);
-    }
+    if (n > LIMITS.invites) fail(409, `A review can have at most ${LIMITS.invites} invite links.`);
+    const invite = { review: rid, id: tokenHash.slice(0, 16), n, role, created: now, expires: now + inviteDays(input.days) * DAY, revoked: false, uses: 0 };
+    await this.kv.set(`vsr:invite:${tokenHash}`, invite);
     await this.kv.set(`vsr:r:${rid}:ii:${n}`, tokenHash);
     return { token, invite: this.inviteView(invite) };
   }
@@ -330,9 +360,10 @@ export class ReviewService {
 
   async inviteRecords(rid) {
     const count = (await this.kv.get(`vsr:r:${rid}:iseq`)) || 0;
-    const hashes = (await this.many(range(1, count).map((n) => `vsr:r:${rid}:ii:${n}`))).filter((x) => typeof x === 'string');
-    const invites = await this.many(hashes.map((x) => `vsr:invite:${x}`));
-    return hashes.map((h, i) => ({ hash: h, invite: invites[i] })).filter((x) => x.invite);
+    const indexed = (await this.many(range(1, count).map((n) => `vsr:r:${rid}:ii:${n}`)))
+      .map((hash, i) => ({ hash, n: i + 1 })).filter((entry) => typeof entry.hash === 'string');
+    const invites = await this.many(indexed.map((entry) => `vsr:invite:${entry.hash}`));
+    return indexed.map((entry, i) => ({ ...entry, invite: invites[i] })).filter((entry) => entry.invite);
   }
 
   async listInvites(user, input) {
@@ -353,7 +384,7 @@ export class ReviewService {
   async memberRecords(rid) {
     const count = (await this.kv.get(`vsr:r:${rid}:mseq`)) || 0;
     const uuids = [...new Set((await this.many(range(1, count).map((n) => `vsr:r:${rid}:mi:${n}`))).filter((x) => typeof x === 'string'))];
-    return (await this.many(uuids.map((u) => `vsr:r:${rid}:m:${u}`))).filter(Boolean);
+    return (await this.many(uuids.map((u) => `vsr:r:${rid}:m:${u}`))).filter(Boolean).map(memberState);
   }
 
   async members(user, input) {
@@ -368,10 +399,10 @@ export class ReviewService {
     const rid = reviewId(input.review);
     const role = GUEST_ROLES.includes(input.role) ? input.role : fail(400, 'Invalid role.');
     const key = `vsr:r:${rid}:m:${input.uuid}`;
-    const m = typeof input.uuid === 'string' && input.uuid.length <= 64 ? await this.kv.get(key) : null;
+    const m = typeof input.uuid === 'string' && input.uuid.length <= 64 ? memberState(await this.kv.get(key)) : null;
     if (!m || m.removed) fail(404, 'That person is not in this review.');
     // Updating only the role cannot erase a removal saved since the read above.
-    const saved = await this.kv.update(key, { [memberField(m, 'role')]: role });
+    const saved = memberState(await this.kv.update(key, { [memberField(m, 'role')]: role }));
     if (saved.removed) fail(404, 'That person is not in this review.');
     if (saved.invite !== m.invite) fail(409, 'Membership changed. Refresh and try again.');
     return { member: { uuid: saved.uuid, username: memberValue(saved, 'username'), role: memberValue(saved, 'role'), joined: saved.joined } };
@@ -381,9 +412,18 @@ export class ReviewService {
     await this.requireOwner(user);
     const rid = reviewId(input.review);
     const key = `vsr:r:${rid}:m:${input.uuid}`;
-    const m = typeof input.uuid === 'string' && input.uuid.length <= 64 ? await this.kv.get(key) : null;
+    const [record, count] = typeof input.uuid === 'string' && input.uuid.length <= 64
+      ? await this.kv.get([key, `vsr:r:${rid}:iseq`]) : [null, 0];
+    const m = memberState(record);
     if (!m) fail(404, 'That person is not in this review.');
-    if (!m.removed) await this.kv.update(key, { removed: this.now() });
+    if (!m.removed) {
+      const fields = { removed: this.now(), blockLegacy: true };
+      for (let n = 1; n <= Math.min(count || 0, LIMITS.invites); n++) fields[`blocked_${n}`] = true;
+      // Reclaim old grant payloads in this same write. A late rejoin may recreate
+      // one, but its revocation flag remains and keeps it unusable.
+      for (const field of Object.keys(record)) if (field.startsWith('grant_')) fields[field] = null;
+      await this.kv.update(key, fields);
+    }
     // Video links already handed out stop working at once where Puter lets the
     // worker revoke them; new links are made for everyone else on demand.
     await this.dropVideoLinks(rid);

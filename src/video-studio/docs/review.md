@@ -51,7 +51,7 @@ Collections are numbered with `incr` and read back by key in batches, so nothing
 - `vsr:r:<id>:seq` change counter; `:log:<n>` comment snapshot saved as change n; `:c:<commentId>` latest snapshot.
 - `vsr:r:<id>:url:<n>` cached video read link; `vsr:rate:...`, `vsr:wrate:...` and `vsr:joinfail:...` counters with expiry.
 
-Every value stays small (a few KB at most). A change number taken but never written (a crashed request) is skipped once a later change is a minute old; until then sync waits for it, so nothing is missed.
+Member grant history is bounded by the review’s 50-invite limit; removal retires old grant payloads in the same update. Normal review polling still reads one member record. Other values stay small (a few KB at most). A change number taken but never written (a crashed request) is skipped once a later change is a minute old; until then sync waits for it, so nothing is missed.
 
 ## Authentication
 
@@ -69,9 +69,11 @@ What a link does and does not protect: anyone holding a link can fetch that one 
 
 Role changes, invite-based upgrades for current members, and removals use [Puter's partial KV updates](https://docs.puter.com/KV/update/). They update only their own fields so a delayed role save cannot erase a removal. If the updated record is already removed, the role change returns 404 and an invite upgrade returns 403. These operations retain the original base fields and use the same number of KV calls.
 
-Role and display-name overrides are scoped to the membership's granting invite (`role_<invite>` and `username_<invite>`). Reads fall back to the original fields when no override exists. A delayed write for an older grant cannot raise the permissions of a new viewer membership; it returns 409 if the granting invite changed while saving. These fields use the same record and do not add storage calls to normal polling. Fresh rejoins still replace the whole membership record; overlapping rejoin requests can overwrite a later removal or role change, and that separate issue remains unresolved.
+Role and display-name overrides are scoped to the membership's granting invite (`role_<invite>` and `username_<invite>`). Reads fall back to the original fields when no override exists. A delayed write for an older grant cannot raise the permissions of a new viewer membership; it returns 409 if the granting invite changed while saving. These fields use the same record and do not add storage calls to normal polling.
 
-First-time membership creation uses [`onlyIfAbsent`](https://docs.puter.com/KV/set/#writing-only-if-absent). If another join already created the record, the losing request rechecks membership and invite validity once rather than overwriting the saved record or adding a second member-list entry. Puter documents that simultaneous conditional writes and counters across regions can both succeed; these guards do not provide global serialization. Fresh rejoins after removal and cross-region races remain separate concurrency concerns.
+First-time membership creation uses [`onlyIfAbsent`](https://docs.puter.com/KV/set/#writing-only-if-absent). If another join already created the record, the losing request rechecks membership and invite validity once rather than overwriting the saved record or adding a second member-list entry. Puter documents that simultaneous conditional writes and counters across regions can both succeed; these guards do not provide global serialization. Cross-region consistency remains a separate concern.
+
+Rejoins add `grant_<invite>` snapshots instead of replacing the member record. New invites carry their reserved list ordinal. Removal reads the member and current invite counter together, blocks all issued ordinals, and retires old grant payloads in one partial update. Those revocation flags are never cleared by a rejoin. If different fresh invites race, the grant with the later ordinal wins; scoped owner role changes still apply to that grant. Legacy records remain readable, and a legacy invite’s ordinal is recovered from the existing invite index only when needed for rejoining. A genuinely new invite can grant access after removal even in the same clock tick.
 
 Invite revocation updates only `revoked`; completed joins increment only `uses` with [a field counter](https://docs.puter.com/KV/incr/). A delayed usage update therefore does not rewrite an older `revoked: false` value, and revocation does not overwrite the usage count. Usage counting remains best effort if its storage request fails.
 
