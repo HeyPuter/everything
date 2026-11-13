@@ -393,9 +393,13 @@ function ensureFloatChrome(app, ed, view) {
     const up = () => {
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
+      head.removeEventListener('lostpointercapture', up);
     };
     head.addEventListener('pointermove', move);
     head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
+    head.addEventListener('lostpointercapture', up);
   });
   host.prepend(head);
 }
