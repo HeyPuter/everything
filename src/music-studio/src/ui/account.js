@@ -12,6 +12,7 @@ export function createAccount(app) {
   const el = h('div.account');
   let user = null;
   let picture = null;
+  let refreshRequest = 0;
 
   // puter.js's own menu keeps itself current; the app only follows its sign-ins and sign-outs.
   const sdkMenu = userMenu({
@@ -69,10 +70,7 @@ export function createAccount(app) {
           enabled: true,
           run: async () => {
             await puter.signOut();
-            user = null;
-            picture = null;
-            render();
-            app.emit('account');
+            await refresh();
           },
         });
       }
@@ -82,8 +80,14 @@ export function createAccount(app) {
   };
 
   const refresh = async () => {
+    const request = ++refreshRequest;
+    user = null;
+    picture = null;
+    render();
     if (puter.isSignedIn()) {
-      [user, picture] = await Promise.all([puter.getUser(), puter.getProfilePicture()]);
+      const details = await Promise.all([puter.getUser(), puter.getProfilePicture()]);
+      if (request !== refreshRequest) return;
+      [user, picture] = details;
     }
     render();
     app.emit('account');
