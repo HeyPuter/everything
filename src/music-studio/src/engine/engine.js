@@ -180,6 +180,10 @@ export class Engine extends Emitter {
       // Already closed.
     }
     this.ctx = null;
+    if (this.countingIn) {
+      this.countingIn = false;
+      this.emit('state');
+    }
     this.emit('error', new Error(message));
     return false;
   }
