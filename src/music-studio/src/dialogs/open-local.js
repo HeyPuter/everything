@@ -72,13 +72,21 @@ export async function openLocalProjects(app) {
   const remove = async (m) => {
     const ok = await confirmDialog({ title: 'Delete project', message: `Delete "${m.name}" from this browser? This cannot be undone.`, confirm: 'Delete', danger: true });
     if (!ok) return;
-    await lib.deleteLocal(m.key);
-    if (app.file?.local === m.key) app.files.setFile(null);
-    items = await lib.listLocal();
-    if (selected === m.key) selected = items[0]?.key || null;
-    render();
-    announce(`Deleted ${m.name}`);
-    list.focus();
+    try {
+      await lib.deleteLocal(m.key);
+      if (app.file?.local === m.key) app.files.setFile(null);
+      // Reflect the completed deletion even if refreshing the rest of the list fails.
+      items = items.filter((item) => item.key !== m.key);
+      if (selected === m.key) selected = items[0]?.key || null;
+      render();
+      announce(`Deleted ${m.name}`);
+      items = await lib.listLocal();
+      if (!items.some((item) => item.key === selected)) selected = items[0]?.key || null;
+      render();
+    } catch (err) {
+      app.reportError(err);
+    }
+    if (list.isConnected) list.focus();
   };
   list.addEventListener('keydown', (e) => {
     const i = items.findIndex((m) => m.key === selected);

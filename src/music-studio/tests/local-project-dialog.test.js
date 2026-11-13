@@ -30,9 +30,15 @@ async function setup({ missing = false } = {}) {
   app.files = new ProjectFiles(app, lib);
   app.notify = vi.fn();
   app.reportError = vi.fn();
+  const handlers = new WeakMap();
+  const add = HTMLElement.prototype.addEventListener;
+  vi.spyOn(HTMLElement.prototype, 'addEventListener').mockImplementation(function (type, handler, ...options) {
+    if (type === 'click' && this.matches('button[aria-label^="Delete "]')) handlers.set(this, handler);
+    return add.call(this, type, handler, ...options);
+  });
   dialogs.push(openLocalProjects(app));
   await vi.waitFor(() => expect(document.querySelector('.lp-list')).not.toBeNull());
-  return { app, lib, project, db };
+  return { app, lib, project, db, handlers };
 }
 
 it.each(['missing', 'oversize'])('warns when a saved-project download omits %s samples', async (reason) => {
@@ -60,4 +66,39 @@ it('downloads the selected saved project even if the open project changes during
   expect(name).toBe('Saved song.msproj');
   expect(JSON.parse(await blob.text()).name).toBe('Saved song');
   expect(app.notify.mock.calls.some(([, options]) => options?.error)).toBe(false);
+});
+
+it('reports a failed deletion and leaves the saved project available for retry', async () => {
+  const { app, lib, handlers } = await setup();
+  const failure = new Error('Local storage could not delete the project');
+  const original = lib.deleteLocal.bind(lib);
+  const deleting = vi.spyOn(lib, 'deleteLocal').mockRejectedValueOnce(failure).mockImplementation(original);
+  const button = document.querySelector('[aria-label="Delete Saved song"]');
+  // Invoke the real event handler directly so the pre-fix rejection is observed, not unhandled.
+  const first = handlers.get(button)(new MouseEvent('click')).catch((err) => err);
+  document.querySelector('.dialog-backdrop:last-child [data-value="true"]').click();
+  await first;
+  expect(app.reportError).toHaveBeenCalledExactlyOnceWith(failure);
+  expect(document.querySelector('[aria-label="Delete Saved song"]')).not.toBeNull();
+  expect(await lib.listLocal()).toHaveLength(1);
+  const retry = handlers.get(button)(new MouseEvent('click'));
+  document.querySelector('.dialog-backdrop:last-child [data-value="true"]').click();
+  await retry;
+  expect(deleting).toHaveBeenCalledTimes(2);
+  expect(await lib.listLocal()).toEqual([]);
+  expect(document.querySelector('.lp-row')).toBeNull();
+});
+
+it('keeps a successful deletion visible when refreshing the saved-project list fails', async () => {
+  const { app, lib, handlers } = await setup();
+  const failure = new Error('Could not refresh the project list');
+  vi.spyOn(lib, 'listLocal').mockRejectedValueOnce(failure);
+  const button = document.querySelector('[aria-label="Delete Saved song"]');
+  const deleting = handlers.get(button)(new MouseEvent('click')).catch((err) => err);
+  document.querySelector('.dialog-backdrop:last-child [data-value="true"]').click();
+  await deleting;
+  expect(app.reportError).toHaveBeenCalledExactlyOnceWith(failure);
+  expect(document.querySelector('.lp-row')).toBeNull();
+  expect(document.querySelector('.lp-empty').hidden).toBe(false);
+  expect(await lib.listLocal()).toEqual([]);
 });
