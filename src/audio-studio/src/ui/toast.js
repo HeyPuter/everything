@@ -9,17 +9,34 @@ let host = null;
 /** Default time on screen: longer for errors, longest for toasts with an action. */
 export const ACTION_TIMEOUT = 10000;
 
+/** Toasts on screen at most: older ones give way, so a burst cannot cover the window. */
+export const MAX_TOASTS = 4;
+
 export function toast(message, { error = false, action, timeout = action ? ACTION_TIMEOUT : error ? 6000 : 3500 } = {}) {
   if (!host) {
     host = h('div.toasts', { 'aria-live': 'off' });
     document.body.append(host);
   }
+  if (!host.isConnected) document.body.append(host);
   const el = h(`div.toast${error ? '.error' : ''}`, { role: error ? 'alert' : 'status' }, h('span', message));
   if (action) el.append(h('button.btn', { type: 'button', onclick: () => {
     action.run();
     el.remove();
   } }, action.label));
+  // The same message again (a repeated key or command) replaces the one showing instead of stacking.
+  const key = `${error ? 'e' : 's'}:${message}`;
+  if (!action) el.dataset.key = key;
+  for (const old of host.querySelectorAll('.toast')) {
+    if (!action && old.dataset.key === key && !old.contains(document.activeElement)) old.remove();
+  }
   host.append(el);
+  // Oldest first, but plain notices give way before toasts with an action, so a burst of status
+  // messages cannot take an Undo or Open button away before there was time to use it.
+  const shown = [...host.querySelectorAll('.toast')];
+  const spare = shown.filter((t) => t !== el && !t.contains(document.activeElement));
+  const hasAction = (t) => !!t.querySelector('button');
+  const order = [...spare.filter((t) => !hasAction(t)), ...spare.filter(hasAction)];
+  order.slice(0, Math.max(0, shown.length - MAX_TOASTS)).forEach((t) => t.remove());
   if (!error) announce(message);
   // The countdown pauses while the toast is hovered or holds focus, and resumes with the time left.
   let left = timeout;

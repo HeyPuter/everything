@@ -336,7 +336,8 @@ export function shortcutsDialog(app) {
 
   // ------------------------------------------------------------ per-key list
   const keyTitle = h('h3.sc-pane-title', 'Key');
-  const keyRows = h('div.sc-key-rows', { role: 'list' });
+  // Plain buttons: a list role would make each one a list item instead of a button.
+  const keyRows = h('div.sc-key-rows', { role: 'group', 'aria-label': 'What the key does' });
   function renderKeyList() {
     if (!selectedKey) {
       keyTitle.textContent = 'Key';
@@ -354,7 +355,7 @@ export function shortcutsDialog(app) {
         const text = id ? label(id) : panel ? `${panel.label} (${panel.panel})` : reserved ? 'Kept by the browser' : '';
         const row = h(
           `button.sc-key-row${id ? '.k-app' : panel ? '.k-panel' : ''}${id && id === selectedId ? '.k-selected' : ''}`,
-          { type: 'button', role: 'listitem', disabled: !id, title: id ? 'Show this command in the list' : '' },
+          { type: 'button', disabled: !id, title: id ? 'Show this command in the list' : '' },
           h('span.sc-key-mods', modsLabel(mods)),
           h('span.sc-key-what', text || '—'),
         );

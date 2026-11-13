@@ -3,6 +3,7 @@
 // Splitter.
 
 import { AudioFile } from '../model/audio-file.js';
+import { channelLabel } from '../model/edits.js';
 import { Channel } from '../audio/channel.js';
 import { biquadCoefficients } from '../effects/biquad.js';
 import { baseName } from '../audio/decode.js';
@@ -215,11 +216,10 @@ export function installEditExtraCommands(app) {
       run: () => {
         const doc = audio(app);
         const [a, b] = doc.hasSelection ? [doc.selection.start, doc.selection.end] : [0, doc.length];
-        const names = doc.channelCount === 2 ? ['Left', 'Right'] : doc.state.channels.map((_, i) => `Channel ${i + 1}`);
         const base = baseName(doc.name);
         doc.state.channels.forEach((c, i) => {
           if (doc.selection.channels[i] === false) return;
-          const out = new AudioFile({ name: app.uniqueName(`${base} ${names[i]}`), sampleRate: doc.sampleRate, channels: [c.slice(a, b)], info: { ...doc.info } });
+          const out = new AudioFile({ name: app.uniqueName(`${base} ${channelLabel(i, doc.channelCount)}`), sampleRate: doc.sampleRate, channels: [c.slice(a, b)], info: { ...doc.info } });
           app.addDocument(out, { activate: false });
         });
         app.setStatus(`Extracted ${doc.state.channels.filter((_, i) => doc.selection.channels[i] !== false).length} mono files`);

@@ -20,7 +20,13 @@ import { WAVEFORM_CONTEXT } from '../ui/menus.js';
 import { contextMenu } from '../ui/menubar.js';
 import { dbToGain, formatDb, framesPerSecond, musicalStep } from '../lib/time.js';
 import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
-import { wheelZoom, followPlayhead, editSmoothFrames, defaultFadeCurve } from './view-prefs.js';
+import {
+  wheelZoom,
+  followPlayhead,
+  editSmoothFrames,
+  defaultFadeCurve,
+  MIN_VIEW_FRAMES,
+} from './view-prefs.js';
 
 const CHANNEL_NAMES = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs'];
 const CHANNEL_TOKENS = ['--wave', '--wave-2', '--wave-3', '--wave-4'];
@@ -133,6 +139,11 @@ export class WaveformView {
       setView: (a, b) => doc.setView(a, b),
       viewMax: () => Math.max(doc.length, doc.sampleRate),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
+      cancelMarkerMove: () => {
+        this.markerPreview = null;
+        this.invalidate('ruler');
+        this.invalidate('overlay');
+      },
       renameMarker: (id) => app.commands.run('marker.rename', { id }),
       selectMarker: (id) => this.selectMarker(id),
       overviewPeaks: (cols, total) => this.#overviewPeaks(cols, total),
@@ -646,7 +657,9 @@ export class WaveformView {
       const { dir, frames, curve } = this.fadeDrag;
       ctx.strokeStyle = cssVar('--envelope-vol');
       ctx.lineWidth = 1.5;
-      for (const lane of lanes) {
+      lanes.forEach((lane, ch) => {
+        // Only the channels enabled for editing get the fade.
+        if (sel.channels[ch] === false) return;
         ctx.beginPath();
         const start = dir === 'in' ? 0 : doc.length - frames;
         for (let i = 0; i <= 64; i++) {
@@ -659,7 +672,7 @@ export class WaveformView {
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
-      }
+      });
       ctx.lineWidth = 1;
     }
     // Fade handles sit at the visible file edges.
@@ -831,6 +844,8 @@ export class WaveformView {
     const pointers = new Map();
     let pinch = null;
     let longPress = 0;
+    // Set when a long press opened the context menu: that touch's release must not click it.
+    let menuTouch = false;
 
     s.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -845,6 +860,7 @@ export class WaveformView {
 
     s.addEventListener('pointerdown', (e) => {
       if (e.target.closest('.hud, .fade-handle')) return;
+      menuTouch = false;
       s.focus({ preventScroll: true });
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
@@ -887,7 +903,12 @@ export class WaveformView {
       const sel = this.doc.selection;
       const f = this.frameAt(x);
       const prev = { ...sel, channels: sel.channels.slice() };
-      const edgeTol = 6 * this.fpp;
+      // A finger covers more than a mouse pointer: selection edges grab from further away,
+      // up to a quarter of the selection inside it (a tap in a short one still places the
+      // playhead), as clip edges do in the Multitrack editor.
+      const selPx = (sel.end - sel.start) / this.fpp;
+      const tolPx = e.pointerType === 'touch' ? Math.max(6, Math.min(14, selPx / 4)) : 6;
+      const edgeTol = tolPx * this.fpp;
       let anchor;
       if (sel.end > sel.start && Math.abs(f - sel.start) < edgeTol) anchor = sel.end;
       else if (sel.end > sel.start && Math.abs(f - sel.end) < edgeTol) anchor = sel.start;
@@ -901,12 +922,20 @@ export class WaveformView {
         longPress = setTimeout(() => {
           if (drag && !drag.started) {
             drag = null;
+            menuTouch = true;
             contextMenu(this.app, WAVEFORM_CONTEXT, e.clientX, e.clientY, 'Waveform context menu');
           }
         }, 550);
       }
     });
 
+    // The menu can open under the finger (kept on screen near an edge); cancelling the
+    // touch's end keeps the browser from clicking the item there, which ran that command.
+    s.addEventListener('touchend', (e) => {
+      if (!menuTouch) return;
+      menuTouch = false;
+      if (e.cancelable) e.preventDefault();
+    });
     s.addEventListener('pointerleave', () => this.app.emit('cursor-data', null));
     s.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -916,7 +945,7 @@ export class WaveformView {
         const mid = (a.x + b.x) / 2;
         const rect = s.getBoundingClientRect();
         const v = pinch.view;
-        const span = (v.end - v.start) * (pinch.dist / dist);
+        const span = Math.max(MIN_VIEW_FRAMES, (v.end - v.start) * (pinch.dist / dist));
         const anchorFrame = v.start + ((pinch.mid - rect.left) / this.width) * (v.end - v.start);
         const start = anchorFrame - ((mid - rect.left) / this.width) * span;
         this.doc.setView(start, start + span);

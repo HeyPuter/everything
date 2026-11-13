@@ -5,7 +5,7 @@
 
 import { Session } from '../model/session.js';
 import { serializeSession, parseSession, sessionBaseName, SESSION_EXT } from '../model/session-io.js';
-import { encodeWav } from '../audio/wav.js';
+import { encodeWav, wavHeader } from '../audio/wav.js';
 import { audioFileFromBlob, downloadBlob, rememberRecent, OPENERS, EXTRA_ACCEPT } from '../storage/files.js';
 import { channelsAtRate } from './insert.js';
 import { zipStore, unzipStore } from '../lib/zip.js';
@@ -14,6 +14,16 @@ import { saveSessionVideo, prepareVideoBytes, videoZipEntry, loadSessionVideo } 
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
+
+// What each media file a session saved to Puter holds: path -> the channels written there. Media
+// names follow the sources in use, so a file can come to hold another source's audio (a source that
+// stops being used gives its name to the next one); a source is skipped only while its file still
+// holds its audio.
+const savedMedia = new WeakMap();
+const savedMediaOf = (session) => {
+  if (!savedMedia.has(session)) savedMedia.set(session, new Map());
+  return savedMedia.get(session);
+};
 
 function mediaBlob(session, m) {
   return encodeWav({ sampleRate: session.sampleRate, channels: m.channels, bitDepth: 32, float: true });
@@ -42,19 +52,19 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
     const saved = doc.state;
     const { text, media, video } = serializeSession(doc, { name });
     await saveSessionVideo(app, doc, video, dir, { copy });
+    const onDisk = savedMediaOf(doc);
     let written = 0;
     for (const m of media) {
       const src = doc.pool.get(m.id);
       const target = `${dir}/${m.file}`;
       if (!src?.channels?.length) continue;
-      if (src.savedPath === target && src.savedRef === m.channels) continue;
+      if (onDisk.get(target) === m.channels) continue;
       app.setStatus(`Saving media ${++written}...`);
+      // Unknown while it uploads (a failed write may leave it partly written).
+      onDisk.delete(target);
       await puter.writeFile(target, mediaBlob(doc, m));
-      if (!copy) {
-        // The audio written (the source may change during the upload: then the next save writes it again).
-        src.savedPath = target;
-        src.savedRef = m.channels;
-      }
+      // The audio written (the source may change during the upload: then the next save writes it again).
+      if (!copy) onDisk.set(target, m.channels);
     }
     await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
     if (!copy) {
@@ -95,25 +105,15 @@ export function wavBytes(rate, channels) {
   const nch = channels.length;
   const frames = channels[0].length;
   const dataSize = frames * nch * 4;
-  const out = new Uint8Array(44 + dataSize);
+  const head = new Uint8Array(
+    wavHeader({ sampleRate: rate, channels: nch, bitDepth: 32, float: true, frames }),
+  );
+  const out = new Uint8Array(head.length + dataSize);
   const dv = new DataView(out.buffer);
-  const w4 = (o, s) => [...s].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
-  w4(0, 'RIFF');
-  dv.setUint32(4, 36 + dataSize, true);
-  w4(8, 'WAVE');
-  w4(12, 'fmt ');
-  dv.setUint32(16, 16, true);
-  dv.setUint16(20, 3, true);
-  dv.setUint16(22, nch, true);
-  dv.setUint32(24, rate, true);
-  dv.setUint32(28, rate * nch * 4, true);
-  dv.setUint16(32, nch * 4, true);
-  dv.setUint16(34, 32, true);
-  w4(36, 'data');
-  dv.setUint32(40, dataSize, true);
+  out.set(head);
   const CH = 65536;
   const tmp = Array.from({ length: nch }, () => new Float32Array(CH));
-  let p = 44;
+  let p = head.length;
   for (let at = 0; at < frames; at += CH) {
     const n = Math.min(CH, frames - at);
     for (let c = 0; c < nch; c++) channels[c].read(at, tmp[c], 0, n);
@@ -160,12 +160,8 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       app.addDocument(doc, { activate: false });
       const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
       session.addSource({ id: src.id, name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: mediaSource.path || null });
-      const entry = session.pool.get(src.id);
-      entry.stateRef = doc.state;
-      if (mediaSource.path) {
-        entry.savedPath = mediaSource.path;
-        entry.savedRef = channels;
-      }
+      session.pool.get(src.id).stateRef = doc.state;
+      if (mediaSource.path) savedMediaOf(session).set(mediaSource.path, channels);
     } catch {
       session.addSource({ id: src.id, name: src.name, channels: [], offline: true });
       missing.push(src.name);

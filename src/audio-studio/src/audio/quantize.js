@@ -65,7 +65,9 @@ export class Quantizer {
         x -= err;
         q = Math.round(x + this.#rand() - this.#rand());
         err = q - x;
-        if (err > 4 || err < -4) err = 0; // keep the loop stable after clipping
+        // Keep the loop stable after clipping; an infinite sample leaves NaN, which would
+        // otherwise silence every later sample of the channel.
+        if (!(err <= 4 && err >= -4)) err = 0;
       }
       out[o] = q > max ? max : q < min ? min : q;
     }

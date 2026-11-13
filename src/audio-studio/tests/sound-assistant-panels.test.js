@@ -112,6 +112,32 @@ describe('Sound Assistant panel', () => {
     expect(synced).toBeGreaterThanOrEqual(2);
     panel.el.remove();
   });
+
+  it('keeps keyboard focus in the panel after Apply rebuilds it', async () => {
+    const tone = Channel.fromSamples(new Float32Array(RATE).fill(0.1));
+    const doc = new AudioFile({ name: 'v.wav', sampleRate: RATE, channels: [tone] });
+    const app = appWith(doc);
+    const panel = soundAssistantPanel(app);
+    document.body.append(panel.el);
+    try {
+      panel.el.querySelector('.sa-type-btn[data-type="dialogue"]').click();
+      // Assigning a type focuses the panel's first control on the next frame.
+      await new Promise((r) => requestAnimationFrame(r));
+      const level = panel.el.querySelector('.sa-volume input[type="range"]');
+      level.value = '3';
+      level.dispatchEvent(new Event('input'));
+      const apply = panel.el.querySelector('.sa-apply');
+      apply.focus();
+      apply.click();
+      await expect.poll(() => doc.history.index).toBe(1);
+      await tick();
+      // Apply turned the tasks off and rebuilt the panel: focus stays in it, not on the page.
+      expect(panel.el.querySelector('.sa-apply').disabled).toBe(true);
+      expect(document.activeElement).toBe(panel.el.querySelector('.sa-preview'));
+    } finally {
+      panel.el.remove();
+    }
+  });
 });
 
 describe('Diagnostics panel', () => {

@@ -52,6 +52,11 @@ const selTrack = (app, args) => {
   if (!doc) return null;
   return S.findTrack(doc.state, args?.id || doc.selectedTrack);
 };
+/** The selected track when it is a shown audio track: clips on hidden tracks cannot be picked. */
+const shownAudioTrack = (app) => {
+  const t = selTrack(app);
+  return t?.type === 'audio' && !t.hidden ? t : null;
+};
 const view = (app) => app.currentView?.();
 /** False once a session was closed (while a command awaited audio work): it must not be reopened. */
 const isOpen = (app, doc) => app.documents.includes(doc);
@@ -176,8 +181,9 @@ async function clipGainDialog(app, doc, clips) {
       { label: 'OK', value: 'ok', primary: true },
     ],
   });
-  if (r !== 'ok') return;
-  const g = Math.max(-48, Math.min(24, Number(input.value) || 0));
+  // An emptied field is not a value (Number('') would read as 0 dB).
+  if (r !== 'ok' || !input.value.trim() || !Number.isFinite(Number(input.value))) return;
+  const g = Math.max(-48, Math.min(24, Number(input.value)));
   doc.apply('Clip Gain', S.updateClips(doc.state, clips.map((c) => c.id), { gain: g }));
 }
 
@@ -209,7 +215,8 @@ async function matchLoudnessDialog(app, doc, clips) {
       { label: 'Match', value: 'ok', primary: true },
     ],
   });
-  if (r !== 'ok') return;
+  // An emptied field is not a target (Number('') would read as 0 dB and raise every clip).
+  if (r !== 'ok' || !target.value.trim() || !Number.isFinite(Number(target.value))) return;
   const t = Number(target.value);
   const gains = new Map();
   clips.forEach((c, i) => {
@@ -697,6 +704,8 @@ export function installMultitrackCommands(app) {
     }
     // The new track plays through the master, so the bounce leaves the master out.
     const { data } = await rendered('Bouncing', { ...o, master: false });
+    // The session closed while it rendered: there is no track to put the bounce on.
+    if (!isOpen(app, doc)) return;
     const file = renderedDoc(app, doc, data, name);
     app.addDocument(file, { activate: false });
     const sourceId = await linkSource(doc, file);
@@ -706,6 +715,20 @@ export function installMultitrackCommands(app) {
     const clip = S.createClip({ trackId: made.track.id, sourceId, name: baseName(file.name), start: o.start, length: data[0].length });
     doc.apply('Bounce to New Track', S.addClips(made.state, [clip]), { clips: [clip.id] });
     doc.selectTrack(made.track.id);
+  };
+  // Moving a track up or down passes the hidden tracks next to it, which cannot be seen.
+  const moveTarget = (doc, dir) => {
+    const tracks = doc?.state.tracks || [];
+    const i = tracks.findIndex((t) => t.id === doc.selectedTrack);
+    if (i < 0) return -1;
+    let j = i + dir;
+    while (tracks[j]?.hidden) j += dir;
+    return j >= 0 && j < tracks.length ? j : -1;
+  };
+  const moveSelectedTrack = (dir) => {
+    const doc = session(app);
+    const j = moveTarget(doc, dir);
+    if (j >= 0) doc.apply('Move Track', S.reorderTrack(doc.state, doc.selectedTrack, j));
   };
   const addTrack = (type, channels) => () => {
     const doc = session(app);
@@ -798,18 +821,8 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'mt.deleteEmpty', label: 'Delete Empty Tracks', enabled: (a) => Boolean(session(a)?.state.tracks.some((t) => t.type === 'audio' && !session(a).state.clips.some((c) => c.trackId === t.id))), run: () => session(app).apply('Delete Empty Tracks', S.removeEmptyTracks(session(app).state)) },
-    { id: 'mt.moveTrackUp', label: 'Move Track Up', enabled: (a) => (session(a)?.state.tracks.findIndex((t) => t.id === session(a).selectedTrack) ?? -1) > 0, run: () => session(app).apply('Move Track', S.moveTrack(session(app).state, session(app).selectedTrack, -1)) },
-    {
-      id: 'mt.moveTrackDown',
-      label: 'Move Track Down',
-      enabled: (a) => {
-        const doc = session(a);
-        if (!doc) return false;
-        const i = doc.state.tracks.findIndex((t) => t.id === doc.selectedTrack);
-        return i >= 0 && i < doc.state.tracks.length - 1;
-      },
-      run: () => session(app).apply('Move Track', S.moveTrack(session(app).state, session(app).selectedTrack, 1)),
-    },
+    { id: 'mt.moveTrackUp', label: 'Move Track Up', enabled: (a) => moveTarget(session(a), -1) >= 0, run: () => moveSelectedTrack(-1) },
+    { id: 'mt.moveTrackDown', label: 'Move Track Down', enabled: (a) => moveTarget(session(a), 1) >= 0, run: () => moveSelectedTrack(1) },
     {
       id: 'mt.trackColor',
       label: 'Track Color...',
@@ -1035,7 +1048,7 @@ export function installMultitrackCommands(app) {
         const doc = session(app);
         const at = Math.round(app.playhead);
         let ids = [...doc.selectedClips];
-        if (!ids.length) ids = doc.state.clips.filter((c) => c.trackId === doc.selectedTrack).map((c) => c.id);
+        if (!ids.length) ids = doc.state.clips.filter((c) => c.trackId === shownAudioTrack(app)?.id).map((c) => c.id);
         const next = S.splitClips(doc.state, ids, at);
         if (next === doc.state) return app.setStatus('No clip under the playhead to split');
         doc.apply('Split', next);
@@ -1076,8 +1089,14 @@ export function installMultitrackCommands(app) {
         app.addDocument(file, { activate: false });
         app.activate(doc);
         const sourceId = await linkSource(doc, file);
-        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length });
-        doc.apply('Merge Clips', S.addClips(S.removeClips(doc.state, [...graphClips]), [merged]), { clips: [merged.id] });
+        // The merged clip takes the place of the frontmost merged clip, so the clips it overlapped
+        // stay in front of it or behind it as they were (the render already left out the parts
+        // that clips in front hid).
+        const order = S.frontOrder(doc.state);
+        const front = doc.state.clips.filter((c) => graphClips.has(c.id)).reduce((p, c) => (!p || order.get(c.id) > order.get(p.id) ? c : p), null);
+        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length, z: front?.z || 0 });
+        const state = front ? { ...doc.state, clips: doc.state.clips.flatMap((c) => (c === front ? [merged] : graphClips.has(c.id) ? [] : [c])) } : S.addClips(S.removeClips(doc.state, [...graphClips]), [merged]);
+        doc.apply('Merge Clips', state, { clips: [merged.id] });
       },
     },
     {
@@ -1340,11 +1359,11 @@ export function installMultitrackCommands(app) {
         await insertDocs(app, target, [file], { at: target.cursor, range });
       },
     },
-    { id: 'edit.selectAllClipsTrack', label: 'All Clips in Selected Track', enabled: (a) => selTrack(a)?.type === 'audio', run: () => session(app).selectClips(session(app).state.clips.filter((c) => c.trackId === session(app).selectedTrack).map((c) => c.id)) },
+    { id: 'edit.selectAllClipsTrack', label: 'All Clips in Selected Track', enabled: (a) => Boolean(shownAudioTrack(a)), run: () => session(app).selectClips(session(app).state.clips.filter((c) => c.trackId === session(app).selectedTrack).map((c) => c.id)) },
     {
       id: 'edit.selectNextClip',
       label: 'Next Clip in Selected Track',
-      enabled: (a) => selTrack(a)?.type === 'audio',
+      enabled: (a) => Boolean(shownAudioTrack(a)),
       run: () => {
         const doc = session(app);
         const clips = S.clipsOnTrack(doc.state, doc.selectedTrack);
@@ -1358,7 +1377,7 @@ export function installMultitrackCommands(app) {
     {
       id: 'edit.selectClipsToTrackEnd',
       label: 'Clips to End of Selected Track',
-      enabled: (a) => selTrack(a)?.type === 'audio',
+      enabled: (a) => Boolean(shownAudioTrack(a)),
       run: () => {
         const doc = session(app);
         doc.selectClips(S.clipsFrom(doc.state, app.playhead, 'end', doc.selectedTrack).map((c) => c.id));

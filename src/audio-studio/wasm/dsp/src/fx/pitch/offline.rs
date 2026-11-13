@@ -66,9 +66,12 @@ impl Input {
     fn new(channels: usize) -> Input {
         Input { data: vec![Vec::new(); channels], base: 0, total: 0, finished: false }
     }
+    /// A non-finite sample (a damaged float file) is taken as silence: the
+    /// analysis frames and interpolation kernels would otherwise spread it
+    /// to thousands of NaN output frames.
     fn push(&mut self, planar: &[f32], frames: usize) {
         for (c, d) in self.data.iter_mut().enumerate() {
-            d.extend_from_slice(&planar[c * frames..(c + 1) * frames]);
+            d.extend(planar[c * frames..(c + 1) * frames].iter().map(|&v| if v.is_finite() { v } else { 0.0 }));
         }
         self.total += frames as i64;
     }
@@ -80,8 +83,11 @@ impl Input {
             self.data[c][(pos - self.base) as usize]
         }
     }
-    /// Frees frames before `pos` (in large steps to keep moves rare).
+    /// Frees frames before `pos` (in large steps to keep moves rare). At extreme stretch
+    /// ratios the read position can run ahead of the frames pushed so far: only those are
+    /// dropped (frames past them have not arrived yet).
     fn drop_before(&mut self, pos: i64) {
+        let pos = pos.min(self.total);
         let n = pos - self.base;
         if n > 1 << 16 {
             for d in &mut self.data {
@@ -573,6 +579,26 @@ mod tests {
     }
 
     #[test]
+    fn non_finite_input_samples_do_not_spread() {
+        let rate = 48000.0;
+        let mut x = sine(440.0, rate, 48000, 0.5);
+        x[10000] = f32::NAN;
+        x[20000] = f32::INFINITY;
+        x[30000] = f32::NEG_INFINITY;
+        let jobs = [
+            Job::Vocoder(Vocoder::new(1, rate, 1, 1.2, 1.0, true, false)),
+            Job::Wsola(Wsola::new(1, rate, 1.2 * 1.5), Some(Resampler::new(1, 1.5))),
+            Job::Resample(Resampler::new(1, 0.8)),
+        ];
+        for mut job in jobs {
+            let y = run_job(&mut job, &[x.clone()], 7000);
+            assert!(y[0].len() > 40000);
+            assert!(y[0].iter().all(|v| v.is_finite()));
+            assert!(rms(&y[0]) > 0.3);
+        }
+    }
+
+    #[test]
     fn vocoder_stretches_and_keeps_pitch() {
         let rate = 48000.0;
         let x = vec![sine(440.0, rate, 48000, 0.5)];
@@ -711,5 +737,20 @@ mod tests {
         for i in 0..a[0].len() {
             assert!((a[0][i] - b[0][i]).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn drop_before_past_the_pushed_frames_keeps_later_frames_in_place() {
+        let mut input = Input::new(1);
+        let frames = 70_000;
+        let x: Vec<f32> = (0..frames).map(|i| i as f32).collect();
+        input.push(&x, frames);
+        // A read position ahead of everything pushed (extreme stretch) must not panic.
+        input.drop_before(200_000);
+        assert_eq!(input.base, frames as i64);
+        input.push(&[7.0, 8.0], 2);
+        assert_eq!(input.at(0, frames as i64), 7.0);
+        assert_eq!(input.at(0, frames as i64 + 1), 8.0);
+        assert_eq!(input.at(0, 10), 0.0);
     }
 }

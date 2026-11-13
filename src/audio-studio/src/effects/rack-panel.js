@@ -248,7 +248,7 @@ export function effectsRackPanel(app) {
       saveRackPreset(app.prefs, n, current());
       renderPresets(n.trim());
       announce(`Rack preset ${n.trim()} saved`);
-    } });
+    }, exists: (n) => rackPresets(app.prefs).some((p) => p.name === n) });
   }
 
   function renderPresets(selectName) {

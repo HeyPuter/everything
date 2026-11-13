@@ -43,6 +43,9 @@ async function linkMedia(app) {
       app.addDocument(media, { activate: false });
       const channels = await channelsAtRate(media.state.channels, media.sampleRate, doc.sampleRate);
       doc.updateSource(src.id, { channels, name: media.name, sampleRate: media.sampleRate, docId: media.id, offline: false, stateRef: media.state });
+      // The media pool is not in the undo state: the link needs a save to be kept.
+      doc.savedState = null;
+      doc.emit('change', { kind: 'saved' });
       app.setStatus(`Linked ${src.name} to ${media.name}`);
     } catch (err) {
       app.notify(err?.message || `"${file.name}" could not be opened.`, { error: true });

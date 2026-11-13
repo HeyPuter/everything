@@ -128,4 +128,22 @@ mod tests {
         assert!(sine_gain_db(15, &p, 950.0, r).abs() < 0.2);
         assert!(sine_gain_db(15, &p, 60.0, r) < -60.0);
     }
+
+    #[test]
+    fn passband_stays_at_unity_with_edges_near_dc_at_high_rates() {
+        for r in [96000.0, 192000.0] {
+            // Band stop 10..200 Hz, order 8: the passband above it is 0 dB.
+            let p = [(1, 3.0), (2, 8.0), (3, 10.0), (4, 200.0)];
+            assert!(sine_gain_db(15, &p, 2000.0, r).abs() < 0.1, "band stop at {r}");
+            assert!(sine_gain_db(15, &p, 20000.0, r).abs() < 0.1, "band stop at {r}");
+            // Low pass 10 Hz, order 8: DC passes at unity.
+            let mut fx = make(15, r, 1);
+            for (i, v) in [(1, 0.0), (2, 8.0), (3, 10.0)] {
+                fx.set_param(i, v);
+            }
+            fx.reset();
+            let y = run_mono(fx.as_mut(), &vec![0.5; r as usize * 2]);
+            assert!((y[y.len() - 1] / 0.5 - 1.0).abs() < 0.01, "low pass DC at {r}: {}", y[y.len() - 1]);
+        }
+    }
 }

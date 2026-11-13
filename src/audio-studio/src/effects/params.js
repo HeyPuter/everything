@@ -153,6 +153,19 @@ export function parseValue(p, text) {
   return v;
 }
 
+/**
+ * Text a value field starts with when clicked to type: the display text when
+ * it reads back as the value (to its step), else the exact value in the
+ * param's unit (kHz and seconds round, so committing the field unchanged
+ * changed the value).
+ */
+export function editValueText(p, v) {
+  const [n, u] = formatParts(p, v);
+  const text = !u || u === (p.unit || '') ? n : `${n} ${u}`;
+  if (!Number.isFinite(v) || parseValue(p, text) === roundToStep(v, p.step, p.min ?? 0)) return text;
+  return String(Number(v.toPrecision(12)));
+}
+
 // --------------------------------------------------------- linked params
 
 /** Ids of the params linked by `linked`/`link` bool params: [[id, id], ...]. */

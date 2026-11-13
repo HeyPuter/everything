@@ -197,6 +197,40 @@ describe('command search', () => {
     expect(document.querySelector('[role=menu]')).toBe(null);
     expect(document.activeElement).toBe(input);
   });
+  it('lists the best matches first, so Enter runs the command named', async () => {
+    const app = await makeApp();
+    const { createShell, searchRank } = await import('../src/ui/shell.js');
+    expect(searchRank('play', ['Play'])).toBe(0);
+    expect(searchRank('play', ['Play/Stop'])).toBe(1);
+    expect(searchRank('play', ['Move Playhead to Next Marker'])).toBe(2);
+    expect(searchRank('cut', ['Keyboard Shortcuts'])).toBe(3);
+    expect(searchRank('xyz', ['Play'], 'transport.play')).toBe(-1);
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    app.active = { kind: 'audio' };
+    const input = root.querySelector('.command-search');
+    input.focus();
+    const results = (q) => {
+      input.value = q;
+      input.dispatchEvent(new Event('input'));
+      const labels = document.querySelectorAll('[aria-label="Command results"] .menu-label');
+      return [...labels].map((e) => e.textContent);
+    };
+    const play = results('play');
+    expect(play[0]).toBe('Play');
+    const move = play.findIndex((l) => l.startsWith('Move Playhead'));
+    expect(play.indexOf('Play/Stop')).toBeLessThan(move);
+    expect(results('cut')[0]).toBe('Cut');
+    const ran = [];
+    const spy = vi.spyOn(app.commands, 'run').mockImplementation((id) => ran.push(id));
+    results('play');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(ran).toEqual(['transport.play']);
+    spy.mockRestore();
+    app.active = null;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
 });
 
 describe('shortcuts while typing', () => {
@@ -352,6 +386,38 @@ describe('theme contrast', () => {
       for (const bg of ['--bg-panel', '--bg-panel-alt']) expect(ratio(token(b, '--text-faint'), token(b, bg))).toBeGreaterThanOrEqual(4.5);
     }
   });
+  it('keeps the current editor mode and workspace names readable with every accent', async () => {
+    const fs = await import('node:fs');
+    const { ACCENTS, mixColors, contrastRatio } = await import('../src/ui/appearance.js');
+    const dir = `${import.meta.dirname}/../src/styles`;
+    const tokens = fs.readFileSync(`${dir}/tokens.css`, 'utf8');
+    const shell = fs.readFileSync(`${dir}/shell.css`, 'utf8');
+    const from = (css, sel) => css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+    const rule = (sel) => from(shell, `${sel} {`);
+    const block = (sel) => from(tokens, sel);
+    const token = (b, name) => b.match(new RegExp(`${name}: (#[0-9a-f]{6});`))[1];
+    for (const sel of ['.mode-btn.on', ".workspace-tab[aria-selected='true']"]) {
+      const mix =
+        /color: color-mix\(in srgb, var\(--accent-strong\) (\d+)%, var\(--text-strong\)\);/;
+      const m = rule(sel).match(mix);
+      expect(m, sel).not.toBe(null);
+      const share = Number(m[1]) / 100;
+      for (const theme of ['dark', 'light']) {
+        const b = block(`:root[data-theme-resolved='${theme}']`);
+        for (const accent of ACCENTS) {
+          // As appearance.js derives --accent-strong for each accent.
+          const own =
+            theme === 'light' ? [accent.light, '#000', 0.15] : [accent.dark, '#fff', 0.18];
+          const strong = accent.id === 'blue' ? token(b, '--accent-strong') : mixColors(...own);
+          const text = mixColors(token(b, '--text-strong'), strong, share);
+          for (const bg of ['--bg-active', '--bg-panel-alt']) {
+            const where = `${sel} ${theme} ${accent.id} on ${bg}`;
+            expect(contrastRatio(text, token(b, bg)), where).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
+    }
+  });
 });
 
 describe('popup menu focus', () => {
@@ -407,6 +473,17 @@ describe('dialog initial focus', () => {
     expect(document.activeElement).toBe(field);
     document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await again;
+  });
+  it('adds no banner landmark (the app bar is the page banner)', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    document.body.replaceChildren();
+    const done = openDialog({ title: 'T', body: document.createElement('p') });
+    const dialog = document.querySelector('[role=dialog]');
+    expect(dialog.querySelector('header, [role=banner]')).toBe(null);
+    expect(dialog.querySelector('.dialog-head h2').textContent).toBe('T');
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    document.activeElement.dispatchEvent(escape);
+    await done;
   });
 });
 

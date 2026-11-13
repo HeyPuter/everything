@@ -160,6 +160,15 @@ export class SessionRecorder {
       return;
     }
     let state = doc.state;
+    // Every armed track was deleted while recording: the takes stay as files.
+    if (!take.armed.some((id) => S.findTrack(state, id))) {
+      pieces.forEach((p, i) => {
+        const name = this.app.uniqueName(pieces.length > 1 ? `Recording_Take ${i + 1}` : 'Recording_Take', '.wav');
+        app.addDocument(new AudioFile({ name, sampleRate: doc.sampleRate, channels: channels.map((c) => c.slice(p.start, p.start + p.length)), info: { bitDepth: 32, format: 'wav' } }), { activate: false });
+      });
+      app.notify(`The armed ${take.armed.length > 1 ? 'tracks were' : 'track was'} deleted while recording. The recording is in the Files panel.`);
+      return;
+    }
     const ids = [];
     for (const trackId of take.armed) {
       const track = S.findTrack(state, trackId);

@@ -97,6 +97,8 @@ export class Engine extends Emitter {
 
   async #create(rate) {
     this.stop();
+    // An open input (input metering) moves to the new context.
+    const input = this.input ? { deviceId: this.input.deviceId } : null;
     if (this.ctx) {
       this.closeInput();
       try {
@@ -145,6 +147,14 @@ export class Engine extends Emitter {
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
     if (ctx.state === 'suspended') await ctx.resume();
     this.emit('context', ctx);
+    if (input) {
+      try {
+        await this.#openInput(input);
+      } catch (err) {
+        console.warn('[engine] input', err);
+        this.emit('engine-error', 'The input stopped and could not be reopened.');
+      }
+    }
     return ctx;
   }
 
@@ -272,7 +282,7 @@ export class Engine extends Emitter {
    */
   get position() {
     if (!this.ctx || this.state !== 'playing') return this.lastPos.frame;
-    const heard = this.ctx.currentTime - (this.ctx.outputLatency || this.ctx.baseLatency || 0);
+    const heard = this.#heardTime();
     const reports = this.reports;
     let n = 0;
     while (n < reports.length && reports[n].time <= heard) n++;
@@ -283,6 +293,23 @@ export class Engine extends Emitter {
     if (loop && loop.end > loop.start && f >= loop.end) f = loop.start + ((f - loop.start) % (loop.end - loop.start));
     if (!loop && this.range.to != null) f = Math.min(f, this.range.to);
     return Math.max(0, f);
+  }
+
+  /**
+   * Context time of the audio leaving the speakers now. The output timestamp
+   * carried forward on the performance clock moves smoothly; currentTime moves
+   * in steps of the device buffer, which made the playhead stutter (some
+   * frames about 30% too far, others not at all).
+   */
+  #heardTime() {
+    const ctx = this.ctx;
+    const ts = ctx.getOutputTimestamp?.();
+    if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
+      const t = ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+      // Never past what the mixer has rendered (a suspended context stops its clock).
+      if (Number.isFinite(t)) return Math.min(t, ctx.currentTime);
+    }
+    return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
   }
 
   /**
@@ -305,13 +332,17 @@ export class Engine extends Emitter {
     }
     this.graph = graph;
     this.sources = sources;
+    // The mixer can render between any two messages: the audio the new graph
+    // plays goes before it, and what only the old graph played is dropped
+    // after it, so an edit during playback never renders a block of silence.
+    if (this.playing) this.#feed(this.position, false);
+    this.node?.port.postMessage({ type: 'graph', graph });
     for (const key of [...this.sent.keys()]) {
       if (!sources.has(key)) {
         this.sent.delete(key);
         this.node?.port.postMessage({ type: 'drop', key });
       }
     }
-    this.node?.port.postMessage({ type: 'graph', graph });
     if (this.playing) this.#feed();
   }
 
@@ -351,6 +382,13 @@ export class Engine extends Emitter {
     const latest = this.reports.length ? this.reports[this.reports.length - 1] : this.lastPos;
     const jump = this.playing && loop && loop.end > loop.start && latest.frame >= loop.end;
     if (jump) this.#jumped(loop.start);
+    // Turned off past where playback was to stop (the loop followed a new
+    // selection there): play on to the end rather than stopping on the spot.
+    if (this.playing && !loop && this.range.loop && this.range.to != null && latest.frame >= this.range.to) {
+      this.range.to = graphLength(this.graph);
+      this.toEnd = true;
+      this.node?.port.postMessage({ type: 'range', to: this.range.to });
+    }
     this.range.loop = loop;
     this.node?.port.postMessage(jump ? { type: 'loop', loop, seq: this.seq } : { type: 'loop', loop });
     if (this.playing) this.#feed();
@@ -384,7 +422,7 @@ export class Engine extends Emitter {
     this.reports = [];
   }
 
-  #feed(at = this.position) {
+  #feed(at = this.position, drop = true) {
     if (!this.node) return;
     const rate = this.graph.rate || this.rate;
     const windows = [[at - KEEP_BEHIND_S * rate, at + LOOKAHEAD_S * rate]];
@@ -422,6 +460,7 @@ export class Engine extends Emitter {
         sent.add(index);
       }
     }
+    if (!drop) return;
     for (const [key, sent] of this.sent) {
       const keep = need.get(key);
       for (const index of [...sent]) {
@@ -437,6 +476,10 @@ export class Engine extends Emitter {
   /** Opens an input device for metering and recording. */
   async openInput({ deviceId } = {}) {
     await this.ensure(this.graph.rate || this.rate);
+    return this.#openInput({ deviceId });
+  }
+
+  async #openInput({ deviceId }) {
     this.closeInput();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -452,7 +495,7 @@ export class Engine extends Emitter {
     const node = new AudioWorkletNode(this.ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
     const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
     const map = this.inputMap;
-    let mapped = false;
+    let route = [];
     if (!(map[0] === 0 && map[1] === 1)) {
       // Pick device channels for the recorded left and right channels.
       const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
@@ -463,14 +506,14 @@ export class Engine extends Emitter {
         if (dev >= 0 && dev < n) split.connect(merge, dev, ch);
       });
       merge.connect(node);
-      mapped = true;
+      route = [split, merge];
     } else src.connect(node);
     node.port.onmessage = (e) => {
       const m = e.data;
       if (m.type === 'data') this.emit('record-data', m.channels);
       else if (m.type === 'meter') this.emit('input-meter', m.peak);
     };
-    this.input = { stream, src, node, channels: mapped ? 2 : deviceChannels };
+    this.input = { deviceId, stream, src, node, route, channels: route.length ? 2 : deviceChannels };
     return this.input;
   }
 
@@ -480,8 +523,12 @@ export class Engine extends Emitter {
 
   closeInput() {
     if (!this.input) return;
+    // The processor sends what it still holds, then stops: one left running
+    // would cost render time for good (and a mapped one kept posting silent meters).
     this.input.node.port.postMessage({ type: 'record', on: false });
+    this.input.node.port.postMessage({ type: 'close' });
     this.input.src.disconnect();
+    for (const n of this.input.route) n.disconnect();
     for (const t of this.input.stream.getTracks()) t.stop();
     this.input = null;
   }

@@ -21,3 +21,14 @@ describe('Selection/View in a narrow frame', () => {
     expect(field).toBeGreaterThanOrEqual(53);
   });
 });
+
+describe('empty panel messages in a short frame', () => {
+  it('scroll from the top instead of squeezing their buttons (Media Browser sign-in on phones)', () => {
+    const base = fs.readFileSync(`${import.meta.dirname}/../src/styles/base.css`, 'utf8');
+    const at = base.indexOf('.empty-state {');
+    const rule = base.slice(at, base.indexOf('}', at));
+    expect(rule).toMatch(/justify-content: safe center;/);
+    expect(rule).toMatch(/overflow: auto;/);
+    expect(base).toMatch(/\.empty-state > \* \{\s*flex-shrink: 0;\s*\}/);
+  });
+});

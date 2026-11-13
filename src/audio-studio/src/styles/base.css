@@ -571,11 +571,18 @@ input[type='range'].slider::-moz-range-thumb {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* In a short panel (phones) the message scrolls from its top instead of squeezing its buttons. */
+  justify-content: safe center;
   gap: 8px;
   height: 100%;
   padding: 16px;
+  overflow: auto;
   color: var(--text-faint);
   text-align: center;
+}
+
+.empty-state > * {
+  flex-shrink: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

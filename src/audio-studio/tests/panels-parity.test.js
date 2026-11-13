@@ -530,6 +530,23 @@ describe('Files panel focus', () => {
     expect(document.activeElement).toBe(row(a));
     expect(document.activeElement.isConnected).toBe(true);
   });
+  it('keeps a row in the tab order when the search hides the current file', () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const a = audioDoc(1);
+    const b = audioDoc(2);
+    b.name = 'b.wav';
+    app.addDocument(a);
+    app.addDocument(b);
+    const panel = create(app, 'files');
+    document.body.replaceChildren(panel.el);
+    const search = panel.el.querySelector('.panel-search');
+    search.value = 'a.wav';
+    search.dispatchEvent(new Event('input'));
+    const rows = [...panel.el.querySelectorAll('tbody tr[data-id]')];
+    expect(rows.map((r) => r.dataset.id)).toEqual([a.id]);
+    expect(rows[0].tabIndex).toBe(0);
+  });
 });
 
 describe('Markers panel focus', () => {
@@ -576,5 +593,64 @@ describe('Playlist panel focus', () => {
     row('e-m1').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
     expect(panel.el.querySelectorAll('tr[data-id]')).toHaveLength(2);
     expect(document.activeElement).toBe(row('e-m2'));
+  });
+});
+
+describe('Levels panel', () => {
+  it('keeps the clip indicator buttons outside the meter and its value in range', async () => {
+    const app = makeApp();
+    app.prefs.set('meterRange', 96);
+    const panel = create(app, 'levels');
+    const meter = panel.el.querySelector('[role=meter]');
+    // A meter's children are presentational: buttons inside it would be hidden from screen readers.
+    expect(meter.querySelector('button')).toBeNull();
+    expect(meter.getAttribute('aria-label')).toBe('Output level');
+    expect(panel.el.querySelectorAll('.clip-led')).toHaveLength(2);
+    Object.defineProperty(panel.el, 'clientWidth', { value: 300 });
+    Object.defineProperty(panel.el, 'clientHeight', { value: 60 });
+    const noop = () => ({ addColorStop() {} });
+    const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : noop) });
+    meter.getContext = () => ctx;
+    const frames = [];
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((f) => frames.push(f));
+    panel.show();
+    frames.shift()(16);
+    raf.mockRestore();
+    panel.hide();
+    expect(meter.getAttribute('aria-valuemin')).toBe('-96');
+    expect(meter.getAttribute('aria-valuenow')).toBe('-96');
+  });
+});
+
+describe('transport shuttle buttons', () => {
+  it('do not also jump a second when released after holding to shuttle', async () => {
+    const { transportButtons } = await import('../src/panels/transport-controls.js');
+    vi.useFakeTimers();
+    const ran = [];
+    const app = {
+      commands: {
+        run: (id, args) => ran.push(args?.shuttle ? 'shuttle' : 'jump'),
+        shortcutLabel: () => '',
+        get: () => ({}),
+        isEnabled: () => true,
+      },
+      engine: {},
+      prefs: { get: () => false },
+    };
+    const forward = transportButtons(app).byCmd['transport.forward'];
+    document.body.replaceChildren(forward);
+    // Held: shuttles, and the click that ends the press does nothing more.
+    forward.dispatchEvent(new Event('pointerdown'));
+    vi.advanceTimersByTime(350 + 60 * 3);
+    forward.dispatchEvent(new Event('pointerup'));
+    forward.click();
+    expect(ran).toEqual(['shuttle', 'shuttle', 'shuttle']);
+    // A quick press is an ordinary click.
+    ran.length = 0;
+    forward.dispatchEvent(new Event('pointerdown'));
+    forward.dispatchEvent(new Event('pointerup'));
+    forward.click();
+    expect(ran).toEqual(['jump']);
+    vi.useRealTimers();
   });
 });

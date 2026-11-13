@@ -215,7 +215,9 @@ export function rulerLabel(seconds, step) {
   seconds = Math.round(seconds * scale) / scale;
   if (seconds >= 60) {
     const m = Math.floor(seconds / 60);
-    return `${m}:${(seconds % 60).toFixed(decimals).padStart(decimals + 3, '0')}`;
+    const s = (seconds % 60).toFixed(decimals).padStart(decimals + 3, '0');
+    // Past an hour, hours as the coarser labels and the time display show them.
+    return m >= 60 ? `${Math.floor(m / 60)}:${pad(m % 60)}:${s}` : `${m}:${s}`;
   }
   return seconds.toFixed(decimals);
 }

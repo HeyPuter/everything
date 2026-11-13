@@ -6,7 +6,15 @@
 import { exportAudio } from './export.js';
 import { exportFileDialog } from './dialog.js';
 import { withProgress } from './progress.js';
-import { conformOptions, defaultOptions, docBitDepth, formatForName, getFormat } from './formats.js';
+import {
+  conformOptions,
+  defaultOptions,
+  docBitDepth,
+  emptyExportError,
+  formatForName,
+  getFormat,
+  outputFrames,
+} from './formats.js';
 import { confirmDialog } from '../ui/dialog.js';
 import * as puter from '../storage/puter.js';
 import { downloadBlob, rememberRecent } from '../storage/files.js';
@@ -22,10 +30,20 @@ export function encodeDoc(doc, options, { start = 0, end = doc.length, onProgres
   return exportAudio(source, options, { onProgress, signal });
 }
 
-/** Options for re-saving a document in `format`: what it was last saved with, else its own sample type. */
+/**
+ * Options for re-saving a document in `format`: what it was last saved with, else its own
+ * sample type. A rate or channel count chosen for that save holds only while the document
+ * keeps the sample type it had then (`from`): after Convert Sample Type the file gets the new one.
+ */
 export function optionsForSave(doc, format) {
   const last = doc.info?.exportOptions;
-  if (last && last.format === format) return conformOptions(format, last).options;
+  if (last && last.format === format) {
+    const from = last.from;
+    const { sampleRate, channelCount: channels } = doc;
+    const converted = from && (from.sampleRate !== sampleRate || from.channels !== channels);
+    const opts = converted ? { ...last, sampleRate, channels } : last;
+    return conformOptions(format, opts).options;
+  }
   const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) };
   return defaultOptions(source, format);
 }
@@ -34,17 +52,33 @@ function encodeWithProgress(doc, options, range, label) {
   return withProgress(label, (onProgress, signal) => encodeDoc(doc, options, { ...range, onProgress, signal }), { detail: label });
 }
 
+/** Puter path -> a promise settled when the last upload started to it has finished. */
+const uploads = new Map();
+
 /**
  * Uploads to Puter behind a progress dialog. An upload cannot be stopped, so
  * Cancel only hides the dialog: a failure is still thrown (withProgress would
  * report it as a cancel), and the caller never marks an unsaved file saved.
  */
 async function upload(label, path, blob) {
+  // Uploads to one file run in turn: a save made while an earlier upload is still going
+  // (its dialog cancelled) would otherwise be overwritten by it if that one landed last.
+  const before = uploads.get(path);
+  const write = (async () => {
+    await before;
+    return puter.writeFile(path, blob);
+  })();
+  const settled = write.then(
+    () => {},
+    () => {},
+  );
+  uploads.set(path, settled);
+  settled.then(() => uploads.get(path) === settled && uploads.delete(path));
   let failure = null;
   const item = await withProgress(
     label,
     () =>
-      puter.writeFile(path, blob).catch((err) => {
+      write.catch((err) => {
         failure = err;
         throw err;
       }),
@@ -86,16 +120,25 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
  */
 export async function saveFlow(app, doc, { mode = 'export', range = null } = {}) {
   const [start, end] = range || [0, doc.length];
-  let initialName;
+  // After a declined Replace or a failed sign-in the dialog reopens with the same choices.
+  let initial = null;
   for (;;) {
-    const r = await exportFileDialog(app, doc, { mode, frames: end - start, initialName });
+    const r = await exportFileDialog(app, doc, { mode, frames: end - start, initial });
     if (!r) return false;
+    // Nothing to encode in a format that cannot be empty: say so and let another format be chosen.
+    const outFrames = outputFrames(end - start, doc.sampleRate, r.options.sampleRate);
+    const empty = emptyExportError(r.options.format, outFrames);
+    if (empty) {
+      app.notify(empty, { error: true });
+      initial = r;
+      continue;
+    }
     let path = null;
     let dir = null;
     if (r.location.type === 'puter') {
       if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) {
         app.notify('Sign in to Puter to save there, or choose This device.', { error: true });
-        initialName = r.fileName;
+        initial = r;
         continue;
       }
       dir = r.location.dir || (await puter.appDir());
@@ -104,7 +147,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
       if (!isCurrent && (await puter.exists(path))) {
         const ok = await confirmDialog({ title: 'Replace File?', message: `"${r.fileName}" already exists in ${dir}. Do you want to replace it?`, confirm: 'Replace', danger: true });
         if (!ok) {
-          initialName = r.fileName;
+          initial = { ...r, location: { ...r.location, dir } };
           continue;
         }
       }
@@ -123,7 +166,9 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
     } else downloadBlob(blob, r.fileName);
     if (mode === 'saveAs') {
       doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
-      doc.info = { ...doc.info, format: r.options.format, exportOptions: r.options, size: blob.size };
+      const from = { sampleRate: state.sampleRate, channels: state.channels.length };
+      const exportOptions = { ...r.options, from };
+      doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
       if (doc.name !== r.fileName) doc.rename(r.fileName);
       if (doc.state === state) doc.markSaved();
       else doc.emit('change', { kind: 'saved' });

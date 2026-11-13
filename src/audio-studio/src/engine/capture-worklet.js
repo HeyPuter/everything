@@ -14,6 +14,8 @@ class CaptureProcessor extends AudioWorkletProcessor {
       if (e.data.type === 'record') {
         this.recording = e.data.on;
         if (!this.recording) this.flush();
+      } else if (e.data.type === 'close') {
+        this.closed = true;
       }
     };
   }
@@ -26,6 +28,7 @@ class CaptureProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs) {
+    if (this.closed) return false; // the input closed: let the node go
     const input = inputs[0];
     if (!input || !input.length) return true;
     const n = input[0].length;

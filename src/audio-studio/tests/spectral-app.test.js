@@ -112,6 +112,20 @@ describe('spectral feature', () => {
     await app.commands.run('fx.autoHeal');
     // Compare identity without diffing sample arrays.
     expect(long.state === before).toBe(true);
+    // The same limit holds for a spectral selection (its memory grows with the length).
+    app.spectral.set(long, {
+      channels: [true],
+      shapes: [{ type: 'rect', t0: 0, t1: RATE * 5, f0: 0, f1: RATE / 2 }],
+    });
+    expect(app.spectral.selection(long)).toBeTruthy();
+    await app.commands.run('fx.autoHeal');
+    expect(long.state === before).toBe(true);
+    app.spectral.set(long, {
+      channels: [true],
+      shapes: [{ type: 'rect', t0: RATE, t1: RATE * 3, f0: 500, f1: 2000 }],
+    });
+    await app.commands.run('fx.autoHeal');
+    expect(long.history.undoLabel).toBe('Auto Heal');
     app.activate(doc);
   });
 

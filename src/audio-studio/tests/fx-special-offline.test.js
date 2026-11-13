@@ -113,6 +113,17 @@ describe('Doppler Shifter', () => {
     const q = Math.round(((0.25 * 2 * Math.PI * 3) / 10) * RATE);
     expect(r[q]).toBeGreaterThan(l[q] * 1.5);
   });
+
+  it('reads a damaged (NaN or infinite) sample as silence instead of spreading it', async () => {
+    const def = getEffect('dopplerShifter');
+    const x = tone(1, 0.5, 1000);
+    x[1000] = NaN;
+    x[20000] = -Infinity;
+    for (const quality of [0, 1, 2, 3]) {
+      const [l, r] = await def.process({ channels: [x, x], rate: RATE, values: { quality } });
+      expect(l.every(Number.isFinite) && r.every(Number.isFinite), `quality ${quality}`).toBe(true);
+    }
+  });
 });
 
 describe('Special realtime definitions', () => {

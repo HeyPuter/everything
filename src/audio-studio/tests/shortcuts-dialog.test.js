@@ -92,6 +92,8 @@ describe('shortcuts dialog', () => {
     shortcutsDialog(app);
     keyCap('K').click();
     const rows = [...dialog().querySelectorAll('.sc-key-row')];
+    // Buttons keep their role (a listitem role would hide that they can be pressed).
+    expect(rows.every((r) => r.tagName === 'BUTTON' && !r.hasAttribute('role'))).toBe(true);
     expect(dialog().querySelector('.sc-pane-title').textContent).toBe('Key: K');
     expect(rows[0].textContent).toContain('Shuttle Stop');
     expect(rows[1].textContent).toContain('Split');

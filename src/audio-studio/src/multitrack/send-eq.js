@@ -70,7 +70,9 @@ export class SendControls {
   update(track) {
     this.track = track;
     const state = this.doc.state;
-    const key = `${this.index}|${JSON.stringify(track.sends || [])}|${state.tracks.map((b) => (b.type === 'bus' ? `${b.id}:${b.name}:${b.output}` : '')).join(',')}`;
+    // Bus outputs and sends decide which buses would make a loop (wouldCycle).
+    const busKey = (b) => `${b.id}:${b.name}:${b.output}:${(b.sends || []).map((x) => x?.target || '').join('/')}`;
+    const key = `${this.index}|${JSON.stringify(track.sends || [])}|${state.tracks.map((b) => (b.type === 'bus' ? busKey(b) : '')).join(',')}`;
     if (key === this.key) return;
     this.key = key;
     this.sel.replaceChildren(

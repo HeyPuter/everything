@@ -18,6 +18,7 @@
 import { createTrack, createClip } from './session-edits.js';
 import { cleanPresets } from '../multitrack/visibility.js';
 import { serializeVideo, parseVideoClip } from './session-video.js';
+import { createMarker } from './markers.js';
 
 export const SESSION_FORMAT = 'audio-studio-session';
 export const SESSION_VERSION = 1;
@@ -118,7 +119,8 @@ export function parseSession(text) {
     tracks,
     master: createTrack({ ...(s.master || {}), type: 'master' }),
     clips,
-    markers: (s.markers || []).map((m) => ({ id: m.id, name: m.name ?? '', start: Math.max(0, Math.round(m.start || 0)), duration: Math.max(0, Math.round(m.duration || 0)), type: m.type || 'cue', description: m.description || '' })),
+    // Marker ids only hold within a page: saved ones could match ids new markers get here.
+    markers: (s.markers || []).map((m) => createMarker({ name: m.name, start: m.start || 0, duration: m.duration || 0, type: m.type || 'cue', description: m.description || '' })),
   };
   // Track visibility presets (Multitrack > Track Visibility), when the session has any.
   if (s.visibilityPresets) state.visibilityPresets = cleanPresets(s.visibilityPresets, trackIds);

@@ -13,7 +13,7 @@ import { slotSpec } from './registry.js';
 import { normalizeValues, paramType, setLinked, linkGroups, coerce } from './params.js';
 import { paramControls as buildControls } from './param-ui.js';
 import { channelNames, defaultRoute, routeSummary, rememberRoute, recallRoute, sameRoute } from './routing.js';
-import { allPresets, savePreset, deletePreset, matchPreset, lastValues } from './presets.js';
+import { allPresets, userPresets, savePreset, deletePreset, matchPreset, lastValues } from './presets.js';
 import { editorFor } from './displays.js';
 import { isRealtime, latencyFrames } from './apply.js';
 
@@ -37,9 +37,10 @@ export function paramControls(def, getValues, onSet, opts = {}) {
  * Inline name entry inside `bar` (a nested modal would fight the open
  * dialog's keyboard handling, so Enter and Escape are caught at the window
  * before the dialog sees them). onSave(name) may throw to show a message.
+ * exists(name) true asks before replacing: Save again confirms.
  * Returns a function that dismisses the prompt.
  */
-export function inlinePrompt(bar, { label, value = '', onSave, returnFocus }) {
+export function inlinePrompt(bar, { label, value = '', onSave, returnFocus, exists }) {
   // A new prompt in the same bar replaces the open one (and its key handler).
   bar.fxPromptDismiss?.();
   const input = h('input.input', { type: 'text', value, 'aria-label': label.replace(/:$/, '') });
@@ -54,7 +55,14 @@ export function inlinePrompt(bar, { label, value = '', onSave, returnFocus }) {
     bar.replaceChildren();
     if (refocus) returnFocus?.focus();
   };
+  let replacing = null;
   const ok = () => {
+    const name = input.value.trim();
+    if (name && exists?.(name) && replacing !== name) {
+      replacing = name;
+      error.textContent = `"${name}" already exists. Save again to replace it.`;
+      return;
+    }
     try {
       onSave(input.value);
       done();
@@ -133,6 +141,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   const groups = linkGroups(def);
   const subscribers = new Set();
   const range = doc ? doc.editRange() : null;
+  // What Preview plays: the file being processed, or for a chain being edited (a rack
+  // slot, a session track's or clip's effects, track EQ) the document it plays in.
+  const playDoc = doc || (mode === 'edit' ? app.active : null);
   const cleanups = [];
 
   // ----------------------------------------------------------- values
@@ -220,13 +231,13 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }
 
   const nameBar = h('div.fx-namebar', { hidden: true });
-  const askName = (labelText, initialName, confirm) => cleanups.push(inlinePrompt(nameBar, { label: labelText, value: initialName, onSave: confirm, returnFocus: presetSel }));
+  const askName = (labelText, initialName, confirm, exists) => cleanups.push(inlinePrompt(nameBar, { label: labelText, value: initialName, onSave: confirm, returnFocus: presetSel, exists }));
   const saveBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Save settings as a preset', title: 'Save settings as a preset', onclick: () => {
     askName('Preset name:', matchPreset(app.prefs, def, values) && !allPresets(app.prefs, def).find((p) => p.name === presetSel.value && !p.user) ? presetSel.value : 'My Preset', (name) => {
       const saved = savePreset(app.prefs, def, name, values);
       syncPresetSelect();
       announce(`Preset ${saved} saved`);
-    });
+    }, (name) => userPresets(app.prefs, def.id).some((p) => p.name === name));
   } }, icon('save', 15));
   const favBtn = app.favorites
     ? h('button.icon-btn', { type: 'button', 'aria-label': 'Save settings as a favorite', title: 'Save settings as a favorite', onclick: () => {
@@ -374,7 +385,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     if (mode === 'edit') onPower?.(power);
     else if (previewing) pushPreview();
   } }, icon('power', 15));
-  const playBtn = h('button.icon-btn.fx-play', { type: 'button', 'aria-label': 'Preview', title: realtime || mode === 'edit' ? 'Play the selection through the effect' : 'Preview is not available for this effect', disabled: !doc || (!realtime && mode !== 'edit'), onclick: () => togglePreview() }, icon('transport-play', 15));
+  const playBtn = h('button.icon-btn.fx-play', { type: 'button', 'aria-label': 'Preview', title: realtime || mode === 'edit' ? 'Play the selection through the effect' : 'Preview is not available for this effect', disabled: !playDoc || (!realtime && mode !== 'edit'), onclick: () => togglePreview() }, icon('transport-play', 15));
   const loopBtn = h('button.icon-btn.fx-loop', { type: 'button', 'aria-pressed': String(app.prefs.get('fxPreviewLoop') !== false), 'aria-label': 'Loop preview', title: 'Loop the preview', onclick: () => {
     const on = loopBtn.getAttribute('aria-pressed') !== 'true';
     loopBtn.setAttribute('aria-pressed', String(on));
@@ -405,9 +416,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }
   function startPlayback() {
     const loop = loopBtn.getAttribute('aria-pressed') === 'true';
-    const sel = doc.selection;
+    const sel = playDoc.selection;
     const hasSel = sel.end > sel.start;
-    app.play({ from: hasSel ? sel.start : doc.cursor, loop });
+    app.play({ from: hasSel ? sel.start : playDoc.cursor, loop });
   }
   function setPreviewing(on) {
     previewing = on;
@@ -416,12 +427,12 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     playBtn.classList.toggle('on', on);
   }
   function togglePreview() {
-    if (!doc) return;
+    if (!playDoc) return;
     if (previewing) {
       app.stop();
       return;
     }
-    if (app.active !== doc) app.activate(doc);
+    if (app.active !== playDoc) app.activate(playDoc);
     setPreviewing(true);
     pushPreview();
     startPlayback();
@@ -445,8 +456,9 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
   }));
   const meterLoop = () => {
     meterRaf = 0;
-    if (!previewing || !doc) return;
-    meters.set(inputPeak(doc, app.engine.position), out);
+    if (!previewing || !playDoc) return;
+    // A session has no single input to read: its meters show the output.
+    meters.set(doc ? inputPeak(doc, app.engine.position) : [0, 0], out);
     out = out.map((v) => v * 0.8);
     meterRaf = requestAnimationFrame(meterLoop);
   };

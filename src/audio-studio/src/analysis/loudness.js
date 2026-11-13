@@ -87,9 +87,11 @@ export async function measureLoudness(state, onProgress) {
       const n = Math.min(CHUNK, len - at);
       const block = chans.map((c) => c.toArray(at, at + n));
       // Sample peak and power here; the buffers move to the worker next.
+      // NaN and infinite samples count as silence, as the loudness meter treats them.
       for (const x of block) {
         for (let i = 0; i < x.length; i++) {
           const v = x[i];
+          if (!Number.isFinite(v)) continue;
           sq += v * v;
           if (v > peak) peak = v;
           else if (-v > peak) peak = -v;
@@ -206,11 +208,16 @@ export function loudnessPanel(app) {
   // Toolbar and list ------------------------------------------------------------
   const tbtn = (ic, label, run) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: run }, icon(ic, 15));
   const addAll = tbtn('file-plus', 'Add all open files', () => addDocs(app.documents));
-  const removeBtn = tbtn('minus', 'Remove the selected file', () => removeSelected());
+  const removeBtn = tbtn('minus', 'Remove the selected file', () => {
+    removeSelected();
+    if (removeBtn.disabled) addAll.focus();
+  });
   const clearBtn = tbtn('trash-2', 'Clear the list', () => {
     entries.length = 0;
     selected = null;
     renderRows();
+    // Clear is disabled now: move focus to Add rather than losing it.
+    addAll.focus();
   });
   const scanBtn = h('button.btn', { type: 'button', onclick: () => scanAll() }, 'Scan');
   const runBtn = h('button.btn.primary', { type: 'button', onclick: () => runAll() }, 'Run');
@@ -282,6 +289,8 @@ export function loudnessPanel(app) {
             if (ev.key === 'Delete' || ev.key === 'Backspace') {
               selected = e.doc;
               removeSelected();
+              // The row is gone: keep focus on the row selected next (or Add when the list is empty).
+              (body.querySelector('[aria-selected=true]') || addAll).focus();
             } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
               const i = entries.indexOf(e) + (ev.key === 'ArrowDown' ? 1 : -1);
               if (entries[i]) {
@@ -320,8 +329,19 @@ export function loudnessPanel(app) {
     return e.measure;
   };
 
+  /** Scan and Run are disabled while working: returns a function that refocuses the one used. */
+  const holdFocus = () => {
+    const focused = document.activeElement;
+    const trigger = focused === scanBtn || focused === runBtn ? focused : null;
+    return () => {
+      const at = document.activeElement;
+      if (trigger && (at === document.body || !at)) trigger.focus();
+    };
+  };
+
   const scanAll = async () => {
     if (running) return;
+    const refocus = holdFocus();
     running = true;
     try {
       for (const e of entries) if (e.state !== e.doc.state || !e.measure) await scanOne(e);
@@ -332,12 +352,14 @@ export function loudnessPanel(app) {
     } finally {
       running = false;
       renderRows();
+      refocus();
     }
   };
 
   const runAll = async () => {
     if (running) return;
     if (prefs().export) return exportAll();
+    const refocus = holdFocus();
     running = true;
     const s = prefs();
     let changed = 0;
@@ -379,10 +401,12 @@ export function loudnessPanel(app) {
     } finally {
       running = false;
       renderRows();
+      refocus();
     }
   };
 
   const exportAll = async () => {
+    const refocus = holdFocus();
     const s = prefs();
     const x = exportSettings();
     const out = await outputWriter(app, x);
@@ -415,6 +439,7 @@ export function loudnessPanel(app) {
     } finally {
       running = false;
       renderRows();
+      refocus();
     }
   };
 

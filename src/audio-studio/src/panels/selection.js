@@ -18,7 +18,7 @@ export function selectionPanel(app) {
       if (e.key === 'Enter') {
         commit(row, col, input);
         input.select();
-      } else if (e.key === 'Escape') render();
+      } else if (e.key === 'Escape') render(input);
       e.stopPropagation();
     });
     cells[`${row}.${col}`] = input;
@@ -40,7 +40,7 @@ export function selectionPanel(app) {
     if (!doc) return;
     const v = parseTime(input.value, doc.sampleRate, app.prefs.get('timeFormat'), app.timeOptions?.() || {});
     if (!Number.isFinite(v)) {
-      render();
+      render(input);
       return;
     }
     if (row === 'sel') {
@@ -62,10 +62,11 @@ export function selectionPanel(app) {
       else end = start + v;
       doc.setView(start, end);
     }
-    render();
+    // The field just typed in too: it shows the value that was applied (limited to the file).
+    render(input);
   }
 
-  function render() {
+  function render(typed = null) {
     const doc = app.active;
     for (const input of Object.values(cells)) input.disabled = !doc;
     if (!doc) {
@@ -84,7 +85,7 @@ export function selectionPanel(app) {
       'view.duration': f(doc.view.end - doc.view.start),
     };
     for (const [k, v] of Object.entries(vals)) {
-      if (document.activeElement !== cells[k]) cells[k].value = v;
+      if (document.activeElement !== cells[k] || cells[k] === typed) cells[k].value = v;
     }
   }
   let pending = 0;

@@ -41,12 +41,32 @@ export class Overview {
     // move inside it, jump elsewhere.
     this.el.addEventListener('pointermove', (e) => {
       if (e.buttons) return;
-      const t = this.host.timeline();
       const x = e.clientX - this.el.getBoundingClientRect().left;
-      const x0 = this.#x(t.view.start);
-      const x1 = this.#x(t.view.end);
-      this.el.style.cursor = Math.abs(x - x0) < 6 || Math.abs(x - x1) < 6 ? 'ew-resize' : x > x0 && x < x1 ? 'grab' : 'pointer';
+      const mode = this.#hit(x, this.host.timeline());
+      this.el.style.cursor =
+        mode === 'left' || mode === 'right' ? 'ew-resize' : mode === 'move' ? 'grab' : 'pointer';
     });
+  }
+
+  /**
+   * What a press at x grabs: the frame's 'left' or 'right' edge, the frame itself ('move'),
+   * or nothing. A frame too narrow for its edges to be told apart (a long file zoomed in)
+   * moves when grabbed as drawn; its edges are then just outside it.
+   */
+  #hit(x, t) {
+    const x0 = this.#x(t.view.start);
+    const x1 = this.#x(t.view.end);
+    if (x1 - x0 >= 18) {
+      if (Math.abs(x - x0) < 6) return 'left';
+      if (Math.abs(x - x1) < 6) return 'right';
+      return x > x0 && x < x1 ? 'move' : null;
+    }
+    const a = Math.max(0, x0);
+    const b = a + Math.max(6, Math.min(this.width, x1) - a);
+    if (x >= a - 3 && x <= b + 3) return 'move';
+    if (x >= a - 9 && x < a - 3) return 'left';
+    if (x > b + 3 && x <= b + 9) return 'right';
+    return null;
   }
 
   resize(w, hgt) {
@@ -82,14 +102,9 @@ export class Overview {
     this.el.setPointerCapture(e.pointerId);
     const t = this.host.timeline();
     this.placePlayhead(t.cursor);
-    const x0 = this.#x(t.view.start);
-    const x1 = this.#x(t.view.end);
     const x = e.offsetX;
-    let mode;
-    if (Math.abs(x - x0) < 6) mode = 'left';
-    else if (Math.abs(x - x1) < 6) mode = 'right';
-    else if (x > x0 && x < x1) mode = 'move';
-    else {
+    let mode = this.#hit(x, t);
+    if (!mode) {
       const span = t.view.end - t.view.start;
       const c = this.#frame(x);
       this.host.setView(c - span / 2, c + span / 2);

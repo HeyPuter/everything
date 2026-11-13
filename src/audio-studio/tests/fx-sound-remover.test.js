@@ -110,6 +110,19 @@ describe('Sound Remover (process)', () => {
     expect(worst).toBeLessThan(1e-4);
   });
 
+  it('takes a damaged (NaN or infinite) sample as silence instead of spreading it', async () => {
+    const d = await dsp();
+    const values = { ...defaults(def), complexity: 4 };
+    const model = buildSoundModel(d, [beeps(RATE / 2, 0.4)], RATE, values);
+    const sound = beeps(RATE);
+    const mix = tone(RATE).map((v, i) => v + sound[i]);
+    mix[10000] = NaN;
+    mix[30000] = Infinity;
+    const doc = { soundModel: model };
+    const [out] = await def.process({ channels: [mix], rate: RATE, values, doc });
+    expect(out.every(Number.isFinite)).toBe(true);
+  });
+
   it('asks for a model first', async () => {
     await expect(def.process({ channels: [new Float32Array(4096)], rate: RATE, values: {}, doc: {} })).rejects.toThrow(/Learn a sound model/);
     const app = fakeApp();

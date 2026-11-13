@@ -121,6 +121,27 @@ describe('autosave planning', () => {
     const list = [m('a', 'dead', 1), m('b', 'live', 2), m('c', 'dead', 3), { key: '../x', version: 1 }];
     expect(recoverable(list, new Set(['live'])).map((x) => x.key)).toEqual(['c', 'a']);
   });
+
+  it('writes the audio its manifest describes when the document changes meanwhile', async () => {
+    const root = new MemDir();
+    // Real OPFS calls take a while: the document is edited before the audio file opens.
+    let edit = null;
+    const store = new AutosaveStore(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      edit?.();
+      return root;
+    });
+    const doc = docWith('Song.wav', 1000);
+    const manifest = buildManifest(doc, { session: 's1', key: 's1-f1' });
+    const silence = () => doc.state.channels.map(() => Channel.silence(3000));
+    edit = () => doc.apply('Silence', { ...doc.state, channels: silence() });
+    await store.write(doc, manifest);
+    expect(doc.length).toBe(3000);
+    const wav = new Uint8Array(await (await store.readAudio('s1-f1')).arrayBuffer());
+    expect(wav.length).toBe(44 + 1000 * 2 * 4);
+    const f = new Float32Array(wav.buffer.slice(44));
+    expect([f[0], f[1], f[1999]]).toEqual([0.5, -0.5, -0.5]);
+  });
 });
 
 describe('autosave controller', () => {

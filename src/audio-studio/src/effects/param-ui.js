@@ -34,7 +34,7 @@
 import { h } from '../lib/dom.js';
 import { hotNumber, select, knob } from '../ui/controls.js';
 import { icon } from '../ui/icons.js';
-import { paramType, toPosition, fromPosition, formatValue, formatParts, parseValue, coerce, scaleTicks } from './params.js';
+import { paramType, toPosition, fromPosition, formatValue, formatParts, parseValue, coerce, scaleTicks, editValueText } from './params.js';
 import { envelopeControl, curveControl } from './editors.js';
 import { meterStrip } from './meters-ui.js';
 
@@ -74,10 +74,7 @@ function numberControl(p, getValues, onSet, { vertical = false } = {}) {
   });
   if (vertical) slider.setAttribute('aria-orientation', 'vertical');
   const parts = (v) => formatParts(p, v);
-  const editText = (v) => {
-    const [n, u] = formatParts(p, v);
-    return !u || u === (p.unit || '') ? n : `${n} ${u}`;
-  };
+  const editText = (v) => editValueText(p, v);
   // A log value is scrubbed as a slider position snapped to 0.0025; a typed
   // value is kept as typed instead of snapping to the nearest position.
   let typed = null;
@@ -91,7 +88,8 @@ function numberControl(p, getValues, onSet, { vertical = false } = {}) {
         pixelsPerStep: 0.75,
         format: (x) => formatValue(p, fromPosition(p, x)),
         parts: (x) => parts(fromPosition(p, x)),
-        editText: (x) => editText(fromPosition(p, x)),
+        // The value itself, not its rounded slider position.
+        editText: () => editText(getValues()[p.id]),
         parse: (s) => {
           typed = parseValue(p, s);
           return toPosition(p, typed);

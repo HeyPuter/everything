@@ -245,6 +245,30 @@ describe('session backup settings', () => {
     ctl2.destroy();
   });
 
+  it('backs up media over 4 GB with an RF64 header, not a wrapped or capped size', async () => {
+    const root = new MemDir();
+    const store = new SessionBackupStore(async () => root);
+    const media = await (await root.getDirectoryHandle(BACKUP_DIR, { create: true })).getDirectoryHandle('media', { create: true });
+    const file = await media.getFileHandle('big.wav', { create: true });
+    // Keep the header, then stop (the audio itself is never allocated).
+    let head = null;
+    file.createWritable = async () => ({
+      write: async (b) => {
+        if (head) throw new Error('stop');
+        head = new Uint8Array(b instanceof ArrayBuffer ? b : b.buffer);
+      },
+      close: async () => {},
+      abort: async () => {},
+    });
+    media.getFileHandle = async () => file;
+    const frames = 3.2 * 3600 * 48000;
+    const ch = { length: frames, read: () => {} };
+    await expect(store.writeMedia('big', 48000, [ch, ch])).rejects.toThrow('stop');
+    const dv = new DataView(head.buffer, head.byteOffset);
+    expect(String.fromCharCode(...head.subarray(0, 4))).toBe('RF64');
+    expect(Number(dv.getBigUint64(28, true))).toBe(frames * 8);
+  });
+
   it('has defaults, an Auto Save section and a File menu command', () => {
     expect(DEFAULTS).toMatchObject({ sessionBackup: true, sessionBackupInterval: 3, sessionBackupMax: 10 });
     const page = CATEGORIES.find((c) => c.id === 'autoSave');

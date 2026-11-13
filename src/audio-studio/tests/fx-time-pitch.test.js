@@ -83,6 +83,40 @@ describe('time and pitch', () => {
     expect(freq(mid(out[0])) / (440 * pitchRatio(-1))).toBeCloseTo(1, 2);
   });
 
+  it('treats a damaged (NaN or infinite) sample as silence instead of spreading it', async () => {
+    const env = (a, b) => [0, 1].map((t) => ({ t, v: t ? b : a }));
+    const runs = [
+      ['stretchPitch', { algorithm: 0, stretch: 110 }],
+      ['stretchPitch', { algorithm: 1, stretch: 110, semitones: 3 }],
+      ['stretchPitch', { algorithm: 2, stretch: 90 }],
+      ['pitchBender', { envelope: env(2, -2), range: 2 }],
+      ['manualPitchCorrection', { envelope: env(50, 50) }],
+    ];
+    for (const [id, values] of runs) {
+      const input = sine(440, 0.5);
+      input[5000] = NaN;
+      input[15000] = Infinity;
+      const out = await getEffect(id).process({ channels: [input], rate: RATE, values });
+      expect(out[0].every(Number.isFinite), `${id} ${JSON.stringify(values)}`).toBe(true);
+    }
+  });
+
+  it('stretches to extremes at 192 kHz without crashing', async () => {
+    const def = getEffect('stretchPitch');
+    const rate = 192000;
+    const x = new Float32Array(rate / 2);
+    for (let i = 0; i < x.length; i++) x[i] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / rate);
+    for (const values of [
+      { algorithm: 0, stretch: 10 },
+      { algorithm: 1, stretch: 10, semitones: -36 },
+      { algorithm: 1, stretch: 33.3, semitones: -36 },
+    ]) {
+      const out = await def.process({ channels: [x, x.slice()], rate, values });
+      expect(out[0].length, JSON.stringify(values)).toBeGreaterThan(0);
+      expect(out[0].every(Number.isFinite), JSON.stringify(values)).toBe(true);
+    }
+  });
+
   it('honours cancellation', async () => {
     const def = getEffect('stretchPitch');
     const ctl = new AbortController();

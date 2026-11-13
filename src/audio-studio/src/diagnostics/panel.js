@@ -162,6 +162,25 @@ export function diagnosticsPanel(app) {
     progress.setAttribute('aria-valuenow', String(pct));
   };
 
+  /**
+   * Buttons are disabled while a scan or action runs: when one of `buttons` started it from
+   * the keyboard, focus moves to Cancel. Returns that button for restoreFocus.
+   */
+  const busyFocus = (buttons) => {
+    const trigger = buttons.includes(document.activeElement) ? document.activeElement : null;
+    refresh();
+    if (trigger) cancelBtn.focus();
+    return trigger;
+  };
+  /** Back to the button that started the work, or the list or Scan File when it is disabled now. */
+  const restoreFocus = (trigger) => {
+    const at = document.activeElement;
+    if (!trigger || !(at === cancelBtn || at === document.body || !at)) return;
+    const row = body.children[focusIndex];
+    const next = !trigger.disabled ? trigger : row?.getAttribute('tabindex') === '0' ? row : null;
+    (next || scanAllBtn).focus();
+  };
+
   async function scan(selectionOnly) {
     const doc = audioDoc();
     if (!doc || abort) return;
@@ -172,7 +191,7 @@ export function diagnosticsPanel(app) {
     progress.hidden = false;
     setProgress(0);
     caption.textContent = `Scanning ${selectionOnly && doc.hasSelection ? 'the selection' : doc.name}...`;
-    refresh();
+    const trigger = busyFocus([scanSelBtn, scanAllBtn]);
     try {
       // Like the effects, clicks and clipping are only looked for (and repaired) in enabled channels.
       const mask = doc.channelMask;
@@ -196,6 +215,7 @@ export function diagnosticsPanel(app) {
       abort = null;
       progress.hidden = true;
       refresh();
+      restoreFocus(trigger);
     }
   }
 
@@ -215,7 +235,7 @@ export function diagnosticsPanel(app) {
     const signal = abort.signal;
     progress.hidden = false;
     setProgress(0);
-    refresh();
+    const trigger = busyFocus([actSelBtn, actAllBtn]);
     let runner = null;
     try {
       let next;
@@ -262,6 +282,7 @@ export function diagnosticsPanel(app) {
       abort = null;
       progress.hidden = true;
       refresh();
+      restoreFocus(trigger);
     }
   }
 

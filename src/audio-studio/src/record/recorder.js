@@ -86,12 +86,25 @@ export function createRecorder(app) {
       const take = new Take(channels, { skip: latencyFrames, limit });
       session = { doc, take, at, replace, sampleRate, rate, latencyFrames, base: doc?.state ?? null, last: null, pushed: false, timer: 0, onData: opts.onData, stopping: null };
       const s = session;
-      s.off = engine.on('record-data', (data) => {
+      const offData = engine.on('record-data', (data) => {
         if (session !== s) return;
         take.append(data);
         if (!s.timer) s.timer = setTimeout(() => update(s), UPDATE_MS);
         if (take.full && !s.stopping) recorder.stop();
       });
+      // An unplugged or revoked input ends its track, and the input then delivers only
+      // silence: stop and keep what was recorded rather than record silence unnoticed.
+      const track = engine.input?.stream?.getAudioTracks?.()[0];
+      const onEnded = () => {
+        if (session !== s || s.stopping) return;
+        app.notify('The audio input was disconnected, so recording stopped.', { error: true });
+        recorder.stop();
+      };
+      track?.addEventListener?.('ended', onEnded);
+      s.off = () => {
+        offData();
+        track?.removeEventListener?.('ended', onEnded);
+      };
       engine.setRecording(true);
       app.recording = true;
       app.meterInput?.(true);

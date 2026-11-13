@@ -451,6 +451,7 @@ export class Dock extends Emitter {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', escape, true);
       ghost?.remove();
       overlay.remove();
       if (ghost && zone) this.#drop(g, id, zone);
@@ -459,9 +460,19 @@ export class Dock extends Emitter {
       zone = null;
       up();
     };
+    // Escape drops the panel back where it was.
+    const escape = (ev) => {
+      if (ev.key !== 'Escape') return;
+      if (ghost) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+      cancel();
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', escape, true);
   }
 
   #dropZone(x, y) {

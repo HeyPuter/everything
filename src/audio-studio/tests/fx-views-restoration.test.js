@@ -109,6 +109,34 @@ describe('dehummer view', () => {
     dlg.querySelector('.btn.primary').click();
     expect((await p).frequency).toBeLessThan(60);
   });
+
+  it('draws the Output Hum Only curve the processor applies', async () => {
+    const { instance } = await import('./fx-wasm.js');
+    const { paramArray } = await import('../src/effects/registry.js');
+    const def = getEffect('dehummer');
+    const rate = 48000;
+    const values = { frequency: 117, q: 38, gain: -32, harmonics: 16, slope: 78, humOnly: true };
+    const freqs = [500, 961, 1500, 2400];
+    const drawn = def.response(values, Float32Array.from(freqs), rate);
+    const x = instance();
+    freqs.forEach((f, k) => {
+      const h = x.fx_new(def.kind, rate, 1);
+      paramArray(def, values).forEach((v, i) => x.fx_set(h, i, v));
+      x.fx_reset(h);
+      const n = rate;
+      const buf = x.mem_alloc(n * 4);
+      const io = new Float32Array(x.memory.buffer, buf, n);
+      for (let i = 0; i < n; i++) io[i] = 0.25 * Math.sin((2 * Math.PI * f * i) / rate);
+      x.fx_process(h, buf, n);
+      const y = new Float32Array(x.memory.buffer, buf, n);
+      let e = 0;
+      for (let i = n / 2; i < n; i++) e += y[i] * y[i];
+      const measured = 10 * Math.log10(e / (n / 2) / (0.25 * 0.25 * 0.5));
+      expect(Math.abs(measured - drawn[k]), `${f} Hz`).toBeLessThan(0.5);
+      x.mem_free(buf, n * 4);
+      x.fx_free(h);
+    });
+  });
 });
 
 describe('automatic phase correction', () => {

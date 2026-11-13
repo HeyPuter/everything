@@ -16,7 +16,7 @@ import { baseName } from '../audio/decode.js';
 import * as puter from '../storage/puter.js';
 import { shortcutsDialog } from '../ui/shortcuts-dialog.js';
 import { preferencesDialog } from '../ui/preferences.js';
-import { deleteSmoothFrames, zoomInFactor } from '../editor/view-prefs.js';
+import { deleteSmoothFrames, zoomInFactor, MIN_VIEW_FRAMES } from '../editor/view-prefs.js';
 import { shuttleCommands } from './shuttle.js';
 import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
 
@@ -38,21 +38,30 @@ async function conformRate(clip, rate) {
 /** Clipboard data for the selection; markers inside it come along when Preferences say so. */
 function clipFromSelection(app, doc) {
   const [a, b] = doc.hasSelection ? [doc.selection.start, doc.selection.end] : [0, 0];
-  const clip = { type: 'audio', ...E.copyRange(doc.state, a, b, doc.channelMask) };
+  // The bit depth goes along so Copy to New and Paste to New make a file of the same type.
+  const clip = { type: 'audio', ...E.copyRange(doc.state, a, b, doc.channelMask), bitDepth: doc.info.bitDepth };
   if (app.prefs.get('markersWithClipboard')) clip.markers = E.markersInRange(doc.state.markers, a, b);
   return clip;
 }
 
-/** Adds clipboard markers (relative to the clip, at `fromRate`) to a state at frame `at`. */
-function withClipMarkers(app, state, clip, at, fromRate) {
+/**
+ * Adds clipboard markers (relative to the clip, at `fromRate`) to a state where the clip was
+ * pasted as `frames` frames at `at`.
+ */
+function withClipMarkers(app, state, clip, at, fromRate, frames) {
   if (!clip?.markers?.length || !app.prefs.get('markersWithClipboard')) return state;
   const ratio = state.sampleRate / (fromRate || state.sampleRate);
-  const added = clip.markers.map((m) => createMarker({ ...m, start: at + m.start * ratio, duration: m.duration * ratio }));
+  // Both ends scale, so a range ending with the clip does not run past the pasted audio.
+  const to = (f) => Math.min(at + frames, at + Math.round(f * ratio));
+  const added = clip.markers.map((m) => {
+    const start = to(m.start);
+    return createMarker({ ...m, start, duration: to(m.start + m.duration) - start });
+  });
   return { ...state, markers: sortMarkers([...state.markers, ...added]) };
 }
 
 function newDocFromClip(app, clip, name) {
-  const doc = new AudioFile({ name: app.uniqueName(name || 'Untitled'), sampleRate: clip.sampleRate, channels: clip.channels.slice(), markers: app.prefs.get('markersWithClipboard') ? (clip.markers || []).map((m) => createMarker(m)) : [] });
+  const doc = new AudioFile({ name: app.uniqueName(name || 'Untitled'), sampleRate: clip.sampleRate, channels: clip.channels.slice(), markers: app.prefs.get('markersWithClipboard') ? (clip.markers || []).map((m) => createMarker(m)) : [], info: clip.bitDepth ? { bitDepth: clip.bitDepth } : {} });
   app.addDocument(doc);
   return doc;
 }
@@ -349,7 +358,7 @@ export function installCoreCommands(app) {
         const n = clip.channels[0]?.length ?? 0;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         let state = doc.hasSelection ? E.replaceRange(doc.state, doc.selection.start, doc.selection.end, clip, doc.channelMask) : E.insertClip(doc.state, at, clip, doc.channelMask);
-        if (!doc.channelMask) state = withClipMarkers(app, state, source, at, source.sampleRate);
+        if (!doc.channelMask) state = withClipMarkers(app, state, source, at, source.sampleRate, n);
         doc.apply('Paste', state, { selection: { start: at, end: at + n }, cursor: at });
       },
     },
@@ -875,7 +884,7 @@ export function installCoreCommands(app) {
     if (!doc) return [];
     return doc.state.channels.map((_, i) => ({
       type: 'cmd',
-      label: doc.channelCount === 1 ? 'Mono' : ['Left', 'Right'][i] || `Channel ${i + 1}`,
+      label: E.channelLabel(i, doc.channelCount),
       enabled: true,
       checked: doc.selection.channels[i] !== false,
       run: () => doc.setChannelEnabled(i, doc.selection.channels[i] === false),
@@ -894,7 +903,7 @@ function zoomTime(app, factor) {
   const p = app.playhead;
   const centre = p >= v.start && p <= v.end ? p : (v.start + v.end) / 2;
   const frac = (centre - v.start) / span;
-  const nspan = span * factor;
+  const nspan = Math.max(MIN_VIEW_FRAMES, span * factor);
   doc.setView(centre - frac * nspan, centre - frac * nspan + nspan);
 }
 

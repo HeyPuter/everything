@@ -22,6 +22,7 @@ import { openDialog } from '../ui/dialog.js';
 import { serializeSession } from '../model/session-io.js';
 import { sessionFromText } from '../multitrack/storage.js';
 import { LOCK_PREFIX } from './autosave.js';
+import { wavHeader } from '../audio/wav.js';
 
 export const BACKUP_DIR = 'audio-studio-session-backups';
 const VERSION = 1;
@@ -64,26 +65,6 @@ export function backupsToOffer(manifests, liveTabs) {
   return [...newest.values()].filter((m) => m.dirty && !m.offered && !liveTabs.has(m.tab)).sort((a, b) => b.savedAt - a.savedAt);
 }
 
-function wavHeader(sampleRate, channels, frames) {
-  const dataSize = frames * channels * 4;
-  const dv = new DataView(new ArrayBuffer(44));
-  const w = (o, s) => [...s].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
-  w(0, 'RIFF');
-  dv.setUint32(4, Math.min(0xffffffff, 36 + dataSize), true);
-  w(8, 'WAVE');
-  w(12, 'fmt ');
-  dv.setUint32(16, 16, true);
-  dv.setUint16(20, 3, true);
-  dv.setUint16(22, channels, true);
-  dv.setUint32(24, sampleRate, true);
-  dv.setUint32(28, sampleRate * channels * 4, true);
-  dv.setUint16(32, channels * 4, true);
-  dv.setUint16(34, 32, true);
-  w(36, 'data');
-  dv.setUint32(40, Math.min(0xffffffff, dataSize), true);
-  return dv.buffer;
-}
-
 export class SessionBackupStore {
   /** @param {() => Promise<FileSystemDirectoryHandle>} getRoot OPFS root */
   constructor(getRoot) {
@@ -123,7 +104,7 @@ export class SessionBackupStore {
     try {
       const nch = channels.length;
       const frames = channels[0]?.length ?? 0;
-      await out.write(wavHeader(sampleRate, nch, frames));
+      await out.write(wavHeader({ sampleRate, channels: nch, bitDepth: 32, float: true, frames }));
       const tmp = Array.from({ length: nch }, () => new Float32Array(BLOCK));
       for (let at = 0; at < frames; at += BLOCK) {
         const n = Math.min(BLOCK, frames - at);

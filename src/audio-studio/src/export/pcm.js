@@ -148,8 +148,22 @@ function chunk(id, body) {
   return concatBytes([head, body, new Uint8Array(body.length & 1)]);
 }
 
+const utf8 = new TextEncoder();
+
+/**
+ * Pascal string: a count byte, then the text, padded to an even length. Text that fits
+ * Latin-1 is written one byte per character; other text as UTF-8 (which parseAiff reads),
+ * cut to 255 bytes on a character boundary, rather than turning every such character into "?".
+ */
 function pstring(text) {
-  const t = Uint8Array.from(String(text).slice(0, 255), (c) => (c.charCodeAt(0) < 256 ? c.charCodeAt(0) : 63));
+  const s = String(text);
+  const latin1 = /^[\x00-\xff]*$/.test(s);
+  let t = latin1 ? Uint8Array.from(s.slice(0, 255), (c) => c.charCodeAt(0)) : utf8.encode(s);
+  if (t.length > 255) {
+    let n = 255;
+    while (n > 0 && (t[n] & 0xc0) === 0x80) n--;
+    t = t.subarray(0, n);
+  }
   const out = new Uint8Array(1 + t.length + ((t.length + 1) & 1));
   out[0] = t.length;
   out.set(t, 1);

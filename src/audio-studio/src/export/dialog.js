@@ -48,18 +48,24 @@ export function initialState(doc, { mode, frames, remembered = {}, includeMeta }
 
 /**
  * Shows the dialog. Resolves { fileName, location: { type: 'puter', dir } | { type: 'download' }, options } or null.
+ * `initial` is an earlier result of this dialog to start from (the user is asked again, e.g.
+ * after declining to replace an existing file): its name, folder and options are kept.
  */
-export async function exportFileDialog(app, doc, { mode = 'export', frames = doc.length, initialName } = {}) {
+export async function exportFileDialog(app, doc, { mode = 'export', frames = doc.length, initial = null } = {}) {
   const remembered = app.prefs.get('exportPrefs') || {};
   const state = initialState(doc, { mode, frames, remembered, includeMeta: app.prefs.get('exportMarkers') !== false });
-  if (initialName) state.name = withExtension(initialName, state.options.format);
+  if (initial) {
+    state.options = conformOptions(initial.options.format, initial.options).options;
+    state.name = withExtension(initial.fileName, state.options.format);
+  }
   const support = await webCodecsSupport();
   const sdk = Boolean(puter.sdk());
   let locationType = mode === 'download' || !sdk ? 'download' : app.prefs.get('exportLocation') === 'download' ? 'download' : 'puter';
+  if (initial && sdk && mode !== 'download') locationType = initial.location.type;
   // Save As and Save a Copy start in the folder of the document's own Puter file.
   const ownPath = doc.source?.type === 'puter' ? doc.source.path : null;
   const ownDir = (mode === 'saveAs' || mode === 'copy') && ownPath ? puter.dirname(ownPath) : null;
-  let dir = ownDir || app.prefs.get('exportFolder') || null;
+  let dir = initial?.location.dir || ownDir || app.prefs.get('exportFolder') || null;
   let notes = [];
 
   // ---------------------------------------------------------------- controls

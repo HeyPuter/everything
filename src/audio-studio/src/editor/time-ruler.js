@@ -3,7 +3,8 @@
 // it; double-click a marker to rename it. Shared by the waveform and
 // multitrack editors through a small host interface:
 //   host.timeline() -> { rate, length, view: {start, end}, cursor, selection, markers }
-//   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame)
+//   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame),
+//   host.cancelMarkerMove() (drops a marker drag's preview)
 
 import { h } from '../lib/dom.js';
 import { rulerStep, rulerLabel, formatTime, musicalStep, frameRateOf } from '../lib/time.js';
@@ -78,7 +79,7 @@ export class TimeRuler {
     this.el.addEventListener('pointerdown', (e) => this.#down(e));
     this.el.addEventListener('pointermove', (e) => this.#move(e));
     this.el.addEventListener('pointerup', (e) => this.#up(e));
-    this.el.addEventListener('pointercancel', (e) => this.#up(e));
+    this.el.addEventListener('pointercancel', (e) => this.#up(e, true));
     this.el.addEventListener('keydown', (e) => this.#keys(e));
     this.el.addEventListener('dblclick', (e) => {
       const m = this.#markerAt(e.offsetX);
@@ -107,13 +108,19 @@ export class TimeRuler {
     return view.start + (x / this.width) * (view.end - view.start);
   }
 
-  #markerAt(x) {
+  /** The marker nearest x within `tol` px. */
+  #markerAt(x, tol = 5) {
     const t = this.host.timeline();
+    let best = null;
+    let bestD = Infinity;
     for (const m of t.markers || []) {
-      const mx = this.xOf(m.start, t.view);
-      if (Math.abs(x - mx) <= 5) return m;
+      const d = Math.abs(x - this.xOf(m.start, t.view));
+      if (d <= tol && d < bestD) {
+        best = m;
+        bestD = d;
+      }
     }
-    return null;
+    return best;
   }
 
   #keys(e) {
@@ -162,7 +169,9 @@ export class TimeRuler {
     if (e.button !== 0) return;
     e.preventDefault();
     this.el.setPointerCapture(e.pointerId);
-    const m = e.offsetY > this.height * 0.45 ? this.#markerAt(e.offsetX) : null;
+    // A finger covers more than a mouse pointer: markers grab from further away on touch.
+    const tol = e.pointerType === 'touch' ? 12 : 5;
+    const m = e.offsetY > this.height * 0.45 ? this.#markerAt(e.offsetX, tol) : null;
     if (m && this.host.moveMarker) {
       this.drag = { kind: 'marker', id: m.id, dx: e.offsetX - this.xOf(m.start), moved: false };
       this.host.selectMarker?.(m.id);
@@ -191,9 +200,11 @@ export class TimeRuler {
     }
   }
 
-  #up(e) {
+  #up(e, cancelled = false) {
     if (!this.drag) return;
-    if (this.drag.kind === 'marker' && this.drag.moved) {
+    // A cancelled marker drag (the system took the touch) leaves the marker where it was.
+    if (cancelled && this.drag.kind === 'marker') this.host.cancelMarkerMove?.();
+    else if (this.drag.kind === 'marker' && this.drag.moved) {
       const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
       this.host.moveMarker(this.drag.id, Math.max(0, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f), { preview: false });
     }
@@ -258,6 +269,9 @@ export class TimeRuler {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
         ctx.fillRect(x, H - 4, 1, 4);
       }
+      // Long labels (hours, sample counts) can be wider than the tick spacing: one that would
+      // run into the label before it is left out.
+      let free = unitRight;
       for (const s of ticks) {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
         ctx.fillStyle = tickColor;
@@ -271,7 +285,8 @@ export class TimeRuler {
         // Labels centre on their tick, kept inside the ruler.
         const lw = ctx.measureText(label).width;
         const lx = Math.min(W - lw - 1, x - lw / 2);
-        if (lx < unitRight) continue;
+        if (lx < free) continue;
+        free = lx + lw + 4;
         ctx.fillStyle = textColor;
         ctx.fillText(label, lx, 3);
       }

@@ -95,3 +95,38 @@ describe('panel menu', () => {
     root.remove();
   });
 });
+
+describe('tab drag', () => {
+  it('cancels with Escape, leaving the panel where it was', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    const dock = new Dock({ openMenu() {} }, root, registry(['editor', 'files', 'history']));
+    const files = { t: 'group', tabs: ['files', 'history'] };
+    dock.setLayout({ t: 'row', c: [files, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    const before = JSON.stringify(dock.layout());
+    // jsdom has no layout: give the editor frame a box to drop onto.
+    const frame = root.querySelector('#tab-editor').closest('.panel-group');
+    const box = { left: 200, top: 0, right: 600, bottom: 400, width: 400, height: 400 };
+    frame.getBoundingClientRect = () => box;
+    const at = (type, x, y) => {
+      const e = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+      Object.defineProperty(e, 'pointerType', { value: 'mouse' });
+      return e;
+    };
+    const tab = root.querySelector('#tab-history');
+    tab.dispatchEvent(at('pointerdown', 10, 10));
+    window.dispatchEvent(at('pointermove', 400, 200));
+    expect(document.querySelector('.dock-ghost')).not.toBe(null);
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    window.dispatchEvent(esc);
+    expect(esc.defaultPrevented).toBe(true);
+    expect(document.querySelector('.dock-ghost')).toBe(null);
+    window.dispatchEvent(at('pointerup', 400, 200));
+    expect(JSON.stringify(dock.layout())).toBe(before);
+    // Without Escape the same drag moves the panel.
+    tab.dispatchEvent(at('pointerdown', 10, 10));
+    window.dispatchEvent(at('pointermove', 400, 200));
+    window.dispatchEvent(at('pointerup', 400, 200));
+    expect(dock.groupOf('history').tabs).toContain('editor');
+  });
+});

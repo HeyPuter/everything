@@ -132,7 +132,8 @@ export class App extends Emitter {
     this.emit('doc-change', doc, e);
     if (doc !== this.active) return;
     if (e.kind === 'edit' || e.kind === 'history' || e.kind === 'graph') this.syncGraph();
-    if (e.kind === 'selection' && engine.playing && this.loop) this.#updateLoop();
+    // Edits and undo move the selection quietly and change the length: the loop follows both.
+    if ((e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history') && engine.playing && this.loop) this.#updateLoop();
   }
 
   /** Unique default name like "Untitled 2". */

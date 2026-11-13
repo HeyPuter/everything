@@ -3,7 +3,8 @@
 
 import ExportWorker from './export-worker.js?worker';
 import { dspModule, resampleSettings } from '../audio/dsp.js';
-import { conformOptions, exportMarkers } from './formats.js';
+import { conformOptions, emptyExportError, exportMarkers, outputFrames } from './formats.js';
+import { UserError } from '../lib/errors.js';
 
 /**
  * Encodes frames [start, end) of `channels` (Channel objects or Float32Arrays).
@@ -17,6 +18,9 @@ export async function exportAudio(source, options, { onProgress, signal } = {}) 
   const start = source.start ?? 0;
   const end = source.end ?? channels[0]?.length ?? 0;
   const opts = conformOptions(options.format, options).options;
+  const outFrames = outputFrames(Math.max(0, end - start), sampleRate, opts.sampleRate);
+  const empty = emptyExportError(opts.format, outFrames);
+  if (empty) throw new UserError(empty);
   const markers = exportMarkers(source.markers || [], start, end, sampleRate, opts.sampleRate);
   const module = await dspModule().catch(() => null);
   if (signal?.aborted) throw cancelledError();

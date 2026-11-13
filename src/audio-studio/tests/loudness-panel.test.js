@@ -80,6 +80,80 @@ describe('Match Loudness panel', () => {
     expect(doc.state).toBe(edited);
     expect(doc.length).toBe(RATE * 3);
   });
+
+  it('keeps keyboard focus in the list when files are removed', () => {
+    const { app, doc, panel } = setup();
+    document.body.append(panel.el);
+    try {
+      const more = ['b.wav', 'c.wav'].map(
+        (name) =>
+          new AudioFile({
+            name,
+            sampleRate: RATE,
+            channels: [Channel.fromSamples(tone(RATE, 0.05))],
+          }),
+      );
+      for (const d of more) app.addDocument(d, { activate: false });
+      for (const d of [doc, ...more]) app.matchLoudnessAdd(d);
+      const rows = () => [...panel.el.querySelectorAll('tbody tr')];
+      rows()[1].click();
+      const del = () =>
+        document.activeElement.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+        );
+      del();
+      // b.wav is gone; c.wav, now selected, has the focus.
+      expect(rows().map((r) => r.firstChild.textContent)).toEqual(['a.wav', 'c.wav']);
+      expect(document.activeElement).toBe(rows()[1]);
+      del();
+      del();
+      // The list is empty: focus moves to Add rather than the page.
+      expect(document.activeElement.getAttribute('aria-label')).toBe('Add all open files');
+      app.matchLoudnessAdd(doc);
+      const clear = panel.el.querySelector('[aria-label="Clear the list"]');
+      clear.focus();
+      clear.click();
+      expect(document.activeElement.getAttribute('aria-label')).toBe('Add all open files');
+    } finally {
+      panel.el.remove();
+    }
+  });
+
+  it('returns focus to Scan or Run once they are enabled again', async () => {
+    const { panel, button } = setup();
+    document.body.append(panel.el);
+    try {
+      for (const re of [/^Scan$/, /^Run$/]) {
+        // A browser moves focus to the page when the focused button is disabled (jsdom does not).
+        hooks.onOpen = () => {
+          const spot = document.body.appendChild(document.createElement('input'));
+          spot.focus();
+          spot.remove();
+        };
+        const b = button(re);
+        b.focus();
+        b.click();
+        await expect.poll(() => button(/^Run$/).disabled, { timeout: 5000 }).toBe(false);
+        expect(document.activeElement).toBe(b);
+      }
+    } finally {
+      hooks.onOpen = null;
+      panel.el.remove();
+    }
+  });
+
+  it('reads total RMS and peak past NaN and infinite samples', async () => {
+    const { measureLoudness } = await import('../src/analysis/loudness.js');
+    const x = tone(RATE * 4, 0.5);
+    x[100] = NaN;
+    x[200] = Infinity;
+    x[300] = -Infinity;
+    const m = await measureLoudness({ sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    // A 0.5 sine: -6.02 dB peak, -9.03 dB RMS, as the loudness meter and Amplitude Statistics read it.
+    expect(m.peakDb).toBeCloseTo(-6.02, 1);
+    expect(m.rmsDb).toBeCloseTo(-9.03, 1);
+    expect(m.truePeakDb).toBeLessThan(0);
+  });
 });
 
 describe('Match Loudness layout', () => {

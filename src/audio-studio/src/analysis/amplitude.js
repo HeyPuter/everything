@@ -327,7 +327,11 @@ export function amplitudePanel(app) {
     bar.style.width = '0%';
     caption.textContent = `Scanning ${doc.name}...`;
     settingsNote.textContent = '';
+    // The scan buttons are disabled while it runs: keep keyboard focus on Cancel, then come back.
+    const focused = document.activeElement;
+    const trigger = focused === scanSel || focused === scanAll ? focused : null;
     refresh();
+    if (trigger) cancelBtn.focus();
     try {
       const result = await scanStats(state.channels, doc.sampleRate, start, end, {
         signal: abort.signal,
@@ -354,6 +358,9 @@ export function amplitudePanel(app) {
       abort = null;
       progress.hidden = true;
       refresh();
+      const at = document.activeElement;
+      const lost = at === cancelBtn || at === document.body || !at;
+      if (trigger && lost) (trigger.disabled ? scanAll : trigger).focus();
       drawHist();
     }
   }

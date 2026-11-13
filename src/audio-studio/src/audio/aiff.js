@@ -2,7 +2,7 @@
 // 32/64-bit float (fl32/fl64), mu-law and A-law, markers (MARK) and text
 // chunks (NAME, AUTH, ANNO, ID3). Written exports use src/export/writers.
 
-import { parseId3v2 } from './meta.js';
+import { parseId3v2, decodeText } from './meta.js';
 
 const str = (b, o, n) => String.fromCharCode(...b.subarray(o, o + n));
 
@@ -11,6 +11,22 @@ export function isAiff(buffer) {
   const b = new Uint8Array(buffer, 0, 12);
   const form = str(b, 8, 4);
   return str(b, 0, 4) === 'FORM' && (form === 'AIFF' || form === 'AIFC');
+}
+
+/** Whether a chunk header (printable id, size within the file) starts at `o`, or `o` is the end. */
+function isChunkAt(dv, o) {
+  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+  return isChunkIdAt(dv, o) && o + 8 + dv.getUint32(o + 4) <= dv.byteLength;
+}
+
+/** Whether the four bytes at `o` are printable ASCII, as chunk ids are. */
+function isChunkIdAt(dv, o) {
+  if (o + 4 > dv.byteLength) return false;
+  for (let i = 0; i < 4; i++) {
+    const c = dv.getUint8(o + i);
+    if (c < 0x20 || c > 0x7e) return false;
+  }
+  return true;
 }
 
 /** 80-bit IEEE 754 extended (big-endian) at `o`. */
@@ -99,7 +115,7 @@ export function parseAiff(buffer) {
         const markId = dv.getUint16(p);
         const position = dv.getUint32(p + 2);
         const len = b[p + 6];
-        const name = new TextDecoder('latin1').decode(b.subarray(p + 7, p + 7 + len));
+        const name = decodeText(b.subarray(p + 7, p + 7 + len));
         marks.push({ id: markId, start: position, duration: 0, name, description: '', type: 'cue' });
         p += 7 + len + ((len + 1) & 1);
       }
@@ -112,6 +128,8 @@ export function parseAiff(buffer) {
       for (const [k, v] of Object.entries(tags)) if (!meta[k]) meta[k] = v;
     }
     o = body + size + (size & 1);
+    // A pad byte left out after an odd-sized chunk (see parseWav): the next id is a byte early.
+    if (size & 1 && !isChunkAt(dv, o) && isChunkIdAt(dv, o - 1)) o--;
   }
   if (!comm || ssnd < 0) throw new Error('The AIFF file has no audio data.');
   const { channels: nch, bits, rate, type } = comm;

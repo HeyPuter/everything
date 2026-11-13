@@ -11,7 +11,7 @@ vi.mock('../src/export/export.js', () => ({
   cancelledError: () => Object.assign(new Error('Cancelled'), { name: 'AbortError' }),
 }));
 
-const { saveDocument } = await import('../src/export/save.js');
+const { saveDocument, optionsForSave } = await import('../src/export/save.js');
 const { AudioFile } = await import('../src/model/audio-file.js');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -101,6 +101,39 @@ describe('saving to Puter', () => {
     expect(doc.dirty).toBe(false);
   });
 
+  it('lands a later save last when an earlier upload to the file is slower', async () => {
+    const calls = [];
+    window.puter = {
+      auth: { isSignedIn: () => true },
+      fs: { write: (path, blob) => new Promise((done) => calls.push({ blob, done })) },
+    };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 8000, channels: 1, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/AudioStudio/Song.wav' };
+    doc.apply('Edit', { ...doc.state, meta: { title: 'x' } });
+    const app = fakeApp();
+    // Save; its upload is slow (Cancel hides its dialog), the file is edited and saved again.
+    const first = saveDocument(app, doc);
+    await wait(10);
+    doc.apply('Edit', { ...doc.state, meta: { title: 'y' } });
+    const second = saveDocument(app, doc);
+    await wait(10);
+    const landed = [];
+    const finish = (i) => {
+      landed.push(i);
+      calls[i].done({ uid: 'u1' });
+    };
+    if (calls.length > 1) finish(1);
+    finish(0);
+    await wait(10);
+    if (calls.length > 1 && landed.length < 2) finish(1);
+    await Promise.all([first, second]);
+    // The file holds the newest save, which is the state marked saved.
+    expect(calls).toHaveLength(2);
+    expect(landed.at(-1)).toBe(1);
+    expect(exports.at(-1)[0].meta).toEqual({ title: 'y' });
+    expect(doc.dirty).toBe(false);
+  });
+
   for (const [file, proposed] of [
     ['Clip.mp4', 'Clip.m4a'],
     ['Stream.aac', 'Stream.m4a'],
@@ -143,5 +176,136 @@ describe('saving a WAV file opened with production sound chunks', () => {
     expect(doc.info.wavChunks.list.map((c) => c.id)).toEqual(['iXML']);
     await encodeDoc(doc, { format: 'wav' });
     expect(exports.at(-1)[0].chunks).toBe(doc.info.wavChunks);
+  });
+});
+
+describe('Save As when the file exists and Replace is declined', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.body.replaceChildren();
+  });
+
+  it('reopens the dialog with the folder, format and sample type chosen before', async () => {
+    const write = vi.fn(async () => ({ uid: 'u1' }));
+    window.puter = {
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) },
+      fs: { write, stat: async () => ({}) },
+      ui: { showDirectoryPicker: async () => ({ path: '/u/Other' }) },
+    };
+    const { Prefs } = await import('../src/lib/prefs.js');
+    const app = { ...fakeApp(), prefs: new Prefs(null) };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 44100, channels: 2, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/Music/Song.wav' };
+    const saving = saveDocument(app, doc, { saveAs: true });
+    await wait(20);
+    const $ = (sel) => document.querySelector(sel);
+    const button = (root, text) => [...root.querySelectorAll('.btn')].find((b) => b.textContent === text);
+    const change = (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event('change'));
+    };
+    button($('.io-export-dialog'), 'Browse...').click();
+    await wait(10);
+    change($('.io-export-dialog select[aria-label="Format"]'), 'mp3');
+    change($('.io-export-dialog select[aria-label="Bitrate (CBR)"]'), 128);
+    button($('.io-export-dialog'), 'Change...').click();
+    change($('.io-export-dialog select[aria-label="Channels"]'), 1);
+    button($('.io-export-dialog'), 'OK').click();
+    $('.io-export-dialog .dialog-foot .btn.primary').click();
+    await wait(20);
+    // "Song.mp3" exists in /u/Other: decline Replace.
+    expect($('.dialog-backdrop .dialog-title')?.textContent).toBe('Replace File?');
+    button(document, 'Cancel').click();
+    await wait(20);
+    const dialog = $('.io-export-dialog');
+    expect(dialog.querySelector('.io-name').value).toBe('Song.mp3');
+    expect(dialog.querySelector('.io-path').textContent).toBe('/u/Other');
+    expect(dialog.querySelector('select[aria-label="Format"]').value).toBe('mp3');
+    expect(dialog.querySelector('select[aria-label="Bitrate (CBR)"]').value).toBe('128');
+    expect(dialog.querySelector('.io-summary').textContent).toContain('Mono');
+    button(dialog.querySelector('.dialog-foot'), 'Cancel').click();
+    expect(await saving).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+  });
+});
+
+describe('Save after the document changed sample type', () => {
+  afterEach(() => {
+    delete window.puter;
+    document.body.replaceChildren();
+  });
+
+  it("writes the document's new channel count, keeping the other saved choices", async () => {
+    const { convertChannels } = await import('../src/model/edits.js');
+    const { Prefs } = await import('../src/lib/prefs.js');
+    window.puter = {
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) },
+      fs: {
+        write: async () => ({ uid: 'u1' }),
+        stat: async () => Promise.reject({ code: 'subject_does_not_exist' }),
+      },
+    };
+    const app = { ...fakeApp(), prefs: new Prefs(null) };
+    const doc = AudioFile.blank({ name: 'Mono.wav', sampleRate: 44100, channels: 1, seconds: 0.1 });
+    // Save As 16-bit WAV with noise-shaped dither.
+    const saving = saveDocument(app, doc, { saveAs: true });
+    await wait(20);
+    const change = (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event('change'));
+    };
+    const button = (text) =>
+      [...document.querySelectorAll('.io-export-dialog .btn')].find((b) => b.textContent === text);
+    button('Change...').click();
+    change(document.querySelector('select[aria-label="Bit depth"]'), 16);
+    change(document.querySelector('select[aria-label="Dither"]'), 'shaped');
+    button('OK').click();
+    document.querySelector('.io-export-dialog .dialog-foot .btn.primary').click();
+    expect(await saving).toBe(true);
+    expect(exports.at(-1)[1]).toMatchObject({ channels: 1, sampleRate: 44100, bitDepth: 16 });
+    // Edit > Convert Sample Type to stereo, then Save.
+    doc.apply('Convert', convertChannels(doc.state, 2));
+    expect(await saveDocument(app, doc)).toBe(true);
+    const saved = { channels: 2, sampleRate: 44100, bitDepth: 16, dither: 'shaped' };
+    expect(exports.at(-1)[1]).toMatchObject(saved);
+    // A rate and channel count chosen in Save As hold while the document keeps its own.
+    const from = { sampleRate: 44100, channels: 2 };
+    doc.info.exportOptions = { ...doc.info.exportOptions, sampleRate: 48000, channels: 1, from };
+    expect(optionsForSave(doc, 'wav')).toMatchObject({ sampleRate: 48000, channels: 1 });
+  });
+});
+
+describe('saving a document with no audio', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('refuses formats that cannot be empty and reopens the dialog for another', async () => {
+    const { Prefs } = await import('../src/lib/prefs.js');
+    const app = { ...fakeApp(), prefs: new Prefs(null) };
+    const doc = AudioFile.blank({ name: 'Empty.wav', sampleRate: 44100, channels: 2, seconds: 0 });
+    expect(doc.length).toBe(0);
+    const before = exports.length;
+    const saving = saveDocument(app, doc, { saveAs: true });
+    await wait(20);
+    const $ = (sel) => document.querySelector(sel);
+    const change = (el, value) => {
+      el.value = String(value);
+      el.dispatchEvent(new Event('change'));
+    };
+    change($('.io-export-dialog select[aria-label="Format"]'), 'flac');
+    $('.io-export-dialog .dialog-foot .btn.primary').click();
+    await wait(20);
+    expect(exports.length).toBe(before);
+    const said = expect.stringContaining('an empty .flac file cannot be opened again');
+    expect(app.notify).toHaveBeenCalledWith(said, { error: true });
+    // The dialog is back with the same choices; WAV holds an empty file.
+    const dialog = $('.io-export-dialog');
+    expect(dialog.querySelector('select[aria-label="Format"]').value).toBe('flac');
+    change(dialog.querySelector('select[aria-label="Format"]'), 'wav');
+    dialog.querySelector('.dialog-foot .btn.primary').click();
+    expect(await saving).toBe(true);
+    expect(exports.length).toBe(before + 1);
+    expect(exports.at(-1)[1].format).toBe('wav');
   });
 });

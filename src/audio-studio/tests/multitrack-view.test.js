@@ -183,6 +183,33 @@ describe('multitrack view', () => {
     expect([...doc.selectedClips]).toEqual([later.id]);
   });
 
+  it('Tab goes on past grouped clips instead of returning to the first of the group', () => {
+    const { view, doc, clip } = ctx;
+    const [t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    const mk = (name, trackId, start, groupId = null) =>
+      S.createClip({ trackId, sourceId: clip.sourceId, name, start: start * RATE, length: RATE, groupId });
+    const clips = [mk('X', t1, 4, 'g'), mk('Y', t2, 5), mk('Z', t3, 6, 'g'), mk('W', t2, 7)];
+    doc.apply('Remove', S.removeClips(doc.state, [clip.id]));
+    doc.apply('Add', S.addClips(doc.state, clips));
+    const tab = (shiftKey = false) =>
+      view.surface.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true }),
+      );
+    const name = () => S.findClip(doc.state, doc.focusClipId).name;
+    const seen = [];
+    for (let i = 0; i < 4; i++) {
+      tab();
+      seen.push(name());
+    }
+    expect(seen).toEqual(['X', 'Y', 'Z', 'W']);
+    // Past the last clip, Tab leaves the editor.
+    expect(tab()).toBe(true);
+    tab(true);
+    expect(name()).toBe('Z');
+    tab(true);
+    expect(name()).toBe('Y');
+  });
+
   it('drags a clip down past a hidden track onto the row under the pointer', () => {
     const { view, doc, clip, app } = ctx;
     app.prefs.set('snapping', false);
@@ -377,6 +404,15 @@ describe('session properties', () => {
     gain.value = '-6';
     gain.dispatchEvent(new Event('change'));
     expect(S.findClip(doc.state, clip.id).gain).toBe(-6);
+    // A cleared field is not 0 dB; "-inf" is as quiet as the field goes.
+    gain.value = ' ';
+    gain.dispatchEvent(new Event('change'));
+    expect(S.findClip(doc.state, clip.id).gain).toBe(-6);
+    gain.value = '-inf';
+    gain.dispatchEvent(new Event('change'));
+    expect(S.findClip(doc.state, clip.id).gain).toBe(-48);
+    gain.value = '-6';
+    gain.dispatchEvent(new Event('change'));
     const loop = [...el.querySelectorAll('label.check')].find((l) => l.textContent === 'Loop').querySelector('input');
     loop.checked = true;
     loop.dispatchEvent(new Event('change'));

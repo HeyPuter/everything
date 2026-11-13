@@ -48,14 +48,20 @@ export function isWav(buffer) {
   return (riff === 'RIFF' || riff === 'RF64' || riff === 'BW64') && ascii(dv, 8, 4) === 'WAVE';
 }
 
-/** Whether a well-formed chunk header (printable id, size within the file) starts at `o`. */
-function isChunkAt(dv, o) {
-  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+/** Whether the four bytes at `o` are printable ASCII, as chunk ids are. */
+function isChunkIdAt(dv, o) {
+  if (o + 4 > dv.byteLength) return false;
   for (let i = 0; i < 4; i++) {
     const c = dv.getUint8(o + i);
     if (c < 0x20 || c > 0x7e) return false;
   }
-  return o + 8 + dv.getUint32(o + 4, true) <= dv.byteLength;
+  return true;
+}
+
+/** Whether a well-formed chunk header (printable id, size within the file) starts at `o`. */
+function isChunkAt(dv, o) {
+  if (o + 8 > dv.byteLength) return o >= dv.byteLength;
+  return isChunkIdAt(dv, o) && o + 8 + dv.getUint32(o + 4, true) <= dv.byteLength;
 }
 
 const LITTLE_ENDIAN = new Uint8Array(Uint16Array.of(1).buffer)[0] === 1;
@@ -236,6 +242,9 @@ export function parseWav(buffer) {
       }
     }
     o = body + size + (size & 1);
+    // Some writers leave out the pad byte after an odd-sized chunk: the next chunk then
+    // starts one byte early (a pad byte is zero, never the first letter of an id).
+    if (size & 1 && !isChunkAt(dv, o) && isChunkIdAt(dv, o - 1)) o--;
   }
   if (!fmt && fmtBad) throw new Error('The WAV file header is damaged or cut off.');
   if (!fmt || dataOffset < 0) throw new Error('The WAV file has no audio data.');
@@ -271,6 +280,45 @@ export function parseWav(buffer) {
 }
 
 /**
+ * The RIFF header, fmt chunk and data chunk header (an ArrayBuffer) of a WAV holding `frames`
+ * frames of samples followed by `after` bytes of other chunks. A file too big for RIFF's 32-bit
+ * sizes (4 GB) is written as RF64: those sizes read 0xFFFFFFFF and the real ones are in a ds64
+ * chunk, which parseWav (and other editors) read.
+ */
+export function wavHeader({ sampleRate, channels, bitDepth, float = false, frames, after = 0 }) {
+  const bytes = bitDepth / 8;
+  const dataSize = frames * channels * bytes;
+  const riffBody = 4 + 24 + 8 + dataSize + (dataSize & 1) + after;
+  const rf64 = riffBody > 0xffffffff;
+  const header = new DataView(new ArrayBuffer(44 + (rf64 ? 36 : 0)));
+  const w4 = (o, s) => [...s].forEach((ch, i) => header.setUint8(o + i, ch.charCodeAt(0)));
+  w4(0, rf64 ? 'RF64' : 'RIFF');
+  header.setUint32(4, rf64 ? 0xffffffff : riffBody, true);
+  w4(8, 'WAVE');
+  let o = 12;
+  if (rf64) {
+    w4(o, 'ds64');
+    header.setUint32(o + 4, 28, true);
+    header.setBigUint64(o + 8, BigInt(riffBody + 36), true);
+    header.setBigUint64(o + 16, BigInt(dataSize), true);
+    header.setBigUint64(o + 24, BigInt(frames), true);
+    header.setUint32(o + 32, 0, true);
+    o += 36;
+  }
+  w4(o, 'fmt ');
+  header.setUint32(o + 4, 16, true);
+  header.setUint16(o + 8, float ? 3 : 1, true);
+  header.setUint16(o + 10, channels, true);
+  header.setUint32(o + 12, sampleRate, true);
+  header.setUint32(o + 16, sampleRate * channels * bytes, true);
+  header.setUint16(o + 20, channels * bytes, true);
+  header.setUint16(o + 22, bitDepth, true);
+  w4(o + 24, 'data');
+  header.setUint32(o + 28, rf64 ? 0xffffffff : dataSize, true);
+  return header.buffer;
+}
+
+/**
  * Encodes channels (Channel objects or Float32Arrays) as a WAV Blob.
  * @param {{ sampleRate, channels, bitDepth?: 16|24|32, float?: boolean, markers?: object[] }} o
  */
@@ -280,25 +328,10 @@ export function encodeWav({ sampleRate, channels, bitDepth = 16, float = bitDept
   const bytes = bitDepth / 8;
   const dataSize = frames * nch * bytes;
   const parts = [];
-  const header = new DataView(new ArrayBuffer(36 + 8));
-  const w4 = (dv, o, s) => [...s].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
   // Marker chunks.
   const cueChunk = markers.length ? buildCue(markers) : null;
-  const total = 4 + 24 + 8 + dataSize + (dataSize & 1) + (cueChunk ? cueChunk.byteLength : 0);
-  w4(header, 0, 'RIFF');
-  header.setUint32(4, Math.min(0xffffffff, total), true);
-  w4(header, 8, 'WAVE');
-  w4(header, 12, 'fmt ');
-  header.setUint32(16, 16, true);
-  header.setUint16(20, float ? 3 : 1, true);
-  header.setUint16(22, nch, true);
-  header.setUint32(24, sampleRate, true);
-  header.setUint32(28, sampleRate * nch * bytes, true);
-  header.setUint16(32, nch * bytes, true);
-  header.setUint16(34, bitDepth, true);
-  w4(header, 36, 'data');
-  header.setUint32(40, dataSize, true);
-  parts.push(header.buffer);
+  const after = cueChunk ? cueChunk.byteLength : 0;
+  parts.push(wavHeader({ sampleRate, channels: nch, bitDepth, float, frames, after }));
   const CH = 65536;
   const tmp = Array.from({ length: nch }, () => new Float32Array(CH));
   let seed = 22222;

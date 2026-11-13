@@ -10,6 +10,11 @@ export function accumulateRmsHistogram(hist, x, win) {
   for (let i = 0; i + win <= x.length; i += win) {
     let s = 0;
     for (let j = i; j < i + win; j++) s += x[j] * x[j];
+    if (!Number.isFinite(s)) {
+      // NaN and infinite samples count as silence, as the window RMS statistics treat them.
+      s = 0;
+      for (let j = i; j < i + win; j++) if (Number.isFinite(x[j])) s += x[j] * x[j];
+    }
     hist[rmsBin(Math.sqrt(s / win))]++;
   }
   return hist;

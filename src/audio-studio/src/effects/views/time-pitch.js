@@ -19,9 +19,9 @@ export function clockText(seconds) {
   return hrs ? `${hrs}:${String(min).padStart(2, '0')}:${sec}` : `${min}:${sec}`;
 }
 
-/** Reads "1:02.5", "62.5", "1:00:00" or "90s" as seconds (NaN when unreadable). */
+/** Reads "1:02.5", "62.5", "1:00:00", "90s" or "2,5" as seconds (NaN when unreadable). */
 export function parseClock(text) {
-  const t = String(text).trim().replace(/s$/i, '');
+  const t = String(text).trim().replace(/s$/i, '').replace(',', '.');
   if (!t) return NaN;
   const parts = t.split(':').map(Number);
   if (parts.some((p) => !Number.isFinite(p))) return NaN;
@@ -92,7 +92,8 @@ export function ratioField(ctx) {
     label: 'Ratio',
     pixelsPerStep: 0.02,
     format: (r) => r.toFixed(4),
-    parse: (s) => Number(String(s).replace(/[^\d.]/g, '')),
+    // A decimal comma ("1,5") reads as a point.
+    parse: (s) => Number(String(s).replace(',', '.').replace(/[^\d.]/g, '')),
     onInput: set,
     onChange: set,
     defaultValue: 1,

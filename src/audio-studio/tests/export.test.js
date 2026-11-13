@@ -167,6 +167,18 @@ describe('AIFF export', () => {
     expect(parseAiff(bytes.slice(0, bytes.length - 1000).buffer).channels[1].length).toBeLessThan(1000);
   });
 
+  it('keeps marker names in any script', async () => {
+    const names = ['Intro ✓', 'Café', '日本語のマーカー', 'é'.repeat(200), '✓'.repeat(100)];
+    const markers = names.map((name, i) => ({ start: i * 10, duration: 0, name }));
+    const opts = { format: 'aiff', sampleRate: 8000, channels: 1, bitDepth: 16 };
+    const bytes = await exportFrom([tone(100)], 8000, opts, { markers });
+    const read = parseAiff(bytes.buffer).markers.map((m) => m.name);
+    // Names are cut to the 255 bytes a marker name holds, on a character boundary.
+    expect(read).toEqual([...names.slice(0, 4), '✓'.repeat(85)]);
+    // Latin-1 names are written one byte per character, as before.
+    expect(Buffer.from(bytes).includes(Buffer.from([4, 0x43, 0x61, 0x66, 0xe9]))).toBe(true);
+  });
+
   it('encodes 80-bit extended sample rates exactly', () => {
     const dv = new DataView(new ArrayBuffer(10));
     for (const rate of [8000, 11025, 22050, 44100, 48000, 96000, 192000, 384000, 7]) {
@@ -320,6 +332,17 @@ describe('sample rate and channel conversion', () => {
     clip.convert(0, Float32Array.of(2, -2, NaN), 3, o8);
     expect([...o8]).toEqual([127, -128, 0]);
   });
+
+  it('keeps noise-shaped audio after an infinite sample', () => {
+    const src = new Float32Array(64).fill(0.3001);
+    src[3] = Infinity;
+    src[9] = -Infinity;
+    const out = new Int32Array(64);
+    new Quantizer(16, 1, 'shaped').convert(0, src, 64, out);
+    expect(out[3]).toBe(32767);
+    expect(out[9]).toBe(-32768);
+    for (let i = 10; i < 64; i++) expect(Math.abs(out[i] - 0.3001 * 32768)).toBeLessThan(4);
+  });
 });
 
 describe('Ogg Opus muxer', () => {
@@ -431,5 +454,23 @@ describe('metadata readers', () => {
     const parts = [4, 0, 0, 0, 0x41, 0x42, 0x43, 0x44, 3, 0, 0, 0];
     for (const it of items) parts.push(it.length, 0, 0, 0, ...it);
     expect(parseVorbisComment(Uint8Array.from(parts))).toEqual({ title: 'a', comment: 'd', year: '2020' });
+  });
+});
+
+describe('exports with no audio', () => {
+  it('refuses FLAC, MP3, Opus and AAC files with no audio, which would not open again', async () => {
+    const { exportAudio } = await import('../src/export/export.js');
+    const { isUserError } = await import('../src/lib/errors.js');
+    const channels = [new Float32Array(0), new Float32Array(0)];
+    for (const format of ['flac', 'mp3', 'opus', 'm4a']) {
+      const err = await exportAudio({ channels, sampleRate: 48000 }, { format }).catch((e) => e);
+      expect(isUserError(err)).toBe(true);
+      expect(err.message).toMatch(/^There is no audio to save, and an empty \.\w+ file cannot/);
+    }
+    // One frame at 192 kHz is none at all once converted to 8 kHz.
+    const one = [new Float32Array(1)];
+    const options = { format: 'mp3', sampleRate: 8000 };
+    const err = await exportAudio({ channels: one, sampleRate: 192000 }, options).catch((e) => e);
+    expect(isUserError(err)).toBe(true);
   });
 });

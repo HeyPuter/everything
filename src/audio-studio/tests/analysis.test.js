@@ -158,3 +158,19 @@ describe('live frequency analysis', () => {
     expect(Array.from(liveWindow(hist, tapAt(40000), 4096).L)).toEqual(Array.from(x.subarray(40000 - 4096, 40000)));
   });
 });
+
+describe('RMS histogram', () => {
+  it('counts NaN and infinite samples as silence, like the window RMS statistics', async () => {
+    const { accumulateRmsHistogram, rmsBin, HIST_BINS } =
+      await import('../src/analysis/rms-histogram.js');
+    const win = 480;
+    const x = sine(1000, 0.5, win * 10);
+    x[10] = NaN;
+    x[win * 3 + 5] = Infinity;
+    const hist = accumulateRmsHistogram(new Uint32Array(HIST_BINS), x, win);
+    // Every window holds the 0.5 sine (about -9 dB); none lands at the bottom or top bin.
+    expect(hist[rmsBin(0.5 * Math.SQRT1_2)]).toBe(10);
+    expect(hist[0]).toBe(0);
+    expect(hist[HIST_BINS - 1]).toBe(0);
+  });
+});

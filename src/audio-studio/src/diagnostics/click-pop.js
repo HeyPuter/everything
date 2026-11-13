@@ -336,7 +336,13 @@ export function openClickPopDialog(app, doc, { runner = null, autoScan = true } 
     progress.hidden = false;
     setProgress(0);
     caption.textContent = text;
+    // The buttons are disabled while working, which drops focus out of the dialog to the
+    // page: keep it on Cancel, then give it back.
+    const dlg = el.closest('.dialog');
+    const before = document.activeElement;
+    const inside = Boolean(dlg?.contains(before));
     render();
+    if (inside && before.disabled) cancelBtn.focus();
     try {
       return await job(signal);
     } catch (err) {
@@ -346,6 +352,10 @@ export function openClickPopDialog(app, doc, { runner = null, autoScan = true } 
       busy = null;
       progress.hidden = true;
       render();
+      const at = document.activeElement;
+      if (inside && dlg.isConnected && (at === cancelBtn || !dlg.contains(at))) {
+        (before.isConnected && !before.disabled ? before : scanBtn).focus();
+      }
     }
   }
 

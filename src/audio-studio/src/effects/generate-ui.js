@@ -12,7 +12,7 @@ import { AudioFile } from '../model/audio-file.js';
 import * as E from '../model/edits.js';
 import { paramControls, inlinePrompt } from './dialog.js';
 import { normalizeValues } from './params.js';
-import { allPresets, savePreset, deletePreset, matchPreset, lastValues, rememberValues } from './presets.js';
+import { allPresets, userPresets, savePreset, deletePreset, matchPreset, lastValues, rememberValues } from './presets.js';
 import { generateTones, generateNoise, dbToGain, WAVEFORMS, NOISE_COLORS, NOISE_STYLES } from './generate.js';
 import { tonesBody, noiseBody } from './generate-views.js';
 import { controlsFor } from './layout.js';
@@ -309,7 +309,7 @@ async function generatorDialog(app, def, { withPlacement, preview = null }) {
       const saved = savePreset(app.prefs, def, n, ctx.values);
       syncPresets();
       announce(`Preset ${saved} saved`);
-    } });
+    }, exists: (n) => userPresets(app.prefs, def.id).some((p) => p.name === n) });
   } }, icon('save', 15));
   // Your own presets can be deleted (built-in ones cannot).
   const delBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Delete preset', title: 'Delete preset', onclick: () => {
