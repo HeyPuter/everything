@@ -219,12 +219,19 @@ pub struct RemoveSettings {
 }
 
 /// Removes the sound described by `model` (k bases, k-major, n/2 + 1 each)
-/// from planar `buf` (`channels` x `len`) in place.
+/// from planar `buf` (`channels` x `len`) in place. Non-finite samples (a
+/// damaged float file) are taken as silence: in the spectrogram one would
+/// turn the fitted mask, and with it thousands of output frames, into NaN.
 pub fn remove(buf: &mut [f32], channels: usize, len: usize, model: &[f32], k: usize, s: &RemoveSettings) {
     let n = fft_size(s.n as u32);
     let bins = n / 2 + 1;
     if len == 0 || k == 0 || model.len() < k * bins {
         return;
+    }
+    for v in buf[..channels * len].iter_mut() {
+        if !v.is_finite() {
+            *v = 0.0;
+        }
     }
     let fr = Frames::new(n, len);
     let mut fft = RealFft::new(n);
@@ -404,6 +411,21 @@ mod tests {
         // Most of the beeps are gone and the tone survives.
         assert!(err < before * 0.01, "residual {err} vs {before}");
         assert!(err < kept * 0.01, "residual {err} vs kept {kept}");
+    }
+
+    #[test]
+    fn non_finite_input_samples_do_not_spread() {
+        let n = 48000;
+        let sound = beeps(n, 0.3);
+        let keep = tone(n);
+        let mut mix: Vec<f32> = (0..n).map(|i| sound[i] + keep[i]).collect();
+        mix[10000] = f32::NAN;
+        mix[30000] = f32::INFINITY;
+        let mut model = vec![0.0f32; 4 * 1025];
+        learn(&beeps(24000, 0.4), 2048, 4, 60, &mut model);
+        remove(&mut mix, 1, n, &model, 4, &settings());
+        assert!(mix.iter().all(|v| v.is_finite()));
+        assert!(rms(&mix[4800..n - 4800]) > 0.15);
     }
 
     #[test]
