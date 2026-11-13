@@ -462,6 +462,7 @@ export class App extends Emitter {
     }
     if (this.editor) document.title = `${this.editor.name}${this.editor.doc.dirty ? '*' : ''} - Vector Studio`;
     else document.title = 'Vector Studio';
+    this.emit('tabs-rendered');
   }
 
   refreshChrome() {

@@ -363,10 +363,19 @@ export function layoutViews(app) {
   }
 }
 
+function updateFloatTitle(ed, head) {
+  const name = ed.name;
+  const title = head.querySelector('.float-title');
+  const dock = head.querySelector('button');
+  if (title.textContent !== name) title.textContent = name;
+  if (dock.getAttribute('aria-label') !== `Dock ${name}`) dock.setAttribute('aria-label', `Dock ${name}`);
+}
+
 function ensureFloatChrome(app, ed, view) {
   const host = view.host;
-  if (host.querySelector(':scope > .float-head')) {
-    host.querySelector('.float-title').textContent = ed.name;
+  const existing = host.querySelector(':scope > .float-head');
+  if (existing) {
+    updateFloatTitle(ed, existing);
     return;
   }
   if (!host.style.left) {
@@ -545,6 +554,12 @@ export function installWindow(app) {
     };
     app.canvasHost.addEventListener('pointerdown', pick, true);
     app.canvasHost.addEventListener('wheel', pick, { capture: true, passive: true });
+  });
+  app.on('tabs-rendered', () => {
+    for (const ed of app.floating || []) {
+      const head = app.views.get(ed)?.host.querySelector(':scope > .float-head');
+      if (head) updateFloatTitle(ed, head);
+    }
   });
   app.on('active-editor', () => layoutViews(app));
   app.on('closed', (ed) => {
