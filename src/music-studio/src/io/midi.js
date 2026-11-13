@@ -56,7 +56,7 @@ class Reader {
       v = (v << 7) | (c & 0x7f);
       if (!(c & 0x80)) return v;
     }
-    return v;
+    throw new Error('The MIDI file is damaged (invalid variable-length value).');
   }
 }
 

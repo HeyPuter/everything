@@ -44,3 +44,17 @@ it('preserves supported header extensions, unknown chunks, and complete note dur
   expect(midi.tracks).toHaveLength(1);
   expect(midi.tracks[0].notes).toEqual([{ ch: 0, key: 60, tick: 0, len: 96, vel: 100 }]);
 });
+
+it.each([
+  ['event time', [0x80, 0x80, 0x80, 0x80, 0x90, 60, 100, 0, 0xff, 0x2f, 0]],
+  ['metadata length', [0, 0xff, 1, 0x80, 0x80, 0x80, 0x80, 0, 0xff, 0x2f, 0]],
+  ['system-exclusive length', [0, 0xf0, 0x80, 0x80, 0x80, 0x80, 0, 0xff, 0x2f, 0]],
+])('rejects a MIDI %s without a variable-length terminator', (_name, body) => {
+  expect(() => readMidi(Uint8Array.from([...header(), ...chunk(body)]))).toThrow(/damaged/i);
+});
+
+it('accepts a correctly terminated four-byte MIDI delta', () => {
+  const body = [0xff, 0xff, 0xff, 0x7f, 0x90, 60, 100, 96, 0x80, 60, 64, 0, 0xff, 0x2f, 0];
+  const midi = readMidi(Uint8Array.from([...header(), ...chunk(body)]));
+  expect(midi.tracks[0].notes).toEqual([{ ch: 0, key: 60, tick: 0x0fffffff, len: 96, vel: 100 }]);
+});
