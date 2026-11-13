@@ -172,6 +172,29 @@ it('keeps ordinary piano-roll pinch zoom working after canceling a note preview'
   editor.destroy();
 });
 
+it.each([['pointerup', 1], ['pointercancel', 1], ['lostpointercapture', 1], ['pointerup', 3]])('keeps piano-roll zoom continuous after %s of touch %s in a three-finger gesture', (event, ended) => {
+  const { editor, store } = setup();
+  editor.surface.setPointerCapture = vi.fn();
+  const pointer = beginNoteDrag(editor, store);
+  pointer('pointerup');
+  const original = store.project;
+  pointer('pointerdown', 0, 1);
+  pointer('pointerdown', 100, 2);
+  pointer('pointermove', 150, 2);
+  pointer('pointerdown', 400, 3);
+  const zoom = editor.vp.pxPerTick;
+  const scroll = editor.vp.scroll;
+  pointer(event, ended === 1 ? 0 : 400, ended);
+  pointer('pointermove', 150, 2);
+  expect(editor.vp.pxPerTick).toBeCloseTo(zoom);
+  expect(editor.vp.scroll).toBeCloseTo(scroll);
+  pointer('pointermove', ended === 1 ? 450 : 180, ended === 1 ? 3 : 2);
+  expect(editor.vp.pxPerTick).toBeCloseTo(zoom * 1.2);
+  expect(store.project).toBe(original);
+  editor.cancelGesture();
+  editor.destroy();
+});
+
 function noteProperties(editor, store) {
   const note = createNote({ key: 60, pos: 96, len: 96 });
   store.apply('Add note', (p) => E.setNotes(p, store.pattern.id, store.channel.id, [note]));

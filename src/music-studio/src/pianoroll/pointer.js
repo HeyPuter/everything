@@ -626,6 +626,7 @@ export function installPointer(ed) {
     const rowMid = (mid0.y - L.gridY + ed.scrollY) / kh0;
     return {
       type: 'pinch',
+      ids: [...touches.keys()].slice(0, 2),
       move() {
         const [c, d] = [...touches.values()];
         if (!c || !d) return;
@@ -752,7 +753,7 @@ export function installPointer(ed) {
       if (touches.size < 2) {
         g.end();
         finish(g);
-      }
+      } else if (g.ids.includes(e.pointerId)) ed.gesture = pinchGesture();
       return;
     }
     const p = local(e);

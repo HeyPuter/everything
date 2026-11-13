@@ -478,3 +478,24 @@ it('keeps ordinary two-finger playlist zoom working after canceling the first-fi
   pointer('pointerup', 24, 1);
   panel.onHide();
 });
+
+it.each([['pointerup', 1], ['pointercancel', 1], ['lostpointercapture', 1], ['pointerup', 3]])('keeps playlist zoom continuous after %s of touch %s in a three-finger gesture', (event, ended) => {
+  const { store, pointer, view, panel } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  pointer('pointerdown', 0, 1);
+  pointer('pointerdown', 100, 2);
+  pointer('pointermove', 150, 2);
+  pointer('pointerdown', 400, 3);
+  const zoom = view.vp.pxPerTick;
+  const scroll = view.vp.scroll;
+  pointer(event, ended === 1 ? 0 : 400, ended);
+  pointer('pointermove', 150, 2); // Remaining finger has not moved.
+  expect(view.vp.pxPerTick).toBeCloseTo(zoom);
+  expect(view.vp.scroll).toBeCloseTo(scroll);
+  pointer('pointermove', ended === 1 ? 450 : 180, ended === 1 ? 3 : 2);
+  expect(view.vp.pxPerTick).toBeCloseTo(zoom * 1.2);
+  expect(store.project).toBe(original);
+  expect(store.canUndo).toBe(false);
+  panel.onHide();
+});

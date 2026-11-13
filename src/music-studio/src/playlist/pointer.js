@@ -529,6 +529,7 @@ export function installPointer(V, el) {
     touches.delete(e.pointerId);
     if (pinch) {
       if (touches.size < 2) pinch = null;
+      else if (pinch.ids.includes(e.pointerId)) startPinch();
       return;
     }
     if (!gesture) return;
@@ -541,7 +542,10 @@ export function installPointer(V, el) {
   const cancel = (e) => {
     if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     touches.delete(e.pointerId);
-    if (pinch && touches.size < 2) pinch = null;
+    if (pinch) {
+      if (touches.size < 2) pinch = null;
+      else if (pinch.ids.includes(e.pointerId)) startPinch();
+    }
     if (gesture) V.cancelGesture();
   };
   el.addEventListener('pointercancel', cancel);
@@ -632,6 +636,7 @@ export function installPointer(V, el) {
     const r = el.getBoundingClientRect();
     const mid = (a.x + b.x) / 2 - r.left;
     pinch = {
+      ids: [...touches.keys()].slice(0, 2),
       dist: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)),
       ppt: V.vp.pxPerTick,
       tick: V.vp.tick(mid),
