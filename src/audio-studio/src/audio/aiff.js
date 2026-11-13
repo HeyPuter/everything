@@ -2,7 +2,7 @@
 // 32/64-bit float (fl32/fl64), mu-law and A-law, markers (MARK) and text
 // chunks (NAME, AUTH, ANNO, ID3). Written exports use src/export/writers.
 
-import { parseId3v2 } from './meta.js';
+import { parseId3v2, decodeText } from './meta.js';
 
 const str = (b, o, n) => String.fromCharCode(...b.subarray(o, o + n));
 
@@ -115,7 +115,7 @@ export function parseAiff(buffer) {
         const markId = dv.getUint16(p);
         const position = dv.getUint32(p + 2);
         const len = b[p + 6];
-        const name = new TextDecoder('latin1').decode(b.subarray(p + 7, p + 7 + len));
+        const name = decodeText(b.subarray(p + 7, p + 7 + len));
         marks.push({ id: markId, start: position, duration: 0, name, description: '', type: 'cue' });
         p += 7 + len + ((len + 1) & 1);
       }

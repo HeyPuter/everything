@@ -167,6 +167,18 @@ describe('AIFF export', () => {
     expect(parseAiff(bytes.slice(0, bytes.length - 1000).buffer).channels[1].length).toBeLessThan(1000);
   });
 
+  it('keeps marker names in any script', async () => {
+    const names = ['Intro ✓', 'Café', '日本語のマーカー', 'é'.repeat(200), '✓'.repeat(100)];
+    const markers = names.map((name, i) => ({ start: i * 10, duration: 0, name }));
+    const opts = { format: 'aiff', sampleRate: 8000, channels: 1, bitDepth: 16 };
+    const bytes = await exportFrom([tone(100)], 8000, opts, { markers });
+    const read = parseAiff(bytes.buffer).markers.map((m) => m.name);
+    // Names are cut to the 255 bytes a marker name holds, on a character boundary.
+    expect(read).toEqual([...names.slice(0, 4), '✓'.repeat(85)]);
+    // Latin-1 names are written one byte per character, as before.
+    expect(Buffer.from(bytes).includes(Buffer.from([4, 0x43, 0x61, 0x66, 0xe9]))).toBe(true);
+  });
+
   it('encodes 80-bit extended sample rates exactly', () => {
     const dv = new DataView(new ArrayBuffer(10));
     for (const rate of [8000, 11025, 22050, 44100, 48000, 96000, 192000, 384000, 7]) {
