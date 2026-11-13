@@ -305,13 +305,17 @@ export class Engine extends Emitter {
     }
     this.graph = graph;
     this.sources = sources;
+    // The mixer can render between any two messages: the audio the new graph
+    // plays goes before it, and what only the old graph played is dropped
+    // after it, so an edit during playback never renders a block of silence.
+    if (this.playing) this.#feed(this.position, false);
+    this.node?.port.postMessage({ type: 'graph', graph });
     for (const key of [...this.sent.keys()]) {
       if (!sources.has(key)) {
         this.sent.delete(key);
         this.node?.port.postMessage({ type: 'drop', key });
       }
     }
-    this.node?.port.postMessage({ type: 'graph', graph });
     if (this.playing) this.#feed();
   }
 
@@ -384,7 +388,7 @@ export class Engine extends Emitter {
     this.reports = [];
   }
 
-  #feed(at = this.position) {
+  #feed(at = this.position, drop = true) {
     if (!this.node) return;
     const rate = this.graph.rate || this.rate;
     const windows = [[at - KEEP_BEHIND_S * rate, at + LOOKAHEAD_S * rate]];
@@ -422,6 +426,7 @@ export class Engine extends Emitter {
         sent.add(index);
       }
     }
+    if (!drop) return;
     for (const [key, sent] of this.sent) {
       const keep = need.get(key);
       for (const index of [...sent]) {

@@ -173,6 +173,36 @@ describe('engine transport', () => {
     e.stop();
   });
 
+  it('an edit during playback never leaves the mixer a block without its audio', async () => {
+    const { Channel } = await import('../src/audio/channel.js');
+    const { e, sent } = fakeEngine();
+    const file = (key, len) => ({ rate: 48000, master: { gain: 1 }, tracks: [{ id: 'file', gain: 1, pan: 0, clips: [{ id: 'file', source: key, channels: 1, start: 0, offset: 0, length: len, gain: 1 }] }] });
+    const tone = (len) => [Channel.fromSamples(new Float32Array(len).fill(0.5))];
+    e.graph = file('a', 480000);
+    e.sources = new Map([['a', tone(480000)]]);
+    await e.play({ from: 96000 });
+    const before = e.graph;
+    const playing = sent.length;
+    // An edit replaces the file's channels: a new source key.
+    e.setGraph(file('b', 470000), new Map([['b', tone(470000)]]));
+    // Replay the messages into a mixer, rendering a block after each one.
+    const store = new ChunkStore();
+    let graph = before; // the mixer is playing the old graph
+    const missing = [];
+    sent.forEach((m, i) => {
+      if (m.type === 'chunk') store.put(m.key, m.index, m.channels);
+      else if (m.type === 'drop') store.drop(m.key, m.index);
+      else if (m.type === 'graph') graph = m.graph;
+      if (i < playing) return; // the mixer started once the play message came
+      const out = [new Float32Array(128), new Float32Array(128)];
+      renderBlock(graph, store, 96000, 128, out, createScratch(), { missing: (key) => missing.push([m.type, key]) });
+    });
+    expect(missing).toEqual([]);
+    // The old file's audio is gone from the mixer afterwards.
+    expect(store.sources.has('a')).toBe(false);
+    e.stop();
+  });
+
   it('applies a latency mode chosen during playback once playback stops', async () => {
     const { e } = fakeEngine();
     const made = [];
