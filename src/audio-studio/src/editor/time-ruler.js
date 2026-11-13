@@ -108,13 +108,19 @@ export class TimeRuler {
     return view.start + (x / this.width) * (view.end - view.start);
   }
 
-  #markerAt(x) {
+  /** The marker nearest x within `tol` px. */
+  #markerAt(x, tol = 5) {
     const t = this.host.timeline();
+    let best = null;
+    let bestD = Infinity;
     for (const m of t.markers || []) {
-      const mx = this.xOf(m.start, t.view);
-      if (Math.abs(x - mx) <= 5) return m;
+      const d = Math.abs(x - this.xOf(m.start, t.view));
+      if (d <= tol && d < bestD) {
+        best = m;
+        bestD = d;
+      }
     }
-    return null;
+    return best;
   }
 
   #keys(e) {
@@ -163,7 +169,9 @@ export class TimeRuler {
     if (e.button !== 0) return;
     e.preventDefault();
     this.el.setPointerCapture(e.pointerId);
-    const m = e.offsetY > this.height * 0.45 ? this.#markerAt(e.offsetX) : null;
+    // A finger covers more than a mouse pointer: markers grab from further away on touch.
+    const tol = e.pointerType === 'touch' ? 12 : 5;
+    const m = e.offsetY > this.height * 0.45 ? this.#markerAt(e.offsetX, tol) : null;
     if (m && this.host.moveMarker) {
       this.drag = { kind: 'marker', id: m.id, dx: e.offsetX - this.xOf(m.start), moved: false };
       this.host.selectMarker?.(m.id);

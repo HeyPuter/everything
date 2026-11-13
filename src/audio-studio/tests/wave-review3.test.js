@@ -201,3 +201,33 @@ describe('selection edges on touch', () => {
     expect(doc.cursor).toBe(Math.round(view.frameAt(110)));
   });
 });
+
+describe('time ruler markers on touch', () => {
+  it('grab a marker a finger-width away, the nearest one when two are close', async () => {
+    const { createMarker } = await import('../src/model/markers.js');
+    const { doc, view } = await makeView();
+    const a = createMarker({ start: 24000 });
+    const b = createMarker({ start: 24000 + 120 * 15 });
+    doc.apply('Add Markers', { ...doc.state, markers: [a, b] });
+    const r = view.ruler;
+    r.resize(400, 30);
+    r.el.setPointerCapture = () => {};
+    const press = (pointerType, x) => {
+      const e = pointer('pointerdown', x, 25);
+      Object.defineProperty(e, 'pointerType', { value: pointerType });
+      r.el.dispatchEvent(e);
+      r.el.dispatchEvent(pointer('pointerup', x, 25));
+    };
+    const x = r.xOf(24000);
+    // 10 px right of the first marker, 5 px left of the second: the second is nearer.
+    press('touch', x + 10);
+    expect([...view.selectedMarkers]).toEqual([b.id]);
+    press('touch', x - 10);
+    expect([...view.selectedMarkers]).toEqual([a.id]);
+    // A mouse press 10 px away misses it and moves the playhead.
+    view.selectMarker(null);
+    press('mouse', x - 10);
+    expect(view.selectedMarkers.size).toBe(0);
+    expect(doc.cursor).toBe(Math.round(r.frameAt(x - 10)));
+  });
+});
