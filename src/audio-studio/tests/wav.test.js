@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodeWav, parseWav } from '../src/audio/wav.js';
+import { encodeWav, parseWav, wavHeader } from '../src/audio/wav.js';
 import { Channel } from '../src/audio/channel.js';
 import { ulaw, alaw, parseAiff } from '../src/audio/aiff.js';
 import { sniffSampleRate, decodeAudio, fixPositiveScale } from '../src/audio/decode.js';
@@ -202,6 +202,37 @@ describe('wav', () => {
     const aiff = parseAiff(file('FORM', 'AIFF', false, [comm, name, ssnd]));
     expect(Array.from(aiff.channels[0])).toEqual([0.5, -0.5]);
     expect(aiff.meta.title).toBe('Odd');
+  });
+  it('writes RF64 headers for WAV files over 4 GB, which parseWav reads', async () => {
+    // Small files keep the plain 44-byte RIFF header encodeWav writes.
+    const blob = encodeWav({ sampleRate: 48000, channels: [Float32Array.of(0.5, -0.5)], bitDepth: 32, markers: [{ start: 1, name: 'M' }] });
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const after = bytes.length - 52;
+    const small = new Uint8Array(
+      wavHeader({ sampleRate: 48000, channels: 1, bitDepth: 32, float: true, frames: 2, after }),
+    );
+    expect(small.length).toBe(44);
+    expect(Array.from(bytes.subarray(0, 44))).toEqual(Array.from(small));
+    expect(new DataView(bytes.buffer).getUint32(4, true)).toBe(bytes.length - 8);
+    // 3.2 h of stereo 48 kHz float is 4.4 GB of samples: too big for RIFF's 32-bit sizes.
+    const frames = 3.2 * 3600 * 48000;
+    const head = wavHeader({ sampleRate: 48000, channels: 2, bitDepth: 32, float: true, frames });
+    const dv = new DataView(head);
+    const id = (o) => String.fromCharCode(...new Uint8Array(head, o, 4));
+    expect([id(0), id(12), id(48), id(72)]).toEqual(['RF64', 'ds64', 'fmt ', 'data']);
+    expect(dv.getUint32(4, true)).toBe(0xffffffff);
+    expect(dv.getUint32(76, true)).toBe(0xffffffff);
+    expect(Number(dv.getBigUint64(20, true))).toBe(head.byteLength - 8 + frames * 8);
+    expect(Number(dv.getBigUint64(28, true))).toBe(frames * 8);
+    expect(Number(dv.getBigUint64(36, true))).toBe(frames);
+    // The reader takes the data size from ds64: with two frames of audio after the header
+    // (the rest cut off) it reads them as stereo float.
+    const file = new Uint8Array(head.byteLength + 16);
+    file.set(new Uint8Array(head));
+    new Float32Array(file.buffer, head.byteLength, 4).set([0.5, -0.5, 0.25, -0.25]);
+    const r = parseWav(file.buffer);
+    expect(r.float).toBe(true);
+    expect(r.channels.map((c) => Array.from(c))).toEqual([[0.5, 0.25], [-0.5, -0.25]]);
   });
   it('reads BW64 files like RF64', async () => {
     const blob = encodeWav({ sampleRate: 48000, channels: [Float32Array.of(0.5, -0.5)], bitDepth: 16, dither: false });

@@ -5,7 +5,7 @@
 
 import { Session } from '../model/session.js';
 import { serializeSession, parseSession, sessionBaseName, SESSION_EXT } from '../model/session-io.js';
-import { encodeWav } from '../audio/wav.js';
+import { encodeWav, wavHeader } from '../audio/wav.js';
 import { audioFileFromBlob, downloadBlob, rememberRecent, OPENERS, EXTRA_ACCEPT } from '../storage/files.js';
 import { channelsAtRate } from './insert.js';
 import { zipStore, unzipStore } from '../lib/zip.js';
@@ -105,25 +105,15 @@ export function wavBytes(rate, channels) {
   const nch = channels.length;
   const frames = channels[0].length;
   const dataSize = frames * nch * 4;
-  const out = new Uint8Array(44 + dataSize);
+  const head = new Uint8Array(
+    wavHeader({ sampleRate: rate, channels: nch, bitDepth: 32, float: true, frames }),
+  );
+  const out = new Uint8Array(head.length + dataSize);
   const dv = new DataView(out.buffer);
-  const w4 = (o, s) => [...s].forEach((ch, i) => dv.setUint8(o + i, ch.charCodeAt(0)));
-  w4(0, 'RIFF');
-  dv.setUint32(4, 36 + dataSize, true);
-  w4(8, 'WAVE');
-  w4(12, 'fmt ');
-  dv.setUint32(16, 16, true);
-  dv.setUint16(20, 3, true);
-  dv.setUint16(22, nch, true);
-  dv.setUint32(24, rate, true);
-  dv.setUint32(28, rate * nch * 4, true);
-  dv.setUint16(32, nch * 4, true);
-  dv.setUint16(34, 32, true);
-  w4(36, 'data');
-  dv.setUint32(40, dataSize, true);
+  out.set(head);
   const CH = 65536;
   const tmp = Array.from({ length: nch }, () => new Float32Array(CH));
-  let p = 44;
+  let p = head.length;
   for (let at = 0; at < frames; at += CH) {
     const n = Math.min(CH, frames - at);
     for (let c = 0; c < nch; c++) channels[c].read(at, tmp[c], 0, n);
