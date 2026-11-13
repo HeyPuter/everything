@@ -239,7 +239,7 @@ export class CanvasInput {
     if (this.sidePressed) return;
     this.sidePressed = true;
     // A tap with the button held already opened it through contextmenu.
-    if (performance.now() - (this.lastContextMenu || 0) < 1500) return;
+    if (this.lastContextMenu && performance.now() - this.lastContextMenu < 1500) return;
     this.lastPressMenu = performance.now();
     this.#openContextMenu(e);
   }
@@ -251,7 +251,7 @@ export class CanvasInput {
    * so it is not one of these.
    */
   #penHold() {
-    return this.#penDown() || performance.now() - (this.penLifted || 0) < 500;
+    return this.#penDown() || (this.penLifted && performance.now() - this.penLifted < 500);
   }
 
   /**
