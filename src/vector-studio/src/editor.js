@@ -70,6 +70,8 @@ export class SelectionSet extends Set {
 }
 
 export class Editor extends Emitter {
+  #unsubs = [];
+
   constructor(doc, { file = null, prefs } = {}) {
     super();
     this.doc = doc;
@@ -90,7 +92,7 @@ export class Editor extends Emitter {
     this.lastTransform = null; // matrix for Transform Again
     this.viewInitialized = false;
 
-    doc.selection = {
+    this.selectionBinding = doc.selection = {
       get: () => ({ ids: [...this.selection], anchors: [...this.anchors].map(([k, v]) => [k, [...v]]) }),
       set: (s) => {
         // Undo and Redo bring a selection back only where it can still be selected (not hidden or locked since).
@@ -100,8 +102,8 @@ export class Editor extends Emitter {
         this.emit('selection');
       },
     };
-    this.on('selection', () => doc.selectionChanged());
-    doc.on('change', (e) => {
+    this.#unsubs.push(this.on('selection', () => doc.selectionChanged()));
+    this.#unsubs.push(doc.on('change', (e) => {
       if (e.structural) this.#pruneSelection(e.commit);
       if (e.commit && this.isolation && !doc.has(this.isolation)) this.#lostIsolation();
       if (!doc.has(this.activeLayerId)) this.activeLayerId = doc.root.children[doc.root.children.length - 1];
@@ -111,7 +113,13 @@ export class Editor extends Emitter {
       if (lostBoard) this.activeArtboard = boards - 1;
       this.emit('doc-change', e);
       if (lostBoard) this.emit('artboard');
-    });
+    }));
+  }
+
+  /** Detach a closed window without affecting other editors of the same document. */
+  destroy() {
+    for (const off of this.#unsubs.splice(0)) off();
+    if (this.doc.selection === this.selectionBinding) this.doc.selection = null;
   }
 
   /**

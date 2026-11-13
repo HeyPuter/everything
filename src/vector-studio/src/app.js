@@ -308,7 +308,9 @@ export class App extends Emitter {
 
   /** Open a document in a new tab and make it active. */
   addDocument(doc, { file = null, activate = true } = {}) {
+    const previousSelection = doc.selection;
     const editor = new Editor(doc, { file, prefs: this.prefs });
+    if (!activate && previousSelection) doc.selection = previousSelection;
     editor.style = { ...editor.style };
     editor.overlayInsets = () => this.canvasOverlayInsets?.() || null;
     this.editors.push(editor);
@@ -354,6 +356,7 @@ export class App extends Emitter {
     if (prevView) prevView.host.hidden = true;
     this.editor = editor;
     if (editor) {
+      editor.doc.selection = editor.selectionBinding;
       let view = this.views.get(editor);
       if (!view) {
         const host = h('div.view-host');
@@ -410,6 +413,12 @@ export class App extends Emitter {
       this.editor = null;
       this.activate(this.editors[Math.min(i, this.editors.length - 1)] || null);
     } else this.renderTabs();
+    editor.destroy();
+    // A background document may still have windows even when another document is active.
+    if (!editor.doc.selection) {
+      const remaining = this.editors.find((e) => e.doc === editor.doc);
+      if (remaining) editor.doc.selection = remaining.selectionBinding;
+    }
     this.emit('closed', editor);
     return true;
   }

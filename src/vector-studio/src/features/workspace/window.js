@@ -334,7 +334,7 @@ export function newWindow(app, editor = app.editor) {
 
 /** Undo restores the selection of the window being worked in (documents shown in several windows). */
 function bindSelection(doc, editor) {
-  doc.selection = {
+  editor.selectionBinding = doc.selection = {
     get: () => ({ ids: [...editor.selection], anchors: [...editor.anchors].map(([k, v]) => [k, [...v]]) }),
     set: (s) => {
       editor.selection = new SelectionSet(s.ids.filter((id) => doc.has(id)));
