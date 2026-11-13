@@ -284,11 +284,11 @@ export class Editor {
     const save = findCommand('file.save');
     if (!save) return false;
     if (s !== this.session) await this.switchSession(s);
-    this.transform.apply();
-    this.modal?.apply();
     let failed = false;
     const task = async () => {
       try {
+        this.transform.apply();
+        await Promise.all([this.modal?.apply(), s.waitForEdits()]);
         await save.run(this);
       } catch (error) {
         failed = true;
