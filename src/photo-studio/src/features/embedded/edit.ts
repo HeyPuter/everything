@@ -9,10 +9,16 @@ import { findLayer, type Layer } from '../../model/document';
 import { contentsOf, instancesOf, type EmbeddedContents } from '../../model/embedded';
 import { isMac } from '../../app/shortcuts';
 import { contentsFromDocument, openContents, plainContents, setContents } from './contents';
-import { detach, owners } from './owners';
+import { detach, owners, type Owner } from './owners';
 
 export { ownerOf, parentClosed, tabBadge } from './owners';
 
+/** Connect an opened or recovered contents tab to its parent. */
+export function attachContentsTab(e: Editor, s: DocumentSession, owner: Owner) {
+  owners.set(s, owner);
+  s.saveHandler = () => saveContents(e, s);
+  s.closeHandler = () => closeContents(e, s);
+}
 
 /** Open the selected embedded object's content in a new tab (or its open tab). */
 export async function editContents(e: Editor, layerId = e.selected) {
@@ -40,9 +46,7 @@ export async function editContents(e: Editor, layerId = e.selected) {
   s.hasDocument = true;
   s.saved = s.doc;
   s.fileName = `${name}.photo`;
-  owners.set(s, { parent, contents: l.embed?.contents, layerId: l.id, name });
-  s.saveHandler = () => saveContents(e, s);
-  s.closeHandler = () => closeContents(e, s);
+  attachContentsTab(e, s, { parent, contents: l.embed?.contents, layerId: l.id, name });
   e.session = s;
   e.selected = s.doc.layers.at(-1)?.id ?? '';
   e.fit();
