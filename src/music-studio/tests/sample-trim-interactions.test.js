@@ -4,6 +4,8 @@ import { createChannel } from '../src/model/project.js';
 import { newProject } from '../src/model/demo.js';
 import { openChannelEditor } from '../src/rack/editor.js';
 import { closeWindows } from '../src/ui/windows.js';
+import * as E from '../src/model/edits.js';
+import { defaultParams } from '../src/instruments/catalog.js';
 
 beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', () => 0);
@@ -86,4 +88,70 @@ it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('ignores a competi
   expect(store.undoStack).toHaveLength(1);
   store.undo();
   expect(store.project === before).toBe(true);
+});
+
+it.each(['start', 'end'].flatMap((which) => ['load', 'undo', 'redo', 'sample', 'type'].map((action) => [which, action])))('does not apply an obsolete sample %s drag after %s', (which, action) => {
+  const { store, id, pointer } = setup(which);
+  if (action === 'redo') {
+    store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+    store.undo();
+    pointer('pointerdown', which === 'start' ? 0 : 1); // No changed preview: redo remains available.
+  } else {
+    pointer('pointerdown');
+    pointer('pointermove', which === 'start' ? 0.2 : 0.8);
+  }
+  if (action === 'load') store.load(structuredClone(store.project));
+  else if (action === 'undo' || action === 'redo') store[action]();
+  else if (action === 'sample') store.apply('Replace sample', (p) => E.updateChannel(p, id, { sample: 'replacement', params: { ...p.channels[0].params, start: 0, end: 1 } }));
+  else store.apply('Change instrument', (p) => E.updateChannel(p, id, { type: 'synth', params: defaultParams('synth') }));
+  const restored = store.project;
+  const history = store.undoStack.length;
+  const canRedo = store.canRedo;
+  pointer('pointermove', 0.4);
+  pointer('pointerup', 0.4);
+  expect(store.project === restored).toBe(true);
+  expect(store.undoStack).toHaveLength(history);
+  expect(store.canRedo).toBe(canRedo);
+});
+
+it.each(['start', 'end'])('does not let an obsolete sample %s drag overwrite or commit another edit', (which) => {
+  const { store, pointer } = setup(which);
+  pointer('pointerdown');
+  pointer('pointermove', which === 'start' ? 0.2 : 0.8);
+  store.begin('Tempo');
+  store.preview((p) => ({ ...p, bpm: 150 }));
+  const newer = store.gesture;
+  const preview = store.project;
+  pointer('pointermove', 0.4);
+  pointer('pointerup', 0.4);
+  expect(store.project === preview).toBe(true);
+  expect(store.gesture === newer).toBe(true);
+  store.cancel();
+  expect(store.project.bpm).toBe(130);
+});
+
+it('preserves trim boundaries, both markers, fresh edits after load, and undo', () => {
+  const { store, pointer, value } = setup();
+  const original = store.project;
+  pointer('pointerdown');
+  pointer('pointermove', 2);
+  pointer('pointerup', 2);
+  expect(value()).toBe(0.998);
+  expect(store.project.channels[0].params.end).toBe(1);
+  store.undo();
+  expect(store.project === original).toBe(true);
+  pointer('pointerdown', 0.9);
+  pointer('pointermove', -1);
+  pointer('pointerup', -1);
+  expect(store.project.channels[0].params.end).toBe(0.002);
+  store.undo();
+  expect(store.project === original).toBe(true);
+  const replacement = structuredClone(store.project);
+  store.load(replacement);
+  pointer('pointerdown', 0.1);
+  pointer('pointermove', 0.3);
+  pointer('pointerup', 0.3);
+  expect(value()).toBe(0.3);
+  store.undo();
+  expect(store.project === replacement).toBe(true);
 });

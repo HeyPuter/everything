@@ -443,31 +443,42 @@ class ChannelEditor {
     const which = Math.abs(n - start) <= Math.abs(n - end) ? 'start' : 'end';
     const id = this.id;
     this.store.begin(which === 'start' ? 'Sample start' : 'Sample end');
+    const owner = this.store.gesture;
+    const channel = this.ch;
+    const current = (p = this.store.project) => {
+      const ch = channelById(p, id);
+      return this.store.gesture === owner && ch?.type === channel.type && ch?.sample === channel.sample;
+    };
     const apply = (x) => {
+      if (!current()) { finish(false); return; }
       const other = which === 'start' ? end : start;
       const v = which === 'start' ? Math.min(at(x), other - 0.002) : Math.max(at(x), other + 0.002);
       this.store.preview((p) => E.setChannelParam(p, id, which, clamp(Math.round(v * 10000) / 10000, 0, 1)));
       this.app.lastTweaked = { label: `${this.ch.name} sample ${which}`, target: { kind: 'channel', id, param: which } };
     };
     const move = (ev) => { if (ev.pointerId === e.pointerId) apply(ev.clientX); };
-    const finish = () => {
+    const finish = (commit = true) => {
       if (this.finishMarkerDrag !== finish) return;
+      const valid = current();
       this.finishMarkerDrag = null;
+      this.markerCurrent = null;
       box.removeEventListener('pointermove', move);
       box.removeEventListener('pointerup', up);
       box.removeEventListener('pointercancel', up);
       box.removeEventListener('lostpointercapture', up);
-      window.removeEventListener('blur', finish);
+      window.removeEventListener('blur', blur);
       try { box.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
-      this.store.commit();
+      if (commit && valid) this.store.commit();
     };
     const up = (ev) => { if (ev.pointerId === e.pointerId) finish(); };
+    const blur = () => finish();
     this.finishMarkerDrag = finish;
+    this.markerCurrent = current;
     box.addEventListener('pointermove', move);
     box.addEventListener('pointerup', up);
     box.addEventListener('pointercancel', up);
     box.addEventListener('lostpointercapture', up);
-    window.addEventListener('blur', finish);
+    window.addEventListener('blur', blur);
     try { box.setPointerCapture(e.pointerId); } catch { /* synthetic or ended pointer */ }
     apply(e.clientX);
   }
@@ -651,6 +662,7 @@ class ChannelEditor {
   // ---------------------------------------------------------------- sync
 
   onChange(p) {
+    if (this.markerCurrent && !this.markerCurrent(p)) this.finishMarkerDrag?.(false);
     const ch = channelById(p, this.id);
     if (!ch) {
       this.win?.close();
