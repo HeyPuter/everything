@@ -106,6 +106,7 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
   };
   num.addEventListener('change', commitNum);
   num.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       commitNum();
