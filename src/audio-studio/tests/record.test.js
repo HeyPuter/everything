@@ -169,6 +169,25 @@ describe('recorder', () => {
     expect(r.doc).toBe(null);
   });
 
+  it('stops and keeps the take when the input device is disconnected', async () => {
+    const app = fakeApp();
+    const track = new EventTarget();
+    track.getSettings = () => ({});
+    app.engine.openInput = async function () {
+      this.input = { channels: 1, stream: { getAudioTracks: () => [track] } };
+    };
+    const rec = createRecorder(app);
+    const doc = AudioFile.blank({ name: 'Rec', sampleRate: 48000, channels: 1, seconds: 0 });
+    await rec.start({ doc });
+    app.engine.emit('record-data', [new Float32Array(2048).fill(0.5)]);
+    track.dispatchEvent(new Event('ended'));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(rec.active).toBe(false);
+    expect(app.recording).toBe(false);
+    expect(doc.length).toBe(2048);
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/disconnected/), { error: true });
+  });
+
   it('explains blocked and missing microphones', async () => {
     expect(inputErrorMessage({ name: 'NotAllowedError' })).toMatch(/blocked/);
     expect(inputErrorMessage({ name: 'NotFoundError' })).toMatch(/No microphone/);
