@@ -4,8 +4,9 @@ import { describe, it, expect } from 'vitest';
 import { serializeProject, parseProject, KIND } from '../src/model/serialize.js';
 import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
-import { createSlot, createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
+import { createSlot, createMixerTrack, createChannel, createPattern, createNote, createClip, MAX_MIXER_TRACKS } from '../src/model/project.js';
 import { addMarker, deleteTrack } from '../src/playlist/clips.js';
+import { addPoint } from '../src/automation/points.js';
 import { resolveTarget } from '../src/automation/targets.js';
 import { compileAutomation } from '../src/engine/compile.js';
 
@@ -26,6 +27,45 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it.each(['channels', 'patterns', 'tracks', 'clips', 'notes', 'points', 'markers'])('preserves editor-created %s past the former file-only cutoff', (kind) => {
+    let p = richProject();
+    let read;
+    if (kind === 'channels') {
+      p.channels = Array.from({ length: 512 }, () => createChannel());
+      p = E.addChannel(p, createChannel({ name: 'Keep this channel' }));
+      read = (project) => project.channels;
+    } else if (kind === 'patterns') {
+      p.patterns = Array.from({ length: 999 }, (_, i) => createPattern(i));
+      p = E.addPattern(p, { name: 'Keep this pattern' }).project;
+      read = (project) => project.patterns;
+    } else if (kind === 'tracks') {
+      p = E.ensureTracks(p, 501);
+      p = E.addClips(p, [{ kind: 'pattern', ref: p.patterns[0].id, track: 500, start: 0, len: 96 }]).project;
+      read = (project) => ({ tracks: project.tracks, clips: project.clips });
+    } else if (kind === 'clips') {
+      p.clips = Array.from({ length: 50000 }, (_, i) => createClip({ kind: 'pattern', ref: p.patterns[0].id, track: 0, start: i * 96, len: 96 }));
+      p = E.addClips(p, [{ kind: 'pattern', ref: p.patterns[0].id, track: 0, start: 50000 * 96, len: 96 }]).project;
+      read = (project) => project.clips;
+    } else if (kind === 'notes') {
+      const pid = p.patterns[0].id, cid = p.channels[0].id;
+      p = E.setNotes(p, pid, cid, Array.from({ length: 100000 }, (_, i) => ({ ...createNote({ pos: i * 24 }), id: `n${i}` })));
+      p = E.addNotes(p, pid, cid, [createNote({ pos: 100000 * 24 })]);
+      read = (project) => project.patterns[0].notes[cid];
+    } else if (kind === 'points') {
+      const points = Array.from({ length: 10000 }, (_, i) => ({ t: i * 24, v: 0.5 }));
+      p = E.addAutomation(p, { id: 'large-auto', target: { kind: 'tempo' }, points: addPoint(points, { t: 240000, v: 0.9 }).points }).project;
+      read = (project) => project.automation['large-auto'].points;
+    } else {
+      p.markers = Array.from({ length: 1000 }, (_, i) => ({ id: `m${i}`, pos: i * 384, name: `Marker ${i}` }));
+      p = addMarker(p, { pos: 384000, name: 'Keep this marker' }).project;
+      read = (project) => project.markers;
+    }
+    const expected = read(p);
+    const actual = read(parseProject(serializeProject(p)));
+    // Compare compact JSON to avoid printing thousands of objects on failure.
+    expect(JSON.stringify(actual) === JSON.stringify(expected)).toBe(true);
+  });
+
   it('reports unsupported mixer capacity instead of silently deleting tracks', () => {
     const p = richProject();
     p.mixer = Array.from({ length: MAX_MIXER_TRACKS + 1 }, (_, i) => createMixerTrack(i));

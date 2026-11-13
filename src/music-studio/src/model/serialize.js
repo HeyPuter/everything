@@ -111,7 +111,6 @@ export function parseProject(input) {
   const channelId = uniqueId(new Set());
   const channels = (Array.isArray(data.channels) ? data.channels : [])
     .filter((c) => c && own(INSTRUMENTS, c.type))
-    .slice(0, 512)
     .map((c) => ({
       id: channelId(c.id),
       name: str(c.name, INSTRUMENTS[c.type].label, 60),
@@ -139,12 +138,12 @@ export function parseProject(input) {
     pan: num(n.pan, 0, -1, 1),
   });
   const patternId = uniqueId(new Set());
-  let patterns = (Array.isArray(data.patterns) ? data.patterns : []).slice(0, 999).map((p, i) => {
+  let patterns = (Array.isArray(data.patterns) ? data.patterns : []).map((p, i) => {
     const notes = {};
     if (p?.notes && typeof p.notes === 'object') {
       for (const [cid, list] of Object.entries(p.notes)) {
         if (!channelIds.has(cid) || !Array.isArray(list)) continue;
-        const ns = list.filter((n) => n && typeof n === 'object').slice(0, 100000).map(note);
+        const ns = list.filter((n) => n && typeof n === 'object').map(note);
         if (ns.length) notes[cid] = ns.sort((a, b) => a.pos - b.pos || a.key - b.key);
       }
     }
@@ -160,7 +159,6 @@ export function parseProject(input) {
       const aid = id(a.id);
       const pts = (Array.isArray(a.points) ? a.points : [])
         .filter((pt) => pt && typeof pt === 'object')
-        .slice(0, 10000)
         .map((pt) => ({ t: Math.max(0, Math.round(num(pt.t, 0))), v: num(pt.v, 0.5, 0, 1), ...(typeof pt.c === 'number' ? { c: num(pt.c, 0, -1, 1) } : {}) }))
         .sort((x, y) => x.t - y.t);
       automation[aid] = { id: aid, name: str(a.name, 'Automation', 60), target: sanitizeTarget(a.target), points: pts.length ? pts : [{ t: 0, v: 0.5 }] };
@@ -169,7 +167,7 @@ export function parseProject(input) {
   }
 
   const trackId = uniqueId(new Set());
-  const trackCount = Array.isArray(data.tracks) && data.tracks.length ? Math.min(data.tracks.length, 500) : 16;
+  const trackCount = Array.isArray(data.tracks) && data.tracks.length ? data.tracks.length : 16;
   const tracks = Array.from({ length: trackCount }, (_, i) => {
     const t = data.tracks?.[i];
     const base = createTrack(i);
@@ -179,7 +177,6 @@ export function parseProject(input) {
   const clipId = uniqueId(new Set());
   const clips = (Array.isArray(data.clips) ? data.clips : [])
     .filter((c) => c && ((c.kind === 'pattern' && patternIds.has(c.ref)) || (c.kind === 'audio' && channelIds.has(c.ref)) || (c.kind === 'auto' && own(automation, c.ref))))
-    .slice(0, 50000)
     .map((c) => ({
       id: clipId(c.id),
       kind: c.kind,
@@ -195,7 +192,7 @@ export function parseProject(input) {
   const loopEnd = Math.round(num(data.loop?.end, 0));
   const loop = data.loop && loopEnd > loopStart ? { start: loopStart, end: loopEnd } : null;
   const markerId = uniqueId(new Set());
-  const markers = (Array.isArray(data.markers) ? data.markers : []).filter((m) => m && typeof m === 'object').slice(0, 1000).map((m) => ({ id: markerId(m.id), pos: Math.max(0, Math.round(num(m.pos, 0))), name: str(m.name, 'Marker', 60) }));
+  const markers = (Array.isArray(data.markers) ? data.markers : []).filter((m) => m && typeof m === 'object').map((m) => ({ id: markerId(m.id), pos: Math.max(0, Math.round(num(m.pos, 0))), name: str(m.name, 'Marker', 60) }));
   const sig = Array.isArray(data.sig) && [1, 2, 4, 8, 16].includes(data.sig[1]) ? [Math.round(num(data.sig[0], 4, 1, 16)), data.sig[1]] : [4, 4];
 
   return {
