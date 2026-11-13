@@ -20,7 +20,13 @@ import { WAVEFORM_CONTEXT } from '../ui/menus.js';
 import { contextMenu } from '../ui/menubar.js';
 import { dbToGain, formatDb, framesPerSecond, musicalStep } from '../lib/time.js';
 import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
-import { wheelZoom, followPlayhead, editSmoothFrames, defaultFadeCurve } from './view-prefs.js';
+import {
+  wheelZoom,
+  followPlayhead,
+  editSmoothFrames,
+  defaultFadeCurve,
+  MIN_VIEW_FRAMES,
+} from './view-prefs.js';
 
 const CHANNEL_NAMES = ['L', 'R', 'C', 'LFE', 'Ls', 'Rs'];
 const CHANNEL_TOKENS = ['--wave', '--wave-2', '--wave-3', '--wave-4'];
@@ -937,7 +943,7 @@ export class WaveformView {
         const mid = (a.x + b.x) / 2;
         const rect = s.getBoundingClientRect();
         const v = pinch.view;
-        const span = (v.end - v.start) * (pinch.dist / dist);
+        const span = Math.max(MIN_VIEW_FRAMES, (v.end - v.start) * (pinch.dist / dist));
         const anchorFrame = v.start + ((pinch.mid - rect.left) / this.width) * (v.end - v.start);
         const start = anchorFrame - ((mid - rect.left) / this.width) * span;
         this.doc.setView(start, start + span);

@@ -249,3 +249,17 @@ describe('5.1 channel names', () => {
     expect(names).toEqual(['r Right', 'r Center', 'r LFE', 'r Left Surround', 'r Right Surround']);
   });
 });
+
+describe('zooming in at the deepest zoom', () => {
+  it('keeps the view in place instead of scrolling it', async () => {
+    const { wheelZoom } = await import('../src/editor/view-prefs.js');
+    const { app, doc } = await makeView({ frames: 480000, channels: 1 });
+    doc.setView(100000, 100016);
+    for (let i = 0; i < 5; i++) wheelZoom(app, doc, { deltaY: -100 }, 200, 400);
+    expect(doc.view).toMatchObject({ start: 100000, end: 100016 });
+    // Zoom In (Time) around the playhead.
+    doc.setCursor(100004);
+    for (let i = 0; i < 5; i++) await app.commands.run('view.zoomInTime');
+    expect(doc.view).toMatchObject({ start: 100000, end: 100016 });
+  });
+});

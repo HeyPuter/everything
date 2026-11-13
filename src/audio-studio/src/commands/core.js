@@ -16,7 +16,7 @@ import { baseName } from '../audio/decode.js';
 import * as puter from '../storage/puter.js';
 import { shortcutsDialog } from '../ui/shortcuts-dialog.js';
 import { preferencesDialog } from '../ui/preferences.js';
-import { deleteSmoothFrames, zoomInFactor } from '../editor/view-prefs.js';
+import { deleteSmoothFrames, zoomInFactor, MIN_VIEW_FRAMES } from '../editor/view-prefs.js';
 import { shuttleCommands } from './shuttle.js';
 import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
 
@@ -895,7 +895,7 @@ function zoomTime(app, factor) {
   const p = app.playhead;
   const centre = p >= v.start && p <= v.end ? p : (v.start + v.end) / 2;
   const frac = (centre - v.start) / span;
-  const nspan = span * factor;
+  const nspan = Math.max(MIN_VIEW_FRAMES, span * factor);
   doc.setView(centre - frac * nspan, centre - frac * nspan + nspan);
 }
 

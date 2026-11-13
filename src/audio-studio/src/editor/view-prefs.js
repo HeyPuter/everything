@@ -2,6 +2,9 @@
 // Preferences: mouse-wheel zoom (rate and anchor) and how the view follows the
 // playhead during playback (page by page or centered).
 
+/** The shortest view (frames) either editor shows; zooms stop there instead of drifting. */
+export const MIN_VIEW_FRAMES = 16;
+
 /**
  * Zooms `doc`'s view for a wheel event. The zoom keeps the frame under the
  * pointer in place, or the playhead when the anchor preference says so (and
@@ -19,7 +22,8 @@ export function wheelZoom(app, doc, e, x, width) {
     if (p >= v.start && p <= v.end) anchorX = ((p - v.start) / span) * width;
   }
   const f = v.start + (anchorX / width) * span;
-  const nspan = span * factor;
+  // Past the deepest zoom the span stays put, and so does the anchor (the view would scroll).
+  const nspan = Math.max(MIN_VIEW_FRAMES, span * factor);
   const start = f - (anchorX / width) * nspan;
   doc.setView(start, start + nspan);
 }
