@@ -9,7 +9,7 @@ import { plainText } from '../../imaging/text/model';
 import { findMatches, replaceAll, type FindOptions } from '../../imaging/text/find';
 import { englishChecker, matchCase, type Misspelling, type SpellChecker } from '../../imaging/text/spelling';
 import { openWorkspace } from '../retouch/workspace';
-import { commit, editLayers, insert, ordered, session, setSelection, startEdit } from './session';
+import { commit, editLayers, inputFocused, insert, ordered, session, setSelection, startEdit } from './session';
 import { editable, ppiOf } from './text-utils';
 import './find-spell.css';
 
@@ -105,7 +105,7 @@ export async function findReplace(e: Editor) {
     }
     await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
     if (!isCurrent()) return;
-    ws.q<HTMLElement>('#fr-next').focus();
+    if (inputFocused()) ws.q<HTMLElement>('#fr-next').focus();
     status(`Found in “${found.layer.name}”.`);
   };
   const changeOne = () => {
@@ -256,7 +256,7 @@ export async function checkSpelling(e: Editor) {
     enable(true);
     await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
     if (!isCurrent()) return;
-    ws.q<HTMLElement>('#sp-change-one').focus();
+    if (inputFocused()) ws.q<HTMLElement>('#sp-change-one').focus();
   };
   // Skip past the current word without changing it.
   const skip = async () => {

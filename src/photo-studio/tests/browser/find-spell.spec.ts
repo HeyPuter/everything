@@ -681,3 +681,46 @@ for (const phase of ['initial search', 'next word']) for (const action of ['bulk
   await run(page, 'edit.redo');
   expect(await layerTexts(page)).toEqual(corrected);
 });
+
+for (const target of ['dialog field', 'unchanged']) for (const dialog of ['Find', 'Spelling']) test(`a delayed ${dialog} result respects ${target} focus`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded font', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate((dialog) => window.photoStudio.runCommand(dialog === 'Find' ? 'edit.find-replace-text' : 'edit.check-spelling'), dialog);
+  const dlg = page.locator(dialog === 'Find' ? 'dialog.fr-workspace' : 'dialog.sp-workspace');
+  if (dialog === 'Find') {
+    await dlg.locator('#fr-find').fill('teh');
+    await dlg.getByRole('button', { name: 'Find Next' }).click();
+  }
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  const field = dlg.locator(dialog === 'Find' ? '#fr-find' : '#sp-change');
+  if (target !== 'unchanged') await field.fill('custom');
+  if (target !== 'unchanged') await field.evaluate((el) => {
+    (window as unknown as { searchFieldBlurred: boolean }).searchFieldBlurred = false;
+    el.addEventListener('blur', () => { (window as unknown as { searchFieldBlurred: boolean }).searchFieldBlurred = true; }, { once: true });
+  });
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  if (target === 'unchanged') {
+    await expect(dlg.getByRole('button', { name: dialog === 'Find' ? 'Find Next' : 'Change', exact: true })).toBeFocused();
+    return;
+  }
+  await expect(field).toBeFocused();
+  if (target === 'dialog field') expect(await page.evaluate(() => (window as unknown as { searchFieldBlurred: boolean }).searchFieldBlurred)).toBe(false);
+  await page.keyboard.insertText(' word');
+  await expect(field).toHaveValue('custom word');
+  expect(await layerTexts(page)).toEqual(['teh']);
+});

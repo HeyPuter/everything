@@ -380,7 +380,7 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x:
     e.selectLayers([id]);
     render(e);
     e.update();
-    focusInput(e);
+    focusInput(e, true);
   });
 }
 
