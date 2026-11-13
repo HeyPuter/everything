@@ -48,10 +48,14 @@ Most collections are numbered with `incr` and read back by key in batches. New m
 - `vsr:r:<id>` review; `vsr:r:<id>:vseq` and `:v:<n>` versions; `vsr:project:<projectId>` review of a project; `vsr:pub:<clientId>` finished publishes.
 - `vsr:r:<id>:m:<uuid>` members; `:mdir` maps escaped UUID fields to member UUIDs. Legacy `:mseq` and `:mi:<n>` entries remain readable.
 - `vsr:invite:<sha256(token)>` invites (tokens are never stored); `:iseq` and `:ii:<n>` the invite list.
-- `vsr:r:<id>:seq` change counter; `:log:<n>` comment snapshot saved as change n; `:c:<commentId>` latest snapshot.
-- `vsr:r:<id>:url:<n>` cached video read link; `vsr:rate:...`, `vsr:wrate:...` and `vsr:joinfail:...` counters with expiry.
+- `vsr:r:<id>:seq` change counter; `:log:<n>` delivery at cursor n (snapshot plus optional skip/recovery receipt); `:c:<commentId>` latest snapshot with its original revision.
+- `vsr:r:<id>:url:<n>` cached video read link; `vsr:rate:...`, `vsr:wrate:...`, `vsr:rrate:...` and `vsr:joinfail:...` counters with expiry.
 
-Member grant history is bounded by the review’s 50-invite limit; removal retires old grant payloads in the same update. Normal review polling still reads one member record. The member directory is about 100 KB for 1,000 UUIDs; other values stay small (a few KB at most). A change number taken but never written (a crashed request) is skipped once a later change is a minute old; until then sync waits for it, so nothing is missed.
+Member grant history is bounded by the review’s 50-invite limit; removal retires old grant payloads in the same update. Normal review polling still reads one member record. The member directory is about 100 KB for 1,000 UUIDs; other values stay small (a few KB at most). A change number taken but never written (a crashed request) is skipped once a later change is a minute old; until then sync waits for it, to allow an abandoned slot to stop blocking sync. A write delayed beyond that window can still arrive behind an advanced cursor; that separate race remains under review.
+
+If a comment snapshot was saved but its log write failed, an unchanged retry (post, edit, delete, or resolve) checks the original log receipt. Missing/skipped deliveries are appended at a new sync cursor with the original comment revision. Recovery never rewrites the canonical comment, so it cannot overwrite a newer edit or deletion. Clients deduplicate by comment ID and revision, independently of the delivery cursor. Failure markers use partial updates so a lost acknowledgement cannot erase a log snapshot already written.
+
+The recovery receipt is saved only after the new delivery succeeds; receipt failure may cause another harmless delivery on retry. Recovery can deliver an already accepted change even when the review is full. Its separate limit of 60 recovery attempts per person per minute bounds writes if receipt storage keeps failing, without consuming the normal edit budget. Ordinary writes and polling use the same KV operations as before; unchanged retries/no-op edits add one receipt read, and an actual recovery needs extra writes. Recovery still depends on a retry or subsequent mutation; it is not a background sweep of stored comments.
 
 ## Authentication
 

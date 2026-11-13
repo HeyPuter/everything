@@ -21,6 +21,7 @@
  *   vsr:r:<rid>:c:<commentId>        latest snapshot of a comment
  *   vsr:rate:<rid>:<uuid>:<minute>   comments posted this minute (expires)
  *   vsr:wrate:<rid>:<uuid>:<minute>  comment edits, deletes and resolves this minute (expires)
+ *   vsr:rrate:<rid>:<uuid>:<minute>  recovery deliveries this minute (expires)
  *   vsr:joinfail:<uuid>:<window>     failed joins in a 10 minute window (expires)
  */
 import {
@@ -560,11 +561,41 @@ export class ReviewService {
       await this.kv.set(`vsr:r:${rid}:c:${comment.id}`, saved);
       await this.kv.set(`vsr:r:${rid}:log:${n}`, { at: this.now(), comment: saved });
     } catch (err) {
-      // Keep the change log without holes others would wait on.
-      await this.kv.set(`vsr:r:${rid}:log:${n}`, { at: this.now(), skip: true }).catch(() => {});
+      await this.skipChange(rid, n);
       throw err;
     }
     return saved;
+  }
+
+  async skipChange(rid, n) {
+    // A write can succeed before its acknowledgement is lost. A partial marker
+    // must not erase a snapshot (or recovery receipt) already stored here.
+    await this.kv.update(`vsr:r:${rid}:log:${n}`, { at: this.now(), skip: true }).catch(() => {});
+  }
+
+  async recoverComment(rid, comment, user) {
+    const key = `vsr:r:${rid}:log:${comment.seq}`;
+    const logged = await this.kv.get(key);
+    if (logged?.recovered || (!logged?.skip && logged?.comment?.id === comment.id && logged.comment.seq === comment.seq)) return comment;
+    // Bound repeated deliveries if receipt writes keep failing. This separate
+    // budget still lets the last permitted edit recover immediately.
+    const minute = Math.floor(this.now() / 60_000);
+    if (!(await this.bump(`vsr:rrate:${rid}:${user.uuid}:${minute}`, LIMITS.changesPerMinute, 120))) fail(429, 'You are retrying comments very quickly. Wait a moment and try again.');
+    // Other clients may already have passed the missing/skipped entry. Deliver
+    // the snapshot at a new cursor but retain its original revision, so it
+    // cannot replace a newer edit/delete. Never rewrite the canonical comment.
+    // Recovery of an accepted change is allowed even when new changes are full.
+    const n = await this.kv.incr(`vsr:r:${rid}:seq`);
+    try {
+      await this.kv.set(`vsr:r:${rid}:log:${n}`, { at: this.now(), comment });
+    } catch (err) {
+      await this.skipChange(rid, n);
+      throw err;
+    }
+    // Only acknowledge recovery after its delivery is durable. Failure to save
+    // this receipt can cause a repeated delivery, which clients deduplicate.
+    await this.kv.update(key, { at: this.now(), skip: true, recovered: n }).catch(() => {});
+    return comment;
   }
 
   async roomForChange(rid) {
@@ -591,7 +622,7 @@ export class ReviewService {
     const existing = await this.kv.get(`vsr:r:${rid}:c:${value.id}`);
     if (existing) {
       // A retry of a comment that was saved: hand back what was saved.
-      if (existing.author?.uuid === user.uuid) return { comment: existing };
+      if (existing.author?.uuid === user.uuid) return { comment: await this.recoverComment(rid, existing, user) };
       fail(409, 'That comment id is taken.');
     }
     if (value.parent) {
@@ -627,20 +658,20 @@ export class ReviewService {
       const problem = textProblem(input.text);
       if (problem) fail(400, problem);
       const text = cleanText(input.text);
-      if (text === c.text) return { comment: c };
+      if (text === c.text) return { comment: await this.recoverComment(rid, c, user) };
       await this.roomForEdit(rid, user);
       return { comment: await this.record(rid, { ...c, text, edited: this.now() }) };
     }
     if (input.op === 'comment.delete') {
       if (!(mine && canComment(role)) && role !== 'owner') fail(403, 'You can only delete your own comments.');
-      if (c.deleted) return { comment: c };
+      if (c.deleted) return { comment: await this.recoverComment(rid, c, user) };
       await this.roomForEdit(rid, user);
       return { comment: await this.record(rid, { ...c, text: '', deleted: true, edited: this.now() }) };
     }
     if (!canResolve(role)) fail(403, 'You can watch this review but not resolve comments.');
     if (c.parent) fail(400, 'Only whole threads can be resolved.');
     const resolved = input.resolved !== false;
-    if (Boolean(c.resolved) === resolved) return { comment: c };
+    if (Boolean(c.resolved) === resolved) return { comment: await this.recoverComment(rid, c, user) };
     await this.roomForEdit(rid, user);
     return { comment: await this.record(rid, { ...c, resolved, resolvedBy: resolved ? { uuid: user.uuid, username: user.username } : null }) };
   }
