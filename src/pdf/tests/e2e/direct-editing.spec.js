@@ -560,3 +560,18 @@ for (const rich of [false, true])
     expect(items.some((item) => item.str === 'Edited pasted')).toBe(true);
     expect(items.map((item) => item.str).join('')).toContain('Second edited');
   });
+
+test('Undo in a text draft takes back a typed word, not one letter', async ({ page }) => {
+  await openDocument(page);
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit text: Original text', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
+  await expect(input).toBeFocused();
+  await input.evaluate((node) => node.setSelectionRange(node.value.length, node.value.length));
+  // The first keystroke marks the document unsaved; the rest change nothing around the draft.
+  await page.keyboard.type(' x');
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.type('more words');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(input).toHaveValue('Original text ');
+});

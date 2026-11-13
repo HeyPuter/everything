@@ -2505,6 +2505,11 @@ export function createEditor({
             textEdit.offset.some((n) => Math.abs(n) > 1e-8)))),
     );
   }
+  // Rewriting text that has not changed still replaces it, and Chrome then closes the typing
+  // step of an open text draft: Undo there took back one character at a time.
+  const setText = (node, text) => {
+    if (node.textContent !== text) node.textContent = text;
+  };
   function updateStatus() {
     if (destroyed) return;
     // A brief refresh must still block duplicate actions, without flashing every control
@@ -2535,7 +2540,7 @@ export function createEditor({
     });
     setStepOff(zoomInButton, busy || !pdf || zoom >= ZOOM_LEVELS.at(-1) - 1e-9);
     setStepOff(zoomOutButton, busy || !pdf || zoom <= ZOOM_LEVELS[0] + 1e-9);
-    nameButton.querySelector('span').textContent = name.replace(/\.pdf$/i, '');
+    setText(nameButton.querySelector('span'), name.replace(/\.pdf$/i, ''));
     nameButton.setAttribute('aria-label', `Rename ${name}`);
     // The name is clipped on narrow screens, so the tooltip carries it in full.
     nameButton.title = name;
@@ -2544,39 +2549,48 @@ export function createEditor({
     const pendingText =
       pendingTextEdit() || pendingNoteEdit() || pageForms.draft.dirty || pageImages.dirty;
     const unsaved = session.dirty || pendingText || protectionDirty;
-    document.title = `${unsaved ? '* ' : ''}${shownTitle || name} · PDF Editor`;
+    const title = `${unsaved ? '* ' : ''}${shownTitle || name} · PDF Editor`;
+    if (document.title !== title) document.title = title;
     // The desktop window shows the file, marked while it has unsaved changes, as its neighbours do.
     P.setWindowTitle(`${unsaved ? '● ' : ''}${name}`);
     protectionBadge.hidden = !protection;
     if (tool === 'select' && !access().owner)
-      hint.textContent =
-        'This PDF has document permissions. Select Protected to view them or unlock editing.';
+      setText(
+        hint,
+        'This PDF has document permissions. Select Protected to view them or unlock editing.',
+      );
     protectionBadge.disabled = busy;
     protectionBadge.title = access().owner
       ? 'Protected. Change or remove the password and restrictions.'
       : 'View permissions or unlock editing with the permissions password.';
     document.body.classList.toggle('pdf-restricted-print', !access().printHighQuality);
-    printNotice.textContent = access().print
-      ? 'Use File → Print in PDF Editor to print this document at its allowed resolution.'
-      : 'Printing is not allowed by this PDF’s permissions.';
-    saveStatus.textContent = activity
-      ? activity
-      : saving
-        ? 'Saving…'
-        : initializing
-          ? 'Opening PDF…'
-          : unsaved
-            ? 'Unsaved changes'
-            : path && cloudRevision === session.revision
-              ? 'Saved to Puter'
-              : downloadedRevision === session.revision
-                ? 'Downloaded'
-                : 'Local file';
+    setText(
+      printNotice,
+      access().print
+        ? 'Use File → Print in PDF Editor to print this document at its allowed resolution.'
+        : 'Printing is not allowed by this PDF’s permissions.',
+    );
+    setText(
+      saveStatus,
+      activity
+        ? activity
+        : saving
+          ? 'Saving…'
+          : initializing
+            ? 'Opening PDF…'
+            : unsaved
+              ? 'Unsaved changes'
+              : path && cloudRevision === session.revision
+                ? 'Saved to Puter'
+                : downloadedRevision === session.revision
+                  ? 'Downloaded'
+                  : 'Local file',
+    );
     saveStatus.title = saveStatus.textContent;
     saveButton.disabled = saving || busy;
     // Without a session the button says what saving needs first.
     const saveLabel = signedOut() ? 'Sign in to save' : path ? 'Save' : 'Save to Puter';
-    saveButton.querySelector('span').textContent = saveLabel;
+    setText(saveButton.querySelector('span'), saveLabel);
     saveButton.setAttribute('aria-label', saveLabel);
     saveButton.title = withShortcut(saveLabel, 'Mod+S');
     nameButton.disabled = busy || saving;
@@ -2603,8 +2617,8 @@ export function createEditor({
     if (pdf) {
       if (!pageInputDirty) pageInput.value = String(pageIndex + 1);
       pageInput.max = String(pdf.numPages);
-      pageTotal.textContent = `/ ${pdf.numPages}`;
-      statusPage.textContent = `${pdf.numPages} ${pdf.numPages === 1 ? 'page' : 'pages'}`;
+      setText(pageTotal, `/ ${pdf.numPages}`);
+      setText(statusPage, `${pdf.numPages} ${pdf.numPages === 1 ? 'page' : 'pages'}`);
     }
     const destination = clampPageIndex(pendingNavigation?.index ?? pageIndex);
     // Side by side, the buttons turn pairs: the other page of the pair on view is in sight.
