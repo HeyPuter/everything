@@ -143,6 +143,19 @@ export class Autosaver {
     return this.busy;
   }
 
+  #needsBackup(editor) {
+    const doc = editor.doc;
+    if (!doc.dirty || doc.tx) return false;
+    const saved = this.saved.get(doc);
+    const pending = this.pending.get(doc);
+    const stashed = this.stashed.get(doc.recoveryId);
+    const file = fileInfo(editor.file);
+    // Undo/Redo or Save As may return to a backed-up state while another
+    // snapshot is about to replace it, including a different file association.
+    return !sameBackup(saved, doc, file) ||
+      (pending && !sameBackup(pending, doc, file)) || (stashed && !sameBackup(stashed, doc, file));
+  }
+
   /** Documents whose recovery copy is out of date: one window each. */
   #changed() {
     const seen = new Set();
@@ -150,15 +163,7 @@ export class Autosaver {
       const doc = editor.doc;
       if (seen.has(doc)) return false;
       seen.add(doc);
-      if (!doc.dirty || doc.tx) return false;
-      const saved = this.saved.get(doc);
-      const pending = this.pending.get(doc);
-      const stashed = this.stashed.get(doc.recoveryId);
-      const file = fileInfo(editor.file);
-      // Undo/Redo or Save As may return to a backed-up state while another
-      // snapshot is about to replace it, including a different file association.
-      return !sameBackup(saved, doc, file) ||
-        (pending && !sameBackup(pending, doc, file)) || (stashed && !sameBackup(stashed, doc, file));
+      return this.#needsBackup(editor);
     });
   }
 
@@ -211,11 +216,10 @@ export class Autosaver {
     for (const editor of this.#changed()) {
       const doc = editor.doc;
       // Earlier documents may have awaited slow storage since this list was
-      // built. Never capture a gesture that began meanwhile, or a closed/saved
-      // document; cancelled gestures keep the previous revision number.
-      if (!doc.dirty || doc.tx) continue;
+      // built. Recheck the current window and backup state before serialization:
+      // Undo/Redo may have restored the backup, or a gesture may have started.
       const open = this.app.editors.find((e) => e.doc === doc);
-      if (!open) continue;
+      if (!open || !this.#needsBackup(open)) continue;
       const discardToken = this.discarded.get(doc);
       const rev = doc.revision;
       const commentsRevision = doc.commentsRevision;
