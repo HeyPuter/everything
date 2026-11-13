@@ -451,6 +451,14 @@ export class CanvasInput {
       this.#applyPendingTempTool();
       return;
     }
+    if (this.pointers.get(e.pointerId)?.type === 'touch') {
+      this.#clearTouchTimers();
+      this.pendingTouch = null;
+      this.touchStart = null;
+      this.longPressed = false;
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.gesture = null;
+    }
     if (!this.active || this.active.id !== e.pointerId) return;
     const { tool, last } = this.active;
     this.active = null;

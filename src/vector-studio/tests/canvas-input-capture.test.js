@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { bootApp } from './helpers.js';
 import { createPath } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
@@ -59,6 +59,61 @@ describe('losing pointer capture mid-drag', () => {
     loseCapture(app);
     expect(doc.undoStack.length).toBe(steps + 1);
     expect(doc.get(id).anchors[0]).toMatchObject({ x: 120, y: 110 });
+  });
+
+  it('abandons a pending touch when capture is lost before settling', () => {
+    vi.useFakeTimers();
+    const menu = vi.spyOn(app, 'showContextMenu');
+    try {
+      const input = app.input;
+      input.down(ptr(150, 150, { pointerType: 'touch' }));
+      loseCapture(app);
+      vi.advanceTimersByTime(700);
+      expect(menu).not.toHaveBeenCalled();
+      expect(app.editor.selection.size).toBe(0);
+      expect(input.active).toBeNull();
+      expect(input.pointers.size).toBe(0);
+      expect(doc.tx).toBeFalsy();
+    } finally {
+      app.input.reset();
+      menu.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the hold timer after capture loss ends a settled touch press', () => {
+    vi.useFakeTimers();
+    const menu = vi.spyOn(app, 'showContextMenu');
+    try {
+      const input = app.input;
+      input.down(ptr(150, 150, { pointerType: 'touch' }));
+      vi.advanceTimersByTime(120);
+      loseCapture(app);
+      expect(input.pendingTouch).toBeNull();
+      expect(input.longPressTimer).toBe(0);
+      expect(input.active).toBeNull();
+      expect(doc.tx).toBeFalsy();
+      vi.advanceTimersByTime(700);
+      expect(menu).not.toHaveBeenCalled();
+    } finally {
+      app.input.reset();
+      menu.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends a pinch when a participating touch loses capture', () => {
+    const input = app.input;
+    input.down(ptr(100, 100, { pointerType: 'touch' }));
+    input.down(ptr(200, 100, { pointerType: 'touch', pointerId: 2 }));
+    input.move(ptr(250, 100, { pointerType: 'touch', pointerId: 2 }));
+    const view = app.editor.view.snapshot();
+    loseCapture(app);
+    input.move(ptr(300, 100, { pointerType: 'touch', pointerId: 2 }));
+    expect(app.editor.view.snapshot()).toEqual(view);
+    expect(input.gesture).toBeNull();
+    input.up(ptr(300, 100, { pointerType: 'touch', pointerId: 2 }));
+    expect(input.pointers.size).toBe(0);
   });
 
   it('ends a middle-button pan', () => {
