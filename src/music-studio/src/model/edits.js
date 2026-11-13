@@ -46,9 +46,20 @@ export function setProjectProps(project, changes) {
 
 // ------------------------------------------------------------------ channels
 
+// Immutable automation dictionaries share this index during batch imports.
+const channelTargetIds = new WeakMap();
+
 /** Inserts a channel and returns { project, id }; callers must use the reserved ID. */
 export function addChannel(project, channel = createChannel(), index = project.channels.length) {
-  const id = reserveId(new Set(project.channels.map((c) => c.id)), channel.id);
+  let targets = channelTargetIds.get(project.automation);
+  if (!targets) {
+    targets = new Set();
+    for (const a of Object.values(project.automation)) if (a.target?.kind === 'channel') targets.add(a.target.id);
+    channelTargetIds.set(project.automation, targets);
+  }
+  const used = new Set(project.channels.map((c) => c.id));
+  let id = reserveId(used, channel.id);
+  while (targets.has(id)) id = reserveId(used);
   const channels = project.channels.slice();
   channels.splice(clamp(index, 0, channels.length), 0, id === channel.id ? channel : { ...channel, id });
   return { project: { ...project, channels }, id };

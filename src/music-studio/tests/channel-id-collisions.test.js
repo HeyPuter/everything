@@ -8,6 +8,7 @@ import { makeUnique } from '../src/playlist/clips.js';
 import { ProjectFiles } from '../src/storage/files.js';
 import { importMidi } from '../src/io/midi-project.js';
 import { readMidi, writeMidi } from '../src/io/midi.js';
+import { compileAutomation } from '../src/engine/compile.js';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 function fixture(type = 'synth') {
@@ -124,4 +125,58 @@ it('retains a valid supplied channel object and permits IDs used by other source
   store.apply('Add', (p) => E.addChannel(p, ch));
   expect(store.project.channels.at(-1)).toBe(ch);
   expect(store.project.patterns).toBe(project.patterns);
+});
+
+it.each(['add', 'supplied', 'clone', 'audio', 'MIDI', 'drums'])('does not attach removed-channel automation during %s creation', async (action) => {
+  const { project, ch, pid } = fixture();
+  const source = { ...createChannel({ name: 'Source' }), id: 'live-channel' };
+  project.channels.push(source);
+  project.patterns[0].notes[source.id] = [{ id: 'live-note', key: 60, pos: 0, len: 48, vel: 0.8, pan: 0 }];
+  const automation = { id: 'old-volume', target: { kind: 'channel', id: ch.id, param: 'volume' }, points: [{ t: 0, v: 0 }] };
+  project.automation[automation.id] = automation;
+  project.clips = [createClip({ kind: 'auto', ref: automation.id, len: 96 })];
+  const lanes = (p) => compileAutomation(p, (id) => p.channels.findIndex((c) => c.id === id));
+  expect(lanes(project)).toHaveLength(1);
+  const app = new App(document.createElement('div'), { project, storage: { getItem: () => null, setItem() {} } });
+  app.notify = vi.fn();
+  app.store.apply('Remove original', (p) => E.removeChannels(p, [ch.id]));
+  expect(lanes(app.store.project)).toHaveLength(0);
+  const supplied = { ...createChannel({ name: 'Supplied' }), id: ch.id };
+  const midi = readMidi(writeMidi({ ppq: 96, tracks: [{ channel: action === 'drums' ? 9 : 0, notes: [{ key: action === 'drums' ? 36 : 60, tick: 0, len: 48, vel: 100 }] }] }));
+  collide(action === 'audio' ? 1 : 0);
+  let id;
+  if (action === 'add') id = app.addChannel({ name: 'New' });
+  else if (action === 'supplied') id = app.store.apply('Insert supplied', (p) => E.addChannel(p, supplied)).id;
+  else if (action === 'clone') id = app.store.apply('Clone', (p) => E.cloneChannel(p, source.id, { withNotes: true })).id;
+  else if (action === 'audio') {
+    vi.stubGlobal('OfflineAudioContext', class { async decodeAudioData() { return { numberOfChannels: 1, sampleRate: 48000, getChannelData: () => new Float32Array(48) }; } });
+    const files = new ProjectFiles(app, { putSample: vi.fn(async () => {}) });
+    id = (await files.importAudio({ size: 4, arrayBuffer: async () => new ArrayBuffer(4) }, { name: 'New.wav' })).channelId;
+  } else id = app.store.apply('Import MIDI', (p) => importMidi(p, midi)).channelIds[0];
+  expect(lanes(app.store.project)).toHaveLength(0);
+  expect(id).not.toBe(ch.id);
+  expect(app.store.project.channels.some((c) => c.id === id)).toBe(true);
+  expect(app.store.project.automation[automation.id]).toBe(automation);
+  expect(app.store.project.clips).toContain(project.clips[0]);
+  if (action === 'clone') expect(E.getNotes(app.store.project, pid, id)).toHaveLength(1);
+  if (action === 'supplied') expect(supplied.id).toBe(ch.id);
+  app.store.undo(); app.store.undo();
+  expect(app.store.project).toBe(project);
+  expect(lanes(app.store.project)[0].target).toMatchObject({ kind: 'strip', slot: 0, field: 'volume' });
+  app.store.redo(); app.store.redo();
+  expect(lanes(app.store.project)).toHaveLength(0);
+});
+
+it('bounds retained-target scanning during a multi-part MIDI import and refreshes it after target edits', () => {
+  const p = createProject();
+  let reads = 0;
+  for (let i = 0; i < 100; i++) p.automation[`a${i}`] = { id: `a${i}`, target: { kind: 'channel', get id() { reads++; return `removed-${i}`; }, param: 'volume' }, points: [{ t: 0, v: 0 }] };
+  const midi = readMidi(writeMidi({ ppq: 96, tracks: Array.from({ length: 50 }, (_, i) => ({ channel: i % 9, notes: [{ key: 60, tick: 0, len: 48, vel: 100 }] })) }));
+  const result = importMidi(p, midi);
+  expect(result.channelIds).toHaveLength(50);
+  expect(reads).toBeLessThanOrEqual(200);
+  const updated = E.updateAutomation(result.project, 'a0', { target: { kind: 'channel', id: '00000000', param: 'volume' } });
+  collide();
+  const added = E.addChannel(updated);
+  expect(added.id).not.toBe('00000000');
 });
