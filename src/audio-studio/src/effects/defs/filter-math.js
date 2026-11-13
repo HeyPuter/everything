@@ -134,13 +134,18 @@ export function cascadeGroupDelay(coefs, freqs, rate) {
 
 const toDb = (g) => 20 * Math.log10(Math.max(Math.abs(g), 1e-10));
 
-/** Summed dB response of a list of biquads at each frequency, plus `offsetDb`. */
+/**
+ * Summed dB response of a list of biquads at each frequency, plus `offsetDb`.
+ * The floor (-200 dB a section) applies to the total, not to each section:
+ * a normalised narrow band pass puts its whole gain in one section (1e-18
+ * for 10 to 100 Hz), which the other sections make up.
+ */
 export function cascadeDb(coefs, freqs, rate, offsetDb = 0) {
   const out = new Float32Array(freqs.length);
   for (let i = 0; i < freqs.length; i++) {
     let db = offsetDb;
-    for (const c of coefs) db += toDb(magnitude(c, freqs[i], rate));
-    out[i] = db;
+    for (const c of coefs) db += 20 * Math.log10(Math.max(magnitude(c, freqs[i], rate), 1e-300));
+    out[i] = Math.max(db, offsetDb - 200 * coefs.length);
   }
   return out;
 }

@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import './fx-wasm.js';
 import { dsp } from '../src/audio/dsp.js';
 import { getEffect, defaults, paramArray } from '../src/effects/index.js';
+import { scientificOrderFor } from '../src/effects/defs/filter.js';
 
 const RATE = 48000;
 const FREQS = [50, 200, 1000, 3000, 9000];
@@ -53,6 +54,24 @@ describe('filter response curves match the processors', () => {
       expect(Math.abs((await measured(def, values, f)) - want), `${f} Hz`).toBeLessThan(0.75);
     }
     expect(def.latency(values, RATE)).toBe(4096);
+  });
+
+  it('scientificFilter draws narrow low band passes as processed, and designs them', async () => {
+    const def = getEffect('scientificFilter');
+    const values = { ...defaults(def), mode: 2, order: 8, cutoff: 10, highCutoff: 100 };
+    const freqs = [20, 50, 100, 300];
+    const curve = def.response(values, freqs, RATE);
+    for (let i = 0; i < freqs.length; i++) {
+      const got = await measured(def, values, freqs[i]);
+      const what = `${freqs[i]} Hz: ${got} vs ${curve[i]}`;
+      if (curve[i] < -35) expect(got, what).toBeLessThan(-30);
+      else expect(Math.abs(got - curve[i]), what).toBeLessThan(0.5);
+    }
+    // Design By Transition Bandwidth: 40 dB down 50 Hz past the edges.
+    const by = { ...values, designBy: 1, cutoff: 20, highCutoff: 80, transition: 50 };
+    const { order, met } = scientificOrderFor({ ...by, stopAtten: 40 }, RATE);
+    expect(met).toBe(true);
+    expect(await measured(def, { ...by, order }, 130)).toBeLessThan(-40);
   });
 
   it('scientificFilter keeps a 0 dB passband with band edges near DC at 192 kHz', async () => {
