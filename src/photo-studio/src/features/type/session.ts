@@ -231,14 +231,15 @@ async function fontsReady(e: Editor, data: TextLayerData, onLate?: () => void): 
 export type StartNew = { x: number; y: number; box?: Rect; vertical: boolean; mask: boolean; path?: TypePath };
 // Starting is asynchronous (fonts load first); overlapping requests, such
 // as a double-click that also reaches the layer list, start only once.
-type StartRequest = { owner: DocumentSession; doc: PhotoDocument; tool: string; activate?: () => void };
+// A dialog can invalidate its own request without cancelling a newer one.
+type StartRequest = { owner: DocumentSession; doc: PhotoDocument; tool: string; isCurrent?: () => boolean; activate?: () => void };
 let starting: StartRequest | undefined;
 function validStart(e: Editor, request: StartRequest) {
-  return starting === request && e.session === request.owner && e.doc === request.doc && e.tool === request.tool && e.sessions.includes(request.owner);
+  return starting === request && e.session === request.owner && e.doc === request.doc && e.tool === request.tool && e.sessions.includes(request.owner) && request.isCurrent?.() !== false;
 }
-function startRequest(e: Editor) {
-  if (starting && validStart(e, starting)) return;
-  return starting = { owner: e.session, doc: e.doc, tool: e.tool };
+function startRequest(e: Editor, isCurrent?: () => boolean) {
+  if (isCurrent?.() === false || (starting && validStart(e, starting))) return;
+  return starting = { owner: e.session, doc: e.doc, tool: e.tool, isCurrent };
 }
 /** Leaving a tool/document invalidates its font wait without blocking a new request. */
 export function cancelPendingStart(owner?: DocumentSession) {
@@ -249,7 +250,7 @@ export function cancelPendingStart(owner?: DocumentSession) {
 }
 async function finishCurrent(e: Editor, request: StartRequest) {
   if (session) await commit(e);
-  if (starting !== request || e.session !== request.owner || e.tool !== request.tool) return false;
+  if (starting !== request || e.session !== request.owner || e.tool !== request.tool || request.isCurrent?.() === false) return false;
   request.doc = e.doc;
   return true;
 }
@@ -341,8 +342,8 @@ async function beginNew(e: Editor, opt: StartNew, request: StartRequest) {
   });
 }
 
-export async function startEdit(e: Editor, id: string, at?: { x: number; y: number } | 'all' | 'end') {
-  const request = startRequest(e);
+export async function startEdit(e: Editor, id: string, at?: { x: number; y: number } | 'all' | 'end', isCurrent?: () => boolean) {
+  const request = startRequest(e, isCurrent);
   if (!request) return;
   try {
     await beginEdit(e, id, request, at);

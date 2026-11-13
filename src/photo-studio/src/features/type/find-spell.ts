@@ -31,12 +31,13 @@ function position(): { id?: string; at: number } {
   return { id: session.layerId, at: ordered(session)[1] };
 }
 /** Show a range as the text selection (editing that layer). */
-async function reveal(e: Editor, id: string, a: number, b: number) {
+async function reveal(e: Editor, id: string, a: number, b: number, isCurrent: () => boolean) {
+  if (!isCurrent()) return;
   if (session?.layerId !== id) {
     if (!e.tool.startsWith('type')) e.setTool('type');
-    await startEdit(e, id, 'end');
+    await startEdit(e, id, 'end', isCurrent);
   }
-  if (session?.layerId === id) setSelection(e, a, b);
+  if (isCurrent() && session?.layerId === id) setSelection(e, a, b);
 }
 /** First hit after the current position, wrapping once through the layers. */
 function search<T extends { start: number; end: number }>(e: Editor, all: boolean, hits: (text: string) => T[]): { layer: Layer; hit: T } | undefined {
@@ -90,6 +91,7 @@ export async function findReplace(e: Editor) {
     return findMatches(plainText(session.data.content), s.query, opts()).some(([x, y]) => x === a && y === b);
   };
   const next = async () => {
+    if (!ws.dialog.isConnected) return;
     read();
     if (!s.query) return status('Type the text to find.');
     const found = search(e, s.all, (t) => findMatches(t, s.query, opts()).map(([start, end]) => ({ start, end })));
@@ -97,7 +99,8 @@ export async function findReplace(e: Editor) {
       status(textLayers(e, s.all).length ? 'No matches.' : 'There are no text layers to search.');
       return;
     }
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end);
+    await reveal(e, found.layer.id, found.hit.start, found.hit.end, () => ws.dialog.isConnected);
+    if (!ws.dialog.isConnected) return;
     ws.q<HTMLElement>('#fr-next').focus();
     status(`Found in “${found.layer.name}”.`);
   };
@@ -216,6 +219,7 @@ export async function checkSpelling(e: Editor) {
       : '<span class="muted">No suggestions</span>';
   };
   const next = async () => {
+    if (!ws.dialog.isConnected) return;
     const found = search(e, all(), (t) => spell.misspellings(t));
     current = found;
     if (!found) {
@@ -226,7 +230,8 @@ export async function checkSpelling(e: Editor) {
       return;
     }
     enable(true);
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end);
+    await reveal(e, found.layer.id, found.hit.start, found.hit.end, () => ws.dialog.isConnected);
+    if (!ws.dialog.isConnected) return;
     show(found.hit.word);
     ws.q<HTMLElement>('#sp-change-one').focus();
     status(`In “${found.layer.name}”.`);
