@@ -172,7 +172,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
     if (closing) return;
     closing = true;
     try {
-      if (store.dirty) {
+      if (store.dirty || lib.hasTemporarySamples(store.project)) {
         const choice = await saveChangesDialog(store.project.name);
         if (choice === null) return;
         if (choice === 'save') {
@@ -180,7 +180,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
             app.reportError(err);
             return false;
           });
-          if (!saved || store.dirty) return;
+          if (!saved || store.dirty || lib.hasTemporarySamples(store.project)) return;
         }
       }
       await autosave.flushAll().catch(() => {});
@@ -191,8 +191,9 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
   });
 
   window.addEventListener('beforeunload', (e) => {
-    if (!store.dirty) return;
-    const unsaved = Boolean(store.gesture && store.project !== store.gesture.start) || !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
+    const temporary = lib.hasTemporarySamples(store.project);
+    if (!store.dirty && !temporary) return;
+    const unsaved = temporary || Boolean(store.gesture && store.project !== store.gesture.start) || !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
     autosave.flushAll();
     if (unsaved) {
       e.preventDefault();

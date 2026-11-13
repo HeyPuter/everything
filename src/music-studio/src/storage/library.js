@@ -36,6 +36,7 @@ export class Library {
     this.puter = puter;
     this.decode = decode;
     this.now = now;
+    this.temporarySamples = new Map(); // failed writes, retained for playback and recovery saves
   }
 
   db() {
@@ -80,12 +81,43 @@ export class Library {
   // ---------------------------------------------------------------- samples
 
   /** Stores imported audio bytes on this device (kept for every sample, also when signed in). */
-  async putSample(id, { data, name = 'Sample', type = '', path = null }) {
-    const db = await this.db();
-    await db.put('samples', id, { id, name, type, size: data.byteLength, data, path });
+  async putSample(id, { data, name = 'Sample', type = '', path = null }, { temporary = this.temporarySamples } = {}) {
+    const record = { id, name, type, size: data.byteLength, data, path };
+    const previous = temporary.get(id);
+    const retained = () => temporary !== this.temporarySamples && previous && this.temporarySamples.get(id) === previous;
+    try {
+      const db = await this.db();
+      await db.put('samples', id, record);
+      temporary.delete(id);
+      if (retained()) this.temporarySamples.delete(id);
+    } catch (err) {
+      temporary.set(id, record);
+      if (retained()) this.temporarySamples.set(id, record);
+      throw err;
+    }
+  }
+
+  /** Whether this project still depends on audio with no durable copy. */
+  hasTemporarySamples(project) {
+    return Object.values(project.samples || {}).some((ref) => {
+      const rec = this.temporarySamples.get(ref.local || ref.id) || this.temporarySamples.get(ref.id);
+      return rec && !ref.path && !rec.path;
+    });
+  }
+
+  dropTemporarySample(id) {
+    this.temporarySamples.delete(id);
+  }
+
+  /** Project replacement clears undo, so only the replacement's samples remain needed. */
+  pruneTemporarySamples(project) {
+    const keep = new Set(Object.values(project.samples || {}).flatMap((ref) => [ref.id, ref.local]));
+    // Saves already in progress retain their original map until they finish.
+    this.temporarySamples = new Map([...this.temporarySamples].filter(([id]) => keep.has(id)));
   }
 
   async sampleRecord(id) {
+    if (this.temporarySamples.has(id)) return this.temporarySamples.get(id);
     const db = await this.db();
     return db.get('samples', id);
   }
@@ -95,6 +127,7 @@ export class Library {
    * then the Puter copy when signed in (cached here afterwards). Null if missing.
    */
   async sampleBytes(ref) {
+    const temporary = this.temporarySamples;
     // An unreadable local cache must not prevent recovery from another copy.
     const rec = (await this.sampleRecord(ref.local || ref.id).catch(() => null)) || (ref.local && ref.local !== ref.id ? await this.sampleRecord(ref.id).catch(() => null) : null);
     if (rec?.data) return rec.data;
@@ -102,7 +135,7 @@ export class Library {
     try {
       const blob = await this.puter.readFile(ref.path);
       const data = await blob.arrayBuffer();
-      await this.putSample(ref.id, { data, name: ref.name, type: blob.type || '', path: ref.path }).catch(() => {});
+      await this.putSample(ref.id, { data, name: ref.name, type: blob.type || '', path: ref.path }, { temporary }).catch(() => {});
       return data;
     } catch {
       return null;
@@ -154,13 +187,14 @@ export class Library {
    */
   async uploadSamples(project) {
     this.puter.requireSignedIn();
+    const temporary = this.temporarySamples;
     const samples = { ...project.samples };
     const missing = [];
     let dir = null;
     for (const ref of Object.values(project.samples || {})) {
       if (ref.path) continue;
       const key = ref.local || ref.id;
-      const rec = await this.sampleRecord(key);
+      const rec = temporary.get(key) || temporary.get(ref.id) || await this.sampleRecord(key);
       if (rec?.path) {
         samples[ref.id] = { ...ref, path: rec.path };
         continue;
@@ -173,7 +207,7 @@ export class Library {
       const path = this.puter.joinPath(dir, `${ref.id}.${audioExtension(rec.name, rec.data)}`);
       const item = await this.puter.writeFile(path, new Blob([rec.data], { type: rec.type || 'application/octet-stream' }));
       const saved = item?.path || path;
-      await this.putSample(key, { ...rec, path: saved });
+      await this.putSample(key, { ...rec, path: saved }, { temporary }).catch(() => {});
       samples[ref.id] = { ...ref, path: saved };
     }
     return { samples, missing };
@@ -227,12 +261,14 @@ export class Library {
    * sample bytes embedded. Resolves { blob, missing, skipped } (skipped: too large to embed).
    */
   async exportFile(project, view) {
+    const temporary = this.temporarySamples;
     const embedded = {};
     const missing = [];
     let total = 0;
     let skipped = false;
     for (const ref of Object.values(project.samples || {})) {
-      const bytes = await this.sampleBytes(ref);
+      const retained = temporary.get(ref.local || ref.id) || temporary.get(ref.id);
+      const bytes = retained?.data || await this.sampleBytes(ref);
       if (!bytes) {
         missing.push(ref.name);
         continue;
@@ -242,7 +278,7 @@ export class Library {
         continue;
       }
       total += bytes.byteLength;
-      const rec = await this.sampleRecord(ref.local || ref.id).catch(() => null);
+      const rec = retained || await this.sampleRecord(ref.local || ref.id).catch(() => null);
       embedded[ref.id] = { name: ref.name, type: rec?.type || '', data: toBase64(bytes) };
     }
     let text = serializeProject(project, view);
@@ -252,6 +288,7 @@ export class Library {
 
   /** Parses project JSON, storing any embedded samples on this device. */
   async readProjectText(text) {
+    const temporary = this.temporarySamples;
     let data;
     try {
       data = JSON.parse(text);
@@ -267,10 +304,10 @@ export class Library {
         if (!e || typeof e.data !== 'string') continue;
         try {
           const bytes = fromBase64(e.data);
-          await this.putSample(ref.id, { data: bytes, name: ref.name, type: typeof e.type === 'string' ? e.type : '' });
+          await this.putSample(ref.id, { data: bytes, name: ref.name, type: typeof e.type === 'string' ? e.type : '' }, { temporary });
           samples[ref.id] = { ...ref, local: ref.id };
         } catch {
-          // A damaged embedded sample counts as missing when the project loads.
+          // Invalid embedded data stays missing; failed writes remain available in memory.
         }
       }
       project.samples = samples;

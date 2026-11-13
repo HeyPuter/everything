@@ -126,7 +126,7 @@ export class App extends Emitter {
   /** Replaces the project after asking about unsaved changes. `make` builds the new project. */
   async newProject(make) {
     const before = this.store.project;
-    if (this.store.dirty && !(await confirmDialog({ title: 'New project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true }))) return false;
+    if ((this.store.dirty || this.library?.hasTemporarySamples?.(before)) && !(await confirmDialog({ title: 'New project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true }))) return false;
     if (this.store.project !== before) return false;
     const project = make();
     this.engine.stop();

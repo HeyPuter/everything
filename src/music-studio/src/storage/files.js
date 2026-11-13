@@ -45,7 +45,10 @@ export class ProjectFiles {
     this.loads = 0;
     this.openRequest = 0;
     this.store.on('change', (_p, _prev, info) => {
-      if (info?.source === 'load') this.loads++;
+      if (info?.source === 'load') {
+        this.loads++;
+        this.lib.pruneTemporarySamples?.(_p);
+      }
     });
   }
 
@@ -82,7 +85,7 @@ export class ProjectFiles {
 
   /** Asks before replacing a project with unsaved changes (same wording as New). */
   async confirmDiscard() {
-    if (!this.store.dirty) return true;
+    if (!this.store.dirty && !this.lib.hasTemporarySamples?.(this.store.project)) return true;
     return confirmDialog({ title: 'Open project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true });
   }
 
@@ -109,7 +112,12 @@ export class ProjectFiles {
       const signIn = !this.signedIn() && Object.values(project.samples).some((s) => s.path);
       this.app.notify(`${r.missing.length === 1 ? 'A sample was' : `${r.missing.length} samples were`} not found (${list}). Their channels are kept.${signIn ? ' Sign in to load samples from your Puter cloud.' : ''}`, { error: true, timeout: 9000 });
     }
+    if (!quiet && isCurrent() && this.lib.hasTemporarySamples?.(this.store.project)) this.temporarySampleNotice();
     return r;
+  }
+
+  temporarySampleNotice() {
+    this.app.notify('Some audio could not be saved in this browser and is kept only for this session. Use File > Save to your device or save to Puter before closing.', { error: true, timeout: 12000 });
   }
 
   // ---------------------------------------------------------------- open
@@ -311,7 +319,8 @@ export class ProjectFiles {
     const download = () => this.download({ project, view, name });
     const prefs = this.app.prefs;
     const seen = prefs.get('dismissedNotices') || [];
-    const persistent = (await this.lib.db()).persistent;
+    const temporary = this.lib.hasTemporarySamples?.(project);
+    const persistent = (await this.lib.db()).persistent && !temporary;
     if (this.loads !== loads) return;
     if (seen.includes('localSave')) {
       this.app.notify(persistent ? 'Saved in this browser' : 'Saved for this session only', { action: { label: 'Download', run: download } });
@@ -321,11 +330,11 @@ export class ProjectFiles {
     const canSignIn = Boolean(puter.sdk()) && puter.env() !== 'app';
     const r = await openDialog({
       store: this.store,
-      title: 'Saved in this browser',
+      title: persistent ? 'Saved in this browser' : 'Saved for this session only',
       className: 'save-notice',
       body: h(
         'div.save-notice-body',
-        h('p', persistent ? 'Your project is saved in this browser on this device. Find it again with File > Open.' : 'This browser blocks site storage, so the project is kept only until you close the tab. Download a copy to keep it.'),
+        h('p', temporary ? 'Some audio could not be saved in this browser and is kept only for this session. Download a copy to keep it.' : persistent ? 'Your project is saved in this browser on this device. Find it again with File > Open.' : 'This browser blocks site storage, so the project is kept only until you close the tab. Download a copy to keep it.'),
         h('p', 'To keep a copy elsewhere, save the project file to your device. ', canSignIn ? 'Or sign in to Puter to save projects to your cloud and open them anywhere.' : ''),
       ),
       buttons: [
@@ -418,14 +427,21 @@ export class ProjectFiles {
     } catch (err) {
       console.warn('Music Studio: could not keep the sample on this device.', err);
     }
-    check();
+    let p, target;
+    try {
+      check();
+      p = this.store.project;
+      target = channel ? p.channels.find((c) => c.id === channel) : null;
+      if (channel && !target) throw new Error('That channel no longer exists.');
+    } catch (err) {
+      this.lib.dropTemporarySample?.(id);
+      throw err;
+    }
     const duration = decoded.channels[0].length / decoded.rate;
     const label = stripExtension(fileName).slice(0, 60) || 'Sample';
     const ref = { id, name: fileName.slice(0, 200), path, local, duration, rate: decoded.rate, channels: decoded.channels.length };
-    const p = this.store.project;
-    const target = channel ? p.channels.find((c) => c.id === channel) : null;
-    if (channel && !target) throw new Error('That channel no longer exists.');
     this.app.samples.set(id, decoded);
+    if (!local && !path) this.temporarySampleNotice();
     if (target) {
       const type = target.type === 'sampler' || target.type === 'audio' ? target.type : 'sampler';
       this.store.apply(`Load ${label}`, (proj) => {
