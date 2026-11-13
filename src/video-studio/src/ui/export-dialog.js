@@ -136,7 +136,7 @@ export function openExportDialog(ctx) {
   let hasCaptions = captionCues(project).length > 0;
   if (!BITRATE_LEVELS.some((l) => l.value === s.bitrate)) s.bitrate = DEFAULT_SETTINGS.bitrate;
   if (!signedIn(ctx)) s.destination = 'device';
-  if (!s.video && !s.audio) s.video = true;
+  if (!s.video && !s.audio && !s.gif && !(s.captions && hasCaptions)) s.video = true;
 
   let controller = null;
   let results = [];

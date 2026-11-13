@@ -82,6 +82,45 @@ describe('export dialog', () => {
     setPref('exportSettings', null);
   });
 
+  it.each([
+    { gif: true, captions: false, title: 'Animated GIF' },
+    { gif: false, captions: true, title: 'Captions file (.srt)' },
+  ])('preserves a saved $title-only export without enabling video', async ({ gif, captions, title }) => {
+    const { setPref } = await import('../src/ui/prefs.js');
+    setPref('exportSettings', { video: false, audio: false, gif, captions });
+    const p = createProject({ name: 'Captions' });
+    p.tracks.unshift({ id: 'tt', kind: 'text', clips: [makeClip('text', { text: 'Hi', caption: true, duration: US })] });
+    const d = openExportDialog(ctxWith(p));
+    try {
+      await flush();
+      const check = (label) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === label).querySelector('.export-check');
+      expect(check('Video file').checked).toBe(false);
+      expect(check('Audio file').checked).toBe(false);
+      expect(check(title).checked).toBe(true);
+      expect([...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export').disabled).toBe(false);
+    } finally {
+      d.close();
+      setPref('exportSettings', null);
+    }
+  });
+
+  it('defaults to video when saved captions-only output is unavailable', async () => {
+    const { setPref } = await import('../src/ui/prefs.js');
+    setPref('exportSettings', { video: false, audio: false, gif: false, captions: true });
+    const p = createProject();
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const d = openExportDialog(ctxWith(p));
+    try {
+      await flush();
+      expect(d.el.querySelector('.export-check').checked).toBe(true);
+      expect([...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export').disabled).toBe(false);
+    } finally {
+      d.close();
+      setPref('exportSettings', null);
+    }
+  });
+
   it('labels every control and lists only encodable codecs', async () => {
     const p = createProject({ name: 'Trip' });
     p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 2 * US }));
