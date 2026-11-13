@@ -1106,7 +1106,7 @@ export const fallbackVariant = ({ fontName = '', fontWeight = '', fontStyle = ''
  * With no forced face, the Noto fallback matches the run's own weight and slant so an edit to
  * bold or italic text is not silently set in the regular face.
  */
-export async function prepareText(doc, run, text, variant) {
+export async function prepareText(doc, run, text, variant, context = text) {
   const lines = text.split('\n');
   let encoded = lines.map((line) => (variant && line ? null : encodeOriginal(run.map, line)));
   let font;
@@ -1121,7 +1121,7 @@ export async function prepareText(doc, run, text, variant) {
       }
     }
     if (!font) {
-      font = await embedFont(doc, variant || fallbackVariant(run), text);
+      font = await embedFont(doc, variant || fallbackVariant(run), text, context);
       assertSupportedText(font, text);
       encoded = lines.map((line) => font.encodeText(line).toString());
     }

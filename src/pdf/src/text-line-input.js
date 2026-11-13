@@ -106,7 +106,7 @@ export function textLineInput(group) {
       const ratio =
         Math.hypot(run.transform[2], run.transform[3]) /
         Math.hypot(group.transform[2], group.transform[3]);
-      const fallback = face?.(run) || cjkDraftFace(run, span.textContent);
+      const fallback = face?.(run) || cjkDraftFace(run, span.textContent, undefined, input.value);
       Object.assign(span.style, {
         fontFamily: fallback?.family ? `${fallback.family}, sans-serif` : run.fontFamily,
         fontWeight: fallback?.weight || run.fontWeight,

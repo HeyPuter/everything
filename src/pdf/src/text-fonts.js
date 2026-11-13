@@ -5,14 +5,17 @@ import { fallbackVariant, originalGlyphs } from './core/text-edit.js';
 /** The family a draft of CJK text is previewed in: the face its regions will be embedded with. */
 const cjkFamily = (text) => `Puter CJK ${cjkRegions(text)[0].toUpperCase()}`;
 
-/** Match the CJK replacement face when the source subset cannot spell the draft. */
-export function cjkDraftFace(run, text, variant) {
+/**
+ * Match the CJK replacement face when the source subset cannot spell the draft. `context`, the
+ * whole draft that `text` is part of, picks the regional forms, as it does when saving.
+ */
+export function cjkDraftFace(run, text, variant, context = text) {
   if (!hasCjkText(text)) return null;
   if (run && !variant && text.split('\n').every((line) => originalGlyphs(run.map, line)))
     return null;
   const style = variant || (run ? fallbackVariant(run) : 'regular');
   return {
-    family: `'${cjkFamily(text)}'`,
+    family: `'${cjkFamily(context)}'`,
     weight: style.startsWith('bold') ? 'bold' : 'normal',
     style: 'normal',
     ligatures: 'normal',
