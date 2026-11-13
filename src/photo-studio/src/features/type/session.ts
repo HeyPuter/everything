@@ -734,10 +734,11 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 // One undo step that rewrites every selected text layer.
 // `patchDoc` changes the document in the same step (text styles).
 export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void) {
-  const ppi = ppiOf(e);
+  const owner = e.session;
+  const ppi = ppiOf(owner.doc);
   const targets = (ids ? ids.map((id) => findLayer(e.doc.layers, id)).filter((l): l is Layer => !!l) : selectedTextLayers(e)).filter((l) => l.kind === 'text');
   if (!targets.length) {
-    if (patchDoc) e.command(label, patchDoc);
+    if (patchDoc) e.command(label, patchDoc, { session: owner });
     return;
   }
   if (targets.some((l) => layerLock(e.doc.layers, l.id, 'all'))) {
@@ -749,6 +750,7 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     const t = editable(l, ppi);
     const data = fn(t.textData, t);
     await prepareFonts(data);
+    if (!e.sessions.includes(owner)) return;
     const n: Layer = { ...t, textData: data };
     delete n.asset;
     delete n.assetColorSpace;
@@ -766,7 +768,7 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     };
     walk(d.layers);
     patchDoc?.(d);
-  });
+  }, { session: owner });
   notify();
 }
 
