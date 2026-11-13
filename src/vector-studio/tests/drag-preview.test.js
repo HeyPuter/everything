@@ -108,3 +108,32 @@ describe('large pattern-only drags', () => {
     expect(ed.doc.get(ids[0])).toEqual(before);
   });
 });
+
+describe('large selections in Pixel Preview', () => {
+  it.each([true, false])('redraws the current transform when pixel preview is enabled before the drag: %s', (enabledBefore) => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const ids = many(app, PREVIEW_THRESHOLD + 1);
+    const view = app.views.get(ed);
+    ed.view.set({ zoom: 8 });
+    ed.viewOptions.pixelPreview = enabledBefore;
+    const session = new TransformSession(ed, 'Move');
+    try {
+      session.apply([1, 0, 0, 1, 5, 0]);
+      view.renderNow();
+      if (!enabledBefore) expect(ed.dragPreview).toBeTruthy();
+      ed.viewOptions.pixelPreview = true;
+      session.apply([1, 0, 0, 1, 10, 20]);
+      view.renderNow();
+      expect(nodeBounds(ed.doc, ed.doc.get(ids[0]))).toMatchObject({ x: 10, y: 20 });
+      expect(ed.dragPreview).toBeNull();
+      session.apply([1, 0, 0, 1, 20, 30]);
+      session.commit();
+      expect(nodeBounds(ed.doc, ed.doc.get(ids[0]))).toMatchObject({ x: 20, y: 30 });
+      ed.doc.undo();
+      expect(nodeBounds(ed.doc, ed.doc.get(ids[0]))).toMatchObject({ x: 0, y: 0 });
+    } finally {
+      if (ed.doc.tx) session.cancel();
+    }
+  });
+});

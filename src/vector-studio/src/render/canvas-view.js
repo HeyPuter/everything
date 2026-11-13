@@ -198,6 +198,8 @@ export class CanvasView {
     // While a drag edits a few objects inside an open transaction, keep the
     // unchanged artwork below and above them as bitmaps and redraw only the
     // objects in between: dragging stays cheap in very large documents.
+    // Pixel Preview rasterizes current geometry rather than the deferred drag bitmap.
+    if (editor.dragPreview && opts.pixelPreview) editor.dragPreview.session.useLivePreview();
     if (editor.dragPreview && !opts.pixelPreview && this.#drawDragPreview(editor.dragPreview)) {
       this.#postArt();
       this.lastRenderMs = performance.now() - t0;
