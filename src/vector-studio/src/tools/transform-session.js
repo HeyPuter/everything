@@ -35,7 +35,7 @@ export class TransformSession {
     if (duplicate) this.ids = duplicateInPlace(this.editor, this.ids);
     this.originals = collectOriginals(this.doc, this.ids);
     // A bitmap transform moves the silhouettes too; pattern-only drags must repaint inside them.
-    this.preview = !this.patternsOnly && this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor();
+    this.preview = !this.patternsOnly && this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor() && !this.#interleaved();
   }
 
   /**
@@ -51,6 +51,24 @@ export class TransformSession {
       }
     }
     return false;
+  }
+
+  /** One moving bitmap cannot straddle stationary artwork in paint order. */
+  #interleaved() {
+    let seenMoving = false;
+    let seenGap = false;
+    let interleaved = false;
+    this.doc.walk((n) => {
+      if (interleaved || n.hidden) return false;
+      // Compounds and live groups paint as one unit, not as their source children.
+      if (n.children && n.type !== 'compound' && !liveDef(n)) return;
+      if (this.originals.has(n.id)) {
+        if (seenGap) interleaved = true;
+        seenMoving = true;
+      } else if (seenMoving) seenGap = true;
+      return false;
+    });
+    return interleaved;
   }
 
   /** Alt pressed or released mid-drag: switch between moving the originals and a copy. */

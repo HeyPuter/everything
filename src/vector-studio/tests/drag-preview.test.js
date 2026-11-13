@@ -73,8 +73,10 @@ describe('large-selection drag preview with Alt', () => {
     s.setDuplicate(true);
     view.renderNow();
     // The copies move; the originals stay in the static artwork.
-    expect(view.previewCache.isMoving(ids[0])).toBe(false);
-    expect(view.previewCache.isMoving(s.ids[0])).toBe(true);
+    // Each copy sits above its original: live rendering preserves that interleaving.
+    expect(view.previewCache).toBeNull();
+    expect(nodeBounds(app.editor.doc, app.editor.doc.get(ids[0])).x).toBe(0);
+    expect(nodeBounds(app.editor.doc, app.editor.doc.get(s.ids[0])).x).toBe(10);
     s.setDuplicate(false);
     view.renderNow();
     expect(view.previewCache.isMoving(ids[0])).toBe(true);
