@@ -423,8 +423,23 @@ export function applicableItems(items) {
 }
 
 /** Canvas context menu: it lists only what applies right now. */
+/** The context menu on screen, if any. */
+let openContext = null;
+
 export function contextMenu(app, spec, x, y, label = 'Context menu') {
+  // A new context menu replaces the open one. A tap elsewhere closes it, but a
+  // pen's side button clicked in the air sends no tap, so its menus would stack.
+  openContext?.close('replace');
   const items = applicableItems(resolveItems(app, spec));
   if (!items.length) return null;
-  return openMenu(app, items, { x, y, label });
+  const menu = openMenu(app, items, {
+    x,
+    y,
+    label,
+    onClose: () => {
+      if (openContext === menu) openContext = null;
+    },
+  });
+  openContext = menu;
+  return menu;
 }

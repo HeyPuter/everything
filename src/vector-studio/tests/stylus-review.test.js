@@ -342,6 +342,20 @@ describe('the context menu and a pen', () => {
     expect(menu).not.toHaveBeenCalled();
   });
 
+  it('quick air clicks replace the menu instead of stacking menus', () => {
+    menu.mockRestore();
+    app.setTool('pencil');
+    const input = app.input;
+    for (let i = 0; i < 4; i++) {
+      input.move(hover(300 + i * 20, 300, { button: 0, buttons: 1 }));
+      input.move(hover(300 + i * 20, 300));
+    }
+    const menus = document.querySelectorAll('.menu');
+    expect(menus).toHaveLength(1);
+    expect(menus[0].style.left).toBe('360px');
+    menus[0].remove();
+  });
+
   it('a mouse right-click still opens the menu', () => {
     app.setTool('selection');
     app.input.contextMenu(menuEvent(300, 300));
