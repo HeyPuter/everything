@@ -29,7 +29,12 @@ function assetUrl(hash: string): Promise<string> {
     p = libraries()
       .readAsset(hash)
       .then((b) => (b ? URL.createObjectURL(b) : ''))
-      .catch(() => '');
+      .catch(() => '')
+      .then((url) => {
+        // Missing/offline assets can become available on a later refresh.
+        if (!url && assetUrls.get(hash) === p) assetUrls.delete(hash);
+        return url;
+      });
     assetUrls.set(hash, p);
   }
   return p;
