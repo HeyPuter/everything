@@ -38,7 +38,8 @@ async function conformRate(clip, rate) {
 /** Clipboard data for the selection; markers inside it come along when Preferences say so. */
 function clipFromSelection(app, doc) {
   const [a, b] = doc.hasSelection ? [doc.selection.start, doc.selection.end] : [0, 0];
-  const clip = { type: 'audio', ...E.copyRange(doc.state, a, b, doc.channelMask) };
+  // The bit depth goes along so Copy to New and Paste to New make a file of the same type.
+  const clip = { type: 'audio', ...E.copyRange(doc.state, a, b, doc.channelMask), bitDepth: doc.info.bitDepth };
   if (app.prefs.get('markersWithClipboard')) clip.markers = E.markersInRange(doc.state.markers, a, b);
   return clip;
 }
@@ -52,7 +53,7 @@ function withClipMarkers(app, state, clip, at, fromRate) {
 }
 
 function newDocFromClip(app, clip, name) {
-  const doc = new AudioFile({ name: app.uniqueName(name || 'Untitled'), sampleRate: clip.sampleRate, channels: clip.channels.slice(), markers: app.prefs.get('markersWithClipboard') ? (clip.markers || []).map((m) => createMarker(m)) : [] });
+  const doc = new AudioFile({ name: app.uniqueName(name || 'Untitled'), sampleRate: clip.sampleRate, channels: clip.channels.slice(), markers: app.prefs.get('markersWithClipboard') ? (clip.markers || []).map((m) => createMarker(m)) : [], info: clip.bitDepth ? { bitDepth: clip.bitDepth } : {} });
   app.addDocument(doc);
   return doc;
 }

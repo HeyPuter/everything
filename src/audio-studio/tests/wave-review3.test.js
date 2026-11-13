@@ -109,3 +109,19 @@ describe('time ruler marker drags', () => {
     expect(doc.state.markers[0].start).toBe(Math.round(view.ruler.frameAt(x + 50)));
   });
 });
+
+describe('Copy to New and Paste to New', () => {
+  it('make a file with the bit depth of the file the audio came from', async () => {
+    const { app, doc } = await makeView();
+    doc.info.bitDepth = 16;
+    doc.setSelection(0, 1000);
+    await app.commands.run('edit.copyToNew');
+    expect(app.active).not.toBe(doc);
+    expect(app.active.info.bitDepth).toBe(16);
+    app.activate(doc);
+    await app.commands.run('edit.copy');
+    await app.commands.run('edit.pasteToNew');
+    expect(app.active.info.bitDepth).toBe(16);
+    expect(app.active.length).toBe(1000);
+  });
+});
