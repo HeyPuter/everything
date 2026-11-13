@@ -15,10 +15,11 @@ import { newPathStyle } from '../../tools/pen.js';
 import { brushById } from './brush-model.js';
 import { brushState } from './brush-actions.js';
 import { pressureSamples, pressureWidthProfile, smoothPressures, pressureScale, GrowingStrokePreview } from './pressure.js';
+import { drawString } from '../../tools/stabilizer.js';
 
 export { pressureSamples };
 
-const DEFAULTS = { fidelity: 50, fill: false, keepSelected: true, editSelected: true, within: 12, pressure: true };
+const DEFAULTS = { fidelity: 50, smoothing: 0, fill: false, keepSelected: true, editSelected: true, within: 12, pressure: true };
 
 /** Screen speed (pixels per millisecond) that counts as fast (velocity 1). */
 const FAST = 2.5;
@@ -88,6 +89,17 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     this.keepSelected = this.opts.keepSelected;
   }
 
+  /** Smoothing lives with the other Paintbrush options. */
+  get smoothing() {
+    const v = Number(this.opts?.smoothing);
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+  }
+
+  set smoothing(v) {
+    this.opts = { ...this.opts, smoothing: Math.max(0, Math.min(100, Number(v) || 0)) };
+    this.app.prefs.set('paintbrushOptions', this.opts);
+  }
+
   onPointerDown(e) {
     this.preview?.reset();
     super.onPointerDown(e);
@@ -127,7 +139,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
   }
 
   onPointerUp(e) {
-    const pts = this.points;
+    const pts = this.strokePoints();
     const pressures = this.pressures;
     const times = this.times;
     this.pressures = null;
@@ -150,6 +162,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
       return;
     }
     this.points = null;
+    this.stabilizer = null;
     const ed = this.editor;
     const t = fidelityTolerance(this.fidelity, ed.view.zoom);
     const fresh = fitCurve(simplifyPolyline(pts, t * 0.5), t * t);
@@ -219,6 +232,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
       smoothPressures(pressures).map((p) => half * pressureScale(p)),
       { color: st?.type === 'solid' ? st.color : '#000000', settled: pts.length - 2, key: half },
     );
+    drawString(ctx, editor, this.stabilizer);
   }
 
   async openOptions() {
@@ -227,6 +241,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
       title: 'Paintbrush Tool Options',
       fields: [
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: o.fidelity },
+        { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: o.smoothing ?? 0 },
         { type: 'heading', label: 'Options' },
         { key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: o.fill },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: o.keepSelected },
@@ -237,7 +252,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
       extraButtons: [{ label: 'Reset', action: 'reset' }],
     });
     if (!v) return;
-    const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within, pressure: v.pressure };
+    const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, smoothing: v.smoothing, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within, pressure: v.pressure };
     this.opts = next;
     this.fidelity = next.fidelity;
     this.keepSelected = next.keepSelected;

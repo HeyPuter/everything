@@ -5,6 +5,7 @@
  * simplified with Ramer-Douglas-Peucker and fitted with cubic Beziers
  * (Schneider), so a stroke becomes a few smooth anchors rather than
  * hundreds of points. Fidelity (accurate .. smooth) sets the tolerance.
+ * Smoothing (stabilizer.js) steadies the line while it is being drawn.
  */
 import { Tool, tol } from './tool.js';
 import { createPath } from '../model/nodes.js';
@@ -12,6 +13,7 @@ import { fitCurve, simplifyPolyline, flattenPath, nearestOnPath, insertAnchor, p
 import { newPathStyle } from './pen.js';
 import { isSmooth, mirrorAngle } from './direct-selection.js';
 import { removeEmptyContainers } from '../ops/object-ops.js';
+import { Stabilizer, drawString } from './stabilizer.js';
 
 /** Fit tolerance in document units for a fidelity value 0 (accurate) .. 100 (smooth). */
 export function fidelityTolerance(fidelity, zoom) {
@@ -26,6 +28,8 @@ export class PencilTool extends Tool {
   static icon = 'tool-pencil';
   static hint = 'Drag to draw a freeform path | Hold Option at the end to close it | Drag near a selected path end to continue it';
   static brush = false;
+  /** Preference holding the tool's Smoothing (0 off .. 100). */
+  static smoothingPref = 'pencilSmoothing';
 
   constructor(app) {
     super(app);
@@ -41,13 +45,31 @@ export class PencilTool extends Tool {
 
   deactivate() {
     this.points = null;
+    this.stabilizer = null;
+  }
+
+  /** Smoothing 0 (off) .. 100: how far the drawn line trails the pen to steady it. */
+  get smoothing() {
+    const v = Number(this.app.prefs.get(this.constructor.smoothingPref));
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+  }
+
+  set smoothing(v) {
+    this.app.prefs.set(this.constructor.smoothingPref, Math.max(0, Math.min(100, Number(v) || 0)));
   }
 
   /** Escape, a pointer cancel or a second finger drops the stroke being drawn. */
   cancel() {
     if (!this.points) return;
     this.points = null;
+    this.stabilizer = null;
     this.overlay();
+  }
+
+  /** The stroke's points as they will be kept (smoothing settled at the pen lift). */
+  strokePoints() {
+    if (this.points && this.stabilizer) this.points = this.stabilizer.finish(this.points);
+    return this.points;
   }
 
   onPointerDown(e) {
@@ -56,6 +78,7 @@ export class PencilTool extends Tool {
       return;
     }
     this.points = [{ x: e.x, y: e.y }];
+    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y });
     this.continueFrom = this.#endpointNear(e);
   }
 
@@ -76,19 +99,21 @@ export class PencilTool extends Tool {
   onPointerMove(e) {
     if (!this.points) return;
     const samples = e.native?.getCoalescedEvents?.() || [];
+    const steady = (p) => (this.stabilizer ? this.stabilizer.push(p) : p);
     if (samples.length > 1) {
       for (const s of samples) {
         const p = this.app.eventToDoc(s);
-        this.points.push(p);
+        this.points.push(steady(p));
       }
-    } else this.points.push({ x: e.x, y: e.y });
+    } else this.points.push(steady({ x: e.x, y: e.y }));
     this.alt = e.alt;
     this.overlay();
   }
 
   onPointerUp(e) {
-    const pts = this.points;
+    const pts = this.strokePoints();
     this.points = null;
+    this.stabilizer = null;
     if (!pts || pts.length < 2) {
       this.overlay();
       return;
@@ -152,6 +177,7 @@ export class PencilTool extends Tool {
     });
     ctx.stroke();
     ctx.restore();
+    drawString(ctx, editor, this.stabilizer);
   }
 
   async openOptions() {
@@ -159,11 +185,13 @@ export class PencilTool extends Tool {
       title: `${this.constructor.label.replace(' Tool', '')} Tool Options`,
       fields: [
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity },
+        { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: this.smoothing },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: this.keepSelected },
       ],
     });
     if (!v) return;
     this.fidelity = v.fidelity;
+    this.smoothing = v.smoothing;
     this.keepSelected = v.keepSelected;
   }
 }
@@ -175,6 +203,7 @@ export class PaintbrushTool extends PencilTool {
   static icon = 'tool-paintbrush';
   static hint = 'Drag to paint a stroke with round caps | [ and ] change the stroke weight';
   static brush = true;
+  static smoothingPref = 'paintbrushSmoothing';
 
   activate() {
     this.setCursor('var(--cursor-brush)');

@@ -8,6 +8,7 @@
  */
 import { Tool, tol } from '../../tools/tool.js';
 import { fidelityTolerance } from '../../tools/freehand.js';
+import { Stabilizer, drawString } from '../../tools/stabilizer.js';
 import { multiply } from '../../lib/matrix.js';
 import { createPath } from '../../model/nodes.js';
 import { fitCurve, simplifyPolyline, nearestOnPath, insertAnchor, segmentPoints, reverseAnchors, anchor as mkAnchor } from '../../model/bezier.js';
@@ -605,7 +606,18 @@ class RoundBrushTool extends Tool {
 
   deactivate() {
     this.pts = null;
+    this.stabilizer = null;
     this.cursorPt = null;
+  }
+
+  /** Smoothing 0 (off) .. 100 while drawing (the Merge Brush has the setting). */
+  get smoothing() {
+    return 0;
+  }
+
+  /** Simplify and fit tolerances (document units) for the brush path. */
+  fitTolerances() {
+    return { simplify: tol(this.editor, 0.75), fit: tol(this.editor, 1) };
   }
 
   onHover(e) {
@@ -628,6 +640,7 @@ class RoundBrushTool extends Tool {
     if (isBusy()) return;
     this.preview?.reset();
     this.pts = [{ x: e.x, y: e.y }];
+    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y });
     this.pressures = this.pressureSize ? samplePressures({ ...e, native: null }) : null;
     this.alt = e.alt;
   }
@@ -638,7 +651,7 @@ class RoundBrushTool extends Tool {
       this.overlay();
       return;
     }
-    const added = samples(this, e);
+    const added = samples(this, e).map((p) => (this.stabilizer ? this.stabilizer.push(p) : p));
     this.pts.push(...added);
     if (this.pressures) {
       const ps = samplePressures(e);
@@ -670,16 +683,24 @@ class RoundBrushTool extends Tool {
 
   cancel() {
     this.pts = null;
+    this.stabilizer = null;
     this.pressures = null;
     this.overlay();
+  }
+
+  /** Settle smoothing when the pen lifts: the points the stroke keeps (pressures stay aligned). */
+  settleStroke() {
+    if (this.pts && this.stabilizer) this.pts = this.stabilizer.finish(this.pts);
+    this.stabilizer = null;
+    return this.pts;
   }
 
   /** The brush path as anchors (smoothed), for the stroke expansion. */
   brushAnchors() {
     const pts = this.pts;
-    const editor = this.editor;
     if (pts.length === 1) return [mkAnchor(pts[0].x, pts[0].y), mkAnchor(pts[0].x + 0.01, pts[0].y)];
-    return fitCurve(simplifyPolyline(pts, tol(editor, 0.75)), tol(editor, 1) ** 2);
+    const t = this.fitTolerances();
+    return fitCurve(simplifyPolyline(pts, t.simplify), t.fit ** 2);
   }
 
   /**
@@ -726,6 +747,7 @@ class RoundBrushTool extends Tool {
         ctx.restore();
       }
     }
+    if (this.pts) drawString(ctx, editor, this.stabilizer);
     const c = this.cursorPt;
     if (c) {
       const s = editor.view.toScreen(c.x, c.y);
@@ -855,16 +877,47 @@ export class BlobBrushTool extends RoundBrushTool {
     this.app.prefs.set('blobBrushPressure', Boolean(v));
   }
 
+  /** The default fits the stroke about as closely as the brush always did. */
+  static defaultFidelity = 5;
+
+  /** Fidelity 0 (accurate) to 100 (smooth): how closely the painted outline follows the drag. */
+  get fidelity() {
+    const v = Number(this.app.prefs.get('blobBrushFidelity'));
+    return this.app.prefs.get('blobBrushFidelity') != null && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : this.constructor.defaultFidelity;
+  }
+
+  set fidelity(v) {
+    this.app.prefs.set('blobBrushFidelity', Math.max(0, Math.min(100, Number(v) || 0)));
+  }
+
+  get smoothing() {
+    const v = Number(this.app.prefs.get('blobBrushSmoothing'));
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+  }
+
+  set smoothing(v) {
+    this.app.prefs.set('blobBrushSmoothing', Math.max(0, Math.min(100, Number(v) || 0)));
+  }
+
+  fitTolerances() {
+    const t = fidelityTolerance(this.fidelity, this.editor.view.zoom);
+    return { simplify: t * 0.75, fit: t };
+  }
+
   async openOptions() {
     const v = await this.app.dialogs.form({
       title: 'Merge Brush Tool Options',
       fields: [
         { key: 'size', label: 'Size', type: 'length', value: this.size, min: 0.5, max: 1000 },
+        { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity },
+        { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: this.smoothing },
         { key: 'pressure', label: 'Pen pressure varies the size', type: 'checkbox', value: this.pressureSize },
       ],
     });
     if (!v) return;
     this.size = v.size;
+    this.fidelity = v.fidelity;
+    this.smoothing = v.smoothing;
     this.pressureSize = v.pressure;
   }
 
@@ -885,7 +938,7 @@ export class BlobBrushTool extends RoundBrushTool {
   }
 
   async onPointerUp() {
-    const pts = this.pts;
+    const pts = this.settleStroke();
     if (!pts) return;
     const editor = this.editor;
     const doc = editor.doc;
