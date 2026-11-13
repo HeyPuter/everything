@@ -150,61 +150,128 @@ function voiceClipsOf(p, avatarClip) {
   return out;
 }
 
-/**
- * Speak a new script (and/or another voice): new speech replaces the old
- * voice clip, the lips are matched again and the avatar fits the new length.
- */
-export async function revoiceAvatar(ctx, id, { script, voice } = {}, { onStep = () => {} } = {}) {
+// Only one voice edit may own an avatar at a time, including direct action callers.
+const voiceEdits = new WeakMap();
+async function editAvatarVoice(ctx, id, { signal, onCancel, audioId, replaceVoice = false }, run) {
+  checkAvatar(signal);
   const { store } = ctx;
-  const services = avatarServices(ctx);
-  const before = T.findClip(store.project, id)?.clip;
-  if (!before || before.type !== 'avatar') return false;
-  onStep('Creating the voice...');
-  const asset = await speechAsset(ctx, services, script ?? before.avatar.script, voice ?? before.avatar.voice);
-  onStep('Matching the lips to the voice...');
-  const lips = await services.analyze(asset);
-  return store.update('Change avatar voice', (p) => {
-    const f = T.findClip(p, id);
-    if (!f || f.track.locked) return false;
-    const c = f.clip;
-    const old = voiceClipsOf(p, c);
-    for (const v of old) v.track.clips.splice(v.track.clips.indexOf(v.clip), 1);
-    c.avatar = normalizeAvatar({ ...c.avatar, script: script ?? c.avatar.script, voice: voice ?? c.avatar.voice, voiceAsset: asset.id, lips });
-    c.duration = Math.max(US, (asset.duration || c.duration) + AVATAR_TAIL);
-    const audio = makeClip('audio', { assetId: asset.id, name: asset.name, start: c.start, duration: Math.max(T.MIN_CLIP, asset.duration || c.duration) });
-    T.addClip(p, audio, { trackId: old[0]?.track.id, main: false });
-    if (c.group) audio.group = c.group;
-    else T.groupClips(p, [c.id, audio.id]);
+  const found = T.findClip(store.project, id);
+  if (!found || found.clip.type !== 'avatar' || found.track.locked) return false;
+  const a = found.clip.avatar;
+  const source = editingContext(store), script = a.script, voice = a.voice, voiceAsset = a.voiceAsset, lipData = a.lips?.data;
+  const oldVoices = replaceVoice ? voiceClipsOf(store.project, found.clip) : [];
+  if (oldVoices.some((v) => v.track.locked)) throw new Error("Unlock the avatar's voice track before changing its voice.");
+  const oldIds = new Set(oldVoices.map((v) => v.clip.id));
+  const audioAsset = audioId ? T.findClip(store.project, audioId)?.clip.assetId : null;
+  const controller = new AbortController();
+  let off;
+  let edits = voiceEdits.get(store);
+  if (!edits) voiceEdits.set(store, edits = new Map());
+  const close = () => {
+    off?.();
+    off = null;
+    signal?.removeEventListener('abort', abort);
+    if (edits.get(id) === abort) edits.delete(id);
+  };
+  const abort = () => {
+    if (controller.signal.aborted) return;
+    controller.abort();
+    close();
+    onCancel?.();
+  };
+  const valid = () => {
+    if (editingContext(store) !== source) return false;
+    const f = T.findClip(store.project, id), current = f?.clip.avatar;
+    if (!current || f.clip.type !== 'avatar' || f.track.locked || current.script !== script || current.voice !== voice || current.voiceAsset !== voiceAsset || current.lips?.data !== lipData) return false;
+    if (audioId && T.findClip(store.project, audioId)?.clip.assetId !== audioAsset) return false;
+    if (replaceVoice) {
+      const voices = voiceClipsOf(store.project, f.clip);
+      if (voices.length !== oldIds.size || voices.some((v) => v.track.locked || !oldIds.has(v.clip.id))) return false;
+    }
+    return true;
+  };
+  const check = () => {
+    if (signal?.aborted || !valid()) abort();
+    checkAvatar(controller.signal);
+  };
+  edits.get(id)?.();
+  edits.set(id, abort);
+  off = store.on('change', () => { if (!valid()) abort(); });
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    check();
+    return await run({ signal: controller.signal, check, commit(fn) {
+      check();
+      // The synchronous edit changes the captured voice itself; stop observing first.
+      close();
+      return fn();
+    } });
+  } catch (err) {
+    checkAvatar(controller.signal);
+    throw err;
+  } finally {
+    close();
+  }
+}
+
+/** Replace an avatar's script/voice and its linked voice clips. */
+export async function revoiceAvatar(ctx, id, { script, voice } = {}, { onStep = () => {}, signal, onCancel } = {}) {
+  return editAvatarVoice(ctx, id, { signal, onCancel, replaceVoice: true }, async (task) => {
+    const { store } = ctx, services = avatarServices(ctx), before = T.findClip(store.project, id).clip;
+    const words = script ?? before.avatar.script, chosenVoice = voice ?? before.avatar.voice;
+    onStep('Creating the voice...');
+    const asset = await speechAsset(ctx, services, words, chosenVoice, task.signal);
+    task.check();
+    onStep('Matching the lips to the voice...');
+    task.check();
+    const lips = await services.analyze(asset, { signal: task.signal });
+    return task.commit(() => store.update('Change avatar voice', (p) => {
+      const c = T.findClip(p, id).clip;
+      const old = voiceClipsOf(p, c);
+      for (const v of old) v.track.clips.splice(v.track.clips.indexOf(v.clip), 1);
+      c.avatar = normalizeAvatar({ ...c.avatar, script: words, voice: chosenVoice, voiceAsset: asset.id, lips });
+      c.duration = Math.max(US, (asset.duration || c.duration) + AVATAR_TAIL);
+      const audio = makeClip('audio', { assetId: asset.id, name: asset.name, start: c.start, duration: Math.max(T.MIN_CLIP, asset.duration || c.duration) });
+      T.addClip(p, audio, { trackId: old[0]?.track.id, main: false });
+      if (c.group) audio.group = c.group;
+      else T.groupClips(p, [c.id, audio.id]);
+    }));
   });
 }
 
-/** Lip-sync an avatar to another audio clip already on the timeline (keeps both where they are). */
-export async function syncAvatarTo(ctx, id, audioClipId, { onStep = () => {} } = {}) {
+/** Lip-sync an avatar to another audio clip without changing either clip's placement. */
+export async function syncAvatarTo(ctx, id, audioClipId, { onStep = () => {}, signal, onCancel } = {}) {
+  checkAvatar(signal);
   const { store } = ctx;
   const audio = T.findClip(store.project, audioClipId)?.clip;
   const asset = audio && store.project.assets[audio.assetId];
   if (!asset) throw new Error('That audio clip is no longer on the timeline.');
-  onStep('Matching the lips to the voice...');
-  const lips = await avatarServices(ctx).analyze(asset);
-  return store.update('Lip-sync avatar', (p) => {
-    const f = T.findClip(p, id);
-    if (!f || f.track.locked) return false;
-    f.clip.avatar = normalizeAvatar({ ...f.clip.avatar, voiceAsset: asset.id, lips });
+  return editAvatarVoice(ctx, id, { signal, onCancel, audioId: audioClipId }, async (task) => {
+    onStep('Matching the lips to the voice...');
+    task.check();
+    const lips = await avatarServices(ctx).analyze(asset, { signal: task.signal });
+    return task.commit(() => store.update('Lip-sync avatar', (p) => {
+      const c = T.findClip(p, id).clip;
+      c.avatar = normalizeAvatar({ ...c.avatar, voiceAsset: asset.id, lips });
+    }));
   });
 }
 
-/** Analyze an avatar's voice again (when its lip data is missing). */
-export async function relipAvatar(ctx, id, { onStep = () => {} } = {}) {
+/** Analyze the current avatar voice again without replacing its audio. */
+export async function relipAvatar(ctx, id, { onStep = () => {}, signal, onCancel } = {}) {
+  checkAvatar(signal);
   const { store } = ctx;
   const c = T.findClip(store.project, id)?.clip;
   const asset = c?.avatar?.voiceAsset && store.project.assets[c.avatar.voiceAsset];
   if (!asset) throw new Error('This avatar has no voice yet.');
-  onStep('Matching the lips to the voice...');
-  const lips = await avatarServices(ctx).analyze(asset);
-  return store.update('Lip-sync avatar', (p) => {
-    const f = T.findClip(p, id);
-    if (!f || f.track.locked) return false;
-    f.clip.avatar = normalizeAvatar({ ...f.clip.avatar, lips });
+  return editAvatarVoice(ctx, id, { signal, onCancel }, async (task) => {
+    onStep('Matching the lips to the voice...');
+    task.check();
+    const lips = await avatarServices(ctx).analyze(asset, { signal: task.signal });
+    return task.commit(() => store.update('Lip-sync avatar', (p) => {
+      const c = T.findClip(p, id).clip;
+      c.avatar = normalizeAvatar({ ...c.avatar, lips });
+    }));
   });
 }
 

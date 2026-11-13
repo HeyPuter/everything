@@ -59,23 +59,56 @@ function lookSections(view) {
 function voiceSection(view) {
   const { ctx, store } = view;
   const status = h('p.tts-status', { role: 'status' });
-  let busy = false;
-  const run = async (fn) => {
-    if (busy) return;
-    const had = document.activeElement;
-    busy = true;
+  let job = null, disposed = false;
+  const cancelBtn = h('button.btn.avatar-voice-cancel', { type: 'button', hidden: true }, 'Cancel voice change');
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted;
+  function finish(task) {
+    if (job !== task) return;
+    const hadCancel = document.activeElement === cancelBtn;
+    job = null;
+    sync();
+    if (!disposed) {
+      const fallback = script.isConnected ? script : clipSel;
+      if (hadCancel) (task.trigger.disabled || task.trigger.hidden ? fallback : task.trigger).focus();
+      else restoreFocus(task.focus, () => useBtn, () => fallback);
+    }
+  }
+  function cancel(message = '') {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    status.textContent = message;
+  }
+  cancelBtn.addEventListener('click', () => cancel('Voice change cancelled.'));
+  const run = async (fn, trigger, success = '') => {
+    if (disposed || job) return;
+    const task = { controller: new AbortController(), trigger, focus: document.activeElement };
+    job = task;
     sync();
     try {
-      await fn((label) => status.replaceChildren(h('span.spinner'), label));
-      status.textContent = '';
+      const ok = await fn({
+        signal: task.controller.signal,
+        onStep: (label) => { if (current(task)) status.replaceChildren(h('span.spinner'), label); },
+        onCancel: () => { if (current(task)) cancel('Voice change cancelled because its source changed.'); },
+      });
+      if (current(task)) {
+        status.textContent = '';
+        if (ok && success) announce(success);
+      }
     } catch (err) {
-      status.replaceChildren();
-      toast(err?.message || "Couldn't change the voice.", { kind: 'error' });
+      if (current(task)) {
+        status.replaceChildren();
+        if (err?.name !== 'AbortError') toast(err?.message || "Couldn't change the voice.", { kind: 'error' });
+      }
+    } finally {
+      finish(task);
     }
-    busy = false;
-    sync();
-    restoreFocus(had);
   };
+  view.scope.onDispose(() => {
+    disposed = true;
+    cancel();
+  });
 
   const script = h('textarea.textarea.insp-textarea.avatar-script', { maxLength: AVATAR_SCRIPT_MAX, rows: 4, 'aria-label': 'Script', placeholder: 'What the presenter says' });
   script.value = view.clip?.avatar.script || '';
@@ -87,14 +120,14 @@ function voiceSection(view) {
     sync();
   } });
   const speakBtn = h('button.btn.primary', { type: 'button' }, icon('speech', 16), 'Speak again');
-  speakBtn.addEventListener('click', () => run((onStep) => revoiceAvatar(ctx, view.id, { script: script.value, voice }, { onStep }).then((ok) => ok && announce('New voice added'))));
+  speakBtn.addEventListener('click', () => run((opts) => revoiceAvatar(ctx, view.id, { script: script.value, voice }, opts), speakBtn, 'New voice added'));
   script.addEventListener('input', () => sync());
 
   const clipSel = h('select.select', { 'aria-label': 'Audio clip for the voice' });
   const useBtn = h('button.btn', { type: 'button' }, icon('waveform', 16), 'Use clip');
-  useBtn.addEventListener('click', () => run((onStep) => syncAvatarTo(ctx, view.id, clipSel.value, { onStep }).then((ok) => ok && announce('Lips matched to the clip'))));
+  useBtn.addEventListener('click', () => run((opts) => syncAvatarTo(ctx, view.id, clipSel.value, opts), useBtn, 'Lips matched to the clip'));
   const relipBtn = h('button.btn', { type: 'button' }, icon('refresh', 16), 'Match lips again');
-  relipBtn.addEventListener('click', () => run((onStep) => relipAvatar(ctx, view.id, { onStep })));
+  relipBtn.addEventListener('click', () => run((opts) => relipAvatar(ctx, view.id, opts), relipBtn));
   const voiceState = h('p.field-hint');
 
   const tts = aiAvailable(ctx);
@@ -123,13 +156,14 @@ function voiceSection(view) {
     const asset = a.voiceAsset && store.project.assets[a.voiceAsset];
     voiceState.textContent = !asset ? 'No voice yet: speak a script or pick an audio clip.' : a.lips ? `Lips follow "${asset.name}".` : `"${asset.name}" has not been matched yet.`;
     relipBtn.hidden = !asset || Boolean(a.lips);
-    speakBtn.disabled = busy || !script.value.trim();
-    useBtn.disabled = busy || !list.length;
-    relipBtn.disabled = busy;
+    speakBtn.disabled = Boolean(job) || !script.value.trim();
+    useBtn.disabled = Boolean(job) || !list.length;
+    relipBtn.disabled = Boolean(job);
+    cancelBtn.hidden = !job;
   }
   view.bind(sync);
   sync();
-  return propSection('Voice', [voiceState, ...ttsBlock, h('div.field', h('span.field-label', 'Lip-sync to an audio clip'), h('div.avatar-voice-actions', clipSel, useBtn)), relipBtn, status]);
+  return propSection('Voice', [voiceState, ...ttsBlock, h('div.field', h('span.field-label', 'Lip-sync to an audio clip'), h('div.avatar-voice-actions', clipSel, useBtn)), relipBtn, cancelBtn, status]);
 }
 
 export function avatarTab(view) {
