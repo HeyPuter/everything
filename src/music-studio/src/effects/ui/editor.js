@@ -45,13 +45,18 @@ export function openEffectEditor(app, ctl, track, slotId) {
   let slot = slotById(store.project, track, slotId);
   if (!slot || !EFFECTS[slot.type]) return null;
   const def = EFFECTS[slot.type];
-  const ctx = { app, ctl, track, slotId, slot, bpm: store.project.bpm };
+  const ctx = { app, ctl, track, slotId, slot, bpm: store.project.bpm, disposers: [] };
 
   // Header: insert chip, power, mix, options.
   const chip = h('span.fxw-insert');
   const power = h('button.fxw-power', { type: 'button' }, icon('power', 13));
   power.addEventListener('click', () => ctl.toggleEffect(track, slotId));
-  const mix = createKnob({ param: MIX, value: slot.mix, size: 22, showLabel: false, label: 'Mix', ...ctl.mixGesture(track, slotId) });
+  const mixGesture = ctl.mixGesture(track, slotId);
+  const mix = createKnob({ param: MIX, value: slot.mix, size: 22, showLabel: false, label: 'Mix', ...mixGesture });
+  ctx.disposers.push(() => {
+    mix.cancel();
+    mixGesture.onEnd();
+  });
   const more = h('button.icon-btn.sm', { type: 'button', 'aria-label': `${def.label} options`, title: 'Options' }, icon('ellipsis', 14));
   more.addEventListener('click', () => {
     const r = more.getBoundingClientRect();
@@ -86,6 +91,7 @@ export function openEffectEditor(app, ctl, track, slotId) {
     toolbar,
     onClose: () => {
       off();
+      for (const dispose of ctx.disposers) dispose();
       presetBar.destroy();
       editor.destroy?.();
     },
