@@ -530,6 +530,23 @@ describe('Files panel focus', () => {
     expect(document.activeElement).toBe(row(a));
     expect(document.activeElement.isConnected).toBe(true);
   });
+  it('keeps a row in the tab order when the search hides the current file', () => {
+    const app = makeApp();
+    app.syncGraph = () => {};
+    const a = audioDoc(1);
+    const b = audioDoc(2);
+    b.name = 'b.wav';
+    app.addDocument(a);
+    app.addDocument(b);
+    const panel = create(app, 'files');
+    document.body.replaceChildren(panel.el);
+    const search = panel.el.querySelector('.panel-search');
+    search.value = 'a.wav';
+    search.dispatchEvent(new Event('input'));
+    const rows = [...panel.el.querySelectorAll('tbody tr[data-id]')];
+    expect(rows.map((r) => r.dataset.id)).toEqual([a.id]);
+    expect(rows[0].tabIndex).toBe(0);
+  });
 });
 
 describe('Markers panel focus', () => {

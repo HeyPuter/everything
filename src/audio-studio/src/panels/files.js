@@ -169,6 +169,9 @@ export function filesPanel(app) {
       body.append(row);
       if (expanded.has(doc.id)) for (const m of doc.state.markers) body.append(markerRow(doc, m));
     }
+    // The current file can be filtered out by the search: the list stays in the tab order.
+    const firstRow = body.querySelector('tr[data-id]');
+    if (firstRow && !body.querySelector('tr[tabindex="0"]')) firstRow.tabIndex = 0;
     const fileRow = focused && body.querySelector(`tr[data-id="${CSS.escape(focused)}"]`);
     if (fileRow) (markerRows(focused)[focusedMarker] || fileRow).focus({ preventScroll: true });
     playBtn.disabled = !app.active;
