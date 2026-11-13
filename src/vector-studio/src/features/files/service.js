@@ -733,6 +733,9 @@ export class FileService {
     const current = () => this.app.editors.includes(editor) && editor.doc === doc && editor.file === f;
     const ok = await this.app.dialogs.confirm({ title: 'Revert', message: `Revert to the saved version of "${editor.name}"? Changes since the last save will be lost.`, okLabel: 'Revert' });
     if (!ok || !current()) return false;
+    // Node versions include unfinished gestures, which have no history revision yet.
+    const nodeVersion = doc.nodes.version;
+    const commentsRevision = doc.commentsRevision;
     let bytes;
     try {
       if (f.kind === 'puter') bytes = await toBytes(await this.puter.fs.read(f.path));
@@ -752,6 +755,10 @@ export class FileService {
       return false;
     }
     if (!current()) return false;
+    if (doc.nodes.version !== nodeVersion || doc.commentsRevision !== commentsRevision) {
+      this.app.notify('Revert cancelled because the document changed while its saved file was loading. Run Revert again to discard those changes.', { polite: true });
+      return false;
+    }
     // Every window showing the document shows the saved one (none keeps the discarded changes to
     // save over the file later); the window reverted from is replaced last, so it stays active.
     const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
