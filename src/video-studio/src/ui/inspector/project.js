@@ -72,6 +72,7 @@ export function projectView(ctx) {
   name.addEventListener('change', commitName);
   name.addEventListener('keydown', (e) => {
     e.stopPropagation();
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       commitName();
@@ -102,6 +103,7 @@ export function projectView(ctx) {
   tlName.addEventListener('change', commitTimelineName);
   tlName.addEventListener('keydown', (e) => {
     e.stopPropagation();
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       commitTimelineName();

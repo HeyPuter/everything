@@ -73,6 +73,25 @@ afterEach(() => {
 });
 
 describe('inspector layout', () => {
+  it.each([200, 80])('does not commit or cancel a name during composition (maxlength %s)', (maxLength) => {
+    const input = env.el.querySelector(`.project-view input[maxlength="${maxLength}"]`);
+    input.focus();
+    input.value = 'Draft name';
+    for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+      for (const key of ['Enter', 'Escape']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...composition });
+        input.dispatchEvent(event);
+        expect(document.activeElement === input).toBe(true);
+        expect(input.value).toBe('Draft name');
+        expect(env.store.history.canUndo()).toBe(false);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(env.store.history.canUndo()).toBe(true);
+    expect(document.activeElement === input).toBe(false);
+  });
+
   it('shows the project when nothing is selected and renames it', () => {
     expect(env.el.matches('section.panel.inspector')).toBe(true);
     expect(env.el.querySelector('.panel-head .panel-title').textContent).toBe('Details');
