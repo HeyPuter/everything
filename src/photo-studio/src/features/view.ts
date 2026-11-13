@@ -340,7 +340,12 @@ export function installView(e: Editor) {
           // Type, shapes, fills and embedded images are rendered first.
           const img = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, area) : await (await import('./pixels')).layerRGBA(e, l);
           m = { width: area.width, height: area.height, data: new Uint8Array(area.width * area.height).map((_, i) => img.data[i * 4 + 3]) };
-        } else m = readMask(e.assets.tiles, e.doc.channels!.find((c) => c.id === v.channel)!.grid, area);
+        } else {
+          const channel = e.doc.channels!.find((c) => c.id === v.channel)!;
+          m = readMask(e.assets.tiles, channel.grid, area);
+          // Match loading from the Channels panel: spot channels select ink.
+          if (channel.spot) for (let i = 0; i < m.data.length; i++) m.data[i] = 255 - m.data[i];
+        }
         if (v.invert === 'yes') for (let i = 0; i < m.data.length; i++) m.data[i] = 255 - m.data[i];
         commitSelectionMask(e, m, v.op as never, 'Load Selection');
       },
