@@ -474,6 +474,17 @@ describe('dialog initial focus', () => {
     document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await again;
   });
+  it('adds no banner landmark (the app bar is the page banner)', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    document.body.replaceChildren();
+    const done = openDialog({ title: 'T', body: document.createElement('p') });
+    const dialog = document.querySelector('[role=dialog]');
+    expect(dialog.querySelector('header, [role=banner]')).toBe(null);
+    expect(dialog.querySelector('.dialog-head h2').textContent).toBe('T');
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    document.activeElement.dispatchEvent(escape);
+    await done;
+  });
 });
 
 describe('Space on focused controls', () => {

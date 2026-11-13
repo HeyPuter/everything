@@ -47,7 +47,8 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       );
     }
     dialog.append(
-      h('header.dialog-head', h('h2.dialog-title', { id: titleId }, title), h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: () => close(null) }, icon('x'))),
+      // A div, not a <header>: outside sectioning content that is a second page banner landmark.
+      h('div.dialog-head', h('h2.dialog-title', { id: titleId }, title), h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: () => close(null) }, icon('x'))),
       h('div.dialog-body', content),
       buttons.length ? foot : null,
     );
