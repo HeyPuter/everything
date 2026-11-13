@@ -165,6 +165,7 @@ export class GraphDataWindow {
       this.el.style.right = 'auto';
     });
     handle.addEventListener('pointerup', () => (start = null));
+    handle.addEventListener('pointercancel', () => (start = null));
   }
 
   #load(g, focus = null) {

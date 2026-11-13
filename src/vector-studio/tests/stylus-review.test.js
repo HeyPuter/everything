@@ -376,3 +376,53 @@ describe('Swatches panel and a hovering pen', () => {
     expect(css).toMatch(/\.sw-list\.pen-direct \.sw-item \{\s*touch-action: none;/);
   });
 });
+
+describe('drags the browser cancels', () => {
+  it('a cancelled 9-slice guide drag puts the guide back and leaves the document editable', async () => {
+    const { createSymbolFrom, getDef } = await import('../src/features/symbols/model.js');
+    const ed = app.newDocument();
+    ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
+    const doc = ed.doc;
+    const r = createPath(rectangle(100, 100, 90, 30), true, { fill: { type: 'solid', color: '#336699' }, stroke: null });
+    let out;
+    doc.transact('Rect', () => {
+      ed.insertDrawn(r);
+      out = createSymbolFrom(doc, [r.id], { slice9: true });
+    });
+    const id = out.def.id;
+    const before = { ...getDef(doc, id).symbolDef.slice9 };
+    ed.symbolEdit = id;
+    app.setTool('selection');
+    const g = before;
+    const a = ed.view.toScreen(g.x, g.y + g.h / 2);
+    const fire = (type, x, y) => app.canvasHost.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, buttons: type === 'pointercancel' ? 0 : 1, pointerId: 8, pointerType: 'pen', clientX: x, clientY: y }));
+    fire('pointerdown', a.x, a.y);
+    expect(doc.tx?.label).toBe('Move 9-Slice Guide');
+    fire('pointermove', a.x - 10, a.y);
+    fire('pointercancel', 0, 0);
+    expect(doc.tx).toBe(null);
+    expect(getDef(doc, id).symbolDef.slice9).toEqual(before);
+    // The document still takes edits.
+    doc.transact('Rename', () => doc.update(r.id, { name: 'still editable' }));
+    ed.symbolEdit = null;
+  });
+
+  it('a hovering pen no longer changes the color after a cancelled pick in the color field', async () => {
+    const { createColorPicker } = await import('../src/ui/color-picker.js');
+    const seen = [];
+    const picker = createColorPicker({ value: '#ff0000', onInput: (v) => seen.push(v) });
+    document.body.append(picker.el);
+    const field = picker.el.querySelector('.cp-sv-wrap');
+    field.setPointerCapture = () => {};
+    field.getBoundingClientRect = () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 });
+    field.querySelector('canvas, .cp-sv') && (field.querySelector('canvas, .cp-sv').getBoundingClientRect = field.getBoundingClientRect);
+    const fire = (type, x, y, buttons = 1) => field.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 2, pointerType: 'pen', clientX: x, clientY: y, buttons }));
+    fire('pointerdown', 50, 50);
+    fire('pointermove', 60, 40);
+    fire('pointercancel', 0, 0, 0);
+    const n = seen.length;
+    fire('pointermove', 5, 95, 0);
+    expect(seen.length).toBe(n);
+    picker.el.remove();
+  });
+});

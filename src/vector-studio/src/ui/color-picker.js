@@ -110,10 +110,12 @@ export function createColorPicker({ value = '#000000', onInput, onCommit, label 
     const up = () => {
       svWrap.removeEventListener('pointermove', move);
       svWrap.removeEventListener('pointerup', up);
+      svWrap.removeEventListener('pointercancel', up);
       emit(true);
     };
     svWrap.addEventListener('pointermove', move);
     svWrap.addEventListener('pointerup', up);
+    svWrap.addEventListener('pointercancel', up);
   });
   knob.addEventListener('keydown', (e) => {
     const step = e.shiftKey ? 10 : 1;

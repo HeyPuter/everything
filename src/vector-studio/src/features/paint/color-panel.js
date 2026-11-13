@@ -86,9 +86,11 @@ export class ColorPanel extends Panel {
       const up = () => {
         this.spectrum.removeEventListener('pointermove', move);
         this.spectrum.removeEventListener('pointerup', up);
+      this.spectrum.removeEventListener('pointercancel', up);
       };
       this.spectrum.addEventListener('pointermove', move);
       this.spectrum.addEventListener('pointerup', up);
+      this.spectrum.addEventListener('pointercancel', up);
     });
     const chip = (label, cls, onclick) => h(`button.cp-chip.${cls}`, { type: 'button', 'aria-label': label, 'data-tip': label, onclick });
     this.chips = h(

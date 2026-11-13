@@ -376,10 +376,12 @@ export function installTaskbar(app) {
     const up = () => {
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', up);
       if (app.prefs.values.taskbarPos) app.prefs.set('taskbarPos', { ...app.prefs.values.taskbarPos });
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
   }
 
   app.canvasHost.addEventListener('pointerdown', () => {

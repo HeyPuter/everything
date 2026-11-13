@@ -258,9 +258,11 @@ export class NavigatorPanel extends Panel {
     const up = () => {
       this.stage.removeEventListener('pointermove', move);
       this.stage.removeEventListener('pointerup', up);
+      this.stage.removeEventListener('pointercancel', up);
     };
     this.stage.addEventListener('pointermove', move);
     this.stage.addEventListener('pointerup', up);
+    this.stage.addEventListener('pointercancel', up);
   }
 
   update() {

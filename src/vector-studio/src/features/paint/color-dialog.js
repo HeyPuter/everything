@@ -255,9 +255,11 @@ export function openColorPickerDialog(app, { value = '#000000', title = 'Color P
       const up = () => {
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
       };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
     });
   };
   drag(fieldWrap, (x, y) => fromField(x, y));

@@ -140,12 +140,15 @@ export class MatchFontPanel extends Panel {
       this.setRegion(r.w * f.k >= 4 && r.h * f.k >= 4 ? r : null);
     };
     const up = (ev) => {
-      move(ev);
+      // A cancelled pointer reports no position: the region stays where the drag left it.
+      if (ev.type === 'pointerup') move(ev);
       this.stage.removeEventListener('pointermove', move);
       this.stage.removeEventListener('pointerup', up);
+      this.stage.removeEventListener('pointercancel', up);
     };
     this.stage.addEventListener('pointermove', move);
     this.stage.addEventListener('pointerup', up);
+    this.stage.addEventListener('pointercancel', up);
   }
 
   drawThumb(f) {

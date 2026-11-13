@@ -170,6 +170,7 @@ function createWindow(app) {
     const up = () => {
       header.removeEventListener('pointermove', move);
       header.removeEventListener('pointerup', up);
+      header.removeEventListener('pointercancel', up);
     };
     try {
       header.setPointerCapture(e.pointerId);
@@ -178,6 +179,7 @@ function createWindow(app) {
     }
     header.addEventListener('pointermove', move);
     header.addEventListener('pointerup', up);
+    header.addEventListener('pointercancel', up);
   });
 
   function render() {
