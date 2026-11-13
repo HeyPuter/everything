@@ -187,7 +187,12 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
       case 'ArrowRight':
         e.preventDefault();
         if (row?._open) row._open(true);
-        else if (!parentMenu) api.onNavigate?.(1);
+        else {
+          // From a submenu too: on to the next menu of the menu bar.
+          let root = api;
+          while (root.parentMenu) root = root.parentMenu;
+          root.onNavigate?.(1);
+        }
         break;
       case 'ArrowLeft':
         e.preventDefault();

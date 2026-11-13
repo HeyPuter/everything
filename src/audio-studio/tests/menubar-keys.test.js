@@ -38,6 +38,27 @@ describe('menu bar', () => {
     // Only that button is in the tab order, so Tab leaves the menu bar from here.
     expect(buttons.map((b) => b.tabIndex)).toEqual([-1, -1, 0]);
   });
+  it('moves on to the next menu with Right from an item in a submenu', () => {
+    const menus = [
+      { label: 'File', submenu: ['File.one', { label: 'Recent', submenu: ['File.a', 'File.b'] }] },
+      { label: 'Edit', submenu: ['Edit.one'] },
+    ];
+    const bar = createMenubar(app, menus);
+    document.body.replaceChildren(bar);
+    const key = (k) =>
+      document.activeElement.dispatchEvent(
+        new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }),
+      );
+    bar.querySelector('.menubar-item').focus();
+    key('ArrowDown');
+    key('ArrowDown');
+    key('ArrowRight');
+    expect(document.activeElement.closest('[role=menu]').getAttribute('aria-label')).toBe('Recent');
+    key('ArrowRight');
+    expect(document.activeElement.closest('[role=menu]').getAttribute('aria-label')).toBe('Edit');
+    expect(document.querySelectorAll('[role=menu]')).toHaveLength(1);
+    key('Escape');
+  });
 });
 
 describe('menus on touch screens', () => {
