@@ -86,6 +86,7 @@ export function createPlaylistView(app, host) {
   const headers = createHeaders(V);
   V.headers = headers;
   const pickerSplit = h('div.pl-picker-split', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize clip source list', tabindex: '0', title: 'Drag to resize the clip source list' });
+  let finishPickerResize = null;
   const addTrackBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Add track', title: 'Add a track at the bottom', onclick: () => addTrack() }, icon('pl-add-track', 14));
   const corner = h('div.pl-corner', h('span.pl-corner-label', 'Tracks'), addTrackBtn);
   const rulerHost = h('div.pl-ruler', {
@@ -204,6 +205,7 @@ export function createPlaylistView(app, host) {
     followBtn.setAttribute('aria-pressed', String(Boolean(prefs.get('autoScroll'))));
     followBtn.title = `Follow the playhead while playing (${followMode(false) === 'continuous' ? 'continuous' : 'page by page'})`;
     const showPicker = ui(app).picker !== false;
+    if (!showPicker) finishPickerResize?.();
     pickerBtn.setAttribute('aria-pressed', String(showPicker));
     root.classList.toggle('no-picker', !showPicker);
     toolbar.classList.toggle('show-source', !showPicker);
@@ -539,7 +541,7 @@ export function createPlaylistView(app, host) {
 
   // Picker splitter.
   pickerSplit.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || finishPickerResize) return;
     e.preventDefault();
     try {
       pickerSplit.setPointerCapture(e.pointerId);
@@ -548,18 +550,39 @@ export function createPlaylistView(app, host) {
     }
     const x0 = e.clientX;
     const w0 = picker.el.offsetWidth;
-    const move = (ev) => root.style.setProperty('--pl-picker-w', `${clamp(w0 + ev.clientX - x0, 110, 360)}px`);
-    const up = (ev) => {
+    let width = w0;
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      width = clamp(w0 + ev.clientX - x0, 110, 360);
+      root.style.setProperty('--pl-picker-w', `${width}px`);
+    };
+    const finish = () => {
+      if (finishPickerResize !== finish) return;
+      finishPickerResize = null;
       pickerSplit.removeEventListener('pointermove', move);
       pickerSplit.removeEventListener('pointerup', up);
-      prefs.merge('playlistUi', { pickerW: clamp(w0 + ev.clientX - x0, 110, 360) });
+      pickerSplit.removeEventListener('pointercancel', up);
+      pickerSplit.removeEventListener('lostpointercapture', up);
+      window.removeEventListener('blur', finish);
+      try { pickerSplit.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      prefs.merge('playlistUi', { pickerW: width });
     };
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (ev.type === 'pointerup') move(ev);
+      finish();
+    };
+    finishPickerResize = finish;
     pickerSplit.addEventListener('pointermove', move);
     pickerSplit.addEventListener('pointerup', up);
+    pickerSplit.addEventListener('pointercancel', up);
+    pickerSplit.addEventListener('lostpointercapture', up);
+    window.addEventListener('blur', finish);
   });
   pickerSplit.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
+    finishPickerResize?.();
     const w = clamp((ui(app).pickerW || PICKER_W) + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 40 : 10), 110, 360);
     prefs.merge('playlistUi', { pickerW: w });
   });
@@ -1169,6 +1192,7 @@ export function createPlaylistView(app, host) {
     },
     onHide() {
       V.visible = false;
+      finishPickerResize?.();
       V.cancelGesture?.();
       headers.cancelResize();
       cancelRulerDrag?.();
