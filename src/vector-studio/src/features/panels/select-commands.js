@@ -10,7 +10,9 @@ import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { UserError } from '../../lib/errors.js';
 import { STYLE_KEYS } from '../../model/nodes.js';
-import { STROKE_ATTRS } from '../../model/appearance.js';
+import { STROKE_ATTRS, mapStackPaints } from '../../model/appearance.js';
+import { transformPaint } from '../../model/geometry.js';
+import { translate } from '../../lib/matrix.js';
 import { reselect, walkSelectable } from '../../ops/select-ops.js';
 import { graphicStylesOf, styleOfNode } from '../paint/graphic-styles.js';
 
@@ -365,8 +367,20 @@ export class GlobalEdit {
       }
       if (style !== prev.style) {
         const patch = {};
-        for (const k of STYLE_FIELDS) patch[k] = src[k] === undefined ? undefined : structuredClone(src[k]);
-        for (const [id] of this.members) if (id !== changed) doc.update(id, patch);
+        // Unchanged fields keep each member's own paint placement and metadata.
+        for (const k of STYLE_FIELDS) if (JSON.stringify(src[k]) !== JSON.stringify(prev.node[k])) patch[k] = structuredClone(src[k]);
+        const sourceOrigin = originOf(doc, src);
+        for (const [id] of this.members) {
+          if (id === changed) continue;
+          const targetOrigin = originOf(doc, doc.get(id));
+          const move = translate(targetOrigin.x - sourceOrigin.x, targetOrigin.y - sourceOrigin.y);
+          const moveGradient = (p) => p && (p.type === 'linear' || p.type === 'radial') ? transformPaint(p, move) : p;
+          const own = { ...patch };
+          for (const k of ['fill', 'stroke']) if (own[k]) own[k] = moveGradient(own[k]);
+          const appearance = mapStackPaints({ type: src.type, appearance: own.appearance }, moveGradient);
+          if (appearance) own.appearance = appearance;
+          doc.update(id, own);
+        }
       }
     } finally {
       this.syncing = false;
