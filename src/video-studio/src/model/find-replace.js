@@ -19,13 +19,14 @@ export function searchPattern(query, { matchCase = false, wholeWord = false } = 
   return new RegExp(src, `gu${matchCase ? '' : 'i'}`);
 }
 
-/** Text clips in time order: { clip, track, path } (path: compound clip ids around it). */
+/** Text clips in time order: { clip, track, path, locked } (path: compound clip ids around it). */
 export function textClips(project, { captionsOnly = false } = {}) {
   const out = [];
-  const walk = (tracks, path, offset) => {
+  const walk = (tracks, path, offset, parentLocked = false) => {
     for (const t of tracks) for (const c of t.clips) {
-      if (c.type === 'text' && (!captionsOnly || c.caption)) out.push({ clip: c, track: t, path, at: offset + c.start });
-      if (c.type === 'compound') walk(c.sequence.tracks, [...path, c.id], offset + c.start - (c.in || 0));
+      const locked = parentLocked || Boolean(t.locked);
+      if (c.type === 'text' && (!captionsOnly || c.caption)) out.push({ clip: c, track: t, path, locked, at: offset + c.start });
+      if (c.type === 'compound') walk(c.sequence.tracks, [...path, c.id], offset + c.start - (c.in || 0), locked);
     }
   };
   walk(project.tracks, [], 0);
@@ -41,11 +42,11 @@ export function findMatches(project, query, opts = {}) {
   const re = searchPattern(query, opts);
   if (!re) return [];
   const out = [];
-  for (const { clip, track, at } of textClips(project, opts)) {
+  for (const { clip, locked, at } of textClips(project, opts)) {
     re.lastIndex = 0;
     for (const m of clip.text.matchAll(re)) {
       if (!m[0].length) continue;
-      out.push({ clipId: clip.id, at, text: clip.text, index: m.index, length: m[0].length, locked: Boolean(track.locked) });
+      out.push({ clipId: clip.id, at, text: clip.text, index: m.index, length: m[0].length, locked });
     }
   }
   return out;
@@ -76,7 +77,7 @@ export function remapMarks(marks, before, after) {
 
 /** Replace one match (as returned by findMatches) in a clip's text. Returns true when it applied. */
 export function replaceOne(clip, match, replacement) {
-  if (!clip || clip.text !== match.text) return false;
+  if (!clip || match.locked || clip.text !== match.text) return false;
   const next = clip.text.slice(0, match.index) + replacement + clip.text.slice(match.index + match.length);
   return setText(clip, next);
 }
@@ -89,8 +90,8 @@ export function replaceAll(project, query, replacement, opts = {}) {
   const re = searchPattern(query, opts);
   if (!re) return 0;
   let n = 0;
-  for (const { clip, track } of textClips(project, opts)) {
-    if (track.locked) continue;
+  for (const { clip, locked } of textClips(project, opts)) {
+    if (locked) continue;
     re.lastIndex = 0;
     let count = 0;
     const next = clip.text.replace(re, (m) => {

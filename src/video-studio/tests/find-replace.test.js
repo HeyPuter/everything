@@ -56,6 +56,23 @@ describe('find and replace model', () => {
     expect(replaceAll(p, '', 'x')).toBe(0);
   });
 
+  it('respects locked ancestor tracks when replacing text inside nested compounds', () => {
+    const { p, clips } = withTexts('hello world');
+    const inner = createCompound(p, [clips[0].id], FREE);
+    const outer = createCompound(p, [inner.id], FREE);
+    const parentTrack = findClip(p, outer.id).track;
+    parentTrack.locked = true;
+    const [match] = findMatches(p, 'world');
+    const nestedText = textClips(p)[0].clip;
+    expect(match.locked).toBe(true);
+    expect(replaceOne(nestedText, match, 'everyone')).toBe(false);
+    expect(replaceAll(p, 'world', 'everyone')).toBe(0);
+    expect(nestedText.text).toBe('hello world');
+    parentTrack.locked = false;
+    expect(replaceAll(p, 'world', 'everyone')).toBe(1);
+    expect(nestedText.text).toBe('hello everyone');
+  });
+
   it('never empties a text clip', () => {
     const { p, clips } = withTexts('um', 'um okay');
     expect(replaceAll(p, 'um', '', { wholeWord: true })).toBe(1);
