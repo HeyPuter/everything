@@ -172,6 +172,7 @@ class ChannelEditor {
   }
 
   showTab(id) {
+    if (id !== 'instrument') this.finishMarkerDrag?.();
     this.page = id;
     lastTab = id;
     for (const [k, b] of Object.entries(this.tabs)) {
@@ -430,9 +431,10 @@ class ChannelEditor {
   }
 
   dragMarker(e) {
-    if (e.button !== 0 || !this.waveBox) return;
+    if (e.button !== 0 || !this.waveBox || this.finishMarkerDrag) return;
     e.preventDefault();
-    const r = this.waveBox.getBoundingClientRect();
+    const box = this.waveBox;
+    const r = box.getBoundingClientRect();
     if (!r.width) return;
     const at = (x) => clamp((x - r.left) / r.width, 0, 1);
     const start = this.ch.params.start ?? 0;
@@ -447,22 +449,27 @@ class ChannelEditor {
       this.store.preview((p) => E.setChannelParam(p, id, which, clamp(Math.round(v * 10000) / 10000, 0, 1)));
       this.app.lastTweaked = { label: `${this.ch.name} sample ${which}`, target: { kind: 'channel', id, param: which } };
     };
-    apply(e.clientX);
-    try {
-      this.waveBox.setPointerCapture(e.pointerId);
-    } catch {
-      // Synthetic events.
-    }
-    const move = (ev) => apply(ev.clientX);
-    const up = () => {
-      this.waveBox.removeEventListener('pointermove', move);
-      this.waveBox.removeEventListener('pointerup', up);
-      this.waveBox.removeEventListener('pointercancel', up);
+    const move = (ev) => { if (ev.pointerId === e.pointerId) apply(ev.clientX); };
+    const finish = () => {
+      if (this.finishMarkerDrag !== finish) return;
+      this.finishMarkerDrag = null;
+      box.removeEventListener('pointermove', move);
+      box.removeEventListener('pointerup', up);
+      box.removeEventListener('pointercancel', up);
+      box.removeEventListener('lostpointercapture', up);
+      window.removeEventListener('blur', finish);
+      try { box.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
       this.store.commit();
     };
-    this.waveBox.addEventListener('pointermove', move);
-    this.waveBox.addEventListener('pointerup', up);
-    this.waveBox.addEventListener('pointercancel', up);
+    const up = (ev) => { if (ev.pointerId === e.pointerId) finish(); };
+    this.finishMarkerDrag = finish;
+    box.addEventListener('pointermove', move);
+    box.addEventListener('pointerup', up);
+    box.addEventListener('pointercancel', up);
+    box.addEventListener('lostpointercapture', up);
+    window.addEventListener('blur', finish);
+    try { box.setPointerCapture(e.pointerId); } catch { /* synthetic or ended pointer */ }
+    apply(e.clientX);
   }
 
   // ---------------------------------------------------------------- channel page
@@ -663,6 +670,7 @@ class ChannelEditor {
   }
 
   destroy() {
+    this.finishMarkerDrag?.();
     this.pc?.off();
     for (const off of this.offs) off();
     this.offs = [];
