@@ -101,6 +101,39 @@ describe('saving to Puter', () => {
     expect(doc.dirty).toBe(false);
   });
 
+  it('lands a later save last when an earlier upload to the file is slower', async () => {
+    const calls = [];
+    window.puter = {
+      auth: { isSignedIn: () => true },
+      fs: { write: (path, blob) => new Promise((done) => calls.push({ blob, done })) },
+    };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 8000, channels: 1, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/AudioStudio/Song.wav' };
+    doc.apply('Edit', { ...doc.state, meta: { title: 'x' } });
+    const app = fakeApp();
+    // Save; its upload is slow (Cancel hides its dialog), the file is edited and saved again.
+    const first = saveDocument(app, doc);
+    await wait(10);
+    doc.apply('Edit', { ...doc.state, meta: { title: 'y' } });
+    const second = saveDocument(app, doc);
+    await wait(10);
+    const landed = [];
+    const finish = (i) => {
+      landed.push(i);
+      calls[i].done({ uid: 'u1' });
+    };
+    if (calls.length > 1) finish(1);
+    finish(0);
+    await wait(10);
+    if (calls.length > 1 && landed.length < 2) finish(1);
+    await Promise.all([first, second]);
+    // The file holds the newest save, which is the state marked saved.
+    expect(calls).toHaveLength(2);
+    expect(landed.at(-1)).toBe(1);
+    expect(exports.at(-1)[0].meta).toEqual({ title: 'y' });
+    expect(doc.dirty).toBe(false);
+  });
+
   for (const [file, proposed] of [
     ['Clip.mp4', 'Clip.m4a'],
     ['Stream.aac', 'Stream.m4a'],

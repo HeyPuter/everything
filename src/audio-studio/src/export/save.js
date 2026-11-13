@@ -44,17 +44,33 @@ function encodeWithProgress(doc, options, range, label) {
   return withProgress(label, (onProgress, signal) => encodeDoc(doc, options, { ...range, onProgress, signal }), { detail: label });
 }
 
+/** Puter path -> a promise settled when the last upload started to it has finished. */
+const uploads = new Map();
+
 /**
  * Uploads to Puter behind a progress dialog. An upload cannot be stopped, so
  * Cancel only hides the dialog: a failure is still thrown (withProgress would
  * report it as a cancel), and the caller never marks an unsaved file saved.
  */
 async function upload(label, path, blob) {
+  // Uploads to one file run in turn: a save made while an earlier upload is still going
+  // (its dialog cancelled) would otherwise be overwritten by it if that one landed last.
+  const before = uploads.get(path);
+  const write = (async () => {
+    await before;
+    return puter.writeFile(path, blob);
+  })();
+  const settled = write.then(
+    () => {},
+    () => {},
+  );
+  uploads.set(path, settled);
+  settled.then(() => uploads.get(path) === settled && uploads.delete(path));
   let failure = null;
   const item = await withProgress(
     label,
     () =>
-      puter.writeFile(path, blob).catch((err) => {
+      write.catch((err) => {
         failure = err;
         throw err;
       }),
