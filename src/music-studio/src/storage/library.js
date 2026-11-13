@@ -3,7 +3,7 @@
 //   This device (IndexedDB, works signed out): projects saved with Save while
 //   signed out, the bytes of every imported sample, and the autosaved session.
 //   Puter cloud (signed in only): Projects/<name>.msproj and
-//   Samples/<sampleId>.<ext> in the app's own Puter folder (~/AppData/<app id>) (each sample is uploaded once, the
+//   Samples/<storage key>.<ext> in the app's own Puter folder (~/AppData/<app id>) (each sample is uploaded once, the
 //   first time a project using it is saved to the cloud).
 //
 // Every cloud method checks the sign-in state first and throws a friendly
@@ -24,6 +24,12 @@ import { FILE_EXT } from '../model/project.js';
 export const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
 /** Samples larger than this in total are left out of downloaded project files. */
 export const MAX_EMBED_BYTES = 80 * 1024 * 1024;
+
+// Independent embedded copies use a content hash, or a random key without Web
+// Crypto. Falling back to their project ID could select unrelated older audio.
+const isEmbeddedKey = (key) => typeof key === 'string' && /^embedded-(?:[a-z0-9]{16}|[a-f0-9]{64})$/i.test(key);
+const isHashedKey = (key) => typeof key === 'string' && /^embedded-[a-f0-9]{64}$/i.test(key);
+const temporaryRecord = (temporary, ref) => temporary.get(ref.local || ref.id) || (!isEmbeddedKey(ref.local) ? temporary.get(ref.id) : null);
 
 export class Library {
   /**
@@ -104,7 +110,7 @@ export class Library {
   /** Whether this project still depends on audio with no durable copy. */
   hasTemporarySamples(project) {
     return Object.values(project.samples || {}).some((ref) => {
-      const rec = this.temporarySamples.get(ref.local || ref.id) || this.temporarySamples.get(ref.id);
+      const rec = temporaryRecord(this.temporarySamples, ref);
       return rec && !ref.path && !rec.path;
     });
   }
@@ -115,7 +121,7 @@ export class Library {
 
   /** Project replacement clears undo, so only the replacement's samples remain needed. */
   pruneTemporarySamples(project) {
-    const keep = new Set(Object.values(project.samples || {}).flatMap((ref) => [ref.id, ref.local]));
+    const keep = new Set(Object.values(project.samples || {}).flatMap((ref) => isEmbeddedKey(ref.local) ? [ref.local] : [ref.id, ref.local]));
     // Saves already in progress retain their original map until they finish.
     this.temporarySamples = new Map([...this.temporarySamples].filter(([id]) => keep.has(id)));
   }
@@ -133,13 +139,19 @@ export class Library {
   async sampleBytes(ref) {
     const temporary = this.temporarySamples;
     // An unreadable local cache must not prevent recovery from another copy.
-    const rec = (await this.sampleRecord(ref.local || ref.id).catch(() => null)) || (ref.local && ref.local !== ref.id ? await this.sampleRecord(ref.id).catch(() => null) : null);
+    const rec = (await this.sampleRecord(ref.local || ref.id).catch(() => null)) || (ref.local && ref.local !== ref.id && !isEmbeddedKey(ref.local) ? await this.sampleRecord(ref.id).catch(() => null) : null);
     if (rec?.data) return rec.data;
     if (!ref.path || !this.puter.isSignedIn()) return null;
     try {
       const blob = await this.puter.readFile(ref.path);
       const data = await blob.arrayBuffer();
-      await this.putSample(ref.id, { data, name: ref.name, type: blob.type || '', path: ref.path }, { temporary }).catch(() => {});
+      const key = isEmbeddedKey(ref.local) ? ref.local : ref.id;
+      if (isHashedKey(key)) {
+        const hash = await hashBytes(data);
+        if (!hash) return data; // Play without caching when Web Crypto is unavailable.
+        if (key !== `embedded-${hash}`) return null;
+      }
+      await this.putSample(key, { data, name: ref.name, type: blob.type || '', path: ref.path }, { temporary }).catch(() => {});
       return data;
     } catch {
       return null;
@@ -198,7 +210,7 @@ export class Library {
     for (const ref of Object.values(project.samples || {})) {
       if (ref.path) continue;
       const key = ref.local || ref.id;
-      const rec = temporary.get(key) || temporary.get(ref.id) || await this.sampleRecord(key);
+      const rec = temporaryRecord(temporary, ref) || await this.sampleRecord(key);
       if (rec?.path) {
         samples[ref.id] = { ...ref, path: rec.path };
         continue;
@@ -208,7 +220,9 @@ export class Library {
         continue;
       }
       dir ??= await this.puter.appSubdir('Samples');
-      const path = this.puter.joinPath(dir, `${ref.id}.${audioExtension(rec.name, rec.data)}`);
+      // Embedded files may reuse a project sample ID for different audio.
+      const fileId = isEmbeddedKey(key) ? key : ref.id;
+      const path = this.puter.joinPath(dir, `${fileId}.${audioExtension(rec.name, rec.data)}`);
       const item = await this.puter.writeFile(path, new Blob([rec.data], { type: rec.type || 'application/octet-stream' }));
       const saved = item?.path || path;
       await this.putSample(key, { ...rec, path: saved }, { temporary }).catch(() => {});
@@ -293,7 +307,7 @@ export class Library {
     let total = 0;
     let skipped = false;
     for (const ref of Object.values(project.samples || {})) {
-      const retained = temporary.get(ref.local || ref.id) || temporary.get(ref.id);
+      const retained = temporaryRecord(temporary, ref);
       const bytes = retained?.data || await this.sampleBytes(ref);
       if (!bytes) {
         missing.push(ref.name);
@@ -330,8 +344,20 @@ export class Library {
         if (!e || typeof e.data !== 'string') continue;
         try {
           const bytes = fromBase64(e.data);
-          await this.putSample(ref.id, { data: bytes, name: ref.name, type: typeof e.type === 'string' ? e.type : '' }, { temporary });
-          samples[ref.id] = { ...ref, local: ref.id };
+          const oldKey = ref.local || ref.id;
+          const existing = temporary.get(oldKey) || await this.sampleRecord(oldKey).catch(() => null);
+          if (existing?.data && sameBytes(existing.data, bytes)) {
+            samples[ref.id] = { ...ref, local: oldKey, path: existing.path || null };
+          } else {
+            // Never overwrite another project's audio, even before open approval
+            // or when two embedded files with the same IDs are read concurrently.
+            const hash = await hashBytes(bytes);
+            const local = `embedded-${hash || uid(16)}`;
+            const retained = temporary.get(local) || await this.sampleRecord(local).catch(() => null);
+            const reusable = retained?.data && sameBytes(retained.data, bytes);
+            if (!reusable) await this.putSample(local, { data: bytes, name: ref.name, type: typeof e.type === 'string' ? e.type : '' }, { temporary }).catch(() => {});
+            samples[ref.id] = { ...ref, local, path: reusable ? retained.path || null : null };
+          }
         } catch {
           // Invalid embedded data stays missing; failed writes remain available in memory.
         }
@@ -340,6 +366,21 @@ export class Library {
     }
     return project;
   }
+}
+
+function sameBytes(a, b) {
+  if (a.byteLength !== b.byteLength) return false;
+  const left = new Uint8Array(a), right = new Uint8Array(b);
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false;
+  return true;
+}
+
+async function hashBytes(bytes) {
+  try {
+    const digest = await globalThis.crypto.subtle?.digest('SHA-256', new Uint8Array(bytes));
+    if (digest) return [...new Uint8Array(digest)].map((n) => n.toString(16).padStart(2, '0')).join('');
+  } catch { /* An independent random key still prevents overwriting another sample. */ }
+  return null;
 }
 
 // ------------------------------------------------------------------ base64

@@ -55,7 +55,7 @@ it('keeps imported audio available for a complete project download after quota f
   expect(new Uint8Array(fromBase64(downloaded.embedded[imported.sampleId].data))).toEqual(new Uint8Array(data));
   const restored = new Library({ db: memoryDB(), decode, puter: { isSignedIn: () => false } });
   const reopened = await restored.readProjectText(JSON.stringify(downloaded));
-  const record = await restored.sampleRecord(imported.sampleId);
+  const record = await restored.sampleRecord(reopened.samples[imported.sampleId].local);
   expect(new Uint8Array(record.data)).toEqual(new Uint8Array(data));
   expect(decode(record.data).channels[0]).toHaveLength(4);
   expect(await restored.loadSamples(reopened, new SampleCache())).toEqual({ loaded: 1, missing: [] });
@@ -106,10 +106,11 @@ it('releases the temporary copy after a successful storage retry', async () => {
   const project = await lib.readProjectText(embeddedText());
   expect(lib.hasTemporarySamples(project)).toBe(true);
   restoreWrites();
-  await lib.putSample('embedded', await lib.sampleRecord('embedded'));
+  const key = project.samples.embedded.local;
+  await lib.putSample(key, await lib.sampleRecord(key));
   expect(lib.hasTemporarySamples(project)).toBe(false);
   expect(lib.temporarySamples.size).toBe(0);
-  expect(new Uint8Array((await lib.sampleRecord('embedded')).data)).toEqual(new Uint8Array(data));
+  expect(new Uint8Array((await lib.sampleRecord(key)).data)).toEqual(new Uint8Array(data));
 });
 
 it('saves temporary audio to cloud despite a local metadata write failure, without duplicate uploads', async () => {
@@ -125,8 +126,9 @@ it('saves temporary audio to cloud despite a local metadata write failure, witho
   expect(result.missing).toEqual([]);
   expect(lib.hasTemporarySamples(project)).toBe(false);
   const saved = JSON.parse(await writes.get('/Song.msproj').text());
-  expect(saved.samples.embedded.path).toBe('/Samples/embedded.wav');
-  expect(new Uint8Array(await writes.get('/Samples/embedded.wav').arrayBuffer())).toEqual(new Uint8Array(data));
+  const samplePath = `/Samples/${project.samples.embedded.local}.wav`;
+  expect(saved.samples.embedded.path).toBe(samplePath);
+  expect(new Uint8Array(await writes.get(samplePath).arrayBuffer())).toEqual(new Uint8Array(data));
   expect(lib.puter.writeFile).toHaveBeenCalledTimes(2);
   await lib.saveCloud(project, {}, { path: '/Song.msproj' });
   expect(lib.puter.writeFile).toHaveBeenCalledTimes(3);
@@ -205,23 +207,25 @@ it.each(['download', 'cloud'])('preserves temporary samples in an ongoing %s acr
   input.embedded.second = input.embedded.embedded;
   const project = await lib.readProjectText(JSON.stringify(input));
   await files.loadProject(project, null);
+  const firstKey = project.samples.embedded.local;
+  const firstPath = `/Samples/${firstKey}.wav`;
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const writes = new Map();
   if (mode === 'cloud') lib.puter = {
     requireSignedIn() {}, isSignedIn: () => true, appSubdir: async () => '/Samples', joinPath: (dir, name) => `${dir}/${name}`,
-    writeFile: vi.fn(async (path, blob) => { writes.set(path, blob); if (path.endsWith('embedded.wav')) await gate; return { path }; }),
+    writeFile: vi.fn(async (path, blob) => { writes.set(path, blob); if (path === firstPath) await gate; return { path }; }),
   };
   else {
     // Delay a durable first sample; the later temporary sample must survive replacement.
     restoreWrites();
-    await lib.putSample('embedded', await lib.sampleRecord('embedded'));
+    await lib.putSample(firstKey, await lib.sampleRecord(firstKey));
     const read = lib.sampleRecord.bind(lib);
-    vi.spyOn(lib, 'sampleRecord').mockImplementation(async (id) => { const rec = await read(id); if (id === 'embedded') await gate; return rec; });
+    vi.spyOn(lib, 'sampleRecord').mockImplementation(async (id) => { const rec = await read(id); if (id === firstKey) await gate; return rec; });
   }
   const pending = mode === 'cloud' ? lib.saveCloud(project, {}, { path: '/Song.msproj' }) : lib.exportFile(project, {});
-  if (mode === 'cloud') await vi.waitFor(() => expect(writes.has('/Samples/embedded.wav')).toBe(true));
-  else await vi.waitFor(() => expect(lib.sampleRecord).toHaveBeenCalledWith('embedded'));
+  if (mode === 'cloud') await vi.waitFor(() => expect(writes.has(firstPath)).toBe(true));
+  else await vi.waitFor(() => expect(lib.sampleRecord).toHaveBeenCalledWith(firstKey));
   app.store.load(newProject());
   release();
   const result = await pending;
@@ -229,7 +233,7 @@ it.each(['download', 'cloud'])('preserves temporary samples in an ongoing %s acr
   if (mode === 'download') {
     const exported = JSON.parse(await result.blob.text());
     expect(Object.keys(exported.embedded)).toEqual(['embedded', 'second']);
-  } else expect(writes.has('/Samples/second.wav')).toBe(true);
+  } else expect(writes.has(`/Samples/${project.samples.second.local}.wav`)).toBe(true);
   expect(lib.temporarySamples.size).toBe(0);
 });
 
@@ -280,7 +284,8 @@ it.each(['success', 'failure'])('updates a retained sample after an in-flight pe
   await files.loadProject(project, null);
   let finish;
   db.put.mockImplementationOnce(() => new Promise((resolve, reject) => { finish = outcome === 'success' ? resolve : () => reject(new Error('Storage full')); }));
-  const saving = lib.putSample('embedded', { ...await lib.sampleRecord('embedded'), path: '/Samples/embedded.wav' }).catch(() => {});
+  const key = project.samples.embedded.local;
+  const saving = lib.putSample(key, { ...await lib.sampleRecord(key), path: `/Samples/${key}.wav` }).catch(() => {});
   await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
   app.store.load({ ...project, name: 'Replacement retaining the sample' });
   finish();

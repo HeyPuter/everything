@@ -184,8 +184,8 @@ describe('device files', () => {
 
     const other = new Library({ db: memoryDB(), decode: fakeDecode, puter: { isSignedIn: () => false } });
     const back = await other.readProjectText(text);
-    expect(back.samples.s1.local).toBe('s1');
-    expect(new Uint8Array((await other.sampleRecord('s1')).data)).toEqual(new Uint8Array([5, 6, 7]));
+    expect(back.samples.s1.local).toMatch(/^embedded-/);
+    expect(new Uint8Array((await other.sampleRecord(back.samples.s1.local)).data)).toEqual(new Uint8Array([5, 6, 7]));
   });
 
   it('rejects files that are not projects', async () => {

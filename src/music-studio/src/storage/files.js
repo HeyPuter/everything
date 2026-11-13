@@ -92,8 +92,11 @@ export class ProjectFiles {
   /** Replaces the open project and loads its samples in the background. */
   loadProject(project, file, { dirty = false, quietSamples = false } = {}) {
     this.app.engine.stop();
-    const keep = new Set(Object.keys(project.samples || {}));
-    for (const id of this.app.samples.ids()) if (!keep.has(id)) this.app.samples.delete(id);
+    const previous = this.store.project.samples || {};
+    for (const id of this.app.samples.ids()) {
+      const before = previous[id], after = project.samples?.[id];
+      if (!before || !after || (before.local || id) !== (after.local || id) || (before.path || null) !== (after.path || null)) this.app.samples.delete(id);
+    }
     this.store.load(project);
     if (dirty) this.store.dirty = true;
     this.setFile(file);
