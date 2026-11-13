@@ -510,6 +510,8 @@ describe('Puter desktop window close', () => {
     window.puter = fake;
     const app = new App(document.createElement('div'), { storage: null });
     install(app, { db: Promise.resolve(memoryDB()), tab: Promise.resolve({ key: 'session', liveKeys: async () => new Set(['session']) }) });
+    app.emit('started');
+    await app.restored;
     expect(typeof onClose).toBe('function');
     app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
     const closing = onClose();

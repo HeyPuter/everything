@@ -78,9 +78,17 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
 
   let closing = false;
   let exiting = false;
+  let discarding = false;
+  let ownedDraft = null;
+  // Modern drafts need only their revision; avoid retaining another project JSON.
+  const draftIdentity = (draft) => draft?.revision ? { revision: draft.revision } : draft;
   const autosave = new Autosave({
     store,
-    writeDraft: async () => lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, (await tab).key),
+    writeDraft: async () => {
+      const slot = await tab;
+      if (discarding || exiting) return;
+      ownedDraft = draftIdentity(await lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, slot.key));
+    },
     writeCloud: () => (closing || exiting ? false : files.save({ auto: true })),
     cloudEnabled: () => !closing && !exiting && Boolean(app.file?.path) && cloudAutosaveOn(prefs) && puter.isSignedIn(),
   });
@@ -100,7 +108,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
         await Promise.all(picked.remove.map((key) => lib.clearDraft(key).catch(() => {})));
         // Finish the transfer before another tab selects an abandoned session.
         if (picked.draft && picked.key !== slot.key) {
-          await lib.adoptDraft(picked.draft, picked.key, slot.key);
+          picked.draft = await lib.adoptDraft(picked.draft, picked.key, slot.key);
         }
         return picked;
       };
@@ -121,12 +129,14 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
         if (project) {
           files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
           restoredDraft = true;
+          ownedDraft ??= draftIdentity(draft);
         }
       }
       if (draft?.json && !restoredDraft) {
         // Autosaving the new work will replace this tab's slot. Preserve the
         // skipped session under a fresh, unowned key for the next tab to recover.
         await lib.saveDraft(draft, `tab:${uid(10)}`);
+        ownedDraft ??= draftIdentity(draft);
         app.notify('Your previous session was kept for recovery in a new tab.', { timeout: 9000 });
       }
     } catch (err) {
@@ -195,6 +205,15 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       if (store.dirty || lib.hasTemporarySamples(store.project)) {
         const choice = await saveChangesDialog(store.project.name);
         if (choice === null) return;
+        if (choice === 'discard') {
+          discarding = true;
+          // Let earlier writes finish before removing their exact recovery copy.
+          await app.restored;
+          await autosave.flushAll();
+          await files.whenIdle();
+          await autosave.flushAll();
+          await lib.discardDraft((await tab).key, ownedDraft);
+        }
         if (choice === 'save') {
           const saved = await files.save().catch((err) => {
             app.reportError(err);
@@ -206,9 +225,17 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       await autosave.flushAll().catch(() => {});
       exiting = true;
       puter.exitApp();
+    } catch (err) {
+      app.reportError(err);
     } finally {
       closing = false;
-      if (!exiting && store.dirty) autosave.scheduleCloud();
+      if (!exiting) {
+        discarding = false;
+        if (store.dirty) {
+          autosave.scheduleDraft();
+          autosave.scheduleCloud();
+        }
+      }
     }
   });
 

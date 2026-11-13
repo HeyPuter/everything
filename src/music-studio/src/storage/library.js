@@ -239,16 +239,20 @@ export class Library {
 
   async saveDraft(draft, key = 'session') {
     const db = await this.db();
-    await db.put('drafts', key, { ...draft, at: this.now() });
+    const record = { ...draft, at: this.now(), revision: uid() };
+    await db.put('drafts', key, record);
+    return record;
   }
 
   /** Transfer recovery ownership without leaving a second abandoned copy on failure. */
   async adoptDraft(draft, from, to) {
     const db = await this.db();
+    const record = { ...draft, at: this.now(), revision: uid() };
     await db.batch([
-      { type: 'put', store: 'drafts', key: to, value: { ...draft, at: this.now() } },
+      { type: 'put', store: 'drafts', key: to, value: record },
       { type: 'delete', store: 'drafts', key: from },
     ]);
+    return record;
   }
 
   async loadDraft(key = 'session') {
@@ -259,6 +263,15 @@ export class Library {
   async clearDraft(key = 'session') {
     const db = await this.db();
     await db.delete('drafts', key);
+  }
+
+  /** Discard only the version this tab owns, even when legacy tabs share a key. */
+  async discardDraft(key, expected) {
+    if (!expected) return false;
+    const db = await this.db();
+    return db.deleteIf('drafts', key, (record) => expected.revision
+      ? record.revision === expected.revision
+      : JSON.stringify(record) === JSON.stringify(expected));
   }
 
   /** Every stored draft as [[key, draft], ...]. */

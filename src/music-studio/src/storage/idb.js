@@ -6,6 +6,7 @@
 //   await db.get(store, key) / put(store, key, value) / delete(store, key)
 //   await db.all(store) -> [[key, value], ...]
 //   await db.batch([{ type: 'put' | 'delete', store, key, value? }, ...]) // atomic
+//   await db.deleteIf(store, key, matches) // atomic conditional deletion
 //   db.persistent                        // false for the memory fallback
 //
 // Stores:
@@ -63,6 +64,26 @@ function wrap(db) {
       s.delete(key);
       await done(s.transaction);
     },
+    async deleteIf(store, key, matches) {
+      const s = tx(store, 'readwrite');
+      const completed = done(s.transaction);
+      let deleted = false;
+      let failure;
+      const read = s.get(key);
+      read.onsuccess = () => {
+        try {
+          if (read.result !== undefined && matches(read.result)) {
+            s.delete(key);
+            deleted = true;
+          }
+        } catch (err) {
+          failure = err;
+          s.transaction.abort();
+        }
+      };
+      await completed.catch((err) => { throw failure || err; });
+      return deleted;
+    },
     async batch(operations) {
       if (!operations.length) return;
       const t = db.transaction([...new Set(operations.map((op) => op.store))], 'readwrite');
@@ -105,6 +126,11 @@ export function memoryDB() {
     get: async (store, key) => clone(get(store).get(key)),
     put: async (store, key, value) => void get(store).set(key, clone(value)),
     delete: async (store, key) => void get(store).delete(key),
+    async deleteIf(store, key, matches) {
+      const values = get(store);
+      if (!values.has(key) || !matches(clone(values.get(key)))) return false;
+      return values.delete(key);
+    },
     async batch(operations) {
       // Validate and clone everything before changing any store.
       const prepared = operations.map((op) => {
