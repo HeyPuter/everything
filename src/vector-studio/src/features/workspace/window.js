@@ -387,8 +387,10 @@ function ensureFloatChrome(app, ed, view) {
     h('span.float-title', ed.name),
     h('button.icon-btn.small', { type: 'button', 'aria-label': `Dock ${ed.name}`, 'data-tip': 'Consolidate into tabs', onclick: () => unfloat(app, ed) }, icon('x', 12)),
   );
+  let dragPointer = null;
   head.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button')) return;
+    if (e.button !== 0 || dragPointer !== null || e.target.closest('button')) return;
+    dragPointer = e.pointerId;
     e.preventDefault();
     e.stopPropagation();
     app.activate(ed);
@@ -396,10 +398,13 @@ function ensureFloatChrome(app, ed, view) {
     const y0 = e.clientY - host.offsetTop;
     head.setPointerCapture?.(e.pointerId);
     const move = (ev) => {
+      if (ev.pointerId !== dragPointer) return;
       host.style.left = `${Math.max(0, ev.clientX - x0)}px`;
       host.style.top = `${Math.max(0, ev.clientY - y0)}px`;
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== dragPointer) return;
+      dragPointer = null;
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
       head.removeEventListener('pointercancel', up);
