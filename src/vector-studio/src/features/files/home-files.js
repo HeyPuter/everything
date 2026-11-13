@@ -131,6 +131,13 @@ function yourFilesSection(app, files, host) {
 async function loadThumb(app, files, it, current) {
   if (!current()) return null;
   const key = `${it.path}|${it.modified}`;
+  // A save may share the server's previous modified timestamp. Prefer its
+  // fresh preview without adding disk reads to unchanged Home refreshes.
+  const latest = files.recent.peekThumb?.({ kind: 'puter', path: it.path });
+  if (latest) {
+    thumbCache.set(key, latest);
+    return latest;
+  }
   if (thumbCache.has(key)) return thumbCache.get(key);
   const recent = await files.recent.thumb({ kind: 'puter', path: it.path });
   if (!current()) return null;

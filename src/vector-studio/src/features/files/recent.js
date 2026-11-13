@@ -120,6 +120,11 @@ export class RecentFiles {
     });
   }
 
+  /** Latest preview already in memory, without starting a cache read. */
+  peekThumb(entry) {
+    return this.thumbs.get(entryKey(entry)) ?? null;
+  }
+
   async thumb(entry) {
     const key = entryKey(entry);
     if (this.thumbs.has(key)) return this.thumbs.get(key);

@@ -1,6 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { installHomeFiles } from '../src/features/files/home-files.js';
 import { installHome } from '../src/ui/home.js';
+import { Prefs } from '../src/prefs.js';
+import { RecentFiles } from '../src/features/files/recent.js';
+import { memoryBackend } from '../src/features/files/backends.js';
 
 afterEach(() => { document.body.replaceChildren(); vi.restoreAllMocks(); });
 function deferred() {
@@ -134,4 +137,46 @@ it('loads current files alongside the real asynchronous Home renderer', async ()
   expect(names()).toEqual(['Real-home.svg']);
   expect(host.querySelector('[aria-label="Recent files"]').textContent).toContain('Files you open or save appear here');
   expect(host.querySelector('.preset-card')).not.toBeNull();
+});
+
+
+it.each(['recent', 'native', 'missing'])('shows a newly saved preview despite an unchanged timestamp and a cached %s preview', async (source) => {
+  const { app, files, host, pending, refresh } = setup();
+  const entry = item(`Preview-freshness-${source}.vstudio`, 'native');
+  const oldThumb = 'data:image/png;base64,OLD', newThumb = 'data:image/png;base64,NEW';
+  files.cache = memoryBackend();
+  files.recent = new RecentFiles(new Prefs(null), { cache: files.cache });
+  if (source === 'recent') await files.recent.add({ ...entry, kind: 'puter', thumb: oldThumb });
+  app.puter.fs.read.mockResolvedValue(new Blob([JSON.stringify({ meta: { thumbnail: source === 'missing' ? null : oldThumb } })]));
+  pending[0].resolve([entry]);
+  await tick();
+  expect(host.querySelector('.files-list img')?.getAttribute('src') ?? null).toBe(source === 'missing' ? null : oldThumb);
+  if (source !== 'recent') expect(app.puter.fs.read).toHaveBeenCalledOnce();
+  await files.recent.add({ ...entry, kind: 'puter', thumb: newThumb });
+  const reading = vi.spyOn(files.cache, 'readJSON');
+  app.puter.fs.read.mockClear();
+  refresh();
+  pending[1].resolve([entry]);
+  await tick();
+  expect(host.querySelector('.files-list img')?.getAttribute('src')).toBe(newThumb);
+  expect(reading).not.toHaveBeenCalled();
+  expect(app.puter.fs.read).not.toHaveBeenCalled();
+});
+
+it('reuses unchanged native previews without repeated cache reads or downloads', async () => {
+  const { app, files, host, pending, refresh } = setup();
+  const entry = item('Preview-cache-fast-path.vstudio', 'native');
+  const thumbnail = 'data:image/png;base64,UNCHANGED';
+  files.cache = memoryBackend();
+  files.recent = new RecentFiles(new Prefs(null), { cache: files.cache });
+  app.puter.fs.read.mockResolvedValue(new Blob([JSON.stringify({ meta: { thumbnail } })]));
+  pending[0].resolve([entry]);
+  await vi.waitFor(() => expect(host.querySelector('.files-list img')?.getAttribute('src')).toBe(thumbnail));
+  const reading = vi.spyOn(files.cache, 'readJSON');
+  refresh();
+  pending[1].resolve([entry]);
+  await tick();
+  expect(host.querySelector('.files-list img')?.getAttribute('src')).toBe(thumbnail);
+  expect(reading).not.toHaveBeenCalled();
+  expect(app.puter.fs.read).toHaveBeenCalledOnce();
 });
