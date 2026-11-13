@@ -26,6 +26,8 @@ const STASH = 'vs-recovery-unwritten:';
 /** Leave room in localStorage (about 5M characters) for preferences: larger documents rely on the regular write. */
 const STASH_LIMIT = 2_500_000;
 
+const sameRevisions = (a, b) => a?.revision === b.revision && a?.commentsRevision === b.commentsRevision;
+
 function newerSnapshot(a, b) {
   if (a.session === b.session && Number.isFinite(a.sequence) && Number.isFinite(b.sequence)) return a.sequence > b.sequence;
   // Older versions did not record capture order. Prefer time, then revisions for ties.
@@ -55,8 +57,9 @@ export class Autosaver {
     this.storeKey = null;
     this.cached = null;
     this.saved = new WeakMap(); // document -> artwork and comment revisions last written
+    this.pending = new WeakMap(); // document -> revisions of the write that will replace its copy
     this.watched = new WeakSet(); // documents whose saved event removes their copy
-    this.stashed = new Map(); // recovery id -> snapshot sequence kept at page close
+    this.stashed = new Map(); // recovery id -> revisions and capture sequence kept at page close
     this.sequence = 0; // capture order within this session; document revisions can go backward on Undo
     this.timer = 0;
     this.busy = null;
@@ -148,7 +151,11 @@ export class Autosaver {
       if (seen.has(doc)) return false;
       seen.add(doc);
       const saved = this.saved.get(doc);
-      return doc.dirty && !doc.tx && (!saved || saved.revision !== doc.revision || saved.commentsRevision !== doc.commentsRevision);
+      const pending = this.pending.get(doc);
+      const stashed = this.stashed.get(doc.recoveryId);
+      // Undo/Redo may return to the saved copy while a different snapshot is about to replace it.
+      return doc.dirty && !doc.tx && (!sameRevisions(saved, doc) ||
+        (pending && !sameRevisions(pending, doc)) || (stashed && !sameRevisions(stashed, doc)));
     });
   }
 
@@ -170,7 +177,7 @@ export class Autosaver {
         if (room < 0) throw new Error('Too large to keep in localStorage');
         const meta = { id, ...this.#entry(editor), revision: doc.revision, commentsRevision: doc.commentsRevision, session: this.session, sequence, saved: Date.now() };
         ls.setItem(key, `${JSON.stringify(meta)}\n${text}`);
-        this.stashed.set(id, sequence);
+        this.stashed.set(id, { revision: doc.revision, commentsRevision: doc.commentsRevision, sequence });
       } catch {
         // Over the quota: an older copy kept here would replace the newer one being written.
         this.#unstash(id);
@@ -181,7 +188,7 @@ export class Autosaver {
 
   #unstash(id, sequence = Infinity) {
     if (!this.stashed.has(id) && sequence !== Infinity) return;
-    if (this.stashed.get(id) > sequence) return;
+    if (this.stashed.get(id)?.sequence > sequence) return;
     this.stashed.delete(id);
     try {
       storage()?.removeItem(STASH + id);
@@ -203,6 +210,7 @@ export class Autosaver {
       const doc = editor.doc;
       const rev = doc.revision;
       const commentsRevision = doc.commentsRevision;
+      this.pending.set(doc, { revision: rev, commentsRevision });
       try {
         const kept = texts?.get(editor);
         const reuse = kept?.rev === rev && kept.commentsRevision === commentsRevision;
@@ -219,6 +227,8 @@ export class Autosaver {
         n++;
       } catch (err) {
         console.warn('Autosave failed', err);
+      } finally {
+        this.pending.delete(doc);
       }
     }
     return n;
