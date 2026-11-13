@@ -13,7 +13,7 @@
 //                 starting at clip.start (automation/evaluate.js).
 
 import * as E from '../model/edits.js';
-import { createTrack, patternById, patternLength, patternColor, channelById, COLORS } from '../model/project.js';
+import { createTrack, patternById, patternLength, patternColor, channelById, cloneName, COLORS } from '../model/project.js';
 import { secondsToTicks, ticksPerBar } from '../model/time.js';
 import { tempoMap } from '../engine/compile.js';
 import { automationLength } from '../automation/points.js';
@@ -257,7 +257,7 @@ export function makeUnique(project, clipId) {
     const a = project.automation[clip.ref];
     if (!a) return { project, id: null };
     const { id: _old, ...rest } = structuredClone(a);
-    r = E.addAutomation(project, { ...rest, name: `${a.name} #2` });
+    r = E.addAutomation(project, { ...rest, name: cloneName(a.name) });
   }
   if (!r?.id) return { project, id: null };
   return { project: E.updateClips(r.project, { [clipId]: { ref: r.id } }), id: r.id };

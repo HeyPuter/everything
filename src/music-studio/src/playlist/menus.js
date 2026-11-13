@@ -2,7 +2,7 @@
 // empty canvas positions, track headers, picker sources and the ruler.
 
 import * as E from '../model/edits.js';
-import { COLORS } from '../model/project.js';
+import { COLORS, cloneName } from '../model/project.js';
 import { promptDialog, confirmDialog } from '../ui/dialog.js';
 import { openMenu } from '../ui/menu.js';
 import { formatKeys } from '../commands/registry.js';
@@ -54,7 +54,7 @@ export function cloneSource(V, src) {
       const a = p.automation[src.id];
       if (!a) return { project: p, id: null };
       const { id: _old, ...rest } = structuredClone(a);
-      return E.addAutomation(p, { ...rest, name: `${a.name} #2` });
+      return E.addAutomation(p, { ...rest, name: cloneName(a.name) });
     });
   }
   if (r?.id) {

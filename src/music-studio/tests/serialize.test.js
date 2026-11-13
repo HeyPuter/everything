@@ -5,7 +5,9 @@ import { serializeProject, parseProject, KIND } from '../src/model/serialize.js'
 import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
 import { createSlot, createMixerTrack, createChannel, createPattern, createNote, createClip, MAX_MIXER_TRACKS } from '../src/model/project.js';
-import { addMarker, deleteTrack } from '../src/playlist/clips.js';
+import { addMarker, deleteTrack, makeUnique } from '../src/playlist/clips.js';
+import { cloneSource } from '../src/playlist/menus.js';
+import { Store } from '../src/model/store.js';
 import { addPoint } from '../src/automation/points.js';
 import { resolveTarget } from '../src/automation/targets.js';
 import { compileAutomation } from '../src/engine/compile.js';
@@ -27,6 +29,37 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it.each(['pattern', 'audio', 'auto'])('keeps a cloned long %s name distinct and stable on reopen', (kind) => {
+    let p = richProject();
+    const name = 'A'.repeat(56) + '🎹zz'; // 60 UTF-16 code units.
+    let id;
+    if (kind === 'pattern') {
+      id = p.patterns[0].id;
+      p = E.updatePattern(p, id, { name });
+    } else if (kind === 'audio') {
+      id = p.channels[0].id;
+      p = E.updateChannel(p, id, { name });
+    } else {
+      const r = E.addAutomation(p, { name, target: { kind: 'tempo' } });
+      p = r.project;
+      id = r.id;
+    }
+    const getName = (project, ref) => kind === 'pattern' ? project.patterns.find((x) => x.id === ref).name : kind === 'audio' ? project.channels.find((x) => x.id === ref).name : project.automation[ref].name;
+    const store = new Store(p);
+    let cloned;
+    cloneSource({ store, setSource: (src) => { cloned = src.id; } }, { kind, id });
+    const cloneName = getName(store.project, cloned);
+    expect(getName(parseProject(serializeProject(store.project)), cloned)).toBe(cloneName);
+    expect(cloneName.length).toBeLessThanOrEqual(60);
+    expect(cloneName.endsWith(' #2')).toBe(true);
+    expect(cloneName).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    const added = E.addClips(p, [{ kind, ref: id, track: 0, start: 0, len: 96 }]);
+    const unique = makeUnique(added.project, added.ids[0]);
+    const uniqueName = getName(unique.project, unique.id);
+    expect(uniqueName).toBe(cloneName);
+    expect(getName(parseProject(serializeProject(unique.project)), unique.id)).toBe(cloneName);
+  });
+
   it.each(['channels', 'patterns', 'tracks', 'clips', 'notes', 'points', 'markers'])('preserves editor-created %s past the former file-only cutoff', (kind) => {
     let p = richProject();
     let read;

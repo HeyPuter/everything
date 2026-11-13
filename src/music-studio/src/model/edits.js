@@ -3,7 +3,7 @@
 // these run in tests as-is. Views call them through store.apply(label, fn).
 
 import { uid, clamp, moveItem } from '../lib/util.js';
-import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY } from './project.js';
+import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, cloneName, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY } from './project.js';
 import { STEP } from './time.js';
 
 // ------------------------------------------------------------------ helpers
@@ -90,7 +90,7 @@ export function cloneChannel(project, id, { withNotes = false } = {}) {
   const i = project.channels.findIndex((c) => c.id === id);
   if (i < 0) return { project, id: null };
   const src = project.channels[i];
-  const copy = { ...structuredClone(src), id: uid(), name: `${src.name} #2`, solo: false };
+  const copy = { ...structuredClone(src), id: uid(), name: cloneName(src.name), solo: false };
   let next = addChannel(project, copy, i + 1);
   if (withNotes) {
     next = {
@@ -140,7 +140,7 @@ export function clonePattern(project, id) {
   const src = project.patterns[i];
   const notes = {};
   for (const [k, list] of Object.entries(src.notes)) notes[k] = list.map((n) => ({ ...n, id: uid(6) }));
-  const copy = { ...src, id: uid(), name: `${src.name} #2`, notes };
+  const copy = { ...src, id: uid(), name: cloneName(src.name), notes };
   const patterns = project.patterns.slice();
   patterns.splice(i + 1, 0, copy);
   return { project: { ...project, patterns }, id: copy.id };

@@ -52,6 +52,11 @@ export const DEFAULT_INSERTS = 16;
 export const DEFAULT_TRACKS = 16;
 export const DEFAULT_KEY = 60;
 
+/** Keep the copy suffix within the editable name limit without splitting a surrogate pair. */
+export function cloneName(name) {
+  return `${name.slice(0, 57).replace(/[\uD800-\uDBFF]$/, '')} #2`;
+}
+
 /** Original palette for channels, patterns, tracks and mixer inserts. */
 export const COLORS = [
   '#e0675a', '#e8925a', '#e3b84f', '#a7c957', '#5cbf8a', '#4fb8b1',
