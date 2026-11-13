@@ -6677,10 +6677,19 @@ export function createEditor({
     // Push buttons hold nothing to fill in.
     const fields = listFields(doc).filter((field) => !field.button);
     if (!fields.some((field) => field.type !== 'unsupported')) {
+      // An XFA form keeps its fields in XFA alone, which only Adobe's readers fill in; what
+      // its pages show here is usually a note to that effect.
+      const xfa = await pdf
+        .getMetadata()
+        .then(({ info }) => !!info?.IsXFAPresent)
+        .catch(() => false);
+      if (!canOpenDialog(version)) return;
       toast(
-        fields.some((field) => field.signature)
-          ? 'This PDF has no fields to fill in. Sign its signature fields with Sign with a certificate.'
-          : 'This PDF has no fillable fields. Use Text to write on the page.',
+        xfa
+          ? 'This PDF is an XFA form, which can be filled in only in Adobe Acrobat or Adobe Reader. Use Text to write on the page.'
+          : fields.some((field) => field.signature)
+            ? 'This PDF has no fields to fill in. Sign its signature fields with Sign with a certificate.'
+            : 'This PDF has no fillable fields. Use Text to write on the page.',
       );
       return;
     }
