@@ -44,7 +44,7 @@ describe('marker import', () => {
   it('skips unreadable rows and rejects files without markers', () => {
     expect(parseMarkerText('Name\tStart\nok\t1\nbad\tsoon\n', rate)).toHaveLength(1);
     expect(() => parseMarkerText('', rate)).toThrow();
-    expect(() => parseMarkerText('Name\tStart\nx\ty\n', rate)).toThrow(/No markers/);
+    expect(() => parseMarkerText('Name\tStart\nx\ty\n', rate)).toThrow(/start time that could be read/);
     expect(parseDelimited('a,"b,""c"""\n', ',')).toEqual([['a', 'b,"c"']]);
   });
 });

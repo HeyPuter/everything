@@ -399,17 +399,31 @@ function audioHardwarePrefs(app) {
 
 // ----------------------------------------------------------------- markers
 
-async function importMarkers(app) {
+export async function importMarkers(app) {
   const doc = audio(app);
   let file = null;
+  let item = null;
   if (puter.sdk() && puter.isSignedIn()) {
-    const [item] = await puter.pickFiles({ multiple: false, accept: '.csv,.txt,.tsv' });
+    [item] = await puter.pickFiles({ multiple: false, accept: '.csv,.txt,.tsv' });
     if (item) file = await item.read();
   } else {
     [file] = await pickLocalFiles({ accept: '.csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values', multiple: false });
   }
   if (!file) return;
-  const parsed = parseMarkerText(await file.text(), doc.sampleRate, { timeFormat: app.prefs.get('timeFormat'), ...app.timeOptions() });
+  const name = file.name || item?.name || '';
+  let parsed;
+  try {
+    const timeOptions = { timeFormat: app.prefs.get('timeFormat'), ...app.timeOptions() };
+    parsed = parseMarkerText(await file.text(), doc.sampleRate, timeOptions);
+  } catch (err) {
+    // A file with no readable markers is the user's to fix, not a failure of the command.
+    const why = err?.message ? ` ${err.message}` : '';
+    const from = name ? ` from "${name}"` : '';
+    const hint =
+      'Marker files are tab-separated or CSV text with Name and Start columns, as File > Export > Markers writes them.';
+    app.notify(`No markers were imported${from}.${why} ${hint}`, { error: true });
+    return;
+  }
   const inside = parsed.filter((m) => m.start <= doc.length).map((m) => createMarker({ ...m, duration: Math.min(m.duration, doc.length - m.start) }));
   if (!inside.length) {
     app.notify('All markers in the file are past the end of this audio.', { error: true });

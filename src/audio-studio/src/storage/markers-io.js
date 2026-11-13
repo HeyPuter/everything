@@ -123,6 +123,6 @@ export function parseMarkerText(text, rate, { timeFormat = 'decimal', tempo, bea
       description: cDesc >= 0 ? (r[cDesc] ?? '').trim() : '',
     });
   }
-  if (!out.length) throw new Error('No markers could be read from the file.');
+  if (!out.length) throw new Error('None of its lines has a start time that could be read.');
   return out;
 }
