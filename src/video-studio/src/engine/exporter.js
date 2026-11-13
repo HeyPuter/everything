@@ -650,7 +650,7 @@ async function abandoned(name) {
  * Where encoded bytes go: memory for normal sizes, a temporary file in the
  * origin private file system for large ones so memory stays flat.
  */
-async function openTarget(estimated, force) {
+async function openTarget(estimated, force, { raw = false } = {}) {
   const wantFile = force === 'file' || (force !== 'memory' && estimated > LARGE_OUTPUT);
   if (wantFile && navigator.storage?.getDirectory) {
     let name = null;
@@ -668,7 +668,9 @@ async function openTarget(estimated, force) {
         const writable = await handle.createWritable();
         return {
           kind: 'file',
-          target: new StreamTarget(writable, { chunked: true }),
+          target: raw ? null : new StreamTarget(writable, { chunked: true }),
+          write: raw ? (data) => writable.write(data) : null,
+          finish: raw ? () => writable.close() : null,
           async result(type) {
             const file = await handle.getFile();
             return new Blob([file], { type });
@@ -688,6 +690,20 @@ async function openTarget(estimated, force) {
       liveFiles.delete(name);
       unlock();
     }
+  }
+  if (raw) {
+    const parts = [];
+    return {
+      kind: 'memory',
+      async write(data) { parts.push(data); },
+      async finish() {},
+      async result(type) {
+        const blob = new Blob(parts, { type });
+        parts.length = 0;
+        return blob;
+      },
+      async discard() { parts.length = 0; },
+    };
   }
   const target = new BufferTarget();
   return {
@@ -871,12 +887,19 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     // A longer file's sizes would overflow the header and players would cut it short.
     if (duration > WAV_MAX_US) throw new Error(WAV_TOO_LONG);
     const totalFrames = Math.round((duration * sampleRate) / US);
-    const parts = [wavHeader(totalFrames, channels, sampleRate)];
-    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report, onSkip: rejectSkippedAudio })) {
-      parts.push(pcm16(chunk.channels));
-      await yieldToEventLoop();
+    sink = await openTarget(44 + totalFrames * channels * 2, forceTarget, { raw: true });
+    try {
+      await sink.write(wavHeader(totalFrames, channels, sampleRate));
+      for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report, onSkip: rejectSkippedAudio })) {
+        await sink.write(pcm16(chunk.channels));
+        await yieldToEventLoop();
+      }
+      await sink.finish();
+      return result(await sink.result(f.mime));
+    } catch (err) {
+      await sink.discard();
+      throw err;
     }
-    return result(new Blob(parts, { type: f.mime }));
   }
   if (!(await canEncodeAudio(f.codec, { numberOfChannels: channels, sampleRate }).catch(() => false))) {
     throw new Error(`This browser cannot encode ${f.label} audio (not supported). Choose WAV instead.`);
