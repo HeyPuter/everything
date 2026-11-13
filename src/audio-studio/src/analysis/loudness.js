@@ -329,8 +329,19 @@ export function loudnessPanel(app) {
     return e.measure;
   };
 
+  /** Scan and Run are disabled while working: returns a function that refocuses the one used. */
+  const holdFocus = () => {
+    const focused = document.activeElement;
+    const trigger = focused === scanBtn || focused === runBtn ? focused : null;
+    return () => {
+      const at = document.activeElement;
+      if (trigger && (at === document.body || !at)) trigger.focus();
+    };
+  };
+
   const scanAll = async () => {
     if (running) return;
+    const refocus = holdFocus();
     running = true;
     try {
       for (const e of entries) if (e.state !== e.doc.state || !e.measure) await scanOne(e);
@@ -341,12 +352,14 @@ export function loudnessPanel(app) {
     } finally {
       running = false;
       renderRows();
+      refocus();
     }
   };
 
   const runAll = async () => {
     if (running) return;
     if (prefs().export) return exportAll();
+    const refocus = holdFocus();
     running = true;
     const s = prefs();
     let changed = 0;
@@ -388,10 +401,12 @@ export function loudnessPanel(app) {
     } finally {
       running = false;
       renderRows();
+      refocus();
     }
   };
 
   const exportAll = async () => {
+    const refocus = holdFocus();
     const s = prefs();
     const x = exportSettings();
     const out = await outputWriter(app, x);
@@ -424,6 +439,7 @@ export function loudnessPanel(app) {
     } finally {
       running = false;
       renderRows();
+      refocus();
     }
   };
 

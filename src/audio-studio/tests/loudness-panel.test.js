@@ -119,6 +119,29 @@ describe('Match Loudness panel', () => {
     }
   });
 
+  it('returns focus to Scan or Run once they are enabled again', async () => {
+    const { panel, button } = setup();
+    document.body.append(panel.el);
+    try {
+      for (const re of [/^Scan$/, /^Run$/]) {
+        // A browser moves focus to the page when the focused button is disabled (jsdom does not).
+        hooks.onOpen = () => {
+          const spot = document.body.appendChild(document.createElement('input'));
+          spot.focus();
+          spot.remove();
+        };
+        const b = button(re);
+        b.focus();
+        b.click();
+        await expect.poll(() => button(/^Run$/).disabled, { timeout: 5000 }).toBe(false);
+        expect(document.activeElement).toBe(b);
+      }
+    } finally {
+      hooks.onOpen = null;
+      panel.el.remove();
+    }
+  });
+
   it('reads total RMS and peak past NaN and infinite samples', async () => {
     const { measureLoudness } = await import('../src/analysis/loudness.js');
     const x = tone(RATE * 4, 0.5);
