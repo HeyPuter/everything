@@ -2,6 +2,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from '../src/app.js';
 import { openChannelEditor } from '../src/rack/editor.js';
 import { closeWindows } from '../src/ui/windows.js';
+import * as E from '../src/model/edits.js';
+import { defaultParams } from '../src/instruments/catalog.js';
 
 let hitDescriptor;
 beforeEach(() => {
@@ -160,4 +162,50 @@ it('does not sound a pending chord after its editor closes', async () => {
   pending.resolve();
   await pending.promise;
   expect(noteOn).not.toHaveBeenCalled();
+});
+
+it.each(['load', 'same project', 'type', 'sample'].flatMap((action) => [false, true].map((pending) => [action, pending])))('releases the old instrument audition on %s (startup pending: %s)', async (action, pending) => {
+  const { app, id, keys, ready, noteOn, noteOff, pointer, press } = setup();
+  const store = app.store;
+  if (action === 'sample') store.apply('Sampler', (p) => E.updateChannel(p, id, { type: 'sampler', sample: 'old', params: defaultParams('sampler') }));
+  const starting = deferred();
+  vi.spyOn(app.engine, 'start').mockReturnValue(starting.promise);
+  ready.mockReturnValue(!pending);
+  press();
+  if (action === 'load') store.load(structuredClone(store.project));
+  else if (action === 'same project') store.load(store.project);
+  else if (action === 'type') store.apply('Instrument', (p) => E.updateChannel(p, id, { type: 'synth', params: defaultParams('synth') }));
+  else store.apply('Sample', (p) => E.updateChannel(p, id, { sample: 'new' }));
+  ready.mockReturnValue(true);
+  starting.resolve();
+  await starting.promise;
+  expect(noteOn).toHaveBeenCalledTimes(pending ? 0 : 1);
+  expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 48);
+  expect(keys.querySelector('.down')).toBeNull();
+  pointer('pointermove');
+  pointer('pointerup');
+  expect(noteOn).toHaveBeenCalledTimes(pending ? 0 : 1);
+  press(50, 2);
+  pointer('pointerup', 2);
+  expect(noteOn).toHaveBeenLastCalledWith(id, 50, 0.8);
+  expect(noteOff).toHaveBeenLastCalledWith(id, 50);
+});
+
+it('keeps a held audition through ordinary parameter and tempo edits', async () => {
+  const { app, id, keys, ready, noteOn, noteOff, pointer, press } = setup();
+  const pending = deferred();
+  vi.spyOn(app.engine, 'start').mockReturnValue(pending.promise);
+  ready.mockReturnValue(false);
+  press();
+  app.store.apply('Decay', (p) => E.setChannelParam(p, id, 'decay', 0.5));
+  app.store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+  ready.mockReturnValue(true);
+  pending.resolve();
+  await pending.promise;
+  expect(noteOn).toHaveBeenCalledExactlyOnceWith(id, 48, 0.8);
+  app.store.apply('Decay', (p) => E.setChannelParam(p, id, 'decay', 0.7));
+  expect(noteOff).not.toHaveBeenCalled();
+  expect(keys.querySelector('[data-key="48"]').classList.contains('down')).toBe(true);
+  pointer('pointerup');
+  expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 48);
 });

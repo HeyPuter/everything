@@ -82,7 +82,7 @@ class ChannelEditor {
     this.win = null;
     this.build();
     this.offs = [
-      this.store.on('change', (p) => this.onChange(p)),
+      this.store.on('change', (p, _prev, meta) => this.onChange(p, meta)),
       app.samples?.on?.('change', (sid) => {
         if (sid === this.ch?.sample) this.drawWave();
       }),
@@ -664,13 +664,14 @@ class ChannelEditor {
 
   // ---------------------------------------------------------------- sync
 
-  onChange(p) {
+  onChange(p, meta) {
     if (this.markerCurrent && !this.markerCurrent(p)) this.finishMarkerDrag?.(false);
     const ch = channelById(p, this.id);
     if (!ch) {
       this.win?.close();
       return;
     }
+    if (meta?.source === 'load' || ch.type !== this.ch.type || ch.sample !== this.ch.sample) this.kb.releaseAll();
     if (ch === this.ch && p.mixer === this.insertMixer) return;
     const prev = this.ch;
     this.ch = ch;
