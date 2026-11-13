@@ -15,6 +15,7 @@ vi.mock('mediabunny', () => ({
 let elements;
 beforeEach(() => {
   elements = [];
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
   const create = document.createElement.bind(document);
   vi.spyOn(document, 'createElement').mockImplementation((name, ...args) => {
     const el = create(name, ...args);
@@ -31,6 +32,24 @@ async function start() {
 }
 
 describe('fallback media duration', () => {
+  it.each(['success', 'error'])('unloads the temporary media element after %s', async (outcome) => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    const { job, el } = await start();
+    const url = el.src;
+    const result = job.catch((error) => error);
+    if (outcome === 'success') {
+      Object.defineProperty(el, 'duration', { configurable: true, value: 2 });
+      el.dispatchEvent(new Event('loadedmetadata'));
+    } else el.dispatchEvent(new Event('error'));
+    await result;
+    expect(el.hasAttribute('src')).toBe(false);
+    expect(el.load).toHaveBeenCalled();
+    expect(el.onloadedmetadata).toBeNull();
+    expect(el.onerror).toBeNull();
+    expect(el.ontimeupdate).toBeNull();
+    expect(revoke).toHaveBeenCalledWith(url);
+  });
+
   it('rejects an error while seeking for an initially unknown duration', async () => {
     const { job, el } = await start();
     let error;

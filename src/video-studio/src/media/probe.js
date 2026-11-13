@@ -110,8 +110,9 @@ async function probeImage(file) {
 
 async function probeWithElement(file, kind) {
   const url = URL.createObjectURL(file);
+  let el;
   try {
-    const el = document.createElement(kind === 'audio' ? 'audio' : 'video');
+    el = document.createElement(kind === 'audio' ? 'audio' : 'video');
     el.preload = 'metadata';
     el.muted = true;
     el.src = url;
@@ -138,6 +139,13 @@ async function probeWithElement(file, kind) {
       hasVideo: kind === 'video' ? Boolean(el.videoWidth) : false,
     };
   } finally {
+    if (el) {
+      el.onloadedmetadata = null;
+      el.ontimeupdate = null;
+      el.onerror = null;
+      el.removeAttribute('src');
+      el.load();
+    }
     URL.revokeObjectURL(url);
   }
 }
