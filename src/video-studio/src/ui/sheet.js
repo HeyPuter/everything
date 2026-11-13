@@ -44,6 +44,7 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
   let opener = null;
   let inerted = [];
   let hideTimer = null;
+  let cancelDrag = null;
 
   function setInert(on) {
     if (on) {
@@ -76,6 +77,7 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
   function hide() {
     if (!open) return;
     open = false;
+    cancelDrag?.();
     el.classList.remove('open');
     setInert(false);
     const done = () => {
@@ -129,28 +131,45 @@ export function createSheet({ title = '', side = 'bottom', host = null, onOpen, 
 
   // Swipe to close: drag the handle or the header.
   const onDragStart = (e) => {
-    if (e.button !== 0 || e.target.closest('button')) return;
+    if (!open || cancelDrag || e.button !== 0 || e.target.closest('button')) return;
     const vertical = side === 'bottom';
     const start = vertical ? e.clientY : e.clientX;
     const t0 = performance.now();
     let delta = 0;
     const target = e.currentTarget;
-    target.setPointerCapture?.(e.pointerId);
+    const pointerId = e.pointerId;
+    target.setPointerCapture?.(pointerId);
     panel.classList.add('dragging');
     const move = (ev) => {
+      if (ev.pointerId !== pointerId) return;
       delta = Math.max(0, (vertical ? ev.clientY : ev.clientX) - start);
       panel.style.transform = vertical ? `translateY(${delta}px)` : `translateX(${delta}px)`;
     };
-    const up = (ev) => {
+    const cleanup = () => {
+      cancelDrag = null;
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', up);
       target.removeEventListener('pointercancel', up);
+      target.removeEventListener('lostpointercapture', lost);
       panel.classList.remove('dragging');
+      if (target.hasPointerCapture?.(pointerId)) target.releasePointerCapture(pointerId);
+    };
+    const lost = (ev) => {
+      if (ev.pointerId === pointerId) cancelDrag?.();
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      cleanup();
       const size = vertical ? panel.offsetHeight : panel.offsetWidth;
       const speed = delta / Math.max(1, performance.now() - t0);
       if (ev.type === 'pointerup' && (delta > Math.min(120, size * 0.3) || (delta > 24 && speed > 0.6))) hide();
       else panel.style.transform = '';
     };
+    cancelDrag = () => {
+      cleanup();
+      panel.style.transform = '';
+    };
+    target.addEventListener('lostpointercapture', lost);
     target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', up);
     target.addEventListener('pointercancel', up);

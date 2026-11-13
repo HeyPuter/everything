@@ -138,6 +138,73 @@ describe('sheet', () => {
     expect(sheet.isOpen).toBe(false);
   });
 
+  it('ignores movement and release from a second pointer during a sheet swipe', () => {
+    const { sheet, opener } = setup();
+    sheet.open(opener);
+    const handle = sheet.el.querySelector('.sheet-handle');
+    const send = (type, pointerId, y) => {
+      const e = new Event(type, { bubbles: true });
+      Object.assign(e, { button: 0, clientX: 10, clientY: y, pointerId });
+      handle.dispatchEvent(e);
+    };
+    try {
+      send('pointerdown', 1, 100);
+      send('pointermove', 2, 260);
+      expect(sheet.panel.style.transform).toBe('');
+      send('pointerup', 2, 260);
+      expect(sheet.isOpen).toBe(true);
+      send('pointermove', 1, 130);
+      expect(sheet.panel.style.transform).toBe('translateY(30px)');
+      send('pointercancel', 1, 130);
+      expect(sheet.panel.style.transform).toBe('');
+      expect(sheet.isOpen).toBe(true);
+    } finally { sheet.dispose(); }
+  });
+
+  it('does not start a competing swipe when another finger presses the handle', () => {
+    const { sheet, opener } = setup();
+    sheet.open(opener);
+    const handle = sheet.el.querySelector('.sheet-handle');
+    const send = (type, pointerId, y) => {
+      const e = new Event(type, { bubbles: true });
+      Object.assign(e, { button: 0, clientX: 10, clientY: y, pointerId });
+      handle.dispatchEvent(e);
+    };
+    try {
+      send('pointerdown', 1, 100);
+      send('pointerdown', 2, 180);
+      send('pointermove', 1, 130);
+      expect(sheet.panel.style.transform).toBe('translateY(30px)');
+      send('pointercancel', 1, 130);
+    } finally { sheet.dispose(); }
+  });
+
+  it.each(['close', 'lostpointercapture'])('releases an unfinished swipe on %s', (end) => {
+    const { sheet, opener } = setup();
+    sheet.open(opener);
+    const handle = sheet.el.querySelector('.sheet-handle');
+    const send = (type, pointerId, y) => {
+      const e = new Event(type, { bubbles: true });
+      Object.assign(e, { button: 0, clientX: 10, clientY: y, pointerId });
+      handle.dispatchEvent(e);
+    };
+    try {
+      send('pointerdown', 1, 100);
+      send('pointermove', 1, 130);
+      if (end === 'close') sheet.close();
+      else send('lostpointercapture', 1, 130);
+      expect(sheet.panel.classList.contains('dragging')).toBe(false);
+      expect(sheet.panel.style.transform).toBe('');
+      send('pointermove', 1, 200);
+      expect(sheet.panel.style.transform).toBe('');
+      sheet.open(opener);
+      send('pointerdown', 2, 40);
+      send('pointermove', 2, 60);
+      expect(sheet.panel.style.transform).toBe('translateY(20px)');
+      send('pointercancel', 2, 60);
+    } finally { sheet.dispose(); }
+  });
+
   it('switches between bottom and side sheets', () => {
     const { sheet } = setup();
     expect(sheet.el.classList.contains('side-bottom')).toBe(true);
