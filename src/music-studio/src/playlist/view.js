@@ -661,8 +661,9 @@ export function createPlaylistView(app, host) {
     announce(`Marker ${m.name}, bar ${formatBST(m.pos, store.project.sig)}`);
   };
   V.renameMarker = async (m) => {
-    const v = await promptDialog({ title: 'Rename marker', label: 'Name', value: m.name, confirm: 'Rename', validate: (t) => (t.trim() ? '' : 'Enter a name.') });
-    if (v && v.trim() !== m.name) store.apply('Rename marker', (q) => C.updateMarker(q, m.id, { name: v.trim().slice(0, 60) }));
+    const loadVersion = store.loadVersion;
+    const v = await promptDialog({ store, title: 'Rename marker', label: 'Name', value: m.name, confirm: 'Rename', validate: (t) => (t.trim() ? '' : 'Enter a name.') });
+    if (store.loadVersion === loadVersion && v && v.trim() !== m.name) store.apply('Rename marker', (q) => C.updateMarker(q, m.id, { name: v.trim().slice(0, 60) }));
   };
   V.deleteMarker = (m) => {
     store.apply('Delete marker', (q) => C.removeMarker(q, m.id));
