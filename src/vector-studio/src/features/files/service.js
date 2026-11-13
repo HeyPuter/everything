@@ -165,7 +165,12 @@ export class FileService {
       // so Save (or Close > Save) never reports success for edits that were not written.
       if (!state.again) {
         const again = state.saving
-          .then((ok) => (ok && doc.dirty ? this.save(editor) : ok))
+          .then((ok) => {
+            // This queued request is starting. A Save during its write must be
+            // able to queue another request instead of reusing this promise.
+            if (state.again === again) state.again = null;
+            return ok && doc.dirty ? this.save(editor) : ok;
+          })
           .finally(() => {
             if (state.again === again) state.again = null;
           });
