@@ -126,3 +126,61 @@ it('retains dock separator focus across unrelated layout updates without stealin
   prefs.merge('layout', { browser: 310 });
   expect(document.activeElement).toBe(input);
 });
+
+function dockDrag() {
+  const env = dockPair();
+  const el = env.separator();
+  el.setPointerCapture = vi.fn();
+  el.releasePointerCapture = vi.fn();
+  pointer(el, 'pointerdown');
+  pointer(el, 'pointermove', 340);
+  expect(env.a.offsetWidth).toBeCloseTo(440);
+  return { ...env, el };
+}
+
+it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur'])('finishes dock panel resizing on %s, saves its size, and ignores late events', (end) => {
+  const { prefs, a, b, el, separator } = dockDrag();
+  if (end === 'blur') window.dispatchEvent(new Event('blur'));
+  else pointer(el, end, 340);
+  expect(prefs.get('layout').dockSizes.rack).toBeCloseTo(1.1);
+  expect(prefs.get('layout').dockSizes.mixer).toBeCloseTo(0.9);
+  const saved = prefs.get('layout').dockSizes;
+  pointer(el, 'pointermove', 500);
+  pointer(el, 'pointerup', 500);
+  pointer(el, 'lostpointercapture', 500);
+  expect(prefs.get('layout').dockSizes).toEqual(saved);
+  expect(a.offsetWidth).toBeCloseTo(440);
+  expect(b.offsetWidth).toBeCloseTo(360);
+  const fresh = separator();
+  fresh.setPointerCapture = vi.fn();
+  pointer(fresh, 'pointerdown');
+  pointer(fresh, 'pointermove', 320);
+  pointer(fresh, 'pointerup', 320);
+  expect(a.offsetWidth).toBeCloseTo(460);
+});
+
+it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('ignores a competing dock-resize pointer and its %s', (end) => {
+  const { prefs, a, el } = dockDrag();
+  pointer(el, 'pointerdown', 400, 2);
+  pointer(el, 'pointermove', 500, 2);
+  pointer(el, end, 500, 2);
+  expect(a.offsetWidth).toBeCloseTo(440);
+  expect(prefs.get('layout').dockSizes).toEqual({ rack: 1, mixer: 1 });
+  pointer(el, 'pointermove', 360);
+  pointer(el, 'pointerup', 360);
+  expect(a.offsetWidth).toBeCloseTo(460);
+  expect(prefs.get('layout').dockSizes.rack).toBeCloseTo(1.15);
+});
+
+it.each(['hide', 'reorder', 'replace sizes'])('ends obsolete dock resizing after a layout change: %s', (change) => {
+  const { shell, prefs, a, b, el } = dockDrag();
+  if (change === 'hide') shell.hide('mixer');
+  else if (change === 'reorder') prefs.merge('layout', { dockPanels: ['mixer', 'rack'] });
+  else prefs.merge('layout', { dockSizes: { rack: 1.3, mixer: 0.7 } });
+  const saved = prefs.get('layout');
+  const widths = [a.offsetWidth, b.offsetWidth];
+  pointer(el, 'pointermove', 500);
+  pointer(el, 'pointerup', 500);
+  expect(prefs.get('layout')).toEqual(saved);
+  expect([a.offsetWidth, b.offsetWidth]).toEqual(widths);
+});

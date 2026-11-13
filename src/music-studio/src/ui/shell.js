@@ -268,6 +268,7 @@ export class Shell {
 
   /** Splitters between side-by-side dock panels; widths are flex weights in prefs.layout.dockSizes. */
   layoutDockSplitters(L) {
+    this.stopDockPanelResize?.(false);
     const focusedPair = this.dock.contains(document.activeElement) ? document.activeElement.dataset.dockPair : null;
     let restoreFocus = null;
     for (const s of this.dock.querySelectorAll(':scope > .splitter-dock')) s.remove();
@@ -293,24 +294,35 @@ export class Shell {
       };
       const save = () => this.app.prefs.merge('layout', { dockSizes: { ...(this.app.prefs.get('layout').dockSizes || {}), [a.dataset.panel]: Number(a.style.flexGrow), [b.dataset.panel]: Number(b.style.flexGrow) } });
       s.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || this.stopDockPanelResize) return;
         e.preventDefault();
         s.setPointerCapture(e.pointerId);
         let last = e.clientX;
         const move = (ev) => {
+          if (ev.pointerId !== e.pointerId) return;
           apply(ev.clientX - last);
           last = ev.clientX;
           this.resized();
         };
-        const up = () => {
+        const finish = (persist) => {
+          if (this.stopDockPanelResize !== finish) return;
+          this.stopDockPanelResize = null;
           s.removeEventListener('pointermove', move);
           s.removeEventListener('pointerup', up);
           s.removeEventListener('pointercancel', up);
-          save();
+          s.removeEventListener('lostpointercapture', up);
+          window.removeEventListener('blur', blur);
+          try { s.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+          if (persist) save();
         };
+        const up = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+        const blur = () => finish(true);
+        this.stopDockPanelResize = finish;
         s.addEventListener('pointermove', move);
         s.addEventListener('pointerup', up);
         s.addEventListener('pointercancel', up);
+        s.addEventListener('lostpointercapture', up);
+        window.addEventListener('blur', blur);
       });
       s.addEventListener('keydown', (e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
