@@ -132,6 +132,19 @@ describe('find and replace dialog', () => {
     d.close();
   });
 
+  it('refreshes matches and locks when the project changes while the dialog is open', () => {
+    const { p, clips } = withTexts('red apple');
+    const store = new EditorStore(p);
+    const d = openFindReplace({ store }, { query: 'apple' });
+    store.update('Lock track', (project) => { findClip(project, clips[0].id).track.locked = true; });
+    expect(d.el.querySelector('.fr-one').disabled).toBe(true);
+    expect([...d.el.querySelectorAll('button')].find((b) => b.textContent === 'Replace all').disabled).toBe(true);
+    store.update('Update text', (project) => { findClip(project, clips[0].id).clip.text = 'green pear'; }, { structural: false });
+    expect(d.el.querySelector('.fr-count').textContent).toBe('No matches');
+    expect(d.el.querySelectorAll('.fr-item')).toHaveLength(0);
+    d.close();
+  });
+
   it('replaces a single match and remembers its options', () => {
     const { p, clips } = withTexts('Hi hi');
     const store = new EditorStore(p);

@@ -77,7 +77,6 @@ export function openFindReplace(ctx, { query = '' } = {}) {
   function replaceMatch(m) {
     const ok = store.update('Replace text', (p) => replaceOne(findClipDeep(p, m.clipId), m, repl.value), { structural: false });
     if (ok) announce('Replaced');
-    render();
   }
 
   allBtn.addEventListener('click', () => {
@@ -87,7 +86,6 @@ export function openFindReplace(ctx, { query = '' } = {}) {
       return n > 0;
     }, { structural: false });
     announce(n ? `Replaced ${n} match${n === 1 ? '' : 'es'}` : 'Nothing replaced');
-    render();
   });
 
   find.addEventListener('input', render);
@@ -101,10 +99,8 @@ export function openFindReplace(ctx, { query = '' } = {}) {
       }
     });
   }
-  const off = store.on('change', (e) => {
-    if (!e.restore) return;
-    render();
-  });
+  // Background edits and track locks must update the results as well as undo/redo.
+  const off = store.on('change', render);
   d.result.then(off);
   render();
   return d;
