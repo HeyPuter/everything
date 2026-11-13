@@ -657,6 +657,7 @@ export class AutoSaver extends Emitter {
   }
 
   schedule() {
+    if (this.disposed) return;
     // A write that doesn't answer still blocks the next one: keep saying so.
     if (this.stalled) this._set('error', this.error);
     else this._set('pending');
@@ -670,6 +671,7 @@ export class AutoSaver extends Emitter {
   }
 
   async save() {
+    if (this.disposed) return;
     clearTimeout(this.timer);
     this.timer = null;
     if (this.saving) {
@@ -677,6 +679,7 @@ export class AutoSaver extends Emitter {
       // others wait for it too. Two writes in flight could land out of order.
       while (this.saving) {
         await this._waitForSave();
+        if (this.disposed) return;
         // Stalled: no new write beside it. It saves again when that write answers.
         if (this.stalled) {
           this._set('error', this.error);
@@ -710,7 +713,7 @@ export class AutoSaver extends Emitter {
         this.error = err;
         this._set('error', err);
         clearTimeout(this.timer);
-        this.timer = setTimeout(() => this.save(), 8000);
+        if (!this.disposed) this.timer = setTimeout(() => this.save(), 8000);
       })
       .finally(() => {
         clearTimeout(stall);
@@ -738,7 +741,10 @@ export class AutoSaver extends Emitter {
   }
 
   dispose() {
+    // A write already in flight must settle, but cannot restart this editor's saves.
+    this.disposed = true;
     clearTimeout(this.timer);
+    this.timer = null;
     this.off();
   }
 }

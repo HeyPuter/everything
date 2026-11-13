@@ -794,6 +794,26 @@ describe('AutoSaver', () => {
     expect(backend.writes).toBe(writes);
   });
 
+  it.each(['success', 'failure'])('does not restart saves after disposal when an in-flight save ends in %s', async (outcome) => {
+    quiet();
+    let finish;
+    const save = vi.spyOn(lib, 'saveProject').mockImplementationOnce(() => new Promise((resolve, reject) => {
+      finish = () => outcome === 'success' ? resolve() : reject(new Error('offline'));
+    }));
+    edit('first');
+    const running = saver.save();
+    edit('later');
+    // A Save now request can already be waiting behind the in-flight save at exit.
+    const waiting = saver.save();
+    saver.dispose();
+    finish();
+    await Promise.all([running, waiting]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(store.dirty).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('stops listening after dispose()', async () => {
     saver.dispose();
     const writes = backend.writes;
