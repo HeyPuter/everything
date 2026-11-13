@@ -91,6 +91,9 @@ class ChannelEditor {
     window.addEventListener('themechange', this.onTheme);
     this.onBlur = () => this.kb.releaseAll();
     window.addEventListener('blur', this.onBlur);
+    // Focus can move to a field or the window toolbar while a key is held.
+    this.onKeyUp = (e) => this.onKey(e, false);
+    window.addEventListener('keyup', this.onKeyUp, true);
   }
 
   // ---------------------------------------------------------------- build
@@ -148,7 +151,6 @@ class ChannelEditor {
 
     this.el = h('div.ch-editor', head, tablist, h('div.ed-pages', this.instPage, this.chanPage), this.kb.el);
     this.el.addEventListener('keydown', (e) => this.onKey(e, true));
-    this.el.addEventListener('keyup', (e) => this.onKey(e, false));
     this.el.addEventListener('focusout', (e) => {
       if (!this.el.closest('.float-win')?.contains(e.relatedTarget)) this.kb.releaseAll();
     });
@@ -655,7 +657,7 @@ class ChannelEditor {
   }
 
   onKey(e, down) {
-    if (e.target.closest('input, select, textarea')) return;
+    if (down && e.target.closest('input, select, textarea')) return;
     if (this.kb.handleKey(e, down)) {
       e.preventDefault();
       e.stopPropagation();
@@ -692,6 +694,7 @@ class ChannelEditor {
     this.offs = [];
     window.removeEventListener('themechange', this.onTheme);
     window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('keyup', this.onKeyUp, true);
     this.ro?.disconnect();
     this.kb.releaseAll();
   }

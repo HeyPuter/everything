@@ -133,13 +133,17 @@ export function createKeyboard({ base = 48, onNoteOn, onNoteOff, label = 'Keyboa
 
   /** Computer keyboard: returns true when the event played or released a note. */
   function handleKey(e, isDown) {
+    const src = `k:${e.code}`;
+    // Release the physical key we accepted, even if modifiers changed meanwhile.
+    if (!isDown) {
+      if (!sounding.has(src)) return false;
+      stop(src);
+      return true;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     const semi = KEY_MAP[e.code];
     if (semi === undefined) return false;
-    const src = `k:${e.code}`;
-    if (isDown) {
-      if (!e.repeat && !sounding.has(src)) start(src, clamp(lo + semi, 0, 127), 0.8);
-    } else stop(src);
+    if (!e.repeat && !sounding.has(src)) start(src, clamp(lo + semi, 0, 127), 0.8);
     return true;
   }
 

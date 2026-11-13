@@ -254,3 +254,44 @@ it('keeps a shared pitch sounding when one finger glides to another key', () => 
   expect(noteOn).toHaveBeenCalledTimes(3);
   pointer('pointerup', 3);
 });
+
+it.each(['ctrlKey', 'metaKey', 'altKey', 'name input', 'toolbar'].flatMap((target) => [false, true].map((pending) => [target, pending])))('releases an owned computer key after changing %s (startup pending: %s)', async (target, pending) => {
+  const { app, win, id, keys, ready, noteOn, noteOff } = setup();
+  const starting = deferred();
+  vi.spyOn(app.engine, 'start').mockReturnValue(starting.promise);
+  ready.mockReturnValue(!pending);
+  const editor = win.el.querySelector('.ch-editor');
+  editor.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ', bubbles: true, cancelable: true }));
+  let releaseTarget = editor;
+  const modifiers = {};
+  if (target === 'name input') releaseTarget = win.el.querySelector('[aria-label="Channel name"]');
+  else if (target === 'toolbar') releaseTarget = win.el.querySelector('[aria-label="Save preset"]');
+  else modifiers[target] = true;
+  releaseTarget.focus();
+  releaseTarget.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyZ', bubbles: true, cancelable: true, ...modifiers }));
+  expect(noteOff).toHaveBeenCalledExactlyOnceWith(id, 48);
+  expect(keys.querySelector('.down')).toBeNull();
+  starting.resolve();
+  await starting.promise;
+  expect(noteOn).toHaveBeenCalledTimes(pending ? 0 : 1);
+  ready.mockReturnValue(true);
+  editor.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyZ', bubbles: true }));
+  editor.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyZ', bubbles: true }));
+  expect(noteOn).toHaveBeenLastCalledWith(id, 48, 0.8);
+  expect(noteOff).toHaveBeenCalledTimes(2);
+});
+
+it('preserves typing and shortcuts that did not start an audition', () => {
+  const { win, noteOn, noteOff } = setup();
+  const editor = win.el.querySelector('.ch-editor');
+  const input = win.el.querySelector('[aria-label="Channel name"]');
+  for (const [target, modifiers] of [[input, {}], [editor, { ctrlKey: true }], [editor, { metaKey: true }], [editor, { altKey: true }]]) {
+    for (const type of ['keydown', 'keyup']) {
+      const event = new KeyboardEvent(type, { code: 'KeyZ', bubbles: true, cancelable: true, ...modifiers });
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+  }
+  expect(noteOn).not.toHaveBeenCalled();
+  expect(noteOff).not.toHaveBeenCalled();
+});
