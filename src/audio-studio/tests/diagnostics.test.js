@@ -317,3 +317,45 @@ describe('panel results and edits', () => {
     expect(doc.state.channels[0]).toBe(edited);
   });
 });
+
+describe('panel keyboard focus', () => {
+  it('keeps focus on Cancel while working and returns it afterwards', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { diagnosticsPanel } = await import('../src/diagnostics/panel.js');
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    const x = withClicks(music(RATE), [10000, 30000]);
+    const doc = new AudioFile({ name: 'c.wav', sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    app.addDocument(doc);
+    const p = diagnosticsPanel(app);
+    document.body.append(p.el);
+    try {
+      p.select('declicker');
+      const button = (re) => [...p.el.querySelectorAll('button')].find((b) => re.test(b.textContent));
+      const scan = button(/^Scan File$/);
+      scan.focus();
+      scan.click();
+      // Scan File is disabled while the scan runs, which would drop focus to the page.
+      expect(document.activeElement.textContent).toBe('Cancel');
+      await expect.poll(() => scan.disabled, { timeout: 5000 }).toBe(false);
+      expect(document.activeElement).toBe(scan);
+      const all = button(/^Repair All$/);
+      all.focus();
+      all.click();
+      expect(document.activeElement.textContent).toBe('Cancel');
+      await expect.poll(() => p.el.querySelector('.diag-caption').textContent, { timeout: 5000 }).toMatch(/done/);
+      // Nothing is left to repair, so Repair All is disabled: focus goes to Scan File.
+      expect(all.disabled).toBe(true);
+      expect(document.activeElement).toBe(scan);
+    } finally {
+      p.el.remove();
+    }
+  });
+});
