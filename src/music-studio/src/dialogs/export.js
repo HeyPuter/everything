@@ -134,6 +134,7 @@ export async function openExportDialog(app, { stems = false } = {}) {
       };
       app.prefs.merge('exportFormat', { rate: opts.rate, bits: opts.bits, tail: opts.tail, cloudCopy: cloud.checked });
       progress.hidden = false;
+      status.classList.remove('error');
       setProgress(0);
       try {
         const ok = await runExport(app, { ...opts, stems, signal: controller.signal, cloudCopy: signedIn && cloud.checked, setProgress, setStatus: (t) => (status.textContent = t) });

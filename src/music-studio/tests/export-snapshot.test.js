@@ -210,3 +210,38 @@ it('refreshes the stem list and prevents an empty export through either click or
     await done;
   }
 });
+
+it('clears error feedback while retrying a failed export and prevents duplicate renders', async () => {
+  vi.stubGlobal('puter', undefined);
+  const store = new Store(demoProject());
+  const engine = new Engine(store);
+  let finish;
+  const audio = { channels: [new Float32Array(4), new Float32Array(4)], rate: 48000 };
+  const render = vi.spyOn(engine, 'render').mockRejectedValueOnce(new Error('Temporary render failure')).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  const app = { store, engine, prefs: { get: () => ({ rate: 48000, bits: 16, tail: false }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app);
+  try {
+    const button = document.querySelector('.dlg-export .btn.primary');
+    const status = document.querySelector('.exp-status');
+    button.click();
+    await vi.waitFor(() => expect(status.textContent).toContain('Temporary render failure'));
+    expect(status.classList.contains('error')).toBe(true);
+    expect(button.disabled).toBe(false);
+    button.click();
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
+    expect(status.textContent).toBe('Rendering...');
+    expect(status.classList.contains('error')).toBe(false);
+    expect(button.disabled).toBe(true);
+    button.click();
+    document.querySelector('.dlg-export select').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(render).toHaveBeenCalledTimes(2);
+    finish(audio);
+    await done;
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(document.querySelector('.dlg-export')).toBeNull();
+  } finally {
+    document.querySelector('.dlg-export [aria-label="Close"]')?.click();
+    finish?.(audio);
+    await done;
+  }
+});
