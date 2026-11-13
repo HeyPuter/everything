@@ -27,21 +27,23 @@ let previewing: { id: string; name: string; docId: string } | undefined;
 /** Store a version of a session's current document. */
 export async function addVersion(e: Editor, s: DocumentSession, name: string, kind: VersionKind, project?: Blob) {
   const doc = s.doc;
+  const extrasRevision = s.extrasRevision;
   const blob = project ?? (await serialize(doc, s.assets));
   const thumb = await documentThumbnail(e, s).catch(() => undefined);
   const v = await store.add({ docId: doc.id, docName: doc.name, name, kind, width: doc.width, height: doc.height, thumb }, blob, e.preferences.versionsPerDocument);
-  lastVersioned.set(s, doc);
+  lastVersioned.set(s, { doc, extrasRevision });
   revision++;
   refresh(e);
   return v;
 }
 // The document state each session last stored as a version.
-const lastVersioned = new WeakMap<DocumentSession, PhotoDocument>();
+const lastVersioned = new WeakMap<DocumentSession, { doc: PhotoDocument; extrasRevision: number }>();
 /** Autosave interval: a version of every document changed since its last one. */
 export async function autosaveVersions(e: Editor) {
   if (!e.preferences.versionsOnSave) return;
   for (const s of e.sessions) {
-    if (!s.hasDocument || !s.dirty || lastVersioned.get(s) === s.doc || s.saveHandler) continue;
+    const previous = lastVersioned.get(s);
+    if (!s.hasDocument || !s.dirty || (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision) || s.saveHandler) continue;
     await addVersion(e, s, 'Autosave', 'auto');
   }
 }
