@@ -173,7 +173,16 @@ fn read(x: &[f32], pos: f64, ratio: f64, quality: u32, kernel: Option<&Kernel>) 
 /// by m, 6 radius m, 7 starting angle degrees, 8 centre in front by m,
 /// 9 centre on right by m, 10 volume by distance (0/1), 11 volume by
 /// direction (0/1), 12 quality (0 linear, 1 cubic, 2 sinc 16, 3 sinc 32).
+/// Non-finite input samples (a damaged float file) are read as silence, so
+/// the interpolation kernels do not spread them.
 pub fn doppler(x: &[f32], rate: f64, ear: f64, path: &Path, out: &mut [f32]) {
+    let clean: Vec<f32>;
+    let x = if x.iter().all(|v| v.is_finite()) {
+        x
+    } else {
+        clean = x.iter().map(|&v| if v.is_finite() { v } else { 0.0 }).collect();
+        &clean
+    };
     let n = out.len();
     let e = (ear * EAR, 0.0);
     // Reference delay: the centre of the head at the start, so the output
@@ -265,6 +274,21 @@ mod tests {
         // f * c / (c - v) = 1132 Hz approaching, f * c / (c + v) = 896 Hz receding.
         assert!((early - 1132.0).abs() < 25.0, "early {early}");
         assert!((late - 896.0).abs() < 25.0, "late {late}");
+    }
+
+    #[test]
+    fn non_finite_input_samples_do_not_spread() {
+        let rate = 48000.0;
+        let n = 48000;
+        let mut x = sine(1000.0, rate, n, 0.5);
+        x[1000] = f32::NAN;
+        x[20000] = f32::INFINITY;
+        for quality in [0.0, 1.0, 2.0, 3.0] {
+            let path = Path::from_params(&[0.0, 40.0, 40.0, -90.0, 2.0, 0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0, quality]);
+            let mut y = vec![0.0; n];
+            doppler(&x, rate as f64, 0.0, &path, &mut y);
+            assert!(y.iter().all(|v| v.is_finite()), "quality {quality}");
+        }
     }
 
     #[test]
