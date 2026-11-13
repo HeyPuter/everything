@@ -2685,7 +2685,14 @@ export function createEditor({
       outline.load(next, { isCurrent }).then((hasOutline) => {
         if (destroyed || pdf !== next) return;
         sidebarTabs.querySelector('[data-tab="outline"]').hidden = !hasOutline;
-        if (!hasOutline && sidebarTab === 'outline') showSidebarTab('pages');
+        if (!hasOutline && sidebarTab === 'outline') {
+          // The last bookmark removed takes the tab and the focus with it; the keyboard goes
+          // on from the Pages tab that takes its place rather than from the top of the app.
+          const lost = !document.activeElement || document.activeElement === document.body;
+          showSidebarTab('pages');
+          if (lost && !editorRoot.classList.contains('hide-pages'))
+            sidebarTabs.querySelector('[data-tab="pages"]').focus({ preventScroll: true });
+        }
         if (hasOutline) outline.setCurrent(pageIndex);
       });
       loadAttachments(next);
