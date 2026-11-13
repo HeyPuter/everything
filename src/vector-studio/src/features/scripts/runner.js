@@ -172,10 +172,12 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
     let left = timeoutMs;
     let since = 0;
     let asking = 0;
+    const commandWatchers = new Set();
     const finish = (result) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      for (const cleanup of commandWatchers) cleanup();
       window.removeEventListener('message', onMessage);
       frame.remove();
       resolve({ ...result, changes: count() });
@@ -199,6 +201,7 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
     const watchDialogs = () => {
       let held = false;
       const sync = () => {
+        if (done) return;
         const open = Boolean(document.querySelector('dialog[open]'));
         if (open === held) return;
         held = open;
@@ -207,11 +210,14 @@ export function runScript(app, source, { name = 'Script', timeoutMs = 60000 } = 
       };
       const observer = new MutationObserver(sync);
       observer.observe(document.body, { childList: true });
-      sync();
-      return () => {
+      const cleanup = () => {
+        if (!commandWatchers.delete(cleanup)) return;
         observer.disconnect();
         if (held) release();
       };
+      commandWatchers.add(cleanup);
+      sync();
+      return cleanup;
     };
     resume();
     const onMessage = async (e) => {
