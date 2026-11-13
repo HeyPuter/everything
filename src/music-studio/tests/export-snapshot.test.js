@@ -3,6 +3,8 @@ import { openExportDialog } from '../src/dialogs/export.js';
 import { Engine } from '../src/engine/engine.js';
 import { Store } from '../src/model/store.js';
 import { demoProject, newProject } from '../src/model/demo.js';
+import { unzipStore } from '../src/io/zip.js';
+import { readWavHeader } from '../src/io/wav.js';
 import { downloadBlob } from '../src/io/download.js';
 import * as puterApi from '../src/storage/puter.js';
 
@@ -244,4 +246,30 @@ it('clears error feedback while retrying a failed export and prevents duplicate 
     finish?.(audio);
     await done;
   }
+});
+
+
+it('downloads a valid ZIP of stereo WAV stems through the Blob writer', async () => {
+  vi.stubGlobal('puter', undefined);
+  const store = new Store(demoProject());
+  const engine = new Engine(store);
+  vi.spyOn(engine, 'render').mockResolvedValue({ channels: [new Float32Array([0, 0.5, -0.5, 0]), new Float32Array([0.25, 0, -0.25, 0])], rate: 48000 });
+  const app = { store, engine, prefs: { get: () => ({ rate: 48000, bits: 24, tail: false }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app, { stems: true });
+  document.querySelector('.dlg-export .btn.primary').click();
+  await done;
+  expect(downloadBlob).toHaveBeenCalledOnce();
+  const [blob, filename] = downloadBlob.mock.calls[0];
+  expect(blob.type).toBe('application/zip');
+  expect(filename).toBe('Demo Song stems.zip');
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+  const files = unzipStore(data);
+  expect(files.size).toBe(6);
+  expect(files.has('01 Kick.wav')).toBe(true);
+  for (const bytes of files.values()) expect(readWavHeader(bytes)).toMatchObject({ channels: 2, rate: 48000, bits: 24, frames: 4 });
 });

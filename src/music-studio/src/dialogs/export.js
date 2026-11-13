@@ -6,7 +6,7 @@
 import { h } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
 import { encodeWav } from '../io/wav.js';
-import { zipBytes } from '../io/zip.js';
+import { zipBlob } from '../io/zip.js';
 import { downloadBlob, safeFileName } from '../io/download.js';
 import { songLength, patternLength, patternById } from '../model/project.js';
 import { formatTime } from '../model/time.js';
@@ -230,7 +230,7 @@ async function runExport(app, { mode, rate, bits, tail, stems, signal, cloudCopy
       files.push({ name: `${String(ins.index).padStart(2, '0')} ${safeFileName(ins.name)}.wav`, data: new Uint8Array(encodeWav(audio, { bits })) });
     }
     setStatus('Writing the ZIP file...');
-    blob = new Blob([zipBytes(files)], { type: 'application/zip' });
+    blob = zipBlob(files);
     filename = `${base} stems.zip`;
   }
   setProgress(1);
