@@ -20,6 +20,33 @@ const RATES = [
 
 let seq = 0;
 const nid = (p) => `${p}-${++seq}`;
+const outputChanges = new WeakMap();
+
+// Keep device changes ordered even if Preferences is closed and reopened
+// while a browser device switch is still pending.
+function changeOutput(engine, prefs, id) {
+  const apply = async () => {
+    for (;;) {
+      const context = engine.ctx;
+      try {
+        if (engine.setOutputDevice) await engine.setOutputDevice(id);
+        else if (context?.setSinkId) await context.setSinkId(id);
+      } catch (err) {
+        if (engine.ctx === context) throw err;
+      }
+      // A latency/rate change may replace the context while switching. Apply
+      // the choice to its successor before remembering it as the output.
+      if (engine.ctx === context) break;
+    }
+    prefs.set('outputDevice', id);
+  };
+  const previous = outputChanges.get(engine);
+  const pending = previous ? previous.then(apply, apply) : apply();
+  outputChanges.set(engine, pending);
+  const clear = () => { if (outputChanges.get(engine) === pending) outputChanges.delete(engine); };
+  pending.then(clear, clear);
+  return pending;
+}
 
 function selectRow(label, options, value, onChange, hint) {
   const id = nid('pref');
@@ -94,12 +121,15 @@ export async function openPreferences(app, { section = 'general' } = {}) {
       })
       .catch(() => {});
     sel.addEventListener('change', async () => {
-      prefs.set('outputDevice', sel.value);
+      const choice = sel.value;
+      sel.disabled = true;
       try {
-        if (engine.setOutputDevice) await engine.setOutputDevice(sel.value);
-        else if (engine.ctx?.setSinkId) await engine.ctx.setSinkId(sel.value);
+        await changeOutput(engine, prefs, choice);
       } catch (err) {
+        sel.value = prefs.get('outputDevice') || '';
         app.notify(`That output could not be used: ${err?.message || err}`, { error: true });
+      } finally {
+        sel.disabled = false;
       }
     });
   }
