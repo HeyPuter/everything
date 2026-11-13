@@ -189,6 +189,8 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
     if (closing) return;
     closing = true;
     try {
+      // Closing ends a drag: Save must include the value currently on screen.
+      store.commit();
       if (store.dirty || lib.hasTemporarySamples(store.project)) {
         const choice = await saveChangesDialog(store.project.name);
         if (choice === null) return;

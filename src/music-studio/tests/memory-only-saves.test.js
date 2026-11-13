@@ -91,3 +91,70 @@ it('clears the unsaved state after recovering a memory-only project to cloud', a
   window.dispatchEvent(closing);
   expect(closing.defaultPrevented).toBe(false);
 });
+
+it.each(['changed', 'unchanged', 'canceled'])('handles browser close during a %s gesture on a saved project', async (state) => {
+  const { app } = await setup({ persistent: true });
+  await app.files.saveLocalProject('song', 'Song');
+  await app.autosave.flushAll();
+  app.store.begin('Tempo');
+  if (state !== 'unchanged') app.store.preview((p) => E.setProjectProps(p, { bpm: 101 }));
+  if (state === 'canceled') {
+    app.store.cancel();
+    await app.autosave.flushAll();
+  }
+  expect(app.store.dirty).toBe(state === 'changed');
+  const closing = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(closing);
+  expect(closing.defaultPrevented).toBe(state === 'changed');
+});
+
+it('asks before desktop close during a gesture and saves its visible value', async () => {
+  const { app, close, exit } = await setup({ persistent: true, desktop: true });
+  await app.files.saveLocalProject('song', 'Song');
+  await app.autosave.flushAll();
+  app.store.begin('Tempo');
+  app.store.preview((p) => E.setProjectProps(p, { bpm: 101 }));
+  expect(app.store.dirty).toBe(true);
+  const closing = close();
+  const dialog = document.querySelector('.dialog-backdrop');
+  expect(dialog).not.toBeNull();
+  dialog.querySelector('[data-value="save"]').click();
+  await closing;
+  expect((await app.library.loadLocal('song')).bpm).toBe(101);
+  expect(app.store.dirty).toBe(false);
+  expect(exit).toHaveBeenCalledOnce();
+});
+
+it.each([null, 'discard'])('handles desktop close choice %s after finishing a gesture', async (choice) => {
+  const { app, close, exit } = await setup({ persistent: true, desktop: true });
+  await app.files.saveLocalProject('song', 'Song');
+  await app.autosave.flushAll();
+  const before = app.store.project;
+  app.store.begin('Tempo');
+  app.store.preview((p) => E.setProjectProps(p, { bpm: 101 }));
+  const closing = close();
+  const dialog = document.querySelector('.dialog-backdrop');
+  expect(dialog).not.toBeNull();
+  if (choice === null) dialog.querySelector('.dialog-head button').click();
+  else dialog.querySelector('[data-value="discard"]').click();
+  await closing;
+  expect((await app.library.loadLocal('song')).bpm).toBe(99);
+  expect(app.store.gesture).toBe(null);
+  expect(app.store.project.bpm).toBe(101);
+  if (choice === null) {
+    expect(exit).not.toHaveBeenCalled();
+    app.store.undo();
+    expect(app.store.project).toBe(before);
+  } else expect(exit).toHaveBeenCalledOnce();
+});
+
+it('closes without a save prompt when a gesture has not changed the project', async () => {
+  const { app, close, exit } = await setup({ persistent: true, desktop: true });
+  await app.files.saveLocalProject('song', 'Song');
+  await app.autosave.flushAll();
+  app.store.begin('Tempo');
+  await close();
+  expect(document.querySelector('.dialog-backdrop')).toBe(null);
+  expect(app.store.dirty).toBe(false);
+  expect(exit).toHaveBeenCalledOnce();
+});
