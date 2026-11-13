@@ -286,9 +286,10 @@ export class ProjectFiles {
   async saveLocalProject(key, name) {
     this.setSaving(true);
     const snapshot = this.snapshot();
+    const view = { ...this.store.view };
     const loads = this.loads;
     try {
-      await this.lib.saveLocal(snapshot, this.store.view, { key, name });
+      await this.lib.saveLocal(snapshot, view, { key, name });
       this.addRecent({ local: key, name });
       if (this.loads === loads) {
         if (this.store.project === snapshot) this.store.markSaved();
@@ -300,22 +301,26 @@ export class ProjectFiles {
     } finally {
       this.setSaving(false);
     }
-    this.localSaveNotice();
+    if (this.loads === loads) this.localSaveNotice({ project: snapshot, view, name });
     return true;
   }
 
   /** After a signed-out save: explain where it went, once; later saves just confirm. */
-  async localSaveNotice() {
+  async localSaveNotice({ project = this.store.project, view = { ...this.store.view }, name = this.app.file?.name || project.name } = {}) {
+    const loads = this.loads;
+    const download = () => this.download({ project, view, name });
     const prefs = this.app.prefs;
     const seen = prefs.get('dismissedNotices') || [];
     const persistent = (await this.lib.db()).persistent;
+    if (this.loads !== loads) return;
     if (seen.includes('localSave')) {
-      this.app.notify(persistent ? 'Saved in this browser' : 'Saved for this session only', { action: { label: 'Download', run: () => this.download() } });
+      this.app.notify(persistent ? 'Saved in this browser' : 'Saved for this session only', { action: { label: 'Download', run: download } });
       return;
     }
     prefs.set('dismissedNotices', [...seen, 'localSave']);
     const canSignIn = Boolean(puter.sdk()) && puter.env() !== 'app';
     const r = await openDialog({
+      store: this.store,
       title: 'Saved in this browser',
       className: 'save-notice',
       body: h(
@@ -329,14 +334,15 @@ export class ProjectFiles {
         { label: 'OK', value: 'ok', primary: true },
       ],
     });
-    if (r === 'download') await this.download();
+    if (this.loads !== loads) return;
+    if (r === 'download') await download();
     else if (r === 'signin') await this.app.signIn?.();
   }
 
   /** File > Save to your device: downloads a self-contained .msproj. */
-  async download() {
-    const filename = `${safeFileName(this.app.file?.name || this.store.project.name)}${FILE_EXT}`;
-    const { blob, missing, skipped } = await this.lib.exportFile(this.store.project, this.store.view);
+  async download({ project = this.store.project, view = { ...this.store.view }, name = this.app.file?.name || project.name } = {}) {
+    const filename = `${safeFileName(name)}${FILE_EXT}`;
+    const { blob, missing, skipped } = await this.lib.exportFile(project, view);
     downloadBlob(blob, filename);
     if (skipped) this.app.notify('Downloaded. Some samples were too large to include in the file.', { error: true });
     else if (missing.length) this.app.notify(`Downloaded without ${missing.length === 1 ? 'one missing sample' : `${missing.length} missing samples`}.`, { error: true });
