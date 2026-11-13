@@ -133,7 +133,7 @@ it.each(['edit', 'delete'])('preserves a newer %s when an original slow write is
   expect(comments.get(post.id)).toEqual(newest);
   release();await pending;applyChanges(comments, (await sync(before.cursor)).changes);
   expect(comments.get(post.id)).toEqual(newest);
-  expect(await env.sdk.alice.kv.get(`vsr:r:${rid}:c:${post.id}`)).toEqual(newest);
+  expect(await env.sdk.alice.kv.get(`vsr:r:${rid}:c:${post.id}`)).toEqual({ ...newest, ...(mode === 'delete' ? { deletedSeq: newest.seq, deletedAt: newest.edited } : {}) });
 });
 
 it.each(['post', 'recovery'])('bounds repeatedly skipped %s deliveries and allows a later retry', async mode => {

@@ -18,7 +18,7 @@
  *   vsr:r:<rid>:iseq / :ii:<n>       invite order -> token hash (the invite list)
  *   vsr:r:<rid>:seq                  change counter for comments
  *   vsr:r:<rid>:log:<n>              { at, comment } comment snapshot saved as change n
- *   vsr:r:<rid>:c:<commentId>        latest snapshot of a comment
+ *   vsr:r:<rid>:c:<commentId>        comment snapshot plus persistent deletion fields
  *   vsr:r:<rid>:wait:<n>             first observation of an unfilled slot and reservation count
  *   vsr:rate:<rid>:<uuid>:<minute>   comments posted this minute (expires)
  *   vsr:wrate:<rid>:<uuid>:<minute>  comment edits, deletes and resolves this minute (expires)
@@ -59,6 +59,17 @@ const reviewId = (v) => {
 };
 
 const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : NaN);
+
+// Deletion survives older edits/resolves. Hide any text those writes carried
+// and keep the deletion revision when their reserved sequence is older.
+function commentState(record) {
+  if (!record?.deleted) return record;
+  const { deletedSeq, deletedAt, ...comment } = record;
+  comment.text = '';
+  comment.seq = Math.max(comment.seq || 0, deletedSeq || 0);
+  comment.edited = deletedAt ?? comment.edited;
+  return comment;
+}
 
 // A fresh invite grants a new membership. Delayed writes for the previous grant
 // must not change its role or display name. Older records keep their base fields.
@@ -599,11 +610,25 @@ export class ReviewService {
     return { changes, cursor, more: !blocked && cursor < seq, role, updated: meta.updated, versions };
   }
 
-  async record(rid, comment) {
+  async record(rid, comment, { create = false, deleting = false, user } = {}) {
     const n = await this.kv.incr(`vsr:r:${rid}:seq`);
-    const saved = { ...comment, seq: n };
+    let saved = { ...comment, seq: n };
+    const key = `vsr:r:${rid}:c:${comment.id}`;
     try {
-      await this.kv.set(`vsr:r:${rid}:c:${comment.id}`, saved);
+      if (create) {
+        if (!(await this.kv.set(key, saved, { onlyIfAbsent: true }))) {
+          await this.skipChange(rid, n);
+          const existing = commentState(await this.kv.get(key));
+          if (existing?.author?.uuid !== user.uuid) fail(409, 'That comment id is taken.');
+          return await this.recoverComment(rid, existing, user);
+        }
+      } else {
+        // Nondeleting writers never clear deleted or replace its tombstone.
+        // A stale first post also cannot erase it: creation is conditional.
+        const { deleted, ...fields } = saved;
+        if (deleting) Object.assign(fields, { deleted: true, deletedSeq: n, deletedAt: saved.edited });
+        saved = commentState(await this.kv.update(key, fields));
+      }
     } catch (err) {
       await this.skipChange(rid, n);
       throw err;
@@ -680,7 +705,7 @@ export class ReviewService {
     const check = validateComment(input, version);
     if (!check.ok) fail(version ? 400 : 404, check.error);
     const value = check.value;
-    const existing = await this.kv.get(`vsr:r:${rid}:c:${value.id}`);
+    const existing = commentState(await this.kv.get(`vsr:r:${rid}:c:${value.id}`));
     if (existing) {
       // A retry of a comment that was saved: hand back what was saved.
       if (existing.author?.uuid === user.uuid) return { comment: await this.recoverComment(rid, existing, user) };
@@ -703,14 +728,14 @@ export class ReviewService {
       resolvedBy: null,
       deleted: false,
     };
-    return { comment: await this.record(rid, comment) };
+    return { comment: await this.record(rid, comment, { create: true, user }) };
   }
 
   async changeComment(user, input) {
     const rid = reviewId(input.review);
     const { role } = await this.access(rid, user);
     if (typeof input.id !== 'string' || !ID.test(input.id)) fail(400, 'Invalid comment.');
-    const c = await this.kv.get(`vsr:r:${rid}:c:${input.id}`);
+    const c = commentState(await this.kv.get(`vsr:r:${rid}:c:${input.id}`));
     if (!c) fail(404, 'That comment no longer exists.');
     const mine = c.author?.uuid === user.uuid;
     if (input.op === 'comment.edit') {
@@ -727,7 +752,7 @@ export class ReviewService {
       if (!(mine && canComment(role)) && role !== 'owner') fail(403, 'You can only delete your own comments.');
       if (c.deleted) return { comment: await this.recoverComment(rid, c, user) };
       await this.roomForEdit(rid, user);
-      return { comment: await this.record(rid, { ...c, text: '', deleted: true, edited: this.now() }) };
+      return { comment: await this.record(rid, { ...c, text: '', deleted: true, edited: this.now() }, { deleting: true }) };
     }
     if (!canResolve(role)) fail(403, 'You can watch this review but not resolve comments.');
     if (c.parent) fail(400, 'Only whole threads can be resolved.');

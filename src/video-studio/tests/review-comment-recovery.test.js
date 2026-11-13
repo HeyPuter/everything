@@ -99,7 +99,7 @@ it.each(['edit', 'delete'])('does not replace a newer %s when recovery arrives a
   expect(recovered).toMatchObject({ cursor: 3, changes: [{ id: post.id, seq: 1 }] });
   applyChanges(comments, recovered.changes);
   expect(comments.get(post.id)).toEqual(newest);
-  expect(await env.sdk.alice.kv.get(`vsr:r:${rid}:c:${post.id}`)).toEqual(newest);
+  expect(await env.sdk.alice.kv.get(`vsr:r:${rid}:c:${post.id}`)).toEqual({ ...newest, ...(mode === 'delete' ? { deletedSeq: newest.seq, deletedAt: newest.edited } : {}) });
   const fresh = new Map();applyChanges(fresh, (await sync()).changes);
   expect(fresh.get(post.id)).toEqual(newest);
 });
