@@ -204,9 +204,11 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     input.focus();
     input.select();
     let done = false;
-    const close = (apply) => {
+    let untrackInput;
+    const close = (apply, restoreFocus = true) => {
       if (done) return;
       done = true;
+      untrackInput?.();
       if (apply) {
         const g = parseGain(input.value);
         if (g !== null) {
@@ -215,8 +217,9 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
         }
       }
       input.remove();
-      slider.focus({ preventScroll: true });
+      if (restoreFocus) slider.focus({ preventScroll: true });
     };
+    untrackInput = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') close(true);

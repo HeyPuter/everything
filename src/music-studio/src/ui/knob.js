@@ -250,9 +250,11 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     input.focus();
     input.select();
     let done = false;
-    const close = (apply) => {
+    let untrackInput;
+    const close = (apply, restoreFocus = true) => {
       if (done) return;
       done = true;
+      untrackInput?.();
       if (apply) {
         const parsed = parseParam(param, input.value);
         if (parsed !== null) {
@@ -261,8 +263,9 @@ export function createKnob({ param, value = param.def, label = param.label, aria
         }
       }
       input.remove();
-      el.focus({ preventScroll: true });
+      if (restoreFocus) el.focus({ preventScroll: true });
     };
+    untrackInput = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') close(true);

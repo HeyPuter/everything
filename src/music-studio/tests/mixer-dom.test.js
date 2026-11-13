@@ -264,6 +264,49 @@ describe('mixer panel', () => {
     store.cancel();
   });
 
+  it.each(['volume', 'pan'].flatMap((param) => ['replacement', 'undo', 'redo'].map((action) => [param, action])))('closes an obsolete %s typed-value editor after %s', (param, action) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    if (action !== 'replacement') store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+    if (action === 'redo') store.undo();
+    key(slider, 'Enter');
+    const input = document.activeElement;
+    expect(input.tagName).toBe('INPUT');
+    input.value = param === 'volume' ? '-6 dB' : '0.5';
+    if (action === 'replacement') store.load(structuredClone(store.project));
+    else store[action]();
+    const replacement = store.project;
+    const history = store.undoStack.length;
+    const stayedOpen = input.isConnected;
+    key(input, 'Enter');
+    expect(store.project.mixer[2][param]).toBe(replacement.mixer[2][param]);
+    expect(store.project).toBe(replacement);
+    expect(stayedOpen).toBe(false);
+    expect(store.undoStack).toHaveLength(history);
+  });
+
+  it.each(['volume', 'pan'].flatMap((param) => ['Enter', 'Escape', 'blur'].map((action) => [param, action])))('preserves %s typed-value editing with %s across an unrelated edit', (param, action) => {
+    const { store, panel } = env;
+    const slider = param === 'volume' ? panel.strips[2].fader.slider : panel.strips[2].el.querySelector('[aria-label="Pan"]');
+    key(slider, 'Enter');
+    const input = document.activeElement;
+    input.value = param === 'volume' ? '-6 dB' : '0.5';
+    store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 150 }));
+    const before = store.project;
+    expect(input.isConnected).toBe(true);
+    if (action === 'blur') input.blur();
+    else key(input, action);
+    expect(input.isConnected).toBe(false);
+    expect(document.activeElement).toBe(slider);
+    expect(store.project.bpm).toBe(150);
+    if (action === 'Escape') expect(store.project).toBe(before);
+    else {
+      expect(store.project.mixer[2][param]).toBeCloseTo(param === 'volume' ? 10 ** (-6 / 20) : 0.5);
+      store.undo();
+      expect(store.project).toBe(before);
+    }
+  });
+
   it('updates only strips whose track changed', () => {
     const { store, panel } = env;
     const spies = panel.strips.map((s) => vi.spyOn(s.fader, 'set'));
