@@ -453,8 +453,10 @@ export class LinksPanel extends Panel {
       (this.relinkBtn = btn('link', 'Relink...', (ed, ids) => relink(this.app, ed, ids))),
       (this.goBtn = btn('go-to', 'Go To Link', (ed, ids) => goToLink(ed, ids[0]))),
       (this.updateBtn = btn('refresh-cw-2', 'Update Link', async (ed, ids) => {
+        const eligible = ids.some((id) => ed.doc.get(id)?.link?.path);
         const n = await updateLinks(this.app, ed, ids);
-        this.app.notify(n ? `Updated ${n} link${n === 1 ? '' : 's'}.` : 'Only images placed from Puter can be updated.', { polite: Boolean(n) });
+        const message = n ? `Updated ${n} link${n === 1 ? '' : 's'}.` : eligible ? 'No links were updated.' : 'Only images placed from Puter can be updated.';
+        this.app.notify(message, { polite: Boolean(n) || eligible });
       })),
       (this.editBtn = btn('external-link', 'Edit Original', (ed, ids) => editOriginal(this.app, ed, ids[0]))),
       (this.embedBtn = btn('arrow-down-to-line', 'Embed Image', (ed, ids) => embedImages(ed, ids))),
