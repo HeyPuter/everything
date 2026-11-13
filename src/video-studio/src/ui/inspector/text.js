@@ -62,6 +62,7 @@ function textBox(view) {
   ta.addEventListener('keydown', (e) => {
     // Typing must not trigger editor shortcuts (space plays, Delete removes the clip).
     e.stopPropagation();
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Escape') ta.blur();
   });
   const sync = () => {

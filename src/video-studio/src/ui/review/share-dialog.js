@@ -269,14 +269,24 @@ export function openShareDialog(ctx, { deps = {} } = {}) {
       const sel = h('select.select.small', { 'aria-label': `Role for ${m.username}` }, GUEST_ROLES.map((r) => h('option', { value: r }, ROLE_LABELS[r])));
       sel.value = m.role;
       sel.addEventListener('change', async () => {
+        if (sel.disabled) return;
+        const role = sel.value;
+        const hadFocus = document.activeElement === sel;
+        sel.disabled = true;
         try {
-          await callOwner('member.role', { uuid: m.uuid, role: sel.value });
+          await callOwner('member.role', { uuid: m.uuid, role });
           // A later change that fails goes back to this role, not the one the list was made with.
-          m.role = sel.value;
-          announce(`${m.username}: ${ROLE_LABELS[sel.value]}`);
+          m.role = role;
+          sel.value = role;
+          announce(`${m.username}: ${ROLE_LABELS[role]}`);
         } catch (err) {
           sel.value = m.role;
           toast(err?.message || 'Could not change the role.', { kind: 'error' });
+        } finally {
+          sel.disabled = false;
+          // Native selects can blur when disabled. Restore focus only if the user
+          // has not moved to another control or opened another dialog meanwhile.
+          if (hadFocus && sel.isConnected && document.activeElement === document.body && [...document.querySelectorAll('dialog[open]')].at(-1) === dlg.el) sel.focus();
         }
       });
       const remove = h('button.icon-btn', { type: 'button', 'aria-label': `Remove ${m.username}`, 'data-tip': 'Remove' }, icon('removePerson', 16));
@@ -333,8 +343,8 @@ export function openShareDialog(ctx, { deps = {} } = {}) {
     body.replaceChildren(shareSection, accessSection);
     updateIntro();
     showFooter();
-    if (review) await showAccess();
     titleInput.focus();
+    if (review) await showAccess();
   })();
   return dlg;
 }

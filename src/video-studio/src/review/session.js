@@ -6,7 +6,7 @@
  */
 import { Emitter } from '../lib/emitter.js';
 import { call as callWorker } from './api.js';
-import { randomId } from './protocol.js';
+import { randomId, COMMENT_DELIVERY_PENDING } from './protocol.js';
 import { applyChanges, pendingComment } from './comments.js';
 
 export class ReviewSession extends Emitter {
@@ -19,14 +19,18 @@ export class ReviewSession extends Emitter {
     this.interval = interval;
     this.review = null;
     this.comments = new Map();
+    this._deliveryPending = new Set();
     this.cursor = 0;
     this.versionCount = 0;
     this.error = null;
     this.lastSync = 0;
     this._timer = null;
+    this._pollRun = 0;
     this._syncing = null;
+    this._reviewRequest = 0;
     this._failures = 0;
     this._links = new Map();
+    this._linkRequests = new Map();
     this._onVisible = () => {
       if (typeof document !== 'undefined' && !document.hidden && this._timer !== null) this.sync().catch(() => {});
     };
@@ -63,14 +67,19 @@ export class ReviewSession extends Emitter {
 
   _setReview(review) {
     this.review = review;
-    this.versionCount = review.versions.length;
+    this.versionCount = review.versionSlots ?? review.versions.length;
     this.emit('review', review);
     this.emit('change');
   }
 
   async refreshReview() {
-    const r = await this.call('review.get');
-    this._setReview(r.review);
+    const request = ++this._reviewRequest;
+    try {
+      const r = await this.call('review.get');
+      if (request === this._reviewRequest) this._setReview(r.review);
+    } catch (error) {
+      if (request === this._reviewRequest) throw error;
+    }
   }
 
   /** Fetch every change since the cursor. Concurrent calls share one run. */
@@ -109,19 +118,22 @@ export class ReviewSession extends Emitter {
   start(interval = this.interval) {
     this.interval = interval;
     if (this._timer !== null) return;
+    const run = ++this._pollRun;
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._onVisible);
     const tick = () => {
       // Back off after failures (up to 8 times the interval); skip while hidden.
       const delay = this.interval * Math.min(8, 2 ** this._failures);
       this._timer = setTimeout(async () => {
+        if (run !== this._pollRun) return;
         if (typeof document === 'undefined' || !document.hidden) await this.sync().catch(() => {});
-        if (this._timer !== null) tick();
+        if (run === this._pollRun) tick();
       }, delay);
     };
     tick();
   }
 
   stop() {
+    this._pollRun++;
     clearTimeout(this._timer);
     this._timer = null;
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this._onVisible);
@@ -141,19 +153,27 @@ export class ReviewSession extends Emitter {
     }
   }
 
-  /** Post a comment or reply. It shows at once and is replaced by the saved copy. */
-  async addComment({ version, parent = null, text, t = null, end = null }) {
-    const id = randomId('c');
-    const local = pendingComment({ id, version, parent, text, t, end }, this.me || { uuid: '', username: '' });
-    this.comments.set(id, local);
+  /** Post a comment or reply. Keep the same id when retrying an unchanged draft. */
+  async addComment({ id = randomId('c'), version, parent = null, text, t = null, end = null }) {
+    const confirmed = this.comments.get(id);
+    if (confirmed && !confirmed.pending && !this._deliveryPending.has(id)) return confirmed;
+    // Retrying delivery must not replace a visible newer revision with the
+    // original draft. Only an unconfirmed post needs a pending placeholder.
+    if (!confirmed || confirmed.pending) this.comments.set(id, pendingComment({ id, version, parent, text, t, end }, this.me || { uuid: '', username: '' }));
     this.emit('change');
     try {
       const r = await this._send('comment.add', { id, version, parent, text, t, end });
-      this.comments.set(id, r.comment);
+      this._deliveryPending.delete(id);
+      applyChanges(this.comments, [r.comment]);
       this.emit('change');
       return r.comment;
     } catch (err) {
-      if (this.comments.get(id)?.pending) this.comments.delete(id);
+      if (err.code === COMMENT_DELIVERY_PENDING) this._deliveryPending.add(id);
+      const current = this.comments.get(id);
+      // Sync may have confirmed this write while its acknowledgement was lost.
+      // It cannot prove delivery to other clients after an explicit warning.
+      if (current && !current.pending && !this._deliveryPending.has(id)) return current;
+      if (current?.pending) this.comments.delete(id);
       this.emit('change');
       throw err;
     }
@@ -182,9 +202,15 @@ export class ReviewSession extends Emitter {
   async videoLink(version, { fresh = false } = {}) {
     const cached = this._links.get(version);
     if (!fresh && cached && cached.expires - 5 * 60_000 > Date.now()) return cached;
-    const r = await this.call('video.url', { version });
-    this._links.set(version, r);
-    return r;
+    const request = {};
+    this._linkRequests.set(version, request);
+    try {
+      const r = await this.call('video.url', { version });
+      if (this._linkRequests.get(version) === request) this._links.set(version, r);
+      return r;
+    } finally {
+      if (this._linkRequests.get(version) === request) this._linkRequests.delete(version);
+    }
   }
 
   dispose() {

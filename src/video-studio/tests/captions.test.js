@@ -264,6 +264,34 @@ describe('Generate captions in the Captions tab', () => {
     document.body.replaceChildren();
   });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('keeps composition Enter in the current caption (%j)', (composition) => {
+    const p = createProject();
+    p.tracks.unshift({ id: 'tc', kind: 'text', locked: false, hidden: false, muted: false, clips: buildCaptionClips([
+      { start: 0, end: 1, text: 'First' }, { start: 1, end: 2, text: 'Second' },
+    ]) });
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: { backend: { kind: 'local' } }, account: {} };
+    ctx.actions = createActions(ctx);
+    const tab = captionsTab(ctx);
+    document.body.append(tab.el);
+    try {
+      [...tab.el.querySelectorAll('.asset-cat')].find((b) => b.textContent === 'Captions').click();
+      const [first, second] = tab.el.querySelectorAll('.cap-text');
+      first.focus();
+      const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...composition });
+      first.dispatchEvent(event);
+      expect(document.activeElement).toBe(first);
+      expect(store.time).toBe(0);
+      expect(event.defaultPrevented).toBe(false);
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(second);
+      expect(store.time).toBe(s(1));
+    } finally {
+      tab.el.querySelector('[data-cat="auto"]').click();
+      tab.dispose?.();
+    }
+  });
+
   it('Generate adds captions from the speech', async () => {
     setPref('captionOpts', {});
     globalThis.puter = { ai: {} };

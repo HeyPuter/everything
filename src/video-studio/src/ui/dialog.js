@@ -9,9 +9,10 @@ let dialogCount = 0;
 
 /**
  * Open a modal. body is a node (or array); actions are buttons laid out in
- * the footer. Returns { el, close(result), result: Promise }.
+ * the footer. beforeClose may return false to keep an unsaved dialog open.
+ * Returns { el, close(result), result: Promise }.
  */
-export function openDialog({ title, body, actions = [], className = '', onClose, closeOnBackdrop = true, labelledBody = false, wide = false } = {}) {
+export function openDialog({ title, body, actions = [], className = '', onClose, beforeClose, closeOnBackdrop = true, labelledBody = false, wide = false } = {}) {
   const id = `dlg-${++dialogCount}`;
   const titleEl = h('h2.dialog-title', { id: `${id}-title` }, title);
   const closeBtn = h('button.icon-btn.dialog-close', { type: 'button', 'aria-label': 'Close' }, icon('close', 18));
@@ -27,6 +28,7 @@ export function openDialog({ title, body, actions = [], className = '', onClose,
   let closed = false;
   const close = (value) => {
     if (closed) return;
+    if (beforeClose?.(value) === false) return;
     closed = true;
     el.close();
     el.remove();
@@ -155,6 +157,7 @@ export function installTooltips() {
     current = null;
   };
   const show = (el) => {
+    if (!el.isConnected) return;
     const text = el.getAttribute('data-tip');
     if (!text) return;
     hide();
@@ -191,6 +194,6 @@ export function installTooltips() {
   root.addEventListener('focusout', hide);
   root.addEventListener('pointerdown', hide, true);
   root.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && tip) hide();
+    if (e.key === 'Escape') hide();
   });
 }

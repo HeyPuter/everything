@@ -279,6 +279,25 @@ describe('gestures', () => {
     expect(p.active).toBe(false);
   });
 
+  it('keeps zoom continuous when a third finger replaces a pinch pointer', () => {
+    const onChange = vi.fn();
+    const onEnd = vi.fn();
+    const p = createPinch({ onChange, onEnd });
+    p.down(pe(1, 0, 0));
+    p.down(pe(2, 100, 0));
+    p.move(pe(2, 200, 0));
+    p.down(pe(3, 600, 0));
+    p.up(pe(1, 0, 0));
+    // Changing which two fingers are tracked is not itself a zoom gesture.
+    p.move(pe(3, 600, 0));
+    expect(onChange).toHaveBeenLastCalledWith(1, 2, { x: 400, y: 0 });
+    p.move(pe(3, 800, 0));
+    expect(onChange).toHaveBeenLastCalledWith(1.5, 3, { x: 500, y: 0 });
+    expect(onEnd).not.toHaveBeenCalled();
+    p.up(pe(2, 200, 0));
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
   it('fires a long press only when the finger stays still', () => {
     vi.useFakeTimers();
     try {

@@ -1010,6 +1010,19 @@ describe('AI sidebar panel', () => {
     expect(panel.el.hidden).toBe(false);
   });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('keeps the assistant sheet open when Escape cancels composition (%j)', (composition) => {
+    const { panel, ctx } = mount([]);
+    ctx.mobile = { mode: 'phone' };
+    panel.open();
+    const input = panel.sheet.body.querySelector('.ai-input');
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...composition });
+    input.dispatchEvent(event);
+    expect(panel.sheet.isOpen).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(panel.sheet.isOpen).toBe(false);
+  });
+
   it('keeps typed keys away from the editor shortcuts, and remembers settings', () => {
     const { panel } = mount([]);
     const seen = vi.fn();

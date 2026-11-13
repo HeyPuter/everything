@@ -11,6 +11,7 @@ import { US } from '../lib/time.js';
 import { openDialog, toast } from './dialog.js';
 import { switchField, segmented } from './controls.js';
 import { prefs, setPref } from './prefs.js';
+import { createRecordingRecovery } from './recording-recovery.js';
 import { createTeleprompter } from './teleprompter.js';
 import {
   RESOLUTIONS, cameraSupported, screenSupported, listDevices, openCamera, openMic, openScreen, stopStream, mixStreams,
@@ -40,17 +41,19 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   let preview = null; // camera stream, or the shared screen
   let micStream = null; // separate microphone for screen recording
   let mixed = null;
-  let state = 'idle'; // idle | countdown | recording | paused | saving
+  let state = 'idle'; // idle | countdown | recording | paused | saving | recovery
   let countdownTimer = 0;
   let tick = 0;
+  let preparing = false;
   let opening = 0;
+  let screenOpening = 0;
   const recorder = new VideoRecorder();
   // The camera or the shared screen went away mid-take (unplugged, sharing stopped): keep what was recorded.
   recorder.onInterrupted = () => {
     if (state !== 'recording' && state !== 'paused') return;
     const camera = opts.mode === 'camera';
     stopRecording().then(() => {
-      if (open && camera) showError('The camera stopped. Connect it and try again.');
+      if (open === d && camera) showError('The camera stopped. Connect it and try again.');
     });
   };
 
@@ -126,6 +129,13 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     }
   });
 
+  const recovery = createRecordingRecovery({ onState: (next) => {
+    status.textContent = next === 'saving' ? 'Saving the recording...' : '';
+    if ((next === 'idle' || next === 'recovery') && preview && !preview.getVideoTracks().some((t) => t.readyState === 'live')) closeStreams();
+    setState(next);
+    if (next === 'idle') (recBtn.disabled ? d.el.querySelector('.dialog-close') : recBtn).focus();
+  } });
+
   const body = h('div.rec-body',
     modeCtl.el,
     message,
@@ -134,9 +144,13 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
       h('div.rec-right', cameraFields, screenFields, countdownSw.el, addSw.el, prompter.controls),
     ),
     status,
+    recovery.el,
   );
 
-  const d = openDialog({ title: 'Record', body, className: 'record-dialog', wide: true, closeOnBackdrop: false, onClose: () => cleanup() });
+  const d = openDialog({ title: 'Record', body, className: 'record-dialog', wide: true, closeOnBackdrop: false, onClose: () => cleanup(), beforeClose: () => {
+    if (state === 'saving') { announce('Please wait while the recording is saved.'); return false; }
+    return recovery.beforeClose(() => d.close());
+  } });
   open = d;
 
   function sync() {
@@ -164,8 +178,9 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     message.hidden = true;
   }
 
-  async function fillDevices() {
+  async function fillDevices(my) {
     const { cameras, mics } = await listDevices();
+    if (my !== opening || open !== d) return;
     const camNow = preview?.getVideoTracks()[0]?.getSettings?.().deviceId || opts.cameraId;
     const micNow = (opts.mode === 'camera' ? preview : micStream)?.getAudioTracks()[0]?.getSettings?.().deviceId || opts.micId;
     camSelect.replaceChildren(...(cameras.length ? cameras : [{ deviceId: '', label: 'Default camera' }]).map((c) => h('option', { value: c.deviceId, selected: c.deviceId === camNow }, c.label)));
@@ -175,7 +190,12 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     );
   }
 
-  function closeStreams() {
+  function closeStreams({ resetDevices = true } = {}) {
+    if (resetDevices) {
+      opening++;
+      preparing = false;
+    }
+    screenOpening++;
     mixed?.close();
     mixed = null;
     stopStream(preview);
@@ -196,12 +216,25 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   async function reopen(retry = false) {
     if (state !== 'idle') return;
     const my = ++opening;
+    preparing = true;
+    setState(state);
+    try {
+      await prepareDevices(my, retry);
+    } finally {
+      if (my === opening && open === d) {
+        preparing = false;
+        status.textContent = '';
+        setState(state);
+      }
+    }
+  }
+
+  async function prepareDevices(my, retry) {
     clearError();
     if (opts.mode === 'camera') {
-      closeStreams();
+      closeStreams({ resetDevices: false });
       if (!cameraSupported()) {
         showError(globalThis.isSecureContext === false ? 'Recording needs a secure (https) connection.' : 'This browser cannot record from a camera.');
-        setState('idle');
         return;
       }
       status.textContent = 'Waiting for camera access...';
@@ -219,7 +252,6 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         }
         status.textContent = '';
         showError(captureErrorMessage(err, 'camera'));
-        setState('idle');
         return;
       }
       if (!open || my !== opening) {
@@ -227,19 +259,31 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         return;
       }
       preview = stream;
+      // The microphone can outlive the camera, so MediaRecorder may keep
+      // running after video ends. End this take when its video source ends.
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        if (preview !== stream || open !== d) return;
+        if (state === 'recording' || state === 'paused') recorder.onInterrupted();
+        else if (state === 'idle' || state === 'countdown') {
+          if (state === 'countdown') cancelCountdown();
+          closeStreams();
+          setState('idle');
+          showError('The camera stopped. Connect it and try again.');
+        }
+      }, { once: true });
       status.textContent = '';
       attach(stream);
-      await fillDevices();
+      await fillDevices(my);
     } else {
       // The screen stays shared; only the microphone changes.
       stopStream(micStream);
       micStream = null;
       if (!screenSupported()) {
         showError('This browser cannot record the screen.');
-        setState('idle');
         return;
       }
       if (opts.screenMic && opts.micId !== 'none') {
+        status.textContent = 'Waiting for microphone access...';
         try {
           const mic = await openMic(opts.micId);
           if (!open || my !== opening) {
@@ -249,35 +293,45 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
           micStream = mic;
         } catch (err) {
           if (my !== opening) return;
+          if (opts.micId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError')) {
+            opts.micId = '';
+            save();
+            return reopen();
+          }
           showError(captureErrorMessage(err, 'camera').replace(/camera/gi, 'microphone'));
         }
       }
       if (!preview && retry) await shareScreen();
-      await fillDevices();
+      await fillDevices(my);
     }
-    setState('idle');
   }
 
   /** Ask the browser for a screen, window or tab (needs a click). */
   async function shareScreen() {
     if (state !== 'idle') return false;
+    const my = ++screenOpening;
+    const stale = () => my !== screenOpening;
     clearError();
     stopStream(preview);
     preview = null;
+    let stream;
     try {
-      preview = await openScreen({ systemAudio: opts.systemAudio });
+      stream = await openScreen({ systemAudio: opts.systemAudio });
     } catch (err) {
+      if (stale()) return false;
       showError(captureErrorMessage(err, 'screen'));
       setState('idle');
       return false;
     }
-    if (!open) {
-      closeStreams();
+    if (stale()) {
+      stopStream(stream);
       return false;
     }
+    preview = stream;
     attach(preview);
     // Stopping the share from the browser's own bar ends the take.
     preview.getVideoTracks()[0]?.addEventListener('ended', () => {
+      if (preview !== stream) return;
       if (state === 'recording' || state === 'paused') stopRecording();
       else if (state === 'countdown') cancelCountdown();
       if (state === 'idle') {
@@ -285,6 +339,10 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
         setState('idle');
       }
     });
+    // Ending the previous share stopped its microphone too. Reacquire it for
+    // this selection, while allowing an existing device request to finish.
+    if (!preparing && opts.screenMic && opts.micId !== 'none' && !micStream) await reopen();
+    if (stale()) return false;
     setState('idle');
     return true;
   }
@@ -298,7 +356,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     recBtn.setAttribute('aria-label', label);
     recBtn.setAttribute('aria-pressed', String(next === 'recording' || next === 'paused'));
     // Screen mode can start without a stream: the click asks what to share.
-    recBtn.disabled = next === 'saving' || (opts.mode === 'camera' && !preview);
+    recBtn.disabled = preparing || next === 'saving' || next === 'recovery' || (opts.mode === 'camera' && !preview);
     pauseBtn.hidden = !(next === 'recording' || next === 'paused');
     pauseBtn.setAttribute('aria-label', next === 'paused' ? 'Resume recording' : 'Pause recording');
     pauseBtn.replaceChildren(icon(next === 'paused' ? 'play' : 'pause', 18));
@@ -307,8 +365,9 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   }
 
   async function begin() {
+    if (preparing || state !== 'idle') return;
     if (opts.mode === 'screen' && !preview && !(await shareScreen())) return;
-    if (!preview) return;
+    if (!preview || preparing || state !== 'idle') return;
     if (!opts.countdown) {
       startRecording();
       return;
@@ -377,30 +436,24 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
     const n = nextTakeNumber(store.project.assets, `${base} recording`);
     const file = new File([blob], `${base} recording ${n}.${extForVideoMime(blob.type)}`, { type: blob.type });
     const at = store.time;
-    try {
-      const [asset] = await actions.importFiles([file], { folder, origin: 'record' });
-      if (asset) {
+    const addToTimeline = opts.addToTimeline;
+    await recovery.save({
+      file,
+      importFile: (take) => actions.importFiles([take], { folder, origin: 'record' }),
+      onSaved: (asset) => {
         // Recorders often write no duration into the file; fall back to the measured length.
         if (!asset.duration) asset.duration = Math.round(seconds * US);
-        if (opts.addToTimeline) actions.addAsset(asset, { start: at });
-        const msg = opts.addToTimeline ? `Added ${asset.name} to the timeline.` : `Saved ${asset.name} to your media.`;
+        if (addToTimeline) actions.addAsset(asset, { start: at });
+        const msg = addToTimeline ? `Added ${asset.name} to the timeline.` : `Saved ${asset.name} to your media.`;
         status.textContent = msg;
         announce(msg);
-      } else status.textContent = '';
-    } catch (err) {
-      status.textContent = '';
-      toast(err?.message || "Couldn't save the recording.", { kind: 'error' });
-    }
-    if (!open) return;
-    // A screen whose sharing ended needs to be chosen again.
-    if (preview && !preview.getVideoTracks().some((t) => t.readyState === 'live')) closeStreams();
-    setState('idle');
+      },
+    });
   }
 
   function cleanup() {
     open = null;
     prompter.dispose();
-    opening++;
     clearTimeout(countdownTimer);
     clearInterval(tick);
     if (state === 'recording' || state === 'paused') {
@@ -412,7 +465,6 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
 
   sync();
   setState('idle');
-  if (opts.mode === 'camera') reopen();
-  else fillDevices().then(() => setState(state));
+  reopen();
   return d;
 }

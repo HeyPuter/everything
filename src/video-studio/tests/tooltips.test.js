@@ -15,6 +15,30 @@ afterEach(() => {
 });
 
 describe('tooltips', () => {
+  it('does not show a delayed tooltip after its target is removed', () => {
+    installTooltips();
+    const btn = h('button', { 'data-tip': 'Old screen action' });
+    document.body.append(btn);
+    hover(btn);
+    btn.remove();
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector('.tooltip')).toBeNull();
+  });
+
+  it('cancels a pending tooltip when Escape is pressed', () => {
+    installTooltips();
+    const btn = h('button', { 'data-tip': 'Play' });
+    document.body.append(btn);
+    hover(btn);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector('.tooltip')).toBeNull();
+    // A later hover still works after dismissal.
+    hover(btn);
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector('.tooltip')?.textContent).toBe('Play');
+  });
+
   it('show for buttons inside a modal dialog, in the dialog so they sit above it', () => {
     const page = h('div');
     document.body.append(page);

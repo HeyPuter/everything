@@ -56,6 +56,23 @@ describe('find and replace model', () => {
     expect(replaceAll(p, '', 'x')).toBe(0);
   });
 
+  it('respects locked ancestor tracks when replacing text inside nested compounds', () => {
+    const { p, clips } = withTexts('hello world');
+    const inner = createCompound(p, [clips[0].id], FREE);
+    const outer = createCompound(p, [inner.id], FREE);
+    const parentTrack = findClip(p, outer.id).track;
+    parentTrack.locked = true;
+    const [match] = findMatches(p, 'world');
+    const nestedText = textClips(p)[0].clip;
+    expect(match.locked).toBe(true);
+    expect(replaceOne(nestedText, match, 'everyone')).toBe(false);
+    expect(replaceAll(p, 'world', 'everyone')).toBe(0);
+    expect(nestedText.text).toBe('hello world');
+    parentTrack.locked = false;
+    expect(replaceAll(p, 'world', 'everyone')).toBe(1);
+    expect(nestedText.text).toBe('hello everyone');
+  });
+
   it('never empties a text clip', () => {
     const { p, clips } = withTexts('um', 'um okay');
     expect(replaceAll(p, 'um', '', { wholeWord: true })).toBe(1);
@@ -93,6 +110,25 @@ describe('find and replace dialog', () => {
     localStorage.clear();
   });
 
+  it.each(['Find', 'Replace with'])('keeps composition Enter in the %s field', (label) => {
+    const { p, clips } = withTexts('pear', 'apple');
+    const store = new EditorStore(p);
+    const d = openFindReplace({ store }, { query: 'apple' });
+    try {
+      const input = d.el.querySelector(`input[aria-label="${label}"]`);
+      for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...composition });
+        input.dispatchEvent(event);
+        expect(store.time).toBe(0);
+        expect(store.selection.size).toBe(0);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(store.time).toBe(s(2));
+      expect([...store.selection]).toEqual([clips[1].id]);
+    } finally { d.close(); }
+  });
+
   it('lists matches, jumps to one and replaces all in one undo step', () => {
     const { p, clips } = withTexts('red apple', 'green apple', 'pear');
     const store = new EditorStore(p);
@@ -112,6 +148,19 @@ describe('find and replace dialog', () => {
     store.undo();
     expect(findClip(store.project, clips[0].id).clip.text).toBe('red apple');
     expect(store.history.canUndo()).toBe(false);
+    d.close();
+  });
+
+  it('refreshes matches and locks when the project changes while the dialog is open', () => {
+    const { p, clips } = withTexts('red apple');
+    const store = new EditorStore(p);
+    const d = openFindReplace({ store }, { query: 'apple' });
+    store.update('Lock track', (project) => { findClip(project, clips[0].id).track.locked = true; });
+    expect(d.el.querySelector('.fr-one').disabled).toBe(true);
+    expect([...d.el.querySelectorAll('button')].find((b) => b.textContent === 'Replace all').disabled).toBe(true);
+    store.update('Update text', (project) => { findClip(project, clips[0].id).clip.text = 'green pear'; }, { structural: false });
+    expect(d.el.querySelector('.fr-count').textContent).toBe('No matches');
+    expect(d.el.querySelectorAll('.fr-item')).toHaveLength(0);
     d.close();
   });
 

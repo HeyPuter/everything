@@ -1,7 +1,7 @@
 /**
  * Client-side comment state. The worker sends comment snapshots, each with
- * the change number (seq) it was saved under; the newest snapshot of a
- * comment wins. Comments being sent show at once as pending.
+ * its original revision (seq); the newest snapshot of a comment wins.
+ * Recovery may deliver an older revision at a newer sync cursor. Comments being sent show at once as pending.
  */
 
 /** Merge snapshots into a Map(id -> comment); returns true when anything changed. */

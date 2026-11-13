@@ -28,8 +28,9 @@ export function speechTab(view) {
   const { ctx, store } = view;
   if (!aiAvailable(ctx)) return signInHint(ctx);
   let voice = TTS_VOICES.some((v) => v.id === prefs().ttsVoice) ? prefs().ttsVoice : TTS_VOICES[0].id;
-  let busy = false;
-  let audio = null;
+  let job = null, disposed = false;
+  let audio = null, audioUrl = null;
+  const context = () => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
 
   const voices = segmented({
     label: 'Voice',
@@ -43,6 +44,7 @@ export function speechTab(view) {
   });
   const previewBtn = h('button.btn', { type: 'button' }, icon('play', 16), 'Preview');
   const addBtn = h('button.btn.primary', { type: 'button' }, icon('plus', 16), 'Add as audio clip');
+  const cancelBtn = h('button.btn', { type: 'button', hidden: true }, 'Cancel speech');
   const status = h('p.tts-status', { role: 'status' });
   const where = h('p.field-hint.text-hint');
   const quote = h('blockquote.speech-quote');
@@ -53,81 +55,119 @@ export function speechTab(view) {
     const c = view.clip;
     if (!c) return;
     const empty = !text();
-    previewBtn.disabled = busy || empty;
-    addBtn.disabled = busy || empty;
+    previewBtn.disabled = !audio && (Boolean(job) || empty);
+    addBtn.disabled = Boolean(job) || empty;
+    cancelBtn.hidden = !job;
     quote.textContent = empty ? 'This clip has no text yet.' : text();
     where.textContent = `The audio starts with this text clip (${clock(c.start)}).`;
   };
 
-  async function run(label, fn) {
-    const had = document.activeElement;
-    busy = true;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted && context() === task.source;
+  function finish(task) {
+    if (job !== task) return;
+    const hadFocus = document.activeElement === cancelBtn;
+    job = null;
     update();
-    status.replaceChildren(h('span.spinner'), label);
-    try {
-      await fn();
-    } catch (err) {
-      status.replaceChildren();
-      toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
+    if (!disposed) {
+      if (hadFocus) (task.trigger.disabled ? fit.el.querySelector('button') : task.trigger)?.focus();
+      else restoreFocus(task.focus);
     }
-    busy = false;
-    update();
-    // Adding speech selects the new clip and then the text again, which rebuilds this panel.
-    const name = had?.textContent;
-    restoreFocus(had, () => [...document.querySelectorAll('.text-speech .tts-actions button')].find((b) => b.textContent === name));
   }
-
-  const stopPreview = () => {
-    if (!audio) return;
-    audio.pause();
-    URL.revokeObjectURL(audio.src);
-    audio = null;
+  function stopAudio(expected = audio) {
+    if (!expected || audio !== expected) return;
+    expected.pause();
+    URL.revokeObjectURL(audioUrl);
+    audio = audioUrl = null;
     previewBtn.replaceChildren(icon('play', 16), 'Preview');
-  };
+    update();
+  }
+  function cancelJob(message = '') {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (task.kind === 'preview') stopAudio();
+    status.textContent = message;
+  }
+  function stopPreview() {
+    if (job?.kind === 'preview') cancelJob();
+    stopAudio();
+  }
+  cancelBtn.addEventListener('click', () => cancelJob('Speech cancelled.'));
 
-  previewBtn.addEventListener('click', () => {
-    if (audio) {
-      stopPreview();
-      return;
+  async function run(kind) {
+    if (disposed || job || !text() || view.found?.track.locked) return;
+    const task = {
+      controller: new AbortController(), source: context(), kind,
+      words: text(), voice, start: view.clip.start, fit: fitText,
+      focus: document.activeElement,
+      trigger: kind === 'preview' ? previewBtn : addBtn,
+    };
+    job = task;
+    update();
+    status.replaceChildren(h('span.spinner'), 'Creating speech...');
+    const { signal } = task.controller;
+    try {
+      const blob = await synthesize(task.words, task.voice, { signal });
+      if (!current(task)) return;
+      if (kind === 'preview') {
+        status.replaceChildren();
+        audioUrl = URL.createObjectURL(blob);
+        const playing = new Audio(audioUrl);
+        audio = playing;
+        playing.addEventListener('ended', () => stopAudio(playing), { once: true });
+        previewBtn.replaceChildren(icon('stop', 16), 'Stop');
+        update();
+        await playing.play().catch(() => stopAudio(playing));
+      } else {
+        status.replaceChildren(h('span.spinner'), 'Adding to timeline...');
+        const made = await addSpeechToTimeline(ctx, blob, task.words, { start: task.start, signal, select: false });
+        if (!current(task)) return;
+        if (!made) {
+          status.textContent = '';
+          return;
+        }
+        if (task.fit && made.duration) {
+          store.update('Fit text to speech', (p) => {
+            const found = findClip(p, view.id), c = found?.clip;
+            if (!c || found.track.locked || c.duration === made.duration) return false;
+            c.duration = made.duration;
+            for (const k of ['animIn', 'animOut']) if (c[k]) c[k].duration = Math.min(c[k].duration, Math.floor(c.duration / 2));
+          });
+        }
+        status.textContent = 'Speech added as an audio clip.';
+        announce('Speech added as an audio clip');
+      }
+    } catch (err) {
+      if (current(task) && err?.name !== 'AbortError') {
+        status.replaceChildren();
+        toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
+      }
+    } finally {
+      finish(task);
     }
-    run('Creating speech...', async () => {
-      const blob = await synthesize(text(), voice);
-      status.replaceChildren();
-      audio = new Audio(URL.createObjectURL(blob));
-      audio.addEventListener('ended', stopPreview);
-      // Stop when the panel goes away (another clip or tab).
-      audio.addEventListener('timeupdate', () => !el.isConnected && stopPreview());
-      previewBtn.replaceChildren(icon('stop', 16), 'Stop');
-      await audio.play().catch(() => stopPreview());
-    });
+  }
+  previewBtn.addEventListener('click', () => audio ? stopPreview() : run('preview'));
+  addBtn.addEventListener('click', () => {
+    if (disposed || job) return;
+    stopAudio();
+    run('add');
   });
 
-  addBtn.addEventListener('click', () => {
-    stopPreview();
-    const id = view.id;
-    run('Creating speech...', async () => {
-      const words = text();
-      const blob = await synthesize(words, voice);
-      status.replaceChildren(h('span.spinner'), 'Adding to timeline...');
-      const start = findClip(store.project, id)?.clip.start ?? store.time;
-      const made = await addSpeechToTimeline(ctx, blob, words, { start });
-      if (!made) {
-        status.textContent = '';
-        return;
-      }
-      if (fitText && made.duration) {
-        store.update('Fit text to speech', (p) => {
-          const c = findClip(p, id)?.clip;
-          if (!c || c.duration === made.duration) return false;
-          c.duration = made.duration;
-          for (const k of ['animIn', 'animOut']) if (c[k]) c[k].duration = Math.min(c[k].duration, Math.floor(c.duration / 2));
-        });
-      }
-      // Stay on the text clip so the next edit continues here.
-      store.select(id);
-      status.textContent = 'Speech added as an audio clip.';
-      announce('Speech added as an audio clip');
-    });
+  const source = context();
+  view.bind(() => {
+    if (!job && !audio) return;
+    if (context() !== source || !view.clip || view.found?.track.locked) {
+      cancelJob('Speech cancelled because its text clip changed.');
+      stopAudio();
+    }
+  });
+  const offPlay = ctx.player?.on('play', ({ playing }) => { if (playing) stopPreview(); });
+  view.scope.onDispose(() => {
+    disposed = true;
+    cancelJob();
+    stopAudio();
+    offPlay?.();
   });
 
   view.bind(update);
@@ -135,7 +175,7 @@ export function speechTab(view) {
   const el = h('div.text-speech',
     propSection('Text to read', [quote, where]),
     propSection('Voice', [voices.el]),
-    propSection('Speech', [fit.el, h('div.tts-actions', previewBtn, addBtn), status]),
+    propSection('Speech', [fit.el, h('div.tts-actions', previewBtn, addBtn, cancelBtn), status]),
   );
   voices.el.setAttribute('aria-label', 'Voice');
   return el;

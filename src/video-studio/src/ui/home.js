@@ -97,7 +97,11 @@ export class Home {
     this.projects = [];
     this.trash = [];
     this.loaded = false;
+    this.disposed = false;
+    this.listRequest = 0;
+    this.usageRequest = 0;
     this.coverUrls = new Map();
+    this.coverLoads = new Map();
     this.noCover = new Set(); // projects without a cover, so redraws (search) don't ask again
     this.view = viewFromHash();
     this.onHash = () => {
@@ -110,15 +114,23 @@ export class Home {
   }
 
   async load() {
+    if (this.disposed) return;
+    const request = ++this.listRequest;
     this.loaded = false;
     this.renderView();
     try {
       // Projects past their time in the Trash go for good when the home screen opens.
       const purged = await this.library.purgeTrash().catch(() => []);
+      if (this.disposed || request !== this.listRequest) return;
       if (purged.length) announce(`${purged.length} project${purged.length === 1 ? '' : 's'} removed from the Trash after ${TRASH_DAYS} days`);
-      this.projects = await this.library.listProjects();
-      this.trash = await this.library.listTrash();
+      const projects = await this.library.listProjects();
+      if (this.disposed || request !== this.listRequest) return;
+      const trash = await this.library.listTrash();
+      if (this.disposed || request !== this.listRequest) return;
+      this.projects = projects;
+      this.trash = trash;
     } catch (err) {
+      if (this.disposed || request !== this.listRequest) return;
       console.error(err);
       this.loadError = true;
       this.loaded = true;
@@ -132,8 +144,16 @@ export class Home {
   }
 
   async refreshLists() {
-    this.projects = await this.library.listProjects();
-    this.trash = await this.library.listTrash();
+    if (this.disposed) return;
+    const request = ++this.listRequest;
+    const projects = await this.library.listProjects();
+    if (this.disposed || request !== this.listRequest) return;
+    const trash = await this.library.listTrash();
+    if (this.disposed || request !== this.listRequest) return;
+    this.projects = projects;
+    this.trash = trash;
+    this.loaded = true;
+    this.loadError = false;
     this.renderView();
     this.refreshUsage();
   }
@@ -208,6 +228,7 @@ export class Home {
   }
 
   show(view, { push = true } = {}) {
+    if (this.disposed) return;
     this.view = view;
     if (push) history.replaceState(null, '', view === 'home' ? `${location.pathname}${location.search}` : `#${view}`);
     this.query = '';
@@ -218,6 +239,7 @@ export class Home {
   }
 
   renderView() {
+    if (this.disposed) return;
     // Cards drawn before are gone: stop waiting to load their covers.
     this.coverObserver?.disconnect();
     this.renderNav();
@@ -345,6 +367,7 @@ export class Home {
   }
 
   renderGrid() {
+    if (this.disposed) return;
     if (!this.grid) return;
     this.coverObserver?.disconnect();
     if (!this.loaded) {
@@ -418,16 +441,31 @@ export class Home {
   }
 
   async loadCover(id, el) {
+    if (this.disposed) return;
     let url = this.coverUrls.get(id);
     if (!url) {
       if (this.noCover.has(id)) return;
-      const blob = await this.library.coverBlob(id);
-      if (!blob) {
-        this.noCover.add(id);
-        return;
+      let pending = this.coverLoads.get(id);
+      if (!pending) {
+        pending = (async () => {
+          const blob = await this.library.coverBlob(id);
+          if (this.disposed) return null;
+          if (!blob) {
+            this.noCover.add(id);
+            return null;
+          }
+          const loaded = URL.createObjectURL(blob);
+          this.coverUrls.set(id, loaded);
+          return loaded;
+        })();
+        this.coverLoads.set(id, pending);
       }
-      url = URL.createObjectURL(blob);
-      this.coverUrls.set(id, url);
+      try {
+        url = await pending;
+      } finally {
+        if (this.coverLoads.get(id) === pending) this.coverLoads.delete(id);
+      }
+      if (!url || this.disposed) return;
     }
     el.replaceChildren(h('img', { src: url, alt: '', loading: 'lazy', decoding: 'async' }));
   }
@@ -495,21 +533,20 @@ export class Home {
   }
 
   /** Script to video: the new project opens when it is ready. */
-  async scriptToVideo() {
-    let m;
-    try {
-      m = await import('./script-video.js');
-    } catch (err) {
-      console.error(err);
-      toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
-      return;
-    }
-    const env = { library: this.library, account: this.account };
-    if (!m.aiReady(env)) {
-      m.needAiDialog(this.account, 'Script to video');
-      return;
-    }
-    m.openScriptDialog(env, { onProject: (id) => this.onOpen(id) });
+  scriptToVideo() {
+    if (this.disposed) return Promise.resolve(null);
+    if (this._scriptOpening) return this._scriptOpening;
+    this._scriptOpening = import('./script-video.js')
+      .then(m => m.openScriptVideo(this, { onProject: (id) => this.onOpen(id) }))
+      .catch(err => {
+        if (!this.disposed) {
+          console.error(err);
+          toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
+        }
+        return null;
+      })
+      .finally(() => { this._scriptOpening = null; });
+    return this._scriptOpening;
   }
 
   /** A first cover from the template preview (the editor replaces it after editing). */
@@ -725,9 +762,12 @@ export class Home {
   /* Storage readout ---------------------------------------------------------------- */
 
   async refreshUsage() {
+    if (this.disposed) return;
+    const request = ++this.usageRequest;
     let text = '';
     try {
       const u = await this.library.storageUsage();
+      if (this.disposed || request !== this.usageRequest) return;
       const parts = [`${u.projects} project${u.projects === 1 ? '' : 's'}`];
       let bytes = u.mediaBytes;
       if (bytes === null && this.library.backend.kind === 'local' && navigator.storage?.estimate) {
@@ -740,12 +780,19 @@ export class Home {
     } catch {
       text = '';
     }
+    if (this.disposed || request !== this.usageRequest) return;
     for (const el of [this.usageEl, this.mobileStorage.querySelector('.storage-usage')]) el.textContent = text;
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this._scriptLifetime?.abort();
     window.removeEventListener('hashchange', this.onHash);
     this.coverObserver?.disconnect();
     for (const u of this.coverUrls.values()) URL.revokeObjectURL(u);
+    this.coverUrls.clear();
+    this.coverLoads.clear();
+    this.noCover.clear();
   }
 }

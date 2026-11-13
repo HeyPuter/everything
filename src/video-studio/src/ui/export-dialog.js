@@ -99,7 +99,15 @@ async function exportGif(project, library, s, { signal, onProgress }) {
     gif.addFrame(g.getImageData(0, 0, width, height).data, 1000 / s.gifFps);
     n = f.index + 1;
     const elapsed = (performance.now() - started) / 1000;
-    onProgress?.({ fraction: n / f.total, done: n, total: f.total, elapsed, remaining: (elapsed / n) * (f.total - n), fps: n / Math.max(0.001, elapsed), preview: n % 10 === 1 ? await createImageBitmap(scratch) : null });
+    let preview = null;
+    if (onProgress && n % 10 === 1 && typeof createImageBitmap === 'function') {
+      try {
+        preview = await createImageBitmap(scratch);
+      } catch {
+        // A progress thumbnail is optional; the encoded GIF is still valid.
+      }
+    }
+    onProgress?.({ fraction: n / f.total, done: n, total: f.total, elapsed, remaining: (elapsed / n) * (f.total - n), fps: n / Math.max(0.001, elapsed), preview });
   }
   const blob = new Blob([gif.finish()], { type: 'image/gif' });
   return { kind: 'gif', blob, fileName: `${safeFileName(s.name || project.name)}.gif`, width, height, duration, elapsed: (performance.now() - started) / 1000 };
@@ -136,7 +144,7 @@ export function openExportDialog(ctx) {
   let hasCaptions = captionCues(project).length > 0;
   if (!BITRATE_LEVELS.some((l) => l.value === s.bitrate)) s.bitrate = DEFAULT_SETTINGS.bitrate;
   if (!signedIn(ctx)) s.destination = 'device';
-  if (!s.video && !s.audio) s.video = true;
+  if (!s.video && !s.audio && !s.gif && !(s.captions && hasCaptions)) s.video = true;
 
   let controller = null;
   let results = [];

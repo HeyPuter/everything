@@ -73,6 +73,25 @@ afterEach(() => {
 });
 
 describe('inspector layout', () => {
+  it.each([200, 80])('does not commit or cancel a name during composition (maxlength %s)', (maxLength) => {
+    const input = env.el.querySelector(`.project-view input[maxlength="${maxLength}"]`);
+    input.focus();
+    input.value = 'Draft name';
+    for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+      for (const key of ['Enter', 'Escape']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...composition });
+        input.dispatchEvent(event);
+        expect(document.activeElement === input).toBe(true);
+        expect(input.value).toBe('Draft name');
+        expect(env.store.history.canUndo()).toBe(false);
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(env.store.history.canUndo()).toBe(true);
+    expect(document.activeElement === input).toBe(false);
+  });
+
   it('shows the project when nothing is selected and renames it', () => {
     expect(env.el.matches('section.panel.inspector')).toBe(true);
     expect(env.el.querySelector('.panel-head .panel-title').textContent).toBe('Details');
@@ -531,6 +550,15 @@ describe('animation and color', () => {
 describe('text', () => {
   beforeEach(() => env.store.select(env.text.id));
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not blur text while canceling composition (%j)', (composition) => {
+    const ta = env.el.querySelector('.insp-textarea');
+    ta.focus();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, ...composition }));
+    expect(document.activeElement).toBe(ta);
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.activeElement).not.toBe(ta);
+  });
+
   it('edits text with one undo step and keeps typing focus', () => {
     const ta = env.el.querySelector('.insp-textarea');
     expect(ta.value).toBe('Hello');
@@ -862,6 +890,22 @@ describe('number boxes', () => {
     num.value = '1,5';
     num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(clip(env.v1.id).speed).toBe(1.5);
+  });
+
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not retime a clip while confirming speed input composition (%j)', (composition) => {
+    env.store.select(env.v1.id);
+    tab('Speed').click();
+    const num = env.el.querySelector('[aria-label="Speed value"]');
+    const before = clip(env.v1.id).duration;
+    num.value = '2';
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...composition });
+    num.dispatchEvent(event);
+    expect(clip(env.v1.id).speed).toBe(1);
+    expect(clip(env.v1.id).duration).toBe(before);
+    expect(event.defaultPrevented).toBe(false);
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(clip(env.v1.id).speed).toBe(2);
+    expect(clip(env.v1.id).duration).toBe(before / 2);
   });
 
   it('unchanged values and resets at the defaults add no undo steps', () => {

@@ -7,7 +7,7 @@
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { pinLabel, spokenAt } from '../../review/time.js';
-import { canComment, canResolve, LIMITS, textProblem } from '../../review/protocol.js';
+import { canComment, canResolve, LIMITS, textProblem, randomId } from '../../review/protocol.js';
 import { canEditComment, canDeleteComment, relativeTime } from '../../review/comments.js';
 
 /** Submit a form the way pressing its submit button would (once). */
@@ -17,7 +17,7 @@ export function submitForm(form) {
 }
 
 /**
- * createThreadList({ onSeek(thread), onReply(thread, text), onResolve(thread, resolved),
+ * createThreadList({ onSeek(thread), onReply(thread, text, id), onResolve(thread, resolved),
  *   onEdit(comment, text), onDelete(comment) }) -> { el, update(threads, opts) }
  * opts: { fps, me, role, activeId, now, empty }
  * Callbacks may return promises; a rejected one keeps the draft and shows the error.
@@ -25,8 +25,10 @@ export function submitForm(form) {
 export function createThreadList(handlers) {
   const el = h('ol.rv-threads', { 'aria-label': 'Comments' });
   const replyDrafts = new Map(); // thread id -> text (open reply forms)
+  const replyAttempts = new Map(); // retain a post id until its draft changes or succeeds
   const editDrafts = new Map(); // comment id -> text (open edit forms)
   const errors = new Map(); // form key -> message
+  const pending = new Set(); // form keys survive sync re-renders while saving
   let last = { threads: [], opts: {} };
 
   const textarea = (key, value, label, onInput) => {
@@ -42,12 +44,19 @@ export function createThreadList(handlers) {
     const save = h('button.btn.primary.small', { type: 'submit' }, submitLabel);
     const cancel = h('button.btn.small', { type: 'button' }, 'Cancel');
     const f = h('form.rv-inline-form', input, err, h('div.rv-form-actions', cancel, save));
+    const setPending = (busy) => {
+      input.readOnly = busy;
+      save.disabled = cancel.disabled = busy;
+      f.setAttribute('aria-busy', String(busy));
+    };
+    setPending(pending.has(key));
     cancel.addEventListener('click', onCancel);
     input.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        onCancel();
+        if (!pending.has(key)) onCancel();
       } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         submitForm(f);
@@ -55,6 +64,7 @@ export function createThreadList(handlers) {
     });
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (pending.has(key)) return;
       const problem = textProblem(input.value);
       if (problem) {
         errors.set(key, problem);
@@ -62,14 +72,18 @@ export function createThreadList(handlers) {
         input.focus();
         return;
       }
-      save.disabled = true;
+      pending.add(key);
+      setPending(true);
       try {
         await onSubmit(input.value);
         errors.delete(key);
       } catch (error) {
+        pending.delete(key);
         errors.set(key, error?.message || 'Could not save. Try again.');
         render();
         el.querySelector(`textarea[data-key="${CSS.escape(key)}"]`)?.focus();
+      } finally {
+        pending.delete(key);
       }
     });
     return f;
@@ -166,21 +180,26 @@ export function createThreadList(handlers) {
           label: `Reply to ${t.author?.username || 'comment'}`,
           value: replyDrafts.get(t.id),
           submitLabel: 'Reply',
-          onInput: (v) => replyDrafts.set(t.id, v),
+          onInput: (v) => {
+            replyDrafts.set(t.id, v);
+            replyAttempts.delete(t.id);
+          },
           onCancel: () => {
             replyDrafts.delete(t.id);
+            replyAttempts.delete(t.id);
             errors.delete(`reply:${t.id}`);
             render();
           },
           onSubmit: async (v) => {
-            replyDrafts.delete(t.id);
-            render();
-            try {
-              await handlers.onReply?.(t, v);
-            } catch (err) {
-              replyDrafts.set(t.id, v);
-              throw err;
+            let attempt = replyAttempts.get(t.id);
+            if (!attempt || attempt.text !== v) {
+              attempt = { id: randomId('c'), text: v };
+              replyAttempts.set(t.id, attempt);
             }
+            await handlers.onReply?.(t, v, attempt.id);
+            replyDrafts.delete(t.id);
+            replyAttempts.delete(t.id);
+            render();
           },
         });
       }

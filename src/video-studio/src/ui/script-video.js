@@ -37,7 +37,8 @@ export function aiReady(env) {
 }
 
 /** Explain that a tool needs a Puter account, with a sign-in button when possible. */
-export function needAiDialog(account, what) {
+export function needAiDialog(account, what, { signal } = {}) {
+  if (signal?.aborted) return null;
   const close = h('button.btn', { type: 'button' }, 'Close');
   const signIn = account?.onSignIn ? h('button.btn.primary', { type: 'button' }, icon('cloud', 16), 'Sign in to Puter') : null;
   const d = openDialog({
@@ -46,7 +47,10 @@ export function needAiDialog(account, what) {
     actions: [close, signIn].filter(Boolean),
     className: 'small',
     labelledBody: true,
+    onClose: () => signal?.removeEventListener('abort', onAbort),
   });
+  const onAbort = () => d.close();
+  signal?.addEventListener('abort', onAbort, { once: true });
   close.addEventListener('click', () => d.close());
   signIn?.addEventListener('click', () => {
     d.close();
@@ -116,14 +120,20 @@ const field = (label, control, hint) => h('label.aic-field', h('span.aic-label',
  *  onProject (projectId) called after a new project is saved (home screen)
  */
 export function openScriptDialog(env, { services = puterServices(env.library), onProject } = {}) {
-  const { library, store } = env;
+  const { library, store, signal } = env;
+  if (signal?.aborted) return null;
   const opts = savedOpts();
   const save = () => setPref('scriptVideo', { tone: opts.tone, length: opts.length, ratio: opts.ratio, voice: opts.voice, style: opts.style, captions: opts.captions, music: opts.music });
   // In the editor the frame shape is the project's, unless the timeline is still empty.
-  const fixedShape = store && allClips(store.project).length > 0 ? store.project.settings : null;
+  const fixedShape = store && allClips(store.project).length > 0 ? { ...store.project.settings } : null;
   let scenes = [];
   let busy = false;
   let abort = null;
+  let closed = false, off = () => {};
+  const projectId = store?.project.id, timelineId = store?.project.timelineId, nest = (store?.nest || []).map(f => f.id);
+  const sameContext = () => !store || (store.project.id === projectId && store.project.timelineId === timelineId && (store.nest?.length || 0) === nest.length && nest.every((id, i) => store.nest[i].id === id));
+  const owns = (controller) => !closed && abort === controller && sameContext();
+  const current = (controller) => owns(controller) && !controller.signal.aborted && d.el.isConnected;
 
   // ---- Step 1: script and options ----------------------------------------------
   const script = h('textarea.textarea.aic-script', { rows: 8, maxLength: SCRIPT_MAX, placeholder: 'Paste your script here. Each paragraph becomes a scene.\n\nOr describe a topic, for example "why cats sleep so much", and use Write the script for me.', 'aria-label': 'Topic or script' });
@@ -147,28 +157,35 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
   const music = select('Music', [{ value: '', label: 'No music' }, ...MUSIC.map((m) => ({ value: m.id, label: `${m.title} (${m.mood})` }))], opts.music, (v) => { opts.music = v; save(); });
 
   writeBtn.addEventListener('click', async () => {
+    if (closed || busy) return;
+    const draft = script.value;
     const topic = script.value.trim();
     if (!topic) {
       writeStatus.textContent = 'Describe the topic first.';
       script.focus();
       return;
     }
-    busy = true;
-    writeBtn.disabled = true;
+    const controller = startTask();
+    if (!controller) return;
     writeStatus.textContent = 'Writing...';
     try {
       const text = cleanScript(chatText(await services.chat(scriptPrompt({ topic, tone: opts.tone, length: opts.length }))));
+      if (!current(controller)) return;
       if (!text) throw new Error('The AI did not write anything. Try again.');
+      if (script.value !== draft) {
+        writeStatus.textContent = 'Your edits were kept. Use Write again when you are ready.';
+        return;
+      }
       env.topic = topic;
       script.value = text;
       writeStatus.textContent = `Done: ${splitScenes(text).length} scenes. Edit anything you like.`;
       announce('Script written');
     } catch (err) {
+      if (!current(controller)) return;
       console.error(err);
       writeStatus.textContent = errorMessage(err, 'Could not write the script.');
     } finally {
-      busy = false;
-      writeBtn.disabled = false;
+      finishTask(controller, writeBtn);
     }
   });
 
@@ -185,8 +202,10 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
   const suggestBtn = h('button.btn.small', { type: 'button' }, icon('magic', 14), 'Suggest pictures');
   const addBtn = h('button.btn.small', { type: 'button' }, icon('plus', 14), 'Add scene');
   const sceneStatus = h('span.aic-hint', { role: 'status' });
+  const pictureFields = new Map();
 
   function renderScenes() {
+    pictureFields.clear();
     list.replaceChildren(...scenes.map((s, i) => {
       const narration = h('textarea.textarea.aic-narration', { rows: 2, maxLength: 1200, 'aria-label': `Scene ${i + 1} narration` });
       narration.value = s.narration;
@@ -196,6 +215,7 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
       });
       const picture = h('textarea.textarea.aic-picture', { rows: 2, maxLength: 600, placeholder: 'What the picture shows (leave empty to use the narration)', 'aria-label': `Scene ${i + 1} picture description` });
       picture.value = s.picture;
+      pictureFields.set(s, picture);
       picture.addEventListener('input', () => (s.picture = picture.value));
       const remove = h('button.icon-btn.small', { type: 'button', 'aria-label': `Remove scene ${i + 1}`, 'data-tip': 'Remove scene', disabled: scenes.length < 2 }, icon('trash', 14));
       remove.addEventListener('click', () => {
@@ -216,35 +236,39 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
   }
 
   addBtn.addEventListener('click', () => {
-    if (scenes.length >= SCENES_MAX) return;
+    if (closed || busy || scenes.length >= SCENES_MAX) return;
     scenes.push({ narration: '', picture: '' });
     renderScenes();
     list.lastElementChild?.querySelector('textarea')?.focus();
   });
   suggestBtn.addEventListener('click', async () => {
+    if (closed || busy) return;
     const filled = scenes.filter((s) => s.narration.trim());
     if (!filled.length) return;
-    busy = true;
-    suggestBtn.disabled = true;
+    const requested = filled.map(s => ({ narration: s.narration, picture: s.picture }));
+    const controller = startTask();
+    if (!controller) return;
     sceneStatus.textContent = 'Thinking of pictures...';
     try {
       const styleLabel = IMAGE_STYLES.find((s) => s.id === opts.style)?.phrase || '';
-      const pics = parsePictures(await services.chat(picturesPrompt({ scenes: filled, topic: env.topic || '', style: styleLabel })), filled.length);
+      const pics = parsePictures(await services.chat(picturesPrompt({ scenes: requested, topic: env.topic || '', style: styleLabel })), filled.length);
+      if (!current(controller)) return;
       let n = 0;
       filled.forEach((s, i) => {
-        if (pics[i]) {
+        if (pics[i] && scenes.includes(s) && s.narration === requested[i].narration && s.picture === requested[i].picture) {
           s.picture = pics[i];
+          const field = pictureFields.get(s);
+          if (field) field.value = pics[i];
           n++;
         }
       });
-      renderScenes();
-      sceneStatus.textContent = n ? `Suggested ${n} picture${n === 1 ? '' : 's'}.` : 'No suggestions came back. Try again.';
+      sceneStatus.textContent = n ? `Suggested ${n} picture${n === 1 ? '' : 's'}.` : 'No suggestions applied. Your edits were kept; you can try again.';
     } catch (err) {
+      if (!current(controller)) return;
       console.error(err);
       sceneStatus.textContent = errorMessage(err, 'Could not suggest pictures.');
     } finally {
-      busy = false;
-      suggestBtn.disabled = false;
+      finishTask(controller, suggestBtn);
     }
   });
 
@@ -273,10 +297,36 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
     className: 'aic-dialog',
     wide: true,
     closeOnBackdrop: false,
-    onClose: () => abort?.abort(),
+    onClose: () => { closed = true; abort?.abort(); abort = null; busy = false; off(); signal?.removeEventListener('abort', onAbort); },
   });
+  const onAbort = () => d.close();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  off = store?.on('change', () => {
+    if (sameContext()) return;
+    d.close();
+    toast('Script to video closed because the open timeline changed.', { kind: 'info' });
+  }) || off;
+  function syncBusy() {
+    for (const button of [writeBtn, suggestBtn, addBtn, back, next, create]) if (button.disabled !== busy) button.disabled = busy;
+  }
+  function startTask(disable = true) {
+    if (closed || busy || !d.el.isConnected || !sameContext()) return null;
+    busy = true;
+    abort = new AbortController();
+    if (disable) syncBusy();
+    return abort;
+  }
+  function finishTask(controller, trigger) {
+    if (!owns(controller)) return;
+    abort = null;
+    busy = false;
+    syncBusy();
+    const focus = document.activeElement;
+    if (!focus || focus === document.body || focus === trigger || focus === cancel || !focus.isConnected) trigger.focus({ preventScroll: true });
+  }
   d.el.dataset.step = 'script';
   const show = (step) => {
+    if (closed) return;
     d.el.dataset.step = step;
     body.replaceChildren(step === 'script' ? step1 : step === 'scenes' ? step2 : step3);
     back.hidden = step !== 'scenes';
@@ -284,10 +334,16 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
     create.hidden = step !== 'scenes';
     cancel.textContent = step === 'progress' ? 'Stop' : 'Cancel';
   };
-  cancel.addEventListener('click', () => (abort ? abort.abort() : d.close()));
-  back.addEventListener('click', () => show('script'));
+  cancel.addEventListener('click', () => {
+    if (abort && !abort.signal.aborted && d.el.dataset.step === 'progress') {
+      abort.abort();
+      progressText.textContent = 'Stopping...';
+      cancel.textContent = 'Close';
+    } else d.close();
+  });
+  back.addEventListener('click', () => { if (!busy) show('script'); });
   next.addEventListener('click', () => {
-    if (busy) return;
+    if (closed || busy) return;
     const found = splitScenes(script.value);
     if (!found.length) {
       writeStatus.textContent = 'Write or paste a script first.';
@@ -308,8 +364,8 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
   const made = new Map();
 
   async function run() {
-    if (busy || abort) return;
-    const todo = scenes.filter((s) => s.narration.trim());
+    if (closed || busy || abort || !d.el.isConnected || !sameContext()) return;
+    const todo = scenes.filter((s) => s.narration.trim()).map(s => ({ narration: s.narration, picture: s.picture }));
     if (!todo.length) {
       sceneStatus.textContent = 'Write at least one scene.';
       return;
@@ -318,9 +374,15 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
     const frame = fixedShape || RATIOS.find((r) => r.id === ratioId);
     const width = fixedShape ? fixedShape.width : frame.w;
     const height = fixedShape ? fixedShape.height : frame.h;
-    abort = new AbortController();
+    const at = store?.time || 0, name = projectName(env.topic || script.value);
+    // Generation replaces these controls synchronously with the progress step.
+    const controller = startTask(false);
+    if (!controller) return;
+    let saved = false;
+    const check = () => { if (!current(controller)) throw new DOMException('Cancelled', 'AbortError'); };
     show('progress');
     const set = ({ done, total, label }) => {
+      if (!current(controller)) return;
       const pct = Math.round((done / Math.max(1, total)) * 100);
       bar.style.width = `${pct}%`;
       bar.parentElement.setAttribute('aria-valuenow', String(pct));
@@ -336,21 +398,23 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
         captions: opts.captions,
         music: opts.music,
         musicName: MUSIC_BY_ID.get(opts.music)?.title,
-      }, services, { signal: abort.signal, onProgress: set, reuse: made });
+      }, services, { signal: controller.signal, onProgress: set, reuse: made });
+      check();
       progressText.textContent = 'Putting it together...';
-      const name = projectName(env.topic || script.value);
       const note = problemSummary(res.problems);
       if (store) {
         let ids = [];
         store.update('Script to video', (p) => {
           if (!fixedShape) Object.assign(p.settings, { width, height, ratio: ratioId });
-          ids = insertScenes(p, res.layout, res.assets, store.time);
+          ids = insertScenes(p, res.layout, res.assets, at);
         });
         const pictures = new Set(res.layout.pictures.map((c) => c.id));
         store.select(ids.filter((id) => pictures.has(id)));
       } else {
         const project = normalizeProject(scriptProject(res.layout, res.assets, { name, ratio: ratioId }));
         await library.saveProject(project);
+        saved = true;
+        check();
         onProject?.(project.id);
       }
       d.close('done');
@@ -358,9 +422,10 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
       toast(note || `Made ${res.layout.pictures.length} scenes, ${clock(res.layout.duration)} long.`, { kind: note ? 'info' : 'success', duration: note ? 9000 : 4000 });
       return res;
     } catch (err) {
-      abort = null;
-      if (err?.name === 'AbortError') {
-        if (d.el.isConnected) show('scenes');
+      if (!owns(controller)) return null;
+      if (controller.signal.aborted || err?.name === 'AbortError') {
+        show('scenes');
+        sceneStatus.textContent = saved ? 'Video saved to your library; opening was cancelled.' : 'Stopped. You can try again with the media already made.';
         announce('Stopped');
         return null;
       }
@@ -369,15 +434,24 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
       sceneStatus.textContent = errorMessage(err, 'Could not make the video.');
       return null;
     } finally {
-      abort = null;
+      finishTask(controller, create);
     }
   }
 
   return { ...d, run, get scenes() { return scenes; }, show };
 }
 
-/** Open the dialog from the editor, or explain that it needs a Puter account. */
+/** One script dialog per editor/home screen, released with its parent. */
 export function openScriptVideo(ctx, extra = {}) {
-  if (!aiReady(ctx)) return needAiDialog(ctx.account, 'Script to video');
-  return openScriptDialog({ library: ctx.library, account: ctx.account, store: ctx.store }, extra);
+  const owner = ctx.editor || ctx;
+  if (owner._disposed || owner.disposed) return null;
+  if (owner._scriptDialog?.el.isConnected) return owner._scriptDialog;
+  const signal = (owner._scriptLifetime ||= new AbortController()).signal;
+  if (signal.aborted) return null;
+  const d = aiReady(ctx)
+    ? openScriptDialog({ library: ctx.library, account: ctx.account, store: ctx.store, signal }, extra)
+    : needAiDialog(ctx.account, 'Script to video', { signal });
+  owner._scriptDialog = d;
+  d.result.then(() => { if (owner._scriptDialog === d) owner._scriptDialog = null; });
+  return d;
 }

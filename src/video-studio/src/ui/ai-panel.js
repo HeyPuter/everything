@@ -185,6 +185,10 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
 
   // Keys typed in the panel stay here (Delete on a suggestion must not delete clips); shortcuts with a modifier still work.
   const keepKeys = (e) => {
+    if (e.isComposing || e.keyCode === 229) {
+      e.stopPropagation();
+      return;
+    }
     if (e.key === 'Escape' && !e.defaultPrevented && !e.target.closest?.('.menu')) {
       e.preventDefault();
       e.stopPropagation();

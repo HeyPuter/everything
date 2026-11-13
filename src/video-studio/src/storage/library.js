@@ -36,6 +36,7 @@ export class Library extends Emitter {
     super();
     this.backend = backend;
     this.cache = cache !== undefined ? cache : backend.kind === 'puter' && opfsAvailable() ? opfsBackend('video-studio-cache') : null;
+    this.mediaGeneration = 0; // releaseMedia invalidates requests from the previous editor
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
     this.reads = new Map(); // hash -> Promise<Blob>: files being read, shared by everyone asking
@@ -529,6 +530,7 @@ export class Library extends Emitter {
    * storage). keep: false reads it without holding it in memory afterwards.
    */
   async mediaBlob(asset, { keep = true } = {}) {
+    const generation = this.mediaGeneration;
     const hit = this.blobs.get(asset.hash);
     if (hit) return hit;
     // Posters, waveforms, thumbnails and the player ask at once when a project opens: read it once.
@@ -538,7 +540,7 @@ export class Library extends Emitter {
       this.reads.set(asset.hash, read);
     }
     const blob = await read;
-    if (keep) this.blobs.set(asset.hash, blob);
+    if (keep && generation === this.mediaGeneration) this.blobs.set(asset.hash, blob);
     return blob;
   }
 
@@ -556,9 +558,14 @@ export class Library extends Emitter {
 
   /** Object URL for an asset, created once and reused. */
   async mediaURL(asset) {
+    const generation = this.mediaGeneration;
     const have = this.urls.get(asset.hash);
     if (have) return have;
     const blob = await this.mediaBlob(asset);
+    if (generation !== this.mediaGeneration) throw new DOMException('Media request canceled', 'AbortError');
+    // Another caller may have created the URL while this one waited for the shared read.
+    const shared = this.urls.get(asset.hash);
+    if (shared) return shared;
     const url = URL.createObjectURL(blob);
     this.urls.set(asset.hash, url);
     return url;
@@ -574,16 +581,29 @@ export class Library extends Emitter {
   }
 
   /** The stored LUT list. Rejects when it can't be read, so a change never replaces it with a shorter one. */
-  async _readLuts() {
-    if (this.luts) return this.luts;
+  async _readLuts(fresh = false) {
+    if (this.luts && !fresh) return this.luts;
     const list = await this.backend.readJSON('luts/index.json').catch((err) => {
       if (err instanceof SyntaxError) return null;
       throw err;
     });
-    this.luts = (Array.isArray(list) ? list : [])
+    const normalized = (Array.isArray(list) ? list : [])
       .filter((x) => x && typeof x.id === 'string' && /^[a-z0-9_-]{1,128}$/i.test(x.id))
       .map((x) => ({ id: x.id, name: String(x.name || 'LUT').slice(0, 120), kind: x.kind === '1d' ? '1d' : '3d', size: Number(x.size) || 0, added: Number(x.added) || 0 }));
+    // A cached-list read may finish after a mutation committed a newer list.
+    if (fresh || !this.luts) this.luts = normalized;
     return this.luts;
+  }
+
+  /** Serialize the read/modify/write, including file removal, within and across browser tabs. */
+  _changeLuts(fn) {
+    const run = () => {
+      const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+      return locks?.request ? locks.request('video-studio:luts', fn) : fn();
+    };
+    const job = (this._lutQueue || Promise.resolve()).then(run);
+    this._lutQueue = job.catch(() => {});
+    return job;
   }
 
   /**
@@ -596,12 +616,15 @@ export class Library extends Emitter {
     const lut = parseCube(text);
     const id = await fingerprint(file);
     const entry = { id, name: lutName(lut, file.name), kind: lut.kind, size: lut.size, added: Date.now() };
-    const list = await this._readLuts();
-    await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
-    this.luts = [entry, ...list.filter((x) => x.id !== id)];
-    await this.backend.writeJSON('luts/index.json', this.luts);
-    this.emit('luts', this.luts);
-    return { entry, lut };
+    return this._changeLuts(async () => {
+      const list = await this._readLuts(true);
+      await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
+      const next = [entry, ...list.filter((x) => x.id !== id)];
+      await this.backend.writeJSON('luts/index.json', next);
+      this.luts = next;
+      this.emit('luts', this.luts);
+      return { entry, lut };
+    });
   }
 
   /** The text of a stored LUT and its display name. */
@@ -614,17 +637,20 @@ export class Library extends Emitter {
 
   /** Forget a LUT (clips that use it render without it). */
   async removeLut(id) {
-    const list = await this._readLuts();
-    const next = list.filter((x) => x.id !== id);
-    // The list changes only once the index is saved, so a failed write keeps them in step.
-    await this.backend.writeJSON('luts/index.json', next);
-    this.luts = next;
-    await this.backend.remove(`luts/${id}.cube`).catch(() => {});
-    this.emit('luts', this.luts);
+    return this._changeLuts(async () => {
+      const list = await this._readLuts(true);
+      const next = list.filter((x) => x.id !== id);
+      // The list changes only once the index is saved, so a failed write keeps them in step.
+      await this.backend.writeJSON('luts/index.json', next);
+      this.luts = next;
+      await this.backend.remove(`luts/${id}.cube`).catch(() => {});
+      this.emit('luts', this.luts);
+    });
   }
 
   /** Release cached blobs and URLs (when leaving the editor). */
   releaseMedia() {
+    this.mediaGeneration++;
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     // Keep blobs for files not stored yet: they are the only copy.
@@ -654,6 +680,7 @@ export class AutoSaver extends Emitter {
   }
 
   schedule() {
+    if (this.disposed) return;
     // A write that doesn't answer still blocks the next one: keep saying so.
     if (this.stalled) this._set('error', this.error);
     else this._set('pending');
@@ -667,6 +694,7 @@ export class AutoSaver extends Emitter {
   }
 
   async save() {
+    if (this.disposed) return;
     clearTimeout(this.timer);
     this.timer = null;
     if (this.saving) {
@@ -674,6 +702,7 @@ export class AutoSaver extends Emitter {
       // others wait for it too. Two writes in flight could land out of order.
       while (this.saving) {
         await this._waitForSave();
+        if (this.disposed) return;
         // Stalled: no new write beside it. It saves again when that write answers.
         if (this.stalled) {
           this._set('error', this.error);
@@ -707,7 +736,7 @@ export class AutoSaver extends Emitter {
         this.error = err;
         this._set('error', err);
         clearTimeout(this.timer);
-        this.timer = setTimeout(() => this.save(), 8000);
+        if (!this.disposed) this.timer = setTimeout(() => this.save(), 8000);
       })
       .finally(() => {
         clearTimeout(stall);
@@ -735,7 +764,10 @@ export class AutoSaver extends Emitter {
   }
 
   dispose() {
+    // A write already in flight must settle, but cannot restart this editor's saves.
+    this.disposed = true;
     clearTimeout(this.timer);
+    this.timer = null;
     this.off();
   }
 }

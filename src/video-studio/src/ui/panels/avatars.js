@@ -14,6 +14,8 @@ import { TTS_VOICES, aiAvailable, synthesize } from '../../media/tts.js';
 import { AVATAR_SCRIPT_MAX, normalizeAvatar, AVATAR_POSITIONS } from '../../model/avatar.js';
 import { avatarCharacter } from '../../engine/avatars.js';
 import { clock } from '../../lib/time.js';
+import { findClip } from '../../model/timeline.js';
+import { restoreFocus } from '../inspector/common.js';
 import { createAvatar, voiceChoices } from '../avatar-actions.js';
 import { characterGrid, framingControl, backgroundControl, positionControl, avatarPreview } from '../avatar-ui.js';
 import { tabLayout, emptyState } from './common.js';
@@ -30,8 +32,9 @@ export function avatarsTab(ctx) {
   let position = AVATAR_POSITIONS.some((p) => p.id === saved.position) ? saved.position : 'full';
   let voice = TTS_VOICES.some((v) => v.id === saved.voice) ? saved.voice : TTS_VOICES[0].id;
   let source = saved.source === 'clip' ? 'clip' : 'script';
-  let busy = false;
-  let audio = null;
+  let job = null, disposed = false;
+  let audio = null, audioUrl = null, listeningSource = null;
+  const context = () => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
   const save = () => setPref('avatar', { character: look.character, framing: look.framing, background: look.background, bgColor: look.bgColor, position, voice, source });
 
   const preview = avatarPreview(() => look, { aspect: store.project.settings.width / store.project.settings.height });
@@ -67,6 +70,7 @@ export function avatarsTab(ctx) {
     value: source,
     onChange: (v) => {
       source = v;
+      stopListening();
       save();
       renderSource();
       update();
@@ -89,6 +93,7 @@ export function avatarsTab(ctx) {
   const clipHint = h('p.field-hint', 'The avatar starts and ends with this clip and moves its lips to it.');
   const sourceBody = h('div.avatar-source');
   const addBtn = h('button.btn.primary.avatar-add', { type: 'button' }, icon('plus', 16), 'Add avatar');
+  const cancelBtn = h('button.btn.avatar-cancel', { type: 'button', hidden: true }, 'Cancel');
   const status = h('p.tts-status', { role: 'status' });
   // Next to the button: why it is off, else where the avatar goes.
   const where = h('p#avatar-add-hint.field-hint');
@@ -127,13 +132,16 @@ export function avatarsTab(ctx) {
     return script.value.trim() ? '' : 'Write a script under Voice first.';
   };
   const paintWhere = () => {
-    const why = busy ? '' : blocker();
-    where.textContent = why || (source === 'clip' ? '' : `The avatar and its voice are added at the playhead (${clock(store.time)}).`);
+    const why = job ? '' : blocker();
+    const creating = job?.kind === 'add';
+    const fromClip = creating ? Boolean(job.voiceId) : source === 'clip';
+    where.textContent = why || (fromClip ? '' : `The avatar and its voice are added at the playhead (${clock(creating ? job.start : store.time)}).`);
   };
   function update() {
     count.textContent = `${script.value.length} / ${AVATAR_SCRIPT_MAX}`;
-    addBtn.disabled = busy || !ready();
-    listenBtn.disabled = busy || !script.value.trim();
+    addBtn.disabled = Boolean(job) || !ready();
+    listenBtn.disabled = !audio && (Boolean(job) || !script.value.trim());
+    cancelBtn.hidden = !job;
     const name = avatarCharacter(look.character).label;
     addBtn.replaceChildren(icon('plus', 16), `Add ${name}`);
     paintWhere();
@@ -141,52 +149,90 @@ export function avatarsTab(ctx) {
   script.addEventListener('input', update);
   clipSel.addEventListener('change', update);
 
-  const stopListening = () => {
-    if (!audio) return;
-    audio.pause();
-    URL.revokeObjectURL(audio.src);
-    audio = null;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted && context() === task.source;
+  function finish(task) {
+    if (job !== task) return;
+    const hadFocus = document.activeElement === cancelBtn;
+    job = null;
+    update();
+    if (!disposed) {
+      if (hadFocus) {
+        const fallback = source === 'script' ? script : clipSel.disabled ? sourceSeg.el.querySelector('[aria-checked="true"]') : clipSel;
+        const target = task.trigger.isConnected && !task.trigger.disabled ? task.trigger : fallback;
+        target.focus();
+      } else restoreFocus(task.focus);
+    }
+  }
+  function stopAudio(expected = audio) {
+    if (!expected || audio !== expected) return;
+    expected.pause();
+    URL.revokeObjectURL(audioUrl);
+    audio = audioUrl = listeningSource = null;
     listenBtn.replaceChildren(icon('play', 16), 'Listen');
-  };
-  listenBtn.addEventListener('click', async () => {
-    if (audio) {
-      stopListening();
-      return;
-    }
-    busy = true;
     update();
-    status.replaceChildren(h('span.spinner'), 'Creating the voice...');
+  }
+  function cancelJob(message = '') {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (task.kind === 'listen') stopAudio();
+    status.textContent = message;
+  }
+  function stopListening() {
+    if (job?.kind === 'listen') cancelJob();
+    stopAudio();
+  }
+  cancelBtn.addEventListener('click', () => cancelJob('Cancelled.'));
+  async function run(kind) {
+    if (disposed || job || (kind === 'add' ? !ready() : !script.value.trim())) return;
+    const task = {
+      controller: new AbortController(), kind, source: context(), focus: document.activeElement,
+      trigger: kind === 'add' ? addBtn : listenBtn,
+      voiceId: kind === 'add' && source === 'clip' ? clipSel.value : null,
+      start: store.time,
+    };
+    task.voiceAsset = task.voiceId ? findClip(store.project, task.voiceId)?.clip.assetId : null;
+    job = task;
+    update();
+    const { signal } = task.controller;
     try {
-      const blob = await (ctx.avatarServices?.synthesize || synthesize)(script.value, voice);
-      status.replaceChildren();
-      audio = new Audio(URL.createObjectURL(blob));
-      audio.addEventListener('ended', stopListening);
-      listenBtn.replaceChildren(icon('stop', 16), 'Stop');
-      await audio.play().catch(() => stopListening());
+      if (kind === 'listen') {
+        status.replaceChildren(h('span.spinner'), 'Creating the voice...');
+        const blob = await (ctx.avatarServices?.synthesize || synthesize)(script.value, voice, { signal });
+        if (!current(task)) return;
+        status.replaceChildren();
+        audioUrl = URL.createObjectURL(blob);
+        const playing = new Audio(audioUrl);
+        audio = playing;
+        listeningSource = task.source;
+        playing.addEventListener('ended', () => stopAudio(playing), { once: true });
+        listenBtn.replaceChildren(icon('stop', 16), 'Stop');
+        update();
+        await playing.play().catch(() => stopAudio(playing));
+      } else {
+        const opts = { ...look, seed: undefined, position, start: task.start, ...(source === 'clip' ? { voiceClipId: clipSel.value } : { script: script.value, voice }) };
+        const clip = await createAvatar(ctx, opts, { signal, onStep: (label) => {
+          if (current(task)) status.replaceChildren(h('span.spinner'), label);
+        } });
+        if (!current(task)) return;
+        status.textContent = clip ? 'Avatar added. Edit it any time in Details.' : '';
+        if (clip) announce('Avatar added');
+      }
     } catch (err) {
-      status.replaceChildren();
-      toast(err?.message || "Couldn't create the voice.", { kind: 'error' });
+      if (current(task)) {
+        status.replaceChildren();
+        if (err?.name !== 'AbortError') toast(err?.message || (kind === 'listen' ? "Couldn't create the voice." : "Couldn't add the avatar."), { kind: 'error' });
+      }
+    } finally {
+      finish(task);
     }
-    busy = false;
-    update();
-  });
-
-  addBtn.addEventListener('click', async () => {
-    if (addBtn.disabled) return;
-    stopListening();
-    busy = true;
-    update();
-    try {
-      const opts = { ...look, seed: undefined, position, ...(source === 'clip' ? { voiceClipId: clipSel.value } : { script: script.value, voice }) };
-      const clip = await createAvatar(ctx, opts, { onStep: (label) => status.replaceChildren(h('span.spinner'), label) });
-      status.textContent = clip ? 'Avatar added. Edit it any time in Details.' : '';
-      if (clip) announce('Avatar added');
-    } catch (err) {
-      status.replaceChildren();
-      toast(err?.message || "Couldn't add the avatar.", { kind: 'error' });
-    }
-    busy = false;
-    update();
+  }
+  listenBtn.addEventListener('click', () => audio ? stopListening() : run('listen'));
+  addBtn.addEventListener('click', () => {
+    if (disposed || job || addBtn.disabled) return;
+    stopAudio();
+    run('add');
   });
 
   renderSource();
@@ -199,22 +245,33 @@ export function avatarsTab(ctx) {
       h('div.field', h('span.field-label', 'Framing'), framing.el),
       h('div.field', h('span.field-label', 'Background'), bg.el),
       h('div.field', h('span.field-label', 'Position'), pos.el)),
-    h('div.avatar-actions', addBtn, where, status),
+    h('div.avatar-actions', addBtn, cancelBtn, where, status),
   );
   const layout = tabLayout({ title: 'Avatars', id: 'avatars', search: false, render: () => body });
   layout.el.classList.add('avatars-tab');
   const offs = [store.on('change', () => {
     if (source === 'clip') renderClips();
+    if (job || audio) {
+      const now = context();
+      if (job && job.source !== now) cancelJob('Cancelled because the open timeline changed.');
+      if (job?.voiceId && findClip(store.project, job.voiceId)?.clip.assetId !== job.voiceAsset) cancelJob('Cancelled because the source audio changed.');
+      if (audio && listeningSource !== now) stopAudio();
+    }
     update();
   }), store.on('time', paintWhere)];
+  const offPlay = ctx.player?.on?.('play', ({ playing }) => { if (playing) stopListening(); });
   return {
     el: layout.el,
+    hidden: stopListening,
     shown() {
       renderSource();
       update();
       preview.refresh();
     },
     dispose() {
+      disposed = true;
+      cancelJob();
+      offPlay?.();
       offs.forEach((f) => f());
       stopListening();
       preview.stop();

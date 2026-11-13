@@ -236,6 +236,10 @@ export function describeError(err, settings = {}) {
 /* Runtime helpers ------------------------------------------------------------- */
 
 const abortError = () => new DOMException('Export canceled', 'AbortError');
+const checkAbort = (signal) => { if (signal?.aborted) throw abortError(); };
+// The mixer's optional skip behavior is useful for previews, but an export
+// must report unreadable sound instead of quietly replacing it with silence.
+const rejectSkippedAudio = (_clip, error) => { throw error; };
 
 /** Let the page breathe between frames (macrotask, not clamped like setTimeout). */
 const channel = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null;
@@ -387,10 +391,15 @@ class MediaFrames {
       p = (async () => {
         const blob = await this.library.mediaBlob(asset);
         const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
-        const track = await input.getPrimaryVideoTrack();
-        if (!track) throw new Error(`${asset.name} has no video track`);
-        if (!(await track.canDecode())) throw new Error(`${asset.name} cannot be decoded in this browser`);
-        return { input, track };
+        try {
+          const track = await input.getPrimaryVideoTrack();
+          if (!track) throw new Error(`${asset.name} has no video track`);
+          if (!(await track.canDecode())) throw new Error(`${asset.name} cannot be decoded in this browser`);
+          return { input, track };
+        } catch (err) {
+          input.dispose();
+          throw err;
+        }
       })();
       this.inputs.set(asset.id, p);
     }
@@ -559,14 +568,20 @@ async function measureDelay(codec, sampleRate, numberOfChannels) {
     },
     error: (e) => (failed = e),
   });
-  enc.configure({ codec, sampleRate, numberOfChannels, bitrate: AUDIO_BITRATE.aac });
-  const data = new Float32Array(frames * numberOfChannels);
-  for (let c = 0; c < numberOfChannels; c++) for (let i = 0; i < width; i++) data[c * frames + at + i] = 0.9 * Math.sin((i / width) * Math.PI);
-  const input = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels, timestamp: 0, data });
-  enc.encode(input);
-  input.close();
-  await enc.flush();
-  enc.close();
+  try {
+    enc.configure({ codec, sampleRate, numberOfChannels, bitrate: AUDIO_BITRATE.aac });
+    const data = new Float32Array(frames * numberOfChannels);
+    for (let c = 0; c < numberOfChannels; c++) for (let i = 0; i < width; i++) data[c * frames + at + i] = 0.9 * Math.sin((i / width) * Math.PI);
+    const input = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels, timestamp: 0, data });
+    try {
+      enc.encode(input);
+    } finally {
+      input.close();
+    }
+    await enc.flush();
+  } finally {
+    if (enc.state !== 'closed') enc.close();
+  }
   if (failed || !config) throw failed || new Error('No decoder config');
   let index = 0;
   let peak = -1;
@@ -586,10 +601,13 @@ async function measureDelay(codec, sampleRate, numberOfChannels) {
     },
     error: (e) => (failed = e),
   });
-  dec.configure(config);
-  for (const c of chunks) dec.decode(c);
-  await dec.flush();
-  dec.close();
+  try {
+    dec.configure(config);
+    for (const c of chunks) dec.decode(c);
+    await dec.flush();
+  } finally {
+    if (dec.state !== 'closed') dec.close();
+  }
   if (failed) throw failed;
   const delay = peak - (at + width / 2);
   // The click comes back where it went in, give or take a sample, plus the priming.
@@ -633,7 +651,7 @@ async function abandoned(name) {
  * Where encoded bytes go: memory for normal sizes, a temporary file in the
  * origin private file system for large ones so memory stays flat.
  */
-async function openTarget(estimated, force) {
+async function openTarget(estimated, force, { raw = false } = {}) {
   const wantFile = force === 'file' || (force !== 'memory' && estimated > LARGE_OUTPUT);
   if (wantFile && navigator.storage?.getDirectory) {
     let name = null;
@@ -651,7 +669,9 @@ async function openTarget(estimated, force) {
         const writable = await handle.createWritable();
         return {
           kind: 'file',
-          target: new StreamTarget(writable, { chunked: true }),
+          target: raw ? null : new StreamTarget(writable, { chunked: true }),
+          write: raw ? (data) => writable.write(data) : null,
+          finish: raw ? () => writable.close() : null,
           async result(type) {
             const file = await handle.getFile();
             return new Blob([file], { type });
@@ -671,6 +691,20 @@ async function openTarget(estimated, force) {
       liveFiles.delete(name);
       unlock();
     }
+  }
+  if (raw) {
+    const parts = [];
+    return {
+      kind: 'memory',
+      async write(data) { parts.push(data); },
+      async finish() {},
+      async result(type) {
+        const blob = new Blob(parts, { type });
+        parts.length = 0;
+        return blob;
+      },
+      async discard() { parts.length = 0; },
+    };
   }
   const target = new BufferTarget();
   return {
@@ -700,7 +734,7 @@ export async function exportProject(project, library, settings, { kind = 'video'
   const s = { ...DEFAULT_SETTINGS, ...settings };
   const duration = projectDuration(snap);
   if (duration <= 0) throw new Error('The timeline is empty. Add some media before exporting.');
-  if (signal?.aborted) throw abortError();
+  checkAbort(signal);
   const base = safeFileName(s.name || snap.name);
   return kind === 'audio' ? exportAudio(snap, library, s, duration, base, { onProgress, signal, forceTarget }) : exportVideo(snap, library, s, duration, base, { onProgress, signal, forceTarget });
 }
@@ -736,6 +770,7 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
   const totalSamples = Math.round((duration * sampleRate) / US);
   // Sound is stamped early by the encoder's priming, which the edit list then trims (see encoderDelay).
   const audioLead = audioCodec ? await encoderDelay(audioCodec, { sampleRate, numberOfChannels: 2 }) : 0;
+  checkAbort(signal);
   const estimated = estimateSize({ ...s, audio: false }, duration, { projW: project.settings.width, projH: project.settings.height });
   const sink = await openTarget(estimated, forceTarget);
   const fileTarget = sink.kind === 'file';
@@ -745,6 +780,7 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
   let audioGen = null;
   const started = performance.now();
   try {
+    checkAbort(signal);
     renderer = new FrameRenderer(project, library, width, height);
     const videoSource = new CanvasSource(renderer.canvas, {
       codec: s.codec,
@@ -768,10 +804,12 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
 
     let audioAt = 0; // seconds of sound handed to the encoder
     let audioDone = !audioSource;
-    if (audioSource) audioGen = mixChunks(project, library, { end: duration, sampleRate, channels: 2, signal });
+    if (audioSource) audioGen = mixChunks(project, library, { end: duration, sampleRate, channels: 2, signal, onSkip: rejectSkippedAudio });
     const pumpAudio = async (untilSec) => {
       while (!audioDone && audioAt < untilSec) {
+        checkAbort(signal);
         const r = await audioGen.next();
+        checkAbort(signal);
         if (r.done) {
           audioDone = true;
           break;
@@ -780,8 +818,11 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
         const data = new Float32Array(frames * channels.length);
         channels.forEach((ch, c) => data.set(ch, c * frames));
         const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels.length, sampleRate, timestamp: audioAt - audioLead });
-        await audioSource.add(sample);
-        sample.close();
+        try {
+          await audioSource.add(sample);
+        } finally {
+          sample.close();
+        }
         audioAt += frames / sampleRate;
       }
     };
@@ -790,11 +831,13 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
     let lastYield = performance.now();
     let lastReport = 0;
     for (let i = 0; i < total; i++) {
-      if (signal?.aborted) throw abortError();
+      checkAbort(signal);
       const t = frameTime(i, fps);
       // Keep sound about a second ahead so the muxer can interleave without buffering everything.
       await pumpAudio(t / US + 1);
+      checkAbort(signal);
       await renderer.render(t);
+      checkAbort(signal);
       await videoSource.add(i / fps, 1 / fps);
       const now = performance.now();
       if (onProgress && (now - lastReport > 100 || i === total - 1)) {
@@ -814,12 +857,16 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
       }
     }
     await pumpAudio(Infinity);
+    checkAbort(signal);
     videoSource.close();
     audioSource?.close();
     onProgress?.({ phase: 'finalizing', done: total, total, fraction: 1, elapsed: (performance.now() - started) / 1000, remaining: 0 });
+    checkAbort(signal);
     await output.finalize();
+    checkAbort(signal);
     const mimeType = container.mime;
     const blob = await sink.result(mimeType);
+    checkAbort(signal);
     const elapsed = (performance.now() - started) / 1000;
     return { kind: 'video', blob, release: () => sink.discard(), fileName: `${base}.${container.ext}`, mimeType, width, height, frames: total, duration, elapsed, fps: total / elapsed, codec: s.codec, audioCodec, bitrate, hardware: hw };
   } catch (err) {
@@ -844,6 +891,7 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
   };
   let sink = null;
   const result = (blob) => {
+    checkAbort(signal);
     const elapsed = (performance.now() - started) / 1000;
     return { kind: 'audio', blob, release: () => sink?.discard(), fileName: `${base}.${f.ext}`, mimeType: f.mime, frames: 0, duration, elapsed };
   };
@@ -851,37 +899,57 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     // A longer file's sizes would overflow the header and players would cut it short.
     if (duration > WAV_MAX_US) throw new Error(WAV_TOO_LONG);
     const totalFrames = Math.round((duration * sampleRate) / US);
-    const parts = [wavHeader(totalFrames, channels, sampleRate)];
-    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {
-      parts.push(pcm16(chunk.channels));
-      await yieldToEventLoop();
+    sink = await openTarget(44 + totalFrames * channels * 2, forceTarget, { raw: true });
+    try {
+      checkAbort(signal);
+      await sink.write(wavHeader(totalFrames, channels, sampleRate));
+      for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report, onSkip: rejectSkippedAudio })) {
+        checkAbort(signal);
+        await sink.write(pcm16(chunk.channels));
+        await yieldToEventLoop();
+      }
+      checkAbort(signal);
+      await sink.finish();
+      checkAbort(signal);
+      return result(await sink.result(f.mime));
+    } catch (err) {
+      await sink.discard();
+      throw err;
     }
-    return result(new Blob(parts, { type: f.mime }));
   }
   if (!(await canEncodeAudio(f.codec, { numberOfChannels: channels, sampleRate }).catch(() => false))) {
     throw new Error(`This browser cannot encode ${f.label} audio (not supported). Choose WAV instead.`);
   }
-  sink = await openTarget(0, forceTarget);
+  checkAbort(signal);
+  const estimated = estimateSize({ ...s, video: false, audio: true }, duration);
+  sink = await openTarget(estimated, forceTarget);
   const format = s.audioFormat === 'm4a' ? new Mp4OutputFormat({ fastStart: sink.kind === 'file' ? false : 'in-memory' }) : s.audioFormat === 'ogg' ? new OggOutputFormat() : new FlacOutputFormat();
   const output = new Output({ format, target: sink.target });
   try {
+    checkAbort(signal);
     const source = new AudioSampleSource({ codec: f.codec, quality: new Quality({ bitrate: AUDIO_BITRATE[f.codec] || 192_000 }) });
     output.addAudioTrack(source);
     output.setMetadataTags({ title: s.name || project.name, date: new Date() });
     await output.start();
     let at = 0;
     const lead = await encoderDelay(f.codec, { sampleRate, numberOfChannels: channels });
-    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {
+    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report, onSkip: rejectSkippedAudio })) {
+      checkAbort(signal);
       const data = new Float32Array(chunk.frames * channels);
       chunk.channels.forEach((ch, c) => data.set(ch, c * chunk.frames));
       const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels, sampleRate, timestamp: at - lead });
-      await source.add(sample);
-      sample.close();
+      try {
+        await source.add(sample);
+      } finally {
+        sample.close();
+      }
       at += chunk.frames / sampleRate;
       await yieldToEventLoop();
     }
     source.close();
+    checkAbort(signal);
     await output.finalize();
+    checkAbort(signal);
     return result(await sink.result(f.mime));
   } catch (err) {
     if (output.state !== 'finalized' && output.state !== 'canceled') await output.cancel().catch(() => {});
@@ -896,19 +964,30 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
  * reused, so read it before asking for the next frame.
  */
 export async function* renderFrames(project, library, { width, height, fps, start = 0, end, signal } = {}) {
+  checkAbort(signal);
   const snap = structuredClone(project);
   const stop = end ?? projectDuration(snap);
   const total = Math.max(1, frameCount(stop - start, fps));
   // Imported .cube LUTs, as the video export and stills load them.
   await ensureLuts(snap, library).catch(() => {});
+  checkAbort(signal);
   const r = new FrameRenderer(snap, library, even(width), even(height));
   try {
     await preloadFonts(snap);
     if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
+    let lastYield = performance.now();
     for (let i = 0; i < total; i++) {
-      if (signal?.aborted) throw abortError();
+      checkAbort(signal);
       await r.render(Math.min(stop - 1, start + Math.round((i * US) / fps)));
+      checkAbort(signal);
       yield { canvas: r.canvas, index: i, total };
+      // Include the consumer's GIF encoding work in the frame budget. Cached
+      // media can otherwise keep this entire loop in the microtask queue.
+      if (performance.now() - lastYield > 12) {
+        await yieldToEventLoop();
+        lastYield = performance.now();
+      }
+      checkAbort(signal);
     }
   } finally {
     await r.dispose();

@@ -18,6 +18,7 @@ function slotCount(tpl) {
 
 /** Shared previews per template and size (drawing the art is the costly part). */
 const previews = new Map();
+const activeCards = new WeakMap(); // shared preview -> cards currently playing it
 function previewFor(tpl, width) {
   const key = `${tpl.id}:${width}`;
   let p = previews.get(key);
@@ -42,6 +43,8 @@ function mirror(p) {
 /** A template card; onChoose(tpl) opens it. */
 export function templateCard(tpl, { onChoose }) {
   const p = previewFor(tpl, 360);
+  const users = activeCards.get(p) || new Set();
+  activeCards.set(p, users);
   const view = mirror(p);
   const slots = slotCount(tpl);
   const shape = tpl.ratio === '9:16' || tpl.ratio === '4:5' || tpl.ratio === '3:4' ? 'tall' : tpl.ratio === '1:1' ? 'square' : 'wide';
@@ -57,19 +60,26 @@ export function templateCard(tpl, { onChoose }) {
   h('span.tpl-meta', h('span.tpl-name', tpl.name), ' ', h('span.tpl-sub', facts.join('  ·  '))));
   let raf = 0;
   const start = () => {
-    if (raf) return;
+    if (raf || !btn.isConnected) return;
+    users.add(btn);
     p.play();
     const loop = () => {
+      if (!btn.isConnected) {
+        stop();
+        return;
+      }
       view.copy();
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
   };
   const stop = () => {
+    if (!raf) return;
     cancelAnimationFrame(raf);
     raf = 0;
-    p.stop();
-    view.copy();
+    users.delete(btn);
+    if (!users.size) p.stop();
+    if (btn.isConnected) view.copy();
   };
   btn.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && start());
   btn.addEventListener('pointerleave', stop);
@@ -124,7 +134,9 @@ export function templatesView({ onChoose, initialCategory = 'all' }) {
 export function openTemplateDialog(tpl, { onUse, actionLabel = 'Use template', busyLabel = 'Creating your project' }) {
   const p = new TemplatePreview(tpl, { width: tpl.ratio === '9:16' ? 300 : tpl.ratio === '16:9' || tpl.ratio === '21:9' ? 640 : 420 });
   p.canvas.classList.add('tpl-dialog-canvas');
-  p.ready().then(() => p.play(), () => {});
+  p.ready().then(() => {
+    if (p.canvas.isConnected) p.play();
+  }, () => {});
   const slots = slotCount(tpl);
   const use = h('button.btn.primary', { type: 'button' }, icon('plus', 16), actionLabel);
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');

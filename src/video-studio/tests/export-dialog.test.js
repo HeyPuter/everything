@@ -8,12 +8,13 @@ vi.mock('../src/engine/exporter.js', async (orig) => {
     ...real,
     detectCapabilities: vi.fn(async () => ({ video: ['avc', 'vp9'], audio: ['aac', 'opus'], audioFormats: ['wav', 'm4a', 'ogg'] })),
     renderStill: vi.fn(async () => null),
+    renderFrames: vi.fn(real.renderFrames),
     exportProject: vi.fn(real.exportProject),
   };
 });
 
 const { openExportDialog } = await import('../src/ui/export-dialog.js');
-const { exportProject, detectCapabilities } = await import('../src/engine/exporter.js');
+const { exportProject, detectCapabilities, renderFrames } = await import('../src/engine/exporter.js');
 
 function ctxWith(project) {
   return { store: { project, time: 0 }, library: { backend: { kind: 'opfs' } }, account: { user: null } };
@@ -80,6 +81,45 @@ describe('export dialog', () => {
     expect(resSelect(d).value).toBe('720');
     d.close();
     setPref('exportSettings', null);
+  });
+
+  it.each([
+    { gif: true, captions: false, title: 'Animated GIF' },
+    { gif: false, captions: true, title: 'Captions file (.srt)' },
+  ])('preserves a saved $title-only export without enabling video', async ({ gif, captions, title }) => {
+    const { setPref } = await import('../src/ui/prefs.js');
+    setPref('exportSettings', { video: false, audio: false, gif, captions });
+    const p = createProject({ name: 'Captions' });
+    p.tracks.unshift({ id: 'tt', kind: 'text', clips: [makeClip('text', { text: 'Hi', caption: true, duration: US })] });
+    const d = openExportDialog(ctxWith(p));
+    try {
+      await flush();
+      const check = (label) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === label).querySelector('.export-check');
+      expect(check('Video file').checked).toBe(false);
+      expect(check('Audio file').checked).toBe(false);
+      expect(check(title).checked).toBe(true);
+      expect([...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export').disabled).toBe(false);
+    } finally {
+      d.close();
+      setPref('exportSettings', null);
+    }
+  });
+
+  it('defaults to video when saved captions-only output is unavailable', async () => {
+    const { setPref } = await import('../src/ui/prefs.js');
+    setPref('exportSettings', { video: false, audio: false, gif: false, captions: true });
+    const p = createProject();
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const d = openExportDialog(ctxWith(p));
+    try {
+      await flush();
+      expect(d.el.querySelector('.export-check').checked).toBe(true);
+      expect([...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export').disabled).toBe(false);
+    } finally {
+      d.close();
+      setPref('exportSettings', null);
+    }
   });
 
   it('labels every control and lists only encodable codecs', async () => {
@@ -291,6 +331,42 @@ describe('export dialog with several files', () => {
     } finally {
       exportProject.mockReset();
       vi.restoreAllMocks();
+    }
+  });
+});
+
+describe('GIF progress previews', () => {
+  it.each(['unavailable', 'rejected', 'available'])('completes the GIF when preview creation is %s', async (failure) => {
+    const { setPref } = await import('../src/ui/prefs.js');
+    setPref('exportSettings', { video: false, audio: false, gif: true });
+    const preview = { width: 4, height: 4, close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', failure === 'unavailable' ? undefined : failure === 'rejected' ? vi.fn().mockRejectedValue(new Error('Preview bitmap allocation failed')) : vi.fn().mockResolvedValue(preview));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4 * 4 * 4) }),
+    });
+    renderFrames.mockImplementationOnce(async function* () {
+      yield { canvas: document.createElement('canvas'), index: 0, total: 1 };
+    });
+    const p = createProject({ name: 'Preview' });
+    p.settings.width = p.settings.height = 4;
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 4, height: 4 };
+    const d = openExportDialog(ctxWith(p));
+    try {
+      await flush();
+      [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export').click();
+      await flush();
+      await flush();
+      expect(d.el.querySelector('.dialog-title').textContent, d.el.textContent).toBe('Export complete');
+      expect([...d.el.querySelectorAll('.export-file-name')].map((x) => x.textContent)).toEqual(['Preview.gif']);
+      if (failure === 'available') expect(preview.close).toHaveBeenCalledTimes(1);
+    } finally {
+      d.close();
+      setPref('exportSettings', null);
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
     }
   });
 });

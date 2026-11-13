@@ -79,12 +79,35 @@ export function createWorld({ storage = memoryStorage(), now = () => Date.now(),
         if (Array.isArray(key)) return Promise.all(key.map(one));
         return one(key);
       },
-      async set(key, value) {
+      async set(key, value, options = {}) {
         await wait();
         const size = JSON.stringify(value ?? null).length;
         if (size > 400 * 1024) throw puterError('Value too large', 'value_too_large', 400);
+        if (options?.onlyIfAbsent) {
+          let written = false;
+          await storage.update('kv', k(key), (cur) => {
+            if (live(cur)) return cur;
+            written = true;
+            return { v: structuredClone(value) };
+          });
+          return written;
+        }
         await storage.put('kv', k(key), { v: structuredClone(value) });
         return true;
+      },
+      // The review service uses flat field updates. Like Puter's update(), these
+      // preserve unrelated fields and run atomically, including across dev tabs.
+      async update(key, fields) {
+        await wait();
+        if (!fields || !Object.keys(fields).length || Object.keys(fields).some((path) => !/^[a-zA-Z_$][\w$]*$/.test(path))) {
+          throw puterError('The fake supports nonempty flat field updates only', 'bad_request', 400);
+        }
+        const values = structuredClone(fields);
+        const rec = await storage.update('kv', k(key), (cur) => {
+          const c = live(cur);
+          return { v: { ...c?.v, ...values }, ...(c?.exp ? { exp: c.exp } : {}) };
+        });
+        return structuredClone(rec.v);
       },
       async del(key) {
         await wait();
@@ -93,11 +116,20 @@ export function createWorld({ storage = memoryStorage(), now = () => Date.now(),
       },
       async incr(key, amount = 1) {
         await wait();
+        const fields = amount && typeof amount === 'object' ? Object.entries(amount) : null;
+        if (fields && (!fields.length || fields.some(([path, delta]) => !/^[a-zA-Z_$][\w$]*$/.test(path) || typeof delta !== 'number' || !Number.isFinite(delta)))) {
+          throw puterError('The fake supports finite increments of flat fields only', 'bad_request', 400);
+        }
         const rec = await storage.update('kv', k(key), (cur) => {
           const c = live(cur);
-          return { v: (Number(c?.v) || 0) + amount, ...(c?.exp ? { exp: c.exp } : {}) };
+          let v;
+          if (fields) {
+            v = { ...c?.v };
+            for (const [path, delta] of fields) v[path] = (Number(v[path]) || 0) + delta;
+          } else v = (Number(c?.v) || 0) + amount;
+          return { v, ...(c?.exp ? { exp: c.exp } : {}) };
         });
-        return rec.v;
+        return structuredClone(rec.v);
       },
       async expire(key, seconds) {
         await storage.update('kv', k(key), (cur) => (cur ? { ...cur, exp: world.now() + seconds * 1000 } : undefined));

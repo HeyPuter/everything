@@ -30,10 +30,8 @@ export function highlightSource(project, selectedIds = []) {
   return T.allClips(project).filter(usable).sort((a, b) => b.duration - a.duration)[0] || null;
 }
 
-/** Clip-local timed words (µs) for a clip: from the project transcript when it covers the clip, else transcribed. */
+/** Transcribe clip-local timed words (µs) when project words are unavailable. */
 async function clipWords(ctx, clip, { language, signal, onStatus }) {
-  const reuse = wordsInClip(transcriptWords(ctx.store.project), clip);
-  if (reuse.length >= 20) return { words: reuse, reused: true };
   // Only this clip, from 0, at full volume, so the words line up with the clip.
   const project = ctx.store.project;
   const solo = { ...structuredClone(clip), start: 0, muted: false, audioDetached: false, volume: 1, fadeIn: 0, fadeOut: 0, disabled: false };
@@ -44,8 +42,12 @@ async function clipWords(ctx, clip, { language, signal, onStatus }) {
   onStatus('Listening to the speech...', 0.3);
   const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
   const words = fake ? await fake(mix, STT_RATE) : await transcribeMix(mix, STT_RATE, { language, signal, onProgress: (f) => onStatus(`Listening to the speech... ${Math.round(f * 100)}%`, 0.3 + f * 0.5) });
-  return { words: words.map((w) => ({ text: w.text, start: Math.round(w.start * US), end: Math.round(w.end * US) })), reused: false };
+  return words.map((w) => ({ text: w.text, start: Math.round(w.start * US), end: Math.round(w.end * US) }));
 }
+
+// These fields change which speech is heard, where it falls, or the media used for reframing.
+const SOURCE_FIELDS = ['type', 'assetId', 'start', 'in', 'duration', 'speed', 'freeze', 'reversed'];
+const MEDIA_FIELDS = ['kind', 'hash', 'ext', 'mime', 'size', 'duration', 'width', 'height', 'hasAudio', 'hasVideo'];
 
 const DEFAULTS = { count: 5, length: 'short', language: 'auto', target: 'projects', shape: '9:16', captions: 'yellow-caption' };
 
@@ -53,20 +55,44 @@ const DEFAULTS = { count: 5, length: 'short', language: 'auto', target: 'project
  * Open the dialog for a clip.
  *  chat  injectable chat function (tests and browser checks)
  */
-export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
+export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
+  if (signal?.aborted) return null;
   const { store, library } = ctx;
-  const clip = clipId ? T.findClip(store.project, clipId)?.clip : highlightSource(store.project, store.selectedIds);
+  let clip = clipId ? T.findClip(store.project, clipId)?.clip : highlightSource(store.project, store.selectedIds);
   if (!clip) {
     toast('Add or select a video with speech to find its highlights.', { kind: 'info' });
     return null;
   }
-  const asset = store.project.assets[clip.assetId];
+  let asset = store.project.assets[clip.assetId];
+  const sourceId = clip.id;
+  const source = SOURCE_FIELDS.map(key => clip[key]);
+  const media = MEDIA_FIELDS.map(key => asset?.[key]);
+  const curve = (clip.speedCurve || []).map(p => ({ t: p.t, v: p.v, k: p.k }));
+  function refreshSource() {
+    const next = T.findClip(store.project, sourceId)?.clip;
+    const nextAsset = next && store.project.assets[next.assetId];
+    if (!next || !nextAsset || !SOURCE_FIELDS.every((key, i) => next[key] === source[i]) || !MEDIA_FIELDS.every((key, i) => nextAsset[key] === media[i])) return false;
+    const nextCurve = next.speedCurve || [];
+    if (nextCurve.length !== curve.length || !curve.every((p, i) => p.t === nextCurve[i].t && p.v === nextCurve[i].v && p.k === nextCurve[i].k)) return false;
+    // Undo/redo replaces objects even when the speech mapping is unchanged.
+    clip = next;
+    asset = nextAsset;
+    return true;
+  }
   const opts = { ...DEFAULTS, ...(prefs().highlights || {}) };
   const save = () => setPref('highlights', { ...opts });
   let words = [];
+  let wordsLanguage = null;
   let found = [];
   let abort = null;
   let stopPreview = null;
+  let closed = false, off = () => {};
+  const projectId = store.project.id, timelineId = store.project.timelineId, nest = (store.nest || []).map(f => f.id);
+  const sameContext = () => store.project.id === projectId && store.project.timelineId === timelineId && (store.nest?.length || 0) === nest.length && nest.every((id, i) => store.nest[i].id === id);
+  const active = () => !closed && sameContext();
+  const check = (signal) => {
+    if (!active() || signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+  };
 
   const select = (label, options, key) => {
     const el = h('select.select', { 'aria-label': label }, options.map((o) => h('option', { value: String(o.value), selected: String(o.value) === String(opts[key]) }, o.label)));
@@ -80,13 +106,16 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   const field = (label, control) => h('label.aic-field', h('span.aic-label', label), control);
 
   // ---- Options -------------------------------------------------------------------
-  const reuse = wordsInClip(transcriptWords(store.project), clip).length >= 20;
+  // Keep the mode shown here: a later transcript must not override a language choice.
+  let reuse = wordsInClip(transcriptWords(store.project, { clip }), clip).length >= 20;
+  const makeLanguageField = () => field('Spoken language', select('Spoken language', LANGUAGES, 'language'));
+  const transcriptHint = h('p.aic-hint', 'Uses the project transcript, so the speech is not sent again.');
   const optionsEl = h('div.aic-step',
     h('p.dialog-text', `Finds the moments in ${asset?.name || 'this clip'} (${clock(clip.duration)}) that work best on their own, so you can turn them into short clips.`),
     h('div.aic-grid',
       field('How many', select('How many', HIGHLIGHT_COUNTS.map((n) => ({ value: n, label: `Up to ${n}` })), 'count')),
       field('Length of each', select('Length of each', HIGHLIGHT_LENGTHS.map((l) => ({ value: l.id, label: l.label })), 'length')),
-      reuse ? h('p.aic-hint', 'Uses the project transcript, so the speech is not sent again.') : field('Spoken language', select('Spoken language', LANGUAGES, 'language'))),
+      reuse ? transcriptHint : makeLanguageField()),
   );
 
   // ---- Progress ------------------------------------------------------------------
@@ -94,6 +123,7 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   const status = h('p.dialog-text', { role: 'status' }, 'Starting...');
   const progressEl = h('div.aic-step', status, h('div.progress', bar));
   const onStatus = (text, f) => {
+    if (!active() || abort?.signal.aborted) return;
     status.textContent = text;
     bar.style.width = `${Math.round(Math.min(1, f) * 100)}%`;
   };
@@ -120,11 +150,13 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   }
 
   function preview(item, btn) {
+    if (!active()) return;
     stopPreview?.();
+    if (ctx.player?.playing) ctx.player.pause();
     const from = clip.start + item.start;
     const to = clip.start + Math.min(item.end, clip.duration);
     store.seek(from);
-    ctx.player?.play?.();
+    ctx.player?.play?.({ range: false, loop: false });
     btn.replaceChildren(icon('stop', 14), 'Stop');
     btn.setAttribute('aria-pressed', 'true');
     const off = store.on('time', ({ time }) => {
@@ -177,50 +209,94 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
     wide: true,
     closeOnBackdrop: false,
     onClose: () => {
+      closed = true;
+      off();
       abort?.abort();
       stopPreview?.();
+      signal?.removeEventListener('abort', onAbort);
     },
   });
-  const show = (step) => {
+  const onAbort = () => d.close();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  off = store.on('change', () => {
+    const contextChanged = !sameContext();
+    if (!contextChanged && refreshSource()) return;
+    d.close();
+    toast(contextChanged ? 'Find highlights closed because the open timeline changed.' : 'Find highlights closed because the source clip changed. Search again to use the updated clip.', { kind: 'info' });
+  });
+  const show = (step, focusTarget) => {
+    if (!active()) return;
+    const focused = document.activeElement;
+    const content = step === 'options' ? optionsEl : step === 'progress' ? progressEl : resultsEl;
     d.el.dataset.step = step;
-    body.replaceChildren(step === 'options' ? optionsEl : step === 'progress' ? progressEl : resultsEl);
+    if (body.firstElementChild !== content) body.replaceChildren(content);
     findBtn.hidden = step !== 'options';
     againBtn.hidden = step !== 'results';
     makeBtn.hidden = step !== 'results';
     cancel.textContent = step === 'progress' ? 'Stop' : step === 'results' ? 'Close' : 'Cancel';
+    // Restore focus when its control disappears, without overriding a deliberate move.
+    if (!focused || focused === document.body || !focused.isConnected || focused.closest('[hidden]') || (focused === cancel && step !== 'progress')) {
+      const target = focusTarget || (step === 'progress' ? cancel : content.querySelector('input:not([type=hidden]), select, textarea')) || findBtn;
+      target.focus({ preventScroll: true });
+    }
   };
   show('options');
-  cancel.addEventListener('click', () => (abort ? abort.abort() : d.close()));
+  cancel.addEventListener('click', () => {
+    if (abort && !abort.signal.aborted) {
+      abort.abort();
+      status.textContent = 'Stopping...';
+      cancel.textContent = 'Close';
+    } else d.close();
+  });
   againBtn.addEventListener('click', () => {
     stopPreview?.();
     show('options');
   });
 
   async function search() {
-    if (abort) return;
+    if (abort || !active()) return;
+    // Project words are live data; only generated speech is cached between searches.
+    const projectWords = reuse ? wordsInClip(transcriptWords(store.project, { clip }), clip) : null;
+    if (projectWords && projectWords.length < 20) {
+      reuse = false;
+      words = [];
+      wordsLanguage = null;
+      const languageField = makeLanguageField();
+      transcriptHint.replaceWith(languageField);
+      show('options');
+      toast('The project transcript no longer covers this clip. Choose a spoken language, then find highlights again to transcribe it.', { kind: 'info' });
+      languageField.querySelector('select').focus();
+      return;
+    }
     abort = new AbortController();
     const { signal } = abort;
+    const language = opts.language;
     show('progress');
     try {
-      if (!words.length) {
-        const res = await clipWords(ctx, clip, { language: opts.language, signal, onStatus });
-        words = res.words;
+      if (projectWords) {
+        words = projectWords;
+      } else if (!words.length || wordsLanguage !== language) {
+        const nextWords = await clipWords(ctx, clip, { language, signal, onStatus });
+        check(signal);
+        words = nextWords;
+        wordsLanguage = language;
       }
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      check(signal);
       onStatus('Choosing the best moments...', 0.85);
-      found = (await findHighlights(words, { count: opts.count, length: opts.length, ...(chat ? { chat } : {}) })).map((x) => ({ ...x, keep: true }));
-      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const results = (await findHighlights(words, { count: opts.count, length: opts.length, ...(chat ? { chat } : {}) })).map((x) => ({ ...x, keep: true }));
+      check(signal);
+      found = results;
       onStatus('Done', 1);
       resultNote.textContent = `${found.length} moment${found.length === 1 ? '' : 's'} found. Untick any you do not want, and edit the titles if you like.`;
       renderResults();
       show('results');
       announce(`${found.length} highlights found`);
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (active() && !signal.aborted && err?.name !== 'AbortError') {
         console.error(err);
         toast(errorMessage(err, "Couldn't find highlights."), { kind: 'error' });
       }
-      if (d.el.isConnected) show('options');
+      if (d.el.isConnected) show('options', findBtn);
     } finally {
       abort = null;
     }
@@ -228,7 +304,7 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
   findBtn.addEventListener('click', search);
 
   async function make() {
-    if (abort) return;
+    if (abort || !active()) return;
     stopPreview?.();
     const chosen = found.filter((x) => x.keep);
     if (!chosen.length) return;
@@ -262,7 +338,9 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
     try {
       const ratio = RATIOS.find((r) => r.id === opts.shape) || null;
       const blob = ratio && asset ? await library.mediaBlob(asset) : null;
+      check(signal);
       for (let i = 0; i < chosen.length; i++) {
+        check(signal);
         const item = chosen[i];
         const base = (i / chosen.length);
         onStatus(`Making "${item.title}" (${i + 1} of ${chosen.length})...`, base);
@@ -274,10 +352,11 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
           const v = T.mainTrack(short).clips[0];
           if (v) applyReframePlan(v, await reframePlan(v, asset, blob, { dstAR: size.width / size.height, signal, onProgress: (f) => onStatus(`Following the subject in "${item.title}"... ${Math.round(f * 100)}%`, base + f / chosen.length) }));
         }
-        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        check(signal);
         const saved = normalizeProject(short);
         await library.saveProject(saved);
         ids.push(saved.id);
+        check(signal);
       }
       d.close('done');
       toast(`Made ${ids.length} short project${ids.length === 1 ? '' : 's'}. Find ${ids.length === 1 ? 'it' : 'them'} on the home screen.`, {
@@ -287,11 +366,11 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
       });
       announce(`${ids.length} short projects made`);
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (active() && !signal.aborted && err?.name !== 'AbortError') {
         console.error(err);
         toast(errorMessage(err, "Couldn't make the clips."), { kind: 'error' });
-      } else if (ids.length) toast(`Stopped after ${ids.length} project${ids.length === 1 ? '' : 's'}.`, { kind: 'info' });
-      if (d.el.isConnected) show('results');
+      } else if (active() && ids.length) toast(`Stopped after ${ids.length} project${ids.length === 1 ? '' : 's'}.`, { kind: 'info' });
+      if (d.el.isConnected) show('results', makeBtn);
     } finally {
       abort = null;
     }
@@ -303,6 +382,16 @@ export function openHighlightsDialog(ctx, { clipId, chat } = {}) {
 
 /** Open the dialog from the editor, or explain that it needs a Puter account. */
 export function openHighlights(ctx, extra = {}) {
-  if (!aiReady(ctx) && !extra.chat) return needAiDialog(ctx.account, 'Find highlights');
-  return openHighlightsDialog(ctx, extra);
+  const owner = ctx.editor || ctx;
+  if (owner._disposed || owner.disposed) return null;
+  if (owner._highlightsDialog?.el.isConnected) return owner._highlightsDialog;
+  const signal = (owner._highlightsLifetime ||= new AbortController()).signal;
+  if (signal.aborted) return null;
+  const d = aiReady(ctx) || extra.chat
+    ? openHighlightsDialog(ctx, { ...extra, signal })
+    : needAiDialog(ctx.account, 'Find highlights', { signal });
+  if (!d) return null;
+  owner._highlightsDialog = d;
+  d.result.then(() => { if (owner._highlightsDialog === d) owner._highlightsDialog = null; });
+  return d;
 }

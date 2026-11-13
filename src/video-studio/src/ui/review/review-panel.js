@@ -45,6 +45,7 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
   let followLatest = true;
   let showResolved = true;
   let opening = null;
+  let disposed = false;
   let offs = [];
 
   const versionSelect = h('select.select.small.rv-panel-version', { 'aria-label': 'Version' });
@@ -75,7 +76,7 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
       store.seek(toEditorTime(t.t, v));
       announce(opened ? `Opened ${opened} and moved the playhead to the comment` : 'Playhead moved to the comment');
     },
-    onReply: (t, text) => session.addComment({ version: t.version, parent: t.id, text }),
+    onReply: (t, text, id) => session.addComment({ id, version: t.version, parent: t.id, text }),
     onResolve: (t, resolved) => session.resolve(t.id, resolved).catch((err) => toast(err.message, { kind: 'error' })),
     onEdit: (c, text) => session.editComment(c.id, text),
     onDelete: async (c) => {
@@ -120,7 +121,7 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
   }
 
   function renderVersions() {
-    if (!session?.review) return;
+    if (disposed || !session?.review) return;
     const vs = [...session.review.versions].reverse();
     versionSelect.replaceChildren(...vs.map((v) => h('option', { value: String(v.n) }, `Version ${v.n}${v.n === session.latest ? ' (latest)' : ''}`)));
     if (followLatest || !session.version(version)) version = session.latest;
@@ -129,7 +130,7 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
   }
 
   function render() {
-    if (el.hidden || !session?.review) return;
+    if (disposed || el.hidden || !session?.review) return;
     const v = session.version(version);
     const threads = threadsFor(session.comments, version, { showResolved });
     const c = threadCounts(session.comments, version);
@@ -149,7 +150,9 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
     message('Loading review comments...');
     const puter = P();
     const server = await d.ensureWorker(puter);
+    if (disposed) return;
     const found = await d.call(puter, server, { op: 'review.find', projectId: store.project.id });
+    if (disposed) return;
     if (!found.review) {
       const share = h('button.btn.small.primary', { type: 'button' }, icon('shareReview', 14), 'Share for review...');
       share.addEventListener('click', () => ctx.openShareReview?.());
@@ -167,36 +170,43 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
     offs.push(session.on('synced', () => (status.textContent = `Checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`)));
     offs.push(session.on('error', () => (status.textContent = 'Could not check for new comments. Retrying...')));
     await session.open();
+    if (disposed) return;
     renderVersions();
     render();
   }
 
   /** Re-check comments now; reopen when the project has no session yet (as after a first share). */
   async function refresh(manual = false) {
-    if (el.hidden) return;
+    if (disposed || el.hidden) return;
     try {
       if (!session) {
         opening = opening || open().finally(() => (opening = null));
         await opening;
       } else {
         await session.refreshReview();
+        if (disposed) return;
         await session.sync();
       }
+      if (disposed) return;
       if (session && !el.hidden && !session.polling) session.start(d.interval);
       if (manual) announce('Comments checked');
     } catch (err) {
+      if (disposed) return;
       if (!session) message(err?.message || 'Could not load review comments.', null);
       else status.textContent = err?.message || 'Could not check for new comments.';
     }
   }
 
   function toggle(on = el.hidden) {
+    if (disposed) return;
     el.hidden = !on;
     if (on) refresh();
     else session?.stop();
   }
 
   function dispose() {
+    if (disposed) return;
+    disposed = true;
     for (const off of offs.splice(0)) off();
     session?.dispose();
   }

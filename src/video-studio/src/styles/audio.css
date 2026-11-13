@@ -169,6 +169,10 @@
   flex: 1;
 }
 
+.tts-panel .tts-actions {
+  flex-wrap: wrap;
+}
+
 .tts-where {
   margin-top: 8px;
 }
@@ -652,4 +656,24 @@
 
 .tp-view[hidden] {
   display: none;
+}
+
+/* An unsaved take remains reachable until it is imported or explicitly discarded. */
+.recording-recovery {
+  padding: 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.recording-recovery p {
+  margin: 0 0 10px;
+}
+
+.recording-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

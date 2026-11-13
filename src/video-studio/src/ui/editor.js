@@ -102,8 +102,8 @@ export class Editor {
       exitToHome: () => this.exit(),
       newProject: () => this.exit({ create: true }),
       openProject: onOpenProject ? (id) => this.exit({ open: id }) : null,
-      openScriptVideo: () => import('./script-video.js').then((m) => m.openScriptVideo(ctx)),
-      openHighlights: () => import('./highlights-dialog.js').then((m) => m.openHighlights(ctx)),
+      openScriptVideo: () => this.openScriptVideo(),
+      openHighlights: () => this.openHighlights(),
       openExport: () => {
         // Exports cover the whole project, so leave any compound clip being edited.
         while (store.nest?.length) store.closeCompound();
@@ -304,14 +304,14 @@ export class Editor {
    * Export, Preferences and Keyboard shortcuts still work instead of the browser's own.
    */
   onFieldKey(e) {
-    if (e.defaultPrevented || document.querySelector('dialog[open]')) return;
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || document.querySelector('dialog[open]')) return;
     const t = e.target;
     if (t.closest?.('.menu, puter-user-menu') || !t.matches?.(TYPING_FIELDS)) return;
     runKey(this.ctx.commands, e, 'field');
   }
 
   onKey(e) {
-    if (e.defaultPrevented) return;
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
     const t = e.target;
     // With a dialog open only Save works (instead of the browser's Save page).
     if (document.querySelector('dialog[open]')) return void runKey(this.ctx.commands, e, 'dialog');
@@ -569,10 +569,44 @@ export class Editor {
     }
   }
 
+  openScriptVideo() {
+    if (this._disposed) return Promise.resolve(null);
+    if (this._scriptOpening) return this._scriptOpening;
+    this._scriptOpening = import('./script-video.js')
+      .then(m => m.openScriptVideo(this.ctx))
+      .catch(err => {
+        if (!this._disposed) {
+          console.error(err);
+          toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
+        }
+        return null;
+      })
+      .finally(() => { this._scriptOpening = null; });
+    return this._scriptOpening;
+  }
+
+  openHighlights() {
+    if (this._disposed) return Promise.resolve(null);
+    if (this._highlightsOpening) return this._highlightsOpening;
+    this._highlightsOpening = import('./highlights-dialog.js')
+      .then(m => m.openHighlights(this.ctx))
+      .catch(err => {
+        if (!this._disposed) {
+          console.error(err);
+          toast("Couldn't open Find highlights. Check your connection and try again.", { kind: 'error' });
+        }
+        return null;
+      })
+      .finally(() => { this._highlightsOpening = null; });
+    return this._highlightsOpening;
+  }
+
   dispose() {
     // Leaving disposes the editor, and the next screen disposes the view it replaces: once is enough.
     if (this._disposed) return;
     this._disposed = true;
+    this._scriptLifetime?.abort();
+    this._highlightsLifetime?.abort();
     this._fitObserver?.disconnect();
     this._offTheme?.();
     this._offTipKeys?.();

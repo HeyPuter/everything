@@ -2,7 +2,7 @@
  * HTTP handling for the review worker, kept apart from the runtime globals
  * (router, me) so tests and the development harness run the same code.
  */
-import { PROTOCOL } from '../src/review/protocol.js';
+import { PROTOCOL, COMMENT_DELIVERY_PENDING } from '../src/review/protocol.js';
 import { authenticate } from './auth.js';
 import { ReviewService } from './service.js';
 
@@ -60,6 +60,6 @@ export async function handleApi({ request, user }, mePuter, { service } = {}) {
   } catch (error) {
     const status = error instanceof SyntaxError ? 400 : error.status || 500;
     const message = error instanceof SyntaxError ? 'Invalid request.' : error.status ? error.message : 'The review server had a problem. Try again.';
-    return json({ message }, status);
+    return json({ message, ...(error.code === COMMENT_DELIVERY_PENDING ? { code: error.code } : {}) }, status);
   }
 }

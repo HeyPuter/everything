@@ -229,6 +229,27 @@ describe('home project list', () => {
     expect(reads).toHaveBeenCalledTimes(1);
   });
 
+  it('shares pending cover reads across redraws and releases their only URL', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Cover' });
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const reads = vi.spyOn(lib, 'coverBlob').mockReturnValue(pending);
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:cover-${create.mock.calls.length}`);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const h = mount(lib);
+    await settle();
+    h.renderGrid();
+    h.renderGrid();
+    finish(new Blob(['jpg'], { type: 'image/jpeg' }));
+    await settle();
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('.project-cover img').getAttribute('src')).toBe('blob:cover-1');
+    h.dispose();
+    expect(revoke.mock.calls).toEqual([['blob:cover-1']]);
+  });
+
   it('reads covers as their cards come near the screen, not all at once', async () => {
     const watched = [];
     globalThis.IntersectionObserver = class {
@@ -279,3 +300,126 @@ describe('home project list', () => {
   });
 });
 
+
+describe('leaving the home screen', () => {
+  it.each(['purgeTrash', 'listProjects', 'listTrash'])('does not resume rendering when %s finishes after leaving', async (method) => {
+    const lib = new Library(memoryBackend());
+    let finish;
+    const blocked = vi.spyOn(lib, method).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const usage = vi.spyOn(lib, 'storageUsage');
+    const h = mount(lib);
+    await vi.waitFor(() => expect(blocked).toHaveBeenCalled());
+    const render = vi.spyOn(h, 'renderView');
+    h.dispose();
+    document.title = 'Editor - Current project';
+    root.replaceChildren(document.createElement('canvas'));
+    finish([]);
+    await settle();
+    expect(render).not.toHaveBeenCalled();
+    expect(document.title).toBe('Editor - Current project');
+    expect(usage).not.toHaveBeenCalled();
+  });
+
+  it('does not render an old load error after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    let fail;
+    vi.spyOn(lib, 'listProjects').mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = mount(lib);
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+    const render = vi.spyOn(h, 'renderView');
+    h.dispose();
+    fail(new Error('Offline'));
+    await settle();
+    expect(render).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('does not allocate cover URLs or start reads after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    const reads = vi.spyOn(lib, 'coverBlob').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const create = vi.spyOn(URL, 'createObjectURL');
+    const cover = document.createElement('div');
+    const first = h.loadCover('p', cover);
+    h.dispose();
+    const second = h.loadCover('other', cover);
+    finish(new Blob(['jpg']));
+    await Promise.all([first, second]);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+    expect(cover.children).toHaveLength(0);
+    expect(h.coverUrls.size).toBe(0);
+  });
+
+  it('does not update detached storage usage after leaving', async () => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    vi.spyOn(lib, 'storageUsage').mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const before = h.usageEl.textContent;
+    const pending = h.refreshUsage();
+    h.dispose();
+    finish({ projects: 99, mediaBytes: 0, trashed: 0 });
+    await pending;
+    expect(h.usageEl.textContent).toBe(before);
+  });
+});
+
+describe('home refresh ordering', () => {
+  it('keeps the newest project list when an older refresh finishes last', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Before' });
+    const h = mount(lib);
+    await settle();
+    const old = h.projects.map((p) => ({ ...p }));
+    const latest = old.map((p) => ({ ...p, name: 'Latest' }));
+    let finish;
+    vi.spyOn(lib, 'listProjects').mockReturnValueOnce(new Promise((resolve) => { finish = resolve; })).mockResolvedValueOnce(latest);
+    const first = h.refreshLists();
+    await h.refreshLists();
+    expect(titles()).toEqual(['Latest']);
+    finish(old);
+    await first;
+    expect(titles()).toEqual(['Latest']);
+  });
+
+  it('keeps a successful refresh visible when an older load fails afterwards', async () => {
+    const lib = new Library(memoryBackend());
+    await lib.createProject({ name: 'Latest' });
+    const h = mount(lib);
+    await settle();
+    let fail;
+    vi.spyOn(lib, 'listProjects').mockImplementationOnce(() => new Promise((resolve, reject) => { fail = reject; }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const old = h.load();
+    await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+    await h.refreshLists();
+    fail(new Error('Old read failed'));
+    await old;
+    expect(titles()).toEqual(['Latest']);
+    expect(h.loaded).toBe(true);
+    expect(h.loadError).toBe(false);
+  });
+
+  it.each([false, true])('keeps newer storage usage when an older request settles (failure: %s)', async (failure) => {
+    const lib = new Library(memoryBackend());
+    const h = mount(lib);
+    await settle();
+    let finish;
+    let fail;
+    vi.spyOn(lib, 'storageUsage').mockReturnValueOnce(new Promise((resolve, reject) => { finish = resolve; fail = reject; })).mockResolvedValueOnce({ projects: 2, mediaBytes: 1024, trashed: 0 });
+    const old = h.refreshUsage();
+    await h.refreshUsage();
+    const latest = h.usageEl.textContent;
+    expect(latest).toContain('2 projects');
+    if (failure) fail(new Error('Old read failed'));
+    else finish({ projects: 1, mediaBytes: 0, trashed: 0 });
+    await old;
+    expect(h.usageEl.textContent).toBe(latest);
+    expect(h.mobileStorage.querySelector('.storage-usage').textContent).toBe(latest);
+  });
+});

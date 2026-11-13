@@ -24,8 +24,13 @@ export function aiAvailable(ctx) {
 
 const cache = new Map(); // `${voice}|${text}` -> Blob
 
+function checkSpeech(signal) {
+  if (signal?.aborted) throw new DOMException('Speech cancelled.', 'AbortError');
+}
+
 /** Speech for text as an audio Blob (cached per voice and text). */
-export async function synthesize(text, voiceId, { testMode = false } = {}) {
+export async function synthesize(text, voiceId, { testMode = false, signal } = {}) {
+  checkSpeech(signal);
   const t = String(text || '').trim().slice(0, TTS_MAX);
   if (!t) throw new Error('Type some text first.');
   const voice = TTS_VOICES.find((v) => v.id === voiceId) || TTS_VOICES[0];
@@ -35,18 +40,26 @@ export async function synthesize(text, voiceId, { testMode = false } = {}) {
   try {
     audio = await puter.ai.txt2speech(t, { ...voice.options, ...(testMode ? { test_mode: true } : {}) });
   } catch (err) {
+    checkSpeech(signal);
     throw new Error(errorMessage(err, "Couldn't create the speech."));
   }
+  checkSpeech(signal);
   const src = audio?.src || audio?.currentSrc;
   if (!src) throw new Error("Couldn't create the speech.");
-  const res = await fetch(src);
-  if (!res.ok) throw new Error("Couldn't download the speech.");
-  const blob = await res.blob();
-  if (!blob.size) throw new Error('The speech came back empty.');
-  cache.set(key, blob);
-  // Keep the cache small; it only spares repeat requests while editing.
-  if (cache.size > 12) cache.delete(cache.keys().next().value);
-  return blob;
+  try {
+    const res = await fetch(src, { signal });
+    if (!res.ok) throw new Error("Couldn't download the speech.");
+    const blob = await res.blob();
+    checkSpeech(signal);
+    if (!blob.size) throw new Error('The speech came back empty.');
+    cache.set(key, blob);
+    // Keep the cache small; it only spares repeat requests while editing.
+    if (cache.size > 12) cache.delete(cache.keys().next().value);
+    return blob;
+  } catch (err) {
+    checkSpeech(signal);
+    throw err;
+  }
 }
 
 const EXT = { 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/opus': 'opus', 'audio/aac': 'aac', 'audio/flac': 'flac', 'audio/webm': 'weba', 'audio/mp4': 'm4a' };
@@ -60,8 +73,25 @@ export function speechFile(blob, text) {
 }
 
 /** Import speech audio and put it on an audio track at start (default: playhead). */
-export async function addSpeechToTimeline(ctx, blob, text, { start } = {}) {
-  const [asset] = await ctx.actions.importFiles([speechFile(blob, text)]);
-  if (!asset) return null;
-  return ctx.actions.addAsset(asset, start !== undefined ? { start } : {});
+export async function addSpeechToTimeline(ctx, blob, text, { start, signal, select = true } = {}) {
+  checkSpeech(signal);
+  const context = () => JSON.stringify([ctx.store.project.id, ctx.store.project.timelineId, ...(ctx.store.nest || []).map((f) => f.id)]);
+  const source = context(), controller = new AbortController();
+  let off;
+  const cancel = () => {
+    controller.abort();
+    off?.();
+    off = null;
+  };
+  off = ctx.store.on('change', () => { if (context() !== source) cancel(); });
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    const [asset] = await ctx.actions.importFiles([speechFile(blob, text)], { signal: controller.signal });
+    checkSpeech(controller.signal);
+    if (!asset) return null;
+    return ctx.actions.addAsset(asset, { ...(start !== undefined ? { start } : {}), ...(select ? {} : { select: false }) });
+  } finally {
+    off?.();
+    signal?.removeEventListener('abort', cancel);
+  }
 }

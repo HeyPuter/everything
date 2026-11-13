@@ -101,6 +101,36 @@ describe('sheet', () => {
     expect(sheet.isOpen).toBe(false);
   });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('keeps a sheet open when Escape belongs to composition (%j)', (composition) => {
+    const { sheet, opener } = setup();
+    const input = document.createElement('input');
+    sheet.setContent(input);
+    sheet.open(opener);
+    try {
+      const event = key(input, 'Escape', composition);
+      expect(sheet.isOpen).toBe(true);
+      expect(document.activeElement).toBe(input);
+      expect(event.defaultPrevented).toBe(false);
+      key(input, 'Escape');
+      expect(sheet.isOpen).toBe(false);
+    } finally { sheet.dispose(); }
+  });
+
+  it('does not apply the opening frame after the sheet has already closed', () => {
+    vi.useFakeTimers();
+    const { sheet, opener } = setup({ reduced: false });
+    try {
+      sheet.open(opener);
+      sheet.close();
+      vi.advanceTimersByTime(20);
+      expect(sheet.el.classList.contains('open')).toBe(false);
+      expect(sheet.isOpen).toBe(false);
+    } finally {
+      sheet.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for the slide-out without reduced motion', () => {
     vi.useFakeTimers();
     try {
@@ -136,6 +166,74 @@ describe('sheet', () => {
     handle.dispatchEvent(pe('pointermove', 260));
     handle.dispatchEvent(pe('pointerup', 260));
     expect(sheet.isOpen).toBe(false);
+    expect(panel.style.transform).toBe(''); // let the closed-state CSS animate it offscreen
+  });
+
+  it('ignores movement and release from a second pointer during a sheet swipe', () => {
+    const { sheet, opener } = setup();
+    sheet.open(opener);
+    const handle = sheet.el.querySelector('.sheet-handle');
+    const send = (type, pointerId, y) => {
+      const e = new Event(type, { bubbles: true });
+      Object.assign(e, { button: 0, clientX: 10, clientY: y, pointerId });
+      handle.dispatchEvent(e);
+    };
+    try {
+      send('pointerdown', 1, 100);
+      send('pointermove', 2, 260);
+      expect(sheet.panel.style.transform).toBe('');
+      send('pointerup', 2, 260);
+      expect(sheet.isOpen).toBe(true);
+      send('pointermove', 1, 130);
+      expect(sheet.panel.style.transform).toBe('translateY(30px)');
+      send('pointercancel', 1, 130);
+      expect(sheet.panel.style.transform).toBe('');
+      expect(sheet.isOpen).toBe(true);
+    } finally { sheet.dispose(); }
+  });
+
+  it('does not start a competing swipe when another finger presses the handle', () => {
+    const { sheet, opener } = setup();
+    sheet.open(opener);
+    const handle = sheet.el.querySelector('.sheet-handle');
+    const send = (type, pointerId, y) => {
+      const e = new Event(type, { bubbles: true });
+      Object.assign(e, { button: 0, clientX: 10, clientY: y, pointerId });
+      handle.dispatchEvent(e);
+    };
+    try {
+      send('pointerdown', 1, 100);
+      send('pointerdown', 2, 180);
+      send('pointermove', 1, 130);
+      expect(sheet.panel.style.transform).toBe('translateY(30px)');
+      send('pointercancel', 1, 130);
+    } finally { sheet.dispose(); }
+  });
+
+  it.each(['close', 'lostpointercapture'])('releases an unfinished swipe on %s', (end) => {
+    const { sheet, opener } = setup();
+    sheet.open(opener);
+    const handle = sheet.el.querySelector('.sheet-handle');
+    const send = (type, pointerId, y) => {
+      const e = new Event(type, { bubbles: true });
+      Object.assign(e, { button: 0, clientX: 10, clientY: y, pointerId });
+      handle.dispatchEvent(e);
+    };
+    try {
+      send('pointerdown', 1, 100);
+      send('pointermove', 1, 130);
+      if (end === 'close') sheet.close();
+      else send('lostpointercapture', 1, 130);
+      expect(sheet.panel.classList.contains('dragging')).toBe(false);
+      expect(sheet.panel.style.transform).toBe('');
+      send('pointermove', 1, 200);
+      expect(sheet.panel.style.transform).toBe('');
+      sheet.open(opener);
+      send('pointerdown', 2, 40);
+      send('pointermove', 2, 60);
+      expect(sheet.panel.style.transform).toBe('translateY(20px)');
+      send('pointercancel', 2, 60);
+    } finally { sheet.dispose(); }
   });
 
   it('switches between bottom and side sheets', () => {

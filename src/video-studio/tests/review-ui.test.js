@@ -91,6 +91,84 @@ describe('thread list', () => {
   const me = { uuid: 'u-bob', username: 'bob' };
   const thread = (f = {}) => ({ id: 'c_one0001', version: 1, parent: null, text: 'Too dark', t: 2_000_000, end: null, author: me, created: Date.now(), seq: 1, resolved: false, deleted: false, replies: [], ...f });
 
+  it.each(['Reply', 'Edit'].flatMap((mode) => ['Escape', 'Enter'].map((key) => [mode, key])))('preserves the %s draft when composition uses %s', async (mode, key) => {
+    const onReply = vi.fn(async () => {}), onEdit = vi.fn(async () => {});
+    const list = createThreadList({ onReply, onEdit });
+    document.body.append(list.el);
+    list.update([thread()], { fps: 30, me, role: 'commenter' });
+    btn(list.el, mode).click();
+    const input = list.el.querySelector('textarea');
+    input.value = 'Draft';
+    input.dispatchEvent(new Event('input'));
+    input.focus();
+    for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+      const e = new KeyboardEvent('keydown', { key, ctrlKey: key === 'Enter', bubbles: true, cancelable: true, ...composition });
+      input.dispatchEvent(e);
+      expect(input.isConnected).toBe(true);
+      expect(e.defaultPrevented).toBe(false);
+      expect(onReply).not.toHaveBeenCalled();
+      expect(onEdit).not.toHaveBeenCalled();
+    }
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    await tick();
+    expect(mode === 'Reply' ? onReply : onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not submit an edit twice while its save is pending, including after sync', async () => {
+    let finish;
+    const onEdit = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const list = createThreadList({ onEdit });
+    document.body.append(list.el);
+    const opts = { fps: 30, me, role: 'commenter' };
+    list.update([thread()], opts);
+    btn(list.el, 'Edit').click();
+    const input = list.el.querySelector('textarea');
+    input.value = 'Corrected';input.dispatchEvent(new Event('input'));
+    const submit = () => list.el.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    submit();
+    submit();
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    list.update([thread({ resolved: true })], opts);
+    expect(btn(list.el, 'Save').disabled).toBe(true);
+    submit();
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    finish();await tick();
+    expect(list.el.querySelector('textarea')).toBe(null);
+  });
+
+  it.each(['Reply', 'Edit'])('retains a pending %s draft across sync and lets a failed save retry', async (mode) => {
+    let fail;
+    const send = vi.fn().mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; })).mockResolvedValue(undefined);
+    const list = createThreadList({ onReply: send, onEdit: send });
+    document.body.append(list.el);
+    const opts = { fps: 30, me, role: 'commenter' };
+    list.update([thread()], opts);
+    btn(list.el, mode).click();
+    let input = list.el.querySelector('textarea');
+    input.value = 'Keep this draft';input.dispatchEvent(new Event('input'));input.focus();
+    input.closest('form').requestSubmit();
+    expect(input.isConnected).toBe(true);
+    expect(input.readOnly).toBe(true);
+    list.update([thread({ resolved: true })], opts);
+    input = list.el.querySelector('textarea');
+    expect(input.value).toBe('Keep this draft');
+    expect(input.readOnly).toBe(true);
+    expect(btn(input.closest('form'), 'Cancel').disabled).toBe(true);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(input.isConnected).toBe(true);
+    input.closest('form').requestSubmit();
+    expect(send).toHaveBeenCalledTimes(1);
+    fail(new Error('Offline'));await tick();
+    input = list.el.querySelector('textarea');
+    expect(input.value).toBe('Keep this draft');
+    expect(input.readOnly).toBe(false);
+    expect(list.el.querySelector('.rv-form-error').textContent).toBe('Offline');
+    expect(input.closest('form').querySelector('[type="submit"]').disabled).toBe(false);
+    input.closest('form').requestSubmit();await tick();
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(list.el.querySelector('textarea')).toBe(null);
+  });
+
   it('shows time, author, text and replies, and seeks on the time', () => {
     const onSeek = vi.fn();
     const list = createThreadList({ onSeek });
@@ -136,7 +214,7 @@ describe('thread list', () => {
     expect(document.activeElement).toBe(again);
     again.closest('form').dispatchEvent(new Event('submit', { cancelable: true }));
     await tick();
-    expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 'c_one0001' }), 'Will fix');
+    expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 'c_one0001' }), 'Will fix', expect.any(String));
     expect(list.el.querySelector('textarea')).toBe(null);
   });
 
@@ -223,6 +301,57 @@ describe('share for review (owner flow)', () => {
 });
 
 describe('share dialog', () => {
+  it('keeps the current field focused when access details finish loading', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    await publish(env, { projectId: store.project.id });
+    let finish;
+    const call = async (p, server, input) => {
+      if (input.op === 'members') await new Promise((resolve) => { finish = resolve; });
+      return callWorker(p, server, input);
+    };
+    const dlg = openShareDialog({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice }, { deps: { call } });
+    try {
+      const role = await until(() => dlg.el.querySelector('.rv-invite-row select'));
+      role.focus();
+      expect(document.activeElement).toBe(role);
+      finish();
+      await until(() => dlg.el.querySelector('[aria-label="People"] .empty'));
+      await tick();
+      expect(document.activeElement).toBe(role);
+    } finally { dlg.close(); }
+  });
+
+  it('keeps the displayed role consistent when another change is attempted during a save', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    const pub = await publish(env, { projectId: store.project.id });
+    await env.as('bob')('join', { review: pub.review.id, token: await invite(env, pub.review.id) });
+    let finish, writes = 0;
+    const call = async (p, server, input) => {
+      if (input.op === 'member.role') {
+        if (++writes === 1) await new Promise((resolve) => { finish = resolve; });
+        else throw new Error('Second save failed');
+      }
+      return callWorker(p, server, input);
+    };
+    const dlg = openShareDialog({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice }, { deps: { call } });
+    try {
+      const sel = await until(() => dlg.el.querySelector('[aria-label="Role for bob"]'));
+      sel.value = 'viewer';sel.dispatchEvent(new Event('change'));
+      // A disabled native select cannot be changed by the user.
+      if (!sel.disabled) { sel.value = 'commenter';sel.dispatchEvent(new Event('change')); }
+      await tick();finish();
+      await until(() => env.world.calls.some((c) => c.op === 'member.role'));
+      await tick();
+      const saved = (await env.as('alice')('members', { review: pub.review.id })).members[0];
+      expect(saved.role).toBe('viewer');
+      expect(sel.value).toBe(saved.role);
+      expect(writes).toBe(1);
+      expect(sel.disabled).toBe(false);
+    } finally { dlg.close(); }
+  });
+
   it('shares, creates an invite link, lists links and people, and removes someone', async () => {
     const env = await setup();
     const store = new EditorStore(projectWithClips());
@@ -317,6 +446,80 @@ describe('review page (reviewer flow)', () => {
     await until(() => root.querySelector('.rv-page'));
     return { env, page, root, rid: pub.review.id };
   }
+
+  it.each(['success', 'failure'])('does not reopen a disposed review after late startup %s', async (outcome) => {
+    const env = await setup();
+    const pub = await publish(env);
+    const token = await invite(env, pub.review.id);
+    let finish, fail, ready = false;
+    const gate = new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+    class SlowSession extends ReviewSession {
+      async open(options) { await super.open(options); ready = true; await gate; }
+    }
+    const root = document.createElement('div');document.body.append(root);
+    const page = new ReviewPage(root, { puter: env.sdk.bob, link: { review: pub.review.id, server: env.server, token }, Session: SlowSession });
+    try {
+      await until(() => ready);
+      const start = vi.spyOn(page.session, 'start');
+      page.dispose();root.textContent = 'Home';history.replaceState(null, '', '/#home');
+      if (outcome === 'success') finish();else fail(new Error('Late open failure'));
+      await tick();
+      expect(root.textContent).toBe('Home');
+      expect(location.hash).toBe('#home');
+      expect(start).not.toHaveBeenCalled();
+    } finally { page.dispose(); }
+  });
+
+  it('does not navigate after a disposed review finishes signing in', async () => {
+    let finish;
+    const onSignedIn = vi.fn();
+    const puter = { env: 'web', auth: { isSignedIn: () => false, signIn: () => new Promise((resolve) => { finish = resolve; }) } };
+    const root = document.createElement('div');document.body.append(root);
+    const page = new ReviewPage(root, { puter, link: {}, onSignedIn });
+    btn(root, 'Sign in with Puter').click();page.dispose();root.textContent = 'Home';finish();await tick();
+    expect(onSignedIn).not.toHaveBeenCalled();
+    expect(root.textContent).toBe('Home');
+  });
+
+  it.each(['success', 'failure'])('ignores an older same-version video link %s after a refresh', async (outcome) => {
+    const { page } = await opened();
+    try {
+      await until(() => page.video.getAttribute('src'));
+      let finish, fail;
+      vi.spyOn(page.session, 'videoLink').mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; })).mockResolvedValue({ url: 'https://example.test/current.mp4' });
+      const old = page.loadVideo();
+      await page.loadVideo({ fresh: true });
+      if (outcome === 'success') finish({ url: 'https://example.test/expired.mp4' });else fail(new Error('Obsolete failure'));
+      await old;
+      expect(page.video.src).toBe('https://example.test/current.mp4');
+      expect(page.videoState.textContent).not.toContain('Obsolete failure');
+    } finally { page.dispose(); }
+  });
+
+  it.each(['success', 'failure'])('ignores a video link %s after leaving the review', async (outcome) => {
+    const { page } = await opened();
+    await until(() => page.video.getAttribute('src'));
+    let finish, fail;
+    const link = vi.spyOn(page.session, 'videoLink').mockImplementation(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    const pending = page.loadVideo();
+    page.dispose();
+    if (outcome === 'success') finish({ url: 'https://example.test/late.mp4' });else fail(new Error('Late failure'));
+    await pending;
+    expect(page.video.getAttribute('src')).toBe(null);
+    expect(page.videoState.textContent).not.toContain('Late failure');
+    await page.loadVideo();
+    expect(link).toHaveBeenCalledTimes(1);
+  });
+
+  it('unloads the review video once on disposal', async () => {
+    const { page } = await opened();
+    await until(() => page.video.getAttribute('src'));
+    const load = vi.spyOn(page.video, 'load');
+    page.dispose();page.dispose();
+    expect(page.video.getAttribute('src')).toBe(null);
+    expect(page.video.paused).toBe(true);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
 
   it('joins with the invite, drops the token from the address, and shows the review', async () => {
     const { env, page, root, rid } = await opened();
@@ -431,6 +634,206 @@ describe('review page (reviewer flow)', () => {
     expect(root.querySelectorAll('.rv-thread').length).toBe(1);
     expect(root.querySelector('.rv-composer .rv-form-error').textContent).toBe('');
     page.dispose();
+  });
+
+  it.each(['restored draft', 'recovery row', 'reply'])('retries a %s without duplicating a post whose acknowledgements were lost', async (mode) => {
+    const { env, page, root, rid } = await opened();
+    try {
+      page.session.stop();
+      if (mode === 'reply') {
+        await page.session.addComment({ version: 1, text: 'Parent', t: 0 });
+        btn(root.querySelector('.rv-thread'), 'Reply').click();
+      }
+      let lost = 0;
+      const send = page.session._call;
+      page.session._call = async (...args) => {
+        const result = await send(...args);
+        if (args[2].op === 'comment.add' && lost++ < 2) throw new Error('Lost acknowledgement');
+        return result;
+      };
+      const text = root.querySelector(mode === 'reply' ? '.rv-inline-form textarea' : '.rv-compose-text');
+      text.value = 'Exactly once';text.dispatchEvent(new Event('input'));
+      text.closest('form').requestSubmit();
+      if (mode === 'recovery row') {
+        text.value = 'Next draft';text.dispatchEvent(new Event('input'));
+      }
+      await until(() => root.textContent.includes('Lost acknowledgement'));
+      if (mode === 'recovery row') btn(root.querySelector('.rv-unsent'), 'Retry').click();
+      else root.querySelector(mode === 'reply' ? '.rv-inline-form' : '.rv-composer').requestSubmit();
+      await until(() => lost === 3 && !root.textContent.includes('Lost acknowledgement'));
+      const saved = await env.as('alice')('sync', { review: rid, since: 0 });
+      expect(saved.changes.filter((c) => c.text === 'Exactly once')).toHaveLength(1);
+      expect([...page.session.comments.values()].filter((c) => c.text === 'Exactly once')).toHaveLength(1);
+      if (mode === 'recovery row') expect(text.value).toBe('Next draft');
+    } finally { page.dispose(); }
+  });
+
+  it.each(['comment', 'reply'])('saves edited retries and separate identical %s submissions as new posts', async (mode) => {
+    const { env, page, root, rid } = await opened();
+    try {
+      page.session.stop();
+      if (mode === 'reply') {
+        await page.session.addComment({ version: 1, text: 'Parent', t: 0 });
+        btn(root.querySelector('.rv-thread'), 'Reply').click();
+      }
+      let lost = 0;
+      const send = page.session._call;
+      page.session._call = async (...args) => {
+        const result = await send(...args);
+        if (args[2].op === 'comment.add' && lost++ < 2) throw new Error('Lost acknowledgement');
+        return result;
+      };
+      const selector = mode === 'reply' ? '.rv-inline-form textarea' : '.rv-compose-text';
+      const submit = (value) => {
+        const text = root.querySelector(selector);
+        text.value = value;text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      };
+      submit('Original');
+      await until(() => root.textContent.includes('Lost acknowledgement'));
+      submit('Edited');
+      await until(() => lost === 3 && !root.textContent.includes('Lost acknowledgement'));
+      if (mode === 'reply') btn(root.querySelector('.rv-thread'), 'Reply').click();
+      submit('Edited');
+      await until(() => lost === 4 && [...page.session.comments.values()].filter((c) => !c.pending && c.text === 'Edited').length === 2);
+      const saved = await env.as('alice')('sync', { review: rid, since: 0 });
+      expect(saved.changes.filter((c) => c.text === 'Original')).toHaveLength(1);
+      expect(saved.changes.filter((c) => c.text === 'Edited')).toHaveLength(2);
+    } finally { page.dispose(); }
+  });
+
+  it('keeps a newer draft and range when an earlier comment finishes posting', async () => {
+    const { page, root } = await opened();
+    try {
+      let finish;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      const text = root.querySelector('.rv-compose-text'), form = text.closest('form');
+      page.seek(s(1));text.value = 'First';text.dispatchEvent(new Event('input'));
+      form.requestSubmit();
+      page.seek(s(5));page.composer.startHere();
+      text.value = 'Second';text.dispatchEvent(new Event('input'));
+      const range = root.querySelector('#rv-range');range.checked = true;range.dispatchEvent(new Event('change'));
+      page.seek(s(7));btn(root, 'Set end to current frame').click();
+      finish({});await tick();
+      expect(text.value).toBe('Second');
+      expect(page.pin).toMatchObject({ t: s(5), end: s(7), held: true });
+      expect(range.checked).toBe(true);
+      expect(root.querySelector('.rv-composer .rv-form-error').textContent).toBe('');
+    } finally { page.dispose(); }
+  });
+
+  it('ignores a second composer submission while its post is pending', async () => {
+    const { page, root } = await opened();
+    try {
+      let finish;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+      const text = root.querySelector('.rv-compose-text');
+      text.value = 'First';text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      text.value = 'Next draft';text.dispatchEvent(new Event('input'));
+      text.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      expect(add).toHaveBeenCalledTimes(1);
+      finish({});await tick();
+    } finally { page.dispose(); }
+  });
+
+  it('keeps both drafts when an earlier post fails and retries its original version and range', async () => {
+    const { page, root } = await opened('commenter', { versions: 2 });
+    try {
+      let fail;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; })).mockResolvedValue({});
+      await page.setVersion(1);page.seek(s(1));page.composer.startHere();
+      const text = root.querySelector('.rv-compose-text'), form = text.closest('form');
+      const range = root.querySelector('#rv-range');range.checked = true;range.dispatchEvent(new Event('change'));
+      page.seek(s(3));btn(root, 'Set end to current frame').click();
+      text.value = 'First draft';text.dispatchEvent(new Event('input'));form.requestSubmit();
+      await page.setVersion(2);page.seek(s(5));page.composer.startHere();
+      text.value = 'Newer draft';text.dispatchEvent(new Event('input'));
+      fail(new Error('Offline'));await tick();
+      expect(text.value).toBe('Newer draft');
+      expect(page.pin).toMatchObject({ t: s(5), end: null, held: true });
+      const failed = root.querySelector('.rv-unsent');
+      expect(failed?.textContent).toContain('First draft');
+      expect(failed?.textContent).toContain('Offline');
+      btn(failed, 'Retry').click();await tick();
+      expect(add).toHaveBeenLastCalledWith({ id: expect.any(String), version: 1, text: 'First draft', t: s(1), end: s(3) });
+      expect(root.querySelector('.rv-unsent')).toBe(null);
+      expect(text.value).toBe('Newer draft');
+    } finally { page.dispose(); }
+  });
+
+  it('restores an untouched failed draft with its original time range', async () => {
+    const { page, root } = await opened();
+    try {
+      let fail;
+      vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
+      page.seek(s(2));page.composer.startHere();
+      const range = root.querySelector('#rv-range');range.checked = true;range.dispatchEvent(new Event('change'));
+      page.seek(s(4));btn(root, 'Set end to current frame').click();
+      const text = root.querySelector('.rv-compose-text');text.value = 'Keep me';text.dispatchEvent(new Event('input'));
+      text.closest('form').requestSubmit();page.seek(s(8));
+      fail(new Error('Offline'));await tick();
+      expect(text.value).toBe('Keep me');
+      expect(page.pin).toMatchObject({ t: s(2), end: s(4), held: true });
+      expect(range.checked).toBe(true);
+      expect(root.querySelector('.rv-unsent')).toBe(null);
+    } finally { page.dispose(); }
+  });
+
+  it('keeps a failed retry available and discards it without changing the current draft', async () => {
+    const { page, root } = await opened();
+    try {
+      let fail;
+      const add = vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; })).mockRejectedValue(new Error('Still offline'));
+      const text = root.querySelector('.rv-compose-text');
+      text.value = 'Unsent';text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      text.value = 'Current';text.dispatchEvent(new Event('input'));
+      fail(new Error('Offline'));await tick();
+      const row = root.querySelector('.rv-unsent');
+      btn(row, 'Retry').click();btn(row, 'Retry').click();
+      expect(add).toHaveBeenCalledTimes(2);
+      expect(btn(row, 'Discard').disabled).toBe(true);
+      await tick();
+      expect(row.textContent).toContain('Still offline');
+      expect(btn(row, 'Retry').disabled).toBe(false);
+      expect(await violations(row)).toEqual([]);
+      btn(row, 'Discard').focus();btn(row, 'Discard').click();
+      expect(row.isConnected).toBe(false);
+      expect(text.value).toBe('Current');
+      expect(document.activeElement === text).toBe(true);
+    } finally { page.dispose(); }
+  });
+
+  it('pins the next draft to its own frame while the previous post is pending', async () => {
+    const { page, root } = await opened();
+    try {
+      let finish;
+      vi.spyOn(page.session, 'addComment').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      const text = root.querySelector('.rv-compose-text');
+      page.seek(s(1));text.value = 'First';text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      page.seek(s(5));text.value = 'Next';text.dispatchEvent(new Event('input'));
+      expect(page.pin).toMatchObject({ t: s(5), held: true, end: null });
+      finish({});await tick();
+      expect(page.pin.t).toBe(s(5));
+    } finally { page.dispose(); }
+  });
+
+  it.each(['Escape', 'Enter'])('keeps composition %s in the review composer', async (key) => {
+    const { page, root } = await opened();
+    try {
+      const add = vi.spyOn(page.session, 'addComment').mockResolvedValue({});
+      const input = root.querySelector('.rv-compose-text');
+      input.value = 'Draft';input.dispatchEvent(new Event('input'));input.focus();
+      for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
+        const e = new KeyboardEvent('keydown', { key, ctrlKey: key === 'Enter', bubbles: true, cancelable: true, ...composition });
+        input.dispatchEvent(e);
+        expect(document.activeElement === input).toBe(true);
+        expect(input.value).toBe('Draft');
+        expect(add).not.toHaveBeenCalled();
+        expect(e.defaultPrevented).toBe(false);
+      }
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      await tick();
+      expect(add).toHaveBeenCalledTimes(1);
+    } finally { page.dispose(); }
   });
 
   it('stops polling and commenting once the owner removes someone', async () => {
@@ -568,6 +971,36 @@ describe('review page (reviewer flow)', () => {
 });
 
 describe('editor review panel', () => {
+  it.each(['worker', 'find', 'open'])('does not continue opening after disposal during %s', async (stage) => {
+    const env = await setup();
+    const p = projectWithClips();await publish(env, { projectId: p.id });
+    let release, waiting = false;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const pause = async (at) => { if (stage === at) { waiting = true;await gate; } };
+    class SlowSession extends ReviewSession {
+      async open(options) { await super.open(options);await pause('open'); }
+    }
+    const call = vi.fn(async (...args) => {
+      if (args[2].op === 'review.find') await pause('find');
+      return callWorker(...args);
+    });
+    const panel = createReviewPanel({ store: new EditorStore(p), library: { backend: { kind: 'puter' } }, puter: env.sdk.alice }, { deps: {
+      ensureWorker: async () => { await pause('worker');return env.server; }, call, Session: SlowSession,
+    } });
+    document.body.append(panel.el);panel.toggle(true);
+    const refreshing = panel.refresh();
+    try {
+      await until(() => waiting);
+      panel.dispose();panel.el.remove();
+      const before = panel.el.textContent;
+      release();await refreshing;
+      expect(panel.session?.polling || false).toBe(false);
+      expect(panel.el.textContent).toBe(before);
+      if (stage !== 'open') expect(panel.session).toBe(null);
+      if (stage === 'worker') expect(call).not.toHaveBeenCalled();
+    } finally { panel.dispose(); }
+  });
+
   it('lists comments, seeks through the version range, resolves and adds markers', async () => {
     const env = await setup();
     const p = projectWithClips();

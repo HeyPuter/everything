@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { deflateRawSync } from 'node:zlib';
+import { Blob as StreamBlob } from 'node:buffer';
 import { zipBlobs, readZip, crc32 } from '../src/storage/zip.js';
 import { exportProjectBundle, importProjectBundle, BUNDLE_SUFFIX } from '../src/storage/bundle.js';
 import { Library } from '../src/storage/library.js';
@@ -38,6 +40,98 @@ describe('zip', () => {
     const b = await bytesOf(zip);
     expect(b.slice(0, 4)).toEqual([0x50, 0x4b, 0x03, 0x04]);
     expect(b.slice(-22, -18)).toEqual([0x50, 0x4b, 0x05, 0x06]);
+  });
+
+  it.each(['size mismatch', 'overlapping directory'])('rejects damaged stored entries with %s', async (damage) => {
+    const zip = await zipBlobs([{ name: 'media/video.mp4', data: 'video' }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    const size = view.getUint32(directory + 24, true);
+    view.setUint32(directory + 24, size + 1, true);
+    if (damage === 'overlapping directory') view.setUint32(directory + 20, size + 1, true);
+    const entries = await readZip(new Blob([buffer]));
+    await expect(entries[0].blob()).rejects.toThrow(/damaged|incomplete/);
+  });
+
+  it.each([[0, 100], [1, 100], [0, 0], [0, 20_000]])('checks deflated entries (extra declared bytes: %s, repetitions: %s)', async (extra, repeats) => {
+    const data = new TextEncoder().encode('video'.repeat(repeats));
+    const zip = await zipBlobs([{ name: 'media/video.mp4', data: deflateRawSync(data) }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    view.setUint16(8, 8, true);
+    view.setUint16(directory + 10, 8, true);
+    view.setUint32(14, crc32(data), true);
+    view.setUint32(directory + 16, crc32(data), true);
+    view.setUint32(22, data.length + extra, true);
+    view.setUint32(directory + 24, data.length + extra, true);
+    // jsdom Blob has no stream(); use the native streaming Blob for decompression.
+    const [entry] = await readZip(new StreamBlob([buffer]));
+    if (extra) await expect(entry.blob()).rejects.toThrow(/damaged|incomplete/);
+    else expect(await bytesOf(await entry.blob())).toEqual([...data]);
+  });
+
+  it('stops decompressing as soon as output exceeds the declared entry size', async () => {
+    const data = new Uint8Array(1024 * 1024);
+    const packed = deflateRawSync(data);
+    const zip = await zipBlobs([{ name: 'x', data: packed }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    view.setUint16(8, 8, true);
+    view.setUint16(directory + 10, 8, true);
+    view.setUint32(directory + 16, crc32(data), true);
+    view.setUint32(directory + 24, 1, true);
+    const source = new StreamBlob([buffer]);
+    let decodedBytes = 0;
+    let cancelled = false;
+    const observed = {
+      size: source.size,
+      slice(start, end) {
+        const part = source.slice(start, end);
+        if (start !== 31 || end !== 31 + packed.length) return part;
+        return {
+          stream: () => ({
+            pipeThrough(transform) {
+              const reader = part.stream().pipeThrough(transform).getReader();
+              return new ReadableStream({
+                async pull(controller) {
+                  const { value, done } = await reader.read();
+                  if (done) controller.close();
+                  else {
+                    decodedBytes += value.byteLength;
+                    controller.enqueue(value);
+                  }
+                },
+                cancel() { cancelled = true; return reader.cancel(); },
+              }, { highWaterMark: 0 });
+            },
+          }),
+        };
+      },
+    };
+    const [entry] = await readZip(observed);
+    await expect(entry.blob()).rejects.toThrow(/damaged|incomplete/);
+    expect(cancelled).toBe(true);
+    expect(decodedBytes).toBeLessThan(data.length);
+  });
+
+  it.each([0, 8])('rejects corrupted contents with unchanged lengths (method: %s)', async (method) => {
+    const data = new TextEncoder().encode('original');
+    const damaged = new TextEncoder().encode('modified');
+    const zip = await zipBlobs([{ name: 'project.json', data: method === 8 ? deflateRawSync(damaged) : damaged }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    view.setUint16(8, method, true);
+    view.setUint16(directory + 10, method, true);
+    view.setUint32(14, crc32(data), true);
+    view.setUint32(directory + 16, crc32(data), true);
+    view.setUint32(22, data.length, true);
+    view.setUint32(directory + 24, data.length, true);
+    const [entry] = await readZip(new StreamBlob([buffer]));
+    await expect(entry.blob()).rejects.toThrow(/damaged|checksum/i);
   });
 
   it('rejects files that are not archives and duplicate names', async () => {
@@ -90,6 +184,24 @@ describe('project files', () => {
     expect(await text(await other.coverBlob(copy.id))).toBe('jpeg');
     // Opening it again from storage gives the same document.
     expect(await other.openProject(copy.id)).toEqual(copy);
+  });
+
+  it('imports a project even when its optional cover is damaged', async () => {
+    const zip = await zipBlobs([
+      { name: 'project.json', data: JSON.stringify(project) },
+      { name: 'cover.jpg', data: 'jpeg' },
+    ]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    const coverRecord = directory + 46 + 'project.json'.length;
+    // A damaged stored length must not make an otherwise saved import look failed.
+    view.setUint32(coverRecord + 24, 5, true);
+    const other = new Library(memoryBackend());
+    const { project: copy } = await importProjectBundle(other, new Blob([buffer]));
+    expect((await other.listProjects()).map((p) => p.id)).toEqual([copy.id]);
+    expect(await other.openProject(copy.id)).toEqual(copy);
+    expect(await other.coverBlob(copy.id)).toBeNull();
   });
 
   it('imports into the same library as a separate project', async () => {

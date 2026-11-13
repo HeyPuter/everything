@@ -33,6 +33,8 @@ import '../../styles/audio.css';
 const DEFAULT_OPTS = { language: 'auto', scope: 'main', preset: 'yellow-caption', maxWords: 5, position: 'bottom', lyricsStyle: LYRIC_STYLE, lyricsPosition: 'bottom', lyricsIsolate: true };
 
 const isCaption = (c) => c.type === 'text' && c.caption;
+const editingContext = (store) => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
+const CONTEXT_CHANGED = 'Captions cancelled because the open timeline changed.';
 
 /** "0:03.5": captions are often shorter than a second, so tenths matter. */
 function shortTime(t) {
@@ -48,7 +50,8 @@ function captionClips(project) {
 }
 
 /** Ask what to do with existing captions: 'replace', 'keep' or null (cancel). */
-async function askReplace(store) {
+async function askReplace(store, { signal } = {}) {
+  if (signal?.aborted) return null;
   const n = captionClips(store.project).length;
   if (!n) return 'keep';
   const replace = h('button.btn.primary', { type: 'button' }, 'Replace');
@@ -65,8 +68,14 @@ async function askReplace(store) {
   keep.addEventListener('click', () => d.close('keep'));
   cancel.addEventListener('click', () => d.close(null));
   replace.focus();
-  const v = await d.result;
-  return v === 'replace' || v === 'keep' ? v : null;
+  const cancelPrompt = () => d.close(null);
+  signal?.addEventListener('abort', cancelPrompt, { once: true });
+  try {
+    const v = await d.result;
+    return !signal?.aborted && (v === 'replace' || v === 'keep') ? v : null;
+  } finally {
+    signal?.removeEventListener('abort', cancelPrompt);
+  }
 }
 
 /** Put caption cues (seconds) on one new text track in a single undo step. */
@@ -104,22 +113,33 @@ export async function generateCaptions(ctx, opts, steps = {}) {
  * how many it added.
  */
 export async function prepareCaptions(ctx, opts, { mode = 'keep', signal, onStep } = {}) {
+  const source = editingContext(ctx.store);
+  const check = () => {
+    if (signal?.aborted) throw new DOMException('Captions cancelled.', 'AbortError');
+    if (editingContext(ctx.store) !== source) throw new DOMException(CONTEXT_CHANGED, 'AbortError');
+  };
+  check();
   const o = { ...DEFAULT_OPTS, ...opts };
   onStep?.(0, 0);
   // Work on a copy so edits made meanwhile do not shift what is being mixed.
   const project = structuredClone(ctx.store.project);
   const mix = await mixdown(project, ctx.library, { scope: o.scope, signal, onProgress: (f) => onStep?.(0, f) });
+  check();
   onStep?.(1, 0);
   const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
   const words = fake
     ? await fake(mix, STT_RATE)
     : await transcribeMix(mix, STT_RATE, { language: o.language, signal, testMode: Boolean(import.meta.env.DEV && globalThis.__vsSpeechTestMode), onProgress: (f) => onStep?.(1, f) });
-  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  check();
   onStep?.(2, 0);
   const preset = TEXT_PRESETS.find((p) => p.id === o.preset);
   const lineChars = lineCharsFor(preset, project.settings.width);
   const cues = groupWords(words, { maxWords: o.maxWords, maxChars: Math.min(lineChars * 2, 84), maxGap: 0.8 });
-  return () => (cues.length ? applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null }) : 0);
+  return () => {
+    // The assistant can defer applying prepared captions until its next edit step.
+    check();
+    return cues.length ? applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null }) : 0;
+  };
 }
 
 function fieldRow(label, control, id) {
@@ -197,39 +217,66 @@ function autoPanel(ctx, opts, save) {
 
   const STEPS = ['Preparing audio', 'Transcribing', 'Creating captions'];
   const { el: progress, cancel, setStep } = stepProgress(STEPS, 'Generating captions');
-  let abort = null;
-  cancel.addEventListener('click', () => abort?.abort());
+  let job = null;
+  let disposed = false;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted;
+  function finish(task) {
+    task.off?.();
+    task.off = null;
+    if (job !== task) return;
+    job = null;
+    generate.disabled = false;
+    progress.hidden = true;
+  }
+  function cancelJob(message) {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
+  cancel.addEventListener('click', () => {
+    const hadFocus = progress.contains(document.activeElement);
+    cancelJob('Captions cancelled.');
+    if (hadFocus) generate.focus();
+  });
 
   async function run() {
-    if (abort) return;
+    if (job || disposed) return;
     if (!clipsForScope(store.project, opts.scope).length) {
       toast(opts.scope === 'main' ? 'The base track has no sound. Choose All audio, or add clips with sound.' : 'There is no audio in this project to caption.', { kind: 'info' });
       return;
     }
-    const mode = await askReplace(store);
-    if (!mode) return;
-    abort = new AbortController();
-    const { signal } = abort;
-    generate.disabled = true;
-    progress.hidden = false;
+    // Claim the job before its prompt, so repeated clicks cannot start two jobs.
+    const task = { controller: new AbortController(), source: editingContext(store), off: null };
+    job = task;
+    task.off = store.on('change', () => {
+      if (job === task && editingContext(store) !== task.source) cancelJob(CONTEXT_CHANGED);
+    });
+    const { signal } = task.controller;
     let said = -1;
     try {
+      const mode = await askReplace(store, { signal });
+      if (!mode || !current(task)) return;
+      generate.disabled = true;
+      progress.hidden = false;
       const n = await generateCaptions(ctx, opts, { mode, signal, onStep: (i, f) => {
+        if (!current(task)) return;
         setStep(i, f);
         if (i !== said) announce(STEPS[(said = i)]);
       } });
+      if (!current(task)) return;
       if (!n) toast('No speech was found in the audio.', { kind: 'info' });
       else toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
     } catch (err) {
-      if (err?.name === 'AbortError') announce('Captions cancelled');
+      if (!current(task)) return;
+      if (err?.name === 'AbortError') toast(err.message, { kind: 'info' });
       else {
         console.error(err);
         toast(errorMessage(err, "Couldn't create captions."), { kind: 'error' });
       }
     } finally {
-      abort = null;
-      generate.disabled = false;
-      progress.hidden = true;
+      finish(task);
     }
   }
 
@@ -247,6 +294,10 @@ function autoPanel(ctx, opts, save) {
     el,
     sync() {
       styles.sync();
+    },
+    dispose() {
+      disposed = true;
+      cancelJob();
     },
   };
 }
@@ -296,11 +347,36 @@ function lyricsPanel(ctx, opts, save) {
   const empty = h('p.asset-hint.lyr-empty', 'Add a song (an audio clip, or a video with sound) to the timeline first.');
   const { el: progress, cancel, setStep } = stepProgress(['Reading the song', 'Isolating vocals', 'Listening for words', 'Placing lines on the beat'], 'Creating lyrics');
   const STEP = { decode: 0, isolate: 1, transcribe: 2, phrase: 3 };
-  let abort = null;
-  cancel.addEventListener('click', () => abort?.abort());
+  let job = null;
+  let disposed = false;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted;
+  const atSource = (task) => {
+    const nest = store.nest || [];
+    if (store.project.id !== task.projectId || (store.project.timelineId ?? null) !== task.timelineId || nest.length !== task.compounds.length) return false;
+    for (let i = 0; i < nest.length; i++) if (nest[i].id !== task.compounds[i]) return false;
+    return true;
+  };
+  function finish(task) {
+    if (job !== task) return;
+    job = null;
+    progress.hidden = true;
+    syncButton();
+  }
+  function cancelJob(message) {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
+  cancel.addEventListener('click', () => {
+    const hadFocus = progress.contains(document.activeElement);
+    cancelJob('Lyrics cancelled.');
+    if (hadFocus) create.focus();
+  });
 
   function syncButton() {
-    create.disabled = Boolean(abort) || !song.value;
+    create.disabled = Boolean(job?.started) || !song.value;
   }
 
   function sync() {
@@ -318,28 +394,35 @@ function lyricsPanel(ctx, opts, save) {
   }
 
   async function run() {
-    if (abort || !song.value) return;
-    const mode = await askReplace(store);
-    if (!mode) return;
-    abort = new AbortController();
-    const { signal } = abort;
-    syncButton();
-    progress.hidden = false;
-    setStep(0);
-    announce('Reading the song');
-    const project = structuredClone(store.project);
+    if (job || disposed || !song.value) return;
+    const task = {
+      controller: new AbortController(), projectId: store.project.id, timelineId: store.project.timelineId ?? null,
+      compounds: (store.nest || []).map((f) => f.id), song: song.value, started: false,
+    };
+    job = task;
+    const { signal } = task.controller;
     try {
-      const res = await lyricsFromClip(project, song.value, {
+      const mode = await askReplace(store, { signal });
+      if (!mode || !current(task)) return;
+      task.started = true;
+      syncButton();
+      progress.hidden = false;
+      setStep(0);
+      announce('Reading the song');
+      const project = structuredClone(store.project);
+      const res = await lyricsFromClip(project, task.song, {
         library: ctx.library,
         language: opts.language,
         isolate: opts.lyricsIsolate !== false,
         signal,
         onStep: (step, f) => {
+          if (!current(task)) return;
           setStep(STEP[step], f);
           if (!f) announce(progress.querySelectorAll('.cap-step')[STEP[step]].textContent);
         },
         ...(ctx.lyricsDeps || {}),
       });
+      if (!current(task)) return;
       if (!res.cues.length) {
         toast('No singing was found in this clip.', { kind: 'info' });
         return;
@@ -348,15 +431,14 @@ function lyricsPanel(ctx, opts, save) {
       const n = applyCaptions(ctx, res.cues, { mode, preset: style.preset, position: opts.lyricsPosition, label: 'Lyrics from music', captionStyle: style.id });
       toast(`Added ${n} lyric line${n === 1 ? '' : 's'}.`, { kind: 'success' });
     } catch (err) {
-      if (err?.name === 'AbortError') announce('Lyrics cancelled');
+      if (!current(task)) return;
+      if (err?.name === 'AbortError') toast('Lyrics cancelled.', { kind: 'info' });
       else {
         console.error(err);
         toast(errorMessage(err, "Couldn't create lyrics."), { kind: 'error' });
       }
     } finally {
-      abort = null;
-      progress.hidden = true;
-      syncButton();
+      finish(task);
     }
   }
 
@@ -373,11 +455,16 @@ function lyricsPanel(ctx, opts, save) {
   );
   pos.el.setAttribute('aria-labelledby', 'lyr-pos');
   const refresh = () => {
-    if (el.isConnected && !abort) sync();
+    if (job && !atSource(job)) cancelJob('Lyrics cancelled because the open timeline changed.');
+    if (el.isConnected && !job) sync();
   };
   const offs = [store.on('change', refresh), store.on('select', refresh)];
   sync();
-  return { el, sync, dispose: () => offs.forEach((off) => off()) };
+  return { el, sync, dispose() {
+    disposed = true;
+    offs.forEach((off) => off());
+    cancelJob();
+  } };
 }
 
 const fieldSizing = typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content');
@@ -397,9 +484,14 @@ function listPanel(ctx, opts) {
   readBtn?.addEventListener('click', readSelected);
   const list = h('div.cap-list', { role: 'list', 'aria-label': 'Captions' });
   const body = h('div.cap-list-body');
+  let translation = null, speechJob = null, disposed = false;
+  function translate() {
+    if (disposed || translation) return;
+    translation = openTranslate(ctx, { onClose: () => { translation = null; } });
+  }
   const aiBtn = aiAvailable(ctx) ? h('button.btn.small', { type: 'button', 'aria-haspopup': 'menu' }, icon('magic', 14), 'AI', icon('chevronDown', 12)) : null;
   aiBtn?.addEventListener('click', () => showMenu(aiBtn, [
-    { label: 'Translate captions...', icon: 'languages', onSelect: () => openTranslate(ctx) },
+    { label: 'Translate captions...', icon: 'languages', onSelect: translate },
     { label: 'Add emojis', icon: 'effects', onSelect: () => addEmojis(ctx) },
     { label: 'Dub into another language...', icon: 'speech', onSelect: () => import('../dub-dialog.js').then((m) => m.openDubDialog(ctx)) },
   ], { label: 'AI caption tools' }));
@@ -434,20 +526,42 @@ function listPanel(ctx, opts) {
     r?.text.select();
   }
 
+  function finishRead(task) {
+    if (speechJob !== task) return;
+    speechJob = null;
+    task.off();
+    updateRead();
+  }
+  function cancelRead(message) {
+    if (!speechJob) return;
+    const task = speechJob;
+    finishRead(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
   async function readSelected() {
+    if (speechJob || disposed) return;
     const clip = store.selected?.clip;
     if (!clip || clip.type !== 'text') {
       toast('Select a text clip or caption first.', { kind: 'info' });
       return;
     }
-    readBtn.disabled = true;
+    const task = { controller: new AbortController(), source: editingContext(store), text: clip.text, start: clip.start };
+    speechJob = task;
+    const { signal } = task.controller;
+    const current = () => !disposed && speechJob === task && !signal.aborted && editingContext(store) === task.source;
+    task.off = store.on('change', () => {
+      if (editingContext(store) !== task.source) cancelRead('Speech cancelled because the open timeline changed.');
+    });
+    updateRead();
     try {
-      const blob = await synthesize(clip.text, prefs().ttsVoice);
-      await addSpeechToTimeline(ctx, blob, clip.text, { start: clip.start });
+      const blob = await synthesize(task.text, prefs().ttsVoice, { signal });
+      if (!current()) return;
+      await addSpeechToTimeline(ctx, blob, task.text, { start: task.start, signal });
     } catch (err) {
-      toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
+      if (current() && err?.name !== 'AbortError') toast(err?.message || "Couldn't create the speech.", { kind: 'error' });
     } finally {
-      readBtn.disabled = false;
+      finishRead(task);
     }
   }
 
@@ -504,6 +618,7 @@ function listPanel(ctx, opts) {
     });
     text.addEventListener('blur', () => store.seal());
     text.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
       // Enter moves to the next caption; Shift+Enter adds a line break.
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -588,7 +703,7 @@ function listPanel(ctx, opts) {
   }
 
   const updateRead = () => {
-    if (readBtn) readBtn.disabled = !(store.selected?.clip?.type === 'text');
+    if (readBtn) readBtn.disabled = Boolean(speechJob) || !(store.selected?.clip?.type === 'text');
   };
   const offs = [
     store.on('change', render),
@@ -600,7 +715,12 @@ function listPanel(ctx, opts) {
   ];
   render();
   updateRead();
-  return { el, render, dispose: () => offs.forEach((off) => off()) };
+  return { el, render, dispose() {
+    disposed = true;
+    translation?.close();
+    cancelRead();
+    offs.forEach((off) => off());
+  } };
 }
 
 function filesPanel(ctx, opts, save) {
@@ -609,25 +729,87 @@ function filesPanel(ctx, opts, save) {
   const importBtn = h('button.btn.primary.block', { type: 'button' }, icon('import', 16), 'Import .srt or .vtt');
   const exportBtn = h('button.btn.block', { type: 'button' }, icon('download', 16), 'Export captions (.srt)');
   const styles = styleControls(opts, save);
-  importBtn.addEventListener('click', () => input.click());
+  const cancel = h('button.btn.small', { type: 'button' }, 'Cancel import');
+  const reading = h('div', { hidden: true }, h('p.asset-hint', { role: 'status' }, 'Reading subtitle file…'), cancel);
+  let job = null, picker = null, disposed = false;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted && editingContext(store) === task.source;
+  function stopReading() {
+    const hadFocus = reading.contains(document.activeElement);
+    reading.hidden = true;
+    importBtn.disabled = false;
+    if (hadFocus) importBtn.focus();
+  }
+  function finish(task) {
+    if (job !== task) return;
+    job = null;
+    task.off();
+    stopReading();
+  }
+  function cancelJob(message) {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
+  function begin() {
+    const task = { controller: new AbortController(), source: editingContext(store), reading: false };
+    job = task;
+    task.off = store.on('change', () => {
+      if (!current(task)) cancelJob('Subtitle import cancelled because the open timeline changed.');
+    });
+    return task;
+  }
+  importBtn.addEventListener('click', () => {
+    if (job || disposed) return;
+    picker = begin();
+    input.click();
+  });
+  input.addEventListener('cancel', () => {
+    const task = picker;
+    picker = null;
+    if (task && job === task) cancelJob();
+  });
+  cancel.addEventListener('click', () => cancelJob('Subtitle import cancelled.'));
   input.addEventListener('change', async () => {
     const file = input.files?.[0];
     input.value = '';
-    if (!file) return;
-    let cues;
-    try {
-      cues = parseSubtitles(await subtitleText(file));
-    } catch {
-      cues = [];
-    }
-    if (!cues.length) {
-      toast(`No captions were found in ${file.name}.`, { kind: 'error' });
+    const selected = picker;
+    picker = null;
+    // A late native-picker result still belongs to the context that opened it.
+    if (disposed || (selected && !current(selected)) || job?.reading) return;
+    if (!file) {
+      if (selected) cancelJob();
       return;
     }
-    const mode = await askReplace(store);
-    if (!mode) return;
-    const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, wrap: false, label: 'Import captions', captionStyle: opts.captionStyle });
-    toast(`Imported ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
+    const task = selected || begin();
+    task.reading = true;
+    const hadFocus = document.activeElement === importBtn;
+    importBtn.disabled = true;
+    reading.hidden = false;
+    if (hadFocus) cancel.focus();
+    try {
+      let cues;
+      try {
+        const text = await subtitleText(file);
+        if (!current(task)) return;
+        cues = parseSubtitles(text);
+      } catch {
+        cues = [];
+      }
+      if (!current(task)) return;
+      stopReading();
+      if (!cues.length) {
+        toast(`No captions were found in ${file.name}.`, { kind: 'error' });
+        return;
+      }
+      const mode = await askReplace(store, { signal: task.controller.signal });
+      if (!mode || !current(task)) return;
+      const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, wrap: false, label: 'Import captions', captionStyle: opts.captionStyle });
+      toast(`Imported ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
+    } finally {
+      finish(task);
+    }
   });
   exportBtn.addEventListener('click', () => {
     const cues = captionCues(store.project);
@@ -648,14 +830,18 @@ function filesPanel(ctx, opts, save) {
     styles.els,
     importBtn,
     input,
+    reading,
     h('hr.cap-sep'),
     exportBtn,
   );
-  return { el, sync: () => styles.sync() };
+  return { el, sync: () => styles.sync(), dispose() {
+    disposed = true;
+    cancelJob();
+  } };
 }
 
 /** Translate every caption, replacing it, adding it as a second line, or on a new track. */
-function openTranslate(ctx) {
+function openTranslate(ctx, { onClose } = {}) {
   const { store } = ctx;
   const clips = captionClips(store.project);
   if (!clips.length) {
@@ -675,21 +861,29 @@ function openTranslate(ctx) {
   const status = h('p.asset-hint', { role: 'status' });
   const go = h('button.btn.primary', { type: 'button' }, icon('languages', 16), 'Translate');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  let abort = null;
+  let abort = null, closed = false, off = () => {};
+  const source = editingContext(store);
+  const current = () => !closed && editingContext(store) === source;
   // However the dialog closes (Cancel, Escape, the X, the backdrop), stop translating.
-  const d = openDialog({ title: 'Translate captions', body: h('div.cap-form', h('p.dialog-text', `${clips.length} caption${clips.length === 1 ? '' : 's'} will be translated with Puter AI.`), lang.el, h('div.field', h('span.field-label', 'Put the translation'), how.el), status), actions: [cancel, go], className: 'small', onClose: () => abort?.abort() });
+  const d = openDialog({ title: 'Translate captions', body: h('div.cap-form', h('p.dialog-text', `${clips.length} caption${clips.length === 1 ? '' : 's'} will be translated with Puter AI.`), lang.el, h('div.field', h('span.field-label', 'Put the translation'), how.el), status), actions: [cancel, go], className: 'small', onClose: () => { closed = true; abort?.abort(); off(); onClose?.(); } });
+  off = store.on('change', () => {
+    if (current()) return;
+    d.close();
+    toast('Translation cancelled because the open timeline changed.', { kind: 'info' });
+  });
   cancel.addEventListener('click', () => d.close());
   go.addEventListener('click', async () => {
-    if (abort) return;
-    abort = new AbortController();
+    if (abort || !current()) return;
+    const controller = new AbortController();
+    abort = controller;
+    const { signal } = controller;
     go.disabled = true;
     setPref('translateTo', target);
     setPref('translateMode', mode);
     const label = targets.find((l) => l.value === target)?.label || target;
     try {
-      const { signal } = abort;
-      const lines = await translateLines(clips.map((c) => c.text), label, { signal, onProgress: (f) => (status.textContent = `Translating... ${Math.round(f * 100)}%`) });
-      if (signal.aborted) return;
+      const lines = await translateLines(clips.map((c) => c.text), label, { signal, onProgress: (f) => { if (!signal.aborted && current()) status.textContent = `Translating... ${Math.round(f * 100)}%`; } });
+      if (signal.aborted || !current()) return;
       const byId = new Map(clips.map((c, i) => [c.id, lines[i]]));
       store.update('Translate captions', (p) => {
         if (mode === 'track') {
@@ -713,15 +907,16 @@ function openTranslate(ctx) {
       toast(`Translated ${clips.length} caption${clips.length === 1 ? '' : 's'} to ${label}.`, { kind: 'success' });
       d.close();
     } catch (err) {
-      if (err?.name !== 'AbortError') {
+      if (!signal.aborted && current() && err?.name !== 'AbortError') {
         console.error(err);
         status.textContent = errorMessage(err, "Couldn't translate the captions.");
       }
     } finally {
-      abort = null;
-      go.disabled = false;
+      if (abort === controller) abort = null;
+      if (current()) go.disabled = false;
     }
   });
+  return d;
 }
 
 /** Let Puter AI pick an emoji for captions where one fits, appended to the line. */
@@ -843,17 +1038,44 @@ export function captionsTab(ctx) {
   const opts = { ...DEFAULT_OPTS, ...(prefs().captionOpts || {}) };
   const save = () => setPref('captionOpts', { ...opts });
   const panels = {};
+  let captionJob = null, disposed = false;
+  function cancelCaptionJob() {
+    if (!captionJob) return;
+    const task = captionJob;
+    captionJob = null;
+    task.off();
+    task.controller.abort();
+  }
+  function applyTranscriptCaptions(cues, mode) {
+    const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, label: 'Captions from transcript', captionStyle: opts.captionStyle });
+    toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
+  }
+  async function captionsFromTranscript(cues) {
+    if (captionJob || disposed) return;
+    // Without a replacement choice, apply synchronously in the invoking context.
+    if (!ctx.store.project.tracks.some((t) => t.clips.some(isCaption))) {
+      applyTranscriptCaptions(cues, 'keep');
+      return;
+    }
+    const task = { controller: new AbortController(), source: editingContext(ctx.store) };
+    captionJob = task;
+    task.off = ctx.store.on('change', () => {
+      if (editingContext(ctx.store) === task.source) return;
+      cancelCaptionJob();
+      toast(CONTEXT_CHANGED, { kind: 'info' });
+    });
+    try {
+      const mode = await askReplace(ctx.store, { signal: task.controller.signal });
+      if (!mode || disposed || captionJob !== task || task.controller.signal.aborted || editingContext(ctx.store) !== task.source) return;
+      applyTranscriptCaptions(cues, mode);
+    } finally {
+      if (captionJob === task) cancelCaptionJob();
+    }
+  }
   const make = {
     auto: () => autoPanel(ctx, opts, save),
     lyrics: () => lyricsPanel(ctx, opts, save),
-    transcript: () => transcriptPanel(ctx, opts, save, {
-      onCaptions: async (cues) => {
-        const mode = await askReplace(ctx.store);
-        if (!mode) return;
-        const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, label: 'Captions from transcript', captionStyle: opts.captionStyle });
-        toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
-      },
-    }),
+    transcript: () => transcriptPanel(ctx, opts, save, { onCaptions: captionsFromTranscript }),
     list: () => listPanel(ctx, opts),
     styles: () => stylesPanel(ctx, opts, save),
     files: () => filesPanel(ctx, opts, save),
@@ -879,6 +1101,8 @@ export function captionsTab(ctx) {
   return {
     el: layout.el,
     dispose() {
+      disposed = true;
+      cancelCaptionJob();
       for (const p of Object.values(panels)) p.dispose?.();
     },
   };

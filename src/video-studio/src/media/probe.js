@@ -110,8 +110,9 @@ async function probeImage(file) {
 
 async function probeWithElement(file, kind) {
   const url = URL.createObjectURL(file);
+  let el;
   try {
-    const el = document.createElement(kind === 'audio' ? 'audio' : 'video');
+    el = document.createElement(kind === 'audio' ? 'audio' : 'video');
     el.preload = 'metadata';
     el.muted = true;
     el.src = url;
@@ -122,8 +123,11 @@ async function probeWithElement(file, kind) {
     let duration = el.duration;
     if (!Number.isFinite(duration)) {
       // Some WebM recordings report Infinity until the end is reached.
-      el.currentTime = 1e7;
-      await new Promise((r) => (el.ontimeupdate = r));
+      await new Promise((resolve, reject) => {
+        el.ontimeupdate = resolve;
+        el.onerror = () => reject(new Error('This file type is not supported by your browser.'));
+        el.currentTime = 1e7;
+      });
       duration = el.duration;
     }
     return {
@@ -135,6 +139,13 @@ async function probeWithElement(file, kind) {
       hasVideo: kind === 'video' ? Boolean(el.videoWidth) : false,
     };
   } finally {
+    if (el) {
+      el.onloadedmetadata = null;
+      el.ontimeupdate = null;
+      el.onerror = null;
+      el.removeAttribute('src');
+      el.load();
+    }
     URL.revokeObjectURL(url);
   }
 }
@@ -167,12 +178,12 @@ export async function probe(file) {
     }
     const canVideo = video ? await video.canDecode().catch(() => false) : false;
     const canAudio = audio ? await audio.canDecode().catch(() => false) : false;
-    if (video && !canVideo) {
+    const realKind = video ? 'video' : 'audio';
+    if ((video && !canVideo) || (!video && !canAudio)) {
       // The demuxer understood it but WebCodecs cannot decode it here; the element may.
       input.dispose();
-      return { kind: 'video', ...(await probeWithElement(file, 'video')), decodable: false };
+      return { kind: realKind, ...(await probeWithElement(file, realKind)), decodable: false };
     }
-    const realKind = video ? 'video' : 'audio';
     // soundUnsupported: a video whose sound this browser can't decode (AC-3 in camera files): it imports silent.
     return { kind: realKind, width, height, duration: Math.round(duration * US), fps, hasAudio: Boolean(audio) && canAudio, hasVideo: Boolean(video), decodable: true, ...(video && audio && !canAudio ? { soundUnsupported: true } : {}) };
   } catch (err) {
