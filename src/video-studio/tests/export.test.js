@@ -203,3 +203,16 @@ describe('long WAV exports', () => {
     expect(44 + Math.round((WAV_MAX_US * 48000) / US) * 4).toBeLessThanOrEqual(0xffffffff + 8);
   });
 });
+
+describe('audio export failures', () => {
+  it('reports an unreadable audio source instead of exporting silent sound', async () => {
+    const { exportProject } = await import('../src/engine/exporter.js');
+    const { fixture, clip, onMain } = await import('./helpers.js');
+    const p = fixture();
+    onMain(p, clip('video', 0, 0.1));
+    const error = new Error('Audio file is offline');
+    const library = { mediaBlob: vi.fn().mockRejectedValue(error) };
+    await expect(exportProject(p, library, { audioFormat: 'wav' }, { kind: 'audio' })).rejects.toThrow('Audio file is offline');
+    expect(library.mediaBlob).toHaveBeenCalledTimes(1);
+  });
+});

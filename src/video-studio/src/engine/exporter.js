@@ -236,6 +236,9 @@ export function describeError(err, settings = {}) {
 /* Runtime helpers ------------------------------------------------------------- */
 
 const abortError = () => new DOMException('Export canceled', 'AbortError');
+// The mixer's optional skip behavior is useful for previews, but an export
+// must report unreadable sound instead of quietly replacing it with silence.
+const rejectSkippedAudio = (_clip, error) => { throw error; };
 
 /** Let the page breathe between frames (macrotask, not clamped like setTimeout). */
 const channel = typeof MessageChannel !== 'undefined' ? new MessageChannel() : null;
@@ -773,7 +776,7 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
 
     let audioAt = 0; // seconds of sound handed to the encoder
     let audioDone = !audioSource;
-    if (audioSource) audioGen = mixChunks(project, library, { end: duration, sampleRate, channels: 2, signal });
+    if (audioSource) audioGen = mixChunks(project, library, { end: duration, sampleRate, channels: 2, signal, onSkip: rejectSkippedAudio });
     const pumpAudio = async (untilSec) => {
       while (!audioDone && audioAt < untilSec) {
         const r = await audioGen.next();
@@ -857,7 +860,7 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     if (duration > WAV_MAX_US) throw new Error(WAV_TOO_LONG);
     const totalFrames = Math.round((duration * sampleRate) / US);
     const parts = [wavHeader(totalFrames, channels, sampleRate)];
-    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {
+    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report, onSkip: rejectSkippedAudio })) {
       parts.push(pcm16(chunk.channels));
       await yieldToEventLoop();
     }
@@ -876,7 +879,7 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     await output.start();
     let at = 0;
     const lead = await encoderDelay(f.codec, { sampleRate, numberOfChannels: channels });
-    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {
+    for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report, onSkip: rejectSkippedAudio })) {
       const data = new Float32Array(chunk.frames * channels);
       chunk.channels.forEach((ch, c) => data.set(ch, c * chunk.frames));
       const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels, sampleRate, timestamp: at - lead });
