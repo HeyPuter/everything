@@ -84,6 +84,42 @@ describe('engine transport', () => {
     app.prefs.set('loop', false);
   });
 
+  it('loop playback follows edits and undo that move the selection or change the length', async () => {
+    HTMLCanvasElement.prototype.getContext = () => null;
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { engine } = await import('../src/engine/engine.js');
+    const E = await import('../src/model/edits.js');
+    const app = new App();
+    app.syncGraph = () => {};
+    const doc = AudioFile.blank({ name: 'Loop.wav', sampleRate: 48000, channels: 1, seconds: 10 });
+    app.addDocument(doc);
+    app.prefs.set('loop', true);
+    const sent = [];
+    Object.assign(engine, {
+      ctx: { currentTime: 1, state: 'running', sampleRate: 48000 },
+      requestedRate: 48000,
+      node: { port: { postMessage: (m) => sent.push(m) } },
+    });
+    engine.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
+    await app.play();
+    const loop = () => sent.filter((m) => m.type === 'loop').pop()?.loop;
+    // Delete 2 s from a selection: the selection collapses, so the whole (shorter) file loops.
+    doc.setSelection(96000, 192000);
+    expect(loop()).toEqual({ start: 96000, end: 192000 });
+    doc.apply('Delete', E.deleteRange(doc.state, 96000, 192000), { selection: { start: 96000, end: 96000 } });
+    expect(loop()).toEqual({ start: 0, end: 384000 });
+    // Undo brings the 2 s back: the loop covers them again.
+    doc.setSelection(0, 0);
+    doc.history.undo();
+    expect(doc.length).toBe(480000);
+    expect(loop()).toEqual({ start: 0, end: 480000 });
+    engine.stop();
+    Object.assign(engine, { ctx: null, node: null });
+    app.prefs.set('loop', false);
+  });
+
   it('offline renders keep the chunks every playing clip of a shared source still reads', async () => {
     const { dropBehind } = await import('../src/engine/offline-worker.js');
     const { CHUNK } = await import('../src/engine/mixcore.js');
