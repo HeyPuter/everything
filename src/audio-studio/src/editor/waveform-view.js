@@ -895,7 +895,12 @@ export class WaveformView {
       const sel = this.doc.selection;
       const f = this.frameAt(x);
       const prev = { ...sel, channels: sel.channels.slice() };
-      const edgeTol = 6 * this.fpp;
+      // A finger covers more than a mouse pointer: selection edges grab from further away,
+      // up to a quarter of the selection inside it (a tap in a short one still places the
+      // playhead), as clip edges do in the Multitrack editor.
+      const selPx = (sel.end - sel.start) / this.fpp;
+      const tolPx = e.pointerType === 'touch' ? Math.max(6, Math.min(14, selPx / 4)) : 6;
+      const edgeTol = tolPx * this.fpp;
       let anchor;
       if (sel.end > sel.start && Math.abs(f - sel.start) < edgeTol) anchor = sel.end;
       else if (sel.end > sel.start && Math.abs(f - sel.end) < edgeTol) anchor = sel.start;

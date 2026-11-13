@@ -158,3 +158,46 @@ describe('touch long press on the waveform', () => {
     expect(touchEnd()).toBe(false);
   });
 });
+
+describe('selection edges on touch', () => {
+  it('grabs a selection edge a finger-width away; a mouse there starts a new selection', async () => {
+    const { doc, view } = await makeView();
+    const s = view.surface;
+    s.setPointerCapture = () => {};
+    const press = (pointerType, from, to) => {
+      const ev = (type, x) => {
+        const e = pointer(type, x, 100);
+        Object.defineProperty(e, 'pointerType', { value: pointerType });
+        return e;
+      };
+      s.dispatchEvent(ev('pointerdown', from));
+      s.dispatchEvent(ev('pointermove', to));
+      s.dispatchEvent(ev('pointerup', to));
+    };
+    // 400 px show 48000 frames: 120 frames per pixel.
+    const select = () => doc.setSelection(view.frameAt(100), view.frameAt(200));
+    select();
+    press('touch', 210, 260);
+    expect(doc.selection.start).toBe(Math.round(view.frameAt(100)));
+    expect(doc.selection.end).toBe(Math.round(view.frameAt(260)));
+    select();
+    // Long enough after the first press not to count as a double-click.
+    const now = vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 1000);
+    try {
+      press('mouse', 210, 260);
+    } finally {
+      now.mockRestore();
+    }
+    expect(doc.selection.start).toBe(Math.round(view.frameAt(210)));
+    // A tap in the middle of a short selection places the playhead, as with a mouse.
+    doc.setSelection(view.frameAt(100), view.frameAt(120));
+    const later = vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 2000);
+    try {
+      press('touch', 110, 110);
+    } finally {
+      later.mockRestore();
+    }
+    expect(doc.hasSelection).toBe(false);
+    expect(doc.cursor).toBe(Math.round(view.frameAt(110)));
+  });
+});
