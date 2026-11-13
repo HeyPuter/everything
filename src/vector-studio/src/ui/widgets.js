@@ -142,15 +142,22 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
     edited = false;
     if (preserveSelection && changed) input.setSelectionRange(selectedAll ? 0 : start, selectedAll ? input.value.length : end, direction);
   };
+  const hasDraft = () => edited || input.value !== displayed;
   const set = (v) => {
     // Focus alone is not an edit: an untouched field must follow model updates
     // instead of committing its obsolete display when it later loses focus.
-    const editing = document.activeElement === input && (edited || input.value !== displayed);
+    const editing = document.activeElement === input && hasDraft();
     current = v;
     if (!editing) render(v, document.activeElement === input);
     input.placeholder = v === 'mixed' ? 'Mixed' : '';
   };
   const commit = () => {
+    // Formatting may round or convert units. Reading an untouched display back
+    // into the model would change its exact value merely on Enter or blur.
+    if (!hasDraft()) {
+      render(current);
+      return;
+    }
     const v = parse(input.value);
     if (!Number.isFinite(v)) {
       render(current);
@@ -174,7 +181,7 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       const typed = parse(input.value);
       // A Mixed value has nothing to step from (stepping from 0 set every object to one step).
       if (!Number.isFinite(typed) && current === 'mixed') return e.stopPropagation();
-      const base = Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
+      const base = hasDraft() && Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
       const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * factor * (e.shiftKey ? 10 : 1)));
       render(v);
