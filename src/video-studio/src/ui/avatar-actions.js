@@ -135,7 +135,7 @@ export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal }
   }
 }
 
-/** Voice clips of an avatar: its voice audio on the timeline, in its group or starting with it. */
+/** Voice clips owned by an avatar's group, with a timing fallback for ungrouped pairs. */
 function voiceClipsOf(p, avatarClip) {
   const id = avatarClip.avatar.voiceAsset;
   if (!id) return [];
@@ -144,7 +144,10 @@ function voiceClipsOf(p, avatarClip) {
     if (t.kind !== 'audio') continue;
     for (const c of t.clips) {
       if (c.assetId !== id) continue;
-      if ((avatarClip.group && c.group === avatarClip.group) || Math.abs(c.start - avatarClip.start) < 1000) out.push({ track: t, clip: c });
+      // An explicit group takes precedence over coincident placement. Reusing a
+      // voice asset (including Use clip) must not consume another group's audio.
+      const linked = avatarClip.group ? c.group === avatarClip.group : !c.group && Math.abs(c.start - avatarClip.start) < 1000;
+      if (linked) out.push({ track: t, clip: c });
     }
   }
   return out;
