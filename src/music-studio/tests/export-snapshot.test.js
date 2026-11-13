@@ -34,11 +34,14 @@ it.each(['edit', 'replace'])('keeps every stem on the original project, pattern,
   document.querySelector('.dlg-export .btn.primary').click();
   await vi.waitFor(() => expect(messages).toHaveLength(1));
   const expected = { bpm: p.bpm, notes: messages[0].seq.notes.count, sample: 0.2 };
+  const patternLabel = document.querySelector('input[value="pattern"]').closest('label');
+  const displayedPattern = patternLabel.textContent;
   if (change === 'replace') store.load(newProject());
   else {
     store.apply('Tempo', (q) => ({ ...q, bpm: 99 }));
     store.setPattern(p.patterns[1].id);
   }
+  expect(patternLabel.textContent).toBe(displayedPattern);
   engine.unloadSample('sample');
   finishFirst();
   await done;
@@ -109,4 +112,101 @@ it.each([true, false])('respects cancellation while resolving the cloud folder (
   await done;
   expect(write).toHaveBeenCalledTimes(cancel ? 0 : 1);
   expect(app.notify).toHaveBeenCalledTimes(cancel ? 0 : 1);
+});
+
+it('updates the displayed pattern duration after MIDI step editing while export settings are open', async () => {
+  const { App } = await import('../src/app.js');
+  const { Recorder } = await import('../src/input/recorder.js');
+  const { LiveInput } = await import('../src/input/live.js');
+  const { MidiInput } = await import('../src/input/midi.js');
+  const { shared } = await import('../src/pianoroll/state.js');
+  const { PPQ } = await import('../src/model/time.js');
+  vi.stubGlobal('puter', undefined);
+  const root = document.createElement('div');
+  document.body.append(root);
+  const app = new App(root, { project: newProject(), storage: { getItem: () => null, setItem() {} } });
+  app.prefs.set('stepEditing', true);
+  vi.spyOn(app.engine, 'ready', 'get').mockReturnValue(true);
+  vi.spyOn(app.engine, 'noteOn').mockImplementation(() => {});
+  vi.spyOn(app.engine, 'noteOff').mockImplementation(() => {});
+  const render = vi.spyOn(app.engine, 'render').mockResolvedValue({ channels: [new Float32Array(4), new Float32Array(4)], rate: 48000 });
+  const recorder = new Recorder(app, null);
+  const live = new LiveInput(app, recorder);
+  const midi = new MidiInput(app, live);
+  const previous = { tick: shared.cursor.tick, grid: shared.grid };
+  shared.cursor.tick = PPQ * 16;
+  shared.grid = PPQ;
+  const done = openExportDialog(app);
+  try {
+    const duration = () => document.querySelector('input[value="pattern"]').closest('label').querySelector('.faint').textContent;
+    expect(duration()).toBe('0:01');
+    midi.handle([0x90, 60, 100], 'test-keyboard');
+    midi.handle([0x80, 60, 0], 'test-keyboard');
+    expect(app.store.pattern.notes[app.store.channel.id][0].pos).toBe(PPQ * 16);
+    expect(duration()).toBe('0:09');
+    document.querySelector('.dlg-export .btn.primary').click();
+    await done;
+    expect(render).toHaveBeenCalledOnce();
+    expect(render.mock.calls[0][0].snapshot.project).toBe(app.store.project);
+    expect(downloadBlob).toHaveBeenCalledOnce();
+  } finally {
+    document.querySelector('.dlg-export [aria-label="Close"]')?.click();
+    await done;
+    midi.releaseAll();
+    shared.cursor.tick = previous.tick;
+    shared.grid = previous.grid;
+  }
+});
+
+it('refreshes the selected pattern and tempo without changing the chosen export range', async () => {
+  vi.stubGlobal('puter', undefined);
+  const store = new Store(demoProject());
+  const app = { store, engine: new Engine(store), prefs: { get: () => ({ rate: 48000, bits: 16, tail: false }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app);
+  try {
+    const pattern = document.querySelector('input[value="pattern"]');
+    pattern.click();
+    store.setPattern(store.project.patterns[1].id);
+    expect(pattern.nextElementSibling.textContent).toBe(`Pattern: ${store.pattern.name}`);
+    const duration = pattern.closest('label').querySelector('.faint');
+    const previous = duration.textContent;
+    store.apply('Tempo', (p) => ({ ...p, bpm: 62 }));
+    expect(duration.textContent).not.toBe(previous);
+    expect(pattern.checked).toBe(true);
+    expect(pattern.isConnected).toBe(true);
+    store.apply('Remove arrangement', (p) => ({ ...p, clips: [] }));
+    expect(document.querySelector('input[value="song"]').disabled).toBe(true);
+    expect(pattern.checked).toBe(true);
+  } finally {
+    document.querySelector('.dlg-export [aria-label="Close"]')?.click();
+    await done;
+  }
+});
+
+it('refreshes the stem list and prevents an empty export through either click or Enter', async () => {
+  vi.stubGlobal('puter', undefined);
+  const store = new Store(demoProject());
+  const engine = new Engine(store);
+  const render = vi.spyOn(engine, 'render');
+  const app = { store, engine, prefs: { get: () => ({ rate: 48000, bits: 16, tail: false }), merge: vi.fn() }, notify: vi.fn() };
+  const done = openExportDialog(app, { stems: true });
+  try {
+    const summary = document.querySelector('.export > p');
+    const initial = summary.textContent;
+    const button = document.querySelector('.dlg-export .btn.primary');
+    store.apply('Route directly to master', (p) => ({ ...p, channels: p.channels.map((c) => ({ ...c, mixer: 0 })) }));
+    expect(summary.textContent).toMatch(/No channels play into mixer inserts/);
+    expect(button.disabled).toBe(true);
+    button.click();
+    document.querySelector('.dlg-export select').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    expect(render).not.toHaveBeenCalled();
+    expect(downloadBlob).not.toHaveBeenCalled();
+    store.undo();
+    expect(summary.textContent).toBe(initial);
+    expect(button.disabled).toBe(false);
+  } finally {
+    document.querySelector('.dlg-export [aria-label="Close"]')?.click();
+    await done;
+  }
 });
