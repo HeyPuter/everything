@@ -270,7 +270,7 @@ export class FileService {
     // Version History keeps these bytes: exactly what was written.
     doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb, commentsRevision: enc.commentsRevision });
     this.#remember(file, enc.thumb);
-    this.recovery?.discard(editor);
+    if (!doc.dirty) this.recovery?.discard(editor);
     this.app.renderTabs();
     this.app.emit('file-saved', editor);
     this.app.notify(`Saved "${file.name}"`, { polite: true });
