@@ -25,7 +25,7 @@
  *   vsr:joinfail:<uuid>:<window>     failed joins in a 10 minute window (expires)
  */
 import {
-  ID, TOKEN, LIMITS, DAY, GUEST_ROLES, canComment, canResolve, hash, randomId, inviteToken,
+  ID, TOKEN, LIMITS, DAY, GUEST_ROLES, COMMENT_DELIVERY_PENDING, canComment, canResolve, hash, randomId, inviteToken,
   validateComment, textProblem, cleanText, cleanTitle, inviteDays,
 } from '../src/review/protocol.js';
 
@@ -42,8 +42,8 @@ export const MEMBER_LIST_FACTOR = 5;
 
 const VIDEO_MIME = ['video/mp4', 'video/webm', 'video/quicktime'];
 
-export function fail(status, message) {
-  throw Object.assign(new Error(message), { status });
+export function fail(status, message, code) {
+  throw Object.assign(new Error(message), { status, ...(code ? { code } : {}) });
 }
 
 const range = (from, to) => {
@@ -587,7 +587,7 @@ export class ReviewService {
       // only over older snapshots, even when delivered at a newer cursor.
       if (attempt + 1 < LOG_DELIVERY_ATTEMPTS) n = await this.kv.incr(`vsr:r:${rid}:seq`);
     }
-    fail(503, 'The review is taking too long to confirm this comment. Try again.');
+    fail(503, 'Your comment was saved, but some reviewers may not see it yet. Try again.', COMMENT_DELIVERY_PENDING);
   }
 
   async skipChange(rid, n) {

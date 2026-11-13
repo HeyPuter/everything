@@ -6,7 +6,7 @@
  */
 import { Emitter } from '../lib/emitter.js';
 import { call as callWorker } from './api.js';
-import { randomId } from './protocol.js';
+import { randomId, COMMENT_DELIVERY_PENDING } from './protocol.js';
 import { applyChanges, pendingComment } from './comments.js';
 
 export class ReviewSession extends Emitter {
@@ -19,6 +19,7 @@ export class ReviewSession extends Emitter {
     this.interval = interval;
     this.review = null;
     this.comments = new Map();
+    this._deliveryPending = new Set();
     this.cursor = 0;
     this.versionCount = 0;
     this.error = null;
@@ -155,19 +156,23 @@ export class ReviewSession extends Emitter {
   /** Post a comment or reply. Keep the same id when retrying an unchanged draft. */
   async addComment({ id = randomId('c'), version, parent = null, text, t = null, end = null }) {
     const confirmed = this.comments.get(id);
-    if (confirmed && !confirmed.pending) return confirmed;
-    const local = pendingComment({ id, version, parent, text, t, end }, this.me || { uuid: '', username: '' });
-    this.comments.set(id, local);
+    if (confirmed && !confirmed.pending && !this._deliveryPending.has(id)) return confirmed;
+    // Retrying delivery must not replace a visible newer revision with the
+    // original draft. Only an unconfirmed post needs a pending placeholder.
+    if (!confirmed || confirmed.pending) this.comments.set(id, pendingComment({ id, version, parent, text, t, end }, this.me || { uuid: '', username: '' }));
     this.emit('change');
     try {
       const r = await this._send('comment.add', { id, version, parent, text, t, end });
+      this._deliveryPending.delete(id);
       applyChanges(this.comments, [r.comment]);
       this.emit('change');
       return r.comment;
     } catch (err) {
+      if (err.code === COMMENT_DELIVERY_PENDING) this._deliveryPending.add(id);
       const current = this.comments.get(id);
       // Sync may have confirmed this write while its acknowledgement was lost.
-      if (current && !current.pending) return current;
+      // It cannot prove delivery to other clients after an explicit warning.
+      if (current && !current.pending && !this._deliveryPending.has(id)) return current;
       if (current?.pending) this.comments.delete(id);
       this.emit('change');
       throw err;

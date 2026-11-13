@@ -6,7 +6,7 @@
  * A review link never authorizes deploying or updating anything: only the
  * worker this account created and recorded is ever touched.
  */
-import { workerURL } from './protocol.js';
+import { workerURL, COMMENT_DELIVERY_PENDING } from './protocol.js';
 import { authorize, refuseCredential } from './auth.js';
 
 export const WORKER_KEY = 'video-studio-review-worker-v1';
@@ -41,7 +41,10 @@ export async function call(puter, server, input, { timeout = 30_000 } = {}) {
     }
     const data = await res.json().catch(() => null);
     if (res.ok && !data) throw unreachable();
-    if (!res.ok) throw Object.assign(new Error(data?.message || 'The review server had a problem. Try again.'), { status: res.status });
+    if (!res.ok) throw Object.assign(new Error(data?.message || 'The review server had a problem. Try again.'), {
+      status: res.status,
+      ...(data?.code === COMMENT_DELIVERY_PENDING ? { code: data.code } : {}),
+    });
     return data;
   } finally {
     clearTimeout(timer);

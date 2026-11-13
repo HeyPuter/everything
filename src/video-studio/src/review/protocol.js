@@ -6,6 +6,8 @@
  */
 
 export const PROTOCOL = 1;
+/** Stored comment whose delivery to advanced review cursors still needs a retry. */
+export const COMMENT_DELIVERY_PENDING = 'comment_delivery_pending';
 
 /** Review roles, most capable first. Owners run the worker; commenters comment and reply; viewers watch. */
 export const ROLES = ['owner', 'commenter', 'viewer'];
