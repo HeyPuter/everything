@@ -25,7 +25,8 @@ export class LiveInput extends Emitter {
       prev.sources.add(source);
       return;
     }
-    this.held.set(key, { channel, sources: new Set([source]) });
+    const held = { channel, sources: new Set([source]) };
+    this.held.set(key, held);
     const engine = this.app.engine;
     if (channel) {
       if (engine.ready) engine.noteOn(channel, key, vel);
@@ -33,7 +34,7 @@ export class LiveInput extends Emitter {
         engine
           .start()
           .then(() => {
-            if (this.held.get(key)?.channel === channel) engine.noteOn(channel, key, vel);
+            if (this.held.get(key) === held) engine.noteOn(channel, key, vel);
           })
           .catch((err) => this.app.reportError?.(err));
     }

@@ -40,6 +40,24 @@ function fakeApp() {
 const key = (code, extra = {}) => ({ code, key: code, repeat: false, ctrlKey: false, metaKey: false, altKey: false, target: document.body, ...extra });
 
 describe('typing keyboard map', () => {
+  it('does not replay a released attack when the same key is pressed during audio startup', async () => {
+    const app = fakeApp();
+    app.engine.ready = false;
+    let ready;
+    const starting = new Promise((resolve) => { ready = resolve; });
+    app.engine.start.mockReturnValue(starting);
+    const live = new LiveInput(app, null);
+    live.noteOn(60, 0.2, 'typing');
+    live.noteOff(60, 'typing');
+    live.noteOn(60, 0.9, 'typing');
+    ready(true);
+    await starting;
+    expect(app.engine.noteOn).toHaveBeenCalledTimes(1);
+    expect(app.engine.noteOn).toHaveBeenCalledWith(app.store.view.channel, 60, 0.9);
+    live.noteOff(60, 'typing');
+    expect(live.isHeld(60)).toBe(false);
+  });
+
   it('maps two rows to two octaves like piano keys', () => {
     expect(keyForCode('KeyZ')).toBe(BASE_KEY);
     expect(keyForCode('KeyS')).toBe(BASE_KEY + 1);
