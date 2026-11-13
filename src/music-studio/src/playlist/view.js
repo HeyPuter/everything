@@ -431,8 +431,7 @@ export function createPlaylistView(app, host) {
   V.loopSelection = () => {
     const sel = store.project.clips.filter((c) => V.selection.has(c.id));
     if (!sel.length) return;
-    const a = Math.min(...sel.map((c) => c.start));
-    const b = Math.max(...sel.map((c) => c.start + c.len));
+    const { start: a, end: b } = C.clipBounds(sel);
     store.apply('Set loop', (p) => E.setLoop(p, { start: a, end: b }));
   };
 
@@ -1115,7 +1114,7 @@ export function createPlaylistView(app, host) {
   const selected = () => store.project.clips.filter((c) => V.selection.has(c.id));
   const firstSelectedTrack = () => {
     const sel = selected();
-    return sel.length ? Math.min(...sel.map((c) => c.track)) : V.selectedTrack;
+    return C.clipBounds(sel)?.track ?? V.selectedTrack;
   };
   V.actions = {
     copy() {

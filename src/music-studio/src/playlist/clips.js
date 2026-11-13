@@ -136,6 +136,20 @@ export function timeOrder(clips) {
   return clips.slice().sort((a, b) => a.start - b.start || a.track - b.track);
 }
 
+/** Time span and top track of clips, or null for an empty selection. */
+export function clipBounds(clips) {
+  if (!clips.length) return null;
+  let start = Infinity;
+  let end = -Infinity;
+  let track = Infinity;
+  for (const c of clips) {
+    start = Math.min(start, c.start);
+    end = Math.max(end, c.start + c.len);
+    track = Math.min(track, c.track);
+  }
+  return { start, end, track };
+}
+
 /** First track with no clip overlapping [start, end). */
 export function firstFreeTrack(project, start, end) {
   for (let t = 0; ; t++) {
@@ -169,8 +183,7 @@ export function moveClips(project, ids, dt, dtrack, { duplicate = false } = {}) 
   const set = new Set(ids);
   const sel = project.clips.filter((c) => set.has(c.id));
   if (!sel.length) return { project, ids: [] };
-  const minStart = Math.min(...sel.map((c) => c.start));
-  const minTrack = Math.min(...sel.map((c) => c.track));
+  const { start: minStart, track: minTrack } = clipBounds(sel);
   const d = Math.round(Math.max(dt, -minStart));
   const dk = Math.max(dtrack, -minTrack);
   if (duplicate) {
@@ -268,8 +281,7 @@ export function duplicateClips(project, ids) {
   const set = new Set(ids);
   const sel = project.clips.filter((c) => set.has(c.id));
   if (!sel.length) return { project, ids: [] };
-  const a = Math.min(...sel.map((c) => c.start));
-  const b = Math.max(...sel.map((c) => c.start + c.len));
+  const { start: a, end: b } = clipBounds(sel);
   return moveClips(project, ids, b - a, 0, { duplicate: true });
 }
 
@@ -280,8 +292,7 @@ export function copyClips(project, ids) {
   const set = new Set(ids);
   const sel = project.clips.filter((c) => set.has(c.id));
   if (!sel.length) return null;
-  const t0 = Math.min(...sel.map((c) => c.start));
-  const k0 = Math.min(...sel.map((c) => c.track));
+  const { start: t0, track: k0 } = clipBounds(sel);
   return { clips: sel.map((c) => ({ ...c, start: c.start - t0, track: c.track - k0 })) };
 }
 
