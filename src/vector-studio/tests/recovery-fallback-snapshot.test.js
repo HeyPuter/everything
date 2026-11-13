@@ -62,10 +62,10 @@ it.each([
 ])('rejects fallback bytes from %s even when other metadata ties', async (_, modern, change) => {
   const { preferred, fallback, store } = await copies({ modern });
   const [entry] = await store.list();
-  const index = await fallback.readJSON('recovery/index.json');
+  const index = await fallback.readJSON('recovery/index.0.drawing.json');
   const [candidate] = index.entries;
   const { session, saved, revision, commentsRevision, sequence } = entry;
-  await fallback.writeJSON('recovery/index.json', { ...index, entries: [{ ...candidate, session, saved, revision, commentsRevision, sequence, ...change }] });
+  await fallback.writeJSON('recovery/index.0.drawing.json', { ...index, entries: [{ ...candidate, session, saved, revision, commentsRevision, sequence, ...change }] });
   preferred.readBlob = async () => { throw new Error('Offline'); };
   const read = vi.spyOn(fallback, 'readBlob');
   await expect(store.read(entry)).rejects.toThrow();

@@ -2,20 +2,29 @@
  * Crash recovery copies of unsaved documents.
  *
  * Layout inside a backend:
- *   recovery/index.json, index.next.json  alternating generations of the index
+ *   recovery/index.0.<id>.json, index.1.<id>.json  per-document index generations
  *   recovery/<id>/<snapshot>.vstudio  immutable document bytes
- * Older entries without a snapshot token use recovery/<id>.vstudio.
+ * Older shared indexes (index.json, index.next.json) remain readable. Entries
+ * without a snapshot token use recovery/<id>.vstudio.
  *
  * Several backends can be given: writes go to the first that works (the
  * Puter appdata folder when signed in, then this browser's OPFS when the
- * cloud is unreachable), and listing merges all of them. Operations are
- * serialized so the index read-modify-write never races.
+ * cloud is unreachable), and listing merges all of them. Each document owns
+ * its metadata so independent tabs/devices never replace another document's
+ * index entry. Operations within this store are serialized too.
  */
 import { uid } from '../../lib/ids.js';
 
 const DIR = 'recovery';
 const INDEX = `${DIR}/index.json`;
 const INDEXES = [INDEX, `${DIR}/index.next.json`];
+const indexPaths = (id) => [0, 1].map((slot) => `${DIR}/index.${slot}.${encodeURIComponent(id)}.json`);
+
+function indexedId(file) {
+  const match = !file.isDir && /^index\.[01]\.(.+)\.json$/.exec(file.name);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
 
 function snapshotPath(entry) {
   return entry.snapshot ? `${DIR}/${entry.id}/${entry.snapshot}.vstudio` : `${DIR}/${entry.id}.vstudio`;
@@ -65,8 +74,8 @@ export class RecoveryStore {
    * Legacy array indexes are generation zero. A storage failure must not make
    * an unknown, possibly newer slot look empty.
    */
-  async #readState(backend, { strict = false } = {}) {
-    const slots = await Promise.allSettled(INDEXES.map((path) => backend.readJSON(path)));
+  async #readSlots(backend, paths, { strict = false } = {}) {
+    const slots = await Promise.allSettled(paths.map((path) => backend.readJSON(path)));
     let latest = null, failure = null, incomplete = false;
     for (let slot = 0; slot < slots.length; slot++) {
       const result = slots[slot];
@@ -83,18 +92,54 @@ export class RecoveryStore {
       }
       const generation = legacy ? 0 : value.generation;
       const entries = (legacy ? value : value.entries).filter((e) => e && typeof e.id === 'string');
-      if (!latest || generation > latest.generation) latest = { entries, generation, slot };
+      if (!latest || generation > latest.generation) latest = { entries, generation, slot, legacy: value.legacy === true };
     }
     if (failure && strict) throw failure;
-    return { ...((!failure && latest) || { entries: [], generation: 0, slot: 1 }), incomplete };
+    return { ...((!failure && latest) || { entries: [], generation: 0, slot: 1, legacy: false }), found: Boolean(!failure && latest), incomplete };
   }
 
-  async #readIndex(backend, options) {
-    return (await this.#readState(backend, options)).entries;
+  async #readState(backend, id, { strict = false, legacyState } = {}) {
+    const own = await this.#readSlots(backend, indexPaths(id), { strict });
+    if (own.found) return { ...own, entries: own.entries.filter((e) => e.id === id) };
+    const old = legacyState === undefined ? await this.#readSlots(backend, INDEXES, { strict }) : legacyState;
+    if (!old) throw new Error('Legacy recovery metadata is unavailable.');
+    const entries = old.entries.filter((e) => e.id === id);
+    // Migration starts a new pair of generations without changing the shared
+    // index. A retained tombstone masks its legacy entry after later deletion.
+    return { ...own, entries, legacy: entries.length > 0, incomplete: own.incomplete || old.incomplete };
   }
 
-  #publishIndex(backend, state, entries) {
-    return backend.writeJSON(INDEXES[1 - state.slot], { version: 1, generation: state.generation + 1, entries });
+  async #readIndex(backend) {
+    const [legacyState, files] = await Promise.all([
+      this.#readSlots(backend, INDEXES, { strict: true }).catch(() => null),
+      backend.list(DIR),
+    ]);
+    const ids = [...new Set([...(legacyState?.entries || []).map((e) => e.id), ...files.map(indexedId).filter((id) => id !== null)])];
+    const entries = new Array(ids.length);
+    let next = 0;
+    // Bound cloud requests while reading each document's two slots in parallel.
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= ids.length) return;
+        try { entries[i] = (await this.#readState(backend, ids[i], { strict: true, legacyState })).entries; }
+        catch { entries[i] = []; }
+      }
+    }));
+    return entries.flat();
+  }
+
+  #publishIndex(backend, id, state, entries) {
+    return backend.writeJSON(indexPaths(id)[1 - state.slot], { version: 1, generation: state.generation + 1, entries, ...(state.legacy ? { legacy: true } : {}) });
+  }
+
+  async #forgetIndex(backend, id, state, published) {
+    if (state.legacy) return;
+    const paths = indexPaths(id), slot = published ? 1 - state.slot : state.slot;
+    // The deletion generation goes last, so an interrupted cleanup cannot expose
+    // an older entry. Legacy tombstones stay until the entire store is cleared.
+    await backend.remove(paths[1 - slot]);
+    await backend.remove(paths[slot]);
   }
 
   /** Save a recovery copy. Returns the backend kind it landed in. */
@@ -107,21 +152,21 @@ export class RecoveryStore {
           saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session };
         let previous, blobAttempted = false, indexAttempted = false;
         try {
-          const state = await this.#readState(b, { strict: true });
+          const state = await this.#readState(b, id, { strict: true });
           const index = state.entries;
           previous = index.find((e) => e.id === id);
           blobAttempted = true;
           this.#staging.set(b, { id, snapshot });
           await b.writeBlob(snapshotPath(next), data instanceof Blob ? data : new Blob([data]));
           indexAttempted = true;
-          await this.#publishIndex(b, state, [...index.filter((e) => e.id !== id), next]);
+          await this.#publishIndex(b, id, state, [next]);
         } catch (err) {
           lastErr = err;
           if (blobAttempted) {
             try {
               // A write can succeed remotely but lose its acknowledgement. Never
               // delete bytes that the persisted index already published.
-              const published = indexAttempted && (await this.#readIndex(b, { strict: true })).some((e) => e.id === id && e.snapshot === snapshot);
+              const published = indexAttempted && (await this.#readState(b, id, { strict: true })).entries.some((e) => e.snapshot === snapshot);
               if (!published) await b.remove(snapshotPath(next));
             } catch { /* Leave uncertain bytes for document removal to clean up. */ }
           }
@@ -139,24 +184,28 @@ export class RecoveryStore {
   }
 
   async #removeFrom(b, id, expected = null) {
-    const state = await this.#readState(b, { strict: true });
+    const state = await this.#readState(b, id, { strict: true });
     const index = state.entries;
     if (expected) {
       const observed = expected.copies?.find((copy) => copy.backend === b)?.entry || (expected.backend === b ? expected : null);
       const current = index.find((e) => e.id === id);
       if (!observed) return !current && !(await this.#otherSnapshots(b, id));
       if (current && (!sameSnapshot(current, observed) || current.snapshot !== observed.snapshot)) return false;
-      if (current) await this.#publishIndex(b, state, index.filter((e) => e.id !== id));
+      if (current) await this.#publishIndex(b, id, state, []);
       // The dialog authorized only the copies it displayed. A later publication
       // or an unindexed snapshot must survive cleanup of this observed copy.
       await b.remove(snapshotPath(observed));
-      return !(await this.#otherSnapshots(b, id));
+      if (await this.#otherSnapshots(b, id)) return false;
+      await this.#forgetIndex(b, id, state, Boolean(current));
+      return true;
     }
-    if (index.some((e) => e.id === id)) await this.#publishIndex(b, state, index.filter((e) => e.id !== id));
+    const published = index.some((e) => e.id === id);
+    if (published) await this.#publishIndex(b, id, state, []);
     // Retry orphan cleanup too: an earlier removal may have published its index
     // before losing access to the document's snapshot files.
     await b.remove(`${DIR}/${id}`);
     await b.remove(`${DIR}/${id}.vstudio`);
+    await this.#forgetIndex(b, id, state, published);
     return true;
   }
 
@@ -175,7 +224,7 @@ export class RecoveryStore {
     return this.#run(async () => {
       const byId = new Map();
       for (const b of this.backends) {
-        for (const e of await this.#readIndex(b)) {
+        for (const e of await this.#readIndex(b).catch(() => [])) {
           const prev = byId.get(e.id);
           const copies = prev?.copies || [];
           copies.push({ entry: e, backend: b });
@@ -187,10 +236,17 @@ export class RecoveryStore {
   }
 
   /** Recheck after decoding or handle lookup, including writes already queued. */
-  async isCurrent(entry) {
-    const current = (await this.list()).find((e) => e.id === entry.id);
-    return Boolean(current && sameSnapshot(current, entry) &&
-      (current.backend !== entry.backend || current.snapshot === entry.snapshot));
+  isCurrent(entry) {
+    return this.#run(async () => {
+      let current = null, backend = null;
+      for (const b of this.backends) {
+        const state = await this.#readState(b, entry.id, { strict: true }).catch(() => null);
+        const candidate = state?.entries[0];
+        if (candidate && (!current || newerSnapshot(candidate, current))) { current = candidate; backend = b; }
+      }
+      return Boolean(current && sameSnapshot(current, entry) &&
+        (backend !== entry.backend || current.snapshot === entry.snapshot));
+    });
   }
 
   /**
@@ -204,7 +260,7 @@ export class RecoveryStore {
     let failure = null;
     for (const b of backends) {
       try {
-        const state = await this.#readState(b, { strict: true });
+        const state = await this.#readState(b, entry.id, { strict: true });
         const candidate = state.entries.find((e) => e.id === entry.id);
         if (!candidate) {
           // A missing/damaged index is not proof that the selected bytes are gone.
@@ -223,7 +279,7 @@ export class RecoveryStore {
         const blob = await b.readBlob(snapshotPath(candidate));
         if (blob) return blob;
         // A concurrent publication can remove the selected file while it is read.
-        const current = (await this.#readIndex(b, { strict: true })).find((e) => e.id === entry.id);
+        const current = (await this.#readState(b, entry.id, { strict: true })).entries.find((e) => e.id === entry.id);
         if ((current && (!sameSnapshot(current, entry) || current.snapshot !== candidate.snapshot)) || await this.#otherSnapshots(b, entry.id, candidate.snapshot ? `${candidate.snapshot}.vstudio` : null)) failure ||= new Error('The selected recovery snapshot changed. Try recovery again.');
       } catch (err) {
         // Try the next store.

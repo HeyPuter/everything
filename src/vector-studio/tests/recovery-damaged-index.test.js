@@ -10,7 +10,7 @@ async function setup() {
   const backend = memoryBackend();
   const store = new RecoveryStore(backend);
   await store.put('drawing', { name: 'Drawing', data: await serializeDocument(VDocument.create({ name: 'Keep my work' })), session: 'old', sequence: 1 });
-  const index = backend.files.get('recovery/index.json');
+  const index = backend.files.get('recovery/index.0.drawing.json');
   const [entry] = await store.list();
   return { backend, store, index, entry };
 }
@@ -21,10 +21,10 @@ it.each(['truncated JSON', 'invalid shape', 'invalid record', 'missing index'])(
   const saver = new Autosaver(app, { store, session: 'new' });
   saver.liveSessions = async () => new Set();
   dialogHooks.open = async () => {
-    if (damage === 'truncated JSON') backend.files.set('recovery/index.json', '[{"id":');
-    if (damage === 'invalid shape') backend.files.set('recovery/index.json', '{}');
-    if (damage === 'invalid record') backend.files.set('recovery/index.json', '[null]');
-    if (damage === 'missing index') backend.files.delete('recovery/index.json');
+    if (damage === 'truncated JSON') backend.files.set('recovery/index.0.drawing.json', '[{"id":');
+    if (damage === 'invalid shape') backend.files.set('recovery/index.0.drawing.json', '{}');
+    if (damage === 'invalid record') backend.files.set('recovery/index.0.drawing.json', '[null]');
+    if (damage === 'missing index') backend.files.delete('recovery/index.0.drawing.json');
     return 'recover';
   };
   try {
@@ -33,7 +33,7 @@ it.each(['truncated JSON', 'invalid shape', 'invalid record', 'missing index'])(
     expect([...backend.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
     expect(app.notify.mock.calls.some(([message]) => message.includes('could not be recovered right now'))).toBe(true);
     // Once metadata is available again, the original work can still be recovered.
-    backend.files.set('recovery/index.json', index);
+    backend.files.set('recovery/index.0.drawing.json', index);
     const [entry] = await store.list();
     expect((await parseDocument(await store.read(entry))).doc.root.name).toBe('Keep my work');
   } finally { dialogHooks.open = null; }
@@ -42,7 +42,7 @@ it.each(['truncated JSON', 'invalid shape', 'invalid record', 'missing index'])(
 it('can read a valid selected entry despite an unrelated damaged index record', async () => {
   const { backend, store, index, entry } = await setup();
   const value = JSON.parse(index);
-  backend.files.set('recovery/index.json', JSON.stringify({ ...value, entries: [...value.entries, null] }));
+  backend.files.set('recovery/index.0.drawing.json', JSON.stringify({ ...value, entries: [...value.entries, null] }));
   expect((await parseDocument(await store.read(entry))).doc.root.name).toBe('Keep my work');
 });
 

@@ -87,15 +87,17 @@ it('reads the index slots concurrently and writes only one payload and one index
   }
   expect([...backend.files.keys()].filter((p) => p.endsWith('.json'))).toHaveLength(2);
   expect([...backend.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
+  const [entry] = await store.list();
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const read = backend.readJSON;
   const reads = vi.spyOn(backend, 'readJSON').mockImplementation(async (path) => { await gate; return read(path); });
   try {
-    const listing = new RecoveryStore(backend).list();
+    const reading = new RecoveryStore(backend).read(entry);
     await vi.waitFor(() => expect(reads).toHaveBeenCalledTimes(2));
+    expect(reads.mock.calls.map(([path]) => path).sort()).toEqual(['recovery/index.0.drawing.json', 'recovery/index.1.drawing.json']);
     release();
-    expect((await listing)[0].sequence).toBe(6);
+    expect((await parseDocument(await reading)).doc.root.name).toBe('Drawing');
   } finally { release(); vi.restoreAllMocks(); }
 });
 
@@ -107,15 +109,17 @@ it('does not trust an older index when the newer slot cannot be read', async () 
   const [entry] = await store.list();
   const read = backend.readJSON;
   vi.spyOn(backend, 'readJSON').mockImplementation(async (path) => {
-    if (path === 'recovery/index.next.json') throw new Error('Offline');
+    if (path === 'recovery/index.1.drawing.json') throw new Error('Offline');
     return read(path);
   });
   try {
     expect(await new RecoveryStore(backend).list()).toEqual([]);
     await expect(store.read(entry)).rejects.toThrow('Offline');
-    await expect(store.put('other', await value('Other', 3))).rejects.toThrow('Offline');
+    await expect(store.put('drawing', await value('Changed', 3))).rejects.toThrow('Offline');
+    await store.put('other', await value('Other', 3));
+    expect((await store.list()).map((e) => e.id)).toEqual(['other']);
   } finally { vi.restoreAllMocks(); }
-  expect(await names(new RecoveryStore(backend))).toEqual([['Newest', 'Newest', '/u/Newest.vstudio']]);
+  expect(await names(new RecoveryStore(backend))).toEqual([['Other', 'Other', '/u/Other.vstudio'], ['Newest', 'Newest', '/u/Newest.vstudio']]);
 });
 
 it.each([false, true])('does not restore or discard an older snapshot when a damaged index leaves newer bytes unindexed (old cleanup failed: %s)', async (cleanupFailed) => {
@@ -124,7 +128,7 @@ it.each([false, true])('does not restore or discard an older snapshot when a dam
   await store.put('drawing', await value('Old', 1));
   if (cleanupFailed) vi.spyOn(backend, 'remove').mockRejectedValueOnce(new Error('Cleanup interrupted'));
   await store.put('drawing', await value('Newest', 2));
-  backend.files.set('recovery/index.next.json', '{');
+  backend.files.set('recovery/index.1.drawing.json', '{');
   const app = { editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((doc, { file }) => ({ doc, file })) };
   const saver = new Autosaver(app, { store: new RecoveryStore(backend), session: 'new' });
   saver.liveSessions = async () => new Set();
