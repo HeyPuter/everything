@@ -262,8 +262,11 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
     dialog.querySelector('[data-act="cancel"]')!.addEventListener('click', close);
     const finish = async (puter: boolean) => {
       // Cancel stays available: closing the dialog abandons the export.
-      const buttons = dialog.querySelectorAll<HTMLButtonElement>('.export-actions button:not([data-act="cancel"])');
-      buttons.forEach((b) => (b.disabled = true));
+      const controls = [...dialog.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input, select, button:not([data-act="cancel"])')];
+      const disabled = controls.map((c) => c.disabled);
+      controls.forEach((c) => (c.disabled = true));
+      clearTimeout(timer);
+      generation++;
       busy.hidden = false;
       busy.textContent = 'Encoding…';
       try {
@@ -292,7 +295,7 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
           void emitAppEvent('export', e.session);
         }
       } catch (error) {
-        buttons.forEach((b) => (b.disabled = false));
+        controls.forEach((c, i) => (c.disabled = disabled[i]));
         busy.textContent = error instanceof Error ? error.message : String(error);
       }
     };
