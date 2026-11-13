@@ -269,7 +269,11 @@ export class ColorPanel extends Panel {
       return;
     }
     const hex = normalizeHex(s);
-    if (hex !== this.current) {
+    const paint = this.app.editor && focusedPaint(this.app.editor).paint;
+    // None, mixed and pattern paints show a fallback, not an applied color.
+    // Explicitly typing that fallback must still create a solid paint.
+    const hasColor = paint?.type === 'solid' || isGradient(paint) || (paint?.type === 'freeform' && paint.points?.length);
+    if (hex !== this.current || !hasColor) {
       this.coalesce = gestureKey('color');
       this.apply(hex);
       this.sliders.setColor(hex);
