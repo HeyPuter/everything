@@ -133,6 +133,11 @@ export class WaveformView {
       setView: (a, b) => doc.setView(a, b),
       viewMax: () => Math.max(doc.length, doc.sampleRate),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
+      cancelMarkerMove: () => {
+        this.markerPreview = null;
+        this.invalidate('ruler');
+        this.invalidate('overlay');
+      },
       renameMarker: (id) => app.commands.run('marker.rename', { id }),
       selectMarker: (id) => this.selectMarker(id),
       overviewPeaks: (cols, total) => this.#overviewPeaks(cols, total),

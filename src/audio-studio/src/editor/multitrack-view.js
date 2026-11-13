@@ -97,6 +97,11 @@ export class MultitrackView {
       snap: (f, o) => this.snap(f, o),
       setView: (a, b) => doc.setView(a, b),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
+      cancelMarkerMove: () => {
+        this.markerPreview = null;
+        this.invalidate('ruler');
+        this.invalidate('overlay');
+      },
       renameMarker: (id) => app.commands.run('marker.rename', { id }),
       selectMarker: (id) => this.selectMarker(id),
       overviewPeaks: (cols, total) => this.#overviewPeaks(cols, total),

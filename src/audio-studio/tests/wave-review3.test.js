@@ -81,3 +81,31 @@ describe('overview navigator on a long file', () => {
     expect(doc.view.start).toBeCloseTo(48000 * 1440, -3);
   });
 });
+
+describe('time ruler marker drags', () => {
+  it('leaves the marker where it was when the drag is cancelled', async () => {
+    const { createMarker } = await import('../src/model/markers.js');
+    const { doc, view } = await makeView();
+    const m = createMarker({ start: 24000 });
+    doc.apply('Add Marker', { ...doc.state, markers: [m] });
+    const r = view.ruler;
+    r.resize(400, 30);
+    r.el.setPointerCapture = () => {};
+    const steps = doc.history.entries.length;
+    const x = r.xOf(24000);
+    r.el.dispatchEvent(pointer('pointerdown', x, 25));
+    r.el.dispatchEvent(pointer('pointermove', x + 50, 25));
+    expect(view.markers()[0].start).not.toBe(24000);
+    // The system took the touch (Chromium reports the last position).
+    r.el.dispatchEvent(pointer('pointercancel', x + 50, 25));
+    expect(doc.history.entries.length).toBe(steps);
+    expect(doc.state.markers[0].start).toBe(24000);
+    expect(view.markers()[0].start).toBe(24000);
+    // A drag that ends normally still moves it.
+    r.el.dispatchEvent(pointer('pointerdown', x, 25));
+    r.el.dispatchEvent(pointer('pointermove', x + 50, 25));
+    r.el.dispatchEvent(pointer('pointerup', x + 50, 25));
+    expect(doc.history.entries.length).toBe(steps + 1);
+    expect(doc.state.markers[0].start).toBe(Math.round(view.ruler.frameAt(x + 50)));
+  });
+});

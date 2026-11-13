@@ -3,7 +3,8 @@
 // it; double-click a marker to rename it. Shared by the waveform and
 // multitrack editors through a small host interface:
 //   host.timeline() -> { rate, length, view: {start, end}, cursor, selection, markers }
-//   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame)
+//   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame),
+//   host.cancelMarkerMove() (drops a marker drag's preview)
 
 import { h } from '../lib/dom.js';
 import { rulerStep, rulerLabel, formatTime, musicalStep, frameRateOf } from '../lib/time.js';
@@ -78,7 +79,7 @@ export class TimeRuler {
     this.el.addEventListener('pointerdown', (e) => this.#down(e));
     this.el.addEventListener('pointermove', (e) => this.#move(e));
     this.el.addEventListener('pointerup', (e) => this.#up(e));
-    this.el.addEventListener('pointercancel', (e) => this.#up(e));
+    this.el.addEventListener('pointercancel', (e) => this.#up(e, true));
     this.el.addEventListener('keydown', (e) => this.#keys(e));
     this.el.addEventListener('dblclick', (e) => {
       const m = this.#markerAt(e.offsetX);
@@ -191,9 +192,11 @@ export class TimeRuler {
     }
   }
 
-  #up(e) {
+  #up(e, cancelled = false) {
     if (!this.drag) return;
-    if (this.drag.kind === 'marker' && this.drag.moved) {
+    // A cancelled marker drag (the system took the touch) leaves the marker where it was.
+    if (cancelled && this.drag.kind === 'marker') this.host.cancelMarkerMove?.();
+    else if (this.drag.kind === 'marker' && this.drag.moved) {
       const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
       this.host.moveMarker(this.drag.id, Math.max(0, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f), { preview: false });
     }
