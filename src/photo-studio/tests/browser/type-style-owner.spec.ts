@@ -49,6 +49,59 @@ async function state(page: Page) {
   return page.evaluate(() => window.photoStudio.sessions.map((s) => ({ id: s.id, text: s.doc.layers.at(-1)!.text, family: s.doc.layers.at(-1)!.textData?.content.paragraphs[0].runs[0].style.family, history: s.history.labels })));
 }
 
+test('a delayed font edit preserves later layer properties and their undo history', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(() => {
+    window.photoStudio.command('Layer properties', (d) => {
+      const l = d.layers.at(-1)!;
+      l.name = 'Renamed while loading';
+      l.opacity = 0.4;
+      l.visible = false;
+    });
+  });
+  await finishFont(page);
+  const properties = () => page.evaluate(() => {
+    const l = window.photoStudio.doc.layers.at(-1)!;
+    return { name: l.name, opacity: l.opacity, visible: l.visible, family: l.textData!.content.paragraphs[0].runs[0].style.family };
+  });
+  const changed = { name: 'Renamed while loading', opacity: 0.4, visible: false };
+  expect(await properties()).toEqual({ ...changed, family: 'Caveat' });
+  await run(page, 'edit.undo');
+  expect(await properties()).toEqual({ ...changed, family: 'Inter' });
+  await run(page, 'edit.undo');
+  expect(await properties()).toEqual({ name: 'Original', opacity: 1, visible: true, family: 'Inter' });
+  await run(page, 'edit.redo');
+  await run(page, 'edit.redo');
+  expect(await properties()).toEqual({ ...changed, family: 'Caveat' });
+});
+
+test('a delayed font edit preserves later text translation, scale, and rotation', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => {
+    window.photoStudio.command('Text frame fixture', (d) => {
+      const l = d.layers.at(-1)!;
+      l.textFrame = { x: 0, y: 0, width: 180, height: 80 };
+    });
+  });
+  await pickFont(page);
+  const expected = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.command('Place text', (d) => {
+      d.layers.at(-1)!.transform = { x: 31, y: 47, width: 216, height: 120, rotation: 27 };
+    });
+    const { textMatrix } = await import('/src/model/text-layer.ts');
+    return textMatrix(e.doc.layers.at(-1)!);
+  });
+  await finishFont(page);
+  const actual = await page.evaluate(async () => {
+    const { textMatrix } = await import('/src/model/text-layer.ts');
+    return textMatrix(window.photoStudio.doc.layers.at(-1)!);
+  });
+  actual.forEach((v, i) => expect(v).toBeCloseTo(expected[i], 8));
+  expect((await state(page)).at(-1)?.family).toBe('Caveat');
+});
+
 test('a font chosen before switching tabs updates only its original document', async ({ page }) => {
   const { original, other } = await prepare(page);
   await pickFont(page);

@@ -745,25 +745,29 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     e.message('Unlock the text layers to change them.');
     return;
   }
-  const next = new Map<string, Layer>();
+  const next = new Map<string, TextLayerData>();
   for (const l of targets) {
     const t = editable(l, ppi);
     const data = fn(t.textData, t);
     await prepareFonts(data);
     if (!e.sessions.includes(owner)) return;
-    const n: Layer = { ...t, textData: data };
-    delete n.asset;
-    delete n.assetColorSpace;
-    fitTextFrame(n, localBounds(data, layoutOf(data, ppi)));
-    syncLegacyFields(n);
-    next.set(l.id, n);
+    next.set(l.id, data);
   }
   e.command(label, (d) => {
     const walk = (layers: Layer[]) => {
       for (let i = 0; i < layers.length; i++) {
-        const n = next.get(layers[i].id);
-        if (n) layers[i] = structuredClone(n);
-        else walk(layers[i].children);
+        const l = layers[i];
+        const data = next.get(l.id);
+        if (data && l.kind === 'text') {
+          // Font loading can outlast unrelated layer edits. Refit the current
+          // placement and preserve its properties instead of restoring a snapshot.
+          const n: Layer = { ...editable(l, ppi), textData: structuredClone(data) };
+          delete n.asset;
+          delete n.assetColorSpace;
+          fitTextFrame(n, localBounds(data, layoutOf(data, ppi)));
+          syncLegacyFields(n);
+          layers[i] = n;
+        } else walk(l.children);
       }
     };
     walk(d.layers);
