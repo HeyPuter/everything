@@ -301,3 +301,38 @@ describe('clip gain dialogs', () => {
     expect(S.findClip(doc.state, c.id).gain).toBe(-3);
   });
 });
+
+describe('recording', () => {
+  it('keeps the take as a file when the armed track was deleted while recording', async () => {
+    const { Emitter } = await import('../src/lib/emitter.js');
+    const { SessionRecorder } = await import('../src/multitrack/recorder.js');
+    const engine = Object.assign(new Emitter(), {
+      rate: 8000,
+      playing: false,
+      outputLatencyFrames: 0,
+      openInput: async () => {},
+      setRecording() {},
+      play: async () => {},
+      stop() {},
+      closeInput() {},
+    });
+    const app = Object.assign(new Emitter(), { engine, documents: [], notices: [] });
+    app.notify = (m) => app.notices.push(m);
+    app.uniqueName = (base, ext) => base + ext;
+    app.addDocument = (d) => app.documents.push(d);
+    app.activate = (d) => (app.active = d);
+    const rec = new SessionRecorder(app);
+    const doc = new Session({ name: 'Rec.asesx', sampleRate: 8000, tracks: 2 });
+    app.documents.push(doc);
+    app.active = doc;
+    const track = doc.state.tracks[0];
+    doc.apply('Arm', S.updateTrack(doc.state, track.id, { arm: true }));
+    await rec.start(doc);
+    engine.emit('record-data', [new Float32Array(4096).fill(0.5)]);
+    doc.apply('Delete Track', S.removeTracks(doc.state, [track.id]));
+    await rec.stop();
+    const take = app.documents.find((d) => d.kind === 'audio');
+    expect(take?.length).toBe(4096);
+    expect(app.notices.join(' ')).toMatch(/Files panel/);
+  });
+});
