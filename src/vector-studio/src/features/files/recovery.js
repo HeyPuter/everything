@@ -138,19 +138,35 @@ export class RecoveryStore {
     });
   }
 
-  async #removeFrom(b, id) {
+  async #removeFrom(b, id, expected = null) {
     const state = await this.#readState(b, { strict: true });
     const index = state.entries;
+    if (expected) {
+      const observed = expected.copies?.find((copy) => copy.backend === b)?.entry || (expected.backend === b ? expected : null);
+      const current = index.find((e) => e.id === id);
+      if (!observed) return !current && !(await this.#otherSnapshots(b, id));
+      if (current && (!sameSnapshot(current, observed) || current.snapshot !== observed.snapshot)) return false;
+      if (current) await this.#publishIndex(b, state, index.filter((e) => e.id !== id));
+      // The dialog authorized only the copies it displayed. A later publication
+      // or an unindexed snapshot must survive cleanup of this observed copy.
+      await b.remove(snapshotPath(observed));
+      return !(await this.#otherSnapshots(b, id));
+    }
     if (index.some((e) => e.id === id)) await this.#publishIndex(b, state, index.filter((e) => e.id !== id));
     // Retry orphan cleanup too: an earlier removal may have published its index
     // before losing access to the document's snapshot files.
     await b.remove(`${DIR}/${id}`);
     await b.remove(`${DIR}/${id}.vstudio`);
+    return true;
   }
 
-  remove(id) {
+  remove(id, { expected = null } = {}) {
     return this.#run(async () => {
-      for (const b of this.backends) await this.#removeFrom(b, id).catch(() => {});
+      let removed = true;
+      for (const b of this.backends) {
+        if (!await this.#removeFrom(b, id, expected).catch(() => false)) removed = false;
+      }
+      return removed;
     });
   }
 
@@ -161,10 +177,12 @@ export class RecoveryStore {
       for (const b of this.backends) {
         for (const e of await this.#readIndex(b)) {
           const prev = byId.get(e.id);
-          if (!prev || newerSnapshot(e, prev.entry)) byId.set(e.id, { entry: e, backend: b });
+          const copies = prev?.copies || [];
+          copies.push({ entry: e, backend: b });
+          if (!prev || newerSnapshot(e, prev.entry)) byId.set(e.id, { entry: e, backend: b, copies });
         }
       }
-      return [...byId.values()].sort((a, b) => (b.entry.saved || 0) - (a.entry.saved || 0)).map(({ entry, backend }) => ({ ...entry, store: backend.kind, backend }));
+      return [...byId.values()].sort((a, b) => (b.entry.saved || 0) - (a.entry.saved || 0)).map(({ entry, backend, copies }) => ({ ...entry, store: backend.kind, backend, copies }));
     });
   }
 

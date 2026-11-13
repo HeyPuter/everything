@@ -314,6 +314,7 @@ export class Autosaver {
     const discard = unwanted.length && (await confirmDiscard(unwanted));
     const opened = [];
     const kept = [];
+    const notRemoved = [];
     const damaged = [];
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
@@ -328,14 +329,15 @@ export class Autosaver {
         }
         if (ed) opened.push(ed);
         else {
-          damaged.push(e.name || 'Untitled');
-          await store.remove(e.id);
+          if (await store.remove(e.id, { expected: e }) === false) notRemoved.push(e.name || 'Untitled');
+          else damaged.push(e.name || 'Untitled');
         }
-      } else if (discard) await store.remove(e.id);
+      } else if (discard && await store.remove(e.id, { expected: e }) === false) notRemoved.push(e.name || 'Untitled');
     }
     if (opened.length) this.app.notify(`Recovered ${opened.length} document${opened.length === 1 ? '' : 's'}. Save to keep the changes.`);
     if (damaged.length) this.app.notify(`${damaged.map((n) => `"${n}"`).join(', ')} could not be recovered: the recovery copy is damaged.`, { error: true, timeout: 8000 });
     if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. Check your connection; Vector Studio will offer ${kept.length === 1 ? 'it' : 'them'} again next time it starts.`, { error: true, timeout: 8000 });
+    if (notRemoved.length) this.app.notify(`Recovery data for ${notRemoved.map((n) => `"${n}"`).join(', ')} was kept because it changed or could not be removed. Try again.`, { error: true, timeout: 8000 });
     return opened;
   }
 
