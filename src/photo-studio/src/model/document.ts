@@ -504,6 +504,7 @@ export function cropDocument(doc: PhotoDocument, rect: Rect) {
   }
   mapDocumentGeometry(doc, (px, py) => [px - x, py - y]);
   if (doc.quickMask) doc.quickMask = { ...doc.quickMask, x: doc.quickMask.x - x, y: doc.quickMask.y - y };
+  if (doc.channels) doc.channels = doc.channels.map((c) => ({ ...c, grid: { ...c.grid, x: c.grid.x - x, y: c.grid.y - y } }));
   // Guides that end up outside the canvas are removed.
   if (doc.guides) doc.guides = doc.guides.filter((g) => g.position >= 0 && g.position <= (g.orientation === 'vertical' ? w : h));
   doc.width = w;
