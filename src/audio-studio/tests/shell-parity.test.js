@@ -386,6 +386,38 @@ describe('theme contrast', () => {
       for (const bg of ['--bg-panel', '--bg-panel-alt']) expect(ratio(token(b, '--text-faint'), token(b, bg))).toBeGreaterThanOrEqual(4.5);
     }
   });
+  it('keeps the current editor mode and workspace names readable with every accent', async () => {
+    const fs = await import('node:fs');
+    const { ACCENTS, mixColors, contrastRatio } = await import('../src/ui/appearance.js');
+    const dir = `${import.meta.dirname}/../src/styles`;
+    const tokens = fs.readFileSync(`${dir}/tokens.css`, 'utf8');
+    const shell = fs.readFileSync(`${dir}/shell.css`, 'utf8');
+    const from = (css, sel) => css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+    const rule = (sel) => from(shell, `${sel} {`);
+    const block = (sel) => from(tokens, sel);
+    const token = (b, name) => b.match(new RegExp(`${name}: (#[0-9a-f]{6});`))[1];
+    for (const sel of ['.mode-btn.on', ".workspace-tab[aria-selected='true']"]) {
+      const mix =
+        /color: color-mix\(in srgb, var\(--accent-strong\) (\d+)%, var\(--text-strong\)\);/;
+      const m = rule(sel).match(mix);
+      expect(m, sel).not.toBe(null);
+      const share = Number(m[1]) / 100;
+      for (const theme of ['dark', 'light']) {
+        const b = block(`:root[data-theme-resolved='${theme}']`);
+        for (const accent of ACCENTS) {
+          // As appearance.js derives --accent-strong for each accent.
+          const own =
+            theme === 'light' ? [accent.light, '#000', 0.15] : [accent.dark, '#fff', 0.18];
+          const strong = accent.id === 'blue' ? token(b, '--accent-strong') : mixColors(...own);
+          const text = mixColors(token(b, '--text-strong'), strong, share);
+          for (const bg of ['--bg-active', '--bg-panel-alt']) {
+            const where = `${sel} ${theme} ${accent.id} on ${bg}`;
+            expect(contrastRatio(text, token(b, bg)), where).toBeGreaterThanOrEqual(4.5);
+          }
+        }
+      }
+    }
+  });
 });
 
 describe('popup menu focus', () => {
