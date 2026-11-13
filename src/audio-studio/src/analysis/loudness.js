@@ -87,9 +87,11 @@ export async function measureLoudness(state, onProgress) {
       const n = Math.min(CHUNK, len - at);
       const block = chans.map((c) => c.toArray(at, at + n));
       // Sample peak and power here; the buffers move to the worker next.
+      // NaN and infinite samples count as silence, as the loudness meter treats them.
       for (const x of block) {
         for (let i = 0; i < x.length; i++) {
           const v = x[i];
+          if (!Number.isFinite(v)) continue;
           sq += v * v;
           if (v > peak) peak = v;
           else if (-v > peak) peak = -v;

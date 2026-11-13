@@ -80,6 +80,19 @@ describe('Match Loudness panel', () => {
     expect(doc.state).toBe(edited);
     expect(doc.length).toBe(RATE * 3);
   });
+
+  it('reads total RMS and peak past NaN and infinite samples', async () => {
+    const { measureLoudness } = await import('../src/analysis/loudness.js');
+    const x = tone(RATE * 4, 0.5);
+    x[100] = NaN;
+    x[200] = Infinity;
+    x[300] = -Infinity;
+    const m = await measureLoudness({ sampleRate: RATE, channels: [Channel.fromSamples(x)] });
+    // A 0.5 sine: -6.02 dB peak, -9.03 dB RMS, as the loudness meter and Amplitude Statistics read it.
+    expect(m.peakDb).toBeCloseTo(-6.02, 1);
+    expect(m.rmsDb).toBeCloseTo(-9.03, 1);
+    expect(m.truePeakDb).toBeLessThan(0);
+  });
 });
 
 describe('Match Loudness layout', () => {
