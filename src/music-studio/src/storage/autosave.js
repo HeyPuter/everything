@@ -75,22 +75,23 @@ export class Autosave {
       this.again = true;
       return this.writing;
     }
-    this.writing = (async () => {
+    this.writing = Promise.resolve().then(async () => {
       try {
-        await this.writeDraft();
-        this.lastError = null;
-      } catch (err) {
-        this.lastError = err;
-        console.warn('Music Studio: could not autosave the session.', err);
+        do {
+          this.again = false;
+          try {
+            await this.writeDraft();
+            this.lastError = null;
+          } catch (err) {
+            this.lastError = err;
+            console.warn('Music Studio: could not autosave the session.', err);
+          }
+        } while (this.again);
+      } finally {
+        this.writing = null;
       }
-    })();
-    await this.writing;
-    this.writing = null;
-    if (this.again) {
-      this.again = false;
-      return this.flushDraft();
-    }
-    return undefined;
+    });
+    return this.writing;
   }
 
   scheduleCloud() {
@@ -131,8 +132,12 @@ export class Autosave {
 
   /** Page hidden or closing: write everything that is waiting. */
   async flushAll() {
-    const draft = this.draftTimer !== null || this.again ? this.flushDraft() : this.writing;
-    const cloud = this.cloudTimer !== null ? this.flushCloud() : null;
-    await Promise.all([draft, cloud]);
+    do {
+      const draft = this.draftTimer !== null || this.again ? this.flushDraft() : this.writing;
+      const cloud = this.cloudTimer !== null ? this.flushCloud() : this.cloudWriting;
+      await Promise.all([draft, cloud]);
+      // Completing a save can queue another write (including the saved file's
+      // updated draft). Closing must wait for those writes too.
+    } while (this.draftTimer !== null || this.writing || this.again || this.cloudTimer !== null || this.cloudWriting);
   }
 }
