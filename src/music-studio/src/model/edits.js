@@ -297,6 +297,7 @@ export function setLoop(project, loop) {
 
 export function addAutomation(project, automation) {
   const a = { id: uid(), name: 'Automation', points: [{ t: 0, v: 0.5 }], ...automation };
+  a.id = reserveId(new Set(Object.keys(project.automation)), a.id);
   return { project: { ...project, automation: { ...project.automation, [a.id]: a } }, id: a.id };
 }
 
