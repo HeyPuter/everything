@@ -601,8 +601,9 @@ export class Library extends Emitter {
     const entry = { id, name: lutName(lut, file.name), kind: lut.kind, size: lut.size, added: Date.now() };
     const list = await this._readLuts();
     await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
-    this.luts = [entry, ...list.filter((x) => x.id !== id)];
-    await this.backend.writeJSON('luts/index.json', this.luts);
+    const next = [entry, ...list.filter((x) => x.id !== id)];
+    await this.backend.writeJSON('luts/index.json', next);
+    this.luts = next;
     this.emit('luts', this.luts);
     return { entry, lut };
   }

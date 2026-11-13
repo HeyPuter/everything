@@ -602,6 +602,23 @@ describe('Library media cache', () => {
 describe('Library LUTs', () => {
   const cube = (title) => new File([`TITLE "${title}"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n${title.length % 2} 1 1\n`], `${title}.cube`);
 
+  it('keeps the saved LUT list when writing an import fails', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend);
+    await lib.importLut(cube('Warm'));
+    const write = backend.writeJSON;
+    backend.writeJSON = async (path, value) => {
+      if (path === 'luts/index.json') throw new Error('offline');
+      return write(path, value);
+    };
+    await expect(lib.importLut(cube('Cold'))).rejects.toThrow('offline');
+    expect((await lib.listLuts()).map((x) => x.name)).toEqual(['Warm']);
+    expect(await lib.listLuts()).toEqual(await new Library(backend).listLuts());
+    backend.writeJSON = write;
+    await lib.importLut(cube('Cold'));
+    expect((await lib.listLuts()).map((x) => x.name)).toEqual(['Cold', 'Warm']);
+  });
+
   it('keeps the LUT list when it could not be read before an import', async () => {
     const backend = memoryBackend();
     await new Library(backend).importLut(cube('Warm'));
