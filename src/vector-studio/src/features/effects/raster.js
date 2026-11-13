@@ -10,6 +10,7 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { watchEditingContext } from '../../ui/dialogs/editing-context.js';
 import { registerContentEffect } from '../../render/effects.js';
 import { registerEffectType } from '../paint/effects-model.js';
 import { selectionBounds, inflate, visualBounds } from '../../model/geometry.js';
@@ -370,23 +371,7 @@ export async function rasterizeObjectDialog(app) {
   const last = app.prefs?.get?.('rasterizeObject');
   const start = { ...docRasterSettings(ed.doc), clip: false, ...(last || {}) };
   const ctl = rasterControls(start, ed.doc.root.units || 'pt', { clip: { value: start.clip } });
-  const controller = new AbortController();
-  const selection = [...ed.selection], isolation = ed.isolation;
-  let closeDialog = null;
-  const check = () => {
-    if (controller.signal.aborted) return false;
-    if (app.editor === ed && app.editors.includes(ed) && !ed.doc.readOnly &&
-        (!app.home || app.home.hidden) && ed.isolation === isolation &&
-        ed.selection.size === selection.length && selection.every((id) => ed.selection.has(id)) &&
-        ids.every((id) => ed.doc.has(id) && !ed.doc.isLocked(id) && !ed.doc.isHidden(id))) return true;
-    controller.abort();
-    closeDialog?.(null);
-    return false;
-  };
-  const offs = ['active-editor', 'closed', 'show-home'].map((event) => app.on(event, check));
-  for (const event of ['selection', 'isolation']) offs.push(ed.on(event, check));
-  offs.push(ed.on('doc-change', (event) => { if (event.commit) check(); }));
-  if (app.collab) offs.push(app.collab.on('role', check));
+  const scope = watchEditingContext(app, ed, ids);
   try {
     const res = await openDialog({
       title: 'Rasterize',
@@ -394,19 +379,18 @@ export async function rasterizeObjectDialog(app) {
       body: h('div.fx-body', ...ctl.els),
       buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
       initialFocus: ctl.focus,
-      onOpen: ({ close }) => { closeDialog = close; if (!check()) close(null); },
+      onOpen: scope.onOpen,
     });
-    closeDialog = null;
-    if (!res || !check()) return false;
+    if (!res || !scope.check()) return false;
     app.prefs?.set?.('rasterizeObject', res);
-    const id = await rasterizeObjects(ed, ids, { ...res, signal: controller.signal });
-    if (!id && !controller.signal.aborted) app.notify('Rasterize was canceled because the artwork changed.');
+    const id = await rasterizeObjects(ed, ids, { ...res, signal: scope.signal });
+    if (!id && !scope.signal.aborted) app.notify('Rasterize was canceled because the artwork changed.');
     return Boolean(id);
   } catch (err) {
     app.notify(err?.message || 'The artwork could not be rasterized.', { error: true });
     return false;
   } finally {
-    for (const off of offs) off();
+    scope.dispose();
   }
 }
 

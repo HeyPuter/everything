@@ -13,6 +13,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { watchEditingContext } from '../../ui/dialogs/editing-context.js';
 import { sliderField, checkField, numberRow } from '../effects/dialog-kit.js';
 import { flattenSelection } from '../effects/flatten.js';
 import { collectTextOutlines } from '../io/outlines.js';
@@ -150,25 +151,29 @@ export async function flattenTransparencyDialog(app) {
     }
     picker.sync(ctl.read());
   } }, 'Save Preset…');
-  const res = await openDialog({
-    title: 'Flatten Transparency',
-    className: 'fx-dialog pp-dialog',
-    body: h('div.fx-body', h('div.fx-row', h('label.fx-label', 'Preset'), h('div.pp-inline', picker.el, save)), ctl.el, h('p.fx-note', 'Transparent artwork becomes opaque shapes that look the same on white. Where colors cannot be reproduced as shapes, an image of the artwork fills in.')),
-    initialFocus: () => picker.el,
-    buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
-  });
-  if (!res) return false;
-  app.prefs?.set?.('flattenTransparency', res);
-  let r;
+  const scope = watchEditingContext(app, ed);
   try {
-    r = await flattenSelection(ed, await flattenOptions(app, ed, res));
+    const res = await openDialog({
+      title: 'Flatten Transparency',
+      className: 'fx-dialog pp-dialog',
+      body: h('div.fx-body', h('div.fx-row', h('label.fx-label', 'Preset'), h('div.pp-inline', picker.el, save)), ctl.el, h('p.fx-note', 'Transparent artwork becomes opaque shapes that look the same on white. Where colors cannot be reproduced as shapes, an image of the artwork fills in.')),
+      initialFocus: () => picker.el,
+      buttons: [{ label: 'Cancel', value: null }, { label: 'OK', primary: true, value: () => ctl.read() }],
+      onOpen: scope.onOpen,
+    });
+    if (!res || !scope.check()) return false;
+    app.prefs?.set?.('flattenTransparency', res);
+    const opts = await flattenOptions(app, ed, res);
+    const r = await flattenSelection(ed, { ...opts, signal: scope.signal });
+    if (r.error) {
+      if (!scope.signal.aborted) app.notify(r.error);
+      return false;
+    }
+    return true;
   } catch (err) {
     app.notify(err?.message || 'The artwork could not be flattened.', { error: true });
     return false;
+  } finally {
+    scope.dispose();
   }
-  if (r.error) {
-    app.notify(r.error);
-    return false;
-  }
-  return true;
 }
