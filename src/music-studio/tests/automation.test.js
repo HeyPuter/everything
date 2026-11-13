@@ -5,6 +5,7 @@ import { resolveTarget, listTargets, sameTarget, MIXER_PARAMS } from '../src/aut
 import { demoProject } from '../src/model/demo.js';
 import { PPQ } from '../src/model/time.js';
 import { automationValue } from '../src/engine/sequencer.js';
+import { parseProject, serializeProject } from '../src/model/serialize.js';
 
 const pts = [
   { t: 0, v: 0 },
@@ -105,6 +106,13 @@ describe('automation points', () => {
 
 describe('automation targets', () => {
   const p = demoProject();
+  it.each(['constructor', 'toString', '__proto__'])('ignores inherited parameter name %s in a loaded automation target', (param) => {
+    const data = JSON.parse(serializeProject(p));
+    data.automation.invalid = { id: 'invalid', target: { kind: 'channel', id: p.channels[0].id, param }, points: [{ t: 0, v: 0.5 }] };
+    const loaded = parseProject(data);
+    expect(resolveTarget(loaded, loaded.automation.invalid.target)).toBeNull();
+    expect(resolveTarget(loaded, { kind: 'mixer', track: 0, param })).toBeNull();
+  });
   it('resolves channel, instrument, mixer and effect targets', () => {
     const bass = p.channels.find((c) => c.name === 'Bass');
     const vol = resolveTarget(p, { kind: 'channel', id: bass.id, param: 'volume' });
