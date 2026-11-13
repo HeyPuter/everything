@@ -296,3 +296,18 @@ it('keeps Add Marker usable across a tempo edit', async () => {
   store.undo();
   expect(store.project).toBe(before);
 });
+
+it.each([false, true])('discards a canceled track resize with Alt=%s', (alt) => {
+  const { store, pointer, body } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  const { grip, send } = resizePointer(body);
+  send('pointerdown');
+  send('pointermove', 20, alt);
+  expect(store.project.tracks[0].height).toBe(76);
+  send('pointercancel', 20, alt);
+  expect(store.project).toBe(original);
+  expect(store.canUndo).toBe(false);
+  expect(store.dirty).toBe(false);
+  expect(grip.classList.contains('dragging')).toBe(false);
+});

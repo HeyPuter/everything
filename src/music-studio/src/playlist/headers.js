@@ -107,17 +107,18 @@ export function createHeaders(V) {
         grip.classList.remove('dragging');
         grip.removeEventListener('pointermove', move);
         grip.removeEventListener('pointerup', up);
-        grip.removeEventListener('pointercancel', up);
+        grip.removeEventListener('pointercancel', cancel);
         if (store.gesture === gesture) {
           if (commit) store.commit();
           else store.cancel();
         }
       };
       const up = () => finish(true);
+      const cancel = () => finish(false);
       activeResize = { current, finish };
       grip.addEventListener('pointermove', move);
       grip.addEventListener('pointerup', up);
-      grip.addEventListener('pointercancel', up);
+      grip.addEventListener('pointercancel', cancel);
     });
     return { li, strip, num, label, name, mute, solo, track: null, selected: null };
   }
