@@ -686,6 +686,7 @@ export class ReviewPage {
     if (this._rvfc && this.video?.cancelVideoFrameCallback) this.video.cancelVideoFrameCallback(this._rvfc);
     this.video?.pause?.();
     this.video?.removeAttribute('src');
+    this.video?.load();
     this.session?.dispose();
   }
 }

@@ -460,6 +460,16 @@ describe('review page (reviewer flow)', () => {
     expect(link).toHaveBeenCalledTimes(1);
   });
 
+  it('unloads the review video once on disposal', async () => {
+    const { page } = await opened();
+    await until(() => page.video.getAttribute('src'));
+    const load = vi.spyOn(page.video, 'load');
+    page.dispose();page.dispose();
+    expect(page.video.getAttribute('src')).toBe(null);
+    expect(page.video.paused).toBe(true);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it('joins with the invite, drops the token from the address, and shows the review', async () => {
     const { env, page, root, rid } = await opened();
     expect(location.hash).toBe(cleanReviewHash(rid, env.server));
