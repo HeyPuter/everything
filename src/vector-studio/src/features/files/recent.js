@@ -32,6 +32,8 @@ export function entryKey(e) {
 
 export class RecentFiles {
   #validating = new Map();
+  #thumbJobs = new Map();
+  #thumbLoads = new Map();
 
   constructor(prefs, { cache = null, max = RECENT_MAX, now = () => Date.now(), staleAfter = 5 * 60 * 1000 } = {}) {
     this.prefs = prefs;
@@ -67,8 +69,10 @@ export class RecentFiles {
     const dropped = list.slice(this.limit);
     this.#store(list);
     this.checked.set(key, this.now());
-    if (thumb) await this.setThumb(entry, thumb);
+    // Schedule evictions now, before another entry's write can delay cleanup
+    // until after an evicted file has been reopened with a new thumbnail.
     for (const d of dropped) this.#dropThumb(d);
+    if (thumb) await this.setThumb(entry, thumb);
     return entry;
   }
 
@@ -94,38 +98,65 @@ export class RecentFiles {
     return `thumbs/${hashKey(entryKey(entry))}.json`;
   }
 
+  #cacheJob(key, run) {
+    const job = (this.#thumbJobs.get(key) || Promise.resolve()).then(run, run);
+    this.#thumbJobs.set(key, job);
+    return job.finally(() => { if (this.#thumbJobs.get(key) === job) this.#thumbJobs.delete(key); });
+  }
+
+  #invalidateThumbRead(key) {
+    const load = this.#thumbLoads.get(key);
+    if (load) load.stale = true;
+    this.#thumbLoads.delete(key);
+  }
+
   async setThumb(entry, dataUrl) {
-    const key = entryKey(entry);
+    const key = entryKey(entry), path = this.thumbPath(entry);
+    this.#invalidateThumbRead(key);
     this.thumbs.set(key, dataUrl);
-    try {
-      await this.cache?.writeJSON(this.thumbPath(entry), { key, thumb: dataUrl });
-    } catch {
-      // The cache is best effort.
-    }
+    await this.#cacheJob(key, async () => {
+      try { await this.cache?.writeJSON(path, { key, thumb: dataUrl }); }
+      catch { /* The cache is best effort. */ }
+    });
   }
 
   async thumb(entry) {
     const key = entryKey(entry);
     if (this.thumbs.has(key)) return this.thumbs.get(key);
-    try {
-      const v = await this.cache?.readJSON(this.thumbPath(entry));
-      if (v && v.key === key && typeof v.thumb === 'string') {
-        this.thumbs.set(key, v.thumb);
-        return v.thumb;
+    if (this.#thumbLoads.has(key)) return this.#thumbLoads.get(key).promise;
+    const path = this.thumbPath(entry), load = { stale: false, promise: null };
+    this.#thumbLoads.set(key, load);
+    const pending = this.#thumbJobs.get(key);
+    load.promise = (async () => {
+      // Read after preceding mutations, but never make a newer write wait for
+      // an old read. Invalidation below prevents that read from returning stale data.
+      await pending?.catch(() => {});
+      if (load.stale) return this.thumbs.get(key) ?? null;
+      try {
+        const v = await this.cache?.readJSON(path);
+        // A newer in-memory preview or removal owns the result of an old read.
+        if (load.stale) return this.thumbs.get(key) ?? null;
+        if (v && v.key === key && typeof v.thumb === 'string') {
+          this.thumbs.set(key, v.thumb);
+          return v.thumb;
+        }
+      } catch {
+        if (load.stale) return this.thumbs.get(key) ?? null;
+        // Missing or unreadable cache entry.
       }
-    } catch {
-      // Missing or unreadable cache entry.
-    }
-    return null;
+      return null;
+    })().finally(() => { if (this.#thumbLoads.get(key) === load) this.#thumbLoads.delete(key); });
+    return load.promise;
   }
 
   async #dropThumb(entry) {
-    this.thumbs.delete(entryKey(entry));
-    try {
-      await this.cache?.remove(this.thumbPath(entry));
-    } catch {
-      // Best effort.
-    }
+    const key = entryKey(entry), path = this.thumbPath(entry);
+    this.#invalidateThumbRead(key);
+    this.thumbs.delete(key);
+    await this.#cacheJob(key, async () => {
+      try { await this.cache?.remove(path); }
+      catch { /* Best effort. */ }
+    });
   }
 
   /**
