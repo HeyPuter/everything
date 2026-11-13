@@ -45,6 +45,9 @@ export class ColorPanel extends Panel {
       MODE_IDS.map((m) => h('option', { value: m, selected: m === this.mode }, MODES[m].label)),
     );
     this.hex = h('input.cp-hexfield', { type: 'text', spellcheck: false, autocomplete: 'off', maxlength: 7, 'aria-label': 'Hexadecimal color' });
+    this.hexDisplayed = '';
+    this.hexEdited = false;
+    this.hex.addEventListener('input', () => { this.hexEdited = true; });
     this.hex.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
@@ -236,19 +239,43 @@ export class ColorPanel extends Panel {
     setFocusedColor(ed, hex, this.coalesce);
   }
 
+  hasHexDraft() {
+    return this.hexEdited || this.hex.value !== this.hexDisplayed;
+  }
+
+  renderHex() {
+    const field = this.hex;
+    const text = this.mixed ? '' : (this.current || '#000000').slice(1).toUpperCase();
+    const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = field;
+    const all = start === 0 && end === field.value.length;
+    if (text !== field.value) {
+      field.value = text;
+      if (document.activeElement === field) field.setSelectionRange(all ? 0 : start, all ? text.length : end, direction);
+    }
+    this.hexDisplayed = text;
+    this.hexEdited = false;
+  }
+
   commitHex() {
+    if (!this.hasHexDraft()) {
+      this.renderHex();
+      return;
+    }
     const v = this.hex.value.trim();
     const s = v.startsWith('#') ? v : `#${v}`;
     if (!isHex(s)) {
       // A mixed selection goes back to the empty field with its Mixed placeholder.
-      this.hex.value = this.mixed ? '' : (this.current || '#000000').slice(1).toUpperCase();
+      this.renderHex();
       return;
     }
     const hex = normalizeHex(s);
-    if (hex === this.current) return;
-    this.coalesce = gestureKey('color');
-    this.apply(hex);
-    this.sliders.setColor(hex);
+    if (hex !== this.current) {
+      this.coalesce = gestureKey('color');
+      this.apply(hex);
+      this.sliders.setColor(hex);
+    }
+    this.hexDisplayed = this.hex.value;
+    this.hexEdited = false;
   }
 
   update() {
@@ -265,7 +292,9 @@ export class ColorPanel extends Panel {
     this.mixed = mixed;
     this.sliders.setColor(color);
     this.el.classList.toggle('is-none', none);
-    if (document.activeElement !== this.hex) this.hex.value = mixed ? '' : color.slice(1).toUpperCase();
+    // Focus alone is not a draft: keep untouched fields current so blur
+    // cannot restore an obsolete color after another edit or remote update.
+    if (document.activeElement !== this.hex || !this.hasHexDraft()) this.renderHex();
     this.hex.placeholder = mixed ? 'Mixed' : '';
     this.webWarn.hidden = isWebSafe(color) || mixed;
     // CMYK work: warn about colors the document's CMYK profile cannot print.
