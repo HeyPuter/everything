@@ -78,7 +78,7 @@ class ChannelEditor {
     this.actions = channelActions(app);
     this.inst = [];
     this.chan = [];
-    this.held = new Set();
+    this.held = new Map(); // pitch -> current audition request
     this.win = null;
     this.build();
     this.offs = [
@@ -638,12 +638,13 @@ class ChannelEditor {
 
   noteOn(key, vel) {
     const engine = this.app.engine;
-    this.held.add(key);
+    const request = {};
+    this.held.set(key, request);
     if (engine.ready) engine.noteOn(this.id, key, vel);
     else
       Promise.resolve(engine.start())
         .then(() => {
-          if (this.held.has(key)) engine.noteOn(this.id, key, vel);
+          if (this.held.get(key) === request) engine.noteOn(this.id, key, vel);
         })
         .catch((err) => this.app.reportError(err));
   }
