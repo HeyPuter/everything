@@ -53,3 +53,26 @@ describe('selection panel', () => {
     expect(doc.selection).toEqual({ start: 10000, end: 12000 });
   });
 });
+
+describe('selection panel field being typed in', () => {
+  it('shows the value applied after Enter, and the current value again after Escape', () => {
+    const doc = fakeDoc();
+    // A 2 s file: the selection is limited to it.
+    doc.setSelection = function (start, end) {
+      const [a, b] = [Math.min(start, end), Math.max(start, end)];
+      this.selection = { start: Math.max(0, a), end: Math.min(2000, b) };
+    };
+    const panel = selectionPanel(fakeApp(doc));
+    document.body.replaceChildren(panel.el);
+    const end = panel.el.querySelectorAll('input')[1];
+    end.focus();
+    end.value = '99';
+    end.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(doc.selection.end).toBe(2000);
+    expect(end.value).toBe('0:02.000');
+    end.value = '1';
+    end.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(end.value).toBe('0:02.000');
+    expect(document.activeElement).toBe(end);
+  });
+});
