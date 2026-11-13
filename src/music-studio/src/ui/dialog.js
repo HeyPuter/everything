@@ -12,14 +12,17 @@ let openCount = 0;
  * value (Escape and the close button resolve null). `onSubmit(value)` may
  * return false to keep the dialog open (e.g. validation failed). Enter
  * presses the primary button except inside an element with data-own-enter.
+ * Optional `store` cancels on project replacement. Editing callers also check
+ * store.loadVersion after awaiting, covering a load just after confirmation.
  */
-export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus }) {
+export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus, store }) {
   return new Promise((resolve) => {
     const previous = document.activeElement;
     const titleId = `dlg-title-${++openCount}`;
     const dialog = h(`div.dialog${wide ? '.wide' : ''}${className ? `.${className}` : ''}`, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId });
     const backdrop = h('div.dialog-backdrop', dialog);
     let done = false;
+    let offLoad;
     const close = async (value) => {
       if (done) return;
       if (value !== null && value !== undefined && onSubmit) {
@@ -27,6 +30,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
         if (done || ok === false) return;
       }
       done = true;
+      offLoad?.();
       backdrop.remove();
       document.removeEventListener('keydown', keys, true);
       if (previous && previous.isConnected) previous.focus({ preventScroll: true });
@@ -86,6 +90,10 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       if (e.target === backdrop) close(null);
     });
     document.body.append(backdrop);
+    // Project editing dialogs belong to the document that opened them.
+    offLoad = store?.on('change', (_project, _previous, meta) => {
+      if (meta?.source === 'load') close(null);
+    });
     const candidates = [
       ...(initialFocus ? dialog.querySelectorAll(initialFocus) : []),
       ...dialog.querySelectorAll('input, select, textarea'),
@@ -102,8 +110,9 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
   });
 }
 
-export async function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false }) {
+export async function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false, store }) {
   const r = await openDialog({
+    store,
     title,
     body: h('p', { style: { margin: 0, maxWidth: '420px' } }, message),
     buttons: [
@@ -127,10 +136,11 @@ export async function saveChangesDialog(name) {
   });
 }
 
-export async function promptDialog({ title, label, value = '', confirm = 'OK', validate }) {
+export async function promptDialog({ title, label, value = '', confirm = 'OK', validate, store }) {
   const input = h('input.input', { type: 'text', value, 'aria-label': label, style: { width: '100%' } });
   const error = h('div.faint', { role: 'alert', style: { minHeight: '1em', color: 'var(--danger)' } });
   const r = await openDialog({
+    store,
     title,
     body: h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '300px' } }, h('label', label), input, error),
     buttons: [

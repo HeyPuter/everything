@@ -17,6 +17,12 @@ const LIMIT = 300;
 
 export class Store extends Emitter {
   #dirty = false;
+  #loadVersion = 0;
+
+  /** Changes only when the document is replaced, including reopening the same project. */
+  get loadVersion() {
+    return this.#loadVersion;
+  }
 
   constructor(project = createProject()) {
     super();
@@ -44,6 +50,7 @@ export class Store extends Emitter {
 
   /** Replaces the whole document (open, new) and clears the history. */
   load(project) {
+    this.#loadVersion++;
     const prev = this.project;
     this.project = project;
     this.undoStack = [];
