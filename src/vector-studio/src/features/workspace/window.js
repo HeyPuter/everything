@@ -511,7 +511,6 @@ export function installWindow(app) {
   const close = app.closeDocument.bind(app);
   app.closeDocument = (editor = app.editor, opts = {}) => {
     const shared = editor && app.editors.some((e) => e !== editor && e.doc === editor.doc);
-    app.floating?.delete(editor);
     return close(editor, { ...opts, force: opts.force || shared });
   };
 
@@ -547,7 +546,10 @@ export function installWindow(app) {
     if (ed && !app.floating?.has(ed)) app.lastDocked = ed;
     layoutViews(app);
   });
-  app.on('closed', () => layoutViews(app));
+  app.on('closed', (ed) => {
+    app.floating?.delete(ed);
+    layoutViews(app);
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && app.screenMode === 'full' && !document.querySelector('dialog[open]')) setScreenMode(app, 'normal');
   });
