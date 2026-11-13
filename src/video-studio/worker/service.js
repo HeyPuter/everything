@@ -259,11 +259,21 @@ export class ReviewService {
     const title = cleanTitle(input.title);
     let rid = await this.kv.get(`vsr:project:${input.projectId}`);
     let meta = rid ? await this.kv.get(`vsr:r:${rid}`) : null;
+    if (!rid) {
+      const candidate = randomId('r');
+      // Select one review before initializing it. A competing first publish
+      // or retry can finish initialization if this request stops afterward.
+      if (await this.kv.set(`vsr:project:${input.projectId}`, candidate, { onlyIfAbsent: true })) rid = candidate;
+      else {
+        rid = await this.kv.get(`vsr:project:${input.projectId}`);
+        if (!rid) fail(503, 'This review is not ready. Try sharing again.');
+        meta = await this.kv.get(`vsr:r:${rid}`);
+      }
+    }
     if (!meta) {
-      rid = randomId('r');
-      meta = { id: rid, title, projectId: input.projectId, owner: user.uuid, created: now, updated: now };
-      await this.kv.set(`vsr:r:${rid}`, meta);
-      await this.kv.set(`vsr:project:${input.projectId}`, rid);
+      const initial = { id: rid, title, projectId: input.projectId, owner: user.uuid, created: now, updated: now };
+      meta = await this.kv.set(`vsr:r:${rid}`, initial, { onlyIfAbsent: true }) ? initial : await this.kv.get(`vsr:r:${rid}`);
+      if (!meta) fail(503, 'This review is not ready. Try sharing again.');
     }
     const count = (await this.kv.get(`vsr:r:${rid}:vseq`)) || 0;
     const full = () => fail(409, `A review can have at most ${LIMITS.versions} versions. Share as a new project to start over.`);
