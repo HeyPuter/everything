@@ -239,16 +239,16 @@ export class WindowManager {
     if (!this.multi) return;
     const s = this.e.session;
     if (doc.width !== s.doc.width || doc.height !== s.doc.height) return;
-    this.capture(s, canvas);
+    this.capture(s, canvas, doc);
     if (this.visible.some((v) => v.session === s && v !== this.e.activeView)) this.queueDraw();
   }
-  private capture(s: DocumentSession, source: HTMLCanvasElement) {
+  private capture(s: DocumentSession, source: HTMLCanvasElement, doc: PhotoDocument, fonts = measurementGeneration()) {
     let snap = this.snapshots.get(s);
     const k = Math.min(1, SNAPSHOT_MAX / Math.max(source.width, source.height));
     const w = Math.max(1, Math.round(source.width * k)),
       h = Math.max(1, Math.round(source.height * k));
     if (!snap) {
-      snap = { canvas: document.createElement('canvas'), doc: s.doc };
+      snap = { canvas: document.createElement('canvas'), doc };
       this.snapshots.set(s, snap);
     }
     if (snap.canvas.width !== w || snap.canvas.height !== h) {
@@ -258,8 +258,8 @@ export class WindowManager {
     const c = snap.canvas.getContext('2d')!;
     c.clearRect(0, 0, w, h);
     c.drawImage(source, 0, 0, w, h);
-    snap.doc = s.doc;
-    snap.fonts = allLayers(s.doc.layers).some((l) => !!l.textData) ? measurementGeneration() : undefined;
+    snap.doc = doc;
+    snap.fonts = allLayers(doc.layers).some((l) => !!l.textData) ? fonts : undefined;
   }
   /** Render documents of visible inactive views that have no current frame. */
   async ensureSnapshots() {
@@ -267,12 +267,21 @@ export class WindowManager {
     if (this.capturing) return this.capturing;
     this.capturing = (async () => {
       try {
-        const stale = [...new Set(this.visible.map((v) => v.session))].filter((s) => {
-          const snap = this.snapshots.get(s);
-          return s !== this.e.session && s.hasDocument && (snap?.doc !== s.doc || (snap.fonts !== undefined && snap.fonts !== measurementGeneration()));
-        });
-        for (const s of stale) await this.e.renderer.drawFrame(s.doc, s.assets, (canvas) => this.capture(s, canvas));
-        if (stale.length) await this.e.render(this.e.displayDoc);
+        // A document or font can change while an earlier frame is rendering.
+        // Keep the revisions actually rendered, then catch up before completing
+        // refresh requests that arrived during the same pass.
+        while (true) {
+          const stale = [...new Set(this.visible.map((v) => v.session))].filter((s) => {
+            const snap = this.snapshots.get(s);
+            return s !== this.e.session && s.hasDocument && (snap?.doc !== s.doc || (snap.fonts !== undefined && snap.fonts !== measurementGeneration()));
+          });
+          if (!stale.length) break;
+          for (const s of stale) {
+            const doc = s.doc, fonts = measurementGeneration();
+            await this.e.renderer.drawFrame(doc, s.assets, (canvas) => this.capture(s, canvas, doc, fonts));
+          }
+          await this.e.render(this.e.displayDoc);
+        }
       } catch (error) {
         console.error(error);
       }
