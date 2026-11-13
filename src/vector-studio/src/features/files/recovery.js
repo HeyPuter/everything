@@ -43,14 +43,14 @@ export class RecoveryStore {
   }
 
   /** Save a recovery copy. Returns the backend kind it landed in. */
-  put(id, { name, file = null, data, revision = 0, session = null, saved = Date.now() }) {
+  put(id, { name, file = null, data, revision = 0, commentsRevision = 0, session = null, saved = Date.now() }) {
     return this.#run(async () => {
       let lastErr = null;
       for (const b of this.backends) {
         try {
           await b.writeBlob(`${DIR}/${id}.vstudio`, data instanceof Blob ? data : new Blob([data]));
           const index = (await this.#readIndex(b, { strict: true })).filter((e) => e.id !== id);
-          index.push({ id, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null } : null, saved, revision, session });
+          index.push({ id, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null } : null, saved, revision, commentsRevision, session });
           await b.writeJSON(INDEX, index);
           // A stale copy in a lower-priority store would resurrect old work.
           for (const other of this.backends) if (other !== b) await this.#removeFrom(other, id).catch(() => {});
