@@ -141,8 +141,12 @@ export function createStrip(ctx, index) {
     }
     const send = s.send;
     const sendKey = send ? `${send.mode}|${send.from}|${send.color}` : '';
-    if (sendKey !== last.sendKey) {
+    const from = send ? ctl.label(send.from) : '';
+    const to = send ? ctl.label(index) : '';
+    if (sendKey !== last.sendKey || from !== last.sendFromLabel || to !== last.sendToLabel) {
       last.sendKey = sendKey;
+      last.sendFromLabel = from;
+      last.sendToLabel = to;
       sendRow.dataset.mode = send ? send.mode : 'none';
       sendRow.style.setProperty('--send-color', send?.color || 'var(--accent)');
       sendBtn.hidden = !send || send.mode === 'self';
@@ -150,8 +154,6 @@ export function createStrip(ctx, index) {
       sendNote.hidden = !send || send.mode !== 'self';
       sendNote.textContent = send?.mode === 'self' ? 'Source' : '';
       if (send && send.mode !== 'self') {
-        const from = ctl.label(send.from);
-        const to = ctl.label(index);
         sendBtn.setAttribute('aria-pressed', String(send.mode === 'on'));
         sendBtn.setAttribute('aria-label', `Send ${from} to ${to}`);
         sendBtn.setAttribute('aria-disabled', send.mode === 'blocked' ? 'true' : 'false');

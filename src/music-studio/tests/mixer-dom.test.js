@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { App } from '../src/app.js';
 import * as mixer from '../src/panels/mixer.js';
 import { demoProject } from '../src/model/demo.js';
+import * as E from '../src/model/edits.js';
 import { getWindow, closeWindows } from '../src/ui/windows.js';
 
 // jsdom has no canvas: a 2D context whose methods do nothing.
@@ -45,6 +46,21 @@ describe('mixer panel', () => {
     expect(strips[0].classList.contains('master')).toBe(true);
     expect(strips[1].querySelector('.mx-name').textContent).toBe('Kick');
     expect(strips[3].querySelector('.mx-in').getAttribute('aria-label')).toBe('Inputs: Closed Hat, Open Hat');
+  });
+
+  it('updates send labels when either endpoint is renamed and after undo', () => {
+    const { store, panel, ctl } = env;
+    ctl.select(1);
+    const send = panel.strips[3].el.querySelector('.mx-send-btn');
+    expect(send.getAttribute('aria-label')).toBe('Send 1 Kick to 3 Hats');
+    store.apply('Rename destination', (p) => E.updateMixerTrack(p, 3, { name: 'Room' }));
+    expect(send.getAttribute('aria-label')).toBe('Send 1 Kick to 3 Room');
+    store.apply('Rename source', (p) => E.updateMixerTrack(p, 1, { name: 'Drums' }));
+    expect(send.getAttribute('aria-label')).toBe('Send 1 Drums to 3 Room');
+    expect(send.title).toBe('Click to send 1 Drums here');
+    store.undo();
+    store.undo();
+    expect(send.getAttribute('aria-label')).toBe('Send 1 Kick to 3 Hats');
   });
 
   it('fader keys change the volume in the store as one undo step', () => {
