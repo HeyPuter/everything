@@ -76,11 +76,13 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
     prefs.set('launched', true);
   }
 
+  let closing = false;
+  let exiting = false;
   const autosave = new Autosave({
     store,
     writeDraft: async () => lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, (await tab).key),
-    writeCloud: () => files.save({ auto: true }),
-    cloudEnabled: () => Boolean(app.file?.path) && cloudAutosaveOn(prefs) && puter.isSignedIn(),
+    writeCloud: () => (closing || exiting ? false : files.save({ auto: true })),
+    cloudEnabled: () => !closing && !exiting && Boolean(app.file?.path) && cloudAutosaveOn(prefs) && puter.isSignedIn(),
   });
   app.autosave = autosave;
   app.on('file', () => autosave.scheduleDraft());
@@ -184,9 +186,8 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
   });
   // Inside the Puter desktop the close button asks about unsaved changes
   // (beforeunload never fires there), then writes what is pending and exits.
-  let closing = false;
   puter.onWindowClose(async () => {
-    if (closing) return;
+    if (closing || exiting) return;
     closing = true;
     try {
       // Closing ends a drag: Save must include the value currently on screen.
@@ -203,9 +204,11 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
         }
       }
       await autosave.flushAll().catch(() => {});
+      exiting = true;
       puter.exitApp();
     } finally {
       closing = false;
+      if (!exiting && store.dirty) autosave.scheduleCloud();
     }
   });
 
