@@ -98,7 +98,11 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
       openChild(entry, byKeyboard);
       return;
     }
+    const root = stack[0];
     closeMenus();
+    // Dialogs opened by the command must capture a connected return target,
+    // rather than the menu item that was just removed.
+    root?.restoreFocus();
     entry.it.run?.();
   }
 
@@ -206,6 +210,13 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
     owner: null,
     onArrow: null,
     done,
+    restoreFocus() {
+      for (const target of [anchor, previous]) {
+        if (!target?.isConnected) continue;
+        target.focus?.({ preventScroll: true });
+        if (document.activeElement === target) break;
+      }
+    },
     close(byKeyboard) {
       if (closed) return;
       closed = true;
@@ -217,7 +228,7 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
         document.removeEventListener('pointerdown', outside, true);
         window.removeEventListener('blur', blur);
         window.removeEventListener('resize', blur);
-        if (byKeyboard && previous?.isConnected) previous.focus({ preventScroll: true });
+        if (byKeyboard) api.restoreFocus();
       }
       onClose?.(byKeyboard);
       resolveDone();
