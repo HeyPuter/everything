@@ -31,6 +31,8 @@ export function entryKey(e) {
 }
 
 export class RecentFiles {
+  #validating = new Map();
+
   constructor(prefs, { cache = null, max = RECENT_MAX, now = () => Date.now(), staleAfter = 5 * 60 * 1000 } = {}) {
     this.prefs = prefs;
     this.cache = cache;
@@ -134,25 +136,41 @@ export class RecentFiles {
   async validate(stat, { force = false } = {}) {
     const removed = [];
     const now = this.now();
-    const jobs = this.list()
+    const requests = this.list()
       .filter((e) => {
         if (e.kind !== 'puter') return false;
         const last = this.checked.get(entryKey(e));
         return force || last == null || now - last >= this.staleAfter;
       })
-      .map(async (e) => {
+      .map((entry) => ({ entry, key: entryKey(entry), token: Symbol() }));
+    for (const request of requests) this.#validating.set(request.key, request.token);
+    // Reopening/renaming replaces the entry even when timestamps tie. A newer
+    // validation also supersedes older requests against the unchanged entry.
+    const current = ({ entry, key, token }) => this.#validating.get(key) === token && entryKey(entry) === key && this.list().includes(entry);
+    try {
+      const missing = await Promise.all(requests.map(async (request) => {
         try {
-          const item = await stat(e.path);
-          if (item && (item.is_dir || item.isDir)) throw Object.assign(new Error('not found'), { code: 'not_found' });
-          this.checked.set(entryKey(e), now);
+          const item = await stat(request.entry.path);
+          if (!current(request)) return false;
+          if (item && (item.is_dir || item.isDir)) return true;
+          this.checked.set(request.key, this.now());
         } catch (err) {
-          if (isMissing(err)) removed.push(e);
+          if (!current(request)) return false;
+          if (isMissing(err)) return true;
           // Could not tell (offline): check again next time.
-          else this.checked.delete(entryKey(e));
+          this.checked.delete(request.key);
         }
-      });
-    await Promise.all(jobs);
-    for (const e of removed) await this.remove(e);
-    return removed;
+        return false;
+      }));
+      for (let i = 0; i < requests.length; i++) {
+        // Another file check or thumbnail cleanup may have delayed this removal.
+        if (!missing[i] || !current(requests[i])) continue;
+        await this.remove(requests[i].entry);
+        removed.push(requests[i].entry);
+      }
+      return removed;
+    } finally {
+      for (const { key, token } of requests) if (this.#validating.get(key) === token) this.#validating.delete(key);
+    }
   }
 }
