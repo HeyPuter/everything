@@ -386,31 +386,39 @@ export function installTaskbar(app) {
     settleTimer = setTimeout(schedule, 180);
   };
 
+  let movePointer = null;
   function startMove(e) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || movePointer !== null) return;
     e.preventDefault();
     const x0 = e.clientX;
     const y0 = e.clientY;
     const left = bar.offsetLeft;
     const top = bar.offsetTop;
     try {
-      grip.setPointerCapture(e.pointerId);
+      grip.setPointerCapture?.(e.pointerId);
     } catch {
-      // Synthetic or already-released pointers cannot be captured.
+      // A pointer that has already ended must not leave a drag listening.
+      return;
     }
+    movePointer = e.pointerId;
     const move = (ev) => {
+      if (ev.pointerId !== movePointer) return;
       app.prefs.values.taskbarPos = { x: left + ev.clientX - x0, y: top + ev.clientY - y0 };
       position();
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== movePointer) return;
+      movePointer = null;
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
       grip.removeEventListener('pointercancel', up);
+      grip.removeEventListener('lostpointercapture', up);
       if (app.prefs.values.taskbarPos) app.prefs.set('taskbarPos', { ...app.prefs.values.taskbarPos });
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
     grip.addEventListener('pointercancel', up);
+    grip.addEventListener('lostpointercapture', up);
   }
 
   app.canvasHost.addEventListener('pointerdown', () => {
