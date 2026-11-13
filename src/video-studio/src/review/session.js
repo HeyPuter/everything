@@ -67,7 +67,7 @@ export class ReviewSession extends Emitter {
 
   _setReview(review) {
     this.review = review;
-    this.versionCount = review.versions.length;
+    this.versionCount = review.versionSlots ?? review.versions.length;
     this.emit('review', review);
     this.emit('change');
   }

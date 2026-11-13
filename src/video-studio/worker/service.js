@@ -6,7 +6,7 @@
  * KV layout (no listing anywhere: every collection is numbered with incr
  * and read back by key, in batches):
  *   vsr:project:<projectId>          review id shared from that project
- *   vsr:pub:<clientId>               { review, version } of a finished publish (retries)
+ *   vsr:pub:<clientId>               { review, version, pending?, snapshot? } durable publication identity
  *   vsr:r:<rid>                      { id, title, projectId, owner, created, updated }
  *   vsr:r:<rid>:vseq                 version counter
  *   vsr:r:<rid>:v:<n>                { n, path, size, mime, width, height, fps, duration, range, timelineId?, title, created }
@@ -185,14 +185,15 @@ export class ReviewService {
   async view(rid, role, user, meta = null) {
     meta ||= await this.kv.get(`vsr:r:${rid}`);
     const owner = await this.owner();
-    const versions = (await this.versions(rid)).map((v) => ({
+    const slots = await this.versions(rid);
+    const versions = slots.filter((v) => !v.skip).map((v) => ({
       n: v.n, title: v.title, created: v.created, fps: v.fps, duration: v.duration, width: v.width, height: v.height, size: v.size, mime: v.mime,
       ...(role === 'owner' ? { range: v.range, ...(v.timelineId ? { timelineId: v.timelineId } : {}) } : {}),
     }));
     return {
-      id: rid, title: meta.title, created: meta.created, updated: meta.updated, owner: { username: owner.username },
+      id: rid, title: versions.at(-1)?.title ?? meta.title, created: meta.created, updated: versions.at(-1)?.created ?? meta.updated, owner: { username: owner.username },
       ...(role === 'owner' ? { projectId: meta.projectId } : {}),
-      versions, role, me: { uuid: user.uuid, username: user.username },
+      versions, versionSlots: slots.length, role, me: { uuid: user.uuid, username: user.username },
     };
   }
 
@@ -245,7 +246,7 @@ export class ReviewService {
     if (typeof input.clientId !== 'string' || !ID.test(input.clientId)) fail(400, 'Invalid request id.');
     if (typeof input.projectId !== 'string' || !ID.test(input.projectId)) fail(400, 'Invalid project.');
     const done = await this.kv.get(`vsr:pub:${input.clientId}`);
-    if (done) return { review: await this.view(done.review, 'owner', user), version: done.version };
+    if (done) return this.finishPublish(user, input.clientId, done);
     const video = validateVideo(input.video);
     let file;
     try {
@@ -276,20 +277,40 @@ export class ReviewService {
       if (!meta) fail(503, 'This review is not ready. Try sharing again.');
     }
     const count = (await this.kv.get(`vsr:r:${rid}:vseq`)) || 0;
-    const full = () => fail(409, `A review can have at most ${LIMITS.versions} versions. Share as a new project to start over.`);
-    if (count >= LIMITS.versions) full();
+    const full = async () => {
+      // A competing copy may have claimed the last slot since our first read.
+      const claimed = await this.kv.get(`vsr:pub:${input.clientId}`);
+      if (claimed) return this.finishPublish(user, input.clientId, claimed);
+      fail(409, `A review can have at most ${LIMITS.versions} versions. Share as a new project to start over.`);
+    };
+    if (count >= LIMITS.versions) return full();
     const n = await this.kv.incr(`vsr:r:${rid}:vseq`);
     if (n > LIMITS.versions) {
       // No version uses this reservation. Return it so sync does not keep
       // announcing a nonexistent version after a concurrent limit rejection.
       await this.kv.incr(`vsr:r:${rid}:vseq`, -1).catch(() => {});
-      full();
+      return full();
     }
-    await this.kv.set(`vsr:r:${rid}:v:${n}`, { n, ...video, size: file.size, title, created: now });
-    meta = { ...meta, title, updated: now };
-    await this.kv.set(`vsr:r:${rid}`, meta);
-    await this.kv.set(`vsr:pub:${input.clientId}`, { review: rid, version: n });
-    return { review: await this.view(rid, 'owner', user, meta), version: n };
+    const claim = { review: rid, version: n, pending: true, snapshot: { n, ...video, size: file.size, title, created: now } };
+    if (await this.kv.set(`vsr:pub:${input.clientId}`, claim, { onlyIfAbsent: true })) return this.finishPublish(user, input.clientId, claim, meta);
+    const winner = await this.kv.get(`vsr:pub:${input.clientId}`);
+    if (!winner) fail(503, 'This review is not ready. Try sharing again.');
+    if (winner.review !== rid || winner.version !== n) {
+      // Never reuse a cursor below later reservations. This slot has no
+      // publisher, so readers can count it without presenting a fake version.
+      await this.kv.set(`vsr:r:${rid}:v:${n}`, { n, skip: true }, { onlyIfAbsent: true }).catch(() => {});
+    }
+    return this.finishPublish(user, input.clientId, winner);
+  }
+
+  async finishPublish(user, clientId, claim, meta = null) {
+    if (claim.pending) {
+      // The immutable input is durable before the version. Retries never
+      // allocate again or replace an already-published snapshot.
+      await this.kv.set(`vsr:r:${claim.review}:v:${claim.version}`, claim.snapshot, { onlyIfAbsent: true });
+      await this.kv.set(`vsr:pub:${clientId}`, { review: claim.review, version: claim.version });
+    }
+    return { review: await this.view(claim.review, 'owner', user, meta), version: claim.version };
   }
 
   /* Joining and access --------------------------------------------------------- */
@@ -519,7 +540,7 @@ export class ReviewService {
     await this.access(rid, user);
     const n = int(input.version);
     const v = Number.isInteger(n) && n > 0 ? await this.kv.get(`vsr:r:${rid}:v:${n}`) : null;
-    if (!v) fail(404, 'That version does not exist.');
+    if (!v || v.skip) fail(404, 'That version does not exist.');
     const key = `vsr:r:${rid}:url:${n}`;
     const cached = await this.kv.get(key);
     if (cached && cached.expires - VIDEO_LINK_RENEW_MS > this.now()) return { url: cached.url, expires: cached.expires, mime: v.mime };
@@ -721,7 +742,8 @@ export class ReviewService {
     const { role } = await this.access(rid, user);
     if (!canComment(role)) fail(403, 'You can watch this review but not comment.');
     const n = int(input.version);
-    const version = Number.isInteger(n) && n > 0 ? await this.kv.get(`vsr:r:${rid}:v:${n}`) : null;
+    const storedVersion = Number.isInteger(n) && n > 0 ? await this.kv.get(`vsr:r:${rid}:v:${n}`) : null;
+    const version = storedVersion?.skip ? null : storedVersion;
     const check = validateComment(input, version);
     if (!check.ok) fail(version ? 400 : 404, check.error);
     const value = check.value;
