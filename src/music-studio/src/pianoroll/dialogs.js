@@ -185,7 +185,7 @@ export async function riffDialog(ed) {
     start: Number(at.value) * bar,
   };
   ed.setPref({ riff: { style: opts.style, root: opts.root, scale: opts.scale, low: opts.low, range: opts.range, bars: opts.bars, density: Number(density.value), unit: opts.unit, replace: replace.checked } });
-  const made = generateRiff(opts);
+  const made = generateRiff(opts, ed.notes);
   const end = opts.start + opts.bars * bar;
   ed.applyNotes('Generate riff', (list) => {
     const kept = replace.checked ? list.filter((n) => n.pos + n.len <= opts.start || n.pos >= end) : list;

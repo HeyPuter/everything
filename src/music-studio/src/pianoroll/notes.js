@@ -4,9 +4,10 @@
 // gesture preview. `ids` selects the notes an operation touches: a Set, an
 // array, or null for every note.
 
-import { uid, clamp } from '../lib/util.js';
+import { clamp } from '../lib/util.js';
 import { snapRound, snapFloor, ticksPerBar } from '../model/time.js';
 import { chordKeys } from './scales.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 
 const toSet = (ids) => (ids === null || ids === undefined ? null : ids instanceof Set ? ids : new Set(ids));
 const picker = (ids) => {
@@ -121,7 +122,8 @@ export function moveNotes(notes, ids, dPos, dKey = 0) {
 export function duplicateNotes(notes, ids, dPos = 0, dKey = 0) {
   const pick = picker(ids);
   const c = clampMove(notes, ids, dPos, dKey);
-  const copies = notes.filter(pick).map((n) => ({ ...n, id: uid(6), pos: n.pos + c.dPos, key: n.key + c.dKey }));
+  const nextId = noteIdGenerator(notes);
+  const copies = notes.filter(pick).map((n) => ({ ...n, id: nextId(), pos: n.pos + c.dPos, key: n.key + c.dKey }));
   return { notes: sortNotes([...notes, ...copies]), ids: copies.map((n) => n.id) };
 }
 
@@ -169,12 +171,13 @@ export function patchNotes(notes, changes) {
  * accepts into two. Returns the new list and the ids of the right halves.
  */
 export function sliceNotes(notes, tick, filter = () => true) {
+  const nextId = noteIdGenerator(notes);
   const right = [];
   const out = [];
   for (const n of notes) {
     if (filter(n) && tick > n.pos && tick < n.pos + n.len) {
       out.push({ ...n, len: tick - n.pos });
-      const r = { ...n, id: uid(6), pos: tick, len: n.pos + n.len - tick };
+      const r = { ...n, id: nextId(), pos: tick, len: n.pos + n.len - tick };
       right.push(r);
       out.push(r);
     } else out.push(n);
@@ -268,6 +271,7 @@ export function chordize(notes, ids, chordId, opts = {}) {
   // Reserve only roots that survive in their own chord. An inversion (or
   // scale snapping) can remove a root that another chord still needs.
   for (const { n, keys } of chords) if (keys.includes(n.key)) taken.add(`${n.pos}:${n.key}`);
+  const nextId = noteIdGenerator(notes);
   const outIds = [];
   for (const { n, keys } of chords) {
     if (keys.includes(n.key)) taken.delete(`${n.pos}:${n.key}`);
@@ -275,7 +279,7 @@ export function chordize(notes, ids, chordId, opts = {}) {
       const tag = `${n.pos}:${k}`;
       if (taken.has(tag)) continue;
       taken.add(tag);
-      const note = k === n.key ? n : { ...n, id: uid(6), key: k };
+      const note = k === n.key ? n : { ...n, id: nextId(), key: k };
       out.push(note);
       outIds.push(note.id);
     }
@@ -319,9 +323,10 @@ export function copyNotes(notes, ids, grid = 0) {
 }
 
 /** Clipboard notes placed at tick `at` with fresh ids. */
-export function pasteNotes(clip, at, dKey = 0) {
+export function pasteNotes(clip, at, dKey = 0, existing = []) {
   if (!clip) return [];
-  return clip.notes.map((n) => ({ ...n, id: uid(6), pos: Math.max(0, at + n.pos), key: clamp(n.key + dKey, 0, 127) }));
+  const nextId = noteIdGenerator(existing);
+  return clip.notes.map((n) => ({ ...n, id: nextId(), pos: Math.max(0, at + n.pos), key: clamp(n.key + dKey, 0, 127) }));
 }
 
 /**

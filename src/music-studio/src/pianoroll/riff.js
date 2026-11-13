@@ -9,7 +9,8 @@
 // end; arpeggios walk the chord tones; basslines play the chord roots with
 // octave and fifth movement.
 
-import { clamp, uid } from '../lib/util.js';
+import { clamp } from '../lib/util.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 import { scaleById, scaleKeys } from './scales.js';
 import { STEP, ticksPerBar, ticksPerBeat } from '../model/time.js';
 
@@ -84,7 +85,8 @@ function beatRhythm(rng, units, density) {
  *   range (octaves), bars, density (0..1), unit (ticks per rhythm unit),
  *   sig, start (tick offset) }
  */
-export function generateRiff(opts) {
+export function generateRiff(opts, existing = []) {
+  const nextId = noteIdGenerator(existing);
   const {
     seed = 1,
     style = 'melody',
@@ -114,7 +116,7 @@ export function generateRiff(opts) {
   const notes = [];
   const add = (key, pos, len, vel) => {
     if (key < 0 || key > 127 || len <= 0) return;
-    notes.push({ id: uid(6), key, pos: start + pos, len, vel: Math.round(clamp(vel, 0.05, 1) * 1000) / 1000, pan: 0 });
+    notes.push({ id: nextId(), key, pos: start + pos, len, vel: Math.round(clamp(vel, 0.05, 1) * 1000) / 1000, pan: 0 });
   };
   const chordTones = (barIndex, count = 3) => {
     const d = prog[barIndex % prog.length];

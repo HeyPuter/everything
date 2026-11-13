@@ -15,10 +15,11 @@
 // the middle button drags the view.
 
 import { announce } from '../lib/dom.js';
-import { clamp, keyName, uid, IS_MAC } from '../lib/util.js';
+import { clamp, keyName, IS_MAC } from '../lib/util.js';
 import { snapFloor, snapRound } from '../model/time.js';
 import { regionAt, keyAtY, describeNote, describePos } from './geometry.js';
 import * as N from './notes.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 import { shared } from './state.js';
 import { openNoteProps } from './dialogs.js';
 
@@ -188,7 +189,8 @@ export function installPointer(ed) {
     const last = ed.lastNote;
     let len = last.len;
     const keys = ed.stampKeys(key);
-    const ids = keys.map(() => uid(6));
+    const nextId = noteIdGenerator(ed.notes);
+    const ids = keys.map(() => nextId());
     const make = () => keys.map((k, i) => ({ id: ids[i], key: k, pos, len, vel: last.vel, pan: 0 }));
     ed.select([]);
     begin(keys.length > 1 ? 'Add chord' : 'Add note');
@@ -230,6 +232,7 @@ export function installPointer(ed) {
     const t = tickAt(p.x);
     const origin = Math.max(0, grid ? snapFloor(t, grid) : Math.round(t));
     const base = ed.notes;
+    const nextId = noteIdGenerator(base);
     const taken = new Set(base.map((n) => `${n.pos}:${n.key}`));
     const cells = new Map(); // cell index -> note(s)
     ed.select([]);
@@ -246,7 +249,7 @@ export function installPointer(ed) {
         const pos = origin + c * step;
         if (!cells.has(c) && pos >= 0) {
           const keys = ed.stampKeys(key).filter((k) => !taken.has(`${pos}:${k}`));
-          cells.set(c, keys.map((k) => ({ id: uid(6), key: k, pos, len: last.len, vel: last.vel, pan: 0 })));
+          cells.set(c, keys.map((k) => ({ id: nextId(), key: k, pos, len: last.len, vel: last.vel, pan: 0 })));
           added = keys;
         }
         if (c === target) break;

@@ -14,7 +14,7 @@
 // time order; Page Up/Down scroll; Shift+F10 opens the options menu.
 
 import { h, announce } from '../lib/dom.js';
-import { clamp, keyName, uid } from '../lib/util.js';
+import { clamp, keyName } from '../lib/util.js';
 import { createGfx } from '../render/gfx.js';
 import { Viewport } from '../render/timeline.js';
 import * as E from '../model/edits.js';
@@ -22,6 +22,7 @@ import { patternLength, patternById, channelById, DEFAULT_KEY } from '../model/p
 import { snapTicks, snapFloor, snapRound, gridTicks, ticksPerBar, STEP, formatBST } from '../model/time.js';
 import { computeLayout, keyAtY, rowY, maxScrollY, centerScrollY, describeNote, describePos, describeLen, MIN_KEY_H, MAX_KEY_H, NUM_KEYS } from './geometry.js';
 import * as N from './notes.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 import { scaleMask, chordKeys } from './scales.js';
 import { shared, sharedEvents } from './state.js';
 import { drawPianoRoll } from './render.js';
@@ -596,7 +597,8 @@ export class PianoRollEditor {
     const keys = this.stampKeys(key);
     const notes = keys.map((k) => ({ key: k, pos: Math.round(this.cursor.tick), len, vel: this.lastNote.vel, pan: 0 }));
     const r = this.applyNotes(keys.length > 1 ? 'Add chord' : 'Add note', (list) => {
-      const made = notes.map((n) => ({ ...n, id: uid(6) }));
+      const nextId = noteIdGenerator(list);
+      const made = notes.map((n) => ({ ...n, id: nextId() }));
       return { notes: [...list, ...made], ids: made.map((n) => n.id) };
     });
     this.audition(keys, this.lastNote.vel, { hold: false });
@@ -702,7 +704,7 @@ export class PianoRollEditor {
     if (ph !== null && ph >= view0 && ph < view1 && (this.app.engine.playing || ph > 0)) at = grid ? snapFloor(ph, grid) : Math.round(ph);
     else at = grid ? Math.ceil(view0 / grid) * grid : Math.round(view0);
     at = N.pasteTarget(this.notes, clip, at, grid);
-    const made = N.pasteNotes(clip, at);
+    const made = N.pasteNotes(clip, at, 0, this.notes);
     this.applyNotes('Paste notes', (list) => [...list, ...made]);
     this.select(made.map((n) => n.id));
     announce(`${plural(made.length, 'note')} pasted at ${describePos(at, this.sig)}`);
