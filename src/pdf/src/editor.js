@@ -9286,7 +9286,7 @@ export function createEditor({
     requireAccess('edit');
     const { sanitizeDocument, sanitizedCount, SANITIZE_DEFAULTS } = await loadSanitize();
     const LABELS = {
-      metadata: 'Document metadata (author, title, XMP)',
+      metadata: 'Metadata (author, title, XMP, and the camera, time, and location in photos)',
       privateData: 'Private data of other applications',
       javascript: 'Scripts',
       actions: 'Links and actions that open other files or sites',

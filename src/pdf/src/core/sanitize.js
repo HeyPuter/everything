@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFName, PDFRef, PDFStream } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream } from 'pdf-lib';
 import { decode, pageSource, setPageSource } from './text-edit.js';
 import { annotationList, annotationsOf } from './structure.js';
 import { contentReport, filterContent, tokenize } from './content-filter.js';
@@ -9,7 +9,9 @@ import { removeStructReferences } from './redact.js';
  * could recover. Every category can be switched off; the defaults follow Acrobat, which removes
  * all of them, except bookmarks, which Acrobat's Sanitize keeps navigable.
  *
- *  - metadata: the Info dictionary and XMP, for the document and for individual objects
+ *  - metadata: the Info dictionary and XMP, for the document and for individual objects, and
+ *    what JPEG pictures carry of their own (EXIF with camera, time and GPS location, XMP, IPTC,
+ *    comments)
  *  - privateData: application data (PieceInfo) and its LastModified stamps
  *  - javascript: document scripts, JavaScript actions anywhere (links, bookmarks, fields, open
  *    action, action chains), every additional-action (AA) trigger, and XFA scripting
@@ -300,6 +302,73 @@ function pruneUnusedXObjects(doc) {
       }
   }
   return removed;
+}
+
+/**
+ * A JPEG without its metadata segments: EXIF (camera, time, GPS location, a thumbnail of the
+ * photo), XMP, IPTC, JFXX thumbnails, other applications' private segments, and comments. What
+ * decoding needs stays: JFIF (APP0), the ICC profile (APP2), and Adobe's colour transform (APP14). Null when
+ * there is nothing to remove or the header cannot be followed.
+ */
+export function stripJpegMetadata(bytes) {
+  if (!(bytes?.[0] === 0xff && bytes[1] === 0xd8)) return null;
+  const keep = [bytes.subarray(0, 2)];
+  let at = 2,
+    removed = false;
+  while (at + 4 <= bytes.length) {
+    if (bytes[at] !== 0xff) return null;
+    // Fill bytes may pad a marker.
+    if (bytes[at + 1] === 0xff) {
+      at++;
+      continue;
+    }
+    const marker = bytes[at + 1];
+    // Start of scan (or a premature end): the rest is image data.
+    if (marker === 0xda || marker === 0xd9) break;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      keep.push(bytes.subarray(at, at + 2));
+      at += 2;
+      continue;
+    }
+    const end = at + 2 + ((bytes[at + 2] << 8) | bytes[at + 3]);
+    if (end - at < 4 || end > bytes.length) return null;
+    // APP0 also holds JFXX thumbnails, which can show a photo as it was before it was cropped.
+    const jfif =
+      marker === 0xe0 && String.fromCharCode(...bytes.subarray(at + 4, at + 9)) === 'JFIF\0';
+    const metadata =
+      (marker >= 0xe0 && marker <= 0xef && marker !== 0xe2 && marker !== 0xee && !jfif) ||
+      marker === 0xfe;
+    if (metadata) removed = true;
+    else keep.push(bytes.subarray(at, end));
+    at = end;
+  }
+  if (!removed) return null;
+  keep.push(bytes.subarray(at));
+  const out = new Uint8Array(keep.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of keep) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+/** Remove the metadata segments of every JPEG picture stored as such; returns how many. */
+function stripImageMetadata(doc) {
+  let count = 0;
+  for (const [ref, object] of doc.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFRawStream) || get(object.dict, 'Subtype') !== name('Image'))
+      continue;
+    const filter = get(object.dict, 'Filter');
+    const filters = filter instanceof PDFArray ? filter.asArray() : [filter];
+    if (filters.length !== 1 || doc.context.lookup(filters[0]) !== name('DCTDecode')) continue;
+    const stripped = stripJpegMetadata(object.getContents());
+    if (!stripped) continue;
+    const dict = object.dict.clone(doc.context);
+    dict.set(name('Length'), PDFNumber.of(stripped.length));
+    doc.context.assign(ref, PDFRawStream.of(dict, stripped));
+    count++;
+  }
+  return count;
 }
 
 /** Terminal fields in a field tree (fields whose kids, if any, are only widgets). */
@@ -657,6 +726,7 @@ export async function sanitizeDocument(doc, options = {}) {
   removeStructReferences(doc, removedAnnotations, structKeys);
 
   if (o.metadata) {
+    report.metadata += stripImageMetadata(doc);
     const info = context.lookup(context.trailerInfo.Info);
     if (info instanceof PDFDict) {
       report.metadata += info.keys().length;
