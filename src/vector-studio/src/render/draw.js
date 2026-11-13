@@ -12,6 +12,7 @@
  * drawArtwork() is shared by the screen renderer and raster export, so what
  * you see is what PNG/JPEG export produces.
  */
+import { Emitter } from '../lib/emitter.js';
 import { segmentCount, segmentPoints, isLine, zeroLength, capsShowDots } from '../model/bezier.js';
 import { gradientGeometry, localGradientGeometry, nodeBounds, visualBounds, rectsIntersect } from '../model/geometry.js';
 import { layoutText, cssFont, glyphPlacements, extraPlacements, drawsAsSegments, riseOf, textHooks, decorationRects } from '../model/text-layout.js';
@@ -535,25 +536,26 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
   ctx.restore();
 }
 
-/** Decoded images by asset id. Images decode asynchronously; `onReady` triggers a redraw. */
-const imageCache = new Map();
-export const imageEvents = { onReady: null };
+/** Decoded images by asset object. Ready events identify the asset maps awaiting them. */
+const imageCache = new WeakMap();
+export const imageEvents = new Emitter();
 
 export function imageFor(doc, assetId) {
   const asset = doc.assets.get(assetId);
-  if (!asset) return null;
+  if (!asset || typeof asset !== 'object') return null;
   let entry = imageCache.get(asset);
   if (!entry) {
-    entry = { img: null };
+    entry = { img: null, consumers: new WeakSet([doc.assets]) };
     imageCache.set(asset, entry);
     const img = new Image();
     img.decoding = 'async';
     img.onload = () => {
       entry.img = img;
-      imageEvents.onReady?.();
+      imageEvents.emit('ready', entry.consumers);
+      entry.consumers = null;
     };
     img.src = asset.data;
-  }
+  } else if (!entry.img) entry.consumers.add(doc.assets);
   return entry.img;
 }
 
@@ -584,6 +586,28 @@ function drawImage(ctx, doc, node, opts) {
 
 function plainPaint(p) {
   return !p || p.type === 'solid' || p.type === 'linear' || p.type === 'radial';
+}
+
+/** Whether artwork needs the pixels behind it rather than a transparent cache. */
+export function dependsOnBackdrop(doc, node, overprint = false) {
+  if (!node || node.hidden) return false;
+  if ((BLEND[node.blendMode] || 'source-over') !== 'source-over' || (overprint && (node.overprintFill || node.overprintStroke))) return true;
+  const def = liveDef(node);
+  const grouped = node.type === 'group' || node.type === 'layer' || (node.type !== 'image' && Boolean(def));
+  // Match drawNode's isolation boundary: internal blends see the group's own
+  // transparent layer, so caching the complete group preserves their backdrop.
+  if (rasterEffects(node) || (grouped && ((node.opacity ?? 1) < 1 || node.isolate || node.knockout)) || (node.opacityMask && !node.opacityMask.disabled && drawHooks.opacityMask)) return false;
+  if (node.type === 'layer' && hasAppearanceStack(node)) {
+    const { items, vdoc } = layerAppearanceArtwork(doc, node);
+    return items.some((n) => dependsOnBackdrop(vdoc, n, overprint));
+  }
+  if (def && !def.draw) {
+    const { items, vdoc } = liveArtwork(doc, node);
+    return items.some((n) => dependsOnBackdrop(vdoc, n, overprint));
+  }
+  // Compound children supply geometry only; their styles do not paint.
+  if (node.type === 'compound') return false;
+  return (node.children || []).some((id) => dependsOnBackdrop(doc, doc.get(id), overprint));
 }
 
 /**

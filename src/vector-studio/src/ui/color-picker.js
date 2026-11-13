@@ -102,20 +102,32 @@ export function createColorPicker({ value = '#000000', onInput, onCommit, label 
     sync();
     emit(false);
   };
+  let dragPointer = null;
   svWrap.addEventListener('pointerdown', (e) => {
-    svWrap.setPointerCapture(e.pointerId);
-    pick(e);
-    knob.focus({ preventScroll: true });
-    const move = (ev) => pick(ev);
-    const up = () => {
+    if (e.button !== 0 || dragPointer !== null) return;
+    try {
+      svWrap.setPointerCapture?.(e.pointerId);
+    } catch {
+      // An ended pointer cannot start a color change or leave a drag behind.
+      return;
+    }
+    dragPointer = e.pointerId;
+    const move = (ev) => { if (ev.pointerId === dragPointer) pick(ev); };
+    const up = (ev) => {
+      if (ev.pointerId !== dragPointer) return;
+      dragPointer = null;
       svWrap.removeEventListener('pointermove', move);
       svWrap.removeEventListener('pointerup', up);
       svWrap.removeEventListener('pointercancel', up);
+      svWrap.removeEventListener('lostpointercapture', up);
       emit(true);
     };
     svWrap.addEventListener('pointermove', move);
     svWrap.addEventListener('pointerup', up);
     svWrap.addEventListener('pointercancel', up);
+    svWrap.addEventListener('lostpointercapture', up);
+    pick(e);
+    knob.focus({ preventScroll: true });
   });
   knob.addEventListener('keydown', (e) => {
     const step = e.shiftKey ? 10 : 1;

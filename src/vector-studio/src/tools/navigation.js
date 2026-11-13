@@ -43,6 +43,15 @@ export class HandTool extends Tool {
     this.setCursor('grab');
   }
 
+  cancel() {
+    this.drag = null;
+    this.setCursor('grab');
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   onDoubleClick() {
     this.editor.fitArtboard();
   }
@@ -101,6 +110,15 @@ export class ZoomTool extends Tool {
     this.overlay();
   }
 
+  cancel() {
+    this.drag = null;
+    this.overlay();
+  }
+
+  deactivate() {
+    this.cancel();
+  }
+
   onDoubleClick() {
     this.editor.actualSize();
   }
@@ -152,6 +170,14 @@ export class RotateViewTool extends Tool {
 
   onPointerUp() {
     this.drag = null;
+  }
+
+  cancel() {
+    this.drag = null;
+  }
+
+  deactivate() {
+    this.cancel();
   }
 
   onDoubleClick() {
@@ -273,7 +299,9 @@ export class EyedropperTool extends Tool {
 
   onPointerDown(e) {
     const editor = this.editor;
-    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { intoCompound: false });
+    // Sampling may reach outside isolation; applying paint must stay inside it.
+    const filter = e.alt && editor.isolation ? (n) => editor.inIsolation(n.id) : null;
+    const hit = hitTest(editor.doc, e.x, e.y, tol(editor, 3), { intoCompound: false, filter });
     const doc = editor.doc;
     if (e.alt) {
       if (!hit) {

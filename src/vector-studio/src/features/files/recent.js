@@ -12,6 +12,7 @@
  *   local  a File System Access handle stored in IndexedDB under handleId
  */
 import { isMissing } from './backends.js';
+import { baseName } from './naming.js';
 
 export const RECENT_KEY = 'recentFiles';
 export const RECENT_MAX = 20;
@@ -31,6 +32,11 @@ export function entryKey(e) {
 }
 
 export class RecentFiles {
+  #validating = new Map();
+  #normalized = new WeakMap();
+  #thumbJobs = new Map();
+  #thumbLoads = new Map();
+
   constructor(prefs, { cache = null, max = RECENT_MAX, now = () => Date.now(), staleAfter = 5 * 60 * 1000 } = {}) {
     this.prefs = prefs;
     this.cache = cache;
@@ -49,7 +55,24 @@ export class RecentFiles {
   list() {
     const raw = this.prefs.get(RECENT_KEY);
     if (!Array.isArray(raw)) return [];
-    return raw.filter((e) => e && typeof e === 'object' && (e.kind === 'puter' ? typeof e.path === 'string' : e.kind === 'local' && e.handleId)).slice(0, this.limit);
+    return raw.filter((e) => e && typeof e === 'object' && (e.kind === 'puter'
+      ? typeof e.path === 'string' && e.path.length > 0
+      : e.kind === 'local' && typeof e.handleId === 'string' && e.handleId.length > 0))
+      .slice(0, this.limit).map((e) => this.#normalize(e));
+  }
+
+  #normalize(entry) {
+    const path = typeof entry.path === 'string' ? entry.path : null;
+    const name = typeof entry.name === 'string' && entry.name ? entry.name : (entry.kind === 'puter' && baseName(path)) || 'Untitled';
+    const when = typeof entry.when === 'number' || typeof entry.when === 'string' ? entry.when : null;
+    if (path === entry.path && name === entry.name && when === entry.when) return entry;
+    // Keep identity stable for validation's stale-result guard. Reuse only an
+    // unchanged source record, and never mutate the preferences while reading.
+    const cached = this.#normalized.get(entry), keys = Object.keys(entry);
+    if (cached && keys.length === Object.keys(cached.source).length && keys.every((key) => Object.is(entry[key], cached.source[key]))) return cached.value;
+    const value = { ...entry, path, name, when };
+    this.#normalized.set(entry, { source: { ...entry }, value });
+    return value;
   }
 
   #store(list) {
@@ -65,8 +88,10 @@ export class RecentFiles {
     const dropped = list.slice(this.limit);
     this.#store(list);
     this.checked.set(key, this.now());
-    if (thumb) await this.setThumb(entry, thumb);
+    // Schedule evictions now, before another entry's write can delay cleanup
+    // until after an evicted file has been reopened with a new thumbnail.
     for (const d of dropped) this.#dropThumb(d);
+    if (thumb) await this.setThumb(entry, thumb);
     return entry;
   }
 
@@ -92,38 +117,70 @@ export class RecentFiles {
     return `thumbs/${hashKey(entryKey(entry))}.json`;
   }
 
+  #cacheJob(key, run) {
+    const job = (this.#thumbJobs.get(key) || Promise.resolve()).then(run, run);
+    this.#thumbJobs.set(key, job);
+    return job.finally(() => { if (this.#thumbJobs.get(key) === job) this.#thumbJobs.delete(key); });
+  }
+
+  #invalidateThumbRead(key) {
+    const load = this.#thumbLoads.get(key);
+    if (load) load.stale = true;
+    this.#thumbLoads.delete(key);
+  }
+
   async setThumb(entry, dataUrl) {
-    const key = entryKey(entry);
+    const key = entryKey(entry), path = this.thumbPath(entry);
+    this.#invalidateThumbRead(key);
     this.thumbs.set(key, dataUrl);
-    try {
-      await this.cache?.writeJSON(this.thumbPath(entry), { key, thumb: dataUrl });
-    } catch {
-      // The cache is best effort.
-    }
+    await this.#cacheJob(key, async () => {
+      try { await this.cache?.writeJSON(path, { key, thumb: dataUrl }); }
+      catch { /* The cache is best effort. */ }
+    });
+  }
+
+  /** Latest preview already in memory, without starting a cache read. */
+  peekThumb(entry) {
+    return this.thumbs.get(entryKey(entry)) ?? null;
   }
 
   async thumb(entry) {
     const key = entryKey(entry);
     if (this.thumbs.has(key)) return this.thumbs.get(key);
-    try {
-      const v = await this.cache?.readJSON(this.thumbPath(entry));
-      if (v && v.key === key && typeof v.thumb === 'string') {
-        this.thumbs.set(key, v.thumb);
-        return v.thumb;
+    if (this.#thumbLoads.has(key)) return this.#thumbLoads.get(key).promise;
+    const path = this.thumbPath(entry), load = { stale: false, promise: null };
+    this.#thumbLoads.set(key, load);
+    const pending = this.#thumbJobs.get(key);
+    load.promise = (async () => {
+      // Read after preceding mutations, but never make a newer write wait for
+      // an old read. Invalidation below prevents that read from returning stale data.
+      await pending?.catch(() => {});
+      if (load.stale) return this.thumbs.get(key) ?? null;
+      try {
+        const v = await this.cache?.readJSON(path);
+        // A newer in-memory preview or removal owns the result of an old read.
+        if (load.stale) return this.thumbs.get(key) ?? null;
+        if (v && v.key === key && typeof v.thumb === 'string') {
+          this.thumbs.set(key, v.thumb);
+          return v.thumb;
+        }
+      } catch {
+        if (load.stale) return this.thumbs.get(key) ?? null;
+        // Missing or unreadable cache entry.
       }
-    } catch {
-      // Missing or unreadable cache entry.
-    }
-    return null;
+      return null;
+    })().finally(() => { if (this.#thumbLoads.get(key) === load) this.#thumbLoads.delete(key); });
+    return load.promise;
   }
 
   async #dropThumb(entry) {
-    this.thumbs.delete(entryKey(entry));
-    try {
-      await this.cache?.remove(this.thumbPath(entry));
-    } catch {
-      // Best effort.
-    }
+    const key = entryKey(entry), path = this.thumbPath(entry);
+    this.#invalidateThumbRead(key);
+    this.thumbs.delete(key);
+    await this.#cacheJob(key, async () => {
+      try { await this.cache?.remove(path); }
+      catch { /* Best effort. */ }
+    });
   }
 
   /**
@@ -134,25 +191,41 @@ export class RecentFiles {
   async validate(stat, { force = false } = {}) {
     const removed = [];
     const now = this.now();
-    const jobs = this.list()
+    const requests = this.list()
       .filter((e) => {
         if (e.kind !== 'puter') return false;
         const last = this.checked.get(entryKey(e));
         return force || last == null || now - last >= this.staleAfter;
       })
-      .map(async (e) => {
+      .map((entry) => ({ entry, key: entryKey(entry), token: Symbol() }));
+    for (const request of requests) this.#validating.set(request.key, request.token);
+    // Reopening/renaming replaces the entry even when timestamps tie. A newer
+    // validation also supersedes older requests against the unchanged entry.
+    const current = ({ entry, key, token }) => this.#validating.get(key) === token && entryKey(entry) === key && this.list().includes(entry);
+    try {
+      const missing = await Promise.all(requests.map(async (request) => {
         try {
-          const item = await stat(e.path);
-          if (item && (item.is_dir || item.isDir)) throw Object.assign(new Error('not found'), { code: 'not_found' });
-          this.checked.set(entryKey(e), now);
+          const item = await stat(request.entry.path);
+          if (!current(request)) return false;
+          if (item && (item.is_dir || item.isDir)) return true;
+          this.checked.set(request.key, this.now());
         } catch (err) {
-          if (isMissing(err)) removed.push(e);
+          if (!current(request)) return false;
+          if (isMissing(err)) return true;
           // Could not tell (offline): check again next time.
-          else this.checked.delete(entryKey(e));
+          this.checked.delete(request.key);
         }
-      });
-    await Promise.all(jobs);
-    for (const e of removed) await this.remove(e);
-    return removed;
+        return false;
+      }));
+      for (let i = 0; i < requests.length; i++) {
+        // Another file check or thumbnail cleanup may have delayed this removal.
+        if (!missing[i] || !current(requests[i])) continue;
+        await this.remove(requests[i].entry);
+        removed.push(requests[i].entry);
+      }
+      return removed;
+    } finally {
+      for (const { key, token } of requests) if (this.#validating.get(key) === token) this.#validating.delete(key);
+    }
   }
 }

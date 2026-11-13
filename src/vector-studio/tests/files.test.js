@@ -297,7 +297,7 @@ describe('recovery bookkeeping', () => {
     expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([4]);
     await store.remove('r1');
     expect((await store.list()).map((e) => e.id)).toEqual(['r2']);
-    expect([...b.files.keys()].some((k) => k.includes('r1'))).toBe(false);
+    expect([...b.files.keys()].some((k) => k === 'recovery/r1.vstudio' || k.startsWith('recovery/r1/'))).toBe(false);
     await store.clear();
     expect(await store.list()).toEqual([]);
   });
@@ -316,7 +316,7 @@ describe('recovery bookkeeping', () => {
     await store.put('r1', { name: 'v3', data: new Uint8Array([3]), saved: 3 });
     list = await store.list();
     expect(list[0].backend).toBe(cloud);
-    expect([...local.files.keys()].some((k) => k.endsWith('r1.vstudio'))).toBe(false);
+    expect([...local.files.keys()].some((k) => k.startsWith('recovery/r1'))).toBe(false);
   });
 
   it('keeps a recovery copy that could not be read right now, and drops a damaged one', async () => {
@@ -327,7 +327,7 @@ describe('recovery bookkeeping', () => {
     await store.put('bad', { name: 'Damaged', data: new Uint8Array([1, 2, 3]), session: 'dead', saved: 1 });
     const readBlob = b.readBlob;
     b.readBlob = async (path) => {
-      if (path.includes('net.vstudio')) throw new Error('Failed to fetch');
+      if (path === 'recovery/net.vstudio' || path.startsWith('recovery/net/')) throw new Error('Failed to fetch');
       return readBlob(path);
     };
     const prefs = new Prefs(memStorage());
@@ -341,7 +341,8 @@ describe('recovery bookkeeping', () => {
     } finally {
       dialogHooks.open = null;
     }
-    expect((await store.list()).map((e) => e.id)).toEqual(['ok', 'net']);
+    expect((await store.list()).map((e) => e.name)).toEqual(['Fine', 'Offline']);
+    expect((await store.list()).find((e) => e.name === 'Offline').id).toBe('net');
     expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Offline" could not be recovered right now/), expect.objectContaining({ error: true }));
     expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/"Damaged" could not be recovered: the recovery copy is damaged/), expect.objectContaining({ error: true }));
   });
@@ -369,15 +370,19 @@ describe('recovery bookkeeping', () => {
       expect((await saver.offerRecovery()).map((e) => e.file.name)).toEqual(['Logo [Recovered]', 'Card [Recovered]']);
       expect(asked).toEqual([expect.stringContaining('Discard "Flyer"? Its unsaved changes will be lost.')]);
       // Kept: offered again next time.
-      expect((await store.list()).map((e) => e.id)).toEqual(['a', 'b', 'c']);
-      // Discard everything, confirmed this time.
+      expect((await store.list()).map((e) => e.name).sort()).toEqual(['Card', 'Flyer', 'Logo']);
+      expect(recoverableEntries(await store.list(), new Set(), 'me').map((e) => e.name)).toEqual(['Flyer']);
+      // After this session ends, discard everything, confirmed this time.
+      const next = new Autosaver(app, { store, session: 'next' });
+      next.liveSessions = async () => new Set();
       dialogHooks.open = async (opts) => {
         if (opts.title === 'Recover Documents') return 'discard';
         asked.push(opts.body.textContent);
         return 'discard';
       };
-      expect(await saver.offerRecovery()).toEqual([]);
-      expect(asked[1]).toContain('Discard 3 documents ("Logo", "Flyer", "Card")?');
+      expect(await next.offerRecovery()).toEqual([]);
+      expect(asked[1]).toContain('Discard 3 documents');
+      for (const name of ['Logo', 'Flyer', 'Card']) expect(asked[1]).toContain(`"${name}"`);
       expect(await store.list()).toEqual([]);
     } finally {
       dialogHooks.open = null;
@@ -431,7 +436,10 @@ describe('recovery bookkeeping', () => {
       now.mockRestore();
     }
     expect(localStorage.getItem(key)).toBe(null);
-    expect((await store2.list()).map((e) => e.revision)).toEqual([2]);
+    const copies = await store2.list();
+    expect(copies).toHaveLength(1);
+    expect(copies[0].session).toBe('me');
+    expect((await parseDocument(await store2.read(copies[0]))).doc.nodes.size).toBe(doc.nodes.size);
   });
 
   it('never lets a kept copy replace a newer stored one, and forgets kept copies once written or discarded', async () => {

@@ -8,6 +8,7 @@
  */
 import { collectOriginals, transformFromOriginals } from '../model/geometry.js';
 import { duplicateNodes } from '../ops/layer-ops.js';
+import { liveDef } from '../model/live.js';
 
 /**
  * Above this many nodes a drag previews the transform as a bitmap and
@@ -33,21 +34,41 @@ export class TransformSession {
     this.ids = this.editor.topSelection();
     if (duplicate) this.ids = duplicateInPlace(this.editor, this.ids);
     this.originals = collectOriginals(this.doc, this.ids);
-    this.preview = this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor();
+    // A bitmap transform moves the silhouettes too; pattern-only drags must repaint inside them.
+    this.preview = !this.patternsOnly && this.originals.size > PREVIEW_THRESHOLD && !this.#isolatedAncestor() && !this.#interleaved();
   }
 
   /**
-   * Moving content inside a group with opacity, blending, effects or
-   * clipping cannot be split out as a bitmap, nor opacity mask art edited in
+   * Moving content inside a group with opacity, blending, effects, masks or
+   * isolation cannot be split out as a bitmap. Live ancestors (such as group
+   * appearance stacks) must regenerate from their moving children, as must mask art edited in
    * place (the masked object redraws as it moves).
    */
   #isolatedAncestor() {
     for (const id of this.ids) {
       for (const a of this.doc.ancestors(id)) {
-        if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.blend || a.maskEdit) return true;
+        if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.blend || a.maskEdit || a.isolate || a.knockout || liveDef(a) || (a.opacityMask && !a.opacityMask.disabled)) return true;
       }
     }
     return false;
+  }
+
+  /** One moving bitmap cannot straddle stationary artwork in paint order. */
+  #interleaved() {
+    let seenMoving = false;
+    let seenGap = false;
+    let interleaved = false;
+    this.doc.walk((n) => {
+      if (interleaved || n.hidden) return false;
+      // Compounds and live groups paint as one unit, not as their source children.
+      if (n.children && n.type !== 'compound' && !liveDef(n)) return;
+      if (this.originals.has(n.id)) {
+        if (seenGap) interleaved = true;
+        seenMoving = true;
+      } else if (seenMoving) seenGap = true;
+      return false;
+    });
+    return interleaved;
   }
 
   /** Alt pressed or released mid-drag: switch between moving the originals and a copy. */
@@ -75,6 +96,14 @@ export class TransformSession {
       return;
     }
     transformFromOriginals(this.doc, this.originals, m, this.opts);
+  }
+
+  /** Switch an oversized bitmap preview to exact geometry without ending the drag. */
+  useLivePreview() {
+    if (!this.preview) return;
+    this.preview = false;
+    this.#clearPreview();
+    transformFromOriginals(this.doc, this.originals, this.matrix, this.opts);
   }
 
   #clearPreview() {

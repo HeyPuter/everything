@@ -13,7 +13,7 @@
  *     Save writes through the handle or downloads, and offers sign-in.
  *
  * editor.file = { kind: 'puter', path, name } | { kind: 'local', name, handle, handleId }
- *             | { kind: 'download', name } | { kind: 'import', name, path?, format }
+ *             | { kind: 'download', name } | { kind: 'import', name, path?, format, source? }
  */
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
@@ -48,7 +48,25 @@ function cancellable(p) {
   return p && p.undefinedOnCancel ? p.undefinedOnCancel : p;
 }
 
+async function sameHandle(a, b) {
+  if (a === b) return true;
+  try {
+    return Boolean(await a?.isSameEntry?.(b));
+  } catch {
+    return false;
+  }
+}
+
+/** An import remembers its source for Open, while Save still creates a new native file. */
+function localSource(file) {
+  if (file?.kind === 'local') return file;
+  return file?.kind === 'import' && file.source?.kind === 'local' ? file.source : null;
+}
+
 export class FileService {
+  #saveStates = new WeakMap();
+  #openingLocal = new Set();
+
   constructor(app, { recent, recovery = null, handles = handleStore } = {}) {
     this.app = app;
     this.recent = recent;
@@ -70,12 +88,22 @@ export class FileService {
 
   async encode(editor, { thumbnail = true, copy = false } = {}) {
     const doc = editor.doc;
-    const rev = doc.revision;
     const thumb = thumbnail ? await renderThumbnail(doc) : null;
     // A saved file carries the document's identity (its version history follows it); a copy gets its own.
     const id = copy ? newFileId() : documentId(doc);
+    // A preview can be cancelled back to the same history revision. Its snapshot
+    // cannot mark that committed revision saved: they may contain different artwork.
+    let rev = doc.revision;
+    for (const [id, before] of doc.tx?.before || []) {
+      if (before !== doc.nodes.peek(id)) {
+        rev = -1;
+        break;
+      }
+    }
+    const version = doc.nodes.version;
+    const commentsRevision = doc.commentsRevision;
     const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
-    return { bytes, thumb, rev };
+    return { bytes, thumb, rev, version, commentsRevision };
   }
 
   // ---- default folder ("Your files") ----
@@ -155,23 +183,35 @@ export class FileService {
   /** Save in place (Save As when the document has no file yet). Resolves true when saved. */
   save(editor = this.app.editor) {
     if (!editor) return Promise.resolve(false);
-    if (editor._saving) {
+    const doc = editor.doc;
+    let state = this.#saveStates.get(doc);
+    if (!state) this.#saveStates.set(doc, (state = { saving: null, again: null }));
+    if (state.saving) {
       // A save is still writing: once it lands, save again if the document changed meanwhile,
       // so Save (or Close > Save) never reports success for edits that were not written.
-      if (!editor._saveAgain) {
-        const again = editor._saving
-          .then((ok) => (ok && editor.doc.dirty ? this.save(editor) : ok))
+      if (!state.again) {
+        const again = state.saving
+          .then((ok) => {
+            // This queued request is starting. A Save during its write must be
+            // able to queue another request instead of reusing this promise.
+            if (state.again === again) state.again = null;
+            const snapshot = state.snapshot;
+            const unchangedPreview = doc.tx && Number.isFinite(snapshot?.version) &&
+              snapshot.file === editor.file && snapshot.version === doc.nodes.version &&
+              snapshot.commentsRevision === doc.commentsRevision;
+            return ok && (doc.dirty || doc.tx?.before.size) && !unchangedPreview ? this.save(editor) : ok;
+          })
           .finally(() => {
-            if (editor._saveAgain === again) editor._saveAgain = null;
+            if (state.again === again) state.again = null;
           });
-        editor._saveAgain = again;
+        state.again = again;
       }
-      return editor._saveAgain;
+      return state.again;
     }
     const job = this.#save(editor).finally(() => {
-      editor._saving = null;
+      state.saving = null;
     });
-    editor._saving = job;
+    state.saving = job;
     return job;
   }
 
@@ -256,10 +296,12 @@ export class FileService {
     // Every window showing the document now saves to this file.
     for (const ed of new Set([editor, ...this.app.editors])) if (ed.doc === doc) ed.file = file;
     doc.savedRevision = enc.rev;
+    const state = this.#saveStates.get(doc);
+    if (state) state.snapshot = { file, version: enc.version, commentsRevision: enc.commentsRevision };
     // Version History keeps these bytes: exactly what was written.
-    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb });
+    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb, commentsRevision: enc.commentsRevision });
     this.#remember(file, enc.thumb);
-    this.recovery?.discard(editor);
+    if (!doc.dirty) this.recovery?.discard(editor);
     this.app.renderTabs();
     this.app.emit('file-saved', editor);
     this.app.notify(`Saved "${file.name}"`, { polite: true });
@@ -535,7 +577,7 @@ export class FileService {
         if (file.kind === 'puter' && f.kind === 'puter') return f.path === file.path;
         // An SVG opened from the cloud is shown as an imported document that remembers its path.
         if (file.kind === 'puter' && f.kind === 'import' && f.path) return f.path === file.path;
-        if (file.kind === 'local' && f.kind === 'local' && file.handleId) return f.handleId === file.handleId;
+        if (file.kind === 'local' && file.handleId) return localSource(f)?.handleId === file.handleId;
         return false;
       }) || null
     );
@@ -549,6 +591,43 @@ export class FileService {
     const job = fn().finally(() => this.opening.delete(key));
     this.opening.set(key, job);
     return job;
+  }
+
+  /** Match pending and open handles before relying on optional IndexedDB persistence. */
+  #openLocal(handle, open, handleId = null) {
+    // Only await earlier requests, so overlapping identity checks cannot form a cycle.
+    const earlier = [...this.#openingLocal];
+    const request = { handle, job: null };
+    request.job = (async () => {
+      for (const pending of earlier) {
+        if (!(await sameHandle(handle, pending.handle))) continue;
+        const editor = await pending.job;
+        if (editor && (!this.app.editors.includes(editor) || editor.file !== pending.file)) continue;
+        return editor;
+      }
+      for (const editor of [...this.app.editors]) {
+        const file = editor.file;
+        const source = localSource(file);
+        if (!source?.handle || !(await sameHandle(handle, source.handle))) continue;
+        if (!this.app.editors.includes(editor) || editor.file !== file) continue;
+        this.app.activate(editor);
+        return editor;
+      }
+      const id = handleId || (await this.handles.find(handle)) || uid('h');
+      return this.#openOnce(`local:${id}`, async () => {
+        const existing = this.findOpen({ kind: 'local', handleId: id });
+        if (existing) {
+          this.app.activate(existing);
+          return existing;
+        }
+        return open(id);
+      });
+    })().then((editor) => {
+      request.file = editor?.file;
+      return editor;
+    }).finally(() => this.#openingLocal.delete(request));
+    this.#openingLocal.add(request);
+    return request.job;
   }
 
   /** Open a file from the Puter cloud by path. */
@@ -580,17 +659,16 @@ export class FileService {
   /** Open a File or Blob (drag and drop, file input, File System Access). */
   async openFileBlob(file, { handle = null } = {}) {
     const name = file?.name || 'Untitled';
-    let fileInfo = null;
     if (handle) {
-      const handleId = (await this.handles.find(handle)) || uid('h');
-      const existing = this.findOpen({ kind: 'local', handleId });
-      if (existing) {
-        this.app.activate(existing);
-        return existing;
-      }
-      await this.handles.put(handleId, handle);
-      fileInfo = { kind: 'local', name: handle.name || name, handle, handleId };
+      return this.#openLocal(handle, async (handleId) => {
+        await this.handles.put(handleId, handle);
+        return this.#openBlob(file, name, { kind: 'local', name: handle.name || name, handle, handleId });
+      });
     }
+    return this.#openBlob(file, name, null);
+  }
+
+  async #openBlob(file, name, fileInfo) {
     let bytes;
     try {
       bytes = await toBytes(file);
@@ -652,7 +730,7 @@ export class FileService {
     }
     if (!doc) return null;
     // Saving an imported SVG writes a new .vstudio file (Save As); the SVG is left untouched.
-    const editor = this.app.addDocument(doc, { file: { kind: 'import', format: 'svg', name, path: file?.path || null } });
+    const editor = this.app.addDocument(doc, { file: { kind: 'import', format: 'svg', name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) } });
     if (file?.kind === 'puter') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     else if (file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     this.app.emit('file-opened', editor);
@@ -669,7 +747,7 @@ export class FileService {
     }
     if (!doc) return null;
     // Like SVG, an imported file saves as a new .vstudio document; the original is left untouched.
-    const editor = this.app.addDocument(doc, { file: { kind: 'import', format, name, path: file?.path || null } });
+    const editor = this.app.addDocument(doc, { file: { kind: 'import', format, name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) } });
     if (file?.kind === 'puter' || file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     if (doc.importWarnings?.length) this.app.importers.report?.(doc.importWarnings);
     this.app.emit('file-opened', editor);
@@ -679,37 +757,44 @@ export class FileService {
   /** Reopen an entry from the recent list. */
   openRecent(entry) {
     if (entry.kind !== 'local') return this.#openRecent(entry);
-    return this.#openOnce(`local:${entry.handleId}`, () => this.#openRecent(entry));
+    return this.#openOnce(`recent-local:${entry.handleId}`, () => this.#openRecent(entry));
   }
 
   async #openRecent(entry) {
     if (entry.kind === 'puter') return this.openPath(entry.path, { name: entry.name });
     if (entry.kind === 'local') {
+      let existing = this.findOpen(entry);
+      if (existing) {
+        this.app.activate(existing);
+        return existing;
+      }
       const handle = await this.handles.get(entry.handleId);
+      existing = this.findOpen(entry);
+      if (existing) {
+        this.app.activate(existing);
+        return existing;
+      }
       if (!handle) {
         await this.recent?.remove(entry);
         await this.app.dialogs.alert({ title: 'File Not Available', message: `"${entry.name}" can no longer be opened from here. Use Open to choose it again.` });
         this.#refreshHome();
         return null;
       }
-      const existing = this.findOpen({ kind: 'local', handleId: entry.handleId });
-      if (existing) {
-        this.app.activate(existing);
-        return existing;
-      }
-      try {
-        if (!(await ensurePermission(handle, 'readwrite'))) return null;
-        const f = await handle.getFile();
-        const bytes = await toBytes(f);
-        return this.openBytes(bytes, { name: handle.name, file: { kind: 'local', name: handle.name, handle, handleId: entry.handleId } });
-      } catch (err) {
-        if (isMissing(err)) {
-          await this.recent?.remove(entry);
-          await this.app.dialogs.alert({ title: 'File Not Found', message: `"${entry.name}" could not be found. It may have been moved or deleted.` });
-          this.#refreshHome();
-        } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${entry.name}" could not be opened. ${errorText(err)}` });
-        return null;
-      }
+      return this.#openLocal(handle, async (handleId) => {
+        try {
+          if (!(await ensurePermission(handle, 'readwrite'))) return null;
+          const f = await handle.getFile();
+          const bytes = await toBytes(f);
+          return await this.openBytes(bytes, { name: handle.name, file: { kind: 'local', name: handle.name, handle, handleId } });
+        } catch (err) {
+          if (isMissing(err)) {
+            await this.recent?.remove(entry);
+            await this.app.dialogs.alert({ title: 'File Not Found', message: `"${entry.name}" could not be found. It may have been moved or deleted.` });
+            this.#refreshHome();
+          } else await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${entry.name}" could not be opened. ${errorText(err)}` });
+          return null;
+        }
+      }, entry.handleId);
     }
     return null;
   }
@@ -727,40 +812,43 @@ export class FileService {
   }
 
   async revert(editor = this.app.editor) {
-    if (!this.canRevert(editor)) return false;
-    const ok = await this.app.dialogs.confirm({ title: 'Revert', message: `Revert to the saved version of "${editor.name}"? Changes since the last save will be lost.`, okLabel: 'Revert' });
-    if (!ok) return false;
+    if (!this.canRevert(editor) || !this.app.editors.includes(editor)) return false;
+    const doc = editor.doc;
     const f = editor.file;
+    const current = () => this.app.editors.includes(editor) && editor.doc === doc && editor.file === f;
+    const ok = await this.app.dialogs.confirm({ title: 'Revert', message: `Revert to the saved version of "${editor.name}"? Changes since the last save will be lost.`, okLabel: 'Revert' });
+    if (!ok || !current()) return false;
+    // Node versions include unfinished gestures, which have no history revision yet.
+    const nodeVersion = doc.nodes.version;
+    const commentsRevision = doc.commentsRevision;
     let bytes;
     try {
       if (f.kind === 'puter') bytes = await toBytes(await this.puter.fs.read(f.path));
       else bytes = await toBytes(await f.handle.getFile());
     } catch (err) {
+      if (!current()) return false;
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: `The saved version of "${editor.name}" could not be read. ${classifyError(err).message}` });
       return false;
     }
+    if (!current()) return false;
     let parsed;
     try {
       parsed = await parseDocument(bytes);
     } catch (err) {
+      if (!current()) return false;
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: err.message });
       return false;
     }
-    // Every window showing the document shows the saved one (none keeps the discarded changes to
-    // save over the file later); the window reverted from is replaced last, so it stays active.
-    const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
-    const replaced = new Map();
-    for (const o of others) replaced.set(o, await this.replaceDocument(o, parsed.doc, f));
-    const ed = await this.replaceDocument(editor, parsed.doc, f);
-    replaced.set(editor, ed);
-    // Windows keep their names ("Logo.vstudio:2"), now counted from the replaced first window.
-    for (const [o, w] of replaced) {
-      const n = o.windowOf && /:(\d+)$/.exec(o.name)?.[1];
-      if (!n) continue;
-      const base = replaced.get(o.windowOf) || o.windowOf;
-      w.windowOf = base;
-      Object.defineProperty(w, 'name', { get: () => `${base.name}:${n}`, configurable: true });
+    if (!current()) return false;
+    if (doc.nodes.version !== nodeVersion || doc.commentsRevision !== commentsRevision) {
+      this.app.notify('Revert cancelled because the document changed while its saved file was loading. Run Revert again to discard those changes.', { polite: true });
+      return false;
     }
+    // Every window shows the saved document. Only the window active now is activated
+    // when replaced: the user may have switched windows or documents during the read.
+    const others = this.app.editors.filter((e) => e !== editor && e.doc === editor.doc);
+    for (const o of others) await this.replaceDocument(o, parsed.doc, f);
+    const ed = await this.replaceDocument(editor, parsed.doc, f);
     this.app.renderTabs();
     return ed;
   }
@@ -769,12 +857,27 @@ export class FileService {
   async replaceDocument(old, doc, file) {
     const app = this.app;
     const index = app.editors.indexOf(old);
+    const active = app.editor === old;
     const view = { zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, rotation: old.view.rotation };
+    const floating = app.floating?.has(old);
+    const style = app.views.get(old)?.host.style;
+    const frame = floating && style ? { left: style.left, top: style.top, width: style.width, height: style.height } : null;
     const ed = app.addDocument(doc, { file, activate: false });
+    ed.windowNumber = old.windowNumber;
+    ed.viewOptions = { ...old.viewOptions };
+    ed.activeArtboard = Math.max(0, Math.min(old.activeArtboard, doc.artboards.length - 1));
+    if (floating) app.floating.add(ed);
     app.editors.splice(app.editors.indexOf(ed), 1);
     app.editors.splice(index, 0, ed);
+    if (app.views.has(old)) app.ensureView(ed);
+    if (app.lastDocked === old) app.lastDocked = ed;
     await app.closeDocument(old, { force: true });
-    app.activate(ed);
+    if (active) app.activate(ed);
+    if (frame) {
+      const canvasView = app.views.get(ed);
+      Object.assign(canvasView.host.style, frame);
+      canvasView.resize();
+    }
     ed.viewInitialized = true;
     ed.view.set(view);
     ed.viewChanged();

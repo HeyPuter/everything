@@ -22,6 +22,7 @@
  * the copies (and parts of copies) that fall inside it.
  */
 import { uid } from '../../lib/ids.js';
+import { stackPaints } from '../../model/appearance.js';
 import { nodeBounds, visualBounds, unionRect } from '../../model/geometry.js';
 
 export const TILE_TYPES = [
@@ -262,6 +263,7 @@ export const patternClipboardHook = {
     const visitNode = (n) => {
       visit(n.fill);
       visit(n.stroke);
+      for (const paint of stackPaints(n)) visit(paint);
       if (n.runs) for (const r of n.runs) visit(r.fill), visit(r.stroke);
     };
     for (const item of data.items || []) for (const n of item.nodes || []) visitNode(n);

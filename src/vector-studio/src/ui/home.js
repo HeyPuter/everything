@@ -101,11 +101,13 @@ async function renderHome(app, host) {
   );
   host.replaceChildren(h('div.home', side, main, h('footer.home-footer', h('a', { href: 'https://developer.puter.com', target: '_blank', rel: 'noopener' }, 'Powered by Puter'))));
   let items = [];
+  const cells = new Map();
   const empty = (text) => {
     recentList.removeAttribute('role');
     recentList.replaceChildren(h('p.muted', text));
   };
   const draw = () => {
+    cells.clear();
     if (!items.length) return empty('Files you open or save appear here.');
     const shown = arrangeRecent(items, view);
     if (!shown.length) return empty('No recent files match the filter.');
@@ -122,18 +124,26 @@ async function renderHome(app, host) {
         );
         // A listitem wrapper keeps the button's own role (a button cannot also be a listitem).
         const cell = h('div.recent-cell', { role: 'listitem' }, open);
+        cells.set(it, cell);
         if (!app.removeRecent) return cell;
         // The file module can drop entries from the list.
         cell.append(
-          h('button.icon-btn.recent-remove', { type: 'button', 'aria-label': `Remove ${it.name} from recent`, 'data-tip': 'Remove from recent', onclick: async (e) => {
-            const had = e.currentTarget.contains(document.activeElement);
-            const i = [...recentList.querySelectorAll('.recent-cell')].indexOf(cell);
+          h('button.icon-btn.recent-remove', { type: 'button', 'aria-label': `Remove ${it.name} from recent`, 'data-tip': 'Remove from recent', onclick: async () => {
             await app.removeRecent(it);
+            // Focus and the displayed row may have changed during cache I/O.
+            // Remove only that row, preserving other controls and their focus.
+            const current = cells.get(it);
+            const active = document.activeElement;
+            const had = current?.contains(active);
+            const control = active?.classList.contains('recent-item') ? '.recent-item' : '.recent-remove';
+            const i = [...recentList.querySelectorAll('.recent-cell')].indexOf(current);
             items = items.filter((x) => x !== it);
-            draw();
-            // Keep keyboard focus in the list: on the next file's remove button (else the previous one).
+            current?.remove();
+            cells.delete(it);
+            if (!cells.size) draw();
+            // Keep focus on the same control in the next file (else the previous one).
             if (had) {
-              const rest = [...recentList.querySelectorAll('.recent-remove')];
+              const rest = [...recentList.querySelectorAll(control)];
               (rest[Math.min(i, rest.length - 1)] || host.querySelector('.home-side .btn'))?.focus();
             }
           } }, icon('x', 12)),

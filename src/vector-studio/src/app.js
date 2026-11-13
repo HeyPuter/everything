@@ -291,9 +291,11 @@ export class App extends Emitter {
   #describeTimer = 0;
 
   #scheduleDescribe(editor) {
+    if (editor !== this.editor) return;
     clearTimeout(this.#describeTimer);
     this.#describeTimer = setTimeout(() => {
-      if (editor !== this.editor || !this.canvasDesc || !this.root.isConnected || !this.root.ownerDocument.defaultView) return;
+      if (typeof document === 'undefined' || this.root.ownerDocument !== document ||
+          editor !== this.editor || !this.canvasDesc || !this.root.isConnected || !document.defaultView) return;
       const text = this.describeSelection(editor);
       if (text === this.canvasDesc.textContent) return;
       this.canvasDesc.textContent = text;
@@ -304,9 +306,13 @@ export class App extends Emitter {
 
   // ---- documents ----
 
+  #documentTabSubscriptions = new Map();
+
   /** Open a document in a new tab and make it active. */
   addDocument(doc, { file = null, activate = true } = {}) {
+    const previousSelection = doc.selection;
     const editor = new Editor(doc, { file, prefs: this.prefs });
+    if (!activate && previousSelection) doc.selection = previousSelection;
     editor.style = { ...editor.style };
     editor.overlayInsets = () => this.canvasOverlayInsets?.() || null;
     this.editors.push(editor);
@@ -321,8 +327,12 @@ export class App extends Emitter {
     editor.on('active-layer', () => this.#onEditorEvent(editor));
     editor.on('isolation', () => this.#onEditorEvent(editor));
     editor.on('view-options', () => this.#onEditorEvent(editor));
-    doc.on('history', () => this.renderTabs());
-    doc.on('saved', () => this.renderTabs());
+    if (!this.#documentTabSubscriptions.has(doc)) {
+      this.#documentTabSubscriptions.set(doc, [
+        doc.on('history', () => this.renderTabs()),
+        doc.on('saved', () => this.renderTabs()),
+      ]);
+    }
     if (activate) this.activate(editor);
     else this.renderTabs();
     return editor;
@@ -340,21 +350,54 @@ export class App extends Emitter {
     return this.untitled;
   }
 
+  #finishDocumentInteraction() {
+    const field = document.activeElement;
+    const panel = field?.matches?.('input, textarea, [contenteditable="true"]')
+      ? [...this.dock.panels.values()].find((panel) => panel.el.contains(field)) : null;
+    // Finish panel edits before ending text editing, while the original
+    // character range still exists. An open canvas transaction must end first.
+    if (panel && !this.editor?.doc.tx) field.blur();
+    this.tool?.commit?.();
+    this.input?.reset();
+    if (panel && document.activeElement === field) field.blur();
+    return panel ? { field, panel } : null;
+  }
+
+  #restorePanelFocus(pending) {
+    if (!pending || document.activeElement !== document.body) return;
+    const { field, panel } = pending;
+    // Dock refreshes normally wait for a frame. Refresh this panel before
+    // focusing it, since focused text controls may preserve their contents.
+    panel.update();
+    let available = Boolean(this.editor && field.isConnected && !field.disabled);
+    for (let el = field; available && el; el = el.parentElement) if (el.hidden || el.inert) available = false;
+    const target = available ? field : this.home && !this.home.hidden ? this.root.querySelector('.home-btn') : this.editor ? this.canvasHost : null;
+    target?.focus({ preventScroll: true });
+  }
+
+  /** Create a document's canvas without changing the active editor or its interaction. */
+  ensureView(editor) {
+    let view = this.views.get(editor);
+    if (!view) {
+      const host = h('div.view-host', { hidden: editor !== this.editor });
+      this.canvasHost.append(host);
+      view = new CanvasView(host, editor, { theme: this.prefs.get('theme') });
+      this.views.set(editor, view);
+    }
+    return view;
+  }
+
   activate(editor) {
     // activate(null) after the last tab closed must still show the home screen.
     if (this.editor === editor && editor) return;
-    this.tool?.commit?.();
+    const pendingField = this.#finishDocumentInteraction();
+    this.tool?.deactivate?.();
     const prevView = this.editor && this.views.get(this.editor);
     if (prevView) prevView.host.hidden = true;
     this.editor = editor;
     if (editor) {
-      let view = this.views.get(editor);
-      if (!view) {
-        const host = h('div.view-host');
-        this.canvasHost.append(host);
-        view = new CanvasView(host, editor, { theme: this.prefs.get('theme') });
-        this.views.set(editor, view);
-      }
+      editor.doc.selection = editor.selectionBinding;
+      const view = this.ensureView(editor);
       view.host.hidden = false;
       view.resize();
       view.invalidate();
@@ -366,10 +409,13 @@ export class App extends Emitter {
     this.refreshChrome();
     this.tool?.activate?.();
     this.emit('active-editor', editor);
+    this.#restorePanelFocus(pendingField);
   }
 
   async closeDocument(editor = this.editor, { force = false } = {}) {
     if (!editor) return true;
+    // Finish against the outgoing editor before checking whether its file needs saving.
+    if (this.editor === editor) this.#restorePanelFocus(this.#finishDocumentInteraction());
     if (!force && editor.doc.dirty) {
       const save = await openDialog({
         title: 'Vector Studio',
@@ -382,24 +428,35 @@ export class App extends Emitter {
       });
       if (!save) return false;
       if (save === 'save') {
-        const rev = editor.doc.revision;
+        const nodeVersion = editor.doc.nodes.version;
+        const commentsRevision = editor.doc.commentsRevision;
         const ok = await this.commands.run('file.save', { editor });
         if (!ok) return false;
         // Edited while the file was being written (the prompt was already gone): ask again.
-        if (editor.doc.revision !== rev && editor.doc.dirty && this.editors.includes(editor)) return this.closeDocument(editor);
+        const changed = editor.doc.nodes.version !== nodeVersion || editor.doc.commentsRevision !== commentsRevision;
+        if (changed && editor.doc.dirty && this.editors.includes(editor)) return this.closeDocument(editor);
       }
     }
     const i = this.editors.indexOf(editor);
     // Closed meanwhile (a second close while the save prompt or the save was pending).
     if (i < 0) return true;
     this.editors.splice(i, 1);
+    if (!this.editors.some((e) => e.doc === editor.doc)) {
+      for (const off of this.#documentTabSubscriptions.get(editor.doc) || []) off();
+      this.#documentTabSubscriptions.delete(editor.doc);
+    }
     this.views.get(editor)?.destroy();
     this.views.get(editor)?.host.remove();
     this.views.delete(editor);
     if (this.editor === editor) {
-      this.editor = null;
       this.activate(this.editors[Math.min(i, this.editors.length - 1)] || null);
     } else this.renderTabs();
+    editor.destroy();
+    // A background document may still have windows even when another document is active.
+    if (!editor.doc.selection) {
+      const remaining = this.editors.find((e) => e.doc === editor.doc);
+      if (remaining) editor.doc.selection = remaining.selectionBinding;
+    }
     this.emit('closed', editor);
     return true;
   }
@@ -436,6 +493,7 @@ export class App extends Emitter {
     }
     if (this.editor) document.title = `${this.editor.name}${this.editor.doc.dirty ? '*' : ''} - Vector Studio`;
     else document.title = 'Vector Studio';
+    this.emit('tabs-rendered');
   }
 
   refreshChrome() {

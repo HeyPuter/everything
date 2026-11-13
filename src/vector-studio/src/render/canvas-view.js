@@ -12,10 +12,12 @@
  * rendered bitmap with the view delta and schedule a crisp re-render once
  * the gesture settles.
  */
-import { drawArtwork, drawNode, LayerPool, imageEvents } from './draw.js';
+import { drawArtwork, drawNode, dependsOnBackdrop, LayerPool, imageEvents } from './draw.js';
 import { drawOverlay } from './overlay.js';
 import { multiply, invert } from '../lib/matrix.js';
 import { liveDef } from '../model/live.js';
+import { hasAppearanceStack } from '../model/appearance.js';
+import { selectionBounds, transformRect } from '../model/geometry.js';
 
 const SETTLE_MS = 140;
 
@@ -72,9 +74,11 @@ export class CanvasView {
       editor.on('view', () => this.viewChanged()),
       editor.on('selection', () => this.invalidateOverlay()),
       editor.on('overlay', () => this.invalidateOverlay()),
-      editor.on('view-options', () => this.invalidate()),
+      editor.on('view-options', () => this.#invalidateCachedArtwork()),
+      imageEvents.on('ready', (consumers) => {
+        if (consumers.has(editor.doc.assets)) this.#invalidateCachedArtwork();
+      }),
     ];
-    imageEvents.onReady = () => this.invalidate();
     this.resize();
   }
 
@@ -128,6 +132,16 @@ export class CanvasView {
   /** Re-read theme colors (theme switch, document preferences). */
   refreshColors() {
     this.colorCache = null;
+    this.#invalidateCachedArtwork();
+  }
+
+  /** Rendering inputs changed: cached artwork and pan snapshots are stale. */
+  #invalidateCachedArtwork() {
+    this.interaction = null;
+    this.previewCache = null;
+    this.snapshot = null;
+    this.fastMode = false;
+    clearTimeout(this.settleTimer);
     this.invalidate();
   }
 
@@ -197,6 +211,8 @@ export class CanvasView {
     // While a drag edits a few objects inside an open transaction, keep the
     // unchanged artwork below and above them as bitmaps and redraw only the
     // objects in between: dragging stays cheap in very large documents.
+    // Pixel Preview rasterizes current geometry rather than the deferred drag bitmap.
+    if (editor.dragPreview && opts.pixelPreview) editor.dragPreview.session.useLivePreview();
     if (editor.dragPreview && !opts.pixelPreview && this.#drawDragPreview(editor.dragPreview)) {
       this.#postArt();
       this.lastRenderMs = performance.now() - t0;
@@ -250,7 +266,7 @@ export class CanvasView {
   }
 
   /** Paint the scene (or a slice of it) into a context with the view transform. */
-  #paint(ctx, { background = false, borders = false, leafFilter = null, clear = true } = {}) {
+  #paint(ctx, { background = false, borders = false, leafFilter = null, clear = true, offset = null, viewRect = undefined } = {}) {
     const { editor } = this;
     const { view, doc } = editor;
     const dpr = view.dpr;
@@ -260,8 +276,12 @@ export class CanvasView {
     if (background) {
       ctx.fillStyle = colors.pasteboard;
       ctx.fillRect(0, 0, this.art.width, this.art.height);
-    } else if (clear) ctx.clearRect(0, 0, this.art.width, this.art.height);
+    } else if (clear) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     const m = multiply([dpr, 0, 0, dpr, 0, 0], view.matrix);
+    if (offset) {
+      m[4] -= offset.x;
+      m[5] -= offset.y;
+    }
     ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
     if (background && opts.artboards) {
       const tg = doc.root.transparencyGrid;
@@ -275,7 +295,7 @@ export class CanvasView {
     }
     if (background && opts.grid && !opts.gridInFront) drawGrid(ctx, editor, colors);
     let artOpts = {
-      viewRect: view.visibleRect(4),
+      viewRect: viewRect === undefined ? view.visibleRect(4) : viewRect,
       outline: opts.mode === 'outline',
       hairline: 1 / view.zoom,
       outlineColor: '#000000',
@@ -310,14 +330,32 @@ export class CanvasView {
     }
   }
 
-  #layerCanvas(key) {
+  #layerCanvas(key, width = this.art.width, height = this.art.height) {
     let c = this.interactionCanvases?.[key];
-    if (!c || c.width !== this.art.width || c.height !== this.art.height) {
+    if (!c || c.width !== width || c.height !== height) {
       // Regular canvases stay GPU-backed, so blitting them each frame is cheap.
-      c = Object.assign(document.createElement('canvas'), { width: this.art.width, height: this.art.height });
+      c = Object.assign(document.createElement('canvas'), { width, height });
       this.interactionCanvases = { ...(this.interactionCanvases || {}), [key]: c };
     }
     return c;
+  }
+
+  /** A transparent slice cannot preserve blending against pixels below it. */
+  #hasBackdropBlend(order, from) {
+    if (this.editor.viewOptions.mode === 'outline') return false;
+    const { doc, viewOptions } = this.editor;
+    let found = false;
+    doc.walk((n) => {
+      if (found || n.hidden) return false;
+      // A layer appearance can paint around all its children, across the slice.
+      if ((order.get(n.id) ?? 0) >= from || (n.type === 'layer' && hasAppearanceStack(n))) {
+        found = dependsOnBackdrop(doc, n, viewOptions.overprint);
+        return false;
+      }
+      // These draw as one unit; their source children are not independent leaves.
+      if (n.type === 'compound' || liveDef(n)) return false;
+    });
+    return found;
   }
 
   /**
@@ -344,14 +382,34 @@ export class CanvasView {
         hi = Math.max(hi, o);
       }
       if (!Number.isFinite(lo)) return false;
+      let first = lo;
+      for (const id of pv.session.ids) first = Math.min(first, order.get(id) ?? lo);
+      if (this.#hasBackdropBlend(order, first)) {
+        pv.session.useLivePreview();
+        return false;
+      }
       const isMoving = (id) => moving.has(id) || moving.has(doc.get(id)?.parent);
+      // Capture the entire selection, including pixels outside the viewport that
+      // can enter it during the drag. Keep the allocation bounded to one viewport
+      // (at least 1 MP); exceptionally large artwork uses the exact live path.
+      const bounds = selectionBounds(doc, pv.session.ids, true);
+      if (!bounds) return false;
+      const D = multiply([view.dpr, 0, 0, view.dpr, 0, 0], view.matrix);
+      const device = transformRect(bounds, D);
+      const origin = { x: Math.floor(device.x) - 1, y: Math.floor(device.y) - 1 };
+      const width = Math.ceil(device.x + device.w) - origin.x + 1;
+      const height = Math.ceil(device.y + device.h) - origin.y + 1;
+      if (!Number.isFinite(width * height) || width > 8192 || height > 8192 || width * height > Math.max(1024 * 1024, this.art.width * this.art.height)) {
+        pv.session.useLivePreview();
+        return false;
+      }
       const below = this.#layerCanvas('pv-below');
       const above = this.#layerCanvas('pv-above');
-      const mov = this.#layerCanvas('pv-moving');
+      const mov = this.#layerCanvas('pv-moving', width, height);
       this.#paint(below.getContext('2d'), { background: true, leafFilter: (id) => !isMoving(id) && (order.get(id) ?? 0) < lo });
       this.#paint(above.getContext('2d'), { borders: true, leafFilter: (id) => !isMoving(id) && (order.get(id) ?? 0) > hi });
-      this.#paint(mov.getContext('2d'), { leafFilter: (id) => isMoving(id) });
-      cache = this.previewCache = { session: pv.session, ids: pv.ids, width: this.art.width, height: this.art.height, matrix: view.matrix.slice(), order, lo, hi, below, above, mov, isMoving };
+      this.#paint(mov.getContext('2d'), { leafFilter: (id) => isMoving(id), offset: origin, viewRect: null });
+      cache = this.previewCache = { session: pv.session, ids: pv.ids, width: this.art.width, height: this.art.height, matrix: view.matrix.slice(), order, lo, hi, below, above, mov, origin, isMoving };
     }
     const ctx = this.actx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -370,7 +428,7 @@ export class CanvasView {
     const T = multiply(D, multiply(pv.matrix, invert(D)));
     ctx.setTransform(T[0], T[1], T[2], T[3], T[4], T[5]);
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(cache.mov, 0, 0);
+    ctx.drawImage(cache.mov, cache.origin.x, cache.origin.y);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(cache.above, 0, 0);
     return true;
@@ -392,10 +450,10 @@ export class CanvasView {
         if (n.textWrap || n.threadNext || n.threadPrev) return false;
         const parent = n.parent ? doc.get(n.parent) : null;
         if (parent?.type === 'compound') n = parent;
-        // Isolated ancestors (opacity, blending, effects, clipping) composite as a unit: no split.
+        // Isolated ancestors (opacity, blending, effects, masks, knockout) composite as a unit: no split.
         // Opacity mask art edited in place masks an object below it: redraw everything.
         for (const a of doc.ancestors(n.id)) {
-          if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.maskEdit) return false;
+          if ((a.opacity ?? 1) < 1 || (a.blendMode && a.blendMode !== 'normal') || a.effects?.length || a.clip || a.maskEdit || a.isolate || a.knockout || (a.opacityMask && !a.opacityMask.disabled)) return false;
           // Live artwork made from a changing object redraws with it.
           if (liveDef(a) && order.has(a.id)) lo = Math.min(lo, order.get(a.id));
         }
@@ -404,7 +462,7 @@ export class CanvasView {
         lo = Math.min(lo, o);
         hi = Math.max(hi, o);
       }
-      if (!Number.isFinite(lo)) return false;
+      if (!Number.isFinite(lo) || this.#hasBackdropBlend(order, hi + 1)) return false;
       const below = this.#layerCanvas('below');
       const above = this.#layerCanvas('above');
       this.#paint(below.getContext('2d'), { background: true, leafFilter: (id) => (order.get(id) ?? 0) < lo });

@@ -31,7 +31,7 @@ import { isFreeform, addPoint, setPoint, removePoint, sampleFreeform, insertLine
 import { rgbToHex } from '../../lib/color.js';
 import { h } from '../../lib/dom.js';
 import { numberField } from '../../ui/widgets.js';
-import { openPopover, closePopover } from '../../ui/popover.js';
+import { openEditorPopover, closePopover } from '../../ui/popover.js';
 import { createColorPicker } from '../../ui/color-picker.js';
 import { focalPoint } from '../../model/gradients.js';
 import { setStop } from './gradient-model.js';
@@ -484,8 +484,9 @@ export class GradientTool extends Tool {
     if (!stop) return;
     paintState.setStop(index);
     let i = index;
+    let popover;
     const coalesce = `gradient-stop-${node.id}-${Date.now()}`;
-    const edit = (patch, label) => {
+    const edit = (patch, label) => popover?.run(() => {
       doc.transact(label, () => this.setPaint([doc.get(node.id)], (p) => {
         if (patch.offset === undefined) return setStop(p, i, patch);
         const r = moveStop(p, i, patch.offset);
@@ -494,16 +495,16 @@ export class GradientTool extends Tool {
         return r.paint;
       }), { coalesce });
       this.overlay();
-    };
+    });
     const picker = createColorPicker({ value: stop.color, label: `Stop ${index + 1} color`, onInput: (hex) => edit({ color: hex }, 'Gradient Stop Color') });
     const opacity = numberField({ label: 'Opacity', kind: 'percent', value: (stop.opacity ?? 1) * 100, min: 0, max: 100, width: '64px', onCommit: (v) => edit({ opacity: v / 100 }, 'Gradient Stop Opacity') });
     const location = numberField({ label: 'Location', kind: 'percent', value: stop.offset * 100, min: 0, max: 100, width: '64px', onCommit: (v) => edit({ offset: v / 100 }, 'Gradient Stop Location') });
-    const del = h('button.btn.small', { type: 'button', disabled: node[key].stops.length <= 2, onclick: () => {
+    const del = h('button.btn.small', { type: 'button', disabled: node[key].stops.length <= 2, onclick: () => popover?.run(() => {
       doc.transact('Delete Gradient Stop', () => this.setPaint([doc.get(node.id)], (p) => removeStop(p, i)));
       paintState.setStop(Math.max(0, i - 1));
       closePopover();
       this.overlay();
-    } }, 'Delete Stop');
+    }) }, 'Delete Stop');
     const x = e.native?.clientX ?? 0;
     const y = e.native?.clientY ?? 0;
     const canvas = e.native?.target instanceof Element ? e.native.target : null;
@@ -512,7 +513,7 @@ export class GradientTool extends Tool {
       contains: () => false,
       focus: () => canvas?.focus?.(),
     };
-    openPopover(anchor, h('div.paint-popover.gt-stop-popover', h('h3.popover-title', `Stop ${index + 1}`), picker.el, h('div.gt-stop-fields', opacity.el, location.el, del)), { label: 'Gradient stop', placement: 'below' });
+    popover = openEditorPopover(this.app, anchor, h('div.paint-popover.gt-stop-popover', h('h3.popover-title', `Stop ${index + 1}`), picker.el, h('div.gt-stop-fields', opacity.el, location.el, del)), { label: 'Gradient stop', placement: 'below', paintKey: key, paintTarget: node.id });
   }
 
   onKeyDown(e) {

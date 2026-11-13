@@ -2,8 +2,9 @@
  * Gradient slider: the gradient bar with color stops below it and midpoint
  * diamonds above it. Click under the bar to add a stop, drag stops to move
  * them (Option/Alt-drag duplicates), drag a stop down off the slider to
- * remove it, drag midpoints to skew the blend. Stops are focusable sliders:
- * Left/Right move them (Shift 10x), Delete removes, Enter edits the color.
+ * remove it, drag midpoints to skew the blend. Every stop and midpoint is a
+ * focusable slider: arrows step (Shift 10x), Home/End set the limits. For
+ * stops, Delete removes and Enter edits the color.
  */
 import { h } from '../../lib/dom.js';
 import { paintCss } from '../../ui/widgets.js';
@@ -11,17 +12,28 @@ import { insertStop, moveStop, removeStop, setMidpoint } from './gradient-model.
 import { expandStops } from '../../model/gradients.js';
 
 const REMOVE_DISTANCE = 36;
+const VALUE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End'];
+
+function keyboardValue(event, value, min, max) {
+  const step = event.shiftKey ? 0.1 : 0.01;
+  if (event.key === 'Home') return min;
+  if (event.key === 'End') return max;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') return Math.max(min, value - step);
+  if (event.key === 'ArrowRight' || event.key === 'ArrowUp') return Math.min(max, value + step);
+  return null;
+}
 
 /** CSS for a horizontal preview of a gradient's stops (midpoints included). */
 export function gradientBarCss(paint) {
   return paintCss({ type: 'linear', angle: 0, stops: expandStops(paint.stops) });
 }
 
-export function createGradientSlider({ label = 'Gradient', onChange, onSelect, onEditStop, onGestureStart }) {
+export function createGradientSlider({ label = 'Gradient', onChange, onSelect, onEditStop, onGestureStart, onDragStart }) {
   let paint = null;
   let selected = 0;
+  let gesture = null;
   const bar = h('div.gs-bar', { 'aria-hidden': 'true' }, h('div.gs-fill'));
-  const mids = h('div.gs-mids');
+  const mids = h('div.gs-mids', { role: 'group', 'aria-label': `${label} midpoints` });
   const stopsEl = h('div.gs-stops', { role: 'group', 'aria-label': `${label} stops` });
   const el = h('div.gs', mids, bar, stopsEl);
   const fill = bar.firstChild;
@@ -44,25 +56,109 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
     if (focus) stopsEl.children[i]?.focus();
   };
 
-  stopsEl.addEventListener('pointerdown', (e) => {
-    if (!paint || e.target !== stopsEl) return;
-    // Click in the empty area under the bar adds a stop.
+  const addStop = (offset) => {
+    if (!paint) return;
+    gesture?.end();
+    if (offset == null) {
+      // Insert beside the selected stop; the last stop uses its left interval.
+      const index = Math.max(0, Math.min(selected, paint.stops.length - 2));
+      offset = (paint.stops[index].offset + paint.stops[index + 1].offset) / 2;
+    }
     onGestureStart?.();
-    const r = insertStop(paint, fraction(e.clientX));
+    const r = insertStop(paint, offset);
     selected = r.index;
-    onSelect?.(r.index);
     emit(r.paint, false);
+    onSelect?.(r.index);
     stopsEl.children[r.index]?.focus();
+  };
+
+  stopsEl.addEventListener('pointerdown', (e) => {
+    if (!paint || gesture || e.button !== 0 || e.target !== stopsEl) return;
+    // Click in the empty area under the bar adds a stop.
+    addStop(fraction(e.clientX));
   });
 
-  const startStopDrag = (e, index) => {
+  // Capture on the persistent container: duplicating/removing stops rebuilds
+  // the handles, which must not detach the active capture target.
+  const startDrag = (e, move, finish) => {
+    if (!paint || gesture || e.button !== 0) return false;
     e.preventDefault();
     e.stopPropagation();
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
+    const pointerId = e.pointerId;
+    try { el.setPointerCapture?.(pointerId); } catch { return false; }
+    const active = {};
+    let dispose;
+    gesture = active;
+    const owns = (ev) => gesture === active && ev.pointerId === pointerId;
+    const onMove = (ev) => { if (owns(ev)) move(ev); };
+    const end = (ev) => {
+      if (gesture !== active || (ev && !owns(ev))) return;
+      gesture = null;
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', end);
+      el.removeEventListener('pointercancel', end);
+      el.removeEventListener('lostpointercapture', end);
+      try { el.releasePointerCapture?.(pointerId); } catch { /* Capture already ended. */ }
+      dispose?.();
+      finish(ev?.type === 'pointerup');
+    };
+    active.end = end;
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end);
+    dispose = onDragStart?.(() => end());
+    if (gesture !== active) { dispose?.(); return false; }
     onGestureStart?.();
+    return true;
+  };
+
+  const startStopDrag = (e, index) => {
     let idx = index;
     let cur = paint;
+    const startY = e.clientY;
+    let removing = false;
+    let pendingDuplicate = e.altKey;
+    const move = (ev) => {
+      removing = Math.abs(ev.clientY - startY) > REMOVE_DISTANCE && cur.stops.length > 2;
+      stopsEl.children[idx]?.classList.toggle('removing', removing);
+      if (removing) return;
+      const r = moveStop(cur, idx, fraction(ev.clientX));
+      cur = r.paint;
+      idx = r.index;
+      selected = idx;
+      pendingDuplicate = false;
+      emit(cur, true);
+      // The stop stays selected (and its fields follow it) when it passes another stop.
+      onSelect?.(idx);
+    };
+    const finish = (released) => {
+      if (!released) {
+        // Keep completed live edits; cancellation must not perform the pending
+        // off-bar deletion or commit an unplaced Alt-drag duplicate.
+        select(Math.max(0, Math.min(selected, paint.stops.length - 1)));
+        return;
+      }
+      if (removing) {
+        const next = removeStop(cur, idx);
+        selected = Math.max(0, Math.min(idx, next.stops.length - 1));
+        onSelect?.(selected);
+        emit(next, false);
+      } else {
+        if (pendingDuplicate) {
+          // An Alt-click may release without a move event. Place the copy in
+          // sorted order just as the first drag movement would.
+          const r = moveStop(cur, idx, cur.stops[idx].offset);
+          cur = r.paint;
+          idx = r.index;
+        }
+        selected = idx;
+        emit(cur, false);
+        // Model feedback can clamp selection while the copy is still pending.
+        onSelect?.(idx);
+      }
+    };
+    if (!startDrag(e, move, finish)) return;
     if (e.altKey) {
       // Duplicate the stop and drag the copy.
       const s = cur.stops[idx];
@@ -70,45 +166,10 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       idx = cur.stops.length - 1;
     }
     select(idx);
-    const startY = e.clientY;
-    let removing = false;
-    const move = (ev) => {
-      const off = Math.abs(ev.clientY - startY) > REMOVE_DISTANCE && cur.stops.length > 2;
-      removing = off;
-      target.classList.toggle('removing', off);
-      if (off) return;
-      const r = moveStop(cur, idx, fraction(ev.clientX));
-      cur = r.paint;
-      idx = r.index;
-      selected = idx;
-      emit(cur, true);
-      // The stop stays selected (and its fields follow it) when it passes another stop.
-      onSelect?.(idx);
-    };
-    const up = () => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      target.removeEventListener('pointercancel', up);
-      if (removing) {
-        const next = removeStop(cur, idx);
-        selected = Math.max(0, Math.min(idx, next.stops.length - 1));
-        onSelect?.(selected);
-        emit(next, false);
-      } else {
-        onSelect?.(idx);
-        emit(cur, false);
-      }
-    };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up);
-    target.addEventListener('pointercancel', up);
   };
 
   const startMidDrag = (e, index) => {
-    e.preventDefault();
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-    onGestureStart?.();
+    if (!paint) return;
     const a = paint.stops[index];
     const b = paint.stops[index + 1];
     const move = (ev) => {
@@ -117,13 +178,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       if (span <= 1e-6) return;
       emit(setMidpoint(paint, index, (f - a.offset) / span), true);
     };
-    const up = () => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      emit(paint, false);
-    };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up);
+    startDrag(e, move, (released) => { if (released) emit(paint, false); });
   };
 
   const render = () => {
@@ -137,11 +192,14 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
           b.addEventListener('pointerdown', (e) => startStopDrag(e, Number(b.dataset.index)));
           b.addEventListener('dblclick', () => onEditStop?.(Number(b.dataset.index), b));
           b.addEventListener('keydown', (e) => {
+            // A discrete keyboard action supersedes the held pointer gesture;
+            // its stale paint must not restore a deleted or moved stop.
+            if (VALUE_KEYS.includes(e.key) || ['Delete', 'Backspace', 'Enter'].includes(e.key)) gesture?.end();
             const i2 = Number(b.dataset.index);
-            const step = e.shiftKey ? 0.1 : 0.01;
-            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            const offset = keyboardValue(e, paint.stops[i2].offset, 0, 1);
+            if (offset !== null) {
               onGestureStart?.();
-              const r = moveStop(paint, i2, paint.stops[i2].offset + (e.key === 'ArrowRight' ? step : -step));
+              const r = moveStop(paint, i2, offset);
               selected = r.index;
               onSelect?.(r.index);
               emit(r.paint, false);
@@ -179,14 +237,24 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       b.setAttribute('aria-valuenow', String(Math.round(s.offset * 100)));
       b.setAttribute('aria-valuetext', `${Math.round(s.offset * 100)}%, ${s.color.toUpperCase()}${(s.opacity ?? 1) < 1 ? `, opacity ${Math.round((s.opacity ?? 1) * 100)}%` : ''}`);
       b.setAttribute('aria-label', `Stop ${i + 1}`);
-      b.tabIndex = i === selected ? 0 : -1;
+      b.tabIndex = 0;
     });
     const midCount = Math.max(0, stops.length - 1);
     if (mids.children.length !== midCount) {
       mids.replaceChildren(
         ...Array.from({ length: midCount }, () => {
-          const m = h('span.gs-mid', { role: 'presentation' });
+          const m = h('span.gs-mid', { role: 'slider', tabindex: 0, 'aria-valuemin': '5', 'aria-valuemax': '95' });
           m.addEventListener('pointerdown', (e) => startMidDrag(e, Number(m.dataset.index)));
+          m.addEventListener('keydown', (e) => {
+            if (!VALUE_KEYS.includes(e.key)) return;
+            gesture?.end();
+            const index = Number(m.dataset.index);
+            const value = keyboardValue(e, paint.stops[index].midpoint ?? 0.5, 0.05, 0.95);
+            e.preventDefault();
+            e.stopPropagation();
+            onGestureStart?.();
+            emit(setMidpoint(paint, index, value), false);
+          });
           return m;
         }),
       );
@@ -196,6 +264,10 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
       const b = stops[i + 1];
       const m = mids.children[i];
       m.dataset.index = String(i);
+      const percent = Math.round((a.midpoint ?? 0.5) * 10000) / 100;
+      m.setAttribute('aria-label', `Midpoint between stops ${i + 1} and ${i + 2}`);
+      m.setAttribute('aria-valuenow', String(percent));
+      m.setAttribute('aria-valuetext', `${percent}%`);
       m.style.left = `${(a.offset + (b.offset - a.offset) * (a.midpoint ?? 0.5)) * 100}%`;
       m.hidden = b.offset - a.offset < 0.02;
       m.classList.toggle('active', i === selected || i + 1 === selected);
@@ -204,6 +276,8 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
 
   return {
     el,
+    addStop,
+    cancel() { gesture?.end(); },
     set(p, sel = selected) {
       paint = p;
       selected = Math.max(0, Math.min(sel, p.stops.length - 1));

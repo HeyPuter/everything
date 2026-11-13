@@ -346,6 +346,29 @@ export class CanvasInput {
     return true;
   }
 
+  /** End document-owned input before the app changes the active editor. */
+  reset() {
+    this.#clearTouchTimers();
+    this.pendingTouch = null;
+    this.touchStart = null;
+    this.longPressed = false;
+    this.lifting = null;
+    if (this.active) {
+      this.active.tool.cancel?.();
+      this.#endPress(this.active.tool);
+      this.active = null;
+    }
+    this.pan = null;
+    this.gesture = null;
+    this.pointers.clear();
+    this.palms.clear();
+    this.lastClick = { t: 0, x: 0, y: 0 };
+    this.pendingTempTool = null;
+    this.spaceDown = false;
+    this.setTempTool(null);
+    this.app.setCanvasCursor(this.app.tool?.cursor || 'default');
+  }
+
   cancel(e) {
     if (this.palms.delete(e.pointerId)) return;
     if (this.pendingTouch?.e.pointerId === e.pointerId) this.pendingTouch = null;

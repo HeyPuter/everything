@@ -10,7 +10,6 @@ import { setListItems } from '../../ui/panels/panel.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
-import { SelectionSet } from '../../editor.js';
 import { TOOL_LAYOUT } from '../../ui/toolbar.js';
 import { createControlBar } from './control-bar.js';
 
@@ -318,11 +317,9 @@ function setToolbarVisible(app, on) {
 export function newWindow(app, editor = app.editor) {
   if (!editor) return null;
   const doc = editor.doc;
-  const n = app.editors.filter((e) => e.doc === doc).length + 1;
-  const base = editor.windowOf || editor;
+  const n = app.editors.reduce((max, e) => e.doc === doc ? Math.max(max, e.windowNumber || 1) : max, 1) + 1;
   const ed = app.addDocument(doc, { file: editor.file, activate: false });
-  ed.windowOf = base;
-  Object.defineProperty(ed, 'name', { get: () => `${base.name}:${n}`, configurable: true });
+  ed.windowNumber = n;
   ed.view.set({ zoom: editor.view.zoom, panX: editor.view.panX, panY: editor.view.panY, rotation: editor.view.rotation, width: editor.view.width, height: editor.view.height, dpr: editor.view.dpr });
   ed.viewInitialized = true;
   ed.viewOptions = { ...editor.viewOptions };
@@ -330,18 +327,6 @@ export function newWindow(app, editor = app.editor) {
   ed.activeLayerId = editor.activeLayerId;
   app.activate(ed);
   return ed;
-}
-
-/** Undo restores the selection of the window being worked in (documents shown in several windows). */
-function bindSelection(doc, editor) {
-  doc.selection = {
-    get: () => ({ ids: [...editor.selection], anchors: [...editor.anchors].map(([k, v]) => [k, [...v]]) }),
-    set: (s) => {
-      editor.selection = new SelectionSet(s.ids.filter((id) => doc.has(id)));
-      editor.anchors = new Map(s.anchors.filter(([k]) => doc.has(k)).map(([k, v]) => [k, new Set(v)]));
-      editor.emit('selection');
-    },
-  };
 }
 
 export const ARRANGEMENTS = ['tabs', 'tile', 'stack'];
@@ -353,6 +338,8 @@ export function layoutViews(app) {
   if (!host) return;
   const floating = app.floating || new Set();
   const docked = app.editors.filter((e) => !floating.has(e));
+  if (docked.includes(app.editor)) app.lastDocked = app.editor;
+  else if (!docked.includes(app.lastDocked)) app.lastDocked = docked.at(-1) || null;
   const tiled = mode !== 'tabs' && docked.length > 1;
   host.classList.toggle('arrange-tile', tiled && mode === 'tile');
   host.classList.toggle('arrange-stack', tiled && mode === 'stack');
@@ -376,10 +363,19 @@ export function layoutViews(app) {
   }
 }
 
+function updateFloatTitle(ed, head) {
+  const name = ed.name;
+  const title = head.querySelector('.float-title');
+  const dock = head.querySelector('button');
+  if (title.textContent !== name) title.textContent = name;
+  if (dock.getAttribute('aria-label') !== `Dock ${name}`) dock.setAttribute('aria-label', `Dock ${name}`);
+}
+
 function ensureFloatChrome(app, ed, view) {
   const host = view.host;
-  if (host.querySelector(':scope > .float-head')) {
-    host.querySelector('.float-title').textContent = ed.name;
+  const existing = host.querySelector(':scope > .float-head');
+  if (existing) {
+    updateFloatTitle(ed, existing);
     return;
   }
   if (!host.style.left) {
@@ -391,8 +387,10 @@ function ensureFloatChrome(app, ed, view) {
     h('span.float-title', ed.name),
     h('button.icon-btn.small', { type: 'button', 'aria-label': `Dock ${ed.name}`, 'data-tip': 'Consolidate into tabs', onclick: () => unfloat(app, ed) }, icon('x', 12)),
   );
+  let dragPointer = null;
   head.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button')) return;
+    if (e.button !== 0 || dragPointer !== null || e.target.closest('button')) return;
+    dragPointer = e.pointerId;
     e.preventDefault();
     e.stopPropagation();
     app.activate(ed);
@@ -400,15 +398,22 @@ function ensureFloatChrome(app, ed, view) {
     const y0 = e.clientY - host.offsetTop;
     head.setPointerCapture?.(e.pointerId);
     const move = (ev) => {
+      if (ev.pointerId !== dragPointer) return;
       host.style.left = `${Math.max(0, ev.clientX - x0)}px`;
       host.style.top = `${Math.max(0, ev.clientY - y0)}px`;
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== dragPointer) return;
+      dragPointer = null;
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
+      head.removeEventListener('lostpointercapture', up);
     };
     head.addEventListener('pointermove', move);
     head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
+    head.addEventListener('lostpointercapture', up);
   });
   host.prepend(head);
 }
@@ -524,7 +529,6 @@ export function installWindow(app) {
   const close = app.closeDocument.bind(app);
   app.closeDocument = (editor = app.editor, opts = {}) => {
     const shared = editor && app.editors.some((e) => e !== editor && e.doc === editor.doc);
-    app.floating?.delete(editor);
     return close(editor, { ...opts, force: opts.force || shared });
   };
 
@@ -556,12 +560,17 @@ export function installWindow(app) {
     app.canvasHost.addEventListener('pointerdown', pick, true);
     app.canvasHost.addEventListener('wheel', pick, { capture: true, passive: true });
   });
-  app.on('active-editor', (ed) => {
-    if (ed && !app.floating?.has(ed)) app.lastDocked = ed;
-    if (ed) bindSelection(ed.doc, ed);
+  app.on('tabs-rendered', () => {
+    for (const ed of app.floating || []) {
+      const head = app.views.get(ed)?.host.querySelector(':scope > .float-head');
+      if (head) updateFloatTitle(ed, head);
+    }
+  });
+  app.on('active-editor', () => layoutViews(app));
+  app.on('closed', (ed) => {
+    app.floating?.delete(ed);
     layoutViews(app);
   });
-  app.on('closed', () => layoutViews(app));
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && app.screenMode === 'full' && !document.querySelector('dialog[open]')) setScreenMode(app, 'normal');
   });

@@ -14,8 +14,8 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
-import { serializeDocument, parseDocument, documentData, canCompress, gzip } from './format.js';
-import { RecoveryStore, recoverableEntries } from './recovery.js';
+import { serializeDocument, parseDocument, toBytes, documentData, canCompress, gzip, FileFormatError } from './format.js';
+import { RecoveryStore, recoverableEntries, newerSnapshot, recoveryTime } from './recovery.js';
 import { puterBackend, opfsBackend, opfsAvailable } from './backends.js';
 import { relativeTime } from './naming.js';
 import { handleStore } from './handles.js';
@@ -25,6 +25,14 @@ const CHANNEL = 'vector-studio-recovery';
 const STASH = 'vs-recovery-unwritten:';
 /** Leave room in localStorage (about 5M characters) for preferences: larger documents rely on the regular write. */
 const STASH_LIMIT = 2_500_000;
+// Only known content errors establish damage. Compatibility, I/O, and editor
+// failures must leave the backup available to a working app/browser later.
+const DAMAGED_CODES = new Set(['invalid', 'empty', 'damaged', 'format', 'svg']);
+
+const sameRevisions = (a, b) => a?.revision === b.revision && a?.commentsRevision === b.commentsRevision;
+const sameFile = (a, b) => a === b || (a && b && a.kind === b.kind && a.path === b.path && a.name === b.name && a.handleId === b.handleId);
+const sameBackup = (snapshot, doc, file) => sameRevisions(snapshot, doc) && sameFile(snapshot.file, file);
+const fileInfo = (file) => file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null;
 
 function storage() {
   try {
@@ -46,9 +54,13 @@ export class Autosaver {
     this.fixedStore = store;
     this.storeKey = null;
     this.cached = null;
-    this.saved = new WeakMap(); // document -> revision last written
+    this.recovered = new WeakMap(); // document -> original snapshot and store, until safely superseded
+    this.saved = new WeakMap(); // document -> revisions and file association last backed up
+    this.discarded = new WeakMap(); // document -> token invalidating captures from before Save/Close
+    this.pending = new WeakMap(); // document -> revisions and association of the pending replacement
     this.watched = new WeakSet(); // documents whose saved event removes their copy
-    this.stashed = new Map(); // recovery id -> revision kept in localStorage at page close
+    this.stashed = new Map(); // recovery id -> revisions, association and capture sequence kept at page close
+    this.sequence = 0; // capture order within this session; document revisions can go backward on Undo
     this.timer = 0;
     this.busy = null;
     this.channel = null;
@@ -131,6 +143,19 @@ export class Autosaver {
     return this.busy;
   }
 
+  #needsBackup(editor) {
+    const doc = editor.doc;
+    if (!doc.dirty || doc.tx) return false;
+    const saved = this.saved.get(doc);
+    const pending = this.pending.get(doc);
+    const stashed = this.stashed.get(doc.recoveryId);
+    const file = fileInfo(editor.file);
+    // Undo/Redo or Save As may return to a backed-up state while another
+    // snapshot is about to replace it, including a different file association.
+    return !sameBackup(saved, doc, file) ||
+      (pending && !sameBackup(pending, doc, file)) || (stashed && !sameBackup(stashed, doc, file));
+  }
+
   /** Documents whose recovery copy is out of date: one window each. */
   #changed() {
     const seen = new Set();
@@ -138,11 +163,11 @@ export class Autosaver {
       const doc = editor.doc;
       if (seen.has(doc)) return false;
       seen.add(doc);
-      return doc.dirty && !doc.tx && this.saved.get(doc) !== doc.revision;
+      return this.#needsBackup(editor);
     });
   }
 
-  /** Keep the copies about to be written in localStorage. Returns editor -> { text, rev } for the regular write. */
+  /** Keep the copies about to be written in localStorage. Returns editor -> { text, rev, commentsRevision, sequence } for the regular write. */
   #stash() {
     const texts = new Map();
     const ls = storage();
@@ -154,12 +179,13 @@ export class Autosaver {
       const key = STASH + id;
       try {
         const text = JSON.stringify(documentData(doc));
-        texts.set(editor, { text, rev: doc.revision });
+        const sequence = ++this.sequence;
+        texts.set(editor, { text, rev: doc.revision, commentsRevision: doc.commentsRevision, sequence });
         room -= text.length;
         if (room < 0) throw new Error('Too large to keep in localStorage');
-        const meta = { id, ...this.#entry(editor), revision: doc.revision, session: this.session, saved: Date.now() };
+        const meta = { id, ...this.#entry(editor), revision: doc.revision, commentsRevision: doc.commentsRevision, session: this.session, sequence, saved: Date.now() };
         ls.setItem(key, `${JSON.stringify(meta)}\n${text}`);
-        this.stashed.set(id, doc.revision);
+        this.stashed.set(id, { revision: doc.revision, commentsRevision: doc.commentsRevision, file: meta.file, sequence });
       } catch {
         // Over the quota: an older copy kept here would replace the newer one being written.
         this.#unstash(id);
@@ -168,9 +194,9 @@ export class Autosaver {
     return texts;
   }
 
-  #unstash(id, rev = Infinity) {
-    if (!this.stashed.has(id) && rev !== Infinity) return;
-    if (this.stashed.get(id) > rev) return;
+  #unstash(id, sequence = Infinity) {
+    if (!this.stashed.has(id) && sequence !== Infinity) return;
+    if (this.stashed.get(id)?.sequence > sequence) return;
     this.stashed.delete(id);
     try {
       storage()?.removeItem(STASH + id);
@@ -180,8 +206,7 @@ export class Autosaver {
   }
 
   #entry(editor) {
-    const f = editor.file;
-    return { name: editor.name, file: f ? { kind: f.kind, path: f.path || null, name: f.name || null, handleId: f.handleId || null } : null };
+    return { name: editor.name, file: fileInfo(editor.file) };
   }
 
   async #flush(texts = null) {
@@ -190,21 +215,42 @@ export class Autosaver {
     let n = 0;
     for (const editor of this.#changed()) {
       const doc = editor.doc;
+      // Earlier documents may have awaited slow storage since this list was
+      // built. Recheck the current window and backup state before serialization:
+      // Undo/Redo may have restored the backup, or a gesture may have started.
+      const open = this.app.editors.find((e) => e.doc === doc);
+      if (!open || !this.#needsBackup(open)) continue;
+      const discardToken = this.discarded.get(doc);
       const rev = doc.revision;
+      const commentsRevision = doc.commentsRevision;
+      const snapshot = { revision: rev, commentsRevision, file: fileInfo(open.file) };
+      this.pending.set(doc, snapshot);
       try {
         const kept = texts?.get(editor);
-        const data = kept?.rev === rev ? await encodeText(kept.text) : await serializeDocument(doc);
-        // Saved or closed while the copy was being encoded: a copy written now would outlive the
-        // discard and be offered for recovery later.
-        if (!doc.dirty || !this.app.editors.some((e) => e.doc === doc)) continue;
-        const id = this.recoveryId(editor);
-        await store.put(id, { ...this.#entry(editor), data, revision: rev, session: this.session });
-        this.saved.set(doc, rev);
+        const reuse = kept?.rev === rev && kept.commentsRevision === commentsRevision;
+        const sequence = reuse ? kept.sequence : ++this.sequence;
+        const data = reuse ? await encodeText(kept.text) : await serializeDocument(doc);
+        // Save/Close invalidates this capture even if Undo or another edit has
+        // already made the same document dirty again while encoding finished.
+        const current = this.app.editors.find((e) => e.doc === doc);
+        if (this.discarded.get(doc) !== discardToken || !doc.dirty || !current) continue;
+        // A closed window no longer receives Save As updates from its companion.
+        const id = this.recoveryId(current);
+        const entry = this.#entry(current);
+        snapshot.file = entry.file;
+        await store.put(id, { ...entry, data, revision: rev, commentsRevision, sequence, session: this.session });
+        // Its queued discard owns this completed write. Do not claim the
+        // deleted copy still covers Undo or clear a newer page-close stash.
+        if (this.discarded.get(doc) !== discardToken) continue;
+        this.saved.set(doc, snapshot);
         this.#watchShared(doc);
-        this.#unstash(id, rev);
+        this.#unstash(id, sequence);
+        await this.#discardRecoveredSource(doc);
         n++;
       } catch (err) {
         console.warn('Autosave failed', err);
+      } finally {
+        this.pending.delete(doc);
       }
     }
     return n;
@@ -223,10 +269,25 @@ export class Autosaver {
     });
   }
 
+  async #discardRecoveredSource(doc) {
+    const source = this.recovered.get(doc);
+    if (!source) return;
+    try {
+      // A different app may have replaced the original since we opened it.
+      // Cleanup authorizes only the snapshot this document actually recovered.
+      if (await source.store.remove(source.entry.id, { expected: source.entry, superseded: true }) !== false) this.recovered.delete(doc);
+    } catch {
+      // Keep the source available for cleanup after another backup or discard.
+    }
+  }
+
   /** Forget a document's recovery copy (saved, or closed without saving). */
   async discard(editor) {
     if (!editor) return;
+    if (editor.doc) this.discarded.set(editor.doc, Symbol());
     this.saved.delete(editor.doc);
+    const source = this.recovered.get(editor.doc);
+    if (source) source.discarded = true;
     const id = editor.doc?.recoveryId || editor.recoveryId;
     if (!id) return;
     this.#unstash(id);
@@ -235,6 +296,7 @@ export class Autosaver {
     } catch {
       // Best effort.
     }
+    await this.#discardRecoveredSource(editor.doc);
   }
 
   /** Sessions still running in other tabs of this browser. */
@@ -279,7 +341,7 @@ export class Autosaver {
         h(
           'li',
           checks[i],
-          h('label', { for: `rec-${e.id}` }, h('span.files-recover-name', e.name || 'Untitled'), h('span.muted', ` ${e.file?.path ? e.file.path.replace(/^\/[^/]+\//, '') : 'Not saved yet'} · ${relativeTime(e.saved)}`)),
+          h('label', { for: `rec-${e.id}` }, h('span.files-recover-name', e.name || 'Untitled'), h('span.muted', ` ${e.file?.path ? e.file.path.replace(/^\/[^/]+\//, '') : 'Not saved yet'} · ${relativeTime(recoveryTime(e.saved)) || 'Unknown time'}`)),
         ),
       ),
     );
@@ -298,6 +360,8 @@ export class Autosaver {
     const discard = unwanted.length && (await confirmDiscard(unwanted));
     const opened = [];
     const kept = [];
+    const reasons = new Set();
+    const notRemoved = [];
     const damaged = [];
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i];
@@ -305,21 +369,23 @@ export class Autosaver {
         let ed = null;
         try {
           ed = await this.recover(e);
-        } catch {
-          // The copy could not be read right now (offline): keep it to offer again next time.
+        } catch (err) {
+          // An unavailable reader or editor does not establish damaged bytes.
           kept.push(e.name || 'Untitled');
+          if (err instanceof FileFormatError) reasons.add(err.message);
           continue;
         }
         if (ed) opened.push(ed);
         else {
-          damaged.push(e.name || 'Untitled');
-          await store.remove(e.id);
+          if (await store.remove(e.id, { expected: e }) === false) notRemoved.push(e.name || 'Untitled');
+          else damaged.push(e.name || 'Untitled');
         }
-      } else if (discard) await store.remove(e.id);
+      } else if (discard && await store.remove(e.id, { expected: e }) === false) notRemoved.push(e.name || 'Untitled');
     }
     if (opened.length) this.app.notify(`Recovered ${opened.length} document${opened.length === 1 ? '' : 's'}. Save to keep the changes.`);
     if (damaged.length) this.app.notify(`${damaged.map((n) => `"${n}"`).join(', ')} could not be recovered: the recovery copy is damaged.`, { error: true, timeout: 8000 });
-    if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. Check your connection; Vector Studio will offer ${kept.length === 1 ? 'it' : 'them'} again next time it starts.`, { error: true, timeout: 8000 });
+    if (kept.length) this.app.notify(`${kept.map((n) => `"${n}"`).join(', ')} could not be recovered right now. ${reasons.size ? [...reasons].join(' ') + ' ' : ''}The recovery ${kept.length === 1 ? 'copy was' : 'copies were'} kept for the next recovery attempt.`, { error: true, timeout: 8000 });
+    if (notRemoved.length) this.app.notify(`Recovery data for ${notRemoved.map((n) => `"${n}"`).join(', ')} was kept because it changed or could not be removed. Try again.`, { error: true, timeout: 8000 });
     return opened;
   }
 
@@ -355,11 +421,11 @@ export class Autosaver {
       if (meta.session === this.session || live.has(meta.session)) continue;
       const prev = stored.get(meta.id);
       try {
-        // Newer: by edit count when the same session wrote both (times can tie), else by time.
-        const newer = !prev || (prev.session === meta.session ? meta.revision > prev.revision : (meta.saved || 0) > (prev.saved || 0));
+        // Compare capture order, independent of Undo/Redo and wall-clock changes.
+        const newer = !prev || newerSnapshot(meta, prev);
         if (newer) {
           const data = await encodeText(raw.slice(raw.indexOf('\n') + 1));
-          await store.put(meta.id, { name: meta.name, file: meta.file, data, revision: meta.revision, session: meta.session, saved: meta.saved });
+          await store.put(meta.id, { name: meta.name, file: meta.file, data, revision: meta.revision, commentsRevision: meta.commentsRevision, sequence: meta.sequence, session: meta.session, saved: meta.saved });
         }
         ls.removeItem(key);
       } catch (err) {
@@ -377,27 +443,60 @@ export class Autosaver {
     const store = this.store;
     const blob = await store.read(entry);
     if (!blob) return null;
+    let doc, data;
     try {
-      const { doc } = await parseDocument(blob);
-      // Recovered work is unsaved until the user saves it.
-      doc.savedRevision = -1;
-      let file = null;
-      const f = entry.file;
-      if (f?.kind === 'puter' && f.path) file = { kind: 'puter', path: f.path, name: f.name };
-      else if (f?.kind === 'local' && f.handleId) {
-        const handle = await handleStore.get(f.handleId);
-        if (handle) file = { kind: 'local', name: f.name, handle, handleId: f.handleId };
-      }
-      // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
-      if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
-      const editor = this.app.addDocument(doc, { file });
-      editor.recoveryId = doc.recoveryId = entry.id;
-      this.app.renderTabs();
-      return editor;
+      data = await toBytes(blob);
+      ({ doc } = await parseDocument(data));
     } catch (err) {
+      if (!(err instanceof FileFormatError) || !DAMAGED_CODES.has(err.code)) throw err;
       console.warn('Recovery failed', err);
       return null;
     }
+    // Recovered work is unsaved until the user saves it.
+    doc.savedRevision = -1;
+    let file = null;
+    const f = entry.file;
+    if (f?.kind === 'puter' && f.path) file = { kind: 'puter', path: f.path, name: f.name };
+    else if (f?.kind === 'local' && f.handleId) {
+      const handle = await handleStore.get(f.handleId);
+      if (handle) file = { kind: 'local', name: f.name, handle, handleId: f.handleId };
+    }
+    // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
+    if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };
+    // Decoding and handle lookup can outlive the selected backup. Do not open
+    // work that another writer replaced while these readers were running.
+    if (!await store.isCurrent(entry)) throw new Error('The recovery copy changed while opening. Try recovery again.');
+    // Capture the revisions of the bytes we read before editor-opening hooks
+    // can change the document, save it, or close it.
+    const revision = doc.revision, commentsRevision = doc.commentsRevision;
+    // The baseline retains the original recovery metadata. Track later changes
+    // against the association used to open this editor (possibly an import).
+    const location = fileInfo(file);
+    const source = { store, entry, discarded: false };
+    // Every recovered document owns its next backup. Other tabs/devices can
+    // recover the same source and then edit, save, or discard independently.
+    doc.recoveryId = uid('r');
+    this.recovered.set(doc, source);
+    const editor = this.app.addDocument(doc, { file });
+    editor.recoveryId = doc.recoveryId;
+    this.app.renderTabs();
+    if (source.discarded) return editor;
+    try {
+      // Preserve the selected bytes under this document's own id before
+      // retiring the source. Even an unchanged recovered document needs its
+      // own backup if another instance saves or discards its recovered copy.
+      await store.put(doc.recoveryId, { name: entry.name, file: entry.file, data,
+        revision, commentsRevision, sequence: ++this.sequence, session: this.session });
+      if (!source.discarded) {
+        this.saved.set(doc, { revision, commentsRevision, file: location });
+        this.#watchShared(doc);
+      }
+      await this.#discardRecoveredSource(doc);
+    } catch {
+      // Readable backups remain recoverable when storage cannot accept writes.
+      // The source stays until a later autosave succeeds or this copy is discarded.
+    }
+    return editor;
   }
 }
 

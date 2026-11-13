@@ -260,3 +260,160 @@ describe('Layers panel menu', () => {
     expect(ed.activeLayerId).toBe(b.id);
   });
 });
+
+
+describe('nested layer selections', () => {
+  it('collects a picked parent and child without moving a layer into itself', async () => {
+    const { ed, doc, layer, ids, panel } = setup();
+    let sub;
+    doc.transact('Sublayer', () => {
+      sub = doc.addLayer('Nested');
+      doc.move(sub.id, layer.id);
+      doc.move(ids[1], sub.id);
+    });
+    panel.expanded.add(layer.id);
+    panel.update();
+    panel.pickLayer(doc.get(layer.id), {});
+    panel.pickLayer(doc.get(sub.id), { metaKey: true });
+    expect(new Set(layerPicks(ed))).toEqual(new Set([layer.id, sub.id]));
+    const before = doc.undoStack.length;
+    await run('layers.collect');
+    const collected = doc.get(ed.activeLayerId);
+    expect(collected.id).not.toBe(sub.id);
+    expect(collected.parent).toBe('root');
+    expect(collected.children).toEqual([layer.id]);
+    expect(doc.get(sub.id).parent).toBe(layer.id);
+    expect(doc.get(sub.id).children).toEqual([ids[1]]);
+    expect(doc.undoStack).toHaveLength(before + 1);
+    doc.undo();
+    expect(doc.get(layer.id).parent).toBe('root');
+    expect(doc.has(collected.id)).toBe(false);
+    doc.redo();
+    expect(doc.get(collected.id).children).toEqual([layer.id]);
+  });
+});
+
+
+it('duplicates nested picked layers once without modifying the original hierarchy', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let sub;
+  doc.transact('Sublayer', () => {
+    sub = doc.addLayer('Nested');
+    doc.move(sub.id, layer.id);
+    doc.move(ids[1], sub.id);
+  });
+  const originalChildren = [...doc.get(layer.id).children];
+  layerPicks(ed).add(layer.id);
+  layerPicks(ed).add(sub.id);
+  await run('layers.duplicate');
+  expect(doc.get(layer.id).children).toEqual(originalChildren);
+  expect(doc.get(sub.id).children).toEqual([ids[1]]);
+  const copies = [...layerPicks(ed)];
+  expect(copies).toHaveLength(1);
+  const copy = doc.get(copies[0]);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id, copy.id]);
+  expect(copy.children).toHaveLength(originalChildren.length);
+  const nestedCopy = doc.children(copy.id).find((n) => n.type === 'layer');
+  expect(doc.children(nestedCopy.id).map((n) => n.anchors)).toEqual([doc.get(ids[1]).anchors]);
+  doc.undo();
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+  expect(doc.get(layer.id).children).toEqual(originalChildren);
+  doc.redo();
+  expect(doc.get(layer.id).children).toEqual(originalChildren);
+  expect(doc.get(copy.id).children).toEqual(copy.children);
+});
+
+
+it('deletes picked sublayers even when their picked parent is the last document layer', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let sub;
+  doc.transact('Sublayer', () => {
+    sub = doc.addLayer('Nested');
+    doc.move(sub.id, layer.id);
+    doc.move(ids[1], sub.id);
+  });
+  layerPicks(ed).add(layer.id);
+  layerPicks(ed).add(sub.id);
+  await run('layers.delete');
+  expect(doc.has(sub.id)).toBe(false);
+  expect(doc.has(ids[1])).toBe(false);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+  expect(doc.get(layer.id).children).toEqual([ids[0], ids[2]]);
+  doc.undo();
+  expect(doc.get(sub.id).children).toEqual([ids[1]]);
+  doc.redo();
+  expect(doc.has(sub.id)).toBe(false);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+});
+
+
+it('discards hidden artwork when the hidden layer is the flatten destination', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let visible;
+  doc.transact('Layers', () => {
+    visible = doc.addLayer('Visible');
+    doc.move(ids[2], visible.id);
+    doc.update(layer.id, { hidden: true });
+  });
+  ed.activeLayerId = layer.id;
+  let confirmed = false;
+  app.dialogs.confirm = async () => { confirmed = true; return true; };
+  await run('layers.flatten');
+  expect(confirmed).toBe(true);
+  expect(doc.layers().map((l) => l.id)).toEqual([layer.id]);
+  expect(doc.get(layer.id).hidden).toBe(false);
+  expect(doc.get(layer.id).children).toEqual([ids[2]]);
+  expect(doc.has(ids[0])).toBe(false);
+  expect(doc.has(ids[1])).toBe(false);
+  doc.undo();
+  expect(doc.get(layer.id).hidden).toBe(true);
+  expect(doc.get(layer.id).children).toEqual(ids.slice(0, 2));
+  expect(doc.get(visible.id).children).toEqual([ids[2]]);
+  doc.redo();
+  expect(doc.get(layer.id).children).toEqual([ids[2]]);
+});
+
+
+it('preserves the active template layer when flattening artwork', async () => {
+  const { ed, doc, layer, ids } = setup();
+  let template;
+  let other;
+  doc.transact('Layers', () => {
+    template = doc.addLayer('Template');
+    doc.update(template.id, { template: true, locked: true, print: false });
+    doc.move(ids[1], template.id);
+    other = doc.addLayer('Other');
+    doc.move(ids[2], other.id);
+  });
+  const originalTemplate = doc.get(template.id);
+  ed.activeLayerId = template.id;
+  await run('layers.flatten');
+  expect(doc.get(template.id)).toEqual(originalTemplate);
+  expect(doc.get(ids[1]).parent).toBe(template.id);
+  const art = doc.layers().find((l) => !l.template);
+  expect(art.children).toEqual([ids[0], ids[2]]);
+  expect(doc.isLocked(ids[0])).toBe(false);
+  expect(doc.layers()).toHaveLength(2);
+  expect(ed.activeLayerId).toBe(art.id);
+  doc.undo();
+  expect(doc.get(layer.id).children).toEqual([ids[0]]);
+  expect(doc.get(other.id).children).toEqual([ids[2]]);
+  doc.redo();
+  expect(doc.get(template.id)).toEqual(originalTemplate);
+  expect(doc.get(art.id).children).toEqual([ids[0], ids[2]]);
+});
+
+
+it('leaves an all-template document unchanged when flattening', async () => {
+  const { doc, layer } = setup();
+  doc.transact('Templates', () => {
+    doc.update(layer.id, { template: true, locked: true, print: false });
+    const other = doc.addLayer('Reference');
+    doc.update(other.id, { template: true, hidden: true });
+  });
+  const layers = doc.layers();
+  const before = doc.undoStack.length;
+  await run('layers.flatten');
+  expect(doc.layers()).toEqual(layers);
+  expect(doc.undoStack).toHaveLength(before);
+});

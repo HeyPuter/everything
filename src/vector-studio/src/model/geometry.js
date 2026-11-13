@@ -624,11 +624,30 @@ export function transformPatches(doc, node, m, opts = {}, out = new Map()) {
   return out;
 }
 
+const hasPatternFields = (style) => style?.fill?.type === 'pattern' || style?.stroke?.type === 'pattern';
+const extraPaintItem = (item) => item && !item.base && (item.type === 'fill' || item.type === 'stroke');
+
+/** Pattern-only edits leave geometry, other paints, stroke widths and effects untouched. */
+function patternNodePatch(node, m) {
+  const fields = (style) => {
+    const patch = {};
+    for (const key of ['fill', 'stroke']) if (style[key]?.type === 'pattern') patch[key] = transformPaint(style[key], m, null);
+    return patch;
+  };
+  const patch = fields(node);
+  if (node.appearance?.some((it) => extraPaintItem(it) && hasPatternFields(it))) {
+    patch.appearance = node.appearance.map((it) => extraPaintItem(it) && hasPatternFields(it) ? { ...it, ...fields(it) } : it);
+  }
+  if (node.type === 'text' && node.runs?.some(hasPatternFields)) {
+    patch.runs = node.runs.map((run) => hasPatternFields(run) ? { ...run, ...fields(run) } : run);
+  }
+  return patch;
+}
+
 /** Transform only the pattern paints in a subtree (Transform Patterns without Transform Objects). */
 function patternPatches(doc, node, m, out) {
   if (!node) return out;
-  const patch = {};
-  for (const key of ['fill', 'stroke']) if (node[key]?.type === 'pattern') patch[key] = transformPaint(node[key], m, null);
+  const patch = patternNodePatch(node, m);
   if (Object.keys(patch).length) out.set(node.id, patch);
   if (node.type === 'group' || node.type === 'layer') for (const c of node.children) patternPatches(doc, doc.get(c), m, out);
   return out;
@@ -636,7 +655,10 @@ function patternPatches(doc, node, m, out) {
 
 /** True when any object in the subtrees of `ids` is painted with a pattern swatch. */
 export function usesPatternPaint(doc, ids) {
-  const visit = (n) => n && (n.fill?.type === 'pattern' || n.stroke?.type === 'pattern' || (n.children || []).some((c) => visit(doc.get(c))));
+  const visit = (n) => n && (hasPatternFields(n)
+    || n.appearance?.some((it) => extraPaintItem(it) && hasPatternFields(it))
+    || (n.type === 'text' && n.runs?.some(hasPatternFields))
+    || (n.children || []).some((c) => visit(doc.get(c))));
   return ids.some((id) => visit(doc.get(id)));
 }
 
@@ -670,7 +692,10 @@ export function transformFromOriginals(doc, originals, m, opts = {}) {
   const patches = new Map();
   if (opts.transformObjects === false) {
     if (opts.transformPatterns === false) return;
-    for (const n of originals.values()) for (const key of ['fill', 'stroke']) if (n[key]?.type === 'pattern') patches.set(n.id, { ...patches.get(n.id), [key]: transformPaint(n[key], m, null) });
+    for (const n of originals.values()) {
+      const patch = patternNodePatch(n, m);
+      if (Object.keys(patch).length) patches.set(n.id, patch);
+    }
     for (const [id, patch] of patches) doc.update(id, patch);
     return;
   }

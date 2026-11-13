@@ -45,6 +45,9 @@ export class ColorPanel extends Panel {
       MODE_IDS.map((m) => h('option', { value: m, selected: m === this.mode }, MODES[m].label)),
     );
     this.hex = h('input.cp-hexfield', { type: 'text', spellcheck: false, autocomplete: 'off', maxlength: 7, 'aria-label': 'Hexadecimal color' });
+    this.hexDisplayed = '';
+    this.hexEdited = false;
+    this.hex.addEventListener('input', () => { this.hexEdited = true; });
     this.hex.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
@@ -77,20 +80,58 @@ export class ColorPanel extends Panel {
       const hex = spectrumColor((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
       this.apply(hex);
     };
+    let spectrumPointer = null;
     this.spectrum.addEventListener('pointerdown', (e) => {
-      if (!app.editor) return;
+      if (!app.editor || e.button !== 0 || spectrumPointer !== null) return;
+      const editor = app.editor, key = editor.focusPaint, isolation = editor.isolation;
+      const selection = [...editor.selection];
+      const valid = () => this.visible && app.editor === editor && app.editors.includes(editor) && !editor.doc.readOnly &&
+        (!app.home || app.home.hidden) && editor.focusPaint === key && editor.isolation === isolation &&
+        editor.selection.size === selection.length && selection.every((id) => editor.selection.has(id) &&
+          editor.doc.has(id) && !editor.doc.isHidden(id) && !editor.doc.isLocked(id) && editor.inIsolation(id));
+      if (!valid()) return;
+      try {
+        this.spectrum.setPointerCapture?.(e.pointerId);
+      } catch {
+        // An ended pointer cannot begin a color edit.
+        return;
+      }
+      spectrumPointer = e.pointerId;
       this.coalesce = gestureKey('color');
-      this.spectrum.setPointerCapture(e.pointerId);
-      pick(e);
-      const move = (ev) => pick(ev);
-      const up = () => {
+      const offs = [];
+      let active = true;
+      const end = () => {
+        if (!active) return;
+        active = false;
+        const pointerId = spectrumPointer;
+        spectrumPointer = null;
+        this.endSpectrum = null;
         this.spectrum.removeEventListener('pointermove', move);
         this.spectrum.removeEventListener('pointerup', up);
-      this.spectrum.removeEventListener('pointercancel', up);
+        this.spectrum.removeEventListener('pointercancel', up);
+        this.spectrum.removeEventListener('lostpointercapture', up);
+        for (const off of offs.splice(0)) off();
+        try { this.spectrum.releasePointerCapture?.(pointerId); } catch { /* Capture may already have ended. */ }
       };
+      const check = () => {
+        if (!active) return false;
+        if (valid()) return true;
+        end();
+        return false;
+      };
+      const move = (ev) => { if (ev.pointerId === spectrumPointer && check()) pick(ev); };
+      const up = (ev) => { if (ev.pointerId === spectrumPointer) end(); };
+      this.endSpectrum = end;
       this.spectrum.addEventListener('pointermove', move);
       this.spectrum.addEventListener('pointerup', up);
       this.spectrum.addEventListener('pointercancel', up);
+      this.spectrum.addEventListener('lostpointercapture', up);
+      for (const event of ['active-editor', 'closed', 'show-home']) offs.push(app.on(event, check));
+      for (const event of ['selection', 'isolation', 'style']) offs.push(editor.on(event, check));
+      // Paint transactions update each object; validate only at their boundary.
+      offs.push(editor.on('doc-change', (event) => { if (event.commit) check(); }));
+      if (app.collab) offs.push(app.collab.on('role', check));
+      pick(e);
     });
     const chip = (label, cls, onclick) => h(`button.cp-chip.${cls}`, { type: 'button', 'aria-label': label, 'data-tip': label, onclick });
     this.chips = h(
@@ -140,6 +181,11 @@ export class ColorPanel extends Panel {
     this.setOptionsShown(app.prefs.get('colorPanelOptions') !== false);
     this.drawSpectrum();
     this.offStop = paintState.on('stop', () => this.visible && this.update());
+  }
+
+  hidden() {
+    this.endSpectrum?.();
+    super.hidden();
   }
 
   drawSpectrum() {
@@ -236,19 +282,47 @@ export class ColorPanel extends Panel {
     setFocusedColor(ed, hex, this.coalesce);
   }
 
+  hasHexDraft() {
+    return this.hexEdited || this.hex.value !== this.hexDisplayed;
+  }
+
+  renderHex() {
+    const field = this.hex;
+    const text = this.mixed ? '' : (this.current || '#000000').slice(1).toUpperCase();
+    const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = field;
+    const all = start === 0 && end === field.value.length;
+    if (text !== field.value) {
+      field.value = text;
+      if (document.activeElement === field) field.setSelectionRange(all ? 0 : start, all ? text.length : end, direction);
+    }
+    this.hexDisplayed = text;
+    this.hexEdited = false;
+  }
+
   commitHex() {
+    if (!this.hasHexDraft()) {
+      this.renderHex();
+      return;
+    }
     const v = this.hex.value.trim();
     const s = v.startsWith('#') ? v : `#${v}`;
     if (!isHex(s)) {
       // A mixed selection goes back to the empty field with its Mixed placeholder.
-      this.hex.value = this.mixed ? '' : (this.current || '#000000').slice(1).toUpperCase();
+      this.renderHex();
       return;
     }
     const hex = normalizeHex(s);
-    if (hex === this.current) return;
-    this.coalesce = gestureKey('color');
-    this.apply(hex);
-    this.sliders.setColor(hex);
+    const paint = this.app.editor && focusedPaint(this.app.editor).paint;
+    // None, mixed and pattern paints show a fallback, not an applied color.
+    // Explicitly typing that fallback must still create a solid paint.
+    const hasColor = paint?.type === 'solid' || isGradient(paint) || (paint?.type === 'freeform' && paint.points?.length);
+    if (hex !== this.current || !hasColor) {
+      this.coalesce = gestureKey('color');
+      this.apply(hex);
+      this.sliders.setColor(hex);
+    }
+    this.hexDisplayed = this.hex.value;
+    this.hexEdited = false;
   }
 
   update() {
@@ -265,7 +339,9 @@ export class ColorPanel extends Panel {
     this.mixed = mixed;
     this.sliders.setColor(color);
     this.el.classList.toggle('is-none', none);
-    if (document.activeElement !== this.hex) this.hex.value = mixed ? '' : color.slice(1).toUpperCase();
+    // Focus alone is not a draft: keep untouched fields current so blur
+    // cannot restore an obsolete color after another edit or remote update.
+    if (document.activeElement !== this.hex || !this.hasHexDraft()) this.renderHex();
     this.hex.placeholder = mixed ? 'Mixed' : '';
     this.webWarn.hidden = isWebSafe(color) || mixed;
     // CMYK work: warn about colors the document's CMYK profile cannot print.

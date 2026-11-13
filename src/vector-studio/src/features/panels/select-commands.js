@@ -9,15 +9,17 @@
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { UserError } from '../../lib/errors.js';
+import { reselect, walkSelectable } from '../../ops/select-ops.js';
 import { graphicStylesOf, styleOfNode } from '../paint/graphic-styles.js';
 
 const hasDoc = (a) => Boolean(a.editor);
 const hasSel = (a) => Boolean(a.editor?.selection.size);
 
 /** Visible, unlocked objects that can be matched: paths, compounds, text and images (compounds whole). */
-function candidates(doc) {
+function candidates(doc, editor = null) {
   const out = [];
-  doc.walk((n) => {
+  const walk = editor ? (visit) => walkSelectable(editor, visit) : (visit) => doc.walk(visit);
+  walk((n) => {
     if (n.hidden || n.locked) return false;
     if (n.type === 'compound') {
       out.push(n);
@@ -75,7 +77,7 @@ export function selectSameShapesText(editor) {
     }
   }
   if (!shapes.size && !texts.size) throw new UserError('Select a path or a type object to match.');
-  const ids = candidates(doc)
+  const ids = candidates(doc, editor)
     .filter((n) => (n.type === 'text' ? texts.has(n.text || '') : n.type !== 'image' && shapes.has(`${n.type}:${shapeKey(doc, n)}`)))
     .map((n) => n.id);
   editor.select(ids);
@@ -97,7 +99,7 @@ export function selectSameAppearanceAttribute(editor) {
   if (!ref) throw new UserError('Select an object to match.');
   const kinds = new Set(appearanceAttributes(ref));
   if (!kinds.size) throw new UserError('The selected object has no appearance attributes (effects) to match.');
-  const ids = candidates(editor.doc)
+  const ids = candidates(editor.doc, editor)
     .filter((n) => appearanceAttributes(n).some((k) => kinds.has(k)))
     .map((n) => n.id);
   editor.select(ids);
@@ -178,8 +180,8 @@ export function selectSameGraphicStyle(editor) {
   if (!editor.selection.size) throw new UserError('Select an object to match.');
   const style = graphicStyleOfSelection(editor);
   if (!style) throw new UserError('The selected object does not use a graphic style.');
-  const pool = [...candidates(doc)];
-  doc.walk((n) => {
+  const pool = [...candidates(doc, editor)];
+  walkSelectable(editor, (n) => {
     if (n.hidden || n.locked) return false;
     if (n.type === 'group') pool.push(n);
     return true;
@@ -394,8 +396,7 @@ export function saveSelection(doc, name, ids) {
 export function applySavedSelection(editor, id) {
   const s = savedSelectionsOf(editor.doc).find((x) => x.id === id);
   if (!s) return 0;
-  const ids = s.ids.filter((nid) => editor.doc.has(nid));
-  editor.select(ids);
+  const ids = reselect(editor, s.ids);
   editor.activeSavedSelection = s.id;
   return ids.length;
 }

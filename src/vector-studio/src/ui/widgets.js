@@ -123,6 +123,9 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
   const input = h('input.num-input', { id, type: 'text', inputmode: 'decimal', spellcheck: false, autocomplete: 'off', 'aria-label': ariaLabel || label });
   if (width) input.style.width = width;
   let current = value;
+  let displayed = '';
+  let displayedUnit = unit;
+  let edited = false;
   const fmt = (v) => {
     if (v === 'mixed' || v == null || Number.isNaN(v)) return '';
     if (kind === 'length') return formatLength(v, unit, { digits });
@@ -130,22 +133,44 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
     if (kind === 'percent') return `${Number(v.toFixed(digits ?? 1))}%`;
     return String(Number(v.toFixed(digits ?? 3)));
   };
-  const parse = (s) => (kind === 'length' ? parseLength(s, unit) : parseNumber(s));
+  // A pending expression keeps the units it was entered in until rendered
+  // again, even if the document changes display units while the field is active.
+  const parse = (s) => (kind === 'length' ? parseLength(s, displayedUnit) : parseNumber(s));
+  const render = (v, preserveSelection = false) => {
+    const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = input;
+    const selectedAll = start === 0 && end === input.value.length;
+    const text = fmt(v), changed = text !== input.value;
+    input.value = text;
+    displayed = input.value;
+    displayedUnit = unit;
+    edited = false;
+    if (preserveSelection && changed) input.setSelectionRange(selectedAll ? 0 : start, selectedAll ? input.value.length : end, direction);
+  };
+  const hasDraft = () => edited || input.value !== displayed;
   const set = (v) => {
+    // Focus alone is not an edit: an untouched field must follow model updates
+    // instead of committing its obsolete display when it later loses focus.
+    const editing = document.activeElement === input && hasDraft();
     current = v;
-    if (document.activeElement !== input) input.value = fmt(v);
+    if (!editing) render(v, document.activeElement === input);
     input.placeholder = v === 'mixed' ? 'Mixed' : '';
   };
   const commit = () => {
+    // Formatting may round or convert units. Reading an untouched display back
+    // into the model would change its exact value merely on Enter or blur.
+    if (!hasDraft()) {
+      render(current);
+      return;
+    }
     const v = parse(input.value);
     if (!Number.isFinite(v)) {
-      input.value = fmt(current);
+      render(current);
       return;
     }
     const c = Math.min(max, Math.max(min, v));
     if (c !== current) onCommit?.(c);
     current = c;
-    input.value = fmt(c);
+    render(c);
   };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -153,17 +178,17 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
       commit();
       input.select();
     } else if (e.key === 'Escape') {
-      input.value = fmt(current);
+      render(current);
       input.blur();
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const typed = parse(input.value);
       // A Mixed value has nothing to step from (stepping from 0 set every object to one step).
       if (!Number.isFinite(typed) && current === 'mixed') return e.stopPropagation();
-      const base = Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
-      const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
+      const base = hasDraft() && Number.isFinite(typed) ? typed : Number.isFinite(current) ? current : 0;
+      const factor = kind === 'length' ? UNITS[displayedUnit]?.factor || 1 : 1;
       const v = Math.min(max, Math.max(min, base + (e.key === 'ArrowUp' ? 1 : -1) * step * factor * (e.shiftKey ? 10 : 1)));
-      input.value = fmt(v);
+      render(v);
       onCommit?.(v);
       current = v;
     }
@@ -172,38 +197,53 @@ export function numberField({ label, kind = 'length', value, unit = 'pt', onComm
   });
   input.addEventListener('blur', commit);
   input.addEventListener('focus', () => input.select());
-  if (onInput) input.addEventListener('input', () => onInput(parse(input.value)));
+  input.addEventListener('input', () => {
+    edited = true;
+    onInput?.(parse(input.value));
+  });
   const lab = h('label.num-label', { for: id }, iconName ? icon(iconName, 14) : label);
   if (iconName) lab.setAttribute('data-tip', label);
   // Scrub: drag horizontally on the label.
+  let scrubPointer = null;
   lab.addEventListener('pointerdown', (e) => {
-    if (!Number.isFinite(current)) return;
+    if (e.button !== 0 || scrubPointer !== null || !Number.isFinite(current)) return;
     e.preventDefault();
-    lab.setPointerCapture(e.pointerId);
+    try {
+      lab.setPointerCapture?.(e.pointerId);
+    } catch {
+      // An already-ended pointer must not leave a scrub listening.
+      return;
+    }
+    scrubPointer = e.pointerId;
     const x0 = e.clientX;
     const v0 = current;
     const factor = kind === 'length' ? UNITS[unit]?.factor || 1 : 1;
     let moved = false;
     const move = (ev) => {
+      if (ev.pointerId !== scrubPointer) return;
       const dx = ev.clientX - x0;
       if (Math.abs(dx) > 2) moved = true;
       if (!moved) return;
       const v = Math.min(max, Math.max(min, v0 + Math.round(dx / 2) * step * factor * (ev.shiftKey ? 10 : 1)));
-      input.value = fmt(v);
+      render(v);
       current = v;
       onCommit?.(v, { live: true });
     };
-    // A cancelled pointer (the browser taking a touch for scrolling) ends the scrub too:
-    // left listening, the next mouse pass over the label went on changing the value.
+    // Cancellation or lost capture ends the scrub too; later hovering must
+    // not keep changing the value, and another pointer cannot end this scrub.
     const up = (ev) => {
+      if (ev.pointerId !== scrubPointer) return;
+      scrubPointer = null;
       lab.removeEventListener('pointermove', move);
       lab.removeEventListener('pointerup', up);
       lab.removeEventListener('pointercancel', up);
+      lab.removeEventListener('lostpointercapture', up);
       if (!moved && ev.type === 'pointerup') input.focus();
     };
     lab.addEventListener('pointermove', move);
     lab.addEventListener('pointerup', up);
     lab.addEventListener('pointercancel', up);
+    lab.addEventListener('lostpointercapture', up);
   });
   set(value);
   const el = h('div.num-field', lab, input);

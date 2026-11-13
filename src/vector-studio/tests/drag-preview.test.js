@@ -73,12 +73,67 @@ describe('large-selection drag preview with Alt', () => {
     s.setDuplicate(true);
     view.renderNow();
     // The copies move; the originals stay in the static artwork.
-    expect(view.previewCache.isMoving(ids[0])).toBe(false);
-    expect(view.previewCache.isMoving(s.ids[0])).toBe(true);
+    // Each copy sits above its original: live rendering preserves that interleaving.
+    expect(view.previewCache).toBeNull();
+    expect(nodeBounds(app.editor.doc, app.editor.doc.get(ids[0])).x).toBe(0);
+    expect(nodeBounds(app.editor.doc, app.editor.doc.get(s.ids[0])).x).toBe(10);
     s.setDuplicate(false);
     view.renderNow();
     expect(view.previewCache.isMoving(ids[0])).toBe(true);
     s.cancel();
     view.renderNow();
+  });
+});
+
+describe('large pattern-only drags', () => {
+  it('previews pattern movement without translating the object silhouettes', () => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const ids = many(app, PREVIEW_THRESHOLD + 1);
+    ed.doc.transact('Pattern', () => {
+      for (const id of ids) ed.doc.update(id, { fill: { type: 'pattern', id: 'tile' } });
+    });
+    ed.patternsOnly = true;
+    const before = ed.doc.get(ids[0]);
+    const s = new TransformSession(ed, 'Move Patterns');
+    s.apply([1, 0, 0, 1, 10, 20]);
+    expect(ed.dragPreview).toBeFalsy();
+    expect(ed.doc.get(ids[0]).fill.transform).toEqual([1, 0, 0, 1, 10, 20]);
+    expect(ed.doc.get(ids[0]).anchors).toEqual(before.anchors);
+    s.apply([1, 0, 0, 1, 20, 30]);
+    s.commit();
+    expect(ed.doc.get(ids[0]).fill.transform).toEqual([1, 0, 0, 1, 20, 30]);
+    expect(ed.doc.get(ids[0]).anchors).toEqual(before.anchors);
+    ed.doc.undo();
+    expect(ed.doc.get(ids[0])).toEqual(before);
+  });
+});
+
+describe('large selections in Pixel Preview', () => {
+  it.each([true, false])('redraws the current transform when pixel preview is enabled before the drag: %s', (enabledBefore) => {
+    const app = bootApp();
+    const ed = app.newDocument();
+    const ids = many(app, PREVIEW_THRESHOLD + 1);
+    const view = app.views.get(ed);
+    ed.view.set({ zoom: 8 });
+    ed.viewOptions.pixelPreview = enabledBefore;
+    const session = new TransformSession(ed, 'Move');
+    try {
+      session.apply([1, 0, 0, 1, 5, 0]);
+      view.renderNow();
+      if (!enabledBefore) expect(ed.dragPreview).toBeTruthy();
+      ed.viewOptions.pixelPreview = true;
+      session.apply([1, 0, 0, 1, 10, 20]);
+      view.renderNow();
+      expect(nodeBounds(ed.doc, ed.doc.get(ids[0]))).toMatchObject({ x: 10, y: 20 });
+      expect(ed.dragPreview).toBeNull();
+      session.apply([1, 0, 0, 1, 20, 30]);
+      session.commit();
+      expect(nodeBounds(ed.doc, ed.doc.get(ids[0]))).toMatchObject({ x: 20, y: 30 });
+      ed.doc.undo();
+      expect(nodeBounds(ed.doc, ed.doc.get(ids[0]))).toMatchObject({ x: 0, y: 0 });
+    } finally {
+      if (ed.doc.tx) session.cancel();
+    }
   });
 });

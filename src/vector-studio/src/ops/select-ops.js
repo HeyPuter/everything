@@ -50,11 +50,21 @@ export function selectInverse(editor) {
   editor.select(selectableTargets(editor).filter((id) => !sel.has(id)));
 }
 
+/** Walk editable artwork in the current isolation scope, skipping hidden or locked subtrees. */
+export function walkSelectable(editor, visit) {
+  const { doc } = editor;
+  const root = editor.isolation || 'root';
+  if (!doc.has(root) || doc.isHidden(root) || doc.isLocked(root)) return;
+  doc.walk((n) => {
+    if (n.hidden || n.locked) return false;
+    return visit(n);
+  }, root);
+}
+
 /** All paintable leaves (paths, compounds, text) that are visible and unlocked. */
 function leaves(editor) {
   const out = [];
-  editor.doc.walk((n) => {
-    if (n.hidden || n.locked) return false;
+  walkSelectable(editor, (n) => {
     if (n.type === 'compound') {
       out.push(n);
       return false;
@@ -72,7 +82,12 @@ const brushKey = (n) => {
   return JSON.stringify(rest);
 };
 
-const paintKey = (p) => (p ? JSON.stringify(p.type === 'solid' ? { t: 'solid', c: p.color.toLowerCase() } : { t: p.type, s: p.stops }) : 'none');
+function paintKey(p) {
+  if (!p) return 'none';
+  if (p.type === 'solid') return JSON.stringify({ t: p.type, c: p.color.toLowerCase() });
+  if (p.type === 'pattern') return JSON.stringify({ t: p.type, id: p.id });
+  return JSON.stringify({ t: p.type, s: p.stops });
+}
 
 /** Select > Same > ... `what`: fill | stroke | fillStroke | strokeWeight | opacity | blendMode | appearance | shape */
 export function selectSame(editor, what) {
@@ -102,8 +117,7 @@ export function selectObjects(editor, what) {
     return;
   }
   const out = [];
-  doc.walk((n) => {
-    if (n.hidden || n.locked) return false;
+  walkSelectable(editor, (n) => {
     if (what === 'text' && n.type === 'text') out.push(n.id);
     if (what === 'clipping' && n.type === 'group' && n.clip && n.children.length) {
       const mask = doc.get(n.children[n.children.length - 1]);
@@ -126,7 +140,7 @@ export function selectNext(editor, dir) {
   const kids = parent.children;
   for (let i = kids.indexOf(id) + dir; i >= 0 && i < kids.length; i += dir) {
     const next = doc.get(kids[i]);
-    if (next && !next.hidden && !next.locked && next.type !== 'layer') {
+    if (next && !doc.isHidden(next.id) && !doc.isLocked(next.id) && editor.inIsolation(next.id) && next.type !== 'layer') {
       editor.select([next.id]);
       return;
     }
@@ -135,5 +149,9 @@ export function selectNext(editor, dir) {
 
 /** Remember and restore selections (Select > Reselect). */
 export function reselect(editor, last) {
-  if (last) editor.select(last.filter((id) => editor.doc.has(id)));
+  if (!last) return [];
+  const { doc } = editor;
+  const ids = last.filter((id) => doc.has(id) && !doc.isHidden(id) && !doc.isLocked(id) && editor.inIsolation(id));
+  editor.select(ids);
+  return ids;
 }

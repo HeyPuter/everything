@@ -95,16 +95,30 @@ export function addLayerAbove(doc, layerId, name) {
   return doc.addLayer(name || nextLayerName(doc), idx < 0 ? Infinity : idx + 1);
 }
 
+/** Selected roots only: a selected ancestor already carries its descendants. */
+function selectedRoots(doc, ids) {
+  const selected = new Set(ids.filter((id) => doc.has(id)));
+  return doc.sortByPaintOrder([...selected].filter((id) => !doc.ancestors(id).some((n) => selected.has(n.id))));
+}
+
+/** Prepare feature data before duplication; return a callback receiving the original -> copy id map. */
+export const duplicateHooks = [];
+
 /** Copies of nodes, each placed right above its original. Returns the copies' ids (back to front). */
 export function duplicateNodes(doc, ids) {
   const out = [];
+  const roots = selectedRoots(doc, ids);
+  const placed = duplicateHooks.map((prepare) => prepare(doc, roots)).filter(Boolean);
+  const copiedIds = new Map();
   const byParent = new Map(); // parent id -> Map(original id -> copy id)
-  for (const id of doc.sortByPaintOrder(ids)) {
+  for (const id of roots) {
     const n = doc.get(id);
     // (has, not get: reading the parent between inserts would make each insert copy its list.)
     const pid = n?.parent;
     if (!pid || !doc.has(pid)) continue;
-    const { node, descendants } = doc.cloneSubtree(id);
+    const idMap = placed.length ? new Map() : undefined;
+    const { node, descendants } = doc.cloneSubtree(id, idMap);
+    if (idMap) for (const [from, to] of idMap) copiedIds.set(from, to);
     if (n.type === 'layer') node.name = `${n.name || 'Layer'} copy`;
     doc.insert(node, pid, Infinity, descendants);
     if (!byParent.has(pid)) byParent.set(pid, new Map());
@@ -123,6 +137,7 @@ export function duplicateNodes(doc, ids) {
     }
     doc.update(pid, { children: next });
   }
+  for (const after of placed) after(copiedIds);
   return out;
 }
 
@@ -132,7 +147,7 @@ export function deleteLayers(doc, ids) {
   for (const id of ids) {
     const layer = doc.get(id);
     if (!layer || layer.type !== 'layer') continue;
-    if (layer.parent === 'root' && doc.layers().length <= 1) break;
+    if (layer.parent === 'root' && doc.layers().length <= 1) continue;
     doc.remove(id);
     n++;
   }
@@ -164,7 +179,11 @@ export function flattenLayers(doc, targetId) {
   const target = doc.layerOf(targetId);
   let top = target;
   while (top && top.parent !== 'root') top = doc.get(top.parent);
+  // Templates keep their artwork and settings even when the active layer is one.
+  if (top?.template) top = doc.layers().find((l) => !l.template);
   if (!top) return false;
+  // The destination survives, but its hidden artwork follows the same discard rule.
+  if (top.hidden && !top.template) for (const id of top.children) doc.remove(id);
   const others = doc.layers().filter((l) => l.id !== top.id && !l.template);
   const items = [];
   for (const l of [top, ...others]) if (!l.hidden) for (const c of l.children) items.push(c);
@@ -184,7 +203,9 @@ export function flattenDiscards(doc) {
  * created where the frontmost of them was. Returns the new layer id.
  */
 export function collectInNewLayer(doc, ids) {
-  const sorted = doc.sortByPaintOrder(ids.filter((id) => doc.get(id)));
+  // Moving a selected parent already carries its selected descendants.
+  // Choose the insertion point from these roots too, so it cannot be inside one.
+  const sorted = selectedRoots(doc, ids);
   if (!sorted.length) return null;
   const front = doc.get(sorted.at(-1));
   let parent = doc.get(front.parent);

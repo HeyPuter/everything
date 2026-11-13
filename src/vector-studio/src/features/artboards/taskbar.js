@@ -50,6 +50,7 @@ export function installTaskbar(app) {
   let contextKey = null;
   let swatches = null;
   let fontField = null;
+  let fontEditor = null;
   let suppressed = false;
   let settleTimer = 0;
 
@@ -122,6 +123,7 @@ export function installTaskbar(app) {
   function buildContent(ctx) {
     swatches = null;
     fontField = null;
+    fontEditor = null;
     const items = [];
     if (ctx === 'none') {
       if (app.toolClasses.has('pencil')) items.push(button('Draw with Pencil', 'pencil', () => app.setTool('pencil')));
@@ -173,6 +175,11 @@ export function installTaskbar(app) {
         items.push(cmdButton('blend.options', 'Blend Options', 'blend'), cmdButton('blend.expand', 'Expand', null), cmdButton('blend.release', 'Release', null));
       } else if (ctx === 'text') {
         items.push(cmdButton('type.createOutlines', 'Create Outlines', 'type'));
+        // This field can remain focused while another canvas activates or a
+        // selection changes. Its pending value belongs to these original texts.
+        const ed = app.editor;
+        const ids = ed.selectedNodes().filter((n) => n.type === 'text').map((n) => n.id);
+        fontEditor = ed;
         fontField = numberField({
           label: 'Font size',
           icon: 'case-sensitive',
@@ -181,8 +188,10 @@ export function installTaskbar(app) {
           max: 1296,
           width: '64px',
           onCommit: (v) => {
-            const ed = app.editor;
-            const texts = ed.selectedNodes().filter((n) => n.type === 'text');
+            if (!app.editors.includes(ed) || ed.doc.readOnly) return;
+            const texts = ids.map((id) => ed.doc.get(id)).filter((n) => n?.type === 'text' &&
+              !ed.doc.isLocked(n.id) && !ed.doc.isHidden(n.id) && ed.inIsolation(n.id));
+            if (!texts.length) return;
             ed.doc.transact('Font Size', () => texts.forEach((t) => ed.doc.update(t.id, { char: { ...t.char, fontSize: v } })));
           },
         });
@@ -247,12 +256,16 @@ export function installTaskbar(app) {
     return { bottom: (bar.offsetHeight || 34) + REST_GAP };
   };
 
+  function available() {
+    return enabled() && Boolean(app.editor) && (!app.home || app.home.hidden) &&
+      app.toolId !== 'artboard' && !app.root.classList.contains('hide-panels');
+  }
+
   function shouldShow() {
     const ed = app.editor;
-    if (!enabled() || !ed || suppressed) return false;
+    if (!available() || suppressed) return false;
     if (ed.textEdit || app.input?.active || app.input?.pan || app.input?.gesture) return false;
-    if (app.toolId === 'artboard' || app.root.classList.contains('hide-panels')) return false;
-    return !app.home || app.home.hidden;
+    return true;
   }
 
   function position() {
@@ -303,22 +316,38 @@ export function installTaskbar(app) {
   function refresh() {
     const show = shouldShow();
     if (!show) {
-      // Keep focus inside if the user is working in the bar.
-      if (!bar.contains(document.activeElement)) bar.hidden = true;
+      // Focus can keep the bar visible during a temporary canvas interaction,
+      // but must not retain unavailable controls after closing or hiding it.
+      const focused = bar.contains(document.activeElement);
+      if (!available()) {
+        if (focused) {
+          const home = app.home && !app.home.hidden;
+          const target = home ? app.home.querySelector('button:not(:disabled)') : app.editor ? app.canvasHost : null;
+          (target || app.root.querySelector('.home-btn'))?.focus();
+        }
+        bar.hidden = true;
+      } else if (!focused) bar.hidden = true;
       return;
     }
     const ctx = taskbarContext(app.editor);
     const top = ctx === 'live' || ctx === 'other' ? app.editor.doc.get(app.editor.topSelection()[0]) : null;
     const liveKind = ctx === 'live' ? top?.live?.kind : ctx === 'other' ? top?.type : '';
-    const key = `${ctx}:${liveKind}:${Boolean(app.commands.get('pathfinder.unite'))}:${Boolean(app.commands.get('type.createOutlines'))}`;
-    if (key !== contextKey) {
+    const texts = ctx === 'text' ? app.editor.topSelection().join(',') : '';
+    const key = `${ctx}:${liveKind}:${texts}:${Boolean(app.commands.get('pathfinder.unite'))}:${Boolean(app.commands.get('type.createOutlines'))}`;
+    let focusTarget = null;
+    if (key !== contextKey || (fontField && fontEditor !== app.editor)) {
       const hadFocus = bar.contains(document.activeElement);
+      const fontFocused = fontField && document.activeElement === fontField.input;
+      // Finish before removing the input; removing a focused node need not
+      // fire blur. The bound handler ignores closed or unavailable targets.
+      fontField?.input.blur();
       contextKey = key;
       buildContent(ctx);
-      if (hadFocus) controls()[1]?.focus();
+      if (hadFocus) focusTarget = fontFocused && fontField ? fontField.input : controls()[1];
     }
     refreshValues();
     bar.hidden = false;
+    focusTarget?.focus();
     fit();
     position();
   }
@@ -342,10 +371,10 @@ export function installTaskbar(app) {
 
   let frame = 0;
   const schedule = () => {
-    if (frame) return;
+    if (frame || !bar.isConnected) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      refresh();
+      if (bar.isConnected) refresh();
     });
   };
 
@@ -357,47 +386,62 @@ export function installTaskbar(app) {
     settleTimer = setTimeout(schedule, 180);
   };
 
+  let movePointer = null;
   function startMove(e) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || movePointer !== null) return;
     e.preventDefault();
     const x0 = e.clientX;
     const y0 = e.clientY;
     const left = bar.offsetLeft;
     const top = bar.offsetTop;
     try {
-      grip.setPointerCapture(e.pointerId);
+      grip.setPointerCapture?.(e.pointerId);
     } catch {
-      // Synthetic or already-released pointers cannot be captured.
+      // A pointer that has already ended must not leave a drag listening.
+      return;
     }
+    movePointer = e.pointerId;
     const move = (ev) => {
+      if (ev.pointerId !== movePointer) return;
       app.prefs.values.taskbarPos = { x: left + ev.clientX - x0, y: top + ev.clientY - y0 };
       position();
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== movePointer) return;
+      movePointer = null;
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
       grip.removeEventListener('pointercancel', up);
+      grip.removeEventListener('lostpointercapture', up);
       if (app.prefs.values.taskbarPos) app.prefs.set('taskbarPos', { ...app.prefs.values.taskbarPos });
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
     grip.addEventListener('pointercancel', up);
+    grip.addEventListener('lostpointercapture', up);
   }
 
   app.canvasHost.addEventListener('pointerdown', () => {
     suppressed = true;
     if (!bar.contains(document.activeElement)) bar.hidden = true;
   }, true);
-  window.addEventListener('pointerup', () => {
+  const finishInteraction = () => {
     if (!suppressed) return;
     suppressed = false;
     clearTimeout(settleTimer);
     settleTimer = setTimeout(schedule, 60);
-  });
+  };
+  window.addEventListener('pointerup', finishInteraction);
+  window.addEventListener('pointercancel', finishInteraction);
   app.canvasHost.addEventListener('wheel', onView, { passive: true });
 
   let unsubs = [];
   const attach = () => {
+    // A new active document must not inherit the old view's settle callback or
+    // remain hidden because its pointer interaction ended during the switch.
+    clearTimeout(settleTimer);
+    settleTimer = 0;
+    suppressed = false;
     for (const u of unsubs) u();
     unsubs = [];
     const ed = app.editor;
