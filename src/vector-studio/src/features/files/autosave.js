@@ -30,6 +30,9 @@ const STASH_LIMIT = 2_500_000;
 const DAMAGED_CODES = new Set(['invalid', 'empty', 'damaged', 'format', 'svg']);
 
 const sameRevisions = (a, b) => a?.revision === b.revision && a?.commentsRevision === b.commentsRevision;
+const sameFile = (a, b) => a === b || (a && b && a.kind === b.kind && a.path === b.path && a.name === b.name && a.handleId === b.handleId);
+const sameBackup = (snapshot, doc, file) => sameRevisions(snapshot, doc) && sameFile(snapshot.file, file);
+const fileInfo = (file) => file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null;
 
 function storage() {
   try {
@@ -52,11 +55,11 @@ export class Autosaver {
     this.storeKey = null;
     this.cached = null;
     this.recovered = new WeakMap(); // document -> original snapshot and store, until safely superseded
-    this.saved = new WeakMap(); // document -> artwork and comment revisions last written
+    this.saved = new WeakMap(); // document -> revisions and file association last backed up
     this.discarded = new WeakMap(); // document -> token invalidating captures from before Save/Close
-    this.pending = new WeakMap(); // document -> revisions of the write that will replace its copy
+    this.pending = new WeakMap(); // document -> revisions and association of the pending replacement
     this.watched = new WeakSet(); // documents whose saved event removes their copy
-    this.stashed = new Map(); // recovery id -> revisions and capture sequence kept at page close
+    this.stashed = new Map(); // recovery id -> revisions, association and capture sequence kept at page close
     this.sequence = 0; // capture order within this session; document revisions can go backward on Undo
     this.timer = 0;
     this.busy = null;
@@ -147,12 +150,15 @@ export class Autosaver {
       const doc = editor.doc;
       if (seen.has(doc)) return false;
       seen.add(doc);
+      if (!doc.dirty || doc.tx) return false;
       const saved = this.saved.get(doc);
       const pending = this.pending.get(doc);
       const stashed = this.stashed.get(doc.recoveryId);
-      // Undo/Redo may return to the saved copy while a different snapshot is about to replace it.
-      return doc.dirty && !doc.tx && (!sameRevisions(saved, doc) ||
-        (pending && !sameRevisions(pending, doc)) || (stashed && !sameRevisions(stashed, doc)));
+      const file = fileInfo(editor.file);
+      // Undo/Redo or Save As may return to a backed-up state while another
+      // snapshot is about to replace it, including a different file association.
+      return !sameBackup(saved, doc, file) ||
+        (pending && !sameBackup(pending, doc, file)) || (stashed && !sameBackup(stashed, doc, file));
     });
   }
 
@@ -174,7 +180,7 @@ export class Autosaver {
         if (room < 0) throw new Error('Too large to keep in localStorage');
         const meta = { id, ...this.#entry(editor), revision: doc.revision, commentsRevision: doc.commentsRevision, session: this.session, sequence, saved: Date.now() };
         ls.setItem(key, `${JSON.stringify(meta)}\n${text}`);
-        this.stashed.set(id, { revision: doc.revision, commentsRevision: doc.commentsRevision, sequence });
+        this.stashed.set(id, { revision: doc.revision, commentsRevision: doc.commentsRevision, file: meta.file, sequence });
       } catch {
         // Over the quota: an older copy kept here would replace the newer one being written.
         this.#unstash(id);
@@ -195,8 +201,7 @@ export class Autosaver {
   }
 
   #entry(editor) {
-    const f = editor.file;
-    return { name: editor.name, file: f ? { kind: f.kind, path: f.path || null, name: f.name || null, handleId: f.handleId || null } : null };
+    return { name: editor.name, file: fileInfo(editor.file) };
   }
 
   async #flush(texts = null) {
@@ -208,11 +213,14 @@ export class Autosaver {
       // Earlier documents may have awaited slow storage since this list was
       // built. Never capture a gesture that began meanwhile, or a closed/saved
       // document; cancelled gestures keep the previous revision number.
-      if (!doc.dirty || doc.tx || !this.app.editors.some((e) => e.doc === doc)) continue;
+      if (!doc.dirty || doc.tx) continue;
+      const open = this.app.editors.find((e) => e.doc === doc);
+      if (!open) continue;
       const discardToken = this.discarded.get(doc);
       const rev = doc.revision;
       const commentsRevision = doc.commentsRevision;
-      this.pending.set(doc, { revision: rev, commentsRevision });
+      const snapshot = { revision: rev, commentsRevision, file: fileInfo(open.file) };
+      this.pending.set(doc, snapshot);
       try {
         const kept = texts?.get(editor);
         const reuse = kept?.rev === rev && kept.commentsRevision === commentsRevision;
@@ -224,11 +232,13 @@ export class Autosaver {
         if (this.discarded.get(doc) !== discardToken || !doc.dirty || !current) continue;
         // A closed window no longer receives Save As updates from its companion.
         const id = this.recoveryId(current);
-        await store.put(id, { ...this.#entry(current), data, revision: rev, commentsRevision, sequence, session: this.session });
+        const entry = this.#entry(current);
+        snapshot.file = entry.file;
+        await store.put(id, { ...entry, data, revision: rev, commentsRevision, sequence, session: this.session });
         // Its queued discard owns this completed write. Do not claim the
         // deleted copy still covers Undo or clear a newer page-close stash.
         if (this.discarded.get(doc) !== discardToken) continue;
-        this.saved.set(doc, { revision: rev, commentsRevision });
+        this.saved.set(doc, snapshot);
         this.#watchShared(doc);
         this.#unstash(id, sequence);
         await this.#discardRecoveredSource(doc);
@@ -455,6 +465,9 @@ export class Autosaver {
     // Capture the revisions of the bytes we read before editor-opening hooks
     // can change the document, save it, or close it.
     const revision = doc.revision, commentsRevision = doc.commentsRevision;
+    // The baseline retains the original recovery metadata. Track later changes
+    // against the association used to open this editor (possibly an import).
+    const location = fileInfo(file);
     const source = { store, entry, discarded: false };
     // Every recovered document owns its next backup. Other tabs/devices can
     // recover the same source and then edit, save, or discard independently.
@@ -471,7 +484,7 @@ export class Autosaver {
       await store.put(doc.recoveryId, { name: entry.name, file: entry.file, data,
         revision, commentsRevision, sequence: ++this.sequence, session: this.session });
       if (!source.discarded) {
-        this.saved.set(doc, { revision, commentsRevision });
+        this.saved.set(doc, { revision, commentsRevision, file: location });
         this.#watchShared(doc);
       }
       await this.#discardRecoveredSource(doc);
