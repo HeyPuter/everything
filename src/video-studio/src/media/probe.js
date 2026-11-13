@@ -122,8 +122,11 @@ async function probeWithElement(file, kind) {
     let duration = el.duration;
     if (!Number.isFinite(duration)) {
       // Some WebM recordings report Infinity until the end is reached.
-      el.currentTime = 1e7;
-      await new Promise((r) => (el.ontimeupdate = r));
+      await new Promise((resolve, reject) => {
+        el.ontimeupdate = resolve;
+        el.onerror = () => reject(new Error('This file type is not supported by your browser.'));
+        el.currentTime = 1e7;
+      });
       duration = el.duration;
     }
     return {
