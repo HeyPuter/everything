@@ -32,6 +32,7 @@ export function registerMixerCommands(app, ctl, panel) {
       id: 'mixer.addInsert',
       label: 'Add mixer insert',
       scope: 'mixer',
+      enabled: () => ctl.canAddInsert,
       run: () => {
         ctl.addInsert();
         focusAfter();

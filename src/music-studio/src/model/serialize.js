@@ -51,6 +51,7 @@ export function parseProject(input) {
   }
   if (!data || typeof data !== 'object' || data.kind !== KIND) throw new Error('The file is not a Music Studio project.');
   if (Number(data.version) > PROJECT_VERSION) throw new Error('This project was saved by a newer version of Music Studio.');
+  if (Array.isArray(data.mixer) && data.mixer.length > MAX_MIXER_TRACKS) throw new Error(`This project exceeds the supported limit of ${MAX_MIXER_TRACKS - 1} mixer inserts plus the master.`);
 
   const samples = {};
   if (data.samples && typeof data.samples === 'object') {

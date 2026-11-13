@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { App } from '../src/app.js';
 import * as mixer from '../src/panels/mixer.js';
 import { demoProject } from '../src/model/demo.js';
+import { createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
 import * as E from '../src/model/edits.js';
 import { getWindow, closeWindows } from '../src/ui/windows.js';
 
@@ -46,6 +47,16 @@ describe('mixer panel', () => {
     expect(strips[0].classList.contains('master')).toBe(true);
     expect(strips[1].querySelector('.mx-name').textContent).toBe('Kick');
     expect(strips[3].querySelector('.mx-in').getAttribute('aria-label')).toBe('Inputs: Closed Hat, Open Hat');
+  });
+
+  it('disables insert buttons at capacity and re-enables them after undo', () => {
+    const { store } = env;
+    store.apply('Fill mixer', (p) => ({ ...p, mixer: Array.from({ length: MAX_MIXER_TRACKS }, (_, i) => p.mixer[i] || createMixerTrack(i)) }));
+    const buttons = [...document.querySelectorAll('button[aria-label="Add mixer insert"]')];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    store.undo();
+    expect(buttons.every((button) => !button.disabled)).toBe(true);
   });
 
   it('updates send labels when either endpoint is renamed and after undo', () => {

@@ -129,6 +129,7 @@ export function createMixer(app, host, ctl) {
   }
 
   function render() {
+    addBtn.disabled = addTool.disabled = !ctl.canAddInsert;
     const p = store.project;
     ensureStrips(p.mixer.length);
     if (p.channels !== last.channels) {
@@ -231,7 +232,7 @@ export function createMixer(app, host, ctl) {
       { type: 'check', label: 'Mute', keys: 'M', checked: t.mute, run: () => ctl.toggleMute(i) },
       { type: 'check', label: 'Solo', keys: 'S', checked: t.solo, enabled: i > 0, run: () => ctl.solo(i) },
       { type: 'sep' },
-      { type: 'cmd', label: 'Add insert', run: () => ctl.addInsert() },
+      { type: 'cmd', label: 'Add insert', enabled: ctl.canAddInsert, run: () => ctl.addInsert() },
     ];
   }
 

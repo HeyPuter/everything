@@ -3,7 +3,7 @@
 // these run in tests as-is. Views call them through store.apply(label, fn).
 
 import { uid, clamp, moveItem } from '../lib/util.js';
-import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, MAX_FX_SLOTS, DEFAULT_KEY } from './project.js';
+import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY } from './project.js';
 import { STEP } from './time.js';
 
 // ------------------------------------------------------------------ helpers
@@ -308,6 +308,7 @@ export function updateMixerTrack(project, index, changes) {
 }
 
 export function addMixerTrack(project) {
+  if (project.mixer.length >= MAX_MIXER_TRACKS) return { project };
   return { project: { ...project, mixer: [...project.mixer, createMixerTrack(project.mixer.length)] }, index: project.mixer.length };
 }
 

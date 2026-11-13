@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { serializeProject, parseProject, KIND } from '../src/model/serialize.js';
 import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
-import { createSlot } from '../src/model/project.js';
+import { createSlot, createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
 import { addMarker, deleteTrack } from '../src/playlist/clips.js';
 import { resolveTarget } from '../src/automation/targets.js';
 import { compileAutomation } from '../src/engine/compile.js';
@@ -26,6 +26,12 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it('reports unsupported mixer capacity instead of silently deleting tracks', () => {
+    const p = richProject();
+    p.mixer = Array.from({ length: MAX_MIXER_TRACKS + 1 }, (_, i) => createMixerTrack(i));
+    expect(() => parseProject(serializeProject(p))).toThrow(/255 mixer inserts/);
+  });
+
   it.each([129, 256])('preserves all %i mixer tracks, routing and automation on reopen', (count) => {
     let p = richProject();
     while (p.mixer.length < count) p = E.addMixerTrack(p).project;

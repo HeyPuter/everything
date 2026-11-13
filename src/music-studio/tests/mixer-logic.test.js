@@ -1,11 +1,32 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { gainToPos, posToGain, dbToPos, posToDb, formatGain, nudgeDb, parseGain, ticksFor, TICKS, MAX_GAIN, MAX_DB, FLOOR_DB } from '../src/mixer/db.js';
 import * as R from '../src/mixer/routing.js';
 import * as S from '../src/mixer/slots.js';
 import { MeterState, HOLD_S } from '../src/mixer/meters.js';
 import * as E from '../src/model/edits.js';
-import { createProject, createChannel } from '../src/model/project.js';
+import { createProject, createChannel, createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
+import { Store } from '../src/model/store.js';
+import { MixerController } from '../src/mixer/controller.js';
 import { demoProject } from '../src/model/demo.js';
+
+describe('mixer capacity', () => {
+  it('refuses unsupported inserts without changing selection or history', () => {
+    const p = createProject();
+    p.mixer = Array.from({ length: MAX_MIXER_TRACKS - 1 }, (_, i) => createMixerTrack(i));
+    const store = new Store(p);
+    const app = { store, notify: vi.fn() };
+    const ctl = new MixerController(app);
+    expect(ctl.addInsert()).toBe(MAX_MIXER_TRACKS - 1);
+    const full = store.project;
+    expect(ctl.addInsert()).toBeUndefined();
+    expect(store.project === full).toBe(true);
+    expect(ctl.selected).toBe(MAX_MIXER_TRACKS - 1);
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/255 inserts/), { error: true });
+    expect(E.addMixerTrack(full).project === full).toBe(true);
+    store.undo();
+    expect(store.project === p).toBe(true);
+  });
+});
 
 describe('fader law', () => {
   it('round trips gain, position and dB', () => {

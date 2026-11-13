@@ -7,7 +7,7 @@
 
 import { Emitter } from '../lib/emitter.js';
 import * as E from '../model/edits.js';
-import { COLORS } from '../model/project.js';
+import { COLORS, MAX_MIXER_TRACKS } from '../model/project.js';
 import { EFFECTS, effectsByCategory } from '../effects/catalog.js';
 import { UNITY } from './db.js';
 import * as R from './routing.js';
@@ -74,7 +74,15 @@ export class MixerController extends Emitter {
     });
   }
 
+  get canAddInsert() {
+    return this.project.mixer.length < MAX_MIXER_TRACKS;
+  }
+
   addInsert() {
+    if (!this.canAddInsert) {
+      this.app.notify(`The mixer supports ${MAX_MIXER_TRACKS - 1} inserts plus the master.`, { error: true });
+      return;
+    }
     const r = this.store.apply('Add mixer insert', (p) => E.addMixerTrack(p));
     if (r?.index !== undefined) this.select(r.index);
     return r?.index;
