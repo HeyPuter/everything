@@ -335,8 +335,9 @@ export class ProjectFiles {
 
   /** File > Save to your device: downloads a self-contained .msproj. */
   async download() {
+    const filename = `${safeFileName(this.app.file?.name || this.store.project.name)}${FILE_EXT}`;
     const { blob, missing, skipped } = await this.lib.exportFile(this.store.project, this.store.view);
-    downloadBlob(blob, `${safeFileName(this.app.file?.name || this.store.project.name)}${FILE_EXT}`);
+    downloadBlob(blob, filename);
     if (skipped) this.app.notify('Downloaded. Some samples were too large to include in the file.', { error: true });
     else if (missing.length) this.app.notify(`Downloaded without ${missing.length === 1 ? 'one missing sample' : `${missing.length} missing samples`}.`, { error: true });
     else this.app.notify('Project file downloaded');
