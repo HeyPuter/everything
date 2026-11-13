@@ -4,6 +4,7 @@
 // stale (content edited, layer scaled or rotated), so quality never degrades
 // however often the object is transformed.
 import type { Editor } from '../../editor';
+import type { DocumentSession } from '../../app/session';
 import { findLayer, type Layer, type PhotoDocument } from '../../model/document';
 import { contentsOf } from '../../model/embedded';
 import type { Assets } from '../../model/assets';
@@ -73,8 +74,12 @@ const near = (a: Quad, b: Quad) => a.every((p, i) => Math.abs(p.x - b[i].x) < 1e
 
 /** Commit a transform of an image layer as one undo step: a rotated
  * rectangle stays a plain transform, anything else becomes a frame. */
-export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered) {
-  const session = e.session, doc = session.doc, assets = session.assets;
+export function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered): Promise<void> {
+  const session = e.session;
+  return session.trackEdit(storeFrame(e, session, id, quad, mesh, label, rendered));
+}
+async function storeFrame(e: Editor, session: DocumentSession, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered) {
+  const doc = session.doc, assets = session.assets;
   const l = findLayer(doc.layers, id);
   if (!l || l.kind !== 'image') return;
   const before = effectiveFrame(l);

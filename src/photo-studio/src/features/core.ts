@@ -121,6 +121,7 @@ export function installCore(e: Editor) {
     if (!v) return;
     e.transform.apply();
     await e.modal?.apply();
+    await e.session.waitForEdits();
     const selected = [...e.selectedIds];
     const blob = await serialize(e.doc, e.assets);
     const { deserialize } = await import('../model/serialization');

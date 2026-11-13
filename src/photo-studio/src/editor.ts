@@ -474,6 +474,7 @@ export class Editor {
         if (id.startsWith('file.') && !this.toolBusy) {
           this.transform.apply();
           await this.modal?.apply();
+          await this.session.waitForEdits();
         }
         // Recorded only when it runs: a command skipped because another
         // task is running must not become an action step.

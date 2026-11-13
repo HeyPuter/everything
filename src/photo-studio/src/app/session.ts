@@ -45,6 +45,18 @@ export class DocumentSession {
   closeHandler?: () => Promise<boolean>;
   // Other document states features keep (History snapshots) whose tiles must survive cleanup.
   retained: (() => PhotoDocument[])[] = [];
+  // Edits can finish storing assets after their tool has closed. Readers of
+  // the document must still wait for those edits to enter history.
+  private pendingEdits = new Set<Promise<void>>();
+  trackEdit(task: Promise<void>): Promise<void> {
+    this.pendingEdits.add(task);
+    const done = () => { this.pendingEdits.delete(task); };
+    void task.then(done, done);
+    return task;
+  }
+  async waitForEdits(): Promise<void> {
+    while (this.pendingEdits.size) await Promise.all([...this.pendingEdits]);
+  }
   constructor(doc = newDocument()) {
     this.history = new History(doc);
   }
