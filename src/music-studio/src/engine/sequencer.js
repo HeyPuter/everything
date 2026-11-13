@@ -35,7 +35,7 @@ const SEQ_ID = 1;
 export function automationValue(pts, tick, cs = null) {
   const n = pts.length >> 1;
   if (!n) return 0;
-  if (tick <= pts[0]) return pts[1];
+  if (tick < pts[0]) return pts[1];
   if (tick >= pts[(n - 1) * 2]) return pts[(n - 1) * 2 + 1];
   let lo = 0;
   let hi = n - 1;

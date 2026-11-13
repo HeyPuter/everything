@@ -41,7 +41,7 @@ export function curveShape(x, c) {
 export function evaluateAutomation(points, t) {
   const n = points?.length || 0;
   if (!n) return null;
-  if (t <= points[0].t) return points[0].v;
+  if (t < points[0].t) return points[0].v;
   const last = points[n - 1];
   if (t >= last.t) return last.v;
   // Last point with p.t <= t.
