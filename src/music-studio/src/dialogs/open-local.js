@@ -33,6 +33,8 @@ export async function openLocalProjects(app) {
     list.replaceChildren();
     empty.hidden = items.length > 0;
     list.hidden = !items.length;
+    const openButton = list.closest('.dialog')?.querySelector('[data-value="open"]');
+    if (openButton) openButton.disabled = !items.length;
     for (const m of items) {
       const row = h(
         'div.lp-row',
@@ -86,7 +88,7 @@ export async function openLocalProjects(app) {
     } catch (err) {
       app.reportError(err);
     }
-    if (list.isConnected) list.focus();
+    if (list.isConnected) (items.length ? list : footerStart).focus();
   };
   list.addEventListener('keydown', (e) => {
     const i = items.findIndex((m) => m.key === selected);

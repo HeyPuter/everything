@@ -18,13 +18,14 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-async function setup({ missing = false } = {}) {
+async function setup({ missing = false, extra = false } = {}) {
   vi.stubGlobal('puter', undefined);
   const db = memoryDB();
   db.persistent = true;
   const lib = new Library({ db, puter: { isSignedIn: () => false } });
   const project = { ...newProject(), name: 'Saved song', samples: missing ? { missing: { id: 'missing', name: 'missing.wav' } } : {} };
   await lib.saveLocal(project, {}, { key: 'saved', name: 'Saved song' });
+  if (extra) await lib.saveLocal({ ...project, name: 'Other song' }, {}, { key: 'other', name: 'Other song' });
   const app = new App(document.createElement('div'), { storage: { getItem: () => null, setItem() {} } });
   app.library = lib;
   app.files = new ProjectFiles(app, lib);
@@ -101,4 +102,42 @@ it('keeps a successful deletion visible when refreshing the saved-project list f
   expect(document.querySelector('.lp-row')).toBeNull();
   expect(document.querySelector('.lp-empty').hidden).toBe(false);
   expect(await lib.listLocal()).toEqual([]);
+});
+
+it('disables Open after the last saved project is deleted', async () => {
+  const { handlers } = await setup();
+  const open = document.querySelector('.dlg-open-local [data-value="open"]');
+  expect(open.disabled).toBe(false);
+  const button = document.querySelector('[aria-label="Delete Saved song"]');
+  const deleting = handlers.get(button)(new MouseEvent('click'));
+  document.querySelector('.dialog-backdrop:last-child [data-value="true"]').click();
+  await deleting;
+  expect(document.querySelector('.lp-row')).toBeNull();
+  expect(open.disabled).toBe(true);
+  open.click();
+  expect(document.querySelector('.dlg-open-local')).not.toBeNull();
+});
+
+
+it('moves focus to a visible control after deleting the last saved project', async () => {
+  const { handlers } = await setup();
+  const button = document.querySelector('[aria-label="Delete Saved song"]');
+  const deleting = handlers.get(button)(new MouseEvent('click'));
+  document.querySelector('.dialog-backdrop:last-child [data-value="true"]').click();
+  await deleting;
+  expect(document.activeElement.textContent).toBe('Open from this device...');
+});
+
+it('keeps the remaining project selected and openable after deleting another project', async () => {
+  const { app, handlers } = await setup({ extra: true });
+  const button = document.querySelector('[aria-label="Delete Saved song"]');
+  const deleting = handlers.get(button)(new MouseEvent('click'));
+  document.querySelector('.dialog-backdrop:last-child [data-value="true"]').click();
+  await deleting;
+  expect(document.querySelector('[aria-selected="true"]').dataset.key).toBe('other');
+  expect(document.activeElement).toBe(document.querySelector('.lp-list'));
+  const open = document.querySelector('.dlg-open-local [data-value="open"]');
+  expect(open.disabled).toBe(false);
+  open.click();
+  await vi.waitFor(() => expect(app.store.project.name).toBe('Other song'));
 });
