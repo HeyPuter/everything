@@ -89,11 +89,13 @@ export function timelinePanel(menu: (e?: Editor) => MenuItem[]): Panel {
     });
     const html = cells.join('') + `<button class="frame-add" data-command="animation.new-frame" title="New frame" aria-label="New frame">${svg('plus', 20)}</button>`;
     if (html !== lastStrip) {
+      const activeId = `frame-${anim.frames[shown]?.id}`;
+      const changedFrame = strip.getAttribute('aria-activedescendant') !== activeId;
       const scroll = strip.scrollLeft;
       strip.innerHTML = lastStrip = html;
       strip.scrollLeft = scroll;
-      strip.setAttribute('aria-activedescendant', `frame-${anim.frames[shown]?.id}`);
-      strip.querySelector<HTMLElement>('.frame-cell.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      strip.setAttribute('aria-activedescendant', activeId);
+      if (changedFrame) strip.querySelector<HTMLElement>('.frame-cell.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
     // The editor may have queued onions before this panel discarded stale
     // jobs. Request them again now, and keep them on thumbnail-only refreshes.
