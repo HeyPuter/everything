@@ -205,14 +205,17 @@ export function installSpectral(app) {
         const doc = audio();
         const d = dspSync || (await loadDsp());
         let sel = spectralSelection(app, doc);
-        if (!sel) {
-          const { start, end } = doc.selection;
-          if ((end - start) / doc.sampleRate > MAX_AUTO_HEAL_SECONDS) {
-            app.notify(`Auto Heal works on selections up to ${MAX_AUTO_HEAL_SECONDS} seconds. Select a shorter range around the problem.`, { error: true });
-            return;
-          }
-          sel = timeSelection(start, end, doc.sampleRate / 2, doc.selection.channels.slice());
+        // Healing works on the whole selection at once (memory grows with its length), so a
+        // spectral selection has the same limit as a time selection.
+        const bounds = sel ? selectionBounds(sel) : null;
+        const [start, end] = sel
+          ? [bounds?.t0 ?? 0, bounds?.t1 ?? 0]
+          : [doc.selection.start, doc.selection.end];
+        if ((end - start) / doc.sampleRate > MAX_AUTO_HEAL_SECONDS) {
+          app.notify(`Auto Heal works on selections up to ${MAX_AUTO_HEAL_SECONDS} seconds. Select a shorter range around the problem.`, { error: true });
+          return;
         }
+        if (!sel) sel = timeSelection(start, end, doc.sampleRate / 2, doc.selection.channels.slice());
         commit(doc, 'Auto Heal', healSpectral(doc.state, sel, d));
       },
     },
