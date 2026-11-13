@@ -1029,6 +1029,8 @@ export async function textFonts(doc, texts) {
   return [...fonts];
 }
 const characterSets = new WeakMap();
+// Hebrew, Arabic, Syriac, Thaana, N'Ko and the other right-to-left scripts.
+const RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefe\u{10800}-\u{10fff}\u{1e800}-\u{1efff}]/u;
 /** Return the supported canonical spelling, composing accents where the face permits it. */
 export function assertSupportedText(font, text) {
   let supported = characterSets.get(font);
@@ -1047,13 +1049,12 @@ export function assertSupportedText(font, text) {
     .join('');
   if (missing.size) {
     // Name what to change; a character that shows nothing is named by its code.
-    const names = [...missing]
-      .slice(0, 3)
-      .map((char) =>
-        /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
-          ? `“${char}”`
-          : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
-      );
+    const names = [...missing].slice(0, 3).map((char) =>
+      /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
+        ? // Isolate a right-to-left letter, or the message reorders around it: “ر” ,“م”.
+          `“${RTL.test(char) ? `\u2068${char}\u2069` : char}”`
+        : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
+    );
     const list =
       names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];
     throw new Error(`This font does not support ${list} in this text.`);
