@@ -231,6 +231,95 @@ describe('channel rack panel', () => {
     expect(store.project).toBe(restored);
   });
 
+  function parameterControl(kind, row = 0) {
+    const selector = kind === 'mixer' ? '[role="spinbutton"]' : kind === 'pan' ? '.c-pan [role="slider"]' : '.c-vol [role="slider"]';
+    const el = rowEl(row).querySelector(selector);
+    el.setPointerCapture = vi.fn();
+    el.releasePointerCapture = vi.fn();
+    const send = (type, y = 300) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      el.dispatchEvent(event);
+    };
+    const wheel = () => el.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    const key = () => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    return { el, send, wheel, key };
+  }
+
+  it.each(['mixer', 'pan', 'volume'])('cancels an older rack %s drag when another control starts a wheel edit', (param) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const initial = store.project;
+    const old = parameterControl(param);
+    old.send('pointerdown');
+    old.send('pointermove', 292);
+    const first = store.project;
+    const newer = parameterControl('volume', 1);
+    newer.wheel();
+    const preview = store.project;
+    const owner = store.gesture;
+    old.send('pointermove', 276);
+    old.send('pointerup', 276);
+    expect(store.project === preview).toBe(true);
+    expect(store.gesture === owner).toBe(true);
+    expect(Number(old.el.getAttribute('aria-valuenow'))).toBeCloseTo(first.channels[0][param], 3);
+    vi.advanceTimersByTime(500);
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it.each(['mixer', 'pan', 'volume'].flatMap((param) => ['key', 'wheel'].map((input) => [param, input])))('does not let an old rack %s %s timer end another control edit', (param, input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const initial = store.project;
+    const old = parameterControl(param);
+    old.el.focus();
+    old[input]();
+    const first = store.project;
+    vi.advanceTimersByTime(100);
+    const newer = parameterControl('volume', 1);
+    newer.wheel();
+    const owner = store.gesture;
+    vi.advanceTimersByTime(350);
+    expect(store.gesture === owner).toBe(true);
+    expect(store.undoStack).toHaveLength(1);
+    newer.wheel();
+    vi.advanceTimersByTime(500);
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+    old[input]();
+    vi.advanceTimersByTime(500);
+    expect(store.project.channels[0][param]).not.toBe(initial.channels[0][param]);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it.each(['mixer', 'pan', 'volume'])('keeps a tempo wheel edit independent of an older rack %s drag', (param) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const old = parameterControl(param);
+    old.send('pointerdown');
+    old.send('pointermove', 292);
+    const first = store.project;
+    document.querySelector('.tempo').dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    const preview = store.project;
+    const owner = store.gesture;
+    expect(preview.bpm).toBe(131);
+    old.send('pointermove', 276);
+    old.send('pointerup', 276);
+    expect(store.project === preview).toBe(true);
+    expect(store.gesture === owner).toBe(true);
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project === first).toBe(true);
+  });
+
   it('preserves a pending assignment drag through an unrelated edit and keeps separate undo steps', () => {
     const store = app.store;
     const { send } = insertControl();

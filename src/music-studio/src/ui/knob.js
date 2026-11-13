@@ -289,6 +289,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   draw();
   return {
     el,
+    cancel,
     get: () => v,
     set(next) {
       if (next === v) return;

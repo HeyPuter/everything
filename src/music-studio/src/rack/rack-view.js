@@ -53,7 +53,7 @@ export class RackView {
     this.anchor = null;
     this.viaPointer = false;
     this.velLane = false;
-    this.knobGesture = null;
+    this.activeControl = null;
     this.build();
     this.bind();
     this.sync(true);
@@ -159,6 +159,11 @@ export class RackView {
 
   /** Brings the DOM in line with the store, touching only what changed. */
   sync(force = false) {
+    if (this.activeControl && this.activeControl.owner !== this.store.gesture) {
+      const old = this.activeControl;
+      this.activeControl = null;
+      old.control.cancel();
+    }
     const p = this.store.project;
     const pat = this.store.pattern;
     if (!pat) return;
@@ -329,23 +334,33 @@ export class RackView {
   }
 
   knob(id, param, phase, v) {
+    this.controlGesture(id, param, phase, v);
+  }
+
+  insertGesture(id, phase, v) {
+    this.controlGesture(id, 'mixer', phase, v);
+  }
+
+  controlGesture(id, param, phase, v) {
     const { store, app } = this;
     const ch = store.project.channels.find((c) => c.id === id);
     if (!ch) return;
     const label = `${ch.name} ${param === 'volume' ? 'volume' : 'pan'}`;
     if (phase === 'start') {
-      store.begin(param === 'volume' ? 'Channel volume' : 'Channel pan');
-    } else if (phase === 'input') {
-      store.preview((p) => E.updateChannel(p, id, { [param]: v }));
-      app.lastTweaked = { label, target: { kind: 'channel', id, param } };
-    } else store.commit();
-  }
-
-  insertGesture(id, phase, v) {
-    const store = this.store;
-    if (phase === 'start') store.begin('Route to insert');
-    else if (phase === 'input') store.preview((p) => E.updateChannel(p, id, { mixer: v }));
-    else store.commit();
+      store.begin(param === 'mixer' ? 'Route to insert' : param === 'volume' ? 'Channel volume' : 'Channel pan');
+      const row = this.rows.get(id);
+      this.activeControl = { id, param, owner: store.gesture, control: param === 'mixer' ? row.insert : param === 'volume' ? row.vol : row.pan };
+    } else {
+      const active = this.activeControl;
+      if (!active || active.id !== id || active.param !== param || active.owner !== store.gesture) return;
+      if (phase === 'input') {
+        store.preview((p) => E.updateChannel(p, id, { [param]: v }));
+        if (param !== 'mixer') app.lastTweaked = { label, target: { kind: 'channel', id, param } };
+      } else {
+        this.activeControl = null;
+        store.commit();
+      }
+    }
   }
 
   // ---------------------------------------------------------------- pointer
