@@ -52,6 +52,121 @@ async function state(page: Page) {
   return page.evaluate(() => window.photoStudio.sessions.map((s) => ({ id: s.id, text: s.doc.layers.at(-1)!.text, family: s.doc.layers.at(-1)!.textData?.content.paragraphs[0].runs[0].style.family, history: s.history.labels })));
 }
 
+test('a pending font choice preserves text committed while its download is delayed', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+  });
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('New text');
+  await run(page, 'type.commit');
+  expect((await state(page)).at(-1)?.text).toBe('New text');
+  await finishFont(page);
+  expect((await state(page)).at(-1)).toMatchObject({ text: 'New text', family: 'Caveat' });
+  await run(page, 'edit.undo');
+  expect((await state(page)).at(-1)).toMatchObject({ text: 'New text', family: 'Inter' });
+  await run(page, 'edit.undo');
+  expect((await state(page)).at(-1)?.text).toBe('Original');
+});
+
+test('a pending font choice preserves later character and paragraph formatting', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.locator('#type-size').fill('48');
+  await page.locator('#type-size').press('Enter');
+  await page.locator('.type-align[data-align="center"]').click();
+  await idle(page);
+  await finishFont(page);
+  expect(await page.evaluate(() => {
+    const p = window.photoStudio.doc.layers.at(-1)!.textData!.content.paragraphs[0];
+    return { family: p.runs[0].style.family, size: p.runs[0].style.size, align: p.style.align };
+  })).toEqual({ family: 'Caveat', size: 48, align: 'center' });
+});
+
+test('a pending font choice preserves newer text in every selected layer', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const first = e.doc.layers.at(-1)!;
+    const second = { ...structuredClone(first), id: crypto.randomUUID() };
+    e.command('Second fixture', (d) => { d.layers.push(second); });
+    e.selectLayers([first.id, second.id]);
+  });
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    window.photoStudio.command('Update both texts', (d) => {
+      d.layers.filter((l) => l.kind === 'text').forEach((l, i) => {
+        l.text = `Updated ${i + 1}`;
+        l.textData = textLayer(l.text, { family: 'Inter', size: 30 + i * 6 });
+      });
+    });
+  });
+  await finishFont(page);
+  const texts = () => page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => ({ text: l.text, family: l.textData!.content.paragraphs[0].runs[0].style.family, size: l.textData!.content.paragraphs[0].runs[0].style.size })));
+  expect(await texts()).toEqual([{ text: 'Updated 1', family: 'Caveat', size: 30 }, { text: 'Updated 2', family: 'Caveat', size: 36 }]);
+  await run(page, 'edit.undo');
+  expect(await texts()).toEqual([{ text: 'Updated 1', family: 'Inter', size: 30 }, { text: 'Updated 2', family: 'Inter', size: 36 }]);
+});
+
+test('rebasing a pending font edit does not restore a deleted layer', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  const before = await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.command('Delete text', (d) => { d.layers.pop(); });
+    return { layers: e.doc.layers.map((l) => l.id), history: e.history.labels };
+  });
+  await finishFont(page);
+  expect(await page.evaluate(() => ({ layers: window.photoStudio.doc.layers.map((l) => l.id), history: window.photoStudio.history.labels }))).toEqual(before);
+});
+
+test('paragraph formatting follows text changes across successive font waits', async ({ page }) => {
+  await prepare(page, true);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    e.command('Unloaded font fixture', (d) => { d.layers.at(-1)!.textData = textLayer('Original', { family: 'Caveat' }); });
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    void m.applyParagraph(e, { align: 'center' }).then(() => Object.assign(window, { paragraphDone: true }));
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    window.photoStudio.command('New font and words', (d) => {
+      const l = d.layers.at(-1)!;
+      l.text = 'Updated';
+      l.textData = textLayer(l.text, { family: 'Crimson Pro' });
+    });
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  expect(await page.evaluate(() => !!(window as unknown as { paragraphDone?: boolean }).paragraphDone)).toBe(false);
+  await page.evaluate(async () => {
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    window.photoStudio.command('Latest words', (d) => {
+      const l = d.layers.at(-1)!;
+      l.text = 'Latest';
+      l.textData = textLayer(l.text, { family: 'Crimson Pro' });
+    });
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { paragraphDone?: boolean }).paragraphDone);
+  await idle(page);
+  const text = () => page.evaluate(() => {
+    const l = window.photoStudio.doc.layers.at(-1)!;
+    const p = l.textData!.content.paragraphs[0];
+    return { text: l.text, family: p.runs[0].style.family, align: p.style.align };
+  });
+  expect(await text()).toEqual({ text: 'Latest', family: 'Crimson Pro', align: 'center' });
+  await run(page, 'edit.undo');
+  expect(await text()).toEqual({ text: 'Latest', family: 'Crimson Pro', align: 'left' });
+});
+
 for (const editing of [false, true]) test(`a newer font choice wins while ${editing ? 'editing text' : 'a text layer is selected'}`, async ({ page }) => {
   await prepare(page);
   if (editing) await page.evaluate(async () => {

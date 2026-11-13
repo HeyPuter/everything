@@ -7,7 +7,7 @@
 
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
-import { findLayer, layer as newLayer, type Layer, type PhotoDocument, type Rect } from '../../model/document';
+import { allLayers, findLayer, layer as newLayer, type Layer, type PhotoDocument, type Rect } from '../../model/document';
 import { layerLock } from '../../model/locks';
 import { fitTextFrame, syncLegacyFields, textLayerName, hexRgb } from '../../model/text-layer';
 import {
@@ -722,7 +722,7 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
     }
     try {
       return await editLayers(e, 'Change Character Style', (d) => ({ ...d, content: applyCharStyle(d.content, 0, textLength(d.content), patch) }), undefined, undefined,
-        fontChange ? (id) => pending?.get(id) === request : undefined);
+        { rebase: true, isCurrent: fontChange ? (id) => pending?.get(id) === request : undefined });
     } finally {
       if (fontChange) for (const l of layers) if (pending?.get(l.id) === request) pending.delete(l.id);
     }
@@ -739,7 +739,7 @@ export async function applyParagraph(e: Editor, patch: Partial<ParagraphStyle>) 
     install(e, { ...s.data, content: applyParagraphStyle(s.data.content, a, b, patch) }, { kind: 'paragraph' });
     return;
   }
-  if (selectedTextLayers(e).length) return editLayers(e, 'Change Paragraph Style', (d) => ({ ...d, content: applyParagraphStyle(d.content, 0, textLength(d.content), patch) }));
+  if (selectedTextLayers(e).length) return editLayers(e, 'Change Paragraph Style', (d) => ({ ...d, content: applyParagraphStyle(d.content, 0, textLength(d.content), patch) }), undefined, undefined, { rebase: true });
   const d = typeDefaults(e);
   d.paragraph = { ...d.paragraph, ...patch };
   notify();
@@ -760,7 +760,9 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 // One undo step that rewrites every selected text layer.
 // `patchDoc` changes the document in the same step (text styles).
 // `isCurrent` discards superseded per-layer requests after font loading.
-export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, isCurrent?: (id: string) => boolean) {
+// Pure formatting callbacks can opt into `rebase`: if text changes while fonts
+// load, reapply the patch to that text and prepare any newly required faces.
+export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; rebase?: boolean } = {}) {
   const owner = e.session;
   const ppi = ppiOf(owner.doc);
   const targets = (ids ? ids.map((id) => findLayer(e.doc.layers, id)).filter((l): l is Layer => !!l) : selectedTextLayers(e)).filter((l) => l.kind === 'text');
@@ -772,20 +774,30 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     e.message('Unlock the text layers to change them.');
     return;
   }
-  const next = new Map<string, TextLayerData>();
-  for (const l of targets) {
-    const t = editable(l, ppi);
-    const data = fn(t.textData, t);
-    await prepareFonts(data);
-    if (!e.sessions.includes(owner)) return;
-    next.set(l.id, data);
-  }
+  const next = new Map<string, { base: TextLayerData; data: TextLayerData }>();
+  let pending = targets;
+  do {
+    for (const l of pending) {
+      if (options.isCurrent && !options.isCurrent(l.id)) continue;
+      const t = editable(l, ppi);
+      const data = fn(t.textData, t);
+      await prepareFonts(data);
+      if (!e.sessions.includes(owner)) return;
+      next.set(l.id, { base: t.textData, data });
+    }
+    pending = options.rebase ? allLayers(owner.doc.layers).filter((l) => {
+      const prepared = next.get(l.id);
+      if (!prepared || l.kind !== 'text' || (options.isCurrent && !options.isCurrent(l.id))) return false;
+      const current = editable(l, ppi).textData;
+      return current !== prepared.base && JSON.stringify(current) !== JSON.stringify(prepared.base);
+    }) : [];
+  } while (pending.length);
   e.command(label, (d) => {
     const walk = (layers: Layer[]) => {
       for (let i = 0; i < layers.length; i++) {
         const l = layers[i];
-        const data = next.get(l.id);
-        if (data && l.kind === 'text' && (!isCurrent || isCurrent(l.id))) {
+        const data = next.get(l.id)?.data;
+        if (data && l.kind === 'text' && (!options.isCurrent || options.isCurrent(l.id))) {
           // Font loading can outlast unrelated layer edits. Refit the current
           // placement and preserve its properties instead of restoring a snapshot.
           const n: Layer = { ...editable(l, ppi), textData: structuredClone(data) };
