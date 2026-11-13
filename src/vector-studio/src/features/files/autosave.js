@@ -26,8 +26,13 @@ const STASH = 'vs-recovery-unwritten:';
 /** Leave room in localStorage (about 5M characters) for preferences: larger documents rely on the regular write. */
 const STASH_LIMIT = 2_500_000;
 
-const newerRevision = (a, b) => a.revision > b.revision ||
-  (a.revision === b.revision && (a.commentsRevision || 0) > (b.commentsRevision || 0));
+function newerSnapshot(a, b) {
+  if (a.session === b.session && Number.isFinite(a.sequence) && Number.isFinite(b.sequence)) return a.sequence > b.sequence;
+  // Older versions did not record capture order. Prefer time, then revisions for ties.
+  if (a.saved !== b.saved || a.session !== b.session) return (a.saved || 0) > (b.saved || 0);
+  return a.revision > b.revision ||
+    (a.revision === b.revision && (a.commentsRevision || 0) > (b.commentsRevision || 0));
+}
 
 function storage() {
   try {
@@ -51,7 +56,8 @@ export class Autosaver {
     this.cached = null;
     this.saved = new WeakMap(); // document -> artwork and comment revisions last written
     this.watched = new WeakSet(); // documents whose saved event removes their copy
-    this.stashed = new Map(); // recovery id -> artwork and comment revisions kept at page close
+    this.stashed = new Map(); // recovery id -> snapshot sequence kept at page close
+    this.sequence = 0; // capture order within this session; document revisions can go backward on Undo
     this.timer = 0;
     this.busy = null;
     this.channel = null;
@@ -146,7 +152,7 @@ export class Autosaver {
     });
   }
 
-  /** Keep the copies about to be written in localStorage. Returns editor -> { text, rev } for the regular write. */
+  /** Keep the copies about to be written in localStorage. Returns editor -> { text, rev, commentsRevision, sequence } for the regular write. */
   #stash() {
     const texts = new Map();
     const ls = storage();
@@ -158,12 +164,13 @@ export class Autosaver {
       const key = STASH + id;
       try {
         const text = JSON.stringify(documentData(doc));
-        texts.set(editor, { text, rev: doc.revision, commentsRevision: doc.commentsRevision });
+        const sequence = ++this.sequence;
+        texts.set(editor, { text, rev: doc.revision, commentsRevision: doc.commentsRevision, sequence });
         room -= text.length;
         if (room < 0) throw new Error('Too large to keep in localStorage');
-        const meta = { id, ...this.#entry(editor), revision: doc.revision, commentsRevision: doc.commentsRevision, session: this.session, saved: Date.now() };
+        const meta = { id, ...this.#entry(editor), revision: doc.revision, commentsRevision: doc.commentsRevision, session: this.session, sequence, saved: Date.now() };
         ls.setItem(key, `${JSON.stringify(meta)}\n${text}`);
-        this.stashed.set(id, { revision: doc.revision, commentsRevision: doc.commentsRevision });
+        this.stashed.set(id, sequence);
       } catch {
         // Over the quota: an older copy kept here would replace the newer one being written.
         this.#unstash(id);
@@ -172,9 +179,9 @@ export class Autosaver {
     return texts;
   }
 
-  #unstash(id, rev = Infinity, commentsRevision = Infinity) {
-    if (!this.stashed.has(id) && rev !== Infinity) return;
-    if (this.stashed.has(id) && newerRevision(this.stashed.get(id), { revision: rev, commentsRevision })) return;
+  #unstash(id, sequence = Infinity) {
+    if (!this.stashed.has(id) && sequence !== Infinity) return;
+    if (this.stashed.get(id) > sequence) return;
     this.stashed.delete(id);
     try {
       storage()?.removeItem(STASH + id);
@@ -198,15 +205,17 @@ export class Autosaver {
       const commentsRevision = doc.commentsRevision;
       try {
         const kept = texts?.get(editor);
-        const data = kept?.rev === rev && kept.commentsRevision === commentsRevision ? await encodeText(kept.text) : await serializeDocument(doc);
+        const reuse = kept?.rev === rev && kept.commentsRevision === commentsRevision;
+        const sequence = reuse ? kept.sequence : ++this.sequence;
+        const data = reuse ? await encodeText(kept.text) : await serializeDocument(doc);
         // Saved or closed while the copy was being encoded: a copy written now would outlive the
         // discard and be offered for recovery later.
         if (!doc.dirty || !this.app.editors.some((e) => e.doc === doc)) continue;
         const id = this.recoveryId(editor);
-        await store.put(id, { ...this.#entry(editor), data, revision: rev, commentsRevision, session: this.session });
+        await store.put(id, { ...this.#entry(editor), data, revision: rev, commentsRevision, sequence, session: this.session });
         this.saved.set(doc, { revision: rev, commentsRevision });
         this.#watchShared(doc);
-        this.#unstash(id, rev, commentsRevision);
+        this.#unstash(id, sequence);
         n++;
       } catch (err) {
         console.warn('Autosave failed', err);
@@ -360,11 +369,11 @@ export class Autosaver {
       if (meta.session === this.session || live.has(meta.session)) continue;
       const prev = stored.get(meta.id);
       try {
-        // Newer: by edit count when the same session wrote both (times can tie), else by time.
-        const newer = !prev || (prev.session === meta.session ? newerRevision(meta, prev) : (meta.saved || 0) > (prev.saved || 0));
+        // Compare capture order, independent of Undo/Redo and wall-clock changes.
+        const newer = !prev || newerSnapshot(meta, prev);
         if (newer) {
           const data = await encodeText(raw.slice(raw.indexOf('\n') + 1));
-          await store.put(meta.id, { name: meta.name, file: meta.file, data, revision: meta.revision, commentsRevision: meta.commentsRevision, session: meta.session, saved: meta.saved });
+          await store.put(meta.id, { name: meta.name, file: meta.file, data, revision: meta.revision, commentsRevision: meta.commentsRevision, sequence: meta.sequence, session: meta.session, saved: meta.saved });
         }
         ls.removeItem(key);
       } catch (err) {
