@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { bootAppWithFeatures } from './helpers.js';
-import { createPath } from '../src/model/nodes.js';
+import { createPath, createText } from '../src/model/nodes.js';
 import { rectangle } from '../src/model/shapes.js';
 import { Emitter } from '../src/lib/emitter.js';
 import { flattenDialog, flattenSelection } from '../src/features/effects/flatten.js';
@@ -59,6 +59,25 @@ for (const mode of ['base dialog', 'menu command']) describe(`Flatten Transparen
       }
     });
   }
+  if (mode === 'menu command') it('preserves text edited while outlines are being collected', async () => {
+    const { app, ed } = await setup();
+    const text = createText('Original', 0, 20, { opacity: 0.5, stroke: null });
+    ed.doc.transact('Text', () => ed.doc.insert(text, ed.targetLayer().id));
+    ed.select([text.id]);
+    app.prefs.set('flattenTransparency', { textToOutlines: true });
+    let finish;
+    app.textOutlines = () => new Promise((resolve) => { finish = resolve; });
+    runGeom.mockResolvedValueOnce(result());
+    const pending = app.commands.run('object.flatten');
+    button(document.querySelector('dialog[open]'), 'OK');
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    ed.doc.transact('New text', () => ed.doc.update(text.id, { text: 'Updated' }));
+    const history = ed.doc.undoStack.length;
+    finish([{ anchors: rectangle(0, 0, 40, 30), closed: true }]);
+    expect(await pending).toBe(false);
+    expect(ed.doc.get(text.id).text).toBe('Updated');
+    expect(ed.doc.undoStack).toHaveLength(history);
+  });
   it('does not join a newer transaction when geometry finishes', async () => {
     const { ed, node } = await setup();
     let finish;

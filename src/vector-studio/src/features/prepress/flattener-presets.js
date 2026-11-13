@@ -163,7 +163,15 @@ export async function flattenTransparencyDialog(app) {
     });
     if (!res || !scope.check()) return false;
     app.prefs?.set?.('flattenTransparency', res);
-    const opts = await flattenOptions(app, ed, res);
+    // Font loading and outlining also yield before flattenSelection takes its snapshot.
+    const ids = ed.topSelection();
+    const before = ids.flatMap((id) => [ed.doc.get(id), ...ed.doc.descendants(id)]);
+    const opts = await flattenOptions(app, ed, res, ids);
+    if (!scope.check()) return false;
+    if (before.some((node) => ed.doc.get(node.id) !== node)) {
+      app.notify('Flatten Transparency was canceled because the artwork changed.');
+      return false;
+    }
     const r = await flattenSelection(ed, { ...opts, signal: scope.signal });
     if (r.error) {
       if (!scope.signal.aborted) app.notify(r.error);
