@@ -537,12 +537,12 @@ function drawTextLayout(ctx, doc, node, opts, weight = 0) {
 }
 
 /** Decoded images by asset object. Ready events identify the asset maps awaiting them. */
-const imageCache = new Map();
+const imageCache = new WeakMap();
 export const imageEvents = new Emitter();
 
 export function imageFor(doc, assetId) {
   const asset = doc.assets.get(assetId);
-  if (!asset) return null;
+  if (!asset || typeof asset !== 'object') return null;
   let entry = imageCache.get(asset);
   if (!entry) {
     entry = { img: null, consumers: new WeakSet([doc.assets]) };
