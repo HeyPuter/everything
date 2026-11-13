@@ -697,25 +697,87 @@ function filesPanel(ctx, opts, save) {
   const importBtn = h('button.btn.primary.block', { type: 'button' }, icon('import', 16), 'Import .srt or .vtt');
   const exportBtn = h('button.btn.block', { type: 'button' }, icon('download', 16), 'Export captions (.srt)');
   const styles = styleControls(opts, save);
-  importBtn.addEventListener('click', () => input.click());
+  const cancel = h('button.btn.small', { type: 'button' }, 'Cancel import');
+  const reading = h('div', { hidden: true }, h('p.asset-hint', { role: 'status' }, 'Reading subtitle file…'), cancel);
+  let job = null, picker = null, disposed = false;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted && editingContext(store) === task.source;
+  function stopReading() {
+    const hadFocus = reading.contains(document.activeElement);
+    reading.hidden = true;
+    importBtn.disabled = false;
+    if (hadFocus) importBtn.focus();
+  }
+  function finish(task) {
+    if (job !== task) return;
+    job = null;
+    task.off();
+    stopReading();
+  }
+  function cancelJob(message) {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
+  function begin() {
+    const task = { controller: new AbortController(), source: editingContext(store), reading: false };
+    job = task;
+    task.off = store.on('change', () => {
+      if (!current(task)) cancelJob('Subtitle import cancelled because the open timeline changed.');
+    });
+    return task;
+  }
+  importBtn.addEventListener('click', () => {
+    if (job || disposed) return;
+    picker = begin();
+    input.click();
+  });
+  input.addEventListener('cancel', () => {
+    const task = picker;
+    picker = null;
+    if (task && job === task) cancelJob();
+  });
+  cancel.addEventListener('click', () => cancelJob('Subtitle import cancelled.'));
   input.addEventListener('change', async () => {
     const file = input.files?.[0];
     input.value = '';
-    if (!file) return;
-    let cues;
-    try {
-      cues = parseSubtitles(await subtitleText(file));
-    } catch {
-      cues = [];
-    }
-    if (!cues.length) {
-      toast(`No captions were found in ${file.name}.`, { kind: 'error' });
+    const selected = picker;
+    picker = null;
+    // A late native-picker result still belongs to the context that opened it.
+    if (disposed || (selected && !current(selected)) || job?.reading) return;
+    if (!file) {
+      if (selected) cancelJob();
       return;
     }
-    const mode = await askReplace(store);
-    if (!mode) return;
-    const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, wrap: false, label: 'Import captions', captionStyle: opts.captionStyle });
-    toast(`Imported ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
+    const task = selected || begin();
+    task.reading = true;
+    const hadFocus = document.activeElement === importBtn;
+    importBtn.disabled = true;
+    reading.hidden = false;
+    if (hadFocus) cancel.focus();
+    try {
+      let cues;
+      try {
+        const text = await subtitleText(file);
+        if (!current(task)) return;
+        cues = parseSubtitles(text);
+      } catch {
+        cues = [];
+      }
+      if (!current(task)) return;
+      stopReading();
+      if (!cues.length) {
+        toast(`No captions were found in ${file.name}.`, { kind: 'error' });
+        return;
+      }
+      const mode = await askReplace(store, { signal: task.controller.signal });
+      if (!mode || !current(task)) return;
+      const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, wrap: false, label: 'Import captions', captionStyle: opts.captionStyle });
+      toast(`Imported ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
+    } finally {
+      finish(task);
+    }
   });
   exportBtn.addEventListener('click', () => {
     const cues = captionCues(store.project);
@@ -736,10 +798,14 @@ function filesPanel(ctx, opts, save) {
     styles.els,
     importBtn,
     input,
+    reading,
     h('hr.cap-sep'),
     exportBtn,
   );
-  return { el, sync: () => styles.sync() };
+  return { el, sync: () => styles.sync(), dispose() {
+    disposed = true;
+    cancelJob();
+  } };
 }
 
 /** Translate every caption, replacing it, adding it as a second line, or on a new track. */
