@@ -175,3 +175,24 @@ it('takes many deleted pages out of the tags in one pass', async () => {
     .map((key) => key.asNumber());
   expect(keys).toEqual([0, 1, 2, 3, 4, 25, 26, 27, 28, 29]);
 });
+
+it('deletes a page from a PDF whose tags nest deeper than the call stack', async () => {
+  const doc = await PDFDocument.create();
+  const pages = [doc.addPage([300, 300]), doc.addPage([300, 300])];
+  // Ten thousand nested sections, the innermost holding a paragraph on each page.
+  const leaves = pages.map((page) =>
+    doc.context.register(doc.context.obj({ Type: 'StructElem', S: 'P', Pg: page.ref, K: 0 })),
+  );
+  let child = leaves;
+  for (let depth = 0; depth < 10000; depth++)
+    child = [doc.context.register(doc.context.obj({ Type: 'StructElem', S: 'Sect', K: child }))];
+  const root = doc.context.register(doc.context.obj({ Type: 'StructTreeRoot', K: child }));
+  doc.catalog.set(PDFName.of('StructTreeRoot'), root);
+  deletePage(doc, 0);
+  expect(doc.getPageCount()).toBe(1);
+  // The paragraph on the deleted page is gone from the innermost section; the other stays.
+  let node = doc.context.lookup(root);
+  for (let depth = 0; depth <= 10000; depth++)
+    node = doc.context.lookup(node.lookup(PDFName.of('K')).get(0));
+  expect(node.get(PDFName.of('Pg'))).toBe(doc.getPage(0).ref);
+});

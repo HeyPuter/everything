@@ -23,38 +23,56 @@ export function removePageStructure(doc, pages) {
     TYPE = name('Type');
   const seen = new Set();
   const removed = new Set();
-  // Whether a kid stays; a structure element is pruned in place on the way.
-  const keep = (kid, inherited) => {
-    const value = doc.context.lookup(kid);
-    if (value instanceof PDFNumber) return !onDeleted(inherited);
-    if (!(value instanceof PDFDict)) return true;
-    const type = value.lookup(TYPE);
-    if (type === name('MCR') || type === name('OBJR'))
-      return !onDeleted(value.get(PG) ?? inherited);
-    if (seen.has(value)) return true;
-    seen.add(value);
-    const own = value.get(PG);
-    const left = prune(value, own ?? inherited);
-    if (!onDeleted(own ?? inherited)) return true;
-    if (!left) {
-      removed.add(value);
-      return false;
-    }
-    // Its remaining content is on other pages, which those kids name themselves.
-    if (own) value.delete(PG);
-    return true;
-  };
-  // Prune a node's kids; returns how many are left.
-  const prune = (node, pg) => {
+  // A node's kids, to be pruned in place; `pg` is the page they inherit.
+  const frame = (node, pg) => {
     const kids = node.get(K);
-    const list = node.lookup(K) instanceof PDFArray ? node.lookup(K).asArray() : kids ? [kids] : [];
-    const kept = list.filter((kid) => keep(kid, pg));
-    if (kept.length === list.length) return kept.length;
-    if (!kept.length) node.delete(K);
-    else node.set(K, doc.context.obj(kept));
-    return kept.length;
+    const array = node.lookup(K);
+    const list = array instanceof PDFArray ? array.asArray() : kids ? [kids] : [];
+    return { node, pg, list, next: 0, kept: [] };
   };
-  prune(root, undefined);
+  // Tags can nest deeper than the call stack, so the tree is walked with a stack of its own:
+  // each element's kids are pruned before the element itself is kept or dropped.
+  const stack = [frame(root, undefined)];
+  while (stack.length) {
+    const current = stack.at(-1);
+    if (current.next < current.list.length) {
+      const kid = current.list[current.next++];
+      const value = doc.context.lookup(kid);
+      let stays = true;
+      if (value instanceof PDFNumber) stays = !onDeleted(current.pg);
+      else if (value instanceof PDFDict) {
+        const type = value.lookup(TYPE);
+        if (type === name('MCR') || type === name('OBJR'))
+          stays = !onDeleted(value.get(PG) ?? current.pg);
+        else if (!seen.has(value)) {
+          seen.add(value);
+          const own = value.get(PG);
+          stack.push({ ...frame(value, own ?? current.pg), kid, own });
+          continue;
+        }
+      }
+      if (stays) current.kept.push(kid);
+      continue;
+    }
+    stack.pop();
+    const { node, list, kept } = current;
+    if (kept.length !== list.length) {
+      if (!kept.length) node.delete(K);
+      else node.set(K, doc.context.obj(kept));
+    }
+    const parent = stack.at(-1);
+    if (!parent) break;
+    // An element on a deleted page goes when nothing of it is left; its remaining content is
+    // on other pages, which those kids name themselves.
+    if (onDeleted(current.pg)) {
+      if (!kept.length) {
+        removed.add(node);
+        continue;
+      }
+      if (current.own) node.delete(PG);
+    }
+    parent.kept.push(current.kid);
+  }
   // The ID tree (and anything else that names an element by reference) could still reach a
   // removed element, and through its /Pg the deleted page with all its content.
   for (const element of removed) element.delete(PG);
