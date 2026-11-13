@@ -855,6 +855,36 @@ describe('review page (reviewer flow)', () => {
 });
 
 describe('editor review panel', () => {
+  it.each(['worker', 'find', 'open'])('does not continue opening after disposal during %s', async (stage) => {
+    const env = await setup();
+    const p = projectWithClips();await publish(env, { projectId: p.id });
+    let release, waiting = false;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const pause = async (at) => { if (stage === at) { waiting = true;await gate; } };
+    class SlowSession extends ReviewSession {
+      async open(options) { await super.open(options);await pause('open'); }
+    }
+    const call = vi.fn(async (...args) => {
+      if (args[2].op === 'review.find') await pause('find');
+      return callWorker(...args);
+    });
+    const panel = createReviewPanel({ store: new EditorStore(p), library: { backend: { kind: 'puter' } }, puter: env.sdk.alice }, { deps: {
+      ensureWorker: async () => { await pause('worker');return env.server; }, call, Session: SlowSession,
+    } });
+    document.body.append(panel.el);panel.toggle(true);
+    const refreshing = panel.refresh();
+    try {
+      await until(() => waiting);
+      panel.dispose();panel.el.remove();
+      const before = panel.el.textContent;
+      release();await refreshing;
+      expect(panel.session?.polling || false).toBe(false);
+      expect(panel.el.textContent).toBe(before);
+      if (stage !== 'open') expect(panel.session).toBe(null);
+      if (stage === 'worker') expect(call).not.toHaveBeenCalled();
+    } finally { panel.dispose(); }
+  });
+
   it('lists comments, seeks through the version range, resolves and adds markers', async () => {
     const env = await setup();
     const p = projectWithClips();
