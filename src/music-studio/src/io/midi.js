@@ -225,8 +225,9 @@ function chunk(w, id, body) {
 
 /** Writes a format 1 file: a tempo track, then one track per entry of `tracks`. */
 export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks = [] }) {
+  if (tracks.length > 0xfffe) throw new Error('This MIDI export has too many tracks. At most 65534 musical tracks can be exported with the tempo track.');
   const out = new Writer();
-  const ntrks = Math.min(0xffff, tracks.length + 1);
+  const ntrks = tracks.length + 1;
   chunk(out, 'MThd', [0, 1, (ntrks >> 8) & 0xff, ntrks & 0xff, (ppq >> 8) & 0xff, ppq & 0xff]);
 
   const meta = new Writer();
