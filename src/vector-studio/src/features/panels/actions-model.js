@@ -117,6 +117,9 @@ export function parseSetsData(data) {
         if (st.kind === 'transform' && (!finiteVector(st.m, 4) || !finiteVector(st.d, 2))) {
           throw new UserError(`This Vector Studio actions file contains an invalid transform in "${a.name || 'Action'}".`);
         }
+        if (st.kind === 'command' && st.dialogs != null && (!Array.isArray(st.dialogs) || !st.dialogs.every((d) => d && typeof d.title === 'string' && isPlain(d.value)))) {
+          throw new UserError(`This Vector Studio actions file contains invalid dialog records in "${a.name || 'Action'}".`);
+        }
         return { ...structuredClone(st), id: uid('st'), on: st.on !== false, modal: Boolean(st.modal) };
       }),
     })),

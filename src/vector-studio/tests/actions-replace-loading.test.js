@@ -75,6 +75,28 @@ describe('loading replacement action sets', () => {
     expect(engine.sets).toBe(original);
   });
 
+  it.each([
+    ['load', {}],
+    ['load', [null]],
+    ['replace', {}],
+    ['replace', [null]],
+  ])('rejects malformed dialog records during %s: %j', async (mode, dialogs) => {
+    pickWithInput.mockResolvedValueOnce([file([{ name: 'Broken', actions: [
+      { name: 'Broken command', steps: [{ kind: 'command', cmd: 'edit.copy', dialogs }] },
+    ] }])]);
+    const count = await panel.loadActions({ replace: mode === 'replace' });
+    for (const set of engine.sets) {
+      panel.expanded.add(set.id);
+      for (const action of set.actions) panel.expanded.add(action.id);
+    }
+    expect(() => panel.update()).not.toThrow();
+    expect(count).toBe(0);
+    expect(engine.sets).toBe(original);
+    expect(panel.sel).toEqual({ kind: 'action', id: 'old-action' });
+    expect(app.commands.get('actions.run.old-action')).toBeDefined();
+    expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/invalid.*dialog/i), { error: true });
+  });
+
   it('still appends sets for Load Actions', async () => {
     pickWithInput.mockResolvedValueOnce([file([{ id: 'extra', name: 'Extra', actions: [] }])]);
     await panel.loadActions();
