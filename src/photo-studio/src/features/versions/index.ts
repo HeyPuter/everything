@@ -26,10 +26,11 @@ let previewing: { id: string; name: string; docId: string } | undefined;
 
 /** Store a version of a session's current document. */
 export async function addVersion(e: Editor, s: DocumentSession, name: string, kind: VersionKind, project?: Blob) {
-  const doc = s.doc;
-  const extrasRevision = s.extrasRevision;
+  // Save pickers release the editor: their project can predate the current edits.
+  const doc = project ? s.saved ?? s.doc : s.doc;
+  const extrasRevision = project ? s.savedExtrasRevision : s.extrasRevision;
   const blob = project ?? (await serialize(doc, s.assets));
-  const thumb = await documentThumbnail(e, s).catch(() => undefined);
+  const thumb = await documentThumbnail(e, s, 192, doc).catch(() => undefined);
   const v = await store.add({ docId: doc.id, docName: doc.name, name, kind, width: doc.width, height: doc.height, thumb }, blob, e.preferences.versionsPerDocument);
   lastVersioned.set(s, { doc, extrasRevision });
   revision++;

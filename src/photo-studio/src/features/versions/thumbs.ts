@@ -3,10 +3,9 @@
 import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 
-/** A thumbnail (longest side `size`) of a session's current document. */
-export async function documentThumbnail(e: Editor, s: DocumentSession, size = 192): Promise<Blob | undefined> {
+/** A thumbnail (longest side `size`) of a document snapshot in a session. */
+export async function documentThumbnail(e: Editor, s: DocumentSession, size = 192, doc = s.doc): Promise<Blob | undefined> {
   if (!e.renderer || !s.hasDocument) return undefined;
-  const doc = s.doc;
   const k = Math.min(1, size / Math.max(doc.width, doc.height));
   const out = document.createElement('canvas');
   out.width = Math.max(1, Math.round(doc.width * k));
