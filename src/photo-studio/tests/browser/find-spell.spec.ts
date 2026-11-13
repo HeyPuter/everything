@@ -1190,3 +1190,92 @@ for (const action of ['Change', 'Change All']) for (const correction of ['the', 
   await run(page, 'type.commit');
   expect(await layerTexts(page)).toEqual(changed);
 });
+
+for (const phase of ['initial search', 'next word']) test(`single spelling Change applies a custom correction during ${phase} font loading`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, phase === 'initial search' ? ['teh'] : ['wrod', 'teh']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => { d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat'; });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  if (phase === 'next word') {
+    await expect(dlg.locator('#sp-word')).toHaveText('teh');
+    await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+  }
+  await expect(dlg.locator('#sp-word')).toHaveText(phase === 'initial search' ? 'teh' : 'wrod');
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  await dlg.locator('#sp-change').fill('custom');
+  await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+  const corrected = phase === 'initial search' ? ['custom'] : ['custom', 'the'];
+  expect(await layerTexts(page)).toEqual(corrected);
+  await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(await layerTexts(page)).toEqual(corrected);
+  await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+  await run(page, 'type.commit');
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(phase === 'initial search' ? ['teh'] : ['wrod', 'the']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(corrected);
+});
+
+for (const ending of ['cancel', 'commit', 'lock']) test(`pending single spelling corrections respect ${ending} before font arrival`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh teh']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded font', (d) => { d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat'; });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  await expect(dlg.locator('#sp-word')).toHaveText('teh');
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  if (ending === 'lock') await page.evaluate(() => window.photoStudio.command('Lock text', (d) => { d.layers[0].locked = true; }));
+  const history = await page.evaluate(() => window.photoStudio.history.labels);
+  await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+  if (ending === 'lock') {
+    await expect(dlg.locator('#sp-status')).toContainText('locked');
+    expect(await layerTexts(page)).toEqual(['teh teh']);
+  } else {
+    expect(await layerTexts(page)).toEqual(['the teh']);
+    await dlg.locator('#sp-change').fill('custom');
+    await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+    expect(await layerTexts(page)).toEqual(['the custom']);
+    await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['the teh']);
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual(['the custom']);
+    await run(page, ending === 'cancel' ? 'type.cancel' : 'type.commit');
+  }
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(await layerTexts(page)).toEqual([ending === 'commit' ? 'the custom' : 'teh teh']);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession())).toBe(false);
+  if (ending === 'commit') {
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['teh teh']);
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual(['the custom']);
+  } else expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+});

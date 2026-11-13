@@ -9,7 +9,7 @@ import { plainText, type TextContent } from '../../imaging/text/model';
 import { findMatches, replaceAll, type FindOptions } from '../../imaging/text/find';
 import { englishChecker, matchCase, type Misspelling, type SpellChecker } from '../../imaging/text/spelling';
 import { openWorkspace } from '../retouch/workspace';
-import { commit, editLayers, inputFocused, insert, ordered, session, setSelection, startEdit } from './session';
+import { activatePendingEdit, commit, editLayers, inputFocused, insert, ordered, session, setSelection, startEdit } from './session';
 import { editable, ppiOf } from './text-utils';
 import { SpellingSkips } from './spelling-skips';
 import './find-spell.css';
@@ -295,8 +295,10 @@ export async function checkSpelling(e: Editor) {
   });
   ws.q('#sp-change-one').addEventListener('click', () => {
     const match = currentMatch();
-    if (!match || session?.layerId !== match.layer.id) return void next();
+    if (!match) return void next();
     if (layerLock(e.doc.layers, match.layer.id, 'all')) return status(lockedMessage);
+    if (session?.layerId !== match.layer.id) activatePendingEdit(e, match.layer.id);
+    if (session?.layerId !== match.layer.id) return void next();
     const { owner, layer, hit, text: before } = match;
     setSelection(e, hit.start, hit.end);
     insert(e, ws.q<HTMLInputElement>('#sp-change').value, 'replace');

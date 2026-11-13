@@ -232,7 +232,7 @@ export type StartNew = { x: number; y: number; box?: Rect; vertical: boolean; ma
 // Starting is asynchronous (fonts load first); overlapping requests, such
 // as a double-click that also reaches the layer list, start only once.
 // A dialog can invalidate its own request without cancelling a newer one.
-type StartRequest = { owner: DocumentSession; doc: PhotoDocument; tool: string; isCurrent?: () => boolean; activate?: () => void };
+type StartRequest = { owner: DocumentSession; doc: PhotoDocument; tool: string; layerId?: string; isCurrent?: () => boolean; activate?: () => void };
 let starting: StartRequest | undefined;
 function validStart(e: Editor, request: StartRequest) {
   return starting === request && e.session === request.owner && e.doc === request.doc && e.tool === request.tool && e.sessions.includes(request.owner) && request.isCurrent?.() !== false;
@@ -281,6 +281,11 @@ async function startWithFonts(e: Editor, request: StartRequest, data: TextLayerD
 
 function activatePending() {
   starting?.activate?.();
+}
+
+/** An explicit text action can use fallback metrics for its pending layer. */
+export function activatePendingEdit(e: Editor, id: string) {
+  if (starting?.owner === e.session && starting.layerId === id) starting.activate?.();
 }
 
 export async function startNew(e: Editor, opt: StartNew) {
@@ -359,6 +364,7 @@ async function beginEdit(e: Editor, id: string, request: StartRequest, at?: { x:
     e.message('Unlock this layer to edit its text.');
     return;
   }
+  request.layerId = id;
   const ppi = ppiOf(e);
   const l = editable(l0, ppi);
   const point: [number, number] = typeof at === 'object' ? [at.x, at.y] : toDoc(l, l.textData.origin.x, l.textData.origin.y);
