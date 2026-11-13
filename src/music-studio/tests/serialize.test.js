@@ -24,6 +24,20 @@ function richProject() {
 }
 
 describe('project files', () => {
+  it.each(['channels', 'effects'])('drops invalid %s types even when they name inherited properties', (collection) => {
+    const data = JSON.parse(serializeProject(richProject()));
+    const validChannels = data.channels.length;
+    const validEffects = data.mixer[2].fx.length;
+    const list = collection === 'channels' ? data.channels : data.mixer[2].fx;
+    for (const type of ['constructor', 'toString', '__proto__', [list[0].type]]) {
+      list.push({ id: 'invalid', type, params: {} });
+    }
+    const back = parseProject(data);
+    expect(back.channels).toHaveLength(validChannels);
+    expect(back.mixer[2].fx).toHaveLength(validEffects);
+    expect(parseProject(serializeProject(back))).toEqual(back);
+  });
+
   it('round-trips every field', () => {
     const p = richProject();
     const back = parseProject(serializeProject(p));

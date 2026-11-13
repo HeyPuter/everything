@@ -75,7 +75,7 @@ export function parseProject(input) {
     const base = createMixerTrack(i);
     const fx = Array.isArray(t?.fx)
       ? t.fx
-          .filter((s) => s && EFFECTS[s.type])
+          .filter((s) => s && own(EFFECTS, s.type))
           .slice(0, MAX_FX_SLOTS)
           .map((s) => ({ id: slotId(s.id), type: s.type, on: s.on !== false, mix: num(s.mix, 1, 0, 1), params: params(EFFECTS[s.type].params, s.params, defaultEffectParams(s.type)) }))
       : [];
@@ -109,7 +109,7 @@ export function parseProject(input) {
 
   const channelId = uniqueId(new Set());
   const channels = (Array.isArray(data.channels) ? data.channels : [])
-    .filter((c) => c && INSTRUMENTS[c.type])
+    .filter((c) => c && own(INSTRUMENTS, c.type))
     .slice(0, 512)
     .map((c) => ({
       id: channelId(c.id),
