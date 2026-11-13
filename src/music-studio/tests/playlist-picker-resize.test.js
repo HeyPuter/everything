@@ -107,3 +107,26 @@ it('continues from the dragged width when switching to keyboard resizing', () =>
   pointer('pointerup', 330);
   expect(width()).toBe(260);
 });
+
+it.each(['tool', 'snap', 'follow'])('keeps the dragged picker width during a %s toolbar update', (change) => {
+  const { app, panel, width, pointer } = setup();
+  pointer('pointerdown');
+  pointer('pointermove', 250);
+  if (change === 'tool') panel.toolbar.querySelector('[aria-label="Paint tool"]').click();
+  else if (change === 'follow') panel.toolbar.querySelector('[aria-label="Follow playhead"]').click();
+  else {
+    const select = panel.toolbar.querySelector('[aria-label="Snap"]');
+    select.value = 'none';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  expect(width()).toBe(250);
+  pointer('pointermove', 270);
+  expect(width()).toBe(270);
+  pointer('pointerup', 270);
+  expect(app.prefs.get('playlistUi').pickerW).toBe(270);
+  if (change === 'tool') expect(app.tools.playlist).toBe('paint');
+  else if (change === 'follow') expect(app.prefs.get('autoScroll')).toBe(false);
+  else expect(app.prefs.get('snap').playlist).toBe('none');
+  app.prefs.merge('playlistUi', { pickerW: 300 });
+  expect(width()).toBe(300);
+});

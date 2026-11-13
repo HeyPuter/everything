@@ -209,7 +209,7 @@ export function createPlaylistView(app, host) {
     pickerBtn.setAttribute('aria-pressed', String(showPicker));
     root.classList.toggle('no-picker', !showPicker);
     toolbar.classList.toggle('show-source', !showPicker);
-    root.style.setProperty('--pl-picker-w', `${clamp(ui(app).pickerW || PICKER_W, 110, 360)}px`);
+    if (!finishPickerResize) root.style.setProperty('--pl-picker-w', `${clamp(ui(app).pickerW || PICKER_W, 110, 360)}px`);
     syncSource();
   }
 
