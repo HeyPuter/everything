@@ -247,6 +247,68 @@ describe('recording timing', () => {
 });
 
 describe('recorder', () => {
+  it('auditions notes during count-in without recording notes released before playback starts', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const live = new LiveInput(app, rec);
+    const before = app.store.project;
+    Object.assign(app.engine, { recording: true, playing: true, countingIn: true });
+    app.engine.emit('state');
+    live.noteOn(67, 0.9, 'midi');
+    live.noteOff(67, 'midi');
+    expect(app.engine.noteOn).toHaveBeenCalledWith(app.store.view.channel, 67, 0.9);
+    expect(app.engine.noteOff).toHaveBeenCalledWith(app.store.view.channel, 67);
+    expect(app.store.project).toBe(before);
+    app.engine.countingIn = false;
+    app.engine.emit('state');
+    app.engine.playing = false;
+    app.engine.emit('state');
+    expect(app.store.project).toBe(before);
+    expect(app.store.gesture).toBeNull();
+    expect(app.notify).not.toHaveBeenCalled();
+  });
+
+  it('records notes held across count-in from playback start on their original channel', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
+    const rec = new Recorder(app, null);
+    const live = new LiveInput(app, rec);
+    const channel = app.store.view.channel;
+    const pattern = app.store.view.pattern;
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    try {
+      Object.assign(app.engine, { recording: true, playing: true, countingIn: true, position: 0 });
+      app.engine.emit('state');
+      live.noteOn(67, 0.9, 'midi');
+      app.store.setChannel(app.store.project.channels[1].id);
+      now.mockReturnValue(1500);
+      app.engine.countingIn = false;
+      app.engine.emit('state');
+      now.mockReturnValue(1750);
+      live.noteOff(67, 'midi');
+      app.engine.playing = false;
+      app.engine.emit('state');
+      const note = E.getNotes(app.store.project, pattern, channel).find((n) => n.key === 67);
+      expect(note).toMatchObject({ pos: 0, len: 48, vel: 0.9 });
+      expect(app.notify).toHaveBeenCalledExactlyOnceWith('Recorded 1 note');
+    } finally { now.mockRestore(); }
+  });
+
+  it('discards a canceled count-in without inserting its held notes into a later take', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const before = app.store.project;
+    Object.assign(app.engine, { recording: true, playing: true, countingIn: true });
+    rec.noteOn(67, 0.9, app.store.view.channel);
+    Object.assign(app.engine, { playing: false, countingIn: false });
+    app.engine.emit('state');
+    app.engine.playing = true;
+    app.engine.emit('state');
+    rec.noteOff(67);
+    expect(app.store.project).toBe(before);
+    expect(app.store.gesture).toBeNull();
+  });
+
   it('reports and resets the take count when stopping after all notes were committed by a loop', () => {
     const app = fakeApp();
     const rec = new Recorder(app, null);

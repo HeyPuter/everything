@@ -82,6 +82,7 @@ export class Recorder {
     this.live = live;
     this.take = new Map(); // note id -> { id, key, vel, pattern, channel, pos, started, open, len }
     this.byKey = new Map(); // key -> note id (open notes)
+    this.countInHeld = new Map(); // attacks held until the count-in finishes
     this.gesture = null;
     this.pending = false;
     this.finished = []; // completed passes waiting for another editing gesture
@@ -91,9 +92,16 @@ export class Recorder {
     this.clock = null;
     const engine = app.engine;
     engine.on('state', () => {
-      if (!(engine.recording && engine.playing) && (this.take.size || this.takeTotal)) this.endTake();
-      if (this.active) this.resetClock();
-      else this.clock = null;
+      if (!(engine.recording && engine.playing)) {
+        this.countInHeld.clear();
+        if (this.take.size || this.takeTotal) this.endTake();
+      }
+      if (this.active) {
+        this.resetClock();
+        const held = [...this.countInHeld];
+        this.countInHeld.clear();
+        for (const [key, { vel, channel }] of held) this.noteOn(key, vel, channel);
+      } else this.clock = null;
     });
     engine.on('loop', () => {
       if (this.take.size) this.commitPass();
@@ -109,6 +117,7 @@ export class Recorder {
       this.pending = false;
       this.take.clear();
       this.byKey.clear();
+      this.countInHeld.clear();
       this.gesture = null;
       this.takeTotal = 0;
       this.clock = null;
@@ -117,7 +126,7 @@ export class Recorder {
 
   get active() {
     const e = this.app.engine;
-    return Boolean(e.recording && e.playing);
+    return Boolean(e.recording && e.playing && !e.countingIn);
   }
 
   get stepEditing() {
@@ -156,6 +165,11 @@ export class Recorder {
   /** Called by the live input for every note on. Returns true when the note was recorded or step-edited. */
   noteOn(key, vel, channel) {
     if (!channel) return false;
+    const engine = this.app.engine;
+    if (engine.recording && engine.playing && engine.countingIn) {
+      this.countInHeld.set(key, { vel, channel });
+      return false;
+    }
     if (this.active) {
       const { pattern, tick } = this.patternInfo();
       const id = uid(6);
@@ -173,6 +187,7 @@ export class Recorder {
   }
 
   noteOff(key) {
+    this.countInHeld.delete(key);
     if (this.stepHeld > 0) {
       this.stepHeld--;
       if (this.stepHeld === 0 && this.stepAdvance) {
