@@ -74,12 +74,12 @@ const near = (a: Quad, b: Quad) => a.every((p, i) => Math.abs(p.x - b[i].x) < 1e
 /** Commit a transform of an image layer as one undo step: a rotated
  * rectangle stays a plain transform, anything else becomes a frame. */
 export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshGrid | undefined, label: string, rendered?: Rendered) {
-  const l = findLayer(e.doc.layers, id);
+  const session = e.session, doc = session.doc, assets = session.assets;
+  const l = findLayer(doc.layers, id);
   if (!l || l.kind !== 'image') return;
   const before = effectiveFrame(l);
   if (before && !mesh && !before.mesh && near(before.quad, quad)) return;
   const plain = plainPlacement(quad, mesh);
-  const assets = e.assets;
   if (plain) {
     e.command(label, (d) => {
       const t = findLayer(d.layers, id);
@@ -88,11 +88,11 @@ export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshG
       const s = contentSource(d, t);
       if (t.embed) delete t.embed.frame;
       Object.assign(t, { asset: s.asset, assetColorSpace: s.colorSpace, sourceWidth: s.width, sourceHeight: s.height, transform: plain });
-    });
+    }, { session });
     return;
   }
-  const source = contentSource(e.doc, l);
-  const r = trimToFrame(rendered ?? renderFrame(await contentRGBA(e, l), { x: 0, y: 0, width: source.width, height: source.height }, quad, mesh, { method: 'bicubic', doc: e.doc }), quad, mesh);
+  const source = contentSource(doc, l);
+  const r = trimToFrame(rendered ?? renderFrame(await contentRGBA(e, l, doc, assets), { x: 0, y: 0, width: source.width, height: source.height }, quad, mesh, { method: 'bicubic', doc }), quad, mesh);
   const image = r?.image ?? transparent();
   const rect = r ? { x: r.rect.x, y: r.rect.y, width: image.width, height: image.height } : { ...quadRect(quad), width: 1, height: 1 };
   const asset = await addRGBA(assets, image);
@@ -103,7 +103,7 @@ export async function commitFrame(e: Editor, id: string, quad: Quad, mesh: MeshG
     const s = contentSource(d, t);
     t.embed!.frame = { quad: fromQuad(quad), mesh: mesh && fromMesh(mesh), rect, source: s.asset };
     Object.assign(t, { asset, assetColorSpace: 'document', sourceWidth: image.width, sourceHeight: image.height, transform: { ...rect, rotation: 0 } });
-  });
+  }, { session });
 }
 const quadRect = (q: Quad) => ({ x: Math.min(...q.map((p) => p.x)), y: Math.min(...q.map((p) => p.y)) });
 
