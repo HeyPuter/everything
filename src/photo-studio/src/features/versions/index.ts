@@ -51,14 +51,14 @@ function refresh(e: Editor) {
   e.dock?.update();
 }
 
-async function loadDocument(e: Editor, id: string, into = e.assets) {
+async function loadDocument(id: string, into?: Editor['assets']) {
   const blob = await store.project(id);
   if (!blob) throw new Error('This version is no longer stored in this browser.');
   return deserialize(blob, into);
 }
 async function preview(e: Editor, v: VersionEntry) {
   if (previewing?.id === v.id) return exitPreview(e);
-  const { document } = await loadDocument(e, v.id);
+  const { document } = await loadDocument(v.id, e.assets);
   e.modal?.cancel();
   previewing = { id: v.id, name: v.name, docId: e.doc.id };
   // Any other edit or command ends the preview without changing the document.
@@ -74,14 +74,14 @@ function exitPreview(e: Editor) {
   e.update();
 }
 async function restore(e: Editor, v: VersionEntry) {
-  const { document } = await loadDocument(e, v.id);
+  const { document } = await loadDocument(v.id, e.assets);
   exitPreview(e);
   e.command(`Restore Version “${v.name}”`, (d) => replaceDocument(d, document, { id: d.id, name: d.name }));
   e.fit();
   e.message(`Restored “${v.name}”. Undo returns to the state before.`);
 }
 async function openCopy(e: Editor, v: VersionEntry) {
-  const loaded = await loadDocument(e, v.id, undefined);
+  const loaded = await loadDocument(v.id);
   exitPreview(e);
   const s = e.sessionForOpen();
   s.assets = loaded.assets;
