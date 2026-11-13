@@ -11,9 +11,10 @@
  *   starts with one finger never selects or deselects anything.
  * - A touch long press opens the context menu (iPad Safari sends no
  *   contextmenu event for it).
- * - A pen opens the context menu with its side button pressed as it taps. A
- *   pen tip held still does not: Android turns that hold into a contextmenu
- *   event, which would interrupt precise drawing.
+ * - A pen opens the context menu with its side button: clicked with the pen
+ *   just above the screen, or held as the pen taps. A pen tip held still on
+ *   the screen does not: Android turns that hold into a contextmenu event,
+ *   which would interrupt precise drawing.
  * - A pen's eraser end erases with the Eraser tool, whatever the tool.
  * - Palm rejection: while a pen touches the canvas, touches are ignored, and
  *   a pen landing ends whatever a touch (a resting palm) had started.
@@ -91,6 +92,11 @@ export class CanvasInput {
       this.palms.add(e.pointerId);
       return;
     }
+    if (this.#sideButton(e)) {
+      // A side-button press is no stroke: the pen stays untracked, so it holds back no touch.
+      this.#sideButtonDown(e);
+      return;
+    }
     if (e.pointerType === 'pen') this.#rejectPalms();
     this.host.focus({ preventScroll: true });
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
@@ -113,12 +119,6 @@ export class CanvasInput {
     }
     if (e.button === 1 || (e.button === 0 && this.spaceDown && !this.tempTool)) {
       this.startPan(e);
-      return;
-    }
-    if (e.pointerType === 'pen' && (e.button === 2 || e.buttons & 2)) {
-      // The pen's side button is its right button (the S Pen button on Android).
-      this.lastPressMenu = performance.now();
-      this.#openContextMenu(e);
       return;
     }
     if (e.button === 2) return; // context menu
@@ -222,13 +222,34 @@ export class CanvasInput {
   }
 
   /**
-   * A contextmenu event from a pen. Android sends one for a tip held still
-   * for about half a second, reported as a right-button press, so the event
-   * cannot tell that hold from the side button: pen menus open from the
-   * pen's own press instead (see down()).
+   * Whether a pen event, with the tip off the screen, has the side button
+   * pressed. The Pointer Events spec reports it as button 2. Android reports
+   * the S Pen button clicked in the air as the contact bit with no pressure,
+   * in hovering moves.
    */
-  #fromPen(e) {
-    return e.pointerType === 'pen' || this.#penDown();
+  #sideButton(e) {
+    if (e.pointerType !== 'pen' || this.pointers.has(e.pointerId)) return false;
+    return e.button === 2 || (e.buttons & 2) !== 0 || ((e.buttons & 1) !== 0 && !e.pressure);
+  }
+
+  /** The side button went down: one menu per press, where the pen is. */
+  #sideButtonDown(e) {
+    if (this.sidePressed) return;
+    this.sidePressed = true;
+    // A tap with the button held already opened it through contextmenu.
+    if (performance.now() - (this.lastContextMenu || 0) < 1500) return;
+    this.lastPressMenu = performance.now();
+    this.#openContextMenu(e);
+  }
+
+  /**
+   * A contextmenu event from a pen tip held still on the screen. Android
+   * sends it while the pen touches, as a right-button press, and Windows as
+   * it lifts. A tap with the side button held sends one with no pen press,
+   * so it is not one of these.
+   */
+  #penHold() {
+    return this.#penDown() || performance.now() - (this.penLifted || 0) < 500;
   }
 
   /**
@@ -278,6 +299,13 @@ export class CanvasInput {
 
   move(e) {
     if (!this.editor || this.palms.has(e.pointerId)) return;
+    if (e.pointerType === 'pen' && !this.pointers.has(e.pointerId)) {
+      if (this.#sideButton(e)) {
+        this.#sideButtonDown(e);
+        return;
+      }
+      if (!e.buttons) this.sidePressed = false;
+    }
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (e.pointerType === 'touch' && this.pointers.has(e.pointerId)) {
       if (this.longPressed) return;
@@ -317,6 +345,7 @@ export class CanvasInput {
 
   up(e) {
     if (this.palms.delete(e.pointerId)) return;
+    this.#penUp(e);
     if (e.pointerType === 'touch') {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = 0;
@@ -368,6 +397,7 @@ export class CanvasInput {
   /** End document-owned input before the app changes the active editor. */
   reset() {
     this.#clearTouchTimers();
+    this.sidePressed = false;
     this.pendingTouch = null;
     this.touchStart = null;
     this.longPressed = false;
@@ -390,6 +420,7 @@ export class CanvasInput {
 
   cancel(e) {
     if (this.palms.delete(e.pointerId)) return;
+    this.#penUp(e);
     if (this.pendingTouch?.e.pointerId === e.pointerId) this.pendingTouch = null;
     this.#clearTouchTimers();
     this.longPressed = false;
@@ -499,12 +530,19 @@ export class CanvasInput {
     this.editor.viewChanged();
   }
 
+  /** A pen lifted: its side button is up, and a tip that touched remembers when. */
+  #penUp(e) {
+    if (e.pointerType !== 'pen') return;
+    if (!e.buttons) this.sidePressed = false;
+    if (this.pointers.has(e.pointerId)) this.penLifted = performance.now();
+  }
+
   contextMenu(e) {
     e.preventDefault();
-    if (!this.editor || this.gesture) return;
-    if (this.#fromPen(e)) return;
-    // Android also fires contextmenu after a long press or a side-button tap: the press handler already opened it.
+    if (!this.editor || this.gesture || this.#penHold()) return;
+    // Android also fires contextmenu after a long press or a side-button press: that press already opened it.
     if (this.lastPressMenu && performance.now() - this.lastPressMenu < 1500) return;
+    this.lastContextMenu = performance.now();
     this.#openContextMenu(e);
   }
 

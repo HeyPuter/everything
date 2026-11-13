@@ -214,7 +214,7 @@ describe('the context menu and a pen', () => {
 
   let menu;
   beforeEach(() => {
-    app.input.lastPressMenu = 0;
+    Object.assign(app.input, { lastPressMenu: 0, lastContextMenu: 0, penLifted: 0, sidePressed: false });
     menu = vi.spyOn(app, 'showContextMenu');
     return () => menu.mockRestore();
   });
@@ -278,6 +278,68 @@ describe('the context menu and a pen', () => {
     fire('pointerup', { button: 2, buttons: 0 });
     expect(document.querySelector('.menu')).not.toBeNull();
     document.querySelectorAll('.menu').forEach((m) => m.remove());
+  });
+
+  // Android, on a Samsung tablet with an S Pen: the button clicked in the air
+  // arrives as hovering moves with the contact bit and no pressure.
+  const hover = (x, y, extra = {}) => pen(x, y, { button: -1, buttons: 0, pressure: 0, ...extra });
+
+  it('the side button clicked with the pen in the air opens the menu once per click', () => {
+    app.setTool('pencil');
+    const before = paths().length;
+    const input = app.input;
+    input.move(hover(300, 300));
+    input.move(hover(302, 301, { button: 0, buttons: 1 }));
+    expect(menu).toHaveBeenCalledTimes(1);
+    expect(menu).toHaveBeenLastCalledWith(302, 301);
+    input.move(hover(304, 302, { buttons: 1 }));
+    input.move(hover(306, 303, { buttons: 1 }));
+    expect(menu).toHaveBeenCalledTimes(1);
+    input.move(hover(306, 303));
+    input.move(hover(400, 400, { button: 0, buttons: 1 }));
+    expect(menu).toHaveBeenCalledTimes(2);
+    expect(paths().length).toBe(before);
+    expect(input.active).toBe(null);
+  });
+
+  it('an air click that arrives as a press with no pressure draws nothing and holds back no touch', () => {
+    app.setTool('pencil');
+    const before = paths().length;
+    const input = app.input;
+    input.down(pen(300, 300, { buttons: 1, pressure: 0 }));
+    input.up(pen(300, 300, { buttons: 0, pressure: 0 }));
+    expect(menu).toHaveBeenCalledTimes(1);
+    expect(paths().length).toBe(before);
+    // The pen is not on the screen, so a finger is no palm.
+    input.down(touch(500, 500));
+    expect(input.palms.has(20)).toBe(false);
+    input.cancel(touch(500, 500));
+  });
+
+  it('a tap with the side button held opens the menu from the browser contextmenu alone', () => {
+    app.setTool('pencil');
+    const input = app.input;
+    // No pen press arrives: only contextmenu, labelled pen, mouse or nothing depending on the browser.
+    for (const pointerType of ['pen', 'mouse', '']) {
+      input.lastContextMenu = 0;
+      input.sidePressed = false;
+      menu.mockClear();
+      input.contextMenu(menuEvent(250, 250, { pointerType }));
+      expect(menu).toHaveBeenCalledTimes(1);
+      // Then hovering moves with the button held, as the pen leaves the screen: still one menu.
+      input.move(hover(252, 250, { button: 0, buttons: 1 }));
+      input.move(hover(254, 250));
+      expect(menu).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('a hold sent just as the pen tip lifts opens no menu', () => {
+    app.setTool('pencil');
+    const input = app.input;
+    input.down(pen(100, 100));
+    input.up(pen(100, 100, { buttons: 0 }));
+    input.contextMenu(menuEvent(100, 100, { pointerType: 'pen' }));
+    expect(menu).not.toHaveBeenCalled();
   });
 
   it('a mouse right-click still opens the menu', () => {
