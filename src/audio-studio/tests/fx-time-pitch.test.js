@@ -101,6 +101,22 @@ describe('time and pitch', () => {
     }
   });
 
+  it('stretches to extremes at 192 kHz without crashing', async () => {
+    const def = getEffect('stretchPitch');
+    const rate = 192000;
+    const x = new Float32Array(rate / 2);
+    for (let i = 0; i < x.length; i++) x[i] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / rate);
+    for (const values of [
+      { algorithm: 0, stretch: 10 },
+      { algorithm: 1, stretch: 10, semitones: -36 },
+      { algorithm: 1, stretch: 33.3, semitones: -36 },
+    ]) {
+      const out = await def.process({ channels: [x, x.slice()], rate, values });
+      expect(out[0].length, JSON.stringify(values)).toBeGreaterThan(0);
+      expect(out[0].every(Number.isFinite), JSON.stringify(values)).toBe(true);
+    }
+  });
+
   it('honours cancellation', async () => {
     const def = getEffect('stretchPitch');
     const ctl = new AbortController();

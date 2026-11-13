@@ -83,8 +83,11 @@ impl Input {
             self.data[c][(pos - self.base) as usize]
         }
     }
-    /// Frees frames before `pos` (in large steps to keep moves rare).
+    /// Frees frames before `pos` (in large steps to keep moves rare). At extreme stretch
+    /// ratios the read position can run ahead of the frames pushed so far: only those are
+    /// dropped (frames past them have not arrived yet).
     fn drop_before(&mut self, pos: i64) {
+        let pos = pos.min(self.total);
         let n = pos - self.base;
         if n > 1 << 16 {
             for d in &mut self.data {
@@ -734,5 +737,20 @@ mod tests {
         for i in 0..a[0].len() {
             assert!((a[0][i] - b[0][i]).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn drop_before_past_the_pushed_frames_keeps_later_frames_in_place() {
+        let mut input = Input::new(1);
+        let frames = 70_000;
+        let x: Vec<f32> = (0..frames).map(|i| i as f32).collect();
+        input.push(&x, frames);
+        // A read position ahead of everything pushed (extreme stretch) must not panic.
+        input.drop_before(200_000);
+        assert_eq!(input.base, frames as i64);
+        input.push(&[7.0, 8.0], 2);
+        assert_eq!(input.at(0, frames as i64), 7.0);
+        assert_eq!(input.at(0, frames as i64 + 1), 8.0);
+        assert_eq!(input.at(0, 10), 0.0);
     }
 }
