@@ -102,7 +102,7 @@ export class Editor {
       exitToHome: () => this.exit(),
       newProject: () => this.exit({ create: true }),
       openProject: onOpenProject ? (id) => this.exit({ open: id }) : null,
-      openScriptVideo: () => import('./script-video.js').then((m) => m.openScriptVideo(ctx)),
+      openScriptVideo: () => this.openScriptVideo(),
       openHighlights: () => import('./highlights-dialog.js').then((m) => m.openHighlights(ctx)),
       openExport: () => {
         // Exports cover the whole project, so leave any compound clip being edited.
@@ -569,10 +569,27 @@ export class Editor {
     }
   }
 
+  openScriptVideo() {
+    if (this._disposed) return Promise.resolve(null);
+    if (this._scriptOpening) return this._scriptOpening;
+    this._scriptOpening = import('./script-video.js')
+      .then(m => m.openScriptVideo(this.ctx))
+      .catch(err => {
+        if (!this._disposed) {
+          console.error(err);
+          toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
+        }
+        return null;
+      })
+      .finally(() => { this._scriptOpening = null; });
+    return this._scriptOpening;
+  }
+
   dispose() {
     // Leaving disposes the editor, and the next screen disposes the view it replaces: once is enough.
     if (this._disposed) return;
     this._disposed = true;
+    this._scriptLifetime?.abort();
     this._fitObserver?.disconnect();
     this._offTheme?.();
     this._offTipKeys?.();

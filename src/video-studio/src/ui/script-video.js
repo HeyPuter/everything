@@ -37,7 +37,8 @@ export function aiReady(env) {
 }
 
 /** Explain that a tool needs a Puter account, with a sign-in button when possible. */
-export function needAiDialog(account, what) {
+export function needAiDialog(account, what, { signal } = {}) {
+  if (signal?.aborted) return null;
   const close = h('button.btn', { type: 'button' }, 'Close');
   const signIn = account?.onSignIn ? h('button.btn.primary', { type: 'button' }, icon('cloud', 16), 'Sign in to Puter') : null;
   const d = openDialog({
@@ -46,7 +47,10 @@ export function needAiDialog(account, what) {
     actions: [close, signIn].filter(Boolean),
     className: 'small',
     labelledBody: true,
+    onClose: () => signal?.removeEventListener('abort', onAbort),
   });
+  const onAbort = () => d.close();
+  signal?.addEventListener('abort', onAbort, { once: true });
   close.addEventListener('click', () => d.close());
   signIn?.addEventListener('click', () => {
     d.close();
@@ -116,7 +120,8 @@ const field = (label, control, hint) => h('label.aic-field', h('span.aic-label',
  *  onProject (projectId) called after a new project is saved (home screen)
  */
 export function openScriptDialog(env, { services = puterServices(env.library), onProject } = {}) {
-  const { library, store } = env;
+  const { library, store, signal } = env;
+  if (signal?.aborted) return null;
   const opts = savedOpts();
   const save = () => setPref('scriptVideo', { tone: opts.tone, length: opts.length, ratio: opts.ratio, voice: opts.voice, style: opts.style, captions: opts.captions, music: opts.music });
   // In the editor the frame shape is the project's, unless the timeline is still empty.
@@ -292,8 +297,10 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
     className: 'aic-dialog',
     wide: true,
     closeOnBackdrop: false,
-    onClose: () => { closed = true; abort?.abort(); abort = null; busy = false; off(); },
+    onClose: () => { closed = true; abort?.abort(); abort = null; busy = false; off(); signal?.removeEventListener('abort', onAbort); },
   });
+  const onAbort = () => d.close();
+  signal?.addEventListener('abort', onAbort, { once: true });
   off = store?.on('change', () => {
     if (sameContext()) return;
     d.close();
@@ -434,8 +441,17 @@ export function openScriptDialog(env, { services = puterServices(env.library), o
   return { ...d, run, get scenes() { return scenes; }, show };
 }
 
-/** Open the dialog from the editor, or explain that it needs a Puter account. */
+/** One script dialog per editor/home screen, released with its parent. */
 export function openScriptVideo(ctx, extra = {}) {
-  if (!aiReady(ctx)) return needAiDialog(ctx.account, 'Script to video');
-  return openScriptDialog({ library: ctx.library, account: ctx.account, store: ctx.store }, extra);
+  const owner = ctx.editor || ctx;
+  if (owner._disposed || owner.disposed) return null;
+  if (owner._scriptDialog?.el.isConnected) return owner._scriptDialog;
+  const signal = (owner._scriptLifetime ||= new AbortController()).signal;
+  if (signal.aborted) return null;
+  const d = aiReady(ctx)
+    ? openScriptDialog({ library: ctx.library, account: ctx.account, store: ctx.store, signal }, extra)
+    : needAiDialog(ctx.account, 'Script to video', { signal });
+  owner._scriptDialog = d;
+  d.result.then(() => { if (owner._scriptDialog === d) owner._scriptDialog = null; });
+  return d;
 }

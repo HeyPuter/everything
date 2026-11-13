@@ -533,21 +533,20 @@ export class Home {
   }
 
   /** Script to video: the new project opens when it is ready. */
-  async scriptToVideo() {
-    let m;
-    try {
-      m = await import('./script-video.js');
-    } catch (err) {
-      console.error(err);
-      toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
-      return;
-    }
-    const env = { library: this.library, account: this.account };
-    if (!m.aiReady(env)) {
-      m.needAiDialog(this.account, 'Script to video');
-      return;
-    }
-    m.openScriptDialog(env, { onProject: (id) => this.onOpen(id) });
+  scriptToVideo() {
+    if (this.disposed) return Promise.resolve(null);
+    if (this._scriptOpening) return this._scriptOpening;
+    this._scriptOpening = import('./script-video.js')
+      .then(m => m.openScriptVideo(this, { onProject: (id) => this.onOpen(id) }))
+      .catch(err => {
+        if (!this.disposed) {
+          console.error(err);
+          toast("Couldn't open Script to video. Check your connection and try again.", { kind: 'error' });
+        }
+        return null;
+      })
+      .finally(() => { this._scriptOpening = null; });
+    return this._scriptOpening;
   }
 
   /** A first cover from the template preview (the editor replaces it after editing). */
@@ -788,6 +787,7 @@ export class Home {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this._scriptLifetime?.abort();
     window.removeEventListener('hashchange', this.onHash);
     this.coverObserver?.disconnect();
     for (const u of this.coverUrls.values()) URL.revokeObjectURL(u);
