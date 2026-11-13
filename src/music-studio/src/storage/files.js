@@ -218,6 +218,7 @@ export class ProjectFiles {
 
   /** File > Save as: asks for a name and saves a new copy. */
   async saveAs() {
+    const loads = this.loads;
     const cloud = this.signedIn();
     const name = await promptDialog({
       title: 'Save project as',
@@ -226,16 +227,20 @@ export class ProjectFiles {
       confirm: 'Save',
       validate: (v) => (v.trim() ? '' : 'Enter a name.'),
     });
-    if (name === null) return false;
+    if (name === null || this.loads !== loads) return false;
     // An autosave may have started while the dialog was open.
     await this.whenIdle();
+    if (this.loads !== loads) return false;
     const clean = name.trim().slice(0, 120);
     if (cloud) {
       const path = await this.lib.cloudPathFor(clean);
+      if (this.loads !== loads) return false;
       if (path !== this.app.file?.path && (await puter.exists(path))) {
+        if (this.loads !== loads) return false;
         const ok = await confirmDialog({ title: 'Replace project?', message: `A project named "${baseName(path)}" already exists in your Puter cloud. Replace it?`, confirm: 'Replace', danger: true });
         if (!ok) return false;
       }
+      if (this.loads !== loads) return false;
       this.renameProject(clean);
       return this.saveCloudTo(path);
     }
