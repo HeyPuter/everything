@@ -939,6 +939,35 @@ describe('replies and review states', () => {
     expect(view.count({ x: 100, y: 100, width: 100, height: 100 }).outside).toBe(0);
   });
 
+  // A status from a writer whose dates run ahead of this clock (local time with no offset, read
+  // as UTC) stayed current: the one set now was older, so the comment kept the old status.
+  it('a status set now is current over one dated ahead of this clock', async () => {
+    const doc = await blank();
+    const shape = addShapeAnnotation(doc, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 100, height: 100 },
+    });
+    const ahead = setReviewState(doc, 0, shape, { state: 'Accepted', author: 'Grace' });
+    const later = new Date(Date.now() + 10 * 3600 * 1000);
+    const stamp = later.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    const annots = doc.getPage(0).node.Annots();
+    doc.context
+      .lookup(annots.get(annots.size() - 1))
+      .set(PDFName.of('M'), PDFString.of(`D:${stamp}`));
+    expect(listAnnotations(doc, 0)[0].states[0].id).toBe(ahead);
+    setReviewState(doc, 0, shape, { state: 'Rejected', author: 'Ada' });
+    expect(listAnnotations(doc, 0)[0].state).toBe('Rejected');
+    setMarkedState(doc, 0, shape, { state: 'Marked', author: 'Ada' });
+    setReviewState(doc, 0, shape, { state: 'Completed', author: 'Ada' });
+    const [entry] = listAnnotations(doc, 0);
+    expect(entry.state).toBe('Completed');
+    expect(entry.marked).toBe(true);
+    // Statuses from other people keep their own dates.
+    expect(entry.states.find((s) => s.author === 'Grace').modified.getTime()).toBe(
+      Math.floor(later.getTime() / 1000) * 1000,
+    );
+  });
+
   it('deletes a comment with its popup, replies and states', async () => {
     const doc = await blank();
     addNote(doc, 0, { x: 100, y: 700, text: 'Note', author: 'A' });
