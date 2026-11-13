@@ -204,9 +204,11 @@ export class Player extends Emitter {
     return this.playRange && r ? r.in : 0;
   }
 
-  play({ range } = {}) {
+  /** loop overrides the preference for this playback only (for one-shot previews). */
+  play({ range, loop } = {}) {
     if (this.playing) return;
     if (range !== undefined) this.playRange = Boolean(range);
+    this._loopOverride = loop == null ? null : Boolean(loop);
     const end = this._stopAt();
     if (end <= 0) return;
     const t = this.store.time;
@@ -229,6 +231,7 @@ export class Player extends Emitter {
     const end = this._stopAt();
     this.playing = false;
     this.playRange = false;
+    this._loopOverride = null;
     this.pool.pauseAll();
     // Stop at the start of the frame on screen, so the timecode shows that frame too. At the
     // end it stays put, so Play starts over.
@@ -301,7 +304,7 @@ export class Player extends Emitter {
       const now = performance.now();
       const t = this._heldTime(now) ?? this.timeStart + (now - this.clockStart) * 1000;
       const end = this._stopAt();
-      if (t >= end && this.loop && end - this._startAt() > 50_000) {
+      if (t >= end && (this._loopOverride ?? this.loop) && end - this._startAt() > 50_000) {
         // Loop: start over from the beginning (or the in point).
         this.timeStart = this._startAt();
         this.clockStart = performance.now();

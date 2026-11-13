@@ -152,10 +152,11 @@ export function openHighlightsDialog(ctx, { clipId, chat, signal } = {}) {
   function preview(item, btn) {
     if (!active()) return;
     stopPreview?.();
+    if (ctx.player?.playing) ctx.player.pause();
     const from = clip.start + item.start;
     const to = clip.start + Math.min(item.end, clip.duration);
     store.seek(from);
-    ctx.player?.play?.();
+    ctx.player?.play?.({ range: false, loop: false });
     btn.replaceChildren(icon('stop', 14), 'Stop');
     btn.setAttribute('aria-pressed', 'true');
     const off = store.on('time', ({ time }) => {
