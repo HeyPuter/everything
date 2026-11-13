@@ -395,3 +395,25 @@ it('removes previous account files while the next account root is loading', asyn
   expect(body.querySelector('[data-id="dir:/Current/Music"]')).not.toBe(null);
   expect(body.querySelector('[data-id="files:loading"]')).toBe(null);
 });
+
+it('shows a recoverable error when the cloud files root fails to load', async () => {
+  puter.sdk.mockReturnValue({});
+  puter.isSignedIn.mockReturnValue(true);
+  puter.appDir.mockRejectedValueOnce(new Error('Network unavailable'));
+  const { body } = setup();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="files:loading"]')).toBe(null);
+  expect(body.textContent).toContain('Your cloud files could not be loaded');
+  const retry = [...body.querySelectorAll('[role=treeitem]')].find((row) => row.textContent.includes('Retry loading files'));
+  expect(retry).toBeTruthy();
+  const pending = deferred();
+  puter.appDir.mockReturnValueOnce(pending.promise);
+  retry.click();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="files:loading"]')).not.toBe(null);
+  expect(body.textContent).not.toContain('Your cloud files could not be loaded');
+  pending.resolve('/Recovered/Music');
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="dir:/Recovered/Music"]')).not.toBe(null);
+  expect(body.querySelector('[data-id="files:loading"]')).toBe(null);
+});

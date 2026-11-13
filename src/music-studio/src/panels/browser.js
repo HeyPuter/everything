@@ -77,7 +77,8 @@ function createBrowser(app, host) {
   const folders = new Map(); // path -> { loading, items, error }
   const extraRoots = [];
   let accountRequest = 0;
-  let dirs = null; // { music, home } once the username is known
+  let dirs = null; // { music } once the account folder is known
+  let dirsError = false;
   let localProjects = [];
   const playing = { path: null, audio: null };
   const urls = new Map(); // path -> { url, at }: temporary read URLs (rate limited: reuse until near expiry)
@@ -87,6 +88,7 @@ function createBrowser(app, host) {
     const request = ++accountRequest;
     if (playing.path) stopPreview();
     dirs = null;
+    dirsError = false;
     folders.clear();
     extraRoots.length = 0;
     for (const id of expanded) if (id.startsWith('dir:')) expanded.delete(id);
@@ -99,7 +101,7 @@ function createBrowser(app, host) {
         dirs = { music };
       } catch {
         if (request !== accountRequest) return;
-        dirs = null;
+        dirsError = true;
       }
     }
     invalidate();
@@ -171,7 +173,10 @@ function createBrowser(app, host) {
         { id: 'files:open', label: 'Open a project from this device...', kind: 'action', icon: 'folder-open', data: { run: () => app.commands.run('file.openLocal') } },
       ];
     }
-    if (!dirs) return [{ id: 'files:loading', label: 'Loading...', kind: 'note' }];
+    if (!dirs) return dirsError ? [
+      { id: 'files:error', label: 'Your cloud files could not be loaded.', kind: 'note' },
+      { id: 'files:retry', label: 'Retry loading files', kind: 'action', icon: 'folder-search', data: { run: refreshAccount } },
+    ] : [{ id: 'files:loading', label: 'Loading...', kind: 'note' }];
     return [
       folderNode(dirs.music, 'Music Studio files', { root: true }),
       ...extraRoots.map((p) => folderNode(p, p.slice(p.lastIndexOf('/') + 1) || p)),
