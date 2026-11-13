@@ -57,6 +57,13 @@ export function cloneName(name) {
   return `${name.slice(0, 57).replace(/[\uD800-\uDBFF]$/, '')} #2`;
 }
 
+/** Fit both labels within 60 code units, sharing space when both are long. */
+export function splitPatternName(pattern, channel) {
+  const prefix = pattern.slice(0, Math.max(28, 57 - channel.length)).replace(/[\uD800-\uDBFF]$/, '');
+  const suffix = channel.slice(0, 57 - prefix.length).replace(/[\uD800-\uDBFF]$/, '');
+  return `${prefix} - ${suffix}`;
+}
+
 /** Original palette for channels, patterns, tracks and mixer inserts. */
 export const COLORS = [
   '#e0675a', '#e8925a', '#e3b84f', '#a7c957', '#5cbf8a', '#4fb8b1',

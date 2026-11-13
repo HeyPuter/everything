@@ -48,3 +48,41 @@ describe('split by channel', () => {
     expect(store.project.patterns).toHaveLength(3);
   });
 });
+
+it.each(['A'.repeat(60), 'A'.repeat(52) + '🎹abcdef'])('keeps split channel names identifiable after saving %s', (name) => {
+  const { store, source, split } = setup();
+  source.name = name;
+  split.run();
+  const parts = store.project.patterns.slice(1);
+  const reopened = parseProject(serializeProject(store.project)).patterns.slice(1);
+  expect(reopened.map((p) => p.name)).toEqual(parts.map((p) => p.name));
+  for (let i = 0; i < parts.length; i++) {
+    expect(parts[i].name.length).toBeLessThanOrEqual(60);
+    expect(parts[i].name.endsWith(` - ${store.project.channels[i].name}`)).toBe(true);
+    expect(parts[i].name).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  }
+  expect(new Set(reopened.map((p) => p.name)).size).toBe(2);
+});
+
+it('keeps ordinary split names unchanged', () => {
+  const { store, source, split } = setup();
+  source.name = 'Verse';
+  split.run();
+  expect(store.project.patterns.slice(1).map((p) => p.name)).toEqual(['Verse - Kick', 'Verse - Bass']);
+});
+
+it.each(['Intro', 'P'.repeat(27) + '🎹' + 'P'.repeat(31)])('retains both labels with long channel names and source %s', (name) => {
+  const { store, source, split } = setup();
+  source.name = name;
+  store.project.channels[0].name = 'C'.repeat(28) + '🎸' + 'C'.repeat(30);
+  split.run();
+  const part = store.project.patterns[1];
+  const [patternLabel, channelLabel] = part.name.split(' - ');
+  expect(patternLabel.length).toBeGreaterThan(0);
+  expect(channelLabel.length).toBeGreaterThan(0);
+  expect(name.startsWith(patternLabel)).toBe(true);
+  expect(store.project.channels[0].name.startsWith(channelLabel)).toBe(true);
+  expect(part.name.length).toBeLessThanOrEqual(60);
+  expect(part.name).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  expect(parseProject(serializeProject(store.project)).patterns[1].name).toBe(part.name);
+});

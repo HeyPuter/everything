@@ -2,7 +2,7 @@
 // patterns, theme and options. Feature modules register their own.
 
 import * as E from '../model/edits.js';
-import { COLORS, patternLength } from '../model/project.js';
+import { COLORS, patternLength, splitPatternName } from '../model/project.js';
 import { newProject, demoProject } from '../model/demo.js';
 import { promptDialog, confirmDialog } from '../ui/dialog.js';
 import { openMenu } from '../ui/menu.js';
@@ -177,7 +177,7 @@ export function registerCoreCommands(app) {
           let next = p;
           for (const cid of Object.keys(src.notes)) {
             const ch = p.channels.find((c) => c.id === cid);
-            const r = E.addPattern(next, { name: `${src.name} - ${ch?.name || 'Channel'}` });
+            const r = E.addPattern(next, { name: splitPatternName(src.name, ch?.name || 'Channel') });
             next = E.setNotes(r.project, r.id, cid, src.notes[cid].map((n) => ({ ...n })));
             // Each part must keep the full loop, including the other channels' silence.
             next = E.updatePattern(next, r.id, { length });
