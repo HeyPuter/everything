@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { paramControls } from '../src/effects/param-ui.js';
 import { numberField } from '../src/effects/layout.js';
 import { coerce } from '../src/effects/params.js';
+import { ratioField, parseClock } from '../src/effects/views/time-pitch.js';
+import { beatsField } from '../src/effects/time-units.js';
 
 /** Opens a value field for typing and commits it unchanged; returns the text it offered. */
 const commitUnchanged = (el) => {
@@ -94,5 +96,57 @@ describe('value fields opened for typing', () => {
     document.body.append(d.el);
     expect(commitUnchanged(d.el)).toBe('0.222');
     d.el.remove();
+  });
+});
+
+describe('custom value fields with a decimal comma', () => {
+  const typeInto = (el, text) => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const input = document.querySelector('.hot-edit');
+    input.value = text;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  };
+  const ctxFor = (params, initial) => {
+    let values = { ...initial };
+    const subs = [];
+    return {
+      def: { params },
+      get values() {
+        return values;
+      },
+      set: (id, v) => {
+        values = { ...values, [id]: v };
+        subs.forEach((fn) => fn(values));
+      },
+      subscribe: (fn) => subs.push(fn),
+    };
+  };
+
+  it('read "1,5" as 1.5 in the Pitch Shifter ratio', () => {
+    const ctx = ctxFor([], { semitones: 0, cents: 0 });
+    const hot = ratioField(ctx);
+    document.body.append(hot);
+    // The comma was dropped: "1,5" read as 15, limited to a ratio of 4 (+24 semitones).
+    typeInto(hot, '1,5');
+    expect(ctx.values).toMatchObject({ semitones: 7, cents: 2 });
+    hot.remove();
+  });
+
+  it('read "1,5" as 1.5 beats in Tempo Sync', () => {
+    const p = { id: 'rate', label: 'Rate', min: 0.01, max: 10, default: 1, unit: 'Hz' };
+    const ctx = ctxFor([p], { rate: 1 });
+    ctx.app = { timeOptions: () => ({ tempo: 120, beatNote: 4 }) };
+    const el = beatsField(ctx, 'rate');
+    document.body.append(el);
+    typeInto(el.querySelector('.hot'), '1,5');
+    // 1.5 beats at 120 BPM (500 ms a beat) is one sweep per 750 ms.
+    expect(ctx.values.rate).toBeCloseTo(1000 / 750, 6);
+    el.remove();
+  });
+
+  it('read a decimal comma in typed durations', () => {
+    expect(parseClock('0:02,5')).toBe(2.5);
+    expect(parseClock('2,5')).toBe(2.5);
+    expect(parseClock('1:02.5')).toBe(62.5);
   });
 });

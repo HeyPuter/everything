@@ -120,7 +120,7 @@ export function beatsField(ctx, id) {
     format: (v) => `${v.toFixed(3)} beats`,
     parts: (v) => [v.toFixed(3), 'beats'],
     editText: (v) => v.toFixed(3),
-    parse: (t) => parseFloat(t),
+    parse: (t) => parseFloat(String(t).replace(',', '.')),
     onInput: (v) => ctx.set(id, rateForBeats(v, scale())),
     onChange: (v) => ctx.set(id, rateForBeats(v, scale())),
   });
