@@ -324,9 +324,33 @@ impl Engine {
         };
         ch.cur_l = -1.0;
         ch.cur_r = -1.0;
-        // Replacing/removing an instrument stops its queued voices as well
-        // as its rendered ones. Clicks use slot zero but belong to transport.
+        self.discard_channel_events(slot);
+    }
+
+    // Replacing/removing an instrument or its sample stops queued voices
+    // as well as rendered ones. Clicks use slot zero but belong to transport.
+    fn discard_channel_events(&mut self, slot: u32) {
         self.events.retain(|ev| ev.slot != slot || ev.kind == EV_CLICK);
+        if self.events.is_empty() {
+            self.start_max = None;
+            self.release_min = None;
+        }
+    }
+
+    fn release_sample(&mut self, idx: i32) {
+        for ch in self.channels.iter_mut() {
+            match &mut ch.inst {
+                Inst::Sampler(s) => s.drop_sample(idx),
+                Inst::Audio(a) => a.drop_sample(idx),
+                _ => {}
+            }
+        }
+        let channels = &self.channels;
+        self.events.retain(|ev| ev.kind == EV_CLICK || match channels.get(ev.slot as usize).map(|ch| &ch.inst) {
+            Some(Inst::Sampler(s)) => s.sample != idx,
+            Some(Inst::Audio(a)) => a.sample != idx,
+            _ => true,
+        });
         if self.events.is_empty() {
             self.start_max = None;
             self.release_min = None;
@@ -878,20 +902,17 @@ pub extern "C" fn ch_set_sample(slot: u32, sample: i32) {
     let Some(e) = eng() else { return };
     let Some(ch) = e.channels.get_mut(slot as usize) else { return };
     match &mut ch.inst {
-        Inst::Sampler(s) => {
-            if s.sample != sample {
-                s.all_off(true);
-                s.sample = sample;
-            }
+        Inst::Sampler(s) if s.sample != sample => {
+            s.all_off(true);
+            s.sample = sample;
         }
-        Inst::Audio(a) => {
-            if a.sample != sample {
-                a.all_off(true);
-                a.sample = sample;
-            }
+        Inst::Audio(a) if a.sample != sample => {
+            a.all_off(true);
+            a.sample = sample;
         }
-        _ => {}
+        _ => return,
     }
+    e.discard_channel_events(slot);
 }
 
 /// Queues a note-on `offset` frames into the next block. `id` identifies the note for its note-off.
@@ -1056,12 +1077,10 @@ pub extern "C" fn sample_alloc(idx: u32, frames: u32, chans: u32, rate: f32) -> 
     while e.samples.len() <= idx {
         e.samples.push(None);
     }
-    for ch in e.channels.iter_mut() {
-        match &mut ch.inst {
-            Inst::Sampler(s) => s.drop_sample(idx as i32),
-            Inst::Audio(a) => a.drop_sample(idx as i32),
-            _ => {}
-        }
+    // First arrival may satisfy a queued note waiting for its sample.
+    // Replacing existing bytes invalidates both rendered and queued voices.
+    if e.samples[idx].is_some() {
+        e.release_sample(idx as i32);
     }
     let chans = chans.clamp(1, 2) as usize;
     let frames = frames as usize;
@@ -1075,13 +1094,7 @@ pub extern "C" fn sample_alloc(idx: u32, frames: u32, chans: u32, rate: f32) -> 
 #[no_mangle]
 pub extern "C" fn sample_free(idx: u32) {
     let Some(e) = eng() else { return };
-    for ch in e.channels.iter_mut() {
-        match &mut ch.inst {
-            Inst::Sampler(s) => s.drop_sample(idx as i32),
-            Inst::Audio(a) => a.drop_sample(idx as i32),
-            _ => {}
-        }
-    }
+    e.release_sample(idx as i32);
     if let Some(s) = e.samples.get_mut(idx as usize) {
         *s = None;
     }
