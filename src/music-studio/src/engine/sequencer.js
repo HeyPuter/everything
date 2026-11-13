@@ -99,7 +99,13 @@ export class Sequencer {
     const keep = new Set(seq.auto.map(laneKey));
     for (const l of this.lanes) if (l.applied && !keep.has(laneKey(l))) this.#restore(l);
     const prev = new Map(this.lanes.map((l) => [laneKey(l), l]));
-    this.lanes = seq.auto.map((l) => ({ ...l, applied: prev.get(laneKey(l))?.applied || false }));
+    this.lanes = seq.auto.map((l) => {
+      let end = -Infinity;
+      // End times need not be sorted: overlapping clips retain first-match
+      // priority. Prefix maxima let seeks skip only fully expired prefixes.
+      const ends = Float64Array.from(l.segs, (s) => (end = Math.max(end, s.end)));
+      return { ...l, applied: prev.get(laneKey(l))?.applied || false, ends, cursor: -1, tick: NaN };
+    });
     this.audioMotionLanes.clear();
     for (const lane of this.lanes) {
       const t = lane.target;
@@ -348,13 +354,7 @@ export class Sequencer {
 
   #automate(tick) {
     for (const l of this.lanes) {
-      let seg = null;
-      for (const s of l.segs) {
-        if (s.start <= tick && tick < s.end) {
-          seg = s;
-          break;
-        }
-      }
+      const seg = automationSegment(l, tick);
       if (!seg) {
         if (l.applied) this.#restore(l);
         continue;
@@ -501,4 +501,22 @@ function eventMatcher(n, matched) {
 function laneKey(l) {
   const t = l.target;
   return `${t.kind}:${t.slot ?? t.track}:${t.fx ?? ''}:${t.index ?? t.field ?? ''}`;
+}
+
+
+/** First active segment, with constant work while staying in the same clip. */
+function automationSegment(lane, tick) {
+  let i = lane.cursor;
+  if (!(i >= 0 && tick >= lane.tick && (i === lane.segs.length || lane.ends[i] > tick))) {
+    let lo = 0, hi = lane.ends.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (lane.ends[mid] <= tick) lo = mid + 1;
+      else hi = mid;
+    }
+    i = lane.cursor = lo;
+  }
+  lane.tick = tick;
+  const seg = lane.segs[i];
+  return seg && seg.start <= tick ? seg : null;
 }
