@@ -204,3 +204,21 @@ test('an expired digital ID is refused before the signature’s details are aske
   await expect(chooser.locator('#id-file')).toBeFocused();
   await expect(page.getByRole('dialog', { name: 'Certify document' })).toBeHidden();
 });
+
+test('the Signatures panel names a certification as one', async ({ page }) => {
+  const chooser = await openChooser(page);
+  await chooser.getByLabel('Create a new digital ID').check();
+  await chooser.getByLabel('Name', { exact: true }).fill('Ada Lovelace');
+  await chooser.getByLabel('Password for the ID file').fill('secret-123');
+  await chooser.getByRole('button', { name: 'Continue' }).click();
+  await page
+    .getByRole('dialog', { name: 'Certify document' })
+    .getByRole('button', { name: 'Certify', exact: true })
+    .click();
+  await expect(page.locator('.signature-bar')).toContainText('Certified');
+  await page.getByRole('tab', { name: 'Signatures' }).click();
+  // The bar said Certified while the panel said "Signed by".
+  await expect(
+    page.getByRole('tabpanel', { name: 'Signatures' }).locator('.signature-title'),
+  ).toHaveText('Rev. 2: Certified by Ada Lovelace');
+});

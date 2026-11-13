@@ -118,6 +118,13 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
         ...reports.map((report, i) => {
           const status = STATUS[report.status] || STATUS.unsupported;
           const signer = report.signer?.name || report.fieldName || `Signature ${i + 1}`;
+          // The author's certification and a document timestamp are named for what they are.
+          const action =
+            report.kind === 'certification'
+              ? 'Certified'
+              : report.kind === 'timestamp'
+                ? 'Timestamped'
+                : 'Signed';
           return el(
             'li',
             { class: `signature-item tone-${status.tone}` },
@@ -135,7 +142,7 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
                 el(
                   'span',
                   { class: 'signature-title' },
-                  `Rev. ${report.revision ?? i + 1}: Signed by ${signer}`,
+                  `Rev. ${report.revision ?? i + 1}: ${action} by ${signer}`,
                 ),
                 el('span', { class: 'signature-state' }, report.summary || status.label),
               ),
