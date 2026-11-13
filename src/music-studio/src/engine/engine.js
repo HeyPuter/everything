@@ -782,7 +782,13 @@ export class Engine extends Emitter {
           reject(err);
         },
       });
-      worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), silence: echoGap(p) + 0.1, pitch: p.masterPitch || 0 });
+      try {
+        worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), silence: echoGap(p) + 0.1, pitch: p.masterPitch || 0 });
+      } catch (err) {
+        const job = this._renderJobs.get(id);
+        this._renderJobs.delete(id);
+        job.reject(err);
+      }
     });
   }
 

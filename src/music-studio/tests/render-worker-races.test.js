@@ -47,3 +47,29 @@ it('terminates a failed worker and prevents its late errors from rejecting repla
   workers[1].onmessage({ data: { type: 'done', id: m.id, channels: [new Float32Array(1), new Float32Array(1)], rate: m.rate } });
   expect({ terminations: workers[0].terminate.mock.calls.length, replacement: await second }).toEqual({ terminations: 1, replacement: 'completed' });
 });
+
+it('removes failed render requests and their abort listeners when posting to the worker throws', async () => {
+  const workers = [];
+  vi.stubGlobal('Worker', class {
+    constructor() { this.messages = []; workers.push(this); }
+    postMessage(message) {
+      if (!this.failed) {
+        this.failed = true;
+        throw new DOMException('The audio buffers could not be cloned', 'DataCloneError');
+      }
+      this.messages.push(message);
+    }
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, headers: { get: () => '' }, arrayBuffer: async () => new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]).buffer })));
+  const engine = new Engine(new Store(newProject()));
+  const controller = new AbortController();
+  await expect(engine.render({ signal: controller.signal })).rejects.toMatchObject({ name: 'DataCloneError' });
+  controller.abort();
+  expect(workers[0].messages).toEqual([]);
+  expect(engine._renderJobs.size).toBe(0);
+  const retry = engine.render();
+  await vi.waitFor(() => expect(workers[0].messages).toHaveLength(1));
+  const message = workers[0].messages[0];
+  workers[0].onmessage({ data: { type: 'done', id: message.id, channels: [new Float32Array(1), new Float32Array(1)], rate: message.rate } });
+  expect((await retry).rate).toBe(48000);
+});
