@@ -76,7 +76,7 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
   if (el.lastChild?.tagName === 'HR') el.lastChild.remove();
 
   function openChild(entry, byKeyboard) {
-    if (child?.owner === entry) return;
+    if (closed || child?.owner === entry) return;
     closeChild();
     const r = entry.btn.getBoundingClientRect();
     const sub = typeof entry.it.items === 'function' ? entry.it.items() : entry.it.items || [];
@@ -93,7 +93,7 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
   }
 
   function activate(entry, byKeyboard) {
-    if (!entry.enabled) return;
+    if (closed || !entry.enabled) return;
     if (entry.it.type === 'submenu') {
       openChild(entry, byKeyboard);
       return;

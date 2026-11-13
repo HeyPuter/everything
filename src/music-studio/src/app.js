@@ -33,7 +33,7 @@ import { Shell } from './ui/shell.js';
 import { createToolbar } from './ui/toolbar.js';
 import { applyTheme } from './ui/theme.js';
 import { toast } from './ui/toast.js';
-import { openMenu, isMenuOpen } from './ui/menu.js';
+import { openMenu, closeMenus, isMenuOpen } from './ui/menu.js';
 import { confirmDialog } from './ui/dialog.js';
 import { icon } from './ui/icons.js';
 import { REPO_URL } from './ui/toolbar.js';
@@ -47,6 +47,9 @@ export class App extends Emitter {
     this.root = root;
     this.prefs = new Prefs(storage);
     this.store = new Store(project || newProject());
+    this.store.on('change', (_project, _previous, { source }) => {
+      if (source === 'load') closeMenus();
+    });
     this.engine = new Engine(this.store, this.prefs);
     this.samples = new SampleCache(this.engine);
     this.commands = new Commands(this);
