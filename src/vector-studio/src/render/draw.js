@@ -586,6 +586,28 @@ function plainPaint(p) {
   return !p || p.type === 'solid' || p.type === 'linear' || p.type === 'radial';
 }
 
+/** Whether artwork needs the pixels behind it rather than a transparent cache. */
+export function dependsOnBackdrop(doc, node, overprint = false) {
+  if (!node || node.hidden) return false;
+  if ((BLEND[node.blendMode] || 'source-over') !== 'source-over' || (overprint && (node.overprintFill || node.overprintStroke))) return true;
+  const def = liveDef(node);
+  const grouped = node.type === 'group' || node.type === 'layer' || (node.type !== 'image' && Boolean(def));
+  // Match drawNode's isolation boundary: internal blends see the group's own
+  // transparent layer, so caching the complete group preserves their backdrop.
+  if (rasterEffects(node) || (grouped && ((node.opacity ?? 1) < 1 || node.isolate || node.knockout)) || (node.opacityMask && !node.opacityMask.disabled && drawHooks.opacityMask)) return false;
+  if (node.type === 'layer' && hasAppearanceStack(node)) {
+    const { items, vdoc } = layerAppearanceArtwork(doc, node);
+    return items.some((n) => dependsOnBackdrop(vdoc, n, overprint));
+  }
+  if (def && !def.draw) {
+    const { items, vdoc } = liveArtwork(doc, node);
+    return items.some((n) => dependsOnBackdrop(vdoc, n, overprint));
+  }
+  // Compound children supply geometry only; their styles do not paint.
+  if (node.type === 'compound') return false;
+  return (node.children || []).some((id) => dependsOnBackdrop(doc, doc.get(id), overprint));
+}
+
 /**
  * Draw one node. `opts`:
  *   viewRect   document-space rect to cull against (null = no culling)

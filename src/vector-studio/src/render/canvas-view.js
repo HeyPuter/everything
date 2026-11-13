@@ -12,10 +12,11 @@
  * rendered bitmap with the view delta and schedule a crisp re-render once
  * the gesture settles.
  */
-import { drawArtwork, drawNode, LayerPool, imageEvents } from './draw.js';
+import { drawArtwork, drawNode, dependsOnBackdrop, LayerPool, imageEvents } from './draw.js';
 import { drawOverlay } from './overlay.js';
 import { multiply, invert } from '../lib/matrix.js';
 import { liveDef } from '../model/live.js';
+import { hasAppearanceStack } from '../model/appearance.js';
 import { selectionBounds, transformRect } from '../model/geometry.js';
 
 const SETTLE_MS = 140;
@@ -327,6 +328,24 @@ export class CanvasView {
     return c;
   }
 
+  /** A transparent slice cannot preserve blending against pixels below it. */
+  #hasBackdropBlend(order, from) {
+    if (this.editor.viewOptions.mode === 'outline') return false;
+    const { doc, viewOptions } = this.editor;
+    let found = false;
+    doc.walk((n) => {
+      if (found || n.hidden) return false;
+      // A layer appearance can paint around all its children, across the slice.
+      if ((order.get(n.id) ?? 0) >= from || (n.type === 'layer' && hasAppearanceStack(n))) {
+        found = dependsOnBackdrop(doc, n, viewOptions.overprint);
+        return false;
+      }
+      // These draw as one unit; their source children are not independent leaves.
+      if (n.type === 'compound' || liveDef(n)) return false;
+    });
+    return found;
+  }
+
   /**
    * Large-selection drags: the static artwork below and above the moving
    * objects and the moving objects themselves are rendered once into
@@ -351,6 +370,12 @@ export class CanvasView {
         hi = Math.max(hi, o);
       }
       if (!Number.isFinite(lo)) return false;
+      let first = lo;
+      for (const id of pv.session.ids) first = Math.min(first, order.get(id) ?? lo);
+      if (this.#hasBackdropBlend(order, first)) {
+        pv.session.useLivePreview();
+        return false;
+      }
       const isMoving = (id) => moving.has(id) || moving.has(doc.get(id)?.parent);
       // Capture the entire selection, including pixels outside the viewport that
       // can enter it during the drag. Keep the allocation bounded to one viewport
@@ -425,7 +450,7 @@ export class CanvasView {
         lo = Math.min(lo, o);
         hi = Math.max(hi, o);
       }
-      if (!Number.isFinite(lo)) return false;
+      if (!Number.isFinite(lo) || this.#hasBackdropBlend(order, hi + 1)) return false;
       const below = this.#layerCanvas('below');
       const above = this.#layerCanvas('above');
       this.#paint(below.getContext('2d'), { background: true, leafFilter: (id) => (order.get(id) ?? 0) < lo });
