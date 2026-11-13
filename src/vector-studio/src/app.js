@@ -351,8 +351,28 @@ export class App extends Emitter {
   }
 
   #finishDocumentInteraction() {
+    const field = document.activeElement;
+    const panel = field?.matches?.('input, textarea, [contenteditable="true"]')
+      ? [...this.dock.panels.values()].find((panel) => panel.el.contains(field)) : null;
+    // Finish panel edits before ending text editing, while the original
+    // character range still exists. An open canvas transaction must end first.
+    if (panel && !this.editor?.doc.tx) field.blur();
     this.tool?.commit?.();
     this.input?.reset();
+    if (panel && document.activeElement === field) field.blur();
+    return panel ? { field, panel } : null;
+  }
+
+  #restorePanelFocus(pending) {
+    if (!pending || document.activeElement !== document.body) return;
+    const { field, panel } = pending;
+    // Dock refreshes normally wait for a frame. Refresh this panel before
+    // focusing it, since focused text controls may preserve their contents.
+    panel.update();
+    let available = Boolean(this.editor && field.isConnected && !field.disabled);
+    for (let el = field; available && el; el = el.parentElement) if (el.hidden || el.inert) available = false;
+    const target = available ? field : this.home && !this.home.hidden ? this.root.querySelector('.home-btn') : this.editor ? this.canvasHost : null;
+    target?.focus({ preventScroll: true });
   }
 
   /** Create a document's canvas without changing the active editor or its interaction. */
@@ -370,7 +390,7 @@ export class App extends Emitter {
   activate(editor) {
     // activate(null) after the last tab closed must still show the home screen.
     if (this.editor === editor && editor) return;
-    this.#finishDocumentInteraction();
+    const pendingField = this.#finishDocumentInteraction();
     this.tool?.deactivate?.();
     const prevView = this.editor && this.views.get(this.editor);
     if (prevView) prevView.host.hidden = true;
@@ -389,12 +409,13 @@ export class App extends Emitter {
     this.refreshChrome();
     this.tool?.activate?.();
     this.emit('active-editor', editor);
+    this.#restorePanelFocus(pendingField);
   }
 
   async closeDocument(editor = this.editor, { force = false } = {}) {
     if (!editor) return true;
     // Finish against the outgoing editor before checking whether its file needs saving.
-    if (this.editor === editor) this.#finishDocumentInteraction();
+    if (this.editor === editor) this.#restorePanelFocus(this.#finishDocumentInteraction());
     if (!force && editor.doc.dirty) {
       const save = await openDialog({
         title: 'Vector Studio',
