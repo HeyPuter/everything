@@ -177,7 +177,10 @@ export class TransformSession {
     if (!this.ended) this.schedule(true);
   }
   prepareSource(source: Promise<RGBA8>) {
-    this.preparing = source.then((src) => this.setSource(src)).catch((error) => {
+    this.preparing = source.then((src) => this.setSource(src));
+    // Report preview failures even without a Commit request, while keeping
+    // the rejection available to operations waiting for that commit.
+    void this.preparing.catch((error) => {
       this.e.message(error instanceof Error ? error.message : String(error));
       this.cancel();
     });
