@@ -67,6 +67,16 @@ function buttonRow(label, text, onClick, hint) {
 export async function openPreferences(app, { section = 'general' } = {}) {
   const prefs = app.prefs;
   const engine = app.engine;
+  let toneRequest = 0;
+  let stopTone = null;
+  let toneTimer = null;
+  const cancelTone = () => {
+    toneRequest++;
+    clearTimeout(toneTimer);
+    toneTimer = null;
+    stopTone?.();
+    stopTone = null;
+  };
 
   // ---------------------------------------------------------------- general
   const general = h(
@@ -135,12 +145,15 @@ export async function openPreferences(app, { section = 'general' } = {}) {
   }
   audio.append(
     buttonRow('Test', 'Play test tone', async () => {
+      cancelTone();
+      const request = toneRequest;
       try {
-        await engine.start();
-        const stop = engine.audition?.({ type: 'synth', params: { osc1_wave: 0, osc2_level: 0, sub_level: 0, cutoff: 20000, a_attack: 10, a_sustain: 1, a_release: 80, vel_amp: 0, gain: 0.5 } }, 69, 0.7);
-        setTimeout(() => stop?.(), 900);
+        const ready = await engine.start();
+        if (!ready || request !== toneRequest || !audio.isConnected) return;
+        stopTone = engine.audition?.({ type: 'synth', params: { osc1_wave: 0, osc2_level: 0, sub_level: 0, cutoff: 20000, a_attack: 10, a_sustain: 1, a_release: 80, vel_amp: 0, gain: 0.5 } }, 69, 0.7);
+        toneTimer = setTimeout(cancelTone, 900);
       } catch (err) {
-        app.reportError(err);
+        if (request === toneRequest && audio.isConnected) app.reportError(err);
       }
     }, 'A one-second A at 440 Hz through the master output.'),
   );
@@ -216,4 +229,5 @@ export async function openPreferences(app, { section = 'general' } = {}) {
     buttons: [{ label: 'Done', value: true, primary: true }],
     initialFocus: '.pref-tab[aria-selected="true"]',
   });
+  cancelTone();
 }

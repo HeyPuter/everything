@@ -9,13 +9,112 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 const originalDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
-afterEach(() => {
+afterEach(async () => {
   document.querySelectorAll('.dialog-head button').forEach((button) => button.click());
+  await Promise.resolve();
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   if (originalDevices) Object.defineProperty(navigator, 'mediaDevices', originalDevices);
   else delete navigator.mediaDevices;
+});
+
+const testToneButton = () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Play test tone');
+
+it.each(['pending', 'just resolved'])('does not start a test tone after Preferences closes with startup %s', async (timing) => {
+  vi.useFakeTimers();
+  const { app, done } = await setup();
+  const gate = deferred();
+  app.engine.start = vi.fn(() => gate.promise);
+  app.engine.audition = vi.fn(() => vi.fn());
+  testToneButton().click();
+  if (timing === 'just resolved') gate.resolve(true);
+  document.querySelector('.dialog-head button').click();
+  await done;
+  gate.resolve(true);
+  await Promise.resolve();
+  expect(app.engine.audition).not.toHaveBeenCalled();
+});
+
+it.each(['unavailable', 'rejected'])('does not audition when startup is %s and permits a retry', async (failure) => {
+  vi.useFakeTimers();
+  const { app } = await setup();
+  const stop = vi.fn();
+  app.engine.start = failure === 'rejected' ? vi.fn().mockRejectedValueOnce(new Error('Startup failed')).mockResolvedValue(true) : vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
+  app.engine.audition = vi.fn(() => stop);
+  testToneButton().click();
+  await Promise.resolve();
+  expect(app.engine.audition).not.toHaveBeenCalled();
+  expect(app.reportError).toHaveBeenCalledTimes(failure === 'rejected' ? 1 : 0);
+  testToneButton().click();
+  await Promise.resolve();
+  expect(app.engine.audition).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(900);
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+it('stops a sounding test tone when Preferences closes', async () => {
+  vi.useFakeTimers();
+  const { app, done } = await setup();
+  const stop = vi.fn();
+  app.engine.start = vi.fn(async () => true);
+  app.engine.audition = vi.fn(() => stop);
+  testToneButton().click();
+  await Promise.resolve();
+  expect(app.engine.audition).toHaveBeenCalledOnce();
+  document.querySelector('.dialog-head button').click();
+  await done;
+  expect(stop).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(1000);
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+it('plays only the latest requested test tone after delayed startup', async () => {
+  vi.useFakeTimers();
+  const { app } = await setup();
+  const gate = deferred();
+  app.engine.start = vi.fn(() => gate.promise);
+  app.engine.audition = vi.fn(() => vi.fn());
+  testToneButton().click();
+  testToneButton().click();
+  gate.resolve(true);
+  await Promise.resolve();
+  expect(app.engine.audition).toHaveBeenCalledOnce();
+});
+
+it('stops the previous tone on retrigger and gives the new tone its own duration', async () => {
+  vi.useFakeTimers();
+  const { app } = await setup();
+  const first = vi.fn(), second = vi.fn();
+  app.engine.start = vi.fn(async () => true);
+  app.engine.audition = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+  testToneButton().click();
+  await Promise.resolve();
+  vi.advanceTimersByTime(450);
+  testToneButton().click();
+  await Promise.resolve();
+  expect(first).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(450);
+  expect(second).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(450);
+  expect(first).toHaveBeenCalledOnce();
+  expect(second).toHaveBeenCalledOnce();
+});
+
+it('plays and releases an ordinary test tone', async () => {
+  vi.useFakeTimers();
+  const { app } = await setup();
+  const stop = vi.fn();
+  app.engine.start = vi.fn(async () => true);
+  app.engine.audition = vi.fn(() => stop);
+  testToneButton().click();
+  await Promise.resolve();
+  expect(app.engine.audition).toHaveBeenCalledOnce();
+  vi.advanceTimersByTime(899);
+  expect(stop).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1);
+  expect(stop).toHaveBeenCalledOnce();
 });
 
 async function setup() {
