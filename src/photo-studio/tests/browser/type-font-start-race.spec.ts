@@ -170,3 +170,106 @@ test('a stalled font still permits fallback editing and preserves text when it a
   await run(page, 'type.commit');
   expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.text)).toBe('Fallback text');
 });
+
+for (const existing of [false, true]) test(`typing before the font arrives preserves ${existing ? 'existing' : 'new'} text edits`, async ({ page }) => {
+  await prepare(page);
+  if (existing) {
+    await page.evaluate(async () => {
+      const e = window.photoStudio;
+      const { layer } = await import('/src/model/document.ts');
+      const { textLayer } = await import('/src/imaging/text/model.ts');
+      const l = layer('text', 'Existing', 100, 80);
+      l.textData = textLayer('Existing', { family: 'Caveat' });
+      e.command('Existing text fixture', (d) => { d.layers.push(l); });
+      void (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, l.id, 'all');
+    });
+  } else await canvasClick(page, 50, 50);
+  await page.waitForFunction(() => !!(window as unknown as { finishTypeFont?: () => void }).finishTypeFont);
+  await page.keyboard.type('brave');
+  expect(await inputText(page)).toBe('brave');
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('type');
+  await finishFont(page);
+  await run(page, 'type.commit');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.text)).toBe('brave');
+});
+
+async function inputText(page: Page) {
+  return page.evaluate(async () => {
+    const { plainText } = await import('/src/imaging/text/model.ts');
+    const s = (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession();
+    return s ? plainText(s.data.content) : undefined;
+  });
+}
+
+for (const input of ['IME', 'soft keyboard', 'paste']) test(`${input} starts editing before its font arrives`, async ({ page }) => {
+  await prepare(page);
+  await canvasClick(page, 50, 50);
+  await page.waitForFunction(() => !!(window as unknown as { finishTypeFont?: () => void }).finishTypeFont);
+  if (input === 'IME') {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 });
+    expect(await inputText(page)).toBe('にほん');
+    // Receiving the font during composition must preserve the composition.
+    await finishFont(page);
+    await cdp.send('Input.insertText', { text: '日本' });
+  } else if (input === 'soft keyboard') {
+    await page.evaluate(() => {
+      const el = document.activeElement!;
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 229, bubbles: true, cancelable: true }));
+      el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: '日本', bubbles: true, cancelable: true }));
+      el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: '日本', bubbles: true }));
+    });
+  } else {
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', '日本');
+      document.activeElement!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+  }
+  expect(await inputText(page)).toBe('日本');
+  if (input !== 'IME') await finishFont(page);
+  await page.keyboard.press('Meta+z');
+  expect(await inputText(page)).toBe('');
+  await page.keyboard.press('Meta+Shift+z');
+  expect(await inputText(page)).toBe('日本');
+  await run(page, 'type.commit');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.text)).toBe('日本');
+});
+
+test('Escape before a font arrives ends the empty request without changing the document', async ({ page }) => {
+  await prepare(page);
+  await canvasClick(page, 50, 50);
+  await page.waitForFunction(() => !!(window as unknown as { finishTypeFont?: () => void }).finishTypeFont);
+  await page.keyboard.press('Escape');
+  await finishFont(page);
+  expect(await inputText(page)).toBeUndefined();
+  expect(await page.evaluate(() => ({ layers: window.photoStudio.doc.layers.length, dirty: window.photoStudio.session.dirty, history: window.photoStudio.history.labels }))).toEqual({ layers: 1, dirty: false, history: [] });
+});
+
+test('an early text commit remains in its document when the font arrives during another edit', async ({ page }) => {
+  const { other, original } = await prepare(page);
+  await canvasClick(page, 50, 50);
+  await page.waitForFunction(() => !!(window as unknown as { finishTypeFont?: () => void }).finishTypeFont);
+  await page.keyboard.type('First');
+  await page.keyboard.press('Escape');
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    m.typeDefaults(window.photoStudio).style.family = 'Inter';
+  });
+  const [x, y] = await page.evaluate(() => window.photoStudio.clientPoint(60, 60));
+  await page.mouse.click(x, y);
+  await page.keyboard.type('Second');
+  await page.evaluate(() => Object.assign(window, { secondDraft: window.photoStudio.doc }));
+  await finishFont(page);
+  expect(await page.evaluate(() => window.photoStudio.doc === (window as unknown as { secondDraft: unknown }).secondDraft)).toBe(true);
+  expect(await inputText(page)).toBe('Second');
+  await run(page, 'type.commit');
+  expect(await page.evaluate(({ other, original }) => {
+    const e = window.photoStudio;
+    return [original, other].map((id) => {
+      const s = e.sessions.find((s) => s.id === id)!;
+      return { text: s.doc.layers.at(-1)!.text, history: s.history.labels };
+    });
+  }, { other, original })).toEqual([{ text: 'First', history: ['Type Tool'] }, { text: 'Second', history: ['Type Tool'] }]);
+});
