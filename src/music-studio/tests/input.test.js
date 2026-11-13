@@ -245,6 +245,97 @@ describe('recording timing', () => {
 });
 
 describe('recorder', () => {
+  it('keeps released notes when a loop ends during another editing gesture', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const pat = app.store.view.pattern;
+    const ch = app.store.view.channel;
+    const before = E.getNotes(app.store.project, pat, ch).length;
+    app.store.begin('Drag');
+    Object.assign(app.engine, { recording: true, playing: true });
+    rec.noteOn(67, 0.9, ch);
+    rec.noteOff(67);
+    app.engine.emit('loop');
+    app.store.commit();
+    app.emit('frame');
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before + 1);
+    expect(app.store.gesture === null).toBe(true);
+    app.store.undo();
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before);
+  });
+
+  it('preserves separate stopped takes and their lengths while a drag blocks their writes', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const pat = app.store.view.pattern;
+    const ch = app.store.view.channel;
+    const before = E.getNotes(app.store.project, pat, ch).length;
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      app.store.begin('Drag');
+      Object.assign(app.engine, { recording: true, playing: true });
+      rec.noteOn(67, 0.9, ch);
+      now.mockReturnValue(1250);
+      app.engine.playing = false;
+      app.engine.emit('state');
+      app.engine.playing = true;
+      rec.noteOn(69, 0.8, ch);
+      now.mockReturnValue(1500);
+      app.engine.playing = false;
+      app.engine.emit('state');
+      now.mockReturnValue(5000);
+      app.store.commit();
+      app.emit('frame');
+      const notes = E.getNotes(app.store.project, pat, ch);
+      expect(notes).toHaveLength(before + 2);
+      expect(notes.filter((n) => n.key === 67 || n.key === 69).map((n) => n.len)).toEqual([50, 50]);
+      app.store.undo();
+      expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before + 1);
+      app.store.undo();
+      expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each(['commit', 'cancel'])('keeps a take stopped during another gesture after the gesture %s', (finish) => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const pat = app.store.view.pattern;
+    const ch = app.store.view.channel;
+    const before = E.getNotes(app.store.project, pat, ch).length;
+    Object.assign(app.engine, { recording: true, playing: true });
+    app.store.begin('Change tempo');
+    app.store.preview((p) => E.setProjectProps(p, { bpm: 110 }));
+    rec.noteOn(67, 0.9, ch);
+    app.engine.playing = false;
+    app.engine.emit('state');
+    app.store[finish]();
+    app.emit('frame');
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before + 1);
+    expect(app.store.gesture).toBeNull();
+    expect(app.store.undoLabel).toBe('Record notes');
+    app.store.undo();
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before);
+    expect(app.store.project.bpm).toBe(finish === 'commit' ? 110 : 124);
+  });
+
+  it('does not apply a deferred take to a replacement project with the same IDs', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const original = app.store.project;
+    Object.assign(app.engine, { recording: true, playing: true });
+    app.store.begin('Change tempo');
+    rec.noteOn(67, 0.9, app.store.view.channel);
+    app.engine.playing = false;
+    app.engine.emit('state');
+    app.store.load(structuredClone(original));
+    app.emit('frame');
+    expect(app.store.project).toEqual(original);
+    expect(app.store.gesture).toBeNull();
+    expect(app.store.canUndo).toBe(false);
+  });
+
   it('records a take as one undo step while recording and playing', () => {
     const app = fakeApp();
     const rec = new Recorder(app, null);

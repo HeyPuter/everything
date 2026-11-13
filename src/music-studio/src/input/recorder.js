@@ -82,6 +82,7 @@ export class Recorder {
     this.byKey = new Map(); // key -> note id (open notes)
     this.gesture = null;
     this.pending = false;
+    this.finished = []; // completed passes waiting for another editing gesture
     this.lastGrow = 0;
     this.stepHeld = 0;
     this.stepAdvance = 0;
@@ -93,6 +94,15 @@ export class Recorder {
       if (this.take.size) this.commitPass();
     });
     app.on('frame', () => this.frame());
+    app.store.on('change', (_p, _prev, info) => {
+      if (info?.source !== 'load') return;
+      this.finished = [];
+      this.pending = false;
+      this.take.clear();
+      this.byKey.clear();
+      this.gesture = null;
+      this.takeTotal = 0;
+    });
   }
 
   get active() {
@@ -168,16 +178,24 @@ export class Recorder {
     }
     this.pending = false;
     if (!store.gesture) {
+      this.flushFinished();
       store.begin('Record notes');
       this.gesture = store.gesture;
     }
-    const bpm = store.project.bpm;
+    store.preview(this.editTake());
+  }
+
+  /** Captures this pass so a stopped take can be applied after another drag. */
+  editTake(snapshot = false) {
+    const bpm = this.app.store.project.bpm;
     const quantize = Boolean(this.app.prefs.get('recordQuantize'));
+    const grid = shared.grid;
     const now = performance.now();
-    store.preview((base) => {
+    const notes = snapshot ? [...this.take.values()].map((n) => ({ ...n })) : this.take.values();
+    return (base) => {
       let next = base;
       const groups = new Map();
-      for (const n of this.take.values()) {
+      for (const n of notes) {
         const k = `${n.pattern}|${n.channel}`;
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(n);
@@ -191,16 +209,26 @@ export class Recorder {
         const kept = E.getNotes(next, pid, cid).filter((n) => !ids.has(n.id));
         const added = list.map((n) => {
           const elapsed = n.open ? msToTicks(now - n.started, bpm) : n.len;
-          const r = recordedNote(n.pos, elapsed, { patLen, grid: shared.grid, quantize });
+          const r = recordedNote(n.pos, elapsed, { patLen, grid, quantize });
           return { id: n.id, key: n.key, pos: r.pos, len: r.len, vel: n.vel, pan: 0 };
         });
         next = E.setNotes(next, pid, cid, [...kept, ...added]);
       }
       return next;
-    });
+    };
+  }
+
+  flushFinished() {
+    if (!this.app.store.gesture && this.finished.length) {
+      for (const { edit, count } of this.finished.splice(0)) {
+        this.app.store.apply('Record notes', edit);
+        this.notifyTake(count);
+      }
+    }
   }
 
   frame() {
+    this.flushFinished();
     if (this.pending && !this.app.store.gesture) this.write();
     if (!this.byKey.size || !this.active) return;
     const now = performance.now();
@@ -212,9 +240,13 @@ export class Recorder {
   /** Commits the loop pass; held notes carry on into the next step. */
   commitPass() {
     const store = this.app.store;
+    if (this.take.size && store.gesture && store.gesture !== this.gesture) {
+      this.finished.push({ edit: this.editTake(true), count: 0 });
+    }
     if (store.gesture && store.gesture === this.gesture) store.commit();
     this.gesture = null;
     for (const [id, n] of [...this.take]) if (!n.open) this.take.delete(id);
+    if (!this.take.size) this.pending = false;
   }
 
   endTake() {
@@ -226,14 +258,23 @@ export class Recorder {
         n.len = msToTicks(now - n.started, bpm);
       }
     }
-    if (this.take.size) this.write();
     const store = this.app.store;
     const count = this.takeTotal || this.take.size;
+    if (this.take.size && store.gesture && store.gesture !== this.gesture) {
+      this.finished.push({ edit: this.editTake(true), count });
+    } else {
+      if (this.take.size) this.write();
+      if (store.gesture && store.gesture === this.gesture) store.commit();
+      this.notifyTake(count);
+    }
     this.takeTotal = 0;
-    if (store.gesture && store.gesture === this.gesture) store.commit();
+    this.pending = false;
     this.gesture = null;
     this.take.clear();
     this.byKey.clear();
+  }
+
+  notifyTake(count) {
     if (count) this.app.notify?.(`Recorded ${count} note${count === 1 ? '' : 's'}`);
   }
 }
