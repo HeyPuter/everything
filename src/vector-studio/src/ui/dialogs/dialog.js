@@ -131,9 +131,12 @@ function makeDraggable(dialog, handle) {
     dialog.style.left = `${Math.min(maxLeft, Math.max(0, start.left + e.clientX - start.x))}px`;
     dialog.style.top = `${Math.min(maxTop, Math.max(0, start.top + e.clientY - start.y))}px`;
   });
-  handle.addEventListener('pointerup', () => {
+  const end = () => {
     start = null;
-  });
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  handle.addEventListener('lostpointercapture', end);
 }
 
 const NUMERIC = ['length', 'number', 'angle', 'percent'];

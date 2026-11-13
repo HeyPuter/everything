@@ -118,6 +118,11 @@
   border-bottom: 2px solid transparent;
 }
 
+/* A pen hovering over the list drags rows instead of panning the list. */
+.ab-list.pen-direct .ab-row {
+  touch-action: none;
+}
+
 .ab-list .ab-row {
   display: grid;
   grid-template-columns: 26px 1fr auto 28px;

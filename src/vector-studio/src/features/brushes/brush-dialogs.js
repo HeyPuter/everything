@@ -233,10 +233,12 @@ function guideEditor(brush, g0, g1) {
     const up = () => {
       svg.removeEventListener('pointermove', move);
       svg.removeEventListener('pointerup', up);
+      svg.removeEventListener('pointercancel', up);
       field.el.dispatchEvent(new Event('change', { bubbles: true }));
     };
     svg.addEventListener('pointermove', move);
     svg.addEventListener('pointerup', up);
+    svg.addEventListener('pointercancel', up);
   });
   for (const f of [g0, g1]) f.el.addEventListener('input', place);
   place();

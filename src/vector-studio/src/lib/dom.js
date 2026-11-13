@@ -2,7 +2,8 @@
  * Tiny element builder.
  *   h('button.btn.primary', { onclick, 'aria-label': 'Add' }, 'Add', icon('plus'))
  * Attributes that are DOM properties are set as properties; everything else
- * (aria-*, data-*, role) goes through setAttribute. null/undefined/false skip.
+ * (aria-*, data-*, role) goes through setAttribute. null/undefined/false skip,
+ * except `draggable`, which is set from true/false or 'true'/'false' alike.
  */
 export function h(spec, attrs, ...children) {
   if (attrs instanceof Node || typeof attrs === 'string' || Array.isArray(attrs)) {
@@ -15,7 +16,13 @@ export function h(spec, attrs, ...children) {
   if (id) node.id = id;
   if (classes.length) node.className = classes.join(' ');
   for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === null || v === undefined || v === false) continue;
+    if (v === null || v === undefined) continue;
+    // The draggable property turns any string, 'false' too, into true.
+    if (k === 'draggable') {
+      node.setAttribute('draggable', String(v === true || v === 'true'));
+      continue;
+    }
+    if (v === false) continue;
     if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
     else if (k === 'html') node.innerHTML = v;
     else if (k === 'dataset') Object.assign(node.dataset, v);

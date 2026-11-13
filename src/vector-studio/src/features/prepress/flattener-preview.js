@@ -239,6 +239,7 @@ export class FlattenerPreviewPanel extends Panel {
       this.draw();
     });
     this.canvas.addEventListener('pointerup', () => (drag = null));
+    this.canvas.addEventListener('pointercancel', () => (drag = null));
     this.canvas.addEventListener('wheel', (e) => {
       if (!this.view) return;
       e.preventDefault();

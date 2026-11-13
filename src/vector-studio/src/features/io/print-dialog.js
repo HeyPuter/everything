@@ -458,11 +458,13 @@ export async function printDialog(app, presetEdit = null) {
     st.offsetY = drag.oy + (e.clientY - drag.y) / view.s;
     refresh();
   });
-  canvas.addEventListener('pointerup', () => {
+  const endDrag = () => {
     if (!drag) return;
     drag = null;
     rebuild();
-  });
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
 
   function refresh() {
     pages = doc ? printJob(doc, st, { activeArtboard: editor.activeArtboard, fileName: editor.name || doc.root.name || '' }) : [];

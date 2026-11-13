@@ -244,9 +244,19 @@ function installSliceGuides(app) {
     drag = null;
     if (app.editor?.doc.tx === d.tx) d.tx.commit();
   };
+  // A cancelled drag puts the guide back and closes its transaction.
+  const onCancel = (e) => {
+    if (!drag) return;
+    e.stopImmediatePropagation();
+    const d = drag;
+    drag = null;
+    if (app.editor?.doc.tx === d.tx) d.tx.cancel();
+    app.editor?.emit('overlay');
+  };
   app.on('started', () => {
     host().addEventListener('pointerdown', onDown, true);
     host().addEventListener('pointermove', onMove, true);
     host().addEventListener('pointerup', onUp, true);
+    host().addEventListener('pointercancel', onCancel, true);
   });
 }

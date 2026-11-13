@@ -18,7 +18,7 @@ import { newPathStyle } from '../../tools/pen.js';
 import { OP, runGeom, loadGeom } from './engine/index.js';
 import { withBusy, isBusy } from './busy.js';
 import { pressureFunction } from '../brushes/generate.js';
-import { pressureSamples, pressureScale, pressureVaries, smoothPressures, roundBrushOutline, traceRoundStroke } from '../brushes/pressure.js';
+import { pressureSamples, pressureScale, pressureVaries, smoothPressures, roundBrushOutline, GrowingStrokePreview } from '../brushes/pressure.js';
 import { geometryLeaves, shapeOf, styleOf, nodeFromSubpaths, replaceWith, snapshot, unchangedSince, solidKey, insertionPoint, insideLive, expandLiveFirst } from './nodes-io.js';
 
 function withDocTransform(ctx, view, fn) {
@@ -613,6 +613,12 @@ class RoundBrushTool extends Tool {
     this.overlay();
   }
 
+  onLeave() {
+    if (this.pts || !this.cursorPt) return;
+    this.cursorPt = null;
+    this.overlay();
+  }
+
   /** Whether pen pressure changes the brush size along a stroke (the Merge Brush, with its option on). */
   get pressureSize() {
     return false;
@@ -620,6 +626,7 @@ class RoundBrushTool extends Tool {
 
   onPointerDown(e) {
     if (isBusy()) return;
+    this.preview?.reset();
     this.pts = [{ x: e.x, y: e.y }];
     this.pressures = this.pressureSize ? samplePressures({ ...e, native: null }) : null;
     this.alt = e.alt;
@@ -701,17 +708,23 @@ class RoundBrushTool extends Tool {
 
   drawOverlay(ctx, editor) {
     const z = editor.view.zoom;
-    if (this.pts && this.pts.length) {
-      const ps = this.strokePressures();
-      ctx.save();
-      ctx.globalAlpha = 0.45;
-      if (ps) {
-        // The preview is as wide as the pressure makes the stroke.
-        ctx.fillStyle = this.brushColor();
-        traceRoundStroke(ctx, this.pts.map((p) => editor.view.toScreen(p.x, p.y)), ps.map((p) => Math.max(0.5, (this.size * z * pressureScale(p)) / 2)));
-        ctx.fill();
-      } else drawPolyline(ctx, editor, this.pts.length > 1 ? this.pts : [this.pts[0], { x: this.pts[0].x + 0.01, y: this.pts[0].y }], this.brushColor(), Math.max(1, this.size * z));
-      ctx.restore();
+    const ps = this.pts?.length ? this.strokePressures() : null;
+    if (ps) {
+      // The preview is as wide as the pressure makes the stroke.
+      (this.preview ||= new GrowingStrokePreview()).draw(
+        ctx,
+        this.pts.map((p) => editor.view.toScreen(p.x, p.y)),
+        ps.map((p) => Math.max(0.5, (this.size * z * pressureScale(p)) / 2)),
+        { color: this.brushColor(), alpha: 0.45, settled: this.pts.length - 2, key: this.size },
+      );
+    } else {
+      this.preview?.reset();
+      if (this.pts && this.pts.length) {
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        drawPolyline(ctx, editor, this.pts.length > 1 ? this.pts : [this.pts[0], { x: this.pts[0].x + 0.01, y: this.pts[0].y }], this.brushColor(), Math.max(1, this.size * z));
+        ctx.restore();
+      }
     }
     const c = this.cursorPt;
     if (c) {

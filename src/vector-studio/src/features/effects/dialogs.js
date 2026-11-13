@@ -298,9 +298,11 @@ function freeDistortDialog(app, opts) {
           const up = () => {
             g.removeEventListener('pointermove', move);
             g.removeEventListener('pointerup', up);
+      g.removeEventListener('pointercancel', up);
           };
           g.addEventListener('pointermove', move);
           g.addEventListener('pointerup', up);
+          g.addEventListener('pointercancel', up);
         });
         g.addEventListener('keydown', (e) => {
           const step = e.shiftKey ? 0.1 : 0.01;

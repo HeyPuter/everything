@@ -92,10 +92,12 @@ export function createToolStrip(app, { ids, label, x = 80, y = 80, vertical = fa
     const up = () => {
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
       onChange?.({ x: strip.offsetLeft, y: strip.offsetTop });
     };
     head.addEventListener('pointermove', move);
     head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
   });
 
   strip.addEventListener('keydown', (e) => {

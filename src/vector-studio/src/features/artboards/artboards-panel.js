@@ -10,6 +10,7 @@
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton } from '../../ui/widgets.js';
+import { trackPenHover } from '../../ui/pen-direct.js';
 import { icon } from '../../ui/icons.js';
 import { addArtboard, deleteArtboard, reorderArtboard, updateArtboard, duplicateArtboard, artworkOnArtboard } from './artboard-ops.js';
 
@@ -76,6 +77,8 @@ export class ArtboardsPanel extends Panel {
       'aria-description': 'Enter fits the artboard in the window, F2 renames, Alt+Enter opens Artboard Options, Alt+Up and Alt+Down reorder, Delete deletes',
     });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
+    // A hovering pen drags rows; a finger scrolls the list.
+    trackPenHover(this.list, { holding: () => Boolean(this.dragging) });
     this.list.addEventListener('focus', () => this.focusRow(this.app.editor?.activeArtboard ?? 0));
     this.footer = h(
       'div.ab-footer',
@@ -297,18 +300,26 @@ export class ArtboardsPanel extends Panel {
         r.classList.toggle('drop-after', target !== i && gap === rs.length && k === rs.length - 1);
       });
     };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+    const id = e.pointerId;
+    const end = (ev) => {
+      if (ev.pointerId !== id) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      this.dragging = false;
       row.classList.remove('dragging');
-      if (moved && target !== i) {
+      // A drag the browser took over (to scroll the list) moves nothing.
+      if (ev.type === 'pointerup' && moved && target !== i) {
         ed.doc.transact('Reorder Artboards', () => reorderArtboard(ed.doc, i, target));
         ed.setActiveArtboard(target);
       }
       this.update();
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    const onMove = (ev) => ev.pointerId === id && move(ev);
+    this.dragging = true;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
   }
 
   move(dir) {

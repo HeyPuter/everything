@@ -487,7 +487,8 @@ export function drawOverlay(ctx, editor, colors) {
 
   for (const hook of overlayHooks) hook(ctx, editor, colors);
   drawAlignmentGuides(ctx, editor, colors);
-  tool?.drawOverlay?.(ctx, editor, colors);
+  // A tool standing in for one press (the pen's eraser end) draws its feedback instead.
+  (editor.pressTool || tool)?.drawOverlay?.(ctx, editor, colors);
   drawFeedback(ctx, editor);
 }
 

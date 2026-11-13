@@ -98,6 +98,13 @@
   user-select: none;
 }
 
+/* Where dialogs can be moved, a pen or finger drags the title bar instead of panning the page. */
+@media (min-width: 761px) {
+  .dialog-header {
+    touch-action: none;
+  }
+}
+
 .dialog-title {
   margin: 0;
   font-size: var(--fs-title);

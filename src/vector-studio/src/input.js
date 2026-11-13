@@ -11,6 +11,9 @@
  *   starts with one finger never selects or deselects anything.
  * - A touch long press opens the context menu (iPad Safari sends no
  *   contextmenu event for it).
+ * - A pen's eraser end erases with the Eraser tool, whatever the tool.
+ * - Palm rejection: while a pen touches the canvas, touches are ignored, and
+ *   a pen landing ends whatever a touch (a resting palm) had started.
  */
 
 /** How long a single finger waits for a second one before the tool starts. */
@@ -30,6 +33,8 @@ export class CanvasInput {
     this.spaceDown = false;
     this.tempTool = null;
     this.lastClick = { t: 0, x: 0, y: 0 };
+    // Touches ignored because a pen is on the canvas (a palm resting while drawing).
+    this.palms = new Set();
     host.addEventListener('pointerdown', (e) => this.down(e));
     host.addEventListener('pointermove', (e) => this.move(e));
     host.addEventListener('pointerup', (e) => this.up(e));
@@ -79,6 +84,11 @@ export class CanvasInput {
 
   down(e) {
     if (!this.editor) return;
+    if (e.pointerType === 'touch' && this.#penDown()) {
+      this.palms.add(e.pointerId);
+      return;
+    }
+    if (e.pointerType === 'pen') this.#rejectPalms();
     this.host.focus({ preventScroll: true });
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (e.pointerType === 'touch' && this.pointers.size === 2) {
@@ -115,6 +125,38 @@ export class CanvasInput {
       return;
     }
     this.#startTool(e);
+  }
+
+  /** Whether a pen is touching the canvas. */
+  #penDown() {
+    for (const p of this.pointers.values()) if (p.type === 'pen') return true;
+    return false;
+  }
+
+  /**
+   * A pen landed: touches already on the canvas are a palm resting on the
+   * screen (or a hand steadying it), so whatever they started (a press
+   * waiting to start, a tool drag, a pinch, a long press) ends without
+   * effect, and they are ignored until they lift.
+   */
+  #rejectPalms() {
+    let any = false;
+    for (const [id, p] of this.pointers) {
+      if (p.type !== 'touch') continue;
+      any = true;
+      this.pointers.delete(id);
+      this.palms.add(id);
+    }
+    if (!any) return;
+    this.#clearTouchTimers();
+    this.pendingTouch = null;
+    this.touchStart = null;
+    this.longPressed = false;
+    this.gesture = null;
+    if (this.active && !this.pointers.has(this.active.id)) {
+      this.active.tool.cancel?.();
+      this.active = null;
+    }
   }
 
   /** Start the deferred one-finger tool press (it moved, lifted or waited long enough). */
@@ -170,11 +212,35 @@ export class CanvasInput {
     this.#openContextMenu(e);
   }
 
+  /**
+   * The tool for a press of the pen's eraser end: the Eraser (or the Path
+   * Eraser when that is the tool in use), or null for any other press.
+   */
+  #eraserFor(e) {
+    if (e.pointerType !== 'pen' || !(e.button === 5 || e.buttons & 32)) return null;
+    const tool = this.currentTool();
+    if (tool?.id === 'eraser' || tool?.id === 'path-eraser') return tool;
+    return this.app.getTool?.('eraser') || null;
+  }
+
   /** `dragged`: a deferred touch press that started because the finger moved. */
   #startTool(e, dragged = false) {
-    const tool = this.currentTool();
+    const eraser = this.#eraserFor(e);
+    const tool = eraser || this.currentTool();
     if (!tool) return;
     const ev = this.toEvent(e);
+    if (eraser) {
+      // The eraser end presses like the tip: no double-click, and its overlay shows the eraser.
+      ev.button = 0;
+      this.lastClick = { t: 0, x: ev.sx, y: ev.sy };
+      this.active = { id: e.pointerId, tool, last: e };
+      if (tool !== this.currentTool()) {
+        this.editor.pressTool = tool;
+        this.app.setCanvasCursor(tool.cursor);
+      }
+      tool.onPointerDown(ev);
+      return;
+    }
     // Double-click detection that works for pen and touch as well as mouse.
     let dbl = this.#isDoubleClick(e, ev);
     // A second touch press that drags before lifting is a drag, not a double-tap,
@@ -192,7 +258,7 @@ export class CanvasInput {
   }
 
   move(e) {
-    if (!this.editor) return;
+    if (!this.editor || this.palms.has(e.pointerId)) return;
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     if (e.pointerType === 'touch' && this.pointers.has(e.pointerId)) {
       if (this.longPressed) return;
@@ -231,6 +297,7 @@ export class CanvasInput {
   }
 
   up(e) {
+    if (this.palms.delete(e.pointerId)) return;
     if (e.pointerType === 'touch') {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = 0;
@@ -262,18 +329,32 @@ export class CanvasInput {
     if (this.active && this.active.id === e.pointerId) {
       const { tool } = this.active;
       this.active = null;
-      tool.onPointerUp(this.toEvent(e));
+      const ev = this.toEvent(e);
+      if (this.#endPress(tool)) ev.button = 0;
+      tool.onPointerUp(ev);
       this.#applyPendingTempTool();
     }
   }
 
+  /** A press ended: the tool standing in for the pen's eraser end gives way. Returns whether it did. */
+  #endPress(tool) {
+    const ed = this.editor;
+    if (!ed?.pressTool || ed.pressTool !== tool) return false;
+    ed.pressTool = null;
+    this.app.setCanvasCursor(this.currentTool()?.cursor || 'default');
+    ed.emit('overlay');
+    return true;
+  }
+
   cancel(e) {
+    if (this.palms.delete(e.pointerId)) return;
     if (this.pendingTouch?.e.pointerId === e.pointerId) this.pendingTouch = null;
     this.#clearTouchTimers();
     this.longPressed = false;
     this.pointers.delete(e.pointerId);
     if (this.active && this.active.id === e.pointerId) {
       this.active.tool.cancel?.();
+      this.#endPress(this.active.tool);
       this.active = null;
     }
     this.pan = null;
@@ -300,12 +381,16 @@ export class CanvasInput {
     const { tool, last } = this.active;
     this.active = null;
     this.pointers.delete(e.pointerId);
-    tool.onPointerUp(this.toEvent(last));
+    const ev = this.toEvent(last);
+    if (this.#endPress(tool)) ev.button = 0;
+    tool.onPointerUp(ev);
     this.#applyPendingTempTool();
   }
 
   leave() {
     this.app.rulers?.setPointer(null);
+    // Brush outlines that follow the pointer go with it (a pen lifted out of range, a mouse moved off).
+    if (!this.active) this.currentTool()?.onLeave?.();
     if (this.editor && this.editor.hover && !this.active) {
       this.editor.hover = null;
       this.editor.emit('overlay');
