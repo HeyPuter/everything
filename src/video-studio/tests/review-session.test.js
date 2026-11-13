@@ -82,3 +82,47 @@ describe('review video links', () => {
     session.dispose();
   });
 });
+
+describe('review comment acknowledgements', () => {
+  it.each(['edited', 'deleted'])('preserves a synchronized %s comment when an older post acknowledgement arrives', async (state) => {
+    let finish, latest;
+    const call = vi.fn((_, __, { op }) => op === 'comment.add'
+      ? new Promise((resolve) => { finish = resolve; })
+      : Promise.resolve({ changes: [latest], cursor: 2, more: false }));
+    const session = new ReviewSession({ puter: {}, server: 'https://example.test', review: 'review', call });
+    const posting = session.addComment({ version: 1, text: 'Original', t: 0 });
+    const original = { ...[...session.comments.values()][0], pending: false, seq: 1 };
+    latest = { ...original, seq: 2, text: state === 'edited' ? 'Corrected' : '', deleted: state === 'deleted' };
+    await session.sync();
+    finish({ comment: original });await posting;
+    expect(session.comments.get(original.id)).toBe(latest);
+    expect(session.cursor).toBe(2);
+    session.dispose();
+  });
+
+  it('accepts a post already confirmed by sync when its request later fails', async () => {
+    let fail, confirmed;
+    const call = vi.fn((_, __, { op }) => op === 'comment.add'
+      ? new Promise((_, reject) => { fail = reject; })
+      : Promise.resolve({ changes: [confirmed], cursor: 1, more: false }));
+    const session = new ReviewSession({ puter: {}, server: 'https://example.test', review: 'review', call });
+    const posting = session.addComment({ version: 1, text: 'Posted', t: 0 });
+    confirmed = { ...[...session.comments.values()][0], pending: false, seq: 1 };
+    await session.sync();
+    const result = expect(posting).resolves.toBe(confirmed);
+    fail(Object.assign(new Error('Lost response'), { status: 503 }));
+    await result;
+    expect(session.comments.get(confirmed.id)).toBe(confirmed);
+    session.dispose();
+  });
+
+  it('removes an unconfirmed failed post and reports its error', async () => {
+    const error = Object.assign(new Error('Forbidden'), { status: 403 });
+    const call = vi.fn().mockRejectedValue(error);
+    const session = new ReviewSession({ puter: {}, server: 'https://example.test', review: 'review', call });
+    await expect(session.addComment({ version: 1, text: 'Not posted', t: 0 })).rejects.toBe(error);
+    expect(session.comments.size).toBe(0);
+    expect(call).toHaveBeenCalledTimes(1);
+    session.dispose();
+  });
+});

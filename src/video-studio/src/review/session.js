@@ -154,11 +154,14 @@ export class ReviewSession extends Emitter {
     this.emit('change');
     try {
       const r = await this._send('comment.add', { id, version, parent, text, t, end });
-      this.comments.set(id, r.comment);
+      applyChanges(this.comments, [r.comment]);
       this.emit('change');
       return r.comment;
     } catch (err) {
-      if (this.comments.get(id)?.pending) this.comments.delete(id);
+      const current = this.comments.get(id);
+      // Sync may have confirmed this write while its acknowledgement was lost.
+      if (current && !current.pending) return current;
+      if (current?.pending) this.comments.delete(id);
       this.emit('change');
       throw err;
     }
