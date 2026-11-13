@@ -196,6 +196,11 @@ export async function checkSpelling(e: Editor) {
 <footer class="rw-footer sp-footer"><button id="sp-done" type="button">Done</button><span class="rw-spacer"></span><button id="sp-add" type="button" title="Add the word to your dictionary in this browser">Add</button><button id="sp-ignore-all" type="button">Ignore All</button><button id="sp-ignore" type="button">Ignore</button><button id="sp-change-all" type="button">Change All</button><button id="sp-change-one" type="button" class="primary">Change</button></footer>`,
     { modal: false },
   );
+  ws.q('#sp-done').addEventListener('click', ws.close);
+  ws.dialog.addEventListener('keydown', (ev) => {
+    ev.stopPropagation();
+    if (ev.key === 'Escape') ws.close();
+  });
   const status = (t: string) => (ws.q('#sp-status').textContent = t);
   const buttons = [...ws.dialog.querySelectorAll<HTMLButtonElement>('.sp-footer button:not(#sp-done)')];
   const enable = (on: boolean) => buttons.forEach((b) => (b.disabled = !on));
@@ -295,11 +300,6 @@ export async function checkSpelling(e: Editor) {
     }, ids, undefined, { rebase: true, mapIndex: (id, index) => mappings.get(id)?.(index) ?? index });
     current = undefined;
     await next();
-  });
-  ws.q('#sp-done').addEventListener('click', ws.close);
-  ws.dialog.addEventListener('keydown', (ev) => {
-    ev.stopPropagation();
-    if (ev.key === 'Escape') ws.close();
   });
   await next();
   await ws.closed;

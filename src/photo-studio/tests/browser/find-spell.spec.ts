@@ -367,3 +367,37 @@ test('closing Find preserves typing already started during its font wait', async
   await run(page, 'type.commit');
   expect(await layerTexts(page)).toEqual(['teh more text']);
 });
+
+for (const state of ['loading', 'failure']) for (const action of ['Done', 'Escape']) test(`spelling can close with ${action} during dictionary ${state}`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh']);
+  let release: (() => void) | undefined;
+  await page.route('**/dictionaries/en-US.txt.gz', async (route) => {
+    if (state === 'failure') return route.fulfill({ status: 503, body: 'Unavailable' });
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.continue();
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  if (state === 'loading') await expect.poll(() => !!release).toBe(true);
+  else await expect(dlg.locator('#sp-status')).toHaveText('The dictionary could not be loaded (503).');
+  if (action === 'Done') await dlg.getByRole('button', { name: 'Done' }).click();
+  else await dlg.locator('#sp-change').press('Escape');
+  const remainingDialogs = await dlg.count();
+  if (state === 'loading') {
+    const response = page.waitForResponse('**/dictionaries/en-US.txt.gz');
+    release!();
+    await (await response).finished();
+    await idle(page);
+  }
+  expect(remainingDialogs).toBe(0);
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession())).toBe(false);
+  expect(await layerTexts(page)).toEqual(['teh']);
+  if (state === 'failure') {
+    await page.unroute('**/dictionaries/en-US.txt.gz');
+    await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+    await expect(dlg.locator('#sp-word')).toHaveText('teh');
+    await dlg.getByRole('button', { name: 'Done' }).click();
+    await expect(dlg).toHaveCount(0);
+  }
+});
