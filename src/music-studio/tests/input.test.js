@@ -107,6 +107,41 @@ describe('typing keyboard map', () => {
 });
 
 describe('MIDI input', () => {
+  it.each([
+    ['channels', 0x91, 'keyboard-a'],
+    ['devices', 0x90, 'keyboard-b'],
+  ])('keeps overlapping keys held independently across MIDI %s', (_label, status, port) => {
+    const app = fakeApp();
+    const live = new LiveInput(app, null);
+    const midi = new MidiInput(app, live);
+    midi.handle([0x90, 60, 100], 'keyboard-a');
+    midi.handle([status, 60, 100], port);
+    midi.handle([0x80, 60, 0], 'keyboard-a');
+    expect(live.isHeld(60)).toBe(true);
+    expect(app.engine.noteOff).not.toHaveBeenCalled();
+    midi.handle([status - 0x10, 60, 0], port);
+    expect(live.isHeld(60)).toBe(false);
+    expect(app.engine.noteOff).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies sustain and all-notes-off only to their device and MIDI channel', () => {
+    const app = fakeApp();
+    const live = new LiveInput(app, null);
+    const midi = new MidiInput(app, live);
+    midi.handle([0xb0, 64, 127], 'keyboard-a');
+    midi.handle([0x91, 62, 100], 'keyboard-a');
+    midi.handle([0x81, 62, 0], 'keyboard-a');
+    expect(live.isHeld(62)).toBe(false);
+    midi.handle([0x90, 60, 100], 'keyboard-a');
+    midi.handle([0x80, 60, 0], 'keyboard-a');
+    midi.handle([0x90, 64, 100], 'keyboard-b');
+    midi.handle([0xb0, 120, 0], 'keyboard-b');
+    expect(live.isHeld(64)).toBe(false);
+    expect(live.isHeld(60)).toBe(true);
+    midi.handle([0xb0, 64, 0], 'keyboard-a');
+    expect(live.isHeld(60)).toBe(false);
+  });
+
   it('parses note and controller messages', () => {
     expect(parseMidi([0x90, 60, 127])).toMatchObject({ type: 'on', key: 60, vel: 1 });
     expect(parseMidi([0x91, 60, 0])).toMatchObject({ type: 'off', key: 60, channel: 1 });

@@ -22,10 +22,8 @@ export class MidiInput {
     this.app = app;
     this.live = live;
     this.access = null;
-    this.sustain = false;
-    this.physical = new Set(); // keys physically held
-    this.sustained = new Set(); // keys released while the pedal was down
-    this.onMessage = (e) => this.handle(e.data);
+    this.sources = new Map(); // device/channel -> held keys and pedal state
+    this.onMessage = (e) => this.handle(e.data, e.target?.id);
     this.onState = (e) => {
       const port = e.port;
       if (port?.type !== 'input') return;
@@ -70,37 +68,45 @@ export class MidiInput {
     this.releaseAll();
   }
 
-  handle(data) {
+  handle(data, port = 'default') {
     if (!data || data.length < 2) return;
     const m = parseMidi(data);
+    if (m.type === 'other') return;
+    const source = `midi:${JSON.stringify([port, m.channel])}`;
+    let state = this.sources.get(source);
+    if (!state) {
+      state = { port, sustain: false, physical: new Set(), sustained: new Set() };
+      this.sources.set(source, state);
+    }
     if (m.type === 'on') {
-      this.physical.add(m.key);
-      if (this.sustained.has(m.key)) {
-        this.sustained.delete(m.key);
-        this.live.noteOff(m.key, 'midi'); // retrigger a sustained key
+      state.physical.add(m.key);
+      if (state.sustained.has(m.key)) {
+        state.sustained.delete(m.key);
+        this.live.noteOff(m.key, source); // retrigger a sustained key
       }
-      this.live.noteOn(m.key, Math.max(0.02, m.vel), 'midi');
+      this.live.noteOn(m.key, Math.max(0.02, m.vel), source);
     } else if (m.type === 'off') {
-      this.physical.delete(m.key);
-      if (this.sustain) this.sustained.add(m.key);
-      else this.live.noteOff(m.key, 'midi');
+      state.physical.delete(m.key);
+      if (state.sustain) state.sustained.add(m.key);
+      else this.live.noteOff(m.key, source);
     } else if (m.type === 'cc') {
       if (m.cc === SUSTAIN_CC) {
         const on = m.value >= 64;
-        if (on === this.sustain) return;
-        this.sustain = on;
+        if (on === state.sustain) return;
+        state.sustain = on;
         if (!on) {
-          for (const k of this.sustained) if (!this.physical.has(k)) this.live.noteOff(k, 'midi');
-          this.sustained.clear();
+          for (const k of state.sustained) if (!state.physical.has(k)) this.live.noteOff(k, source);
+          state.sustained.clear();
         }
-      } else if (m.cc === 123 || m.cc === 120) this.releaseAll();
+      } else if (m.cc === 123 || m.cc === 120) {
+        this.live.releaseAll(source);
+        this.sources.delete(source);
+      }
     }
   }
 
   releaseAll() {
-    this.physical.clear();
-    this.sustained.clear();
-    this.sustain = false;
-    this.live.releaseAll('midi');
+    for (const source of this.sources.keys()) this.live.releaseAll(source);
+    this.sources.clear();
   }
 }
