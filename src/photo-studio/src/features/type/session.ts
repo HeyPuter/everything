@@ -777,6 +777,7 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 // load, reapply the patch to that text and prepare any newly required faces.
 export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; rebase?: boolean; charPatch?: Partial<CharStyle> } = {}) {
   const owner = e.session;
+  const task = e.idle;
   const ppi = ppiOf(owner.doc);
   const targets = (ids ? ids.map((id) => findLayer(e.doc.layers, id)).filter((l): l is Layer => !!l) : selectedTextLayers(e)).filter((l) => l.kind === 'text');
   if (!targets.length) {
@@ -798,13 +799,18 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
       if (!e.sessions.includes(owner)) return;
       next.set(l.id, { base: t.textData, data });
     }
-    // A composing insertion owns its undo snapshot until compositionend.
-    // Wait for it before recording a separate formatting step, then rebase.
-    if (e.session === owner && session?.composing) await new Promise<void>((resolve) => {
-      const off = onSessionChange(() => {
-        if (e.session !== owner || !session?.composing) { off(); resolve(); }
+    while (e.session === owner) {
+      // A newer dialog owns its preview until it closes. Do not join its
+      // cancellable changes, or wait on the task that invoked this edit.
+      if (e.busy && e.idle !== task) { await e.idle; continue; }
+      // Composition owns its undo snapshot until compositionend.
+      if (!session?.composing) break;
+      await new Promise<void>((resolve) => {
+        const off = onSessionChange(() => {
+          if (e.session !== owner || !session?.composing) { off(); resolve(); }
+        });
       });
-    });
+    }
     if (!e.sessions.includes(owner)) return;
     pending = options.rebase ? allLayers(owner.doc.layers).filter((l) => {
       const prepared = next.get(l.id);

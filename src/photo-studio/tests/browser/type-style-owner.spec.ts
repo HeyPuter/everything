@@ -172,6 +172,66 @@ test('a delayed font waits for composition and keeps its separate undo step', as
   expect(await edited()).toEqual({ text: 'Original', family: 'Inter' });
 });
 
+for (const accept of [false, true]) test(`${accept ? 'accepting' : 'cancelling'} a live warp preview preserves a font that finished during the dialog`, async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+    void e.runCommand('type.warp');
+  });
+  const dialog = page.locator('dialog[open] form.type-warp');
+  await dialog.locator('select[name="style"]').selectOption('flag');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  await dialog.getByRole('button', { name: accept ? 'OK' : 'Cancel', exact: true }).click();
+  await idle(page);
+  const edited = () => page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!;
+    return { family: s.data.content.paragraphs[0].runs[0].style.family, warp: s.data.warp?.style };
+  });
+  expect(await edited()).toEqual({ family: 'Caveat', warp: accept ? 'flag' : undefined });
+  await run(page, 'edit.undo');
+  expect(await edited()).toEqual({ family: 'Inter', warp: accept ? 'flag' : undefined });
+});
+
+test('font formatting invoked by a running command does not wait for its own task', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    void e.run(async () => { await m.applyChar(e, { family: 'Caveat' }); });
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await finishFont(page);
+  expect((await state(page)).at(-1)?.family).toBe('Caveat');
+});
+
+test('a dialog in another document does not delay the originating font edit', async ({ page }) => {
+  const { original, other } = await prepare(page);
+  await pickFont(page);
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.doc.layers.at(-1)!.id, 'all');
+    void e.runCommand('type.warp');
+  });
+  const dialog = page.locator('dialog[open] form.type-warp');
+  await expect(dialog).toBeVisible();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await expect.poll(async () => (await state(page)).find((s) => s.id === original)?.family).toBe('Caveat');
+  expect((await state(page)).find((s) => s.id === other)?.family).toBe('Inter');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await idle(page);
+});
+
 test('a pending font choice preserves text committed while its download is delayed', async ({ page }) => {
   await prepare(page);
   await pickFont(page);
