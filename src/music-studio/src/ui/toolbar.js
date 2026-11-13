@@ -157,15 +157,18 @@ export function createToolbar(app) {
     input.focus();
     input.select();
     let done = false;
-    const close = (apply) => {
+    let untrack;
+    const close = (apply, restoreFocus = true) => {
       if (done) return;
       done = true;
+      untrack?.();
       const v = Number(input.value.replace(',', '.'));
       if (apply && Number.isFinite(v) && v > 0) setBpm(v);
       tempo.replaceChildren(tempoValue, h('span.tempo-unit', 'BPM'));
-      tempo.focus();
+      if (restoreFocus) tempo.focus();
       syncTempo();
     };
+    untrack = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') close(true);

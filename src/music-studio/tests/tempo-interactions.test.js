@@ -91,3 +91,48 @@ it('does not overwrite or finish another edit that supersedes a tempo drag', () 
   expect(store.gesture === gesture).toBe(true);
   store.cancel();
 });
+
+function typeTempo(tempo, value = '147,5') {
+  tempo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  const input = tempo.querySelector('input');
+  expect(input).not.toBeNull();
+  input.value = value;
+  return input;
+}
+
+it.each(['replacement', 'undo', 'redo'])('discards a typed tempo after %s', (action) => {
+  const { store, tempo } = setup();
+  if (action !== 'replacement') store.apply('Earlier tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
+  if (action === 'redo') store.undo();
+  const input = typeTempo(tempo);
+  if (action === 'replacement') store.load({ ...structuredClone(store.project), bpm: 99 });
+  else store[action]();
+  const restored = store.project;
+  const history = store.undoStack.length;
+  const stayedOpen = input.isConnected;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(store.project.bpm).toBe(restored.bpm);
+  expect(store.project).toBe(restored);
+  expect(store.undoStack).toHaveLength(history);
+  expect(stayedOpen).toBe(false);
+  expect(tempo.getAttribute('aria-valuenow')).toBe(String(restored.bpm));
+});
+
+it.each(['Enter', 'Escape', 'blur'])('preserves ordinary typed tempo with %s across an unrelated edit', (action) => {
+  const { store, tempo } = setup();
+  const input = typeTempo(tempo);
+  store.apply('Mute track', (p) => E.updateTrack(p, 0, { mute: true }));
+  const before = store.project;
+  expect(input.isConnected).toBe(true);
+  if (action === 'blur') input.blur();
+  else input.dispatchEvent(new KeyboardEvent('keydown', { key: action, bubbles: true }));
+  expect(input.isConnected).toBe(false);
+  expect(document.activeElement).toBe(tempo);
+  if (action === 'Escape') expect(store.project).toBe(before);
+  else {
+    expect(store.project.bpm).toBe(147.5);
+    expect(store.project.tracks[0].mute).toBe(true);
+    store.undo();
+    expect(store.project).toBe(before);
+  }
+});
