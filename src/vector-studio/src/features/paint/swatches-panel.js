@@ -17,6 +17,7 @@ import { iconButton, paintSwatch, updatePaintSwatch } from '../../ui/widgets.js'
 import { trackPenHover } from '../../ui/pen-direct.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { previewSession } from '../../ui/dialogs/preview-session.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
 import { applyStyle } from '../../ops/paint-ops.js';
 import { isHex, normalizeHex } from '../../lib/color.js';
@@ -41,7 +42,7 @@ import { setStop, moveStop, reverseGradient, setGradientType, gradientAngle, set
  * and location), angle and aspect ratio; pattern swatches show their tile
  * and open pattern editing.
  */
-export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onPreview }) {
+export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onPreview, onOpen }) {
   const paint = swatch.paint;
   const isSolid = paint?.type === 'solid';
   const isGrad = isGradient(paint);
@@ -110,7 +111,10 @@ export function swatchOptionsDialog(app, { title = 'Swatch Options', swatch, onP
     className: 'swatch-options',
     initialFocus: () => name,
     // The Edit Pattern button closes the dialog with that action.
-    onOpen: ({ close: done }) => (close = (action) => done(result(action))),
+    onOpen: (context) => {
+      close = (action) => context.close(result(action));
+      onOpen?.(context);
+    },
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', primary: true, value: () => result() },
@@ -751,19 +755,20 @@ export class SwatchesPanel extends Panel {
     const sw = findSwatch(doc, id);
     if (!sw) return;
     // Preview runs inside an open transaction that Cancel rolls back.
-    const tx = doc.begin('Swatch Options');
+    const session = previewSession(this.app, ed, 'Swatch Options');
     const preview = (r) => {
+      if (!session.check()) return;
       updateSwatch(doc, id, r ? { paint: r.paint, global: sw.global } : { paint: sw.paint, global: sw.global });
     };
     let res = null;
     try {
-      res = await swatchOptionsDialog(this.app, { swatch: sw, onPreview: sw.global && sw.paint?.type === 'solid' ? preview : null });
+      res = await swatchOptionsDialog(this.app, { swatch: sw, onPreview: sw.global && sw.paint?.type === 'solid' ? preview : null, onOpen: session.onOpen });
+      if (!res || !session.check()) return;
+      updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.paint?.type === 'solid' ? res.mode : undefined });
+      if (!session.commit()) return;
     } finally {
-      if (!res) tx.cancel();
+      session.dispose();
     }
-    if (!res) return;
-    updateSwatch(doc, id, { name: res.name, paint: res.paint, global: res.global || undefined, spot: res.spot || undefined, mode: res.paint?.type === 'solid' ? res.mode : undefined });
-    tx.commit();
     if (sw.global && swatchUsage(doc, id)) this.app.notify(`Updated objects using "${res.name}".`, { polite: true });
     if (res.action === 'editPattern' && sw.paint?.type === 'pattern') this.app.commands.run('pattern.edit', { patternId: sw.paint.id });
   }
