@@ -62,8 +62,8 @@ export function installType(e: Editor) {
   );
   contributeMenu('edit', ['edit.check-spelling', 'edit.find-replace-text'], 'edit.search');
   installPathType(e);
-  // Any other command ends the editing session first, so its edit (or an
-  // undo) applies to committed text rather than to the live draft.
+  // Commands outside text editing commit the draft first. Find works with
+  // the live selection and commits it itself when replacing across layers.
   // Edit › Undo and Redo (menu bar, History menus) step through the text
   // edits while there are any, as Mod+Z does in the text.
   const textStep = (id: string) => {
@@ -83,7 +83,7 @@ export function installType(e: Editor) {
       focusInput(e);
       return;
     }
-    if (session && commands.has(id) && !/^(type|window|view|help)\./.test(id)) await commit(e);
+    if (session && commands.has(id) && id !== 'edit.find-replace-text' && !/^(type|window|view|help)\./.test(id)) await commit(e);
     return run(id, arg);
   };
   e.onUpdate(() => {

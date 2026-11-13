@@ -950,3 +950,126 @@ test('Ignore choices made while bulk spelling waits follow the completed correct
   await run(page, 'edit.redo');
   expect(await layerTexts(page)).toEqual(['words', 'words teh']);
 });
+
+for (const reverse of [false, true]) test(`Find opens with the ${reverse ? 'backward' : 'forward'} text selection as its query`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['first dog dog']);
+  await page.evaluate(async (reverse) => {
+    const e = window.photoStudio;
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    e.setTool('type');
+    await m.startEdit(e, e.doc.layers[0].id, 'end');
+    m.setSelection(e, reverse ? 9 : 6, reverse ? 6 : 9);
+    Object.assign(window, { editBeforeFind: m.currentSession() });
+  }, reverse);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  expect(await dlg.locator('#fr-find').inputValue()).toBe('dog');
+  expect(await page.evaluate(() => (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession() === (window as unknown as { editBeforeFind: unknown }).editBeforeFind)).toBe(true);
+  await dlg.locator('#fr-change').fill('cat');
+  await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+  await run(page, 'type.commit');
+  expect(await layerTexts(page)).toEqual(['first cat dog']);
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['first dog dog']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(['first cat dog']);
+});
+
+for (const action of ['Done', 'Change', 'Change All']) test(`Find preserves draft text and undo before ${action}`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['first dog']);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers[0].id, 'end');
+  });
+  await page.keyboard.insertText(' dog');
+  const history = await page.evaluate(() => {
+    const e = window.photoStudio;
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    m.setSelection(e, 10, 13);
+    return e.history.labels;
+  });
+  if (action === 'Done') {
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    await page.locator('.menubar-entry.open > .menu-pop > .menu-item').filter({ has: page.locator(':scope > .menu-label', { hasText: 'Find and Replace Text' }) }).first().click();
+  } else await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await expect(dlg.locator('#fr-find')).toHaveValue('dog');
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+  if (action === 'Done') {
+    await dlg.getByRole('button', { name: 'Done' }).click();
+    await run(page, 'type.cancel');
+    expect(await layerTexts(page)).toEqual(['first dog']);
+    expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+    return;
+  }
+  await dlg.locator('#fr-change').fill('cat');
+  await dlg.getByRole('button', { name: action, exact: true }).click();
+  await idle(page);
+  if (action === 'Change') {
+    expect(await layerTexts(page)).toEqual(['first dog cat']);
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['first dog dog']);
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['first dog']);
+    await run(page, 'edit.redo');
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual(['first dog cat']);
+    expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(history);
+    await run(page, 'type.commit');
+  } else {
+    expect(await layerTexts(page)).toEqual(['first cat cat']);
+    expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(history.length + 2);
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['first dog dog']);
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['first dog']);
+    await run(page, 'edit.redo');
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual(['first cat cat']);
+  }
+});
+
+for (const selection of ['caret', 'multiple lines']) test(`Find retains the saved query for a ${selection} selection`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['first\nsecond']);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('saved query');
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  await page.evaluate(async (selection) => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startEdit(e, e.doc.layers[0].id, selection === 'caret' ? 'end' : 'all');
+  }, selection);
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  await expect(dlg.locator('#fr-find')).toHaveValue('saved query');
+  expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession())).toBe(true);
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  await run(page, 'type.cancel');
+  expect(await layerTexts(page)).toEqual(['first\nsecond']);
+});
+
+test('opening Find on newly typed text leaves the new layer cancellable', async ({ page }) => {
+  await boot(page);
+  await textDoc(page, []);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.setTool('type');
+    await (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.startNew(e, { x: 40, y: 80, vertical: false, mask: false });
+  });
+  await page.keyboard.insertText('dog');
+  await page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    m.setSelection(window.photoStudio, 0, 3);
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await expect(dlg.locator('#fr-find')).toHaveValue('dog');
+  await dlg.getByRole('button', { name: 'Done' }).click();
+  await run(page, 'type.cancel');
+  expect(await layerTexts(page)).toEqual([]);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+});
