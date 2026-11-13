@@ -7,6 +7,7 @@
 import { h } from '../lib/dom.js';
 import { formatDb, formatPan } from '../lib/util.js';
 import { createKnob } from '../ui/knob.js';
+import { parseGain } from '../mixer/db.js';
 import { icon } from '../ui/icons.js';
 import { cssVar } from '../ui/theme.js';
 import { STEP } from '../model/time.js';
@@ -43,7 +44,7 @@ export class RackRow {
   }
 
   build(ch) {
-    const knob = (param, fmt, label) =>
+    const knob = (param, fmt, label, parse) =>
       createKnob({
         param,
         value: ch[param.id],
@@ -52,12 +53,13 @@ export class RackRow {
         size: 20,
         showLabel: false,
         format: fmt,
+        parse,
         onStart: () => this.view.knob(this.id, param.id, 'start'),
         onInput: (v) => this.view.knob(this.id, param.id, 'input', v),
         onEnd: (v) => this.view.knob(this.id, param.id, 'end', v),
       });
     this.pan = knob(PAN, formatPan, 'Pan');
-    this.vol = knob(VOLUME, formatDb, 'Volume');
+    this.vol = knob(VOLUME, formatDb, 'Volume', parseGain);
     for (const k of [this.pan, this.vol]) {
       k.el.tabIndex = -1;
       k.el.classList.add('rack-knob');

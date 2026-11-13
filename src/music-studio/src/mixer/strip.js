@@ -14,7 +14,7 @@ import { formatPan } from '../lib/util.js';
 import { createKnob } from '../ui/knob.js';
 import { icon } from '../ui/icons.js';
 import { createFader } from './fader.js';
-import { shortGain, formatGain, MAX_GAIN } from './db.js';
+import { shortGain, formatGain, parseGain, MAX_GAIN } from './db.js';
 
 const PAN = { id: 'pan', label: 'Pan', min: -1, max: 1, def: 0 };
 const WIDTH = { id: 'width', label: 'Width', min: 0, max: 2, def: 1, unit: '%' };
@@ -50,7 +50,7 @@ export function createStrip(ctx, index) {
   const muteBtn = h('button.led.mx-mute', { type: 'button' });
   const soloBtn = h('button.mx-solo', { type: 'button' }, 'S');
   const sendBtn = h('button.mx-send-btn', { type: 'button' }, icon('arrow-up', 12));
-  const sendKnob = createKnob({ param: SEND, size: 20, showLabel: false, label: 'Send level', format: (v) => formatGain(v), onStart: (cancel) => sendG?.onStart(cancel), onInput: (v) => sendG?.onInput(v), onEnd: (v) => sendG?.onEnd(v) });
+  const sendKnob = createKnob({ param: SEND, size: 20, showLabel: false, label: 'Send level', format: (v) => formatGain(v), parse: parseGain, onStart: (cancel) => sendG?.onStart(cancel), onInput: (v) => sendG?.onInput(v), onEnd: (v) => sendG?.onEnd(v) });
   sendKnob.el.classList.add('mx-send-knob');
   const sendNote = h('span.mx-send-note');
   const sendRow = h('div.mx-send', sendBtn, sendKnob.el, sendNote);

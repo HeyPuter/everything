@@ -16,6 +16,7 @@ import { COLORS, channelById } from '../model/project.js';
 import { INSTRUMENTS, defaultParams } from '../instruments/catalog.js';
 import { SYNTH_PRESETS, DRUM_PRESETS } from '../instruments/presets.js';
 import { createKnob } from '../ui/knob.js';
+import { parseGain } from '../mixer/db.js';
 import { openWindow, getWindow } from '../ui/windows.js';
 import { openMenu } from '../ui/menu.js';
 import { icon } from '../ui/icons.js';
@@ -489,7 +490,7 @@ class ChannelEditor {
 
   // ---------------------------------------------------------------- channel page
 
-  channelKnob(param, format, target = param.id) {
+  channelKnob(param, format, target = param.id, parse) {
     const id = this.id;
     const k = createKnob({
       param,
@@ -498,6 +499,7 @@ class ChannelEditor {
       ariaLabel: `Channel ${param.label.toLowerCase()}`,
       size: 38,
       format,
+      parse,
       onStart: () => this.store.begin(`Channel ${param.label.toLowerCase()}`),
       onInput: (v) => {
         this.store.preview((p) => E.updateChannel(p, id, { [param.id]: v }));
@@ -515,7 +517,7 @@ class ChannelEditor {
     const id = this.id;
     const knobs = h(
       'div.ed-knobs',
-      this.channelKnob(VOLUME, formatDb),
+      this.channelKnob(VOLUME, formatDb, 'volume', parseGain),
       this.channelKnob(PAN, formatPan),
       this.channelKnob(PITCH, null),
       this.channelKnob(ROOT, null, null),

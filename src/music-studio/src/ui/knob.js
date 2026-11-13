@@ -46,7 +46,7 @@ function arcPath(cx, cy, r, a0, a1) {
   return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${large} ${sweep} ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 }
 
-export function createKnob({ param, value = param.def, label = param.label, ariaLabel, size = 28, color, showLabel = true, format, onStart, onInput, onEnd, menuItems }) {
+export function createKnob({ param, value = param.def, label = param.label, ariaLabel, size = 28, color, showLabel = true, format, parse, onStart, onInput, onEnd, menuItems }) {
   const fmt = format || ((v) => formatParam(param, v));
   const bipolar = param.min < 0 && param.max > 0;
   const ns = 'http://www.w3.org/2000/svg';
@@ -259,7 +259,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       done = true;
       untrackInput?.();
       if (apply) {
-        const parsed = parseParam(param, input.value);
+        const parsed = parse ? parse(input.value) : parseParam(param, input.value);
         if (parsed !== null) {
           change(parsed, { readoutOn: false });
           finish();

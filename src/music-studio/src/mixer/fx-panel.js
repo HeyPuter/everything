@@ -15,7 +15,7 @@ import { EFFECTS } from '../effects/catalog.js';
 import { effectPresetController } from '../effects/ui/presets.js';
 import { IS_MAC } from '../lib/util.js';
 import { MAX_FX_SLOTS, dropIndex } from './slots.js';
-import { formatGain, MAX_GAIN } from './db.js';
+import { formatGain, parseGain, MAX_GAIN } from './db.js';
 import { sendsOf, sourcesOf, channelsFeeding, canRoute, trackLabel } from './routing.js';
 
 const MIX = { id: 'mix', label: 'Mix', min: 0, max: 1, def: 1, unit: '%' };
@@ -316,7 +316,7 @@ export function createFxPanel(ctx) {
         ...sends.map((s) => {
           const t = p.mixer[s.index];
           const g = ctl.routeGesture(i, s.index);
-          const knob = createKnob({ param: SEND, size: 20, showLabel: false, label: `Send level to ${trackLabel(p, s.index)}`, format: (v) => formatGain(v), ...g });
+          const knob = createKnob({ param: SEND, size: 20, showLabel: false, label: `Send level to ${trackLabel(p, s.index)}`, format: (v) => formatGain(v), parse: parseGain, ...g });
           const label = h('button.mx-route-name', { type: 'button', title: 'Select this insert' }, h('span.mx-dot', { style: { background: t.color || 'var(--faint)' } }), trackLabel(p, s.index));
           label.addEventListener('click', () => ctx.select(s.index, { focus: true }));
           const val = h('span.mx-route-val');
