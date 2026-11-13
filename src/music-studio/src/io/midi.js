@@ -25,6 +25,10 @@ class Reader {
     return this.p >= this.end;
   }
 
+  require(n) {
+    if (n > this.end - this.p) throw new Error('The MIDI file is truncated.');
+  }
+
   u8() {
     if (this.p >= this.end) throw new Error('The MIDI file is truncated.');
     return this.b[this.p++];
@@ -74,6 +78,8 @@ export function readMidi(buffer) {
   const r = new Reader(bytes);
   if (bytes.length < 14 || r.str(4) !== 'MThd') throw new Error('The file is not a Standard MIDI File.');
   const hdrLen = r.u32();
+  if (hdrLen < 6) throw new Error('The MIDI file is damaged (invalid header length).');
+  r.require(hdrLen);
   const format = r.u16();
   const ntrks = r.u16();
   const division = r.u16();
@@ -84,10 +90,12 @@ export function readMidi(buffer) {
   const tracks = [];
   const tempos = [];
   const sigs = [];
-  for (let t = 0; t < ntrks && r.p + 8 <= bytes.length; t++) {
+  for (let t = 0; t < ntrks; t++) {
+    r.require(8);
     const id = r.str(4);
     const len = r.u32();
-    const end = Math.min(bytes.length, r.p + len);
+    r.require(len);
+    const end = r.p + len;
     if (id !== 'MTrk') {
       r.p = end;
       t--;
@@ -120,6 +128,7 @@ function readTrack(r, tempos, sigs) {
     if (b === 0xff) {
       const type = r.u8();
       const len = r.vlq();
+      r.require(len);
       const at = r.p;
       if (type === 0x03 && !track.name) track.name = latin1(r, len).trim();
       else if (type === 0x51 && len >= 3) {
@@ -133,6 +142,7 @@ function readTrack(r, tempos, sigs) {
     }
     if (b === 0xf0 || b === 0xf7) {
       const len = r.vlq();
+      r.require(len);
       r.p += len;
       continue;
     }
