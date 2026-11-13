@@ -176,6 +176,87 @@ describe('channel rack panel', () => {
     expect(store.project.bpm).toBe(130);
   });
 
+  function typedInsert() {
+    vi.useFakeTimers();
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const control = insertControl();
+    control.spin.focus();
+    return {
+      ...control,
+      press: (key) => control.spin.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })),
+      advance: (ms) => { now += ms; vi.advanceTimersByTime(ms); },
+    };
+  }
+
+  it.each(['load', 'undo', 'redo', 'blur', 'arrow', 'wheel', 'pointer'])('starts a fresh typed assignment after %s instead of reusing a stale digit', (action) => {
+    const store = app.store;
+    const { spin, send, press, advance } = typedInsert();
+    if (action === 'undo' || action === 'redo') {
+      store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+      if (action === 'redo') store.undo();
+    }
+    press('1'); // Matches the current insert: no model gesture starts.
+    expect(store.project.channels[0].mixer).toBe(1);
+    if (action === 'load') store.load(structuredClone(store.project));
+    else if (action === 'undo' || action === 'redo') store[action]();
+    else if (action === 'blur') { spin.blur(); spin.focus(); }
+    else if (action === 'arrow') press('ArrowUp');
+    else if (action === 'wheel') spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    else { send('pointerdown'); send('pointermove', 292); send('pointerup', 292); }
+    advance(100);
+    press('3');
+    expect(store.project.channels[0].mixer).toBe(3);
+    spin.blur();
+    expect(Boolean(store.gesture)).toBe(false);
+  });
+
+  it('clears a typed assignment prefix on load after its edit has already committed', () => {
+    const { spin, press, advance } = typedInsert();
+    const store = app.store;
+    press('2');
+    advance(500); // The 450ms edit ended, but the 700ms typing interval has not.
+    expect(Boolean(store.gesture)).toBe(false);
+    expect(store.undoStack).toHaveLength(1);
+    store.load(structuredClone(store.project));
+    press('3');
+    expect(store.project.channels[0].mixer).toBe(3);
+    spin.blur();
+    store.undo();
+    expect(store.project.channels[0].mixer).toBe(2);
+  });
+
+  it.each([100, 500, 699, 701])('preserves the normal typing interval for digits %i ms apart', (delay) => {
+    const { spin, press, advance } = typedInsert();
+    press('1');
+    advance(delay);
+    press('2');
+    expect(app.store.project.channels[0].mixer).toBe(delay < 700 ? 12 : 2);
+    spin.blur();
+    expect(app.store.undoStack).toHaveLength(1);
+    app.store.undo();
+    expect(app.store.project.channels[0].mixer).toBe(1);
+  });
+
+  it('continues normal multi-digit assignment after the first digit has committed', () => {
+    const store = app.store;
+    const project = structuredClone(store.project);
+    project.channels[0].mixer = 2;
+    store.load(project);
+    const { spin, press, advance } = typedInsert();
+    press('1');
+    advance(500);
+    expect(store.undoStack).toHaveLength(1);
+    press('2');
+    expect(store.project.channels[0].mixer).toBe(12);
+    spin.blur();
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project.channels[0].mixer).toBe(1);
+    store.undo();
+    expect(store.project === project).toBe(true);
+  });
+
   it('renders a row per channel with 16 steps', () => {
     expect(view.grid.querySelectorAll('.rack-row')).toHaveLength(4);
     expect(rowEl(0).querySelectorAll('.step')).toHaveLength(16);

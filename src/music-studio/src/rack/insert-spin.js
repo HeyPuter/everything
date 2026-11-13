@@ -21,14 +21,20 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   let stopDrag = null;
   let typed = '';
   let typedAt = 0;
+  let typedTimer = 0;
   let untrack = null;
   const watch = () => { untrack ||= trackParameterInteraction(cancel); };
   const unwatch = () => { untrack?.(); untrack = null; };
+  const resetTyped = () => {
+    clearTimeout(typedTimer);
+    typed = '';
+    if (!active && !stopDrag) unwatch();
+  };
   function cancel() {
     clearTimeout(endTimer);
     active = false;
     stopDrag?.();
-    typed = '';
+    resetTyped();
     unwatch();
   }
 
@@ -48,7 +54,9 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     onStart?.();
   };
   const finish = () => {
-    unwatch();
+    // Digit entry lasts longer than the edit timer; keep that prefix tied
+    // to the current document even when typing has not changed the value.
+    if (!typed && !stopDrag) unwatch();
     clearTimeout(endTimer);
     if (!active) return;
     active = false;
@@ -72,6 +80,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     e.preventDefault();
     e.stopPropagation();
     el.focus({ preventScroll: true });
+    resetTyped();
     watch();
     el.setPointerCapture?.(e.pointerId);
     const y0 = e.clientY;
@@ -104,6 +113,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     'wheel',
     (e) => {
       e.preventDefault();
+      resetTyped();
       change(v + (e.deltaY < 0 ? 1 : -1));
       deferEnd();
     },
@@ -113,6 +123,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   el.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     let handled = true;
+    if (['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) resetTyped();
     switch (e.key) {
       case 'ArrowUp':
       case 'ArrowRight':
@@ -139,6 +150,9 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
           const now = performance.now();
           typed = now - typedAt < 700 ? typed + e.key : e.key;
           typedAt = now;
+          clearTimeout(typedTimer);
+          typedTimer = setTimeout(resetTyped, 700);
+          watch();
           change(Number(typed));
         } else handled = false;
     }
@@ -148,7 +162,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
       deferEnd();
     }
   });
-  el.addEventListener('blur', () => { stopDrag?.(); finish(); });
+  el.addEventListener('blur', () => { stopDrag?.(); resetTyped(); finish(); });
 
   draw();
   return {
