@@ -6,6 +6,7 @@
  */
 import { h } from '../../lib/dom.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { previewSession } from '../../ui/dialogs/preview-session.js';
 import { formatLength, parseLength, parseNumber } from '../../lib/units.js';
 import { EFFECTS, normalizeEffect, createEffect } from '../paint/effects-model.js';
 import { effectTargets, rememberEffect, effectsOf, effectsPatch } from '../paint/effects-ui.js';
@@ -50,8 +51,9 @@ export async function openEffectDialog(app, type, { params = null, edit = null, 
   // A new Roughen or Scribble gets its own randomness unless repeating a known one.
   if (!existing && !params?.seed && def.init) start = createEffect(type, { ...start, seed: 0 });
   const originals = new Map(targets.map((n) => [n.id, effectsOf(n, slot)]));
-  const tx = doc.begin(def.label);
+  const session = previewSession(app, ed, def.label);
   const apply = (fx) => {
+    if (!session.check()) return;
     for (const [id, orig] of originals) {
       let list;
       if (edit) {
@@ -80,15 +82,15 @@ export async function openEffectDialog(app, type, { params = null, edit = null, 
     bounds: selectionBounds(doc, targets.map((n) => n.id), false) || { x: 0, y: 0, w: 100, h: 100 },
     changed,
   };
-  ui = build(ctx);
-  const previewBox = h('input', { type: 'checkbox', id: nextId('fx-preview'), checked: preview });
-  previewBox.addEventListener('change', () => {
-    preview = previewPref(app, previewBox.checked);
-    refresh();
-  });
-  const previewRow = h('label.fx-preview-toggle', { for: previewBox.id }, previewBox, 'Preview');
   let res = null;
   try {
+    ui = build(ctx);
+    const previewBox = h('input', { type: 'checkbox', id: nextId('fx-preview'), checked: preview });
+    previewBox.addEventListener('change', () => {
+      preview = previewPref(app, previewBox.checked);
+      refresh();
+    });
+    const previewRow = h('label.fx-preview-toggle', { for: previewBox.id }, previewBox, 'Preview');
     res = await openDialog({
       title: title || def.label,
       className: `fx-dialog ${className}`.trim(),
@@ -98,24 +100,21 @@ export async function openEffectDialog(app, type, { params = null, edit = null, 
         { label: 'OK', primary: true, value: () => read(), validate: () => !ui.validate || ui.validate() },
       ],
       initialFocus: ui.focus,
-      onOpen: ({ footer }) => {
-        footer.prepend(previewRow);
+      onOpen: (context) => {
+        session.onOpen(context);
+        context.footer.prepend(previewRow);
         refresh();
       },
     });
-  } catch (err) {
-    tx.cancel();
-    throw err;
+    if (!res || !session.check()) return false;
+    apply(res);
+    if (!session.commit()) return false;
+    app.lastEffects = { ...(app.lastEffects || {}), [type]: res };
+    rememberEffect(app, res);
+    return true;
+  } finally {
+    session.dispose();
   }
-  if (!res) {
-    tx.cancel();
-    return false;
-  }
-  apply(res);
-  tx.commit();
-  app.lastEffects = { ...(app.lastEffects || {}), [type]: res };
-  rememberEffect(app, res);
-  return true;
 }
 
 /** Add an effect without a dialog (Outline Stroke, Crop Marks, Pathfinder effects). */

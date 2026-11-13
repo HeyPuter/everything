@@ -8,6 +8,7 @@
  */
 import { EFFECTS, createEffect, normalizeEffect, effectLabel } from './effects-model.js';
 import { BLEND_MODES } from '../../render/draw.js';
+import { previewSession } from '../../ui/dialogs/preview-session.js';
 import { BLEND_LABELS } from '../../ui/panels/properties.js';
 import { effectItemIndex, effectsOf, effectsPatch } from './appearance-ops.js';
 
@@ -106,8 +107,9 @@ export async function effectDialog(app, type, { params = null, edit = null } = {
   const start = normalizeEffect({ type, ...(params || (edit ? effectsOf(targets[0], slot)[edit.index] : null) || app.lastEffects?.[type] || EFFECTS[type].defaults) });
   const originals = new Map(targets.map((n) => [n.id, effectsOf(n, slot)]));
   const label = EFFECTS[type].label;
-  const tx = doc.begin(label);
+  const session = previewSession(app, ed, label);
   const apply = (fx) => {
+    if (!session.check()) return;
     for (const [id, orig] of originals) {
       let list;
       if (edit) {
@@ -123,22 +125,19 @@ export async function effectDialog(app, type, { params = null, edit = null } = {
       title: label,
       fields: [...effectFields(type, start), { key: 'preview', label: 'Preview', type: 'checkbox', value: true }],
       previewToggle: true,
+      onOpen: session.onOpen,
       onChange: (v) => apply(v.preview ? effectFromValues(type, v) : null),
     });
-  } catch (err) {
-    tx.cancel();
-    throw err;
+    if (!res || !session.check()) return false;
+    const fx = effectFromValues(type, res);
+    apply(fx);
+    if (!session.commit()) return false;
+    app.lastEffects = { ...(app.lastEffects || {}), [type]: fx };
+    rememberEffect(app, fx);
+    return true;
+  } finally {
+    session.dispose();
   }
-  if (!res) {
-    tx.cancel();
-    return false;
-  }
-  const fx = effectFromValues(type, res);
-  apply(fx);
-  tx.commit();
-  app.lastEffects = { ...(app.lastEffects || {}), [type]: fx };
-  rememberEffect(app, fx);
-  return true;
 }
 
 /** Add an effect record to the selection without a dialog. */
