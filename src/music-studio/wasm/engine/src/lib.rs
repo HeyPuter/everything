@@ -161,6 +161,7 @@ const EV_ALL_HARD: u8 = 2;
 const EV_ON: u8 = 3;
 const EV_AUDIO: u8 = 4;
 const EV_CLICK: u8 = 5;
+const EV_AUDIO_AT: u8 = 6;
 
 struct Click {
     phase: f32,
@@ -310,6 +311,7 @@ impl Engine {
             (Inst::Sampler(x), EV_OFF) => x.note_off(ev.id),
             (Inst::Audio(x), EV_ON) => x.play(ev.id, 0.0, ev.vel, samples),
             (Inst::Audio(x), EV_AUDIO) => x.play(ev.id, ev.pan, ev.vel, samples),
+            (Inst::Audio(x), EV_AUDIO_AT) => x.play_at(ev.id, ev.pan, ev.vel, samples),
             (Inst::Audio(x), EV_OFF) => x.stop(ev.id),
             _ => {}
         }
@@ -350,7 +352,7 @@ impl Engine {
         }
         for i in 0..self.events.len() {
             let ev = self.events[i];
-            if ev.kind == EV_ON || ev.kind == EV_AUDIO {
+            if ev.kind == EV_ON || ev.kind == EV_AUDIO || ev.kind == EV_AUDIO_AT {
                 if let Some(ch) = self.channels.get_mut(ev.slot as usize) {
                     ch.live = true;
                 }
@@ -779,6 +781,17 @@ pub extern "C" fn ch_note_off(slot: u32, id: u32, offset: u32) {
 pub extern "C" fn ch_audio_on(slot: u32, id: u32, start: f32, gain: f32, offset: u32) {
     if let Some(e) = eng() {
         e.push(Event { offset, kind: EV_AUDIO, slot, id, key: 0, vel: gain, pan: if start.is_finite() { start } else { 0.0 } });
+    }
+}
+
+/// Queues a resumed audio clip at an absolute position in source seconds.
+#[no_mangle]
+pub extern "C" fn ch_audio_at(slot: u32, id: u32, position: f32, gain: f32, offset: u32) {
+    if !position.is_finite() || position < 0.0 {
+        return;
+    }
+    if let Some(e) = eng() {
+        e.push(Event { offset, kind: EV_AUDIO_AT, slot, id, key: 0, vel: gain, pan: position });
     }
 }
 

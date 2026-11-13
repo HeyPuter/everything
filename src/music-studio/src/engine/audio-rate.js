@@ -6,6 +6,7 @@ import { toNorm } from '../lib/params.js';
 import { curveShape } from '../automation/evaluate.js';
 
 export const AUDIO_TUNE = INSTRUMENTS.audio.params.findIndex((p) => p.id === 'tune');
+export const AUDIO_REVERSE = INSTRUMENTS.audio.params.findIndex((p) => p.id === 'reverse');
 
 export function audioPlaybackRate(tune = 0, pitch = 0, master = 0) {
   const semitones = tune + (pitch + master) / 100;

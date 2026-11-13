@@ -11,7 +11,7 @@ const RATE = 48000;
 const module = new WebAssembly.Module(fs.readFileSync(path.resolve(import.meta.dirname, '../src/engine/engine.wasm')));
 const sample = Float32Array.from({ length: RATE }, (_, i) => Math.sin(2 * Math.PI * 400 * i / RATE) * (i < RATE / 2 ? 0.2 : 0.8));
 
-function setup({ tune = 12, pitch = 0, master = 0, reverse = 0, offset = 0, mute = false, tempo = false, automatedTune = null } = {}) {
+function setup({ tune = 12, pitch = 0, master = 0, reverse = 0, offset = 0, mute = false, tempo = false, automatedTune = null, reverseAutomation = null } = {}) {
   const p = createProject();
   p.bpm = 120;
   p.masterPitch = master;
@@ -26,6 +26,11 @@ function setup({ tune = 12, pitch = 0, master = 0, reverse = 0, offset = 0, mute
   if (automatedTune !== null) {
     p.automation.tune = { id: 'tune', target: { kind: 'channel', id: ch.id, param: 'tune' }, points: [{ t: 0, v: (automatedTune + 24) / 48 }] };
     p.clips.push(createClip({ kind: 'auto', ref: 'tune', start: 0, len: 384 }));
+  }
+  if (reverseAutomation) {
+    const { start = 0, len = 384, value = 1, points = [{ t: 0, v: value }] } = reverseAutomation;
+    p.automation.reverse = { id: 'reverse', target: { kind: 'channel', id: ch.id, param: 'reverse' }, points };
+    p.clips.push(createClip({ kind: 'auto', ref: 'reverse', start, len }));
   }
   const core = new Core(new WebAssembly.Instance(module, {}), RATE);
   core.setMixer(compileMixer(p));
@@ -64,7 +69,7 @@ function compareResume(options, action = 'start', tick = 60) {
   } else {
     resumed.seq.play(tick);
     if (action === 'unmute') {
-      resumed.seq.setSequence(resumed.compile({ ...resumed.p, clips: [{ ...resumed.p.clips[0], mute: false }] }));
+      resumed.seq.setSequence(resumed.compile({ ...resumed.p, clips: resumed.p.clips.map((c) => c.kind === 'audio' ? { ...c, mute: false } : c) }));
     }
   }
   render(resumed.seq, 0.02);
@@ -95,6 +100,68 @@ for (const reverse of [0, 1]) {
 
 it('resumes lowered-pitch audio at its slower source position', () => {
   compareResume({ tune: -12 }, 'start', 150);
+});
+
+for (const reverse of [0, 1]) {
+  it.each(['start', 'seek', 'unmute'])(`preserves direction history after %s (initial reverse ${reverse})`, (action) => {
+    compareResume({ tune: 0, reverse, reverseAutomation: { start: 48, value: 1 - reverse } }, action, 72);
+  });
+  it(`uses the automated initial direction instead of configured reverse ${reverse}`, () => {
+    compareResume({ tune: 0, reverse, reverseAutomation: { value: 1 - reverse } }, 'start', 60);
+  });
+}
+
+it('restores the configured direction when a reverse automation clip ends', () => {
+  compareResume({ tune: 0, reverseAutomation: { start: 48, len: 24 } }, 'start', 120);
+});
+
+it('does not revive a sample exhausted before a later direction change', () => {
+  compareResume({ tune: 0, reverseAutomation: { start: 240 } }, 'start', 336);
+});
+
+it('combines pitch and direction automation when reconstructing the source position', () => {
+  compareResume({ tune: 0, automatedTune: 12, reverseAutomation: { start: 24 } }, 'start', 36);
+});
+
+it('preserves a source offset across an automated direction change', () => {
+  compareResume({ tune: 0, offset: 96, reverseAutomation: { start: 48 } }, 'start', 72);
+});
+
+it.each([0, 0.75])('finds the reverse switching point on a ramp (curve %s)', (curve) => {
+  compareResume({ tune: 0, reverseAutomation: { points: [{ t: 0, v: 0, c: curve }, { t: 96, v: 1 }] } }, 'start', curve ? 108 : 72);
+});
+
+it.each([0, 1])('schedules an absolute source position at the requested frame (reverse %s)', (reverse) => {
+  const s = setup({ tune: 0, reverse });
+  s.core.audioAt(0, 12, 0.125, 1, 64);
+  const first = s.core.process(BLOCK).l.slice();
+  expect(first.subarray(0, 64).every((v) => v === 0)).toBe(true);
+  expect(first.subarray(64).some((v) => Math.abs(v) > 0.001)).toBe(true);
+  render(s.seq, 0.02);
+  const peak = render(s.seq, 0.04);
+  expect(peak).toBeGreaterThan(0.05);
+  expect(peak).toBeLessThan(0.1); // quiet first half, independent of direction
+});
+
+it.each([-1, NaN, Infinity, 1, 2])('ignores invalid/out-of-source absolute position %s', (position) => {
+  const s = setup({ tune: 0 });
+  s.core.audioAt(0, 12, position);
+  expect(render(s.seq, 0.04)).toBe(0);
+});
+
+it('refreshes source bounds after a sample unload and replacement', () => {
+  const s = setup({ tune: 0, reverse: 1 });
+  expect(s.core.audioSampleInfo(0)).toEqual({ duration: 1, last: (RATE - 1) / RATE, reverse: true });
+  s.core.unloadSample(0);
+  expect(s.core.audioSampleInfo(0)).toBeNull();
+  s.core.loadSample(0, [new Float32Array(22050)], 44100);
+  expect(s.core.audioSampleInfo(0)).toEqual({ duration: 0.5, last: 22049 / 44100, reverse: true });
+});
+
+it.each([0, NaN, Infinity])('uses the DSP sample-rate fallback for source bounds (rate %s)', (rate) => {
+  const s = setup({ tune: 0 });
+  s.core.loadSample(0, [sample], rate);
+  expect(s.core.audioSampleInfo(0)?.duration).toBe(1);
 });
 
 it('uses tempo automation when resuming pitched audio', () => {

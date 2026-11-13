@@ -22,7 +22,7 @@
 import { fromNorm } from '../lib/params.js';
 import { curveShape } from '../automation/evaluate.js';
 import { TempoMap } from './tempo.js';
-import { AUDIO_TUNE, audioStepCuts, integrateAudioRate } from './audio-rate.js';
+import { AUDIO_TUNE, AUDIO_REVERSE, audioStepCuts, integrateAudioRate } from './audio-rate.js';
 
 const PPQ = 96;
 const MAX_ACTIVE = 4096;
@@ -89,7 +89,7 @@ export class Sequencer {
     this.aKey = new Uint8Array(MAX_ACTIVE);
     this.active = 0;
     this.lanes = [];
-    this.audioPitchLanes = new Map();
+    this.audioMotionLanes = new Map();
     this.tempo = new TempoMap(120);
   }
 
@@ -121,12 +121,12 @@ export class Sequencer {
     for (const l of this.lanes) if (l.applied && !keep.has(laneKey(l))) this.#restore(l);
     const prev = new Map(this.lanes.map((l) => [laneKey(l), l]));
     this.lanes = seq.auto.map((l) => ({ ...l, applied: prev.get(laneKey(l))?.applied || false }));
-    this.audioPitchLanes.clear();
+    this.audioMotionLanes.clear();
     for (const lane of this.lanes) {
       const t = lane.target;
-      if (!((t.kind === 'param' && t.index === AUDIO_TUNE) || (t.kind === 'strip' && t.field === 'pitch'))) continue;
-      let list = this.audioPitchLanes.get(t.slot);
-      if (!list) this.audioPitchLanes.set(t.slot, (list = []));
+      if (!((t.kind === 'param' && (t.index === AUDIO_TUNE || t.index === AUDIO_REVERSE)) || (t.kind === 'strip' && t.field === 'pitch'))) continue;
+      let list = this.audioMotionLanes.get(t.slot);
+      if (!list) this.audioMotionLanes.set(t.slot, (list = []));
       list.push(lane);
     }
     if (this.playing) {
@@ -169,9 +169,7 @@ export class Sequencer {
         }
       }
       if (sounding) continue;
-      const id = this.nextId++ >>> 0;
-      this.core.audioOn(n.slot[i], id, this.#audioOffset(n, i, pos), n.vel[i], 0);
-      this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
+      this.#startAudio(n, i, pos, 0);
     }
   }
 
@@ -224,20 +222,34 @@ export class Sequencer {
     return Math.max(0, t);
   }
 
-  #audioOffset(notes, i, tick) {
+  #audioSource(notes, i, tick) {
     const slot = notes.slot[i], start = notes.start[i];
-    const lanes = (this.audioPitchLanes.get(slot) || []).filter((l) => l.segs.some((s) => s.start < tick && s.end > start));
+    const lanes = (this.audioMotionLanes.get(slot) || []).filter((l) => l.segs.some((s) => s.start < tick && s.end > start));
     const baseRate = this.core.audioPlaybackRate?.(slot) ?? 1;
     if (!lanes.length) return notes.offset[i] + this.tempo.duration(start, tick) * baseRate;
     let active = [];
-    const rateAt = (seconds) => {
-      const at = this.tempo.ticks(seconds);
+    const valuesAt = (at) => {
       const values = {};
       for (const { lane, seg } of active) {
-        values[lane.target.kind === 'param' ? 'tune' : 'pitch'] = fromNorm(lane.def, automationValue(seg.pts, at, seg.cs));
+        const field = lane.target.kind === 'strip' ? 'pitch' : lane.target.index === AUDIO_REVERSE ? 'reverse' : 'tune';
+        values[field] = fromNorm(lane.def, automationValue(seg.pts, at, seg.cs));
       }
-      return this.core.audioPlaybackRate?.(slot, values) ?? 1;
+      return values;
     };
+    const rateAt = (seconds) => this.core.audioPlaybackRate?.(slot, valuesAt(this.tempo.ticks(seconds))) ?? 1;
+    const changesDirection = lanes.some((l) => l.target.kind === 'param' && l.target.index === AUDIO_REVERSE) && typeof this.core.audioSampleInfo === 'function';
+    const sample = changesDirection ? this.core.audioSampleInfo(slot) : null;
+    if (changesDirection && !sample) return null;
+    let position = 0;
+    if (sample) {
+      for (const lane of lanes) {
+        const seg = lane.segs.find((s) => s.start <= start && start < s.end);
+        if (seg) active.push({ lane, seg });
+      }
+      const reverse = (valuesAt(start).reverse ?? Number(sample.reverse)) >= 0.5;
+      position = reverse ? sample.last - notes.offset[i] : notes.offset[i];
+      if (position < 0 || position >= sample.duration) return null;
+    }
     // Split at clip/point boundaries before integrating, so automation gaps,
     // overlapping clips and abrupt changes retain the sequencer's precedence.
     const cuts = new Set([start, tick]);
@@ -263,9 +275,25 @@ export class Sequencer {
         const seg = lane.segs[cursor.next];
         if (seg && seg.start <= mid) active.push({ lane, seg });
       }
-      distance += active.length ? integrateAudioRate(rateAt, times[j - 1], times[j]) : (times[j] - times[j - 1]) * baseRate;
+      const travel = active.length ? integrateAudioRate(rateAt, times[j - 1], times[j]) : (times[j] - times[j - 1]) * baseRate;
+      if (sample) {
+        const reverse = (valuesAt(mid).reverse ?? Number(sample.reverse)) >= 0.5;
+        position += reverse ? -travel : travel;
+        // A finished voice stays finished even if a later direction change
+        // would bring its mathematical position back inside the source.
+        if (position < 0 || position >= sample.duration) return null;
+      } else distance += travel;
     }
-    return distance;
+    return sample ? { position } : distance;
+  }
+
+  #startAudio(notes, i, tick, offset) {
+    const source = this.#audioSource(notes, i, tick);
+    if (source === null) return;
+    const id = this.nextId++ >>> 0;
+    if (typeof source === 'number') this.core.audioOn(notes.slot[i], id, source, notes.vel[i], offset);
+    else this.core.audioAt(notes.slot[i], id, source.position, notes.vel[i], offset);
+    this.#addActive(notes.end[i], notes.slot[i], id, 1, notes.start[i], notes.key[i]);
   }
 
   /** Audio clips that span `tick` start from the middle. */
@@ -275,10 +303,7 @@ export class Sequencer {
     for (let k = 0; k < s.audio.length; k++) {
       const i = s.audio[k];
       if (n.start[i] < tick && n.end[i] > tick) {
-        const id = this.nextId++ >>> 0;
-        const sec = this.#audioOffset(n, i, tick);
-        this.core.audioOn(n.slot[i], id, sec, n.vel[i], offset);
-        this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
+        this.#startAudio(n, i, tick, offset);
       }
     }
   }
