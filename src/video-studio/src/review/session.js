@@ -26,6 +26,7 @@ export class ReviewSession extends Emitter {
     this._timer = null;
     this._pollRun = 0;
     this._syncing = null;
+    this._reviewRequest = 0;
     this._failures = 0;
     this._links = new Map();
     this._linkRequests = new Map();
@@ -71,8 +72,13 @@ export class ReviewSession extends Emitter {
   }
 
   async refreshReview() {
-    const r = await this.call('review.get');
-    this._setReview(r.review);
+    const request = ++this._reviewRequest;
+    try {
+      const r = await this.call('review.get');
+      if (request === this._reviewRequest) this._setReview(r.review);
+    } catch (error) {
+      if (request === this._reviewRequest) throw error;
+    }
   }
 
   /** Fetch every change since the cursor. Concurrent calls share one run. */

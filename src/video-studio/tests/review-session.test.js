@@ -3,6 +3,37 @@ import { ReviewSession } from '../src/review/session.js';
 
 afterEach(() => vi.useRealTimers());
 
+describe('review metadata refresh', () => {
+  it.each(['success', 'failure'])('ignores an obsolete refresh %s after a newer snapshot', async (outcome) => {
+    let finish, fail;
+    const latest = { title: 'Latest cut', role: 'viewer', versions: [{ n: 1 }, { n: 2 }] };
+    const call = vi.fn().mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve;fail = reject; })).mockResolvedValue({ review: latest });
+    const session = new ReviewSession({ puter: {}, server: 'https://example.test', review: 'review', call });
+    const changed = vi.fn();session.on('review', changed);
+    const old = session.refreshReview();
+    await session.refreshReview();
+    const settled = expect(old).resolves.toBeUndefined();
+    if (outcome === 'success') finish({ review: { title: 'Old cut', role: 'commenter', versions: [{ n: 1 }] } });
+    else fail(new Error('Old error'));
+    await settled;
+    expect(session.review).toBe(latest);
+    expect(session.role).toBe('viewer');
+    expect(session.latest).toBe(2);
+    expect(changed).toHaveBeenCalledTimes(1);
+    session.dispose();
+  });
+
+  it('reports a current refresh failure and allows a later retry', async () => {
+    const latest = { role: 'commenter', versions: [{ n: 1 }] };
+    const call = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue({ review: latest });
+    const session = new ReviewSession({ puter: {}, server: 'https://example.test', review: 'review', call });
+    await expect(session.refreshReview()).rejects.toThrow('Offline');
+    await session.refreshReview();
+    expect(session.review).toBe(latest);
+    session.dispose();
+  });
+});
+
 describe('review session polling', () => {
   it('keeps one poll loop when stopped and restarted during a sync', async () => {
     vi.useFakeTimers();
