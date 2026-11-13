@@ -7,7 +7,7 @@
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { pinLabel, spokenAt } from '../../review/time.js';
-import { canComment, canResolve, LIMITS, textProblem } from '../../review/protocol.js';
+import { canComment, canResolve, LIMITS, textProblem, randomId } from '../../review/protocol.js';
 import { canEditComment, canDeleteComment, relativeTime } from '../../review/comments.js';
 
 /** Submit a form the way pressing its submit button would (once). */
@@ -17,7 +17,7 @@ export function submitForm(form) {
 }
 
 /**
- * createThreadList({ onSeek(thread), onReply(thread, text), onResolve(thread, resolved),
+ * createThreadList({ onSeek(thread), onReply(thread, text, id), onResolve(thread, resolved),
  *   onEdit(comment, text), onDelete(comment) }) -> { el, update(threads, opts) }
  * opts: { fps, me, role, activeId, now, empty }
  * Callbacks may return promises; a rejected one keeps the draft and shows the error.
@@ -25,6 +25,7 @@ export function submitForm(form) {
 export function createThreadList(handlers) {
   const el = h('ol.rv-threads', { 'aria-label': 'Comments' });
   const replyDrafts = new Map(); // thread id -> text (open reply forms)
+  const replyAttempts = new Map(); // retain a post id until its draft changes or succeeds
   const editDrafts = new Map(); // comment id -> text (open edit forms)
   const errors = new Map(); // form key -> message
   const pending = new Set(); // form keys survive sync re-renders while saving
@@ -179,15 +180,25 @@ export function createThreadList(handlers) {
           label: `Reply to ${t.author?.username || 'comment'}`,
           value: replyDrafts.get(t.id),
           submitLabel: 'Reply',
-          onInput: (v) => replyDrafts.set(t.id, v),
+          onInput: (v) => {
+            replyDrafts.set(t.id, v);
+            replyAttempts.delete(t.id);
+          },
           onCancel: () => {
             replyDrafts.delete(t.id);
+            replyAttempts.delete(t.id);
             errors.delete(`reply:${t.id}`);
             render();
           },
           onSubmit: async (v) => {
-            await handlers.onReply?.(t, v);
+            let attempt = replyAttempts.get(t.id);
+            if (!attempt || attempt.text !== v) {
+              attempt = { id: randomId('c'), text: v };
+              replyAttempts.set(t.id, attempt);
+            }
+            await handlers.onReply?.(t, v, attempt.id);
             replyDrafts.delete(t.id);
+            replyAttempts.delete(t.id);
             render();
           },
         });

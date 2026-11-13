@@ -214,7 +214,7 @@ describe('thread list', () => {
     expect(document.activeElement).toBe(again);
     again.closest('form').dispatchEvent(new Event('submit', { cancelable: true }));
     await tick();
-    expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 'c_one0001' }), 'Will fix');
+    expect(onReply).toHaveBeenCalledWith(expect.objectContaining({ id: 'c_one0001' }), 'Will fix', expect.any(String));
     expect(list.el.querySelector('textarea')).toBe(null);
   });
 
@@ -585,6 +585,71 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it.each(['restored draft', 'recovery row', 'reply'])('retries a %s without duplicating a post whose acknowledgements were lost', async (mode) => {
+    const { env, page, root, rid } = await opened();
+    try {
+      page.session.stop();
+      if (mode === 'reply') {
+        await page.session.addComment({ version: 1, text: 'Parent', t: 0 });
+        btn(root.querySelector('.rv-thread'), 'Reply').click();
+      }
+      let lost = 0;
+      const send = page.session._call;
+      page.session._call = async (...args) => {
+        const result = await send(...args);
+        if (args[2].op === 'comment.add' && lost++ < 2) throw new Error('Lost acknowledgement');
+        return result;
+      };
+      const text = root.querySelector(mode === 'reply' ? '.rv-inline-form textarea' : '.rv-compose-text');
+      text.value = 'Exactly once';text.dispatchEvent(new Event('input'));
+      text.closest('form').requestSubmit();
+      if (mode === 'recovery row') {
+        text.value = 'Next draft';text.dispatchEvent(new Event('input'));
+      }
+      await until(() => root.textContent.includes('Lost acknowledgement'));
+      if (mode === 'recovery row') btn(root.querySelector('.rv-unsent'), 'Retry').click();
+      else root.querySelector(mode === 'reply' ? '.rv-inline-form' : '.rv-composer').requestSubmit();
+      await until(() => lost === 3 && !root.textContent.includes('Lost acknowledgement'));
+      const saved = await env.as('alice')('sync', { review: rid, since: 0 });
+      expect(saved.changes.filter((c) => c.text === 'Exactly once')).toHaveLength(1);
+      expect([...page.session.comments.values()].filter((c) => c.text === 'Exactly once')).toHaveLength(1);
+      if (mode === 'recovery row') expect(text.value).toBe('Next draft');
+    } finally { page.dispose(); }
+  });
+
+  it.each(['comment', 'reply'])('saves edited retries and separate identical %s submissions as new posts', async (mode) => {
+    const { env, page, root, rid } = await opened();
+    try {
+      page.session.stop();
+      if (mode === 'reply') {
+        await page.session.addComment({ version: 1, text: 'Parent', t: 0 });
+        btn(root.querySelector('.rv-thread'), 'Reply').click();
+      }
+      let lost = 0;
+      const send = page.session._call;
+      page.session._call = async (...args) => {
+        const result = await send(...args);
+        if (args[2].op === 'comment.add' && lost++ < 2) throw new Error('Lost acknowledgement');
+        return result;
+      };
+      const selector = mode === 'reply' ? '.rv-inline-form textarea' : '.rv-compose-text';
+      const submit = (value) => {
+        const text = root.querySelector(selector);
+        text.value = value;text.dispatchEvent(new Event('input'));text.closest('form').requestSubmit();
+      };
+      submit('Original');
+      await until(() => root.textContent.includes('Lost acknowledgement'));
+      submit('Edited');
+      await until(() => lost === 3 && !root.textContent.includes('Lost acknowledgement'));
+      if (mode === 'reply') btn(root.querySelector('.rv-thread'), 'Reply').click();
+      submit('Edited');
+      await until(() => lost === 4 && [...page.session.comments.values()].filter((c) => !c.pending && c.text === 'Edited').length === 2);
+      const saved = await env.as('alice')('sync', { review: rid, since: 0 });
+      expect(saved.changes.filter((c) => c.text === 'Original')).toHaveLength(1);
+      expect(saved.changes.filter((c) => c.text === 'Edited')).toHaveLength(2);
+    } finally { page.dispose(); }
+  });
+
   it('keeps a newer draft and range when an earlier comment finishes posting', async () => {
     const { page, root } = await opened();
     try {
@@ -638,7 +703,7 @@ describe('review page (reviewer flow)', () => {
       expect(failed?.textContent).toContain('First draft');
       expect(failed?.textContent).toContain('Offline');
       btn(failed, 'Retry').click();await tick();
-      expect(add).toHaveBeenLastCalledWith({ version: 1, text: 'First draft', t: s(1), end: s(3) });
+      expect(add).toHaveBeenLastCalledWith({ id: expect.any(String), version: 1, text: 'First draft', t: s(1), end: s(3) });
       expect(root.querySelector('.rv-unsent')).toBe(null);
       expect(text.value).toBe('Newer draft');
     } finally { page.dispose(); }

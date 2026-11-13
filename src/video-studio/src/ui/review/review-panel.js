@@ -76,7 +76,7 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
       store.seek(toEditorTime(t.t, v));
       announce(opened ? `Opened ${opened} and moved the playhead to the comment` : 'Playhead moved to the comment');
     },
-    onReply: (t, text) => session.addComment({ version: t.version, parent: t.id, text }),
+    onReply: (t, text, id) => session.addComment({ id, version: t.version, parent: t.id, text }),
     onResolve: (t, resolved) => session.resolve(t.id, resolved).catch((err) => toast(err.message, { kind: 'error' })),
     onEdit: (c, text) => session.editComment(c.id, text),
     onDelete: async (c) => {

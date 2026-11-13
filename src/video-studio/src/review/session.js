@@ -152,9 +152,10 @@ export class ReviewSession extends Emitter {
     }
   }
 
-  /** Post a comment or reply. It shows at once and is replaced by the saved copy. */
-  async addComment({ version, parent = null, text, t = null, end = null }) {
-    const id = randomId('c');
+  /** Post a comment or reply. Keep the same id when retrying an unchanged draft. */
+  async addComment({ id = randomId('c'), version, parent = null, text, t = null, end = null }) {
+    const confirmed = this.comments.get(id);
+    if (confirmed && !confirmed.pending) return confirmed;
     const local = pendingComment({ id, version, parent, text, t, end }, this.me || { uuid: '', username: '' });
     this.comments.set(id, local);
     this.emit('change');

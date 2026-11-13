@@ -115,6 +115,19 @@ describe('review video links', () => {
 });
 
 describe('review comment acknowledgements', () => {
+  it('accepts a synchronized post on manual retry without replacing its newer snapshot', async () => {
+    const call = vi.fn().mockRejectedValue(new Error('Offline'));
+    const session = new ReviewSession({ puter: {}, server: 'https://example.test', review: 'review', call });
+    const draft = { id: 'c_retry001', version: 1, text: 'Original', t: 0 };
+    await expect(session.addComment(draft)).rejects.toThrow('Offline');
+    const confirmed = { ...draft, text: 'Edited elsewhere', seq: 2, pending: false };
+    session.comments.set(draft.id, confirmed);
+    expect(await session.addComment(draft)).toBe(confirmed);
+    expect(session.comments.get(draft.id)).toBe(confirmed);
+    expect(call).toHaveBeenCalledTimes(2);
+    session.dispose();
+  });
+
   it.each(['edited', 'deleted'])('preserves a synchronized %s comment when an older post acknowledgement arrives', async (state) => {
     let finish, latest;
     const call = vi.fn((_, __, { op }) => op === 'comment.add'

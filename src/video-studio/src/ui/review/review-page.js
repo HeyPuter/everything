@@ -12,7 +12,7 @@ import { h, announce, clamp } from '../../lib/dom.js';
 import { icon, appIcon } from '../../lib/icons.js';
 import { ReviewSession } from '../../review/session.js';
 import { threadsFor, threadCounts, threadOf } from '../../review/comments.js';
-import { canComment, ROLE_LABELS, LIMITS, textProblem, workerURL } from '../../review/protocol.js';
+import { canComment, ROLE_LABELS, LIMITS, textProblem, workerURL, randomId } from '../../review/protocol.js';
 import { reviewFps, reviewTimecode, stepFrames, seekSeconds, fromSeconds, snapToFrame, stripMarkers, spokenAt, frameStart, frameAt, lastFrame } from '../../review/time.js';
 import { createThreadList, submitForm } from './threads.js';
 import { confirmDialog, toast } from '../dialog.js';
@@ -183,7 +183,7 @@ export class ReviewPage {
     });
     this.threadList = createThreadList({
       onSeek: (t) => this.seekToComment(t),
-      onReply: (t, text) => s.addComment({ version: t.version, parent: t.id, text }).then(() => announce('Reply posted')),
+      onReply: (t, text, id) => s.addComment({ id, version: t.version, parent: t.id, text }).then(() => announce('Reply posted')),
       onResolve: (t, resolved) => s.resolve(t.id, resolved).then(() => announce(resolved ? 'Resolved' : 'Reopened'), (err) => toast(err.message, { kind: 'error' })),
       onEdit: (c, text) => s.editComment(c.id, text),
       onDelete: async (c) => {
@@ -492,6 +492,7 @@ export class ReviewPage {
     const pin = this.pin;
     let draftRevision = 0;
     let posting = false;
+    let restored = null;
     const render = () => {
       pinBtn.textContent = reviewTimecode(pin.t, page.fps);
       pinBtn.setAttribute('aria-label', `Comment time ${reviewTimecode(pin.t, page.fps)}. Go there`);
@@ -565,7 +566,7 @@ export class ReviewPage {
       const discard = h('button.btn.small', { type: 'button' }, 'Discard');
       const when = `${reviewTimecode(comment.t, fps)}${comment.end === null ? '' : ` to ${reviewTimecode(comment.end, fps)}`}`;
       const row = h('div.rv-unsent', { role: 'group', 'aria-label': 'Unsent comment' },
-        h('p.rv-pin', `Not posted · Version ${comment.version} · ${when}`),
+        h('p.rv-pin', `Post not confirmed · Version ${comment.version} · ${when}`),
         h('p.rv-text', comment.text), message, h('div.rv-form-actions', discard, retry));
       const remove = () => {
         const focused = row.contains(document.activeElement);
@@ -599,8 +600,12 @@ export class ReviewPage {
         text.focus();
         return;
       }
-      const comment = { version: page.version, text: text.value, t: pin.t,
+      const comment = { id: randomId('c'), version: page.version, text: text.value, t: pin.t,
         end: rangeBox.checked && pin.end !== null && pin.end > pin.t ? pin.end : null };
+      if (restored?.revision === draftRevision && ['version', 'text', 't', 'end'].every((key) => restored.comment[key] === comment[key])) {
+        comment.id = restored.comment.id;
+      }
+      restored = null;
       const revision = draftRevision;
       const fps = page.fps;
       posting = true;
@@ -617,6 +622,7 @@ export class ReviewPage {
       } catch (error) {
         const message = error?.message || 'Could not post the comment.';
         if (draftRevision === revision && page.version === comment.version && !text.value) {
+          restored = { comment, revision };
           text.value = comment.text;
           Object.assign(pin, { t: comment.t, end: comment.end, held: true });
           rangeBox.checked = comment.end !== null;
