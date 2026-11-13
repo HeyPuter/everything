@@ -55,8 +55,20 @@ function heartbeat(alive = true) {
   writeBeats(beats);
 }
 
-/** Write recovery records for unsaved documents changed since the last write. */
+const pending = new WeakMap<Editor, Promise<void>>();
+/** Write changed recovery records in order, even when interval/manual passes overlap. */
 export async function recoveryTick(e: Editor) {
+  const previous = pending.get(e);
+  const task = previous ? previous.catch(() => {}).then(() => writeRecovery(e)) : writeRecovery(e);
+  pending.set(e, task);
+  try {
+    await task;
+  } finally {
+    if (pending.get(e) === task) pending.delete(e);
+  }
+}
+
+async function writeRecovery(e: Editor) {
   const needed = recoverySessions(e);
   for (const s of [...e.sessions]) {
     if (!s.hasDocument || !e.sessions.includes(s)) continue;
