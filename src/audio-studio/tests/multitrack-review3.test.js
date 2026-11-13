@@ -207,3 +207,20 @@ describe('send destinations', () => {
     expect(offered()).toEqual(['None']);
   });
 });
+
+describe('moving tracks', () => {
+  it('Move Track Up and Down step over hidden tracks', async () => {
+    const { app, doc } = await appWithSession();
+    doc.apply('Add', S.addTrack(doc.state, S.createTrack({ name: 'Track 3' })));
+    const [t1, t2, t3] = doc.state.tracks.map((t) => t.id);
+    doc.amendView((st) => S.updateTrack(st, t2, { hidden: true }));
+    const shown = () => doc.state.tracks.filter((t) => !t.hidden).map((t) => t.id);
+    doc.selectTrack(t3);
+    await app.commands.run('mt.moveTrackUp');
+    expect(shown()).toEqual([t3, t1]);
+    expect(app.commands.isEnabled('mt.moveTrackUp')).toBe(false);
+    await app.commands.run('mt.moveTrackDown');
+    expect(shown()).toEqual([t1, t3]);
+    expect(app.commands.isEnabled('mt.moveTrackDown')).toBe(false);
+  });
+});

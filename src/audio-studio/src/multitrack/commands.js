@@ -709,6 +709,20 @@ export function installMultitrackCommands(app) {
     doc.apply('Bounce to New Track', S.addClips(made.state, [clip]), { clips: [clip.id] });
     doc.selectTrack(made.track.id);
   };
+  // Moving a track up or down passes the hidden tracks next to it, which cannot be seen.
+  const moveTarget = (doc, dir) => {
+    const tracks = doc?.state.tracks || [];
+    const i = tracks.findIndex((t) => t.id === doc.selectedTrack);
+    if (i < 0) return -1;
+    let j = i + dir;
+    while (tracks[j]?.hidden) j += dir;
+    return j >= 0 && j < tracks.length ? j : -1;
+  };
+  const moveSelectedTrack = (dir) => {
+    const doc = session(app);
+    const j = moveTarget(doc, dir);
+    if (j >= 0) doc.apply('Move Track', S.reorderTrack(doc.state, doc.selectedTrack, j));
+  };
   const addTrack = (type, channels) => () => {
     const doc = session(app);
     const after = S.findTrack(doc.state, doc.selectedTrack);
@@ -800,18 +814,8 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'mt.deleteEmpty', label: 'Delete Empty Tracks', enabled: (a) => Boolean(session(a)?.state.tracks.some((t) => t.type === 'audio' && !session(a).state.clips.some((c) => c.trackId === t.id))), run: () => session(app).apply('Delete Empty Tracks', S.removeEmptyTracks(session(app).state)) },
-    { id: 'mt.moveTrackUp', label: 'Move Track Up', enabled: (a) => (session(a)?.state.tracks.findIndex((t) => t.id === session(a).selectedTrack) ?? -1) > 0, run: () => session(app).apply('Move Track', S.moveTrack(session(app).state, session(app).selectedTrack, -1)) },
-    {
-      id: 'mt.moveTrackDown',
-      label: 'Move Track Down',
-      enabled: (a) => {
-        const doc = session(a);
-        if (!doc) return false;
-        const i = doc.state.tracks.findIndex((t) => t.id === doc.selectedTrack);
-        return i >= 0 && i < doc.state.tracks.length - 1;
-      },
-      run: () => session(app).apply('Move Track', S.moveTrack(session(app).state, session(app).selectedTrack, 1)),
-    },
+    { id: 'mt.moveTrackUp', label: 'Move Track Up', enabled: (a) => moveTarget(session(a), -1) >= 0, run: () => moveSelectedTrack(-1) },
+    { id: 'mt.moveTrackDown', label: 'Move Track Down', enabled: (a) => moveTarget(session(a), 1) >= 0, run: () => moveSelectedTrack(1) },
     {
       id: 'mt.trackColor',
       label: 'Track Color...',
