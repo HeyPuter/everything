@@ -260,12 +260,15 @@ export function chordize(notes, ids, chordId, opts = {}) {
   const pick = picker(ids);
   const picked = notes.filter(pick);
   if (!picked.length) return { notes, ids: [] };
-  const taken = new Set(notes.map((n) => `${n.pos}:${n.key}`));
+  const chords = picked.map((n) => ({ n, keys: chordKeys(n.key, chordId, opts) }));
   const out = notes.filter((n) => !pick(n));
+  const taken = new Set(out.map((n) => `${n.pos}:${n.key}`));
+  // Reserve only roots that survive in their own chord. An inversion (or
+  // scale snapping) can remove a root that another chord still needs.
+  for (const { n, keys } of chords) if (keys.includes(n.key)) taken.add(`${n.pos}:${n.key}`);
   const outIds = [];
-  for (const n of picked) {
-    const keys = chordKeys(n.key, chordId, opts);
-    taken.delete(`${n.pos}:${n.key}`);
+  for (const { n, keys } of chords) {
+    if (keys.includes(n.key)) taken.delete(`${n.pos}:${n.key}`);
     for (const k of keys) {
       const tag = `${n.pos}:${k}`;
       if (taken.has(tag)) continue;

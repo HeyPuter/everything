@@ -190,6 +190,21 @@ describe('scales and chords', () => {
     expect(chordKeys(60, 'scaleTriad')).toEqual([60, 64, 67]); // no scale: major
   });
 
+  it('keeps chord tones that coincide with selected roots removed by an inversion', () => {
+    const notes = [note('c', 60, 0), note('e', 64, 0)];
+    const r = N.chordize(notes, ['c', 'e'], 'major', { inversion: 1 });
+    expect(r.notes.map((n) => n.key)).toEqual([64, 67, 68, 71, 72, 76]);
+    expect(r.ids).toHaveLength(6);
+    expect(new Set(r.notes.map((n) => `${n.pos}:${n.key}`)).size).toBe(r.notes.length);
+  });
+
+  it('preserves selected roots and their expression when another chord includes their pitch', () => {
+    const notes = [note('c', 60, 0, 24, 0.3), note('e', 64, 0, 48, 0.9)];
+    const r = N.chordize(notes, null, 'major');
+    expect(r.notes.map((n) => n.key)).toEqual([60, 64, 67, 68, 71]);
+    expect(r.notes.find((n) => n.key === 64)).toBe(notes[1]);
+  });
+
   it('chordizes selected notes without doubling keys', () => {
     const notes = [note('a', 60, 0), note('b', 64, 0), note('c', 72, 96)];
     const r = N.chordize(notes, ['a', 'c'], 'major');
