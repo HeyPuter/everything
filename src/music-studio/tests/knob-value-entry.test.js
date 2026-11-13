@@ -160,3 +160,36 @@ it.each(['rack', 'channel', 'strip', 'sidebar', 'fader', 'pan'].flatMap((surface
   app.store.undo();
   expect(app.store.project).toBe(before);
 });
+
+it.each([
+  ['envelope', '1.25 s', 1250], ['envelope', '1.25s', 1250], ['envelope', '350 ms', 350],
+  ['predelay', '0.15 s', 150], ['predelay', '0.15s', 150], ['predelay', '150 ms', 150],
+  ['decay', '350 ms', 0.35], ['decay', '350ms', 0.35], ['decay', '0.35 s', 0.35],
+])('converts %s time entry %s to the parameter unit', (kind, text, expected) => {
+  let control, value;
+  if (kind === 'envelope') {
+    const id = app.store.project.channels[0].id;
+    app.store.apply('Sampler', (p) => E.updateChannel(p, id, { type: 'sampler', params: defaultParams('sampler') }));
+    const win = openChannelEditor(app, id);
+    [...win.el.querySelectorAll('[role="tab"]')].find((el) => el.textContent === 'Instrument').click();
+    control = win.el.querySelector('[aria-label="Envelope release"]');
+    value = () => app.store.project.channels[0].params.a_release;
+  } else {
+    const id = app.mixerController.addEffect(3, 'reverb');
+    const win = app.openEffectEditor(3, id);
+    control = win.el.querySelector(`[data-param="${kind}"]`);
+    value = () => app.store.project.mixer[3].fx.find((s) => s.id === id).params[kind];
+  }
+  expect(control).not.toBeNull();
+  const before = app.store.project;
+  control.focus();
+  control.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  const input = document.activeElement;
+  expect(input.tagName).toBe('INPUT');
+  input.value = text;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  expect(value()).toBeCloseTo(expected, 8);
+  expect(Number(control.getAttribute('aria-valuenow'))).toBeCloseTo(expected, 3);
+  app.store.undo();
+  expect(app.store.project).toBe(before);
+});

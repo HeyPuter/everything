@@ -68,7 +68,9 @@ export function parseParam(p, text) {
   let v = Number(m[1]) * (m[2] ? 1000 : 1);
   if (p.unit === '%' && !s.includes('.') && Math.abs(v) > 1) v /= 100;
   else if (p.unit === '%' && s.includes('%')) v /= 100;
-  if (p.unit === 'ms' && /\ds$/.test(s) && !s.endsWith('ms')) v *= 1000;
+  const timeUnit = s.match(/\d\s*(ms|s)$/)?.[1];
+  if (p.unit === 'ms' && timeUnit === 's') v *= 1000;
+  if (p.unit === 's' && timeUnit === 'ms') v /= 1000;
   if (!Number.isFinite(v)) return null;
   if (p.step) v = Math.round(v / p.step) * p.step;
   return clamp(v, p.min, p.max);
