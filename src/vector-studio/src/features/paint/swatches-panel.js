@@ -14,6 +14,7 @@
 import { h } from '../../lib/dom.js';
 import { Panel } from '../../ui/panels/panel.js';
 import { iconButton, paintSwatch, updatePaintSwatch } from '../../ui/widgets.js';
+import { trackPenHover } from '../../ui/pen-direct.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
@@ -268,6 +269,8 @@ export class SwatchesPanel extends Panel {
     this.listBtn = iconButton('list-view', 'Show Swatches as List', () => this.setView(isListView(this.view) ? this.view : this.app.prefs.get('swatchesListView') || 'smallList'), { className: 'small', pressed: isListView(this.view) });
     this.list = h('div.sw-list', { role: 'listbox', 'aria-label': 'Swatches', 'aria-multiselectable': 'true', tabindex: '-1' });
     this.list.addEventListener('keydown', (e) => this.onKey(e));
+    // A hovering pen drags swatches; a finger scrolls the list.
+    trackPenHover(this.list, { holding: () => this.list.classList.contains('dragging') });
     this.footer = h(
       'div.sw-footer',
       iconButton('library', 'Swatch Libraries Menu', (e) => this.openLibraries(e.currentTarget), { className: 'small' }),

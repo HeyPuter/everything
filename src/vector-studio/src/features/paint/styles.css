@@ -535,6 +535,11 @@
   gap: 4px;
 }
 
+/* A pen hovering over the list drags swatches instead of panning the list. */
+.sw-list.pen-direct .sw-item {
+  touch-action: none;
+}
+
 .sw-list.grid .sw-item {
   width: var(--sw-size);
   height: var(--sw-size);

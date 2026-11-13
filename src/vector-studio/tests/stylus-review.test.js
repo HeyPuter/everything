@@ -358,3 +358,21 @@ describe('Swatches panel drags', () => {
     expect(order()).not.toBe(before);
   });
 });
+
+describe('Swatches panel and a hovering pen', () => {
+  it('a hovering pen makes swatches drag instead of scrolling the list; a finger scrolls it', () => {
+    app.newDocument();
+    app.openPanel('swatches');
+    const list = app.dock.panels.get('swatches').el.querySelector('.sw-list');
+    const fire = (type, extra = {}) => list.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 5, pointerType: 'pen', buttons: 0, ...extra }));
+    fire('pointermove');
+    expect(list.classList.contains('pen-direct')).toBe(true);
+    fire('pointerleave');
+    expect(list.classList.contains('pen-direct')).toBe(false);
+    fire('pointermove');
+    fire('pointermove', { pointerType: 'touch', pointerId: 6, buttons: 1 });
+    expect(list.classList.contains('pen-direct')).toBe(false);
+    const css = fs.readFileSync(path.resolve(__dirname, '../src/features/paint/styles.css'), 'utf8');
+    expect(css).toMatch(/\.sw-list\.pen-direct \.sw-item \{\s*touch-action: none;/);
+  });
+});
