@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, idle } from './helpers';
+import { boot, idle, run } from './helpers';
 
 async function textDoc(page: Page, texts: string[]) {
   await page.evaluate(async (texts) => {
@@ -52,4 +52,50 @@ test('Check Spelling suggests and changes a misspelled word', async ({ page }) =
   await page.evaluate(() => window.photoStudio.runCommand('select.deselect-layers'));
   await idle(page);
   expect(await layerTexts(page)).toEqual(['over the lazy dog']);
+});
+
+for (const change of ['replacement', 'query', 'options']) for (const action of ['close', 'change']) test(`Change All retains its original ${change} after ${action} during font loading`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['dog Dog hotdog', 'dog Dog hotdog']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded text font', (d) => {
+      for (const l of d.layers) for (const p of l.textData!.content.paragraphs) for (const r of p.runs) r.style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('dog');
+  await dlg.locator('#fr-change').fill('cat');
+  await dlg.getByLabel('Whole Word Only').check();
+  await dlg.getByRole('button', { name: 'Change All' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseFindFont?: () => void }).releaseFindFont);
+  if (change === 'replacement') await dlg.locator('#fr-change').fill('fox');
+  else if (change === 'query') await dlg.locator('#fr-find').fill('hotdog');
+  else {
+    await dlg.getByLabel('Case Sensitive').check();
+    await dlg.getByLabel('Whole Word Only').uncheck();
+  }
+  await dlg.getByRole('button', { name: action === 'close' ? 'Done' : 'Change', exact: true }).click();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(await layerTexts(page)).toEqual(['cat cat hotdog', 'cat cat hotdog']);
+  if (action === 'change') await expect(dlg.locator('#fr-status')).toHaveText('Changed 4 occurrences in 2 layers.');
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(['dog Dog hotdog', 'dog Dog hotdog']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(['cat cat hotdog', 'cat cat hotdog']);
+  if (action === 'close') await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  await expect(dlg.locator('#fr-find')).toHaveValue(change === 'query' ? 'hotdog' : 'dog');
+  await expect(dlg.locator('#fr-change')).toHaveValue(change === 'replacement' ? 'fox' : 'cat');
+  await expect(dlg.getByLabel('Case Sensitive')).toBeChecked({ checked: change === 'options' });
+  await expect(dlg.getByLabel('Whole Word Only')).toBeChecked({ checked: change !== 'options' });
 });

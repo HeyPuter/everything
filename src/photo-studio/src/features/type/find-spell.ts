@@ -121,16 +121,20 @@ export async function findReplace(e: Editor) {
   });
   ws.q('#fr-change-all').addEventListener('click', async () => {
     read();
-    if (!s.query) return status('Type the text to find.');
+    // The non-modal dialog can change or close while fonts are prepared.
+    // Every layer in this operation must use the settings from its click.
+    const { query, replace, all } = s;
+    const options = opts();
+    if (!query) return status('Type the text to find.');
     if (session) await commit(e);
-    const ids = textLayers(e, s.all)
-      .filter((l) => findMatches(textOf(e, l), s.query, opts()).length)
+    const ids = textLayers(e, all)
+      .filter((l) => findMatches(textOf(e, l), query, options).length)
       .map((l) => l.id);
     if (!ids.length) return status('No matches.');
     if (ids.some((id) => layerLock(e.doc.layers, id, 'all'))) return status(lockedMessage);
     let count = 0;
     await editLayers(e, 'Replace Text', (d) => {
-      const r = replaceAll(d.content, s.query, s.replace, opts());
+      const r = replaceAll(d.content, query, replace, options);
       count += r.count;
       return { ...d, content: r.content };
     }, ids);
