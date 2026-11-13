@@ -348,10 +348,16 @@ export class App extends Emitter {
     return this.untitled;
   }
 
+  #finishDocumentInteraction() {
+    this.tool?.commit?.();
+    this.input?.reset();
+    this.tool?.deactivate?.();
+  }
+
   activate(editor) {
     // activate(null) after the last tab closed must still show the home screen.
     if (this.editor === editor && editor) return;
-    this.tool?.commit?.();
+    this.#finishDocumentInteraction();
     const prevView = this.editor && this.views.get(this.editor);
     if (prevView) prevView.host.hidden = true;
     this.editor = editor;
@@ -379,6 +385,8 @@ export class App extends Emitter {
 
   async closeDocument(editor = this.editor, { force = false } = {}) {
     if (!editor) return true;
+    // Finish against the outgoing editor before checking whether its file needs saving.
+    if (this.editor === editor) this.#finishDocumentInteraction();
     if (!force && editor.doc.dirty) {
       const save = await openDialog({
         title: 'Vector Studio',
@@ -410,7 +418,6 @@ export class App extends Emitter {
     this.views.get(editor)?.host.remove();
     this.views.delete(editor);
     if (this.editor === editor) {
-      this.editor = null;
       this.activate(this.editors[Math.min(i, this.editors.length - 1)] || null);
     } else this.renderTabs();
     editor.destroy();
