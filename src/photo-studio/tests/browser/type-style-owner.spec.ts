@@ -52,6 +52,108 @@ async function state(page: Page) {
   return page.evaluate(() => window.photoStudio.sessions.map((s) => ({ id: s.id, text: s.doc.layers.at(-1)!.text, family: s.doc.layers.at(-1)!.textData?.content.paragraphs[0].runs[0].style.family, history: s.history.labels })));
 }
 
+async function prepareTwoFonts(page: Page) {
+  await prepare(page, true);
+  return page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { textLayer } = await import('/src/imaging/text/model.ts');
+    const first = e.doc.layers.at(-1)!;
+    const second = { ...structuredClone(first), id: crypto.randomUUID(), textData: textLayer('Second', { family: 'Crimson Pro' }), text: 'Second' };
+    e.command('Two unloaded fonts', (d) => {
+      d.layers.at(-1)!.textData = textLayer('Original', { family: 'Caveat' });
+      d.layers.push(second);
+    });
+    e.selectLayers([first.id, second.id]);
+    return first.id;
+  });
+}
+
+for (const kind of ['character', 'paragraph']) test(`a newer ${kind} choice survives an older multi-layer edit waiting on another font`, async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  if (kind === 'character') {
+    await page.locator('#type-size').fill('48');
+    await page.locator('#type-size').press('Enter');
+  } else await page.locator('.type-align[data-align="center"]').click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate((id) => window.photoStudio.selectLayers([id]), first);
+  if (kind === 'character') {
+    await page.locator('#type-size').fill('72');
+    await page.locator('#type-size').press('Enter');
+  } else await page.locator('.type-align[data-align="right"]').click();
+  const values = () => page.evaluate((kind) => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => {
+    const p = l.textData!.content.paragraphs[0];
+    return kind === 'character' ? p.runs[0].style.size : p.style.align;
+  }), kind);
+  await expect.poll(async () => (await values())[0]).toBe(kind === 'character' ? 72 : 'right');
+  await page.evaluate(async () => {
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  });
+  await idle(page);
+  expect(await values()).toEqual(kind === 'character' ? [72, 48] : ['right', 'center']);
+});
+
+for (const size of [24, 72]) test(`a newer size ${size} preserves the independent color in an older pending request`, async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  await page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    void m.applyChar(window.photoStudio, { size: 48, color: [255, 0, 0] });
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate(async ({ first, size }) => {
+    const e = window.photoStudio;
+    e.selectLayers([first]);
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.applyChar(e, { size });
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  }, { first, size });
+  await idle(page);
+  const styles = () => page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => {
+    const s = l.textData!.content.paragraphs[0].runs[0].style;
+    return { size: s.size, color: s.color };
+  }));
+  expect(await styles()).toEqual([{ size, color: [255, 0, 0] }, { size: 48, color: [255, 0, 0] }]);
+  await run(page, 'edit.undo');
+  expect(await styles()).toEqual([{ size, color: [0, 0, 0] }, { size: 24, color: [0, 0, 0] }]);
+  await run(page, 'edit.redo');
+  expect(await styles()).toEqual([{ size, color: [255, 0, 0] }, { size: 48, color: [255, 0, 0] }]);
+});
+
+test('a later subscript choice supersedes an older pending superscript choice', async ({ page }) => {
+  const first = await prepareTwoFonts(page);
+  await page.evaluate(() => {
+    void (window as unknown as { photoStudioType: TypeModule }).photoStudioType.applyChar(window.photoStudio, { superscript: true });
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseStyleFont?: () => void }).releaseStyleFont);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseStyleFont(): void }).releaseStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  await page.evaluate(async (first) => {
+    const e = window.photoStudio;
+    e.selectLayers([first]);
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.applyChar(e, { subscript: true });
+    (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+  }, first);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => {
+    const s = l.textData!.content.paragraphs[0].runs[0].style;
+    return [s.superscript, s.subscript];
+  }))).toEqual([[false, true], [true, false]]);
+});
+
 test('a font finishing during text editing preserves the live edit and its undo steps', async ({ page }) => {
   await prepare(page);
   await pickFont(page);

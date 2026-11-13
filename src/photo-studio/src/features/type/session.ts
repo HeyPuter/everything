@@ -40,6 +40,7 @@ import {
 import { prepareFonts } from '../../imaging/text/fonts';
 import { curlQuotes } from '../../imaging/text/quotes';
 import { prefetchGlyphMaps, protectGlyphs } from './glyph-guard';
+import { StyleRequests } from './style-requests';
 import type { TextLayout } from '../../imaging/text/layout';
 import { commitSelectionMask } from '../selection';
 import { editable, forgetLayout, insertLayer, layoutOf, localBounds, localScale, ppiOf, replaceLayer, textCoverage, toDoc, toLocal, unwarpLocal } from './text-utils';
@@ -689,9 +690,8 @@ export function styleContext(e: Editor): StyleContext {
   return { editing: false, char: d.style, paragraph: d.paragraph, layers: [] };
 }
 
-// Selected-layer font changes may await a download. A later choice for that
-// same document/layer supersedes the pending choice, even if it is a no-op.
-const pendingFontStyles = new WeakMap<DocumentSession, Map<string, object>>();
+const characterRequests = new StyleRequests<CharStyle>([['superscript', 'subscript']]);
+const paragraphRequests = new StyleRequests<ParagraphStyle>();
 
 export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
   const s = session;
@@ -699,7 +699,7 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
   if (s) {
     let ready: Promise<void> | undefined;
     if (fontChange) {
-      pendingFontStyles.get(e.session)?.delete(s.layerId);
+      characterRequests.cancel(e.session, s.layerId, ['family', 'weight', 'italic']);
       const probe = { ...charStyleAt(s.data.content, s.focus), ...patch };
       ready = fontsReady(e, { ...s.data, content: fromPlainText('x', probe) });
     }
@@ -726,18 +726,12 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
   }
   const layers = selectedTextLayers(e);
   if (layers.length) {
-    const owner = e.session;
-    let pending = pendingFontStyles.get(owner);
-    const request = {};
-    if (fontChange) {
-      if (!pending) pendingFontStyles.set(owner, pending = new Map());
-      for (const l of layers) pending.set(l.id, request);
-    }
+    const request = characterRequests.begin(e.session, layers.map((l) => l.id), patch);
     try {
-      return await editLayers(e, 'Change Character Style', (d) => ({ ...d, content: applyCharStyle(d.content, 0, textLength(d.content), patch) }), undefined, undefined,
-        { rebase: true, charPatch: patch, isCurrent: fontChange ? (id) => pending?.get(id) === request : undefined });
+      return await editLayers(e, 'Change Character Style', (d, l) => ({ ...d, content: applyCharStyle(d.content, 0, textLength(d.content), request.patch(l.id)) }), undefined, undefined,
+        { rebase: true, charPatch: request.patch, isCurrent: request.isCurrent, revision: request.revision });
     } finally {
-      if (fontChange) for (const l of layers) if (pending?.get(l.id) === request) pending.delete(l.id);
+      request.finish();
     }
   }
   const d = typeDefaults(e);
@@ -752,7 +746,16 @@ export async function applyParagraph(e: Editor, patch: Partial<ParagraphStyle>) 
     install(e, { ...s.data, content: applyParagraphStyle(s.data.content, a, b, patch) }, { kind: 'paragraph' });
     return;
   }
-  if (selectedTextLayers(e).length) return editLayers(e, 'Change Paragraph Style', (d) => ({ ...d, content: applyParagraphStyle(d.content, 0, textLength(d.content), patch) }), undefined, undefined, { rebase: true });
+  const layers = selectedTextLayers(e);
+  if (layers.length) {
+    const request = paragraphRequests.begin(e.session, layers.map((l) => l.id), patch);
+    try {
+      return await editLayers(e, 'Change Paragraph Style', (d, l) => ({ ...d, content: applyParagraphStyle(d.content, 0, textLength(d.content), request.patch(l.id)) }), undefined, undefined,
+        { rebase: true, isCurrent: request.isCurrent, revision: request.revision });
+    } finally {
+      request.finish();
+    }
+  }
   const d = typeDefaults(e);
   d.paragraph = { ...d.paragraph, ...patch };
   notify();
@@ -775,7 +778,7 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 // `isCurrent` discards superseded per-layer requests after font loading.
 // Pure formatting callbacks can opt into `rebase`: if text changes while fonts
 // load, reapply the patch to that text and prepare any newly required faces.
-export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; rebase?: boolean; charPatch?: Partial<CharStyle> } = {}) {
+export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, options: { isCurrent?: (id: string) => boolean; revision?: (id: string) => string; rebase?: boolean; charPatch?: (id: string) => Partial<CharStyle> } = {}) {
   const owner = e.session;
   const task = e.idle;
   const ppi = ppiOf(owner.doc);
@@ -788,16 +791,17 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     e.message('Unlock the text layers to change them.');
     return;
   }
-  const next = new Map<string, { base: TextLayerData; data: TextLayerData }>();
+  const next = new Map<string, { base: TextLayerData; data: TextLayerData; revision?: string }>();
   let pending = targets;
   do {
     for (const l of pending) {
       if (options.isCurrent && !options.isCurrent(l.id)) continue;
       const t = editable(l, ppi);
+      const revision = options.revision?.(l.id);
       const data = fn(t.textData, t);
       await prepareFonts(data);
       if (!e.sessions.includes(owner)) return;
-      next.set(l.id, { base: t.textData, data });
+      next.set(l.id, { base: t.textData, data, revision });
     }
     while (e.session === owner) {
       // A newer dialog owns its preview until it closes. Do not join its
@@ -815,6 +819,7 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
     pending = options.rebase ? allLayers(owner.doc.layers).filter((l) => {
       const prepared = next.get(l.id);
       if (!prepared || l.kind !== 'text' || (options.isCurrent && !options.isCurrent(l.id))) return false;
+      if (options.revision?.(l.id) !== prepared.revision) return true;
       const current = editable(l, ppi).textData;
       return current !== prepared.base && JSON.stringify(current) !== JSON.stringify(prepared.base);
     }) : [];
@@ -855,7 +860,7 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
         s.anchor = Math.min(s.anchor, length);
         s.focus = Math.min(s.focus, length);
         if (s.caretStyle && options.charPatch)
-          s.caretStyle = charStyleAt(applyCharStyle(fromPlainText('x', s.caretStyle), 0, 1, options.charPatch), 0);
+          s.caretStyle = charStyleAt(applyCharStyle(fromPlainText('x', s.caretStyle), 0, 1, options.charPatch(s.layerId)), 0);
       }
       render(e);
     }
