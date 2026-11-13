@@ -453,6 +453,7 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
     const s = list[i];
     const n = i + 1;
     onProgress?.({ done, total: steps, label: `Scene ${n} of ${list.length}: picture` });
+    check();
     let image = null;
     const pictureKey = keyOf(`picture\n${aspect}\n${style}\n${pictureText(s)}`);
     try {
@@ -466,15 +467,23 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
       assets.push(asset);
       image = { assetId: asset.id, name: asset.name };
     } catch (err) {
+      check();
       if (err?.name === 'AbortError') throw err;
       problems.push({ scene: n, what: 'picture', message: err?.message || 'The picture could not be made.' });
     }
     if (!image) {
       check();
-      const file = await services.backdrop(i, width, height);
-      const asset = await services.addMedia(file, 'backdrop');
-      assets.push(asset);
-      image = { assetId: asset.id, name: asset.name };
+      try {
+        const file = await services.backdrop(i, width, height);
+        check();
+        const asset = await services.addMedia(file, 'backdrop');
+        check();
+        assets.push(asset);
+        image = { assetId: asset.id, name: asset.name };
+      } catch (err) {
+        check();
+        throw err;
+      }
     }
     tick(`Scene ${n} of ${list.length}: voice`);
     check();
@@ -498,13 +507,16 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
       if (captions && services.words) {
         try {
           kept.words ??= await services.words(asset, kept.blob, { signal });
+          check();
           words = kept.words;
         } catch (err) {
+          check();
           if (err?.name === 'AbortError') throw err;
           words = null;
         }
       }
     } catch (err) {
+      check();
       if (err?.name === 'AbortError') throw err;
       problems.push({ scene: n, what: 'voice', message: err?.message || 'The narration could not be made.' });
     }
@@ -513,6 +525,7 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
     timings.add(aligned.timing);
     made.push({ narration: s.narration, words: aligned.words, voice: voiceClip, image });
     tick(`Scene ${n} of ${list.length} done`);
+    check();
   }
   if (made.every((m) => !m.voice) && problems.filter((p) => p.what === 'picture').length === made.length) {
     throw new Error(problems[0]?.message || 'Nothing could be made. Try again.');
@@ -522,15 +535,19 @@ export async function generateScenes(scenes, opts, services, { signal, onProgres
     check();
     try {
       const blob = await services.music(opts.music);
+      check();
       const asset = await services.addMedia(new File([blob], `${opts.musicName || 'Music'}.wav`, { type: 'audio/wav' }), 'music');
+      check();
       assets.push(asset);
       music = { assetId: asset.id, duration: asset.duration, name: asset.name };
     } catch (err) {
+      check();
       if (err?.name === 'AbortError') throw err;
       problems.push({ scene: 0, what: 'music', message: err?.message || 'The music could not be added.' });
     }
     tick('Music added');
   }
+  check();
   const layout = layoutScenes(made, { width, captions, music });
   const timing = timings.size > 1 ? 'mixed' : [...timings][0] || 'estimate';
   return { layout, assets, problems, timing };
