@@ -218,6 +218,7 @@ export class RackView {
     }
     for (const [id, row] of this.rows) {
       if (ids.has(id)) continue;
+      row.insert.cancel();
       row.el.remove();
       this.rows.delete(id);
     }

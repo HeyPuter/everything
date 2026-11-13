@@ -5,6 +5,7 @@
 //
 //   const s = createInsertSpin({ max, value, label, nameOf, onStart, onInput, onEnd })
 //   s.set(value); s.setMax(n); s.refresh()   // refresh re-reads nameOf for the tooltip
+//   s.cancel()                             // discard input when its row is removed
 
 import { h } from '../lib/dom.js';
 import { clamp } from '../lib/util.js';
@@ -176,6 +177,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   draw();
   return {
     el,
+    cancel,
     get: () => v,
     set(next) {
       if (next === v) return;

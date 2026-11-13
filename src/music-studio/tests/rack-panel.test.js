@@ -173,7 +173,7 @@ describe('channel rack panel', () => {
     store.preview((p) => ({ ...p, bpm: 150 }));
     const newer = store.gesture;
     vi.advanceTimersByTime(600);
-    expect(store.gesture).toBe(newer);
+    expect(store.gesture === newer).toBe(true);
     store.cancel();
     expect(store.project.bpm).toBe(130);
     store.undo();
@@ -191,6 +191,44 @@ describe('channel rack panel', () => {
     expect(app.store.project).toBe(before);
     expect(Boolean(app.store.gesture)).toBe(false);
     expect(app.store.undoStack).toHaveLength(0);
+  });
+
+  it.each(['key', 'wheel', 'pointer', 'pending pointer'])('discards a deleted channel assignment control and its stale %s input', async (input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const id = kickId();
+    const { spin, send } = insertControl();
+    spin.focus();
+    if (input === 'key') spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    else if (input === 'wheel') spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    else {
+      send('pointerdown');
+      if (input === 'pointer') send('pointermove', 292);
+    }
+    await app.panel('rack').actions.delete();
+    expect(spin.isConnected).toBe(false);
+    expect(store.project.channels.some((ch) => ch.id === id)).toBe(false);
+    expect(spin.classList.contains('dragging')).toBe(false);
+    store.begin('Tempo');
+    store.preview((p) => ({ ...p, bpm: 150 }));
+    const newer = store.gesture;
+    send('pointermove', 276);
+    send('pointerup', 276);
+    vi.advanceTimersByTime(600);
+    window.dispatchEvent(new Event('blur'));
+    expect(store.gesture === newer).toBe(true);
+    store.cancel();
+    expect(store.project.bpm).toBe(130);
+    store.undo();
+    expect(store.project.channels[0].id).toBe(id);
+    const restored = store.project;
+    const current = insertControl();
+    current.send('pointerdown');
+    current.send('pointermove', 292);
+    current.send('pointerup', 292);
+    expect(store.project.channels[0].mixer).toBe(input === 'pending pointer' ? 2 : 3);
+    store.undo();
+    expect(store.project).toBe(restored);
   });
 
   it('preserves a pending assignment drag through an unrelated edit and keeps separate undo steps', () => {
