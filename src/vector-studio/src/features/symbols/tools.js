@@ -152,6 +152,12 @@ export class SymbolismTool extends Tool {
     this.overlay();
   }
 
+  onLeave() {
+    if (this.stroke || !this.pos) return;
+    this.pos = null;
+    this.overlay();
+  }
+
   onPointerDown(e) {
     const ed = this.editor;
     if (!ed || ed.doc.tx) return;

@@ -96,6 +96,12 @@ class LiquifyTool extends Tool {
     this.overlay();
   }
 
+  onLeave() {
+    if (this.stroke || this.resize || !this.cursorPt) return;
+    this.cursorPt = null;
+    this.overlay();
+  }
+
   onPointerDown(e) {
     if (e.button !== 0) return;
     this.cursorPt = { x: e.x, y: e.y };

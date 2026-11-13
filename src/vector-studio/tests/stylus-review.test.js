@@ -198,3 +198,26 @@ describe("the pen's eraser end", () => {
     expect(app.getTool('eraser').pts).toBe(null);
   });
 });
+
+describe('brush outlines when the pen leaves', () => {
+  for (const id of ['eraser', 'blob-brush', 'warp', 'symbol-sprayer']) {
+    it(`the ${id} outline goes when the pen lifts out of range, and stays while it drags`, () => {
+      expect(app.toolClasses.has(id)).toBe(true);
+      app.setTool(id);
+      const tool = app.tool;
+      const input = app.input;
+      const at = () => tool.cursorPt ?? tool.pos ?? null;
+      input.move(pen(300, 300, { buttons: 0 }));
+      expect(at()).not.toBe(null);
+      input.leave();
+      expect(at()).toBe(null);
+      // A drag that leaves the canvas (the pointer is captured) keeps its outline.
+      input.move(pen(300, 300, { buttons: 0 }));
+      input.down(pen(300, 300));
+      input.move(pen(320, 300));
+      input.leave();
+      expect(at()).not.toBe(null);
+      input.cancel(pen(320, 300));
+    });
+  }
+});

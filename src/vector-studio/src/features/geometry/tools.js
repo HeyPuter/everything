@@ -613,6 +613,12 @@ class RoundBrushTool extends Tool {
     this.overlay();
   }
 
+  onLeave() {
+    if (this.pts || !this.cursorPt) return;
+    this.cursorPt = null;
+    this.overlay();
+  }
+
   /** Whether pen pressure changes the brush size along a stroke (the Merge Brush, with its option on). */
   get pressureSize() {
     return false;

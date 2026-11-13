@@ -389,6 +389,8 @@ export class CanvasInput {
 
   leave() {
     this.app.rulers?.setPointer(null);
+    // Brush outlines that follow the pointer go with it (a pen lifted out of range, a mouse moved off).
+    if (!this.active) this.currentTool()?.onLeave?.();
     if (this.editor && this.editor.hover && !this.active) {
       this.editor.hover = null;
       this.editor.emit('overlay');

@@ -51,6 +51,9 @@ export class Tool {
   /** Pointer moved with no button down. */
   onHover() {}
 
+  /** The pointer left the canvas with no button down (a pen lifted out of range, a mouse moved off). */
+  onLeave() {}
+
   onDoubleClick() {}
 
   /** Return true when the key was handled. */
