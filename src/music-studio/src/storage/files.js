@@ -347,21 +347,32 @@ export class ProjectFiles {
 
   // ---------------------------------------------------------------- import audio
 
+  /** Async imports belong to the document in which they were started. */
+  importGuard() {
+    const loads = this.loads;
+    return () => {
+      if (this.loads !== loads) throw new Error('Import cancelled because another project was opened.');
+    };
+  }
+
   /**
    * app.importAudio: decodes, stores the bytes, adds the sample and a channel
    * in one undo step. With `channel` (an existing channel id) the sample goes
    * to that channel instead (a sampler or audio channel keeps its type).
    */
   async importAudio(blob, { name, path = null, as = 'sampler', channel = null } = {}) {
+    const check = this.importGuard();
     const fileName = name || blob.name || 'Audio';
     if (blob.size > MAX_IMPORT_BYTES) throw new Error(`"${fileName}" is ${mb(blob.size)}. Music Studio imports audio files up to ${mb(MAX_IMPORT_BYTES)}.`);
     const data = await blob.arrayBuffer();
+    check();
     let decoded;
     try {
       decoded = await decodeAudio(data);
     } catch {
       throw new Error(`"${fileName}" could not be read as audio. Try WAV, MP3, OGG or FLAC.`);
     }
+    check();
     const id = uid();
     let local = null;
     try {
@@ -370,6 +381,7 @@ export class ProjectFiles {
     } catch (err) {
       console.warn('Music Studio: could not keep the sample on this device.', err);
     }
+    check();
     this.app.samples.set(id, decoded);
     const duration = decoded.channels[0].length / decoded.rate;
     const label = stripExtension(fileName).slice(0, 60) || 'Sample';
@@ -400,16 +412,20 @@ export class ProjectFiles {
 
   /** Imports an audio file already in Puter (the browser's My files). */
   async importAudioFromPath(path, opts = {}) {
+    const check = this.importGuard();
     puter.requireSignedIn();
     // Check the size first: downloads count against the user's allowance.
     const size = (await puter.stat(path).catch(() => null))?.size;
+    check();
     if (size > MAX_IMPORT_BYTES) throw new Error(`"${baseName(path)}" is ${mb(size)}. Music Studio imports audio files up to ${mb(MAX_IMPORT_BYTES)}.`);
     const blob = await puter.readFile(path);
+    check();
     return this.importAudio(blob, { name: baseName(path), path, ...opts });
   }
 
   /** File > Import audio: from this device, or from Puter when signed in. */
   async importAudioCommand() {
+    const check = this.importGuard();
     let source = 'device';
     if (this.signedIn()) {
       source = await openDialog({
@@ -425,11 +441,17 @@ export class ProjectFiles {
     }
     if (source === 'puter') {
       const items = await puter.pickFiles({ multiple: true, accept: AUDIO_EXTENSIONS });
-      for (const item of items) await this.runImport(() => this.importAudioFromPath(item.path), item.name);
+      for (const item of items) {
+        check();
+        await this.runImport(() => this.importAudioFromPath(item.path), item.name);
+      }
       return;
     }
     const files = await chooseFiles({ accept: AUDIO_ACCEPT, multiple: true });
-    for (const f of files) await this.runImport(() => this.importAudio(f, { name: f.name }), f.name);
+    for (const f of files) {
+      check();
+      await this.runImport(() => this.importAudio(f, { name: f.name }), f.name);
+    }
   }
 
   async runImport(fn, name) {
@@ -446,13 +468,18 @@ export class ProjectFiles {
   // ---------------------------------------------------------------- MIDI
 
   async importMidiCommand() {
+    const check = this.importGuard();
     const [file] = await chooseFiles({ accept: '.mid,.midi,audio/midi' });
+    check();
     if (file) await this.importMidiBlob(file, file.name);
   }
 
   /** Adds a MIDI file's parts to the project in one undo step. */
   async importMidiBlob(blob, name = 'MIDI') {
-    const midi = readMidi(await blob.arrayBuffer());
+    const check = this.importGuard();
+    const bytes = await blob.arrayBuffer();
+    check();
+    const midi = readMidi(bytes);
     // Take the file's tempo only when the song is still empty.
     const useTempo = !this.store.project.clips.length;
     const label = stripExtension(name) || 'MIDI';
