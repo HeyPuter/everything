@@ -401,3 +401,90 @@ for (const state of ['loading', 'failure']) for (const action of ['Done', 'Escap
     await expect(dlg).toHaveCount(0);
   }
 });
+
+for (const query of ['wrod', 'absent', '']) test(`a newer Find query '${query}' supersedes a result waiting for fonts`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh wrod']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded font', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('teh');
+  await dlg.getByRole('button', { name: 'Find Next' }).click();
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await dlg.locator('#fr-find').fill(query);
+  await dlg.getByRole('button', { name: 'Find Next' }).click();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  const selected = await page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession();
+    return s && [s.anchor, s.focus];
+  });
+  if (query === 'wrod') {
+    expect(selected).toEqual([4, 8]);
+    await dlg.locator('#fr-change').fill('word');
+    await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+    await run(page, 'type.commit');
+    expect(await layerTexts(page)).toEqual(['teh word']);
+    await run(page, 'edit.undo');
+    expect(await layerTexts(page)).toEqual(['teh wrod']);
+    await run(page, 'edit.redo');
+    expect(await layerTexts(page)).toEqual(['teh word']);
+  } else {
+    expect(selected).toBeUndefined();
+    await expect(dlg.locator('#fr-status')).toHaveText(query ? 'No matches.' : 'Type the text to find.');
+  }
+});
+
+for (const reset of [false, true]) test(`a newer Find result starts before an abandoned font finishes${reset ? ' after a no-match query' : ''}`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, ['teh', 'wrod']);
+  const target = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.id);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.find-replace-text'));
+  const dlg = page.locator('dialog.fr-workspace');
+  await dlg.locator('#fr-find').fill('teh');
+  await dlg.getByRole('button', { name: 'Find Next' }).click();
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  if (reset) {
+    await dlg.locator('#fr-find').fill('absent');
+    await dlg.getByRole('button', { name: 'Find Next' }).click();
+    await expect(dlg.locator('#fr-status')).toHaveText('No matches.');
+  }
+  await dlg.locator('#fr-find').fill('wrod');
+  await dlg.getByRole('button', { name: 'Find Next' }).click();
+  const selection = () => page.evaluate(() => {
+    const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession();
+    return s && { layer: s.layerId, anchor: s.anchor, focus: s.focus };
+  });
+  await expect.poll(selection).toEqual({ layer: target, anchor: 0, focus: 4 });
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(await selection()).toEqual({ layer: target, anchor: 0, focus: 4 });
+  await expect(dlg.getByRole('button', { name: 'Find Next' })).toBeFocused();
+});

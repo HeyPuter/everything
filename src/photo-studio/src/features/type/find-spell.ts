@@ -90,8 +90,11 @@ export async function findReplace(e: Editor) {
     const [a, b] = ordered(session);
     return findMatches(plainText(session.data.content), s.query, opts()).some(([x, y]) => x === a && y === b);
   };
+  let searchRevision = 0;
   const next = async () => {
-    if (!ws.dialog.isConnected) return;
+    const revision = ++searchRevision;
+    const isCurrent = () => ws.dialog.isConnected && revision === searchRevision;
+    if (!isCurrent()) return;
     read();
     if (!s.query) return status('Type the text to find.');
     const found = search(e, s.all, (t) => findMatches(t, s.query, opts()).map(([start, end]) => ({ start, end })));
@@ -99,8 +102,8 @@ export async function findReplace(e: Editor) {
       status(textLayers(e, s.all).length ? 'No matches.' : 'There are no text layers to search.');
       return;
     }
-    await reveal(e, found.layer.id, found.hit.start, found.hit.end, () => ws.dialog.isConnected);
-    if (!ws.dialog.isConnected) return;
+    await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
+    if (!isCurrent()) return;
     ws.q<HTMLElement>('#fr-next').focus();
     status(`Found in “${found.layer.name}”.`);
   };
