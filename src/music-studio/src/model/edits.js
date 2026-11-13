@@ -120,6 +120,7 @@ export function soloChannel(project, id) {
 
 export function addPattern(project, { after, name } = {}) {
   const pattern = createPattern(project.patterns.length, name || nextPatternName(project));
+  pattern.id = reserveId(new Set(project.patterns.map((p) => p.id)), pattern.id);
   const patterns = project.patterns.slice();
   const i = after ? patterns.findIndex((p) => p.id === after) + 1 : patterns.length;
   patterns.splice(i || patterns.length, 0, pattern);
@@ -150,7 +151,7 @@ export function clonePattern(project, id) {
     const nextId = noteIdGenerator(list);
     notes[k] = list.map((n) => ({ ...n, id: nextId() }));
   }
-  const copy = { ...src, id: uid(), name: cloneName(src.name), notes };
+  const copy = { ...src, id: reserveId(new Set(project.patterns.map((p) => p.id))), name: cloneName(src.name), notes };
   const patterns = project.patterns.slice();
   patterns.splice(i + 1, 0, copy);
   return { project: { ...project, patterns }, id: copy.id };

@@ -15,6 +15,7 @@
 // not overwrite another part's program or release its notes.
 
 import { PPQ } from '../model/time.js';
+import { reserveId } from '../lib/util.js';
 import { createChannel, createPattern, createClip, colorAt, patternById, patternResolver, patternLength, busyInserts, freeInsert } from '../model/project.js';
 import * as E from '../model/edits.js';
 import { noteIdGenerator } from '../model/note-ids.js';
@@ -101,8 +102,10 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     channelIds.push(result.id);
     return result.id;
   };
+  const usedPatternIds = new Set(p.patterns.map((pat) => pat.id));
   const addPattern = (pname, color, notesByChannel) => {
     const pat = { ...createPattern(p.patterns.length, pname.slice(0, 60)), color, notes: notesByChannel };
+    pat.id = reserveId(usedPatternIds, pat.id);
     p = { ...p, patterns: [...p.patterns, pat] };
     patternIds.push(pat.id);
     const len = patternLength(pat, p.sig);

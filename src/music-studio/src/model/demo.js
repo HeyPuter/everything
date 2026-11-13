@@ -70,6 +70,8 @@ export function demoProject() {
     ]),
   };
   p.patterns = [beat, bassLine, pad, melody];
+  const patternIds = new Set();
+  for (const pattern of p.patterns) pattern.id = reserveId(patternIds, pattern.id);
 
   const bar = PPQ * 4;
   const clip = (track, ref, start, len) => ({ id: uid(), kind: 'pattern', track, start: start * bar, len: len * bar, offset: 0, ref, mute: false });
