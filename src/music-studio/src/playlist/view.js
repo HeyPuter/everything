@@ -574,14 +574,16 @@ export function createPlaylistView(app, host) {
       rulerHost.removeEventListener('pointermove', move);
       rulerHost.removeEventListener('pointerup', up);
       rulerHost.removeEventListener('pointercancel', up);
+      rulerHost.removeEventListener('lostpointercapture', up);
       finish(cancelled, event);
     };
-    const up = (event) => close(event.type === 'pointercancel', event);
+    const up = (event) => close(event.type !== 'pointerup', event);
     const cancel = () => close(true);
     cancelRulerDrag = cancel;
     rulerHost.addEventListener('pointermove', move);
     rulerHost.addEventListener('pointerup', up);
     rulerHost.addEventListener('pointercancel', up);
+    rulerHost.addEventListener('lostpointercapture', up);
   }
 
   rulerHost.addEventListener('contextmenu', (e) => e.preventDefault());

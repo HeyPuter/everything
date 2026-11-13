@@ -369,3 +369,39 @@ it('Escape clears the clip selection when there is no active gesture', () => {
   expect(view.selection.size).toBe(0);
   panel.onHide();
 });
+
+it.each(['loop', 'marker', 'resize'])('discards an unfinished %s drag when pointer capture is lost', (kind) => {
+  const { store, pointer, panel, body } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  const send = kind === 'resize' ? resizePointer(body).send : rulerPointer(body, kind);
+  send('pointerdown');
+  send('pointermove', 24);
+  expect(store.project).not.toBe(original);
+  send('lostpointercapture', 24);
+  send('pointermove', 48);
+  send('pointerup', 48);
+  expect(store.project).toBe(original);
+  expect(store.canUndo).toBe(false);
+  expect(store.dirty).toBe(false);
+  expect(body.querySelector('.dragging, .marker-drag')).toBeNull();
+  panel.onHide();
+});
+
+it.each(['loop', 'marker', 'resize'])('preserves a committed %s drag when capture is released after pointerup', (kind) => {
+  const { store, pointer, panel, body } = setup();
+  pointer('pointerup');
+  const original = store.project;
+  const send = kind === 'resize' ? resizePointer(body).send : rulerPointer(body, kind);
+  send('pointerdown');
+  send('pointermove', 24);
+  send('pointerup', 24);
+  const committed = store.project;
+  expect(committed).not.toBe(original);
+  send('lostpointercapture', 24);
+  expect(store.project).toBe(committed);
+  expect(store.canUndo).toBe(true);
+  store.undo();
+  expect(store.project).toBe(original);
+  panel.onHide();
+});

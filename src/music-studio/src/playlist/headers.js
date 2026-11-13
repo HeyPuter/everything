@@ -110,6 +110,7 @@ export function createHeaders(V) {
         grip.removeEventListener('pointermove', move);
         grip.removeEventListener('pointerup', up);
         grip.removeEventListener('pointercancel', cancel);
+        grip.removeEventListener('lostpointercapture', cancel);
         if (store.gesture === gesture) {
           if (commit) store.commit();
           else store.cancel();
@@ -121,6 +122,7 @@ export function createHeaders(V) {
       grip.addEventListener('pointermove', move);
       grip.addEventListener('pointerup', up);
       grip.addEventListener('pointercancel', cancel);
+      grip.addEventListener('lostpointercapture', cancel);
     });
     return { li, strip, num, label, name, mute, solo, track: null, selected: null };
   }
