@@ -112,6 +112,27 @@ test('a highlight shows its replies and status and takes new ones', async ({ pag
   expect(kept.state).toBe('Rejected');
 });
 
+// A highlight's own words (what its author wrote about the marked text) were shown nowhere in
+// full: not in its panel, and only their first lines in the Comments tab.
+test('a highlight shows who made it and its words in full', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]).drawText('Highlighted words', { x: 40, y: 400, size: 18 });
+  const words = 'Please reword this.\nIt repeats the heading.\nSee also page 4.\nAnd page 9.';
+  addHighlight(doc, 0, {
+    quads: [rectQuad({ x: 40, y: 394, width: 150, height: 22 })],
+    text: words,
+    author: 'Grace',
+  });
+  await open(page, doc);
+  await page.getByRole('button', { name: /^Edit highlight: Please reword/ }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  await expect(props.getByLabel('Highlight color')).toBeVisible();
+  await expect(props.getByText('Grace', { exact: false }).first()).toBeVisible();
+  const shown = props.getByText('Please reword this.', { exact: false });
+  await expect(shown).toBeVisible();
+  expect(await shown.evaluate((node) => node.innerText)).toBe(words);
+});
+
 // A shape's panel is drawn again after each change; the keyboard stays where it was used.
 test('a shape keeps the keyboard in its panel through replies and changes', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 640 });

@@ -1889,6 +1889,12 @@
   margin: 0;
   font-size: 11px;
 }
+/* A highlight's own words, with their line breaks, wrapped within the panel. */
+.markup-comment {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .annotation-style {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -4020,18 +4020,29 @@ export function createEditor({
       commentThread(found, (operation, message, control) =>
         changeHighlightThread(entry, operation, message, control),
       );
+    // Who marked it, when, and what they wrote: a markup's words were shown nowhere in full.
+    const date = found?.modified ?? found?.created;
+    const meta = [
+      found?.author,
+      date?.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }),
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const words = entry.text.trim();
     properties.show(
       'highlight',
       Label,
-      thread
+      thread || meta || words
         ? el(
             'div',
             { class: 'annotation-props' },
+            meta ? el('p', { class: 'muted annotation-meta' }, meta) : null,
+            words ? el('p', { class: 'markup-comment' }, words) : null,
             panel,
-            thread.status,
-            thread.replies,
-            thread.replyText,
-            el('div', { class: 'annotation-actions' }, thread.replyButton),
+            thread && thread.status,
+            thread && thread.replies,
+            thread && thread.replyText,
+            thread && el('div', { class: 'annotation-actions' }, thread.replyButton),
           )
         : panel,
     );
