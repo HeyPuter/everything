@@ -115,9 +115,14 @@ export async function pageImage(
 /**
  * Render the given pages of a PDF.js document to full-sheet images and hand them to the
  * browser's print command, one page per sheet. Resolves once the print dialog has closed;
- * rejects with an AbortError when `signal` aborts during preparation.
+ * rejects with an AbortError when `signal` aborts during preparation. `layers` is an optional
+ * PDF.js optional content configuration (or a promise of one) for the print intent.
  */
-export async function printPages(pdf, indices, { onProgress, signal, maxDpi = Infinity } = {}) {
+export async function printPages(
+  pdf,
+  indices,
+  { onProgress, signal, maxDpi = Infinity, layers } = {},
+) {
   // Sharp text at a typical printer resolution for ordinary documents; very long documents
   // trade some resolution for memory and time.
   const dpi = Math.min(maxDpi, indices.length <= 50 ? 200 : indices.length <= 200 ? 150 : 96);
@@ -153,6 +158,7 @@ export async function printPages(pdf, indices, { onProgress, signal, maxDpi = In
           viewport,
           intent: 'print',
           annotationMode: pdfjs.AnnotationMode.ENABLE,
+          optionalContentConfigPromise: layers,
         });
         const abort = () => task.cancel();
         signal?.addEventListener('abort', abort, { once: true });

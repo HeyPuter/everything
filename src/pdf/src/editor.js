@@ -10153,6 +10153,22 @@ export function createEditor({
       button('Print', 'Printer', print, 'btn primary'),
     ]);
   }
+  /**
+   * The layers to print: the PDF's print settings, less the layers switched off in the Layers
+   * panel, which print only when visible as other PDF apps do. A layer switched on there still
+   * stays off paper when the PDF says it never prints.
+   */
+  function printLayers() {
+    if (!layerChoices.size) return undefined;
+    return pdf.getOptionalContentConfig({ intent: 'print' }).then((config) => {
+      for (const [id, visible] of layerChoices) {
+        const group = config.getGroup(id);
+        if (group && (!visible || group.usage?.print?.printState !== 'OFF'))
+          config.setVisibility(id, visible);
+      }
+      return config;
+    });
+  }
   async function runPrint(indices) {
     requireAccess('print');
     if (busy || destroyed) return;
@@ -10175,6 +10191,7 @@ export function createEditor({
     try {
       await printPages(pdf, indices, {
         maxDpi: access().printHighQuality ? Infinity : 150,
+        layers: printLayers(),
         signal: controller.signal,
         onProgress: (done, total) => {
           if (done < total) {
