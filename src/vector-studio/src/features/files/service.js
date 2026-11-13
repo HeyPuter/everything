@@ -75,11 +75,19 @@ export class FileService {
     const thumb = thumbnail ? await renderThumbnail(doc) : null;
     // A saved file carries the document's identity (its version history follows it); a copy gets its own.
     const id = copy ? newFileId() : documentId(doc);
-    // Both revision counters describe the synchronous snapshot taken by serializeDocument.
-    const rev = doc.revision;
+    // A preview can be cancelled back to the same history revision. Its snapshot
+    // cannot mark that committed revision saved: they may contain different artwork.
+    let rev = doc.revision;
+    for (const [id, before] of doc.tx?.before || []) {
+      if (before !== doc.nodes.peek(id)) {
+        rev = -1;
+        break;
+      }
+    }
+    const version = doc.nodes.version;
     const commentsRevision = doc.commentsRevision;
     const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
-    return { bytes, thumb, rev, commentsRevision };
+    return { bytes, thumb, rev, version, commentsRevision };
   }
 
   // ---- default folder ("Your files") ----
@@ -171,7 +179,11 @@ export class FileService {
             // This queued request is starting. A Save during its write must be
             // able to queue another request instead of reusing this promise.
             if (state.again === again) state.again = null;
-            return ok && doc.dirty ? this.save(editor) : ok;
+            const snapshot = state.snapshot;
+            const unchangedPreview = doc.tx && Number.isFinite(snapshot?.version) &&
+              snapshot.file === editor.file && snapshot.version === doc.nodes.version &&
+              snapshot.commentsRevision === doc.commentsRevision;
+            return ok && (doc.dirty || doc.tx?.before.size) && !unchangedPreview ? this.save(editor) : ok;
           })
           .finally(() => {
             if (state.again === again) state.again = null;
@@ -268,6 +280,8 @@ export class FileService {
     // Every window showing the document now saves to this file.
     for (const ed of new Set([editor, ...this.app.editors])) if (ed.doc === doc) ed.file = file;
     doc.savedRevision = enc.rev;
+    const state = this.#saveStates.get(doc);
+    if (state) state.snapshot = { file, version: enc.version, commentsRevision: enc.commentsRevision };
     // Version History keeps these bytes: exactly what was written.
     doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb, commentsRevision: enc.commentsRevision });
     this.#remember(file, enc.thumb);
