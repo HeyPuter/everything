@@ -624,6 +624,57 @@ describe('Library media cache', () => {
 describe('Library LUTs', () => {
   const cube = (title) => new File([`TITLE "${title}"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n${title.length % 2} 1 1\n`], `${title}.cube`);
 
+  it('keeps both LUTs when imports overlap in one library', async () => {
+    const backend = memoryBackend();
+    const write = backend.writeBlob;
+    backend.writeBlob = async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return write(...args);
+    };
+    const lib = new Library(backend);
+    await Promise.all([lib.importLut(cube('Warm')), lib.importLut(cube('Cold'))]);
+    expect((await new Library(backend).listLuts()).map((x) => x.name).sort()).toEqual(['Cold', 'Warm']);
+  });
+
+  it('serializes overlapping LUT changes across tabs using a browser lock', async () => {
+    const queue = new Map();
+    const request = vi.fn((name, fn) => {
+      const job = (queue.get(name) || Promise.resolve()).then(() => fn({ name }));
+      queue.set(name, job.catch(() => {}));
+      return job;
+    });
+    vi.stubGlobal('navigator', { locks: { request } });
+    try {
+      const backend = memoryBackend();
+      const write = backend.writeBlob;
+      backend.writeBlob = async (...args) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return write(...args);
+      };
+      const first = new Library(backend);
+      const second = new Library(backend);
+      await Promise.all([first.importLut(cube('Warm')), second.importLut(cube('Cold'))]);
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(new Set(request.mock.calls.map(([name]) => name)).size).toBe(1);
+      expect((await new Library(backend).listLuts()).map((x) => x.name).sort()).toEqual(['Cold', 'Warm']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps LUT changes made by another library after its list was cached', async () => {
+    const backend = memoryBackend();
+    const first = new Library(backend);
+    const second = new Library(backend);
+    const { entry: warm } = await first.importLut(cube('Warm'));
+    await second.listLuts();
+    await first.importLut(cube('Cold'));
+    await second.removeLut(warm.id);
+    expect((await new Library(backend).listLuts()).map((x) => x.name)).toEqual(['Cold']);
+    await first.importLut(cube('Bright'));
+    expect((await new Library(backend).listLuts()).map((x) => x.name).sort()).toEqual(['Bright', 'Cold']);
+  });
+
   it('keeps the saved LUT list when writing an import fails', async () => {
     const backend = memoryBackend();
     const lib = new Library(backend);

@@ -581,16 +581,29 @@ export class Library extends Emitter {
   }
 
   /** The stored LUT list. Rejects when it can't be read, so a change never replaces it with a shorter one. */
-  async _readLuts() {
-    if (this.luts) return this.luts;
+  async _readLuts(fresh = false) {
+    if (this.luts && !fresh) return this.luts;
     const list = await this.backend.readJSON('luts/index.json').catch((err) => {
       if (err instanceof SyntaxError) return null;
       throw err;
     });
-    this.luts = (Array.isArray(list) ? list : [])
+    const normalized = (Array.isArray(list) ? list : [])
       .filter((x) => x && typeof x.id === 'string' && /^[a-z0-9_-]{1,128}$/i.test(x.id))
       .map((x) => ({ id: x.id, name: String(x.name || 'LUT').slice(0, 120), kind: x.kind === '1d' ? '1d' : '3d', size: Number(x.size) || 0, added: Number(x.added) || 0 }));
+    // A cached-list read may finish after a mutation committed a newer list.
+    if (fresh || !this.luts) this.luts = normalized;
     return this.luts;
+  }
+
+  /** Serialize the read/modify/write, including file removal, within and across browser tabs. */
+  _changeLuts(fn) {
+    const run = () => {
+      const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+      return locks?.request ? locks.request('video-studio:luts', fn) : fn();
+    };
+    const job = (this._lutQueue || Promise.resolve()).then(run);
+    this._lutQueue = job.catch(() => {});
+    return job;
   }
 
   /**
@@ -603,13 +616,15 @@ export class Library extends Emitter {
     const lut = parseCube(text);
     const id = await fingerprint(file);
     const entry = { id, name: lutName(lut, file.name), kind: lut.kind, size: lut.size, added: Date.now() };
-    const list = await this._readLuts();
-    await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
-    const next = [entry, ...list.filter((x) => x.id !== id)];
-    await this.backend.writeJSON('luts/index.json', next);
-    this.luts = next;
-    this.emit('luts', this.luts);
-    return { entry, lut };
+    return this._changeLuts(async () => {
+      const list = await this._readLuts(true);
+      await this.backend.writeBlob(`luts/${id}.cube`, new Blob([text], { type: 'text/plain' }));
+      const next = [entry, ...list.filter((x) => x.id !== id)];
+      await this.backend.writeJSON('luts/index.json', next);
+      this.luts = next;
+      this.emit('luts', this.luts);
+      return { entry, lut };
+    });
   }
 
   /** The text of a stored LUT and its display name. */
@@ -622,13 +637,15 @@ export class Library extends Emitter {
 
   /** Forget a LUT (clips that use it render without it). */
   async removeLut(id) {
-    const list = await this._readLuts();
-    const next = list.filter((x) => x.id !== id);
-    // The list changes only once the index is saved, so a failed write keeps them in step.
-    await this.backend.writeJSON('luts/index.json', next);
-    this.luts = next;
-    await this.backend.remove(`luts/${id}.cube`).catch(() => {});
-    this.emit('luts', this.luts);
+    return this._changeLuts(async () => {
+      const list = await this._readLuts(true);
+      const next = list.filter((x) => x.id !== id);
+      // The list changes only once the index is saved, so a failed write keeps them in step.
+      await this.backend.writeJSON('luts/index.json', next);
+      this.luts = next;
+      await this.backend.remove(`luts/${id}.cube`).catch(() => {});
+      this.emit('luts', this.luts);
+    });
   }
 
   /** Release cached blobs and URLs (when leaving the editor). */
