@@ -5,8 +5,6 @@
 import { h, announce } from '../lib/dom.js';
 import { openDialog, confirmDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
-import { downloadBlob, safeFileName } from '../io/download.js';
-import { FILE_EXT } from '../model/project.js';
 import * as puter from '../storage/puter.js';
 
 /** "Today 14:05", "Yesterday", "3 Oct" (pure, `now` injectable). */
@@ -66,8 +64,7 @@ export async function openLocalProjects(app) {
   const download = async (m) => {
     try {
       const project = await lib.loadLocal(m.key);
-      const { blob } = await lib.exportFile(project, {});
-      downloadBlob(blob, `${safeFileName(m.name)}${FILE_EXT}`);
+      await app.files.download({ project, view: {}, name: m.name });
     } catch (err) {
       app.reportError(err);
     }
