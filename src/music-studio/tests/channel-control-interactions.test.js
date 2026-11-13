@@ -94,3 +94,50 @@ it.each(cases)('keeps %s controls attached to their edit when %s receives input 
   store.undo();
   expect(store.project === initial).toBe(true);
 });
+
+it.each(['instrument', 'channel'].flatMap((kind) => ['pointer', 'pending pointer', 'key', 'wheel'].map((mode) => [kind, mode])))('finishes %s %s input when Escape closes its editor', (kind, mode) => {
+  const win = instrumentWindow(kind);
+  const old = input(win.el.querySelector(kind === 'instrument' ? '[aria-label="Voice tone"]' : '[aria-label="Channel pan"]'));
+  const store = app.store;
+  const initial = store.project;
+  old.el.focus();
+  if (mode.includes('pointer')) {
+    old.pointer('pointerdown');
+    if (mode === 'pointer') old.pointer('pointermove', 292);
+  } else old[mode]();
+  const edited = store.project;
+  old.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  expect(win.el.isConnected).toBe(false);
+  expect(store.gesture === null).toBe(true);
+  expect(store.undoStack).toHaveLength(mode === 'pending pointer' ? 0 : 1);
+  old.pointer('pointermove', 276);
+  old.pointer('pointerup', 276);
+  vi.advanceTimersByTime(500);
+  expect(store.project === edited).toBe(true);
+  expect(store.gesture === null).toBe(true);
+  const fresh = instrumentWindow(kind);
+  const next = input(fresh.el.querySelector(kind === 'instrument' ? '[aria-label="Voice tone"]' : '[aria-label="Channel pan"]'));
+  next.wheel();
+  vi.advanceTimersByTime(500);
+  store.undo();
+  expect(store.project === edited).toBe(true);
+  if (mode !== 'pending pointer') store.undo();
+  expect(store.project === initial).toBe(true);
+});
+
+it.each(['instrument', 'channel'])('closing an inactive %s editor preserves another control gesture', (kind) => {
+  const { old, next } = controls(kind, 'mixer');
+  old.el.focus();
+  old.wheel();
+  const first = app.store.project;
+  next.wheel();
+  const owner = app.store.gesture;
+  old.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  expect(old.el.isConnected).toBe(false);
+  expect(app.store.gesture === owner).toBe(true);
+  next.wheel();
+  vi.advanceTimersByTime(500);
+  expect(app.store.undoStack).toHaveLength(2);
+  app.store.undo();
+  expect(app.store.project === first).toBe(true);
+});

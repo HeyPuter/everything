@@ -226,7 +226,7 @@ class ChannelEditor {
       })),
     });
     k.el.classList.add('ed-knob');
-    this.inst.push({ sync: (ch) => k.set(ch.params[def.id] ?? def.def) });
+    this.inst.push({ sync: (ch) => k.set(ch.params[def.id] ?? def.def), cancel: k.cancel });
     return k.el;
   }
 
@@ -525,7 +525,7 @@ class ChannelEditor {
       }) : null),
     });
     k.el.classList.add('ed-knob');
-    this.chan.push({ sync: (ch) => k.set(ch[param.id]) });
+    this.chan.push({ sync: (ch) => k.set(ch[param.id]), cancel: k.cancel });
     return k.el;
   }
 
@@ -719,6 +719,10 @@ class ChannelEditor {
 
   destroy() {
     this.finishMarkerDrag?.();
+    const active = this.activeKnob;
+    this.activeKnob = null;
+    for (const c of [...this.inst, ...this.chan]) c.cancel?.();
+    if (active && active.owner === this.store.gesture) this.store.commit();
     this.pc?.off();
     for (const off of this.offs) off();
     this.offs = [];
