@@ -188,7 +188,7 @@ export function installTaskbar(app) {
           max: 1296,
           width: '64px',
           onCommit: (v) => {
-            if (!app.editors.includes(ed)) return;
+            if (!app.editors.includes(ed) || ed.doc.readOnly) return;
             const texts = ids.map((id) => ed.doc.get(id)).filter((n) => n?.type === 'text' &&
               !ed.doc.isLocked(n.id) && !ed.doc.isHidden(n.id) && ed.inIsolation(n.id));
             if (!texts.length) return;

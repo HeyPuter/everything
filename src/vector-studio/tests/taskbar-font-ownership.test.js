@@ -147,3 +147,58 @@ it('switches an unchanged font field without creating an extra edit', () => {
   expect(input.value).toContain('24');
   expect(document.activeElement).toBe(input);
 });
+
+
+it.each(['viewer', 'commenter'])('discards a pending font edit after becoming a %s without reporting an error', (role) => {
+  const editor = app.newDocument(), node = text(editor, 12);
+  const input = pending(editor);
+  const revision = editor.doc.revision;
+  const errors = [];
+  window.addEventListener('error', (event) => {
+    errors.push(event.error);
+    event.preventDefault();
+  });
+  app.collab.sessions.set(editor, { role });
+  app.collab.applyRole(editor);
+  vi.advanceTimersByTime(20);
+  input.blur();
+  expect(editor.doc.readOnly).toBe(true);
+  expect(editor.doc.get(node.id).char.fontSize).toBe(12);
+  expect(editor.doc.revision).toBe(revision);
+  expect(errors).toEqual([]);
+  expect(app.taskbar.querySelector('input[aria-label="Font size"]')).toBeNull();
+});
+
+it.each(['blur', 'Enter'])('ignores %s on the old font field before a view-only toolbar refresh', (action) => {
+  const editor = app.newDocument(), node = text(editor, 12);
+  const input = pending(editor);
+  const revision = editor.doc.revision;
+  const errors = [];
+  window.addEventListener('error', (event) => {
+    errors.push(event.error);
+    event.preventDefault();
+  });
+  app.collab.sessions.set(editor, { role: 'viewer' });
+  app.collab.applyRole(editor);
+  if (action === 'blur') input.blur();
+  else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  expect(editor.doc.get(node.id).char.fontSize).toBe(12);
+  expect(editor.doc.revision).toBe(revision);
+  expect(errors).toEqual([]);
+});
+
+it('allows a fresh font edit after editing permission returns', () => {
+  const editor = app.newDocument(), node = text(editor, 12);
+  const session = { role: 'viewer' };
+  app.collab.sessions.set(editor, session);
+  app.collab.applyRole(editor);
+  vi.advanceTimersByTime(20);
+  session.role = 'editor';
+  app.collab.applyRole(editor);
+  editor.select([node.id]);
+  const input = pending(editor, '36');
+  input.blur();
+  expect(editor.doc.get(node.id).char.fontSize).toBe(36);
+  editor.doc.undo();
+  expect(editor.doc.get(node.id).char.fontSize).toBe(12);
+});
