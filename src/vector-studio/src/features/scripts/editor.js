@@ -70,19 +70,28 @@ export function openScriptEditor(app, { name = '', source = null } = {}) {
   const progress = h('progress.script-editor-progress', { max: 1, hidden: true });
   let controller = null;
 
-  const saveDraft = () => app.prefs.set(DRAFT_KEY, { name: nameInput.value, source: code.value });
+  let draftTimer = 0;
+  const saveDraft = () => {
+    clearTimeout(draftTimer);
+    app.prefs.set(DRAFT_KEY, { name: nameInput.value, source: code.value });
+  };
+  // Typing keeps the draft too, a moment after each pause.
+  const saveSoon = () => {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraft, 500);
+  };
   const showPos = () => {
     const before = code.value.slice(0, code.selectionStart);
     const line = before.split('\n').length;
     where.textContent = `Line ${line}`;
   };
   code.addEventListener('input', () => {
-    saveDraft();
+    saveSoon();
     showPos();
   });
   code.addEventListener('keyup', showPos);
   code.addEventListener('click', showPos);
-  nameInput.addEventListener('input', saveDraft);
+  nameInput.addEventListener('input', saveSoon);
 
   const say = (text, error = false) => {
     output.textContent = text;

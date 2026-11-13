@@ -161,7 +161,7 @@ export const API_REFERENCE = [
       ],
       [
         'await vs.form(title, fields)',
-        'Ask for several settings at once. Fields: [{ key, label, type, value, min?, max?, step?, options? }]; types text, number, length, percent, angle, checkbox, select, radio, color, heading. Returns { key: value } or null when cancelled.',
+        'Ask for several settings at once. Fields: [{ key, label, type, value, min?, max?, step?, options? }]; types text, number, length (in points, shown in the document units), percent, angle, checkbox, select, radio, color, heading. Returns { key: value } or null when cancelled.',
       ],
       ['await vs.prompt(label, value?)', 'Ask for text (null when cancelled).'],
       ['await vs.confirm(message)', 'Ask yes or no.'],
