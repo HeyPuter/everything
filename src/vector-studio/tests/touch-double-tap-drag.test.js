@@ -95,6 +95,24 @@ describe('touch: tap then drag', () => {
     expect(left(r.id)).toBeCloseTo(160, 0);
   });
 
+  it('keeps a drag that starts after settling when the long-press deadline passes', () => {
+    const r = addRect();
+    app.setTool('selection');
+    app.showContextMenu = vi.fn();
+    const input = app.input;
+    input.down(ev('touch', 200, 200));
+    at(120); // settle the first press before the finger starts moving
+    input.move(ev('touch', 220, 200));
+    input.move(ev('touch', 260, 200));
+    at(500); // a continuing drag must not become a long press
+    expect(app.showContextMenu).not.toHaveBeenCalled();
+    input.up(ev('touch', 260, 200));
+    expect(left(r.id)).toBe(160);
+    expect(ed.doc.undoLabel).toBe('Move');
+    ed.doc.undo();
+    expect(left(r.id)).toBe(100);
+  });
+
   it('a double-tap still isolates', () => {
     const r = addRect();
     app.setTool('selection');

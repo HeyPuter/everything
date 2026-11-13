@@ -173,6 +173,8 @@ export class CanvasInput {
     const p = this.pendingTouch;
     if (!p) return;
     clearTimeout(p.timer);
+    // Keep the press origin after settling so later movement cancels the hold.
+    this.touchStart = { x: p.x, y: p.y };
     this.pendingTouch = null;
     if (this.pointers.has(p.e.pointerId) || this.lifting === p.e.pointerId)
       this.#startTool(p.e, dragged);
@@ -312,7 +314,6 @@ export class CanvasInput {
       const p = this.pendingTouch;
       const start = p || this.touchStart;
       if (p && p.e.pointerId === e.pointerId && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
-        this.touchStart = { x: p.x, y: p.y };
         this.#flushTouch(true);
       }
       if (this.longPressTimer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > TOUCH_SLOP) {
