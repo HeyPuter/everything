@@ -769,7 +769,15 @@ export class Engine extends Emitter {
     if (signal?.aborted) throw abortError();
     const id = this._renderId++;
     return new Promise((resolve, reject) => {
-      const onAbort = () => worker.postMessage({ type: 'cancel', id });
+      const onAbort = () => {
+        const job = this._renderJobs.get(id);
+        if (!job) return;
+        this._renderJobs.delete(id);
+        job.reject(abortError());
+        try {
+          worker.postMessage({ type: 'cancel', id });
+        } catch { /* The request is already canceled even if the worker is unavailable. */ }
+      };
       signal?.addEventListener('abort', onAbort, { once: true });
       this._renderJobs.set(id, {
         onProgress,
