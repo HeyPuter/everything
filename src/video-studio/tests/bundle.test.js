@@ -72,6 +72,23 @@ describe('zip', () => {
     else expect(await bytesOf(await entry.blob())).toEqual([...data]);
   });
 
+  it.each([0, 8])('rejects corrupted contents with unchanged lengths (method: %s)', async (method) => {
+    const data = new TextEncoder().encode('original');
+    const damaged = new TextEncoder().encode('modified');
+    const zip = await zipBlobs([{ name: 'project.json', data: method === 8 ? deflateRawSync(damaged) : damaged }]);
+    const buffer = await zip.arrayBuffer();
+    const view = new DataView(buffer);
+    const directory = view.getUint32(buffer.byteLength - 6, true);
+    view.setUint16(8, method, true);
+    view.setUint16(directory + 10, method, true);
+    view.setUint32(14, crc32(data), true);
+    view.setUint32(directory + 16, crc32(data), true);
+    view.setUint32(22, data.length, true);
+    view.setUint32(directory + 24, data.length, true);
+    const [entry] = await readZip(new StreamBlob([buffer]));
+    await expect(entry.blob()).rejects.toThrow(/damaged|checksum/i);
+  });
+
   it('rejects files that are not archives and duplicate names', async () => {
     await expect(readZip(new Blob(['not a zip at all, just some text here']))).rejects.toThrow(/not a project file/);
     await expect(readZip(new Blob(['x']))).rejects.toThrow(/not a project file/);

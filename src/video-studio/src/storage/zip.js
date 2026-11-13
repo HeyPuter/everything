@@ -204,6 +204,7 @@ export async function readZip(zip) {
     if (o + 46 > cd.byteLength || cd.getUint32(o, true) !== 0x02014b50) throw new Error('This archive is damaged.');
     const flags = cd.getUint16(o + 8, true);
     const method = cd.getUint16(o + 10, true);
+    const checksum = cd.getUint32(o + 16, true);
     const nameLen = cd.getUint16(o + 28, true);
     const extraLen = cd.getUint16(o + 30, true);
     const commentLen = cd.getUint16(o + 32, true);
@@ -233,10 +234,14 @@ export async function readZip(zip) {
           throw new Error('This archive is damaged or incomplete.');
         }
         const raw = zip.slice(start, start + f.compressed);
-        if (method === 0) return raw;
+        if (method === 0) {
+          if (await crcOfBlob(raw) !== checksum) throw new Error('This archive is damaged (checksum mismatch).');
+          return raw;
+        }
         if (method === 8 && typeof DecompressionStream === 'function' && raw.stream) {
           const decoded = await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
           if (decoded.size !== f.size) throw new Error('This archive is damaged or incomplete.');
+          if (await crcOfBlob(decoded) !== checksum) throw new Error('This archive is damaged (checksum mismatch).');
           return decoded;
         }
         throw new Error(`${name} uses a compression this browser cannot read.`);
