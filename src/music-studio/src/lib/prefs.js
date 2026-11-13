@@ -29,7 +29,8 @@ export class Prefs extends Emitter {
     this.storage = storage;
     this.values = {};
     try {
-      this.values = JSON.parse(storage?.getItem(KEY) || '{}') || {};
+      const values = JSON.parse(storage?.getItem(KEY) || '{}');
+      this.values = values && typeof values === 'object' && !Array.isArray(values) ? values : {};
     } catch {
       this.values = {};
     }
