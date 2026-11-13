@@ -765,6 +765,8 @@ export class FileService {
     const index = app.editors.indexOf(old);
     const view = { zoom: old.view.zoom, panX: old.view.panX, panY: old.view.panY, rotation: old.view.rotation };
     const ed = app.addDocument(doc, { file, activate: false });
+    ed.viewOptions = { ...old.viewOptions };
+    ed.activeArtboard = Math.max(0, Math.min(old.activeArtboard, doc.artboards.length - 1));
     app.editors.splice(app.editors.indexOf(ed), 1);
     app.editors.splice(index, 0, ed);
     await app.closeDocument(old, { force: true });
