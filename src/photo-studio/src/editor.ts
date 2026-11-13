@@ -465,16 +465,16 @@ export class Editor {
       return;
     }
     if (c.enabled && !c.enabled(this)) return;
-    // Saving and exporting read the document directly; commit a pending
-    // transform first so the file matches what is on screen.
-    if (id.startsWith('file.') && !this.toolBusy) {
-      this.transform.apply();
-      this.modal?.apply();
-    }
     const outer = this.currentCommand;
     this.currentCommand = this.lastCommand = id;
     try {
       await this.run(async () => {
+        // File commands read the document directly. Embedded transforms can
+        // finish asynchronously, so keep the task busy until they commit.
+        if (id.startsWith('file.') && !this.toolBusy) {
+          this.transform.apply();
+          await this.modal?.apply();
+        }
         // Recorded only when it runs: a command skipped because another
         // task is running must not become an action step.
         this.recorder?.(id, arg);
