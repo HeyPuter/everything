@@ -5,12 +5,13 @@ import type { Editor } from '../../editor';
 import { escapeXML } from '../../model/assets';
 import { allLayers, type Layer } from '../../model/document';
 import { layerLock } from '../../model/locks';
-import { plainText } from '../../imaging/text/model';
+import { plainText, type TextContent } from '../../imaging/text/model';
 import { findMatches, replaceAll, type FindOptions } from '../../imaging/text/find';
 import { englishChecker, matchCase, type Misspelling, type SpellChecker } from '../../imaging/text/spelling';
 import { openWorkspace } from '../retouch/workspace';
 import { commit, editLayers, inputFocused, insert, ordered, session, setSelection, startEdit } from './session';
 import { editable, ppiOf } from './text-utils';
+import { SpellingSkips } from './spelling-skips';
 import './find-spell.css';
 
 /** Text layers to search, top of the stack first, starting at the current one. */
@@ -40,16 +41,16 @@ async function reveal(e: Editor, id: string, a: number, b: number, isCurrent: ()
   if (isCurrent() && session?.layerId === id) setSelection(e, a, b);
 }
 /** First hit after the current position, wrapping once through the layers. */
-function search<T extends { start: number; end: number }>(e: Editor, all: boolean, hits: (text: string) => T[]): { layer: Layer; hit: T } | undefined {
+function search<T extends { start: number; end: number }>(e: Editor, all: boolean, hits: (text: string, layer: Layer) => T[]): { layer: Layer; hit: T } | undefined {
   const layers = textLayers(e, all);
   const pos = position();
   for (const l of layers) {
-    const hit = hits(textOf(e, l)).find((h) => l.id !== pos.id || h.start >= pos.at);
+    const hit = hits(textOf(e, l), l).find((h) => l.id !== pos.id || h.start >= pos.at);
     if (hit) return { layer: l, hit };
   }
   // Wrapped around: the start of the layer the search began in.
   const first = layers.find((l) => l.id === pos.id);
-  const hit = first && hits(textOf(e, first)).find((h) => h.start < pos.at);
+  const hit = first && hits(textOf(e, first), first).find((h) => h.start < pos.at);
   return first && hit ? { layer: first, hit } : undefined;
 }
 const lockedMessage = 'Some text layers are locked; unlock them to change their text.';
@@ -209,6 +210,7 @@ export async function checkSpelling(e: Editor) {
   const buttons = [...ws.dialog.querySelectorAll<HTMLButtonElement>('.sp-footer button:not(#sp-done)')];
   const enable = (on: boolean) => buttons.forEach((b) => (b.disabled = !on));
   enable(false);
+  const skipped = new SpellingSkips();
   let current: { owner: Editor['session']; layer: Layer; hit: Misspelling } | undefined;
   let spell: SpellChecker;
   try {
@@ -229,12 +231,13 @@ export async function checkSpelling(e: Editor) {
   };
   // This dialog stays open while text and document tabs can change. Only
   // apply the displayed suggestion while its original word still exists.
-  const currentMatches = () => {
+  const currentMatch = () => {
     const match = current;
-    if (!match || match.owner !== e.session) return false;
+    if (!match || match.owner !== e.session) return;
     const layer = textLayers(e, true).find((l) => l.id === match.layer.id);
-    return !!layer && spell.misspellings(textOf(e, layer)).some((hit) =>
-      hit.start === match.hit.start && hit.end === match.hit.end && hit.word === match.hit.word);
+    if (!layer) return;
+    const text = textOf(e, layer);
+    if (spell.misspellings(text).some((hit) => hit.start === match.hit.start && hit.end === match.hit.end && hit.word === match.hit.word)) return { ...match, text };
   };
   let searchRevision = 0;
   const next = async () => {
@@ -242,7 +245,7 @@ export async function checkSpelling(e: Editor) {
     const owner = e.session;
     const isCurrent = () => ws.dialog.isConnected && e.session === owner && revision === searchRevision;
     if (!isCurrent()) return;
-    const found = search(e, all(), (t) => spell.misspellings(t));
+    const found = search(e, all(), (t, l) => skipped.filter(owner, l.id, t, spell.misspellings(t)));
     current = found && { ...found, owner };
     if (!found) {
       ws.q('#sp-word').textContent = '—';
@@ -260,7 +263,7 @@ export async function checkSpelling(e: Editor) {
   };
   // Skip past the current word without changing it.
   const skip = async () => {
-    if (current && currentMatches() && session?.layerId === current.layer.id) setSelection(e, current.hit.end, current.hit.end);
+    if (current && currentMatch() && session?.layerId === current.layer.id) setSelection(e, current.hit.end, current.hit.end);
     await next();
   };
   ws.q('#sp-suggestions').addEventListener('click', (ev) => {
@@ -270,7 +273,11 @@ export async function checkSpelling(e: Editor) {
     ws.q<HTMLInputElement>('#sp-change').value = o.dataset.word!;
   });
   ws.q('#sp-suggestions').addEventListener('dblclick', () => ws.q('#sp-change-one').click());
-  ws.q('#sp-ignore').addEventListener('click', () => void skip());
+  ws.q('#sp-ignore').addEventListener('click', () => {
+    const match = currentMatch();
+    if (match) skipped.ignore(match.owner, match.layer.id, match.text, match.hit);
+    void skip();
+  });
   ws.q('#sp-ignore-all').addEventListener('click', () => {
     if (current) spell.ignore(current.hit.word);
     void skip();
@@ -286,14 +293,21 @@ export async function checkSpelling(e: Editor) {
     void skip();
   });
   ws.q('#sp-change-one').addEventListener('click', () => {
-    if (!current || !currentMatches() || session?.layerId !== current.layer.id) return void next();
-    if (layerLock(e.doc.layers, current.layer.id, 'all')) return status(lockedMessage);
-    setSelection(e, current.hit.start, current.hit.end);
+    const match = currentMatch();
+    if (!match || session?.layerId !== match.layer.id) return void next();
+    if (layerLock(e.doc.layers, match.layer.id, 'all')) return status(lockedMessage);
+    const { owner, layer, hit, text: before } = match;
+    setSelection(e, hit.start, hit.end);
     insert(e, ws.q<HTMLInputElement>('#sp-change').value, 'replace');
+    if (skipped.has(owner, layer.id)) {
+      const after = plainText(session.data.content), delta = after.length - before.length;
+      skipped.remap(owner, layer.id, before, after, (at) => at <= hit.start ? at : at >= hit.end ? at + delta : hit.end + delta);
+    }
     void next();
   });
   ws.q('#sp-change-all').addEventListener('click', async () => {
-    if (!current || !currentMatches()) return void next();
+    if (!current || !currentMatch()) return void next();
+    const owner = e.session;
     const word = current.hit.word,
       to = ws.q<HTMLInputElement>('#sp-change').value;
     ++searchRevision;
@@ -305,6 +319,7 @@ export async function checkSpelling(e: Editor) {
     // Each occurrence keeps its own capitalization pattern. Compose the
     // position maps in the same order as these replacements on the latest text.
     const mappings = new Map<string, (index: number) => number>();
+    const corrections = new Map<string, { before: TextContent; after: TextContent }>();
     await editLayers(e, 'Change Spelling', (d, l) => {
       let content = d.content;
       const maps: ((index: number) => number)[] = [];
@@ -314,8 +329,11 @@ export async function checkSpelling(e: Editor) {
         maps.push(r.mapIndex);
       }
       mappings.set(l.id, (index) => maps.reduce((at, map) => map(at), index));
+      corrections.set(l.id, { before: d.content, after: content });
       return { ...d, content };
     }, ids, undefined, { rebase: true, mapIndex: (id, index) => mappings.get(id)?.(index) ?? index });
+    for (const [id, change] of corrections)
+      if (skipped.has(owner, id)) skipped.remap(owner, id, plainText(change.before), plainText(change.after), mappings.get(id)!);
     current = undefined;
     await next();
   });
