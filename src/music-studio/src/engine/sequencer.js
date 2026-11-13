@@ -87,6 +87,7 @@ export class Sequencer {
     this.aKind = new Uint8Array(MAX_ACTIVE);
     this.aStart = new Float64Array(MAX_ACTIVE);
     this.aKey = new Uint8Array(MAX_ACTIVE);
+    this.aOrigin = new Array(MAX_ACTIVE).fill(null);
     this.active = 0;
     this.lanes = [];
     this.audioMotionLanes = new Map();
@@ -146,13 +147,16 @@ export class Sequencer {
    */
   #reconcile(seq) {
     const n = seq.notes;
+    const matched = new Set();
+    const findEvent = eventMatcher(n, matched);
     for (let i = 0; i < this.active; ) {
-      const j = findEvent(n, this.aStart[i], this.aSlot[i], this.aKind[i], this.aKey[i]);
+      const j = findEvent(this.aStart[i], this.aSlot[i], this.aKind[i], this.aKey[i], this.aOrigin[i]);
       if (j < 0) {
         this.core.noteOff(this.aSlot[i], this.aId[i], 0);
         this.#removeActive(i);
         continue;
       }
+      matched.add(j);
       this.aEnd[i] = n.end[j];
       i++;
     }
@@ -161,14 +165,7 @@ export class Sequencer {
     for (let k = 0; k < seq.audio.length; k++) {
       const i = seq.audio[k];
       if (!(n.start[i] < pos && n.end[i] > pos)) continue;
-      let sounding = false;
-      for (let a = 0; a < this.active; a++) {
-        if (this.aKind[a] === 1 && this.aSlot[a] === n.slot[i] && this.aStart[a] === n.start[i]) {
-          sounding = true;
-          break;
-        }
-      }
-      if (sounding) continue;
+      if (matched.has(i)) continue;
       this.#startAudio(n, i, pos, 0);
     }
   }
@@ -293,7 +290,7 @@ export class Sequencer {
     const id = this.nextId++ >>> 0;
     if (typeof source === 'number') this.core.audioOn(notes.slot[i], id, source, notes.vel[i], offset);
     else this.core.audioAt(notes.slot[i], id, source.position, notes.vel[i], offset);
-    this.#addActive(notes.end[i], notes.slot[i], id, 1, notes.start[i], notes.key[i]);
+    this.#addActive(notes.end[i], notes.slot[i], id, 1, notes.start[i], notes.key[i], notes.origin?.[i]);
   }
 
   /** Audio clips that span `tick` start from the middle. */
@@ -308,7 +305,7 @@ export class Sequencer {
     }
   }
 
-  #addActive(end, slot, id, kind, start, key) {
+  #addActive(end, slot, id, kind, start, key, origin = null) {
     if (this.active >= MAX_ACTIVE) {
       // Too many sounding notes: release the oldest.
       this.core.noteOff(this.aSlot[0], this.aId[0], 0);
@@ -321,6 +318,7 @@ export class Sequencer {
     this.aKind[a] = kind;
     this.aStart[a] = start;
     this.aKey[a] = key;
+    this.aOrigin[a] = origin;
   }
 
   #removeActive(i) {
@@ -332,11 +330,14 @@ export class Sequencer {
       this.aKind[i] = this.aKind[last];
       this.aStart[i] = this.aStart[last];
       this.aKey[i] = this.aKey[last];
+      this.aOrigin[i] = this.aOrigin[last];
     }
+    this.aOrigin[last] = null;
   }
 
   #releaseAll(offset) {
     for (let i = 0; i < this.active; i++) this.core.noteOff(this.aSlot[i], this.aId[i], offset);
+    this.aOrigin.fill(null, 0, this.active);
     this.active = 0;
   }
 
@@ -383,7 +384,7 @@ export class Sequencer {
       const ke = this.#frameOf(n.end[i], s0);
       // A note shorter than a frame still gets its note-off after the note-on.
       if (ke < frames && ke > k) this.core.noteOff(n.slot[i], id, f0 + ke);
-      else this.#addActive(n.end[i], n.slot[i], id, n.kind[i], n.start[i], n.key[i]);
+      else this.#addActive(n.end[i], n.slot[i], id, n.kind[i], n.start[i], n.key[i], n.origin?.[i]);
     }
     if (this.metronome) this.#clicks(t0, frames, f0, s0);
   }
@@ -544,12 +545,27 @@ export class Sequencer {
   }
 }
 
-/** Index of the event that starts at `start` on `slot` with this kind and key, or -1. */
-function findEvent(n, start, slot, kind, key) {
-  for (let j = lowerBound(n.start, n.count, start); j < n.count && n.start[j] === start; j++) {
-    if (n.slot[j] === slot && n.kind[j] === kind && n.key[j] === key) return j;
-  }
-  return -1;
+/** Lazy source lookup within each start-time group; each event is indexed once. */
+function eventMatcher(n, matched) {
+  const groups = new Map();
+  return (start, slot, kind, key, origin) => {
+    let group = groups.get(start);
+    if (!group) {
+      group = { next: lowerBound(n.start, n.count, start), sources: new Map() };
+      groups.set(start, group);
+    }
+    const matches = (j) => !matched.has(j) && n.slot[j] === slot && n.kind[j] === kind && n.key[j] === key;
+    for (const j of group.sources.get(origin) || []) if (matches(j)) return j;
+    while (group.next < n.count && n.start[group.next] === start) {
+      const j = group.next++;
+      const source = n.origin?.[j] ?? null;
+      let indices = group.sources.get(source);
+      if (!indices) group.sources.set(source, (indices = []));
+      indices.push(j);
+      if (source === origin && matches(j)) return j;
+    }
+    return -1;
+  };
 }
 
 function laneKey(l) {

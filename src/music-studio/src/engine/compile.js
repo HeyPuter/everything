@@ -37,6 +37,8 @@
 //   absolute ticks; v is normalized and mapped through the def (lib/params.js
 //   fromNorm) on the audio thread. A clip at `start` with `offset` evaluates
 //   its points at (tick - start + offset).
+// Notes also carry a stable source `origin` for distinguishing simultaneous
+// events when reconciling edits; it is cloned alongside the numeric buffers.
 
 import { INSTRUMENT_TYPES, INSTRUMENTS, paramVector } from '../instruments/catalog.js';
 import { EFFECT_TYPES, EFFECTS, effectParamVector } from '../effects/catalog.js';
@@ -248,10 +250,10 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     const s = slotOf(id);
     return Number.isInteger(s) && s >= 0 ? s : -1;
   };
-  const pushNote = (start, end, s, n) => {
+  const pushNote = (start, end, s, n, origin = null) => {
     if (cut && start < r.end && end > r.end) end = r.end;
     if (end <= start) end = start + 1;
-    ev.push({ start, end, slot: s, key: n.key, vel: n.vel, pan: n.pan || 0, kind: NOTE, offset: 0 });
+    ev.push({ start, end, slot: s, key: n.key, vel: n.vel, pan: n.pan || 0, kind: NOTE, offset: 0, origin });
   };
 
   if (mode === 'pattern') {
@@ -263,7 +265,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
         if (s < 0 || !chans.has(cid)) continue;
         for (const n of list) {
           if (n.pos >= len) continue;
-          pushNote(swingWarp(n.pos, swing), swingWarp(n.pos + n.len, swing), s, n);
+          pushNote(swingWarp(n.pos, swing), swingWarp(n.pos + n.len, swing), s, n, pat.id && n.id ? `pattern:${pat.id}:${n.id}` : null);
         }
       }
     }
@@ -286,7 +288,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
             const start = cs + swingWarp(n.pos, swing) - off;
             if (start >= ce) continue;
             const end = Math.min(ce, cs + swingWarp(n.pos + n.len, swing) - off);
-            pushNote(start, end, s, n);
+            pushNote(start, end, s, n, c.id && n.id ? `clip:${c.id}:${n.id}` : null);
           }
         }
       } else if (c.kind === 'audio') {
@@ -296,7 +298,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
         if (cut && cs < r.end && end > r.end) end = r.end;
         const off = c.offset || 0;
         const offset = map ? map.seconds(cs) - map.seconds(cs - off) : ticksToSeconds(off, project.bpm);
-        ev.push({ start: cs, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset });
+        ev.push({ start: cs, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset, origin: c.id ? `audio:${c.id}` : null });
       }
     }
   }
@@ -313,6 +315,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     pan: new Float32Array(n),
     kind: new Uint8Array(n),
     offset: new Float64Array(n),
+    origin: new Array(n), // Stable source identity for edits while voices are sounding.
   };
   const audio = [];
   ev.forEach((e, i) => {
@@ -324,6 +327,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     notes.pan[i] = e.pan;
     notes.kind[i] = e.kind;
     notes.offset[i] = e.offset;
+    notes.origin[i] = e.origin;
     if (e.kind === AUDIO) audio.push(i);
   });
 
