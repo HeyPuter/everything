@@ -85,10 +85,11 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   const watch = () => { untrack ||= trackParameterInteraction(cancel); };
   const unwatch = () => { untrack?.(); untrack = null; };
   function cancel() {
+    const hadInput = active || stopDrag;
     clearTimeout(endTimer);
     active = false;
     stopDrag?.();
-    hideReadout();
+    if (hadInput) hideReadout();
     unwatch();
   }
 
