@@ -419,13 +419,13 @@ export class ProjectFiles {
       console.warn('Music Studio: could not keep the sample on this device.', err);
     }
     check();
-    this.app.samples.set(id, decoded);
     const duration = decoded.channels[0].length / decoded.rate;
     const label = stripExtension(fileName).slice(0, 60) || 'Sample';
     const ref = { id, name: fileName.slice(0, 200), path, local, duration, rate: decoded.rate, channels: decoded.channels.length };
     const p = this.store.project;
     const target = channel ? p.channels.find((c) => c.id === channel) : null;
     if (channel && !target) throw new Error('That channel no longer exists.');
+    this.app.samples.set(id, decoded);
     if (target) {
       const type = target.type === 'sampler' || target.type === 'audio' ? target.type : 'sampler';
       this.store.apply(`Load ${label}`, (proj) => {
