@@ -18,6 +18,7 @@ import { trackPenHover } from '../../ui/pen-direct.js';
 import { icon } from '../../ui/icons.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
 import { previewSession } from '../../ui/dialogs/preview-session.js';
+import { watchEditingContext } from '../../ui/dialogs/editing-context.js';
 import { openPopover, closePopover } from '../../ui/popover.js';
 import { applyStyle } from '../../ops/paint-ops.js';
 import { isHex, normalizeHex } from '../../lib/color.js';
@@ -233,16 +234,21 @@ export async function createSwatchFromFocused(app, { direct = false } = {}) {
   delete p.swatchId;
   delete p.tint;
   const base = { name: p.type === 'solid' ? colorName(p.color) : p.type === 'pattern' ? 'New Pattern Swatch' : 'New Gradient Swatch', paint: p };
-  const res = direct ? { ...base, global: false } : await swatchOptionsDialog(app, { title: 'New Swatch', swatch: base });
-  if (!res || app.editor !== ed) return null;
   const doc = ed.doc;
-  let id = null;
-  doc.transact('New Swatch', () => {
-    id = addSwatch(doc, { name: res.name, paint: res.paint, global: res.global, spot: res.spot, mode: res.mode });
-    // The object that supplied the color now uses the new swatch.
-    if (res.global && res.paint.type === 'solid') applyStyle(ed, { [key]: { ...res.paint, swatchId: id } }, 'New Swatch');
-  });
-  return id;
+  const scope = direct ? null : watchEditingContext(app, ed);
+  try {
+    const res = direct ? { ...base, global: false } : await swatchOptionsDialog(app, { title: 'New Swatch', swatch: base, onOpen: scope.onOpen });
+    if (!res || app.editor !== ed || !app.editors.includes(ed) || doc.readOnly || (scope && (doc.tx || !scope.check()))) return null;
+    let id = null;
+    doc.transact('New Swatch', () => {
+      id = addSwatch(doc, { name: res.name, paint: res.paint, global: res.global, spot: res.spot, mode: res.mode });
+      // The object that supplied the color now uses the new swatch.
+      if (res.global && res.paint.type === 'solid') applyStyle(ed, { [key]: { ...res.paint, swatchId: id } }, 'New Swatch');
+    });
+    return id;
+  } finally {
+    scope?.dispose();
+  }
 }
 
 export class SwatchesPanel extends Panel {
