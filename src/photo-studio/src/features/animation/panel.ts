@@ -6,6 +6,7 @@ import type { Editor } from '../../editor';
 import type { PhotoDocument } from '../../model/document';
 import { commands, type MenuItem, type Panel } from '../../app/registry';
 import { svg } from '../../app/icons';
+import { keepFocus } from '../../ui/keep-focus';
 import { showContextMenu } from '../../app/menubar';
 import { escapeXML } from '../../model/assets';
 import { delayLabel, loopLabel, moveFrames, totalDuration } from '../../model/animation';
@@ -33,7 +34,7 @@ export function timelinePanel(menu: (e?: Editor) => MenuItem[]): Panel {
   let pending = 0;
   const refresh = () => {
     if (!host?.isConnected || !editor) return;
-    render(editor, host);
+    keepFocus(host, () => render(editor!, host!));
   };
   onFrameRendered(() => {
     refresh();
