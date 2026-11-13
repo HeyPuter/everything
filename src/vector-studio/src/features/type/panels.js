@@ -59,11 +59,17 @@ function typeField(app, { label, iconName, kind = 'pt', units = null, presets = 
     value = v;
     shownAuto = auto && v == null && autoValue != null;
     computedAuto = autoValue;
-    if (document.activeElement !== input) render();
+    if (document.activeElement !== input || !hasDraft()) render();
     input.placeholder = v === MIXED ? 'Mixed' : '';
   };
   const render = () => {
-    input.value = shownAuto ? fmt(computedAuto, true) : fmt(value);
+    const text = shownAuto ? fmt(computedAuto, true) : fmt(value);
+    const { selectionStart: start, selectionEnd: end, selectionDirection: direction } = input;
+    const all = start === 0 && end === input.value.length;
+    if (input.value !== text) {
+      input.value = text;
+      if (document.activeElement === input) input.setSelectionRange(all ? 0 : start, all ? text.length : end, direction);
+    }
     displayed = input.value;
     edited = false;
   };
