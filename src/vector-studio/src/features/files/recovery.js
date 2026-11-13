@@ -22,6 +22,14 @@ export function newerSnapshot(a, b) {
     (a.revision === b.revision && (a.commentsRevision || 0) > (b.commentsRevision || 0));
 }
 
+function sameSnapshot(a, b) {
+  if ((a.session || null) !== (b.session || null)) return false;
+  const sequenced = Number.isFinite(a.sequence), otherSequenced = Number.isFinite(b.sequence);
+  if (sequenced || otherSequenced) return sequenced && otherSequenced && a.sequence === b.sequence;
+  return (a.saved || 0) === (b.saved || 0) && (a.revision || 0) === (b.revision || 0) &&
+    (a.commentsRevision || 0) === (b.commentsRevision || 0);
+}
+
 export class RecoveryStore {
   constructor(backends) {
     this.backends = (Array.isArray(backends) ? backends : [backends]).filter(Boolean);
@@ -101,14 +109,23 @@ export class RecoveryStore {
 
   /**
    * The stored bytes for an entry from list(), or null when no store has
-   * them. Throws when a store that could hold them failed (offline), so a
-   * copy that exists is never mistaken for a missing one.
+   * them. Only an identical snapshot may substitute for the selected copy.
+   * Throws when matching bytes cannot be read but storage failed or another
+   * snapshot remains, so recovery never silently substitutes stale work.
    */
   async read(entry) {
     const backends = entry.backend ? [entry.backend, ...this.backends.filter((b) => b !== entry.backend)] : this.backends;
     let failure = null;
     for (const b of backends) {
       try {
+        if (b !== entry.backend) {
+          const candidate = (await this.#readIndex(b, { strict: true })).find((e) => e.id === entry.id);
+          if (!candidate) continue;
+          if (!sameSnapshot(candidate, entry)) {
+            failure ||= new Error('The selected recovery snapshot is not available right now.');
+            continue;
+          }
+        }
         const blob = await b.readBlob(`${DIR}/${entry.id}.vstudio`);
         if (blob) return blob;
       } catch (err) {
