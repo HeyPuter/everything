@@ -162,6 +162,17 @@ export class Recorder {
     return { pattern, patLen, tick: patternTick(engine.position, { mode: engine.mode, patternId: pattern.id, patLen, clips: store.project.clips }) };
   }
 
+  /** Keep live, queued and existing notes distinct before a take reaches the model. */
+  newNoteId(pattern, channel) {
+    const { store } = this.app;
+    const current = E.getNotes(store.project, pattern, channel);
+    // A concurrent drag may hide a note that cancel will restore.
+    const start = store.gesture ? E.getNotes(store.gesture.start, pattern, channel) : current;
+    let id = uid(6);
+    while (this.take.has(id) || current.some((n) => n.id === id) || (start !== current && start.some((n) => n.id === id)) || this.finished.some((pass) => pass.ids.has(id))) id = uid(6);
+    return id;
+  }
+
   /** Called by the live input for every note on. Returns true when the note was recorded or step-edited. */
   noteOn(key, vel, channel) {
     if (!channel) return false;
@@ -172,7 +183,7 @@ export class Recorder {
     }
     if (this.active) {
       const { pattern, tick } = this.patternInfo();
-      const id = uid(6);
+      const id = this.newNoteId(pattern.id, channel);
       this.take.set(id, { id, key, vel, pattern: pattern.id, channel, pos: tick, started: this.readClock(), open: true, len: 0 });
       this.byKey.set(key, id);
       this.takeTotal = (this.takeTotal || 0) + 1;
@@ -210,7 +221,7 @@ export class Recorder {
     const { pattern } = this.patternInfo();
     const len = shared.grid > 0 ? shared.grid : 24;
     const pos = Math.max(0, Math.round(shared.cursor.tick));
-    const note = { id: uid(6), key, pos, len, vel, pan: 0 };
+    const note = { id: this.newNoteId(pattern.id, channel), key, pos, len, vel, pan: 0 };
     this.app.store.apply('Step edit note', (p) => E.addNotes(p, pattern.id, channel, [note]));
     this.stepHeld++;
     this.stepAdvance = len;
@@ -287,7 +298,7 @@ export class Recorder {
   commitPass() {
     const store = this.app.store;
     if (this.take.size && store.gesture && store.gesture !== this.gesture) {
-      this.finished.push({ edit: this.editTake(true), count: 0 });
+      this.finished.push({ edit: this.editTake(true), count: 0, ids: new Set(this.take.keys()) });
     }
     if (store.gesture && store.gesture === this.gesture) store.commit();
     this.gesture = null;
@@ -306,7 +317,7 @@ export class Recorder {
     const store = this.app.store;
     const count = this.takeTotal || this.take.size;
     if (this.take.size && store.gesture && store.gesture !== this.gesture) {
-      this.finished.push({ edit: this.editTake(true), count });
+      this.finished.push({ edit: this.editTake(true), count, ids: new Set(this.take.keys()) });
     } else {
       if (this.take.size) this.write();
       if (store.gesture && store.gesture === this.gesture) store.commit();
