@@ -128,6 +128,7 @@ export class TransformSession {
   private previousTool: string;
   private hideEdges: unknown;
   private ended = false;
+  private preparing?: Promise<void>;
   // Floating selections: the lifted pixels as tiles (drawn while the frame is
   // a rotated rectangle), the ids of the preview layers, and the tiles the
   // committed layer keeps.
@@ -173,6 +174,12 @@ export class TransformSession {
     const f = Math.min(1, 1400 / Math.max(src.width, src.height));
     this.small = f < 1 ? resize(src, Math.max(1, Math.round(src.width * f)), Math.max(1, Math.round(src.height * f)), 'bilinear') : src;
     if (!this.ended) this.schedule(true);
+  }
+  prepareSource(source: Promise<RGBA8>) {
+    this.preparing = source.then((src) => this.setSource(src)).catch((error) => {
+      this.e.message(error instanceof Error ? error.message : String(error));
+      this.cancel();
+    });
   }
   get ready() {
     return !!this.source;
@@ -226,13 +233,14 @@ export class TransformSession {
     const q0 = rectQuad(this.rect);
     return !!this.mesh || this.quad.some((p, i) => Math.abs(p.x - q0[i].x) > 1e-6 || Math.abs(p.y - q0[i].y) > 1e-6);
   }
-  apply(restoreTool = true) {
+  apply(restoreTool = true): void | Promise<void> {
     if (this.ended) return;
     if (this.e.doc !== this.base || !this.changed) {
       this.cancel(restoreTool);
       return;
     }
     if (!this.source) {
+      if (this.preparing) return this.preparing.then(() => this.apply(restoreTool));
       this.e.message('The layer is still being prepared; try again in a moment.');
       return;
     }
@@ -1308,14 +1316,6 @@ export function startSession(e: Editor, opts: StartOptions): TransformSession | 
   const mesh = opts.quad ? opts.mesh : frame?.mesh;
   if (mesh) s.mesh = mesh;
   s.begin();
-  void (async () => {
-    try {
-      const src = await contentRGBA(e, l);
-      s.setSource(src);
-    } catch (error) {
-      e.message((error as Error).message);
-      s.cancel();
-    }
-  })();
+  s.prepareSource(contentRGBA(e, l));
   return s;
 }
