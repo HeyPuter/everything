@@ -227,24 +227,33 @@ export function embedImages(editor, ids) {
  */
 export async function unembedImages(app, editor, ids) {
   const doc = editor.doc;
+  const alive = () => !app.editors || app.editors.includes(editor);
   let n = 0;
   for (const id of ids) {
+    if (!alive()) break;
     const node = doc.get(id);
     const a = node?.type === 'image' ? doc.assets.get(node.asset) : null;
     if (!a?.data || node.link) continue;
+    const current = () => {
+      const target = doc.get(id);
+      return alive() && target?.type === 'image' && target.asset === node.asset &&
+        target.link === node.link && doc.assets.get(target.asset) === a;
+    };
     const info = imageInfo(doc, node);
     const ext = { PNG: 'png', JPEG: 'jpg', WebP: 'webp', GIF: 'gif' }[info.format] || 'png';
     const name = `${String(info.name).replace(/\.[^.]+$/, '') || 'Image'}.${ext}`;
     const blob = await (await fetch(a.data)).blob();
+    if (!current()) continue;
     const ui = app.puter?.ui;
     if (app.user && ui?.showSaveFilePicker) {
       const p = ui.showSaveFilePicker(blob, name);
       const item = await (p && p.undefinedOnCancel ? p.undefinedOnCancel : p);
-      if (!item?.path) continue;
+      if (!item?.path || !current()) continue;
       doc.transact('Unembed', () => doc.update(id, { link: { source: 'puter', path: item.path, name: item.name || name, size: blob.size, modified: Date.now() } }));
       n++;
     } else {
       const { downloadBlob } = await import('../io/deliver.js');
+      if (!current()) continue;
       downloadBlob(blob, name);
       app.notify(`Saved ${name}. Images stay embedded in documents kept in this browser.`, { timeout: 6000 });
     }
