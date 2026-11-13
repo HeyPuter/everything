@@ -20,7 +20,9 @@ export function createHeaders(V) {
   let activeResize = null;
 
   function cancelResize() {
-    activeResize?.finish(false);
+    if (!activeResize) return false;
+    activeResize.finish(false);
+    return true;
   }
 
   el.addEventListener(

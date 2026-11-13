@@ -4,9 +4,18 @@ import { Store } from '../src/model/store.js';
 import { createProject, createClip } from '../src/model/project.js';
 import { Emitter } from '../src/lib/emitter.js';
 import * as E from '../src/model/edits.js';
+import { App } from '../src/app.js';
+import { Commands } from '../src/commands/registry.js';
+import { registerCoreCommands } from '../src/commands/core.js';
 
 vi.mock('../src/render/gfx.js', () => ({ createGfx: () => ({ canvas: document.createElement('canvas'), overlay: document.createElement('canvas'), frame: vi.fn(), resize: vi.fn() }) }));
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+const keyboardListeners = [];
+afterEach(() => {
+  for (const [type, listener, options] of keyboardListeners.splice(0)) document.removeEventListener(type, listener, options);
+  document.body.replaceChildren();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 function setup(kind = 'pattern') {
   vi.useFakeTimers();
@@ -32,7 +41,23 @@ function setup(kind = 'pattern') {
   const pointer = (type, dx = 0) => surface.dispatchEvent(new MouseEvent(type, { clientX: x + dx, clientY: y, button: 0, altKey: true, bubbles: true }));
   pointer('pointerdown');
   expect(view.hasGesture()).toBe(true);
-  return { store, view, pointer, panel, body, engine };
+  return { store, view, pointer, panel, body, engine, app };
+}
+
+function installKeyboard(app, panel, body) {
+  app.commands = new Commands(app);
+  app.activePanel = 'playlist';
+  app.shell = { panels: new Map([['playlist', { impl: panel }]]) };
+  registerCoreCommands(app);
+  const add = document.addEventListener.bind(document);
+  const spy = vi.spyOn(document, 'addEventListener').mockImplementation((...args) => {
+    keyboardListeners.push(args);
+    add(...args);
+  });
+  App.prototype.installKeyboard.call(app);
+  spy.mockRestore();
+  document.body.append(body);
+  panel.focus();
 }
 
 it.each(['replacement', 'undo', 'redo'])('prevents an old clip drag from changing the project after %s', (action) => {
@@ -310,4 +335,37 @@ it.each([false, true])('discards a canceled track resize with Alt=%s', (alt) => 
   expect(store.canUndo).toBe(false);
   expect(store.dirty).toBe(false);
   expect(grip.classList.contains('dragging')).toBe(false);
+});
+
+it.each(['loop', 'marker', 'resize from canvas', 'resize from header'])('Escape cancels an active %s without clearing the clip selection', (kind) => {
+  const { app, store, view, pointer, panel, body } = setup();
+  pointer('pointerup');
+  installKeyboard(app, panel, body);
+  const original = store.project;
+  const selected = [...view.selection];
+  const resize = kind.startsWith('resize');
+  if (kind === 'resize from header') body.querySelector('.pl-track-name').focus();
+  const send = resize ? resizePointer(body).send : rulerPointer(body, kind);
+  send('pointerdown');
+  send('pointermove', 24);
+  expect(store.project).not.toBe(original);
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  send('pointermove', 48);
+  send('pointerup', 48);
+  expect(store.project).toBe(original);
+  expect(store.canUndo).toBe(false);
+  expect(store.dirty).toBe(false);
+  expect([...view.selection]).toEqual(selected);
+  expect(body.querySelector('.dragging, .marker-drag')).toBeNull();
+  panel.onHide();
+});
+
+it('Escape clears the clip selection when there is no active gesture', () => {
+  const { app, view, pointer, panel, body } = setup();
+  pointer('pointerup');
+  installKeyboard(app, panel, body);
+  expect(view.selection.size).toBe(1);
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  expect(view.selection.size).toBe(0);
+  panel.onHide();
 });

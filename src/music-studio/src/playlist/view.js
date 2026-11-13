@@ -1125,6 +1125,8 @@ export function createPlaylistView(app, host) {
     },
     deselect() {
       if (V.cancelGesture()) return;
+      if (cancelRulerDrag) return cancelRulerDrag();
+      if (headers.cancelResize()) return;
       if (V.activePoint) {
         V.activePoint = null;
         V.markDirty();
