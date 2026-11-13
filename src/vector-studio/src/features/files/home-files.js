@@ -41,7 +41,7 @@ export function installHomeFiles(app, files) {
   app.renderHome = (host) => {
     const done = base(host);
     const main = host.querySelector('.home-main');
-    if (main) main.append(yourFilesSection(app, files));
+    if (main) main.append(yourFilesSection(app, files, host));
     return done;
   };
 }
@@ -62,13 +62,16 @@ async function limited(fn, n = 3) {
   }
 }
 
-function yourFilesSection(app, files) {
+function yourFilesSection(app, files, host) {
   const list = h('div.recent-list.files-list', { 'aria-label': 'Your files' });
   // role=list only while it holds file items (messages and the sign-in card are not list items).
   const setItems = (on) => (on ? list.setAttribute('role', 'list') : list.removeAttribute('role'));
   const refresh = h('button.icon-btn', { type: 'button', 'aria-label': 'Refresh Your files', 'data-tip': 'Refresh' }, icon('refresh-cw', 14));
   const section = h('section.files-home', { 'aria-labelledby': 'files-home-title' }, h('div.files-home-head', h('h2#files-home-title.home-h2', 'Your files'), refresh), list);
+  let generation = 0;
   const load = async () => {
+    const request = ++generation, user = app.user, puter = app.puter;
+    const current = () => request === generation && host.contains(section) && files.cloud && app.user === user && app.puter === puter;
     setItems(false);
     if (!files.cloud) {
       list.replaceChildren(
@@ -88,9 +91,11 @@ function yourFilesSection(app, files) {
     try {
       items = await files.service.listYourFiles();
     } catch (err) {
+      if (!current()) return;
       list.replaceChildren(h('p.muted', `Your files are unavailable right now${navigator.onLine === false ? ' (offline)' : ''}.`), h('button.btn.small', { type: 'button', onclick: load }, 'Retry'));
       return;
     }
+    if (!current()) return;
     if (!items.length) {
       list.replaceChildren(h('p.muted', 'Files you save with Save As appear here.'));
       return;
@@ -106,8 +111,8 @@ function yourFilesSection(app, files) {
           h('span.recent-name', it.name),
           h('span.recent-meta', [relativeTime(it.modified), formatBytes(it.size)].filter(Boolean).join(' · ')),
         );
-        loadThumb(app, files, it).then((src) => {
-          if (src) img.replaceWith(h('img.recent-thumb', { src, alt: '' }));
+        loadThumb(app, files, it, current).then((src) => {
+          if (src && current()) img.replaceWith(h('img.recent-thumb', { src, alt: '' }));
         });
         return h('div.recent-cell', { role: 'listitem' }, btn);
       }),
@@ -123,10 +128,12 @@ function yourFilesSection(app, files) {
  * thumbnail cache, then (small native files only) the thumbnail stored in
  * the file itself, cached for next time.
  */
-async function loadThumb(app, files, it) {
+async function loadThumb(app, files, it, current) {
+  if (!current()) return null;
   const key = `${it.path}|${it.modified}`;
   if (thumbCache.has(key)) return thumbCache.get(key);
   const recent = await files.recent.thumb({ kind: 'puter', path: it.path });
+  if (!current()) return null;
   if (recent) {
     thumbCache.set(key, recent);
     return recent;
@@ -134,6 +141,7 @@ async function loadThumb(app, files, it) {
   const cachePath = `thumbs/file-${hashKey(key)}.json`;
   try {
     const hit = await files.cache?.readJSON(cachePath);
+    if (!current()) return null;
     if (hit?.thumb) {
       thumbCache.set(key, hit.thumb);
       return hit.thumb;
@@ -141,9 +149,15 @@ async function loadThumb(app, files, it) {
   } catch {
     // No cached thumbnail.
   }
+  if (!current()) return null;
   if (it.format !== 'native' || it.size > 4 * 1024 * 1024) return null;
   try {
-    const thumb = await limited(async () => readThumbnail(await app.puter.fs.read(it.path)));
+    const thumb = await limited(async () => {
+      if (!current()) return null;
+      const data = await app.puter.fs.read(it.path);
+      return current() ? readThumbnail(data) : null;
+    });
+    if (!current()) return null;
     thumbCache.set(key, thumb);
     if (thumb) files.cache?.writeJSON(cachePath, { thumb }).catch(() => {});
     return thumb;
