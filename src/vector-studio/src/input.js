@@ -11,6 +11,9 @@
  *   starts with one finger never selects or deselects anything.
  * - A touch long press opens the context menu (iPad Safari sends no
  *   contextmenu event for it).
+ * - A pen opens the context menu with its side button pressed as it taps. A
+ *   pen tip held still does not: Android turns that hold into a contextmenu
+ *   event, which would interrupt precise drawing.
  * - A pen's eraser end erases with the Eraser tool, whatever the tool.
  * - Palm rejection: while a pen touches the canvas, touches are ignored, and
  *   a pen landing ends whatever a touch (a resting palm) had started.
@@ -112,6 +115,12 @@ export class CanvasInput {
       this.startPan(e);
       return;
     }
+    if (e.pointerType === 'pen' && (e.button === 2 || e.buttons & 2)) {
+      // The pen's side button is its right button (the S Pen button on Android).
+      this.lastPressMenu = performance.now();
+      this.#openContextMenu(e);
+      return;
+    }
     if (e.button === 2) return; // context menu
     if (e.pointerType === 'touch') {
       this.longPressed = false;
@@ -208,8 +217,18 @@ export class CanvasInput {
       this.active = null;
     }
     this.longPressed = true;
-    this.lastTouchMenu = performance.now();
+    this.lastPressMenu = performance.now();
     this.#openContextMenu(e);
+  }
+
+  /**
+   * A contextmenu event from a pen. Android sends one for a tip held still
+   * for about half a second, reported as a right-button press, so the event
+   * cannot tell that hold from the side button: pen menus open from the
+   * pen's own press instead (see down()).
+   */
+  #fromPen(e) {
+    return e.pointerType === 'pen' || this.#penDown();
   }
 
   /**
@@ -483,8 +502,9 @@ export class CanvasInput {
   contextMenu(e) {
     e.preventDefault();
     if (!this.editor || this.gesture) return;
-    // Android also fires contextmenu after a long press: the touch handler already opened it.
-    if (this.lastTouchMenu && performance.now() - this.lastTouchMenu < 1500) return;
+    if (this.#fromPen(e)) return;
+    // Android also fires contextmenu after a long press or a side-button tap: the press handler already opened it.
+    if (this.lastPressMenu && performance.now() - this.lastPressMenu < 1500) return;
     this.#openContextMenu(e);
   }
 
