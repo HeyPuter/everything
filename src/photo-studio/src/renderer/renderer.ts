@@ -30,6 +30,7 @@ import type { PatternPixels } from '../model/psd-patterns';
 import { strokePixels } from "../model/vector-stroke";
 import type { FloatVectorRaster } from "../model/vector";
 import { documentPpi, placeTextRect } from "../model/text-layer";
+import { measurementGeneration } from "../imaging/text/layout";
 import { renderTextLayer, textRenderScale, usesTextFallback } from "./text-source";
 import type { StrokeRaster } from "../engine/vector";
 import type { Rect } from "../model/document";
@@ -482,7 +483,7 @@ export class Renderer {
   private async textSource(l: Layer, assets: Assets): Promise<Texture> {
     const ppi = this.document ? documentPpi(this.document) : 72;
     const scale = textRenderScale(l, this.backend.maxSize);
-    const key = JSON.stringify(["text", l.textData, ppi, scale, this.profileRevision, this.floating]);
+    const key = JSON.stringify(["text", l.textData, measurementGeneration(), ppi, scale, this.profileRevision, this.floating]);
     const old = this.sources.get(l.id);
     if (old?.key === key && old.assets === assets) return old.texture;
     const r = await renderTextLayer(l.textData!, ppi, scale);

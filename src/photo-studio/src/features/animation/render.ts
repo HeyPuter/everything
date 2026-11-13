@@ -1,9 +1,10 @@
+import { measurementGeneration } from '../../imaging/text/layout';
 // Rendered frames for the Timeline: small thumbnails for the frame strip and
 // larger images for onion skins. Each frame is composited by the renderer
 // (one at a time, between edits) and cached by the content it shows, so
 // selecting another frame or editing one layer only re-renders what changed.
 import type { Editor } from '../../editor';
-import type { PhotoDocument } from '../../model/document';
+import { allLayers, type PhotoDocument } from '../../model/document';
 import { frameContent, frameDocument, maxFrames, sharedContent } from '../../model/animation';
 
 export type FrameImage = { url: string; width: number; height: number };
@@ -39,16 +40,22 @@ function hash(s: string) {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
-const keys = new WeakMap<PhotoDocument, { base: string; frames: Map<number, string> }>();
+const textDocuments = new WeakMap<PhotoDocument, boolean>();
+function hasText(doc: PhotoDocument) {
+  let text = textDocuments.get(doc);
+  if (text === undefined) textDocuments.set(doc, (text = allLayers(doc.layers).some((l) => !!l.textData)));
+  return text;
+}
+const keys = new WeakMap<PhotoDocument, { base: string; frames: Map<number, string>; text: boolean }>();
 /** Cache key of what frame `index` shows (memoized per document state). It is
  * built from the shared content and the frame's records, so selecting another
  * frame keeps every key and no frame document is built. */
 export function frameKey(e: Editor, doc: PhotoDocument, index: number) {
   let entry = keys.get(doc);
-  if (!entry) keys.set(doc, (entry = { base: `${e.session.id}:${doc.width}x${doc.height}:${doc.bitsPerChannel ?? 8}:${hash(sharedContent(doc))}:${hash(JSON.stringify([doc.globalLight, doc.patterns]))}`, frames: new Map() }));
+  if (!entry) keys.set(doc, (entry = { base: `${e.session.id}:${doc.width}x${doc.height}:${doc.bitsPerChannel ?? 8}:${hash(sharedContent(doc))}:${hash(JSON.stringify([doc.globalLight, doc.patterns]))}`, frames: new Map(), text: hasText(doc) }));
   let key = entry.frames.get(index);
   if (key === undefined) entry.frames.set(index, (key = `${entry.base}:${hash(frameContent(doc, index))}`));
-  return key;
+  return entry.text ? `${key}:fonts:${measurementGeneration()}` : key;
 }
 
 /** The cached thumbnail of frame `index`, or its larger onion image. */
@@ -58,7 +65,7 @@ export function frameImage(e: Editor, doc: PhotoDocument, index: number, key = f
 
 /** The cached onion image for `key`, queueing `build` when missing. */
 export function docImage(e: Editor, key: string, build: () => Promise<PhotoDocument>): FrameImage | undefined {
-  return requestImage(e, key, build, true);
+  return requestImage(e, hasText(e.doc) ? `${key}:fonts:${measurementGeneration()}` : key, build, true);
 }
 
 function requestImage(e: Editor, key: string, doc: () => PhotoDocument | Promise<PhotoDocument>, onion: boolean): FrameImage | undefined {

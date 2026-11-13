@@ -91,6 +91,30 @@ function fontSet(): FontSet | undefined {
   return g.document?.fonts ?? g.fonts;
 }
 
+// Rendering may use fallback metrics after a slow download, while operations
+// that need the actual face can still await the original loading promise.
+const FALLBACK_WAIT_MS = 3000;
+const fallbackWaits = new WeakMap<Promise<boolean>, Promise<boolean>>();
+function waitForFallback(font: Promise<boolean>) {
+  let wait = fallbackWaits.get(font);
+  if (!wait) {
+    let timer: ReturnType<typeof setTimeout>;
+    wait = Promise.race([font, new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), FALLBACK_WAIT_MS); })])
+      .finally(() => clearTimeout(timer));
+    fallbackWaits.set(font, wait);
+  }
+  return wait;
+}
+const fontListeners = new Set<() => void>();
+export function onFontsLoaded(listener: () => void) {
+  fontListeners.add(listener);
+  return () => fontListeners.delete(listener);
+}
+function fontsLoaded() {
+  invalidateMeasurements();
+  for (const listener of fontListeners) listener();
+}
+
 const loading = new Map<string, Promise<boolean>>();
 // Loads a bundled face (all weights of a variable font at once). Resolves
 // true when the family is usable for drawing at that weight/style.
@@ -107,7 +131,7 @@ export function ensureFont(family: string, weight = 400, italic = false): Promis
       display: 'block',
     });
     p = face.load().then(
-      (f) => { set.add(f); invalidateMeasurements(); return true; },
+      (f) => { set.add(f); fontsLoaded(); return true; },
       () => { loading.delete(key); return false; },
     );
     loading.set(key, p);
@@ -139,7 +163,7 @@ export function ensureFeatureFont(family: string, italic: boolean, features: str
       featureSettings: featureSettings(features),
     });
     p = face.load().then(
-      (f) => { set.add(f); invalidateMeasurements(); return true; },
+      (f) => { set.add(f); fontsLoaded(); return true; },
       () => { loading.delete(key); return false; },
     );
     loading.set(key, p);
@@ -148,11 +172,13 @@ export function ensureFeatureFont(family: string, italic: boolean, features: str
 }
 
 // Loads every face a text layer uses; call before renderText/layout.
-export async function prepareFonts(data: TextLayerData): Promise<void> {
+// A fallback wait is shared per download: subsequent frames do not stall again.
+export async function prepareFonts(data: TextLayerData, { allowFallback = false } = {}): Promise<void> {
   const want = new Map<string, [string, number, boolean, string]>();
   for (const p of data.content.paragraphs)
     for (const r of p.runs) want.set(`${r.style.family}|${r.style.weight}|${r.style.italic}|${r.style.features ?? ''}`, [r.style.family, r.style.weight, r.style.italic, r.style.features ?? '']);
-  await Promise.all([...want.values()].map(([f, w, i, feat]) => Promise.all([ensureFont(f, w, i), feat ? ensureFeatureFont(f, i, feat) : true])));
+  const wait = (font: Promise<boolean>) => allowFallback ? waitForFallback(font) : font;
+  await Promise.all([...want.values()].map(([f, w, i, feat]) => Promise.all([wait(ensureFont(f, w, i)), feat ? wait(ensureFeatureFont(f, i, feat)) : true])));
 }
 
 // The Type menu's OpenType features a bundled face implements (from its GSUB

@@ -1,3 +1,4 @@
+import { measurementGeneration } from '../imaging/text/layout';
 import type { Layer, PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
 import { allLayers, blends, defaultFilters } from '../model/document';
@@ -101,7 +102,9 @@ export class StyleCache {
       return JSON.stringify(['px', tileState(g, assets), g.bounds, t.width, t.height, t.rotation,
         l.maskGrid ? [tileState(l.maskGrid, assets), l.maskGrid.x, l.maskGrid.y, l.maskInverted, l.maskDisabled, t.x, t.y] : 0, pin ? [t.x, t.y] : 0]);
     }
-    const versions = allLayers([l]).map((x) => tileState(x.pixels, assets) + tileState(x.maskGrid, assets)).join('/');
+    const layers = allLayers([l]);
+    const fonts = layers.some((x) => !!x.textData) ? measurementGeneration() : 0;
+    const versions = layers.map((x) => tileState(x.pixels, assets) + tileState(x.maskGrid, assets)).join('/');
     // Only the layer's own presentation and position are left out: children's
     // opacity or a vector stroke's opacity do change the pixels.
     const stripped = JSON.stringify(l, function (this: unknown, k, v) {
@@ -109,7 +112,7 @@ export class StyleCache {
       if (presentation.has(k) && k !== 'clipped') return undefined;
       return k === 'transform' ? { ...v, x: 0, y: 0 } : v;
     });
-    return JSON.stringify(['gen', stripped.length > 200000 ? stripped.length : stripped, versions, pin || hasMask(l) || !!l.maskGrid || l.kind === 'group' ? [t.x, t.y] : 0]);
+    return JSON.stringify(['gen', fonts, stripped.length > 200000 ? stripped.length : stripped, versions, pin || hasMask(l) || !!l.maskGrid || l.kind === 'group' ? [t.x, t.y] : 0]);
   }
   /** Plain pixel layers are read straight from their tiles. */
   private fastPath(l: Layer) {

@@ -1,13 +1,29 @@
+import { textLayer } from '../src/imaging/text/model';
+import { invalidateMeasurements } from '../src/imaging/text/layout';
 import { describe, expect, it, vi } from 'vitest';
 import type { Editor } from '../src/editor';
 import { clearQueue, docImage, frameImage, frameKey } from '../src/features/animation/render';
 import { createAnimation, duplicateFrames } from '../src/model/animation';
-import { newDocument } from '../src/model/document';
+import { newDocument, layer } from '../src/model/document';
 import { TileStore, gridFromImage } from '../src/model/tiles';
 
 const editor = { session: { id: 'render-test' } } as unknown as Editor;
 
 describe('animation thumbnail keys', () => {
+  it('refreshes cached text frames after fonts arrive without invalidating image-only frames', () => {
+    const image = newDocument(32, 32);
+    image.animation = createAnimation(image);
+    const text = newDocument(32, 32);
+    const l = layer('text', 'Text', 32, 32);
+    l.textData = textLayer('Late font');
+    text.layers.push(l);
+    text.animation = createAnimation(text);
+    const imageKey = frameKey(editor, image, 0), textKey = frameKey(editor, text, 0);
+    invalidateMeasurements();
+    expect(frameKey(editor, image, 0)).toBe(imageKey);
+    expect(frameKey(editor, text, 0)).not.toBe(textKey);
+  });
+
   it('changes after document-wide lighting changes', () => {
     const doc = newDocument(32, 32);
     doc.animation = createAnimation(doc);
@@ -56,7 +72,7 @@ it('renders delayed timeline thumbnails using their originating asset store', as
   let release!: (doc: ReturnType<typeof newDocument>) => void;
   const waiting = new Promise<ReturnType<typeof newDocument>>((resolve) => { release = resolve; });
   const pixels = vi.fn(async (_doc: unknown, _assets: unknown) => { throw new Error('Stop after recording the renderer arguments'); });
-  const e = { session: { id: 'original' }, assets: originalAssets, renderer: { documentPixels: pixels } } as unknown as Editor;
+  const e = { doc: newDocument(32, 32), session: { id: 'original' }, assets: originalAssets, renderer: { documentPixels: pixels } } as unknown as Editor;
   docImage(e, 'delayed-session-thumbnail', () => waiting);
   // A video decoder finishes after the user activates another document.
   Object.assign(e, { session: { id: 'other' }, assets: { name: 'other' } });

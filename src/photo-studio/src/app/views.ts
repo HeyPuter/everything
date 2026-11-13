@@ -1,6 +1,7 @@
+import { measurementGeneration } from '../imaging/text/layout';
 import type { Editor } from '../editor';
 import type { DocumentSession } from './session';
-import type { PhotoDocument } from '../model/document';
+import { allLayers, type PhotoDocument } from '../model/document';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
 import { cascade, cellRect, clampFloat, distribute, layoutCells, type LayoutKind, type Rect } from './view-layout';
@@ -27,7 +28,7 @@ export class DocumentView {
 const modeLabels: Record<string, string> = { rgb: 'RGB', grayscale: 'Gray', cmyk: 'CMYK', lab: 'Lab', indexed: 'Index', bitmap: 'Bitmap', duotone: 'Duotone', multichannel: 'Multichannel' };
 // Preview canvases of inactive views are capped so many windows stay cheap.
 const SNAPSHOT_MAX = 4096;
-type Snapshot = { canvas: HTMLCanvasElement; doc: PhotoDocument };
+type Snapshot = { canvas: HTMLCanvasElement; doc: PhotoDocument; fonts?: number };
 
 /** Document windows in the canvas area: the classic tab strip, tiled and
  * n-up layouts (each cell a tab group) and floating windows. Only the active
@@ -258,6 +259,7 @@ export class WindowManager {
     c.clearRect(0, 0, w, h);
     c.drawImage(source, 0, 0, w, h);
     snap.doc = s.doc;
+    snap.fonts = allLayers(s.doc.layers).some((l) => !!l.textData) ? measurementGeneration() : undefined;
   }
   /** Render documents of visible inactive views that have no current frame. */
   async ensureSnapshots() {
@@ -265,7 +267,10 @@ export class WindowManager {
     if (this.capturing) return this.capturing;
     this.capturing = (async () => {
       try {
-        const stale = [...new Set(this.visible.map((v) => v.session))].filter((s) => s !== this.e.session && this.snapshots.get(s)?.doc !== s.doc && s.hasDocument);
+        const stale = [...new Set(this.visible.map((v) => v.session))].filter((s) => {
+          const snap = this.snapshots.get(s);
+          return s !== this.e.session && s.hasDocument && (snap?.doc !== s.doc || (snap.fonts !== undefined && snap.fonts !== measurementGeneration()));
+        });
         for (const s of stale) await this.e.renderer.drawFrame(s.doc, s.assets, (canvas) => this.capture(s, canvas));
         if (stale.length) await this.e.render(this.e.displayDoc);
       } catch (error) {
