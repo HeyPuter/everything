@@ -220,9 +220,11 @@ export class Autosaver {
         const data = reuse ? await encodeText(kept.text) : await serializeDocument(doc);
         // Save/Close invalidates this capture even if Undo or another edit has
         // already made the same document dirty again while encoding finished.
-        if (this.discarded.get(doc) !== discardToken || !doc.dirty || !this.app.editors.some((e) => e.doc === doc)) continue;
-        const id = this.recoveryId(editor);
-        await store.put(id, { ...this.#entry(editor), data, revision: rev, commentsRevision, sequence, session: this.session });
+        const current = this.app.editors.find((e) => e.doc === doc);
+        if (this.discarded.get(doc) !== discardToken || !doc.dirty || !current) continue;
+        // A closed window no longer receives Save As updates from its companion.
+        const id = this.recoveryId(current);
+        await store.put(id, { ...this.#entry(current), data, revision: rev, commentsRevision, sequence, session: this.session });
         // Its queued discard owns this completed write. Do not claim the
         // deleted copy still covers Undo or clear a newer page-close stash.
         if (this.discarded.get(doc) !== discardToken) continue;
