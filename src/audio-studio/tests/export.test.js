@@ -320,6 +320,17 @@ describe('sample rate and channel conversion', () => {
     clip.convert(0, Float32Array.of(2, -2, NaN), 3, o8);
     expect([...o8]).toEqual([127, -128, 0]);
   });
+
+  it('keeps noise-shaped audio after an infinite sample', () => {
+    const src = new Float32Array(64).fill(0.3001);
+    src[3] = Infinity;
+    src[9] = -Infinity;
+    const out = new Int32Array(64);
+    new Quantizer(16, 1, 'shaped').convert(0, src, 64, out);
+    expect(out[3]).toBe(32767);
+    expect(out[9]).toBe(-32768);
+    for (let i = 10; i < 64; i++) expect(Math.abs(out[i] - 0.3001 * 32768)).toBeLessThan(4);
+  });
 });
 
 describe('Ogg Opus muxer', () => {
