@@ -61,6 +61,20 @@ function quickMaskOverlay(e: Editor) {
   return lastQuickMaskUrl ? `<image href="${lastQuickMaskUrl.url}" x="0" y="0" width="${e.doc.width}" height="${e.doc.height}" preserveAspectRatio="none" style="image-rendering:auto"/>` : '';
 }
 
+/** Resolve stale choices after undo or a mode change without losing the choice
+ * if undo/redo brings its channel back. Panels and commands use the same source. */
+function activeChannel(e: Editor): string {
+  const chosen = e.session.activeChannel;
+  if (chosen && e.doc.channels?.some((c) => c.id === chosen)) return chosen;
+  const ink = e.doc.mode === 'multichannel' && e.doc.channels?.find((c) => c.spot);
+  if (ink) return ink.id;
+  return chosen && ['rgb', 'red', 'green', 'blue'].includes(chosen) ? chosen : 'rgb';
+}
+function activeSavedChannel(e: Editor) {
+  const id = activeChannel(e);
+  return e.doc.channels?.find((c) => c.id === id);
+}
+
 const channelsPanel: Panel = {
   id: 'channels',
   title: 'Channels',
@@ -91,12 +105,12 @@ const channelsPanel: Panel = {
   },
   update: (e, el) => {
     const doc = e.doc;
-    const active = e.session.activeChannel;
+    const active = activeChannel(e);
     const composite = doc.layers.length ? '' : '';
     const spots = doc.mode === 'multichannel' ? (doc.channels ?? []).filter((c) => c.spot) : [];
     // Each row is chosen with its name button (Tab to it, Enter or Space).
-    const name = (id: string, label: string, selected = false) =>
-      `<button type="button" class="channel-name" aria-pressed="${selected || active === id}" title="Select channel; double-click for Channel Options">${escapeXML(label)}</button>`;
+    const name = (id: string, label: string) =>
+      `<button type="button" class="channel-name" aria-pressed="${active === id}" title="Select channel; double-click for Channel Options">${escapeXML(label)}</button>`;
     const thumb = (c: (typeof spots)[number]) => `<button class="channel-thumb" aria-label="Load ${escapeXML(c.name)} as selection" title="Click to load as selection"><img src="${gridThumbnail(e.assets.tiles, c.grid, doc.width, doc.height, 34, true)}" alt=""></button>`;
     // Multichannel documents list their ink channels in place of RGB.
     const inkRows = spots
@@ -108,7 +122,7 @@ const channelsPanel: Panel = {
       ['green', 'Green'],
       ['blue', 'Blue'],
     ]
-      .map(([id, label]) => `<div class="channel-row ${!active || active === id ? 'selected' : ''}" data-channel="${id}"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb ${id}"></span>${name(id, label, !active)}</div>`)
+      .map(([id, label]) => `<div class="channel-row ${active === id ? 'selected' : ''}" data-channel="${id}"><span class="eye">${svg('eye', 14)}</span><span class="channel-thumb ${id}"></span>${name(id, label)}</div>`)
       .join('');
     const alpha = (doc.channels ?? [])
       .filter((c) => !spots.includes(c))
@@ -354,7 +368,7 @@ export function installView(e: Editor) {
       id: 'select.load-active-channel',
       label: 'Load Channel as Selection',
       hidden: true,
-      run: (e) => loadChannel(e, e.session.activeChannel ?? 'rgb', 'replace'),
+      run: (e) => loadChannel(e, activeChannel(e), 'replace'),
     },
     {
       id: 'channel.new',
@@ -370,9 +384,9 @@ export function installView(e: Editor) {
     {
       id: 'channel.duplicate',
       label: 'Duplicate Channel',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.session.activeChannel),
+      enabled: (e) => !!activeSavedChannel(e),
       run: (e) => {
-        const ch = e.doc.channels!.find((c) => c.id === e.session.activeChannel)!;
+        const ch = activeSavedChannel(e)!;
         e.command('Duplicate Channel', (d) => {
           d.channels = [...d.channels!, { ...ch, id: crypto.randomUUID(), name: `${ch.name} copy` }];
           syncMultichannel(e.assets.tiles, d);
@@ -382,15 +396,15 @@ export function installView(e: Editor) {
     {
       id: 'channel.options',
       label: 'Channel Options…',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.session.activeChannel),
-      run: (e) => channelOptions(e, e.session.activeChannel as string),
+      enabled: (e) => !!activeSavedChannel(e),
+      run: (e) => channelOptions(e, activeChannel(e)),
     },
     {
       id: 'channel.delete',
       label: 'Delete Channel',
-      enabled: (e) => !!e.doc.channels?.some((c) => c.id === e.session.activeChannel),
+      enabled: (e) => !!activeSavedChannel(e),
       run: (e) => {
-        const id = e.session.activeChannel;
+        const id = activeChannel(e);
         e.command('Delete Channel', (d) => {
           d.channels = d.channels!.filter((c) => c.id !== id);
           if (!d.channels.length) d.channels = undefined;
