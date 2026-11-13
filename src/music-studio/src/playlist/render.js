@@ -12,6 +12,7 @@ import { tempoMap } from '../engine/compile.js';
 import { sourceColor, sourceName, AUTO_COLOR } from './clips.js';
 import { patternColor } from '../model/project.js';
 import { audioPlaybackRate } from '../engine/audio-rate.js';
+import { audioWaveform } from './audio-waveform.js';
 import { trackTop, trackHeight } from './geometry.js';
 import { TITLE_H, LOOP_STRIP_H, RULER_H } from './constants.js';
 
@@ -344,6 +345,7 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const amp = ch / 2;
   const { min, max, perSecond } = peaks;
   const nPeaks = min.length;
+  const motion = audioWaveform(p, clip, chan, s);
   const reverse = chan.params.reverse >= 0.5;
   const playbackRate = audioPlaybackRate(chan.params.tune || 0, chan.pitch || 0, p.masterPitch || 0);
   // An edited clip retains the original unpitched source offset and the
@@ -359,10 +361,15 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
     const end = map.constant ? (song + 1 / ppt - anchor) * secondsPerTick : map.seconds(song + 1 / ppt) - anchorSeconds;
     const from = offset + elapsed * playbackRate;
     const to = offset + end * playbackRate;
-    if (from >= s.duration) break;
+    if (!motion && from >= s.duration) break;
     let i0;
     let i1;
-    if (reverse) {
+    if (motion) {
+      const range = motion(Math.max(clip.start, song), Math.min(clip.start + clip.len, song + 1 / ppt));
+      if (!range) continue;
+      i0 = Math.max(0, Math.floor(range[0] * perSecond));
+      i1 = Math.min(nPeaks, Math.ceil(range[1] * perSecond));
+    } else if (reverse) {
       // Reverse starts at the last sample frame. Use the actual duration,
       // since the final peak bin can contain less than a full bin of audio.
       i0 = Math.max(0, Math.floor((s.duration - to) * perSecond));

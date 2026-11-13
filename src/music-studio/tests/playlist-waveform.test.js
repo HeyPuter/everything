@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createChannel, createClip, createProject } from '../src/model/project.js';
 import { SampleCache } from '../src/audio/samples.js';
 import { Core, BLOCK } from '../src/engine/core.js';
+import { Sequencer } from '../src/engine/sequencer.js';
 import { compileChannel, compileMixer, compileSequence } from '../src/engine/compile.js';
 import { Viewport } from '../src/render/timeline.js';
 import { drawCanvas, colors, resetColors } from '../src/playlist/render.js';
@@ -30,8 +31,8 @@ function setup(reverse = 0, offset = 0) {
   return { p, ch, data, samples };
 }
 
-function wave({ p, ch, samples }, scroll = 0) {
-  const vp = new Viewport({ pxPerTick: 1, scroll });
+function wave({ p, ch, samples }, scroll = 0, pxPerTick = 1) {
+  const vp = new Viewport({ pxPerTick, scroll });
   vp.width = 240;
   const d = { w: 240, h: 56, clear: vi.fn(), rect: vi.fn(), text: vi.fn() };
   drawCanvas({ store: { project: p }, vp, layout: trackLayout(p.tracks), scrollY: 0,
@@ -206,4 +207,145 @@ it.each(['trim', 'slice'])('keeps the pitched waveform content in place after %s
     s.p = { ...r.project, clips: r.project.clips.filter((c) => r.ids.includes(c.id)) };
   }
   expect(wave(s)).toEqual(before.filter((bar) => bar[0] >= 48));
+});
+
+
+function automate(s, param, value, { start = 0, len = 384, points } = {}) {
+  const id = `auto-${param}`;
+  s.p.automation[id] = { id, target: { kind: 'channel', id: s.ch.id, param }, points: points || [{ t: 0, v: value }] };
+  s.p.clips.push(createClip({ kind: 'auto', ref: id, start, len, track: 1 }));
+}
+function sequencedPeak(s, tick) {
+  const { p, ch, data } = s;
+  const core = new Core(new WebAssembly.Instance(module, {}), RATE);
+  core.setMixer(compileMixer(p)); core.loadSample(0, [data], RATE);
+  core.setChannel(compileChannel(p, ch, 0, () => 0)); core.setMasterPitch(p.masterPitch);
+  const seq = new Sequencer(core, RATE, { loop: false });
+  seq.setSequence(compileSequence(p, { mode: 'song', slotOf: (id) => id === ch.id ? 0 : -1 }));
+  seq.play(0);
+  const skip = Math.round(seq.tempo.seconds(tick) * RATE);
+  for (let f = 0; f < skip; f += BLOCK) seq.block(Math.min(BLOCK, skip - f));
+  let peak = 0;
+  for (let f = 0; f < 1024; f += BLOCK) for (const value of seq.block(BLOCK).l) peak = Math.max(peak, Math.abs(value));
+  return peak;
+}
+const waveHeight = (s, tick) => wave(s).find((bar) => bar[0] === tick)?.[3] || 0;
+it.each(['tune', 'pitch', 'reverse'])('follows an automated %s override in both the waveform and actual playback', (param) => {
+  const normal = setup(), s = setup();
+  automate(s, param, param === 'tune' ? 0.75 : 1);
+  const tick = 60;
+  expect(sequencedPeak(s, tick) / sequencedPeak(normal, tick)).toBeCloseTo(4, 2);
+  expect(waveHeight(s, tick) / waveHeight(normal, tick)).toBeCloseTo(4, 2);
+});
+it.each([0, 1])('draws direction changes at the current source position (initial reverse %s)', (reverse) => {
+  const normal = setup(reverse), s = setup(reverse);
+  automate(s, 'reverse', 1 - reverse, { start: 120 });
+  const tick = 160;
+  const ratio = reverse ? 4 : 0.25;
+  expect(sequencedPeak(s, tick) / sequencedPeak(normal, tick)).toBeCloseTo(ratio, 2);
+  expect(waveHeight(s, tick) / waveHeight(normal, tick)).toBeCloseTo(ratio, 2);
+});
+it('does not draw audio after a reverse automation path has exhausted the source', () => {
+  const s = setup(); automate(s, 'reverse', 1, { start: 48 });
+  expect(sequencedPeak(s, 144)).toBe(0);
+  expect(waveHeight(s, 144)).toBe(0);
+});
+
+
+it.each(['pitch', 'tune'].flatMap((param) => [0, -0.7, 0.7].map((curve) => [param, curve])))('follows a curved %s lane in the waveform (curve %s)', (param, curve) => {
+  const normal = setup(), s = setup();
+  automate(s, param, 1, { points: [{ t: 0, v: 0.5, c: curve }, { t: 96, v: param === 'tune' ? 0.75 : 1 }] });
+  const tick = curve > 0 ? 88 : 84;
+  const ratio = sequencedPeak(s, tick) / sequencedPeak(normal, tick);
+  expect(waveHeight(s, tick) / waveHeight(normal, tick)).toBeCloseTo(ratio, 2);
+});
+it.each([0, -0.7])('draws a reverse ramp at its rounded switching point (curve %s)', (curve) => {
+  const normal = setup(), s = setup();
+  automate(s, 'reverse', 0, { points: [{ t: 0, v: 0, c: curve }, { t: 240, v: 1 }] });
+  const tick = 160;
+  expect(waveHeight(s, tick) / waveHeight(normal, tick)).toBeCloseTo(sequencedPeak(s, tick) / sequencedPeak(normal, tick), 2);
+});
+it('combines automated tuning, direction and tempo', () => {
+  const normal = setup(), s = setup();
+  automate(s, 'tune', 0.75); automate(s, 'reverse', 1, { start: 30 });
+  s.p.automation.tempo = { id: 'tempo', target: { kind: 'tempo' }, points: [{ t: 0, v: (60 - 20) / 280 }] };
+  s.p.clips.push(createClip({ kind: 'auto', ref: 'tempo', len: 384, track: 1 }));
+  for (const tick of [26, 56, 90]) expect(waveHeight(s, tick) / waveHeight(normal, tick)).toBeCloseTo(sequencedPeak(s, tick) / sequencedPeak(normal, tick), 2);
+});
+it.each(['trim', 'slice'])('retains automated source content after %s and scrolling', (action) => {
+  const s = setup(1, 12); automate(s, 'pitch', 1, { points: [{ t: 0, v: 0.5, c: -0.3 }, { t: 192, v: 1 }] });
+  automate(s, 'reverse', 0, { start: 48 });
+  const before = wave(s), id = s.p.clips[0].id;
+  if (action === 'trim') s.p = resizeClips(s.p, [id], 'left', 48);
+  else {
+    const split = sliceClips(s.p, 48, (c) => c.kind === 'audio');
+    s.p = { ...split.project, clips: split.project.clips.filter((c) => c.id !== id) };
+  }
+  expect(wave(s)).toEqual(before.filter((bar) => bar[0] >= 48));
+  expect(wave(s, 60)).toEqual(before.filter((bar) => bar[0] >= 60).map((bar) => [bar[0] - 60, ...bar.slice(1)]));
+});
+it.each(['muted clip', 'muted track', 'outside clip'])('preserves ordinary waveforms with %s automation', (kind) => {
+  const s = setup(1), before = wave(s);
+  const p = { ...s.p, clips: [...s.p.clips], automation: {} }; s.p = p;
+  automate(s, 'reverse', 0, { start: kind === 'outside clip' ? 384 : 0 });
+  if (kind === 'muted clip') s.p.clips.at(-1).mute = true;
+  if (kind === 'muted track') s.p.tracks = [...s.p.tracks, { ...s.p.tracks[0], mute: true }];
+  expect(wave(s)).toEqual(before);
+});
+it('refreshes automated paths after immutable edits and decoded sample replacement', () => {
+  const s = setup(); automate(s, 'tune', 0.75);
+  const before = wave(s);
+  const old = s.p;
+  s.p = { ...old, automation: { ...old.automation, 'auto-tune': { ...old.automation['auto-tune'], points: [{ t: 0, v: 0.5 }] } } };
+  expect(waveHeight(s, 60)).toBeLessThan(before.find((b) => b[0] === 60)[3]);
+  s.p = old; expect(wave(s)).toEqual(before);
+  s.samples.set('s', { channels: [Float32Array.from(s.data, (v) => v / 2)], rate: RATE });
+  expect(waveHeight(s, 60)).toBeCloseTo(before.find((b) => b[0] === 60)[3] / 2, 5);
+});
+
+
+it('includes source travel inside a pixel when direction reverses within that pixel', () => {
+  const s = setup();
+  const data = Float32Array.from({ length: RATE }, (_, i) => Math.sin(2 * Math.PI * 400 * i / RATE) * (i > RATE * 0.57 && i < RATE * 0.65 ? 0.8 : 0.2));
+  s.samples.set('s', { channels: [data], rate: RATE });
+  automate(s, 'reverse', 1, { start: 120 });
+  s.p.clips[0].len = 480;
+  const bars = wave(s, 0, 0.01);
+  expect(bars.find((b) => b[0] === 1)[3] / bars.find((b) => b[0] === 0)[3]).toBeCloseTo(4, 2);
+});
+it('does not recompile automation history for each pixel, redraw or scroll', () => {
+  const s = setup();
+  let reads = 0;
+  const count = 6000;
+  s.p.clips[0].len = count;
+  s.p.automation.pitch = { id: 'pitch', target: { kind: 'channel', id: s.ch.id, param: 'pitch' }, points: [{ get t() { reads++; return 0; }, v: 0.5 }] };
+  s.p.clips.push(...Array.from({ length: count }, (_, i) => createClip({ kind: 'auto', ref: 'pitch', start: i, len: 1, track: 1 })));
+  const before = wave(s);
+  expect(reads).toBeLessThanOrEqual(count * 2);
+  const firstReads = reads;
+  expect(wave(s)).toEqual(before);
+  expect(wave(s, 60)).toEqual(before.filter((bar) => bar[0] >= 60).map((bar) => [bar[0] - 60, ...bar.slice(1)]));
+  expect(reads).toBe(firstReads);
+});
+
+it('applies automated tuning as an override while retaining channel and master pitch', () => {
+  const normal = setup(), s = setup();
+  normal.ch.params.tune = s.ch.params.tune = 12;
+  s.ch.pitch = 1200; s.p.masterPitch = -1200;
+  automate(s, 'tune', 0.5);
+  expect(sequencedPeak(s, 60) / sequencedPeak(normal, 60)).toBeCloseTo(0.25, 2);
+  expect(waveHeight(s, 60) / waveHeight(normal, 60)).toBeCloseTo(0.25, 2);
+});
+it('restores configured direction after an automation clip ends', () => {
+  const normal = setup(), s = setup();
+  automate(s, 'reverse', 1, { start: 48, len: 24 });
+  expect(sequencedPeak(s, 120) / sequencedPeak(normal, 120)).toBeCloseTo(0.25, 2);
+  expect(waveHeight(s, 120) / waveHeight(normal, 120)).toBeCloseTo(0.25, 2);
+});
+it('uses the same overlapping-lane priority as playback', () => {
+  const s = setup(); automate(s, 'reverse', 0, { len: 144 });
+  s.p.automation.second = { id: 'second', target: { kind: 'channel', id: s.ch.id, param: 'reverse' }, points: [{ t: 0, v: 1 }] };
+  s.p.clips.push(createClip({ kind: 'auto', ref: 'second', start: 96, len: 144, track: 1 }));
+  expect(sequencedPeak(s, 220)).toBeGreaterThan(0.01);
+  expect(waveHeight(s, 220)).toBeGreaterThan(1);
 });
