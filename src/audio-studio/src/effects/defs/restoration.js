@@ -21,8 +21,8 @@ const FOCUS = ['All frequencies', 'Low frequencies', 'Mid frequencies', 'High fr
 
 // ------------------------------------------------------------------- DeHummer
 
-/** Magnitude of one finite-depth hum notch (mirrors dehummer.rs hum_notch). */
-function notchMag(f, f0, q, depthDb, rate) {
+/** Complex response [re, im] at f of one finite-depth hum notch (dehummer.rs hum_notch). */
+function notchResponse(f, f0, q, depthDb, rate) {
   const w0 = (2 * Math.PI * f0) / rate;
   const rp = Math.exp((-Math.PI * (f0 / Math.max(0.5, q))) / rate);
   const g = 10 ** (Math.min(0, depthDb) / 20);
@@ -34,7 +34,8 @@ function notchMag(f, f0, q, depthDb, rate) {
   const ni = -2 * rz * c * s1 + rz * rz * s2;
   const dr = 1 - 2 * rp * c * c1 + rp * rp * c2;
   const di = -2 * rp * c * s1 + rp * rp * s2;
-  return Math.sqrt((nr * nr + ni * ni) / (dr * dr + di * di));
+  const d = dr * dr + di * di;
+  return [(nr * dr + ni * di) / d, (ni * dr - nr * di) / d];
 }
 
 registerEffect({
@@ -62,13 +63,18 @@ registerEffect({
     const out = new Float32Array(freqs.length);
     const harmonics = Math.max(1, Math.round(values.harmonics));
     for (let i = 0; i < freqs.length; i++) {
-      let m = 1;
+      // The notches in series (complex, so Output Hum Only, the input minus
+      // the filtered audio, keeps the phase of the notches' skirts).
+      let [re, im] = [1, 0];
       for (let h = 0; h < harmonics; h++) {
         const f0 = values.frequency * (h + 1);
         if (f0 >= rate * 0.45) break;
-        m *= notchMag(freqs[i], f0, values.q, values.gain * (values.slope / 100) ** h, rate);
+        const depth = values.gain * (values.slope / 100) ** h;
+        const [a, b] = notchResponse(freqs[i], f0, values.q, depth, rate);
+        [re, im] = [re * a - im * b, re * b + im * a];
       }
-      out[i] = 20 * Math.log10(values.humOnly ? Math.max(1e-6, Math.abs(1 - m)) : Math.max(1e-6, m));
+      if (values.humOnly) [re, im] = [1 - re, -im];
+      out[i] = 20 * Math.log10(Math.max(1e-6, Math.hypot(re, im)));
     }
     return out;
   },
