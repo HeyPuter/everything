@@ -3,15 +3,22 @@
  *
  * Layout inside a backend:
  *   recovery/index.json        [{ id, name, file, saved, revision, session }]
- *   recovery/<id>.vstudio      the document (same format as a saved file)
+ *   recovery/<id>/<snapshot>.vstudio  immutable document bytes
+ * Older entries without a snapshot token use recovery/<id>.vstudio.
  *
  * Several backends can be given: writes go to the first that works (the
  * Puter appdata folder when signed in, then this browser's OPFS when the
  * cloud is unreachable), and listing merges all of them. Operations are
  * serialized so the index read-modify-write never races.
  */
+import { uid } from '../../lib/ids.js';
+
 const DIR = 'recovery';
 const INDEX = `${DIR}/index.json`;
+
+function snapshotPath(entry) {
+  return entry.snapshot ? `${DIR}/${entry.id}/${entry.snapshot}.vstudio` : `${DIR}/${entry.id}.vstudio`;
+}
 
 /** Capture order wins within one session, even when Undo or the system clock goes backward. */
 export function newerSnapshot(a, b) {
@@ -64,27 +71,45 @@ export class RecoveryStore {
     return this.#run(async () => {
       let lastErr = null;
       for (const b of this.backends) {
+        const snapshot = uid('snapshot');
+        const next = { id, snapshot, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null,
+          saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session };
+        let previous, blobAttempted = false, indexAttempted = false;
         try {
-          await b.writeBlob(`${DIR}/${id}.vstudio`, data instanceof Blob ? data : new Blob([data]));
-          const index = (await this.#readIndex(b, { strict: true })).filter((e) => e.id !== id);
-          index.push({ id, name, file: file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null, saved, revision, commentsRevision, ...(sequence === undefined ? {} : { sequence }), session });
-          await b.writeJSON(INDEX, index);
-          // A stale copy in a lower-priority store would resurrect old work.
-          for (const other of this.backends) if (other !== b) await this.#removeFrom(other, id).catch(() => {});
-          return b.kind;
+          const index = await this.#readIndex(b, { strict: true });
+          previous = index.find((e) => e.id === id);
+          blobAttempted = true;
+          await b.writeBlob(snapshotPath(next), data instanceof Blob ? data : new Blob([data]));
+          indexAttempted = true;
+          await b.writeJSON(INDEX, [...index.filter((e) => e.id !== id), next]);
         } catch (err) {
           lastErr = err;
+          if (blobAttempted) {
+            try {
+              // A write can succeed remotely but lose its acknowledgement. Never
+              // delete bytes that the persisted index already published.
+              const published = indexAttempted && (await this.#readIndex(b, { strict: true })).some((e) => e.id === id && e.snapshot === snapshot);
+              if (!published) await b.remove(snapshotPath(next));
+            } catch { /* Leave uncertain bytes for document removal to clean up. */ }
+          }
+          continue;
         }
+        if (previous) await b.remove(snapshotPath(previous)).catch(() => {});
+        // A stale copy in a lower-priority store would resurrect old work.
+        for (const other of this.backends) if (other !== b) await this.#removeFrom(other, id).catch(() => {});
+        return b.kind;
       }
       throw lastErr || new Error('No storage available for recovery data');
     });
   }
 
   async #removeFrom(b, id) {
-    const index = await this.#readIndex(b);
-    if (!index.some((e) => e.id === id)) return;
+    const index = await this.#readIndex(b, { strict: true });
+    if (index.some((e) => e.id === id)) await b.writeJSON(INDEX, index.filter((e) => e.id !== id));
+    // Retry orphan cleanup too: an earlier removal may have published its index
+    // before losing access to the document's snapshot files.
+    await b.remove(`${DIR}/${id}`);
     await b.remove(`${DIR}/${id}.vstudio`);
-    await b.writeJSON(INDEX, index.filter((e) => e.id !== id));
   }
 
   remove(id) {
@@ -118,16 +143,17 @@ export class RecoveryStore {
     let failure = null;
     for (const b of backends) {
       try {
-        if (b !== entry.backend) {
-          const candidate = (await this.#readIndex(b, { strict: true })).find((e) => e.id === entry.id);
-          if (!candidate) continue;
-          if (!sameSnapshot(candidate, entry)) {
-            failure ||= new Error('The selected recovery snapshot is not available right now.');
-            continue;
-          }
+        const candidate = (await this.#readIndex(b, { strict: true })).find((e) => e.id === entry.id);
+        if (!candidate) continue;
+        if (!sameSnapshot(candidate, entry) || (b === entry.backend && candidate.snapshot !== entry.snapshot)) {
+          failure ||= new Error('The selected recovery snapshot is not available right now.');
+          continue;
         }
-        const blob = await b.readBlob(`${DIR}/${entry.id}.vstudio`);
+        const blob = await b.readBlob(snapshotPath(candidate));
         if (blob) return blob;
+        // A concurrent publication can remove the selected file while it is read.
+        const current = (await this.#readIndex(b, { strict: true })).find((e) => e.id === entry.id);
+        if (current && (!sameSnapshot(current, entry) || current.snapshot !== candidate.snapshot)) failure ||= new Error('The selected recovery snapshot changed. Try recovery again.');
       } catch (err) {
         // Try the next store.
         failure = failure || err;

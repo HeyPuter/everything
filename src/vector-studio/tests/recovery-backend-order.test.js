@@ -22,8 +22,8 @@ it.each([5000, 4000])('recovers a later Undo snapshot from fallback storage when
     // Cloud writing and stale-copy cleanup fail, leaving both snapshots on disk.
     cloud.failNext = 2;
     expect(await saver.flush()).toBe(1);
-    expect(cloud.files.has(`recovery/${ed.recoveryId}.vstudio`)).toBe(true);
-    expect(local.files.has(`recovery/${ed.recoveryId}.vstudio`)).toBe(true);
+    expect([...cloud.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
+    expect([...local.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
     const [entry] = await new RecoveryStore([cloud, local]).list();
     const nextApp = { addDocument: (doc, { file }) => ({ doc, file }), renderTabs: vi.fn() };
     const next = new Autosaver(nextApp, { store, session: 'restarted' });

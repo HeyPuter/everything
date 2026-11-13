@@ -316,7 +316,7 @@ describe('recovery bookkeeping', () => {
     await store.put('r1', { name: 'v3', data: new Uint8Array([3]), saved: 3 });
     list = await store.list();
     expect(list[0].backend).toBe(cloud);
-    expect([...local.files.keys()].some((k) => k.endsWith('r1.vstudio'))).toBe(false);
+    expect([...local.files.keys()].some((k) => k.startsWith('recovery/r1'))).toBe(false);
   });
 
   it('keeps a recovery copy that could not be read right now, and drops a damaged one', async () => {
@@ -327,7 +327,7 @@ describe('recovery bookkeeping', () => {
     await store.put('bad', { name: 'Damaged', data: new Uint8Array([1, 2, 3]), session: 'dead', saved: 1 });
     const readBlob = b.readBlob;
     b.readBlob = async (path) => {
-      if (path.includes('net.vstudio')) throw new Error('Failed to fetch');
+      if (path === 'recovery/net.vstudio' || path.startsWith('recovery/net/')) throw new Error('Failed to fetch');
       return readBlob(path);
     };
     const prefs = new Prefs(memStorage());

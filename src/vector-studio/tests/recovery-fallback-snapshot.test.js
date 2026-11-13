@@ -33,8 +33,8 @@ it.each([false, true].flatMap((modern) => ['offline', 'missing'].map((failure) =
     expect(app.addDocument).not.toHaveBeenCalled();
     expect(app.notify.mock.calls.some(([message]) => message.includes('could not be recovered right now'))).toBe(true);
     expect((await store.list())[0].saved).toBe(200);
-    expect(preferred.files.has('recovery/drawing.vstudio')).toBe(true);
-    expect(fallback.files.has('recovery/drawing.vstudio')).toBe(true);
+    expect([...preferred.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
+    expect([...fallback.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
   } finally { dialogHooks.open = null; }
 });
 
@@ -49,7 +49,7 @@ it.each([false, true])('can use an identical fallback snapshot when the preferre
 it('returns null when the selected bytes are gone and no alternative copy remains', async () => {
   const { preferred, fallback, store } = await copies();
   const [entry] = await store.list();
-  preferred.files.delete('recovery/drawing.vstudio');
+  for (const path of preferred.files.keys()) if (path.endsWith('.vstudio')) preferred.files.delete(path);
   fallback.files.clear();
   expect(await store.read(entry)).toBeNull();
 });
@@ -77,5 +77,5 @@ it('keeps recovery available for retry when fallback metadata cannot be read', a
   preferred.readBlob = async () => null;
   fallback.readJSON = async () => { throw new Error('Metadata offline'); };
   await expect(store.read(entry)).rejects.toThrow('Metadata offline');
-  expect(fallback.files.has('recovery/drawing.vstudio')).toBe(true);
+  expect([...fallback.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
 });
