@@ -889,12 +889,12 @@ export function restoreInputFocus(e: Editor): () => void {
   };
 }
 
-// `soft` leaves focus alone while another field (a panel input) is in use.
+// `soft` leaves focus alone while another control is in use.
 export function focusInput(e: Editor, soft = false) {
   if (!session) return;
   const el = inputElement(e);
   const active = document.activeElement as HTMLElement | null;
-  if (soft && active && active !== el && active.matches('input,select,textarea,[contenteditable="true"]')) return;
+  if (soft && active && active !== el && active.matches('input,select,textarea,button,[contenteditable="true"]')) return;
   positionInput(e);
   if (document.activeElement !== el) el.focus({ preventScroll: true });
 }

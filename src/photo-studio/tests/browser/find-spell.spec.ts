@@ -684,7 +684,7 @@ for (const phase of ['initial search', 'next word']) for (const action of ['bulk
 
 for (const target of ['dialog field', 'unchanged']) for (const dialog of ['Find', 'Spelling']) test(`a delayed ${dialog} result respects ${target} focus`, async ({ page }) => {
   await boot(page);
-  await textDoc(page, ['teh']);
+  await textDoc(page, target === 'unchanged' ? ['teh teh'] : ['teh']);
   await page.evaluate(() => {
     const load = FontFace.prototype.load;
     FontFace.prototype.load = function () {
@@ -715,7 +715,18 @@ for (const target of ['dialog field', 'unchanged']) for (const dialog of ['Find'
   });
   await idle(page);
   if (target === 'unchanged') {
-    await expect(dlg.getByRole('button', { name: dialog === 'Find' ? 'Find Next' : 'Change', exact: true })).toBeFocused();
+    // Focus must survive the text editor's deferred 300 ms options refresh.
+    await page.waitForTimeout(450);
+    const button = dlg.getByRole('button', { name: dialog === 'Find' ? 'Find Next' : 'Change', exact: true });
+    await expect(button).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect.poll(() => page.evaluate(() => {
+      const s = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession()!;
+      return [s.anchor, s.focus];
+    })).toEqual([4, 7]);
+    expect(await layerTexts(page)).toEqual([dialog === 'Find' ? 'teh teh' : 'the teh']);
+    await page.waitForTimeout(450);
+    await expect(button).toBeFocused();
     return;
   }
   await expect(field).toBeFocused();
