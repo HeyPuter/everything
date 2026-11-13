@@ -177,6 +177,10 @@ function readTrack(r, tempos, sigs) {
 
 // ------------------------------------------------------------------ writer
 
+const MAX_VLQ = 0x0fffffff;
+// Bound synthetic padding so damaged timestamps cannot cause unbounded work.
+const MAX_GAP_EVENTS = 1024;
+
 class Writer {
   constructor() {
     this.bytes = [];
@@ -199,6 +203,7 @@ class Writer {
   }
 
   vlq(v) {
+    if (!Number.isInteger(v) || v < 0 || v > MAX_VLQ) throw new Error('This MIDI export contains an unsupported timing or length value.');
     const out = [v & 0x7f];
     v >>>= 7;
     while (v > 0) {
@@ -206,6 +211,18 @@ class Writer {
       v >>>= 7;
     }
     this.u8(...out);
+  }
+
+  delta(v) {
+    if (!Number.isSafeInteger(v) || v < 0 || Math.floor((v - 1) / MAX_VLQ) > MAX_GAP_EVENTS) {
+      throw new Error('This MIDI export contains a timing gap too large to encode. Check for notes far beyond the song.');
+    }
+    while (v > MAX_VLQ) {
+      this.vlq(MAX_VLQ);
+      this.u8(0xff, 0x01, 0); // Empty text: advances time without sending MIDI.
+      v -= MAX_VLQ;
+    }
+    this.vlq(v);
   }
 
   text(type, s) {
@@ -255,7 +272,7 @@ export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks
     events.sort((a, b) => a.tick - b.tick || a.on - b.on || a.key - b.key);
     let last = 0;
     for (const e of events) {
-      w.vlq(e.tick - last);
+      w.delta(e.tick - last);
       last = e.tick;
       w.u8(e.on ? 0x90 | ch : 0x80 | ch, e.key & 0x7f, e.on ? e.vel : 0x40);
     }
