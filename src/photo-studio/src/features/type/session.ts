@@ -278,7 +278,7 @@ async function startWithFonts(e: Editor, request: StartRequest, data: TextLayerD
   const startedEarly = !!editing;
   if (editing) refresh();
   else request.activate?.();
-  return { startedEarly };
+  return { startedEarly, editing };
 }
 
 function activatePending() {

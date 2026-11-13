@@ -78,8 +78,10 @@ export async function insertGlyph(e: Editor, ch: string, family?: string, face?:
       e.message('Click in text with the Type tool, or select a text layer, to insert glyphs.');
       return false;
     }
+    const owner = e.session;
     if (!e.tool.startsWith('type')) e.setTool('type');
-    await startEdit(e, l.id, 'end');
+    const started = await startEdit(e, l.id, 'end');
+    if (e.session !== owner || !started?.editing || session !== started.editing) return false;
   }
   if (!session) return false;
   // A glyph from another font than the text's is inserted in that font.
