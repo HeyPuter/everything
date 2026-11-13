@@ -79,3 +79,59 @@ describe('a file that could not be read', () => {
     expect(onReady).not.toHaveBeenCalled();
   });
 });
+
+describe('media replaced while loading', () => {
+  it('ignores old video URLs after relink or disposal', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    const pending = [];
+    const pool = new MediaPool({ library: {}, urlFor: () => new Promise((resolve) => pending.push(resolve)) });
+    const asset = { id: 'a' };
+    const first = pool.claim({ id: 'c' }, asset, 'video', 0);
+    await flush();
+    pool.forgetAsset(asset.id);
+    const second = pool.claim({ id: 'c' }, asset, 'video', 0);
+    await flush();
+    pending[1]('blob:replacement');
+    await flush();
+    pending[0]('blob:old');
+    await flush();
+    expect(first.el.getAttribute('src')).toBeNull();
+    expect(second.el.getAttribute('src')).toBe('blob:replacement');
+    expect(pool.urls.get(asset.id)).toBe('blob:replacement');
+    const late = pool.claim({ id: 'late' }, { id: 'b' }, 'video', 0);
+    await flush();
+    pool.dispose();
+    pending[2]('blob:after-close');
+    await flush();
+    expect(late.el.getAttribute('src')).toBeNull();
+    expect(pool.urls.size).toBe(0);
+  });
+
+  it('ignores an old image decode when a relinked image is still loading', async () => {
+    const pending = [];
+    vi.stubGlobal('createImageBitmap', () => new Promise((resolve) => pending.push(resolve)));
+    const pool = new MediaPool({ library: { mediaBlob: async () => new Blob(['image']) } });
+    const asset = { id: 'image' };
+    try {
+      pool.image(asset);
+      await flush();
+      pool.forgetAsset(asset.id);
+      pool.image(asset);
+      await flush();
+      const old = { close: vi.fn() };
+      const replacement = { close: vi.fn() };
+      pending[0](old);
+      await flush();
+      expect(pool.image(asset)).toBeNull();
+      expect(old.close).toHaveBeenCalledTimes(1);
+      pending[1](replacement);
+      await flush();
+      expect(pool.image(asset)).toBe(replacement);
+      expect(replacement.close).not.toHaveBeenCalled();
+    } finally {
+      pool.dispose();
+      vi.unstubAllGlobals();
+    }
+  });
+});

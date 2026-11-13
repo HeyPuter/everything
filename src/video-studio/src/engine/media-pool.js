@@ -13,7 +13,7 @@ export class MediaPool {
     this.onReady = onReady;
     this.urlFor = urlFor || ((asset) => library.mediaURL(asset));
     this.elements = []; // { id, el, assetId, kind, clipId, lastUsed, gain, src }
-    this.images = new Map(); // assetId -> ImageBitmap | 'loading' | 'error'
+    this.images = new Map(); // assetId -> ImageBitmap | { loading: true } | 'error'
     this.urls = new Map(); // assetId -> url | Promise
     this.failed = new Map(); // assetId -> { n, at, timer }: reads that failed, tried again from `at`
     this.audioCtx = null;
@@ -60,13 +60,17 @@ export class MediaPool {
       .then(() => this.urlFor(asset))
       .then(
         (url) => {
-          this.urls.set(asset.id, url);
-          this._clearFailure(asset.id);
+          if (!this.disposed && this.urls.get(asset.id) === u) {
+            this.urls.set(asset.id, url);
+            this._clearFailure(asset.id);
+          }
           return url;
         },
         (err) => {
-          if (this.urls.get(asset.id) === u) this.urls.delete(asset.id);
-          this._fail(asset.id);
+          if (this.urls.get(asset.id) === u) {
+            this.urls.delete(asset.id);
+            this._fail(asset.id);
+          }
           throw err;
         },
       );
@@ -111,7 +115,7 @@ export class MediaPool {
     el.disablePictureInPicture = true;
     if ('preservesPitch' in el) el.preservesPitch = true;
     const entry = { id: nextId++, el, assetId: asset.id, kind, clipId: null, lastUsed: this.frame, gain: null, pendingSeek: null };
-    const kick = () => this.onReady?.();
+    const kick = () => { if (!entry.destroyed && !this.disposed) this.onReady?.(); };
     el.addEventListener('loadeddata', kick);
     el.addEventListener('seeked', () => {
       if (entry.pendingSeek !== null) {
@@ -123,7 +127,9 @@ export class MediaPool {
     });
     const url = this._url(asset);
     if (typeof url === 'string') el.src = url;
-    else url.then((u) => (el.src = u)).catch(() => (entry.noSource = true));
+    else url.then((u) => {
+      if (!entry.destroyed && !this.disposed) el.src = u;
+    }).catch(() => (entry.noSource = true));
     this._route(entry);
     this.elements.push(entry);
     return entry;
@@ -190,6 +196,7 @@ export class MediaPool {
   }
 
   _destroy(entry) {
+    entry.destroyed = true;
     entry.el.pause();
     entry.el.removeAttribute('src');
     entry.el.load();
@@ -211,16 +218,19 @@ export class MediaPool {
 
   /** Decoded image for an asset, or null while it loads. */
   image(asset) {
+    if (this.disposed) return null;
     const have = this.images.get(asset.id);
-    if (have && have !== 'loading' && have !== 'error') return have;
-    if (have === 'loading' || (have === 'error' && !this._retryDue(asset.id))) return null;
-    this.images.set(asset.id, 'loading');
+    if (have && !have.loading && have !== 'error') return have;
+    if (have?.loading || (have === 'error' && !this._retryDue(asset.id))) return null;
+    // Identity distinguishes this decode from one started before a relink of the same asset.
+    const loading = { loading: true };
+    this.images.set(asset.id, loading);
     // WebGL ignores UNPACK_FLIP_Y for ImageBitmap sources, so flip while decoding (EXIF orientation still applies).
     this.library
       .mediaBlob(asset)
       .then((blob) => createImageBitmap(blob, { imageOrientation: 'flipY' }))
       .then((bmp) => {
-        if (this.disposed || this.images.get(asset.id) !== 'loading') {
+        if (this.disposed || this.images.get(asset.id) !== loading) {
           bmp.close?.();
           return;
         }
@@ -229,7 +239,7 @@ export class MediaPool {
         this.onReady?.();
       })
       .catch(() => {
-        if (this.images.get(asset.id) !== 'loading') return;
+        if (this.images.get(asset.id) !== loading) return;
         this.images.set(asset.id, 'error');
         this._fail(asset.id);
       });
@@ -252,6 +262,7 @@ export class MediaPool {
     for (const e of [...this.elements]) this._destroy(e);
     for (const img of this.images.values()) img?.close?.();
     this.images.clear();
+    this.urls.clear();
     this.audioCtx?.close().catch(() => {});
     this.audioCtx = null;
   }
