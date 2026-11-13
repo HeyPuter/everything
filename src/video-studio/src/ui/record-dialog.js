@@ -44,6 +44,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   let countdownTimer = 0;
   let tick = 0;
   let opening = 0;
+  let screenOpening = 0;
   const recorder = new VideoRecorder();
   // The camera or the shared screen went away mid-take (unplugged, sharing stopped): keep what was recorded.
   recorder.onInterrupted = () => {
@@ -176,6 +177,7 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   }
 
   function closeStreams() {
+    screenOpening++;
     mixed?.close();
     mixed = null;
     stopStream(preview);
@@ -261,23 +263,29 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
   /** Ask the browser for a screen, window or tab (needs a click). */
   async function shareScreen() {
     if (state !== 'idle') return false;
+    const my = ++screenOpening;
+    const stale = () => my !== screenOpening;
     clearError();
     stopStream(preview);
     preview = null;
+    let stream;
     try {
-      preview = await openScreen({ systemAudio: opts.systemAudio });
+      stream = await openScreen({ systemAudio: opts.systemAudio });
     } catch (err) {
+      if (stale()) return false;
       showError(captureErrorMessage(err, 'screen'));
       setState('idle');
       return false;
     }
-    if (!open) {
-      closeStreams();
+    if (stale()) {
+      stopStream(stream);
       return false;
     }
+    preview = stream;
     attach(preview);
     // Stopping the share from the browser's own bar ends the take.
     preview.getVideoTracks()[0]?.addEventListener('ended', () => {
+      if (preview !== stream) return;
       if (state === 'recording' || state === 'paused') stopRecording();
       else if (state === 'countdown') cancelCountdown();
       if (state === 'idle') {

@@ -42,6 +42,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   delete globalThis.MediaRecorder;
   delete navigator.mediaDevices;
   document.body.replaceChildren();
@@ -90,6 +91,70 @@ describe('Record dialog', () => {
     d.close();
     await grant();
     expect(live()).toBe(0);
+  });
+});
+
+describe('pending screen selection', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const choose = (dialog) => [...dialog.el.querySelectorAll('button')].find((b) => b.textContent.includes('Choose what to share')).click();
+  function screen() {
+    const track = Object.assign(new EventTarget(), {
+      kind: 'video', readyState: 'live',
+      stop() { this.readyState = 'ended'; }, getSettings: () => ({}),
+    });
+    const stream = { getTracks: () => [track], getVideoTracks: () => [track], getAudioTracks: () => [] };
+    streams.push(stream);
+    return stream;
+  }
+  beforeEach(() => {
+    setPref('record', { mode: 'screen', screenMic: false });
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+  });
+
+  it('stops a screen granted to a closed dialog even if another dialog opened', async () => {
+    const first = openRecordDialog(ctxFor(), { mode: 'screen' });
+    choose(first);
+    const resolve = pending.shift();
+    first.close();
+    const second = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      resolve(screen());
+      await flush();
+      expect(live()).toBe(0);
+      expect(second.el.querySelector('video').srcObject).toBeFalsy();
+    } finally { second.close(); }
+  });
+
+  it('discards a screen granted after switching to the camera', async () => {
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      choose(d);
+      const resolve = pending.shift();
+      [...d.el.querySelectorAll('button')].find((b) => b.textContent === 'Camera').click();
+      resolve(screen());
+      await flush();
+      expect(live()).toBe(0);
+      expect(d.el.querySelector('video').srcObject).toBeFalsy();
+    } finally { d.close(); }
+  });
+
+  it('keeps the latest selection when screen requests finish out of order', async () => {
+    const d = openRecordDialog(ctxFor(), { mode: 'screen' });
+    try {
+      choose(d);
+      choose(d);
+      const older = pending.shift();
+      const newer = pending.shift();
+      const selected = screen();
+      newer(selected);
+      await flush();
+      older(screen());
+      await flush();
+      expect(live()).toBe(1);
+      expect(d.el.querySelector('video').srcObject).toBe(selected);
+      d.close();
+      expect(live()).toBe(0);
+    } finally { d.close(); }
   });
 });
 
