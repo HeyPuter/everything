@@ -1,7 +1,7 @@
 // Sample-accurate sequencer shared by the AudioWorklet and the offline render
 // worker. It walks a compiled sequence (compile.js) block by block, queues
 // note events into the core at their exact frame offsets, cuts sounding
-// notes when playback wraps, evaluates automation once per block, plays the
+// notes when playback wraps, evaluates automation at block/segment boundaries, plays the
 // metronome and a count-in bar, then renders the block.
 //
 // Time runs through the sequence's tempo map (engine/tempo.js): every event
@@ -22,7 +22,7 @@
 import { fromNorm } from '../lib/params.js';
 import { automationValue } from '../automation/evaluate.js';
 import { TempoMap } from './tempo.js';
-import { AUDIO_TUNE, AUDIO_REVERSE, audioSourceAt } from './audio-rate.js';
+import { AUDIO_TUNE, AUDIO_REVERSE, audioSourceAt, audioStepCuts } from './audio-rate.js';
 
 const PPQ = 96;
 const MAX_ACTIVE = 4096;
@@ -69,6 +69,8 @@ export class Sequencer {
     this.active = 0;
     this.lanes = [];
     this.audioMotionLanes = new Map();
+    this.automationBoundaries = new Float64Array();
+    this.output = null;
     this.tempo = new TempoMap(120);
   }
 
@@ -106,6 +108,7 @@ export class Sequencer {
       const ends = Float64Array.from(l.segs, (s) => (end = Math.max(end, s.end)));
       return { ...l, applied: prev.get(laneKey(l))?.applied || false, ends, cursor: -1, tick: NaN };
     });
+    this.automationBoundaries = automationBoundaries(this.lanes);
     this.audioMotionLanes.clear();
     for (const lane of this.lanes) {
       const t = lane.target;
@@ -353,6 +356,9 @@ export class Sequencer {
   }
 
   #automate(tick) {
+    // Tempo round trips can leave the first frame of a boundary a few
+    // ulps below its tick. Match the scheduling tolerance at that frame.
+    tick += 1e-9;
     for (const l of this.lanes) {
       const seg = automationSegment(l, tick);
       if (!seg) {
@@ -411,8 +417,38 @@ export class Sequencer {
 
   /** Sequences and renders `frames` frames; returns the core's output views. */
   block(frames) {
-    if (this.playing && this.seq) this.#advance(frames);
-    return this.core.process(frames);
+    let done = 0;
+    while (done < frames) {
+      const left = frames - done;
+      const n = this.playing && this.seq && this.automationBoundaries.length ? this.#framesToAutomation(left) : left;
+      if (this.playing && this.seq) this.#advance(n);
+      const out = this.core.process(n);
+      if (!done && n === frames) return out;
+      // The WASM output views are reused by each sub-block. Copy only when
+      // a boundary actually splits this call; ordinary blocks stay zero-copy.
+      if (!this.output || this.output.l.length < frames) this.output = { l: new Float32Array(frames), r: new Float32Array(frames) };
+      this.output.l.set(out.l.subarray(0, n), done);
+      this.output.r.set(out.r.subarray(0, n), done);
+      done += n;
+    }
+    return this.output;
+  }
+
+  #framesToAutomation(limit) {
+    const count = this.countIn > 0 ? Math.max(0, Math.ceil(this.countIn / this.tpf - 1e-6)) : 0;
+    if (count >= limit) return limit;
+    const end = this.#end();
+    const tick = this.loop && this.pos >= end - 1e-9 ? this.seq.start : this.pos;
+    const boundaries = this.automationBoundaries;
+    let lo = 0, hi = boundaries.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (boundaries[mid] <= tick + 1e-9) lo = mid + 1;
+      else hi = mid;
+    }
+    const next = Math.min(boundaries[lo] ?? Infinity, tick < end ? end : Infinity);
+    const n = Math.ceil(this.tempo.duration(tick, next) * this.rate - 1e-6);
+    return Math.min(limit, count + Math.max(1, n));
   }
 
   #advance(frames) {
@@ -445,6 +481,8 @@ export class Sequencer {
         if (this.loop) {
           this.wraps++;
           this.#jump(s.start, f);
+          this.core.setTempo(map.bpmAt(this.pos));
+          this.#automate(this.pos);
           if (s.end <= s.start) break;
           continue;
         }
@@ -519,4 +557,35 @@ function automationSegment(lane, tick) {
   lane.tick = tick;
   const seg = lane.segs[i];
   return seg && seg.start <= tick ? seg : null;
+}
+
+
+/** Effective lane boundaries, including rounded values on stepped curves. */
+function automationBoundaries(lanes) {
+  const cuts = new Set();
+  for (const lane of lanes) {
+    const local = new Set();
+    let covered = -Infinity, previous = null;
+    for (const seg of lane.segs) {
+      const start = Math.max(seg.start, covered), end = seg.end;
+      covered = Math.max(covered, end);
+      if (end <= start) continue;
+      let flat = true;
+      for (let i = 3; i < seg.pts.length; i += 2) if (seg.pts[i] !== seg.pts[1]) { flat = false; break; }
+      const value = flat ? fromNorm(lane.def, seg.pts[1]) : null;
+      // A join between equal constant values needs no DSP boundary. Keep
+      // lane-local cuts so this cannot erase another lane's real change.
+      if (flat && previous?.end === start && previous.value === value) local.delete(start);
+      else local.add(start);
+      local.add(end);
+      const cut = (t) => { if (t > start && t < end) local.add(t); };
+      if (!flat) {
+        for (let i = 0; i < seg.pts.length; i += 2) cut(seg.pts[i]);
+        audioStepCuts(lane.def, seg, start, end, cut);
+      }
+      previous = flat ? { end, value } : null;
+    }
+    for (const t of local) cuts.add(t);
+  }
+  return Float64Array.from([...cuts].sort((a, b) => a - b));
 }

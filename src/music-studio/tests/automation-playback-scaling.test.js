@@ -30,12 +30,14 @@ it('does not rescan thousands of ended automation clips on every rendered block'
   let reads = 0;
   compiled.auto[0].segs = compiled.auto[0].segs.map((seg) => ({ ...seg, get start() { reads++; return seg.start; }, get end() { reads++; return seg.end; } }));
   seq.setSequence(compiled); seq.play(5500);
+  const preparedReads = reads;
+  expect(preparedReads).toBeLessThanOrEqual(18000);
   for (let i = 0; i < 64; i++) {
-    const tick = seq.pos;
     seq.block(BLOCK);
+    const tick = seq.tempo.ticks(seq.tempo.seconds(seq.pos) - 1 / rate);
     expect(apply).toHaveBeenLastCalledWith(1, 'volume', fromNorm(compiled.auto[0].def, Math.floor(tick) % 2 ? 0.25 : 0.75));
   }
-  expect(reads).toBeLessThan(7000);
+  expect(reads - preparedReads).toBeLessThan(256);
 });
 
 it('keeps first-overlap priority, restores gaps, and resets lookup after seeks and sequence edits', () => {
@@ -76,7 +78,7 @@ it('restarts lane lookup when looping back across an automation boundary', () =>
   seq.loop = true; seq.setSequence({ ...compiled, start: 0, end: 64, outer: 64 }); seq.play(63.8);
   seq.block(BLOCK);
   expect(seq.wraps).toBe(1);
-  expect(apply).toHaveBeenLastCalledWith(1, 'volume', fromNorm(compiled.auto[0].def, 0.75));
+  expect(apply).toHaveBeenLastCalledWith(1, 'volume', fromNorm(compiled.auto[0].def, 0.25));
   seq.block(BLOCK);
   expect(apply).toHaveBeenLastCalledWith(1, 'volume', fromNorm(compiled.auto[0].def, 0.25));
 });
