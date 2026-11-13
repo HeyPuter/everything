@@ -33,6 +33,8 @@ import '../../styles/audio.css';
 const DEFAULT_OPTS = { language: 'auto', scope: 'main', preset: 'yellow-caption', maxWords: 5, position: 'bottom', lyricsStyle: LYRIC_STYLE, lyricsPosition: 'bottom', lyricsIsolate: true };
 
 const isCaption = (c) => c.type === 'text' && c.caption;
+const editingContext = (store) => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
+const CONTEXT_CHANGED = 'Captions cancelled because the open timeline changed.';
 
 /** "0:03.5": captions are often shorter than a second, so tenths matter. */
 function shortTime(t) {
@@ -48,7 +50,8 @@ function captionClips(project) {
 }
 
 /** Ask what to do with existing captions: 'replace', 'keep' or null (cancel). */
-async function askReplace(store) {
+async function askReplace(store, { signal } = {}) {
+  if (signal?.aborted) return null;
   const n = captionClips(store.project).length;
   if (!n) return 'keep';
   const replace = h('button.btn.primary', { type: 'button' }, 'Replace');
@@ -65,8 +68,14 @@ async function askReplace(store) {
   keep.addEventListener('click', () => d.close('keep'));
   cancel.addEventListener('click', () => d.close(null));
   replace.focus();
-  const v = await d.result;
-  return v === 'replace' || v === 'keep' ? v : null;
+  const cancelPrompt = () => d.close(null);
+  signal?.addEventListener('abort', cancelPrompt, { once: true });
+  try {
+    const v = await d.result;
+    return !signal?.aborted && (v === 'replace' || v === 'keep') ? v : null;
+  } finally {
+    signal?.removeEventListener('abort', cancelPrompt);
+  }
 }
 
 /** Put caption cues (seconds) on one new text track in a single undo step. */
@@ -104,22 +113,33 @@ export async function generateCaptions(ctx, opts, steps = {}) {
  * how many it added.
  */
 export async function prepareCaptions(ctx, opts, { mode = 'keep', signal, onStep } = {}) {
+  const source = editingContext(ctx.store);
+  const check = () => {
+    if (signal?.aborted) throw new DOMException('Captions cancelled.', 'AbortError');
+    if (editingContext(ctx.store) !== source) throw new DOMException(CONTEXT_CHANGED, 'AbortError');
+  };
+  check();
   const o = { ...DEFAULT_OPTS, ...opts };
   onStep?.(0, 0);
   // Work on a copy so edits made meanwhile do not shift what is being mixed.
   const project = structuredClone(ctx.store.project);
   const mix = await mixdown(project, ctx.library, { scope: o.scope, signal, onProgress: (f) => onStep?.(0, f) });
+  check();
   onStep?.(1, 0);
   const fake = import.meta.env.DEV ? globalThis.__vsFakeTranscript : null;
   const words = fake
     ? await fake(mix, STT_RATE)
     : await transcribeMix(mix, STT_RATE, { language: o.language, signal, testMode: Boolean(import.meta.env.DEV && globalThis.__vsSpeechTestMode), onProgress: (f) => onStep?.(1, f) });
-  if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  check();
   onStep?.(2, 0);
   const preset = TEXT_PRESETS.find((p) => p.id === o.preset);
   const lineChars = lineCharsFor(preset, project.settings.width);
   const cues = groupWords(words, { maxWords: o.maxWords, maxChars: Math.min(lineChars * 2, 84), maxGap: 0.8 });
-  return () => (cues.length ? applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null }) : 0);
+  return () => {
+    // The assistant can defer applying prepared captions until its next edit step.
+    check();
+    return cues.length ? applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null }) : 0;
+  };
 }
 
 function fieldRow(label, control, id) {
@@ -197,39 +217,66 @@ function autoPanel(ctx, opts, save) {
 
   const STEPS = ['Preparing audio', 'Transcribing', 'Creating captions'];
   const { el: progress, cancel, setStep } = stepProgress(STEPS, 'Generating captions');
-  let abort = null;
-  cancel.addEventListener('click', () => abort?.abort());
+  let job = null;
+  let disposed = false;
+  const current = (task) => !disposed && job === task && !task.controller.signal.aborted;
+  function finish(task) {
+    task.off?.();
+    task.off = null;
+    if (job !== task) return;
+    job = null;
+    generate.disabled = false;
+    progress.hidden = true;
+  }
+  function cancelJob(message) {
+    if (!job) return;
+    const task = job;
+    finish(task);
+    task.controller.abort();
+    if (message && !disposed) toast(message, { kind: 'info' });
+  }
+  cancel.addEventListener('click', () => {
+    const hadFocus = progress.contains(document.activeElement);
+    cancelJob('Captions cancelled.');
+    if (hadFocus) generate.focus();
+  });
 
   async function run() {
-    if (abort) return;
+    if (job || disposed) return;
     if (!clipsForScope(store.project, opts.scope).length) {
       toast(opts.scope === 'main' ? 'The base track has no sound. Choose All audio, or add clips with sound.' : 'There is no audio in this project to caption.', { kind: 'info' });
       return;
     }
-    const mode = await askReplace(store);
-    if (!mode) return;
-    abort = new AbortController();
-    const { signal } = abort;
-    generate.disabled = true;
-    progress.hidden = false;
+    // Claim the job before its prompt, so repeated clicks cannot start two jobs.
+    const task = { controller: new AbortController(), source: editingContext(store), off: null };
+    job = task;
+    task.off = store.on('change', () => {
+      if (job === task && editingContext(store) !== task.source) cancelJob(CONTEXT_CHANGED);
+    });
+    const { signal } = task.controller;
     let said = -1;
     try {
+      const mode = await askReplace(store, { signal });
+      if (!mode || !current(task)) return;
+      generate.disabled = true;
+      progress.hidden = false;
       const n = await generateCaptions(ctx, opts, { mode, signal, onStep: (i, f) => {
+        if (!current(task)) return;
         setStep(i, f);
         if (i !== said) announce(STEPS[(said = i)]);
       } });
+      if (!current(task)) return;
       if (!n) toast('No speech was found in the audio.', { kind: 'info' });
       else toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
     } catch (err) {
-      if (err?.name === 'AbortError') announce('Captions cancelled');
+      if (!current(task)) return;
+      if (err?.name === 'AbortError') toast(err.message, { kind: 'info' });
       else {
         console.error(err);
         toast(errorMessage(err, "Couldn't create captions."), { kind: 'error' });
       }
     } finally {
-      abort = null;
-      generate.disabled = false;
-      progress.hidden = true;
+      finish(task);
     }
   }
 
@@ -247,6 +294,10 @@ function autoPanel(ctx, opts, save) {
     el,
     sync() {
       styles.sync();
+    },
+    dispose() {
+      disposed = true;
+      cancelJob();
     },
   };
 }
