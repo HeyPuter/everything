@@ -137,3 +137,23 @@ describe('merging clips', () => {
     for (const i of [1000, 2500, 4500, 5900, 7000]) expect(after[i]).toBeCloseTo(before[i], 5);
   });
 });
+
+describe('bouncing', () => {
+  it('leaves no bounce file behind when the session closes while it renders', async () => {
+    const { app, doc } = await appWithSession();
+    const t = doc.state.tracks[0].id;
+    doc.apply(
+      'Add',
+      S.addClips(doc.state, [
+        S.createClip({ trackId: t, sourceId: dc(doc, 0.5), start: 0, length: 4000 }),
+      ]),
+    );
+    doc.selectTrack(t);
+    const before = app.documents.length;
+    const bouncing = app.commands.run('mt.bounceTrack');
+    await app.closeDocument(doc, { force: true });
+    await bouncing;
+    expect(app.documents.length).toBe(before - 1);
+    expect(app.documents.some((d) => /Bounce/.test(d.name))).toBe(false);
+  });
+});

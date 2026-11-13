@@ -697,6 +697,8 @@ export function installMultitrackCommands(app) {
     }
     // The new track plays through the master, so the bounce leaves the master out.
     const { data } = await rendered('Bouncing', { ...o, master: false });
+    // The session closed while it rendered: there is no track to put the bounce on.
+    if (!isOpen(app, doc)) return;
     const file = renderedDoc(app, doc, data, name);
     app.addDocument(file, { activate: false });
     const sourceId = await linkSource(doc, file);
