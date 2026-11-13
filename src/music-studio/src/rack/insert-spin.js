@@ -55,7 +55,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
   };
 
   el.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || stopDrag) return;
     e.preventDefault();
     e.stopPropagation();
     el.focus({ preventScroll: true });
@@ -63,22 +63,27 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
     const y0 = e.clientY;
     const base = v;
     el.classList.add('dragging');
-    const move = (ev) => change(base + Math.round((y0 - ev.clientY) / 8));
+    const move = (ev) => {
+      if (ev.pointerId === e.pointerId) change(base + Math.round((y0 - ev.clientY) / 8));
+    };
     stopDrag = () => {
+      stopDrag = null;
       el.classList.remove('dragging');
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
-      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
-      stopDrag = null;
+      el.removeEventListener('lostpointercapture', up);
+      try { el.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
     };
-    const up = () => {
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       stopDrag?.();
       finish();
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
   });
 
   el.addEventListener(
@@ -129,7 +134,7 @@ export function createInsertSpin({ max = 16, value = 0, label = 'Mixer insert', 
       deferEnd();
     }
   });
-  el.addEventListener('blur', finish);
+  el.addEventListener('blur', () => { stopDrag?.(); finish(); });
 
   draw();
   return {

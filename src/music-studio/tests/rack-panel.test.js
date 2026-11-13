@@ -50,6 +50,67 @@ describe('channel rack panel', () => {
     expect(app.store.project.channels[0].mixer).toBe(1);
   });
 
+  function insertControl() {
+    const spin = rowEl(0).querySelector('[role="spinbutton"]');
+    spin.setPointerCapture = vi.fn();
+    spin.releasePointerCapture = vi.fn();
+    const send = (type, y = 300, id = 1) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
+      Object.defineProperty(event, 'pointerId', { value: id });
+      spin.dispatchEvent(event);
+    };
+    return { spin, send };
+  }
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur'])('finishes mixer assignment on %s without stale movement', (end) => {
+    const { spin, send } = insertControl();
+    const store = app.store;
+    const before = store.project;
+    send('pointerdown');
+    send('pointermove', 292);
+    expect(store.project.channels[0].mixer).toBe(2);
+    if (end === 'blur') spin.blur();
+    else send(end, 292);
+    expect(Boolean(store.gesture)).toBe(false);
+    const finished = store.project;
+    expect(store.undoStack).toHaveLength(1);
+    send('pointermove', 276);
+    send('pointerup', 276);
+    send('lostpointercapture', 276);
+    expect(store.project).toBe(finished);
+    expect(store.undoStack).toHaveLength(1);
+    send('pointerdown');
+    send('pointermove', 292);
+    send('pointerup', 292);
+    expect(store.project.channels[0].mixer).toBe(3);
+    store.undo();
+    expect(store.project).toBe(finished);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('ignores a competing mixer-assignment pointer and its %s', (end) => {
+    const { send } = insertControl();
+    const store = app.store;
+    const before = store.project;
+    send('pointerdown');
+    send('pointermove', 292);
+    send('pointerdown', 250, 2);
+    send('pointermove', 226, 2);
+    send(end, 226, 2);
+    expect(store.project.channels[0].mixer).toBe(2);
+    expect(Boolean(store.gesture)).toBe(true);
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(store.project.channels[0].mixer).toBe(3);
+    expect(store.undoStack).toHaveLength(1);
+    send('pointermove', 200, 2);
+    send('pointerup', 200, 2);
+    expect(store.project.channels[0].mixer).toBe(3);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
   it('renders a row per channel with 16 steps', () => {
     expect(view.grid.querySelectorAll('.rack-row')).toHaveLength(4);
     expect(rowEl(0).querySelectorAll('.step')).toHaveLength(16);
