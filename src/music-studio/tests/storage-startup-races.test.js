@@ -15,26 +15,28 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function delayedRestore() {
+async function delayedRestore(stage = 'local') {
   vi.useFakeTimers();
-  vi.stubGlobal('puter', undefined);
+  vi.stubGlobal('puter', stage === 'cloud' ? { env: 'web', auth: { isSignedIn: () => true } } : undefined);
   const db = memoryDB();
   db.persistent = true;
   const original = { json: serializeProject(newProject('Previous session'), {}), dirty: true, at: Date.now() };
+  if (stage === 'cloud') Object.assign(original, { dirty: false, file: { path: '/cloud/song.msproj' } });
   await db.put('drafts', 'tab:own', original);
   const entries = await db.all('drafts');
   let release;
   const waiting = new Promise((resolve) => { release = resolve; });
-  vi.spyOn(db, 'all').mockImplementationOnce(() => waiting);
+  if (stage === 'local') vi.spyOn(db, 'all').mockImplementationOnce(() => waiting);
   const root = document.createElement('div');
   document.body.append(root);
   app = new App(root, { storage: { getItem: () => null, setItem() {} } });
   app.prefs.set('launched', true);
   install(app, { db, tab: { key: 'tab:own', liveKeys: async () => new Set(['tab:own']) } });
+  if (stage === 'cloud') vi.spyOn(app.library, 'loadCloud').mockImplementationOnce(() => waiting);
   app.emit('started');
   await vi.advanceTimersByTimeAsync(RESTORE_WAIT_MS + 1);
   expect(root.classList.contains('is-restoring')).toBe(false);
-  return { db, finish: async () => { release(entries); await app.restored; } };
+  return { db, finish: async () => { release(stage === 'local' ? entries : newProject('Updated cloud session')); await app.restored; } };
 }
 
 it('autosaves edits made after the workspace appears but before recovery finishes', async () => {
@@ -48,4 +50,38 @@ it('autosaves edits made after the workspace appears but before recovery finishe
   expect(close.defaultPrevented).toBe(true);
   await app.autosave.flushAll();
   expect(JSON.parse((await db.get('drafts', 'tab:own')).json).bpm).toBe(101);
+});
+
+it.each([
+  ['local', 'undo'], ['local', 'gesture'], ['cloud', 'undo'], ['cloud', 'gesture'],
+])('preserves an intervening %s recovery %s interaction', async (stage, interaction) => {
+  const { finish } = await delayedRestore(stage);
+  const initial = app.store.project;
+  if (interaction === 'undo') {
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 101 }));
+    app.store.undo();
+  } else {
+    app.store.begin('Tempo');
+    app.store.preview((p) => E.setProjectProps(p, { bpm: 101 }));
+  }
+  const current = app.store.project;
+  await finish();
+  expect(app.store.project).toBe(current);
+  if (interaction === 'undo') {
+    expect(app.store.canRedo).toBe(true);
+    app.store.redo();
+    expect(app.store.project.bpm).toBe(101);
+  } else {
+    expect(app.store.gesture).not.toBe(null);
+    app.store.commit();
+    expect(app.store.project.bpm).toBe(101);
+    app.store.undo();
+    expect(app.store.project).toBe(initial);
+  }
+});
+
+it.each(['local', 'cloud'])('still restores a delayed %s session when there was no project interaction', async (stage) => {
+  const { finish } = await delayedRestore(stage);
+  await finish();
+  expect(app.store.project.name).toBe(stage === 'local' ? 'Previous session' : 'Updated cloud session');
 });

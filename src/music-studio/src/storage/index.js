@@ -86,6 +86,8 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
 
   let launched = false;
   const startLoads = files.loads;
+  let changedDuringRestore = false;
+  const stopWatchingRestore = store.on('change', () => { changedDuringRestore = true; });
   const restore = async () => {
     try {
       // This tab's own draft (a reload), else the newest one no open tab owns.
@@ -104,19 +106,20 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       if (picked.busy && !firstLaunch) app.notify('Your last session is open in another tab, so this tab started a new project.');
       // A file opened by the Puter desktop, a project opened meanwhile, or
       // edits made meanwhile win over the draft.
-      if (!launched && draft?.json && !store.undoStack.length && files.loads === startLoads) {
+      if (!launched && draft?.json && !changedDuringRestore && !store.undoStack.length && files.loads === startLoads) {
         let project = parseProject(draft.json);
         // A saved cloud project may have been changed elsewhere since: open
         // the file itself (the draft stays the fallback when it cannot be read).
         if (!draft.dirty && draft.file?.path && puter.isSignedIn()) {
           project = await lib.loadCloud(draft.file.path).catch(() => project);
-          if (files.loads !== startLoads || store.undoStack.length) project = null;
+          if (changedDuringRestore || files.loads !== startLoads || store.undoStack.length) project = null;
         }
         if (project) files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
       }
     } catch (err) {
       console.warn('Music Studio: the last session could not be restored.', err);
     }
+    stopWatchingRestore();
     autosave.start();
     // Edits made while startup was waiting happened before autosave subscribed.
     if (firstLaunch || store.dirty) autosave.scheduleDraft();
