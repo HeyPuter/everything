@@ -56,15 +56,26 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
     if (focus) stopsEl.children[i]?.focus();
   };
 
+  const addStop = (offset) => {
+    if (!paint) return;
+    gesture?.end();
+    if (offset == null) {
+      // Insert beside the selected stop; the last stop uses its left interval.
+      const index = Math.max(0, Math.min(selected, paint.stops.length - 2));
+      offset = (paint.stops[index].offset + paint.stops[index + 1].offset) / 2;
+    }
+    onGestureStart?.();
+    const r = insertStop(paint, offset);
+    selected = r.index;
+    emit(r.paint, false);
+    onSelect?.(r.index);
+    stopsEl.children[r.index]?.focus();
+  };
+
   stopsEl.addEventListener('pointerdown', (e) => {
     if (!paint || gesture || e.button !== 0 || e.target !== stopsEl) return;
     // Click in the empty area under the bar adds a stop.
-    onGestureStart?.();
-    const r = insertStop(paint, fraction(e.clientX));
-    selected = r.index;
-    onSelect?.(r.index);
-    emit(r.paint, false);
-    stopsEl.children[r.index]?.focus();
+    addStop(fraction(e.clientX));
   });
 
   // Capture on the persistent container: duplicating/removing stops rebuilds
@@ -265,6 +276,7 @@ export function createGradientSlider({ label = 'Gradient', onChange, onSelect, o
 
   return {
     el,
+    addStop,
     cancel() { gesture?.end(); },
     set(p, sel = selected) {
       paint = p;

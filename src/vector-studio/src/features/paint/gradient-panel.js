@@ -157,6 +157,7 @@ export class GradientPanel extends Panel {
         this.commit(normalizeGradient(r.paint), 'Stop Location', this.coalesce);
       },
     });
+    this.addStop = iconButton('plus', 'Add Stop', () => this.slider.addStop(), { className: 'small' });
     this.delStop = iconButton('trash', 'Delete Stop', () => {
       if (this.paint.stops.length <= 2) return;
       const i = this.slider.selected;
@@ -215,7 +216,7 @@ export class GradientPanel extends Panel {
       h('div.gp-stoprow', this.pointBtn, h('div.gp-field', this.pointOpacity.el), h('div.gp-field', this.spread.el), this.delPoint),
       this.pointNote,
     );
-    this.linearOnly = h('div.gp-linear', h('div.gp-row', h('div.gp-field', this.angle.el), this.aspectRow), this.slider.el, h('div.gp-stoprow', this.stopBtn, h('div.gp-field', this.opacity.el), h('div.gp-field', this.location.el), this.delStop));
+    this.linearOnly = h('div.gp-linear', h('div.gp-row', h('div.gp-field', this.angle.el), this.aspectRow), this.slider.el, h('div.gp-stoprow', this.stopBtn, h('div.gp-field', this.opacity.el), h('div.gp-field', this.location.el), h('div.gp-stop-actions', this.addStop, this.delStop)));
     this.options = h('div.gp-options', h('div.gp-row', this.editBtn, this.reverse, this.resetVec), this.strokeRow, this.linearOnly, this.freeform);
     this.el.append(
       this.presets,
