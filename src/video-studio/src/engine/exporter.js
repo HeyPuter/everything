@@ -567,14 +567,20 @@ async function measureDelay(codec, sampleRate, numberOfChannels) {
     },
     error: (e) => (failed = e),
   });
-  enc.configure({ codec, sampleRate, numberOfChannels, bitrate: AUDIO_BITRATE.aac });
-  const data = new Float32Array(frames * numberOfChannels);
-  for (let c = 0; c < numberOfChannels; c++) for (let i = 0; i < width; i++) data[c * frames + at + i] = 0.9 * Math.sin((i / width) * Math.PI);
-  const input = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels, timestamp: 0, data });
-  enc.encode(input);
-  input.close();
-  await enc.flush();
-  enc.close();
+  try {
+    enc.configure({ codec, sampleRate, numberOfChannels, bitrate: AUDIO_BITRATE.aac });
+    const data = new Float32Array(frames * numberOfChannels);
+    for (let c = 0; c < numberOfChannels; c++) for (let i = 0; i < width; i++) data[c * frames + at + i] = 0.9 * Math.sin((i / width) * Math.PI);
+    const input = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels, timestamp: 0, data });
+    try {
+      enc.encode(input);
+    } finally {
+      input.close();
+    }
+    await enc.flush();
+  } finally {
+    if (enc.state !== 'closed') enc.close();
+  }
   if (failed || !config) throw failed || new Error('No decoder config');
   let index = 0;
   let peak = -1;
@@ -594,10 +600,13 @@ async function measureDelay(codec, sampleRate, numberOfChannels) {
     },
     error: (e) => (failed = e),
   });
-  dec.configure(config);
-  for (const c of chunks) dec.decode(c);
-  await dec.flush();
-  dec.close();
+  try {
+    dec.configure(config);
+    for (const c of chunks) dec.decode(c);
+    await dec.flush();
+  } finally {
+    if (dec.state !== 'closed') dec.close();
+  }
   if (failed) throw failed;
   const delay = peak - (at + width / 2);
   // The click comes back where it went in, give or take a sample, plus the priming.

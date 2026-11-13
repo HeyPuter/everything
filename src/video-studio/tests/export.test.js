@@ -179,6 +179,22 @@ describe('encoder delay', () => {
     expect(await encoderDelay('flac')).toBe(0);
   });
 
+  it.each([
+    ['encoder', 'configure', 8000], ['encoder', 'encode', 16000], ['encoder', 'flush', 22050],
+    ['decoder', 'configure', 24000], ['decoder', 'decode', 32000], ['decoder', 'flush', 44100],
+  ])('releases codec resources when delay measurement fails at %s.%s', async (stage, method, sampleRate) => {
+    fakeCodecs(0);
+    const closeEncoder = vi.spyOn(AudioEncoder.prototype, 'close');
+    const closeDecoder = vi.spyOn(AudioDecoder.prototype, 'close');
+    const closeInput = vi.spyOn(AudioData.prototype, 'close');
+    const codec = stage === 'encoder' ? AudioEncoder : AudioDecoder;
+    vi.spyOn(codec.prototype, method).mockImplementation(() => { throw new Error('Codec failed'); });
+    expect(await encoderDelay('aac', { sampleRate, numberOfChannels: 2 })).toBe(0);
+    expect(closeEncoder).toHaveBeenCalledTimes(1);
+    expect(closeDecoder).toHaveBeenCalledTimes(stage === 'decoder' ? 1 : 0);
+    expect(closeInput).toHaveBeenCalledTimes(stage === 'encoder' && method === 'configure' ? 0 : 1);
+  });
+
   it('falls back to no shift when the measurement fails', async () => {
     fakeCodecs(0);
     vi.stubGlobal('AudioEncoder', class {
