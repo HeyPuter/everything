@@ -198,7 +198,8 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   });
 
   function typeIn() {
-    const input = h('input.input.sm', { type: 'text', value: formatGain(v), 'aria-label': `${label} in dB`, style: { position: 'fixed', width: '84px', zIndex: 1300 } });
+    const initial = formatGain(v);
+    const input = h('input.input.sm', { type: 'text', value: initial, 'aria-label': `${label} in dB`, style: { position: 'fixed', width: '84px', zIndex: 1300 } });
     const r = slider.getBoundingClientRect();
     input.style.left = `${Math.round(r.left + r.width / 2 - 42)}px`;
     input.style.top = `${Math.round(r.top + r.height * (1 - gainToPos(v)) - 12)}px`;
@@ -211,7 +212,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       if (done) return;
       done = true;
       untrackInput?.();
-      if (apply) {
+      if (apply && input.value !== initial) {
         const g = parseGain(input.value);
         if (g !== null) {
           change(g);

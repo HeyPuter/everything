@@ -123,3 +123,40 @@ it.each(noteCases)('interprets the %s key entry %s using the displayed note conv
     expect(app.store.project).toBe(before);
   }
 });
+
+it.each(['rack', 'channel', 'strip', 'sidebar', 'fader', 'pan'].flatMap((surface) => ['Enter', 'blur'].map((end) => [surface, end])))('keeps the precise %s value when an unchanged input ends with %s', (surface, end) => {
+  let control = controlFor(['fader', 'pan'].includes(surface) ? 'strip' : surface, surface === 'pan' ? 'pan' : 'volume');
+  if (surface === 'fader') control = app.panel('mixer').strips[2].fader.slider;
+  const id = app.store.project.channels[0].id;
+  const initial = surface === 'pan' ? -0.352 : 0.731;
+  app.store.apply('Precise value', (p) => {
+    if (['rack', 'channel'].includes(surface)) return E.updateChannel(p, id, { volume: initial });
+    if (surface === 'pan') return E.updateMixerTrack(p, 2, { pan: initial });
+    if (surface === 'fader') return E.updateMixerTrack(p, 2, { volume: initial });
+    return E.setRoute(p, 2, 0, initial);
+  });
+  const before = app.store.project;
+  const undoCount = app.store.undoStack.length;
+  const open = () => {
+    control.focus();
+    control.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(document.activeElement.tagName).toBe('INPUT');
+    return document.activeElement;
+  };
+  const finish = (input) => {
+    if (end === 'Enter') input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    else input.blur();
+    expect(input.isConnected).toBe(false);
+  };
+  finish(open());
+  expect(app.store.project).toBe(before);
+  expect(app.store.undoStack).toHaveLength(undoCount);
+  const input = open();
+  input.value = surface === 'pan' ? '25% right' : '-6 dB';
+  finish(input);
+  const value = ['rack', 'channel'].includes(surface) ? app.store.project.channels[0].volume : surface === 'pan' ? app.store.project.mixer[2].pan : surface === 'fader' ? app.store.project.mixer[2].volume : app.store.project.mixer[2].routes[0];
+  expect(value).toBeCloseTo(surface === 'pan' ? 0.25 : 10 ** (-6 / 20), 8);
+  expect(app.store.undoStack).toHaveLength(undoCount + 1);
+  app.store.undo();
+  expect(app.store.project).toBe(before);
+});

@@ -245,7 +245,8 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   });
 
   function typeIn() {
-    const input = h('input.input.sm', { type: 'text', value: fmt(v), 'aria-label': `${label} value`, style: { position: 'fixed', width: '88px', zIndex: 1300 } });
+    const initial = fmt(v);
+    const input = h('input.input.sm', { type: 'text', value: initial, 'aria-label': `${label} value`, style: { position: 'fixed', width: '88px', zIndex: 1300 } });
     const r = el.getBoundingClientRect();
     input.style.left = `${Math.round(r.left + r.width / 2 - 44)}px`;
     input.style.top = `${Math.round(r.top - 30)}px`;
@@ -258,7 +259,7 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       if (done) return;
       done = true;
       untrackInput?.();
-      if (apply) {
+      if (apply && input.value !== initial) {
         const parsed = parse ? parse(input.value) : parseParam(param, input.value);
         if (parsed !== null) {
           change(parsed, { readoutOn: false });
