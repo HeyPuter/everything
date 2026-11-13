@@ -279,3 +279,37 @@ describe('fade handle preview', () => {
     expect(strokes).toBe(4);
   });
 });
+
+describe('time ruler labels past an hour', () => {
+  it('show hours at every zoom, as the coarse labels and the time display do', async () => {
+    const { rulerLabel, formatTime } = await import('../src/lib/time.js');
+    expect(rulerLabel(3720, 60)).toBe('1:02:00');
+    expect(rulerLabel(3720.5, 0.5)).toBe('1:02:00.5');
+    expect(rulerLabel(7530.25, 0.05)).toBe('2:05:30.25');
+    expect(rulerLabel(36000.00001, 0.00001)).toBe('10:00:00.00001');
+    expect(formatTime(3720.5 * 48000, 48000)).toBe('1:02:00.500');
+    // Under an hour labels keep minutes and seconds.
+    expect(rulerLabel(3599.5, 0.5)).toBe('59:59.5');
+    expect(rulerLabel(65.5, 0.5)).toBe('1:05.5');
+  });
+});
+
+describe('time ruler label spacing', () => {
+  it('leaves out labels that would run into the one before', async () => {
+    const { view, doc } = await makeView({ frames: 48000 * 3600 * 3, channels: 1, silent: true });
+    const texts = [];
+    const ctx = fakeContext();
+    ctx.measureText = (t) => ({ width: t.length * 5.5 });
+    ctx.fillText = (t, x) => texts.push({ t, x, w: t.length * 5.5 });
+    view.ruler.ctx = ctx;
+    view.ruler.resize(467, 30);
+    // 16 frames at 2:30:00: labels such as 2:30:00.00005 (71.5 px) every 70 px.
+    doc.setView(48000 * 9000, 48000 * 9000 + 16);
+    view.ruler.draw();
+    const labels = texts.filter((l) => /\d/.test(l.t));
+    expect(labels.length).toBeGreaterThan(1);
+    for (let i = 1; i < labels.length; i++) {
+      expect(labels[i].x).toBeGreaterThanOrEqual(labels[i - 1].x + labels[i - 1].w);
+    }
+  });
+});

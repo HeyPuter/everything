@@ -269,6 +269,9 @@ export class TimeRuler {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
         ctx.fillRect(x, H - 4, 1, 4);
       }
+      // Long labels (hours, sample counts) can be wider than the tick spacing: one that would
+      // run into the label before it is left out.
+      let free = unitRight;
       for (const s of ticks) {
         const x = Math.round(((s - t0) / (t1 - t0)) * W) + 0.5;
         ctx.fillStyle = tickColor;
@@ -282,7 +285,8 @@ export class TimeRuler {
         // Labels centre on their tick, kept inside the ruler.
         const lw = ctx.measureText(label).width;
         const lx = Math.min(W - lw - 1, x - lw / 2);
-        if (lx < unitRight) continue;
+        if (lx < free) continue;
+        free = lx + lw + 4;
         ctx.fillStyle = textColor;
         ctx.fillText(label, lx, 3);
       }

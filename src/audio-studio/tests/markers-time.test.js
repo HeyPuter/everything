@@ -51,7 +51,7 @@ describe('time', () => {
     expect(s).toBeLessThan(120);
     expect(rulerLabel(s, 0.1)).toBe('2:00.0');
     expect(rulerLabel(59.99999999, 0.05)).toBe('1:00.00');
-    expect(rulerLabel(3599.999999999991, 0.2)).toBe('60:00.0');
+    expect(rulerLabel(3599.999999999991, 0.2)).toBe('1:00:00.0');
     expect(rulerLabel(119.9999999, 60)).toBe('2:00');
     expect(rulerLabel(75.5, 0.1)).toBe('1:15.5');
     expect(rulerLabel(12.25, 0.01)).toBe('12.25');
