@@ -997,17 +997,44 @@ export function captionsTab(ctx) {
   const opts = { ...DEFAULT_OPTS, ...(prefs().captionOpts || {}) };
   const save = () => setPref('captionOpts', { ...opts });
   const panels = {};
+  let captionJob = null, disposed = false;
+  function cancelCaptionJob() {
+    if (!captionJob) return;
+    const task = captionJob;
+    captionJob = null;
+    task.off();
+    task.controller.abort();
+  }
+  function applyTranscriptCaptions(cues, mode) {
+    const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, label: 'Captions from transcript', captionStyle: opts.captionStyle });
+    toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
+  }
+  async function captionsFromTranscript(cues) {
+    if (captionJob || disposed) return;
+    // Without a replacement choice, apply synchronously in the invoking context.
+    if (!ctx.store.project.tracks.some((t) => t.clips.some(isCaption))) {
+      applyTranscriptCaptions(cues, 'keep');
+      return;
+    }
+    const task = { controller: new AbortController(), source: editingContext(ctx.store) };
+    captionJob = task;
+    task.off = ctx.store.on('change', () => {
+      if (editingContext(ctx.store) === task.source) return;
+      cancelCaptionJob();
+      toast(CONTEXT_CHANGED, { kind: 'info' });
+    });
+    try {
+      const mode = await askReplace(ctx.store, { signal: task.controller.signal });
+      if (!mode || disposed || captionJob !== task || task.controller.signal.aborted || editingContext(ctx.store) !== task.source) return;
+      applyTranscriptCaptions(cues, mode);
+    } finally {
+      if (captionJob === task) cancelCaptionJob();
+    }
+  }
   const make = {
     auto: () => autoPanel(ctx, opts, save),
     lyrics: () => lyricsPanel(ctx, opts, save),
-    transcript: () => transcriptPanel(ctx, opts, save, {
-      onCaptions: async (cues) => {
-        const mode = await askReplace(ctx.store);
-        if (!mode) return;
-        const n = applyCaptions(ctx, cues, { mode, preset: opts.preset, position: opts.position, label: 'Captions from transcript', captionStyle: opts.captionStyle });
-        toast(`Added ${n} caption${n === 1 ? '' : 's'}.`, { kind: 'success' });
-      },
-    }),
+    transcript: () => transcriptPanel(ctx, opts, save, { onCaptions: captionsFromTranscript }),
     list: () => listPanel(ctx, opts),
     styles: () => stylesPanel(ctx, opts, save),
     files: () => filesPanel(ctx, opts, save),
@@ -1033,6 +1060,8 @@ export function captionsTab(ctx) {
   return {
     el: layout.el,
     dispose() {
+      disposed = true;
+      cancelCaptionJob();
       for (const p of Object.values(panels)) p.dispose?.();
     },
   };
