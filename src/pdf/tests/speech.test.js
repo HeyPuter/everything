@@ -50,3 +50,13 @@ it('breaks a long run without spaces between whole characters', () => {
     }
   }
 });
+
+it('reads a Chinese or Japanese phrase that wraps onto the next line as one phrase', () => {
+  expect(
+    pageSpeechText([
+      { str: '東京大學中', hasEOL: true },
+      { str: '文化研究所です', hasEOL: true },
+      { str: 'Next line' },
+    ]),
+  ).toBe('東京大學中文化研究所です\nNext line');
+});
