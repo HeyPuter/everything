@@ -188,6 +188,8 @@ export function previewCopies(def, copies = '5x5') {
 }
 
 const viewCache = new WeakMap();
+const EMPTY_PATTERNS = [];
+const EMPTY_ASSETS = new Map();
 
 /**
  * A read-only document view of a definition's art (get/has/assets/root/walk),
@@ -195,7 +197,9 @@ const viewCache = new WeakMap();
  */
 export function patternView(doc, def) {
   let v = viewCache.get(def);
-  if (v && v.assets === (doc?.assets || v.assets)) return v;
+  const assets = doc?.assets || EMPTY_ASSETS;
+  const patterns = doc?.root?.patterns || EMPTY_PATTERNS;
+  if (v && v.assets === assets && v.root.patterns === patterns) return v;
   const map = new Map();
   for (const n of Array.isArray(def.art?.nodes) ? def.art.nodes : []) {
     if (n && typeof n.id === 'string' && n.id !== '__pattern') map.set(n.id, n);
@@ -219,11 +223,11 @@ export function patternView(doc, def) {
     if (!Array.isArray(node.children) || children.length !== node.children.length) map.set(id, { ...node, children });
     for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
   }
-  const root = { id: '__pattern', type: 'root', children: roots, artboards: [], patterns: doc?.root?.patterns || [] };
+  const root = { id: '__pattern', type: 'root', children: roots, artboards: [], patterns };
   v = {
     get: (id) => (id === root.id ? root : map.get(id)),
     has: (id) => id === root.id || map.has(id),
-    assets: doc?.assets || new Map(),
+    assets,
     root,
     name: def.name,
     artboards: [],

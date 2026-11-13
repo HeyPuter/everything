@@ -16,6 +16,7 @@ import { exportBakers, svgPaintHooks } from '../io/hooks.js';
 import { multiply, invert, translate, IDENTITY } from '../../lib/matrix.js';
 import { visualBounds, transformRect, transformPatches } from '../../model/geometry.js';
 import { virtualId } from '../../model/live.js';
+import { stackPaints } from '../../model/appearance.js';
 import { lattice, copiesIn, artBounds, patternView, findPattern, patternsOf } from './model.js';
 
 /** Largest side of a cell bitmap in device pixels. */
@@ -23,8 +24,41 @@ const MAX_CELL_PX = 2048;
 /** Most tile copies baked into one exported object before falling back to a flat color. */
 export const MAX_BAKED_COPIES = 4000;
 
-const cellCache = new WeakMap(); // def -> Map(scaleKey -> entry)
+const cellCache = new WeakMap(); // dependency context -> Map(scaleKey -> entry)
+const contexts = new WeakMap();
 let depth = 0;
+
+/** A bitmap depends on nested patterns too, but unrelated pattern edits can reuse it. */
+function cacheContext(doc, def) {
+  const patterns = doc?.root?.patterns;
+  const assets = doc?.assets;
+  const previous = contexts.get(def);
+  if (previous && previous.assets === assets) {
+    if (previous.patterns === patterns) return previous.key;
+    if ([...previous.dependencies].every(([id, value]) => findPattern(doc, id) === value)) {
+      previous.patterns = patterns;
+      return previous.key;
+    }
+  }
+  const dependencies = new Map();
+  const seen = new Set([def]);
+  const pending = [def];
+  const visit = (paint) => {
+    if (paint?.type !== 'pattern' || dependencies.has(paint.id)) return;
+    const nested = findPattern(doc, paint.id);
+    dependencies.set(paint.id, nested);
+    if (nested && !seen.has(nested)) { seen.add(nested); pending.push(nested); }
+  };
+  while (pending.length) patternView(doc, pending.pop()).walk((node) => {
+    visit(node.fill);
+    visit(node.stroke);
+    for (const paint of stackPaints(node)) visit(paint);
+    if (Array.isArray(node.runs)) for (const run of node.runs) { visit(run.fill); visit(run.stroke); }
+  });
+  const key = {};
+  contexts.set(def, { patterns, assets, dependencies, key });
+  return key;
+}
 
 function makeCanvas(w, h) {
   if (typeof document !== 'undefined') return Object.assign(document.createElement('canvas'), { width: w, height: h });
@@ -53,7 +87,8 @@ export function cellBitmap(doc, def, s) {
   if (!art || depth > 3) return null;
   const { cell } = lattice(def);
   const sb = scaleBucket(s);
-  let byScale = cellCache.get(def);
+  const context = cacheContext(doc, def);
+  let byScale = cellCache.get(context);
   const key = String(sb);
   const hit = byScale?.get(key);
   if (hit) return hit;
@@ -78,7 +113,7 @@ export function cellBitmap(doc, def, s) {
   }
   const entry = { canvas, cell, pw, ph };
   if (imagesReady(doc, def)) {
-    if (!byScale) cellCache.set(def, (byScale = new Map()));
+    if (!byScale) cellCache.set(context, (byScale = new Map()));
     // A few scales per definition are plenty (the view moves between neighbouring buckets).
     if (byScale.size >= 6) byScale.delete(byScale.keys().next().value);
     byScale.set(key, entry);
@@ -118,11 +153,14 @@ export function patternStyle(ctx, doc, node, paint, seg = null) {
 // ---- swatch previews ----
 
 const known = new Map(); // pattern id -> latest definition seen
-const thumbCache = new WeakMap(); // def -> css
+const knownDocument = { root: { patterns: [] }, assets: new Map() };
+const thumbCache = new WeakMap(); // dependency context -> css
 
 /** Remember the definitions of a document so swatch previews (which only see the paint) can find them. */
 export function rememberPatterns(list) {
-  for (const def of list || []) known.set(def.id, def);
+  let changed = false;
+  for (const def of list || []) if (known.get(def.id) !== def) { known.set(def.id, def); changed = true; }
+  if (changed) knownDocument.root.patterns = [...known.values()];
 }
 
 export function knownPattern(id) {
@@ -135,20 +173,22 @@ const isJsdom = () => typeof navigator !== 'undefined' && /jsdom/i.test(navigato
 export function patternCss(paint, doc = null) {
   const def = (doc && patternDef(doc, paint)) || known.get(paint?.id);
   if (!def) return null;
-  let css = thumbCache.get(def);
+  const owner = doc || knownDocument;
+  const context = cacheContext(owner, def);
+  let css = thumbCache.get(context);
   if (css !== undefined) return css;
   css = null;
   const { cell } = lattice(def);
   const s = 14 / Math.max(1, Math.max(def.width || 1, def.height || 1));
   if (!isJsdom()) {
     try {
-      const bmp = cellBitmap(doc || { root: { patterns: [...known.values()] }, assets: new Map() }, def, s * 2);
+      const bmp = cellBitmap(owner, def, s * 2);
       if (bmp && bmp.canvas.toDataURL) css = `url("${bmp.canvas.toDataURL()}") 0 0 / ${(cell.w * s).toFixed(2)}px ${(cell.h * s).toFixed(2)}px repeat, #ffffff`;
     } catch {
       css = null;
     }
   }
-  thumbCache.set(def, css || '#ffffff');
+  thumbCache.set(context, css || '#ffffff');
   return css || '#ffffff';
 }
 
