@@ -183,7 +183,8 @@ export class ProjectFiles {
     const meta = (await this.lib.listLocal()).find((m) => m.key === key);
     if (!attempt.current()) return false;
     const project = await this.lib.loadLocal(key);
-    return this.#finishOpen(attempt, project, { local: key, name: meta?.name || project.name });
+    const dirty = (await this.lib.db()).persistent === false;
+    return this.#finishOpen(attempt, project, { local: key, name: meta?.name || project.name }, { dirty });
   }
 
   /** File > Open from this device: a .msproj (or a .mid, imported into the current project). */
@@ -297,10 +298,14 @@ export class ProjectFiles {
     const view = { ...this.store.view };
     const loads = this.loads;
     try {
-      await this.lib.saveLocal(snapshot, view, { key, name });
+      const saved = await this.lib.saveLocal(snapshot, view, { key, name });
       this.addRecent({ local: key, name });
       if (this.loads === loads) {
-        if (this.store.project === snapshot) this.store.markSaved();
+        if (this.store.project === snapshot) {
+          // A session copy disappears on close; keep the durable-save warning active.
+          if (saved?.persistent === false) this.store.dirty = true;
+          else this.store.markSaved();
+        }
         this.setFile({ local: key, name });
       }
     } catch (err) {

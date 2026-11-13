@@ -264,6 +264,7 @@ describe('storage feature in the app', () => {
     window.puter = fake;
     const { root, storage } = mount();
     const db = memoryDB();
+    db.persistent = true; // This fixture represents IndexedDB across app launches.
     const app = new App(root, { storage });
     app.start([{ install: (a) => install(a, { db }) }]);
     expect(app.store.project.name).toBe('Demo Song');

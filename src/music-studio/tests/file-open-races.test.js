@@ -19,6 +19,7 @@ function setup() {
   };
   const gate = deferred();
   const lib = {
+    db: async () => ({ persistent: true }),
     loadCloud: vi.fn(() => gate.promise),
     listLocal: async () => [],
     loadLocal: vi.fn(() => gate.promise),

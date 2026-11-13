@@ -56,7 +56,7 @@ export class Library {
     const json = serializeProject(project, view);
     await db.put('projectData', key, json);
     await db.put('projects', key, { key, name, modified: this.now(), size: json.length });
-    return { key, name };
+    return { key, name, persistent: db.persistent !== false };
   }
 
   async loadLocal(key) {
