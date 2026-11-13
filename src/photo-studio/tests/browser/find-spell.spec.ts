@@ -625,3 +625,59 @@ for (const [changed, newText, action] of [
     expect(await layerTexts(page)).toEqual([finalText]);
   }
 });
+
+for (const phase of ['initial search', 'next word']) for (const action of ['bulk correction', 'custom correction', 'Ignore All']) test(`spelling ${action} uses the displayed result during ${phase}`, async ({ page }) => {
+  await boot(page);
+  await textDoc(page, phase === 'initial search' ? ['teh'] : ['wrod', 'teh']);
+  await page.evaluate(() => {
+    const load = FontFace.prototype.load;
+    FontFace.prototype.load = function () {
+      if (!this.family.includes('Caveat')) return load.call(this);
+      FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { releaseFindFont: resolve })).then(() => load.call(this));
+    };
+    window.photoStudio.command('Unloaded first layer', (d) => {
+      d.layers[0].textData!.content.paragraphs[0].runs[0].style.family = 'Caveat';
+    });
+  });
+  await page.evaluate(() => window.photoStudio.runCommand('edit.check-spelling'));
+  const dlg = page.locator('dialog.sp-workspace');
+  if (phase === 'next word') {
+    await expect(dlg.locator('#sp-word')).toHaveText('teh');
+    await dlg.getByRole('button', { name: 'Change', exact: true }).click();
+  }
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  const displayed = await dlg.evaluate((d) => ({
+    word: d.querySelector('#sp-word')!.textContent,
+    replacement: d.querySelector<HTMLInputElement>('#sp-change')!.value,
+    status: d.querySelector('#sp-status')!.textContent,
+  }));
+  if (action === 'custom correction') await dlg.locator('#sp-change').fill('custom');
+  else await dlg.getByRole('button', { name: action === 'Ignore All' ? action : 'Change All' }).click();
+  await page.evaluate(async () => {
+    (window as unknown as { releaseFindFont(): void }).releaseFindFont();
+    await (await import('/src/imaging/text/fonts.ts')).ensureFont('Caveat');
+  });
+  await idle(page);
+  expect(displayed).toEqual(phase === 'initial search' ? { word: 'teh', replacement: 'the', status: 'In “teh”.' } : { word: 'wrod', replacement: 'word', status: 'In “wrod”.' });
+  if (action === 'Ignore All') {
+    expect(await layerTexts(page)).toEqual(phase === 'initial search' ? ['teh'] : ['wrod', 'the']);
+    await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+    expect(await page.evaluate(() => !!(window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType.currentSession())).toBe(false);
+    return;
+  }
+  if (action === 'custom correction') {
+    await expect(dlg.locator('#sp-change')).toHaveValue('custom');
+    await dlg.getByRole('button', { name: 'Change All' }).click();
+    await idle(page);
+  }
+  const replacement = action === 'custom correction' ? 'custom' : phase === 'initial search' ? 'the' : 'word';
+  const corrected = phase === 'initial search' ? [replacement] : [replacement, 'the'];
+  expect(await layerTexts(page)).toEqual(corrected);
+  await expect(dlg.locator('#sp-status')).toHaveText('Spell check complete.');
+  await run(page, 'type.commit');
+  await run(page, 'edit.undo');
+  expect(await layerTexts(page)).toEqual(phase === 'initial search' ? ['teh'] : ['wrod', 'the']);
+  await run(page, 'edit.redo');
+  expect(await layerTexts(page)).toEqual(corrected);
+});

@@ -236,9 +236,11 @@ export async function checkSpelling(e: Editor) {
     return !!layer && spell.misspellings(textOf(e, layer)).some((hit) =>
       hit.start === match.hit.start && hit.end === match.hit.end && hit.word === match.hit.word);
   };
+  let searchRevision = 0;
   const next = async () => {
+    const revision = ++searchRevision;
     const owner = e.session;
-    const isCurrent = () => ws.dialog.isConnected && e.session === owner;
+    const isCurrent = () => ws.dialog.isConnected && e.session === owner && revision === searchRevision;
     if (!isCurrent()) return;
     const found = search(e, all(), (t) => spell.misspellings(t));
     current = found && { ...found, owner };
@@ -249,12 +251,12 @@ export async function checkSpelling(e: Editor) {
       status(textLayers(e, all()).length ? 'Spell check complete.' : 'There are no text layers to check.');
       return;
     }
+    show(found.hit.word);
+    status(`In “${found.layer.name}”.`);
     enable(true);
     await reveal(e, found.layer.id, found.hit.start, found.hit.end, isCurrent);
     if (!isCurrent()) return;
-    show(found.hit.word);
     ws.q<HTMLElement>('#sp-change-one').focus();
-    status(`In “${found.layer.name}”.`);
   };
   // Skip past the current word without changing it.
   const skip = async () => {
@@ -294,6 +296,7 @@ export async function checkSpelling(e: Editor) {
     if (!current || !currentMatches()) return void next();
     const word = current.hit.word,
       to = ws.q<HTMLInputElement>('#sp-change').value;
+    ++searchRevision;
     if (session) await commit(e);
     const ids = textLayers(e, all())
       .filter((l) => findMatches(textOf(e, l), word, { wholeWord: true }).length)
