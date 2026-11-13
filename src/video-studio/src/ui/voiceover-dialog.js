@@ -163,6 +163,25 @@ export function openVoiceoverDialog(ctx) {
       return;
     }
     stream = mic;
+    const track = mic.getAudioTracks()[0];
+    const interrupted = () => {
+      if (stale() || stream !== mic) return;
+      // Invalidate device enumeration too: it must not attach a meter to
+      // this ended stream (or to a replacement opened by Try again).
+      opening++;
+      const recording = state === 'recording';
+      if (recording) recorder.onInterrupted();
+      else if (state === 'countdown') cancelCountdown();
+      closeStream();
+      setState(state);
+      if (state === 'idle') status.textContent = '';
+      if (!recording) showError('The microphone stopped. Connect it and try again.');
+    };
+    track?.addEventListener?.('ended', interrupted, { once: true });
+    if (!track || track.readyState === 'ended') {
+      interrupted();
+      return;
+    }
     clearError();
     status.textContent = '';
     const mics = await listMicrophones();
@@ -181,7 +200,10 @@ export function openVoiceoverDialog(ctx) {
   function closeStream() {
     cancelAnimationFrame(raf);
     raf = 0;
-    meter?.close();
+    if (meter) {
+      meter.close();
+      meterCanvas.getContext('2d')?.clearRect(0, 0, meterCanvas.width, meterCanvas.height);
+    }
     meter = null;
     stopStream(stream);
     stream = null;
