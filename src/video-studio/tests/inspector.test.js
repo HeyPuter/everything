@@ -892,6 +892,22 @@ describe('number boxes', () => {
     expect(clip(env.v1.id).speed).toBe(1.5);
   });
 
+  it.each([{ isComposing: true }, { keyCode: 229 }])('does not retime a clip while confirming speed input composition (%j)', (composition) => {
+    env.store.select(env.v1.id);
+    tab('Speed').click();
+    const num = env.el.querySelector('[aria-label="Speed value"]');
+    const before = clip(env.v1.id).duration;
+    num.value = '2';
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...composition });
+    num.dispatchEvent(event);
+    expect(clip(env.v1.id).speed).toBe(1);
+    expect(clip(env.v1.id).duration).toBe(before);
+    expect(event.defaultPrevented).toBe(false);
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(clip(env.v1.id).speed).toBe(2);
+    expect(clip(env.v1.id).duration).toBe(before / 2);
+  });
+
   it('unchanged values and resets at the defaults add no undo steps', () => {
     env.store.select(env.v1.id);
     const steps = () => env.store.history.undoStack.length;
