@@ -676,14 +676,23 @@ export function styleContext(e: Editor): StyleContext {
   return { editing: false, char: d.style, paragraph: d.paragraph, layers: [] };
 }
 
+// Selected-layer font changes may await a download. A later choice for that
+// same document/layer supersedes the pending choice, even if it is a no-op.
+const pendingFontStyles = new WeakMap<DocumentSession, Map<string, object>>();
+
 export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
   const s = session;
+  const fontChange = !!(patch.family || patch.weight || patch.italic !== undefined);
   if (s) {
-    if (patch.family || patch.weight || patch.italic !== undefined) {
+    let ready: Promise<void> | undefined;
+    if (fontChange) {
+      pendingFontStyles.get(e.session)?.delete(s.layerId);
       const probe = { ...charStyleAt(s.data.content, s.focus), ...patch };
-      await fontsReady(e, { ...s.data, content: fromPlainText('x', probe) });
-      if (session !== s) return;
+      ready = fontsReady(e, { ...s.data, content: fromPlainText('x', probe) });
     }
+    // Install the choice on its current selection immediately. Font completion
+    // only refreshes metrics, so it cannot replay an old choice or move it to
+    // a different selection after the user continues editing.
     const [a, b] = ordered(s);
     if (a === b) {
       const base = s.caretStyle ?? charStyleAt(s.data.content, a);
@@ -694,13 +703,30 @@ export async function applyChar(e: Editor, patch: Partial<CharStyle>) {
       install(e, { ...s.data, content: applyCharStyle(s.data.content, a, a, patch) }, { kind: 'style' });
       s.caretStyle = next;
       notify();
-      return;
+    } else {
+      install(e, { ...s.data, content: applyCharStyle(s.data.content, a, b, patch) }, { kind: 'style' });
     }
-    install(e, { ...s.data, content: applyCharStyle(s.data.content, a, b, patch) }, { kind: 'style' });
+    if (ready) void ready.then(() => {
+      if (session === s) render(e);
+    });
     return;
   }
   const layers = selectedTextLayers(e);
-  if (layers.length) return editLayers(e, 'Change Character Style', (d) => ({ ...d, content: applyCharStyle(d.content, 0, textLength(d.content), patch) }));
+  if (layers.length) {
+    const owner = e.session;
+    let pending = pendingFontStyles.get(owner);
+    const request = {};
+    if (fontChange) {
+      if (!pending) pendingFontStyles.set(owner, pending = new Map());
+      for (const l of layers) pending.set(l.id, request);
+    }
+    try {
+      return await editLayers(e, 'Change Character Style', (d) => ({ ...d, content: applyCharStyle(d.content, 0, textLength(d.content), patch) }), undefined, undefined,
+        fontChange ? (id) => pending?.get(id) === request : undefined);
+    } finally {
+      if (fontChange) for (const l of layers) if (pending?.get(l.id) === request) pending.delete(l.id);
+    }
+  }
   const d = typeDefaults(e);
   d.style = { ...d.style, ...patch };
   if (patch.color) e.setForeground(rgbHex(patch.color));
@@ -733,7 +759,8 @@ const rgbHex = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).pa
 
 // One undo step that rewrites every selected text layer.
 // `patchDoc` changes the document in the same step (text styles).
-export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void) {
+// `isCurrent` discards superseded per-layer requests after font loading.
+export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData, l: Layer) => TextLayerData, ids?: string[], patchDoc?: (d: PhotoDocument) => void, isCurrent?: (id: string) => boolean) {
   const owner = e.session;
   const ppi = ppiOf(owner.doc);
   const targets = (ids ? ids.map((id) => findLayer(e.doc.layers, id)).filter((l): l is Layer => !!l) : selectedTextLayers(e)).filter((l) => l.kind === 'text');
@@ -758,7 +785,7 @@ export async function editLayers(e: Editor, label: string, fn: (d: TextLayerData
       for (let i = 0; i < layers.length; i++) {
         const l = layers[i];
         const data = next.get(l.id);
-        if (data && l.kind === 'text') {
+        if (data && l.kind === 'text' && (!isCurrent || isCurrent(l.id))) {
           // Font loading can outlast unrelated layer edits. Refit the current
           // placement and preserve its properties instead of restoring a snapshot.
           const n: Layer = { ...editable(l, ppi), textData: structuredClone(data) };

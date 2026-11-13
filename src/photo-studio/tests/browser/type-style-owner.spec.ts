@@ -3,13 +3,13 @@ import { boot, idle, openImage, run, tool } from './helpers';
 
 type TypeModule = typeof import('../../src/features/type/session');
 
-async function prepare(page: Page) {
+async function prepare(page: Page, secondFont = false) {
   await boot(page);
   await openImage(page, 240, 160, '#ffffff', 'other.png');
   const other = await page.evaluate(() => window.photoStudio.session.id);
   await openImage(page, 240, 160, '#ffffff', 'original.png');
   const original = await page.evaluate(() => window.photoStudio.session.id);
-  await page.evaluate(async ({ other }) => {
+  await page.evaluate(async ({ other, secondFont }) => {
     const e = window.photoStudio;
     const { layer } = await import('/src/model/document.ts');
     const { textLayer } = await import('/src/imaging/text/model.ts');
@@ -22,12 +22,15 @@ async function prepare(page: Page) {
     s.history.reset({ ...s.doc, layers: [...s.doc.layers, { ...l, name: 'Other', text: 'Other', textData: textLayer('Other', { family: 'Inter' }) }] });
     s.saved = s.doc;
     const load = FontFace.prototype.load;
+    const waiting = new Set(secondFont ? ['Caveat', 'Crimson Pro'] : ['Caveat']);
     FontFace.prototype.load = function () {
-      if (!this.family.includes('Caveat')) return load.call(this);
-      FontFace.prototype.load = load;
-      return new Promise<void>((resolve) => Object.assign(window, { releaseStyleFont: resolve })).then(() => load.call(this));
+      const family = [...waiting].find((f) => this.family.includes(f));
+      if (!family) return load.call(this);
+      waiting.delete(family);
+      if (!waiting.size) FontFace.prototype.load = load;
+      return new Promise<void>((resolve) => Object.assign(window, { [family === 'Caveat' ? 'releaseStyleFont' : 'releaseNewStyleFont']: resolve })).then(() => load.call(this));
     };
-  }, { other });
+  }, { other, secondFont });
   await tool(page, 'Horizontal Type Tool');
   await idle(page);
   return { original, other };
@@ -48,6 +51,127 @@ async function finishFont(page: Page) {
 async function state(page: Page) {
   return page.evaluate(() => window.photoStudio.sessions.map((s) => ({ id: s.id, text: s.doc.layers.at(-1)!.text, family: s.doc.layers.at(-1)!.textData?.content.paragraphs[0].runs[0].style.family, history: s.history.labels })));
 }
+
+for (const editing of [false, true]) test(`a newer font choice wins while ${editing ? 'editing text' : 'a text layer is selected'}`, async ({ page }) => {
+  await prepare(page);
+  if (editing) await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+  });
+  await pickFont(page);
+  await page.locator('#type-family').click();
+  await page.locator('.type-font-picker [data-family="Inter"]').click();
+  await finishFont(page);
+  if (editing) await run(page, 'type.commit');
+  expect((await state(page)).at(-1)?.family).toBe('Inter');
+});
+
+for (const first of ['older', 'newer']) test(`the latest font choice wins when the ${first} download finishes first`, async ({ page }) => {
+  await prepare(page, true);
+  await pickFont(page);
+  await page.locator('#type-family').click();
+  await page.locator('.type-font-picker [data-family="Crimson Pro"]').click();
+  await page.waitForFunction(() => !!(window as unknown as { releaseNewStyleFont?: () => void }).releaseNewStyleFont);
+  const finishNew = async () => {
+    await page.evaluate(async () => {
+      (window as unknown as { releaseNewStyleFont(): void }).releaseNewStyleFont();
+      await (await import('/src/imaging/text/fonts.ts')).ensureFont('Crimson Pro');
+    });
+    await idle(page);
+  };
+  if (first === 'older') {
+    await finishFont(page);
+    expect((await state(page)).at(-1)?.family).toBe('Inter');
+    await finishNew();
+  } else {
+    await finishNew();
+    await finishFont(page);
+  }
+  expect((await state(page)).at(-1)).toMatchObject({ family: 'Crimson Pro', history: ['Text fixture', 'Change Character Style'] });
+  await run(page, 'edit.undo');
+  expect((await state(page)).at(-1)?.family).toBe('Inter');
+  await run(page, 'edit.redo');
+  expect((await state(page)).at(-1)?.family).toBe('Crimson Pro');
+});
+
+test('repeating a pending font choice commits only the latest request', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await pickFont(page);
+  await finishFont(page);
+  expect((await state(page)).at(-1)).toMatchObject({ family: 'Caveat', history: ['Text fixture', 'Change Character Style'] });
+});
+
+test('a newer font choice supersedes only overlapping selected layers', async ({ page }) => {
+  await prepare(page);
+  const second = await page.evaluate(() => {
+    const e = window.photoStudio;
+    const first = e.doc.layers.at(-1)!;
+    const second = { ...structuredClone(first), id: crypto.randomUUID(), name: 'Second' };
+    e.command('Second fixture', (d) => { d.layers.push(second); });
+    e.selectLayers([first.id, second.id]);
+    return second.id;
+  });
+  await pickFont(page);
+  await page.evaluate((id) => window.photoStudio.selectLayers([id]), second);
+  await page.locator('#type-family').click();
+  await page.locator('.type-font-picker [data-family="Inter"]').click();
+  await finishFont(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.filter((l) => l.kind === 'text').map((l) => l.textData!.content.paragraphs[0].runs[0].style.family))).toEqual(['Caveat', 'Inter']);
+});
+
+test('font choices in another document do not supersede a matching layer ID', async ({ page }) => {
+  const { original, other } = await prepare(page);
+  await pickFont(page);
+  await page.locator(`.document-tab[data-session="${other}"]`).click();
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.selectLayers([e.doc.layers.at(-1)!.id]);
+  });
+  await page.locator('#type-family').click();
+  await page.locator('.type-font-picker [data-family="Inter"]').click();
+  await finishFont(page);
+  const docs = await state(page);
+  expect(docs.find((s) => s.id === original)?.family).toBe('Caveat');
+  expect(docs.find((s) => s.id === other)?.family).toBe('Inter');
+});
+
+test('font choices stay on their text ranges while an earlier font is loading', async ({ page }) => {
+  await prepare(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    await m.startEdit(e, e.selected!, 'all');
+    m.setSelection(e, 0, 4);
+  });
+  await pickFont(page);
+  await page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: TypeModule }).photoStudioType;
+    m.setSelection(window.photoStudio, 4, 8);
+  });
+  await page.locator('#type-family').click();
+  await page.locator('.type-font-picker [data-family="Inter"]').click();
+  await finishFont(page);
+  await run(page, 'type.commit');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.textData!.content.paragraphs[0].runs.map((r) => [r.text, r.style.family]))).toEqual([['Orig', 'Caveat'], ['inal', 'Inter']]);
+});
+
+test('a font chosen during editing supersedes an earlier selected-layer font request', async ({ page }) => {
+  await prepare(page);
+  await pickFont(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    await (window as unknown as { photoStudioType: TypeModule }).photoStudioType.startEdit(e, e.selected!, 'all');
+  });
+  await page.locator('#type-family').click();
+  await page.locator('.type-font-picker [data-family="Inter"]').click();
+  await expect(page.locator('textarea.type-input')).toBeFocused();
+  await page.keyboard.insertText('New text');
+  expect(await page.evaluate(() => (window as unknown as { photoStudioType: TypeModule }).photoStudioType.currentSession()!.data.content.paragraphs[0].runs.map((r) => r.text).join(''))).toBe('New text');
+  await finishFont(page);
+  await run(page, 'type.commit');
+  expect((await state(page)).at(-1)).toMatchObject({ text: 'New text', family: 'Inter' });
+});
 
 test('a delayed font edit preserves later layer properties and their undo history', async ({ page }) => {
   await prepare(page);
