@@ -250,8 +250,15 @@ export class ReviewService {
       await this.kv.set(`vsr:project:${input.projectId}`, rid);
     }
     const count = (await this.kv.get(`vsr:r:${rid}:vseq`)) || 0;
-    if (count >= LIMITS.versions) fail(409, `A review can have at most ${LIMITS.versions} versions. Share as a new project to start over.`);
+    const full = () => fail(409, `A review can have at most ${LIMITS.versions} versions. Share as a new project to start over.`);
+    if (count >= LIMITS.versions) full();
     const n = await this.kv.incr(`vsr:r:${rid}:vseq`);
+    if (n > LIMITS.versions) {
+      // No version uses this reservation. Return it so sync does not keep
+      // announcing a nonexistent version after a concurrent limit rejection.
+      await this.kv.incr(`vsr:r:${rid}:vseq`, -1).catch(() => {});
+      full();
+    }
     await this.kv.set(`vsr:r:${rid}:v:${n}`, { n, ...video, size: file.size, title, created: now });
     meta = { ...meta, title, updated: now };
     await this.kv.set(`vsr:r:${rid}`, meta);

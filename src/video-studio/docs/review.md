@@ -81,6 +81,8 @@ Invite revocation updates only `revoked`; completed joins increment only `uses` 
 
 Comment text up to 2000 characters; 12 comments and 60 edits, deletes, resolves or reopens a minute per person per review; ranges up to 10 minutes and inside the video; 20,000 comment changes, 50 versions, 200 people (people removed don't count; 1,000 ever joined) and 50 invite links per review; 10 failed joins per person per 10 minutes; review videos up to 4 GB; request bodies up to 64 KB.
 
+Publishing checks the allocated version number as well as the initial count. A concurrent request that reserves a number beyond the limit is rejected before writing a version or changing the review title. It returns the unused reservation with a negative increment so normal sync does not announce a nonexistent version. Successful publishes use the same storage calls as before; reservation cleanup is best effort if storage fails. The provider's cross-region counter limitations still apply.
+
 ## Needs a real Puter account to confirm
 
 - That a worker deployed from the app can `stat` and `getReadURL` the files the app wrote (Puter binds such workers to the app's AppData, so it should).
