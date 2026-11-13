@@ -244,7 +244,6 @@ it('can preview again after an account change without reusing the old URL', asyn
   await app.on.mock.calls.find(([event]) => event === 'account')[1]();
   await vi.advanceTimersByTimeAsync(20);
   body.querySelector('[data-id="dir:/Music"]').click();
-  body.querySelector('[data-id="dir:/Music"]').click();
   await vi.advanceTimersByTimeAsync(20);
   preview();
   await vi.advanceTimersByTimeAsync(0);
@@ -302,6 +301,7 @@ it('ignores a folder listing that finishes after the account cache is cleared', 
   old.resolve([{ path: '/Music/old-account.wav', name: 'old-account.wav' }]);
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="file:/Music/old-account.wav"]')).toBe(null);
+  body.querySelector('[data-id="dir:/Music"]').click();
   refreshFolder(body);
   await vi.advanceTimersByTimeAsync(20);
   expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
@@ -364,4 +364,17 @@ describe('picked folders and account changes', () => {
     await vi.advanceTimersByTimeAsync(20);
     expect(app.reportError).toHaveBeenCalledExactlyOnceWith(failure);
   });
+});
+
+it('can open the files root normally after its account cache is cleared', async () => {
+  const { app, body } = await cloudSetup();
+  expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
+  await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+  await vi.advanceTimersByTimeAsync(20);
+  const root = body.querySelector('[data-id="dir:/Music"]');
+  expect(body.querySelector('[data-id="sec:instruments"]').getAttribute('aria-expanded')).toBe('true');
+  // An open root must show its current contents; a closed root opens in one click.
+  if (root.getAttribute('aria-expanded') === 'false') root.click();
+  await vi.advanceTimersByTimeAsync(20);
+  expect(body.querySelector('[data-id="file:/Music/tone.wav"]')).not.toBe(null);
 });

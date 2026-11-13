@@ -89,6 +89,7 @@ function createBrowser(app, host) {
     dirs = null;
     folders.clear();
     extraRoots.length = 0;
+    for (const id of expanded) if (id.startsWith('dir:')) expanded.delete(id);
     urls.clear();
     if (puter.isSignedIn()) {
       try {
