@@ -107,6 +107,9 @@ function cloneLayer(l: Layer): Layer {
   return copy;
 }
 export async function performAction(e: Editor, action: string): Promise<void> {
+  // A committed transform may still be storing its assets. Undo must target
+  // that edit, not the history step that happened to precede it.
+  if (action === 'undo' || action === 'redo') await e.session.waitForEdits();
   if (e.transform.dragging && !e.transform.active) {
     e.transform.cancel();
     if (action === 'undo' || action === 'redo') return;

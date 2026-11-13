@@ -83,6 +83,9 @@ export class Editor {
   // ----- Sessions -----
   newSession(doc = newDocument()) {
     const s = new DocumentSession(doc);
+    s.pendingEditsChanged = () => {
+      if (s === this.activeView?.session) this.dock?.update();
+    };
     s.history.limit = this.preferences.historyStates;
     s.history.nonLinear = () => this.preferences.nonLinearHistory;
     s.history.normalize = (d, before) => {

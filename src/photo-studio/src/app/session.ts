@@ -48,9 +48,17 @@ export class DocumentSession {
   // Edits can finish storing assets after their tool has closed. Readers of
   // the document must still wait for those edits to enter history.
   private pendingEdits = new Set<Promise<void>>();
+  get hasPendingEdits() {
+    return this.pendingEdits.size > 0;
+  }
+  pendingEditsChanged?: () => void;
   trackEdit(task: Promise<void>): Promise<void> {
+    const pending = this.hasPendingEdits;
     this.pendingEdits.add(task);
-    const done = () => { this.pendingEdits.delete(task); };
+    if (!pending) this.pendingEditsChanged?.();
+    const done = () => {
+      if (this.pendingEdits.delete(task) && !this.hasPendingEdits) this.pendingEditsChanged?.();
+    };
     void task.then(done, done);
     return task;
   }
