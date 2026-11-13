@@ -81,25 +81,76 @@ export function fitTransform(node, w, h, mode = 'fit') {
   return multiply(node.transform, multiply(translate((node.width - w * sx) / 2, (node.height - h * sy) / 2), scaleM(sx, sy)));
 }
 
-/** Swap placed images for a new blob (one undo step); null if the window or targets are gone. */
-export async function replaceImage(app, editor, nodeIds, blob, { link = null, label = 'Relink', placement = app.prefs?.get('linkPlacement') || 'fit' } = {}) {
+// Requests are shared by all windows of a document. Only pending per-image ownership is kept.
+const imageRequests = new WeakMap();
+
+function beginImageRequest(app, editor, ids) {
   const doc = editor.doc;
   const alive = () => !app.editors || app.editors.includes(editor);
-  if (!alive() || !nodeIds.some((id) => doc.get(id)?.type === 'image')) return null;
-  const io = await import('../io/lazy.js');
-  const data = await io.imageNodeData(blob, { name: blob.name?.replace(/\.[^.]+$/, '') || '' });
-  if (!alive()) return null;
-  const targets = nodeIds.filter((id) => doc.get(id)?.type === 'image');
+  let pending = imageRequests.get(doc);
+  if (!pending) imageRequests.set(doc, (pending = new Map()));
+  const token = {};
+  const originals = new Map();
+  if (alive()) for (const id of ids) {
+    const node = doc.get(id);
+    if (node?.type !== 'image') continue;
+    originals.set(id, { asset: node.asset, link: node.link });
+    pending.set(id, token);
+  }
+  return {
+    doc, ids: [...originals.keys()], alive,
+    current(id) {
+      const before = originals.get(id);
+      const node = doc.get(id);
+      return alive() && before && pending.get(id) === token && node?.type === 'image' &&
+        node.asset === before.asset && node.link === before.link;
+    },
+    finish() {
+      for (const id of originals.keys()) if (pending.get(id) === token) pending.delete(id);
+    },
+  };
+}
+
+async function applyImageRequest(request, ids, load, { label = 'Relink', placement = 'fit' } = {}) {
+  if (!ids.some((id) => request.current(id))) return null;
+  let source, data;
+  try {
+    source = await load();
+    if (!source || !ids.some((id) => request.current(id))) return null;
+    const io = await import('../io/lazy.js');
+    if (!ids.some((id) => request.current(id))) return null;
+    const { blob } = source;
+    data = await io.imageNodeData(blob, { name: blob.name?.replace(/\.[^.]+$/, '') || '' });
+  } catch (err) {
+    if (!ids.some((id) => request.current(id))) return null;
+    throw err;
+  }
+  const { link } = source;
+  const targets = ids.filter((id) => request.current(id));
   if (!targets.length) return null;
+  const doc = request.doc;
   doc.assets.set(data.assetId, data.asset);
   doc.transact(label, () => {
     for (const id of targets) {
-      const n = doc.get(id);
-      if (!n || n.type !== 'image') continue;
-      doc.update(id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(n, data.width, data.height, placement), link: link || undefined });
+      const node = doc.get(id);
+      doc.update(id, { asset: data.assetId, width: data.width, height: data.height, transform: fitTransform(node, data.width, data.height, placement), link: link || undefined });
     }
   });
   return data;
+}
+
+async function replaceFromSource(app, editor, ids, load, options = {}) {
+  const request = beginImageRequest(app, editor, ids);
+  try {
+    return await applyImageRequest(request, request.ids, load, { placement: app.prefs?.get('linkPlacement') || 'fit', ...options });
+  } finally {
+    request.finish();
+  }
+}
+
+/** Swap placed images for a blob in one undo step; null when superseded or targets are gone. */
+export async function replaceImage(app, editor, nodeIds, blob, { link = null, label = 'Relink', placement = app.prefs?.get('linkPlacement') || 'fit' } = {}) {
+  return replaceFromSource(app, editor, nodeIds, () => ({ blob, link }), { label, placement });
 }
 
 async function pickImage(app) {
@@ -115,22 +166,24 @@ async function pickImage(app) {
       let item = await (p && p.undefinedOnCancel ? p.undefinedOnCancel : p);
       if (Array.isArray(item)) item = item[0];
       if (!item) return null;
-      const blob = await item.read();
-      const file = new File([blob], item.name || 'image', { type: blob.type });
-      return { file, link: item.path ? { source: 'puter', path: item.path, name: item.name, size: blob.size, modified: Date.now() } : null };
+      return { name: item.name || 'image', load: async () => {
+        const blob = await item.read();
+        const file = new File([blob], item.name || 'image', { type: blob.type });
+        return { blob: file, link: item.path ? { source: 'puter', path: item.path, name: item.name, size: blob.size, modified: Date.now() } : null };
+      } };
     }
   }
   const [file] = await pickDeviceFiles();
   if (!file) return null;
   if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type) && !/\.(png|jpe?g|webp|gif)$/i.test(file.name)) throw new UserError('Choose a PNG, JPEG, WebP or GIF image.');
-  return { file, link: null };
+  return { name: file.name, load: () => ({ blob: file, link: null }) };
 }
 
 export async function relink(app, editor, ids) {
   const picked = await pickImage(app);
   if (!picked) return false;
-  if (!(await replaceImage(app, editor, ids, picked.file, { link: picked.link, label: 'Relink' }))) return false;
-  app.notify(`Relinked to ${picked.file.name}.`, { polite: true });
+  if (!(await replaceFromSource(app, editor, ids, picked.load))) return false;
+  app.notify(`Relinked to ${picked.name}.`, { polite: true });
   return true;
 }
 
@@ -138,17 +191,25 @@ export async function relink(app, editor, ids) {
 export async function updateLinks(app, editor, ids) {
   const doc = editor.doc;
   const fs = app.puter?.fs;
+  // Reserve the entire batch now, including images whose reads have not started yet.
+  const request = beginImageRequest(app, editor, ids.filter((id) => doc.get(id)?.link?.path));
   let n = 0;
-  for (const id of ids) {
-    if (app.editors && !app.editors.includes(editor)) break;
-    const node = doc.get(id);
-    if (!node?.link?.path) continue;
-    if (!fs?.read) throw new UserError('Linked files can be updated when Vector Studio runs with Puter.');
-    const blob = await fs.read(node.link.path);
-    const file = new File([blob], node.link.name || 'image', { type: blob.type });
-    if (await replaceImage(app, editor, [id], file, { link: { ...node.link, size: blob.size, modified: Date.now() }, label: 'Update Link' })) n++;
+  try {
+    for (const id of request.ids) {
+      if (!request.alive()) break;
+      if (!request.current(id)) continue;
+      const node = doc.get(id);
+      if (!fs?.read) throw new UserError('Linked files can be updated when Vector Studio runs with Puter.');
+      const applied = await applyImageRequest(request, [id], async () => {
+        const blob = await fs.read(node.link.path);
+        return { blob: new File([blob], node.link.name || 'image', { type: blob.type }), link: { ...node.link, size: blob.size, modified: Date.now() } };
+      }, { label: 'Update Link', placement: app.prefs?.get('linkPlacement') || 'fit' });
+      if (applied) n++;
+    }
+    return n;
+  } finally {
+    request.finish();
   }
-  return n;
 }
 
 export function embedImages(editor, ids) {
