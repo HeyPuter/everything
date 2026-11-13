@@ -85,8 +85,8 @@ export async function importVideoFrames(e: Editor, arg?: unknown) {
       submit: 'Import',
       className: 'animation-export-dialog',
       body: `<p>${escapeXML(name)}: ${vw} × ${vh} px, ${duration.toFixed(2)} s.</p>
-        <div class="processor-row"><label class="dialog-field">From (s)<input name="from" type="number" min="0" max="${duration}" step="0.01" value="0"></label>
-        <label class="dialog-field">To (s)<input name="to" type="number" min="0" max="${duration}" step="0.01" value="${Math.round(duration * 100) / 100}"></label></div>
+        <div class="processor-row"><label class="dialog-field">From (s)<input name="from" type="number" min="0" max="${duration}" step="any" value="0"></label>
+        <label class="dialog-field">To (s)<input name="to" type="number" min="0" max="${duration}" step="any" value="${duration}"></label></div>
         <div class="processor-row"><label class="dialog-field">Source frame rate<input name="fps" type="number" min="1" max="240" step="any" value="30"></label>
         <label class="dialog-field">Take every<select name="step">${[1, 2, 3, 4, 5, 6, 10, 15, 30].map((n) => `<option value="${n}" ${n === 2 ? 'selected' : ''}>${n === 1 ? 'frame' : `${n}th frame`}</option>`).join('')}</select></label></div>
         <label class="dialog-field">Size (%)<input name="scale" type="number" min="1" max="${Math.floor(fit * 100)}" step="1" value="${Math.min(100, Math.floor(fit * 100))}"></label>
