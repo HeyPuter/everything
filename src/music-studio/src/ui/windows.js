@@ -65,25 +65,36 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
   });
   fit.observe(el);
 
+  let stopDrag = null;
   head.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || e.target.closest('button, input, select')) return;
+    if (e.defaultPrevented || e.button !== 0 || stopDrag || e.target.closest('button, input, select')) return;
     e.preventDefault();
     head.setPointerCapture(e.pointerId);
     const sx = e.clientX - x;
     const sy = e.clientY - y;
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       x = ev.clientX - sx;
       y = ev.clientY - sy;
       place();
     };
-    const up = () => {
+    const finish = () => {
+      if (stopDrag !== finish) return;
+      stopDrag = null;
       head.removeEventListener('pointermove', move);
       head.removeEventListener('pointerup', up);
       head.removeEventListener('pointercancel', up);
+      head.removeEventListener('lostpointercapture', up);
+      window.removeEventListener('blur', finish);
+      try { head.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
     };
+    const up = (ev) => { if (ev.pointerId === e.pointerId) finish(); };
+    stopDrag = finish;
     head.addEventListener('pointermove', move);
     head.addEventListener('pointerup', up);
     head.addEventListener('pointercancel', up);
+    head.addEventListener('lostpointercapture', up);
+    window.addEventListener('blur', finish);
   });
 
   const previous = document.activeElement;
@@ -104,6 +115,7 @@ export function openWindow({ key, title, icon: glyph, body, width = 420, onClose
     },
     close() {
       if (!open.has(key)) return;
+      stopDrag?.();
       open.delete(key);
       el.remove();
       fit.disconnect();

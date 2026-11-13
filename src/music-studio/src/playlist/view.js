@@ -86,6 +86,7 @@ export function createPlaylistView(app, host) {
   const headers = createHeaders(V);
   V.headers = headers;
   const pickerSplit = h('div.pl-picker-split', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize clip source list', tabindex: '0', title: 'Drag to resize the clip source list' });
+  let finishPickerResize = null;
   const addTrackBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Add track', title: 'Add a track at the bottom', onclick: () => addTrack() }, icon('pl-add-track', 14));
   const corner = h('div.pl-corner', h('span.pl-corner-label', 'Tracks'), addTrackBtn);
   const rulerHost = h('div.pl-ruler', {
@@ -204,10 +205,11 @@ export function createPlaylistView(app, host) {
     followBtn.setAttribute('aria-pressed', String(Boolean(prefs.get('autoScroll'))));
     followBtn.title = `Follow the playhead while playing (${followMode(false) === 'continuous' ? 'continuous' : 'page by page'})`;
     const showPicker = ui(app).picker !== false;
+    if (!showPicker) finishPickerResize?.();
     pickerBtn.setAttribute('aria-pressed', String(showPicker));
     root.classList.toggle('no-picker', !showPicker);
     toolbar.classList.toggle('show-source', !showPicker);
-    root.style.setProperty('--pl-picker-w', `${clamp(ui(app).pickerW || PICKER_W, 110, 360)}px`);
+    if (!finishPickerResize) root.style.setProperty('--pl-picker-w', `${clamp(ui(app).pickerW || PICKER_W, 110, 360)}px`);
     syncSource();
   }
 
@@ -383,7 +385,7 @@ export function createPlaylistView(app, host) {
   V.renameSource = (src) => M.renameSource(V, src);
 
   V.makeUnique = (clipId) => {
-    const r = store.apply('Make unique', (p) => C.makeUnique(p, clipId));
+    const r = store.apply('Make unique', (p) => C.makeUnique(p, clipId, { sampleInfo: (id) => app.samples.get(id) }));
     if (!r?.id) return;
     const clip = store.project.clips.find((c) => c.id === clipId);
     V.setSource(C.sourceOf(clip));
@@ -419,8 +421,9 @@ export function createPlaylistView(app, host) {
   };
 
   V.addMarker = async (tick) => {
-    const name = await promptDialog({ title: 'Add marker', label: 'Name', value: C.nextMarkerName(store.project), confirm: 'Add', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
-    if (!name) return;
+    const loadVersion = store.loadVersion;
+    const name = await promptDialog({ store, title: 'Add marker', label: 'Name', value: C.nextMarkerName(store.project), confirm: 'Add', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
+    if (!name || store.loadVersion !== loadVersion) return;
     store.apply('Add marker', (p) => C.addMarker(p, { pos: tick, name: name.trim().slice(0, 60) }));
     announce(`Marker ${name.trim()} at ${formatBST(tick, store.project.sig)}`);
   };
@@ -428,8 +431,7 @@ export function createPlaylistView(app, host) {
   V.loopSelection = () => {
     const sel = store.project.clips.filter((c) => V.selection.has(c.id));
     if (!sel.length) return;
-    const a = Math.min(...sel.map((c) => c.start));
-    const b = Math.max(...sel.map((c) => c.start + c.len));
+    const { start: a, end: b } = C.clipBounds(sel);
     store.apply('Set loop', (p) => E.setLoop(p, { start: a, end: b }));
   };
 
@@ -538,7 +540,7 @@ export function createPlaylistView(app, host) {
 
   // Picker splitter.
   pickerSplit.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || finishPickerResize) return;
     e.preventDefault();
     try {
       pickerSplit.setPointerCapture(e.pointerId);
@@ -547,23 +549,64 @@ export function createPlaylistView(app, host) {
     }
     const x0 = e.clientX;
     const w0 = picker.el.offsetWidth;
-    const move = (ev) => root.style.setProperty('--pl-picker-w', `${clamp(w0 + ev.clientX - x0, 110, 360)}px`);
-    const up = (ev) => {
+    let width = w0;
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      width = clamp(w0 + ev.clientX - x0, 110, 360);
+      root.style.setProperty('--pl-picker-w', `${width}px`);
+    };
+    const finish = () => {
+      if (finishPickerResize !== finish) return;
+      finishPickerResize = null;
       pickerSplit.removeEventListener('pointermove', move);
       pickerSplit.removeEventListener('pointerup', up);
-      prefs.merge('playlistUi', { pickerW: clamp(w0 + ev.clientX - x0, 110, 360) });
+      pickerSplit.removeEventListener('pointercancel', up);
+      pickerSplit.removeEventListener('lostpointercapture', up);
+      window.removeEventListener('blur', finish);
+      try { pickerSplit.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      prefs.merge('playlistUi', { pickerW: width });
     };
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (ev.type === 'pointerup') move(ev);
+      finish();
+    };
+    finishPickerResize = finish;
     pickerSplit.addEventListener('pointermove', move);
     pickerSplit.addEventListener('pointerup', up);
+    pickerSplit.addEventListener('pointercancel', up);
+    pickerSplit.addEventListener('lostpointercapture', up);
+    window.addEventListener('blur', finish);
   });
   pickerSplit.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
+    finishPickerResize?.();
     const w = clamp((ui(app).pickerW || PICKER_W) + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 40 : 10), 110, 360);
     prefs.merge('playlistUi', { pickerW: w });
   });
 
   // ---------------------------------------------------------------- ruler
+
+  let cancelRulerDrag = null;
+  function bindRulerDrag(move, finish) {
+    const close = (cancelled, event) => {
+      if (cancelRulerDrag !== cancel) return;
+      cancelRulerDrag = null;
+      rulerHost.removeEventListener('pointermove', move);
+      rulerHost.removeEventListener('pointerup', up);
+      rulerHost.removeEventListener('pointercancel', up);
+      rulerHost.removeEventListener('lostpointercapture', up);
+      finish(cancelled, event);
+    };
+    const up = (event) => close(event.type !== 'pointerup', event);
+    const cancel = () => close(true);
+    cancelRulerDrag = cancel;
+    rulerHost.addEventListener('pointermove', move);
+    rulerHost.addEventListener('pointerup', up);
+    rulerHost.addEventListener('pointercancel', up);
+    rulerHost.addEventListener('lostpointercapture', up);
+  }
 
   rulerHost.addEventListener('contextmenu', (e) => e.preventDefault());
   rulerHost.addEventListener('pointerdown', (e) => {
@@ -575,6 +618,7 @@ export function createPlaylistView(app, host) {
       return;
     }
     if (e.button !== 0) return;
+    cancelRulerDrag?.();
     e.preventDefault();
     rulerHost.focus({ preventScroll: true });
     try {
@@ -588,11 +632,13 @@ export function createPlaylistView(app, host) {
       dragMarker(e, marker, x);
       return;
     }
-    let move;
+    let move, gesture;
     if (loopMode) {
       const a = V.snapRound(tick, e);
       store.begin('Set loop');
+      gesture = store.gesture;
       move = (ev) => {
+        if (store.gesture !== gesture) return cancelRulerDrag?.();
         const b = V.snapRound(Math.max(0, V.vp.tick(ev.clientX - r.left)), ev);
         store.preview((p) => E.setLoop(p, { start: Math.min(a, b), end: Math.max(a, b) }));
       };
@@ -601,19 +647,14 @@ export function createPlaylistView(app, host) {
       move = (ev) => engine.seek(V.snapFloor(Math.max(0, V.vp.tick(ev.clientX - r.left)), ev));
       move(e);
     }
-    const up = () => {
-      rulerHost.removeEventListener('pointermove', move);
-      rulerHost.removeEventListener('pointerup', up);
-      rulerHost.removeEventListener('pointercancel', up);
-      if (loopMode) {
+    bindRulerDrag(move, (cancelled) => {
+      if (loopMode && store.gesture === gesture) {
+        if (cancelled) return store.cancel();
         store.commit();
         const l = store.project.loop;
         announce(l ? `Loop from bar ${barLabel(l.start, store.project.sig)} to bar ${barLabel(l.end, store.project.sig)}` : 'Loop cleared');
       }
-    };
-    rulerHost.addEventListener('pointermove', move);
-    rulerHost.addEventListener('pointerup', up);
-    rulerHost.addEventListener('pointercancel', up);
+    });
   });
   // Markers: drag to move (snapped, one undo step), click to jump, double-click to rename.
   const measure = typeof document !== 'undefined' ? document.createElement('canvas').getContext?.('2d') : null;
@@ -645,8 +686,9 @@ export function createPlaylistView(app, host) {
     announce(`Marker ${m.name}, bar ${formatBST(m.pos, store.project.sig)}`);
   };
   V.renameMarker = async (m) => {
-    const v = await promptDialog({ title: 'Rename marker', label: 'Name', value: m.name, confirm: 'Rename', validate: (t) => (t.trim() ? '' : 'Enter a name.') });
-    if (v && v.trim() !== m.name) store.apply('Rename marker', (q) => C.updateMarker(q, m.id, { name: v.trim().slice(0, 60) }));
+    const loadVersion = store.loadVersion;
+    const v = await promptDialog({ store, title: 'Rename marker', label: 'Name', value: m.name, confirm: 'Rename', validate: (t) => (t.trim() ? '' : 'Enter a name.') });
+    if (store.loadVersion === loadVersion && v && v.trim() !== m.name) store.apply('Rename marker', (q) => C.updateMarker(q, m.id, { name: v.trim().slice(0, 60) }));
   };
   V.deleteMarker = (m) => {
     store.apply('Delete marker', (q) => C.removeMarker(q, m.id));
@@ -656,31 +698,30 @@ export function createPlaylistView(app, host) {
     const r = rulerHost.getBoundingClientRect();
     const grab = V.vp.tick(x0) - m.pos;
     let moved = false;
+    let gesture;
     rulerHost.classList.add('marker-drag');
     const move = (ev) => {
+      if (moved && store.gesture !== gesture) return cancelRulerDrag?.();
       const x = ev.clientX - r.left;
       if (!moved && Math.abs(x - x0) < 4) return;
       if (!moved) {
         moved = true;
         store.begin('Move marker');
+        gesture = store.gesture;
       }
       const pos = V.snapRound(Math.max(0, V.vp.tick(x) - grab), ev);
       store.preview((p) => C.updateMarker(p, m.id, { pos }));
     };
-    const up = (ev) => {
-      rulerHost.removeEventListener('pointermove', move);
-      rulerHost.removeEventListener('pointerup', up);
-      rulerHost.removeEventListener('pointercancel', up);
+    bindRulerDrag(move, (cancelled, ev) => {
       rulerHost.classList.remove('marker-drag');
       if (moved) {
+        if (store.gesture !== gesture) return;
+        if (cancelled) return store.cancel();
         store.commit();
         const now = store.project.markers.find((k) => k.id === m.id);
         if (now) announce(`Marker ${now.name} moved to bar ${formatBST(now.pos, store.project.sig)}`);
-      } else if (ev.type === 'pointerup') V.jumpToMarker(m);
-    };
-    rulerHost.addEventListener('pointermove', move);
-    rulerHost.addEventListener('pointerup', up);
-    rulerHost.addEventListener('pointercancel', up);
+      } else if (!cancelled && ev.type === 'pointerup') V.jumpToMarker(m);
+    });
   }
   rulerHost.addEventListener('pointermove', (e) => {
     if (e.buttons) return;
@@ -795,7 +836,7 @@ export function createPlaylistView(app, host) {
         if (e.shiftKey && dx) {
           store.apply('Resize clips', (q) => C.resizeClips(q, ids, 'right', dx * g, { minLen: g }));
         } else if (!e.shiftKey) {
-          store.apply('Move clips', (q) => C.moveClips(q, ids, dx * g, dy));
+          store.apply('Move clips', (q) => C.moveClips(q, ids, dx * g, dy, { sampleInfo: (id) => app.samples.get(id) }));
         }
         const first = C.timeOrder(store.project.clips.filter((c) => V.selection.has(c.id)))[0];
         if (first) {
@@ -876,6 +917,7 @@ export function createPlaylistView(app, host) {
   });
 
   async function dropPayload(payload, track, tick) {
+    const check = app.files?.importGuard();
     const p = store.project;
     if (payload.kind === 'pattern' && patternById(p, payload.id)) {
       V.setSource({ kind: 'pattern', id: payload.id });
@@ -917,12 +959,14 @@ export function createPlaylistView(app, host) {
         return;
       }
       const blob = await readFile(payload.path);
+      check?.();
       await importOne(blob, payload.name, track, tick, payload.path);
     }
   }
 
   const AUDIO_EXT = /\.(wav|wave|mp3|ogg|oga|flac|m4a|aac|aif|aiff|webm|opus)$/i;
   async function dropAudioFiles(files, track, tick) {
+    const check = app.files?.importGuard();
     const audio = files.filter((f) => f.type.startsWith('audio/') || AUDIO_EXT.test(f.name));
     if (!audio.length) {
       app.notify('Drop audio files (WAV, MP3, OGG, FLAC...) to make audio clips');
@@ -932,13 +976,18 @@ export function createPlaylistView(app, host) {
       app.notify('Audio import is not available yet');
       return;
     }
-    for (let i = 0; i < audio.length; i++) await importOne(audio[i], audio[i].name, track + i, tick);
+    for (let i = 0; i < audio.length; i++) {
+      check?.();
+      await importOne(audio[i], audio[i].name, track + i, tick);
+    }
   }
 
   async function importOne(blob, name, track, tick, path) {
+    const check = app.files?.importGuard();
     const clean = String(name || 'Audio').replace(/\.[^.]+$/, '');
     app.notify(`Importing ${clean}...`);
     const r = await app.importAudio(blob, { name: clean, path, as: 'audio' });
+    check?.();
     if (!r?.channelId) return;
     const len = r.duration > 0 ? C.audioTicks(store.project, r.duration, tick) : ticksPerBar(store.project.sig);
     // Importing and placing the clip are one undo step.
@@ -956,6 +1005,11 @@ export function createPlaylistView(app, host) {
   }
 
   store.on('change', (p, prev, { source }) => {
+    if (source === 'load' || source === 'undo' || source === 'redo') {
+      V.cancelGesture();
+      headers.cancelResize();
+      cancelRulerDrag?.();
+    }
     if (source === 'load') {
       V.selection = new Set();
       V.selectedTrack = 0;
@@ -1060,17 +1114,17 @@ export function createPlaylistView(app, host) {
   const selected = () => store.project.clips.filter((c) => V.selection.has(c.id));
   const firstSelectedTrack = () => {
     const sel = selected();
-    return sel.length ? Math.min(...sel.map((c) => c.track)) : V.selectedTrack;
+    return C.clipBounds(sel)?.track ?? V.selectedTrack;
   };
   V.actions = {
     copy() {
-      const board = C.copyClips(store.project, [...V.selection]);
+      const board = C.copyClips(store.project, [...V.selection], { sampleInfo: (id) => app.samples.get(id) });
       if (!board) return;
       clipboard = board;
       app.notify(`Copied ${board.clips.length} clip${board.clips.length === 1 ? '' : 's'}`);
     },
     cut() {
-      const board = C.copyClips(store.project, [...V.selection]);
+      const board = C.copyClips(store.project, [...V.selection], { sampleInfo: (id) => app.samples.get(id) });
       if (!board) return;
       clipboard = board;
       store.apply('Cut clips', (p) => E.removeClips(p, [...V.selection]));
@@ -1095,6 +1149,8 @@ export function createPlaylistView(app, host) {
     },
     deselect() {
       if (V.cancelGesture()) return;
+      if (cancelRulerDrag) return cancelRulerDrag();
+      if (headers.cancelResize()) return;
       if (V.activePoint) {
         V.activePoint = null;
         V.markDirty();
@@ -1105,7 +1161,7 @@ export function createPlaylistView(app, host) {
     duplicate() {
       const ids = [...V.selection];
       if (!ids.length) return;
-      const r = store.apply('Duplicate clips', (p) => C.duplicateClips(p, ids));
+      const r = store.apply('Duplicate clips', (p) => C.duplicateClips(p, ids, { sampleInfo: (id) => app.samples.get(id) }));
       V.selectClips(r.ids, { announce: false, reveal: true });
       announce(`Duplicated ${r.ids.length} clip${r.ids.length === 1 ? '' : 's'}`);
     },
@@ -1135,7 +1191,10 @@ export function createPlaylistView(app, host) {
     },
     onHide() {
       V.visible = false;
+      finishPickerResize?.();
       V.cancelGesture?.();
+      headers.cancelResize();
+      cancelRulerDrag?.();
     },
     onResize() {
       resize();

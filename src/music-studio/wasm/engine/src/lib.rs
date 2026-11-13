@@ -28,6 +28,7 @@ use dsp::*;
 use params::*;
 use sampler::{AudioPlayer, Sample, Sampler};
 use std::alloc::{alloc as raw_alloc, dealloc as raw_dealloc, Layout};
+use std::collections::HashMap;
 use synth::Synth;
 
 pub const MAX_FX: usize = 10;
@@ -155,12 +156,79 @@ struct Event {
     pan: f32,
 }
 
+/// Stable bounded-cost ordering for dense queues. Tiny queues keep their
+/// allocation-free insertion sort; large queues reuse one merge buffer.
+fn sort_events_by<F>(events: &mut [Event], scratch: &mut Vec<Event>, mut less: F)
+where
+    F: FnMut(&Event, &Event) -> bool,
+{
+    if events.len() <= 64 {
+        for i in 1..events.len() {
+            let mut j = i;
+            while j > 0 && less(&events[j], &events[j - 1]) {
+                events.swap(j - 1, j);
+                j -= 1;
+            }
+        }
+        return;
+    }
+    // Keep ordered and lightly edited queues cheap, but cap swaps so
+    // dense interleaved starts/releases cannot take quadratic time.
+    let mut budget = events.len() * 2;
+    'insertion: {
+        for i in 1..events.len() {
+            let mut j = i;
+            while j > 0 && less(&events[j], &events[j - 1]) {
+                if budget == 0 {
+                    break 'insertion;
+                }
+                events.swap(j - 1, j);
+                j -= 1;
+                budget -= 1;
+            }
+        }
+        return;
+    }
+    scratch.clear();
+    scratch.extend_from_slice(events);
+    let n = events.len();
+    let mut source = events;
+    let mut target = scratch.as_mut_slice();
+    let mut width = 1;
+    let mut in_scratch = false;
+    while width < n {
+        for start in (0..n).step_by(width * 2) {
+            let mid = (start + width).min(n);
+            let end = (mid + width).min(n);
+            let (mut left, mut right) = (start, mid);
+            for out in &mut target[start..end] {
+                // Prefer the left run on ties, preserving submission order.
+                if left < mid && (right == end || !less(&source[right], &source[left])) {
+                    *out = source[left];
+                    left += 1;
+                } else {
+                    *out = source[right];
+                    right += 1;
+                }
+            }
+        }
+        std::mem::swap(&mut source, &mut target);
+        in_scratch = !in_scratch;
+        width *= 2;
+    }
+    if in_scratch {
+        target.copy_from_slice(source);
+    }
+}
+
 const EV_OFF: u8 = 0;
 const EV_ALL_SOFT: u8 = 1;
 const EV_ALL_HARD: u8 = 2;
 const EV_ON: u8 = 3;
 const EV_AUDIO: u8 = 4;
 const EV_CLICK: u8 = 5;
+const EV_AUDIO_AT: u8 = 6;
+const EV_CANCELLED: u8 = 7;
 
 struct Click {
     phase: f32,
@@ -178,6 +246,11 @@ pub struct Engine {
     tracks: Vec<Box<Track>>,
     order: Vec<u32>,
     events: Vec<Event>,
+    event_scratch: Vec<Event>,
+    start_max: Option<u32>,
+    release_min: Option<u32>,
+    note_releases: HashMap<u64, u32>,
+    channel_releases: HashMap<u32, u32>,
     samples: Vec<Option<Sample>>,
     out: [f32; BLOCK * 2],
     meters: Vec<f32>,
@@ -198,6 +271,11 @@ impl Engine {
             tracks: Vec::with_capacity(32),
             order: Vec::with_capacity(32),
             events: Vec::with_capacity(4096),
+            event_scratch: Vec::new(),
+            start_max: None,
+            release_min: None,
+            note_releases: HashMap::new(),
+            channel_releases: HashMap::new(),
             samples: Vec::with_capacity(64),
             out: [0.0; BLOCK * 2],
             meters: Vec::with_capacity(64),
@@ -246,10 +324,86 @@ impl Engine {
         };
         ch.cur_l = -1.0;
         ch.cur_r = -1.0;
+        self.discard_channel_events(slot);
+    }
+
+    // Replacing/removing an instrument or its sample stops queued voices
+    // as well as rendered ones. Clicks use slot zero but belong to transport.
+    fn discard_channel_events(&mut self, slot: u32) {
+        self.events.retain(|ev| ev.slot != slot || ev.kind == EV_CLICK);
+        if self.events.is_empty() {
+            self.start_max = None;
+            self.release_min = None;
+        }
+    }
+
+    fn release_sample(&mut self, idx: i32) {
+        for ch in self.channels.iter_mut() {
+            match &mut ch.inst {
+                Inst::Sampler(s) => s.drop_sample(idx),
+                Inst::Audio(a) => a.drop_sample(idx),
+                _ => {}
+            }
+        }
+        let channels = &self.channels;
+        self.events.retain(|ev| ev.kind == EV_CLICK || match channels.get(ev.slot as usize).map(|ch| &ch.inst) {
+            Some(Inst::Sampler(s)) => s.sample != idx,
+            Some(Inst::Audio(a)) => a.sample != idx,
+            _ => true,
+        });
+        if self.events.is_empty() {
+            self.start_max = None;
+            self.release_min = None;
+        }
     }
 
     fn push(&mut self, ev: Event) {
+        match ev.kind {
+            EV_ON | EV_AUDIO | EV_AUDIO_AT => {
+                self.start_max = Some(self.start_max.map_or(ev.offset, |n| n.max(ev.offset)));
+            }
+            EV_OFF | EV_ALL_SOFT | EV_ALL_HARD => {
+                self.release_min = Some(self.release_min.map_or(ev.offset, |n| n.min(ev.offset)));
+            }
+            _ => {}
+        }
         self.events.push(ev);
+    }
+
+    /// A later release cancels starts which have not reached their first frame.
+    /// Walk submission order backwards before sorting, preserving off/on
+    /// retriggers while avoiding a full queue scan for each released note.
+    fn cancel_pending_starts(&mut self, n: usize) {
+        self.note_releases.clear();
+        self.channel_releases.clear();
+        let mut all = u32::MAX;
+        for ev in self.events.iter_mut().rev() {
+            let at = ev.offset.min((n - 1) as u32);
+            let key = ((ev.slot as u64) << 32) | ev.id as u64;
+            match ev.kind {
+                EV_OFF => {
+                    let release = self.note_releases.entry(key).or_insert(at);
+                    *release = (*release).min(at);
+                }
+                EV_ALL_SOFT | EV_ALL_HARD => {
+                    if ev.slot == u32::MAX {
+                        all = all.min(at);
+                    } else {
+                        let release = self.channel_releases.entry(ev.slot).or_insert(at);
+                        *release = (*release).min(at);
+                    }
+                }
+                EV_ON | EV_AUDIO | EV_AUDIO_AT => {
+                    let note = self.note_releases.get(&key).copied().unwrap_or(u32::MAX);
+                    let channel = self.channel_releases.get(&ev.slot).copied().unwrap_or(u32::MAX);
+                    if at >= all.min(note).min(channel) {
+                        ev.kind = EV_CANCELLED;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.events.retain(|ev| ev.kind != EV_CANCELLED);
     }
 
     fn apply(&mut self, ev: Event) {
@@ -310,6 +464,7 @@ impl Engine {
             (Inst::Sampler(x), EV_OFF) => x.note_off(ev.id),
             (Inst::Audio(x), EV_ON) => x.play(ev.id, 0.0, ev.vel, samples),
             (Inst::Audio(x), EV_AUDIO) => x.play(ev.id, ev.pan, ev.vel, samples),
+            (Inst::Audio(x), EV_AUDIO_AT) => x.play_at(ev.id, ev.pan, ev.vel, samples),
             (Inst::Audio(x), EV_OFF) => x.stop(ev.id),
             _ => {}
         }
@@ -336,21 +491,23 @@ impl Engine {
 
     fn process(&mut self, n: usize) -> *const f32 {
         let n = n.clamp(1, BLOCK);
-        // Events in time order; at equal offsets note-offs come before note-ons.
-        let evs = &mut self.events;
-        for i in 1..evs.len() {
-            let mut j = i;
-            while j > 0 && (evs[j - 1].offset, evs[j - 1].kind) > (evs[j].offset, evs[j].kind) {
-                evs.swap(j - 1, j);
-                j -= 1;
+        if let (Some(start), Some(release)) = (self.start_max, self.release_min) {
+            // Ordinary notes released after their attack need no index.
+            let last = (n - 1) as u32;
+            if start.min(last) >= release.min(last) {
+                self.cancel_pending_starts(n);
             }
         }
+        // Events in time order; at equal offsets note-offs come before note-ons.
+        sort_events_by(&mut self.events, &mut self.event_scratch, |a, b| {
+            (a.offset, a.kind) < (b.offset, b.kind)
+        });
         for ch in self.channels.iter_mut() {
             ch.live = ch.active();
         }
         for i in 0..self.events.len() {
             let ev = self.events[i];
-            if ev.kind == EV_ON || ev.kind == EV_AUDIO {
+            if ev.kind == EV_ON || ev.kind == EV_AUDIO || ev.kind == EV_AUDIO_AT {
                 if let Some(ch) = self.channels.get_mut(ev.slot as usize) {
                     ch.live = true;
                 }
@@ -380,6 +537,8 @@ impl Engine {
             self.render_channels(t, n);
         }
         self.events.clear();
+        self.start_max = None;
+        self.release_min = None;
 
         // Channel strips into mixer tracks.
         for tr in self.tracks.iter_mut() {
@@ -743,20 +902,17 @@ pub extern "C" fn ch_set_sample(slot: u32, sample: i32) {
     let Some(e) = eng() else { return };
     let Some(ch) = e.channels.get_mut(slot as usize) else { return };
     match &mut ch.inst {
-        Inst::Sampler(s) => {
-            if s.sample != sample {
-                s.all_off(true);
-                s.sample = sample;
-            }
+        Inst::Sampler(s) if s.sample != sample => {
+            s.all_off(true);
+            s.sample = sample;
         }
-        Inst::Audio(a) => {
-            if a.sample != sample {
-                a.all_off(true);
-                a.sample = sample;
-            }
+        Inst::Audio(a) if a.sample != sample => {
+            a.all_off(true);
+            a.sample = sample;
         }
-        _ => {}
+        _ => return,
     }
+    e.discard_channel_events(slot);
 }
 
 /// Queues a note-on `offset` frames into the next block. `id` identifies the note for its note-off.
@@ -779,6 +935,17 @@ pub extern "C" fn ch_note_off(slot: u32, id: u32, offset: u32) {
 pub extern "C" fn ch_audio_on(slot: u32, id: u32, start: f32, gain: f32, offset: u32) {
     if let Some(e) = eng() {
         e.push(Event { offset, kind: EV_AUDIO, slot, id, key: 0, vel: gain, pan: if start.is_finite() { start } else { 0.0 } });
+    }
+}
+
+/// Queues a resumed audio clip at an absolute position in source seconds.
+#[no_mangle]
+pub extern "C" fn ch_audio_at(slot: u32, id: u32, position: f32, gain: f32, offset: u32) {
+    if !position.is_finite() || position < 0.0 {
+        return;
+    }
+    if let Some(e) = eng() {
+        e.push(Event { offset, kind: EV_AUDIO_AT, slot, id, key: 0, vel: gain, pan: position });
     }
 }
 
@@ -894,6 +1061,8 @@ pub extern "C" fn mix_reset() {
         ch.all_off(true);
     }
     e.events.clear();
+    e.start_max = None;
+    e.release_min = None;
     e.click.env = 0.0;
 }
 
@@ -908,12 +1077,10 @@ pub extern "C" fn sample_alloc(idx: u32, frames: u32, chans: u32, rate: f32) -> 
     while e.samples.len() <= idx {
         e.samples.push(None);
     }
-    for ch in e.channels.iter_mut() {
-        match &mut ch.inst {
-            Inst::Sampler(s) => s.drop_sample(idx as i32),
-            Inst::Audio(a) => a.drop_sample(idx as i32),
-            _ => {}
-        }
+    // First arrival may satisfy a queued note waiting for its sample.
+    // Replacing existing bytes invalidates both rendered and queued voices.
+    if e.samples[idx].is_some() {
+        e.release_sample(idx as i32);
     }
     let chans = chans.clamp(1, 2) as usize;
     let frames = frames as usize;
@@ -927,13 +1094,7 @@ pub extern "C" fn sample_alloc(idx: u32, frames: u32, chans: u32, rate: f32) -> 
 #[no_mangle]
 pub extern "C" fn sample_free(idx: u32) {
     let Some(e) = eng() else { return };
-    for ch in e.channels.iter_mut() {
-        match &mut ch.inst {
-            Inst::Sampler(s) => s.drop_sample(idx as i32),
-            Inst::Audio(a) => a.drop_sample(idx as i32),
-            _ => {}
-        }
-    }
+    e.release_sample(idx as i32);
     if let Some(s) = e.samples.get_mut(idx as usize) {
         *s = None;
     }
@@ -970,4 +1131,72 @@ pub extern "C" fn track_count() -> u32 {
 #[no_mangle]
 pub extern "C" fn active_channels() -> u32 {
     eng().map(|e| e.active_voices()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod event_sort_tests {
+    use super::*;
+
+    fn event(id: u32, offset: u32, kind: u8) -> Event {
+        Event { id, offset, kind, slot: id % 4, key: (id % 128) as u8, vel: 0.5, pan: 0.0 }
+    }
+
+    #[test]
+    fn preserves_stable_order_across_run_sizes_and_full_offset_range() {
+        let mut scratch = Vec::new();
+        for n in [0u32, 1, 2, 31, 32, 33, 63, 64, 65, 127, 129, 1001, 8192] {
+            for mode in 0..4 {
+                let mut events: Vec<_> = (0..n).map(|i| {
+                    let offset = match mode {
+                        0 => n - i,
+                        1 => i % 3,
+                        2 => i.wrapping_mul(2654435761),
+                        _ => u32::MAX - i % 3,
+                    };
+                    event(i, offset, (i % 7) as u8)
+                }).collect();
+                let mut expected = events.clone();
+                expected.sort_by_key(|e| (e.offset, e.kind));
+                sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+                assert_eq!(events.iter().map(|e| e.id).collect::<Vec<_>>(), expected.iter().map(|e| e.id).collect::<Vec<_>>());
+            }
+        }
+    }
+
+    #[test]
+    fn dense_interleaved_starts_and_releases_have_bounded_comparison_cost() {
+        let mut events = Vec::new();
+        for i in 0..4096 {
+            events.push(event(i, 0, EV_ON));
+            events.push(event(i, 58, EV_OFF));
+        }
+        let mut comparisons = 0;
+        sort_events_by(&mut events, &mut Vec::new(), |a, b| {
+            comparisons += 1;
+            (a.offset, a.kind) < (b.offset, b.kind)
+        });
+        assert!(comparisons <= events.len() * 17, "{comparisons} comparisons");
+        assert!(events[..4096].iter().all(|e| e.kind == EV_ON));
+        assert!(events[4096..].iter().all(|e| e.kind == EV_OFF));
+        assert!(events[..4096].windows(2).all(|p| p[0].id < p[1].id));
+    }
+
+    #[test]
+    fn skips_scratch_for_ordered_queues_and_reuses_dense_capacity() {
+        let mut scratch = Vec::new();
+        let mut events: Vec<_> = (0..4096).map(|i| event(i, i, EV_ON)).collect();
+        sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+        assert_eq!(scratch.capacity(), 0);
+        events.swap(2047, 2048);
+        sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+        assert_eq!(scratch.capacity(), 0);
+        events.reverse();
+        sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+        let capacity = scratch.capacity();
+        for _ in 0..10 {
+            events.reverse();
+            sort_events_by(&mut events, &mut scratch, |a, b| (a.offset, a.kind) < (b.offset, b.kind));
+            assert_eq!(scratch.capacity(), capacity);
+        }
+    }
 }

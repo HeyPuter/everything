@@ -24,7 +24,8 @@
 // Note = { id, key (MIDI 0..127), pos (ticks), len (ticks), vel (0..1), pan (-1..1) }
 // Track = { id, name, color|null, mute, solo, height (px, view only) }
 // Clip = { id, kind ('pattern'|'audio'|'auto'), track (index), start, len,
-//   offset (ticks into the source), ref (pattern id, channel id or automation id), mute }
+//   offset (ticks into the source), ref (pattern id, channel id or automation id), mute,
+//   audioOffset? (original unpitched audio offset; offset - audioOffset is trimmed playback time) }
 //   A clip plays the window [offset, offset + len) of its source starting at
 //   `start`. Pattern clips play the notes whose pos is in that window and do
 //   not repeat the pattern when the clip is longer (see playlist/clips.js).
@@ -46,9 +47,23 @@ import { PPQ } from './time.js';
 export const PROJECT_VERSION = 1;
 export const FILE_EXT = '.msproj';
 export const MAX_FX_SLOTS = 10;
+// Includes the master; matches the DSP engine's track limit.
+export const MAX_MIXER_TRACKS = 256;
 export const DEFAULT_INSERTS = 16;
 export const DEFAULT_TRACKS = 16;
 export const DEFAULT_KEY = 60;
+
+/** Keep the copy suffix within the editable name limit without splitting a surrogate pair. */
+export function cloneName(name) {
+  return `${name.slice(0, 57).replace(/[\uD800-\uDBFF]$/, '')} #2`;
+}
+
+/** Fit both labels within 60 code units, sharing space when both are long. */
+export function splitPatternName(pattern, channel) {
+  const prefix = pattern.slice(0, Math.max(28, 57 - channel.length)).replace(/[\uD800-\uDBFF]$/, '');
+  const suffix = channel.slice(0, 57 - prefix.length).replace(/[\uD800-\uDBFF]$/, '');
+  return `${prefix} - ${suffix}`;
+}
 
 /** Original palette for channels, patterns, tracks and mixer inserts. */
 export const COLORS = [
@@ -144,13 +159,30 @@ export function patternById(project, id) {
   return project.patterns.find((p) => p.id === id) || null;
 }
 
+/** A lookup for one read-only pass: scan each pattern at most once, lazily. */
+export function patternResolver(project) {
+  const patterns = project.patterns;
+  const seen = new Map();
+  let next = 0;
+  return (id) => {
+    if (seen.has(id)) return seen.get(id);
+    while (next < patterns.length) {
+      const pattern = patterns[next++];
+      const key = pattern.id;
+      if (!seen.has(key)) seen.set(key, pattern);
+      if (key === id) return seen.get(key);
+    }
+    return null;
+  };
+}
+
 export function patternIndex(project, id) {
   return project.patterns.findIndex((p) => p.id === id);
 }
 
-/** Color a pattern is drawn with: its own, else the palette by pattern number. */
-export function patternColor(project, pattern) {
-  return pattern.color || colorAt(patternIndex(project, pattern.id) + 6);
+/** Color a pattern is drawn with: its own, else the palette by pattern number (if known). */
+export function patternColor(project, pattern, index) {
+  return pattern.color || colorAt((index ?? patternIndex(project, pattern.id)) + 6);
 }
 
 /**
@@ -197,10 +229,9 @@ export function songLength(project) {
 }
 
 /** Whether a channel is audible given the rack's mute and solo states. */
-export function channelAudible(project, ch) {
+export function channelAudible(project, ch, anySolo) {
   if (ch.mute) return false;
-  const anySolo = project.channels.some((c) => c.solo);
-  return !anySolo || ch.solo;
+  return !(anySolo ?? project.channels.some((c) => c.solo)) || ch.solo;
 }
 
 /** Default name for a new pattern: the lowest "Pattern N" not in use. */

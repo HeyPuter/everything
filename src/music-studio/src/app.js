@@ -33,7 +33,8 @@ import { Shell } from './ui/shell.js';
 import { createToolbar } from './ui/toolbar.js';
 import { applyTheme } from './ui/theme.js';
 import { toast } from './ui/toast.js';
-import { openMenu, isMenuOpen } from './ui/menu.js';
+import { openMenu, closeMenus, isMenuOpen } from './ui/menu.js';
+import { cancelParameterInteractions } from './ui/parameter-interactions.js';
 import { confirmDialog } from './ui/dialog.js';
 import { icon } from './ui/icons.js';
 import { REPO_URL } from './ui/toolbar.js';
@@ -47,6 +48,10 @@ export class App extends Emitter {
     this.root = root;
     this.prefs = new Prefs(storage);
     this.store = new Store(project || newProject());
+    this.store.on('change', (_project, _previous, { source }) => {
+      if (source === 'load' || source === 'undo' || source === 'redo') cancelParameterInteractions();
+      if (source === 'load') closeMenus();
+    });
     this.engine = new Engine(this.store, this.prefs);
     this.samples = new SampleCache(this.engine);
     this.commands = new Commands(this);
@@ -108,21 +113,27 @@ export class App extends Emitter {
     const p = this.store.project;
     const insert = freeInsert(p);
     const ch = createChannel({ type, name, params, sample, color: colorAt(p.channels.length), mixer: insert });
-    this.store.apply(`Add ${name || 'channel'}`, (proj) => {
-      let next = E.addChannel(proj, ch, index ?? proj.channels.length);
+    const added = this.store.apply(`Add ${name || 'channel'}`, (proj) => {
+      const result = E.addChannel(proj, ch, index ?? proj.channels.length);
+      let next = result.project;
       if (insert > 0) next = E.updateMixerTrack(next, insert, { name: ch.name, color: ch.color });
-      return next;
+      return { project: next, id: result.id };
     });
-    if (select) this.store.selectChannels([ch.id]);
+    if (select) this.store.selectChannels([added.id]);
     this.notify(`Added ${ch.name}`);
-    return ch.id;
+    return added.id;
   }
 
   /** Replaces the project after asking about unsaved changes. `make` builds the new project. */
   async newProject(make) {
-    if (this.store.dirty && !(await confirmDialog({ title: 'New project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true }))) return false;
+    const before = this.store.project;
+    if ((this.store.dirty || this.library?.hasTemporarySamples?.(before)) && !(await confirmDialog({ title: 'New project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true }))) return false;
+    if (this.store.project !== before) return false;
+    const project = make();
     this.engine.stop();
-    this.store.load(make());
+    const keep = new Set(Object.keys(project.samples || {}));
+    for (const id of this.samples.ids()) if (!keep.has(id)) this.samples.delete(id);
+    this.store.load(project);
     this.file = null;
     this.emit('file');
     return true;
@@ -193,6 +204,12 @@ export class App extends Emitter {
       }
       const combo = eventCombo(e);
       if (!combo) return;
+      // F10 shares the modal, composition, and focused-control guards above.
+      if (combo === 'F10') {
+        e.preventDefault();
+        this.toolbar.menubar.focus();
+        return;
+      }
       // Keys a focused control handles itself (Space on buttons, arrows on sliders).
       const t = e.target;
       if ((combo === 'Space' || combo === 'Enter') && t?.matches?.('button, [role="button"], [role="menuitem"], a, [role="radio"], [role="checkbox"], [role="tab"], [role="option"]')) {
@@ -207,13 +224,6 @@ export class App extends Emitter {
     });
     document.addEventListener('keyup', (e) => {
       if (this.prefs.get('typingKeyboard') && !e.target?.closest?.('puter-user-menu')) this.emitKeyboardNote?.(e, false);
-    });
-    // F10 focuses the menu bar, like desktop apps.
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'F10' && !e.shiftKey && !isTyping(e.target)) {
-        e.preventDefault();
-        this.toolbar.menubar.focus();
-      }
     });
   }
 

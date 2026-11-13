@@ -94,6 +94,16 @@ describe('note edits', () => {
     expect(strip(r)).toEqual([[60, 0, 96], [64, 0, 96], [67, 96, 288]]);
   });
 
+  it('legato skips unselected notes and preserves the final chord when no end is given', () => {
+    const notes = [note('a', 60, 0, 10), note('b', 62, 24, 10), note('c', 64, 96, 10), note('d', 67, 96, 20)];
+    const r = N.legatoNotes(notes, ['a', 'c', 'd']);
+    expect(strip(r)).toEqual([[60, 0, 96], [62, 24, 10], [64, 96, 10], [67, 96, 20]]);
+    expect(r[1]).toBe(notes[1]);
+    expect(r[2]).toBe(notes[2]);
+    expect(r[3]).toBe(notes[3]);
+    expect(N.legatoNotes(notes, [])).toBe(notes);
+  });
+
   it('reverses in time and flips pitches within the selection', () => {
     expect(strip(N.reverseNotes(notes, null))).toEqual([[67, 0, 96], [64, 192, 48], [60, 240, 48]]);
     expect(N.flipNotes(notes, null).map((n) => n.key).sort()).toEqual([60, 63, 67]);
@@ -188,6 +198,21 @@ describe('scales and chords', () => {
     expect(chordKeys(71, 'scaleTriad', { scaleRoot: 0, scaleId: 'major' })).toEqual([71, 74, 77]);
     expect(chordKeys(57, 'scaleSeventh', { scaleRoot: 9, scaleId: 'minor' })).toEqual([57, 60, 64, 67]);
     expect(chordKeys(60, 'scaleTriad')).toEqual([60, 64, 67]); // no scale: major
+  });
+
+  it('keeps chord tones that coincide with selected roots removed by an inversion', () => {
+    const notes = [note('c', 60, 0), note('e', 64, 0)];
+    const r = N.chordize(notes, ['c', 'e'], 'major', { inversion: 1 });
+    expect(r.notes.map((n) => n.key)).toEqual([64, 67, 68, 71, 72, 76]);
+    expect(r.ids).toHaveLength(6);
+    expect(new Set(r.notes.map((n) => `${n.pos}:${n.key}`)).size).toBe(r.notes.length);
+  });
+
+  it('preserves selected roots and their expression when another chord includes their pitch', () => {
+    const notes = [note('c', 60, 0, 24, 0.3), note('e', 64, 0, 48, 0.9)];
+    const r = N.chordize(notes, null, 'major');
+    expect(r.notes.map((n) => n.key)).toEqual([60, 64, 67, 68, 71]);
+    expect(r.notes.find((n) => n.key === 64)).toBe(notes[1]);
   });
 
   it('chordizes selected notes without doubling keys', () => {

@@ -13,12 +13,13 @@
 //                 starting at clip.start (automation/evaluate.js).
 
 import * as E from '../model/edits.js';
-import { createTrack, patternById, patternLength, patternColor, channelById, COLORS } from '../model/project.js';
+import { createTrack, patternById, patternLength, patternColor, channelById, cloneName, COLORS } from '../model/project.js';
 import { secondsToTicks, ticksPerBar } from '../model/time.js';
 import { tempoMap } from '../engine/compile.js';
 import { automationLength } from '../automation/points.js';
 import { resolveTarget } from '../automation/targets.js';
-import { uid, clamp } from '../lib/util.js';
+import { uid, reserveId, clamp } from '../lib/util.js';
+import { audioExtension, audioSnapshot } from './audio-trim.js';
 
 export const AUTO_COLOR = COLORS[11];
 export const TRACK_HEIGHTS = { small: 32, medium: 56, large: 96 };
@@ -136,6 +137,20 @@ export function timeOrder(clips) {
   return clips.slice().sort((a, b) => a.start - b.start || a.track - b.track);
 }
 
+/** Time span and top track of clips, or null for an empty selection. */
+export function clipBounds(clips) {
+  if (!clips.length) return null;
+  let start = Infinity;
+  let end = -Infinity;
+  let track = Infinity;
+  for (const c of clips) {
+    start = Math.min(start, c.start);
+    end = Math.max(end, c.start + c.len);
+    track = Math.min(track, c.track);
+  }
+  return { start, end, track };
+}
+
 /** First track with no clip overlapping [start, end). */
 export function firstFreeTrack(project, start, end) {
   for (let t = 0; ; t++) {
@@ -165,22 +180,28 @@ export function paintStarts(anchor, len, tick) {
  * before tick 0 or above track 1). With `duplicate`, copies move and the
  * originals stay. Returns { project, ids } (the moved clips or the copies).
  */
-export function moveClips(project, ids, dt, dtrack, { duplicate = false } = {}) {
+export function moveClips(project, ids, dt, dtrack, { duplicate = false, sampleInfo } = {}) {
   const set = new Set(ids);
   const sel = project.clips.filter((c) => set.has(c.id));
   if (!sel.length) return { project, ids: [] };
-  const minStart = Math.min(...sel.map((c) => c.start));
-  const minTrack = Math.min(...sel.map((c) => c.track));
+  const { start: minStart, track: minTrack } = clipBounds(sel);
   const d = Math.round(Math.max(dt, -minStart));
   const dk = Math.max(dtrack, -minTrack);
+  let snapshot;
+  const source = (clip) => {
+    if (!d || clip.kind !== 'audio' || clip.audioOffset === undefined) return {};
+    snapshot ??= audioSnapshot(project, sampleInfo);
+    const result = snapshot(clip, clip.start + d);
+    return result ? { offset: result.offset, audioOffset: result.audioOffset } : {};
+  };
   if (duplicate) {
-    const copies = sel.map((c) => ({ ...c, id: uid(), start: c.start + d, track: c.track + dk }));
+    const copies = sel.map((c) => ({ ...c, ...source(c), id: uid(), start: c.start + d, track: c.track + dk }));
     const r = E.addClips(project, copies);
     return { project: r.project, ids: r.ids };
   }
   if (!d && !dk) return { project, ids: sel.map((c) => c.id) };
   const changes = {};
-  for (const c of sel) changes[c.id] = { start: c.start + d, track: c.track + dk };
+  for (const c of sel) changes[c.id] = { ...source(c), start: c.start + d, track: c.track + dk };
   return { project: E.updateClips(project, changes), ids: sel.map((c) => c.id) };
 }
 
@@ -189,7 +210,8 @@ export function moveClips(project, ids, dt, dtrack, { duplicate = false } = {}) 
  * trims the start and moves the offset along so the content stays in place.
  * Each clip keeps at least `minLen` ticks and a non-negative offset.
  */
-export function resizeClips(project, ids, edge, dt, { minLen = 1 } = {}) {
+export function resizeClips(project, ids, edge, dt, { minLen = 1, sampleInfo } = {}) {
+  let extendAudio;
   const set = new Set(ids);
   const changes = {};
   for (const c of project.clips) {
@@ -198,19 +220,26 @@ export function resizeClips(project, ids, edge, dt, { minLen = 1 } = {}) {
     if (edge === 'right') {
       changes[c.id] = { len: Math.max(min, Math.round(c.len + dt)) };
     } else {
-      const d = Math.round(clamp(dt, Math.max(-c.offset, -c.start), c.len - min));
-      changes[c.id] = { start: c.start + d, len: c.len - d, offset: c.offset + d };
+      let d = Math.round(clamp(dt, c.kind === 'audio' ? -c.start : Math.max(-c.offset, -c.start), c.len - min));
+      if (!d) continue;
+      const anchor = c.start - c.offset + (c.audioOffset ?? c.offset);
+      if (c.kind === 'audio' && c.start + d < anchor) {
+        extendAudio ??= audioExtension(project, sampleInfo);
+        const source = extendAudio(c, c.start + d);
+        d = source.start - c.start;
+        if (d) changes[c.id] = { ...source, len: c.len - d };
+      } else changes[c.id] = { start: c.start + d, len: c.len - d, offset: c.offset + d, ...(c.kind === 'audio' ? { audioOffset: c.audioOffset ?? c.offset } : {}) };
     }
   }
   return E.updateClips(project, changes);
 }
 
 /** Splits one clip at `tick`: [left, right] with offsets kept correct, or null when outside. */
-export function splitClip(clip, tick) {
+export function splitClip(clip, tick, usedIds = null) {
   const t = Math.round(tick);
   if (t <= clip.start || t >= clip.start + clip.len) return null;
   const left = { ...clip, len: t - clip.start };
-  const right = { ...clip, id: uid(), start: t, len: clip.start + clip.len - t, offset: clip.offset + (t - clip.start) };
+  const right = { ...clip, id: reserveId(usedIds ?? new Set([clip.id])), start: t, len: clip.start + clip.len - t, offset: clip.offset + (t - clip.start), ...(clip.kind === 'audio' ? { audioOffset: clip.audioOffset ?? clip.offset } : {}) };
   return [left, right];
 }
 
@@ -219,10 +248,11 @@ export function splitClip(clip, tick) {
  * all). Returns { project, ids } with the ids of the new right halves.
  */
 export function sliceClips(project, tick, filter = () => true) {
+  const usedIds = new Set(project.clips.map((c) => c.id));
   const ids = [];
   const clips = [];
   for (const c of project.clips) {
-    const parts = filter(c) ? splitClip(c, tick) : null;
+    const parts = filter(c) ? splitClip(c, tick, usedIds) : null;
     if (parts) {
       clips.push(parts[0], parts[1]);
       ids.push(parts[1].id);
@@ -247,7 +277,7 @@ export function toggleClipMute(project, ids, mute) {
  * channel) so editing it leaves the other clips alone. Returns { project, id }
  * with the new source id (null when nothing changed).
  */
-export function makeUnique(project, clipId) {
+export function makeUnique(project, clipId, { sampleInfo } = {}) {
   const clip = project.clips.find((c) => c.id === clipId);
   if (!clip) return { project, id: null };
   let r;
@@ -257,32 +287,41 @@ export function makeUnique(project, clipId) {
     const a = project.automation[clip.ref];
     if (!a) return { project, id: null };
     const { id: _old, ...rest } = structuredClone(a);
-    r = E.addAutomation(project, { ...rest, name: `${a.name} #2` });
+    r = E.addAutomation(project, { ...rest, name: cloneName(a.name) });
   }
   if (!r?.id) return { project, id: null };
-  return { project: E.updateClips(r.project, { [clipId]: { ref: r.id } }), id: r.id };
+  const source = clip.kind === 'audio' && clip.audioOffset !== undefined ? audioSnapshot(project, sampleInfo)(clip) : null;
+  const changes = { ref: r.id, ...(source ? { offset: source.offset, audioOffset: source.audioOffset } : {}) };
+  return { project: E.updateClips(r.project, { [clipId]: changes }), id: r.id };
 }
 
 /** Copies of clips, then `delta` ticks after the end of the selection (Duplicate). Returns { project, ids }. */
-export function duplicateClips(project, ids) {
+export function duplicateClips(project, ids, { sampleInfo } = {}) {
   const set = new Set(ids);
   const sel = project.clips.filter((c) => set.has(c.id));
   if (!sel.length) return { project, ids: [] };
-  const a = Math.min(...sel.map((c) => c.start));
-  const b = Math.max(...sel.map((c) => c.start + c.len));
-  return moveClips(project, ids, b - a, 0, { duplicate: true });
+  const { start: a, end: b } = clipBounds(sel);
+  return moveClips(project, ids, b - a, 0, { duplicate: true, sampleInfo });
 }
 
 // ------------------------------------------------------------------ clipboard
 
 /** Clipboard snapshot: clips relative to the earliest start and the top track. */
-export function copyClips(project, ids) {
+export function copyClips(project, ids, { sampleInfo } = {}) {
   const set = new Set(ids);
   const sel = project.clips.filter((c) => set.has(c.id));
   if (!sel.length) return null;
-  const t0 = Math.min(...sel.map((c) => c.start));
-  const k0 = Math.min(...sel.map((c) => c.track));
-  return { clips: sel.map((c) => ({ ...c, start: c.start - t0, track: c.track - k0 })) };
+  const { start: t0, track: k0 } = clipBounds(sel);
+  let snapshot;
+  return { clips: sel.map((c) => {
+    let source = {};
+    if (c.kind === 'audio' && c.audioOffset !== undefined) {
+      snapshot ??= audioSnapshot(project, sampleInfo);
+      const result = snapshot(c);
+      if (result) source = { audioSeconds: result.seconds };
+    }
+    return { ...c, ...source, start: c.start - t0, track: c.track - k0 };
+  }) };
 }
 
 /** Pastes a clipboard snapshot at `start` on `track`; clips whose source is gone are skipped. Returns { project, ids }. */
@@ -290,7 +329,16 @@ export function pasteClips(project, board, start, track) {
   if (!board?.clips?.length) return { project, ids: [] };
   const list = board.clips
     .filter((c) => sourceExists(project, { kind: c.kind, id: c.ref }))
-    .map((c) => ({ ...c, id: uid(), start: Math.max(0, Math.round(start)) + c.start, track: Math.max(0, track) + c.track }));
+    .map(({ audioSeconds, ...c }) => {
+      const at = Math.max(0, Math.round(start)) + c.start;
+      let source = {};
+      if (c.kind === 'audio' && Number.isFinite(audioSeconds) && audioSeconds >= 0) {
+        const map = tempoMap(project);
+        const offset = Math.max(0, at - map.ticks(map.seconds(at) - audioSeconds));
+        source = { offset, audioOffset: offset };
+      }
+      return { ...c, ...source, id: uid(), start: at, track: Math.max(0, track) + c.track };
+    });
   if (!list.length) return { project, ids: [] };
   return E.addClips(project, list);
 }
@@ -351,18 +399,19 @@ export function muteOtherTracks(project, index) {
 }
 
 /** Whether a track plays given the playlist's mute and solo states. */
-export function trackAudible(project, index) {
+// Batch callers may compute anySolo once for their current project snapshot.
+export function trackAudible(project, index, anySolo) {
   const t = project.tracks[index];
   if (!t) return true;
   if (t.mute) return false;
-  return !project.tracks.some((x) => x.solo) || t.solo;
+  return !(anySolo ?? project.tracks.some((x) => x.solo)) || t.solo;
 }
 
 // ------------------------------------------------------------------ markers
 
 /** Adds a marker; markers stay sorted by position. Returns { project, id }. */
 export function addMarker(project, { pos, name }) {
-  const m = { id: uid(), pos: Math.max(0, Math.round(pos)), name: name || 'Marker' };
+  const m = { id: reserveId(new Set(project.markers.map((m) => m.id))), pos: Math.max(0, Math.round(pos)), name: name || 'Marker' };
   const markers = [...project.markers, m].sort((a, b) => a.pos - b.pos);
   return { project: { ...project, markers }, id: m.id };
 }

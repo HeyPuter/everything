@@ -12,6 +12,7 @@ export function createAccount(app) {
   const el = h('div.account');
   let user = null;
   let picture = null;
+  let refreshRequest = 0;
 
   // puter.js's own menu keeps itself current; the app only follows its sign-ins and sign-outs.
   const sdkMenu = userMenu({
@@ -68,11 +69,12 @@ export function createAccount(app) {
           label: 'Sign Out',
           enabled: true,
           run: async () => {
-            await puter.signOut();
-            user = null;
-            picture = null;
-            render();
-            app.emit('account');
+            try {
+              await puter.signOut();
+              await refresh();
+            } catch (err) {
+              app.notify(err?.msg || err?.message || 'Sign out failed. Please try again.', { error: true });
+            }
           },
         });
       }
@@ -82,11 +84,17 @@ export function createAccount(app) {
   };
 
   const refresh = async () => {
-    if (puter.isSignedIn()) {
-      [user, picture] = await Promise.all([puter.getUser(), puter.getProfilePicture()]);
-    }
+    const request = ++refreshRequest;
+    user = null;
+    picture = null;
     render();
     app.emit('account');
+    if (puter.isSignedIn()) {
+      const details = await Promise.all([puter.getUser(), puter.getProfilePicture()]);
+      if (request !== refreshRequest) return;
+      [user, picture] = details;
+    }
+    render();
   };
 
   render();

@@ -10,12 +10,13 @@
 // automation, the rack), closing itself when its channel is deleted.
 
 import { h, announce } from '../lib/dom.js';
-import { clamp, formatDb, formatPan } from '../lib/util.js';
+import { clamp, formatDb, formatPan, parsePan } from '../lib/util.js';
 import * as E from '../model/edits.js';
 import { COLORS, channelById } from '../model/project.js';
 import { INSTRUMENTS, defaultParams } from '../instruments/catalog.js';
 import { SYNTH_PRESETS, DRUM_PRESETS } from '../instruments/presets.js';
 import { createKnob } from '../ui/knob.js';
+import { parseGain } from '../mixer/db.js';
 import { openWindow, getWindow } from '../ui/windows.js';
 import { openMenu } from '../ui/menu.js';
 import { icon } from '../ui/icons.js';
@@ -78,17 +79,23 @@ class ChannelEditor {
     this.actions = channelActions(app);
     this.inst = [];
     this.chan = [];
-    this.held = new Set();
+    this.activeKnob = null;
+    this.held = new Map(); // pitch -> current audition request
     this.win = null;
     this.build();
     this.offs = [
-      this.store.on('change', (p) => this.onChange(p)),
+      this.store.on('change', (p, _prev, meta) => this.onChange(p, meta)),
       app.samples?.on?.('change', (sid) => {
         if (sid === this.ch?.sample) this.drawWave();
       }),
     ].filter(Boolean);
     this.onTheme = () => this.drawWave();
     window.addEventListener('themechange', this.onTheme);
+    this.onBlur = () => this.kb.releaseAll();
+    window.addEventListener('blur', this.onBlur);
+    // Focus can move to a field or the window toolbar while a key is held.
+    this.onKeyUp = (e) => this.onKey(e, false);
+    window.addEventListener('keyup', this.onKeyUp, true);
   }
 
   // ---------------------------------------------------------------- build
@@ -146,7 +153,6 @@ class ChannelEditor {
 
     this.el = h('div.ch-editor', head, tablist, h('div.ed-pages', this.instPage, this.chanPage), this.kb.el);
     this.el.addEventListener('keydown', (e) => this.onKey(e, true));
-    this.el.addEventListener('keyup', (e) => this.onKey(e, false));
     this.el.addEventListener('focusout', (e) => {
       if (!this.el.closest('.float-win')?.contains(e.relatedTarget)) this.kb.releaseAll();
     });
@@ -172,6 +178,7 @@ class ChannelEditor {
   }
 
   showTab(id) {
+    if (id !== 'instrument') this.finishMarkerDrag?.();
     this.page = id;
     lastTab = id;
     for (const [k, b] of Object.entries(this.tabs)) {
@@ -183,6 +190,28 @@ class ChannelEditor {
     if (id === 'instrument') requestAnimationFrame(() => this.drawWave());
   }
 
+  /** Keep delayed and captured knob input attached to its original edit. */
+  knobGesture(label, edit, tweaked) {
+    const identity = {};
+    const current = () => this.activeKnob?.identity === identity && this.activeKnob.owner === this.store.gesture;
+    return {
+      onStart: (cancel) => {
+        this.store.begin(label);
+        this.activeKnob = { identity, owner: this.store.gesture, cancel };
+      },
+      onInput: (v) => {
+        if (!current()) return;
+        this.store.preview((p) => edit(p, v));
+        if (tweaked) this.app.lastTweaked = tweaked();
+      },
+      onEnd: () => {
+        if (!current()) return;
+        this.activeKnob = null;
+        this.store.commit();
+      },
+    };
+  }
+
   /** Knob for an instrument parameter. */
   paramKnob(def, group) {
     const id = this.id;
@@ -192,15 +221,12 @@ class ChannelEditor {
       label: def.label,
       ariaLabel: `${group} ${def.label.toLowerCase()}`,
       size: 34,
-      onStart: () => this.store.begin(`Change ${def.label.toLowerCase()}`),
-      onInput: (v) => {
-        this.store.preview((p) => E.setChannelParam(p, id, def.id, v));
-        this.app.lastTweaked = { label: `${this.ch.name} ${group === def.label ? def.label : `${group} ${def.label}`}`.trim(), target: { kind: 'channel', id, param: def.id } };
-      },
-      onEnd: () => this.store.commit(),
+      ...this.knobGesture(`Change ${def.label.toLowerCase()}`, (p, v) => E.setChannelParam(p, id, def.id, v), () => ({
+        label: `${this.ch.name} ${group === def.label ? def.label : `${group} ${def.label}`}`.trim(), target: { kind: 'channel', id, param: def.id },
+      })),
     });
     k.el.classList.add('ed-knob');
-    this.inst.push({ sync: (ch) => k.set(ch.params[def.id] ?? def.def) });
+    this.inst.push({ sync: (ch) => k.set(ch.params[def.id] ?? def.def), cancel: k.cancel });
     return k.el;
   }
 
@@ -430,9 +456,10 @@ class ChannelEditor {
   }
 
   dragMarker(e) {
-    if (e.button !== 0 || !this.waveBox) return;
+    if (e.button !== 0 || !this.waveBox || this.finishMarkerDrag) return;
     e.preventDefault();
-    const r = this.waveBox.getBoundingClientRect();
+    const box = this.waveBox;
+    const r = box.getBoundingClientRect();
     if (!r.width) return;
     const at = (x) => clamp((x - r.left) / r.width, 0, 1);
     const start = this.ch.params.start ?? 0;
@@ -441,33 +468,49 @@ class ChannelEditor {
     const which = Math.abs(n - start) <= Math.abs(n - end) ? 'start' : 'end';
     const id = this.id;
     this.store.begin(which === 'start' ? 'Sample start' : 'Sample end');
+    const owner = this.store.gesture;
+    const channel = this.ch;
+    const current = (p = this.store.project) => {
+      const ch = channelById(p, id);
+      return this.store.gesture === owner && ch?.type === channel.type && ch?.sample === channel.sample;
+    };
     const apply = (x) => {
+      if (!current()) { finish(false); return; }
       const other = which === 'start' ? end : start;
       const v = which === 'start' ? Math.min(at(x), other - 0.002) : Math.max(at(x), other + 0.002);
       this.store.preview((p) => E.setChannelParam(p, id, which, clamp(Math.round(v * 10000) / 10000, 0, 1)));
       this.app.lastTweaked = { label: `${this.ch.name} sample ${which}`, target: { kind: 'channel', id, param: which } };
     };
-    apply(e.clientX);
-    try {
-      this.waveBox.setPointerCapture(e.pointerId);
-    } catch {
-      // Synthetic events.
-    }
-    const move = (ev) => apply(ev.clientX);
-    const up = () => {
-      this.waveBox.removeEventListener('pointermove', move);
-      this.waveBox.removeEventListener('pointerup', up);
-      this.waveBox.removeEventListener('pointercancel', up);
-      this.store.commit();
+    const move = (ev) => { if (ev.pointerId === e.pointerId) apply(ev.clientX); };
+    const finish = (commit = true) => {
+      if (this.finishMarkerDrag !== finish) return;
+      const valid = current();
+      this.finishMarkerDrag = null;
+      this.markerCurrent = null;
+      box.removeEventListener('pointermove', move);
+      box.removeEventListener('pointerup', up);
+      box.removeEventListener('pointercancel', up);
+      box.removeEventListener('lostpointercapture', up);
+      window.removeEventListener('blur', blur);
+      try { box.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      if (commit && valid) this.store.commit();
     };
-    this.waveBox.addEventListener('pointermove', move);
-    this.waveBox.addEventListener('pointerup', up);
-    this.waveBox.addEventListener('pointercancel', up);
+    const up = (ev) => { if (ev.pointerId === e.pointerId) finish(); };
+    const blur = () => finish();
+    this.finishMarkerDrag = finish;
+    this.markerCurrent = current;
+    box.addEventListener('pointermove', move);
+    box.addEventListener('pointerup', up);
+    box.addEventListener('pointercancel', up);
+    box.addEventListener('lostpointercapture', up);
+    window.addEventListener('blur', blur);
+    try { box.setPointerCapture(e.pointerId); } catch { /* synthetic or ended pointer */ }
+    apply(e.clientX);
   }
 
   // ---------------------------------------------------------------- channel page
 
-  channelKnob(param, format, target = param.id) {
+  channelKnob(param, format, target = param.id, parse) {
     const id = this.id;
     const k = createKnob({
       param,
@@ -476,15 +519,13 @@ class ChannelEditor {
       ariaLabel: `Channel ${param.label.toLowerCase()}`,
       size: 38,
       format,
-      onStart: () => this.store.begin(`Channel ${param.label.toLowerCase()}`),
-      onInput: (v) => {
-        this.store.preview((p) => E.updateChannel(p, id, { [param.id]: v }));
-        if (target) this.app.lastTweaked = { label: `${this.ch.name} ${param.label.toLowerCase()}`, target: { kind: 'channel', id, param: target } };
-      },
-      onEnd: () => this.store.commit(),
+      parse,
+      ...this.knobGesture(`Channel ${param.label.toLowerCase()}`, (p, v) => E.updateChannel(p, id, { [param.id]: v }), target ? () => ({
+        label: `${this.ch.name} ${param.label.toLowerCase()}`, target: { kind: 'channel', id, param: target },
+      }) : null),
     });
     k.el.classList.add('ed-knob');
-    this.chan.push({ sync: (ch) => k.set(ch[param.id]) });
+    this.chan.push({ sync: (ch) => k.set(ch[param.id]), cancel: k.cancel });
     return k.el;
   }
 
@@ -493,8 +534,8 @@ class ChannelEditor {
     const id = this.id;
     const knobs = h(
       'div.ed-knobs',
-      this.channelKnob(VOLUME, formatDb),
-      this.channelKnob(PAN, formatPan),
+      this.channelKnob(VOLUME, formatDb, 'volume', parseGain),
+      this.channelKnob(PAN, formatPan, 'pan', parsePan),
       this.channelKnob(PITCH, null),
       this.channelKnob(ROOT, null, null),
     );
@@ -618,14 +659,21 @@ class ChannelEditor {
 
   noteOn(key, vel) {
     const engine = this.app.engine;
-    this.held.add(key);
+    const request = {};
+    this.held.set(key, request);
     if (engine.ready) engine.noteOn(this.id, key, vel);
     else
       Promise.resolve(engine.start())
-        .then(() => {
-          if (this.held.has(key)) engine.noteOn(this.id, key, vel);
+        .then((started) => {
+          if (this.held.get(key) !== request) return;
+          if (started === false) this.kb.releaseNote(key);
+          else engine.noteOn(this.id, key, vel);
         })
-        .catch((err) => this.app.reportError(err));
+        .catch((err) => {
+          if (this.held.get(key) !== request) return;
+          this.kb.releaseNote(key);
+          this.app.reportError(err);
+        });
   }
 
   noteOff(key) {
@@ -634,7 +682,7 @@ class ChannelEditor {
   }
 
   onKey(e, down) {
-    if (e.target.closest('input, select, textarea')) return;
+    if (down && e.target.closest('input, select, textarea')) return;
     if (this.kb.handleKey(e, down)) {
       e.preventDefault();
       e.stopPropagation();
@@ -643,12 +691,19 @@ class ChannelEditor {
 
   // ---------------------------------------------------------------- sync
 
-  onChange(p) {
+  onChange(p, meta) {
+    if (this.activeKnob && this.activeKnob.owner !== this.store.gesture) {
+      const old = this.activeKnob;
+      this.activeKnob = null;
+      old.cancel?.();
+    }
+    if (this.markerCurrent && !this.markerCurrent(p)) this.finishMarkerDrag?.(false);
     const ch = channelById(p, this.id);
     if (!ch) {
       this.win?.close();
       return;
     }
+    if (meta?.source === 'load' || ch.type !== this.ch.type || ch.sample !== this.ch.sample) this.kb.releaseAll();
     if (ch === this.ch && p.mixer === this.insertMixer) return;
     const prev = this.ch;
     this.ch = ch;
@@ -663,10 +718,17 @@ class ChannelEditor {
   }
 
   destroy() {
+    this.finishMarkerDrag?.();
+    const active = this.activeKnob;
+    this.activeKnob = null;
+    for (const c of [...this.inst, ...this.chan]) c.cancel?.();
+    if (active && active.owner === this.store.gesture) this.store.commit();
     this.pc?.off();
     for (const off of this.offs) off();
     this.offs = [];
     window.removeEventListener('themechange', this.onTheme);
+    window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('keyup', this.onKeyUp, true);
     this.ro?.disconnect();
     this.kb.releaseAll();
   }

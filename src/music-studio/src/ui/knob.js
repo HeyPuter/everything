@@ -14,6 +14,7 @@ import { h } from '../lib/dom.js';
 import { toNorm, fromNorm, formatParam, parseParam } from '../lib/params.js';
 import { clamp } from '../lib/util.js';
 import { contextMenu, isContextKey } from './menu.js';
+import { trackParameterInteraction } from './parameter-interactions.js';
 
 const SWEEP = 270; // degrees
 const START = 135; // degrees from +x axis, clockwise (7:30 position)
@@ -45,7 +46,7 @@ function arcPath(cx, cy, r, a0, a1) {
   return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${large} ${sweep} ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 }
 
-export function createKnob({ param, value = param.def, label = param.label, ariaLabel, size = 28, color, showLabel = true, format, onStart, onInput, onEnd, menuItems }) {
+export function createKnob({ param, value = param.def, label = param.label, ariaLabel, size = 28, color, showLabel = true, format, parse, onStart, onInput, onEnd, menuItems }) {
   const fmt = format || ((v) => formatParam(param, v));
   const bipolar = param.min < 0 && param.max > 0;
   const ns = 'http://www.w3.org/2000/svg';
@@ -79,6 +80,26 @@ export function createKnob({ param, value = param.def, label = param.label, aria
   let v = value;
   let active = false;
   let endTimer = 0;
+  let stopDrag = null;
+  let untrack = null;
+  const watch = () => {
+    if (untrack) return;
+    untrack = trackParameterInteraction(cancel);
+    window.addEventListener('blur', onBlur);
+  };
+  const unwatch = () => {
+    untrack?.();
+    untrack = null;
+    window.removeEventListener('blur', onBlur);
+  };
+  function cancel() {
+    const hadInput = active || stopDrag;
+    clearTimeout(endTimer);
+    active = false;
+    stopDrag?.();
+    if (hadInput) hideReadout();
+    unwatch();
+  }
 
   const draw = () => {
     const n = toNorm(param, v);
@@ -94,10 +115,12 @@ export function createKnob({ param, value = param.def, label = param.label, aria
 
   const begin = () => {
     if (active) return;
+    watch();
     active = true;
-    onStart?.();
+    onStart?.(cancel);
   };
   const finish = () => {
+    unwatch();
     clearTimeout(endTimer);
     if (!active) return;
     active = false;
@@ -121,30 +144,40 @@ export function createKnob({ param, value = param.def, label = param.label, aria
 
   // Pointer drag: 200px for the full range, 10x finer with Shift.
   el.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || stopDrag) return;
     e.preventDefault();
     el.focus({ preventScroll: true });
     el.setPointerCapture(e.pointerId);
+    watch();
     let lastY = e.clientY;
     let norm = toNorm(param, v);
     showReadout(el, fmt(v));
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       const dy = lastY - ev.clientY;
       lastY = ev.clientY;
       const range = param.options ? 80 + param.options.length * 12 : 200;
       norm = clamp(norm + dy / (ev.shiftKey ? range * 10 : range), 0, 1);
       setNorm(norm);
     };
-    const up = () => {
+    stopDrag = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      el.removeEventListener('lostpointercapture', up);
+      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      stopDrag = null;
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      stopDrag?.();
       finish();
       hideReadout();
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
   });
 
   el.addEventListener('dblclick', (e) => {
@@ -213,13 +246,16 @@ export function createKnob({ param, value = param.def, label = param.label, aria
       if (e.key !== 'Enter') deferEnd();
     }
   });
-  el.addEventListener('blur', () => {
+  function onBlur() {
+    stopDrag?.();
     hideReadout();
     finish();
-  });
+  }
+  el.addEventListener('blur', onBlur);
 
   function typeIn() {
-    const input = h('input.input.sm', { type: 'text', value: fmt(v), 'aria-label': `${label} value`, style: { position: 'fixed', width: '88px', zIndex: 1300 } });
+    const initial = fmt(v);
+    const input = h('input.input.sm', { type: 'text', value: initial, 'aria-label': `${label} value`, style: { position: 'fixed', width: '88px', zIndex: 1300 } });
     const r = el.getBoundingClientRect();
     input.style.left = `${Math.round(r.left + r.width / 2 - 44)}px`;
     input.style.top = `${Math.round(r.top - 30)}px`;
@@ -227,21 +263,25 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     input.focus();
     input.select();
     let done = false;
-    const close = (apply) => {
+    let untrackInput;
+    const close = (apply, restoreFocus = true) => {
       if (done) return;
       done = true;
-      if (apply) {
-        const parsed = parseParam(param, input.value);
+      untrackInput?.();
+      if (apply && input.value !== initial) {
+        const parsed = parse ? parse(input.value) : parseParam(param, input.value);
         if (parsed !== null) {
           change(parsed, { readoutOn: false });
           finish();
         }
       }
       input.remove();
-      el.focus({ preventScroll: true });
+      if (restoreFocus) el.focus({ preventScroll: true });
     };
+    untrackInput = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      if (e.isComposing) return;
       if (e.key === 'Enter') close(true);
       else if (e.key === 'Escape') close(false);
     });
@@ -256,14 +296,20 @@ export function createKnob({ param, value = param.def, label = param.label, aria
     ];
     contextMenu(e, items, `${label} options`);
   }
-  el.addEventListener('contextmenu', openContext);
+  el.addEventListener('contextmenu', (e) => {
+    e.stopPropagation();
+    openContext(e);
+  });
 
   draw();
   return {
     el,
+    cancel,
     get: () => v,
     set(next) {
-      if (active || next === v) return;
+      if (next === v) return;
+      // A different model value (undo, load, another control) supersedes this gesture.
+      cancel();
       v = next;
       draw();
     },

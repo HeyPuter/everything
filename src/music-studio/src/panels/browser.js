@@ -76,30 +76,51 @@ function createBrowser(app, host) {
   // My files: folder listings cached by path.
   const folders = new Map(); // path -> { loading, items, error }
   const extraRoots = [];
-  let dirs = null; // { music, home } once the username is known
+  let accountRequest = 0;
+  let dirs = null; // { music } once the account folder is known
+  let dirsError = false;
   let localProjects = [];
+  let localRequest = 0;
+  let localState = 'loading';
   const playing = { path: null, audio: null };
   const urls = new Map(); // path -> { url, at }: temporary read URLs (rate limited: reuse until near expiry)
   const URL_TTL = 100 * 60 * 1000; // they are made for 2 hours
 
   const refreshAccount = async () => {
+    const request = ++accountRequest;
+    if (playing.path) stopPreview();
     dirs = null;
+    dirsError = false;
     folders.clear();
+    extraRoots.length = 0;
+    for (const id of expanded) if (id.startsWith('dir:')) expanded.delete(id);
     urls.clear();
+    invalidate();
     if (puter.isSignedIn()) {
       try {
-        dirs = { music: await puter.appDir() };
+        const music = await puter.appDir();
+        if (request !== accountRequest) return;
+        dirs = { music };
       } catch {
-        dirs = null;
+        if (request !== accountRequest) return;
+        dirsError = true;
       }
     }
     invalidate();
   };
   const refreshLocal = async () => {
+    const request = ++localRequest;
+    localState = 'loading';
+    invalidate();
     try {
-      localProjects = (await app.library?.listLocal()) || [];
+      const projects = (await app.library?.listLocal()) || [];
+      if (request !== localRequest) return;
+      localProjects = projects;
+      localState = 'ready';
     } catch {
+      if (request !== localRequest) return;
       localProjects = [];
+      localState = 'error';
     }
     invalidate();
   };
@@ -108,14 +129,17 @@ function createBrowser(app, host) {
     if (!puter.isSignedIn()) return;
     const cur = folders.get(path);
     if (cur && !force && (cur.loading || cur.items)) return;
-    folders.set(path, { loading: true });
+    const request = { loading: true };
+    folders.set(path, request);
     invalidate();
     try {
       const list = await puter.readdir(path);
+      if (folders.get(path) !== request) return;
       const items = (Array.isArray(list) ? list : list?.items || []).filter((it) => puter.isDir(it) || isAudioName(it.name) || SHOWN_EXT.test(it.name));
       items.sort((a, b) => Number(puter.isDir(b)) - Number(puter.isDir(a)) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
       folders.set(path, { items });
     } catch (err) {
+      if (folders.get(path) !== request) return;
       folders.set(path, { error: err?.code === 'subject_does_not_exist' || err?.status === 404 ? 'missing' : 'error' });
     }
     invalidate();
@@ -159,7 +183,10 @@ function createBrowser(app, host) {
         { id: 'files:open', label: 'Open a project from this device...', kind: 'action', icon: 'folder-open', data: { run: () => app.commands.run('file.openLocal') } },
       ];
     }
-    if (!dirs) return [{ id: 'files:loading', label: 'Loading...', kind: 'note' }];
+    if (!dirs) return dirsError ? [
+      { id: 'files:error', label: 'Your cloud files could not be loaded.', kind: 'note' },
+      { id: 'files:retry', label: 'Retry loading files', kind: 'action', icon: 'folder-search', data: { run: refreshAccount } },
+    ] : [{ id: 'files:loading', label: 'Loading...', kind: 'note' }];
     return [
       folderNode(dirs.music, 'Music Studio files', { root: true }),
       ...extraRoots.map((p) => folderNode(p, p.slice(p.lastIndexOf('/') + 1) || p)),
@@ -169,6 +196,11 @@ function createBrowser(app, host) {
   };
 
   const deviceSection = () => {
+    if (localState === 'error') return [
+      { id: 'dev:error', label: 'Saved projects could not be loaded.', kind: 'note' },
+      { id: 'dev:retry', label: 'Retry loading saved projects', kind: 'action', icon: 'folder-search', data: { run: refreshLocal } },
+    ];
+    if (localState === 'loading' && !localProjects.length) return [{ id: 'dev:loading', label: 'Loading saved projects...', kind: 'note' }];
     if (!localProjects.length) return [{ id: 'dev:none', label: puter.isSignedIn() ? 'No projects saved in this browser' : 'Projects you save while signed out appear here', kind: 'note' }];
     return localProjects.map((m) => ({ id: `local:${m.key}`, label: m.name, kind: 'project', icon: 'file-music', detail: m.key === app.file?.local ? 'Open' : '', data: { local: m.key, name: m.name } }));
   };
@@ -184,7 +216,7 @@ function createBrowser(app, host) {
   // ---------------------------------------------------------------- DOM
   const search = h('input.input.br-search', { type: 'search', placeholder: 'Search instruments, effects, files', 'aria-label': 'Search the browser', autocomplete: 'off', spellcheck: false, 'aria-controls': 'browser-tree' });
   const status = h('div.sr-only', { 'aria-live': 'polite' });
-  const treeEl = h('div.br-tree#browser-tree', { role: 'tree', 'aria-label': 'Browser' });
+  const treeEl = h('div#browser-tree.br-tree', { role: 'tree', 'aria-label': 'Browser' });
   const emptyEl = h('div.br-empty', { hidden: true });
   const root = h('div.browser', h('div.br-head', h('span.br-search-icon', icon('search', 14)), search), treeEl, emptyEl, status);
   host.body.append(root);
@@ -204,6 +236,9 @@ function createBrowser(app, host) {
   function render() {
     needsRender = false;
     const nodes = filterNodes(tree(), query);
+    const count = query ? countLeaves(nodes) : 0;
+    const resultMessage = query ? (count ? `${count} result${count === 1 ? '' : 's'}` : 'No results') : '';
+    if (status.textContent !== resultMessage) status.textContent = resultMessage;
     rows = flattenNodes(nodes, expanded, { expandAll: Boolean(query) });
     const hadFocus = treeEl.contains(document.activeElement);
     if (!rows.some((r) => r.node.id === focusId)) focusId = rows.find((r) => r.node.kind !== 'note')?.node.id || rows[0]?.node.id || null;
@@ -263,7 +298,7 @@ function createBrowser(app, host) {
     return [label.slice(0, i), h('mark', label.slice(i, i + w.length)), label.slice(i + w.length)];
   }
 
-  const rowDomId = (id) => `br-${id.replace(/[^\w-]/g, '_')}`;
+  const rowDomId = (id) => `br-${id.replace(/[^a-zA-Z0-9-]/g, (c) => `_${c.charCodeAt(0).toString(16)}_`)}`;
   const rowIndex = (id) => rows.findIndex((r) => r.node.id === id);
   const rowAt = (id) => rows[rowIndex(id)] || null;
 
@@ -313,15 +348,15 @@ function createBrowser(app, host) {
     query = q;
     if (search.value !== q) search.value = q;
     render();
-    if (q) {
-      const n = countLeaves(filterNodes(tree(), q));
-      status.textContent = n ? `${n} result${n === 1 ? '' : 's'}` : 'No results';
-    }
   }
 
   // ---------------------------------------------------------------- actions
   let stopAudition = null;
+  let previewGeneration = 0;
+  let auditionPending = false;
   const stopPreview = () => {
+    previewGeneration++;
+    auditionPending = false;
     stopAudition?.();
     stopAudition = null;
     if (playing.audio) {
@@ -344,8 +379,11 @@ function createBrowser(app, host) {
     stopPreview();
     const engine = app.engine;
     if (!engine?.audition) return;
+    const generation = previewGeneration;
+    auditionPending = true;
     try {
       await engine.start();
+      if (generation !== previewGeneration) return;
       const stop = engine.audition(spec, spec.type === 'drum' ? 60 : 60, 0.8);
       stopAudition = typeof stop === 'function' ? stop : null;
       const mine = stopAudition;
@@ -357,6 +395,8 @@ function createBrowser(app, host) {
       }, ms);
     } catch (err) {
       console.warn('Music Studio: preview failed.', err);
+    } finally {
+      if (generation === previewGeneration) auditionPending = false;
     }
   }
 
@@ -367,6 +407,7 @@ function createBrowser(app, host) {
     }
     stopPreview();
     if (!puter.isSignedIn()) return;
+    const generation = previewGeneration;
     playing.path = data.path;
     invalidate();
     try {
@@ -377,27 +418,31 @@ function createBrowser(app, host) {
         urls.delete(data.path);
         try {
           url = await puter.readURL(data.path, '2h');
+          if (generation !== previewGeneration) return;
           urls.set(data.path, { url, at: Date.now() });
         } catch {
+          if (generation !== previewGeneration) return;
           // Read URLs are rate limited: fall back to downloading the file.
           url = blobUrl = URL.createObjectURL(await puter.readFile(data.path));
         }
       }
-      if (playing.path !== data.path) {
+      if (generation !== previewGeneration) {
         if (blobUrl) URL.revokeObjectURL(blobUrl);
         return;
       }
       playing.blobUrl = blobUrl;
       playing.audio ||= new Audio();
       playing.audio.onended = () => {
-        if (playing.path === data.path) stopPreview();
+        if (generation === previewGeneration) stopPreview();
       };
       playing.audio.src = url;
       await playing.audio.play();
+      if (generation !== previewGeneration) return;
       announce(`Previewing ${data.name}`);
     } catch (err) {
+      if (generation !== previewGeneration) return;
       urls.delete(data.path); // maybe expired or revoked: make a new one next time
-      if (playing.path === data.path) stopPreview();
+      stopPreview();
       app.notify(`${data.name} could not be previewed: ${puter.errorMessage(err)}`, { error: true });
     }
   }
@@ -436,20 +481,22 @@ function createBrowser(app, host) {
 
   async function openFileNode(data) {
     if (data.project) return app.openProjectPath?.(data.path);
-    if (data.midi) return app.files?.importMidiBlob(await puter.readFile(data.path), data.name);
+    if (data.midi) return app.files?.importMidiBlob(puter.readFile(data.path), data.name);
     return importFile(data);
   }
 
   async function pickFolder() {
+    const account = accountRequest;
     try {
       const dir = await puter.pickDirectory();
-      if (!dir?.path) return;
+      if (account !== accountRequest || !dir?.path) return;
       if (!extraRoots.includes(dir.path)) extraRoots.push(dir.path);
       expanded.add(`dir:${dir.path}`);
       loadFolder(dir.path);
       render();
       focusRow(`dir:${dir.path}`);
     } catch (err) {
+      if (account !== accountRequest) return;
       app.reportError(err);
     }
   }
@@ -699,7 +746,7 @@ function createBrowser(app, host) {
         else preview(row);
         break;
       case 'Escape':
-        if (playing.path || stopAudition) stopPreview();
+        if (playing.path || stopAudition || auditionPending) stopPreview();
         else if (query) setQuery('');
         else return;
         break;
@@ -718,8 +765,11 @@ function createBrowser(app, host) {
     e.stopPropagation();
   });
 
-  search.addEventListener('input', debounce(() => setQuery(search.value), 120));
+  const updateSearch = debounce(() => setQuery(search.value), 120);
+  search.addEventListener('input', updateSearch);
   search.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter' || e.key === 'ArrowDown') updateSearch.flush();
     if (e.key === 'ArrowDown' && rows.length) {
       e.preventDefault();
       focusRow(rows.find((r) => r.node.kind !== 'section' && r.node.kind !== 'note')?.node.id || rows[0].node.id);
@@ -766,7 +816,8 @@ function createBrowser(app, host) {
   });
 
   // ---------------------------------------------------------------- live updates
-  store.on('change', (p, prev) => {
+  store.on('change', (p, prev, info) => {
+    if (info?.source === 'load') stopPreview();
     if (p.patterns === prev.patterns && p.channels === prev.channels && p.samples === prev.samples && p.automation === prev.automation) return;
     if (syncProject()) invalidate();
   });

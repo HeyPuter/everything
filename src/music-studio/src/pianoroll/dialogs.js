@@ -4,7 +4,8 @@
 // step through the editor (pianoroll/editor.js).
 
 import { h, announce } from '../lib/dom.js';
-import { clamp, keyName } from '../lib/util.js';
+import { clamp, keyName, parseKey } from '../lib/util.js';
+export { parseKey } from '../lib/util.js';
 import { openDialog, promptDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { SNAPS, STEP, PPQ, formatBST, ticksPerBar, snapTicks } from '../model/time.js';
@@ -31,9 +32,17 @@ function scopeText(ed) {
   return sel ? `Applies to the ${plural(sel, 'selected note')}.` : `Applies to all ${plural(ed.notes.length, 'note')} of ${ed.channel?.name || 'this channel'} in ${ed.pattern?.name || 'this pattern'}.`;
 }
 
+// A tool's pattern/channel can change when an asynchronous import selects its result.
+function editorScope(ed) {
+  const { loadVersion } = ed.store;
+  const { pattern, channel } = ed.store.view;
+  return () => ed.store.loadVersion === loadVersion && ed.store.view.pattern === pattern && ed.store.view.channel === channel;
+}
+
 // ------------------------------------------------------------------ quantize
 
 export async function quantizeDialog(ed) {
+  const isCurrent = editorScope(ed);
   if (!ed.channel) return;
   if (!ed.notes.length) {
     ed.app.notify('There are no notes to quantize in this pattern');
@@ -53,8 +62,8 @@ export async function quantizeDialog(ed) {
     h('div.form-grid', ...row('Grid', grid, 'pr-q-grid'), h('label', { for: 'pr-q-strength' }, 'Strength'), h('div.pr-range', strength, out), h('span', 'Move'), h('div.pr-checks', h('label.check', starts, 'Note starts'), h('label.check', ends, 'Note ends'))),
     h('p.pr-note', scopeText(ed)),
   );
-  const r = await openDialog({ title: 'Quantize', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Quantize', value: 'ok', primary: true }] });
-  if (r !== 'ok') return;
+  const r = await openDialog({ store: ed.store, isCurrent, title: 'Quantize', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Quantize', value: 'ok', primary: true }] });
+  if (r !== 'ok' || !isCurrent()) return;
   const opts = { grid: snapTicks(grid.value, 1, ed.sig), strength: Number(strength.value) / 100, starts: starts.checked, ends: ends.checked };
   ed.setPref({ quantize: { grid: grid.value, strength: Number(strength.value), starts: starts.checked, ends: ends.checked } });
   if (!opts.starts && !opts.ends) return;
@@ -71,6 +80,7 @@ const INVERSIONS = [
 ];
 
 export async function chordsDialog(ed) {
+  const isCurrent = editorScope(ed);
   if (!ed.channel) return;
   const stamp = shared.stamp;
   const saved = ed.prefs.chord || {};
@@ -88,8 +98,8 @@ export async function chordsDialog(ed) {
   if (stamp) buttons.push({ label: 'Stamp off', value: 'off' });
   buttons.push({ label: 'Cancel', value: null }, { label: 'Use as stamp', value: 'stamp', primary: !hasSel });
   if (hasSel) buttons.push({ label: 'Chordize selection', value: 'chordize', primary: true });
-  const r = await openDialog({ title: 'Chords', body, buttons });
-  if (!r) return;
+  const r = await openDialog({ store: ed.store, isCurrent, title: 'Chords', body, buttons });
+  if (!r || !isCurrent()) return;
   const settings = { chord: chord.value, inversion: Number(inversion.value) };
   ed.setPref({ chord: settings });
   if (r === 'off') {
@@ -112,6 +122,7 @@ export async function chordsDialog(ed) {
 // ------------------------------------------------------------------ riff
 
 export async function riffDialog(ed) {
+  const isCurrent = editorScope(ed);
   if (!ed.channel) return;
   const p = ed.prefs;
   const saved = p.riff || {};
@@ -158,8 +169,8 @@ export async function riffDialog(ed) {
     ),
     h('p.pr-note', `Writes into ${ed.channel.name}. The same seed always gives the same riff; undo removes it.`),
   );
-  const r = await openDialog({ title: 'Riff generator', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Generate', value: 'ok', primary: true }] });
-  if (r !== 'ok') return;
+  const r = await openDialog({ store: ed.store, isCurrent, title: 'Riff generator', body, buttons: [{ label: 'Cancel', value: null }, { label: 'Generate', value: 'ok', primary: true }] });
+  if (r !== 'ok' || !isCurrent()) return;
   const opts = {
     seed: clamp(Math.round(Number(seed.value) || 1), 1, 999999),
     style: style.value,
@@ -174,7 +185,7 @@ export async function riffDialog(ed) {
     start: Number(at.value) * bar,
   };
   ed.setPref({ riff: { style: opts.style, root: opts.root, scale: opts.scale, low: opts.low, range: opts.range, bars: opts.bars, density: Number(density.value), unit: opts.unit, replace: replace.checked } });
-  const made = generateRiff(opts);
+  const made = generateRiff(opts, ed.notes);
   const end = opts.start + opts.bars * bar;
   ed.applyNotes('Generate riff', (list) => {
     const kept = replace.checked ? list.filter((n) => n.pos + n.len <= opts.start || n.pos >= end) : list;
@@ -189,18 +200,21 @@ export async function riffDialog(ed) {
 // ------------------------------------------------------------------ transpose
 
 export async function transposeDialog(ed) {
+  const isCurrent = editorScope(ed);
   if (!ed.notes.length) {
     ed.app.notify('There are no notes to transpose');
     return;
   }
   const v = await promptDialog({
+    store: ed.store,
+    isCurrent,
     title: 'Transpose notes',
     label: `Semitones (negative moves down). ${scopeText(ed)}`,
     value: '12',
     confirm: 'Transpose',
     validate: (s) => (Number.isInteger(Number(s)) && Math.abs(Number(s)) <= 96 ? '' : 'Enter a whole number between -96 and 96.'),
   });
-  if (v === null) return;
+  if (v === null || !isCurrent()) return;
   const st = Number(v);
   ed.runTool('Transpose', (list, ids) => N.transposeNotes(list, ids, st), `Transposed ${st > 0 ? 'up' : 'down'} ${plural(Math.abs(st), 'semitone')}`);
 }
@@ -213,20 +227,6 @@ export function closeNoteProps() {
   if (!popover) return false;
   popover.close();
   return true;
-}
-
-/** "C#5" or "61" to a MIDI key (null when invalid). */
-export function parseKey(text) {
-  const s = String(text).trim();
-  if (/^\d+$/.test(s)) {
-    const k = Number(s);
-    return k >= 0 && k <= 127 ? k : null;
-  }
-  const m = s.match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
-  if (!m) return null;
-  const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
-  const k = base + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + Number(m[3]) * 12;
-  return k >= 0 && k <= 127 ? k : null;
 }
 
 /** "bar:step:tick" (1-based bar and step) to ticks (null when invalid). */
@@ -243,6 +243,11 @@ export function openNoteProps(ed, note) {
   closeNoteProps();
   const sig = ed.sig;
   const id = note.id;
+  const isCurrent = editorScope(ed);
+  let expected = note;
+  let applying = false;
+  let offChange, offView;
+  const unchanged = () => isCurrent() && ed.noteById(id) === expected;
   const field = (label, input, hint) => h('label.pr-pop-field', h('span', label), input, hint ? h('span.pr-pop-hint', hint) : null);
   const key = h('input.input.sm', { type: 'text', value: keyName(note.key), 'aria-label': 'Pitch', spellcheck: false });
   const pos = h('input.input.sm', { type: 'text', value: formatBST(note.pos, sig), 'aria-label': 'Start (bar:step:tick)', spellcheck: false });
@@ -259,9 +264,10 @@ export function openNoteProps(ed, note) {
     error,
   );
   const apply = () => {
+    if (!popover || popover.el !== el) return;
     const current = ed.noteById(id);
-    if (!current) {
-      close();
+    if (!unchanged()) {
+      close(false);
       return;
     }
     const k = parseKey(key.value);
@@ -277,7 +283,13 @@ export function openNoteProps(ed, note) {
     error.textContent = '';
     const changes = { key: k, pos: p, len: l, vel: Math.round(v) / 100, pan: Math.round(pn) / 100 };
     if (Object.keys(changes).every((f) => current[f] === changes[f] || (f === 'pan' && (current.pan ?? 0) === changes.pan))) return;
-    ed.applyNotes('Edit note', (list) => N.patchNotes(list, { [id]: changes }));
+    applying = true;
+    try {
+      ed.applyNotes('Edit note', (list) => N.patchNotes(list, { [id]: changes }));
+      expected = ed.noteById(id);
+    } finally {
+      applying = false;
+    }
     ed.remember({ len: l, vel: changes.vel });
     if (k !== current.key) ed.audition(k, changes.vel, { hold: false });
     announce(`${keyName(k)} updated`);
@@ -297,6 +309,8 @@ export function openNoteProps(ed, note) {
   const close = (refocus = true) => {
     if (!popover || popover.el !== el) return;
     popover = null;
+    offChange?.();
+    offView?.();
     el.remove();
     document.removeEventListener('pointerdown', outside, true);
     if (refocus) ed.surface.focus({ preventScroll: true });
@@ -329,6 +343,11 @@ export function openNoteProps(ed, note) {
     if (el.isConnected) document.addEventListener('pointerdown', outside, true);
   }, 0);
   popover = { el, close };
+  const check = () => {
+    if (!applying && !unchanged()) close(false);
+  };
+  offChange = ed.store.on('change', check);
+  offView = ed.store.on('view', check);
   key.focus();
   key.select();
 }

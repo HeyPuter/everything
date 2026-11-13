@@ -3,6 +3,7 @@ import { keyForCode, octaveRange, clampOctave, LOWER_ROW, UPPER_ROW, BASE_KEY } 
 import { TypingKeyboard } from '../src/input/typing.js';
 import { LiveInput } from '../src/input/live.js';
 import { parseMidi, MidiInput } from '../src/input/midi.js';
+import { install as installInput } from '../src/input/index.js';
 import { msToTicks, patternTick, recordedNote, clipAt, Recorder } from '../src/input/recorder.js';
 import { Store } from '../src/model/store.js';
 import { Emitter } from '../src/lib/emitter.js';
@@ -10,6 +11,8 @@ import { demoProject } from '../src/model/demo.js';
 import * as E from '../src/model/edits.js';
 import { shared } from '../src/pianoroll/state.js';
 import { PPQ, STEP } from '../src/model/time.js';
+import { tempoMap } from '../src/engine/compile.js';
+import { tempoToNorm } from '../src/engine/tempo.js';
 
 function fakeApp() {
   const store = new Store(demoProject());
@@ -40,6 +43,24 @@ function fakeApp() {
 const key = (code, extra = {}) => ({ code, key: code, repeat: false, ctrlKey: false, metaKey: false, altKey: false, target: document.body, ...extra });
 
 describe('typing keyboard map', () => {
+  it('does not replay a released attack when the same key is pressed during audio startup', async () => {
+    const app = fakeApp();
+    app.engine.ready = false;
+    let ready;
+    const starting = new Promise((resolve) => { ready = resolve; });
+    app.engine.start.mockReturnValue(starting);
+    const live = new LiveInput(app, null);
+    live.noteOn(60, 0.2, 'typing');
+    live.noteOff(60, 'typing');
+    live.noteOn(60, 0.9, 'typing');
+    ready(true);
+    await starting;
+    expect(app.engine.noteOn).toHaveBeenCalledTimes(1);
+    expect(app.engine.noteOn).toHaveBeenCalledWith(app.store.view.channel, 60, 0.9);
+    live.noteOff(60, 'typing');
+    expect(live.isHeld(60)).toBe(false);
+  });
+
   it('maps two rows to two octaves like piano keys', () => {
     expect(keyForCode('KeyZ')).toBe(BASE_KEY);
     expect(keyForCode('KeyS')).toBe(BASE_KEY + 1);
@@ -89,6 +110,88 @@ describe('typing keyboard map', () => {
 });
 
 describe('MIDI input', () => {
+  it('keeps a newer toggle enabled when a canceled startup request completes', async () => {
+    const app = fakeApp();
+    app.prefs.set('midiInput', true);
+    const commands = [];
+    app.commands = { register: (...items) => commands.push(...items) };
+    let finishStartup;
+    const startup = new Promise((resolve) => { finishStartup = resolve; });
+    const current = { inputs: new Map(), onstatechange: null };
+    vi.stubGlobal('navigator', { requestMIDIAccess: vi.fn().mockReturnValueOnce(startup).mockResolvedValueOnce(current) });
+    try {
+      const { midi } = installInput(app);
+      const toggle = commands.find((c) => c.id === 'options.midiInput');
+      await toggle.run(); // off while startup is pending
+      await toggle.run(); // on with a new request
+      finishStartup({ inputs: new Map(), onstatechange: null });
+      await startup;
+      await Promise.resolve();
+      expect(app.prefs.get('midiInput')).toBe(true);
+      expect(midi.access).toBe(current);
+      midi.disable();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('releases only the disconnected device and clears its sustain state', () => {
+    const app = fakeApp();
+    const live = new LiveInput(app, null);
+    const midi = new MidiInput(app, live);
+    const port = { id: 'a', name: 'Keyboard A', type: 'input', state: 'disconnected', onmidimessage: midi.onMessage };
+    midi.onMessage({ target: port, data: [0xb0, 64, 127] });
+    midi.onMessage({ target: port, data: [0x90, 60, 100] });
+    midi.onMessage({ target: port, data: [0x80, 60, 0] });
+    midi.handle([0x90, 62, 100], 'b');
+    live.noteOn(64, 0.8, 'typing');
+    midi.onState({ port });
+    expect(live.isHeld(60)).toBe(false);
+    expect(port.onmidimessage).toBeNull();
+    expect(live.isHeld(62)).toBe(true);
+    expect(live.isHeld(64)).toBe(true);
+    port.state = 'connected';
+    midi.onState({ port });
+    port.onmidimessage({ target: port, data: [0x90, 60, 100] });
+    port.onmidimessage({ target: port, data: [0x80, 60, 0] });
+    expect(live.isHeld(60)).toBe(false);
+  });
+
+  it.each([
+    ['channels', 0x91, 'keyboard-a'],
+    ['devices', 0x90, 'keyboard-b'],
+  ])('keeps overlapping keys held independently across MIDI %s', (_label, status, port) => {
+    const app = fakeApp();
+    const live = new LiveInput(app, null);
+    const midi = new MidiInput(app, live);
+    midi.handle([0x90, 60, 100], 'keyboard-a');
+    midi.handle([status, 60, 100], port);
+    midi.handle([0x80, 60, 0], 'keyboard-a');
+    expect(live.isHeld(60)).toBe(true);
+    expect(app.engine.noteOff).not.toHaveBeenCalled();
+    midi.handle([status - 0x10, 60, 0], port);
+    expect(live.isHeld(60)).toBe(false);
+    expect(app.engine.noteOff).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies sustain and all-notes-off only to their device and MIDI channel', () => {
+    const app = fakeApp();
+    const live = new LiveInput(app, null);
+    const midi = new MidiInput(app, live);
+    midi.handle([0xb0, 64, 127], 'keyboard-a');
+    midi.handle([0x91, 62, 100], 'keyboard-a');
+    midi.handle([0x81, 62, 0], 'keyboard-a');
+    expect(live.isHeld(62)).toBe(false);
+    midi.handle([0x90, 60, 100], 'keyboard-a');
+    midi.handle([0x80, 60, 0], 'keyboard-a');
+    midi.handle([0x90, 64, 100], 'keyboard-b');
+    midi.handle([0xb0, 120, 0], 'keyboard-b');
+    expect(live.isHeld(64)).toBe(false);
+    expect(live.isHeld(60)).toBe(true);
+    midi.handle([0xb0, 64, 0], 'keyboard-a');
+    expect(live.isHeld(60)).toBe(false);
+  });
+
   it('parses note and controller messages', () => {
     expect(parseMidi([0x90, 60, 127])).toMatchObject({ type: 'on', key: 60, vel: 1 });
     expect(parseMidi([0x91, 60, 0])).toMatchObject({ type: 'off', key: 60, channel: 1 });
@@ -144,6 +247,236 @@ describe('recording timing', () => {
 });
 
 describe('recorder', () => {
+  it('auditions notes during count-in without recording notes released before playback starts', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const live = new LiveInput(app, rec);
+    const before = app.store.project;
+    Object.assign(app.engine, { recording: true, playing: true, countingIn: true });
+    app.engine.emit('state');
+    live.noteOn(67, 0.9, 'midi');
+    live.noteOff(67, 'midi');
+    expect(app.engine.noteOn).toHaveBeenCalledWith(app.store.view.channel, 67, 0.9);
+    expect(app.engine.noteOff).toHaveBeenCalledWith(app.store.view.channel, 67);
+    expect(app.store.project).toBe(before);
+    app.engine.countingIn = false;
+    app.engine.emit('state');
+    app.engine.playing = false;
+    app.engine.emit('state');
+    expect(app.store.project).toBe(before);
+    expect(app.store.gesture).toBeNull();
+    expect(app.notify).not.toHaveBeenCalled();
+  });
+
+  it('records notes held across count-in from playback start on their original channel', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
+    const rec = new Recorder(app, null);
+    const live = new LiveInput(app, rec);
+    const channel = app.store.view.channel;
+    const pattern = app.store.view.pattern;
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    try {
+      Object.assign(app.engine, { recording: true, playing: true, countingIn: true, position: 0 });
+      app.engine.emit('state');
+      live.noteOn(67, 0.9, 'midi');
+      app.store.setChannel(app.store.project.channels[1].id);
+      now.mockReturnValue(1500);
+      app.engine.countingIn = false;
+      app.engine.emit('state');
+      now.mockReturnValue(1750);
+      live.noteOff(67, 'midi');
+      app.engine.playing = false;
+      app.engine.emit('state');
+      const note = E.getNotes(app.store.project, pattern, channel).find((n) => n.key === 67);
+      expect(note).toMatchObject({ pos: 0, len: 48, vel: 0.9 });
+      expect(app.notify).toHaveBeenCalledExactlyOnceWith('Recorded 1 note');
+    } finally { now.mockRestore(); }
+  });
+
+  it('discards a canceled count-in without inserting its held notes into a later take', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const before = app.store.project;
+    Object.assign(app.engine, { recording: true, playing: true, countingIn: true });
+    rec.noteOn(67, 0.9, app.store.view.channel);
+    Object.assign(app.engine, { playing: false, countingIn: false });
+    app.engine.emit('state');
+    app.engine.playing = true;
+    app.engine.emit('state');
+    rec.noteOff(67);
+    expect(app.store.project).toBe(before);
+    expect(app.store.gesture).toBeNull();
+  });
+
+  it('reports and resets the take count when stopping after all notes were committed by a loop', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true });
+    rec.noteOn(67, 0.9, app.store.view.channel);
+    rec.noteOff(67);
+    app.engine.emit('loop');
+    app.engine.playing = false;
+    app.engine.emit('state');
+    expect(app.notify).toHaveBeenLastCalledWith('Recorded 1 note');
+    app.notify.mockClear();
+    app.engine.playing = true;
+    rec.noteOn(69, 0.9, app.store.view.channel);
+    rec.noteOff(69);
+    app.engine.playing = false;
+    app.engine.emit('state');
+    expect(app.notify).toHaveBeenCalledExactlyOnceWith('Recorded 1 note');
+  });
+
+  it('does not count a transport seek as held note duration and finishes at stop before position resets', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true, position: 0 });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      rec.noteOn(67, 0.9, app.store.view.channel);
+      now.mockReturnValue(1500);
+      app.engine.position = 240;
+      app.engine.emit('state'); // seek while recording
+      now.mockReturnValue(2000);
+      Object.assign(app.engine, { playing: false, position: 0 });
+      app.engine.emit('state');
+      const note = E.getNotes(app.store.project, app.store.view.pattern, app.store.view.channel).find((n) => n.key === 67);
+      expect(note.len).toBe(192);
+      expect(app.store.gesture).toBeNull();
+    } finally { now.mockRestore(); }
+  });
+
+  it('measures a held note across a manual tempo change without retiming its earlier portion', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 120 }));
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true, position: 0 });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      rec.noteOn(67, 0.9, app.store.view.channel);
+      now.mockReturnValue(1500);
+      app.engine.position = 96;
+      app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 60 }));
+      now.mockReturnValue(2000);
+      rec.noteOff(67);
+      const note = E.getNotes(app.store.project, app.store.view.pattern, app.store.view.channel).find((n) => n.key === 67);
+      expect(note.len).toBe(144); // 96 ticks at 120 BPM, then 48 at 60 BPM
+    } finally { now.mockRestore(); }
+  });
+
+  it('measures recorded note lengths through a song tempo ramp', () => {
+    const app = fakeApp();
+    app.store.apply('Tempo ramp', (p) => ({
+      ...p, bpm: 120,
+      automation: { tempo: { id: 'tempo', target: { kind: 'tempo' }, points: [{ t: 0, v: tempoToNorm(60) }, { t: 384, v: tempoToNorm(180) }] } },
+      clips: [{ id: 'tempo-clip', kind: 'auto', ref: 'tempo', start: 0, len: 384, offset: 0, track: 0 }],
+    }));
+    const elapsed = tempoMap(app.store.project).seconds(192) * 1000;
+    const rec = new Recorder(app, null);
+    Object.assign(app.engine, { recording: true, playing: true, mode: 'song', position: 0 });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      rec.noteOn(67, 0.9, app.store.view.channel);
+      now.mockReturnValue(1000 + elapsed);
+      rec.noteOff(67);
+      const note = E.getNotes(app.store.project, app.store.view.pattern, app.store.view.channel).find((n) => n.key === 67);
+      expect(note.len).toBe(192);
+    } finally { now.mockRestore(); }
+  });
+
+  it('keeps released notes when a loop ends during another editing gesture', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const pat = app.store.view.pattern;
+    const ch = app.store.view.channel;
+    const before = E.getNotes(app.store.project, pat, ch).length;
+    app.store.begin('Drag');
+    Object.assign(app.engine, { recording: true, playing: true });
+    rec.noteOn(67, 0.9, ch);
+    rec.noteOff(67);
+    app.engine.emit('loop');
+    app.store.commit();
+    app.emit('frame');
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before + 1);
+    expect(app.store.gesture === null).toBe(true);
+    app.store.undo();
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before);
+  });
+
+  it('preserves separate stopped takes and their lengths while a drag blocks their writes', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const pat = app.store.view.pattern;
+    const ch = app.store.view.channel;
+    const before = E.getNotes(app.store.project, pat, ch).length;
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    try {
+      app.store.begin('Drag');
+      Object.assign(app.engine, { recording: true, playing: true });
+      rec.noteOn(67, 0.9, ch);
+      now.mockReturnValue(1250);
+      app.engine.playing = false;
+      app.engine.emit('state');
+      app.engine.playing = true;
+      rec.noteOn(69, 0.8, ch);
+      now.mockReturnValue(1500);
+      app.engine.playing = false;
+      app.engine.emit('state');
+      now.mockReturnValue(5000);
+      app.store.commit();
+      app.emit('frame');
+      const notes = E.getNotes(app.store.project, pat, ch);
+      expect(notes).toHaveLength(before + 2);
+      expect(notes.filter((n) => n.key === 67 || n.key === 69).map((n) => n.len)).toEqual([50, 50]);
+      app.store.undo();
+      expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before + 1);
+      app.store.undo();
+      expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each(['commit', 'cancel'])('keeps a take stopped during another gesture after the gesture %s', (finish) => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const pat = app.store.view.pattern;
+    const ch = app.store.view.channel;
+    const before = E.getNotes(app.store.project, pat, ch).length;
+    Object.assign(app.engine, { recording: true, playing: true });
+    app.store.begin('Change tempo');
+    app.store.preview((p) => E.setProjectProps(p, { bpm: 110 }));
+    rec.noteOn(67, 0.9, ch);
+    app.engine.playing = false;
+    app.engine.emit('state');
+    app.store[finish]();
+    app.emit('frame');
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before + 1);
+    expect(app.store.gesture).toBeNull();
+    expect(app.store.undoLabel).toBe('Record notes');
+    app.store.undo();
+    expect(E.getNotes(app.store.project, pat, ch)).toHaveLength(before);
+    expect(app.store.project.bpm).toBe(finish === 'commit' ? 110 : 124);
+  });
+
+  it('does not apply a deferred take to a replacement project with the same IDs', () => {
+    const app = fakeApp();
+    const rec = new Recorder(app, null);
+    const original = app.store.project;
+    Object.assign(app.engine, { recording: true, playing: true });
+    app.store.begin('Change tempo');
+    rec.noteOn(67, 0.9, app.store.view.channel);
+    app.engine.playing = false;
+    app.engine.emit('state');
+    app.store.load(structuredClone(original));
+    app.emit('frame');
+    expect(app.store.project).toEqual(original);
+    expect(app.store.gesture).toBeNull();
+    expect(app.store.canUndo).toBe(false);
+  });
+
   it('records a take as one undo step while recording and playing', () => {
     const app = fakeApp();
     const rec = new Recorder(app, null);

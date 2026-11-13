@@ -10,7 +10,12 @@ import { createKnob } from '../../ui/knob.js';
 export function paramControl(ctx, def, value, { size = 36 } = {}) {
   if (def.options && def.options.length <= 4) return segmented(ctx, def, value);
   if (def.options) return selectControl(ctx, def, value);
-  const knob = createKnob({ param: def, value, size, label: def.label, ...ctx.ctl.paramGesture(ctx.track, ctx.slotId, def) });
+  const gesture = ctx.ctl.paramGesture(ctx.track, ctx.slotId, def);
+  const knob = createKnob({ param: def, value, size, label: def.label, ...gesture });
+  ctx.disposers?.push(() => {
+    knob.cancel();
+    gesture.onEnd();
+  });
   knob.el.classList.add('fxw-knob');
   knob.el.dataset.param = def.id;
   return { el: knob.el, set: (v) => knob.set(v), def };

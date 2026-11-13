@@ -32,7 +32,7 @@ export async function signIn() {
 
 export async function signOut() {
   if (!canSignOut()) return;
-  cachedHome = null;
+  resetAccountCache();
   await sdk()?.auth.signOut();
 }
 
@@ -78,6 +78,11 @@ export async function writeFile(path, data, options = {}) {
 
 // ------------------------------------------------------------ file browsing
 
+let accountGeneration = 0;
+const requireCurrentAccount = (generation) => {
+  if (generation !== accountGeneration) throw new Error('Your Puter account changed. Please try again.');
+};
+
 let cachedHome = null; // { username, home } for the signed-in session
 
 /** The signed-in user's home folder ("/username"), or "~" when unknown. */
@@ -87,7 +92,9 @@ export async function homeDir() {
     return '~';
   }
   if (cachedHome) return cachedHome.home;
+  const generation = accountGeneration;
   const user = await getUser();
+  requireCurrentAccount(generation);
   if (!user?.username) return '~';
   cachedHome = { username: user.username, home: `/${user.username}` };
   return cachedHome.home;
@@ -95,6 +102,7 @@ export async function homeDir() {
 
 /** Forgets cached account details (after sign-in changes). */
 export function resetAccountCache() {
+  accountGeneration++;
   cachedHome = null;
   cachedAppDir = null;
 }
@@ -111,13 +119,16 @@ let cachedAppDir = null;
  */
 export async function appDir() {
   if (cachedAppDir) return cachedAppDir;
+  const generation = accountGeneration;
   const fs = sdk().fs;
   let item;
   try {
     item = await fs.stat('Projects');
   } catch {
+    requireCurrentAccount(generation);
     item = await fs.mkdir('Projects', { createMissingParents: true });
   }
+  requireCurrentAccount(generation);
   const path = item?.path || '';
   // FSItem paths are absolute ('/user/AppData/app-.../Projects'); fall back to relative paths.
   cachedAppDir = path.startsWith('/') ? dirname(path) : '.';

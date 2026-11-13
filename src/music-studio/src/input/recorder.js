@@ -18,8 +18,10 @@
 import * as E from '../model/edits.js';
 import { patternById, patternLength } from '../model/project.js';
 import { PPQ, snapRound } from '../model/time.js';
-import { uid } from '../lib/util.js';
+import { uid, reserveId } from '../lib/util.js';
 import { shared, sharedEvents } from '../pianoroll/state.js';
+import { playRange, tempoMap } from '../engine/compile.js';
+import { advanceRecordingClock } from './recording-clock.js';
 
 // ------------------------------------------------------------------ timing math
 
@@ -78,30 +80,79 @@ export class Recorder {
   constructor(app, live) {
     this.app = app;
     this.live = live;
-    this.take = new Map(); // note id -> { id, key, vel, pattern, channel, pos, started, open, len }
-    this.byKey = new Map(); // key -> note id (open notes)
+    this.take = new Map(); // allocation id -> { identity, key, vel, pattern, channel, pos, started, open, len }
+    this.byKey = new Map(); // key -> allocation id (open notes)
+    this.countInHeld = new Map(); // attacks held until the count-in finishes
     this.gesture = null;
     this.pending = false;
+    this.finished = []; // completed passes waiting for another editing gesture
     this.lastGrow = 0;
     this.stepHeld = 0;
     this.stepAdvance = 0;
+    this.clock = null;
     const engine = app.engine;
     engine.on('state', () => {
-      if (!(engine.recording && engine.playing) && this.take.size) this.endTake();
+      if (!(engine.recording && engine.playing)) {
+        this.countInHeld.clear();
+        if (this.take.size || this.takeTotal) this.endTake();
+      }
+      if (this.active) {
+        this.resetClock();
+        const held = [...this.countInHeld];
+        this.countInHeld.clear();
+        for (const [key, { vel, channel }] of held) this.noteOn(key, vel, channel);
+      } else this.clock = null;
     });
     engine.on('loop', () => {
       if (this.take.size) this.commitPass();
     });
     app.on('frame', () => this.frame());
+    app.store.on('view', () => this.resetClock());
+    app.store.on('change', (p, prev, info) => {
+      if (info?.source !== 'load') {
+        if (p.bpm !== prev.bpm || p.automation !== prev.automation || p.clips !== prev.clips || p.tracks !== prev.tracks || p.loop !== prev.loop || p.sig !== prev.sig) this.resetClock();
+        return;
+      }
+      this.finished = [];
+      this.pending = false;
+      this.take.clear();
+      this.byKey.clear();
+      this.countInHeld.clear();
+      this.gesture = null;
+      this.takeTotal = 0;
+      this.clock = null;
+    });
   }
 
   get active() {
     const e = this.app.engine;
-    return Boolean(e.recording && e.playing);
+    return Boolean(e.recording && e.playing && !e.countingIn);
   }
 
   get stepEditing() {
     return Boolean(this.app.prefs.get('stepEditing')) && !this.app.engine.playing;
+  }
+
+  clockConfig() {
+    const { store, engine } = this.app;
+    return { map: tempoMap(store.project, engine.mode), range: engine.range?.() || playRange(store.project, engine.mode, store.view.pattern), tick: engine.position };
+  }
+
+  /** Elapsed musical ticks, excluding seeks and preserving earlier tempo segments. */
+  readClock(now = performance.now()) {
+    if (!this.clock) this.clock = { ...this.clockConfig(), at: now, elapsed: 0 };
+    const c = this.clock;
+    const next = advanceRecordingClock(c.map, c.tick, (now - c.at) / 1000, c.range);
+    c.tick = next.tick;
+    c.elapsed += next.elapsed;
+    c.at = now;
+    return c.elapsed;
+  }
+
+  resetClock() {
+    if (!this.clock) return;
+    this.readClock(); // finish the old tempo segment before reading the new map
+    Object.assign(this.clock, this.clockConfig());
   }
 
   patternInfo() {
@@ -111,13 +162,29 @@ export class Recorder {
     return { pattern, patLen, tick: patternTick(engine.position, { mode: engine.mode, patternId: pattern.id, patLen, clips: store.project.clips }) };
   }
 
+  /** Keep live, queued and existing notes distinct before a take reaches the model. */
+  newNoteId(pattern, channel) {
+    const { store } = this.app;
+    const current = E.getNotes(store.project, pattern, channel);
+    // A concurrent drag may hide a note that cancel will restore.
+    const start = store.gesture ? E.getNotes(store.gesture.start, pattern, channel) : current;
+    let id = uid(6);
+    while (this.take.has(id) || current.some((n) => n.id === id) || (start !== current && start.some((n) => n.id === id)) || this.finished.some((pass) => pass.ids.has(id))) id = uid(6);
+    return id;
+  }
+
   /** Called by the live input for every note on. Returns true when the note was recorded or step-edited. */
   noteOn(key, vel, channel) {
     if (!channel) return false;
+    const engine = this.app.engine;
+    if (engine.recording && engine.playing && engine.countingIn) {
+      this.countInHeld.set(key, { vel, channel });
+      return false;
+    }
     if (this.active) {
       const { pattern, tick } = this.patternInfo();
-      const id = uid(6);
-      this.take.set(id, { id, key, vel, pattern: pattern.id, channel, pos: tick, started: performance.now(), open: true, len: 0 });
+      const id = this.newNoteId(pattern.id, channel);
+      this.take.set(id, { identity: { id, inserted: false }, key, vel, pattern: pattern.id, channel, pos: tick, started: this.readClock(), open: true, len: 0 });
       this.byKey.set(key, id);
       this.takeTotal = (this.takeTotal || 0) + 1;
       this.write();
@@ -131,6 +198,7 @@ export class Recorder {
   }
 
   noteOff(key) {
+    this.countInHeld.delete(key);
     if (this.stepHeld > 0) {
       this.stepHeld--;
       if (this.stepHeld === 0 && this.stepAdvance) {
@@ -145,7 +213,7 @@ export class Recorder {
     const n = this.take.get(id);
     if (!n) return;
     n.open = false;
-    n.len = msToTicks(performance.now() - n.started, this.app.store.project.bpm);
+    n.len = this.readClock() - n.started;
     this.write();
   }
 
@@ -153,7 +221,7 @@ export class Recorder {
     const { pattern } = this.patternInfo();
     const len = shared.grid > 0 ? shared.grid : 24;
     const pos = Math.max(0, Math.round(shared.cursor.tick));
-    const note = { id: uid(6), key, pos, len, vel, pan: 0 };
+    const note = { id: this.newNoteId(pattern.id, channel), key, pos, len, vel, pan: 0 };
     this.app.store.apply('Step edit note', (p) => E.addNotes(p, pattern.id, channel, [note]));
     this.stepHeld++;
     this.stepAdvance = len;
@@ -168,16 +236,23 @@ export class Recorder {
     }
     this.pending = false;
     if (!store.gesture) {
+      this.flushFinished();
       store.begin('Record notes');
       this.gesture = store.gesture;
     }
-    const bpm = store.project.bpm;
+    store.preview(this.editTake());
+  }
+
+  /** Captures this pass so a stopped take can be applied after another drag. */
+  editTake(snapshot = false) {
     const quantize = Boolean(this.app.prefs.get('recordQuantize'));
-    const now = performance.now();
-    store.preview((base) => {
+    const grid = shared.grid;
+    const now = this.readClock();
+    const notes = snapshot ? [...this.take.values()].map((n) => ({ ...n })) : this.take.values();
+    return (base) => {
       let next = base;
       const groups = new Map();
-      for (const n of this.take.values()) {
+      for (const n of notes) {
         const k = `${n.pattern}|${n.channel}`;
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(n);
@@ -187,20 +262,48 @@ export class Recorder {
         const pat = patternById(next, pid);
         if (!pat || !next.channels.some((c) => c.id === cid)) continue;
         const patLen = patternLength(pat, next.sig);
-        const ids = new Set(list.map((n) => n.id));
-        const kept = E.getNotes(next, pid, cid).filter((n) => !ids.has(n.id));
+        const existing = E.getNotes(next, pid, cid);
+        let occupied = null;
+        let reserved = null;
+        for (const { identity } of list) {
+          if (identity.inserted) continue;
+          // A different gesture can allocate the same ID while this note is
+          // waiting. Resolve it at first insertion, then share the result with
+          // held notes and shallow snapshots of later loop passes.
+          occupied ??= new Set(existing.map((n) => n.id));
+          if (occupied.has(identity.id)) {
+            if (!reserved) {
+              reserved = new Set(occupied);
+              for (const n of list) reserved.add(n.identity.id);
+            }
+            identity.id = reserveId(reserved);
+          }
+          identity.inserted = true;
+        }
+        const ids = new Set(list.map((n) => n.identity.id));
+        const kept = existing.filter((n) => !ids.has(n.id));
         const added = list.map((n) => {
-          const elapsed = n.open ? msToTicks(now - n.started, bpm) : n.len;
-          const r = recordedNote(n.pos, elapsed, { patLen, grid: shared.grid, quantize });
-          return { id: n.id, key: n.key, pos: r.pos, len: r.len, vel: n.vel, pan: 0 };
+          const elapsed = n.open ? now - n.started : n.len;
+          const r = recordedNote(n.pos, elapsed, { patLen, grid, quantize });
+          return { id: n.identity.id, key: n.key, pos: r.pos, len: r.len, vel: n.vel, pan: 0 };
         });
         next = E.setNotes(next, pid, cid, [...kept, ...added]);
       }
       return next;
-    });
+    };
+  }
+
+  flushFinished() {
+    if (!this.app.store.gesture && this.finished.length) {
+      for (const { edit, count } of this.finished.splice(0)) {
+        this.app.store.apply('Record notes', edit);
+        this.notifyTake(count);
+      }
+    }
   }
 
   frame() {
+    this.flushFinished();
     if (this.pending && !this.app.store.gesture) this.write();
     if (!this.byKey.size || !this.active) return;
     const now = performance.now();
@@ -212,28 +315,41 @@ export class Recorder {
   /** Commits the loop pass; held notes carry on into the next step. */
   commitPass() {
     const store = this.app.store;
+    if (this.take.size && store.gesture && store.gesture !== this.gesture) {
+      this.finished.push({ edit: this.editTake(true), count: 0, ids: new Set(this.take.keys()) });
+    }
     if (store.gesture && store.gesture === this.gesture) store.commit();
     this.gesture = null;
     for (const [id, n] of [...this.take]) if (!n.open) this.take.delete(id);
+    if (!this.take.size) this.pending = false;
   }
 
   endTake() {
-    const now = performance.now();
-    const bpm = this.app.store.project.bpm;
+    const now = this.readClock();
     for (const n of this.take.values()) {
       if (n.open) {
         n.open = false;
-        n.len = msToTicks(now - n.started, bpm);
+        n.len = now - n.started;
       }
     }
-    if (this.take.size) this.write();
     const store = this.app.store;
     const count = this.takeTotal || this.take.size;
+    if (this.take.size && store.gesture && store.gesture !== this.gesture) {
+      this.finished.push({ edit: this.editTake(true), count, ids: new Set(this.take.keys()) });
+    } else {
+      if (this.take.size) this.write();
+      if (store.gesture && store.gesture === this.gesture) store.commit();
+      this.notifyTake(count);
+    }
     this.takeTotal = 0;
-    if (store.gesture && store.gesture === this.gesture) store.commit();
+    this.pending = false;
     this.gesture = null;
     this.take.clear();
     this.byKey.clear();
+    this.clock = null;
+  }
+
+  notifyTake(count) {
     if (count) this.app.notify?.(`Recorded ${count} note${count === 1 ? '' : 's'}`);
   }
 }

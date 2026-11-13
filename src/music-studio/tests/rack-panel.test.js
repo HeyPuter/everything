@@ -25,6 +25,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   cancelAnimationFrame(app.raf);
   document.querySelectorAll('.float-win .win-head > button').forEach((b) => b.click());
 });
@@ -36,6 +38,387 @@ const notes = (id = kickId()) => app.store.pattern.notes[id] || [];
 const pointer = (type, el, opts = {}) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 0, clientY: 0, ...opts }));
 
 describe('channel rack panel', () => {
+  it('resynchronizes the mixer insert picker when undo interrupts a key gesture', () => {
+    const spin = rowEl(0).querySelector('[role="spinbutton"]');
+    const press = () => spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    press();
+    expect(app.store.project.channels[0].mixer).toBe(2);
+    app.store.undo();
+    expect(spin.getAttribute('aria-valuenow')).toBe('1');
+    press();
+    expect(app.store.project.channels[0].mixer).toBe(2);
+    spin.dispatchEvent(new Event('blur'));
+    app.store.undo();
+    expect(app.store.project.channels[0].mixer).toBe(1);
+  });
+
+  function insertControl() {
+    const spin = rowEl(0).querySelector('[role="spinbutton"]');
+    spin.setPointerCapture = vi.fn();
+    spin.releasePointerCapture = vi.fn();
+    const send = (type, y = 300, id = 1) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
+      Object.defineProperty(event, 'pointerId', { value: id });
+      spin.dispatchEvent(event);
+    };
+    return { spin, send };
+  }
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'window blur'])('finishes mixer assignment on %s without stale movement', (end) => {
+    const { spin, send } = insertControl();
+    const store = app.store;
+    const before = store.project;
+    send('pointerdown');
+    send('pointermove', 292);
+    expect(store.project.channels[0].mixer).toBe(2);
+    if (end === 'blur') spin.blur();
+    else if (end === 'window blur') window.dispatchEvent(new Event('blur'));
+    else send(end, 292);
+    expect(Boolean(store.gesture)).toBe(false);
+    const finished = store.project;
+    expect(store.undoStack).toHaveLength(1);
+    send('pointermove', 276);
+    send('pointerup', 276);
+    send('lostpointercapture', 276);
+    expect(store.project).toBe(finished);
+    expect(store.undoStack).toHaveLength(1);
+    send('pointerdown');
+    send('pointermove', 292);
+    send('pointerup', 292);
+    expect(store.project.channels[0].mixer).toBe(3);
+    store.undo();
+    expect(store.project).toBe(finished);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture'])('ignores a competing mixer-assignment pointer and its %s', (end) => {
+    const { send } = insertControl();
+    const store = app.store;
+    const before = store.project;
+    send('pointerdown');
+    send('pointermove', 292);
+    send('pointerdown', 250, 2);
+    send('pointermove', 226, 2);
+    send(end, 226, 2);
+    expect(store.project.channels[0].mixer).toBe(2);
+    expect(Boolean(store.gesture)).toBe(true);
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(store.project.channels[0].mixer).toBe(3);
+    expect(store.undoStack).toHaveLength(1);
+    send('pointermove', 200, 2);
+    send('pointerup', 200, 2);
+    expect(store.project.channels[0].mixer).toBe(3);
+    store.undo();
+    expect(store.project).toBe(before);
+  });
+
+  it.each(['load', 'undo', 'redo'])('discards a pending mixer-assignment drag after %s with the same displayed value', (action) => {
+    const store = app.store;
+    if (action !== 'load') {
+      store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+      if (action === 'redo') store.undo();
+    }
+    const { send } = insertControl();
+    send('pointerdown');
+    if (action === 'load') store.load(structuredClone(store.project));
+    else store[action]();
+    const restored = store.project;
+    const history = store.undoStack.length;
+    const canRedo = store.canRedo;
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(store.project === restored).toBe(true);
+    expect(store.undoStack).toHaveLength(history);
+    expect(store.canRedo).toBe(canRedo);
+    const current = insertControl();
+    current.send('pointerdown');
+    current.send('pointermove', 292);
+    current.send('pointerup', 292);
+    expect(store.project.channels[0].mixer).toBe(2);
+    store.undo();
+    expect(store.project === restored).toBe(true);
+  });
+
+  it.each(['key', 'wheel'])('does not let an obsolete assignment %s timer commit a newer edit', (input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const { spin } = insertControl();
+    if (input === 'key') spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    else spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    expect(store.project.channels[0].mixer).toBe(2);
+    store.load(structuredClone(store.project));
+    store.begin('Tempo');
+    store.preview((p) => ({ ...p, bpm: 150 }));
+    const newer = store.gesture;
+    vi.advanceTimersByTime(600);
+    expect(store.gesture === newer).toBe(true);
+    expect(store.undoStack).toHaveLength(0);
+    store.cancel();
+    expect(store.project.bpm).toBe(130);
+    expect(store.project.channels[0].mixer).toBe(2);
+  });
+
+  it.each(['key', 'wheel'])('finishes assignment %s input on window blur before another gesture starts', (input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const { spin } = insertControl();
+    if (input === 'key') spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    else spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    window.dispatchEvent(new Event('blur'));
+    expect(Boolean(store.gesture)).toBe(false);
+    expect(store.undoStack).toHaveLength(1);
+    store.begin('Tempo');
+    store.preview((p) => ({ ...p, bpm: 150 }));
+    const newer = store.gesture;
+    vi.advanceTimersByTime(600);
+    expect(store.gesture === newer).toBe(true);
+    store.cancel();
+    expect(store.project.bpm).toBe(130);
+    store.undo();
+    expect(store.project.channels[0].mixer).toBe(1);
+  });
+
+  it('clears a pending assignment drag on window blur before any movement', () => {
+    const { spin, send } = insertControl();
+    const before = app.store.project;
+    send('pointerdown');
+    window.dispatchEvent(new Event('blur'));
+    expect(spin.classList.contains('dragging')).toBe(false);
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(app.store.project).toBe(before);
+    expect(Boolean(app.store.gesture)).toBe(false);
+    expect(app.store.undoStack).toHaveLength(0);
+  });
+
+  it.each(['key', 'wheel', 'pointer', 'pending pointer'])('discards a deleted channel assignment control and its stale %s input', async (input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const id = kickId();
+    const { spin, send } = insertControl();
+    spin.focus();
+    if (input === 'key') spin.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    else if (input === 'wheel') spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    else {
+      send('pointerdown');
+      if (input === 'pointer') send('pointermove', 292);
+    }
+    await app.panel('rack').actions.delete();
+    expect(spin.isConnected).toBe(false);
+    expect(store.project.channels.some((ch) => ch.id === id)).toBe(false);
+    expect(spin.classList.contains('dragging')).toBe(false);
+    store.begin('Tempo');
+    store.preview((p) => ({ ...p, bpm: 150 }));
+    const newer = store.gesture;
+    send('pointermove', 276);
+    send('pointerup', 276);
+    vi.advanceTimersByTime(600);
+    window.dispatchEvent(new Event('blur'));
+    expect(store.gesture === newer).toBe(true);
+    store.cancel();
+    expect(store.project.bpm).toBe(130);
+    store.undo();
+    expect(store.project.channels[0].id).toBe(id);
+    const restored = store.project;
+    const current = insertControl();
+    current.send('pointerdown');
+    current.send('pointermove', 292);
+    current.send('pointerup', 292);
+    expect(store.project.channels[0].mixer).toBe(input === 'pending pointer' ? 2 : 3);
+    store.undo();
+    expect(store.project).toBe(restored);
+  });
+
+  function parameterControl(kind, row = 0) {
+    const selector = kind === 'mixer' ? '[role="spinbutton"]' : kind === 'pan' ? '.c-pan [role="slider"]' : '.c-vol [role="slider"]';
+    const el = rowEl(row).querySelector(selector);
+    el.setPointerCapture = vi.fn();
+    el.releasePointerCapture = vi.fn();
+    const send = (type, y = 300) => {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY: y });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      el.dispatchEvent(event);
+    };
+    const wheel = () => el.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true }));
+    const key = () => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    return { el, send, wheel, key };
+  }
+
+  it.each(['mixer', 'pan', 'volume'])('cancels an older rack %s drag when another control starts a wheel edit', (param) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const initial = store.project;
+    const old = parameterControl(param);
+    old.send('pointerdown');
+    old.send('pointermove', 292);
+    const first = store.project;
+    const newer = parameterControl('volume', 1);
+    newer.wheel();
+    const preview = store.project;
+    const owner = store.gesture;
+    old.send('pointermove', 276);
+    old.send('pointerup', 276);
+    expect(store.project === preview).toBe(true);
+    expect(store.gesture === owner).toBe(true);
+    expect(Number(old.el.getAttribute('aria-valuenow'))).toBeCloseTo(first.channels[0][param], 3);
+    vi.advanceTimersByTime(500);
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it.each(['mixer', 'pan', 'volume'].flatMap((param) => ['key', 'wheel'].map((input) => [param, input])))('does not let an old rack %s %s timer end another control edit', (param, input) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const initial = store.project;
+    const old = parameterControl(param);
+    old.el.focus();
+    old[input]();
+    const first = store.project;
+    vi.advanceTimersByTime(100);
+    const newer = parameterControl('volume', 1);
+    newer.wheel();
+    const owner = store.gesture;
+    vi.advanceTimersByTime(350);
+    expect(store.gesture === owner).toBe(true);
+    expect(store.undoStack).toHaveLength(1);
+    newer.wheel();
+    vi.advanceTimersByTime(500);
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project === first).toBe(true);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+    old[input]();
+    vi.advanceTimersByTime(500);
+    expect(store.project.channels[0][param]).not.toBe(initial.channels[0][param]);
+    store.undo();
+    expect(store.project === initial).toBe(true);
+  });
+
+  it.each(['mixer', 'pan', 'volume'])('keeps a tempo wheel edit independent of an older rack %s drag', (param) => {
+    vi.useFakeTimers();
+    const store = app.store;
+    const old = parameterControl(param);
+    old.send('pointerdown');
+    old.send('pointermove', 292);
+    const first = store.project;
+    document.querySelector('.tempo').dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    const preview = store.project;
+    const owner = store.gesture;
+    expect(preview.bpm).toBe(131);
+    old.send('pointermove', 276);
+    old.send('pointerup', 276);
+    expect(store.project === preview).toBe(true);
+    expect(store.gesture === owner).toBe(true);
+    vi.advanceTimersByTime(500);
+    store.undo();
+    expect(store.project === first).toBe(true);
+  });
+
+  it('preserves a pending assignment drag through an unrelated edit and keeps separate undo steps', () => {
+    const store = app.store;
+    const { send } = insertControl();
+    send('pointerdown');
+    store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+    const edited = store.project;
+    send('pointermove', 284);
+    send('pointerup', 284);
+    expect(store.project.channels[0].mixer).toBe(3);
+    expect(store.project.bpm).toBe(150);
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project === edited).toBe(true);
+    store.undo();
+    expect(store.project.bpm).toBe(130);
+  });
+
+  function typedInsert() {
+    vi.useFakeTimers();
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const control = insertControl();
+    control.spin.focus();
+    return {
+      ...control,
+      press: (key) => control.spin.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })),
+      advance: (ms) => { now += ms; vi.advanceTimersByTime(ms); },
+    };
+  }
+
+  it.each(['load', 'undo', 'redo', 'blur', 'window blur', 'arrow', 'wheel', 'pointer'])('starts a fresh typed assignment after %s instead of reusing a stale digit', (action) => {
+    const store = app.store;
+    const { spin, send, press, advance } = typedInsert();
+    if (action === 'undo' || action === 'redo') {
+      store.apply('Tempo', (p) => ({ ...p, bpm: 150 }));
+      if (action === 'redo') store.undo();
+    }
+    press('1'); // Matches the current insert: no model gesture starts.
+    expect(store.project.channels[0].mixer).toBe(1);
+    if (action === 'load') store.load(structuredClone(store.project));
+    else if (action === 'undo' || action === 'redo') store[action]();
+    else if (action === 'blur') { spin.blur(); spin.focus(); }
+    else if (action === 'window blur') window.dispatchEvent(new Event('blur'));
+    else if (action === 'arrow') press('ArrowUp');
+    else if (action === 'wheel') spin.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true }));
+    else { send('pointerdown'); send('pointermove', 292); send('pointerup', 292); }
+    advance(100);
+    press('3');
+    expect(store.project.channels[0].mixer).toBe(3);
+    spin.blur();
+    expect(Boolean(store.gesture)).toBe(false);
+  });
+
+  it('clears a typed assignment prefix on load after its edit has already committed', () => {
+    const { spin, press, advance } = typedInsert();
+    const store = app.store;
+    press('2');
+    advance(500); // The 450ms edit ended, but the 700ms typing interval has not.
+    expect(Boolean(store.gesture)).toBe(false);
+    expect(store.undoStack).toHaveLength(1);
+    store.load(structuredClone(store.project));
+    press('3');
+    expect(store.project.channels[0].mixer).toBe(3);
+    spin.blur();
+    store.undo();
+    expect(store.project.channels[0].mixer).toBe(2);
+  });
+
+  it.each([100, 500, 699, 701])('preserves the normal typing interval for digits %i ms apart', (delay) => {
+    const { spin, press, advance } = typedInsert();
+    press('1');
+    advance(delay);
+    press('2');
+    expect(app.store.project.channels[0].mixer).toBe(delay < 700 ? 12 : 2);
+    spin.blur();
+    expect(app.store.undoStack).toHaveLength(1);
+    app.store.undo();
+    expect(app.store.project.channels[0].mixer).toBe(1);
+  });
+
+  it('continues normal multi-digit assignment after the first digit has committed', () => {
+    const store = app.store;
+    const project = structuredClone(store.project);
+    project.channels[0].mixer = 2;
+    store.load(project);
+    const { spin, press, advance } = typedInsert();
+    press('1');
+    advance(500);
+    expect(store.undoStack).toHaveLength(1);
+    press('2');
+    expect(store.project.channels[0].mixer).toBe(12);
+    spin.blur();
+    expect(store.undoStack).toHaveLength(2);
+    store.undo();
+    expect(store.project.channels[0].mixer).toBe(1);
+    store.undo();
+    expect(store.project === project).toBe(true);
+  });
+
   it('renders a row per channel with 16 steps', () => {
     expect(view.grid.querySelectorAll('.rack-row')).toHaveLength(4);
     expect(rowEl(0).querySelectorAll('.step')).toHaveLength(16);
@@ -90,6 +473,29 @@ describe('channel rack panel', () => {
     expect(app.store.undoStack).toHaveLength(1);
     app.store.undo();
     expect(app.store.project.channels[0].volume).toBe(v0);
+  });
+
+  it.each(['rack', 'master'])('cancels a pending %s volume drag when reopening identical values', (kind) => {
+    const control = () => kind === 'rack' ? rowEl(0).querySelector('.c-vol [role="slider"]') : document.querySelector('[aria-label="Master volume"]');
+    const volume = () => kind === 'rack' ? app.store.project.channels[0].volume : app.store.project.mixer[0].volume;
+    const knob = control();
+    knob.setPointerCapture = () => {};
+    pointer('pointerdown', knob, { clientY: 300 });
+    const replacement = structuredClone(app.store.project);
+    app.store.load(replacement);
+    const value = volume();
+    pointer('pointermove', knob, { clientY: 298 });
+    pointer('pointerup', knob, { clientY: 298 });
+    expect(volume()).toBe(value);
+    expect(app.store.project).toBe(replacement);
+    const current = control();
+    current.setPointerCapture = () => {};
+    pointer('pointerdown', current, { clientY: 300 });
+    pointer('pointermove', current, { clientY: 298 });
+    pointer('pointerup', current, { clientY: 298 });
+    expect(volume()).toBeGreaterThan(value);
+    app.store.undo();
+    expect(app.store.project).toBe(replacement);
   });
 
   it('mutes on LED click and solos with Ctrl+click', () => {

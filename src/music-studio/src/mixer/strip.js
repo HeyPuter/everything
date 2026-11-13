@@ -10,11 +10,11 @@
 //   send = null (nothing to show) | { mode: 'self'|'off'|'on'|'blocked', gain, color, from }
 
 import { h } from '../lib/dom.js';
-import { formatPan } from '../lib/util.js';
+import { formatPan, parsePan } from '../lib/util.js';
 import { createKnob } from '../ui/knob.js';
 import { icon } from '../ui/icons.js';
 import { createFader } from './fader.js';
-import { shortGain, formatGain, MAX_GAIN } from './db.js';
+import { shortGain, formatGain, parseGain, MAX_GAIN } from './db.js';
 
 const PAN = { id: 'pan', label: 'Pan', min: -1, max: 1, def: 0 };
 const WIDTH = { id: 'width', label: 'Width', min: 0, max: 2, def: 1, unit: '%' };
@@ -32,6 +32,7 @@ export function createStrip(ctx, index) {
     size: 24,
     label: 'Pan',
     format: formatPan,
+    parse: parsePan,
     ...ctl.trackGesture(index, 'pan', 'Insert pan'),
   });
   const width = createKnob({
@@ -50,11 +51,12 @@ export function createStrip(ctx, index) {
   const muteBtn = h('button.led.mx-mute', { type: 'button' });
   const soloBtn = h('button.mx-solo', { type: 'button' }, 'S');
   const sendBtn = h('button.mx-send-btn', { type: 'button' }, icon('arrow-up', 12));
-  const sendKnob = createKnob({ param: SEND, size: 20, showLabel: false, label: 'Send level', format: (v) => formatGain(v), onStart: () => sendG?.onStart(), onInput: (v) => sendG?.onInput(v), onEnd: (v) => sendG?.onEnd(v) });
+  const sendKnob = createKnob({ param: SEND, size: 20, showLabel: false, label: 'Send level', format: (v) => formatGain(v), parse: parseGain, onStart: (cancel) => sendG?.onStart(cancel), onInput: (v) => sendG?.onInput(v), onEnd: (v) => sendG?.onEnd(v) });
   sendKnob.el.classList.add('mx-send-knob');
   const sendNote = h('span.mx-send-note');
   const sendRow = h('div.mx-send', sendBtn, sendKnob.el, sendNote);
   let sendG = null;
+  let sendFrom = null;
 
   const el = h(
     `div.mx-strip${master ? '.master' : ''}`,
@@ -71,8 +73,9 @@ export function createStrip(ctx, index) {
   if (master) soloBtn.hidden = true;
 
   // Interactions ------------------------------------------------------------
-  el.addEventListener('pointerdown', () => ctx.select(index), true);
-  el.addEventListener('focusin', () => ctx.select(index, { fromFocus: true }));
+  // Send controls belong to the selected source, not to this destination strip.
+  el.addEventListener('pointerdown', (e) => { if (!sendRow.contains(e.target)) ctx.select(index); }, true);
+  el.addEventListener('focusin', (e) => { if (!sendRow.contains(e.target)) ctx.select(index, { fromFocus: true }); });
   nameBtn.addEventListener('dblclick', () => ctx.rename(index));
   muteBtn.addEventListener('click', () => ctl.toggleMute(index));
   soloBtn.addEventListener('click', (e) => ctl.solo(index, { add: e.ctrlKey || e.metaKey }));
@@ -141,8 +144,12 @@ export function createStrip(ctx, index) {
     }
     const send = s.send;
     const sendKey = send ? `${send.mode}|${send.from}|${send.color}` : '';
-    if (sendKey !== last.sendKey) {
+    const from = send ? ctl.label(send.from) : '';
+    const to = send ? ctl.label(index) : '';
+    if (sendKey !== last.sendKey || from !== last.sendFromLabel || to !== last.sendToLabel) {
       last.sendKey = sendKey;
+      last.sendFromLabel = from;
+      last.sendToLabel = to;
       sendRow.dataset.mode = send ? send.mode : 'none';
       sendRow.style.setProperty('--send-color', send?.color || 'var(--accent)');
       sendBtn.hidden = !send || send.mode === 'self';
@@ -150,15 +157,23 @@ export function createStrip(ctx, index) {
       sendNote.hidden = !send || send.mode !== 'self';
       sendNote.textContent = send?.mode === 'self' ? 'Source' : '';
       if (send && send.mode !== 'self') {
-        const from = ctl.label(send.from);
-        const to = ctl.label(index);
         sendBtn.setAttribute('aria-pressed', String(send.mode === 'on'));
         sendBtn.setAttribute('aria-label', `Send ${from} to ${to}`);
         sendBtn.setAttribute('aria-disabled', send.mode === 'blocked' ? 'true' : 'false');
         sendBtn.title = send.mode === 'blocked' ? `${to} feeds ${from} already; a send here would loop` : send.mode === 'on' ? `${from} sends here. Click to remove the send.` : `Click to send ${from} here`;
         sendKnob.el.setAttribute('aria-label', `Send level from ${from} to ${to}`);
-        sendG = ctl.routeGesture(send.from, index);
-      } else sendG = null;
+        if (sendFrom !== send.from || !sendG) {
+          sendKnob.cancel();
+          sendG?.onEnd();
+          sendFrom = send.from;
+          sendG = ctl.routeGesture(send.from, index);
+        }
+      } else {
+        sendKnob.cancel();
+        sendG?.onEnd();
+        sendG = null;
+        sendFrom = null;
+      }
     }
     last.send = send;
     if (send?.mode === 'on') sendKnob.set(send.gain);

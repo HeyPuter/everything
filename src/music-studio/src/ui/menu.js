@@ -76,7 +76,7 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
   if (el.lastChild?.tagName === 'HR') el.lastChild.remove();
 
   function openChild(entry, byKeyboard) {
-    if (child?.owner === entry) return;
+    if (closed || child?.owner === entry) return;
     closeChild();
     const r = entry.btn.getBoundingClientRect();
     const sub = typeof entry.it.items === 'function' ? entry.it.items() : entry.it.items || [];
@@ -93,12 +93,16 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
   }
 
   function activate(entry, byKeyboard) {
-    if (!entry.enabled) return;
+    if (closed || !entry.enabled) return;
     if (entry.it.type === 'submenu') {
       openChild(entry, byKeyboard);
       return;
     }
+    const root = stack[0];
     closeMenus();
+    // Dialogs opened by the command must capture a connected return target,
+    // rather than the menu item that was just removed.
+    root?.restoreFocus();
     entry.it.run?.();
   }
 
@@ -160,10 +164,13 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
         e.preventDefault();
         if (i >= 0) activate(entries[i], true);
         break;
-      case 'Tab':
-        e.preventDefault();
+      case 'Tab': {
+        const root = stack[0];
         closeMenus();
+        root?.restoreFocus();
+        // Let the browser move to the next/previous control from the trigger.
         break;
+      }
       default:
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
           const now = performance.now();
@@ -206,6 +213,13 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
     owner: null,
     onArrow: null,
     done,
+    restoreFocus() {
+      for (const target of [anchor, previous]) {
+        if (!target?.isConnected) continue;
+        target.focus?.({ preventScroll: true });
+        if (document.activeElement === target) break;
+      }
+    },
     close(byKeyboard) {
       if (closed) return;
       closed = true;
@@ -217,7 +231,7 @@ export function openMenu(items, { x = 0, y = 0, anchor = null, label = 'Menu', p
         document.removeEventListener('pointerdown', outside, true);
         window.removeEventListener('blur', blur);
         window.removeEventListener('resize', blur);
-        if (byKeyboard && previous?.isConnected) previous.focus({ preventScroll: true });
+        if (byKeyboard) api.restoreFocus();
       }
       onClose?.(byKeyboard);
       resolveDone();

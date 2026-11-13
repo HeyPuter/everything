@@ -75,6 +75,7 @@ export function presetController({ app, kind, builtins, defaults, params, apply,
 
   async function saveAs() {
     const cur = current();
+    const values = { ...params() };
     const suggested = cur?.user ? cur.name : '';
     const name = await promptDialog({
       title: `Save ${noun}`,
@@ -89,7 +90,7 @@ export function presetController({ app, kind, builtins, defaults, params, apply,
       const ok = await confirmDialog({ title: 'Replace preset', message: `You already have a preset called "${clash.name}". Replace it?`, confirm: 'Replace', danger: true });
       if (!ok) return null;
     }
-    const saved = store.save(kind, name, params());
+    const saved = store.save(kind, name, values);
     if (!saved) return null;
     picked = { name: saved.name, user: saved };
     app.notify?.(`Saved preset ${saved.name}`);

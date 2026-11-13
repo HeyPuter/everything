@@ -22,10 +22,9 @@ export class MidiInput {
     this.app = app;
     this.live = live;
     this.access = null;
-    this.sustain = false;
-    this.physical = new Set(); // keys physically held
-    this.sustained = new Set(); // keys released while the pedal was down
-    this.onMessage = (e) => this.handle(e.data);
+    this.request = 0;
+    this.sources = new Map(); // device/channel -> held keys and pedal state
+    this.onMessage = (e) => this.handle(e.data, e.target?.id);
     this.onState = (e) => {
       const port = e.port;
       if (port?.type !== 'input') return;
@@ -33,6 +32,8 @@ export class MidiInput {
         port.onmidimessage = this.onMessage;
         if (e.port.connection !== 'open') this.app.notify?.(`MIDI input connected: ${port.name || 'device'}`);
       } else if (port.state === 'disconnected') {
+        port.onmidimessage = null;
+        this.releaseAll(port.id ?? 'default');
         this.app.notify?.(`MIDI input disconnected: ${port.name || 'device'}`);
       }
     };
@@ -45,13 +46,17 @@ export class MidiInput {
   /** Requests access and listens to every input. Resolves true on success. */
   async enable({ quiet = false } = {}) {
     if (this.access) return true;
+    const request = ++this.request;
     if (!this.supported) {
       if (!quiet) this.app.notify?.('MIDI input is not supported in this browser. Try a Chromium-based browser or Firefox.', { error: true });
       return false;
     }
     try {
-      this.access = await navigator.requestMIDIAccess({ sysex: false });
+      const access = await navigator.requestMIDIAccess({ sysex: false });
+      if (request !== this.request) return false;
+      this.access = access;
     } catch {
+      if (request !== this.request) return false;
       if (!quiet) this.app.notify?.('MIDI access was not allowed. Allow MIDI devices for this site in the browser settings to use a MIDI keyboard.', { error: true });
       return false;
     }
@@ -63,6 +68,7 @@ export class MidiInput {
   }
 
   disable() {
+    this.request++;
     if (!this.access) return;
     for (const input of this.access.inputs.values()) input.onmidimessage = null;
     this.access.onstatechange = null;
@@ -70,37 +76,48 @@ export class MidiInput {
     this.releaseAll();
   }
 
-  handle(data) {
+  handle(data, port = 'default') {
     if (!data || data.length < 2) return;
     const m = parseMidi(data);
+    if (m.type === 'other') return;
+    const source = `midi:${JSON.stringify([port, m.channel])}`;
+    let state = this.sources.get(source);
+    if (!state) {
+      state = { port, sustain: false, physical: new Set(), sustained: new Set() };
+      this.sources.set(source, state);
+    }
     if (m.type === 'on') {
-      this.physical.add(m.key);
-      if (this.sustained.has(m.key)) {
-        this.sustained.delete(m.key);
-        this.live.noteOff(m.key, 'midi'); // retrigger a sustained key
+      state.physical.add(m.key);
+      if (state.sustained.has(m.key)) {
+        state.sustained.delete(m.key);
+        this.live.noteOff(m.key, source); // retrigger a sustained key
       }
-      this.live.noteOn(m.key, Math.max(0.02, m.vel), 'midi');
+      this.live.noteOn(m.key, Math.max(0.02, m.vel), source);
     } else if (m.type === 'off') {
-      this.physical.delete(m.key);
-      if (this.sustain) this.sustained.add(m.key);
-      else this.live.noteOff(m.key, 'midi');
+      state.physical.delete(m.key);
+      if (state.sustain) state.sustained.add(m.key);
+      else this.live.noteOff(m.key, source);
     } else if (m.type === 'cc') {
       if (m.cc === SUSTAIN_CC) {
         const on = m.value >= 64;
-        if (on === this.sustain) return;
-        this.sustain = on;
+        if (on === state.sustain) return;
+        state.sustain = on;
         if (!on) {
-          for (const k of this.sustained) if (!this.physical.has(k)) this.live.noteOff(k, 'midi');
-          this.sustained.clear();
+          for (const k of state.sustained) if (!state.physical.has(k)) this.live.noteOff(k, source);
+          state.sustained.clear();
         }
-      } else if (m.cc === 123 || m.cc === 120) this.releaseAll();
+      } else if (m.cc === 123 || m.cc === 120) {
+        this.live.releaseAll(source);
+        this.sources.delete(source);
+      }
     }
   }
 
-  releaseAll() {
-    this.physical.clear();
-    this.sustained.clear();
-    this.sustain = false;
-    this.live.releaseAll('midi');
+  releaseAll(port = null) {
+    for (const [source, state] of this.sources) {
+      if (port !== null && state.port !== port) continue;
+      this.live.releaseAll(source);
+      this.sources.delete(source);
+    }
   }
 }

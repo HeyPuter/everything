@@ -9,7 +9,7 @@ import { compileChannel, compileMixer, compileSequence, instrumentIndex, effectI
 import { INSTRUMENTS, INSTRUMENT_TYPES, paramVector } from '../src/instruments/catalog.js';
 import { EFFECTS, EFFECT_TYPES, DIVISION_BEATS, effectParamVector } from '../src/effects/catalog.js';
 import { SYNTH_PRESETS, DRUM_PRESETS } from '../src/instruments/presets.js';
-import { createProject, createChannel, createNote, createSlot } from '../src/model/project.js';
+import { createProject, createChannel, createNote, createSlot, createMixerTrack, MAX_MIXER_TRACKS } from '../src/model/project.js';
 import { demoProject } from '../src/model/demo.js';
 
 const RATE = 48000;
@@ -58,6 +58,21 @@ function render(core, seconds, each) {
 }
 
 describe('engine contract', () => {
+  it('renders through the final supported mixer insert and honors its mute', () => {
+    const p = createProject();
+    p.mixer = Array.from({ length: MAX_MIXER_TRACKS }, (_, i) => createMixerTrack(i));
+    p.channels = [createChannel({ type: 'synth', mixer: MAX_MIXER_TRACKS - 1 })];
+    const core = makeCore();
+    core.setMixer(compileMixer(p));
+    core.setChannel(compileChannel(p, p.channels[0], 0));
+    core.noteOn(0, 1, 60, 0.9);
+    expect(render(core, 0.03).peak).toBeGreaterThan(0.001);
+    p.mixer[MAX_MIXER_TRACKS - 1].mute = true;
+    core.setMixer(compileMixer(p));
+    render(core, 0.03); // Let the gain smoothing settle.
+    expect(render(core, 0.01).peak).toBeLessThan(0.00001);
+  });
+
   it('has the same parameter counts and order as the catalogs', () => {
     const x = makeCore().x;
     expect(x.inst_type_count()).toBe(INSTRUMENT_TYPES.length);

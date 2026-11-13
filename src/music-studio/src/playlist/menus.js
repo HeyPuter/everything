@@ -2,7 +2,7 @@
 // empty canvas positions, track headers, picker sources and the ruler.
 
 import * as E from '../model/edits.js';
-import { COLORS } from '../model/project.js';
+import { COLORS, cloneName } from '../model/project.js';
 import { promptDialog, confirmDialog } from '../ui/dialog.js';
 import { openMenu } from '../ui/menu.js';
 import { formatKeys } from '../commands/registry.js';
@@ -17,8 +17,9 @@ const KIND_LABEL = { pattern: 'pattern', audio: 'audio clip', auto: 'automation'
 export async function renameSource(V, src) {
   const { store } = V;
   const name = C.sourceName(store.project, src);
-  const v = await promptDialog({ title: `Rename ${KIND_LABEL[src.kind]}`, label: 'Name', value: name, confirm: 'Rename', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
-  if (!v) return;
+  const loadVersion = store.loadVersion;
+  const v = await promptDialog({ store, title: `Rename ${KIND_LABEL[src.kind]}`, label: 'Name', value: name, confirm: 'Rename', validate: (s) => (s.trim() ? '' : 'Enter a name.') });
+  if (!v || store.loadVersion !== loadVersion) return;
   const next = v.trim().slice(0, 60);
   store.apply(`Rename ${KIND_LABEL[src.kind]}`, (p) => {
     if (src.kind === 'pattern') return E.updatePattern(p, src.id, { name: next });
@@ -54,7 +55,7 @@ export function cloneSource(V, src) {
       const a = p.automation[src.id];
       if (!a) return { project: p, id: null };
       const { id: _old, ...rest } = structuredClone(a);
-      return E.addAutomation(p, { ...rest, name: `${a.name} #2` });
+      return E.addAutomation(p, { ...rest, name: cloneName(a.name) });
     });
   }
   if (r?.id) {
@@ -72,7 +73,9 @@ export async function deleteSource(V, src) {
     return;
   }
   const used = p.clips.filter((c) => c.kind === src.kind && c.ref === src.id).length;
-  if (used && !(await confirmDialog({ title: `Delete ${KIND_LABEL[src.kind]}`, message: `"${name}" is used by ${used} clip${used === 1 ? '' : 's'} in the playlist. Delete it and its clips?`, confirm: 'Delete', danger: true }))) return;
+  const loadVersion = store.loadVersion;
+  if (used && !(await confirmDialog({ store, title: `Delete ${KIND_LABEL[src.kind]}`, message: `"${name}" is used by ${used} clip${used === 1 ? '' : 's'} in the playlist. Delete it and its clips?`, confirm: 'Delete', danger: true }))) return;
+  if (store.loadVersion !== loadVersion) return;
   store.apply(`Delete ${KIND_LABEL[src.kind]}`, (q) => {
     if (src.kind === 'pattern') return E.removePattern(q, src.id);
     if (src.kind === 'audio') return E.removeChannels(q, [src.id]);
@@ -186,7 +189,9 @@ export function trackMenu(V, i, at) {
       { type: 'sep' },
       { type: 'cmd', label: 'Delete track', run: async () => {
         const n = p.clips.filter((c) => c.track === i).length;
-        if (n && !(await confirmDialog({ title: 'Delete track', message: `Delete "${t.name}" and its ${n} clip${n === 1 ? '' : 's'}? Tracks below move up.`, confirm: 'Delete', danger: true }))) return;
+        const loadVersion = store.loadVersion;
+        if (n && !(await confirmDialog({ store, title: 'Delete track', message: `Delete "${t.name}" and its ${n} clip${n === 1 ? '' : 's'}? Tracks below move up.`, confirm: 'Delete', danger: true }))) return;
+        if (store.loadVersion !== loadVersion) return;
         store.apply('Delete track', (q) => C.deleteTrack(q, i));
         announce(`Deleted ${t.name}`);
       } },

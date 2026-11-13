@@ -11,11 +11,14 @@
 // Export: one MIDI track per channel with notes, from the current pattern or
 // from the song (every pattern clip in the playlist). Drum Synth channels go
 // to MIDI channel 10 with the General MIDI note for their drum kind.
+// Melodic parts use separate port/channel pairs so larger arrangements do
+// not overwrite another part's program or release its notes.
 
 import { PPQ } from '../model/time.js';
-import { createChannel, createPattern, createClip, colorAt, patternById, patternLength, busyInserts, freeInsert } from '../model/project.js';
+import { reserveId } from '../lib/util.js';
+import { createChannel, createPattern, createClip, colorAt, patternById, patternResolver, patternLength, busyInserts, freeInsert } from '../model/project.js';
 import * as E from '../model/edits.js';
-import { uid } from '../lib/util.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 import { trackAudible } from '../playlist/clips.js';
 import { synthPreset, drumPreset } from '../instruments/presets.js';
 
@@ -85,7 +88,7 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     if (i) usedInserts.add(i);
     return i;
   };
-  const firstTrack = p.clips.length ? Math.max(...p.clips.map((c) => c.track)) + 1 : 0;
+  const firstTrack = p.clips.reduce((max, c) => Math.max(max, c.track), -1) + 1;
   const channelIds = [];
   const patternIds = [];
   const clips = [];
@@ -93,19 +96,24 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
   const addChannel = (ch) => {
     const insert = nextInsert();
     ch.mixer = insert;
-    p = E.addChannel(p, ch);
+    const result = E.addChannel(p, ch);
+    p = result.project;
     if (insert > 0) p = E.updateMixerTrack(p, insert, { name: ch.name, color: ch.color });
-    channelIds.push(ch.id);
+    channelIds.push(result.id);
+    return result.id;
   };
+  const usedPatternIds = new Set(p.patterns.map((pat) => pat.id));
   const addPattern = (pname, color, notesByChannel) => {
     const pat = { ...createPattern(p.patterns.length, pname.slice(0, 60)), color, notes: notesByChannel };
+    pat.id = reserveId(usedPatternIds, pat.id);
     p = { ...p, patterns: [...p.patterns, pat] };
     patternIds.push(pat.id);
     const len = patternLength(pat, p.sig);
     clips.push(createClip({ kind: 'pattern', track: firstTrack + clips.length, start: 0, len, ref: pat.id }));
     return pat;
   };
-  const note = (n, key = n.key) => ({ id: uid(6), key, pos: toTicks(n.tick, ppq), len: Math.max(1, toTicks(n.len, ppq)), vel: Math.min(1, n.vel / 127), pan: 0 });
+  const nextNoteId = noteIdGenerator();
+  const note = (n, key = n.key) => ({ id: nextNoteId(), key, pos: toTicks(n.tick, ppq), len: Math.max(1, toTicks(n.len, ppq)), vel: Math.min(1, n.vel / 127), pan: 0 });
 
   // Melodic parts first, in file order.
   let partNo = 0;
@@ -116,8 +124,8 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     const color = colorAt(colorIndex++);
     const label = part.name || `${name} ${partNo}`;
     const ch = createChannel({ type: 'synth', name: label.slice(0, 60), color, params: synthPreset(preset).params });
-    addChannel(ch);
-    addPattern(label, color, { [ch.id]: part.notes.map((n) => note(n)).sort((a, b) => a.pos - b.pos || a.key - b.key) });
+    const id = addChannel(ch);
+    addPattern(label, color, { [id]: part.notes.map((n) => note(n)).sort((a, b) => a.pos - b.pos || a.key - b.key) });
   }
 
   // Percussion: one drum channel per kind, one pattern for the kit.
@@ -133,9 +141,9 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
     for (const kind of [...byKind.keys()].sort((a, b) => a - b)) {
       const preset = drumPreset(DRUM_PRESET_FOR_KIND[kind]);
       const ch = createChannel({ type: 'drum', name: preset.name, color: colorAt(colorIndex++), params: preset.params });
-      addChannel(ch);
+      const id = addChannel(ch);
       // Toms follow the key (key_track), so keep their pitch; other drums sit on the channel's root.
-      notes[ch.id] = byKind.get(kind).map((n) => note(n, kind === 5 ? Math.min(127, n.key + 15) : ch.root)).sort((a, b) => a.pos - b.pos || a.key - b.key);
+      notes[id] = byKind.get(kind).map((n) => note(n, kind === 5 ? Math.min(127, n.key + 15) : ch.root)).sort((a, b) => a.pos - b.pos || a.key - b.key);
     }
     addPattern('Drums', colorAt(0), notes);
   }
@@ -155,8 +163,12 @@ export function importMidi(project, midi, { name = 'MIDI', useTempo = true } = {
 
 /** The writer's input (see writeMidi) for a pattern or the whole song. */
 export function projectToMidi(project, { mode = 'song', patternId = null } = {}) {
+  // Apply the rack's mute/solo rule once, before collecting either mode's notes.
+  const anySolo = project.channels.some((ch) => ch.solo);
+  const audibleChannels = new Set(project.channels.filter((ch) => !ch.mute && (!anySolo || ch.solo)).map((ch) => ch.id));
   const byChannel = new Map(); // channel id -> notes in ticks
   const push = (cid, n, shift) => {
+    if (!audibleChannels.has(cid)) return;
     if (!byChannel.has(cid)) byChannel.set(cid, []);
     byChannel.get(cid).push({ key: n.key, tick: n.pos + shift, len: n.len, vel: n.vel * 127 });
   };
@@ -164,10 +176,12 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     const pat = patternById(project, patternId) || project.patterns[0];
     for (const [cid, list] of Object.entries(pat.notes)) for (const n of list) push(cid, n, 0);
   } else {
+    const anyTrackSolo = project.tracks.some((t) => t.solo);
+    const getPattern = patternResolver(project);
     for (const c of project.clips) {
       // Track mute and solo as playback applies them.
-      if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track)) continue;
-      const pat = patternById(project, c.ref);
+      if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track, anyTrackSolo)) continue;
+      const pat = getPattern(c.ref);
       if (!pat) continue;
       for (const [cid, list] of Object.entries(pat.notes)) {
         for (const n of list) {
@@ -187,11 +201,13 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     if (ch.type === 'drum') {
       const kind = Math.round(ch.params.kind ?? 0);
       const gm = DRUM_NOTES[kind] ?? 37;
-      tracks.push({ name: ch.name, channel: 9, notes: notes.map((n) => ({ ...n, key: kind === 5 ? Math.max(0, n.key - 15) : gm })) });
+      tracks.push({ name: ch.name, port: 0, channel: 9, notes: notes.map((n) => ({ ...n, key: kind === 5 ? Math.max(0, n.key - 15) : gm })) });
     } else {
+      const port = Math.floor(melodic / 15);
+      if (port > 255) throw new Error('This MIDI export needs too many MIDI ports. At most 3840 melodic parts can be exported.');
       const midiCh = melodic % 15 >= 9 ? (melodic % 15) + 1 : melodic % 15;
       melodic++;
-      tracks.push({ name: ch.name, channel: midiCh, program: programForChannel(ch), notes });
+      tracks.push({ name: ch.name, port, channel: midiCh, program: programForChannel(ch), notes });
     }
   }
   return { ppq: PPQ, bpm: project.bpm, sig: project.sig, name: project.name, tracks };

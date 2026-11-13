@@ -12,21 +12,26 @@ let openCount = 0;
  * value (Escape and the close button resolve null). `onSubmit(value)` may
  * return false to keep the dialog open (e.g. validation failed). Enter
  * presses the primary button except inside an element with data-own-enter.
+ * Optional `store` cancels on project replacement. Editing callers also check
+ * store.loadVersion after awaiting, covering a load just after confirmation.
  */
-export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus }) {
+export function openDialog({ title, body, buttons = [{ label: 'OK', value: true, primary: true }], wide = false, onSubmit, footerStart, className = '', initialFocus, store, isCurrent }) {
   return new Promise((resolve) => {
     const previous = document.activeElement;
     const titleId = `dlg-title-${++openCount}`;
     const dialog = h(`div.dialog${wide ? '.wide' : ''}${className ? `.${className}` : ''}`, { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId });
     const backdrop = h('div.dialog-backdrop', dialog);
     let done = false;
+    let offLoad, offView;
     const close = async (value) => {
       if (done) return;
       if (value !== null && value !== undefined && onSubmit) {
         const ok = await onSubmit(value);
-        if (ok === false) return;
+        if (done || ok === false) return;
       }
       done = true;
+      offLoad?.();
+      offView?.();
       backdrop.remove();
       document.removeEventListener('keydown', keys, true);
       if (previous && previous.isConnected) previous.focus({ preventScroll: true });
@@ -50,7 +55,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       buttons.length ? foot : null,
     );
     const keys = (e) => {
-      if (!backdrop.isConnected) return;
+      if (!backdrop.isConnected || e.isComposing) return;
       // Only the topmost dialog handles keys (a dialog may open another).
       const all = document.querySelectorAll('.dialog-backdrop');
       if (all[all.length - 1] !== backdrop) return;
@@ -60,7 +65,7 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
         e.preventDefault();
         e.stopPropagation();
         close(null);
-      } else if (e.key === 'Enter' && !e.isComposing && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && dialog.contains(e.target) && !e.target.closest('[data-own-enter]')) {
+      } else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON' && dialog.contains(e.target) && !e.target.closest('[data-own-enter]')) {
         const primary = buttons.find((b) => b.primary);
         if (primary) {
           e.preventDefault();
@@ -86,14 +91,33 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
       if (e.target === backdrop) close(null);
     });
     document.body.append(backdrop);
-    const target = (initialFocus && dialog.querySelector(initialFocus)) || dialog.querySelector('input, select, textarea') || dialog.querySelector('.btn.primary') || dialog.querySelector('button');
-    target?.focus();
-    if (target?.select && target.tagName === 'INPUT') target.select();
+    // Project editing dialogs belong to the document that opened them.
+    offLoad = store?.on('change', (_project, _previous, meta) => {
+      if (meta?.source === 'load' || (isCurrent && !isCurrent())) close(null);
+    });
+    if (isCurrent) offView = store?.on('view', () => {
+      if (!isCurrent()) close(null);
+    });
+    const candidates = [
+      ...(initialFocus ? dialog.querySelectorAll(initialFocus) : []),
+      ...dialog.querySelectorAll('input, select, textarea'),
+      ...dialog.querySelectorAll('.btn.primary'),
+      ...dialog.querySelectorAll('button'),
+    ];
+    for (const target of candidates) {
+      target.focus();
+      // Disabled or hidden controls cannot take focus; keep looking inside the modal.
+      if (document.activeElement !== target) continue;
+      if (target.select && target.tagName === 'INPUT') target.select();
+      break;
+    }
   });
 }
 
-export async function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false }) {
+export async function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false, store, isCurrent }) {
   const r = await openDialog({
+    store,
+    isCurrent,
     title,
     body: h('p', { style: { margin: 0, maxWidth: '420px' } }, message),
     buttons: [
@@ -117,10 +141,12 @@ export async function saveChangesDialog(name) {
   });
 }
 
-export async function promptDialog({ title, label, value = '', confirm = 'OK', validate }) {
+export async function promptDialog({ title, label, value = '', confirm = 'OK', validate, store, isCurrent }) {
   const input = h('input.input', { type: 'text', value, 'aria-label': label, style: { width: '100%' } });
   const error = h('div.faint', { role: 'alert', style: { minHeight: '1em', color: 'var(--danger)' } });
   const r = await openDialog({
+    store,
+    isCurrent,
     title,
     body: h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '300px' } }, h('label', label), input, error),
     buttons: [

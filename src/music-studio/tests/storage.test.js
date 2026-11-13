@@ -184,8 +184,8 @@ describe('device files', () => {
 
     const other = new Library({ db: memoryDB(), decode: fakeDecode, puter: { isSignedIn: () => false } });
     const back = await other.readProjectText(text);
-    expect(back.samples.s1.local).toBe('s1');
-    expect(new Uint8Array((await other.sampleRecord('s1')).data)).toEqual(new Uint8Array([5, 6, 7]));
+    expect(back.samples.s1.local).toMatch(/^embedded-/);
+    expect(new Uint8Array((await other.sampleRecord(back.samples.s1.local)).data)).toEqual(new Uint8Array([5, 6, 7]));
   });
 
   it('rejects files that are not projects', async () => {
@@ -264,6 +264,7 @@ describe('storage feature in the app', () => {
     window.puter = fake;
     const { root, storage } = mount();
     const db = memoryDB();
+    db.persistent = true; // This fixture represents IndexedDB across app launches.
     const app = new App(root, { storage });
     app.start([{ install: (a) => install(a, { db }) }]);
     expect(app.store.project.name).toBe('Demo Song');
@@ -509,6 +510,8 @@ describe('Puter desktop window close', () => {
     window.puter = fake;
     const app = new App(document.createElement('div'), { storage: null });
     install(app, { db: Promise.resolve(memoryDB()), tab: Promise.resolve({ key: 'session', liveKeys: async () => new Set(['session']) }) });
+    app.emit('started');
+    await app.restored;
     expect(typeof onClose).toBe('function');
     app.store.apply('Tempo', (p) => E.setProjectProps(p, { bpm: 99 }));
     const closing = onClose();

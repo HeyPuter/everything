@@ -5,7 +5,7 @@
 import { uid, clamp } from '../lib/util.js';
 import { INSTRUMENTS, defaultParams } from '../instruments/catalog.js';
 import { EFFECTS, defaultEffectParams } from '../effects/catalog.js';
-import { createMixerTrack, createTrack, createPattern, PROJECT_VERSION, MAX_FX_SLOTS, DEFAULT_KEY, COLORS } from './project.js';
+import { createMixerTrack, createTrack, createPattern, PROJECT_VERSION, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY, COLORS } from './project.js';
 
 export const KIND = 'music-studio-project';
 
@@ -51,6 +51,7 @@ export function parseProject(input) {
   }
   if (!data || typeof data !== 'object' || data.kind !== KIND) throw new Error('The file is not a Music Studio project.');
   if (Number(data.version) > PROJECT_VERSION) throw new Error('This project was saved by a newer version of Music Studio.');
+  if (Array.isArray(data.mixer) && data.mixer.length > MAX_MIXER_TRACKS) throw new Error(`This project exceeds the supported limit of ${MAX_MIXER_TRACKS - 1} mixer inserts plus the master.`);
 
   const samples = {};
   if (data.samples && typeof data.samples === 'object') {
@@ -69,13 +70,13 @@ export function parseProject(input) {
     }
   }
 
-  const mixerIn = Array.isArray(data.mixer) && data.mixer.length ? data.mixer.slice(0, 128) : [];
+  const mixerIn = Array.isArray(data.mixer) && data.mixer.length ? data.mixer.slice(0, MAX_MIXER_TRACKS) : [];
   const slotId = uniqueId(new Set());
   const mixer = (mixerIn.length ? mixerIn : Array.from({ length: 17 }, () => ({}))).map((t, i) => {
     const base = createMixerTrack(i);
     const fx = Array.isArray(t?.fx)
       ? t.fx
-          .filter((s) => s && EFFECTS[s.type])
+          .filter((s) => s && own(EFFECTS, s.type))
           .slice(0, MAX_FX_SLOTS)
           .map((s) => ({ id: slotId(s.id), type: s.type, on: s.on !== false, mix: num(s.mix, 1, 0, 1), params: params(EFFECTS[s.type].params, s.params, defaultEffectParams(s.type)) }))
       : [];
@@ -109,8 +110,7 @@ export function parseProject(input) {
 
   const channelId = uniqueId(new Set());
   const channels = (Array.isArray(data.channels) ? data.channels : [])
-    .filter((c) => c && INSTRUMENTS[c.type])
-    .slice(0, 512)
+    .filter((c) => c && own(INSTRUMENTS, c.type))
     .map((c) => ({
       id: channelId(c.id),
       name: str(c.name, INSTRUMENTS[c.type].label, 60),
@@ -138,12 +138,12 @@ export function parseProject(input) {
     pan: num(n.pan, 0, -1, 1),
   });
   const patternId = uniqueId(new Set());
-  let patterns = (Array.isArray(data.patterns) ? data.patterns : []).slice(0, 999).map((p, i) => {
+  let patterns = (Array.isArray(data.patterns) ? data.patterns : []).map((p, i) => {
     const notes = {};
     if (p?.notes && typeof p.notes === 'object') {
       for (const [cid, list] of Object.entries(p.notes)) {
         if (!channelIds.has(cid) || !Array.isArray(list)) continue;
-        const ns = list.filter((n) => n && typeof n === 'object').slice(0, 100000).map(note);
+        const ns = list.filter((n) => n && typeof n === 'object').map(note);
         if (ns.length) notes[cid] = ns.sort((a, b) => a.pos - b.pos || a.key - b.key);
       }
     }
@@ -159,7 +159,6 @@ export function parseProject(input) {
       const aid = id(a.id);
       const pts = (Array.isArray(a.points) ? a.points : [])
         .filter((pt) => pt && typeof pt === 'object')
-        .slice(0, 10000)
         .map((pt) => ({ t: Math.max(0, Math.round(num(pt.t, 0))), v: num(pt.v, 0.5, 0, 1), ...(typeof pt.c === 'number' ? { c: num(pt.c, 0, -1, 1) } : {}) }))
         .sort((x, y) => x.t - y.t);
       automation[aid] = { id: aid, name: str(a.name, 'Automation', 60), target: sanitizeTarget(a.target), points: pts.length ? pts : [{ t: 0, v: 0.5 }] };
@@ -168,7 +167,7 @@ export function parseProject(input) {
   }
 
   const trackId = uniqueId(new Set());
-  const trackCount = Math.max(16, Array.isArray(data.tracks) ? Math.min(data.tracks.length, 500) : 0);
+  const trackCount = Array.isArray(data.tracks) && data.tracks.length ? data.tracks.length : 16;
   const tracks = Array.from({ length: trackCount }, (_, i) => {
     const t = data.tracks?.[i];
     const base = createTrack(i);
@@ -178,14 +177,14 @@ export function parseProject(input) {
   const clipId = uniqueId(new Set());
   const clips = (Array.isArray(data.clips) ? data.clips : [])
     .filter((c) => c && ((c.kind === 'pattern' && patternIds.has(c.ref)) || (c.kind === 'audio' && channelIds.has(c.ref)) || (c.kind === 'auto' && own(automation, c.ref))))
-    .slice(0, 50000)
     .map((c) => ({
       id: clipId(c.id),
       kind: c.kind,
       track: Math.round(num(c.track, 0, 0, tracks.length - 1)),
       start: Math.max(0, Math.round(num(c.start, 0))),
       len: Math.max(1, Math.round(num(c.len, 384, 1, 1e8))),
-      offset: Math.max(0, Math.round(num(c.offset, 0))),
+      offset: Math.max(0, c.kind === 'audio' ? num(c.offset, 0) : Math.round(num(c.offset, 0))),
+      ...(c.kind === 'audio' && Number.isFinite(c.audioOffset) && c.audioOffset >= 0 ? { audioOffset: Math.min(c.audioOffset, Math.max(0, num(c.offset, 0))) } : {}),
       ref: c.ref,
       mute: bool(c.mute),
     }));
@@ -194,7 +193,7 @@ export function parseProject(input) {
   const loopEnd = Math.round(num(data.loop?.end, 0));
   const loop = data.loop && loopEnd > loopStart ? { start: loopStart, end: loopEnd } : null;
   const markerId = uniqueId(new Set());
-  const markers = (Array.isArray(data.markers) ? data.markers : []).filter((m) => m && typeof m === 'object').slice(0, 1000).map((m) => ({ id: markerId(m.id), pos: Math.max(0, Math.round(num(m.pos, 0))), name: str(m.name, 'Marker', 60) }));
+  const markers = (Array.isArray(data.markers) ? data.markers : []).filter((m) => m && typeof m === 'object').map((m) => ({ id: markerId(m.id), pos: Math.max(0, Math.round(num(m.pos, 0))), name: str(m.name, 'Marker', 60) }));
   const sig = Array.isArray(data.sig) && [1, 2, 4, 8, 16].includes(data.sig[1]) ? [Math.round(num(data.sig[0], 4, 1, 16)), data.sig[1]] : [4, 4];
 
   return {
@@ -225,9 +224,9 @@ function sanitizeTarget(t) {
     case 'channel':
       return { kind: 'channel', id: str(t.id, ''), param: str(t.param, 'volume', 40) };
     case 'mixer':
-      return { kind: 'mixer', track: Math.round(num(t.track, 0, 0, 127)), param: ['volume', 'pan', 'width'].includes(t.param) ? t.param : 'volume' };
+      return { kind: 'mixer', track: Math.round(num(t.track, 0, 0, MAX_MIXER_TRACKS - 1)), param: ['volume', 'pan', 'width'].includes(t.param) ? t.param : 'volume' };
     case 'fx':
-      return { kind: 'fx', track: Math.round(num(t.track, 0, 0, 127)), slot: str(t.slot, ''), param: str(t.param, 'mix', 40) };
+      return { kind: 'fx', track: Math.round(num(t.track, 0, 0, MAX_MIXER_TRACKS - 1)), slot: Number.isInteger(t.slot) && t.slot >= 0 && t.slot < MAX_FX_SLOTS ? t.slot : str(t.slot, ''), param: str(t.param, 'mix', 40) };
     case 'tempo':
       return { kind: 'tempo' };
     default:

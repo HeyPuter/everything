@@ -5,8 +5,6 @@
 import { h, announce } from '../lib/dom.js';
 import { openDialog, confirmDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
-import { downloadBlob, safeFileName } from '../io/download.js';
-import { FILE_EXT } from '../model/project.js';
 import * as puter from '../storage/puter.js';
 
 /** "Today 14:05", "Yesterday", "3 Oct" (pure, `now` injectable). */
@@ -35,6 +33,8 @@ export async function openLocalProjects(app) {
     list.replaceChildren();
     empty.hidden = items.length > 0;
     list.hidden = !items.length;
+    const openButton = list.closest('.dialog')?.querySelector('[data-value="open"]');
+    if (openButton) openButton.disabled = !items.length;
     for (const m of items) {
       const row = h(
         'div.lp-row',
@@ -66,8 +66,7 @@ export async function openLocalProjects(app) {
   const download = async (m) => {
     try {
       const project = await lib.loadLocal(m.key);
-      const { blob } = await lib.exportFile(project, {});
-      downloadBlob(blob, `${safeFileName(m.name)}${FILE_EXT}`);
+      await app.files.download({ project, view: {}, name: m.name });
     } catch (err) {
       app.reportError(err);
     }
@@ -75,13 +74,21 @@ export async function openLocalProjects(app) {
   const remove = async (m) => {
     const ok = await confirmDialog({ title: 'Delete project', message: `Delete "${m.name}" from this browser? This cannot be undone.`, confirm: 'Delete', danger: true });
     if (!ok) return;
-    await lib.deleteLocal(m.key);
-    if (app.file?.local === m.key) app.files.setFile(null);
-    items = await lib.listLocal();
-    if (selected === m.key) selected = items[0]?.key || null;
-    render();
-    announce(`Deleted ${m.name}`);
-    list.focus();
+    try {
+      await lib.deleteLocal(m.key);
+      if (app.file?.local === m.key) app.files.setFile(null);
+      // Reflect the completed deletion even if refreshing the rest of the list fails.
+      items = items.filter((item) => item.key !== m.key);
+      if (selected === m.key) selected = items[0]?.key || null;
+      render();
+      announce(`Deleted ${m.name}`);
+      items = await lib.listLocal();
+      if (!items.some((item) => item.key === selected)) selected = items[0]?.key || null;
+      render();
+    } catch (err) {
+      app.reportError(err);
+    }
+    if (list.isConnected) (items.length ? list : footerStart).focus();
   };
   list.addEventListener('keydown', (e) => {
     const i = items.findIndex((m) => m.key === selected);

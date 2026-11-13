@@ -2,9 +2,10 @@
 // object when nothing changed), sharing untouched parts. No DOM, no engine:
 // these run in tests as-is. Views call them through store.apply(label, fn).
 
-import { uid, clamp, moveItem } from '../lib/util.js';
-import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, MAX_FX_SLOTS, DEFAULT_KEY } from './project.js';
+import { uid, reserveId, clamp, moveItem } from '../lib/util.js';
+import { createChannel, createPattern, createTrack, createMixerTrack, createSlot, createClip, createNote, nextPatternName, cloneName, MAX_FX_SLOTS, MAX_MIXER_TRACKS, DEFAULT_KEY } from './project.js';
 import { STEP } from './time.js';
+import { noteIdGenerator, uniqueNoteIds } from './note-ids.js';
 
 // ------------------------------------------------------------------ helpers
 
@@ -45,10 +46,23 @@ export function setProjectProps(project, changes) {
 
 // ------------------------------------------------------------------ channels
 
+// Immutable automation dictionaries share this index during batch imports.
+const channelTargetIds = new WeakMap();
+
+/** Inserts a channel and returns { project, id }; callers must use the reserved ID. */
 export function addChannel(project, channel = createChannel(), index = project.channels.length) {
+  let targets = channelTargetIds.get(project.automation);
+  if (!targets) {
+    targets = new Set();
+    for (const a of Object.values(project.automation)) if (a.target?.kind === 'channel') targets.add(a.target.id);
+    channelTargetIds.set(project.automation, targets);
+  }
+  const used = new Set(project.channels.map((c) => c.id));
+  let id = reserveId(used, channel.id);
+  while (targets.has(id)) id = reserveId(used);
   const channels = project.channels.slice();
-  channels.splice(clamp(index, 0, channels.length), 0, channel);
-  return { ...project, channels };
+  channels.splice(clamp(index, 0, channels.length), 0, id === channel.id ? channel : { ...channel, id });
+  return { project: { ...project, channels }, id };
 }
 
 export function updateChannel(project, id, changes) {
@@ -90,15 +104,19 @@ export function cloneChannel(project, id, { withNotes = false } = {}) {
   const i = project.channels.findIndex((c) => c.id === id);
   if (i < 0) return { project, id: null };
   const src = project.channels[i];
-  const copy = { ...structuredClone(src), id: uid(), name: `${src.name} #2`, solo: false };
-  let next = addChannel(project, copy, i + 1);
+  const copy = { ...structuredClone(src), id: uid(), name: cloneName(src.name), solo: false };
+  let { project: next, id: copyId } = addChannel(project, copy, i + 1);
   if (withNotes) {
     next = {
       ...next,
-      patterns: next.patterns.map((p) => (p.notes[id] ? { ...p, notes: { ...p.notes, [copy.id]: p.notes[id].map((n) => ({ ...n, id: uid(6) })) } } : p)),
+      patterns: next.patterns.map((p) => {
+        if (!p.notes[id]) return p;
+        const nextId = noteIdGenerator(p.notes[id]);
+        return { ...p, notes: { ...p.notes, [copyId]: p.notes[id].map((n) => ({ ...n, id: nextId() })) } };
+      }),
     };
   }
-  return { project: next, id: copy.id };
+  return { project: next, id: copyId };
 }
 
 /** Solo toggle the way the rack does it: solo this one alone, or clear solo when it already is. */
@@ -113,6 +131,7 @@ export function soloChannel(project, id) {
 
 export function addPattern(project, { after, name } = {}) {
   const pattern = createPattern(project.patterns.length, name || nextPatternName(project));
+  pattern.id = reserveId(new Set(project.patterns.map((p) => p.id)), pattern.id);
   const patterns = project.patterns.slice();
   const i = after ? patterns.findIndex((p) => p.id === after) + 1 : patterns.length;
   patterns.splice(i || patterns.length, 0, pattern);
@@ -139,8 +158,11 @@ export function clonePattern(project, id) {
   if (i < 0) return { project, id: null };
   const src = project.patterns[i];
   const notes = {};
-  for (const [k, list] of Object.entries(src.notes)) notes[k] = list.map((n) => ({ ...n, id: uid(6) }));
-  const copy = { ...src, id: uid(), name: `${src.name} #2`, notes };
+  for (const [k, list] of Object.entries(src.notes)) {
+    const nextId = noteIdGenerator(list);
+    notes[k] = list.map((n) => ({ ...n, id: nextId() }));
+  }
+  const copy = { ...src, id: reserveId(new Set(project.patterns.map((p) => p.id))), name: cloneName(src.name), notes };
   const patterns = project.patterns.slice();
   patterns.splice(i + 1, 0, copy);
   return { project: { ...project, patterns }, id: copy.id };
@@ -169,7 +191,8 @@ export function getNotes(project, patternId, channelId) {
 }
 
 export function addNotes(project, patternId, channelId, notes) {
-  return setNotes(project, patternId, channelId, [...getNotes(project, patternId, channelId), ...notes.map((n) => (n.id ? n : { ...n, id: uid(6) }))]);
+  const existing = getNotes(project, patternId, channelId);
+  return setNotes(project, patternId, channelId, [...existing, ...uniqueNoteIds(notes, existing)]);
 }
 
 export function removeNotes(project, patternId, channelId, ids) {
@@ -208,7 +231,7 @@ export function toggleStep(project, patternId, channelId, step, on) {
   if (want === has) return project;
   if (!want) return setNotes(project, patternId, channelId, list.filter((n) => !(n.pos >= a && n.pos < a + STEP)));
   const ch = project.channels.find((c) => c.id === channelId);
-  return setNotes(project, patternId, channelId, [...list, createNote({ key: ch?.root ?? DEFAULT_KEY, pos: a, len: STEP })]);
+  return addNotes(project, patternId, channelId, [createNote({ key: ch?.root ?? DEFAULT_KEY, pos: a, len: STEP })]);
 }
 
 // ------------------------------------------------------------------ playlist
@@ -244,7 +267,12 @@ export function moveTrack(project, from, to) {
 }
 
 export function addClips(project, clips) {
-  const made = clips.map((c) => (c.id ? c : createClip(c)));
+  const used = new Set(project.clips.map((c) => c.id));
+  const made = clips.map((c) => {
+    const clip = c.id ? c : createClip(c);
+    const id = reserveId(used, clip.id);
+    return id === clip.id ? clip : { ...clip, id };
+  });
   const maxTrack = made.reduce((m, c) => Math.max(m, c.track), -1);
   const p = ensureTracks(project, maxTrack + 1);
   return { project: { ...p, clips: [...p.clips, ...made] }, ids: made.map((c) => c.id) };
@@ -283,6 +311,7 @@ export function setLoop(project, loop) {
 
 export function addAutomation(project, automation) {
   const a = { id: uid(), name: 'Automation', points: [{ t: 0, v: 0.5 }], ...automation };
+  a.id = reserveId(new Set(Object.keys(project.automation)), a.id);
   return { project: { ...project, automation: { ...project.automation, [a.id]: a } }, id: a.id };
 }
 
@@ -308,6 +337,7 @@ export function updateMixerTrack(project, index, changes) {
 }
 
 export function addMixerTrack(project) {
+  if (project.mixer.length >= MAX_MIXER_TRACKS) return { project };
   return { project: { ...project, mixer: [...project.mixer, createMixerTrack(project.mixer.length)] }, index: project.mixer.length };
 }
 
@@ -334,10 +364,20 @@ export function routesTo(project, from, to, seen = new Set()) {
   return false;
 }
 
+/** Keep new effects distinct from slots still addressed by retained automation. */
+export function reserveSlotId(project, track, candidate = uid()) {
+  const used = new Set((project.mixer[track]?.fx || []).map((s) => s.id));
+  for (const a of Object.values(project.automation)) {
+    if (a.target?.kind === 'fx' && a.target.track === track && typeof a.target.slot === 'string') used.add(a.target.slot);
+  }
+  return reserveId(used, candidate);
+}
+
 export function addSlot(project, track, type, at) {
   const t = project.mixer[track];
   if (!t || t.fx.length >= MAX_FX_SLOTS) return { project, id: null };
   const slot = createSlot(type);
+  slot.id = reserveSlotId(project, track, slot.id);
   const fx = t.fx.slice();
   fx.splice(at ?? fx.length, 0, slot);
   return { project: updateMixerTrack(project, track, { fx }), id: slot.id };

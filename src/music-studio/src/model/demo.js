@@ -5,14 +5,22 @@ import { createProject, createChannel, createNote, createPattern, COLORS } from 
 import { drumPreset, synthPreset, STARTER_KIT } from '../instruments/presets.js';
 import { createSlot } from './project.js';
 import { STEP, PPQ } from './time.js';
-import { uid } from '../lib/util.js';
+import { uid, reserveId } from '../lib/util.js';
+import { uniqueNoteIds } from './note-ids.js';
 
 const drum = (preset, color, mixer) => createChannel({ type: 'drum', name: preset, color, params: drumPreset(preset).params, mixer });
 const synth = (preset, name, color, mixer) => createChannel({ type: 'synth', name, color, params: synthPreset(preset).params, mixer });
 
+// Reserve freshly created channels before their IDs become note references.
+function uniqueChannels(channels) {
+  const used = new Set();
+  for (const ch of channels) ch.id = reserveId(used, ch.id);
+  return channels;
+}
+
 /** A new project: the starter drum kit on inserts 1..4 and an empty pattern. */
 export function newProject(name = 'Untitled') {
-  const channels = STARTER_KIT.map((k, i) => drum(k.preset, k.color, i + 1));
+  const channels = uniqueChannels(STARTER_KIT.map((k, i) => drum(k.preset, k.color, i + 1)));
   const p = createProject({ name, channels });
   p.mixer = p.mixer.map((t, i) => (i >= 1 && i <= channels.length ? { ...t, name: channels[i - 1].name, color: channels[i - 1].color } : t));
   return p;
@@ -32,7 +40,7 @@ export function demoProject() {
   const bass = synth('Acid Bass', 'Bass', COLORS[5], 4);
   const chords = synth('Warm Pad', 'Chords', COLORS[7], 5);
   const lead = synth('Pluck', 'Lead', COLORS[9], 6);
-  const channels = [kick, clap, hat, ohat, bass, chords, lead];
+  const channels = uniqueChannels([kick, clap, hat, ohat, bass, chords, lead]);
   const p = createProject({ name: 'Demo Song', channels });
   p.bpm = 124;
 
@@ -62,9 +70,12 @@ export function demoProject() {
     ]),
   };
   p.patterns = [beat, bassLine, pad, melody];
+  const patternIds = new Set();
+  for (const pattern of p.patterns) pattern.id = reserveId(patternIds, pattern.id);
 
   const bar = PPQ * 4;
-  const clip = (track, ref, start, len) => ({ id: uid(), kind: 'pattern', track, start: start * bar, len: len * bar, offset: 0, ref, mute: false });
+  const clipIds = new Set();
+  const clip = (track, ref, start, len) => ({ id: reserveId(clipIds, uid()), kind: 'pattern', track, start: start * bar, len: len * bar, offset: 0, ref, mute: false });
   p.clips = [
     clip(0, beat.id, 0, 1), clip(0, beat.id, 1, 1), clip(0, beat.id, 2, 1), clip(0, beat.id, 3, 1), clip(0, beat.id, 4, 1), clip(0, beat.id, 5, 1), clip(0, beat.id, 6, 1), clip(0, beat.id, 7, 1),
     clip(1, bassLine.id, 0, 4), clip(1, bassLine.id, 4, 4),
@@ -81,6 +92,11 @@ export function demoProject() {
   p.mixer[5] = { ...p.mixer[5], fx: [{ ...createSlot('reverb'), params: { ...createSlot('reverb').params, wet: 0.3 } }] };
   p.mixer[6] = { ...p.mixer[6], fx: [createSlot('delay'), createSlot('reverb')] };
   p.mixer[0] = { ...p.mixer[0], fx: [createSlot('limiter')] };
+  for (const track of p.mixer) {
+    const slots = new Set();
+    for (const slot of track.fx) slot.id = reserveId(slots, slot.id);
+  }
+  for (const pattern of p.patterns) for (const [cid, notes] of Object.entries(pattern.notes)) pattern.notes[cid] = uniqueNoteIds(notes);
   p.ui = { pattern: beat.id };
   return p;
 }

@@ -5,6 +5,7 @@ import { h } from '../lib/dom.js';
 import { clamp, formatDb } from '../lib/util.js';
 import { icon } from './icons.js';
 import { createKnob } from './knob.js';
+import { trackParameterInteraction } from './parameter-interactions.js';
 import { openMenu } from './menu.js';
 import { createMenubar } from './menubar.js';
 import { createAccount } from './account.js';
@@ -87,8 +88,9 @@ export function createToolbar(app) {
     tweaked();
     app.setTempo(clamp(bpm, 10, 522), label);
   };
+  let endTempoDrag = null;
   tempo.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || e.detail > 1) return;
+    if (e.button !== 0 || e.detail > 1 || endTempoDrag || e.target.closest('input')) return;
     e.preventDefault();
     tempo.focus();
     tempo.setPointerCapture(e.pointerId);
@@ -96,26 +98,43 @@ export function createToolbar(app) {
     let acc = app.store.project.bpm;
     tweaked();
     app.store.begin('Change tempo');
+    const gesture = app.store.gesture;
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (app.store.gesture !== gesture) return finish(false);
       const dy = last - ev.clientY;
       last = ev.clientY;
       acc = clamp(acc + dy * (ev.shiftKey ? 0.05 : 0.5), 10, 522);
       app.store.preview((p) => ({ ...p, bpm: Math.round(acc * (ev.shiftKey ? 100 : 1)) / (ev.shiftKey ? 100 : 1) }));
     };
-    const up = () => {
+    const finish = (commit) => {
+      if (endTempoDrag !== finish) return;
+      endTempoDrag = null;
+      untrack();
       tempo.removeEventListener('pointermove', move);
       tempo.removeEventListener('pointerup', up);
       tempo.removeEventListener('pointercancel', up);
-      app.store.commit();
+      tempo.removeEventListener('lostpointercapture', up);
+      if (tempo.hasPointerCapture?.(e.pointerId)) tempo.releasePointerCapture(e.pointerId);
+      if (app.store.gesture === gesture) {
+        if (commit) app.store.commit();
+        else app.store.cancel();
+      }
     };
+    const up = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+    const untrack = trackParameterInteraction(() => finish(false));
+    endTempoDrag = finish;
     tempo.addEventListener('pointermove', move);
     tempo.addEventListener('pointerup', up);
     tempo.addEventListener('pointercancel', up);
+    tempo.addEventListener('lostpointercapture', up);
   });
+  tempo.addEventListener('blur', () => endTempoDrag?.(true));
   tempo.addEventListener('dblclick', () => typeTempo());
   tempo.addEventListener(
     'wheel',
     (e) => {
+      if (e.target.closest('input')) return;
       e.preventDefault();
       setBpm(app.store.project.bpm + Math.sign(-e.deltaY) * (e.shiftKey ? 0.1 : 1));
     },
@@ -134,22 +153,27 @@ export function createToolbar(app) {
     }
   });
   function typeTempo() {
+    if (tempo.querySelector('input')) return;
     const input = h('input.input.sm.tempo-input', { type: 'text', inputmode: 'decimal', value: String(app.store.project.bpm), 'aria-label': 'Tempo in BPM' });
     tempo.replaceChildren(input);
     input.focus();
     input.select();
     let done = false;
-    const close = (apply) => {
+    let untrack;
+    const close = (apply, restoreFocus = true) => {
       if (done) return;
       done = true;
+      untrack?.();
       const v = Number(input.value.replace(',', '.'));
       if (apply && Number.isFinite(v) && v > 0) setBpm(v);
       tempo.replaceChildren(tempoValue, h('span.tempo-unit', 'BPM'));
-      tempo.focus();
+      if (restoreFocus) tempo.focus();
       syncTempo();
     };
+    untrack = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      if (e.isComposing) return;
       if (e.key === 'Enter') close(true);
       if (e.key === 'Escape') close(false);
     });

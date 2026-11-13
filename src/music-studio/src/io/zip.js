@@ -28,11 +28,8 @@ function dosTime(d) {
   return { time, date };
 }
 
-/**
- * @param {{ name: string, data: Uint8Array }[]} files
- * @returns {Uint8Array} the ZIP file bytes
- */
-export function zipBytes(files, when = new Date()) {
+/** ZIP headers and file views, without a concatenated copy of the payload. */
+function zipParts(files, when) {
   const enc = new TextEncoder();
   const { time, date } = dosTime(when);
   const parts = [];
@@ -78,7 +75,15 @@ export function zipBytes(files, when = new Date()) {
   end.setUint16(10, files.length, true);
   end.setUint32(12, cdSize, true);
   end.setUint32(16, offset, true);
-  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  return [...parts, ...central, new Uint8Array(end.buffer)];
+}
+
+/**
+ * @param {{ name: string, data: Uint8Array }[]} files
+ * @returns {Uint8Array} the ZIP file bytes
+ */
+export function zipBytes(files, when = new Date()) {
+  const all = zipParts(files, when);
   const out = new Uint8Array(all.reduce((s, p) => s + p.length, 0));
   let o = 0;
   for (const p of all) {
@@ -89,7 +94,7 @@ export function zipBytes(files, when = new Date()) {
 }
 
 export function zipBlob(files) {
-  return new Blob([zipBytes(files)], { type: 'application/zip' });
+  return new Blob(zipParts(files, new Date()), { type: 'application/zip' });
 }
 
 /** Reads a stored (uncompressed) ZIP: Map(name -> Uint8Array). Used by tests. */

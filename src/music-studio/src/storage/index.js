@@ -22,6 +22,7 @@ import { FILE_EXT } from '../model/project.js';
 import { isAudioName } from '../io/wav.js';
 import { installDialogs } from '../dialogs/index.js';
 import { saveChangesDialog } from '../ui/dialog.js';
+import { uid } from '../lib/util.js';
 import '../styles/dialogs.css';
 
 /** Longest the startup waits for the last session before showing the app. */
@@ -75,48 +76,97 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
     prefs.set('launched', true);
   }
 
+  let closing = false;
+  let exiting = false;
+  let discarding = false;
+  let ownedDraft = null;
+  let pendingRecovery = null;
+  // Modern drafts need only their revision; avoid retaining another project JSON.
+  const draftIdentity = (draft) => draft?.revision ? { revision: draft.revision } : draft;
+  const preserveRecovery = async () => {
+    const pending = pendingRecovery;
+    if (!pending) return;
+    await lib.saveDraft(pending.draft, pending.key);
+    ownedDraft ??= draftIdentity(pending.draft);
+    if (pendingRecovery === pending) pendingRecovery = null;
+  };
   const autosave = new Autosave({
     store,
-    writeDraft: async () => lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, (await tab).key),
-    writeCloud: () => files.save({ auto: true }),
-    cloudEnabled: () => Boolean(app.file?.path) && cloudAutosaveOn(prefs) && puter.isSignedIn(),
+    writeDraft: async () => {
+      // Recovery must preserve the previous slot before an early file event can replace it.
+      await app.restored;
+      const slot = await tab;
+      if (discarding || exiting) return;
+      await preserveRecovery();
+      if (discarding || exiting) return;
+      ownedDraft = draftIdentity(await lib.saveDraft({ json: serializeProject(store.project, store.view), file: app.file, dirty: store.dirty }, slot.key));
+    },
+    writeCloud: () => (closing || exiting ? false : files.save({ auto: true })),
+    cloudEnabled: () => !closing && !exiting && Boolean(app.file?.path) && cloudAutosaveOn(prefs) && puter.isSignedIn(),
   });
   app.autosave = autosave;
   app.on('file', () => autosave.scheduleDraft());
 
   let launched = false;
   const startLoads = files.loads;
+  let changedDuringRestore = false;
+  const stopWatchingRestore = store.on('change', () => { changedDuringRestore = true; });
   const restore = async () => {
     try {
       // This tab's own draft (a reload), else the newest one no open tab owns.
       const slot = await tab;
-      const picked = pickDraft(await lib.allDrafts(), { own: slot.key, live: await slot.liveKeys() });
-      for (const k of picked.remove) lib.clearDraft(k).catch(() => {});
+      const recover = async (exclusive = true) => {
+        const picked = pickDraft(await lib.allDrafts(), { own: slot.key, live: exclusive ? await slot.liveKeys() : null });
+        await Promise.all(picked.remove.map((key) => lib.clearDraft(key).catch(() => {})));
+        // Finish the transfer before another tab selects an abandoned session.
+        if (picked.draft && picked.key !== slot.key) {
+          picked.draft = await lib.adoptDraft(picked.draft, picked.key, slot.key);
+        }
+        return picked;
+      };
+      const picked = await (slot.withRecovery ? slot.withRecovery(recover) : recover());
       const draft = picked.draft;
-      // Adopt another tab's leftover draft: copy it to this tab's slot first,
-      // so a crash in between never loses it, and no other tab restores it too.
-      if (draft && picked.key !== slot.key) {
-        await lib.saveDraft(draft, slot.key);
-        await lib.clearDraft(picked.key).catch(() => {});
-      }
+      let restoredDraft = false;
       if (picked.busy && !firstLaunch) app.notify('Your last session is open in another tab, so this tab started a new project.');
       // A file opened by the Puter desktop, a project opened meanwhile, or
       // edits made meanwhile win over the draft.
-      if (!launched && draft?.json && !store.undoStack.length && files.loads === startLoads) {
+      if (!launched && draft?.json && !changedDuringRestore && !store.undoStack.length && files.loads === startLoads) {
         let project = parseProject(draft.json);
         // A saved cloud project may have been changed elsewhere since: open
         // the file itself (the draft stays the fallback when it cannot be read).
         if (!draft.dirty && draft.file?.path && puter.isSignedIn()) {
           project = await lib.loadCloud(draft.file.path).catch(() => project);
-          if (files.loads !== startLoads || store.undoStack.length) project = null;
+          if (changedDuringRestore || files.loads !== startLoads || store.undoStack.length) project = null;
         }
-        if (project) files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
+        if (project) {
+          files.loadProject(project, draft.file || null, { dirty: Boolean(draft.dirty) }).catch((err) => console.warn(err));
+          restoredDraft = true;
+          ownedDraft ??= draftIdentity(draft);
+        }
+      }
+      if (draft?.json && !restoredDraft) {
+        // Autosaving the new work will replace this tab's slot. Preserve the
+        // skipped session under a fresh, unowned key for the next tab to recover.
+        pendingRecovery = { draft, key: `tab:${uid(10)}` };
+        try {
+          await preserveRecovery();
+          app.notify('Your previous session was kept for recovery in a new tab.', { timeout: 9000 });
+        } catch (err) {
+          // Do not overwrite the only old copy while the recovery write is failing.
+          app.notify('Your previous session is kept, but this browser could not keep both sessions. Save your current work to your device before closing.', {
+            error: true, timeout: 12000,
+            action: { label: 'Save current work to device', run: () => files.download().catch((error) => app.reportError(error)) },
+          });
+          console.warn('Music Studio: the previous session could not be copied for recovery.', err);
+        }
       }
     } catch (err) {
       console.warn('Music Studio: the last session could not be restored.', err);
     }
+    stopWatchingRestore();
     autosave.start();
-    if (firstLaunch) autosave.scheduleDraft();
+    // Edits made while startup was waiting happened before autosave subscribed.
+    if (firstLaunch || store.dirty) autosave.scheduleDraft();
   };
   app.restored = new Promise((resolve) => app.once('started', () => restore().then(resolve)));
 
@@ -149,7 +199,7 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
       const name = item.name || baseName(item.path || '');
       try {
         if (name.toLowerCase().endsWith(FILE_EXT)) await files.openPath(item.path);
-        else if (/\.midi?$/i.test(name)) await files.importMidiBlob(await puter.readFile(item.path), name);
+        else if (/\.midi?$/i.test(name)) await files.importMidiBlob(puter.readFile(item.path), name);
         else if (isAudioName(name)) await files.runImport(() => files.importAudioFromPath(item.path), name);
       } catch (err) {
         app.reportError(err);
@@ -167,32 +217,53 @@ export function install(app, { db = openDB(), tab = claimTab() } = {}) {
   });
   // Inside the Puter desktop the close button asks about unsaved changes
   // (beforeunload never fires there), then writes what is pending and exits.
-  let closing = false;
   puter.onWindowClose(async () => {
-    if (closing) return;
+    if (closing || exiting) return;
     closing = true;
     try {
-      if (store.dirty) {
+      // Closing ends a drag: Save must include the value currently on screen.
+      store.commit();
+      if (store.dirty || lib.hasTemporarySamples(store.project)) {
         const choice = await saveChangesDialog(store.project.name);
         if (choice === null) return;
+        if (choice === 'discard') {
+          discarding = true;
+          // Let earlier writes finish before removing their exact recovery copy.
+          await app.restored;
+          await autosave.flushAll();
+          await files.whenIdle();
+          await autosave.flushAll();
+          await lib.discardDraft((await tab).key, ownedDraft);
+        }
         if (choice === 'save') {
           const saved = await files.save().catch((err) => {
             app.reportError(err);
             return false;
           });
-          if (!saved || store.dirty) return;
+          if (!saved || store.dirty || lib.hasTemporarySamples(store.project)) return;
         }
       }
       await autosave.flushAll().catch(() => {});
+      exiting = true;
       puter.exitApp();
+    } catch (err) {
+      app.reportError(err);
     } finally {
       closing = false;
+      if (!exiting) {
+        discarding = false;
+        if (store.dirty) {
+          autosave.scheduleDraft();
+          autosave.scheduleCloud();
+        }
+      }
     }
   });
 
   window.addEventListener('beforeunload', (e) => {
-    if (!store.dirty) return;
-    const unsaved = !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
+    const temporary = lib.hasTemporarySamples(store.project);
+    if (!store.dirty && !temporary) return;
+    const unsaved = temporary || Boolean(store.gesture && store.project !== store.gesture.start) || !persistent || autosave.pending || autosave.lastError || !autosave.offs.length;
     autosave.flushAll();
     if (unsaved) {
       e.preventDefault();

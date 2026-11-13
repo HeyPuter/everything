@@ -127,7 +127,7 @@ describe('tools', () => {
   it('purges unused channels, empty patterns and orphan samples', () => {
     let p = demoProject();
     const spare = createChannel({ type: 'synth', name: 'Spare' });
-    p = E.addChannel(p, spare);
+    p = E.addChannel(p, spare).project;
     p = E.addPattern(p).project;
     p = E.addSample(p, { id: 'orphan', name: 'x.wav' }).project;
     const r = purgeUnused(p);
@@ -139,6 +139,43 @@ describe('tools', () => {
     // One pattern always stays.
     const empty = { ...newProject(), channels: [] };
     expect(purgeUnused(empty).project.patterns).toHaveLength(1);
+  });
+
+  it('purges thousands of empty patterns in one undoable edit and keeps the first', () => {
+    const base = newProject();
+    const patterns = Array.from({ length: 6000 }, (_, i) => ({ ...base.patterns[0], id: `empty${i}`, notes: {} }));
+    const project = { ...base, channels: [], patterns, clips: [] };
+    const store = new Store(project);
+    const result = store.apply('Purge unused', purgeUnused);
+    expect(result.removed.patterns).toEqual(patterns.slice(1).map((p) => p.id));
+    expect(result.patterns).toBe(5999);
+    expect(store.project.patterns).toEqual([patterns[0]]);
+    expect(store.project.patterns[0]).toBe(patterns[0]);
+    expect(purgeUnused(store.project).project).toBe(store.project);
+    const purged = store.project;
+    store.undo();
+    expect(store.project).toBe(project);
+    store.redo();
+    expect(store.project).toBe(purged);
+  });
+
+  it('preserves used and unconfirmed patterns in their original order during a batch purge', () => {
+    const base = newProject();
+    const channel = base.channels[0];
+    const patterns = Array.from({ length: 80 }, (_, i) => ({
+      ...base.patterns[0], id: `p${i}`, notes: i % 4 === 0 ? { [channel.id]: [{ id: `n${i}`, pos: 0, len: 48, key: 60, vel: 0.8 }] } : {},
+    }));
+    const clips = patterns.filter((_, i) => i % 4 === 1).map((p) => ({ id: `clip${p.id}`, kind: 'pattern', ref: p.id, start: 0, len: 384, track: 0 }));
+    const project = { ...base, patterns, clips };
+    const allowed = { channels: new Set(), samples: new Set(), patterns: new Set(patterns.filter((_, i) => i % 4 !== 3).map((p) => p.id)) };
+    const result = purgeUnused(project, allowed);
+    const expected = patterns.filter((_, i) => i % 4 !== 2);
+    expect(result.project.patterns).toEqual(expected);
+    expected.forEach((pattern, i) => expect(result.project.patterns[i]).toBe(pattern));
+    expect(result.project.clips).toEqual(clips);
+    expect(result.removed.patterns).toEqual(patterns.filter((_, i) => i % 4 === 2).map((p) => p.id));
+    expect(result).toMatchObject({ channels: 0, patterns: 20, samples: 0 });
+    expect(project.patterns).toHaveLength(80);
   });
 
   it('finds stem inserts including buses fed by sends', () => {

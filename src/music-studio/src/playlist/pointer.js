@@ -30,13 +30,18 @@ export function installPointer(V, el) {
   let pinch = null;
 
   V.cancelGesture = () => {
-    if (!gesture) return false;
-    gesture.cancel?.();
-    store.cancel();
+    const active = Boolean(gesture || pinch);
+    touches.clear();
+    pinch = null;
+    if (!gesture) return active;
+    const g = gesture;
+    // Clear the pointer state before cancel emits a synchronous history change.
     endGesture();
+    g.cancel?.();
+    store.cancel();
     return true;
   };
-  V.hasGesture = () => Boolean(gesture);
+  V.hasGesture = () => Boolean(gesture || pinch);
 
   function endGesture() {
     gesture = null;
@@ -70,7 +75,7 @@ export function installPointer(V, el) {
         const g = V.grid(ev);
         const raw = p2.tick - pt.tick;
         const ns = g ? snapRound(clip.start + raw, g) : Math.round(clip.start + raw);
-        const r = store.preview((p) => C.moveClips(p, ids, ns - clip.start, p2.track - pt.track, { duplicate: dup }));
+        const r = store.preview((p) => C.moveClips(p, ids, ns - clip.start, p2.track - pt.track, { duplicate: dup, sampleInfo: (id) => app.samples.get(id) }));
         if (r?.ids) V.setSelection(r.ids);
         app.hint(dup ? 'Duplicating: release to drop the copies. Escape cancels.' : 'Moving: hold Alt to move freely, Shift at the start of a drag duplicates. Escape cancels.');
       },
@@ -99,7 +104,7 @@ export function installPointer(V, el) {
         const at = edge === 'right' ? clip.start + clip.len : clip.start;
         const raw = at + p2.tick - pt.tick;
         const ne = g ? snapRound(raw, g) : Math.round(raw);
-        store.preview((p) => C.resizeClips(p, ids, edge, ne - at, { minLen: g || 1 }));
+        store.preview((p) => C.resizeClips(p, ids, edge, ne - at, { minLen: g || 1, sampleInfo: (id) => app.samples.get(id) }));
       },
       up() {
         store.commit();
@@ -464,7 +469,10 @@ export function installPointer(V, el) {
     if (e.pointerType === 'touch') {
       touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (touches.size === 2) {
+        // Cancel the edit preview, then reuse these contacts for navigation.
+        const contacts = [...touches];
         V.cancelGesture();
+        for (const [id, point] of contacts) touches.set(id, point);
         startPinch();
         return;
       }
@@ -497,6 +505,7 @@ export function installPointer(V, el) {
   });
 
   el.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch) {
       movePinch();
@@ -516,9 +525,11 @@ export function installPointer(V, el) {
   });
 
   const finish = (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     touches.delete(e.pointerId);
     if (pinch) {
       if (touches.size < 2) pinch = null;
+      else if (pinch.ids.includes(e.pointerId)) startPinch();
       return;
     }
     if (!gesture) return;
@@ -528,12 +539,18 @@ export function installPointer(V, el) {
     endGesture();
   };
   el.addEventListener('pointerup', finish);
-  el.addEventListener('pointercancel', (e) => {
+  const cancel = (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     touches.delete(e.pointerId);
-    if (pinch && touches.size < 2) pinch = null;
+    if (pinch) {
+      if (touches.size < 2) pinch = null;
+      else if (pinch.ids.includes(e.pointerId)) startPinch();
+    }
     if (gesture) V.cancelGesture();
-  });
+  };
+  el.addEventListener('pointercancel', cancel);
   el.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) return cancel(e);
     if (gesture && e.pointerType !== 'touch') finish(e);
   });
 
@@ -619,6 +636,7 @@ export function installPointer(V, el) {
     const r = el.getBoundingClientRect();
     const mid = (a.x + b.x) / 2 - r.left;
     pinch = {
+      ids: [...touches.keys()].slice(0, 2),
       dist: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)),
       ppt: V.vp.pxPerTick,
       tick: V.vp.tick(mid),

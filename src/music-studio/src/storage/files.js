@@ -10,7 +10,7 @@
 // app.saving (+ app 'saving' event) and store.markSaved().
 
 import * as puter from './puter.js';
-import { MAX_IMPORT_BYTES } from './library.js';
+import { MAX_IMPORT_BYTES, SampleExistsError, SampleRecoveryError } from './library.js';
 import * as E from '../model/edits.js';
 import { createChannel, colorAt, freeInsert, FILE_EXT } from '../model/project.js';
 import { decodeAudio } from '../audio/samples.js';
@@ -19,7 +19,7 @@ import { readMidi, isMidi, writeMidi } from '../io/midi.js';
 import { importMidi, projectToMidi } from '../io/midi-project.js';
 import { downloadBlob, chooseFiles, safeFileName, stripExtension } from '../io/download.js';
 import { AUDIO_EXTENSIONS, isAudioName } from '../io/wav.js';
-import { uid } from '../lib/util.js';
+import { reserveId } from '../lib/util.js';
 import { h } from '../lib/dom.js';
 import { openDialog, confirmDialog, promptDialog } from '../ui/dialog.js';
 
@@ -35,6 +35,29 @@ export function baseName(path = '') {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
+// Missing media may still be restored by undo or an active gesture. Reuse
+// shared model collections while collecting their IDs and local aliases.
+function sampleIdsInHistory(store, cache) {
+  const used = new Set(cache.ids?.() || []), samples = new Set(), channels = new Set();
+  const projects = [store.project, store.gesture?.start, ...store.undoStack.map((e) => e.project), ...store.redoStack.map((e) => e.project)];
+  for (const p of projects) {
+    if (!p) continue;
+    if (!samples.has(p.samples)) {
+      samples.add(p.samples);
+      for (const [id, ref] of Object.entries(p.samples)) {
+        used.add(id);
+        if (ref.id) used.add(ref.id);
+        if (ref.local) used.add(ref.local);
+      }
+    }
+    if (!channels.has(p.channels)) {
+      channels.add(p.channels);
+      for (const ch of p.channels) if (ch.sample) used.add(ch.sample);
+    }
+  }
+  return used;
+}
+
 export class ProjectFiles {
   constructor(app, lib) {
     this.app = app;
@@ -43,8 +66,12 @@ export class ProjectFiles {
     // Counts project replacements (open, new, restore): a save that finishes
     // after one must not point the app at the file it was writing.
     this.loads = 0;
+    this.openRequest = 0;
     this.store.on('change', (_p, _prev, info) => {
-      if (info?.source === 'load') this.loads++;
+      if (info?.source === 'load') {
+        this.loads++;
+        this.lib.pruneTemporarySamples?.(_p);
+      }
     });
   }
 
@@ -81,15 +108,18 @@ export class ProjectFiles {
 
   /** Asks before replacing a project with unsaved changes (same wording as New). */
   async confirmDiscard() {
-    if (!this.store.dirty) return true;
+    if (!this.store.dirty && !this.lib.hasTemporarySamples?.(this.store.project)) return true;
     return confirmDialog({ title: 'Open project', message: 'Discard the changes to the current project?', confirm: 'Discard', danger: true });
   }
 
   /** Replaces the open project and loads its samples in the background. */
   loadProject(project, file, { dirty = false, quietSamples = false } = {}) {
     this.app.engine.stop();
-    const keep = new Set(Object.keys(project.samples || {}));
-    for (const id of this.app.samples.ids()) if (!keep.has(id)) this.app.samples.delete(id);
+    const previous = this.store.project.samples || {};
+    for (const id of this.app.samples.ids()) {
+      const before = previous[id], after = project.samples?.[id];
+      if (!before || !after || (before.local || id) !== (after.local || id) || (before.path || null) !== (after.path || null)) this.app.samples.delete(id);
+    }
     this.store.load(project);
     if (dirty) this.store.dirty = true;
     this.setFile(file);
@@ -100,16 +130,45 @@ export class ProjectFiles {
 
   async loadSamples(project, { quiet = false } = {}) {
     if (!Object.keys(project.samples || {}).length) return { loaded: 0, missing: [] };
-    const r = await this.lib.loadSamples(project, this.app.samples);
-    if (r.missing.length && !quiet) {
+    const loads = this.loads;
+    const isCurrent = () => this.loads === loads;
+    const r = await this.lib.loadSamples(project, this.app.samples, { isCurrent });
+    if (r.missing.length && !quiet && isCurrent()) {
       const list = r.missing.slice(0, 3).join(', ') + (r.missing.length > 3 ? ` and ${r.missing.length - 3} more` : '');
       const signIn = !this.signedIn() && Object.values(project.samples).some((s) => s.path);
       this.app.notify(`${r.missing.length === 1 ? 'A sample was' : `${r.missing.length} samples were`} not found (${list}). Their channels are kept.${signIn ? ' Sign in to load samples from your Puter cloud.' : ''}`, { error: true, timeout: 9000 });
     }
+    if (!quiet && isCurrent() && this.lib.hasTemporarySamples?.(this.store.project)) this.temporarySampleNotice();
     return r;
   }
 
+  temporarySampleNotice() {
+    this.app.notify('Some audio could not be saved in this browser and is kept only for this session. Use File > Save to your device or save to Puter before closing.', { error: true, timeout: 12000 });
+  }
+
   // ---------------------------------------------------------------- open
+
+  #openAttempt() {
+    const request = ++this.openRequest;
+    const loads = this.loads;
+    return { approved: null, current: () => this.openRequest === request && this.loads === loads };
+  }
+
+  async #approveOpen(attempt) {
+    if (!attempt.current()) return false;
+    const before = this.store.project;
+    if (before !== attempt.approved && !(await this.confirmDiscard())) return false;
+    if (!attempt.current() || this.store.project !== before) return false;
+    attempt.approved = before;
+    return true;
+  }
+
+  async #finishOpen(attempt, project, file, { dirty = false } = {}) {
+    if (!(await this.#approveOpen(attempt)) || !attempt.current() || this.store.project !== attempt.approved) return false;
+    this.loadProject(project, file, { dirty });
+    this.app.notify(`Opened ${project.name}${dirty ? '. Save to keep it in Music Studio.' : ''}`);
+    return true;
+  }
 
   async open() {
     if (this.signedIn()) return this.openFromPuter();
@@ -126,13 +185,14 @@ export class ProjectFiles {
     const items = await puter.pickFiles({ multiple: false, accept: FILE_EXT, path: dir });
     const item = items[0];
     if (!item) return;
-    if (/\.midi?$/i.test(item.name || '')) return this.importMidiBlob(await item.read(), item.name);
+    if (/\.midi?$/i.test(item.name || '')) return this.importMidiBlob(item.read(), item.name);
     return this.openPath(item.path);
   }
 
   async openPath(path) {
     puter.requireSignedIn();
-    if (!(await this.confirmDiscard())) return false;
+    const attempt = this.#openAttempt();
+    if (!(await this.#approveOpen(attempt)) || !attempt.current()) return false;
     let project;
     try {
       project = await this.lib.loadCloud(path);
@@ -140,18 +200,17 @@ export class ProjectFiles {
       throw new Error(puter.errorMessage(err, 'The project could not be opened.'));
     }
     const name = stripExtension(baseName(path));
-    this.loadProject(project, { path, name });
-    this.app.notify(`Opened ${project.name}`);
-    return true;
+    return this.#finishOpen(attempt, project, { path, name });
   }
 
   async openLocalKey(key) {
-    if (!(await this.confirmDiscard())) return false;
+    const attempt = this.#openAttempt();
+    if (!(await this.#approveOpen(attempt)) || !attempt.current()) return false;
     const meta = (await this.lib.listLocal()).find((m) => m.key === key);
+    if (!attempt.current()) return false;
     const project = await this.lib.loadLocal(key);
-    this.loadProject(project, { local: key, name: meta?.name || project.name });
-    this.app.notify(`Opened ${project.name}`);
-    return true;
+    const dirty = (await this.lib.db()).persistent === false;
+    return this.#finishOpen(attempt, project, { local: key, name: meta?.name || project.name }, { dirty });
   }
 
   /** File > Open from this device: a .msproj (or a .mid, imported into the current project). */
@@ -166,14 +225,13 @@ export class ProjectFiles {
     const name = file.name || '';
     if (/\.midi?$/i.test(name)) return this.importMidiBlob(file, name);
     if (isAudioName(name) || file.type?.startsWith('audio/')) return this.app.importAudio(file, { name });
+    const attempt = this.#openAttempt();
     const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    if (!attempt.current()) return false;
     if (isMidi(head)) return this.importMidiBlob(file, name);
     if (file.size > MAX_PROJECT_BYTES) throw new Error(`"${name}" is ${mb(file.size)}, too large for a Music Studio project.`);
     const project = await this.lib.readProjectText(await file.text());
-    if (!(await this.confirmDiscard())) return false;
-    this.loadProject(project, null, { dirty: true });
-    this.app.notify(`Opened ${project.name}. Save to keep it in Music Studio.`);
-    return true;
+    return this.#finishOpen(attempt, project, null, { dirty: true });
   }
 
   // ---------------------------------------------------------------- save
@@ -190,11 +248,12 @@ export class ProjectFiles {
     if (auto) return false;
     // A first save of a project nobody has named yet asks for a name.
     if (!file?.local && this.store.project.name === 'Untitled') return this.saveAs();
-    return this.saveLocalProject(file?.local || uid(), file?.name || this.store.project.name);
+    return this.saveLocalProject(file?.local, file?.name || this.store.project.name);
   }
 
   /** File > Save as: asks for a name and saves a new copy. */
   async saveAs() {
+    const loads = this.loads;
     const cloud = this.signedIn();
     const name = await promptDialog({
       title: 'Save project as',
@@ -203,21 +262,27 @@ export class ProjectFiles {
       confirm: 'Save',
       validate: (v) => (v.trim() ? '' : 'Enter a name.'),
     });
-    if (name === null) return false;
+    if (name === null || this.loads !== loads) return false;
     // An autosave may have started while the dialog was open.
     await this.whenIdle();
+    if (this.loads !== loads) return false;
     const clean = name.trim().slice(0, 120);
+    let path;
     if (cloud) {
-      const path = await this.lib.cloudPathFor(clean);
+      path = await this.lib.cloudPathFor(clean);
+      if (this.loads !== loads) return false;
       if (path !== this.app.file?.path && (await puter.exists(path))) {
+        if (this.loads !== loads) return false;
         const ok = await confirmDialog({ title: 'Replace project?', message: `A project named "${baseName(path)}" already exists in your Puter cloud. Replace it?`, confirm: 'Replace', danger: true });
         if (!ok) return false;
       }
-      this.renameProject(clean);
-      return this.saveCloudTo(path);
     }
+    // Cloud lookups and replacement prompts may outlast another autosave.
+    // Recheck after every wait: another queued Save As can start first.
+    while (this.app.saving) await this.whenIdle();
+    if (this.loads !== loads) return false;
     this.renameProject(clean);
-    return this.saveLocalProject(uid(), clean);
+    return cloud ? this.saveCloudTo(path) : this.saveLocalProject(undefined, clean);
   }
 
   renameProject(name) {
@@ -256,12 +321,18 @@ export class ProjectFiles {
   async saveLocalProject(key, name) {
     this.setSaving(true);
     const snapshot = this.snapshot();
+    const view = { ...this.store.view };
     const loads = this.loads;
     try {
-      await this.lib.saveLocal(snapshot, this.store.view, { key, name });
+      const saved = await this.lib.saveLocal(snapshot, view, { key, name });
+      key = saved?.key ?? key;
       this.addRecent({ local: key, name });
       if (this.loads === loads) {
-        if (this.store.project === snapshot) this.store.markSaved();
+        if (this.store.project === snapshot) {
+          // A session copy disappears on close; keep the durable-save warning active.
+          if (saved?.persistent === false) this.store.dirty = true;
+          else this.store.markSaved();
+        }
         this.setFile({ local: key, name });
       }
     } catch (err) {
@@ -270,27 +341,32 @@ export class ProjectFiles {
     } finally {
       this.setSaving(false);
     }
-    this.localSaveNotice();
+    if (this.loads === loads) this.localSaveNotice({ project: snapshot, view, name });
     return true;
   }
 
   /** After a signed-out save: explain where it went, once; later saves just confirm. */
-  async localSaveNotice() {
+  async localSaveNotice({ project = this.store.project, view = { ...this.store.view }, name = this.app.file?.name || project.name } = {}) {
+    const loads = this.loads;
+    const download = () => this.download({ project, view, name });
     const prefs = this.app.prefs;
     const seen = prefs.get('dismissedNotices') || [];
-    const persistent = (await this.lib.db()).persistent;
+    const temporary = this.lib.hasTemporarySamples?.(project);
+    const persistent = (await this.lib.db()).persistent && !temporary;
+    if (this.loads !== loads) return;
     if (seen.includes('localSave')) {
-      this.app.notify(persistent ? 'Saved in this browser' : 'Saved for this session only', { action: { label: 'Download', run: () => this.download() } });
+      this.app.notify(persistent ? 'Saved in this browser' : 'Saved for this session only', { action: { label: 'Download', run: download } });
       return;
     }
     prefs.set('dismissedNotices', [...seen, 'localSave']);
     const canSignIn = Boolean(puter.sdk()) && puter.env() !== 'app';
     const r = await openDialog({
-      title: 'Saved in this browser',
+      store: this.store,
+      title: persistent ? 'Saved in this browser' : 'Saved for this session only',
       className: 'save-notice',
       body: h(
         'div.save-notice-body',
-        h('p', persistent ? 'Your project is saved in this browser on this device. Find it again with File > Open.' : 'This browser blocks site storage, so the project is kept only until you close the tab. Download a copy to keep it.'),
+        h('p', temporary ? 'Some audio could not be saved in this browser and is kept only for this session. Download a copy to keep it.' : persistent ? 'Your project is saved in this browser on this device. Find it again with File > Open.' : 'This browser blocks site storage, so the project is kept only until you close the tab. Download a copy to keep it.'),
         h('p', 'To keep a copy elsewhere, save the project file to your device. ', canSignIn ? 'Or sign in to Puter to save projects to your cloud and open them anywhere.' : ''),
       ),
       buttons: [
@@ -299,14 +375,16 @@ export class ProjectFiles {
         { label: 'OK', value: 'ok', primary: true },
       ],
     });
-    if (r === 'download') await this.download();
+    if (this.loads !== loads) return;
+    if (r === 'download') await download();
     else if (r === 'signin') await this.app.signIn?.();
   }
 
   /** File > Save to your device: downloads a self-contained .msproj. */
-  async download() {
-    const { blob, missing, skipped } = await this.lib.exportFile(this.store.project, this.store.view);
-    downloadBlob(blob, `${safeFileName(this.app.file?.name || this.store.project.name)}${FILE_EXT}`);
+  async download({ project = this.store.project, view = { ...this.store.view }, name = this.app.file?.name || project.name } = {}) {
+    const filename = `${safeFileName(name)}${FILE_EXT}`;
+    const { blob, missing, skipped } = await this.lib.exportFile(project, view);
+    downloadBlob(blob, filename);
     if (skipped) this.app.notify('Downloaded. Some samples were too large to include in the file.', { error: true });
     else if (missing.length) this.app.notify(`Downloaded without ${missing.length === 1 ? 'one missing sample' : `${missing.length} missing samples`}.`, { error: true });
     else this.app.notify('Project file downloaded');
@@ -347,36 +425,66 @@ export class ProjectFiles {
 
   // ---------------------------------------------------------------- import audio
 
+  /** Async imports belong to the document in which they were started. */
+  importGuard() {
+    const loads = this.loads;
+    return () => {
+      if (this.loads !== loads) throw new Error('Import cancelled because another project was opened.');
+    };
+  }
+
   /**
    * app.importAudio: decodes, stores the bytes, adds the sample and a channel
    * in one undo step. With `channel` (an existing channel id) the sample goes
    * to that channel instead (a sampler or audio channel keeps its type).
    */
   async importAudio(blob, { name, path = null, as = 'sampler', channel = null } = {}) {
+    const check = this.importGuard();
     const fileName = name || blob.name || 'Audio';
     if (blob.size > MAX_IMPORT_BYTES) throw new Error(`"${fileName}" is ${mb(blob.size)}. Music Studio imports audio files up to ${mb(MAX_IMPORT_BYTES)}.`);
     const data = await blob.arrayBuffer();
+    check();
     let decoded;
     try {
       decoded = await decodeAudio(data);
     } catch {
       throw new Error(`"${fileName}" could not be read as audio. Try WAV, MP3, OGG or FLAC.`);
     }
-    const id = uid();
-    let local = null;
-    try {
-      await this.lib.putSample(id, { data, name: fileName, type: blob.type || '', path });
-      local = id;
-    } catch (err) {
-      console.warn('Music Studio: could not keep the sample on this device.', err);
+    check();
+    const usedIds = sampleIdsInHistory(this.store, this.app.samples);
+    let id, local = null, durable = false, discardRecovery;
+    for (;;) {
+      check();
+      id = reserveId(usedIds);
+      try {
+        await this.lib.putSample(id, { data, name: fileName, type: blob.type || '', path }, { overwrite: false });
+        local = id;
+        durable = true;
+        break;
+      } catch (err) {
+        if (err instanceof SampleExistsError) continue;
+        if (err instanceof SampleRecoveryError) { local = err.local; discardRecovery = err.discard; }
+        console.warn('Music Studio: could not keep the sample on this device.', err);
+        break;
+      }
     }
-    this.app.samples.set(id, decoded);
+    let p, target;
+    try {
+      check();
+      p = this.store.project;
+      target = channel ? p.channels.find((c) => c.id === channel) : null;
+      if (channel && !target) throw new Error('That channel no longer exists.');
+    } catch (err) {
+      if (discardRecovery) {
+        if (!sampleIdsInHistory(this.store, this.app.samples).has(local)) discardRecovery();
+      } else this.lib.dropTemporarySample?.(id);
+      throw err;
+    }
     const duration = decoded.channels[0].length / decoded.rate;
     const label = stripExtension(fileName).slice(0, 60) || 'Sample';
     const ref = { id, name: fileName.slice(0, 200), path, local, duration, rate: decoded.rate, channels: decoded.channels.length };
-    const p = this.store.project;
-    const target = channel ? p.channels.find((c) => c.id === channel) : null;
-    if (channel && !target) throw new Error('That channel no longer exists.');
+    this.app.samples.set(id, decoded);
+    if (!durable && !path) this.temporarySampleNotice();
     if (target) {
       const type = target.type === 'sampler' || target.type === 'audio' ? target.type : 'sampler';
       this.store.apply(`Load ${label}`, (proj) => {
@@ -388,28 +496,33 @@ export class ProjectFiles {
     }
     const insert = freeInsert(p);
     const ch = createChannel({ type: as === 'audio' ? 'audio' : 'sampler', name: label, sample: id, color: colorAt(p.channels.length), mixer: insert });
-    this.store.apply(`Import ${label}`, (proj) => {
+    const added = this.store.apply(`Import ${label}`, (proj) => {
       let next = E.addSample(proj, ref).project;
-      next = E.addChannel(next, ch);
+      const result = E.addChannel(next, ch);
+      next = result.project;
       if (insert > 0) next = E.updateMixerTrack(next, insert, { name: ch.name, color: ch.color });
-      return next;
+      return { project: next, id: result.id };
     });
-    this.store.selectChannels([ch.id]);
-    return { sampleId: id, channelId: ch.id, duration };
+    this.store.selectChannels([added.id]);
+    return { sampleId: id, channelId: added.id, duration };
   }
 
   /** Imports an audio file already in Puter (the browser's My files). */
   async importAudioFromPath(path, opts = {}) {
+    const check = this.importGuard();
     puter.requireSignedIn();
     // Check the size first: downloads count against the user's allowance.
     const size = (await puter.stat(path).catch(() => null))?.size;
+    check();
     if (size > MAX_IMPORT_BYTES) throw new Error(`"${baseName(path)}" is ${mb(size)}. Music Studio imports audio files up to ${mb(MAX_IMPORT_BYTES)}.`);
     const blob = await puter.readFile(path);
+    check();
     return this.importAudio(blob, { name: baseName(path), path, ...opts });
   }
 
   /** File > Import audio: from this device, or from Puter when signed in. */
   async importAudioCommand() {
+    const check = this.importGuard();
     let source = 'device';
     if (this.signedIn()) {
       source = await openDialog({
@@ -425,11 +538,17 @@ export class ProjectFiles {
     }
     if (source === 'puter') {
       const items = await puter.pickFiles({ multiple: true, accept: AUDIO_EXTENSIONS });
-      for (const item of items) await this.runImport(() => this.importAudioFromPath(item.path), item.name);
+      for (const item of items) {
+        check();
+        await this.runImport(() => this.importAudioFromPath(item.path), item.name);
+      }
       return;
     }
     const files = await chooseFiles({ accept: AUDIO_ACCEPT, multiple: true });
-    for (const f of files) await this.runImport(() => this.importAudio(f, { name: f.name }), f.name);
+    for (const f of files) {
+      check();
+      await this.runImport(() => this.importAudio(f, { name: f.name }), f.name);
+    }
   }
 
   async runImport(fn, name) {
@@ -446,13 +565,20 @@ export class ProjectFiles {
   // ---------------------------------------------------------------- MIDI
 
   async importMidiCommand() {
+    const check = this.importGuard();
     const [file] = await chooseFiles({ accept: '.mid,.midi,audio/midi' });
+    check();
     if (file) await this.importMidiBlob(file, file.name);
   }
 
-  /** Adds a MIDI file's parts to the project in one undo step. */
+  /** Adds a MIDI file (or pending download) to the project in one undo step. */
   async importMidiBlob(blob, name = 'MIDI') {
-    const midi = readMidi(await blob.arrayBuffer());
+    const check = this.importGuard();
+    blob = await blob;
+    check();
+    const bytes = await blob.arrayBuffer();
+    check();
+    const midi = readMidi(bytes);
     // Take the file's tempo only when the song is still empty.
     const useTempo = !this.store.project.clips.length;
     const label = stripExtension(name) || 'MIDI';

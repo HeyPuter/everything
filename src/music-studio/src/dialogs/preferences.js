@@ -20,6 +20,33 @@ const RATES = [
 
 let seq = 0;
 const nid = (p) => `${p}-${++seq}`;
+const outputChanges = new WeakMap();
+
+// Keep device changes ordered even if Preferences is closed and reopened
+// while a browser device switch is still pending.
+function changeOutput(engine, prefs, id) {
+  const apply = async () => {
+    for (;;) {
+      const context = engine.ctx;
+      try {
+        if (engine.setOutputDevice) await engine.setOutputDevice(id);
+        else if (context?.setSinkId) await context.setSinkId(id);
+      } catch (err) {
+        if (engine.ctx === context) throw err;
+      }
+      // A latency/rate change may replace the context while switching. Apply
+      // the choice to its successor before remembering it as the output.
+      if (engine.ctx === context) break;
+    }
+    prefs.set('outputDevice', id);
+  };
+  const previous = outputChanges.get(engine);
+  const pending = previous ? previous.then(apply, apply) : apply();
+  outputChanges.set(engine, pending);
+  const clear = () => { if (outputChanges.get(engine) === pending) outputChanges.delete(engine); };
+  pending.then(clear, clear);
+  return pending;
+}
 
 function selectRow(label, options, value, onChange, hint) {
   const id = nid('pref');
@@ -40,6 +67,16 @@ function buttonRow(label, text, onClick, hint) {
 export async function openPreferences(app, { section = 'general' } = {}) {
   const prefs = app.prefs;
   const engine = app.engine;
+  let toneRequest = 0;
+  let stopTone = null;
+  let toneTimer = null;
+  const cancelTone = () => {
+    toneRequest++;
+    clearTimeout(toneTimer);
+    toneTimer = null;
+    stopTone?.();
+    stopTone = null;
+  };
 
   // ---------------------------------------------------------------- general
   const general = h(
@@ -94,23 +131,29 @@ export async function openPreferences(app, { section = 'general' } = {}) {
       })
       .catch(() => {});
     sel.addEventListener('change', async () => {
-      prefs.set('outputDevice', sel.value);
+      const choice = sel.value;
+      sel.disabled = true;
       try {
-        if (engine.setOutputDevice) await engine.setOutputDevice(sel.value);
-        else if (engine.ctx?.setSinkId) await engine.ctx.setSinkId(sel.value);
+        await changeOutput(engine, prefs, choice);
       } catch (err) {
+        sel.value = prefs.get('outputDevice') || '';
         app.notify(`That output could not be used: ${err?.message || err}`, { error: true });
+      } finally {
+        sel.disabled = false;
       }
     });
   }
   audio.append(
     buttonRow('Test', 'Play test tone', async () => {
+      cancelTone();
+      const request = toneRequest;
       try {
-        await engine.start();
-        const stop = engine.audition?.({ type: 'synth', params: { osc1_wave: 0, osc2_level: 0, sub_level: 0, cutoff: 20000, a_attack: 10, a_sustain: 1, a_release: 80, vel_amp: 0, gain: 0.5 } }, 69, 0.7);
-        setTimeout(() => stop?.(), 900);
+        const ready = await engine.start();
+        if (!ready || request !== toneRequest || !audio.isConnected) return;
+        stopTone = engine.audition?.({ type: 'synth', params: { osc1_wave: 0, osc2_level: 0, sub_level: 0, cutoff: 20000, a_attack: 10, a_sustain: 1, a_release: 80, vel_amp: 0, gain: 0.5 } }, 69, 0.7);
+        toneTimer = setTimeout(cancelTone, 900);
       } catch (err) {
-        app.reportError(err);
+        if (request === toneRequest && audio.isConnected) app.reportError(err);
       }
     }, 'A one-second A at 440 Hz through the master output.'),
   );
@@ -186,4 +229,5 @@ export async function openPreferences(app, { section = 'general' } = {}) {
     buttons: [{ label: 'Done', value: true, primary: true }],
     initialFocus: '.pref-tab[aria-selected="true"]',
   });
+  cancelTone();
 }

@@ -53,8 +53,8 @@ export class Shell {
       this.mobileNav,
       h('div#live-region.sr-only', { 'aria-live': 'polite', 'aria-atomic': 'true' }),
     );
-    this.makeSplitter(this.sideSplit, 'x', () => app.prefs.get('layout').browser, (v) => app.prefs.merge('layout', { browser: clamp(v, 180, 520) }));
-    this.makeSplitter(this.dockSplit, 'y', () => app.prefs.get('layout').dock, (v) => app.prefs.merge('layout', { dock: clamp(v, 120, Math.max(160, this.center.clientHeight - 80)) }), -1);
+    this.stopSideResize = this.makeSplitter(this.sideSplit, 'x', () => app.prefs.get('layout').browser, (v) => app.prefs.merge('layout', { browser: clamp(v, 180, 520) }));
+    this.stopDockResize = this.makeSplitter(this.dockSplit, 'y', () => app.prefs.get('layout').dock, (v) => app.prefs.merge('layout', { dock: clamp(v, 120, Math.max(160, this.center.clientHeight - 80)) }), -1);
     app.prefs.on('change', (k) => {
       if (k === 'layout') this.layout();
     });
@@ -62,23 +62,34 @@ export class Shell {
 
   /** Drag (and arrow keys) on a splitter. sign -1 means the size grows as the pointer moves up. */
   makeSplitter(el, axis, get, set, sign = 1) {
+    let stop = null;
     el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || stop) return;
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       const start = axis === 'x' ? e.clientX : e.clientY;
       const base = get();
       el.classList.add('dragging');
-      const move = (ev) => set(base + ((axis === 'x' ? ev.clientX : ev.clientY) - start) * sign);
-      const up = () => {
+      const move = (ev) => {
+        if (ev.pointerId === e.pointerId) set(base + ((axis === 'x' ? ev.clientX : ev.clientY) - start) * sign);
+      };
+      const finish = () => {
+        stop = null;
         el.classList.remove('dragging');
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
         el.removeEventListener('pointercancel', up);
+        el.removeEventListener('lostpointercapture', up);
+        window.removeEventListener('blur', finish);
+        try { el.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
       };
+      const up = (ev) => { if (ev.pointerId === e.pointerId) finish(); };
+      stop = finish;
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
       el.addEventListener('pointercancel', up);
+      el.addEventListener('lostpointercapture', up);
+      window.addEventListener('blur', finish);
     });
     el.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 40 : 10;
@@ -88,6 +99,7 @@ export class Shell {
         set(get() + keys[e.key]);
       }
     });
+    return () => stop?.();
   }
 
   registerPanel(def) {
@@ -239,6 +251,8 @@ export class Shell {
     this.main.hidden = !mainOpen;
     this.dock.hidden = !dockOpen;
     this.dockSplit.hidden = phone || !mainOpen || !dockOpen;
+    if (this.sideSplit.hidden) this.stopSideResize();
+    if (this.dockSplit.hidden) this.stopDockResize();
     this.root.style.setProperty('--browser-w', `${L.browser}px`);
     this.root.style.setProperty('--dock-h', `${L.dock}px`);
     this.center.classList.toggle('dock-only', dockOpen && !mainOpen);
@@ -254,6 +268,9 @@ export class Shell {
 
   /** Splitters between side-by-side dock panels; widths are flex weights in prefs.layout.dockSizes. */
   layoutDockSplitters(L) {
+    this.stopDockPanelResize?.(false);
+    const focusedPair = this.dock.contains(document.activeElement) ? document.activeElement.dataset.dockPair : null;
+    let restoreFocus = null;
     for (const s of this.dock.querySelectorAll(':scope > .splitter-dock')) s.remove();
     const visible = [...this.dock.children].filter((el) => el.classList.contains('panel') && !el.hidden);
     const sizes = L.dockSizes || {};
@@ -262,6 +279,9 @@ export class Shell {
       const a = visible[i - 1];
       const b = visible[i];
       const s = h('div.splitter.splitter-v.splitter-dock', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize panels', tabindex: '0' });
+      const pair = JSON.stringify([a.dataset.panel, b.dataset.panel]);
+      s.dataset.dockPair = pair;
+      if (pair === focusedPair) restoreFocus = s;
       b.before(s);
       const weights = () => [Number(a.style.flexGrow) || 1, Number(b.style.flexGrow) || 1];
       const apply = (dx) => {
@@ -274,24 +294,35 @@ export class Shell {
       };
       const save = () => this.app.prefs.merge('layout', { dockSizes: { ...(this.app.prefs.get('layout').dockSizes || {}), [a.dataset.panel]: Number(a.style.flexGrow), [b.dataset.panel]: Number(b.style.flexGrow) } });
       s.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0) return;
+        if (e.button !== 0 || this.stopDockPanelResize) return;
         e.preventDefault();
         s.setPointerCapture(e.pointerId);
         let last = e.clientX;
         const move = (ev) => {
+          if (ev.pointerId !== e.pointerId) return;
           apply(ev.clientX - last);
           last = ev.clientX;
           this.resized();
         };
-        const up = () => {
+        const finish = (persist) => {
+          if (this.stopDockPanelResize !== finish) return;
+          this.stopDockPanelResize = null;
           s.removeEventListener('pointermove', move);
           s.removeEventListener('pointerup', up);
           s.removeEventListener('pointercancel', up);
-          save();
+          s.removeEventListener('lostpointercapture', up);
+          window.removeEventListener('blur', blur);
+          try { s.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+          if (persist) save();
         };
+        const up = (ev) => { if (ev.pointerId === e.pointerId) finish(true); };
+        const blur = () => finish(true);
+        this.stopDockPanelResize = finish;
         s.addEventListener('pointermove', move);
         s.addEventListener('pointerup', up);
         s.addEventListener('pointercancel', up);
+        s.addEventListener('lostpointercapture', up);
+        window.addEventListener('blur', blur);
       });
       s.addEventListener('keydown', (e) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -300,6 +331,7 @@ export class Shell {
         save();
       });
     }
+    restoreFocus?.focus({ preventScroll: true });
   }
 
   resized() {

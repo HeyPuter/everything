@@ -53,7 +53,7 @@ export class RackView {
     this.anchor = null;
     this.viaPointer = false;
     this.velLane = false;
-    this.knobGesture = null;
+    this.activeControl = null;
     this.build();
     this.bind();
     this.sync(true);
@@ -159,6 +159,11 @@ export class RackView {
 
   /** Brings the DOM in line with the store, touching only what changed. */
   sync(force = false) {
+    if (this.activeControl && this.activeControl.owner !== this.store.gesture) {
+      const old = this.activeControl;
+      this.activeControl = null;
+      old.control.cancel();
+    }
     const p = this.store.project;
     const pat = this.store.pattern;
     if (!pat) return;
@@ -218,6 +223,7 @@ export class RackView {
     }
     for (const [id, row] of this.rows) {
       if (ids.has(id)) continue;
+      row.insert.cancel();
       row.el.remove();
       this.rows.delete(id);
     }
@@ -328,23 +334,33 @@ export class RackView {
   }
 
   knob(id, param, phase, v) {
+    this.controlGesture(id, param, phase, v);
+  }
+
+  insertGesture(id, phase, v) {
+    this.controlGesture(id, 'mixer', phase, v);
+  }
+
+  controlGesture(id, param, phase, v) {
     const { store, app } = this;
     const ch = store.project.channels.find((c) => c.id === id);
     if (!ch) return;
     const label = `${ch.name} ${param === 'volume' ? 'volume' : 'pan'}`;
     if (phase === 'start') {
-      store.begin(param === 'volume' ? 'Channel volume' : 'Channel pan');
-    } else if (phase === 'input') {
-      store.preview((p) => E.updateChannel(p, id, { [param]: v }));
-      app.lastTweaked = { label, target: { kind: 'channel', id, param } };
-    } else store.commit();
-  }
-
-  insertGesture(id, phase, v) {
-    const store = this.store;
-    if (phase === 'start') store.begin('Route to insert');
-    else if (phase === 'input') store.preview((p) => E.updateChannel(p, id, { mixer: v }));
-    else store.commit();
+      store.begin(param === 'mixer' ? 'Route to insert' : param === 'volume' ? 'Channel volume' : 'Channel pan');
+      const row = this.rows.get(id);
+      this.activeControl = { id, param, owner: store.gesture, control: param === 'mixer' ? row.insert : param === 'volume' ? row.vol : row.pan };
+    } else {
+      const active = this.activeControl;
+      if (!active || active.id !== id || active.param !== param || active.owner !== store.gesture) return;
+      if (phase === 'input') {
+        store.preview((p) => E.updateChannel(p, id, { [param]: v }));
+        if (param !== 'mixer') app.lastTweaked = { label, target: { kind: 'channel', id, param } };
+      } else {
+        this.activeControl = null;
+        store.commit();
+      }
+    }
   }
 
   // ---------------------------------------------------------------- pointer
@@ -764,12 +780,17 @@ export class RackView {
       return;
     }
     let at = index;
-    for (const f of files) if (await this.importFile(f, { name: f.name }, at)) at++;
+    const loads = app.files?.loads;
+    for (const f of files) {
+      if (app.files?.loads !== loads) break;
+      if (await this.importFile(f, { name: f.name }, at)) at++;
+    }
   }
 
   /** Imports an OS file (or a Puter file payload) as a sampler channel at `index`. */
   async importFile(file, { name, path } = {}, index) {
     const app = this.app;
+    const check = app.files?.importGuard();
     if (!app.importAudio) {
       app.notify('Audio import is not available yet.', { error: true });
       return false;
@@ -784,7 +805,9 @@ export class RackView {
         }
         blob = await puter.fs.read(path);
       }
+      check?.();
       const r = await app.importAudio(blob, { name: baseName(name), path, as: 'sampler' });
+      check?.();
       if (r?.channelId) {
         const from = this.store.project.channels.findIndex((c) => c.id === r.channelId);
         // Placing the new channel where it was dropped is part of the import's undo step.
@@ -821,11 +844,20 @@ export class RackView {
   }
 
   pickAudioFile() {
+    const check = this.app.files?.importGuard();
     const input = h('input', { type: 'file', accept: 'audio/*', multiple: true, hidden: true });
     input.addEventListener('change', async () => {
-      let at = this.store.project.channels.length;
-      for (const f of input.files) if (await this.importFile(f, { name: f.name }, at)) at++;
-      input.remove();
+      try {
+        let at = this.store.project.channels.length;
+        for (const f of input.files) {
+          check?.();
+          if (await this.importFile(f, { name: f.name }, at)) at++;
+        }
+      } catch (err) {
+        this.app.reportError(err);
+      } finally {
+        input.remove();
+      }
     });
     document.body.append(input);
     input.click();

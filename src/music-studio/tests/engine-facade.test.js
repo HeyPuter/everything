@@ -1,6 +1,6 @@
 // The main-thread engine facade without Web Audio (jsdom): graceful failure,
 // the fallback transport clock and the documented API surface.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Engine, echoGap } from '../src/engine/engine.js';
 import { Store } from '../src/model/store.js';
 import { Prefs } from '../src/lib/prefs.js';
@@ -14,6 +14,38 @@ const mem = () => {
 };
 
 describe('engine facade', () => {
+  it('ends count-in if audio startup fails asynchronously and continues the fallback transport', async () => {
+    let fail;
+    const pending = new Promise((_resolve, reject) => { fail = reject; });
+    const close = vi.fn();
+    vi.stubGlobal('AudioContext', class {
+      state = 'running';
+      audioWorklet = { addModule: vi.fn() };
+      close = close;
+    });
+    vi.stubGlobal('AudioWorkletNode', class {});
+    vi.stubGlobal('fetch', vi.fn(() => pending));
+    try {
+      const prefs = new Prefs(mem());
+      prefs.set('countIn', true);
+      const engine = new Engine(new Store(newProject()), prefs);
+      engine.setRecording(true);
+      const states = [];
+      engine.on('state', () => states.push(engine.countingIn));
+      const playing = engine.play();
+      expect(engine.countingIn).toBe(true);
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+      fail(new Error('Audio module unavailable'));
+      await playing;
+      expect(engine.unavailable).toMatch(/Audio module unavailable/);
+      expect(engine.playing).toBe(true);
+      expect(engine.countingIn).toBe(false);
+      expect(states).toEqual([true, false]);
+      expect(close).toHaveBeenCalledOnce();
+      engine.stop();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('reports why audio is unavailable once and keeps the clock running', async () => {
     const store = new Store(newProject());
     const engine = new Engine(store, new Prefs(mem()));

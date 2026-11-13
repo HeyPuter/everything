@@ -110,6 +110,21 @@ describe('with <puter-user-menu> in the SDK', () => {
     expect(sdk.auth.signOut).not.toHaveBeenCalled();
   });
 
+  it('announces SDK sign-in while its profile picture is still loading', async () => {
+    sdk.user = null;
+    const el = createAccount(app);
+    app.emit.mockClear();
+    let resolve;
+    sdk.auth.getProfilePicture = () => new Promise((r) => { resolve = r; });
+    sdk.user = { username: 'ada' };
+    el.firstElementChild.dispatchEvent(new CustomEvent('signin'));
+    await settle();
+    expect(app.emit).toHaveBeenCalledExactlyOnceWith('account');
+    resolve(null);
+    await settle();
+    expect(app.emit).toHaveBeenCalledOnce();
+  });
+
   it('follows an explicit theme, and the OS otherwise', () => {
     applyTheme('dark');
     const menu = createAccount(app).firstElementChild;

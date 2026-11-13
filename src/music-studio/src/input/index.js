@@ -17,6 +17,13 @@ export function install(app) {
   recorder.live = live;
   const typing = new TypingKeyboard(app, live);
   const midi = new MidiInput(app, live);
+  let midiRequest = 0;
+  const enableMidi = async (options) => {
+    const request = ++midiRequest;
+    app.prefs.set('midiInput', true);
+    const ok = await midi.enable(options);
+    if (request === midiRequest) app.prefs.set('midiInput', ok);
+  };
   app.liveInput = live;
   app.emitKeyboardNote = (e, down) => typing.handle(e, down);
 
@@ -27,13 +34,13 @@ export function install(app) {
       checked: () => Boolean(app.prefs.get('midiInput')),
       run: async () => {
         if (app.prefs.get('midiInput')) {
+          midiRequest++;
           midi.disable();
           app.prefs.set('midiInput', false);
           app.notify('MIDI input off');
           return;
         }
-        const ok = await midi.enable();
-        app.prefs.set('midiInput', ok);
+        await enableMidi();
       },
     },
     {
@@ -50,9 +57,7 @@ export function install(app) {
 
   // Turned on in an earlier session: reconnect quietly (access was granted before).
   if (app.prefs.get('midiInput')) {
-    midi.enable({ quiet: true }).then((ok) => {
-      if (!ok) app.prefs.set('midiInput', false);
-    });
+    enableMidi({ quiet: true });
   }
   return { live, typing, midi, recorder };
 }

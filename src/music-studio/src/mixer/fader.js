@@ -14,6 +14,7 @@
 import { h } from '../lib/dom.js';
 import { clamp } from '../lib/util.js';
 import { contextMenu, isContextKey } from '../ui/menu.js';
+import { trackParameterInteraction } from '../ui/parameter-interactions.js';
 import { gainToPos, posToGain, formatGain, nudgeDb, parseGain, MAX_GAIN, UNITY } from './db.js';
 
 const DRAG_PX = 220; // full travel per this many px of pointer movement (roughly the visible height)
@@ -43,6 +44,24 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   let v = value;
   let active = false;
   let endTimer = 0;
+  let stopDrag = null;
+  let untrack = null;
+  const watch = () => {
+    if (untrack) return;
+    untrack = trackParameterInteraction(cancel);
+    window.addEventListener('blur', onBlur);
+  };
+  const unwatch = () => {
+    untrack?.();
+    untrack = null;
+    window.removeEventListener('blur', onBlur);
+  };
+  function cancel() {
+    clearTimeout(endTimer);
+    active = false;
+    stopDrag?.();
+    unwatch();
+  }
 
   const draw = () => {
     el.style.setProperty('--pos', gainToPos(v).toFixed(4));
@@ -54,10 +73,12 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
 
   const begin = () => {
     if (active) return;
+    watch();
     active = true;
-    onStart?.();
+    onStart?.(cancel);
   };
   const finish = () => {
+    unwatch();
     clearTimeout(endTimer);
     if (!active) return;
     active = false;
@@ -81,7 +102,7 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
   };
 
   slider.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || stopDrag) return;
     e.preventDefault();
     slider.focus({ preventScroll: true });
     if (e.altKey || e.metaKey || e.ctrlKey) {
@@ -89,26 +110,36 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       return;
     }
     slider.setPointerCapture?.(e.pointerId);
+    watch();
     slider.classList.add('dragging');
     let lastY = e.clientY;
     let pos = gainToPos(v);
     const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
       const dy = lastY - ev.clientY;
       lastY = ev.clientY;
       const travel = Math.max(80, slider.clientHeight - 16) || DRAG_PX;
       pos = clamp(pos + dy / (ev.shiftKey ? travel * 8 : travel), 0, 1);
       change(posToGain(pos));
     };
-    const up = () => {
+    stopDrag = () => {
       slider.classList.remove('dragging');
       slider.removeEventListener('pointermove', move);
       slider.removeEventListener('pointerup', up);
       slider.removeEventListener('pointercancel', up);
+      slider.removeEventListener('lostpointercapture', up);
+      if (slider.hasPointerCapture?.(e.pointerId)) slider.releasePointerCapture(e.pointerId);
+      stopDrag = null;
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      stopDrag?.();
       finish();
     };
     slider.addEventListener('pointermove', move);
     slider.addEventListener('pointerup', up);
     slider.addEventListener('pointercancel', up);
+    slider.addEventListener('lostpointercapture', up);
   });
 
   slider.addEventListener('dblclick', (e) => {
@@ -169,10 +200,15 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
       if (e.key !== 'Enter') deferEnd();
     }
   });
-  slider.addEventListener('blur', finish);
+  function onBlur() {
+    stopDrag?.();
+    finish();
+  }
+  slider.addEventListener('blur', onBlur);
 
   function typeIn() {
-    const input = h('input.input.sm', { type: 'text', value: formatGain(v), 'aria-label': `${label} in dB`, style: { position: 'fixed', width: '84px', zIndex: 1300 } });
+    const initial = formatGain(v);
+    const input = h('input.input.sm', { type: 'text', value: initial, 'aria-label': `${label} in dB`, style: { position: 'fixed', width: '84px', zIndex: 1300 } });
     const r = slider.getBoundingClientRect();
     input.style.left = `${Math.round(r.left + r.width / 2 - 42)}px`;
     input.style.top = `${Math.round(r.top + r.height * (1 - gainToPos(v)) - 12)}px`;
@@ -180,10 +216,12 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     input.focus();
     input.select();
     let done = false;
-    const close = (apply) => {
+    let untrackInput;
+    const close = (apply, restoreFocus = true) => {
       if (done) return;
       done = true;
-      if (apply) {
+      untrackInput?.();
+      if (apply && input.value !== initial) {
         const g = parseGain(input.value);
         if (g !== null) {
           change(g);
@@ -191,8 +229,9 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
         }
       }
       input.remove();
-      slider.focus({ preventScroll: true });
+      if (restoreFocus) slider.focus({ preventScroll: true });
     };
+    untrackInput = trackParameterInteraction(() => close(false, false));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') close(true);
@@ -220,7 +259,8 @@ export function createFader({ value = UNITY, label = 'Volume', onStart, onInput,
     slider,
     get: () => v,
     set(next) {
-      if (active || next === v) return;
+      if (next === v) return;
+      cancel();
       v = next;
       draw();
     },

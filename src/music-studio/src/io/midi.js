@@ -5,7 +5,7 @@
 //     tracks: [{ name, notes: [{ ch, key, tick, len, vel (1..127) }], programs: { [ch]: program } }],
 //     tempos: [{ tick, bpm }], sigs: [{ tick, num, den }],
 //   }
-//   writeMidi({ ppq, bpm, sig, name, tracks: [{ name, channel, program, notes }] }) -> Uint8Array
+//   writeMidi({ ppq, bpm, sig, name, tracks: [{ name, port?, channel, program, notes }] }) -> Uint8Array
 //
 // The reader handles running status, note on with velocity 0 as note off,
 // overlapping notes on the same key (first in, first out), sysex and meta
@@ -23,6 +23,10 @@ class Reader {
 
   get done() {
     return this.p >= this.end;
+  }
+
+  require(n) {
+    if (n > this.end - this.p) throw new Error('The MIDI file is truncated.');
   }
 
   u8() {
@@ -52,7 +56,7 @@ class Reader {
       v = (v << 7) | (c & 0x7f);
       if (!(c & 0x80)) return v;
     }
-    return v;
+    throw new Error('The MIDI file is damaged (invalid variable-length value).');
   }
 }
 
@@ -74,6 +78,8 @@ export function readMidi(buffer) {
   const r = new Reader(bytes);
   if (bytes.length < 14 || r.str(4) !== 'MThd') throw new Error('The file is not a Standard MIDI File.');
   const hdrLen = r.u32();
+  if (hdrLen < 6) throw new Error('The MIDI file is damaged (invalid header length).');
+  r.require(hdrLen);
   const format = r.u16();
   const ntrks = r.u16();
   const division = r.u16();
@@ -84,10 +90,12 @@ export function readMidi(buffer) {
   const tracks = [];
   const tempos = [];
   const sigs = [];
-  for (let t = 0; t < ntrks && r.p + 8 <= bytes.length; t++) {
+  for (let t = 0; t < ntrks; t++) {
+    r.require(8);
     const id = r.str(4);
     const len = r.u32();
-    const end = Math.min(bytes.length, r.p + len);
+    r.require(len);
+    const end = r.p + len;
     if (id !== 'MTrk') {
       r.p = end;
       t--;
@@ -120,6 +128,7 @@ function readTrack(r, tempos, sigs) {
     if (b === 0xff) {
       const type = r.u8();
       const len = r.vlq();
+      r.require(len);
       const at = r.p;
       if (type === 0x03 && !track.name) track.name = latin1(r, len).trim();
       else if (type === 0x51 && len >= 3) {
@@ -133,6 +142,7 @@ function readTrack(r, tempos, sigs) {
     }
     if (b === 0xf0 || b === 0xf7) {
       const len = r.vlq();
+      r.require(len);
       r.p += len;
       continue;
     }
@@ -143,6 +153,7 @@ function readTrack(r, tempos, sigs) {
       throw new Error('The MIDI file is damaged (data without a status byte).');
     }
     // `b` is now the first data byte (running status reuses the last status).
+    if (b > 0x7f) throw new Error('The MIDI file is damaged (invalid channel data byte).');
     const type = status & 0xf0;
     const ch = status & 0x0f;
     if (type === 0xc0 || type === 0xd0) {
@@ -150,6 +161,7 @@ function readTrack(r, tempos, sigs) {
       continue;
     }
     const d2 = r.u8();
+    if (d2 > 0x7f) throw new Error('The MIDI file is damaged (invalid channel data byte).');
     if (type === 0x90 && d2 > 0) {
       const k = (ch << 7) | (b & 0x7f);
       if (!open.has(k)) open.set(k, { items: [], head: 0 });
@@ -166,6 +178,10 @@ function readTrack(r, tempos, sigs) {
 }
 
 // ------------------------------------------------------------------ writer
+
+const MAX_VLQ = 0x0fffffff;
+// Bound synthetic padding so damaged timestamps cannot cause unbounded work.
+const MAX_GAP_EVENTS = 1024;
 
 class Writer {
   constructor() {
@@ -189,6 +205,7 @@ class Writer {
   }
 
   vlq(v) {
+    if (!Number.isInteger(v) || v < 0 || v > MAX_VLQ) throw new Error('This MIDI export contains an unsupported timing or length value.');
     const out = [v & 0x7f];
     v >>>= 7;
     while (v > 0) {
@@ -196,6 +213,18 @@ class Writer {
       v >>>= 7;
     }
     this.u8(...out);
+  }
+
+  delta(v) {
+    if (!Number.isSafeInteger(v) || v < 0 || Math.floor((v - 1) / MAX_VLQ) > MAX_GAP_EVENTS) {
+      throw new Error('This MIDI export contains a timing gap too large to encode. Check for notes far beyond the song.');
+    }
+    while (v > MAX_VLQ) {
+      this.vlq(MAX_VLQ);
+      this.u8(0xff, 0x01, 0); // Empty text: advances time without sending MIDI.
+      v -= MAX_VLQ;
+    }
+    this.vlq(v);
   }
 
   text(type, s) {
@@ -215,8 +244,12 @@ function chunk(w, id, body) {
 
 /** Writes a format 1 file: a tempo track, then one track per entry of `tracks`. */
 export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks = [] }) {
+  if (tracks.length > 0xfffe) throw new Error('This MIDI export has too many tracks. At most 65534 musical tracks can be exported with the tempo track.');
+  for (const t of tracks) {
+    if (t.port != null && (!Number.isInteger(t.port) || t.port < 0 || t.port > 255)) throw new Error('This MIDI export contains an unsupported port. MIDI ports must be between 0 and 255.');
+  }
   const out = new Writer();
-  const ntrks = Math.min(0xffff, tracks.length + 1);
+  const ntrks = tracks.length + 1;
   chunk(out, 'MThd', [0, 1, (ntrks >> 8) & 0xff, ntrks & 0xff, (ppq >> 8) & 0xff, ppq & 0xff]);
 
   const meta = new Writer();
@@ -233,6 +266,7 @@ export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks
     const ch = t.channel & 0x0f;
     w.u8(0);
     w.text(0x03, t.name || '');
+    if (t.port != null) w.u8(0, 0xff, 0x21, 1, t.port);
     if (t.program !== undefined && t.program !== null && ch !== 9) w.u8(0, 0xc0 | ch, t.program & 0x7f);
     // Offs sort before ons at the same tick so repeated notes retrigger.
     const events = [];
@@ -244,7 +278,7 @@ export function writeMidi({ ppq = 96, bpm = 120, sig = [4, 4], name = '', tracks
     events.sort((a, b) => a.tick - b.tick || a.on - b.on || a.key - b.key);
     let last = 0;
     for (const e of events) {
-      w.vlq(e.tick - last);
+      w.delta(e.tick - last);
       last = e.tick;
       w.u8(e.on ? 0x90 | ch : 0x80 | ch, e.key & 0x7f, e.on ? e.vel : 0x40);
     }

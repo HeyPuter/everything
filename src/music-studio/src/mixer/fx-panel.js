@@ -15,7 +15,7 @@ import { EFFECTS } from '../effects/catalog.js';
 import { effectPresetController } from '../effects/ui/presets.js';
 import { IS_MAC } from '../lib/util.js';
 import { MAX_FX_SLOTS, dropIndex } from './slots.js';
-import { formatGain, MAX_GAIN } from './db.js';
+import { formatGain, parseGain, MAX_GAIN } from './db.js';
 import { sendsOf, sourcesOf, channelsFeeding, canRoute, trackLabel } from './routing.js';
 
 const MIX = { id: 'mix', label: 'Mix', min: 0, max: 1, def: 1, unit: '%' };
@@ -71,7 +71,7 @@ export function createFxPanel(ctx) {
       size: 20,
       showLabel: false,
       label: 'Mix',
-      onStart: () => g.onStart(),
+      onStart: (cancel) => g.onStart(cancel),
       onInput: (v) => g.onInput(v),
       onEnd: (v) => g.onEnd(v),
     });
@@ -83,10 +83,10 @@ export function createFxPanel(ctx) {
       name,
       update(s, i) {
         if (api.slot === s && api.i === i && api.track === state.index) return;
+        if (!g || api.track !== state.index) g = ctl.mixGesture(state.index, s.id);
         api.slot = s;
         api.i = i;
         api.track = state.index;
-        g = ctl.mixGesture(state.index, s.id);
         const label = EFFECTS[s.type]?.label || s.type;
         num.textContent = String(i + 1);
         name.textContent = label;
@@ -203,8 +203,10 @@ export function createFxPanel(ctx) {
   }
 
   // Pointer reorder by the grip (mouse, touch and pen).
+  let activeReorder = null;
+  const cancelReorder = () => activeReorder?.cancel();
   function startReorder(e, api) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || activeReorder) return;
     e.preventDefault();
     const grip = e.currentTarget;
     grip.setPointerCapture?.(e.pointerId);
@@ -213,7 +215,19 @@ export function createFxPanel(ctx) {
       const b = r.el.getBoundingClientRect();
       return b.top + b.height / 2;
     });
+    const scroll0 = el.scrollTop;
+    let pointerY = e.clientY;
     const from = api.i;
+    const index = state.index;
+    const trackId = state.track.id;
+    const slotId = api.slot.id;
+    const order = filled.map((r) => r.slot.id);
+    const loadVersion = app.store.loadVersion;
+    const current = (p, i) => {
+      const track = p.mixer[i];
+      return app.store.loadVersion === loadVersion && i === index && track?.id === trackId &&
+        track.fx.length === order.length && track.fx.every((slot, n) => slot.id === order[n]);
+    };
     let to = from;
     api.el.classList.add('dragging');
     const marker = h('div.mx-drop-line', { 'aria-hidden': 'true' });
@@ -225,21 +239,56 @@ export function createFxPanel(ctx) {
       marker.hidden = to === from;
     };
     place();
-    const move = (ev) => {
-      to = dropIndex(mids, ev.clientY, from);
+    const updateDrop = () => {
+      to = dropIndex(mids, pointerY + el.scrollTop - scroll0, from);
       place();
     };
-    const up = () => {
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      pointerY = ev.clientY;
+      updateDrop();
+    };
+    const finish = (apply) => {
+      if (activeReorder?.cancel !== cancel) return;
+      const valid = current(ctl.project, state.index);
+      activeReorder = null;
+      offChange();
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
-      grip.removeEventListener('pointercancel', up);
+      grip.removeEventListener('pointercancel', interrupted);
+      grip.removeEventListener('lostpointercapture', interrupted);
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('keydown', onKey, true);
+      el.removeEventListener('scroll', updateDrop);
       api.el.classList.remove('dragging');
       marker.remove();
-      if (to !== from) ctl.moveEffect(state.index, api.slot.id, to);
+      try { grip.releasePointerCapture?.(e.pointerId); } catch { /* capture already lost */ }
+      if (apply && valid && to !== from) ctl.moveEffect(index, slotId, to);
     };
+    const cancel = () => finish(false);
+    const onKey = (ev) => {
+      if (ev.key !== 'Escape' || ev.isComposing) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancel();
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      move(ev);
+      finish(true);
+    };
+    const interrupted = (ev) => { if (ev.pointerId === e.pointerId) cancel(); };
+    const offChange = app.store.on('change', (p, prev, meta) => {
+      if (['load', 'undo', 'redo'].includes(meta?.source) || !current(p, state.index)) cancel();
+    });
+    activeReorder = { cancel, current };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
-    grip.addEventListener('pointercancel', up);
+    grip.addEventListener('pointercancel', interrupted);
+    grip.addEventListener('lostpointercapture', interrupted);
+    window.addEventListener('blur', cancel);
+    document.addEventListener('keydown', onKey, true);
+    el.addEventListener('scroll', updateDrop);
   }
 
   // ---------------------------------------------------------------- routing
@@ -267,7 +316,7 @@ export function createFxPanel(ctx) {
         ...sends.map((s) => {
           const t = p.mixer[s.index];
           const g = ctl.routeGesture(i, s.index);
-          const knob = createKnob({ param: SEND, size: 20, showLabel: false, label: `Send level to ${trackLabel(p, s.index)}`, format: (v) => formatGain(v), ...g });
+          const knob = createKnob({ param: SEND, size: 20, showLabel: false, label: `Send level to ${trackLabel(p, s.index)}`, format: (v) => formatGain(v), parse: parseGain, ...g });
           const label = h('button.mx-route-name', { type: 'button', title: 'Select this insert' }, h('span.mx-dot', { style: { background: t.color || 'var(--faint)' } }), trackLabel(p, s.index));
           label.addEventListener('click', () => ctx.select(s.index, { focus: true }));
           const val = h('span.mx-route-val');
@@ -322,6 +371,7 @@ export function createFxPanel(ctx) {
   // ---------------------------------------------------------------- update
 
   function update(p, i) {
+    if (activeReorder && !activeReorder.current(p, i)) cancelReorder();
     const t = p.mixer[i];
     if (!t) return;
     const trackChanged = t !== state.track || i !== state.index;
@@ -378,5 +428,5 @@ export function createFxPanel(ctx) {
     return li && el.contains(li) ? li.dataset.id || null : null;
   }
 
-  return { el, update, focusedSlot, focusFirst: () => list.querySelector('.mx-slot-name, .mx-slot-add')?.focus() };
+  return { el, update, cancelReorder, focusedSlot, focusFirst: () => list.querySelector('.mx-slot-name, .mx-slot-add')?.focus() };
 }

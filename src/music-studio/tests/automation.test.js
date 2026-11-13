@@ -4,6 +4,8 @@ import { addPoint, movePoint, removePoint, flatLine, normalizePoints, hitPoint, 
 import { resolveTarget, listTargets, sameTarget, MIXER_PARAMS } from '../src/automation/targets.js';
 import { demoProject } from '../src/model/demo.js';
 import { PPQ } from '../src/model/time.js';
+import { automationValue } from '../src/engine/sequencer.js';
+import { parseProject, serializeProject } from '../src/model/serialize.js';
 
 const pts = [
   { t: 0, v: 0 },
@@ -12,6 +14,23 @@ const pts = [
 ];
 
 describe('evaluateAutomation', () => {
+  it('uses the later point at a step created by moving a point onto the first point', () => {
+    const points = movePoint([{ t: 0, v: 0 }, { t: 48, v: 1 }, { t: 96, v: 0.5 }], 1, { t: 0 });
+    const compiled = Float64Array.from(points.flatMap((p) => [384 + p.t, p.v]));
+    expect(evaluateAutomation(points, -1)).toBe(0);
+    expect(evaluateAutomation(points, 0)).toBe(1);
+    expect(clipValueAt({ start: 384, len: 96, offset: 0 }, { points }, 384)).toBe(1);
+    expect(automationValue(compiled, 383)).toBe(0);
+    expect(automationValue(compiled, 384)).toBe(1);
+    expect(automationValue(compiled, 432)).toBeCloseTo(0.75);
+  });
+
+  it('uses the final value when every automation point shares the same timestamp', () => {
+    const points = [{ t: 10, v: 0 }, { t: 10, v: 0.5 }, { t: 10, v: 1 }];
+    expect(evaluateAutomation(points, 10)).toBe(1);
+    expect(automationValue(Float64Array.from(points.flatMap((p) => [p.t, p.v])), 10)).toBe(1);
+  });
+
   it('interpolates linearly between points', () => {
     expect(evaluateAutomation(pts, 50)).toBeCloseTo(0.5);
     expect(evaluateAutomation(pts, 150)).toBeCloseTo(0.75);
@@ -87,6 +106,13 @@ describe('automation points', () => {
 
 describe('automation targets', () => {
   const p = demoProject();
+  it.each(['constructor', 'toString', '__proto__'])('ignores inherited parameter name %s in a loaded automation target', (param) => {
+    const data = JSON.parse(serializeProject(p));
+    data.automation.invalid = { id: 'invalid', target: { kind: 'channel', id: p.channels[0].id, param }, points: [{ t: 0, v: 0.5 }] };
+    const loaded = parseProject(data);
+    expect(resolveTarget(loaded, loaded.automation.invalid.target)).toBeNull();
+    expect(resolveTarget(loaded, { kind: 'mixer', track: 0, param })).toBeNull();
+  });
   it('resolves channel, instrument, mixer and effect targets', () => {
     const bass = p.channels.find((c) => c.name === 'Bass');
     const vol = resolveTarget(p, { kind: 'channel', id: bass.id, param: 'volume' });

@@ -44,8 +44,9 @@ export function channelActions(app) {
     async rename(id) {
       const c = ch(id);
       if (!c) return;
-      const name = await promptDialog({ title: 'Rename channel', label: 'Name', value: c.name, confirm: 'Rename', validate: (v) => (v.trim() ? '' : 'Enter a name.') });
-      if (name) a.setName(id, name);
+      const loadVersion = store.loadVersion;
+      const name = await promptDialog({ store, title: 'Rename channel', label: 'Name', value: c.name, confirm: 'Rename', validate: (v) => (v.trim() ? '' : 'Enter a name.') });
+      if (name && store.loadVersion === loadVersion) a.setName(id, name);
     },
 
     setName(id, name) {
@@ -100,11 +101,13 @@ export function channelActions(app) {
       const p = store.project;
       const set = new Set(list);
       const hasNotes = p.patterns.some((pat) => list.some((id) => pat.notes[id]?.length)) || p.clips.some((c) => c.kind === 'audio' && set.has(c.ref));
+      const loadVersion = store.loadVersion;
       if (hasNotes) {
         const what = list.length === 1 ? `"${ch(list[0]).name}"` : plural(list.length, 'channel');
-        const ok = await confirmDialog({ title: list.length === 1 ? 'Delete channel' : 'Delete channels', message: `${what} ${list.length === 1 ? 'has' : 'have'} notes. Delete ${list.length === 1 ? 'it' : 'them'} and ${list.length === 1 ? 'its' : 'their'} notes in every pattern?`, confirm: 'Delete', danger: true });
+        const ok = await confirmDialog({ store, title: list.length === 1 ? 'Delete channel' : 'Delete channels', message: `${what} ${list.length === 1 ? 'has' : 'have'} notes. Delete ${list.length === 1 ? 'it' : 'them'} and ${list.length === 1 ? 'its' : 'their'} notes in every pattern?`, confirm: 'Delete', danger: true });
         if (!ok) return false;
       }
+      if (store.loadVersion !== loadVersion) return false;
       const names = list.map((id) => ch(id).name);
       store.apply(list.length > 1 ? 'Delete channels' : 'Delete channel', (proj) => E.removeChannels(proj, list));
       for (const id of list) closeWindows(`channel:${id}`);

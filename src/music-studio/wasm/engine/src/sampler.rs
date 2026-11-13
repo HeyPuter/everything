@@ -365,6 +365,22 @@ impl AudioPlayer {
         if start >= s.frames as f64 {
             return;
         }
+        let reverse = self.p[ap::REVERSE] >= 0.5;
+        let pos = if reverse { s.frames as f64 - 1.0 - start } else { start };
+        self.start_voice(id, pos, gain, offset > 0.0);
+    }
+
+    /// Resumes at an absolute source position; direction affects subsequent motion only.
+    pub fn play_at(&mut self, id: u32, seconds: f32, gain: f32, samples: &[Option<Sample>]) {
+        let Some(s) = sample_at(samples, self.sample) else { return };
+        let pos = seconds as f64 * s.rate as f64;
+        if !pos.is_finite() || pos < 0.0 || pos >= s.frames as f64 {
+            return;
+        }
+        self.start_voice(id, pos, gain, true);
+    }
+
+    fn start_voice(&mut self, id: u32, pos: f64, gain: f32, fade: bool) {
         let vi = match self.voices.iter().position(|v| !v.active) {
             Some(i) => i,
             None => {
@@ -372,14 +388,13 @@ impl AudioPlayer {
                 self.next
             }
         };
-        let reverse = self.p[ap::REVERSE] >= 0.5;
         // A short fade-in when starting mid-file avoids a click.
-        let fade_in = if offset > 0.0 { 1.0 / (0.002 * self.rate) } else { 1.0 };
+        let fade_in = if fade { 1.0 / (0.002 * self.rate) } else { 1.0 };
         self.voices[vi] = Play {
             active: true,
             id,
-            pos: if reverse { s.frames as f64 - 1.0 - start } else { start },
-            fade: if offset > 0.0 { 0.0 } else { 1.0 },
+            pos,
+            fade: if fade { 0.0 } else { 1.0 },
             fade_step: fade_in,
             gain: clampf(gain, 0.0, 2.0),
         };

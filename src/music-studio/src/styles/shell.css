@@ -638,7 +638,17 @@ puter-user-menu::part(apps-panel) {
 
 /* ------------------------------------------------------------ tablet */
 
-@media (max-width: 1180px) {
+@media (max-width: 1800px) {
+  .menubar-list {
+    display: none;
+  }
+
+  .menubar-compact {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 1600px) {
   .tb-options,
   .cpu {
     display: none;
@@ -649,15 +659,7 @@ puter-user-menu::part(apps-panel) {
   }
 }
 
-@media (max-width: 980px) {
-  .menubar-list {
-    display: none;
-  }
-
-  .menubar-compact {
-    display: inline-flex;
-  }
-
+@media (max-width: 1280px) {
   .tb-master,
   .project-status {
     display: none;
@@ -824,12 +826,19 @@ puter-user-menu::part(apps-panel) {
   padding: 0 6px;
 }
 
-@media (max-width: 420px) {
-  .is-phone .tb-pattern,
+@media (max-width: 600px) {
   .is-phone .time-display {
     display: none;
   }
+}
 
+@media (max-width: 480px) {
+  .is-phone .tb-pattern {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
   .is-phone puter-user-menu::part(sign-in) {
     padding: 0 4px;
     font-size: var(--fs-xs);

@@ -41,7 +41,7 @@ export function curveShape(x, c) {
 export function evaluateAutomation(points, t) {
   const n = points?.length || 0;
   if (!n) return null;
-  if (t <= points[0].t) return points[0].v;
+  if (t < points[0].t) return points[0].v;
   const last = points[n - 1];
   if (t >= last.t) return last.v;
   // Last point with p.t <= t.
@@ -72,4 +72,28 @@ export function clipValueAt(clip, automation, songTick) {
   if (!clip || !automation || clip.mute) return null;
   if (songTick < clip.start || songTick >= clip.start + clip.len) return null;
   return evaluateAutomation(automation.points, clipLocalTime(clip, songTick));
+}
+
+/**
+ * Automation points (Float64Array [tick, v, ...]) at `tick`, with optional
+ * per-point segment curves `cs` (Float64Array, one tension per point; see
+ * automation/evaluate.js, which this matches exactly).
+ */
+export function automationValue(pts, tick, cs = null) {
+  const n = pts.length >> 1;
+  if (!n) return 0;
+  if (tick < pts[0]) return pts[1];
+  if (tick >= pts[(n - 1) * 2]) return pts[(n - 1) * 2 + 1];
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid * 2] <= tick) lo = mid;
+    else hi = mid;
+  }
+  const t0 = pts[lo * 2];
+  const t1 = pts[hi * 2];
+  const v0 = pts[lo * 2 + 1];
+  const v1 = pts[hi * 2 + 1];
+  return t1 > t0 ? v0 + (v1 - v0) * curveShape((tick - t0) / (t1 - t0), cs ? cs[lo] : 0) : v1;
 }

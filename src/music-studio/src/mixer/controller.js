@@ -7,7 +7,7 @@
 
 import { Emitter } from '../lib/emitter.js';
 import * as E from '../model/edits.js';
-import { COLORS } from '../model/project.js';
+import { COLORS, MAX_MIXER_TRACKS } from '../model/project.js';
 import { EFFECTS, effectsByCategory } from '../effects/catalog.js';
 import { UNITY } from './db.js';
 import * as R from './routing.js';
@@ -18,6 +18,7 @@ export class MixerController extends Emitter {
     super();
     this.app = app;
     this.store = app.store;
+    this.activeGesture = null;
     this.selected = this.store.project.mixer.length > 1 ? 1 : 0;
     // The selected insert follows the rack's channel selection.
     this.store.on('view', () => {
@@ -29,6 +30,11 @@ export class MixerController extends Emitter {
     });
     this.lastChannel = this.store.channel?.id ?? null;
     this.store.on('change', (p) => {
+      if (this.activeGesture && this.activeGesture.owner !== this.store.gesture) {
+        const old = this.activeGesture;
+        this.activeGesture = null;
+        old.cancel?.();
+      }
       if (this.selected >= p.mixer.length) this.select(p.mixer.length - 1);
     });
   }
@@ -57,13 +63,23 @@ export class MixerController extends Emitter {
   /** Knob/fader callbacks for a continuous control: one undo step per gesture. */
   gesture(label, edit, target) {
     const store = this.store;
+    const identity = {};
+    const current = () => this.activeGesture?.identity === identity && this.activeGesture.owner === store.gesture;
     return {
-      onStart: () => store.begin(label),
+      onStart: (cancel) => {
+        store.begin(label);
+        this.activeGesture = { identity, owner: store.gesture, cancel };
+      },
       onInput: (v) => {
+        if (!current()) return;
         store.preview((p) => edit(p, v));
         if (target) this.app.lastTweaked = { label: typeof target.label === 'function' ? target.label() : label, target: target.target ?? target };
       },
-      onEnd: () => store.commit(),
+      onEnd: () => {
+        if (!current()) return;
+        this.activeGesture = null;
+        store.commit();
+      },
     };
   }
 
@@ -74,7 +90,15 @@ export class MixerController extends Emitter {
     });
   }
 
+  get canAddInsert() {
+    return this.project.mixer.length < MAX_MIXER_TRACKS;
+  }
+
   addInsert() {
+    if (!this.canAddInsert) {
+      this.app.notify(`The mixer supports ${MAX_MIXER_TRACKS - 1} inserts plus the master.`, { error: true });
+      return;
+    }
     const r = this.store.apply('Add mixer insert', (p) => E.addMixerTrack(p));
     if (r?.index !== undefined) this.select(r.index);
     return r?.index;

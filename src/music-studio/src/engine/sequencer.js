@@ -1,7 +1,7 @@
 // Sample-accurate sequencer shared by the AudioWorklet and the offline render
 // worker. It walks a compiled sequence (compile.js) block by block, queues
 // note events into the core at their exact frame offsets, cuts sounding
-// notes when playback wraps, evaluates automation once per block, plays the
+// notes when playback wraps, evaluates automation at block/segment boundaries, plays the
 // metronome and a count-in bar, then renders the block.
 //
 // Time runs through the sequence's tempo map (engine/tempo.js): every event
@@ -20,36 +20,15 @@
 // tails.
 
 import { fromNorm } from '../lib/params.js';
-import { curveShape } from '../automation/evaluate.js';
+import { automationValue } from '../automation/evaluate.js';
 import { TempoMap } from './tempo.js';
+import { AUDIO_TUNE, AUDIO_REVERSE, audioSourceAt, audioStepCuts } from './audio-rate.js';
 
 const PPQ = 96;
 const MAX_ACTIVE = 4096;
 const SEQ_ID = 1;
 
-/**
- * Automation points (Float64Array [tick, v, ...]) at `tick`, with optional
- * per-point segment curves `cs` (Float64Array, one tension per point; see
- * automation/evaluate.js, which this matches exactly).
- */
-export function automationValue(pts, tick, cs = null) {
-  const n = pts.length >> 1;
-  if (!n) return 0;
-  if (tick <= pts[0]) return pts[1];
-  if (tick >= pts[(n - 1) * 2]) return pts[(n - 1) * 2 + 1];
-  let lo = 0;
-  let hi = n - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (pts[mid * 2] <= tick) lo = mid;
-    else hi = mid;
-  }
-  const t0 = pts[lo * 2];
-  const t1 = pts[hi * 2];
-  const v0 = pts[lo * 2 + 1];
-  const v1 = pts[hi * 2 + 1];
-  return t1 > t0 ? v0 + (v1 - v0) * curveShape((tick - t0) / (t1 - t0), cs ? cs[lo] : 0) : v1;
-}
+export { automationValue } from '../automation/evaluate.js';
 
 function lowerBound(arr, n, v) {
   let lo = 0;
@@ -69,6 +48,7 @@ export class Sequencer {
     this.loop = loop;
     this.free = false; // playing past a playlist loop toward the song end
     this.seq = null;
+    this.removedSlots = null;
     this.playing = false;
     this.pos = 0;
     this.cursor = 0;
@@ -77,6 +57,7 @@ export class Sequencer {
     this.metronome = false;
     this.countIn = 0; // ticks of count-in left
     this.countLen = 0;
+    this.resumePending = false;
     this.nextId = SEQ_ID;
     // Sounding sequenced notes: end tick, slot, id, kind, and the start tick
     // and key of the event that started them (to match them in a new sequence).
@@ -86,8 +67,12 @@ export class Sequencer {
     this.aKind = new Uint8Array(MAX_ACTIVE);
     this.aStart = new Float64Array(MAX_ACTIVE);
     this.aKey = new Uint8Array(MAX_ACTIVE);
+    this.aOrigin = new Array(MAX_ACTIVE).fill(null);
     this.active = 0;
     this.lanes = [];
+    this.audioMotionLanes = new Map();
+    this.automationBoundaries = new Float64Array();
+    this.output = null;
     this.tempo = new TempoMap(120);
   }
 
@@ -111,6 +96,7 @@ export class Sequencer {
   }
 
   setSequence(seq) {
+    this.removedSlots = null;
     this.seq = seq;
     this.tempo = new TempoMap(seq.tempo || seq.bpm || 120);
     this.core.setTempo(this.tempo.bpmAt(this.pos));
@@ -118,7 +104,22 @@ export class Sequencer {
     const keep = new Set(seq.auto.map(laneKey));
     for (const l of this.lanes) if (l.applied && !keep.has(laneKey(l))) this.#restore(l);
     const prev = new Map(this.lanes.map((l) => [laneKey(l), l]));
-    this.lanes = seq.auto.map((l) => ({ ...l, applied: prev.get(laneKey(l))?.applied || false }));
+    this.lanes = seq.auto.map((l) => {
+      let end = -Infinity;
+      // End times need not be sorted: overlapping clips retain first-match
+      // priority. Prefix maxima let seeks skip only fully expired prefixes.
+      const ends = Float64Array.from(l.segs, (s) => (end = Math.max(end, s.end)));
+      return { ...l, applied: prev.get(laneKey(l))?.applied || false, ends, cursor: -1, tick: NaN };
+    });
+    this.automationBoundaries = automationBoundaries(this.lanes);
+    this.audioMotionLanes.clear();
+    for (const lane of this.lanes) {
+      const t = lane.target;
+      if (!((t.kind === 'param' && (t.index === AUDIO_TUNE || t.index === AUDIO_REVERSE)) || (t.kind === 'strip' && t.field === 'pitch'))) continue;
+      let list = this.audioMotionLanes.get(t.slot);
+      if (!list) this.audioMotionLanes.set(t.slot, (list = []));
+      list.push(lane);
+    }
     if (this.playing) {
       if (this.loop && this.pos >= this.#end() && !this.countIn) this.#jump(seq.start, 0);
       else {
@@ -126,6 +127,21 @@ export class Sequencer {
         this.#reconcile(seq);
       }
     }
+  }
+
+  /** A removed slot can be reused before the next compiled sequence arrives. */
+  removeChannel(slot) {
+    (this.removedSlots ||= new Set()).add(slot);
+    for (let i = 0; i < this.active; ) {
+      if (this.aSlot[i] === slot) this.#removeActive(i);
+      else i++;
+    }
+    const lanes = this.lanes.filter(l => l.target.slot !== slot);
+    if (lanes.length !== this.lanes.length) {
+      this.lanes = lanes;
+      this.automationBoundaries = automationBoundaries(lanes);
+    }
+    this.audioMotionLanes.delete(slot);
   }
 
   /**
@@ -136,32 +152,27 @@ export class Sequencer {
    */
   #reconcile(seq) {
     const n = seq.notes;
+    const matched = new Set();
+    const findEvent = eventMatcher(n, matched);
     for (let i = 0; i < this.active; ) {
-      const j = findEvent(n, this.aStart[i], this.aSlot[i], this.aKind[i], this.aKey[i]);
+      const j = findEvent(this.aStart[i], this.aSlot[i], this.aKind[i], this.aKey[i], this.aOrigin[i]);
       if (j < 0) {
         this.core.noteOff(this.aSlot[i], this.aId[i], 0);
         this.#removeActive(i);
         continue;
       }
+      matched.add(j);
       this.aEnd[i] = n.end[j];
       i++;
     }
     if (this.countIn) return;
+    this.resumePending = false;
     const pos = this.pos;
     for (let k = 0; k < seq.audio.length; k++) {
       const i = seq.audio[k];
       if (!(n.start[i] < pos && n.end[i] > pos)) continue;
-      let sounding = false;
-      for (let a = 0; a < this.active; a++) {
-        if (this.aKind[a] === 1 && this.aSlot[a] === n.slot[i] && this.aStart[a] === n.start[i]) {
-          sounding = true;
-          break;
-        }
-      }
-      if (sounding) continue;
-      const id = this.nextId++ >>> 0;
-      this.core.audioOn(n.slot[i], id, n.offset[i] + this.tempo.duration(n.start[i], pos), n.vel[i], 0);
-      this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
+      if (matched.has(i)) continue;
+      this.#startAudio(n, i, pos, 0);
     }
   }
 
@@ -174,12 +185,14 @@ export class Sequencer {
     const sig = this.seq.sig || [4, 4];
     this.countLen = countIn ? (PPQ * 4 * sig[0]) / sig[1] : 0;
     this.countIn = this.countLen;
+    this.resumePending = false;
     if (!this.countIn) this.#resumeAudio(this.pos, 0);
   }
 
   stop() {
     this.playing = false;
     this.countIn = 0;
+    this.resumePending = false;
     this.#releaseAll(0);
     for (const l of this.lanes) if (l.applied) this.#restore(l);
   }
@@ -214,22 +227,44 @@ export class Sequencer {
     return Math.max(0, t);
   }
 
+  #audioSource(notes, i, tick) {
+    const start = notes.sourceStart?.[i] ?? notes.start[i];
+    if (tick === start) return notes.offset[i];
+    const slot = notes.slot[i];
+    return audioSourceAt({
+      start, offset: notes.offset[i],
+      lanes: this.audioMotionLanes.get(slot) || [], tempo: this.tempo,
+      playbackRate: (values) => this.core.audioPlaybackRate?.(slot, values) ?? 1,
+      sampleInfo: this.core.audioSampleInfo ? () => this.core.audioSampleInfo(slot) : undefined,
+    }, tick);
+  }
+
+  #startAudio(notes, i, tick, offset, endOffset = null) {
+    if (this.removedSlots?.has(notes.slot[i])) return;
+    const source = this.#audioSource(notes, i, tick);
+    if (source === null || (typeof source === 'number' && source < 0)) return;
+    const id = this.nextId++ >>> 0;
+    if (this.nextId > 0x7fffffff) this.nextId = SEQ_ID;
+    if (typeof source === 'number') this.core.audioOn(notes.slot[i], id, source, notes.vel[i], offset);
+    else this.core.audioAt(notes.slot[i], id, source.position, notes.vel[i], offset);
+    if (endOffset !== null) this.core.noteOff(notes.slot[i], id, endOffset);
+    else this.#addActive(notes.end[i], notes.slot[i], id, 1, notes.start[i], notes.key[i], notes.origin?.[i]);
+  }
+
   /** Audio clips that span `tick` start from the middle. */
   #resumeAudio(tick, offset) {
+    this.resumePending = false;
     const s = this.seq;
     const n = s.notes;
     for (let k = 0; k < s.audio.length; k++) {
       const i = s.audio[k];
       if (n.start[i] < tick && n.end[i] > tick) {
-        const id = this.nextId++ >>> 0;
-        const sec = n.offset[i] + this.tempo.duration(n.start[i], tick);
-        this.core.audioOn(n.slot[i], id, sec, n.vel[i], offset);
-        this.#addActive(n.end[i], n.slot[i], id, 1, n.start[i], n.key[i]);
+        this.#startAudio(n, i, tick, offset);
       }
     }
   }
 
-  #addActive(end, slot, id, kind, start, key) {
+  #addActive(end, slot, id, kind, start, key, origin = null) {
     if (this.active >= MAX_ACTIVE) {
       // Too many sounding notes: release the oldest.
       this.core.noteOff(this.aSlot[0], this.aId[0], 0);
@@ -242,6 +277,7 @@ export class Sequencer {
     this.aKind[a] = kind;
     this.aStart[a] = start;
     this.aKey[a] = key;
+    this.aOrigin[a] = origin;
   }
 
   #removeActive(i) {
@@ -253,11 +289,14 @@ export class Sequencer {
       this.aKind[i] = this.aKind[last];
       this.aStart[i] = this.aStart[last];
       this.aKey[i] = this.aKey[last];
+      this.aOrigin[i] = this.aOrigin[last];
     }
+    this.aOrigin[last] = null;
   }
 
   #releaseAll(offset) {
     for (let i = 0; i < this.active; i++) this.core.noteOff(this.aSlot[i], this.aId[i], offset);
+    this.aOrigin.fill(null, 0, this.active);
     this.active = 0;
   }
 
@@ -296,15 +335,19 @@ export class Sequencer {
       const k = this.#frameOf(n.start[i], s0);
       if (k >= frames) break;
       this.cursor++;
+      if (this.removedSlots?.has(n.slot[i])) continue;
       const off = f0 + k;
-      const id = this.nextId++ >>> 0;
-      if (this.nextId > 0x7fffffff) this.nextId = SEQ_ID;
-      if (n.kind[i] === 1) this.core.audioOn(n.slot[i], id, n.offset[i], n.vel[i], off);
-      else this.core.noteOn(n.slot[i], id, n.key[i], n.vel[i], n.pan[i], off);
       const ke = this.#frameOf(n.end[i], s0);
       // A note shorter than a frame still gets its note-off after the note-on.
-      if (ke < frames && ke > k) this.core.noteOff(n.slot[i], id, f0 + ke);
-      else this.#addActive(n.end[i], n.slot[i], id, n.kind[i], n.start[i], n.key[i]);
+      const endOffset = ke < frames && ke > k ? f0 + ke : null;
+      if (n.kind[i] === 1) this.#startAudio(n, i, n.start[i], off, endOffset);
+      else {
+        const id = this.nextId++ >>> 0;
+        if (this.nextId > 0x7fffffff) this.nextId = SEQ_ID;
+        this.core.noteOn(n.slot[i], id, n.key[i], n.vel[i], n.pan[i], off);
+        if (endOffset !== null) this.core.noteOff(n.slot[i], id, endOffset);
+        else this.#addActive(n.end[i], n.slot[i], id, n.kind[i], n.start[i], n.key[i], n.origin?.[i]);
+      }
     }
     if (this.metronome) this.#clicks(t0, frames, f0, s0);
   }
@@ -337,14 +380,11 @@ export class Sequencer {
   }
 
   #automate(tick) {
+    // Tempo round trips can leave the first frame of a boundary a few
+    // ulps below its tick. Match the scheduling tolerance at that frame.
+    tick += 1e-9;
     for (const l of this.lanes) {
-      let seg = null;
-      for (const s of l.segs) {
-        if (s.start <= tick && tick < s.end) {
-          seg = s;
-          break;
-        }
-      }
+      const seg = automationSegment(l, tick);
       if (!seg) {
         if (l.applied) this.#restore(l);
         continue;
@@ -401,14 +441,45 @@ export class Sequencer {
 
   /** Sequences and renders `frames` frames; returns the core's output views. */
   block(frames) {
-    if (this.playing && this.seq) this.#advance(frames);
-    return this.core.process(frames);
+    let done = 0;
+    while (done < frames) {
+      const left = frames - done;
+      const n = this.playing && this.seq && this.automationBoundaries.length ? this.#framesToAutomation(left) : left;
+      if (this.playing && this.seq) this.#advance(n);
+      const out = this.core.process(n);
+      if (!done && n === frames) return out;
+      // The WASM output views are reused by each sub-block. Copy only when
+      // a boundary actually splits this call; ordinary blocks stay zero-copy.
+      if (!this.output || this.output.l.length < frames) this.output = { l: new Float32Array(frames), r: new Float32Array(frames) };
+      this.output.l.set(out.l.subarray(0, n), done);
+      this.output.r.set(out.r.subarray(0, n), done);
+      done += n;
+    }
+    return this.output;
+  }
+
+  #framesToAutomation(limit) {
+    const count = this.countIn > 0 ? Math.max(0, Math.ceil(this.countIn / this.tpf - 1e-6)) : 0;
+    if (count >= limit) return limit;
+    const end = this.#end();
+    const tick = this.loop && this.pos >= end - 1e-9 ? this.seq.start : this.pos;
+    const boundaries = this.automationBoundaries;
+    let lo = 0, hi = boundaries.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (boundaries[mid] <= tick + 1e-9) lo = mid + 1;
+      else hi = mid;
+    }
+    const next = Math.min(boundaries[lo] ?? Infinity, tick < end ? end : Infinity);
+    const n = Math.ceil(this.tempo.duration(tick, next) * this.rate - 1e-6);
+    return Math.min(limit, count + Math.max(1, n));
   }
 
   #advance(frames) {
     const map = this.tempo;
     const rate = this.rate;
     let f = 0;
+    if (this.resumePending) this.#resumeAudio(this.pos, 0);
     // Count-in: clicks only, the playhead waits.
     if (this.countIn > 0) {
       const tpf = this.tpf;
@@ -419,8 +490,13 @@ export class Sequencer {
       this.countIn = fr === need ? 0 : this.countIn - fr * tpf;
       if (this.countIn > 0) return;
       f = fr;
-      this.#resumeAudio(this.pos, Math.min(f, frames - 1));
-      if (f >= frames) return;
+      if (f >= frames) {
+        // The last count-in frame is still silent. Resume on the next
+        // render call; intervening edits, seeks, and stops can replace it.
+        this.resumePending = true;
+        return;
+      }
+      this.#resumeAudio(this.pos, f);
     }
     this.core.setTempo(map.bpmAt(this.pos));
     this.#automate(this.pos);
@@ -435,6 +511,8 @@ export class Sequencer {
         if (this.loop) {
           this.wraps++;
           this.#jump(s.start, f);
+          this.core.setTempo(map.bpmAt(this.pos));
+          this.#automate(this.pos);
           if (s.end <= s.start) break;
           continue;
         }
@@ -465,15 +543,79 @@ export class Sequencer {
   }
 }
 
-/** Index of the event that starts at `start` on `slot` with this kind and key, or -1. */
-function findEvent(n, start, slot, kind, key) {
-  for (let j = lowerBound(n.start, n.count, start); j < n.count && n.start[j] === start; j++) {
-    if (n.slot[j] === slot && n.kind[j] === kind && n.key[j] === key) return j;
-  }
-  return -1;
+/** Lazy source lookup within each start-time group; each event is indexed once. */
+function eventMatcher(n, matched) {
+  const groups = new Map();
+  return (start, slot, kind, key, origin) => {
+    let group = groups.get(start);
+    if (!group) {
+      group = { next: lowerBound(n.start, n.count, start), sources: new Map() };
+      groups.set(start, group);
+    }
+    const matches = (j) => !matched.has(j) && n.slot[j] === slot && n.kind[j] === kind && n.key[j] === key;
+    for (const j of group.sources.get(origin) || []) if (matches(j)) return j;
+    while (group.next < n.count && n.start[group.next] === start) {
+      const j = group.next++;
+      const source = n.origin?.[j] ?? null;
+      let indices = group.sources.get(source);
+      if (!indices) group.sources.set(source, (indices = []));
+      indices.push(j);
+      if (source === origin && matches(j)) return j;
+    }
+    return -1;
+  };
 }
 
 function laneKey(l) {
   const t = l.target;
   return `${t.kind}:${t.slot ?? t.track}:${t.fx ?? ''}:${t.index ?? t.field ?? ''}`;
+}
+
+
+/** First active segment, with constant work while staying in the same clip. */
+function automationSegment(lane, tick) {
+  let i = lane.cursor;
+  if (!(i >= 0 && tick >= lane.tick && (i === lane.segs.length || lane.ends[i] > tick))) {
+    let lo = 0, hi = lane.ends.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (lane.ends[mid] <= tick) lo = mid + 1;
+      else hi = mid;
+    }
+    i = lane.cursor = lo;
+  }
+  lane.tick = tick;
+  const seg = lane.segs[i];
+  return seg && seg.start <= tick ? seg : null;
+}
+
+
+/** Effective lane boundaries, including rounded values on stepped curves. */
+function automationBoundaries(lanes) {
+  const cuts = new Set();
+  for (const lane of lanes) {
+    const local = new Set();
+    let covered = -Infinity, previous = null;
+    for (const seg of lane.segs) {
+      const start = Math.max(seg.start, covered), end = seg.end;
+      covered = Math.max(covered, end);
+      if (end <= start) continue;
+      let flat = true;
+      for (let i = 3; i < seg.pts.length; i += 2) if (seg.pts[i] !== seg.pts[1]) { flat = false; break; }
+      const value = flat ? fromNorm(lane.def, seg.pts[1]) : null;
+      // A join between equal constant values needs no DSP boundary. Keep
+      // lane-local cuts so this cannot erase another lane's real change.
+      if (flat && previous?.end === start && previous.value === value) local.delete(start);
+      else local.add(start);
+      local.add(end);
+      const cut = (t) => { if (t > start && t < end) local.add(t); };
+      if (!flat) {
+        for (let i = 0; i < seg.pts.length; i += 2) cut(seg.pts[i]);
+        audioStepCuts(lane.def, seg, start, end, cut);
+      }
+      previous = flat ? { end, value } : null;
+    }
+    for (const t of local) cuts.add(t);
+  }
+  return Float64Array.from([...cuts].sort((a, b) => a - b));
 }

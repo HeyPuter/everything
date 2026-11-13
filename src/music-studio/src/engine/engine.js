@@ -23,12 +23,14 @@
 //   engine.audition({ type, params, sample }, key, vel)   one-off preview voice (browser presets),
 //                                                         played through the master; returns a stop()
 //                                                         (`sample`: a loaded sample id or { channels, rate })
-//   engine.render({ mode, patternId, start, end, rate, tail, isolate, onProgress, signal })
+//   engine.captureRenderSnapshot()   capture project, pattern and sample references for a render batch
+//   engine.render({ mode, patternId, start, end, rate, tail, isolate, onProgress, signal, snapshot })
 //     -> { channels: [Float32Array, Float32Array], rate }
 //     mode 'song' (default; start/end default to the whole song) or 'pattern' (patternId
 //     defaults to the selected pattern); tail: seconds rendered after `end` at most (stops
 //     early after 0.25 s of silence); isolate: a mixer insert index, only signal that passes
 //     through it reaches the master (stems); signal: an AbortSignal (rejects with AbortError).
+//     snapshot: optional state from captureRenderSnapshot(), shared across every stem in an export.
 //   engine.ready, engine.ctx, engine.sampleRate, engine.unavailable (reason string or null)
 //   engine.restart()               recreate the context (prefs 'latencyHint', 'sampleRate'
 //                                  ('auto' or Hz) and 'outputDevice' are read on start)
@@ -178,6 +180,10 @@ export class Engine extends Emitter {
       // Already closed.
     }
     this.ctx = null;
+    if (this.countingIn) {
+      this.countingIn = false;
+      this.emit('state');
+    }
     this.emit('error', new Error(message));
     return false;
   }
@@ -280,11 +286,21 @@ export class Engine extends Emitter {
   /** Browsers may keep the context suspended until the next click or key press. */
   #resumeOnGesture() {
     if (this._resumeHook || typeof document === 'undefined') return;
-    const resume = () => {
+    const clear = () => {
+      if (this._resumeHook !== resume) return;
       document.removeEventListener('pointerdown', resume, true);
       document.removeEventListener('keydown', resume, true);
       this._resumeHook = null;
-      this.ctx?.resume().catch(() => {});
+    };
+    const resume = () => {
+      const ctx = this.ctx;
+      if (!ctx || ctx.state === 'running' || ctx.state === 'closed') {
+        clear();
+        return;
+      }
+      ctx.resume().then(() => {
+        if (this.ctx === ctx && ctx.state === 'running') clear();
+      }, () => {});
     };
     this._resumeHook = resume;
     document.addEventListener('pointerdown', resume, true);
@@ -623,7 +639,7 @@ export class Engine extends Emitter {
       const sent = this._sentChannels.get(ch.id);
       if (sent && sent.ref === ch && sent.gain === gain && sent.sample === sample && sent.count === p.mixer.length) continue;
       this._sentChannels.set(ch.id, { ref: ch, gain, sample, count: p.mixer.length });
-      if (this.node || this._starting) this.#post({ type: 'channel', cfg: compileChannel(p, ch, slot, (id) => this.#sampleIdx(id)) });
+      if (this.node || this._starting) this.#post({ type: 'channel', cfg: compileChannel(p, ch, slot, (id) => this.#sampleIdx(id), { anySolo }) });
     }
     for (const [id, slot] of this._slots) {
       if (seen.has(id)) continue;
@@ -695,7 +711,7 @@ export class Engine extends Emitter {
     if (!this.node && !this._starting) return;
     const seq = compileSequence(p, { mode: this._mode, patternId: this.store.view.pattern, slotOf: this.#slotOf });
     const n = seq.notes;
-    const transfer = [n.start.buffer, n.end.buffer, n.slot.buffer, n.key.buffer, n.vel.buffer, n.pan.buffer, n.kind.buffer, n.offset.buffer, seq.audio.buffer];
+    const transfer = [n.start.buffer, n.sourceStart.buffer, n.end.buffer, n.slot.buffer, n.key.buffer, n.vel.buffer, n.pan.buffer, n.kind.buffer, n.offset.buffer, seq.audio.buffer];
     for (const lane of seq.auto) for (const s of lane.segs) {
       transfer.push(s.pts.buffer);
       if (s.cs) transfer.push(s.cs.buffer);
@@ -722,10 +738,16 @@ export class Engine extends Emitter {
 
   // ---------------------------------------------------------------- offline render
 
-  async render({ mode = 'song', patternId = null, start, end, rate = 48000, tail = 2, isolate = null, onProgress, signal } = {}) {
+  /** Immutable project state and decoded sample references shared by a batch of renders. */
+  captureRenderSnapshot() {
+    return { project: this.store.project, patternId: this.store.view.pattern, samples: new Map(this._sampleData) };
+  }
+
+  async render({ mode = 'song', patternId = null, start, end, rate = 48000, tail = 2, isolate = null, onProgress, signal, snapshot } = {}) {
     if (signal?.aborted) throw abortError();
-    const p = this.store.project;
-    const pid = patternId || this.store.view.pattern;
+    const p = snapshot?.project || this.store.project;
+    const pid = patternId || snapshot?.patternId || this.store.view.pattern;
+    const sampleData = snapshot?.samples || this._sampleData;
     const bar = ticksPerBar(p.sig);
     let s = Number.isFinite(start) ? Math.max(0, start) : 0;
     let e = end;
@@ -742,14 +764,15 @@ export class Engine extends Emitter {
     const samples = [];
     const idxOf = (id) => {
       if (sampleIdx.has(id)) return sampleIdx.get(id);
-      const data = this._sampleData.get(id);
+      const data = sampleData.get(id);
       if (!data) return -1;
       const i = samples.length;
       sampleIdx.set(id, i);
       samples.push({ index: i, channels: data.channels, rate: data.rate });
       return i;
     };
-    const channels = p.channels.map((c, i) => compileChannel(p, c, i, idxOf, { isolate: Number.isInteger(isolate) ? isolate : null, feeds: mixer.feeds }));
+    const anySolo = p.channels.some((c) => c.solo);
+    const channels = p.channels.map((c, i) => compileChannel(p, c, i, idxOf, { isolate: Number.isInteger(isolate) ? isolate : null, feeds: mixer.feeds, anySolo }));
     delete mixer.feeds;
     const seq = compileSequence(p, { mode, patternId: pid, slotOf: (id) => slots.get(id) ?? -1, range: { start: s, end: e } });
     const module = await engineModule();
@@ -757,7 +780,15 @@ export class Engine extends Emitter {
     if (signal?.aborted) throw abortError();
     const id = this._renderId++;
     return new Promise((resolve, reject) => {
-      const onAbort = () => worker.postMessage({ type: 'cancel', id });
+      const onAbort = () => {
+        const job = this._renderJobs.get(id);
+        if (!job) return;
+        this._renderJobs.delete(id);
+        job.reject(abortError());
+        try {
+          worker.postMessage({ type: 'cancel', id });
+        } catch { /* The request is already canceled even if the worker is unavailable. */ }
+      };
       signal?.addEventListener('abort', onAbort, { once: true });
       this._renderJobs.set(id, {
         onProgress,
@@ -770,13 +801,21 @@ export class Engine extends Emitter {
           reject(err);
         },
       });
-      worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), silence: echoGap(p) + 0.1, pitch: p.masterPitch || 0 });
+      try {
+        worker.postMessage({ type: 'render', id, module, rate, channels, mixer, seq, samples, tail: Math.max(0, Number(tail) || 0), silence: echoGap(p) + 0.1, pitch: p.masterPitch || 0 });
+      } catch (err) {
+        const job = this._renderJobs.get(id);
+        this._renderJobs.delete(id);
+        job.reject(err);
+      }
     });
   }
 
   async #getRenderWorker() {
     if (this._renderWorker) return this._renderWorker;
     const { default: RenderWorker } = await import('./offline-worker.js?worker');
+    // Another render may have created the shared worker while the module loaded.
+    if (this._renderWorker) return this._renderWorker;
     const w = new RenderWorker();
     w.onmessage = (ev) => {
       const m = ev.data;
@@ -792,9 +831,12 @@ export class Engine extends Emitter {
       }
     };
     w.onerror = (ev) => {
+      if (this._renderWorker !== w) return;
+      this._renderWorker = null;
+      w.onmessage = w.onerror = null;
+      w.terminate();
       for (const job of this._renderJobs.values()) job.reject(new Error(ev.message || 'Rendering failed.'));
       this._renderJobs.clear();
-      this._renderWorker = null;
     };
     this._renderWorker = w;
     return w;

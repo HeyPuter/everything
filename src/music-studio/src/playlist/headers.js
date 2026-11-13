@@ -16,6 +16,14 @@ export function createHeaders(V) {
   const el = h('div.pl-headers', list);
   let rows = [];
   let renaming = -1;
+  let activeRename = null;
+  let activeResize = null;
+
+  function cancelResize() {
+    if (!activeResize) return false;
+    activeResize.finish(false);
+    return true;
+  }
 
   el.addEventListener(
     'wheel',
@@ -77,6 +85,7 @@ export function createHeaders(V) {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      cancelResize();
       try {
         grip.setPointerCapture(e.pointerId);
       } catch {
@@ -84,22 +93,36 @@ export function createHeaders(V) {
       }
       const y0 = e.clientY;
       const h0 = store.project.tracks[i].height || DEFAULT_TRACK_H;
+      const trackId = store.project.tracks[i].id;
       store.begin('Resize track');
+      const gesture = store.gesture;
+      const current = () => store.gesture === gesture && store.project.tracks[i]?.id === trackId;
       grip.classList.add('dragging');
       const move = (ev) => {
+        if (!current()) return finish(false);
         const hh = Math.round(clamp(h0 + ev.clientY - y0, MIN_TRACK_H, MAX_TRACK_H));
         store.preview((p) => (ev.altKey ? { ...p, tracks: p.tracks.map((t) => (t.height === hh ? t : { ...t, height: hh })) } : E.updateTrack(p, i, { height: hh })));
       };
-      const up = () => {
+      const finish = (commit) => {
+        if (activeResize?.finish !== finish) return;
+        activeResize = null;
         grip.classList.remove('dragging');
         grip.removeEventListener('pointermove', move);
         grip.removeEventListener('pointerup', up);
-        grip.removeEventListener('pointercancel', up);
-        store.commit();
+        grip.removeEventListener('pointercancel', cancel);
+        grip.removeEventListener('lostpointercapture', cancel);
+        if (store.gesture === gesture) {
+          if (commit) store.commit();
+          else store.cancel();
+        }
       };
+      const up = () => finish(true);
+      const cancel = () => finish(false);
+      activeResize = { current, finish };
       grip.addEventListener('pointermove', move);
       grip.addEventListener('pointerup', up);
-      grip.addEventListener('pointercancel', up);
+      grip.addEventListener('pointercancel', cancel);
+      grip.addEventListener('lostpointercapture', cancel);
     });
     return { li, strip, num, label, name, mute, solo, track: null, selected: null };
   }
@@ -129,6 +152,8 @@ export function createHeaders(V) {
   }
 
   function render() {
+    if (activeResize && !activeResize.current()) cancelResize();
+    if (activeRename && !activeRename.current()) activeRename.finish(false, false);
     const tracks = store.project.tracks;
     const active = document.activeElement;
     const focusIndex = list.contains(active) ? Number(active.closest('.pl-track')?.dataset.index) : -1;
@@ -165,19 +190,23 @@ export function createHeaders(V) {
     r.name.after(input);
     input.focus();
     input.select();
+    const loadVersion = store.loadVersion;
+    const current = () => store.loadVersion === loadVersion && store.project.tracks[i]?.id === t.id && store.project.tracks[i]?.name === t.name;
     let done = false;
-    const finish = (ok) => {
+    const finish = (ok, focus = true) => {
       if (done) return;
       done = true;
+      activeRename = null;
       renaming = -1;
       input.remove();
       r.name.hidden = false;
       const v = input.value.trim();
       r.track = null;
-      if (ok && v && v !== t.name) store.apply('Rename track', (p) => E.updateTrack(p, i, { name: v.slice(0, 60) }));
-      else sync(r, i, store.project.tracks[i]);
-      r.name.focus({ preventScroll: true });
+      if (ok && current() && v && v !== t.name) store.apply('Rename track', (p) => E.updateTrack(p, i, { name: v.slice(0, 60) }));
+      else if (store.project.tracks[i]) sync(r, i, store.project.tracks[i]);
+      if (focus && r.name.isConnected) r.name.focus({ preventScroll: true });
     };
+    activeRename = { current, finish };
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') finish(true);
@@ -188,5 +217,5 @@ export function createHeaders(V) {
     input.addEventListener('click', (e) => e.stopPropagation());
   }
 
-  return { el, render, syncScroll, focusTrack, startRename };
+  return { el, render, syncScroll, focusTrack, startRename, cancelResize };
 }

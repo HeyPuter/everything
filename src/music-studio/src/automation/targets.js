@@ -47,14 +47,15 @@ export function resolveTarget(project, target) {
   if (target.kind === 'channel') {
     const ch = project.channels.find((c) => c.id === target.id);
     if (!ch) return null;
-    const def = CHANNEL_PARAMS[target.param] || paramDef(ch.type, target.param);
+    const channelParam = Object.hasOwn(CHANNEL_PARAMS, target.param);
+    const def = channelParam ? CHANNEL_PARAMS[target.param] : paramDef(ch.type, target.param);
     if (!def) return null;
-    const value = CHANNEL_PARAMS[target.param] ? ch[target.param] : ch.params[target.param] ?? def.def;
+    const value = channelParam ? ch[target.param] : ch.params[target.param] ?? def.def;
     return { def, value, norm: toNorm(def, value), label: `${ch.name} ${def.label.toLowerCase()}`, color: ch.color };
   }
   if (target.kind === 'mixer') {
     const t = project.mixer[target.track];
-    const def = MIXER_PARAMS[target.param];
+    const def = Object.hasOwn(MIXER_PARAMS, target.param) ? MIXER_PARAMS[target.param] : null;
     if (!t || !def) return null;
     return { def, value: t[target.param], norm: toNorm(def, t[target.param]), label: `${t.name} ${def.label.toLowerCase()}`, color: t.color };
   }

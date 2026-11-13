@@ -7,10 +7,12 @@
 import { drawRuler, drawGrid } from '../render/timeline.js';
 import { mix } from '../render/gfx.js';
 import { cssVar, parseColor } from '../ui/theme.js';
-import { ticksToSeconds } from '../model/time.js';
 import { evaluateAutomation } from '../automation/evaluate.js';
 import { tempoMap } from '../engine/compile.js';
-import { sourceColor, sourceName } from './clips.js';
+import { sourceColor, sourceName, AUTO_COLOR } from './clips.js';
+import { patternColor } from '../model/project.js';
+import { audioPlaybackRate } from '../engine/audio-rate.js';
+import { audioWaveform } from './audio-waveform.js';
 import { trackTop, trackHeight } from './geometry.js';
 import { TITLE_H, LOOP_STRIP_H, RULER_H } from './constants.js';
 
@@ -217,20 +219,47 @@ export function drawCanvas(V, d) {
 // Per-source draw info (palette, label, pattern), rebuilt when the project changes.
 let infoProject = null;
 const infoMap = new Map();
+const patternPositions = new Map();
+let nextPattern = 0;
+let firstPatternLookup = true;
 function sourceInfo(p, clip) {
   if (infoProject !== p) {
     infoProject = p;
     infoMap.clear();
+    patternPositions.clear();
+    nextPattern = 0;
+    firstPatternLookup = true;
   }
-  let info = infoMap.get(clip.ref);
+  // IDs are unique within each source collection, not across source kinds.
+  const key = `${clip.kind}:${clip.ref}`;
+  let info = infoMap.get(key);
   if (!info) {
-    const src = { kind: clip.kind, id: clip.ref };
-    info = {
-      pal: palette(sourceColor(p, src)),
-      name: sourceName(p, src),
-      pattern: clip.kind === 'pattern' ? p.patterns.find((x) => x.id === clip.ref) || null : null,
-    };
-    infoMap.set(clip.ref, info);
+    if (clip.kind === 'pattern') {
+      // A single visible source needs no full index, even at the end of the
+      // list. Further lookups share a lazy scan, keeping total work linear.
+      if (firstPatternLookup) {
+        firstPatternLookup = false;
+        const index = p.patterns.findIndex((pattern) => pattern.id === clip.ref);
+        if (index !== -1) patternPositions.set(clip.ref, index);
+      } else {
+        while (!patternPositions.has(clip.ref) && nextPattern < p.patterns.length) {
+          const index = nextPattern++;
+          const id = p.patterns[index].id;
+          if (!patternPositions.has(id)) patternPositions.set(id, index);
+        }
+      }
+      const index = patternPositions.get(clip.ref);
+      const pattern = index === undefined ? null : p.patterns[index];
+      info = {
+        pal: palette(pattern ? patternColor(p, pattern, index) : AUTO_COLOR),
+        name: pattern?.name || 'Missing pattern',
+        pattern,
+      };
+    } else {
+      const src = { kind: clip.kind, id: clip.ref };
+      info = { pal: palette(sourceColor(p, src)), name: sourceName(p, src), pattern: null };
+    }
+    infoMap.set(key, info);
   }
   return info;
 }
@@ -309,7 +338,6 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
     return;
   }
   const ppt = V.vp.pxPerTick;
-  const bpm = p.bpm;
   const W = d.w;
   const a = Math.max(0, Math.floor(x0));
   const b = Math.min(W, Math.ceil(x0 + w));
@@ -317,22 +345,38 @@ function drawWave(V, d, clip, x0, w, cy, ch, color) {
   const amp = ch / 2;
   const { min, max, perSecond } = peaks;
   const nPeaks = min.length;
-  const k = perSecond * ticksToSeconds(1, bpm);
-  // Under tempo automation the audio (not stretched) runs in seconds from
-  // the clip's virtual start (start - offset), like the engine plays it.
+  const motion = audioWaveform(p, clip, chan, s);
+  const reverse = chan.params.reverse >= 0.5;
+  const playbackRate = audioPlaybackRate(chan.params.tune || 0, chan.pitch || 0, p.masterPitch || 0);
+  // An edited clip retains the original unpitched source offset and the
+  // elapsed playback before its visible start, including tempo changes.
   const map = tempoMap(p);
-  const s0 = map.constant ? 0 : map.seconds(clip.start - clip.offset);
+  const anchor = clip.start - clip.offset + (clip.audioOffset ?? clip.offset);
+  const anchorSeconds = map.seconds(anchor);
+  const offset = anchorSeconds - map.seconds(clip.start - clip.offset);
+  const secondsPerTick = map.constant ? 60 / (96 * map.B0[0]) : 0;
   for (let x = a; x < b; x++) {
-    const t = clip.offset + (x - x0) / ppt;
+    const song = clip.start + (x - x0) / ppt;
+    const elapsed = map.constant ? (song - anchor) * secondsPerTick : map.seconds(song) - anchorSeconds;
+    const end = map.constant ? (song + 1 / ppt - anchor) * secondsPerTick : map.seconds(song + 1 / ppt) - anchorSeconds;
+    const from = offset + elapsed * playbackRate;
+    const to = offset + end * playbackRate;
+    if (!motion && from >= s.duration) break;
     let i0;
     let i1;
-    if (map.constant) {
-      i0 = Math.floor(t * k);
-      i1 = Math.floor((t + 1 / ppt) * k);
+    if (motion) {
+      const range = motion(Math.max(clip.start, song), Math.min(clip.start + clip.len, song + 1 / ppt));
+      if (!range) continue;
+      i0 = Math.max(0, Math.floor(range[0] * perSecond));
+      i1 = Math.min(nPeaks, Math.ceil(range[1] * perSecond));
+    } else if (reverse) {
+      // Reverse starts at the last sample frame. Use the actual duration,
+      // since the final peak bin can contain less than a full bin of audio.
+      i0 = Math.max(0, Math.floor((s.duration - to) * perSecond));
+      i1 = Math.min(nPeaks, Math.ceil((s.duration - from) * perSecond));
     } else {
-      const song = clip.start + (x - x0) / ppt;
-      i0 = Math.floor((map.seconds(song) - s0) * perSecond);
-      i1 = Math.floor((map.seconds(song + 1 / ppt) - s0) * perSecond);
+      i0 = Math.floor(from * perSecond);
+      i1 = Math.floor(to * perSecond);
     }
     if (i0 >= nPeaks) break;
     if (i1 <= i0) i1 = i0 + 1;

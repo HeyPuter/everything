@@ -15,10 +15,11 @@
 // the middle button drags the view.
 
 import { announce } from '../lib/dom.js';
-import { clamp, keyName, uid, IS_MAC } from '../lib/util.js';
+import { clamp, keyName, IS_MAC } from '../lib/util.js';
 import { snapFloor, snapRound } from '../model/time.js';
 import { regionAt, keyAtY, describeNote, describePos } from './geometry.js';
 import * as N from './notes.js';
+import { noteIdGenerator } from '../model/note-ids.js';
 import { shared } from './state.js';
 import { openNoteProps } from './dialogs.js';
 
@@ -30,6 +31,7 @@ export function installPointer(ed) {
   const store = ed.store;
   const app = ed.app;
   const touches = new Map(); // pointerId -> { x, y }
+  ed.clearPointerTouches = () => touches.clear();
   let lastCreated = { id: null, at: 0 };
 
   const local = (e) => {
@@ -187,7 +189,8 @@ export function installPointer(ed) {
     const last = ed.lastNote;
     let len = last.len;
     const keys = ed.stampKeys(key);
-    const ids = keys.map(() => uid(6));
+    const nextId = noteIdGenerator(ed.notes);
+    const ids = keys.map(() => nextId());
     const make = () => keys.map((k, i) => ({ id: ids[i], key: k, pos, len, vel: last.vel, pan: 0 }));
     ed.select([]);
     begin(keys.length > 1 ? 'Add chord' : 'Add note');
@@ -229,6 +232,7 @@ export function installPointer(ed) {
     const t = tickAt(p.x);
     const origin = Math.max(0, grid ? snapFloor(t, grid) : Math.round(t));
     const base = ed.notes;
+    const nextId = noteIdGenerator(base);
     const taken = new Set(base.map((n) => `${n.pos}:${n.key}`));
     const cells = new Map(); // cell index -> note(s)
     ed.select([]);
@@ -245,7 +249,7 @@ export function installPointer(ed) {
         const pos = origin + c * step;
         if (!cells.has(c) && pos >= 0) {
           const keys = ed.stampKeys(key).filter((k) => !taken.has(`${pos}:${k}`));
-          cells.set(c, keys.map((k) => ({ id: uid(6), key: k, pos, len: last.len, vel: last.vel, pan: 0 })));
+          cells.set(c, keys.map((k) => ({ id: nextId(), key: k, pos, len: last.len, vel: last.vel, pan: 0 })));
           added = keys;
         }
         if (c === target) break;
@@ -625,6 +629,7 @@ export function installPointer(ed) {
     const rowMid = (mid0.y - L.gridY + ed.scrollY) / kh0;
     return {
       type: 'pinch',
+      ids: [...touches.keys()].slice(0, 2),
       move() {
         const [c, d] = [...touches.values()];
         if (!c || !d) return;
@@ -684,7 +689,10 @@ export function installPointer(ed) {
     if (e.pointerType === 'touch') {
       touches.set(e.pointerId, p);
       if (touches.size === 2) {
-        ed.gesture?.cancel?.();
+        // Cancel the edit preview, then reuse these contacts for navigation.
+        const contacts = [...touches];
+        ed.cancelGesture();
+        for (const [id, point] of contacts) touches.set(id, point);
         ed.gesture = pinchGesture();
         el.setPointerCapture(e.pointerId);
         return;
@@ -726,6 +734,7 @@ export function installPointer(ed) {
   });
 
   el.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && !touches.has(e.pointerId)) return;
     const p = local(e);
     if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, p);
     if (ed.gesture) {
@@ -739,6 +748,7 @@ export function installPointer(ed) {
 
   const up = (e, cancelled) => {
     const wasTouch = e.pointerType === 'touch' && touches.has(e.pointerId);
+    if (e.pointerType === 'touch' && !wasTouch) return;
     if (wasTouch) touches.delete(e.pointerId);
     const g = ed.gesture;
     if (!g) return;
@@ -746,7 +756,7 @@ export function installPointer(ed) {
       if (touches.size < 2) {
         g.end();
         finish(g);
-      }
+      } else if (g.ids.includes(e.pointerId)) ed.gesture = pinchGesture();
       return;
     }
     const p = local(e);
@@ -757,6 +767,7 @@ export function installPointer(ed) {
   el.addEventListener('pointerup', (e) => up(e, false));
   el.addEventListener('pointercancel', (e) => up(e, true));
   el.addEventListener('lostpointercapture', (e) => {
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) return up(e, true);
     if (ed.gesture && e.pointerType !== 'touch') up(e, false);
   });
   el.addEventListener('pointerleave', () => {

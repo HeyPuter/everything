@@ -3,8 +3,7 @@
 // an optional curve: 'lin' (default), 'log' (frequencies, rates) or 'pow2'
 // (times: fine control near zero).
 
-import { clamp } from './util.js';
-import { keyName } from './util.js';
+import { clamp, keyName, parseKey } from './util.js';
 
 /** Value to a normalized 0..1 position. */
 export function toNorm(p, v) {
@@ -55,6 +54,10 @@ export function formatParam(p, v) {
 
 /** Parses typed text for a parameter ("2k", "-6", "350ms", "40%"). Returns null if invalid. */
 export function parseParam(p, text) {
+  if (p.unit === 'key') {
+    const key = parseKey(text);
+    return key === null ? null : clamp(key, p.min, p.max);
+  }
   const s = String(text).trim().toLowerCase();
   if (p.options) {
     const i = p.options.findIndex((o) => o.toLowerCase() === s);
@@ -65,7 +68,9 @@ export function parseParam(p, text) {
   let v = Number(m[1]) * (m[2] ? 1000 : 1);
   if (p.unit === '%' && !s.includes('.') && Math.abs(v) > 1) v /= 100;
   else if (p.unit === '%' && s.includes('%')) v /= 100;
-  if (p.unit === 'ms' && /\ds$/.test(s) && !s.endsWith('ms')) v *= 1000;
+  const timeUnit = s.match(/\d\s*(ms|s)$/)?.[1];
+  if (p.unit === 'ms' && timeUnit === 's') v *= 1000;
+  if (p.unit === 's' && timeUnit === 'ms') v /= 1000;
   if (!Number.isFinite(v)) return null;
   if (p.step) v = Math.round(v / p.step) * p.step;
   return clamp(v, p.min, p.max);

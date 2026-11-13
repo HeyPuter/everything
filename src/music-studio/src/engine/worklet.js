@@ -72,6 +72,7 @@ class EngineProcessor extends AudioWorkletProcessor {
         break;
       case 'remove':
         core.removeChannel(m.slot);
+        seq.removeChannel(m.slot);
         break;
       case 'mixer':
         core.setMixer(m.mixer);

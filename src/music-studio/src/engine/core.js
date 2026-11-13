@@ -8,11 +8,17 @@
 //   core.loadSample(index, channels, rate) / unloadSample(index)
 //   core.noteOn(slot, id, key, vel, pan, offset) / noteOff(slot, id, offset)
 //   core.audioOn(slot, id, seconds, gain, offset) / allOff(slot, hard, offset)
+//   core.audioAt(slot, id, sourceSeconds, gain, offset) resumes from an absolute position
 //   core.process(frames) -> { l, r } (views into wasm memory, valid until the next call)
 //
 // The core remembers the configured (project) values so automation can
 // override parameters in the engine and restore them afterwards
 // (`automate*` / `restore*`). Configuration calls only touch what changed.
+
+import { INSTRUMENT_TYPES } from '../instruments/catalog.js';
+import { audioPlaybackRate, AUDIO_TUNE, AUDIO_REVERSE } from './audio-rate.js';
+
+const AUDIO_TYPE = INSTRUMENT_TYPES.indexOf('audio');
 
 export const BLOCK = 128;
 export const ALL = 0xffffffff;
@@ -27,6 +33,8 @@ export class Core {
     this.tracks = []; // { volume, pan, width, gain, fx: [{ type, on, mix, params }], routes }
     this.trackCount = 17;
     this.bpm = 120;
+    this.masterPitch = 0;
+    this.sampleInfo = new Map();
     this.views = null;
   }
 
@@ -207,11 +215,14 @@ export class Core {
     if (!ptr && frames) throw new Error('Out of memory for audio samples.');
     const mem = new Float32Array(this.memory);
     for (let c = 0; c < n; c++) mem.set(channels[c], (ptr >> 2) + c * frames);
+    const nativeRate = Math.fround(rate);
+    this.sampleInfo.set(index, { frames, rate: Number.isFinite(nativeRate) && nativeRate > 0 ? nativeRate : 48000 });
     this.views = null;
   }
 
   unloadSample(index) {
     this.x.sample_free(index);
+    this.sampleInfo.delete(index);
   }
 
   // -------------------------------------------------------------- events
@@ -224,7 +235,23 @@ export class Core {
   }
 
   setMasterPitch(cents) {
+    if (Number.isFinite(cents)) this.masterPitch = Math.max(-4800, Math.min(4800, cents));
     this.x.set_master_pitch(cents);
+  }
+
+  /** Configured audio speed for resuming a clip from its source position. */
+  audioPlaybackRate(slot, overrides = null) {
+    const ch = this.chans.get(slot);
+    if (!ch || ch.type !== AUDIO_TYPE) return 1;
+    return audioPlaybackRate(overrides?.tune ?? ch.params[AUDIO_TUNE], overrides?.pitch ?? ch.strip[2], this.masterPitch);
+  }
+
+  /** Source bounds and configured direction for reconstructing clip playback. */
+  audioSampleInfo(slot) {
+    const ch = this.chans.get(slot);
+    const sample = ch?.type === AUDIO_TYPE ? this.sampleInfo.get(ch.sample) : null;
+    if (!sample?.frames) return null;
+    return { duration: sample.frames / sample.rate, last: (sample.frames - 1) / sample.rate, reverse: ch.params[AUDIO_REVERSE] >= 0.5 };
   }
 
   noteOn(slot, id, key, vel, pan = 0, offset = 0) {
@@ -237,6 +264,11 @@ export class Core {
 
   audioOn(slot, id, seconds, gain = 1, offset = 0) {
     this.x.ch_audio_on(slot, id >>> 0, seconds, gain, offset);
+  }
+
+  /** Resume at an absolute source position, independent of current Reverse. */
+  audioAt(slot, id, seconds, gain = 1, offset = 0) {
+    this.x.ch_audio_at(slot, id >>> 0, seconds, gain, offset);
   }
 
   allOff(slot = ALL, hard = false, offset = 0) {

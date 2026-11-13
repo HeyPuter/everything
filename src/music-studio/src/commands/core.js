@@ -2,7 +2,7 @@
 // patterns, theme and options. Feature modules register their own.
 
 import * as E from '../model/edits.js';
-import { COLORS } from '../model/project.js';
+import { COLORS, patternLength, splitPatternName } from '../model/project.js';
 import { newProject, demoProject } from '../model/demo.js';
 import { promptDialog, confirmDialog } from '../ui/dialog.js';
 import { openMenu } from '../ui/menu.js';
@@ -123,8 +123,9 @@ export function registerCoreCommands(app) {
       keys: ['F2'],
       run: async () => {
         const pat = store.pattern;
-        const name = await promptDialog({ title: 'Rename pattern', label: 'Name', value: pat.name, confirm: 'Rename', validate: (v) => (v.trim() ? '' : 'Enter a name.') });
-        if (name) store.apply('Rename pattern', (p) => E.updatePattern(p, pat.id, { name: name.trim().slice(0, 60) }));
+        const loadVersion = store.loadVersion;
+        const name = await promptDialog({ store, title: 'Rename pattern', label: 'Name', value: pat.name, confirm: 'Rename', validate: (v) => (v.trim() ? '' : 'Enter a name.') });
+        if (name && store.loadVersion === loadVersion) store.apply('Rename pattern', (p) => E.updatePattern(p, pat.id, { name: name.trim().slice(0, 60) }));
       },
     },
     {
@@ -157,7 +158,9 @@ export function registerCoreCommands(app) {
       run: async () => {
         const pat = store.pattern;
         const used = store.project.clips.some((c) => c.kind === 'pattern' && c.ref === pat.id);
-        if (used && !(await confirmDialog({ title: 'Delete pattern', message: `"${pat.name}" is used in the playlist. Delete it and its clips?`, confirm: 'Delete', danger: true }))) return;
+        const loadVersion = store.loadVersion;
+        if (used && !(await confirmDialog({ store, title: 'Delete pattern', message: `"${pat.name}" is used in the playlist. Delete it and its clips?`, confirm: 'Delete', danger: true }))) return;
+        if (store.loadVersion !== loadVersion) return;
         store.apply('Delete pattern', (p) => E.removePattern(p, pat.id));
       },
     },
@@ -169,12 +172,15 @@ export function registerCoreCommands(app) {
       enabled: () => Object.keys(store.pattern.notes).length > 1,
       run: () => {
         const src = store.pattern;
+        const length = patternLength(src, store.project.sig);
         store.apply('Split by channel', (p) => {
           let next = p;
           for (const cid of Object.keys(src.notes)) {
             const ch = p.channels.find((c) => c.id === cid);
-            const r = E.addPattern(next, { name: `${src.name} - ${ch?.name || 'Channel'}` });
+            const r = E.addPattern(next, { name: splitPatternName(src.name, ch?.name || 'Channel') });
             next = E.setNotes(r.project, r.id, cid, src.notes[cid].map((n) => ({ ...n })));
+            // Each part must keep the full loop, including the other channels' silence.
+            next = E.updatePattern(next, r.id, { length });
           }
           return next;
         });
@@ -184,8 +190,11 @@ export function registerCoreCommands(app) {
       id: 'patterns.transpose',
       label: 'Transpose pattern...',
       run: async () => {
-        const v = await promptDialog({ title: 'Transpose pattern', label: 'Semitones (negative moves down)', value: '12', confirm: 'Transpose', validate: (s) => (Number.isInteger(Number(s)) && Math.abs(Number(s)) <= 96 ? '' : 'Enter a whole number between -96 and 96.') });
-        if (v === null) return;
+        const loadVersion = store.loadVersion;
+        const patternId = store.view.pattern;
+        const isCurrent = () => store.loadVersion === loadVersion && store.view.pattern === patternId;
+        const v = await promptDialog({ store, isCurrent, title: 'Transpose pattern', label: 'Semitones (negative moves down)', value: '12', confirm: 'Transpose', validate: (s) => (Number.isInteger(Number(s)) && Math.abs(Number(s)) <= 96 ? '' : 'Enter a whole number between -96 and 96.') });
+        if (v === null || !isCurrent()) return;
         const st = Number(v);
         const pat = store.pattern;
         store.apply('Transpose pattern', (p) => {

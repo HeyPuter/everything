@@ -23,10 +23,10 @@
 //   audio (indices of audio events), auto (automation lanes), tempo (tempo
 //   map pieces, engine/tempo.js: song mode follows tempo automation clips,
 //   pattern mode always plays at project.bpm) } where notes is
-//   a struct of typed arrays sorted by start: start, end (ticks), slot, key,
+//   a struct of typed arrays sorted by start: start, sourceStart (audio anchor), end (ticks), slot, key,
 //   vel, pan, kind (0 note, 1 audio clip), offset (audio: seconds into the
-//   sample; under a tempo map, the time from the clip's virtual start
-//   (start - offset ticks) to its start). Swing delays odd sixteenths by up to half a step (swing 1) and
+//   sample at sourceStart; under a tempo map, the time from the clip's virtual
+//   start (start - offset ticks) to its source anchor). Swing delays odd sixteenths by up to half a step (swing 1) and
 //   is applied in pattern time; note ends are warped too so back-to-back
 //   steps never overlap. Notes are cut at the end of the loop range so every
 //   note gets its note-off before playback wraps.
@@ -37,10 +37,12 @@
 //   absolute ticks; v is normalized and mapped through the def (lib/params.js
 //   fromNorm) on the audio thread. A clip at `start` with `offset` evaluates
 //   its points at (tick - start + offset).
+// Notes also carry a stable source `origin` for distinguishing simultaneous
+// events when reconciling edits; it is cloned alongside the numeric buffers.
 
 import { INSTRUMENT_TYPES, INSTRUMENTS, paramVector } from '../instruments/catalog.js';
 import { EFFECT_TYPES, EFFECTS, effectParamVector } from '../effects/catalog.js';
-import { channelAudible, patternById, patternLength, songLength } from '../model/project.js';
+import { channelAudible, patternById, patternResolver, patternLength, songLength } from '../model/project.js';
 import { STEP, ticksPerBar, ticksToSeconds } from '../model/time.js';
 import { mixerAudible } from '../mixer/routing.js';
 import { trackAudible as playlistTrackAudible } from '../playlist/clips.js';
@@ -68,8 +70,8 @@ export function effectIndex(type) {
 
 // ------------------------------------------------------------------ channels
 
-export function compileChannel(project, ch, slot, sampleIndex = () => -1, { isolate = null, feeds = null } = {}) {
-  let gain = channelAudible(project, ch) ? 1 : 0;
+export function compileChannel(project, ch, slot, sampleIndex = () => -1, { isolate = null, feeds = null, anySolo } = {}) {
+  let gain = channelAudible(project, ch, anySolo) ? 1 : 0;
   if (isolate !== null && feeds && !feeds.has(clampTrack(project, ch.mixer))) gain = 0;
   return {
     slot,
@@ -227,7 +229,8 @@ function outerEnd(project, mode, r) {
 
 /** Playlist track audibility (playlist/clips.js trackAudible), per track index. */
 function trackAudible(project) {
-  return project.tracks.map((_, i) => playlistTrackAudible(project, i));
+  const anySolo = project.tracks.some((t) => t.solo);
+  return project.tracks.map((_, i) => playlistTrackAudible(project, i, anySolo));
 }
 
 /**
@@ -247,10 +250,10 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     const s = slotOf(id);
     return Number.isInteger(s) && s >= 0 ? s : -1;
   };
-  const pushNote = (start, end, s, n) => {
+  const pushNote = (start, end, s, n, origin = null) => {
     if (cut && start < r.end && end > r.end) end = r.end;
     if (end <= start) end = start + 1;
-    ev.push({ start, end, slot: s, key: n.key, vel: n.vel, pan: n.pan || 0, kind: NOTE, offset: 0 });
+    ev.push({ start, end, slot: s, key: n.key, vel: n.vel, pan: n.pan || 0, kind: NOTE, offset: 0, origin });
   };
 
   if (mode === 'pattern') {
@@ -262,18 +265,19 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
         if (s < 0 || !chans.has(cid)) continue;
         for (const n of list) {
           if (n.pos >= len) continue;
-          pushNote(swingWarp(n.pos, swing), swingWarp(n.pos + n.len, swing), s, n);
+          pushNote(swingWarp(n.pos, swing), swingWarp(n.pos + n.len, swing), s, n, pat.id && n.id ? `pattern:${pat.id}:${n.id}` : null);
         }
       }
     }
   } else {
     const audible = trackAudible(project);
+    const getPattern = patternResolver(project);
     for (const c of project.clips) {
       if (c.mute || audible[c.track] === false) continue;
       const cs = c.start;
       const ce = c.start + c.len;
       if (c.kind === 'pattern') {
-        const pat = patternById(project, c.ref);
+        const pat = getPattern(c.ref);
         if (!pat) continue;
         const off = c.offset || 0;
         for (const [cid, list] of Object.entries(pat.notes)) {
@@ -284,7 +288,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
             const start = cs + swingWarp(n.pos, swing) - off;
             if (start >= ce) continue;
             const end = Math.min(ce, cs + swingWarp(n.pos + n.len, swing) - off);
-            pushNote(start, end, s, n);
+            pushNote(start, end, s, n, c.id && n.id ? `clip:${c.id}:${n.id}` : null);
           }
         }
       } else if (c.kind === 'audio') {
@@ -293,8 +297,9 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
         let end = ce;
         if (cut && cs < r.end && end > r.end) end = r.end;
         const off = c.offset || 0;
-        const offset = map ? map.seconds(cs) - map.seconds(cs - off) : ticksToSeconds(off, project.bpm);
-        ev.push({ start: cs, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset });
+        const sourceStart = cs - off + (c.audioOffset ?? off);
+        const offset = map ? map.seconds(sourceStart) - map.seconds(cs - off) : ticksToSeconds(c.audioOffset ?? off, project.bpm);
+        ev.push({ start: cs, sourceStart, end, slot: s, key: 60, vel: 1, pan: 0, kind: AUDIO, offset, origin: c.id ? `audio:${c.id}` : null });
       }
     }
   }
@@ -304,6 +309,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
   const notes = {
     count: n,
     start: new Float64Array(n),
+    sourceStart: new Float64Array(n),
     end: new Float64Array(n),
     slot: new Int32Array(n),
     key: new Uint8Array(n),
@@ -311,10 +317,12 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     pan: new Float32Array(n),
     kind: new Uint8Array(n),
     offset: new Float64Array(n),
+    origin: new Array(n), // Stable source identity for edits while voices are sounding.
   };
   const audio = [];
   ev.forEach((e, i) => {
     notes.start[i] = e.start;
+    notes.sourceStart[i] = e.sourceStart ?? e.start;
     notes.end[i] = e.end;
     notes.slot[i] = e.slot;
     notes.key[i] = e.key;
@@ -322,6 +330,7 @@ export function compileSequence(project, { mode = 'pattern', patternId = null, s
     notes.pan[i] = e.pan;
     notes.kind[i] = e.kind;
     notes.offset[i] = e.offset;
+    notes.origin[i] = e.origin;
     if (e.kind === AUDIO) audio.push(i);
   });
 

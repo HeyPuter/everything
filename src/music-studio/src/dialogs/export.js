@@ -6,9 +6,9 @@
 import { h } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
 import { encodeWav } from '../io/wav.js';
-import { zipBytes } from '../io/zip.js';
+import { zipBlob } from '../io/zip.js';
 import { downloadBlob, safeFileName } from '../io/download.js';
-import { songLength, patternLength } from '../model/project.js';
+import { songLength, patternLength, patternById } from '../model/project.js';
 import { formatTime } from '../model/time.js';
 import { tempoMap } from '../engine/compile.js';
 import * as puter from '../storage/puter.js';
@@ -60,7 +60,7 @@ export async function openExportDialog(app, { stems = false } = {}) {
     const rid = id(name);
     return h('label.exp-radio', { for: rid }, h('input', { type: 'radio', id: rid, name, value, checked }), h('span', label), detail ? h('span.faint', detail) : null);
   };
-  const lenText = (ticks, mode = 'song') => formatTime(ticks, tempoMap(p, mode)).replace(/:\d\d$/, '');
+  const lenText = (ticks, mode = 'song') => formatTime(ticks, tempoMap(store.project, mode)).replace(/:\d\d$/, '');
   const groupName = id('range');
   const range = h(
     'fieldset.exp-field',
@@ -89,9 +89,10 @@ export async function openExportDialog(app, { stems = false } = {}) {
     progress.setAttribute('aria-valuenow', String(pct));
   };
 
+  const stemSummary = stems ? h('p') : null;
   const body = h(
     'div.export',
-    stems ? h('p', `One WAV file per mixer insert (${inserts.length}): ${inserts.map((i) => i.name).join(', ')}. Each stem includes its insert's effects and sends.`) : null,
+    stemSummary,
     range,
     h('div.form-grid', h('label', { for: rateId }, 'Sample rate'), rate, h('label', { for: bitsId }, 'Format'), bits),
     h('label.check', { for: tailId }, tail, h('span', 'Include effect tails (reverb and delay ring out)')),
@@ -102,16 +103,25 @@ export async function openExportDialog(app, { stems = false } = {}) {
 
   let controller = null;
   let busy = false;
+  let replaced = false;
+  let closeDialog;
+  const closeReplaced = () => {
+    if (!body.isConnected) return;
+    closeDialog(null);
+    app.notify('Export closed because a different project was opened.');
+  };
   const dialogDone = openDialog({
     title: stems ? 'Export stems' : 'Export audio',
     className: 'dlg-export',
-    body,
+    body: (close) => { closeDialog = close; return body; },
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'Export', value: 'export', primary: true },
     ],
     onSubmit: async () => {
       if (busy) return false;
+      if (replaced) { closeReplaced(); return false; }
+      if (stems && !stemInserts(store.project).length) return false;
       busy = true;
       const exportBtn = body.closest('.dialog')?.querySelector('.btn.primary');
       if (exportBtn) exportBtn.disabled = true;
@@ -124,9 +134,10 @@ export async function openExportDialog(app, { stems = false } = {}) {
       };
       app.prefs.merge('exportFormat', { rate: opts.rate, bits: opts.bits, tail: opts.tail, cloudCopy: cloud.checked });
       progress.hidden = false;
+      status.classList.remove('error');
       setProgress(0);
       try {
-        const ok = await runExport(app, { ...opts, stems, inserts, signal: controller.signal, cloudCopy: signedIn && cloud.checked, setProgress, setStatus: (t) => (status.textContent = t) });
+        const ok = await runExport(app, { ...opts, stems, signal: controller.signal, cloudCopy: signedIn && cloud.checked, setProgress, setStatus: (t) => (status.textContent = t) });
         return ok;
       } catch (err) {
         if (controller.signal.aborted) return true;
@@ -136,10 +147,43 @@ export async function openExportDialog(app, { stems = false } = {}) {
       } finally {
         busy = false;
         if (exportBtn) exportBtn.disabled = false;
+        refreshMetadata();
       }
     },
   });
+  function refreshMetadata() {
+    if (busy || replaced || !body.isConnected) return;
+    const project = store.project;
+    const pattern = store.pattern;
+    const songTicks = songLength(project);
+    const songInput = range.querySelector('input[value="song"]');
+    const patternInput = range.querySelector('input[value="pattern"]');
+    songInput.disabled = songTicks <= 0;
+    if (songInput.disabled && songInput.checked) patternInput.checked = true;
+    songInput.closest('label').querySelector('.faint').textContent = songTicks > 0 ? lenText(songTicks) : 'empty';
+    patternInput.nextElementSibling.textContent = `Pattern: ${pattern.name}`;
+    patternInput.closest('label').querySelector('.faint').textContent = lenText(patternLength(pattern, project.sig), 'pattern');
+    if (stems) {
+      const currentInserts = stemInserts(project);
+      stemSummary.textContent = currentInserts.length
+        ? `One WAV file per mixer insert (${currentInserts.length}): ${currentInserts.map((i) => i.name).join(', ')}. Each stem includes its insert's effects and sends.`
+        : 'No channels play into mixer inserts. Route channels to inserts before exporting stems.';
+      const exportBtn = body.closest('.dialog')?.querySelector('.btn.primary');
+      if (exportBtn) exportBtn.disabled = !currentInserts.length;
+    }
+  }
+  refreshMetadata();
+  const offView = store.on('view', refreshMetadata);
+  const off = store.on('change', (_project, _previous, info) => {
+    if (info?.source !== 'load') { refreshMetadata(); return; }
+    replaced = true;
+    // A running export already owns a snapshot. Only unsubmitted settings
+    // still refer to the mutable project and must be discarded on replacement.
+    if (!busy) closeReplaced();
+  });
   const result = await dialogDone;
+  off();
+  offView();
   // Closed (Cancel, Escape, close button) while rendering: stop the render.
   if (result === null && controller && !controller.signal.aborted) controller.abort();
 }
@@ -150,14 +194,16 @@ function renderError(err) {
   return `The export failed: ${msg}`;
 }
 
-async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, cloudCopy, setProgress, setStatus }) {
-  const store = app.store;
-  const p = store.project;
-  const base = safeFileName(mode === 'pattern' ? `${p.name} - ${store.pattern.name}` : p.name);
+async function runExport(app, { mode, rate, bits, tail, stems, signal, cloudCopy, setProgress, setStatus }) {
+  const snapshot = app.engine.captureRenderSnapshot();
+  const p = snapshot.project;
+  const pattern = patternById(p, snapshot.patternId) || p.patterns[0];
+  const inserts = stems ? stemInserts(p) : [];
+  const base = safeFileName(mode === 'pattern' ? `${p.name} - ${pattern.name}` : p.name);
   const render = (isolate, part, parts) =>
     app.engine.render({
       mode,
-      patternId: store.view.pattern,
+      snapshot,
       rate,
       // Seconds at most: the render ends early once the tails fall silent.
       tail: tail ? TAIL_MAX : 0,
@@ -184,7 +230,7 @@ async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, 
       files.push({ name: `${String(ins.index).padStart(2, '0')} ${safeFileName(ins.name)}.wav`, data: new Uint8Array(encodeWav(audio, { bits })) });
     }
     setStatus('Writing the ZIP file...');
-    blob = new Blob([zipBytes(files)], { type: 'application/zip' });
+    blob = zipBlob(files);
     filename = `${base} stems.zip`;
   }
   setProgress(1);
@@ -192,9 +238,12 @@ async function runExport(app, { mode, rate, bits, tail, stems, inserts, signal, 
   if (cloudCopy && puter.isSignedIn()) {
     setStatus('Saving a copy to Puter...');
     try {
-      const item = await puter.writeNew(puter.joinPath(await puter.appSubdir('Exports'), filename), blob);
+      const directory = await puter.appSubdir('Exports');
+      if (signal.aborted) return true;
+      const item = await puter.writeNew(puter.joinPath(directory, filename), blob);
       app.notify(`Exported ${filename} (a copy is in Exports in your Puter cloud as ${item?.name || filename})`);
     } catch (err) {
+      if (signal.aborted) return true;
       app.notify(`Downloaded ${filename}, but the Puter copy failed: ${puter.errorMessage(err)}`, { error: true });
     }
   } else {

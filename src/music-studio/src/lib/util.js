@@ -1,12 +1,19 @@
 // Small shared helpers with no DOM dependency (safe in workers and tests).
 
-/** Short random id (base 36). Collisions are vanishingly unlikely at project scale. */
+/** Short random id (base 36). Reserve it against its collection before insertion. */
 export function uid(len = 8) {
   let s = '';
   const bytes = new Uint8Array(len);
   globalThis.crypto.getRandomValues(bytes);
   for (const b of bytes) s += (b % 36).toString(36);
   return s;
+}
+
+/** Reserves a candidate ID, retrying random collisions within this collection. */
+export function reserveId(used, id = uid()) {
+  while (used.has(id)) id = uid();
+  used.add(id);
+  return id;
 }
 
 export function clamp(v, lo, hi) {
@@ -40,6 +47,32 @@ export function formatPan(p) {
   const pct = Math.round(Math.abs(p) * 100);
   if (pct === 0) return 'Centered';
   return `${pct}% ${p < 0 ? 'left' : 'right'}`;
+}
+
+/** Parse displayed pan text, signed percentages, or a normalized -1..1 value. */
+export function parsePan(text) {
+  const s = String(text).trim().toLowerCase();
+  if (s === 'centered' || s === 'center') return 0;
+  const direction = s.match(/^(\d*\.?\d+)\s*%?\s*(left|right)$/);
+  if (direction) return clamp(Number(direction[1]) / 100, 0, 1) * (direction[2] === 'left' ? -1 : 1);
+  const numeric = s.match(/^([-+]?\d*\.?\d+)\s*(%)?$/);
+  if (!numeric) return null;
+  const value = Number(numeric[1]) / (numeric[2] ? 100 : 1);
+  return Number.isFinite(value) ? clamp(value, -1, 1) : null;
+}
+
+/** "C#5" or "61" to a MIDI key (null when invalid). */
+export function parseKey(text) {
+  const s = String(text).trim();
+  if (/^\d+$/.test(s)) {
+    const k = Number(s);
+    return k >= 0 && k <= 127 ? k : null;
+  }
+  const m = s.match(/^([A-Ga-g])([#b]?)(-?\d+)$/);
+  if (!m) return null;
+  const base = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
+  const k = base + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + Number(m[3]) * 12;
+  return k >= 0 && k <= 127 ? k : null;
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
