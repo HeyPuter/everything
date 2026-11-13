@@ -20,6 +20,7 @@ import {
   isLiveContainer,
   insideLive,
   expandLiveFirst,
+  isClipMask,
 } from './nodes-io.js';
 import { addMidpoints, removeAnchorsKeepingShape, fitPolygon } from './anchors.js';
 import { flattenPath, simplifyPolyline, anchor as mkAnchor } from '../../model/bezier.js';
@@ -63,19 +64,32 @@ function targets(editor) {
 /**
  * Like targets(), but leaving out the inputs of live objects (a blend's
  * keys, a Repeat's source): results inserted next to them would become
- * extra inputs. With only live objects selected, says to expand them.
+ * extra inputs. The clipping path of a clipping group selected as a whole
+ * is left out too (a new path next to it would clip instead, or be an
+ * unpainted copy that never shows). With only live objects selected, says
+ * to expand them.
  */
 function pathTargets(app, what) {
   const live = [];
-  const nodes = geometryLeaves(app.editor.doc, app.editor.topSelection(), { intoLive: false, skippedLive: live });
+  const nodes = geometryLeaves(app.editor.doc, app.editor.topSelection(), {
+    intoLive: false,
+    skippedLive: live,
+    clipped: new Map(),
+  });
   if (!nodes.length && live.length) app.notify(expandLiveFirst(what, live[0]));
   return { nodes, live };
 }
 
-/** Position just above (or at) a node within its parent. */
+/**
+ * Position just above (or at) a node within its parent. Never above a
+ * clipping path, which must stay last in its group to keep clipping.
+ */
 function at(doc, node, above = true) {
   const parent = doc.get(node.parent);
-  return { parentId: parent.id, index: parent.children.indexOf(node.id) + (above ? 1 : 0) };
+  return {
+    parentId: parent.id,
+    index: parent.children.indexOf(node.id) + (above && !isClipMask(doc, node) ? 1 : 0),
+  };
 }
 
 /**
@@ -162,6 +176,16 @@ export async function outlineStrokeNodes(app, doc, nodes, { expandFill = true, c
   const ids = [];
   commit(() => {
     nodes.forEach((n, i) => {
+      if (isClipMask(doc, n)) {
+        // A clipping path's stroke is drawn over what it clips and its fill never
+        // shows: the outline goes above the group and the clipping path keeps clipping.
+        const item = expandedStrokeItems(doc, { ...n, fill: null }, results[i][0], strokes[i].arrows);
+        if (!item) return;
+        const g = doc.get(n.parent);
+        doc.update(n.id, { stroke: null });
+        ids.push(...replaceWith(doc, [], [item], at(doc, g)));
+        return;
+      }
       const src = expandFill ? n : { ...n, fill: null };
       const item = expandedStrokeItems(doc, src, results[i][0], strokes[i].arrows);
       if (!item) return;
@@ -671,9 +695,15 @@ export async function divideBelow(app) {
   const cutter = sel[0];
   const cb = nodeBounds(doc, cutter);
   const order = doc.paintOrder();
+  // Clipping paths are not cut: pieces of one would not all keep clipping.
   const below = doc
     .leaves()
-    .filter((n) => (n.type === 'path' || n.type === 'compound') && order.get(n.id) < order.get(cutter.id))
+    .filter(
+      (n) =>
+        (n.type === 'path' || n.type === 'compound') &&
+        order.get(n.id) < order.get(cutter.id) &&
+        !isClipMask(doc, n),
+    )
     .filter((n) => !doc.isLocked(n.id) && !doc.isHidden(n.id) && editor.inIsolation(n.id))
     .filter((n) => {
       const b = nodeBounds(doc, n);
@@ -696,7 +726,9 @@ export async function divideBelow(app) {
       const items = recs.map((r) => nodeFromSubpaths(r.subpaths, styleOf(n))).filter(Boolean);
       ids.push(...replaceWith(doc, [n], items, at(doc, n)));
     });
-    doc.remove(cutter.id);
+    // Through replaceWith: a clipping path used as the cutter leaves its group unclipped
+    // rather than clipped by the object below it.
+    replaceWith(doc, [doc.get(cutter.id)], []);
   });
   editor.select(ids);
   return true;

@@ -423,15 +423,23 @@ export function releaseClipMask(editor) {
   });
 }
 
-/** Make Compound Path from the selected paths (and paths inside selected groups). */
+/**
+ * Make Compound Path from the selected paths (and paths inside selected
+ * groups). The clipping path of a clipping group is not made a subpath (its
+ * area never shows); a clipping group left with nothing to clip goes away.
+ */
 export function makeCompound(editor) {
   const { doc } = editor;
   const paths = [];
+  const clipGroups = [];
   const collect = (n) => {
     if (!n) return;
     if (n.type === 'path') paths.push(n);
     else if (n.type === 'compound') for (const c of n.children) paths.push(doc.get(c));
-    else if (n.type === 'group') for (const c of n.children) collect(doc.get(c));
+    else if (n.type === 'group' && n.clip && n.children.length) {
+      clipGroups.push(n.id);
+      for (const c of n.children.slice(0, -1)) collect(doc.get(c));
+    } else if (n.type === 'group') for (const c of n.children) collect(doc.get(c));
   };
   const sel = wholeObjects(doc, editor.topSelection());
   for (const id of sel) collect(doc.get(id));
@@ -459,6 +467,13 @@ export function makeCompound(editor) {
     });
     // Groups (nested ones too) and compound paths the paths came from go once emptied.
     removeEmptyContainers(doc, new Set(paths.map((p) => p.parent)), editor.isolation);
+    for (const id of clipGroups.reverse()) {
+      const g = doc.get(id);
+      if (!g || g.children.length !== 1 || id === editor.isolation) continue;
+      const up = g.parent;
+      doc.remove(id);
+      removeEmptyContainers(doc, [up], editor.isolation);
+    }
     editor.select([c.id]);
   });
 }

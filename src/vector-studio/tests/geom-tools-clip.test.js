@@ -10,6 +10,7 @@ import { rectangle } from '../src/model/shapes.js';
 import { flattenPath } from '../src/model/bezier.js';
 import { subpathsOf } from '../src/features/geometry/nodes-io.js';
 import { nodeBounds } from '../src/model/geometry.js';
+import { outlineStroke, offsetPathDialog, divideBelow } from '../src/features/geometry/path-ops.js';
 
 const solid = (color) => ({ type: 'solid', color });
 
@@ -206,5 +207,82 @@ describe('Merge Brush and clipping groups', () => {
     expect(kids[0]).toBe(g);
     expect(nodeBounds(doc, doc.get(kids[1])).w).toBeGreaterThan(150);
     app.setTool('selection');
+  });
+});
+
+describe('Path commands on clipping groups', () => {
+  it('Outline Stroke on a stroked clipping path keeps it clipping and puts the outline above', async () => {
+    const { ed, doc, layer, g, mask } = setup();
+    doc.transact('stroke', () => doc.update(mask, { stroke: solid('#0000ff'), strokeWidth: 4 }));
+    ed.select([g]);
+    expect(await outlineStroke(app)).toBe(true);
+    const grp = doc.get(g);
+    expect(grp.clip).toBe(true);
+    expect(grp.children.at(-1)).toBe(mask);
+    const m = doc.get(mask);
+    expect(m.stroke).toBe(null);
+    expect(areaOf(doc, m)).toBeCloseTo(100 * 100, 0);
+    // The stroke as a filled ring above the clip group, not clipped by it.
+    const kids = doc.get(layer).children;
+    expect(kids).toHaveLength(2);
+    expect(kids[0]).toBe(g);
+    const ring = doc.get(kids[1]);
+    expect(ring.fill.color).toBe('#0000ff');
+    expect(areaOf(doc, ring)).toBeCloseTo(104 * 104 - 96 * 96, 0);
+  });
+
+  it('Offset Path leaves the clipping path clipping', async () => {
+    const { ed, doc, g, mask, art } = setup();
+    app.dialogs.form = vi.fn(async () => ({ offset: 5, joins: 'miter', miter: 4, preview: false }));
+    ed.select([g]);
+    expect(await offsetPathDialog(app)).toBe(true);
+    expectMaskIntact(doc, g, mask);
+    // The contents get their offset copy; the clipping path does not.
+    expect(doc.get(g).children).toHaveLength(3);
+    expect(doc.get(g).children).toContain(art);
+    // Picked by itself, its inset copy (put above an object) goes below it, so it keeps clipping.
+    app.dialogs.form = vi.fn(async () => ({ offset: -5, joins: 'miter', miter: 4, preview: false }));
+    ed.select([mask]);
+    expect(await offsetPathDialog(app)).toBe(true);
+    expectMaskIntact(doc, g, mask);
+    expect(doc.get(g).children).toHaveLength(4);
+  });
+
+  it('Divide Objects Below cuts clipped contents but not clipping paths', async () => {
+    const { ed, doc, layer, g, mask } = setup();
+    const cutter = createPath(rectangle(90, -10, 20, 120), true, {
+      fill: solid('#000000'),
+      stroke: null,
+    });
+    doc.transact('cutter', () => doc.insert(cutter, layer));
+    ed.select([cutter.id]);
+    expect(await divideBelow(app)).toBe(true);
+    expectMaskIntact(doc, g, mask);
+    expect(doc.get(g).children).toHaveLength(4);
+  });
+
+  it('Divide Objects Below with a clipping path as the cutter does not hand the clip to the contents', async () => {
+    const { ed, doc, g, mask, art } = setup();
+    ed.select([mask]);
+    expect(await divideBelow(app)).toBe(true);
+    expect(doc.has(mask)).toBe(false);
+    const grp = doc.get(g);
+    expect(grp.clip).toBe(false);
+    expect(grp.children.length).toBe(3);
+    expect(doc.has(art)).toBe(false);
+  });
+
+  it('Make Compound Path does not make a clipping path one of its subpaths', async () => {
+    const { ed, doc, layer, g, mask } = setup({ outside: true });
+    const green = doc.get(layer).children[1];
+    ed.select([g, green]);
+    await app.commands.run('object.compoundMake');
+    const kids = doc.get(layer).children;
+    expect(kids).toHaveLength(1);
+    const c = doc.get(kids[0]);
+    expect(c.type).toBe('compound');
+    expect(c.children).toHaveLength(2);
+    expect(c.children).not.toContain(mask);
+    expect(doc.has(g)).toBe(false);
   });
 });
