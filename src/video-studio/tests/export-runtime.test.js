@@ -3,7 +3,7 @@ import { fixture, clip } from './helpers.js';
 import { addClip } from '../src/model/timeline.js';
 
 const runtime = vi.hoisted(() => ({
-  outputs: [], samples: [], addAudio: vi.fn(), audioTrack: vi.fn(),
+  outputs: [], samples: [], addAudio: vi.fn(), audioTrack: vi.fn(), finalize: vi.fn(),
 }));
 
 vi.mock('../src/engine/compositor.js', () => ({
@@ -39,7 +39,7 @@ vi.mock('mediabunny', async (original) => {
       addAudioTrack() {}
       setMetadataTags() {}
       async start() { this.state = 'started'; }
-      async finalize() { this.state = 'finalized'; }
+      async finalize() { await runtime.finalize(); this.state = 'finalized'; }
       async cancel() { this.state = 'canceled'; }
     },
     CanvasSource: class { async add() {} close() {} },
@@ -62,6 +62,7 @@ beforeEach(() => {
   runtime.outputs.length = 0;
   runtime.samples.length = 0;
   runtime.addAudio.mockReset().mockResolvedValue(undefined);
+  runtime.finalize.mockReset().mockResolvedValue(undefined);
   runtime.audioTrack.mockReset().mockResolvedValue({ sampleRate: 48000, canDecode: async () => true });
 });
 
@@ -141,5 +142,25 @@ describe('encoded audio storage selection', () => {
     await expect(exportProject(p, library, { audioFormat }, { kind: 'audio' })).rejects.toThrow('Stop before mixing');
     expect(getDirectory).toHaveBeenCalledTimes(1);
     expect(runtime.samples).toHaveLength(0);
+  });
+});
+
+describe('late export cancellation', () => {
+  it.each(modes)('rejects cancellation while encoding the last audio chunk ($kind / $audioFormat)', async ({ kind, ...settings }) => {
+    const controller = new AbortController();
+    runtime.addAudio.mockImplementation(async () => { controller.abort(); });
+    const library = { mediaBlob: async () => new Blob(['x']) };
+    await expect(exportProject(projectWithAudio(), library, settings, { kind, signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(runtime.samples[0].close).toHaveBeenCalledTimes(1);
+    expect(runtime.finalize).not.toHaveBeenCalled();
+    expect(runtime.outputs[0].state).toBe('canceled');
+  });
+
+  it.each(modes)('does not return a successful result when canceled during finalization ($kind / $audioFormat)', async ({ kind, ...settings }) => {
+    const controller = new AbortController();
+    runtime.finalize.mockImplementation(async () => { controller.abort(); });
+    const library = { mediaBlob: async () => new Blob(['x']) };
+    await expect(exportProject(projectWithAudio(), library, settings, { kind, signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(runtime.outputs[0].state).toBe('finalized');
   });
 });

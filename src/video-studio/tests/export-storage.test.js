@@ -92,6 +92,17 @@ describe('WAV temporary storage', () => {
     expect(storage.dir.getFileHandle).not.toHaveBeenCalled();
   });
 
+  it('rejects cancellation at the last chunk and discards its file', async () => {
+    const storage = temporaryStorage();
+    const controller = new AbortController();
+    const pending = exportProject(silentProject(), {}, { audioFormat: 'wav' }, {
+      kind: 'audio', target: 'file', signal: controller.signal,
+      onProgress: ({ done, total }) => { if (done === total) controller.abort(); },
+    });
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(storage.dir.removeEntry).toHaveBeenCalledWith(storage.name());
+  });
+
   it('reports disk write failures and discards the temporary file', async () => {
     const storage = temporaryStorage({ writeError: new Error('Disk is full') });
     await expect(exportProject(silentProject(), {}, { audioFormat: 'wav' }, { kind: 'audio', target: 'file' })).rejects.toThrow('Disk is full');
