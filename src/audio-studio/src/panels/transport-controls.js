@@ -69,11 +69,24 @@ export function commandButton(app, cmd, ic, label, { cls = '', size = 16, args, 
 function shuttle(app, b, cmd) {
   let timer = 0;
   let delay = 0;
+  let shuttled = false;
   b.addEventListener('pointerdown', () => {
+    shuttled = false;
     delay = setTimeout(() => {
+      shuttled = true;
       timer = setInterval(() => app.commands.run(cmd, { shuttle: true }), 60);
     }, 350);
   });
+  // Releasing after a shuttle is not also a click (a one-second jump on top of it).
+  b.addEventListener(
+    'click',
+    (e) => {
+      if (!shuttled) return;
+      shuttled = false;
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
   const stop = () => {
     clearTimeout(delay);
     clearInterval(timer);

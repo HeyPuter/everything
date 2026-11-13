@@ -621,3 +621,36 @@ describe('Levels panel', () => {
     expect(meter.getAttribute('aria-valuenow')).toBe('-96');
   });
 });
+
+describe('transport shuttle buttons', () => {
+  it('do not also jump a second when released after holding to shuttle', async () => {
+    const { transportButtons } = await import('../src/panels/transport-controls.js');
+    vi.useFakeTimers();
+    const ran = [];
+    const app = {
+      commands: {
+        run: (id, args) => ran.push(args?.shuttle ? 'shuttle' : 'jump'),
+        shortcutLabel: () => '',
+        get: () => ({}),
+        isEnabled: () => true,
+      },
+      engine: {},
+      prefs: { get: () => false },
+    };
+    const forward = transportButtons(app).byCmd['transport.forward'];
+    document.body.replaceChildren(forward);
+    // Held: shuttles, and the click that ends the press does nothing more.
+    forward.dispatchEvent(new Event('pointerdown'));
+    vi.advanceTimersByTime(350 + 60 * 3);
+    forward.dispatchEvent(new Event('pointerup'));
+    forward.click();
+    expect(ran).toEqual(['shuttle', 'shuttle', 'shuttle']);
+    // A quick press is an ordinary click.
+    ran.length = 0;
+    forward.dispatchEvent(new Event('pointerdown'));
+    forward.dispatchEvent(new Event('pointerup'));
+    forward.click();
+    expect(ran).toEqual(['jump']);
+    vi.useRealTimers();
+  });
+});
