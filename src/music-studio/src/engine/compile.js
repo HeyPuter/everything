@@ -227,7 +227,8 @@ function outerEnd(project, mode, r) {
 
 /** Playlist track audibility (playlist/clips.js trackAudible), per track index. */
 function trackAudible(project) {
-  return project.tracks.map((_, i) => playlistTrackAudible(project, i));
+  const anySolo = project.tracks.some((t) => t.solo);
+  return project.tracks.map((_, i) => playlistTrackAudible(project, i, anySolo));
 }
 
 /**

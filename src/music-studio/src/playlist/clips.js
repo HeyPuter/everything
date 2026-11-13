@@ -362,11 +362,12 @@ export function muteOtherTracks(project, index) {
 }
 
 /** Whether a track plays given the playlist's mute and solo states. */
-export function trackAudible(project, index) {
+// Batch callers may compute anySolo once for their current project snapshot.
+export function trackAudible(project, index, anySolo) {
   const t = project.tracks[index];
   if (!t) return true;
   if (t.mute) return false;
-  return !project.tracks.some((x) => x.solo) || t.solo;
+  return !(anySolo ?? project.tracks.some((x) => x.solo)) || t.solo;
 }
 
 // ------------------------------------------------------------------ markers

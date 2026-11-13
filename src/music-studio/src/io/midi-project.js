@@ -170,9 +170,10 @@ export function projectToMidi(project, { mode = 'song', patternId = null } = {})
     const pat = patternById(project, patternId) || project.patterns[0];
     for (const [cid, list] of Object.entries(pat.notes)) for (const n of list) push(cid, n, 0);
   } else {
+    const anyTrackSolo = project.tracks.some((t) => t.solo);
     for (const c of project.clips) {
       // Track mute and solo as playback applies them.
-      if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track)) continue;
+      if (c.kind !== 'pattern' || c.mute || !trackAudible(project, c.track, anyTrackSolo)) continue;
       const pat = patternById(project, c.ref);
       if (!pat) continue;
       for (const [cid, list] of Object.entries(pat.notes)) {
