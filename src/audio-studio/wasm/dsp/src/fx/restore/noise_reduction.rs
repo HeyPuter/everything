@@ -178,6 +178,8 @@ impl Effect for NoiseReduction {
 /// Mean noise power per bin of `x` at FFT size `n` (hop n/4, Hann), with
 /// the `spectral::power` normalisation; adds into `acc` and returns the
 /// number of frames added, so long selections can be captured in chunks.
+/// A non-finite sample (a damaged float file) counts as silence: one NaN
+/// would otherwise make every bin of the print NaN.
 pub fn accumulate_profile(x: &[f32], n: usize, acc: &mut [f32]) -> usize {
     use crate::fft::{RealFft, Window};
     if x.len() < n {
@@ -194,7 +196,8 @@ pub fn accumulate_profile(x: &[f32], n: usize, acc: &mut [f32]) -> usize {
     let mut at = 0;
     while at + n <= x.len() {
         for i in 0..n {
-            frame[i] = x[at + i] * w[i];
+            let v = x[at + i];
+            frame[i] = if v.is_finite() { v * w[i] } else { 0.0 };
         }
         fft.forward(&frame, &mut re, &mut im);
         for k in 0..=n / 2 {
@@ -227,6 +230,22 @@ mod tests {
         let mean: f32 = acc[10..1000].iter().sum::<f32>() / 990.0 / f as f32;
         let var = rms(&x).powi(2);
         assert!((mean / var - 1.0).abs() < 0.15, "{mean} vs {var}");
+    }
+
+    #[test]
+    fn profile_treats_non_finite_samples_as_silence() {
+        let x = noise(48000, 0.1, 9);
+        let mut clean = vec![0.0; 1025];
+        let f = accumulate_profile(&x, 2048, &mut clean);
+        let mut bad = x.clone();
+        bad[1000] = f32::NAN;
+        bad[30000] = f32::INFINITY;
+        let mut acc = vec![0.0; 1025];
+        assert_eq!(accumulate_profile(&bad, 2048, &mut acc), f);
+        for k in 0..acc.len() {
+            assert!(acc[k].is_finite(), "bin {k}");
+            assert!((acc[k] / clean[k] - 1.0).abs() < 0.05, "bin {k}: {} vs {}", acc[k], clean[k]);
+        }
     }
 
     #[test]

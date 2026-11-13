@@ -55,6 +55,25 @@ describe('noise print', () => {
     expect(print.fftSize).toBe(1024);
     await expect(captureNoisePrint(d, [noise(100, 0.1)], RATE)).rejects.toThrow(/noise/);
   });
+
+  it('ignores a NaN sample in the noise, so Noise Reduction still keeps the audio', async () => {
+    const d = await dsp();
+    const hiss = noise(RATE, 0.05, 99);
+    const clean = await captureNoisePrint(d, [hiss], RATE);
+    const damaged = hiss.slice();
+    damaged[1000] = NaN;
+    damaged[20000] = Infinity;
+    const print = await captureNoisePrint(d, [damaged], RATE);
+    for (let k = 0; k < print.channels[0].length; k++) {
+      expect(Number.isFinite(print.channels[0][k])).toBe(true);
+      expect(print.channels[0][k] / clean.channels[0][k]).toBeCloseTo(1, 1);
+    }
+    const tone = sine(RATE, 700, 0.3);
+    const def = getEffect('noiseReduction');
+    const doc = { noisePrint: print };
+    const [y] = await def.process({ channels: [tone], rate: RATE, values: {}, doc });
+    expect(rms(y, 8000, 40000) / rms(tone, 8000, 40000)).toBeGreaterThan(0.9);
+  });
 });
 
 describe('Noise Reduction (process)', () => {
