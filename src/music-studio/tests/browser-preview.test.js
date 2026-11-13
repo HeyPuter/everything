@@ -182,3 +182,68 @@ describe('browser preview startup', () => {
     expect(app.engine.audition).not.toHaveBeenCalled();
   });
 });
+
+describe('preview account changes', () => {
+  it('cancels a pending cloud URL when signing out', async () => {
+    const pending = deferred();
+    puter.readURL.mockReturnValueOnce(pending.promise);
+    const { app, preview, audio } = await cloudSetup();
+    preview();
+    puter.isSignedIn.mockReturnValue(false);
+    await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+    pending.resolve('https://example.test/old-account.wav');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(app.notify).not.toHaveBeenCalled();
+  });
+
+  it('stops an active cloud preview when signing out', async () => {
+    puter.readURL.mockResolvedValueOnce('https://example.test/old-account.wav');
+    const { app, preview, audio } = await cloudSetup();
+    preview();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).toHaveBeenCalledOnce();
+    audio.pause.mockClear();
+    puter.isSignedIn.mockReturnValue(false);
+    await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+    expect(audio.pause).toHaveBeenCalledOnce();
+    expect(audio.removeAttribute).toHaveBeenCalledWith('src');
+  });
+
+  it('releases a fallback download that finishes after signing out', async () => {
+    const pending = deferred();
+    puter.readURL.mockRejectedValueOnce(new Error('Rate limit'));
+    puter.readFile.mockReturnValueOnce(pending.promise);
+    const revoke = vi.fn();
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = () => 'blob:old-account';
+      static revokeObjectURL = revoke;
+    });
+    const { app, preview, audio } = await cloudSetup();
+    preview();
+    await Promise.resolve();
+    puter.isSignedIn.mockReturnValue(false);
+    await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+    pending.resolve(new Blob(['audio']));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:old-account');
+  });
+});
+
+it('can preview again after an account change without reusing the old URL', async () => {
+  puter.readURL.mockResolvedValueOnce('https://example.test/old.wav').mockResolvedValueOnce('https://example.test/new.wav');
+  const { app, preview, audio, body } = await cloudSetup();
+  preview();
+  await vi.advanceTimersByTimeAsync(0);
+  await app.on.mock.calls.find(([event]) => event === 'account')[1]();
+  await vi.advanceTimersByTimeAsync(20);
+  body.querySelector('[data-id="dir:/Music"]').click();
+  body.querySelector('[data-id="dir:/Music"]').click();
+  await vi.advanceTimersByTimeAsync(20);
+  preview();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(puter.readURL).toHaveBeenCalledTimes(2);
+  expect(audio.src).toBe('https://example.test/new.wav');
+  expect(audio.play).toHaveBeenCalledTimes(2);
+});

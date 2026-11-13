@@ -83,6 +83,7 @@ function createBrowser(app, host) {
   const URL_TTL = 100 * 60 * 1000; // they are made for 2 hours
 
   const refreshAccount = async () => {
+    if (playing.path) stopPreview();
     dirs = null;
     folders.clear();
     urls.clear();
