@@ -755,55 +755,6 @@ a:hover {
   pointer-events: none;
   overflow: visible;
 }
-#empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  background: var(--canvas);
-  cursor: default;
-  text-align: center;
-  padding: 20px;
-}
-.empty-logo { margin-bottom: 20px; }
-.empty-eyebrow {
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-#empty h1 {
-  font-size: 26px;
-  font-weight: 500;
-  letter-spacing: -0.6px;
-}
-#empty p {
-  color: var(--muted);
-  margin: 14px 0 23px;
-  font-size: 12px;
-  line-height: 1.8;
-}
-.empty-actions {
-  display: flex;
-  gap: 9px;
-}
-.empty-actions button {
-  padding: 8px 18px;
-  min-height: 33px;
-}
-.drop-hint {
-  color: var(--muted);
-  font-size: 11px;
-  margin-top: 18px;
-}
-#empty small {
-  margin-top: 45px;
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.4px;
-}
 #color-plane {
   position: relative;
   flex: 1;

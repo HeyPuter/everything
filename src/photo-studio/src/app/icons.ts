@@ -3,7 +3,7 @@ import {
   ChevronFirst, ChevronLast, StepBack, StepForward,
   AppWindow, PanelsTopLeft, Wrench, FileCog, ImageDown, Gauge, MousePointerClick, Package, FileClock, ArchiveRestore, Smartphone, Monitor, Clapperboard, Globe, Clock, RotateCcwSquare, Star, Scaling,
   SquareCode, Braces,
-  CloudOff,
+  CloudOff, House, GraduationCap,
 } from 'lucide';
 
 // Interface icons are inline SVG strings: Lucide (ISC) plus original glyphs
@@ -13,6 +13,8 @@ type Node = readonly [string, Record<string, string | number>];
 type IconNode = readonly [string, Record<string, string | number>, Node[]?];
 const lucide: Record<string, IconNode> = {
   'cloud-off': CloudOff as unknown as IconNode,
+  'house': House as unknown as IconNode,
+  'graduation-cap': GraduationCap as unknown as IconNode,
   'move': Move as unknown as IconNode,
   'square-dashed': SquareDashed as unknown as IconNode,
   'circle-dashed': CircleDashed as unknown as IconNode,
