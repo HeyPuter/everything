@@ -144,7 +144,7 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
   const d = document.createElement('dialog');
   d.className = 'newdoc-window';
   d.setAttribute('aria-label', 'New Document');
-  d.innerHTML = `<div class="newdoc-head"><h2>New Document</h2><div class="newdoc-tabs" role="tablist" aria-label="Preset categories">${CATEGORIES.map(([id, l]) => `<button type="button" role="tab" data-cat="${id}">${escapeXML(l)}</button>`).join('')}</div></div>
+  d.innerHTML = `<div class="newdoc-head"><div class="newdoc-headline"><h2>New Document</h2><label class="newdoc-search">${svg('search', 14)}<input type="search" name="preset-search" aria-label="Search presets" placeholder="Search presets: name or size" autocomplete="off" spellcheck="false"></label></div><div class="newdoc-tabs" role="tablist" aria-label="Preset categories">${CATEGORIES.map(([id, l]) => `<button type="button" role="tab" data-cat="${id}">${escapeXML(l)}</button>`).join('')}</div></div>
 <div class="newdoc-body"><div class="newdoc-presets" role="tabpanel"></div>
 <form class="newdoc-details" novalidate>
 <div class="newdoc-title"><label class="newdoc-name"><span>Preset details</span><input name="name" aria-label="Name" autocomplete="off" spellcheck="false"></label><button type="button" class="icon-button" data-save-preset title="Save these settings as a preset" aria-label="Save preset">${svg('bookmark', 16)}</button></div>
@@ -153,7 +153,7 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
 <label class="newdoc-check"><input type="checkbox" name="artboards"><span>Artboards</span></label>
 <div class="newdoc-pair"><label><span>Resolution</span><input name="ppi" type="number" min="1" max="10000" step="any" aria-label="Resolution"></label><label><span>&nbsp;</span><select name="ppiUnit" aria-label="Resolution units"><option value="ppi">Pixels/Inch</option><option value="ppcm">Pixels/Centimeter</option></select></label></div>
 <div class="newdoc-pair"><label><span>Color mode</span><select name="mode" aria-label="Color mode"><option value="rgb">RGB Color</option><option value="cmyk">CMYK Color</option><option value="grayscale">Grayscale</option><option value="lab">Lab Color</option></select></label><label><span>Depth</span><select name="depth" aria-label="Bit depth" title="New documents are 8 bits per channel; open a 16 or 32-bit file to edit at high depth"><option value="8">8 bit</option></select></label></div>
-<div class="newdoc-pair"><label><span>Background contents</span><select name="background" aria-label="Background contents"><option value="white">White</option><option value="black">Black</option><option value="background">Background Color</option><option value="transparent">Transparent</option><option value="custom">Custom…</option></select></label><label class="newdoc-color"><span>Color</span><input type="color" name="color" aria-label="Custom background color"></label></div>
+<div class="newdoc-pair"><label><span>Background contents</span><select name="background" aria-label="Background contents"><option value="white">White</option><option value="black">Black</option><option value="background">Background Color</option><option value="transparent">Transparent</option><option value="custom">Custom…</option></select></label><label class="newdoc-color"><span>Color</span><input type="color" name="color" aria-label="Custom background color" title="Choose a custom background color"></label></div>
 <details class="newdoc-advanced"><summary>Advanced options</summary>
 <label><span>Color profile</span><select name="profile" aria-label="Color profile"><option value="working">Working space</option></select></label>
 <label><span>Pixel aspect ratio</span><select name="pixelAspect" aria-label="Pixel aspect ratio">${builtinAspects.map((a) => `<option value="${a.ratio}">${escapeXML(a.label)}</option>`).join('')}</select></label>
@@ -165,6 +165,7 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
   const form = d.querySelector<HTMLFormElement>('form')!;
   const field = <T extends HTMLInputElement | HTMLSelectElement>(name: string) => form.elements.namedItem(name) as T;
   const grid = d.querySelector<HTMLElement>('.newdoc-presets')!;
+  const search = d.querySelector<HTMLInputElement>('input[name="preset-search"]')!;
 
   // Profile choices load with the color engine.
   void import('../color/profiles').then(({ colorSettings, profileChoices, profileName }) => {
@@ -197,9 +198,19 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
     return `<div class="newdoc-card ${selected === id ? 'selected' : ''}" role="button" tabindex="0" data-preset="${escapeXML(id)}" aria-pressed="${selected === id}"><span class="newdoc-shape"><span class="bg-${bg === 'black' ? 'black' : bg === 'transparent' ? 'transparent' : 'white'}" style="width:${bw}px;height:${bh}px"></span></span><strong>${escapeXML(name)}</strong><small>${escapeXML(sizeLabel(w, h, unit))} @ ${fmt(ppi)} ppi${extra}</small>${removable ? `<button type="button" class="icon-button newdoc-remove" data-remove="${escapeXML(id)}" title="Delete preset" aria-label="Delete preset ${escapeXML(name)}">${svg('trash-2', 13)}</button>` : ''}</div>`;
   }
   function renderPresets() {
-    d.querySelectorAll<HTMLElement>('[data-cat]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.cat === category)));
+    const query = search.value.trim().toLowerCase();
+    d.querySelectorAll<HTMLElement>('[data-cat]').forEach((b) => b.setAttribute('aria-selected', String(!query && b.dataset.cat === category)));
     let html = '';
-    if (category === 'recent') {
+    if (query) {
+      // Searching looks through every category by name, category and size.
+      const terms = query.split(/\s+/);
+      const text = (p: DocPreset) => `${p.name} ${CATEGORIES.find(([id]) => id === p.category)?.[1] ?? ''} ${sizeLabel(p.width, p.height, p.unit)} ${p.width}x${p.height}`.toLowerCase().replace(/×/g, 'x');
+      const found = PRESETS.filter((p) => terms.every((t) => text(p).includes(t.replace(/×/g, 'x'))));
+      const saved = savedPresets().filter((s) => terms.every((t) => `${s.title} ${s.width}x${s.height}`.toLowerCase().includes(t)));
+      html = found.length + saved.length
+        ? [...saved.map((s) => presetCard(s.id, s.title, s.width, s.height, s.unit, s.ppi, '', true, s.background)), ...found.map((p) => presetCard(p.id, p.name, p.width, p.height, p.unit, presetPpi(p, prefs), p.pixelAspect ? ` · ${fmt(p.pixelAspect)} aspect` : '', false, p.background))].join('')
+        : `<p class="newdoc-empty">No presets match “${escapeXML(search.value.trim())}”.</p>`;
+    } else if (category === 'recent') {
       const list = recentSpecs();
       html = list.length ? list.map((s, i) => presetCard(`recent-${i}`, s.artboards ? 'Artboard' : 'Recently used', s.width, s.height, s.unit, s.ppi, '', false, s.background)).join('') : '<p class="newdoc-empty">Settings you create documents with appear here.</p>';
     } else if (category === 'saved') {
@@ -229,13 +240,18 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
     const u = unitShort[spec.unit];
     field<HTMLInputElement>('width').setAttribute('aria-label', `Width (${u})`);
     field<HTMLInputElement>('height').setAttribute('aria-label', `Height (${u})`);
-    d.querySelector<HTMLElement>('.newdoc-color')!.hidden = spec.background !== 'custom';
+    // The swatch shows the contents color; choosing a color makes it custom.
+    d.querySelector<HTMLElement>('.newdoc-color')!.hidden = spec.background === 'transparent';
+    const color = field<HTMLInputElement>('color');
+    if (spec.background !== 'custom' && document.activeElement !== color) color.value = backgroundHex(spec.background, spec.color);
     d.querySelectorAll<HTMLElement>('[data-orient]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.orient === 'landscape') === spec.width >= spec.height)));
     const size = specPixels(spec, prefs);
     d.querySelector('.newdoc-summary')!.textContent = size.error ? '' : `${size.width} × ${size.height} pixels · ${bytesLabel(documentBytes(size.width, size.height, spec.mode))}`;
     d.querySelector('.newdoc-error')!.textContent = size.error ?? '';
     d.querySelector<HTMLButtonElement>('[data-create]')!.disabled = !!size.error;
   }
+  const backgroundHex = (bg: DocSpec['background'], custom: string) =>
+    bg === 'white' ? '#ffffff' : bg === 'black' ? '#000000' : bg === 'background' ? e.background : custom;
   function readForm() {
     const num = (n: string) => Number(field<HTMLInputElement>(n).value);
     spec = {
@@ -274,6 +290,7 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
       const cat = t.closest<HTMLElement>('[data-cat]')?.dataset.cat as NewCategory | undefined;
       if (cat) {
         category = cat;
+        search.value = '';
         renderPresets();
         return;
       }
@@ -325,9 +342,25 @@ export function newDocumentWindow(e: Editor): Promise<boolean> {
     d.addEventListener('dblclick', (ev) => {
       if ((ev.target as HTMLElement).closest('[data-preset]')) d.querySelector<HTMLButtonElement>('[data-create]')!.click();
     });
+    search.addEventListener('input', () => renderPresets());
+    search.addEventListener('keydown', (ev) => {
+      // Enter picks the first match; Escape clears the search before closing.
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const first = grid.querySelector<HTMLElement>('[data-preset]')?.dataset.preset;
+        if (first) choose(first);
+      } else if (ev.key === 'Escape' && search.value) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        search.value = '';
+        renderPresets();
+      }
+    });
     form.addEventListener('input', (ev) => {
       const name = (ev.target as HTMLElement).getAttribute('name');
       if (name === 'unit') return;
+      if (name === 'color' && spec.background !== 'custom') field<HTMLSelectElement>('background').value = 'custom';
       readForm();
       if (name !== 'name') selected = '';
       labels();

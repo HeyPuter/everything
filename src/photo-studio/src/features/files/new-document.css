@@ -51,3 +51,8 @@ dialog.newdoc-window { resize: both; min-width: min(560px, calc(100vw - 16px)); 
 .newdoc-shape > span.bg-black { background: #111; }
 .newdoc-shape > span.bg-transparent { background: repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0 / 6px 6px; }
 
+.newdoc-headline { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.newdoc-headline h2 { margin: 0 !important; }
+.newdoc-search { margin-left: auto; display: flex; align-items: center; gap: 6px; width: min(280px, 45%); padding: 0 8px; border: 1px solid var(--input-line); border-radius: 4px; background: var(--input); color: var(--muted); }
+.newdoc-search:focus-within { border-color: var(--accent); }
+.newdoc-search input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 26px; padding: 0; outline: none; color: var(--text); }
