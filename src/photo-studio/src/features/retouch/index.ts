@@ -1,6 +1,6 @@
 // Retouching and assisted selection: healing tools, Quick/Object Selection,
 // Magnetic Lasso, Select Subject/Sky, Color Range, Select and Mask, Context
-// Fill, AI Fill/Expand, Remove Background, Matting and the Contextual Task Bar.
+// Fill, AI Fill/Expand, Remove Background, Matting and the Quick Actions Bar.
 // Tools, commands and menus register here; their implementations load on
 // first use (app/lazy.ts).
 import type { Editor } from '../../editor';

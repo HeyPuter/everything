@@ -766,7 +766,7 @@ async function mergeSelected(e: Editor) {
   await mergeLayers(e, ordered, ordered.at(-1)!.id, 'Merge Layers');
 }
 /** Composite `layers` (bottom first) in isolation into the layer `keepId`.
- * `keepBlend` (Merge Down): as in Photoshop, the result keeps the lower
+ * `keepBlend` (Merge Down): the result keeps the lower
  * layer's blend mode and the upper layer is composited onto the lower
  * layer's own pixels. Its opacity is baked into the pixels, so a stack of
  * Normal layers, or of layers in the same associative mode (Multiply,

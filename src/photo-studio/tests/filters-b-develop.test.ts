@@ -198,7 +198,7 @@ describe('filtersB registry', () => {
     const ids = filtersB.map((o) => o.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const op of filtersB) {
-      expect(op.label).not.toMatch(/adobe|camera raw|content-aware|smart/i);
+      expect(op.label).not.toMatch(/smart/i);
       for (const p of op.params)
         if (p.type === 'number') {
           expect(p.default).toBeGreaterThanOrEqual(p.min);

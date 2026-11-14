@@ -305,7 +305,7 @@ export const SETTINGS: SettingDef[] = [
   // ----- Guides, grid & slices -----
   { page: 'guides', section: 'Guides', type: 'color', key: 'guideColor', label: 'Guide color', default: '#00c8ff' },
   { page: 'guides', section: 'Guides', type: 'choice', key: 'guideStyle', label: 'Guide style', default: 'lines', options: [['lines', 'Lines'], ['dashed', 'Dashed lines']] },
-  { page: 'guides', section: 'Guides', type: 'color', key: 'smartGuideColor', label: 'Alignment guide color', default: '#ff4fb3', keywords: 'smart guides' },
+  { page: 'guides', section: 'Guides', type: 'color', key: 'smartGuideColor', label: 'Alignment guide color', default: '#ff4fb3', keywords: 'snapping guides' },
   { page: 'guides', section: 'Grid', type: 'color', key: 'gridColor', label: 'Grid color', default: '#808080' },
   { page: 'guides', section: 'Grid', type: 'choice', key: 'gridStyle', label: 'Grid style', default: 'lines', options: [['lines', 'Lines'], ['dashed', 'Dashed lines'], ['dots', 'Dots']] },
   { page: 'guides', section: 'Grid', type: 'number', key: 'gridEvery', label: 'Gridline every', default: 64, min: 0.01, max: 10000 },

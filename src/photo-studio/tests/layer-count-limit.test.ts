@@ -1,5 +1,5 @@
-// A document holds up to MAX_LAYERS layers wherever layers come from (Photoshop
-// allows 8000). Moving and grouping used to refuse anything past 200 layers
+// A document holds up to MAX_LAYERS layers wherever layers come from (8000, a common
+// professional limit). Moving and grouping used to refuse anything past 200 layers
 // although New Layer, Paste and opening animations as layers made more.
 import { describe, expect, it } from 'vitest';
 import { layer, MAX_LAYERS, newDocument, type PhotoDocument } from '../src/model/document';
@@ -13,7 +13,7 @@ function docWith(n: number): PhotoDocument {
 }
 
 describe('layer count limit', () => {
-  it('is the same as Photoshop’s', () => expect(MAX_LAYERS).toBe(8000));
+  it('is 8000', () => expect(MAX_LAYERS).toBe(8000));
 
   it('moves and groups layers in a document with more than 200 layers', () => {
     const doc = docWith(450);

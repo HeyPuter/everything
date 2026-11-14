@@ -1,4 +1,4 @@
-// Contextual Task Bar: a small floating bar under the selection (or near the
+// Quick Actions Bar: a small floating bar under the selection (or near the
 // bottom of the canvas) offering the likely next steps. Hidden while a tool is
 // dragging, during transforms and modal work; dismissible and remembered.
 import type { Editor } from '../../editor';
@@ -46,7 +46,7 @@ export function installTaskbar(e: Editor) {
   const bar = document.createElement('div');
   bar.className = 'contextual-taskbar canvas-ui';
   bar.setAttribute('role', 'toolbar');
-  bar.setAttribute('aria-label', 'Contextual task bar');
+  bar.setAttribute('aria-label', 'Quick actions bar');
   bar.hidden = true;
   let signature = '';
   let placed = false;
@@ -88,7 +88,7 @@ export function installTaskbar(e: Editor) {
             const on = commands.get(a.id)!.enabled?.(e) !== false;
             return `<button type="button" data-taskbar="${a.id}" ${on ? '' : 'disabled'} title="${escapeXML(commands.get(a.id)!.description ?? a.label)}">${svg(a.icon, 15)}<span>${escapeXML(a.label)}</span></button>`;
           })
-          .join('') + `<button type="button" class="taskbar-close" data-taskbar-close aria-label="Hide the contextual task bar" title="Hide (Window › Contextual Task Bar)">${svg('x', 14)}</button>`;
+          .join('') + `<button type="button" class="taskbar-close" data-taskbar-close aria-label="Hide the quick actions bar" title="Hide (Window › Quick Actions Bar)">${svg('x', 14)}</button>`;
       placed = false;
     }
     if (!bar.hidden) place();
@@ -101,7 +101,7 @@ export function installTaskbar(e: Editor) {
       visible = false;
       save();
       render();
-      e.message('Contextual task bar hidden. Show it again from Window › Contextual Task Bar.');
+      e.message('Quick actions bar hidden. Show it again from Window › Quick Actions Bar.');
       return;
     }
     const b = t.closest<HTMLButtonElement>('[data-taskbar]');
@@ -123,7 +123,7 @@ export function installTaskbar(e: Editor) {
   }, 250);
   registerCommand({
     id: 'window.contextual-taskbar',
-    label: 'Contextual Task Bar',
+    label: 'Quick Actions Bar',
     checked: () => visible,
     recordable: false,
     run: () => {

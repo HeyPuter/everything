@@ -558,7 +558,7 @@ svg.histogram { width: 100%; height: 100px; background: var(--input); border: 1p
 #app[aria-busy='true'] #status::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--accent); animation: status-pulse 1s ease-in-out infinite alternate; }
 @keyframes status-pulse { from { opacity: 0.35; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #app[aria-busy='true'] #status::before { animation: none; } }
-/* Top of the canvas area, clear of the contextual task bar near the bottom. */
+/* Top of the canvas area, clear of the quick actions bar near the bottom. */
 #toast { position: fixed; left: 50%; top: 112px; transform: translateX(-50%); background: var(--menu); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; box-shadow: 0 6px 18px #0008; z-index: 80; max-width: min(560px, 90vw); }
 .checkbox-field { flex-direction: row !important; align-items: center; justify-content: flex-start; gap: 8px !important; }
 .checkbox-field input[type='checkbox'] { order: -1; width: auto; flex: none; margin: 0; padding: 0; }
@@ -1976,7 +1976,7 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .ai-status { min-height: 18px; margin: 8px 0 !important; }
 .ai-status.error { color: #ff8a8a !important; }
 .ai-status.busy { color: var(--accent) !important; }
-/* Contextual Task Bar */
+/* Quick Actions Bar */
 .contextual-taskbar { position: absolute; z-index: 12; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--menu); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 4px 16px #0007; font-size: 12px; }
 .contextual-taskbar[hidden] { display: none; }
 .contextual-taskbar button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: transparent; white-space: nowrap; }
