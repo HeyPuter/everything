@@ -1,6 +1,7 @@
 import type { Editor } from '../editor';
 import { registerTool, type Tool } from '../app/registry';
-import { strokeTool, brushOptions, bindBrushOptions, brushFor } from './paint';
+import { strokeTool, brushOptions, bindBrushOptions, brushFor, FOCUS_MODES, COLOR_REPLACE_MODES } from './paint';
+import { blendColor, type BlendMode } from '../imaging/blend/modes';
 import { commitTarget, hexRgb, pixelTarget, type PixelTarget } from './pixels';
 import type { CanvasPointer } from '../app/pointer';
 import { svg } from '../app/icons';
@@ -23,7 +24,7 @@ import {
   type SampleMode,
 } from './clone-source/state';
 import { bindSampleOptions, sampleOptions } from './clone-source/options';
-import type { LiveReader, PaintTarget } from '../engine/paint';
+import type { LiveReader, PaintMode, PaintTarget } from '../engine/paint';
 import { SmudgeFinger } from '../engine/smudge';
 import { TILE, tileKey, readRGBA, writeRect, type TileGrid } from '../model/tiles';
 import { canvasRect, selectionGrid } from '../model/selection';
@@ -168,21 +169,25 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
     }
     const strength = Number(e.settings[`${kind}Strength`] ?? 50) / 100;
     const t = new Uint8ClampedArray(4);
+    const b = brushFor(`${kind}-tool`);
+    const blend = modeBlender(b.mode);
     if (kind === 'smudge') {
-      // The tip carries the colors it passes over along the stroke.
-      const finger = new SmudgeFinger(brushFor('smudge-tool').size, strength);
+      // The tip carries the colors it passes over along the stroke; with
+      // Finger Painting each stroke starts with the foreground color on it.
+      const finger = new SmudgeFinger(b.size, strength, e.settings.fingerPainting ? hexRgb(e.color) : undefined);
       return {
         kind: 'custom',
         dab: (cx, cy, size) => finger.dab(cx, cy, size),
-        pixel: (x, y, alpha, cur, out) => finger.pixel(x, y, alpha, cur, out),
+        pixel: (x, y, alpha, cur, out) => {
+          finger.pixel(x, y, alpha, cur, out);
+          blend?.(cur, out);
+        },
       };
     }
     // The 3x3 average reads the pixels as the stroke has left them, so the
     // effect builds up while scrubbing. Dabs overlap about 1/spacing times;
     // each applies the share that makes one pass about the chosen strength.
-    const b = brushFor(`${kind}-tool`);
     const share = 1 - Math.pow(1 - Math.min(1, strength), Math.min(1, Math.max(0.01, b.spacing)));
-    const opacity = b.opacity;
     let read: LiveReader | undefined;
     return {
       kind: 'custom',
@@ -204,12 +209,32 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
             a += w;
           }
         if (!a) return;
-        const k = Math.min(1, alpha * opacity * share) * (kind === 'blur' ? 1 : -2);
+        const k = Math.min(1, alpha * share) * (kind === 'blur' ? 1 : -2);
         out[0] = cur[0] + (r / a - cur[0]) * k;
         out[1] = cur[1] + (g / a - cur[1]) * k;
         out[2] = cur[2] + (bl / a - cur[2]) * k;
+        blend?.(cur, out);
       },
     };
+  };
+}
+/** Applies a focus tool's mode to its result: Darken and Lighten keep only
+ * darker or lighter results, Hue, Saturation, Color and Luminosity take only
+ * that component of the result. Undefined for Normal. */
+export function modeBlender(mode: PaintMode) {
+  if (mode === 'normal' || !FOCUS_MODES.includes(mode) || mode === 'behind' || mode === 'clear' || mode === 'dissolve') return undefined;
+  const bc = [0, 0, 0],
+    sc = [0, 0, 0],
+    o = [0, 0, 0];
+  return (cur: ArrayLike<number>, out: Uint8ClampedArray) => {
+    for (let c = 0; c < 3; c++) {
+      bc[c] = cur[c] / 255;
+      sc[c] = out[c] / 255;
+    }
+    blendColor(mode, bc, sc, o);
+    out[0] = o[0] * 255;
+    out[1] = o[1] * 255;
+    out[2] = o[2] * 255;
   };
 }
 function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
@@ -221,6 +246,7 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
     const range = (e.settings.toneRange as string) ?? 'midtones';
     const exposure = Number(e.settings.toneExposure ?? 50) / 100;
     const saturate = e.settings.spongeMode !== 'desaturate';
+    const vibrance = e.settings.spongeVibrance !== false;
     const protect = e.settings.protectTones !== false;
     return {
       kind: 'process',
@@ -229,7 +255,16 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
         const r = base[0], g = base[1], b = base[2];
         if (kind === 'sponge') {
           const l = lum(r, g, b);
-          const k = saturate ? 1 + exposure : 1 - exposure;
+          let k = saturate ? 1 + exposure : 1 - exposure;
+          if (vibrance && saturate) {
+            // Vibrance: muted colors gain most, and no channel clips.
+            const mx = Math.max(r, g, b),
+              mn = Math.min(r, g, b);
+            k = 1 + exposure * (1 - (mx - mn) / 255);
+            if (mx > l) k = Math.min(k, (255 - l) / (mx - l));
+            if (mn < l) k = Math.min(k, l / (l - mn));
+            k = Math.max(1, k);
+          }
           out[0] = l + (r - l) * k;
           out[1] = l + (g - l) * k;
           out[2] = l + (b - l) * k;
@@ -267,13 +302,14 @@ const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
   bindNumberField(el, '#tool-strength', () => Number(e.settings[key] ?? 50), (v) => (e.settings[key] = Math.max(1, Math.min(100, v))));
 const toneFields = (sponge: boolean) => (e: Editor) =>
   sponge
-    ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label>`
+    ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label><label class="transform-setting" title="Saturating raises muted colors most and never clips a channel"><input type="checkbox" id="sponge-vibrance" ${e.settings.spongeVibrance !== false ? 'checked' : ''}>Vibrance</label>`
     : `<label>Range <select id="tone-range">${['shadows', 'midtones', 'highlights'].map((r) => `<option value="${r}" ${(e.settings.toneRange ?? 'midtones') === r ? 'selected' : ''}>${r[0].toUpperCase() + r.slice(1)}</option>`).join('')}</select></label><label>Exposure <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label><label class="transform-setting"><input type="checkbox" id="protect-tones" ${e.settings.protectTones !== false ? 'checked' : ''}>Protect Tones</label>`;
 const bindTone = (e: Editor, el: HTMLElement) => {
   el.querySelector<HTMLSelectElement>('#tone-range')?.addEventListener('change', (ev) => (e.settings.toneRange = (ev.target as HTMLSelectElement).value));
   el.querySelector<HTMLSelectElement>('#sponge-mode')?.addEventListener('change', (ev) => (e.settings.spongeMode = (ev.target as HTMLSelectElement).value));
   bindNumberField(el, '#tone-exposure', () => Number(e.settings.toneExposure ?? 50), (v) => (e.settings.toneExposure = Math.max(1, Math.min(100, v))));
   el.querySelector<HTMLInputElement>('#protect-tones')?.addEventListener('change', (ev) => (e.settings.protectTones = (ev.target as HTMLInputElement).checked));
+  el.querySelector<HTMLInputElement>('#sponge-vibrance')?.addEventListener('change', (ev) => (e.settings.spongeVibrance = (ev.target as HTMLInputElement).checked));
 };
 
 // ----- Erasers and color replacement -----
@@ -299,23 +335,35 @@ function backgroundEraserTarget(e: Editor, target: PixelTarget, p: CanvasPointer
   const tol = Number(e.settings.bgTolerance ?? 50) * 2.55;
   const mode = (e.settings.bgSampling as string) ?? 'once';
   const ref = mode === 'swatch' ? hexRgb(e.background) : sampledColor(e, target, p).ref;
-  const sample = gridSampler(e, target.grid);
-  const t = new Uint8ClampedArray(4);
-  let current = ref;
-  let lastPointer: unknown;
+  const current = continuousSample(e, target, ref, mode === 'continuous');
+  const fg = e.settings.bgProtectForeground ? hexRgb(e.color) : undefined;
   return {
     kind: 'process',
     process: (_x, _y, base, out) => {
-      if (mode === 'continuous' && e.pointerInfo !== lastPointer) {
-        lastPointer = e.pointerInfo;
-        if (e.pointerInfo && sample(e.pointerInfo.x, e.pointerInfo.y, t)) current = [t[0], t[1], t[2]];
-      }
       out.set(base);
-      const d = colorDistance(base, current);
+      // Protect Foreground Color keeps pixels close to the foreground color.
+      if (fg && colorDistance(base, fg) <= tol) return;
+      const d = colorDistance(base, current());
       // Soft edge around the tolerance limit.
       const k = d <= tol ? 1 : d <= tol + 20 ? 1 - (d - tol) / 20 : 0;
       out[3] = base[3] * (1 - k);
     },
+  };
+}
+/** The reference color of a sampling stroke: with Continuous sampling it
+ * follows the color under the pointer. */
+function continuousSample(e: Editor, target: PixelTarget & { kind: 'pixels' }, ref: number[], continuous: boolean) {
+  if (!continuous) return () => ref;
+  const sample = gridSampler(e, target.grid);
+  const t = new Uint8ClampedArray(4);
+  let current = ref;
+  let lastPointer: unknown;
+  return () => {
+    if (e.pointerInfo !== lastPointer) {
+      lastPointer = e.pointerInfo;
+      if (e.pointerInfo && sample(e.pointerInfo.x, e.pointerInfo.y, t)) current = [t[0], t[1], t[2]];
+    }
+    return current;
   };
 }
 function colorReplaceTarget(e: Editor, target: PixelTarget, p: CanvasPointer): PaintTarget | undefined {
@@ -324,43 +372,68 @@ function colorReplaceTarget(e: Editor, target: PixelTarget, p: CanvasPointer): P
     return;
   }
   const tol = Number(e.settings.replaceTolerance ?? 30) * 2.55;
-  const { ref } = sampledColor(e, target, p);
+  const sampling = (e.settings.replaceSampling as string) ?? 'continuous';
+  const ref = sampling === 'swatch' ? hexRgb(e.background) : sampledColor(e, target, p).ref;
+  const current = continuousSample(e, target, ref, sampling === 'continuous');
+  const antiAlias = e.settings.replaceAntiAlias !== false;
   const fg = hexRgb(e.color);
+  const mode = brushFor('color-replacement').mode;
+  const blend = (COLOR_REPLACE_MODES.includes(mode) ? mode : 'color') as BlendMode;
+  const bc = [0, 0, 0],
+    sc = [fg[0] / 255, fg[1] / 255, fg[2] / 255],
+    o = [0, 0, 0];
   return {
     kind: 'process',
     preserveAlpha: true,
     process: (_x, _y, base, out) => {
       out.set(base);
-      if (colorDistance(base, ref) > tol) return;
-      // Color blend: keep the pixel's luminance, take the foreground's hue/saturation.
-      const l = lum(base[0], base[1], base[2]),
-        fl = lum(fg[0], fg[1], fg[2]);
-      for (let c = 0; c < 3; c++) out[c] = fg[c] + (l - fl);
+      const d = colorDistance(base, current());
+      // Anti-alias: a soft edge just past the tolerance limit.
+      const k = d <= tol ? 1 : antiAlias && d <= tol + 20 ? 1 - (d - tol) / 20 : 0;
+      if (!k) return;
+      for (let c = 0; c < 3; c++) bc[c] = base[c] / 255;
+      // Hue, Saturation, Color or Luminosity of the foreground replaces the pixel's own.
+      blendColor(blend, bc, sc, o);
+      for (let c = 0; c < 3; c++) out[c] = base[c] + (o[c] * 255 - base[c]) * k;
     },
   };
 }
+const samplingSelect = (id: string, value: string) =>
+  `<label>Sampling <select id="${id}">${[['continuous', 'Continuous'], ['once', 'Once'], ['swatch', 'Background Swatch']].map(([v, l]) => `<option value="${v}" ${value === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
 
 export function installRetouchTools(_e: Editor) {
   registerTool(
     cloneTool(),
     withOptions(strokeTool('blur-tool', 'Blur Tool', 'blur-tool', 'focus', '', 'Blur Tool', {}, focusTarget('blur')), strengthField('blurStrength'), bindStrength('blurStrength')),
     withOptions(strokeTool('sharpen-tool', 'Sharpen Tool', 'sharpen-tool', 'focus', '', 'Sharpen Tool', {}, focusTarget('sharpen')), strengthField('sharpenStrength'), bindStrength('sharpenStrength')),
-    withOptions(strokeTool('smudge-tool', 'Smudge Tool', 'smudge', 'focus', '', 'Smudge Tool', {}, focusTarget('smudge')), strengthField('smudgeStrength'), bindStrength('smudgeStrength')),
+    withOptions(
+      strokeTool('smudge-tool', 'Smudge Tool', 'smudge', 'focus', '', 'Smudge Tool', {}, focusTarget('smudge')),
+      (e) => `${strengthField('smudgeStrength')(e)}<label class="transform-setting" title="Start each stroke with the foreground color on the tip"><input type="checkbox" id="finger-painting" ${e.settings.fingerPainting ? 'checked' : ''}>Finger Painting</label>`,
+      (e, el) => {
+        bindStrength('smudgeStrength')(e, el);
+        el.querySelector<HTMLInputElement>('#finger-painting')?.addEventListener('change', (ev) => (e.settings.fingerPainting = (ev.target as HTMLInputElement).checked));
+      },
+    ),
     withOptions(strokeTool('dodge', 'Dodge Tool', 'dodge', 'tone', 'O', 'Dodge Tool', {}, toneTarget('dodge')), toneFields(false), bindTone),
     withOptions(strokeTool('burn', 'Burn Tool', 'burn', 'tone', 'O', 'Burn Tool', {}, toneTarget('burn')), toneFields(false), bindTone),
     withOptions(strokeTool('sponge', 'Sponge Tool', 'sponge', 'tone', 'O', 'Sponge Tool', {}, toneTarget('sponge')), toneFields(true), bindTone),
     withOptions(
       strokeTool('background-eraser', 'Background Eraser Tool', 'eraser-background', 'eraser', 'E', 'Background Eraser', {}, backgroundEraserTarget),
-      (e) => `<label>Sampling <select id="bg-sampling"><option value="continuous" ${e.settings.bgSampling === 'continuous' ? 'selected' : ''}>Continuous</option><option value="once" ${(e.settings.bgSampling ?? 'once') === 'once' ? 'selected' : ''}>Once</option><option value="swatch" ${e.settings.bgSampling === 'swatch' ? 'selected' : ''}>Background Swatch</option></select></label><label>Tolerance <input id="bg-tolerance" type="number" min="0" max="100" value="${Number(e.settings.bgTolerance ?? 50)}">%</label>`,
+      (e) => `${samplingSelect('bg-sampling', (e.settings.bgSampling as string) ?? 'once')}<label>Tolerance <input id="bg-tolerance" type="number" min="0" max="100" value="${Number(e.settings.bgTolerance ?? 50)}">%</label><label class="transform-setting" title="Never erase pixels close to the foreground color"><input type="checkbox" id="bg-protect-fg" ${e.settings.bgProtectForeground ? 'checked' : ''}>Protect Foreground Color</label>`,
       (e, el) => {
         el.querySelector<HTMLSelectElement>('#bg-sampling')?.addEventListener('change', (ev) => (e.settings.bgSampling = (ev.target as HTMLSelectElement).value));
+        el.querySelector<HTMLInputElement>('#bg-protect-fg')?.addEventListener('change', (ev) => (e.settings.bgProtectForeground = (ev.target as HTMLInputElement).checked));
         bindNumberField(el, '#bg-tolerance', () => Number(e.settings.bgTolerance ?? 50), (v) => (e.settings.bgTolerance = Math.max(0, Math.min(100, v))));
       },
     ),
     withOptions(
       strokeTool('color-replacement', 'Color Replacement Tool', 'color-replace', 'brush', 'B', 'Color Replacement', {}, colorReplaceTarget),
-      (e) => `<label>Tolerance <input id="replace-tolerance" type="number" min="0" max="100" value="${Number(e.settings.replaceTolerance ?? 30)}">%</label>`,
-      (e, el) => bindNumberField(el, '#replace-tolerance', () => Number(e.settings.replaceTolerance ?? 30), (v) => (e.settings.replaceTolerance = Math.max(0, Math.min(100, v)))),
+      (e) => `${samplingSelect('replace-sampling', (e.settings.replaceSampling as string) ?? 'continuous')}<label>Tolerance <input id="replace-tolerance" type="number" min="0" max="100" value="${Number(e.settings.replaceTolerance ?? 30)}">%</label><label class="transform-setting"><input type="checkbox" id="replace-anti-alias" ${e.settings.replaceAntiAlias !== false ? 'checked' : ''}>Anti-alias</label>`,
+      (e, el) => {
+        bindNumberField(el, '#replace-tolerance', () => Number(e.settings.replaceTolerance ?? 30), (v) => (e.settings.replaceTolerance = Math.max(0, Math.min(100, v))));
+        el.querySelector<HTMLSelectElement>('#replace-sampling')?.addEventListener('change', (ev) => (e.settings.replaceSampling = (ev.target as HTMLSelectElement).value));
+        el.querySelector<HTMLInputElement>('#replace-anti-alias')?.addEventListener('change', (ev) => (e.settings.replaceAntiAlias = (ev.target as HTMLInputElement).checked));
+      },
     ),
     {
       id: 'magic-eraser',

@@ -27,6 +27,8 @@ export type BrushTip = {
   // Pencil: pixels inside the tip are painted fully and the rest not at all
   // (no anti-aliasing); the pixel under the center is always painted.
   aliased?: boolean;
+  // With `aliased`, a square tip (the eraser's Block mode) instead of an ellipse.
+  square?: boolean;
 };
 export type BrushDynamics = {
   pressureSize?: boolean;
@@ -301,7 +303,7 @@ export class StrokeSession {
               v = (-dx * sin + dy * cos) / roundness;
             let alpha: number;
             if (tip.aliased && !sample) {
-              if (u * u + v * v > radius * radius && (x !== Math.floor(cx) || y !== Math.floor(cy))) continue;
+              if (tip.square ? Math.abs(u) > radius || Math.abs(v) > radius : u * u + v * v > radius * radius && (x !== Math.floor(cx) || y !== Math.floor(cy))) continue;
               alpha = 1;
             } else if (sample) {
               const sxp = Math.floor((u / size + 0.5) * sample.width),

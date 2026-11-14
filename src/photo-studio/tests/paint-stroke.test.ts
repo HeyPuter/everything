@@ -108,3 +108,31 @@ describe('live reads for custom targets', () => {
     expect(seen).toEqual([255, 0, 0, 255]);
   });
 });
+
+describe('finger painting and square tips', () => {
+  it('a smudge finger loaded with a color lays it down from the first dab', () => {
+    const store = new TileStore();
+    const finger = new SmudgeFinger(20, 1, [0, 255, 0]);
+    const s = new StrokeSession(store, gridFromImage(store, solid(160, 40, [255, 255, 255, 255])), {
+      tip,
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'custom', dab: (cx, cy, size) => finger.dab(cx, cy, size), pixel: (x, y, a, cur, out) => finger.pixel(x, y, a, cur, out) },
+    });
+    for (let x = 20; x <= 60; x += 1) s.addPoint(x, 20);
+    const px = readRGBA(store, s.commit(), { x: 22, y: 20, width: 1, height: 1 }).data;
+    expect(px[1]).toBe(255);
+    expect(px[0]).toBeLessThan(40);
+  });
+  it('an aliased square tip covers its whole square and nothing beyond', () => {
+    const store = new TileStore();
+    const s = new StrokeSession(store, emptyGrid(4), { tip: { ...tip, aliased: true, square: true }, opacity: 1, flow: 1, target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' } });
+    s.addPoint(30, 30);
+    const grid = s.commit();
+    const a = (x: number, y: number) => readRGBA(store, grid, { x, y, width: 1, height: 1 }).data[3];
+    expect(a(20, 20)).toBe(255);
+    expect(a(39, 39)).toBe(255);
+    expect(a(19, 30)).toBe(0);
+    expect(a(40, 30)).toBe(0);
+  });
+});

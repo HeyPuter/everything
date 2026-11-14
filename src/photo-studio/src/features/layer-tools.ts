@@ -48,8 +48,8 @@ export function installLayerTools(e: Editor) {
       el.querySelector<HTMLSelectElement>('#sample-size')?.addEventListener('change', (ev) => (e.settings.sampleSize = Number((ev.target as HTMLSelectElement).value)));
       el.querySelector<HTMLSelectElement>('#sample-layers')?.addEventListener('change', (ev) => (e.settings.sampleAll = (ev.target as HTMLSelectElement).value === 'all'));
     },
-    pointerDown: (e, p) => sample(e, p),
-    pointerMove: (e, p) => sample(e, p),
+    pointerDown: (e, p) => sampleColorAt(e, p, p.alt),
+    pointerMove: (e, p) => sampleColorAt(e, p, p.alt),
   });
   void e;
 }
@@ -94,7 +94,9 @@ function alignIcon(a: string) {
   )[a];
 }
 let sampleCache: { doc: unknown; layer?: string; all: boolean; image: Promise<RGBA8> } | undefined;
-async function sample(e: Editor, p: CanvasPointer) {
+/** Eyedropper sampling with its Sample Size and Sample settings; painting
+ * tools use it for Alt-click (Option-click) color picking. */
+export async function sampleColorAt(e: Editor, p: CanvasPointer, background = false) {
   const all = !!e.settings.sampleAll;
   const l = e.layer;
   if (!sampleCache || sampleCache.doc !== e.doc || sampleCache.all !== all || sampleCache.layer !== l?.id)
@@ -108,6 +110,6 @@ async function sample(e: Editor, p: CanvasPointer) {
   const c = sampleAverage(img, p.x, p.y, Number(e.settings.sampleSize ?? 1));
   if (!c) return;
   const hex = rgbHex(c[0], c[1], c[2]);
-  if (p.alt) e.setBackground(hex);
+  if (background) e.setBackground(hex);
   else e.setForeground(hex);
 }
