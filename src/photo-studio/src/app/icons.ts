@@ -290,6 +290,8 @@ const custom: Record<string, Node[]> = {
   'indent-first': [p('M9 6h12M3 12h18M3 18h18'), p('M3 4v4')],
   'space-before': [p('M3 12h18M3 17h18'), p('M12 2v6M9.5 5.5L12 8l2.5-2.5')],
   'space-after': [p('M3 7h18M3 12h18'), p('M12 22v-6M9.5 18.5L12 16l2.5 2.5')],
+  'text-ltr': [p('M4 5h12M4 10h8'), p('M4 17h15M16 14l3 3-3 3')],
+  'text-rtl': [p('M8 5h12M12 10h8'), p('M20 17H5M8 14l-3 3 3 3')],
   'leading': [p('M4 4h6M7 4v7M4 14h6M7 14v7'), p('M17 5v14M14.5 7.5L17 5l2.5 2.5M14.5 16.5L17 19l2.5-2.5')],
   'tracking': [p('M5 4v10M5 14l3-6 3 6M6 11.5h4'), p('M14 4v10h4'), p('M3 19h18M6 17l-3 2 3 2M18 17l3 2-3 2')],
   'kerning': [p('M4 4l3 10 3-10M13 4v10h4'), p('M9 19h6M11 17l-2 2 2 2M13 17l2 2-2 2')],
