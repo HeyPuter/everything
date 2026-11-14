@@ -128,7 +128,7 @@ export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op
   session.lastSelection = current;
   e.command(label, (d) => applySelection(d, next), { session });
 }
-export function optionsFor(e: Editor, extra = '') {
+export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean } = {}) {
   const op = (e.settings.selectionOp as SelectionOp) ?? 'replace';
   const ops: [SelectionOp, string, string][] = [
     ['replace', 'New selection', 'square'],
@@ -136,7 +136,7 @@ export function optionsFor(e: Editor, extra = '') {
     ['subtract', 'Subtract from selection (Alt)', 'minus'],
     ['intersect', 'Intersect with selection (Shift+Alt)', 'x'],
   ];
-  return `<div class="segmented" role="group" aria-label="Selection mode">${ops.map(([id, label, icon]) => `<button data-selection-op="${id}" aria-pressed="${op === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div><label>Feather <input id="sel-feather" type="number" min="0" max="1000" value="${Number(e.settings.selectionFeather ?? 0)}"> px</label><label class="transform-setting"><input id="sel-aa" type="checkbox" ${e.settings.antiAlias !== false ? 'checked' : ''}>Anti-alias</label>${extra}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
+  return `<div class="segmented" role="group" aria-label="Selection mode">${ops.map(([id, label, icon]) => `<button data-selection-op="${id}" aria-pressed="${op === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div><label>Feather <input id="sel-feather" type="number" min="0" max="1000" value="${Number(e.settings.selectionFeather ?? 0)}"> px</label><label class="transform-setting" ${opts.antiAlias === false ? 'title="Rectangular selections always have hard pixel edges"' : ''}><input id="sel-aa" type="checkbox" ${opts.antiAlias === false ? 'disabled' : e.settings.antiAlias !== false ? 'checked' : ''}>Anti-alias</label>${extra}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
 }
 export function bindSelectionOptions(e: Editor, el: HTMLElement) {
   el.querySelectorAll<HTMLButtonElement>('[data-selection-op]').forEach((b) =>
@@ -154,6 +154,103 @@ export function bindTolerance(e: Editor, el: HTMLElement) {
   bindNumberField(el, '#tolerance', () => e.tolerance, (v) => (e.tolerance = Math.max(0, Math.min(255, Math.round(v)))));
 }
 
+// ----- Moving the selection outline -----
+// Selection tools drag the outline (not the pixels) when a drag starts inside
+// the selection with no modifier, and arrow keys nudge it.
+type OutlineMove = { start: CanvasPointer; grid: TileGrid; dx: number; dy: number; dragging: boolean };
+let outlineMove: OutlineMove | undefined;
+const DRAG_SLOP = 3;
+/** The live offset of a selection outline being dragged, for the marching ants. */
+export function outlineOffset(): [number, number] | null {
+  return outlineMove?.dragging ? [outlineMove.dx, outlineMove.dy] : null;
+}
+export function insideSelection(e: Editor, x: number, y: number) {
+  const grid = selectionGrid(e.doc, e.assets.tiles);
+  if (!grid) return false;
+  const px = Math.floor(x),
+    py = Math.floor(y);
+  return readMask(e.assets.tiles, grid, { x: px, y: py, width: 1, height: 1 }).data[0] >= 128;
+}
+/** The selection as a grid that can be moved (a whole-canvas fill becomes the canvas rectangle). */
+function movableGrid(e: Editor): TileGrid | null {
+  const store = e.assets.tiles;
+  const grid = selectionGrid(e.doc, store);
+  if (!grid?.fill) return grid;
+  return maskGrid(store, readMask(store, grid, canvasRect(e.doc)));
+}
+/** Offset the selection outline by whole pixels as one undo step. */
+export function moveSelectionOutline(e: Editor, dx: number, dy: number, label = 'Move Selection Outline', grid = movableGrid(e)) {
+  if (!grid || (!dx && !dy)) return;
+  const moved = { ...grid, x: grid.x + dx, y: grid.y + dy };
+  e.command(label, (d) => applySelection(d, moved));
+}
+const plainReplace = (e: Editor, p: CanvasPointer) => !p.shift && !p.alt && !p.mod && ((e.settings.selectionOp as SelectionOp) ?? 'replace') === 'replace';
+/** Shift constrains an outline drag to horizontal, vertical or 45 degrees. */
+export function constrainOffset(dx: number, dy: number, shift: boolean): [number, number] {
+  if (!shift) return [dx, dy];
+  const [x, y] = snap45([0, 0], [dx, dy]);
+  return [Math.round(x), Math.round(y)];
+}
+/** Give a selection tool outline dragging (inside the selection) and arrow-key
+ * nudging. `busy` reports a gesture of the tool's own in progress (a polygon
+ * being placed), during which the tool keeps every click and key. */
+export function movableOutline(tool: Tool, busy: () => boolean = () => false): Tool {
+  const { pointerDown, pointerMove, pointerUp, hover, keyDown } = tool;
+  const restCursor = (e: Editor) => (e.cursorFor ? e.cursorFor(tool) : (tool.cursor?.(e) ?? ''));
+  return {
+    ...tool,
+    pointerDown: (e, p) => {
+      if (!busy() && p.button === 0 && plainReplace(e, p) && insideSelection(e, p.x, p.y)) {
+        const grid = movableGrid(e);
+        if (grid) {
+          outlineMove = { start: p, grid, dx: 0, dy: 0, dragging: false };
+          return;
+        }
+      }
+      return pointerDown?.(e, p);
+    },
+    pointerMove: (e, p) => {
+      const m = outlineMove;
+      if (!m) return pointerMove?.(e, p);
+      if (!m.dragging && Math.hypot(p.clientX - m.start.clientX, p.clientY - m.start.clientY) < DRAG_SLOP) return;
+      m.dragging = true;
+      [m.dx, m.dy] = constrainOffset(Math.round(p.x - m.start.x), Math.round(p.y - m.start.y), p.shift);
+      e.overlay();
+    },
+    pointerUp: async (e, p) => {
+      const m = outlineMove;
+      if (!m) return pointerUp?.(e, p);
+      outlineMove = undefined;
+      if (m.dragging) {
+        moveSelectionOutline(e, m.dx, m.dy, 'Move Selection Outline', m.grid);
+        e.overlay();
+        return;
+      }
+      // A click inside the selection does what the tool does with a click.
+      await pointerDown?.(e, m.start);
+      await pointerUp?.(e, p);
+    },
+    hover: (e, p) => {
+      hover?.(e, p);
+      if (busy()) return;
+      const inside = plainReplace(e, p) && insideSelection(e, p.x, p.y);
+      const viewport = e.el('#viewport');
+      const want = inside ? 'move' : restCursor(e);
+      if (viewport.style.cursor !== want) viewport.style.cursor = want;
+    },
+    keyDown: (e, ev) => {
+      if (keyDown?.(e, ev)) return true;
+      if (busy() || ev.metaKey || ev.ctrlKey || ev.altKey || !ev.key.startsWith('Arrow') || !e.doc.selection) return false;
+      const step = ev.shiftKey ? 10 : 1;
+      moveSelectionOutline(e, ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0, ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0, 'Nudge Selection Outline');
+      return true;
+    },
+  };
+}
+
+// Space held while dragging a marquee repositions it instead of resizing it.
+let spaceHeld = false;
+
 // ----- Marquee and lasso tools -----
 type Drag = { start: [number, number]; current: [number, number]; op: SelectionOp; points: [number, number][]; moving?: boolean; startPointer?: CanvasPointer };
 let drag: Drag | undefined;
@@ -166,8 +263,10 @@ export type MarqueeStyle = { style?: unknown; width?: unknown; height?: unknown 
  * corner at `start` and grows with the longer side of the drag; Fixed Size
  * places the rectangle at the pointer. */
 export function marqueeRect(start: [number, number], p: Pick<CanvasPointer, 'x' | 'y' | 'shift' | 'alt'>, op: SelectionOp, fixed: MarqueeStyle = {}) {
-  const fw = Math.max(1, Number(fixed.width) || 1),
-    fh = Math.max(1, Number(fixed.height) || 1);
+  // A ratio can use fractions (1.5 : 1); a fixed size is at least one pixel.
+  const least = fixed.style === 'size' ? 1 : 1e-3;
+  const fw = Math.max(least, Number(fixed.width) || 1),
+    fh = Math.max(least, Number(fixed.height) || 1);
   // Alt draws from the center (it means subtract when the drag started with it).
   const center = p.alt && op !== 'subtract';
   if (fixed.style === 'size') return center ? { x: p.x - fw / 2, y: p.y - fh / 2, width: fw, height: fh } : { x: p.x, y: p.y, width: fw, height: fh };
@@ -204,6 +303,27 @@ export function finishShape(e: Editor, op: SelectionOp, mask: Mask8 | null, labe
   const feather = Number(e.settings.selectionFeather ?? 0);
   commitSelectionMask(e, mask && feather ? featherMask(mask, feather) : mask, op, label);
 }
+/** Options for the marquee tools: the shared selection options, then Style
+ * with its width and height (swappable, only editable for a fixed style).
+ * Rectangles and single rows or columns always have hard pixel edges, so
+ * Anti-alias applies to the elliptical marquee only. */
+function marqueeOptions(e: Editor, shape: 'rect' | 'ellipse' | 'row' | 'column') {
+  const aa = shape === 'ellipse';
+  if (shape === 'row' || shape === 'column') return optionsFor(e, '', { antiAlias: false });
+  const style = (e.settings.marqueeStyle as string) ?? 'normal';
+  const fixed = style !== 'normal';
+  const unit = style === 'size' ? 'px' : '';
+  const dis = fixed ? '' : 'disabled';
+  const styles = `<label>Style <select id="marquee-style" aria-label="Style">${[
+    ['normal', 'Normal'],
+    ['ratio', 'Fixed Ratio'],
+    ['size', 'Fixed Size'],
+  ]
+    .map(([v, l]) => `<option value="${v}" ${style === v ? 'selected' : ''}>${l}</option>`)
+    .join('')}</select></label>`;
+  const size = `<label title="Width">W <input id="marquee-w" type="number" min="0" step="any" value="${Number(e.settings.marqueeW ?? 1)}" aria-label="Width" ${dis}><span class="marquee-unit">${unit}</span></label><button type="button" class="icon-button" id="marquee-swap" title="Swap width and height" aria-label="Swap width and height" ${dis}>${svg('arrow-left-right', 14)}</button><label title="Height">H <input id="marquee-h" type="number" min="0" step="any" value="${Number(e.settings.marqueeH ?? 1)}" aria-label="Height" ${dis}><span class="marquee-unit">${unit}</span></label>`;
+  return optionsFor(e, styles + size, { antiAlias: aa });
+}
 function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'ellipse' | 'row' | 'column', key?: string): Tool {
   return {
     id,
@@ -212,12 +332,31 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
     icon,
     group: 'marquee',
     cursor: () => 'crosshair',
-    options: (e) => optionsFor(e, shape === 'rect' || shape === 'ellipse' ? `<label>Style <select id="marquee-style"><option value="normal">Normal</option><option value="ratio" ${e.settings.marqueeStyle === 'ratio' ? 'selected' : ''}>Fixed Ratio</option><option value="size" ${e.settings.marqueeStyle === 'size' ? 'selected' : ''}>Fixed Size</option></select></label><label>W <input id="marquee-w" type="number" min="1" value="${Number(e.settings.marqueeW ?? 1)}"></label><label>H <input id="marquee-h" type="number" min="1" value="${Number(e.settings.marqueeH ?? 1)}"></label>` : ''),
+    options: (e) => marqueeOptions(e, shape),
     bindOptions: ({ e, el }) => {
       bindSelectionOptions(e, el);
-      el.querySelector<HTMLSelectElement>('#marquee-style')?.addEventListener('change', (ev) => (e.settings.marqueeStyle = (ev.target as HTMLSelectElement).value));
-      bindNumberField(el, '#marquee-w', () => Number(e.settings.marqueeW ?? 1), (v) => (e.settings.marqueeW = Math.max(1, v)));
-      bindNumberField(el, '#marquee-h', () => Number(e.settings.marqueeH ?? 1), (v) => (e.settings.marqueeH = Math.max(1, v)));
+      const fields = () => {
+        const fixed = (e.settings.marqueeStyle ?? 'normal') !== 'normal';
+        el.querySelectorAll<HTMLInputElement | HTMLButtonElement>('#marquee-w,#marquee-h,#marquee-swap').forEach((f) => (f.disabled = !fixed));
+        const unit = e.settings.marqueeStyle === 'size' ? 'px' : '';
+        el.querySelectorAll('.marquee-unit').forEach((u) => (u.textContent = unit));
+      };
+      el.querySelector<HTMLSelectElement>('#marquee-style')?.addEventListener('change', (ev) => {
+        const style = (ev.target as HTMLSelectElement).value;
+        e.settings.marqueeStyle = style;
+        // Fixed Size starts from a useful size rather than a 1 x 1 pixel square.
+        if (style === 'size' && Number(e.settings.marqueeW ?? 1) <= 1 && Number(e.settings.marqueeH ?? 1) <= 1) {
+          e.settings.marqueeW = e.settings.marqueeH = 64;
+          el.querySelector<HTMLInputElement>('#marquee-w')!.value = el.querySelector<HTMLInputElement>('#marquee-h')!.value = '64';
+        }
+        fields();
+      });
+      el.querySelector('#marquee-swap')?.addEventListener('click', () => {
+        [e.settings.marqueeW, e.settings.marqueeH] = [e.settings.marqueeH ?? 1, e.settings.marqueeW ?? 1];
+        e.options();
+      });
+      bindNumberField(el, '#marquee-w', () => Number(e.settings.marqueeW ?? 1), (v) => (e.settings.marqueeW = Math.max(e.settings.marqueeStyle === 'size' ? 1 : 0.001, v)));
+      bindNumberField(el, '#marquee-h', () => Number(e.settings.marqueeH ?? 1), (v) => (e.settings.marqueeH = Math.max(e.settings.marqueeStyle === 'size' ? 1 : 0.001, v)));
     },
     pointerDown: (e, p) => {
       const op = selectionOp(e, p);
@@ -230,6 +369,11 @@ function marqueeTool(id: string, label: string, icon: string, shape: 'rect' | 'e
     },
     pointerMove: (e, p) => {
       if (!drag) return;
+      const prev = (drag as Drag & { last?: CanvasPointer }).last ?? drag.startPointer;
+      // Space moves the whole shape with the pointer.
+      if (spaceHeld && prev) {
+        drag.start = [drag.start[0] + p.x - prev.x, drag.start[1] + p.y - prev.y];
+      }
       drag.current = [p.x, p.y];
       e.overlay();
       (drag as Drag & { last?: CanvasPointer }).last = p;
@@ -485,14 +629,21 @@ async function modifyDialog(e: Editor, id: string, arg: unknown, title: string, 
 }
 export function installSelection(_e: Editor) {
   registerTool(
-    marqueeTool('rect-marquee', 'Rectangular Marquee Tool', 'square-dashed', 'rect', 'M'),
-    marqueeTool('ellipse-marquee', 'Elliptical Marquee Tool', 'marquee-ellipse', 'ellipse', 'M'),
+    movableOutline(marqueeTool('rect-marquee', 'Rectangular Marquee Tool', 'square-dashed', 'rect', 'M')),
+    movableOutline(marqueeTool('ellipse-marquee', 'Elliptical Marquee Tool', 'marquee-ellipse', 'ellipse', 'M')),
     marqueeTool('row-marquee', 'Single Row Marquee Tool', 'marquee-row', 'row'),
     marqueeTool('column-marquee', 'Single Column Marquee Tool', 'marquee-column', 'column'),
-    lassoTool,
-    polygonTool,
-    wandTool,
+    movableOutline(lassoTool),
+    movableOutline(polygonTool, () => !!polygon),
+    movableOutline(wandTool),
   );
+  window.addEventListener('keydown', (ev) => {
+    if (ev.code === 'Space') spaceHeld = true;
+  });
+  window.addEventListener('keyup', (ev) => {
+    if (ev.code === 'Space') spaceHeld = false;
+  });
+  window.addEventListener('blur', () => (spaceHeld = false));
   const has = (e: Editor) => !!e.doc.selection;
   for (const m of ['feather', 'expand', 'contract', 'border', 'smooth']) recordsSettings(`select.modify-${m}`);
   registerCommand(
@@ -569,6 +720,8 @@ export function installSelection(_e: Editor) {
     if (!grid || e.settings.hideSelectionEdges) return '';
     if (!cache || cache.grid !== grid) cache = { grid, zoom: e.zoom, d: selectionOutline(e.doc, e.assets.tiles, grid) };
     const z = e.zoom;
-    return `<g class="marching committed" stroke-width="${1 / z}" fill="none" style="--dash:${8 / z}px"><path d="${cache.d}" class="ants-white"/><path d="${cache.d}" class="ants-black" stroke-dasharray="${4 / z} ${4 / z}"/></g>`;
+    const off = outlineOffset();
+    const shift = off ? ` transform="translate(${off[0]} ${off[1]})"` : '';
+    return `<g class="marching committed"${shift} stroke-width="${1 / z}" fill="none" style="--dash:${8 / z}px"><path d="${cache.d}" class="ants-white"/><path d="${cache.d}" class="ants-black" stroke-dasharray="${4 / z} ${4 / z}"/></g>`;
   });
 }
