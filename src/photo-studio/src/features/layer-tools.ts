@@ -17,12 +17,21 @@ export function installLayerTools(e: Editor) {
     icon: 'move',
     group: 'move',
     // Pointer handling lives in FreeTransform (selection, drag, handles).
-    options: (e) =>
-      `<label class="transform-setting"><input id="auto-select" type="checkbox" ${e.autoSelect ? 'checked' : ''}>Auto-Select</label><label class="transform-setting"><input id="transform-snap" type="checkbox" ${e.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.free-transform" ${!e.selectedIds.size ? 'disabled' : ''}>Free Transform</button><span class="divider"></span>${['align-left', 'align-hcenter', 'align-right', 'align-top', 'align-vcenter', 'align-bottom']
-        .map((a) => `<button class="icon-button" data-command="layer.${a}" title="${a.replace('align-', 'Align ').replace('hcenter', 'horizontal centers').replace('vcenter', 'vertical centers')}" aria-label="${a.replace('align-', 'Align ')}">${svg(alignIcon(a), 16)}</button>`)
-        .join('')}`,
+    options: (e) => moveOptions(e),
     bindOptions: ({ e, el }) => {
-      el.querySelector<HTMLInputElement>('#auto-select')?.addEventListener('change', (ev) => (e.autoSelect = (ev.target as HTMLInputElement).checked));
+      el.querySelector<HTMLInputElement>('#auto-select')?.addEventListener('change', (ev) => {
+        e.autoSelect = (ev.target as HTMLInputElement).checked;
+        el.querySelector<HTMLSelectElement>('#auto-select-target')!.disabled = !e.autoSelect;
+      });
+      el.querySelector<HTMLSelectElement>('#auto-select-target')?.addEventListener('change', (ev) => (e.settings.autoSelectTarget = (ev.target as HTMLSelectElement).value));
+      el.querySelector<HTMLInputElement>('#show-transform-controls')?.addEventListener('change', (ev) => {
+        e.settings.showTransformControls = (ev.target as HTMLInputElement).checked;
+        e.overlay();
+      });
+      el.querySelector<HTMLButtonElement>('#move-more')?.addEventListener('click', (ev) => {
+        const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+        void import('../app/menubar').then(({ showContextMenu }) => showContextMenu(e, r.left, r.bottom + 2, moveOverflow));
+      });
     },
   });
   // The Crop and Perspective Crop tools live in features/transform/crop.ts.
@@ -43,6 +52,34 @@ export function installLayerTools(e: Editor) {
     pointerMove: (e, p) => sample(e, p),
   });
   void e;
+}
+/** More arrangement commands than fit the options bar. */
+const moveOverflow = [
+  { label: 'Distribute', items: ['layer.distribute-top', 'layer.distribute-vcenter', 'layer.distribute-bottom', '-', 'layer.distribute-left', 'layer.distribute-hcenter', 'layer.distribute-right'] },
+  { label: 'Distribute Spacing', items: ['layer.distribute-h-space', 'layer.distribute-v-space'] },
+  '-',
+  'layer.align-to-canvas',
+];
+/** Move tool options: Auto-Select with its target, the transform frame
+ * toggle, snapping, then align and distribute buttons. */
+function moveOptions(e: Editor) {
+  const target = e.settings.autoSelectTarget === 'group' ? 'group' : 'layer';
+  const button = (id: string, label: string, icon: string, enabled: boolean) => `<button class="icon-button" data-command="${id}" title="${label}" aria-label="${label}" ${enabled ? '' : 'disabled'}>${svg(icon, 16)}</button>`;
+  const any = e.selectedIds.size >= 1,
+    many = e.selectedIds.size >= 3;
+  return (
+    `<label class="transform-setting"><input id="auto-select" type="checkbox" ${e.autoSelect ? 'checked' : ''}>Auto-Select</label>` +
+    `<select id="auto-select-target" aria-label="Auto-select target" title="What a click selects: the layer under the pointer or its outermost group" ${e.autoSelect ? '' : 'disabled'}><option value="layer">Layer</option><option value="group" ${target === 'group' ? 'selected' : ''}>Group</option></select>` +
+    `<label class="transform-setting"><input id="show-transform-controls" type="checkbox" ${e.settings.showTransformControls !== false ? 'checked' : ''}>Show Transform Controls</label>` +
+    `<label class="transform-setting"><input id="transform-snap" type="checkbox" ${e.transform.snapping ? 'checked' : ''}>Snap</label><button data-command="edit.free-transform" ${!e.selectedIds.size ? 'disabled' : ''}>Free Transform</button><span class="divider"></span>` +
+    ['align-left', 'align-hcenter', 'align-right', 'align-top', 'align-vcenter', 'align-bottom']
+      .map((a) => button(`layer.${a}`, a.replace('align-', 'Align ').replace('hcenter', 'horizontal centers').replace('vcenter', 'vertical centers'), alignIcon(a), any))
+      .join('') +
+    `<span class="divider"></span>` +
+    button('layer.distribute-hcenter', 'Distribute horizontal centers', 'distribute-h', many) +
+    button('layer.distribute-vcenter', 'Distribute vertical centers', 'distribute-v', many) +
+    `<button class="icon-button" id="move-more" title="More align and distribute options" aria-label="More align and distribute options" aria-haspopup="menu">${svg('ellipsis', 16)}</button>`
+  );
 }
 function alignIcon(a: string) {
   return (

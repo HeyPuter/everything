@@ -34,10 +34,11 @@ function align(e: Editor, edge: Edge) {
   if (!roots.length) return;
   assertEditable(e.doc, roots, 'position');
   const boxes = roots.map((l) => layerBox(l, e));
-  // With one layer, align to the selection or the canvas.
+  // A selection is the reference when there is one; otherwise one layer (or
+  // Align To > Canvas) aligns to the canvas and several to their bounds.
   const ref: Box = e.doc.selection
     ? e.doc.selection
-    : roots.length === 1
+    : roots.length === 1 || e.settings.alignTo === 'canvas'
       ? { x: 0, y: 0, width: e.doc.width, height: e.doc.height }
       : (() => {
           const x = Math.min(...boxes.map((b) => b.x)),
@@ -311,6 +312,16 @@ export function installArrange(_e: Editor) {
     registerCommand({ id: `layer.distribute-${edge}`, label, enabled: many(3), run: (e) => distribute(e, edge) });
   }
   registerCommand(
+    {
+      id: 'layer.align-to-canvas',
+      label: 'Align to Canvas',
+      description: 'Align several layers to the canvas instead of to their combined bounds',
+      checked: (e) => e.settings.alignTo === 'canvas',
+      run: (e) => {
+        e.settings.alignTo = e.settings.alignTo === 'canvas' ? 'selection' : 'canvas';
+        e.options();
+      },
+    },
     { id: 'layer.distribute-h-space', label: 'Horizontal Space', enabled: many(3), run: (e) => distribute(e, 'h-space') },
     { id: 'layer.distribute-v-space', label: 'Vertical Space', enabled: many(3), run: (e) => distribute(e, 'v-space') },
     {

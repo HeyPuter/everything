@@ -233,6 +233,9 @@ const custom: Record<string, Node[]> = {
   'lasso-magnetic': [p('M7 22a5 5 0 0 1-2-4'), p('M5 13.4C3.8 12.4 3 11.2 3 10c0-3.9 4-7 9-7s9 3.1 9 7-4 7-9 7c-1.5 0-3-.3-4.2-.8'), p('M15 9v4a3 3 0 0 0 6 0V9M15 9h2M19 9h2')],
   'quick-select': [p('M18 3a2.4 2.4 0 0 1 3 3l-8.5 8.5-3-3Z'), p('M9.5 11.5 7 14c-1.5 1.5-1 4-3 5 2 1 5 1 6.5-.5l2-2'), ['circle', { cx: 8, cy: 8, r: 5.5, 'stroke-dasharray': '2.4 2' }]],
   'object-select': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 1, 'stroke-dasharray': '3 2.5' }], p('M9 16c0-3 1.5-5 3-5s3 2 3 5'), ['circle', { cx: 12, cy: 8, r: 2 }]],
+  // Three objects spaced evenly along a dashed center line.
+  'distribute-h': [['rect', { x: 2, y: 7, width: 4, height: 10, rx: 1 }], ['rect', { x: 10, y: 4, width: 4, height: 16, rx: 1 }], ['rect', { x: 18, y: 8, width: 4, height: 8, rx: 1 }], p('M4 2v2M12 1v2M20 3v2')],
+  'distribute-v': [['rect', { x: 7, y: 2, width: 10, height: 4, rx: 1 }], ['rect', { x: 4, y: 10, width: 16, height: 4, rx: 1 }], ['rect', { x: 8, y: 18, width: 8, height: 4, rx: 1 }], p('M2 4h2M1 12h2M3 20h2')],
   'crop-perspective': [p('M7 2 5 17h15'), p('M2 6l15-1-2 17'), p('M9 9l6-.4-.6 6')],
   'color-sampler': [p('m2 22 1-1h3l9-9'), p('M3 21v-3l9-9'), p('m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'), p('M19 15v6M16 18h6')],
   'heal-spot': [['rect', { x: 2.5, y: 8, width: 19, height: 8, rx: 4, transform: 'rotate(-45 12 12)' }], p('M10 12h.01M12 10h.01M14 12h.01M12 14h.01'), p('M19 2v3M17.5 3.5h3')],
