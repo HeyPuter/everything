@@ -14,6 +14,7 @@ import { adjustmentSpec, specAdjustment } from './compile';
 import { kindEditors, kindIcon } from './editors';
 import { belowSource, cancelPick, pickPoint, sampleAt } from './source';
 import { h } from './ui';
+import { presetBar } from './user-presets';
 
 // `dirty`: the editor shows values that were previewed or refused but never
 // stored, so it must be rebuilt from the layer rather than re-attached.
@@ -93,6 +94,7 @@ export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
       kindEditors[kind](body, host as never);
     },
   };
+  root.insertBefore(presetBar(host), body);
   host.rerender();
 
   const drawFooter = () => {

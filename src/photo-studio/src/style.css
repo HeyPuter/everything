@@ -1739,6 +1739,10 @@ dialog.duotone-dialog { width: 520px; }
 .adj-props-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); margin-bottom: 6px; }
 .adj-props-head h3 { margin: 0; font-size: 12px; font-weight: 600; }
 .adj-body { display: flex; flex-direction: column; gap: 6px; }
+.adj-saved { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.adj-saved label { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.adj-saved select, .adj-saved input { flex: 1; min-width: 0; }
+.adj-saved .icon-button { flex: none; }
 .adj-footer { display: flex; gap: 2px; justify-content: flex-end; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 .adj-footer button[aria-pressed='true'] { background: var(--selected); border-color: var(--input-line); }
 .adj-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
