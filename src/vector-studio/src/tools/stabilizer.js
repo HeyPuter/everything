@@ -10,7 +10,12 @@
  * Every pen sample gives exactly one drawn point, so lists kept beside the
  * points (pen pressure, timestamps) stay aligned. The string length is in
  * screen pixels, so smoothing feels the same at every zoom.
+ *
+ * With the Corners setting on, settle() finds the stroke's corners on the
+ * pen's own samples and redoes the string so it no longer cuts across them
+ * (corners.js).
  */
+import { detectCorners, restoreCorners } from './corners.js';
 
 /** String length in screen pixels at smoothing 100. */
 export const MAX_STRING_PX = 40;
@@ -26,22 +31,27 @@ export class Stabilizer {
    * @param {number} amount smoothing 0 (off) .. 100
    * @param {number} zoom view zoom (screen pixels per document unit)
    * @param {{x:number,y:number}} start where the stroke starts
+   * @param {number} [time] when it starts (ms), for telling where the pen slowed down
    */
-  constructor(amount, zoom, start) {
+  constructor(amount, zoom, start, time) {
     this.length = stringLength(amount, zoom);
+    this.zoom = zoom > 0 ? zoom : 1;
     this.cur = { x: start.x, y: start.y };
     this.pen = { x: start.x, y: start.y };
     this.raw = [{ x: start.x, y: start.y }];
+    this.times = [time];
+    this.settled = null;
   }
 
   get active() {
     return this.length > 0;
   }
 
-  /** The drawn point for the next pen sample. */
-  push(p) {
+  /** The drawn point for the next pen sample (taken at `time` ms, if known). */
+  push(p, time) {
     this.pen = { x: p.x, y: p.y };
     this.raw.push(this.pen);
+    this.times.push(time);
     if (!this.active) return { x: p.x, y: p.y };
     const dx = p.x - this.cur.x;
     const dy = p.y - this.cur.y;
@@ -64,6 +74,24 @@ export class Stabilizer {
     const first = points[0];
     const moved = points.some((p) => Math.hypot(p.x - first.x, p.y - first.y) > this.length * 0.05);
     return moved ? points : this.raw.map((p) => ({ ...p }));
+  }
+
+  /**
+   * The points to keep when the pen lifts and the corners among them
+   * (indices), for a Corners amount 0 (off) .. 100. The points are finish()'s,
+   * except that with corners found the string is redone to keep them sharp.
+   * Asking again gives the same answer.
+   */
+  settle(points, corners = 0) {
+    if (this.settled) return this.settled;
+    let pts = this.finish(points);
+    let found = [];
+    if (pts.length === this.raw.length && corners > 0) {
+      found = detectCorners(this.raw, { amount: corners, zoom: this.zoom, times: this.times });
+      if (found.length && this.active && pts === points) pts = restoreCorners(this.raw, found, this.length);
+    }
+    this.settled = { points: pts, corners: found };
+    return this.settled;
   }
 }
 

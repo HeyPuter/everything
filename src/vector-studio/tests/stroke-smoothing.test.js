@@ -160,7 +160,7 @@ describe('Merge Brush Fidelity', () => {
     newDoc();
     app.setTool('blob-brush');
     const s = toolSettings(app);
-    expect(s.fields.map((f) => f.key)).toEqual(['size', 'fidelity', 'smoothing', 'pressure']);
+    expect(s.fields.map((f) => f.key)).toEqual(['size', 'fidelity', 'smoothing', 'corners', 'pressure']);
     s.set('fidelity', 40);
     s.set('smoothing', 25);
     expect(app.tool.fidelity).toBe(40);

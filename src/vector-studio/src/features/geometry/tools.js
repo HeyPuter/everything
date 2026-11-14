@@ -9,6 +9,7 @@
 import { Tool, tol } from '../../tools/tool.js';
 import { fidelityTolerance } from '../../tools/freehand.js';
 import { Stabilizer, drawString } from '../../tools/stabilizer.js';
+import { fitStroke } from '../../tools/corners.js';
 import { multiply } from '../../lib/matrix.js';
 import { createPath } from '../../model/nodes.js';
 import { fitCurve, simplifyPolyline, nearestOnPath, insertAnchor, segmentPoints, reverseAnchors, anchor as mkAnchor } from '../../model/bezier.js';
@@ -126,6 +127,13 @@ function samples(tool, e) {
   const list = e.native?.getCoalescedEvents?.() || [];
   if (list.length > 1) return list.map((s) => tool.app.eventToDoc(s));
   return [{ x: e.x, y: e.y }];
+}
+
+/** Timestamps (ms) of the same samples, undefined where the event has none. */
+function sampleTimes(e) {
+  const list = e.native?.getCoalescedEvents?.() || [];
+  if (list.length > 1) return list.map((s) => s.timeStamp);
+  return [e.native?.timeStamp];
 }
 
 /** Pen pressures of the same samples (null for a mouse or finger). */
@@ -671,6 +679,11 @@ class RoundBrushTool extends Tool {
     return 0;
   }
 
+  /** Corners 0 (off) .. 100 kept sharp in the brush path (the Merge Brush has the setting). */
+  get corners() {
+    return 0;
+  }
+
   /** Simplify and fit tolerances (document units) for the brush path. */
   fitTolerances() {
     return { simplify: tol(this.editor, 0.75), fit: tol(this.editor, 1) };
@@ -696,7 +709,8 @@ class RoundBrushTool extends Tool {
     if (isBusy()) return;
     this.preview?.reset();
     this.pts = [{ x: e.x, y: e.y }];
-    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y });
+    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y }, e.native?.timeStamp);
+    this.strokeCorners = [];
     this.pressures = this.pressureSize ? samplePressures({ ...e, native: null }) : null;
     this.alt = e.alt;
   }
@@ -707,7 +721,8 @@ class RoundBrushTool extends Tool {
       this.overlay();
       return;
     }
-    const added = samples(this, e).map((p) => (this.stabilizer ? this.stabilizer.push(p) : p));
+    const times = sampleTimes(e);
+    const added = samples(this, e).map((p, i) => (this.stabilizer ? this.stabilizer.push(p, times[i]) : p));
     this.pts.push(...added);
     if (this.pressures) {
       const ps = samplePressures(e);
@@ -746,7 +761,11 @@ class RoundBrushTool extends Tool {
 
   /** Settle smoothing when the pen lifts: the points the stroke keeps (pressures stay aligned). */
   settleStroke() {
-    if (this.pts && this.stabilizer) this.pts = this.stabilizer.finish(this.pts);
+    if (this.pts && this.stabilizer) {
+      const settled = this.stabilizer.settle(this.pts, this.corners);
+      this.pts = settled.points;
+      this.strokeCorners = settled.corners;
+    }
     this.stabilizer = null;
     return this.pts;
   }
@@ -756,7 +775,7 @@ class RoundBrushTool extends Tool {
     const pts = this.pts;
     if (pts.length === 1) return [mkAnchor(pts[0].x, pts[0].y), mkAnchor(pts[0].x + 0.01, pts[0].y)];
     const t = this.fitTolerances();
-    return fitCurve(simplifyPolyline(pts, t.simplify), t.fit ** 2);
+    return fitStroke(pts, this.strokeCorners || [], t.fit ** 2, t.simplify);
   }
 
   /**
@@ -957,6 +976,15 @@ export class BlobBrushTool extends RoundBrushTool {
     this.app.prefs.set('blobBrushSmoothing', Math.max(0, Math.min(100, Number(v) || 0)));
   }
 
+  get corners() {
+    const v = Number(this.app.prefs.get('blobBrushCorners'));
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+  }
+
+  set corners(v) {
+    this.app.prefs.set('blobBrushCorners', Math.max(0, Math.min(100, Number(v) || 0)));
+  }
+
   fitTolerances() {
     const t = fidelityTolerance(this.fidelity, this.editor.view.zoom);
     return { simplify: t * 0.75, fit: t };
@@ -969,6 +997,7 @@ export class BlobBrushTool extends RoundBrushTool {
         { key: 'size', label: 'Size', type: 'length', value: this.size, min: 0.5, max: 1000 },
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity },
         { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: this.smoothing },
+        { key: 'corners', label: 'Corners (keeps sharp turns sharp)', type: 'range', min: 0, max: 100, value: this.corners },
         { key: 'pressure', label: 'Pen pressure varies the size', type: 'checkbox', value: this.pressureSize },
       ],
     });
@@ -976,6 +1005,7 @@ export class BlobBrushTool extends RoundBrushTool {
     this.size = v.size;
     this.fidelity = v.fidelity;
     this.smoothing = v.smoothing;
+    this.corners = v.corners;
     this.pressureSize = v.pressure;
   }
 

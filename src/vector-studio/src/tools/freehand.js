@@ -5,7 +5,8 @@
  * simplified with Ramer-Douglas-Peucker and fitted with cubic Beziers
  * (Schneider), so a stroke becomes a few smooth anchors rather than
  * hundreds of points. Fidelity (accurate .. smooth) sets the tolerance.
- * Smoothing (stabilizer.js) steadies the line while it is being drawn.
+ * Smoothing (stabilizer.js) steadies the line while it is being drawn, and
+ * Corners (corners.js) keeps sharp turns sharp through both.
  */
 import { Tool, tol } from './tool.js';
 import { createPath } from '../model/nodes.js';
@@ -14,6 +15,7 @@ import { newPathStyle } from './pen.js';
 import { isSmooth, mirrorAngle } from './direct-selection.js';
 import { removeEmptyContainers } from '../ops/object-ops.js';
 import { Stabilizer, drawString } from './stabilizer.js';
+import { fitStroke } from './corners.js';
 
 /** Fit tolerance in document units for a fidelity value 0 (accurate) .. 100 (smooth). */
 export function fidelityTolerance(fidelity, zoom) {
@@ -30,6 +32,8 @@ export class PencilTool extends Tool {
   static brush = false;
   /** Preference holding the tool's Smoothing (0 off .. 100). */
   static smoothingPref = 'pencilSmoothing';
+  /** Preference holding the tool's Corners (0 off .. 100). */
+  static cornersPref = 'pencilCorners';
 
   constructor(app) {
     super(app);
@@ -58,6 +62,16 @@ export class PencilTool extends Tool {
     this.app.prefs.set(this.constructor.smoothingPref, Math.max(0, Math.min(100, Number(v) || 0)));
   }
 
+  /** Corners 0 (off) .. 100: how readily a sharp turn in the stroke is kept as a corner. */
+  get corners() {
+    const v = Number(this.app.prefs.get(this.constructor.cornersPref));
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+  }
+
+  set corners(v) {
+    this.app.prefs.set(this.constructor.cornersPref, Math.max(0, Math.min(100, Number(v) || 0)));
+  }
+
   /** Escape, a pointer cancel or a second finger drops the stroke being drawn. */
   cancel() {
     if (!this.points) return;
@@ -66,9 +80,16 @@ export class PencilTool extends Tool {
     this.overlay();
   }
 
-  /** The stroke's points as they will be kept (smoothing settled at the pen lift). */
+  /**
+   * The stroke's points as they will be kept (smoothing settled at the pen
+   * lift); `strokeCorners` then holds the indices of its corners.
+   */
   strokePoints() {
-    if (this.points && this.stabilizer) this.points = this.stabilizer.finish(this.points);
+    if (this.points && this.stabilizer) {
+      const settled = this.stabilizer.settle(this.points, this.corners);
+      this.points = settled.points;
+      this.strokeCorners = settled.corners;
+    } else this.strokeCorners = [];
     return this.points;
   }
 
@@ -78,7 +99,7 @@ export class PencilTool extends Tool {
       return;
     }
     this.points = [{ x: e.x, y: e.y }];
-    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y });
+    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y }, e.native?.timeStamp);
     this.continueFrom = this.#endpointNear(e);
   }
 
@@ -99,19 +120,20 @@ export class PencilTool extends Tool {
   onPointerMove(e) {
     if (!this.points) return;
     const samples = e.native?.getCoalescedEvents?.() || [];
-    const steady = (p) => (this.stabilizer ? this.stabilizer.push(p) : p);
+    const steady = (p, time) => (this.stabilizer ? this.stabilizer.push(p, time) : p);
     if (samples.length > 1) {
       for (const s of samples) {
         const p = this.app.eventToDoc(s);
-        this.points.push(steady(p));
+        this.points.push(steady(p, s.timeStamp));
       }
-    } else this.points.push(steady({ x: e.x, y: e.y }));
+    } else this.points.push(steady({ x: e.x, y: e.y }, e.native?.timeStamp));
     this.alt = e.alt;
     this.overlay();
   }
 
   onPointerUp(e) {
     const pts = this.strokePoints();
+    const corners = this.strokeCorners || [];
     this.points = null;
     this.stabilizer = null;
     if (!pts || pts.length < 2) {
@@ -120,8 +142,7 @@ export class PencilTool extends Tool {
     }
     const editor = this.editor;
     const t = fidelityTolerance(this.fidelity, editor.view.zoom);
-    const simplified = simplifyPolyline(pts, t * 0.5);
-    let anchors = fitCurve(simplified, t * t);
+    let anchors = fitStroke(pts, corners, t * t, t * 0.5);
     const first = pts[0];
     const last = pts[pts.length - 1];
     const close = e.alt || Math.hypot(first.x - last.x, first.y - last.y) < tol(editor, 4);
@@ -186,12 +207,14 @@ export class PencilTool extends Tool {
       fields: [
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity },
         { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: this.smoothing },
+        { key: 'corners', label: 'Corners (keeps sharp turns sharp)', type: 'range', min: 0, max: 100, value: this.corners },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: this.keepSelected },
       ],
     });
     if (!v) return;
     this.fidelity = v.fidelity;
     this.smoothing = v.smoothing;
+    this.corners = v.corners;
     this.keepSelected = v.keepSelected;
   }
 }
@@ -204,6 +227,7 @@ export class PaintbrushTool extends PencilTool {
   static hint = 'Drag to paint a stroke with round caps | [ and ] change the stroke weight';
   static brush = true;
   static smoothingPref = 'paintbrushSmoothing';
+  static cornersPref = 'paintbrushCorners';
 
   activate() {
     this.setCursor('var(--cursor-brush)');

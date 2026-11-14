@@ -10,7 +10,8 @@
 import { PaintbrushTool, fidelityTolerance } from '../../tools/freehand.js';
 import { tol } from '../../tools/tool.js';
 import { createPath } from '../../model/nodes.js';
-import { fitCurve, simplifyPolyline, nearestOnPath, insertAnchor } from '../../model/bezier.js';
+import { nearestOnPath, insertAnchor } from '../../model/bezier.js';
+import { fitStroke } from '../../tools/corners.js';
 import { newPathStyle } from '../../tools/pen.js';
 import { brushById } from './brush-model.js';
 import { brushState } from './brush-actions.js';
@@ -19,7 +20,7 @@ import { drawString } from '../../tools/stabilizer.js';
 
 export { pressureSamples };
 
-const DEFAULTS = { fidelity: 50, smoothing: 0, fill: false, keepSelected: true, editSelected: true, within: 12, pressure: true };
+const DEFAULTS = { fidelity: 50, smoothing: 0, corners: 0, fill: false, keepSelected: true, editSelected: true, within: 12, pressure: true };
 
 /** Screen speed (pixels per millisecond) that counts as fast (velocity 1). */
 const FAST = 2.5;
@@ -100,6 +101,17 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     this.app.prefs.set('paintbrushOptions', this.opts);
   }
 
+  /** Corners live with the other Paintbrush options too. */
+  get corners() {
+    const v = Number(this.opts?.corners);
+    return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+  }
+
+  set corners(v) {
+    this.opts = { ...this.opts, corners: Math.max(0, Math.min(100, Number(v) || 0)) };
+    this.app.prefs.set('paintbrushOptions', this.opts);
+  }
+
   onPointerDown(e) {
     this.preview?.reset();
     super.onPointerDown(e);
@@ -165,7 +177,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     this.stabilizer = null;
     const ed = this.editor;
     const t = fidelityTolerance(this.fidelity, ed.view.zoom);
-    const fresh = fitCurve(simplifyPolyline(pts, t * 0.5), t * t);
+    const fresh = fitStroke(pts, this.strokeCorners || [], t * t, t * 0.5);
     const n = target.node;
     let anchors;
     if (target.b) anchors = reshapeSection(n.anchors, target.a, target.b, fresh);
@@ -242,6 +254,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
       fields: [
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: o.fidelity },
         { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: o.smoothing ?? 0 },
+        { key: 'corners', label: 'Corners (keeps sharp turns sharp)', type: 'range', min: 0, max: 100, value: o.corners ?? 0 },
         { type: 'heading', label: 'Options' },
         { key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: o.fill },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: o.keepSelected },
@@ -252,7 +265,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
       extraButtons: [{ label: 'Reset', action: 'reset' }],
     });
     if (!v) return;
-    const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, smoothing: v.smoothing, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within, pressure: v.pressure };
+    const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, smoothing: v.smoothing, corners: v.corners, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within, pressure: v.pressure };
     this.opts = next;
     this.fidelity = next.fidelity;
     this.keepSelected = next.keepSelected;
