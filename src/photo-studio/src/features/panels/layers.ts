@@ -11,6 +11,7 @@ import { showContextMenu } from '../../app/menubar';
 import type { Panel } from '../../app/registry';
 import { effectRows, fillThumb, fxBadge } from '../effects/layer-effects';
 import { patchList } from '../../ui/patch-list';
+import { colorLabelItems, isLayerColor } from '../layers/dialogs';
 
 const kindIcon: Record<string, string> = {
   group: 'folder',
@@ -88,7 +89,7 @@ function rows(e: Editor, layers: Layer[], depth: number, out: string[] = []): st
       const masked = hasMask(l) || !!l.maskGrid;
       const maskLinked = l.pixelMask ? !l.pixelMask.positionRelativeToLayer : l.vectorMask ? !l.vectorMask.unlinked : !l.maskUnlinked;
       const linkActive = !!l.linkGroup && [...selected].some((id) => id !== l.id && findLayer(e.doc.layers, id)?.linkGroup === l.linkGroup);
-      out.push(`<div class="layer-row ${selected.has(l.id) ? 'selected' : ''} ${l.background ? 'background-layer' : ''} ${l.visible ? '' : 'hidden-layer'} ${l.clipped ? 'clipped' : ''}" data-row="${escapeXML(l.id)}" draggable="true" role="listitem" style="--depth:${depth}">
+      out.push(`<div class="layer-row ${selected.has(l.id) ? 'selected' : ''} ${l.background ? 'background-layer' : ''} ${l.visible ? '' : 'hidden-layer'} ${l.clipped ? 'clipped' : ''}" data-row="${escapeXML(l.id)}"${isLayerColor(l.colorLabel) ? ` data-color="${l.colorLabel}"` : ''} draggable="true" role="listitem" style="--depth:${depth}">
 <button class="eye" data-visibility="${escapeXML(l.id)}" title="${l.visible ? 'Hide' : 'Show'} layer" aria-label="${l.visible ? 'Hide' : 'Show'} ${escapeXML(l.name)}">${l.visible ? svg('eye', 15) : ''}</button>
 ${l.kind === 'group' ? `<button class="group-disclosure" data-collapse="${escapeXML(l.id)}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeXML(l.name)}" aria-expanded="${!collapsed}">${svg(collapsed ? 'chevron-right' : 'chevron-down', 13)}</button>` : l.clipped ? `<span class="clip-arrow" title="Clipped to the layer below" aria-label="Clipping mask">↳</span>` : '<span class="disclosure-spacer"></span>'}
 <button class="layer-select" data-layer="${escapeXML(l.id)}" aria-pressed="${selected.has(l.id)}" aria-label="${escapeXML(l.name)}"><span class="layer-thumbnail ${l.kind} ${e.maskTarget === l.id ? '' : selected.has(l.id) && masked ? 'target' : ''}">${thumbnail(e, l)}${layerBadges.map((f) => f(e, l)).join('')}</span></button>
@@ -122,8 +123,8 @@ export const layersPanel: Panel = {
 <button data-command="layer.style-dialog" title="Add a layer style" aria-label="Add a layer style">${svg('fx', 16)}</button>
 <button data-command="layer.add-mask" title="Add layer mask" aria-label="Add layer mask">${svg('mask-add', 16)}</button>
 <button data-layer-adjust title="Create new fill or adjustment layer" aria-label="New fill or adjustment layer">${svg('adjustment-layer', 16)}</button>
-<button data-command="layer.new-group" title="Create a new group" aria-label="New group">${svg('folder-plus', 16)}</button>
-<button data-command="layer.new-quick" title="Create a new layer" aria-label="New layer">${svg('plus', 16)}</button>
+<button data-command="layer.new-group-quick" data-alt-command="layer.new-group" title="Create a new group (Alt-click for options)" aria-label="New group">${svg('folder-plus', 16)}</button>
+<button data-command="layer.new-quick" data-alt-command="layer.new" title="Create a new layer (Alt-click for options)" aria-label="New layer">${svg('plus', 16)}</button>
 <button data-command="layer.delete" title="Delete layer" aria-label="Delete layer">${svg('trash-2', 16)}</button>
 </div><span id="layer-count" class="sr-only"></span>`;
     el.addEventListener('click', (ev) => {
@@ -269,12 +270,13 @@ export const layersPanel: Panel = {
       const target = findLayer(e.doc.layers, row.dataset.row!);
       const embedded = target?.kind === 'image';
       showContextMenu(e, ev.clientX, ev.clientY, [
-        'layer.rename', 'layer.style-dialog', '-', 'layer.duplicate', 'layer.delete', 'layer.group', 'layer.ungroup', '-',
+        'layer.rename', 'layer.style-dialog', '-', 'layer.duplicate-dialog', 'layer.delete', 'layer.group', 'layer.ungroup', '-',
         ...(target?.frame ? ['frame.place', 'frame.clear', '-'] : []),
         'layer.embed-convert', ...(embedded ? ['layer.embed-new-via-copy', 'layer.embed-edit', 'layer.embed-replace', 'layer.embed-export', 'layer.embed-to-layers', 'layer.embed-reset'] : []), 'layer.rasterize', 'layer.rasterize-style', '-',
         'layer.mask-toggle', 'layer.mask-delete', 'layer.mask-apply', 'layer.clipping-mask', '-',
         'layer.style-copy', 'layer.style-paste', 'layer.style-clear', '-',
         'layer.link', 'layer.select-linked', 'layer.from-background', '-',
+        { label: 'Color', items: colorLabelItems }, '-',
         'layer.merge-down', 'layer.merge-visible', 'layer.flatten',
       ]);
     });
@@ -346,5 +348,5 @@ export const layersPanel: Panel = {
     el.querySelector('#layer-count')!.textContent = String(allLayers(e.doc.layers).length);
     hydrateSourceThumbnails(el, e.doc, e.assets);
   },
-  menu: () => ['layer.new', 'layer.duplicate', 'layer.delete', '-', 'layer.new-group', 'layer.group', '-', 'layer.rename', 'layer.style-dialog', '-', 'layer.clipping-mask', '-', 'layer.merge-down', 'layer.merge-visible', 'layer.flatten'],
+  menu: () => ['layer.new', 'layer.duplicate-dialog', 'layer.delete', '-', 'layer.new-group', 'layer.group', '-', 'layer.rename', 'layer.style-dialog', { label: 'Color', items: colorLabelItems }, '-', 'layer.clipping-mask', '-', 'layer.merge-down', 'layer.merge-visible', 'layer.flatten'],
 };

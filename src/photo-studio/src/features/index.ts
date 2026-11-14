@@ -29,6 +29,7 @@ import { installViewModes } from './view-modes';
 import { installWindows } from './windows';
 import { installHousekeeping } from './layers/housekeeping';
 import { installLayerKeys } from './layers/keys';
+import { installLayerDialogs } from './layers/dialogs';
 import { installPasteSpecial } from './edit/paste-special';
 import { installWorkspace } from './workspace';
 import { installCompositing } from './compositing';
@@ -82,6 +83,7 @@ export function installFeatures(e: Editor) {
   installWindows(e);
   installHousekeeping(e);
   installLayerKeys(e);
+  installLayerDialogs(e);
   installPasteSpecial(e);
   installWorkspace(e);
   installCompositing(e);

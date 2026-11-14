@@ -493,10 +493,11 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .mask-thumbnail img { width: 100%; height: 100%; object-fit: contain; display: block; background: #888; }
 .mask-thumbnail.disabled-mask { position: relative; }
 .mask-thumbnail.disabled-mask::after { content: ''; position: absolute; inset: 0; background: linear-gradient(45deg, transparent 46%, #e33 46% 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, #e33 46% 54%, transparent 54%); }
-.layer-name { flex: 1; min-width: 0; justify-content: flex-start; flex-direction: column; align-items: flex-start; gap: 0; padding: 0 6px; height: 100%; border-radius: 0; }
+.layer-name { flex: 1; min-width: 0; justify-content: center; flex-direction: column; align-items: flex-start; gap: 0; padding: 0 6px; height: 100%; border-radius: 0; }
 .layer-name:hover { background: transparent !important; }
 .name-text { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .layer-name small { color: var(--muted); font-size: 10px; }
+.layer-name small:empty { display: none; }
 .layer-rename { width: 100%; }
 .fx-badge { font-style: italic; font-weight: 600; font-size: 11px; color: var(--muted); padding: 0 4px; }
 .lock-badge { color: var(--muted); padding: 0 6px; }
@@ -515,6 +516,18 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .layer-row[data-drop='above'] { box-shadow: inset 0 2px 0 var(--accent); }
 .layer-row[data-drop='below'] { box-shadow: inset 0 -2px 0 var(--accent); }
 .layer-row[data-drop='inside'] { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Color labels tint the visibility column (and the effect rows under it). */
+.dialog-field:has(> input:disabled, > select:disabled) { opacity: .55; }
+.layer-row[data-color] { --label: transparent; }
+.layer-row[data-color='red'] { --label: #c8504f; }
+.layer-row[data-color='orange'] { --label: #d9823f; }
+.layer-row[data-color='yellow'] { --label: #cdb044; }
+.layer-row[data-color='green'] { --label: #5a9e5e; }
+.layer-row[data-color='blue'] { --label: #4f7fc6; }
+.layer-row[data-color='violet'] { --label: #8b68c4; }
+.layer-row[data-color='gray'] { --label: #8c8c8c; }
+.layer-row[data-color] .eye { background: color-mix(in srgb, var(--label) 70%, transparent); color: #fff; }
+.layer-row[data-color] .eye:hover { background: var(--label); }
 /* The top-level drop target keeps its place but only shows while a layer is dragged. */
 .layer-root-drop { padding: 5px; text-align: center; color: transparent; font-size: 11px; border-top: 1px dashed transparent; }
 .layers-dragging .layer-root-drop { color: var(--muted); border-top-color: var(--line-soft); }

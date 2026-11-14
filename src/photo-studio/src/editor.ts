@@ -888,7 +888,8 @@ export class Editor {
       if (this.busy) return;
       const cmd = target.closest<HTMLElement>('[data-command]');
       if (cmd && !target.closest('.menubar,.context-menu') && !(cmd as HTMLButtonElement).disabled) {
-        void this.runCommand(cmd.dataset.command!, cmd.dataset.arg);
+        // Alt-click runs a button's alternative (New Layer with options).
+        void this.runCommand((e.altKey && cmd.dataset.altCommand) || cmd.dataset.command!, cmd.dataset.arg);
         return;
       }
     });

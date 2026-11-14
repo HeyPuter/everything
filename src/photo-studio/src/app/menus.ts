@@ -76,7 +76,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
     items: [
       { label: 'New', id: 'layer.new-menu', items: ['layer.new', 'layer.from-background', 'layer.background-from-layer', 'layer.new-group', 'layer.group-from-layers', '-', 'layer.via-copy', 'layer.via-cut'] },
       'layer.copy-css', 'layer.copy-svg',
-      'layer.duplicate', { label: 'Delete', id: 'layer.delete-menu', items: ['layer.delete', 'layer.delete-hidden'] }, '-', 'layer.quick-export', 'layer.export-as', '-', 'layer.rename',
+      'layer.duplicate-dialog', { label: 'Delete', id: 'layer.delete-menu', items: ['layer.delete', 'layer.delete-hidden'] }, '-', 'layer.quick-export', 'layer.export-as', '-', 'layer.rename',
       { label: 'Layer Style', id: 'layer.style', items: [
         'layer.style-blending', '-',
         'layer.style-bevel', 'layer.style-stroke', 'layer.style-inner-shadow', 'layer.style-inner-glow', 'layer.style-satin', 'layer.style-color-overlay', 'layer.style-gradient-overlay', 'layer.style-pattern-overlay', 'layer.style-outer-glow', 'layer.style-drop-shadow', '-',
