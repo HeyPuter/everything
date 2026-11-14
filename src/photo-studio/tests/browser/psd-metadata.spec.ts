@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { boot, downloadFrom, menu, openFiles } from './helpers';
+import { boot, downloadFrom, idle, menu, openFiles } from './helpers';
 
 for (const backend of ['default', 'WebGL']) {
   test(`opaque PSD globals and layer identities survive edits, native projects and export (${backend})`, async ({
@@ -246,7 +246,9 @@ test('PSD UI duplication assigns a new identity while preserving opaque document
     buffer: Buffer.from(bytes),
   });
   await expect(page.locator('#layers .layer-row')).toHaveCount(1);
-  await menu(page, 'Layer', 'Duplicate Layer');
+  await menu(page, 'Layer', 'Duplicate Layer…');
+  await page.locator('#dialog[open]').getByRole('button', { name: 'OK' }).click();
+  await idle(page);
   await expect(page.locator('#layers .layer-row')).toHaveCount(2);
   await menu(page, 'Layer', 'Arrange', 'Send Backward');
   // The copy is now first in file order; it must not take the original's ID.
