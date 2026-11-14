@@ -1,5 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasClick, canvasDrag, client, historyLabels, idle, openImage, selectRect, tool } from './helpers';
+import {
+  boot,
+  canvasClick,
+  canvasDrag,
+  client,
+  historyLabels,
+  idle,
+  openImage,
+  selectRect,
+  tool,
+} from './helpers';
 
 const selection = (page: Page) => page.evaluate(() => window.photoStudio.doc.selection);
 
@@ -8,7 +18,9 @@ test.beforeEach(async ({ page }) => {
   await openImage(page, 200, 150);
 });
 
-test('dragging inside a selection with a selection tool moves the outline, not the pixels', async ({ page }) => {
+test('dragging inside a selection with a selection tool moves the outline, not the pixels', async ({
+  page,
+}) => {
   await tool(page, 'Rectangular Marquee Tool');
   await selectRect(page, { x: 20, y: 20, width: 40, height: 30 });
   const layerBefore = await page.evaluate(() => window.photoStudio.layer?.pixels);
@@ -35,7 +47,9 @@ test('dragging inside a selection with a selection tool moves the outline, not t
   expect(await selection(page)).toEqual({ x: 80, y: 40, width: 40, height: 30 });
 });
 
-test('a click inside the selection still deselects, and drags outside draw a new marquee', async ({ page }) => {
+test('a click inside the selection still deselects, and drags outside draw a new marquee', async ({
+  page,
+}) => {
   await tool(page, 'Rectangular Marquee Tool');
   await selectRect(page, { x: 20, y: 20, width: 40, height: 30 });
   await canvasClick(page, 30, 30);
@@ -75,7 +89,9 @@ test('Space held while dragging a marquee repositions it', async ({ page }) => {
   expect(await selection(page)).toEqual({ x: 40, y: 40, width: 30, height: 20 });
 });
 
-test('marquee options: fixed fields enable with the style, swap exchanges them, rectangles have no anti-alias', async ({ page }) => {
+test('marquee options: fixed fields enable with the style, swap exchanges them, rectangles have no anti-alias', async ({
+  page,
+}) => {
   await tool(page, 'Rectangular Marquee Tool');
   const bar = page.locator('#tool-options');
   await expect(bar.locator('#marquee-w')).toBeDisabled();
