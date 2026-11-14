@@ -1,7 +1,10 @@
 import type { Editor } from '../../editor';
 import { registerCommand, type Command } from '../../app/registry';
 import { allLayers, findLayer, type Layer } from '../../model/document';
-import { identityVectorMatrix, type VectorMask } from '../../model/vector';
+import { identityVectorMatrix, vectorBounds, type VectorMask } from '../../model/vector';
+import { insertAboveSelection } from '../layers/insert';
+import { buildPaint } from './paint';
+import { shapeOpts } from './shape-options';
 import { canvasRect } from '../../model/selection';
 import { formDialog } from '../../ui/dialog';
 import { layerLock } from '../../model/locks';
@@ -11,7 +14,7 @@ import { commitTarget, hexRgb, pixelTarget } from '../pixels';
 import { commitSelectionMask, featherMask } from '../selection';
 import { cloneMask, commandsToPaths, componentGroups, parseSvgPath, transformMask, type Cmd, type PathOp } from './geometry';
 import { maskCoverage, paintCoverage, selectionToPath, strokeWithBrush } from './raster';
-import { activeKey, clearSelection, nextPathName, setActive, setShapeMask, shapeDocMask, targetLocked, targetPath, vstate, type PathTarget } from './state';
+import { activeKey, clearSelection, nextName, nextPathName, setActive, setShapeMask, shapeDocMask, shapeLayer, targetLocked, targetPath, vstate, type PathTarget } from './state';
 import { addVectorMask, canAddVectorMask, commitPathEdit, currentPathForMask, deleteVectorMask, rasterizeVectorMask, toggleVectorMask } from './masks';
 import { savePathDialog } from './panel';
 import { saveUserShape, shapeFromMask } from './custom-shapes';
@@ -97,6 +100,22 @@ export async function mergeComponents(e: Editor) {
   const paths = [...t.mask.paths.slice(0, idx[0]).filter((_, i) => !drop.has(i)), ...merged, ...t.mask.paths.slice(idx[0]).filter((_, i) => !drop.has(i + idx[0]))];
   await commitPathEdit(e, t, { ...t.mask, paths }, 'Merge Shape Components');
   clearSelection(e);
+  e.update();
+}
+/** A shape layer from the current path, painted like a new shape. The work
+ * path becomes the layer's path; a saved path stays in the Paths panel. */
+export function makeShapeFromPath(e: Editor) {
+  const t = actionPath(e);
+  if (!t?.mask.paths.length || t.kind === 'shape') return;
+  const mask = areaMask(t.mask);
+  const bounds = vectorBounds(mask);
+  const open = mask.paths.some((p) => p.open);
+  const paint = buildPaint(e, shapeOpts.fill, shapeOpts.stroke, bounds, open);
+  const layer = shapeLayer(e.doc, nextName(e.doc, 'Shape'), mask, paint.fill, paint.stroke, undefined, paint.color);
+  insertAboveSelection(e, layer, 'Make Shape', (d) => {
+    if (t.kind === 'work') delete d.workPath;
+  });
+  setActive(e, undefined);
   e.update();
 }
 /** Layer > Combine Shapes: merges the selected shape layers into the backmost
@@ -309,6 +328,13 @@ export function installVectorCommands() {
       setActive(e, undefined);
       e.update();
     },
+  });
+  cmd({
+    id: 'path.make-shape',
+    label: 'Make Shape from Path',
+    description: 'Create a shape layer from the work path or the selected saved path, painted with the shape tool fill and stroke.',
+    enabled: paintablePath,
+    run: makeShapeFromPath,
   });
   cmd({ id: 'path.merge-components', label: 'Merge Shape Components', enabled: (e) => (targetPath(e)?.mask.paths.length ?? 0) > 1, run: mergeComponents });
 

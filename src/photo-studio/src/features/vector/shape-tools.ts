@@ -190,14 +190,18 @@ export async function commitShape(e: Editor, kind: ShapeKind, paths: SubPath[], 
 // ----- Options bar -----
 const num = (id: string, label: string, value: number, attrs = '', unit = '') =>
   `<label class="vec-num">${label} <input id="${id}" type="number" value="${Math.round(value * 100) / 100}" ${attrs}>${unit}</label>`;
+/** Fill, stroke and stroke options for new shapes (and the selected shape
+ * layer), shared by the shape tools and the Pen tools in Shape mode. */
+export function shapePaintControls(e: Editor) {
+  const o = shapeOpts;
+  return `<span class="vec-paint-row">Fill ${swatchButton('vec-fill', 'Shape fill', o.fill, e.color)} Stroke ${swatchButton('vec-stroke', 'Shape stroke', o.stroke, e.color, true)}${num('vec-stroke-width', '', o.stroke.width, 'min="0" max="1000" step="0.5" aria-label="Stroke width (px)" title="Stroke width"', 'px')}<select id="vec-stroke-dash" aria-label="Stroke style" title="Stroke style">${(['solid', 'dashed', 'dotted'] as const).map((s) => `<option value="${s}" ${o.stroke.dash === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select><select id="vec-stroke-align" aria-label="Stroke alignment" title="Stroke alignment">${(['inside', 'center', 'outside'] as const).map((s) => `<option value="${s}" ${o.stroke.align === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select></span>`;
+}
 function shapeOptions(e: Editor, kind: ShapeKind) {
   const o = shapeOpts;
   const l = singleSelected(e);
   const b = l?.kind === 'vector' ? shapeBounds(l) : null;
   const modeSel = `<label>Mode <select id="vec-mode" aria-label="Tool mode">${(['shape', 'path', 'pixels'] as const).map((m) => `<option value="${m}" ${o.mode === m ? 'selected' : ''}>${m === 'shape' ? 'Shape' : m === 'path' ? 'Path' : 'Pixels'}</option>`).join('')}</select></label>`;
-  const paint = o.mode === 'shape'
-    ? `<span class="vec-paint-row">Fill ${swatchButton('vec-fill', 'Shape fill', o.fill, e.color)} Stroke ${swatchButton('vec-stroke', 'Shape stroke', o.stroke, e.color, true)}${num('vec-stroke-width', '', o.stroke.width, 'min="0" max="1000" step="0.5" aria-label="Stroke width (px)" title="Stroke width"', 'px')}<select id="vec-stroke-dash" aria-label="Stroke style" title="Stroke style">${(['solid', 'dashed', 'dotted'] as const).map((s) => `<option value="${s}" ${o.stroke.dash === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select><select id="vec-stroke-align" aria-label="Stroke alignment" title="Stroke alignment">${(['inside', 'center', 'outside'] as const).map((s) => `<option value="${s}" ${o.stroke.align === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select></span>`
-    : '';
+  const paint = o.mode === 'shape' ? shapePaintControls(e) : '';
   const wh = o.mode === 'shape' ? `${num('vec-w', 'W', b?.width ?? 0, `min="0" max="16384" ${b ? '' : 'disabled'} aria-label="Width of selected shape"`)}${num('vec-h', 'H', b?.height ?? 0, `min="0" max="16384" ${b ? '' : 'disabled'} aria-label="Height of selected shape"`)}` : '';
   const ops = o.mode === 'pixels' ? '' : `<label>Path <select id="vec-op" aria-label="Path operation">${([['new', o.mode === 'shape' ? 'New Layer' : 'New Path Area'], ['combine', 'Combine Shapes'], ['subtract', 'Subtract Front Shape'], ['intersect', 'Intersect Shape Areas'], ['exclude', 'Exclude Overlapping']] as const).map(([v, label]) => `<option value="${v}" ${o.op === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`;
   let extra = '';
@@ -216,17 +220,10 @@ function shapeOptions(e: Editor, kind: ShapeKind) {
   }
   return `${modeSel}${paint}${wh}${ops}${extra}<label class="transform-setting" title="Snap shape edges to the pixel grid"><input id="vec-align-edges" type="checkbox" ${o.alignEdges ? 'checked' : ''}>Align Edges</label>`;
 }
-function bindShapeOptions(e: Editor, el: HTMLElement) {
+export function bindShapePaint(e: Editor, el: HTMLElement, rerender = () => e.options()) {
   const o = shapeOpts;
   const on = (id: string, f: (t: HTMLInputElement) => void, ev = 'change') => el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener(ev, (event) => f(event.target as HTMLInputElement));
   const n = (t: HTMLInputElement, min = 0) => Math.max(min, Number.isFinite(t.valueAsNumber) ? t.valueAsNumber : min);
-  const rerender = () => e.options();
-  on('vec-mode', (t) => {
-    o.mode = t.value as ShapeMode;
-    rerender();
-  });
-  on('vec-op', (t) => (o.op = t.value as typeof o.op));
-  on('vec-align-edges', (t) => (o.alignEdges = t.checked));
   const applyStrokeToLayer = () => {
     const l = singleSelected(e);
     if (l?.kind !== 'vector') return;
@@ -269,6 +266,19 @@ function bindShapeOptions(e: Editor, el: HTMLElement) {
   };
   popover('vec-fill', false);
   popover('vec-stroke', true);
+}
+function bindShapeOptions(e: Editor, el: HTMLElement) {
+  const o = shapeOpts;
+  const on = (id: string, f: (t: HTMLInputElement) => void, ev = 'change') => el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener(ev, (event) => f(event.target as HTMLInputElement));
+  const n = (t: HTMLInputElement, min = 0) => Math.max(min, Number.isFinite(t.valueAsNumber) ? t.valueAsNumber : min);
+  const rerender = () => e.options();
+  on('vec-mode', (t) => {
+    o.mode = t.value as ShapeMode;
+    rerender();
+  });
+  on('vec-op', (t) => (o.op = t.value as typeof o.op));
+  on('vec-align-edges', (t) => (o.alignEdges = t.checked));
+  bindShapePaint(e, el, rerender);
   const resize = (key: 'width' | 'height') => (t: HTMLInputElement) => {
     const l = singleSelected(e);
     if (l?.kind !== 'vector' || !Number.isFinite(t.valueAsNumber)) return;
