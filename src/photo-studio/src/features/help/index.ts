@@ -12,24 +12,21 @@ import { TUTORIALS } from './tutorial-list';
 const windows = lazy(() => import('./windows'));
 
 function renderLearn(e: Editor) {
-  const host = e.root.querySelector<HTMLElement>('#empty');
+  const host = e.root.querySelector<HTMLElement>('#empty [data-slot="learn"]');
   if (!host || host.querySelector('.start-learn')) return;
   const section = document.createElement('section');
   section.className = 'start-learn';
   section.setAttribute('aria-label', 'Learn');
-  section.innerHTML = `<h2>Learn</h2><div class="start-learn-row">${TUTORIALS.map(
+  section.innerHTML = `<div class="start-section-head"><h2>Learn</h2><span class="start-section-tools"><button type="button" class="link-button start-learn-all" data-start-view="learn">All tutorials</button></span></div><div class="start-learn-row">${TUTORIALS.map(
     (t) =>
-      `<button type="button" class="start-learn-item" data-learn="${t.id}" title="${escapeXML(t.summary)}"><span class="start-learn-thumb" data-learn-thumb="${t.sample}"></span><span class="start-learn-name">${escapeXML(t.title)}</span><span class="start-learn-time">About ${t.minutes} min</span></button>`,
-  ).join('')}<button type="button" class="start-learn-item start-learn-new" data-command="help.whats-new"><span class="start-learn-thumb">${svg('sparkles', 22)}</span><span class="start-learn-name">What’s New</span><span class="start-learn-time">Recent features</span></button></div>`;
+      `<button type="button" class="start-learn-item" data-learn="${t.id}" title="${escapeXML(t.summary)}"><span class="start-learn-thumb" data-learn-thumb="${t.sample}">${svg('graduation-cap', 20)}</span><span class="start-learn-name">${escapeXML(t.title)}</span><span class="start-learn-summary">${escapeXML(t.summary)}</span><span class="start-learn-time">About ${t.minutes} min</span></button>`,
+  ).join('')}<button type="button" class="start-learn-item start-learn-new" data-command="help.whats-new"><span class="start-learn-thumb">${svg('sparkles', 22)}</span><span class="start-learn-name">What’s New</span><span class="start-learn-summary">Recent features, each with a button to try it.</span><span class="start-learn-time">Recent features</span></button></div>`;
   section.addEventListener('click', (ev) => {
     const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-learn]')?.dataset.learn;
     if (id) void windows().then((m) => m.beginTutorial(e, id));
   });
   section.addEventListener('pointerenter', () => windows.prefetch(), { once: true });
-  // After the presets, before recent documents and the drop hint.
-  const after = host.querySelector('.start-presets') ?? host.querySelector('.start-head');
-  if (after) after.after(section);
-  else host.append(section);
+  host.append(section);
   // Thumbnails are drawn from the generated samples once the browser is idle.
   whenIdle(() =>
     void windows().then((m) => {

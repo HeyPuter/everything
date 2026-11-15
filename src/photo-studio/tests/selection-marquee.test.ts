@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { marqueePixels, marqueeRect } from '../src/features/selection';
+import { constrainOffset, marqueePixels, marqueeRect } from '../src/features/selection';
 
 const at = (x: number, y: number, mods: { shift?: boolean; alt?: boolean } = {}) => ({ x, y, shift: !!mods.shift, alt: !!mods.alt });
 
@@ -32,5 +32,18 @@ describe('marquee pixels', () => {
     // 10.6..21.2 covers pixels 11 to 20, not 11 to 21.
     expect(marqueePixels({ x: 10.6, y: 10.6, width: 10.6, height: 10.6 })).toEqual({ x: 11, y: 11, width: 10, height: 10 });
     expect(marqueePixels({ x: 10.4, y: 0, width: 10.2, height: 3 })).toEqual({ x: 10, y: 0, width: 11, height: 3 });
+  });
+  it('accepts fractional ratios', () => {
+    expect(marqueeRect([0, 0], at(150, 10), 'replace', { style: 'ratio', width: 1.5, height: 1 })).toEqual({ x: 0, y: 0, width: 150, height: 100 });
+    expect(marqueeRect([0, 0], at(10, 100), 'replace', { style: 'ratio', width: 0.5, height: 1 })).toEqual({ x: 0, y: 0, width: 50, height: 100 });
+  });
+});
+
+describe('moving a selection outline', () => {
+  it('constrains a drag to horizontal, vertical or diagonal with Shift', () => {
+    expect(constrainOffset(30, 3, false)).toEqual([30, 3]);
+    expect(constrainOffset(30, 3, true)).toEqual([30, 0]);
+    expect(constrainOffset(-2, 25, true)).toEqual([0, 25]);
+    expect(constrainOffset(20, 22, true)).toEqual([21, 21]);
   });
 });

@@ -16,7 +16,7 @@ export { liquify } from './liquify';
 export { perspectivePlanes } from './perspective-planes';
 export { convertForLiveFilters, toggleLiveMask };
 
-// Adaptive Wide Angle opens its own workspace instead of the generic dialog.
+// Wide Angle Correction opens its own workspace instead of the generic dialog.
 installWideAngle();
 
 export function paramsOf(arg: unknown): Record<string, unknown> | undefined {

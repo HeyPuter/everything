@@ -50,7 +50,7 @@ for (const backend of ["default", "WebGL"]) {
         [
           1060,
           new TextEncoder().encode(
-            '<x:xmpmeta xmlns:x="adobe:ns:meta/"><title>Preserved</title></x:xmpmeta>',
+            '<x:xmpmeta xmlns:x="urn:example:meta/"><title>Preserved</title></x:xmpmeta>',
           ),
         ],
         [60000, Uint8Array.from({ length: 8193 }, (_, i) => i % 251)],

@@ -29,3 +29,22 @@
 /* Cancel and Commit stay in view at the end of the options bar, also when
    the bar scrolls sideways on narrow screens. */
 #tool-options .type-edit-actions { position: sticky; right: 0; display: flex; align-items: center; gap: 4px; padding-left: 4px; background: var(--chrome); }
+
+/* Text layer sections in the Properties panel */
+.type-props-fields { display: grid; gap: 4px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.type-props { display: grid; gap: 6px; margin-top: 6px; }
+.type-props h3 { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 0; }
+.type-props h3 .icon-button { min-height: 0; padding: 0 2px; }
+.type-props select { width: 100%; }
+.type-props .vec-hint { margin: 0; }
+.type-props .type-toggles { display: flex; flex-wrap: wrap; gap: 3px; }
+.type-props .type-toggles .mixed { opacity: 0.6; }
+.type-props .tp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.type-props .tp-field { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font-size: 12px; }
+.type-props .tp-field input:not([type='color']), .type-props .tp-field select { flex: 1; min-width: 0; width: auto; }
+.type-props .tp-field input[type='color'] { margin-left: auto; }
+.type-props .tp-field > span { min-width: 1.2em; font-size: 11px; }
+.type-props .tp-row { display: flex; align-items: center; gap: 10px; }
+.type-props .tp-row .tp-field { flex: 1; }
+.type-props .tp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.type-props .tp-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px; white-space: nowrap; overflow: hidden; }

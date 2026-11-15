@@ -11,11 +11,13 @@ test('menus open from the menu bar and run commands', async ({ page }) => {
   await bar.getByRole('menuitem', { name: 'Layer', exact: true }).click();
   await expect(bar.getByRole('menuitem', { name: 'Layer', exact: true })).toHaveAttribute('aria-expanded', 'true');
   // Entries without a registered command are omitted; registered ones show their shortcuts.
-  await expect(page.locator('.menubar-entry.open .menu-item[data-command="layer.duplicate"]')).toBeVisible();
+  await expect(page.locator('.menubar-entry.open .menu-item[data-command="layer.duplicate-dialog"]')).toBeVisible();
   // A pointer press outside closes the menu.
   await page.locator('#status').click();
   await expect(page.locator('.menubar-entry.open')).toHaveCount(0);
-  await menu(page, 'Layer', 'Duplicate Layer');
+  await menu(page, 'Layer', 'Duplicate Layer…');
+  await page.locator('#dialog[open]').getByRole('button', { name: 'OK' }).click();
+  await idle(page);
   expect(await layerNames(page)).toEqual(['Background', 'Background copy']);
   await menu(page, 'Edit', 'Undo');
   expect(await layerNames(page)).toEqual(['Background']);

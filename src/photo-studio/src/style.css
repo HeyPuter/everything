@@ -493,10 +493,11 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .mask-thumbnail img { width: 100%; height: 100%; object-fit: contain; display: block; background: #888; }
 .mask-thumbnail.disabled-mask { position: relative; }
 .mask-thumbnail.disabled-mask::after { content: ''; position: absolute; inset: 0; background: linear-gradient(45deg, transparent 46%, #e33 46% 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, #e33 46% 54%, transparent 54%); }
-.layer-name { flex: 1; min-width: 0; justify-content: flex-start; flex-direction: column; align-items: flex-start; gap: 0; padding: 0 6px; height: 100%; border-radius: 0; }
+.layer-name { flex: 1; min-width: 0; justify-content: center; flex-direction: column; align-items: flex-start; gap: 0; padding: 0 6px; height: 100%; border-radius: 0; }
 .layer-name:hover { background: transparent !important; }
 .name-text { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .layer-name small { color: var(--muted); font-size: 10px; }
+.layer-name small:empty { display: none; }
 .layer-rename { width: 100%; }
 .fx-badge { font-style: italic; font-weight: 600; font-size: 11px; color: var(--muted); padding: 0 4px; }
 .lock-badge { color: var(--muted); padding: 0 6px; }
@@ -515,6 +516,18 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .layer-row[data-drop='above'] { box-shadow: inset 0 2px 0 var(--accent); }
 .layer-row[data-drop='below'] { box-shadow: inset 0 -2px 0 var(--accent); }
 .layer-row[data-drop='inside'] { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Color labels tint the visibility column (and the effect rows under it). */
+.dialog-field:has(> input:disabled, > select:disabled) { opacity: .55; }
+.layer-row[data-color] { --label: transparent; }
+.layer-row[data-color='red'] { --label: #c8504f; }
+.layer-row[data-color='orange'] { --label: #d9823f; }
+.layer-row[data-color='yellow'] { --label: #cdb044; }
+.layer-row[data-color='green'] { --label: #5a9e5e; }
+.layer-row[data-color='blue'] { --label: #4f7fc6; }
+.layer-row[data-color='violet'] { --label: #8b68c4; }
+.layer-row[data-color='gray'] { --label: #8c8c8c; }
+.layer-row[data-color] .eye { background: color-mix(in srgb, var(--label) 70%, transparent); color: #fff; }
+.layer-row[data-color] .eye:hover { background: var(--label); }
 /* The top-level drop target keeps its place but only shows while a layer is dragged. */
 .layer-root-drop { padding: 5px; text-align: center; color: transparent; font-size: 11px; border-top: 1px dashed transparent; }
 .layers-dragging .layer-root-drop { color: var(--muted); border-top-color: var(--line-soft); }
@@ -536,6 +549,26 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .navigator-zoom input { flex: 1; }
 #panel-histogram, .panel-body[data-panel='histogram'] { padding: 8px; display: grid; gap: 6px; }
 svg.histogram { width: 100%; height: 100px; background: var(--input); border: 1px solid var(--line-soft); color: var(--text); }
+.histogram-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.histogram-bar label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.histogram-bar .icon-button { margin-left: auto; }
+.histogram-bar .icon-button + .icon-button { margin-left: 0; }
+.histogram-plot { position: relative; }
+.histogram-plot svg.histogram { display: block; cursor: crosshair; touch-action: none; }
+.histogram-stale svg.histogram { opacity: 0.6; }
+.histogram-clip-low, .histogram-clip-high { position: absolute; top: 3px; width: 0; height: 0; border: 5px solid transparent; visibility: hidden; }
+.histogram-clip-low { left: 3px; border-top-color: #3f78ff; border-left-color: #3f78ff; }
+.histogram-clip-high { right: 3px; border-top-color: #ff4d4d; border-right-color: #ff4d4d; }
+.histogram-clip-low.on, .histogram-clip-high.on { visibility: visible; }
+.histogram-range { fill: var(--accent); opacity: 0.25; }
+.histogram-cursor { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.histogram-channels { display: grid; gap: 4px; }
+.histogram-channels[hidden] { display: none; }
+svg.histogram.histogram-small { height: 48px; }
+.histogram-stats { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 1px 8px; margin: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.histogram-stats dt { color: var(--muted); }
+.histogram-stats dd { margin: 0; }
+.histogram-clipping { margin: 0; font-size: 11px; color: var(--warning, #e5a33d); }
 
 /* Status bar */
 .statusbar { display: flex; align-items: center; gap: 12px; padding: 0 8px; background: var(--chrome); border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; }
@@ -558,7 +591,7 @@ svg.histogram { width: 100%; height: 100px; background: var(--input); border: 1p
 #app[aria-busy='true'] #status::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--accent); animation: status-pulse 1s ease-in-out infinite alternate; }
 @keyframes status-pulse { from { opacity: 0.35; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #app[aria-busy='true'] #status::before { animation: none; } }
-/* Top of the canvas area, clear of the contextual task bar near the bottom. */
+/* Top of the canvas area, clear of the quick actions bar near the bottom. */
 #toast { position: fixed; left: 50%; top: 112px; transform: translateX(-50%); background: var(--menu); border: 1px solid var(--line); border-radius: 4px; padding: 8px 14px; box-shadow: 0 6px 18px #0008; z-index: 80; max-width: min(560px, 90vw); }
 .checkbox-field { flex-direction: row !important; align-items: center; justify-content: flex-start; gap: 8px !important; }
 .checkbox-field input[type='checkbox'] { order: -1; width: auto; flex: none; margin: 0; padding: 0; }
@@ -741,55 +774,6 @@ a:hover {
 #overlay {
   pointer-events: none;
   overflow: visible;
-}
-#empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  background: var(--canvas);
-  cursor: default;
-  text-align: center;
-  padding: 20px;
-}
-.empty-logo { margin-bottom: 20px; }
-.empty-eyebrow {
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-#empty h1 {
-  font-size: 26px;
-  font-weight: 500;
-  letter-spacing: -0.6px;
-}
-#empty p {
-  color: var(--muted);
-  margin: 14px 0 23px;
-  font-size: 12px;
-  line-height: 1.8;
-}
-.empty-actions {
-  display: flex;
-  gap: 9px;
-}
-.empty-actions button {
-  padding: 8px 18px;
-  min-height: 33px;
-}
-.drop-hint {
-  color: var(--muted);
-  font-size: 11px;
-  margin-top: 18px;
-}
-#empty small {
-  margin-top: 45px;
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.4px;
 }
 #color-plane {
   position: relative;
@@ -1755,6 +1739,10 @@ dialog.duotone-dialog { width: 520px; }
 .adj-props-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); margin-bottom: 6px; }
 .adj-props-head h3 { margin: 0; font-size: 12px; font-weight: 600; }
 .adj-body { display: flex; flex-direction: column; gap: 6px; }
+.adj-saved { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.adj-saved label { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.adj-saved select, .adj-saved input { flex: 1; min-width: 0; }
+.adj-saved .icon-button { flex: none; }
 .adj-footer { display: flex; gap: 2px; justify-content: flex-end; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 .adj-footer button[aria-pressed='true'] { background: var(--selected); border-color: var(--input-line); }
 .adj-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1976,7 +1964,7 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .ai-status { min-height: 18px; margin: 8px 0 !important; }
 .ai-status.error { color: #ff8a8a !important; }
 .ai-status.busy { color: var(--accent) !important; }
-/* Contextual Task Bar */
+/* Quick Actions Bar */
 .contextual-taskbar { position: absolute; z-index: 12; display: flex; align-items: center; gap: 2px; padding: 3px; background: var(--menu); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 4px 16px #0007; font-size: 12px; }
 .contextual-taskbar[hidden] { display: none; }
 .contextual-taskbar button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: transparent; white-space: nowrap; }

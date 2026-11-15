@@ -26,6 +26,7 @@ import { adjustInWorker, operationInWorker } from './worker-client';
 import { h, slider, checkbox, select } from './ui';
 import { svg } from '../../app/icons';
 import { noteDialogCancelled } from '../action-settings';
+import { presetBar, rememberLast } from './user-presets';
 
 const PREVIEW_ID = 'adjust-dialog-preview';
 
@@ -90,7 +91,16 @@ export function clippedPreviewDoc(e: Editor, targetId: string, adj: Adjustment):
 
 // ----- Dialog shell -----
 
-export type Shell = { dialog: HTMLDialogElement; body: HTMLElement; preview: HTMLInputElement; status: HTMLElement; result: Promise<boolean>; close: () => void };
+export type Shell = {
+  dialog: HTMLDialogElement;
+  body: HTMLElement;
+  preview: HTMLInputElement;
+  status: HTMLElement;
+  result: Promise<boolean>;
+  close: () => void;
+  // Set by dialogs that can go back to their starting settings (Alt+Cancel).
+  reset?: () => void;
+};
 export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {}): Shell {
   const shield = h('div', { class: 'adj-shield' });
   const dialog = h('dialog', { class: `adj-dialog ${opts.wide ? 'adj-wide' : ''}`, 'aria-label': title });
@@ -109,6 +119,8 @@ export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {
     open = false;
     cancelPick();
     window.removeEventListener('keydown', keys, true);
+    window.removeEventListener('keyup', keys, true);
+    window.removeEventListener('blur', altOff);
     dialog.close();
     dialog.remove();
     shield.remove();
@@ -117,7 +129,10 @@ export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {
   // While open, keyboard input belongs to the dialog: Enter confirms, Escape
   // cancels (unless an eyedropper is armed), app shortcuts stay inactive.
   const keys = (ev: KeyboardEvent) => {
-    if (picking()) return;
+    if (ev.key === 'Alt') return setAlt(ev.type === 'keydown');
+    if (ev.type !== 'keydown' || picking()) return;
+    // Text fields that handle Enter and Escape themselves (naming settings).
+    if ((ev.target as HTMLElement).closest?.('[data-own-keys]') && (ev.key === 'Enter' || ev.key === 'Escape')) return;
     const inDialog = dialog.contains(ev.target as Node);
     if (ev.key === 'Escape') {
       ev.preventDefault();
@@ -132,12 +147,29 @@ export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {
       ev.stopPropagation();
     }
   };
+  // Holding Alt turns Cancel into Reset (back to the starting settings).
+  const cancelBtn = dialog.querySelector<HTMLButtonElement>('.adj-cancel')!;
+  let alt = false;
+  const setAlt = (on: boolean) => {
+    alt = on && !!shell.reset;
+    cancelBtn.textContent = alt ? 'Reset' : 'Cancel';
+  };
+  const altOff = () => setAlt(false);
   window.addEventListener('keydown', keys, true);
+  window.addEventListener('keyup', keys, true);
+  window.addEventListener('blur', altOff);
   dialog.querySelector('form')!.addEventListener('submit', (ev) => {
     ev.preventDefault();
     finish(true);
   });
-  dialog.querySelector('.adj-cancel')!.addEventListener('click', () => finish(false));
+  cancelBtn.addEventListener('click', (ev) => {
+    if ((alt || ev.altKey) && shell.reset) {
+      shell.reset();
+      setAlt(false);
+      return;
+    }
+    finish(false);
+  });
   shield.addEventListener('pointerdown', () => {
     if (!picking()) dialog.querySelector<HTMLElement>('.primary')?.focus();
   });
@@ -163,7 +195,8 @@ export function openShell(e: Editor, title: string, opts: { wide?: boolean } = {
   // Start on the primary button: Enter confirms, Tab reaches the settings.
   dialog.querySelector<HTMLElement>('.primary')?.focus({ preventScroll: true });
   void e;
-  return { dialog, body, preview, status, result, close: () => finish(false) };
+  const shell: Shell = { dialog, body, preview, status, result, close: () => finish(false) };
+  return shell;
 }
 
 /** Latest-wins scheduler: at most one job runs; newer requests replace queued ones. */
@@ -256,11 +289,20 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
     });
   };
   shell.preview.addEventListener('change', () => (shell.preview.checked ? refresh() : restore(e)));
+  const start = structuredClone(host.params);
+  shell.reset = () => {
+    host.params = structuredClone(start);
+    host.ui = {};
+    host.rerender();
+    host.change(true);
+  };
+  shell.body.before(presetBar(host as AdjustHost));
   host.rerender();
   refresh();
   const ok = await shell.result;
   restore(e);
   if (!ok) return noteDialogCancelled();
+  rememberLast(kind, host.params);
   const adj = structuredClone(adjustment());
   await applyToLayer(e, label, (image, rect) => adjustInWorker(image, adj, placement(rect)));
   recordStep(e, `adjust.${kind}`, { params: structuredClone(adj.params) });

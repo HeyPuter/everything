@@ -1,10 +1,14 @@
 /* Start screen: Learn (tutorials and What's New). */
-.start-learn { width: min(760px, 100%); margin-top: 30px; text-align: left; flex: none; }
-.start-learn h2 { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px; }
-.start-learn-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
-.start-learn-item { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; padding: 6px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface); white-space: normal; }
+.start-learn-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.start-learn-item { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; padding: 6px 6px 8px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface); white-space: normal; text-align: left; }
 .start-learn-item:hover:not(:disabled) { border-color: var(--input-line); background: var(--hover); }
-.start-learn-thumb { height: 56px; display: grid; place-items: center; border-radius: 3px; background: var(--surface2); color: var(--muted); overflow: hidden; }
+.start-learn-thumb { aspect-ratio: 3 / 2; display: grid; place-items: center; border-radius: 3px; background: linear-gradient(135deg, var(--surface2), var(--chrome)); color: var(--muted); overflow: hidden; margin-bottom: 3px; }
 .start-learn-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.start-learn-name { font-size: 12px; text-align: center; line-height: 1.3; }
-.start-learn-time { font-size: 10.5px; color: var(--muted); text-align: center; }
+.start-learn-name { font-size: 12px; line-height: 1.3; }
+.start-learn-summary { display: none; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.start-learn-time { font-size: 10.5px; color: var(--muted); }
+/* The Learn view: larger cards with what each tutorial covers. */
+#empty[data-start='learn'] .start-learn-row { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+#empty[data-start='learn'] .start-learn-summary { display: block; }
+#empty[data-start='learn'] .start-learn-all { display: none; }
+#empty[data-start='learn'] .start-learn-item { padding: 8px 8px 10px; gap: 4px; }

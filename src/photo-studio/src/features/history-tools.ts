@@ -1,10 +1,10 @@
 import type { Editor } from '../editor';
 import { registerCommand, registerTool, contributeMenu } from '../app/registry';
-import { strokeTool } from './paint';
+import { brushFor, strokeTool } from './paint';
 import { findLayer, replaceDocument, type PhotoDocument } from '../model/document';
 import { TILE, tileKey } from '../model/tiles';
 import type { PixelTarget } from './pixels';
-import type { PaintTarget } from '../engine/paint';
+import type { PaintMode, PaintTarget } from '../engine/paint';
 import { formDialog } from '../ui/dialog';
 import type { DocumentSession } from '../app/session';
 
@@ -38,6 +38,11 @@ function historyTarget(e: Editor, target: PixelTarget): PaintTarget | undefined 
     e.message('The History Brush paints on pixel layers.');
     return;
   }
+  return historyPaintTarget(e, target, brushFor('history-brush').mode);
+}
+/** Paints the History Brush source state's pixels of the target layer back
+ * (the History Brush, and the Eraser with Erase to History). */
+export function historyPaintTarget(e: Editor, target: PixelTarget & { kind: 'pixels' }, mode: PaintMode): PaintTarget | undefined {
   const src = findLayer(historySourceDoc(e).layers, target.layer.id);
   if (!src?.pixels) {
     e.message('Could not use the history brush because the history state does not contain a corresponding layer.');
@@ -48,7 +53,7 @@ function historyTarget(e: Editor, target: PixelTarget): PaintTarget | undefined 
   return {
     kind: 'color',
     rgb: [0, 0, 0],
-    mode: 'normal',
+    mode,
     source: (x, y, out) => {
       const lx = x - grid.x,
         ly = y - grid.y;

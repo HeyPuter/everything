@@ -1,76 +1,158 @@
-// The start screen: quick presets for a new document and recent documents
-// (thumbnails of files opened or saved recently, captured at that time and
-// kept in browser storage).
+// The start screen (home): a rail with New / Open and the Home, Learn and
+// Recent files views; Home offers Describe an edit, quick presets, recent
+// documents (thumbnails captured when a file is opened or saved, kept in
+// browser storage) and tutorials.
+import './start-screen.css';
 import type { Editor } from '../../editor';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { localStore } from '../../persistence/local-store';
 import { relativeTime } from '../../persistence/versions';
 import { documentThumbnail } from '../versions/thumbs';
-import { onRecentChange, onRecentNoted, openRecent, recentEntries, thumbKey, type RecentEntry } from './recent';
+import {
+  clearRecent,
+  onRecentChange,
+  onRecentNoted,
+  openRecent,
+  recentEntries,
+  thumbKey,
+  type RecentEntry,
+} from './recent';
 import { PRESETS, defaultSpec, specFromPreset } from '../../model/document-presets';
 import { sentNote } from '../assistant/settings';
 
 // A few common starting points; File → New lists every preset.
 const QUICK_PRESETS = ['web-large', 'web-post', 'print-a4', 'photo-4x6', 'mobile-standard'];
 
-const SHOWN = 8;
+export type StartView = 'home' | 'learn' | 'files';
+export type RecentLayout = 'grid' | 'list';
+const LAYOUT_KEY = 'photo-studio-start-recent-layout';
+
+/** Recent documents shown on Home; the Recent files view lists them all. */
+export const HOME_RECENT = 6;
 let urls: string[] = [];
 let renderRevision = 0;
+
+/** A slot of the start screen that a feature fills. */
+export function startSlot(e: Editor, name: string) {
+  return e.root.querySelector<HTMLElement>(`#empty [data-slot="${name}"]`);
+}
+
+export function recentLayout(): RecentLayout {
+  try {
+    return localStorage.getItem(LAYOUT_KEY) === 'list' ? 'list' : 'grid';
+  } catch {
+    return 'grid';
+  }
+}
+function setRecentLayout(e: Editor, layout: RecentLayout) {
+  try {
+    localStorage.setItem(LAYOUT_KEY, layout);
+  } catch {
+    /* Optional. */
+  }
+  void render(e);
+}
+
+/** Switch the start screen between Home, Learn and Recent files. */
+export function showStartView(e: Editor, view: StartView) {
+  const host = e.root.querySelector<HTMLElement>('#empty');
+  if (!host) return;
+  host.dataset.start = view;
+  for (const b of host.querySelectorAll<HTMLElement>('[data-start-view]')) {
+    if (b.dataset.startView === view) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  }
+  host.querySelector<HTMLElement>('.start-main')?.scrollTo({ top: 0 });
+  void render(e);
+}
+
+const where = (x: RecentEntry) =>
+  x.source.kind === 'puter' ? x.source.path.replace(/\/[^/]*$/, '') || '/' : 'This device';
+const kindLabel = (name: string) => {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1];
+  return ext ? ext.toUpperCase() : 'Image';
+};
 
 async function render(e: Editor) {
   const revision = ++renderRevision;
   const host = e.root.querySelector<HTMLElement>('#empty');
-  if (!host) return;
-  let section = host.querySelector<HTMLElement>('.start-recent');
-  const list = recentEntries().slice(0, SHOWN);
-  if (!list.length) {
-    section?.remove();
-    host.classList.remove('has-recent');
-    return;
-  }
-  if (!section) {
-    section = document.createElement('section');
-    section.className = 'start-recent';
-    section.setAttribute('aria-label', 'Recent documents');
-    host.querySelector('.start-drop')?.before(section);
-  }
-  host.classList.add('has-recent');
-  const thumbs = await Promise.all(list.map((x) => (thumbKey(x.source) ? localStore().get<Blob>('thumbs', thumbKey(x.source)).catch(() => undefined) : undefined)));
+  const slot = startSlot(e, 'recent');
+  if (!host || !slot) return;
+  const all = recentEntries();
+  const files = host.dataset.start === 'files';
+  const list = files ? all : all.slice(0, HOME_RECENT);
+  host.classList.toggle('has-recent', all.length > 0);
+  const layout = recentLayout();
+  const thumbs = await Promise.all(
+    list.map((x) =>
+      thumbKey(x.source)
+        ? localStore()
+            .get<Blob>('thumbs', thumbKey(x.source))
+            .catch(() => undefined)
+        : undefined,
+    ),
+  );
   if (revision !== renderRevision) return;
   for (const u of urls) URL.revokeObjectURL(u);
   urls = thumbs.map((b) => (b ? URL.createObjectURL(b) : ''));
-  const where = (x: RecentEntry) => (x.source.kind === 'puter' ? x.source.path.replace(/\/[^/]*$/, '') || '/' : 'This device');
-  section.innerHTML = `<h2>Recent</h2><div class="start-recent-grid">${list
-    .map(
-      (x, i) =>
-        `<button type="button" class="start-recent-item" data-recent="${i}" title="${escapeXML(x.source.kind === 'puter' ? x.source.path : x.name)}"><span class="start-recent-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : svg(x.source.kind === 'puter' ? 'cloud' : 'image', 22)}</span><span class="start-recent-name">${escapeXML(x.name)}</span><span class="start-recent-where">${escapeXML(where(x))}${x.time ? ` · ${relativeTime(x.time)}` : ''}</span></button>`,
-    )
-    .join('')}</div>`;
+  const toggle = (value: RecentLayout, icon: string, label: string) =>
+    `<button type="button" class="icon-button" data-recent-layout="${value}" aria-pressed="${layout === value}" aria-label="${label}" title="${label}">${svg(icon, 15)}</button>`;
+  const head = `<div class="start-section-head"><h2>${files ? 'Recent files' : 'Recent'}</h2><span class="start-section-tools">${
+    !files && all.length > HOME_RECENT
+      ? `<button type="button" class="link-button" data-start-view="files">View all ${all.length}</button>`
+      : ''
+  }${files && all.length ? `<button type="button" class="link-button" data-recent-clear>Clear list</button>` : ''}${
+    all.length
+      ? `<span class="segmented start-layout" role="group" aria-label="Recent files layout">${toggle('grid', 'layout-grid', 'Show as grid')}${toggle('list', 'list', 'Show as list')}</span>`
+      : ''
+  }</span></div>`;
+  const items = list
+    .map((x, i) => {
+      const title = escapeXML(x.source.kind === 'puter' ? x.source.path : x.name);
+      const thumb = `<span class="start-recent-thumb">${urls[i] ? `<img src="${urls[i]}" alt="">` : svg(x.source.kind === 'puter' ? 'cloud' : 'image', 22)}</span>`;
+      const time = x.time ? relativeTime(x.time) : '';
+      return layout === 'list'
+        ? `<button type="button" class="start-recent-item" data-recent="${i}" title="${title}" role="listitem">${thumb}<span class="start-recent-name">${escapeXML(x.name)}</span><span class="start-recent-kind">${kindLabel(x.name)}</span><span class="start-recent-where">${escapeXML(where(x))}</span><span class="start-recent-time">${time}</span></button>`
+        : `<button type="button" class="start-recent-item" data-recent="${i}" title="${title}" role="listitem">${thumb}<span class="start-recent-name">${escapeXML(x.name)}</span><span class="start-recent-where">${escapeXML(where(x))}${time ? ` · ${time}` : ''}</span></button>`;
+    })
+    .join('');
+  const empty = `<div class="start-recent-empty">${svg('file-clock', 28)}<strong>No recent files</strong><span>Files you open or save show up here.</span></div>`;
+  slot.innerHTML = `<section class="start-recent" aria-label="Recent documents">${head}${
+    list.length
+      ? `<div class="start-recent-grid${layout === 'list' ? ' as-list' : ''}" role="list">${items}</div>`
+      : empty
+  }</section>`;
   // Bind actions to the displayed snapshot while the next list loads.
-  section.onclick = (ev) => {
-    const i = (ev.target as HTMLElement).closest<HTMLElement>('[data-recent]')?.dataset.recent;
+  slot.onclick = (ev) => {
+    const target = ev.target as HTMLElement;
+    const lay = target.closest<HTMLElement>('[data-recent-layout]')?.dataset.recentLayout as
+      RecentLayout | undefined;
+    if (lay) return setRecentLayout(e, lay);
+    if (target.closest('[data-recent-clear]')) return clearRecent(e);
+    const i = target.closest<HTMLElement>('[data-recent]')?.dataset.recent;
     const entry = i !== undefined ? list[Number(i)] : undefined;
     if (entry) void e.run(async () => openRecent(e, entry));
   };
 }
 
 function renderPresets(e: Editor) {
-  const host = e.root.querySelector<HTMLElement>('#empty');
-  if (!host || host.querySelector('.start-presets')) return;
+  const slot = startSlot(e, 'presets');
+  if (!slot || slot.querySelector('.start-presets')) return;
   const section = document.createElement('section');
   section.className = 'start-presets';
   section.setAttribute('aria-label', 'New from a preset');
   const tiles = QUICK_PRESETS.map((id) => PRESETS.find((p) => p.id === id)!).filter(Boolean);
-  const unit = (u: string) => (u === 'px' ? 'px' : u);
-  section.innerHTML = `<h2>New from a preset</h2><div class="start-preset-row">${tiles
+  section.innerHTML = `<div class="start-section-head"><h2>New from a preset</h2></div><div class="start-preset-row">${tiles
     .map((p) => {
       const r = p.width / p.height;
-      const w = r >= 1 ? 30 : Math.round(30 * r),
-        h = r >= 1 ? Math.round(30 / r) : 30;
-      return `<button type="button" class="start-preset" data-preset="${p.id}" title="Create ${escapeXML(p.name)}"><span class="start-preset-shape"><span style="width:${w}px;height:${h}px"></span></span><span class="start-preset-name">${escapeXML(p.name)}</span><span class="start-preset-size">${p.width} × ${p.height} ${unit(p.unit)}</span></button>`;
+      const w = r >= 1 ? 26 : Math.round(26 * r),
+        h = r >= 1 ? Math.round(26 / r) : 26;
+      return `<button type="button" class="start-preset" data-preset="${p.id}" title="Create ${escapeXML(p.name)}"><span class="start-preset-shape"><span style="width:${w}px;height:${h}px"></span></span><span class="start-preset-text"><span class="start-preset-name">${escapeXML(p.name)}</span><span class="start-preset-size">${p.width} × ${p.height} ${p.unit}</span></span></button>`;
     })
-    .join('')}<button type="button" class="start-preset start-preset-more" data-command="file.new" title="All presets and custom sizes">${svg('ellipsis', 18)}<span class="start-preset-name">More presets…</span><span class="start-preset-size">Custom size</span></button></div>`;
+    .join(
+      '',
+    )}<button type="button" class="start-preset start-preset-more" data-command="file.new" title="All presets and custom sizes"><span class="start-preset-shape">${svg('ellipsis', 18)}</span><span class="start-preset-text"><span class="start-preset-name">More presets…</span><span class="start-preset-size">Custom size</span></span></button></div>`;
   section.addEventListener('click', (ev) => {
     const id = (ev.target as HTMLElement).closest<HTMLElement>('[data-preset]')?.dataset.preset;
     const preset = PRESETS.find((p) => p.id === id);
@@ -78,21 +160,25 @@ function renderPresets(e: Editor) {
       void e.run(async () => {
         // The New Document module loads on demand (prefetched when idle).
         const { createDocument } = await import('./new-document');
-        await createDocument(e, { ...specFromPreset(preset, e.preferences, defaultSpec()), name: 'Untitled' });
+        await createDocument(e, {
+          ...specFromPreset(preset, e.preferences, defaultSpec()),
+          name: 'Untitled',
+        });
       });
   });
-  host.querySelector('.start-head')?.after(section);
+  slot.append(section);
 }
 
 /** Describe an edit: a prompt with an optional image. Submitting opens the
  * image (or creates a document) and hands the prompt to the Assistant. */
 function renderDescribe(e: Editor) {
-  const host = e.root.querySelector<HTMLElement>('#empty');
-  if (!host || host.querySelector('.start-describe')) return;
+  const slot = startSlot(e, 'describe');
+  if (!slot || slot.querySelector('.start-describe')) return;
   const section = document.createElement('section');
   section.className = 'start-describe';
   section.setAttribute('aria-label', 'Describe an edit');
-  section.innerHTML = `<h2>Describe an edit</h2><form class="start-describe-form" novalidate>
+  section.innerHTML = `<form class="start-describe-form" novalidate>
+<div class="start-describe-title">${svg('assistant', 15)}<h2>Describe an edit</h2></div>
 <textarea name="prompt" rows="2" aria-label="Describe an edit" placeholder="For example: brighten this photo, crop it to a square and add a soft vignette"></textarea>
 <div class="start-describe-bar"><button type="button" class="secondary" data-describe-pick>${svg('image-plus', 15)}Choose image…</button><span class="start-describe-file" aria-live="polite">Without an image, a new document is created</span><button type="button" class="icon-button" data-describe-clear aria-label="Remove the chosen image" title="Remove the image" hidden>${svg('x', 14)}</button><span class="start-describe-spacer"></span><button type="submit" class="primary">${svg('assistant', 15)}Start</button></div>
 <input type="file" accept="image/*,.psd,.psb,.photo,.tif,.tiff,.tga,.bmp,.ico" hidden>
@@ -156,12 +242,18 @@ function renderDescribe(e: Editor) {
       window.setTimeout(() => void openAssistant(e, prompt), 0);
     });
   });
-  (host.querySelector('.start-presets') ?? host.querySelector('.start-head'))?.[host.querySelector('.start-presets') ? 'before' : 'after'](section);
+  slot.append(section);
 }
 
 export function installStartScreen(e: Editor) {
-  renderPresets(e);
   renderDescribe(e);
+  renderPresets(e);
+  const host = e.root.querySelector<HTMLElement>('#empty');
+  host?.addEventListener('click', (ev) => {
+    const view = (ev.target as HTMLElement).closest<HTMLElement>('[data-start-view]')?.dataset
+      .startView as StartView | undefined;
+    if (view) showStartView(e, view);
+  });
   onRecentChange(() => void render(e));
   // Capture a thumbnail once the opened or saved document has drawn.
   onRecentNoted((entry) => {
@@ -171,7 +263,9 @@ export function installStartScreen(e: Editor) {
       if (!key || !s.hasDocument || !e.sessions.includes(s)) return;
       const thumb = await documentThumbnail(e, s, 240).catch(() => undefined);
       if (!thumb) return;
-      await localStore().put('thumbs', key, thumb).catch(() => undefined);
+      await localStore()
+        .put('thumbs', key, thumb)
+        .catch(() => undefined);
       void render(e);
     }, 1500);
   });

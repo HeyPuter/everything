@@ -19,7 +19,7 @@ import { directDown, directMove, selectUp } from './select-tools';
 export { previewEdit, endPreview };
 import { buildPaint } from './paint';
 import { shapeOpts } from './shape-options';
-import { svg } from '../../app/icons';
+import { bindShapePaint, shapePaintControls } from './shape-tools';
 
 export const penOpts = {
   mode: 'path' as 'path' | 'shape',
@@ -258,9 +258,13 @@ async function dragUp(e: Editor) {
 function penOptions(_e: Editor, extra = '') {
   const o = penOpts;
   const shape = o.mode === 'shape';
-  return `<label>Mode <select id="pen-mode" aria-label="Pen mode"><option value="path" ${!shape ? 'selected' : ''}>Path</option><option value="shape" ${shape ? 'selected' : ''}>Shape</option></select></label>${shape ? `<span class="muted vec-hint">Fill and stroke come from the shape tool settings.</span>` : ''}<label>Path <select id="pen-op" aria-label="Path operation">${([['new', shape ? 'New Layer' : 'New Path Area'], ['combine', 'Combine Shapes'], ['subtract', 'Subtract Front Shape'], ['intersect', 'Intersect Shape Areas'], ['exclude', 'Exclude Overlapping']] as const).map(([v, l]) => `<option value="${v}" ${o.op === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>${extra}<button class="icon-button" data-command="path.make-selection" title="Make selection from path" aria-label="Make selection from path">${svg('circle-dashed', 15)}</button><button class="icon-button" data-command="layer.vmask-current-path" title="Add vector mask from path" aria-label="Add vector mask from path">${svg('mask-add', 15)}</button>`;
+  // Shape mode sets the new layer's paint here; Path mode turns the drawn
+  // path into a selection, a vector mask or a shape layer.
+  const make = `<span class="vec-make" role="group" aria-label="Make from path">Make: <button type="button" data-command="path.make-selection-dialog" title="Make a selection from the path">Selection…</button><button type="button" data-command="layer.vmask-current-path" title="Add a vector mask to the layer from the path">Mask</button><button type="button" data-command="path.make-shape" title="Make a shape layer from the path">Shape</button></span>`;
+  return `<label>Mode <select id="pen-mode" aria-label="Pen mode"><option value="path" ${!shape ? 'selected' : ''}>Path</option><option value="shape" ${shape ? 'selected' : ''}>Shape</option></select></label>${shape ? shapePaintControls(_e) : make}<label>Path <select id="pen-op" aria-label="Path operation">${([['new', shape ? 'New Layer' : 'New Path Area'], ['combine', 'Combine Shapes'], ['subtract', 'Subtract Front Shape'], ['intersect', 'Intersect Shape Areas'], ['exclude', 'Exclude Overlapping']] as const).map(([v, l]) => `<option value="${v}" ${o.op === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>${extra}`;
 }
 function bindPenOptions(e: Editor, el: HTMLElement) {
+  if (penOpts.mode === 'shape') bindShapePaint(e, el);
   el.querySelector<HTMLSelectElement>('#pen-mode')?.addEventListener('change', (ev) => {
     penOpts.mode = (ev.target as HTMLSelectElement).value as 'path' | 'shape';
     if (penOpts.mode === 'shape' && penOpts.op === 'combine') penOpts.op = 'new';

@@ -11,6 +11,7 @@ import { compositeRGBA8 } from '../../imaging/blend/composite';
 import type { BlendMode } from '../../imaging/blend/modes';
 import { commitTarget, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
 import { blendOptions, openGradientPicker } from './controls';
+import { sampleColorAt } from '../layer-tools';
 import { colors, effectsState, resolveGradient } from './state';
 
 // Gradient tool: drag to set the start and end of the current gradient
@@ -155,6 +156,11 @@ export const gradientTool: Tool = {
     if (drag) cancel(e);
   },
   pointerDown: async (e, p) => {
+    // Alt-click (Option-click) picks the foreground color.
+    if (p.alt) {
+      await sampleColorAt(e, p);
+      return;
+    }
     const start = { x: p.x, y: p.y };
     pending = { start };
     const target = await pixelTarget(e);

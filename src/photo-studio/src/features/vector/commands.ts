@@ -1,7 +1,10 @@
 import type { Editor } from '../../editor';
 import { registerCommand, type Command } from '../../app/registry';
 import { allLayers, findLayer, type Layer } from '../../model/document';
-import { identityVectorMatrix, type VectorMask } from '../../model/vector';
+import { identityVectorMatrix, vectorBounds, type VectorMask } from '../../model/vector';
+import { insertAboveSelection } from '../layers/insert';
+import { buildPaint } from './paint';
+import { shapeOpts } from './shape-options';
 import { canvasRect } from '../../model/selection';
 import { formDialog } from '../../ui/dialog';
 import { layerLock } from '../../model/locks';
@@ -9,9 +12,9 @@ import type { VectorStroke } from '../../model/vector-stroke';
 import { vectorHexColor } from '../../color/vector';
 import { commitTarget, hexRgb, pixelTarget } from '../pixels';
 import { commitSelectionMask, featherMask } from '../selection';
-import { cloneMask, commandsToPaths, componentGroups, parseSvgPath, transformMask, type Cmd } from './geometry';
+import { cloneMask, commandsToPaths, componentGroups, parseSvgPath, transformMask, type Cmd, type PathOp } from './geometry';
 import { maskCoverage, paintCoverage, selectionToPath, strokeWithBrush } from './raster';
-import { activeKey, clearSelection, nextPathName, setActive, setShapeMask, shapeDocMask, targetLocked, targetPath, vstate, type PathTarget } from './state';
+import { activeKey, clearSelection, nextName, nextPathName, setActive, setShapeMask, shapeDocMask, shapeLayer, targetLocked, targetPath, vstate, type PathTarget } from './state';
 import { addVectorMask, canAddVectorMask, commitPathEdit, currentPathForMask, deleteVectorMask, rasterizeVectorMask, toggleVectorMask } from './masks';
 import { savePathDialog } from './panel';
 import { saveUserShape, shapeFromMask } from './custom-shapes';
@@ -99,7 +102,27 @@ export async function mergeComponents(e: Editor) {
   clearSelection(e);
   e.update();
 }
-export function combineShapes(e: Editor) {
+/** A shape layer from the current path, painted like a new shape. The work
+ * path becomes the layer's path; a saved path stays in the Paths panel. */
+export function makeShapeFromPath(e: Editor) {
+  const t = actionPath(e);
+  if (!t?.mask.paths.length || t.kind === 'shape') return;
+  const mask = areaMask(t.mask);
+  const bounds = vectorBounds(mask);
+  const open = mask.paths.some((p) => p.open);
+  const paint = buildPaint(e, shapeOpts.fill, shapeOpts.stroke, bounds, open);
+  const layer = shapeLayer(e.doc, nextName(e.doc, 'Shape'), mask, paint.fill, paint.stroke, undefined, paint.color);
+  insertAboveSelection(e, layer, 'Make Shape', (d) => {
+    if (t.kind === 'work') delete d.workPath;
+  });
+  setActive(e, undefined);
+  e.update();
+}
+/** Layer > Combine Shapes: merges the selected shape layers into the backmost
+ * one, keeping each layer's outline as an editable component. The layers in
+ * front take the chosen path operation (unite, subtract, intersect, exclude);
+ * the result keeps the backmost layer's fill, stroke and name. */
+export function combineShapes(e: Editor, op: PathOp = 'combine') {
   const ids = new Set(e.selectedLayers.filter((l) => l.kind === 'vector').map((l) => l.id));
   const ordered = allLayers(e.doc.layers).filter((l) => ids.has(l.id));
   if (ordered.length < 2) return;
@@ -107,22 +130,35 @@ export function combineShapes(e: Editor) {
     e.message('Unlock the shape layers to combine them.');
     return;
   }
-  const top = ordered[ordered.length - 1];
+  const back = ordered[0];
   const paths = ordered.flatMap((l, i) => {
     const m = shapeDocMask(l).paths;
-    if (i > 0 && m[0] && !m[0].operation) m[0].operation = 'combine';
+    if (i === 0) return m;
+    // Each front layer's components take the operation; a component that
+    // cuts into its own layer (a hole) keeps cutting.
+    for (const g of componentGroups({ paths: m })) {
+      const first = m[g[0]];
+      if (g[0] === 0 || !first.operation || first.operation === 'combine') first.operation = op;
+    }
     return m;
   });
-  e.command('Combine Shapes', (d) => {
-    const keep = findLayer(d.layers, top.id)!;
+  const label = COMBINE_OPS.find(([o]) => o === op)?.[1] ?? 'Combine Shapes';
+  e.command(label, (d) => {
+    const keep = findLayer(d.layers, back.id)!;
     setShapeMask(keep, { paths });
-    const drop = new Set(ordered.slice(0, -1).map((l) => l.id));
+    const drop = new Set(ordered.slice(1).map((l) => l.id));
     const prune = (layers: Layer[]): Layer[] => layers.filter((l) => !drop.has(l.id)).map((l) => ((l.children = prune(l.children)), l));
     d.layers = prune(d.layers);
   });
-  e.selectLayers([top.id]);
+  e.selectLayers([back.id]);
   e.update();
 }
+export const COMBINE_OPS: [PathOp, string, string][] = [
+  ['combine', 'Unite Shapes', 'Merge the selected shape layers into one layer whose area covers them all.'],
+  ['subtract', 'Subtract Front Shape', 'Cut the shapes in front out of the backmost shape layer.'],
+  ['intersect', 'Unite Shapes at Overlap', 'Keep only the area where the selected shape layers overlap.'],
+  ['exclude', 'Subtract Shapes at Overlap', 'Keep the areas covered by an odd number of the selected shapes, removing their overlaps.'],
+];
 async function strokeSelection(e: Editor) {
   const v = await formDialog('Stroke', [
     { name: 'width', label: 'Width (px)', value: 2, type: 'number', min: 1, max: 250 },
@@ -293,6 +329,13 @@ export function installVectorCommands() {
       e.update();
     },
   });
+  cmd({
+    id: 'path.make-shape',
+    label: 'Make Shape from Path',
+    description: 'Create a shape layer from the work path or the selected saved path, painted with the shape tool fill and stroke.',
+    enabled: paintablePath,
+    run: makeShapeFromPath,
+  });
   cmd({ id: 'path.merge-components', label: 'Merge Shape Components', enabled: (e) => (targetPath(e)?.mask.paths.length ?? 0) > 1, run: mergeComponents });
 
   // ----- Vector masks -----
@@ -307,7 +350,8 @@ export function installVectorCommands() {
   cmd({ id: 'layer.vmask-delete', label: 'Delete', enabled: (e) => !!e.layer?.vectorMask, run: deleteVectorMask });
   cmd({ id: 'layer.vmask-toggle', label: 'Disable', enabled: (e) => !!e.layer?.vectorMask, checked: (e) => !!e.layer?.vectorMask?.disabled, run: toggleVectorMask });
   cmd({ id: 'layer.rasterize-vector-mask', label: 'Vector Mask', enabled: (e) => !!e.layer?.vectorMask, run: rasterizeVectorMask });
-  cmd({ id: 'layer.combine-shapes', label: 'Combine Shapes', enabled: (e) => e.selectedLayers.filter((l) => l.kind === 'vector').length > 1, run: combineShapes });
+  const combinable = (e: Editor) => e.selectedLayers.filter((l) => l.kind === 'vector').length > 1;
+  for (const [op, label, description] of COMBINE_OPS) cmd({ id: `layer.combine-${op}`, label, description, enabled: combinable, run: (e) => combineShapes(e, op) });
 
   // ----- View, Edit and Type -----
   cmd({

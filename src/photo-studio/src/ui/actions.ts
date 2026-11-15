@@ -95,16 +95,35 @@ export async function importFile(e: Editor, blob: Blob, name: string) {
   e.message('Image imported');
   return true;
 }
+/** Layers panel option: duplicates get " copy" after their name. */
+export const duplicateNaming = { addCopy: true };
 function cloneLayer(l: Layer): Layer {
   const copy = structuredClone(l);
   for (const item of allLayers([copy])) {
     item.id = crypto.randomUUID();
     delete item.psdId;
   }
-  copy.name += ' copy';
+  if (duplicateNaming.addCopy) copy.name += ' copy';
   // A document has one Background; its copy is an ordinary layer.
   if (copy.background) releaseBackground(copy);
   return copy;
+}
+/** Duplicate the selected layers above themselves as one step; `name`
+ * names the copy when a single layer is duplicated. */
+export function duplicateSelected(e: Editor, name?: string) {
+  const roots = e.selectedLayers;
+  if (!roots.length) return;
+  assertEditable(e.doc, roots);
+  if (allLayers(e.doc.layers).length + allLayers(roots).length > MAX_LAYERS)
+    throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
+  const copies = roots.map(cloneLayer);
+  if (name && copies.length === 1) copies[0].name = name;
+  e.command('Duplicate layers', (d) => {
+    placeDuplicates(d, roots, copies);
+    placeDuplicateArtboards(d, copies);
+  });
+  e.selectLayers(copies.map((l) => l.id));
+  e.update();
 }
 export async function performAction(e: Editor, action: string): Promise<void> {
   // A committed transform may still be storing its assets. Undo must target
@@ -409,21 +428,9 @@ export async function performAction(e: Editor, action: string): Promise<void> {
       });
       break;
     }
-    case 'duplicate': {
-      const roots = e.selectedLayers;
-      if (!roots.length) break;
-      assertEditable(e.doc, roots);
-      if (allLayers(e.doc.layers).length + allLayers(roots).length > MAX_LAYERS)
-        throw new Error(`A document can contain up to ${MAX_LAYERS} layers.`);
-      const copies = roots.map(cloneLayer);
-      e.command('Duplicate layers', (d) => {
-        placeDuplicates(d, roots, copies);
-        placeDuplicateArtboards(d, copies);
-      });
-      e.selectLayers(copies.map((l) => l.id));
-      e.update();
+    case 'duplicate':
+      duplicateSelected(e);
       break;
-    }
     case 'raise':
     case 'lower':
       e.command('Reorder layers', (d) => reorderLayers(d, e.selectedIds, action === 'raise'));

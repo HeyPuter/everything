@@ -20,6 +20,9 @@ export class SmudgeFinger {
   constructor(
     maxSize: number,
     private strength: number,
+    // Finger painting: the tip starts loaded with this color instead of
+    // picking up the canvas on first touch.
+    private fill?: readonly number[],
   ) {
     this.size = Math.max(1, Math.ceil(maxSize) + 4);
     this.paint = new Float32Array(this.size * this.size * 4);
@@ -53,7 +56,13 @@ export class SmudgeFinger {
     const cr = cur[0] * ca,
       cg = cur[1] * ca,
       cb = cur[2] * ca;
-    if (!this.loaded[j]) {
+    if (!this.loaded[j] && this.fill) {
+      f[i] = this.fill[0];
+      f[i + 1] = this.fill[1];
+      f[i + 2] = this.fill[2];
+      f[i + 3] = 1;
+      this.loaded[j] = 1;
+    } else if (!this.loaded[j]) {
       // The first touch only picks up what is there.
       f[i] = cr;
       f[i + 1] = cg;

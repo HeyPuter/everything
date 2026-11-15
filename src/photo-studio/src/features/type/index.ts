@@ -13,6 +13,8 @@ import { installTypeCommands } from './commands';
 import { installTextStyles } from './styles-panel';
 import { installLanguageCommands } from './language';
 import { installPathType } from './path-type';
+import { installTypeProperties } from './properties';
+import './type-panels.css';
 import * as typeSession from './session';
 import { commit, focusInput, onSessionChange, session, undoEdit } from './session';
 import { forgetLayout } from './text-utils';
@@ -62,6 +64,7 @@ export function installType(e: Editor) {
   );
   contributeMenu('edit', ['edit.check-spelling', 'edit.find-replace-text'], 'edit.search');
   installPathType(e);
+  installTypeProperties(e);
   // Commands outside text editing commit the draft first. Find works with
   // the live selection and commits it itself when replacing across layers.
   // Edit › Undo and Redo (menu bar, History menus) step through the text

@@ -13,6 +13,7 @@ import { compositeRGBA, hexRgb, rgbHex } from '../pixels';
 import type { RGBA8 } from '../../imaging/types';
 import { historySourceId, sessionSnapshots } from '../history-tools';
 import { infoPanel } from '../measure/info';
+import { histogramPanel } from './histogram';
 import { centerPoint, panToCenter } from '../../app/view-transform';
 
 // The History panel's last markup, to skip redraws that change nothing.
@@ -272,60 +273,6 @@ const navigatorPanel: Panel = {
     });
   },
 };
-const histogramPanel: Panel = {
-  id: 'histogram',
-  title: 'Histogram',
-  icon: 'chart-column',
-  location: 'strip',
-  mount: (e, el) => {
-    el.innerHTML = `<label>Channel <select class="histogram-channel"><option value="rgb">RGB</option><option value="lum">Luminosity</option><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></select></label><svg class="histogram" viewBox="0 0 256 100" preserveAspectRatio="none" role="img" aria-label="Histogram"></svg><div class="histogram-stats muted"></div>`;
-    el.querySelector('select')!.addEventListener('change', () => histogramPanel.update!(e, el));
-  },
-  update: (e, el) => {
-    if (!e.hasDocument) return;
-    later(e, async () => {
-      const img = await compositeSnapshot(e);
-      const channel = el.querySelector<HTMLSelectElement>('select')!.value;
-      const bins = [new Float64Array(256), new Float64Array(256), new Float64Array(256), new Float64Array(256)];
-      let count = 0,
-        sum = 0;
-      const d = img.data;
-      for (let i = 0; i < d.length; i += 4) {
-        if (!d[i + 3]) continue;
-        bins[0][d[i]]++;
-        bins[1][d[i + 1]]++;
-        bins[2][d[i + 2]]++;
-        const l = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-        bins[3][l]++;
-        count++;
-        sum += l;
-      }
-      const path = (b: Float64Array, max: number) => `M0 100${Array.from(b, (v, i) => `L${i} ${100 - (v / max) * 100}`).join('')}L255 100Z`;
-      const max = (arr: Float64Array[]) => Math.max(1, ...arr.map((b) => Math.max(...b)));
-      let html = '';
-      if (channel === 'rgb') {
-        const m = max(bins.slice(0, 3));
-        html = `<path d="${path(bins[0], m)}" fill="rgba(255,60,60,.55)"/><path d="${path(bins[1], m)}" fill="rgba(60,220,60,.55)"/><path d="${path(bins[2], m)}" fill="rgba(70,110,255,.55)"/>`;
-      } else {
-        const b = bins[{ lum: 3, r: 0, g: 1, b: 2 }[channel as 'lum' | 'r' | 'g' | 'b']];
-        html = `<path d="${path(b, max([b]))}" fill="currentColor" opacity=".8"/>`;
-      }
-      el.querySelector('svg')!.innerHTML = html;
-      const mean = count ? sum / count : 0;
-      let acc = 0,
-        median = 0;
-      for (let i = 0; i < 256; i++) {
-        acc += bins[3][i];
-        if (acc >= count / 2) {
-          median = i;
-          break;
-        }
-      }
-      el.querySelector('.histogram-stats')!.textContent = `Mean ${mean.toFixed(2)} · Median ${median} · Pixels ${count.toLocaleString()}`;
-    });
-  },
-};
-
 export function installPanels(e: Editor) {
   registerPanel(colorPanel, swatchesPanel, propertiesPanel, layersPanel, historyPanel, navigatorPanel, infoPanel, histogramPanel);
   registerCommand(

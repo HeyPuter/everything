@@ -3,7 +3,7 @@ import {
   ChevronFirst, ChevronLast, StepBack, StepForward,
   AppWindow, PanelsTopLeft, Wrench, FileCog, ImageDown, Gauge, MousePointerClick, Package, FileClock, ArchiveRestore, Smartphone, Monitor, Clapperboard, Globe, Clock, RotateCcwSquare, Star, Scaling,
   SquareCode, Braces,
-  CloudOff,
+  CloudOff, House, GraduationCap,
 } from 'lucide';
 
 // Interface icons are inline SVG strings: Lucide (ISC) plus original glyphs
@@ -13,6 +13,8 @@ type Node = readonly [string, Record<string, string | number>];
 type IconNode = readonly [string, Record<string, string | number>, Node[]?];
 const lucide: Record<string, IconNode> = {
   'cloud-off': CloudOff as unknown as IconNode,
+  'house': House as unknown as IconNode,
+  'graduation-cap': GraduationCap as unknown as IconNode,
   'move': Move as unknown as IconNode,
   'square-dashed': SquareDashed as unknown as IconNode,
   'circle-dashed': CircleDashed as unknown as IconNode,
@@ -233,6 +235,9 @@ const custom: Record<string, Node[]> = {
   'lasso-magnetic': [p('M7 22a5 5 0 0 1-2-4'), p('M5 13.4C3.8 12.4 3 11.2 3 10c0-3.9 4-7 9-7s9 3.1 9 7-4 7-9 7c-1.5 0-3-.3-4.2-.8'), p('M15 9v4a3 3 0 0 0 6 0V9M15 9h2M19 9h2')],
   'quick-select': [p('M18 3a2.4 2.4 0 0 1 3 3l-8.5 8.5-3-3Z'), p('M9.5 11.5 7 14c-1.5 1.5-1 4-3 5 2 1 5 1 6.5-.5l2-2'), ['circle', { cx: 8, cy: 8, r: 5.5, 'stroke-dasharray': '2.4 2' }]],
   'object-select': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 1, 'stroke-dasharray': '3 2.5' }], p('M9 16c0-3 1.5-5 3-5s3 2 3 5'), ['circle', { cx: 12, cy: 8, r: 2 }]],
+  // Three objects spaced evenly along a dashed center line.
+  'distribute-h': [['rect', { x: 2, y: 7, width: 4, height: 10, rx: 1 }], ['rect', { x: 10, y: 4, width: 4, height: 16, rx: 1 }], ['rect', { x: 18, y: 8, width: 4, height: 8, rx: 1 }], p('M4 2v2M12 1v2M20 3v2')],
+  'distribute-v': [['rect', { x: 7, y: 2, width: 10, height: 4, rx: 1 }], ['rect', { x: 4, y: 10, width: 16, height: 4, rx: 1 }], ['rect', { x: 8, y: 18, width: 8, height: 4, rx: 1 }], p('M2 4h2M1 12h2M3 20h2')],
   'crop-perspective': [p('M7 2 5 17h15'), p('M2 6l15-1-2 17'), p('M9 9l6-.4-.6 6')],
   'color-sampler': [p('m2 22 1-1h3l9-9'), p('M3 21v-3l9-9'), p('m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'), p('M19 15v6M16 18h6')],
   'heal-spot': [['rect', { x: 2.5, y: 8, width: 19, height: 8, rx: 4, transform: 'rotate(-45 12 12)' }], p('M10 12h.01M12 10h.01M14 12h.01M12 14h.01'), p('M19 2v3M17.5 3.5h3')],
@@ -285,6 +290,8 @@ const custom: Record<string, Node[]> = {
   'indent-first': [p('M9 6h12M3 12h18M3 18h18'), p('M3 4v4')],
   'space-before': [p('M3 12h18M3 17h18'), p('M12 2v6M9.5 5.5L12 8l2.5-2.5')],
   'space-after': [p('M3 7h18M3 12h18'), p('M12 22v-6M9.5 18.5L12 16l2.5 2.5')],
+  'text-ltr': [p('M4 5h12M4 10h8'), p('M4 17h15M16 14l3 3-3 3')],
+  'text-rtl': [p('M8 5h12M12 10h8'), p('M20 17H5M8 14l-3 3 3 3')],
   'leading': [p('M4 4h6M7 4v7M4 14h6M7 14v7'), p('M17 5v14M14.5 7.5L17 5l2.5 2.5M14.5 16.5L17 19l2.5-2.5')],
   'tracking': [p('M5 4v10M5 14l3-6 3 6M6 11.5h4'), p('M14 4v10h4'), p('M3 19h18M6 17l-3 2 3 2M18 17l3 2-3 2')],
   'kerning': [p('M4 4l3 10 3-10M13 4v10h4'), p('M9 19h6M11 17l-2 2 2 2M13 17l2 2-2 2')],

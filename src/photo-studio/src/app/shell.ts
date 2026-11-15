@@ -50,19 +50,35 @@ export function appShell(root: HTMLElement) {
       <div id="viewport" tabindex="0" aria-label="Image canvas">
         <div id="stage"><canvas id="canvas" aria-label="Document preview"></canvas><svg id="overlay" aria-hidden="true"></svg></div>
         <svg id="screen-overlay" aria-hidden="true"></svg>
-        <div id="empty">
-          <div class="start-head">
-            ${appIcon(64, 'empty-logo')}
-            <span class="empty-eyebrow">PHOTO STUDIO</span>
-            <h1>Start with an image.</h1>
-            <p>Open a photo or a layered PSD,<br>or create something from scratch.</p>
-            <div class="empty-actions"><button class="primary" data-command="file.open">${svg('folder-open', 16)}Open an image</button><button class="secondary" data-command="file.new">${svg('file-plus', 16)}New document</button></div>
-          </div>
-          <div class="start-drop"><span class="drop-hint">${svg('download', 14)}Drop files anywhere in this workspace to open them</span><small>PSD · PSB · TIFF · PNG · JPEG · WebP · AVIF · GIF · BMP · .photo</small></div>
-        </div>
       </div>
     </div>
     <section class="bottom-dock" aria-label="Bottom panels" hidden></section>
+    <div id="empty" class="start" data-start="home">
+      <nav class="start-rail" aria-label="Start">
+        <div class="start-rail-actions">
+          <button class="primary" data-command="file.new">${svg('file-plus', 16)}New document</button>
+          <button class="secondary" data-command="file.open">${svg('folder-open', 16)}Open an image</button>
+        </div>
+        <div class="start-rail-nav">
+          <button type="button" data-start-view="home" aria-current="page">${svg('house', 16)}Home</button>
+          <button type="button" data-start-view="learn">${svg('graduation-cap', 16)}Learn</button>
+          <button type="button" data-start-view="files">${svg('file-clock', 16)}Recent files</button>
+        </div>
+        <div class="start-rail-foot"><button type="button" data-command="file.open-cloud">${svg('cloud', 16)}Open from Puter…</button></div>
+      </nav>
+      <div class="start-main">
+        <div class="start-head">
+          ${appIcon(40, 'empty-logo')}
+          <div><span class="empty-eyebrow">PHOTO STUDIO</span><h1>Start with an image.</h1>
+          <p>Open a photo or a layered PSD, or create something from scratch.</p></div>
+        </div>
+        <div class="start-slot" data-slot="describe"></div>
+        <div class="start-slot" data-slot="presets"></div>
+        <div class="start-slot" data-slot="recent"></div>
+        <div class="start-slot" data-slot="learn"></div>
+        <div class="start-drop"><span class="drop-hint">${svg('download', 14)}Drop image files here to open them</span><small>PSD · PSB · TIFF · PNG · JPEG · WebP · AVIF · GIF · BMP · .photo</small></div>
+      </div>
+    </div>
   </main>
   <aside class="dock" aria-label="Panels">
     <div class="dock-strip" role="toolbar" aria-label="Collapsed panels" aria-orientation="vertical"></div>

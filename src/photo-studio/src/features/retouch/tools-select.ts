@@ -6,7 +6,7 @@ import type { Tool } from '../../app/registry';
 import { svg } from '../../app/icons';
 import { brushFor, cursor } from '../paint';
 import { ants, bindCheck, bindSize, checkbox, sizeField, sizeKeys } from './ui';
-import { bindSelectionOptions, commitSelectionMask, finishShape, optionsFor, selectionOp } from '../selection';
+import { bindSelectionOptions, commitSelectionMask, finishShape, movableOutline, optionsFor, selectionOp } from '../selection';
 import { LiveWire, rasterizePolygon, expand } from '../../imaging/segment';
 import { mask8, type Mask8, type RGBA8 } from '../../imaging/types';
 import { channel, heavy, buffersOf } from './client';
@@ -389,7 +389,7 @@ const magneticLassoTool: Tool = {
   },
 };
 
-export const selectTools = [objectSelectionTool, quickSelectionTool, magneticLassoTool];
+export const selectTools = [movableOutline(objectSelectionTool), quickSelectionTool, movableOutline(magneticLassoTool, () => !!magnetic)];
 export function resetSelectToolState() {
   qs = undefined;
   wireCache = undefined;

@@ -198,7 +198,9 @@ test('Actions record commands and play them back', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Record', exact: true }).click();
   await idle(page);
   await expect(actions.locator('.action-row.recording')).toHaveCount(1);
-  await menu(page, 'Layer', 'Duplicate Layer');
+  await menu(page, 'Layer', 'Duplicate Layer…');
+  await page.locator('#dialog[open]').getByRole('button', { name: 'OK' }).click();
+  await idle(page);
   await menu(page, 'Image', 'Image Rotation', '90° Clockwise');
   await actions.getByRole('button', { name: 'Stop recording', exact: true }).click();
   await idle(page);

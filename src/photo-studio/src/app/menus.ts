@@ -76,7 +76,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
     items: [
       { label: 'New', id: 'layer.new-menu', items: ['layer.new', 'layer.from-background', 'layer.background-from-layer', 'layer.new-group', 'layer.group-from-layers', '-', 'layer.via-copy', 'layer.via-cut'] },
       'layer.copy-css', 'layer.copy-svg',
-      'layer.duplicate', { label: 'Delete', id: 'layer.delete-menu', items: ['layer.delete', 'layer.delete-hidden'] }, '-', 'layer.quick-export', 'layer.export-as', '-', 'layer.rename',
+      'layer.duplicate-dialog', { label: 'Delete', id: 'layer.delete-menu', items: ['layer.delete', 'layer.delete-hidden'] }, '-', 'layer.quick-export', 'layer.export-as', '-', 'layer.rename',
       { label: 'Layer Style', id: 'layer.style', items: [
         'layer.style-blending', '-',
         'layer.style-bevel', 'layer.style-stroke', 'layer.style-inner-shadow', 'layer.style-inner-glow', 'layer.style-satin', 'layer.style-color-overlay', 'layer.style-gradient-overlay', 'layer.style-pattern-overlay', 'layer.style-outer-glow', 'layer.style-drop-shadow', '-',
@@ -113,7 +113,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       { label: 'Rasterize', id: 'layer.rasterize-menu', items: ['layer.rasterize-type', 'layer.rasterize-shape', 'layer.rasterize-fill', 'layer.rasterize-vector-mask', 'layer.rasterize-embedded', 'layer.rasterize-video', '-', 'layer.rasterize', 'layer.rasterize-style', '-', 'layer.rasterize-all'] },
       '-', 'layer.new-layer-slice', '-', 'layer.group', 'layer.ungroup', 'layer.hide', '-',
       { label: 'Arrange', id: 'layer.arrange', items: ['layer.bring-front', 'layer.bring-forward', 'layer.send-backward', 'layer.send-back', '-', 'layer.reverse'] },
-      'layer.combine-shapes',
+      { label: 'Combine Shapes', id: 'layer.combine-shapes', items: ['layer.combine-combine', 'layer.combine-subtract', 'layer.combine-intersect', 'layer.combine-exclude'] },
       { label: 'Align', id: 'layer.align', items: ['layer.align-top', 'layer.align-vcenter', 'layer.align-bottom', '-', 'layer.align-left', 'layer.align-hcenter', 'layer.align-right'] },
       { label: 'Distribute', id: 'layer.distribute', items: ['layer.distribute-top', 'layer.distribute-vcenter', 'layer.distribute-bottom', '-', 'layer.distribute-left', 'layer.distribute-hcenter', 'layer.distribute-right', '-', 'layer.distribute-h-space', 'layer.distribute-v-space'] },
       '-', 'layer.lock-all', 'layer.link', 'layer.select-linked', '-',

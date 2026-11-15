@@ -140,17 +140,7 @@ export function installCore(e: Editor) {
   }, { enabled: hasDoc, recordable: false });
 
   // ----- Layer -----
-  cmd('layer.new', 'Layer…', async (_e, arg) => {
-    const v = await settingsDialog(e, 'layer.new', arg, 'New Layer', [{ name: 'name', label: 'Name', value: nextLayerName(e.doc) }], 'OK');
-    if (!v) return;
-    const l = newPixelLayer(v.name || nextLayerName(e.doc), e.doc);
-    insertAboveSelection(e, l, 'New Layer');
-  }, { shortcut: 'Mod+Shift+N', enabled: hasDoc });
   cmd('layer.new-quick', 'New Layer', () => insertAboveSelection(e, newPixelLayer(nextLayerName(e.doc), e.doc), 'New Layer'), { shortcut: 'Mod+Alt+Shift+N', hidden: true });
-  cmd('layer.new-group', 'Group', () => {
-    const g = layer('group', `Group ${allLayers(e.doc.layers).filter((l) => l.kind === 'group').length + 1}`, e.doc.width, e.doc.height);
-    insertAboveSelection(e, g, 'New Group');
-  }, { enabled: hasDoc });
   cmd('layer.group', 'Group Layers', () => performAction(e, 'group'), { shortcut: 'Mod+G', enabled: (e) => e.selectedIds.size > 0 });
   cmd('layer.group-from-layers', 'Group from Layers', () => performAction(e, 'group'), { enabled: (e) => e.selectedIds.size > 0 });
   cmd('layer.ungroup', 'Ungroup Layers', () => performAction(e, 'ungroup'), { shortcut: 'Mod+Shift+G', enabled: (e) => e.selectedLayers.some((l) => l.kind === 'group') });
@@ -766,7 +756,7 @@ async function mergeSelected(e: Editor) {
   await mergeLayers(e, ordered, ordered.at(-1)!.id, 'Merge Layers');
 }
 /** Composite `layers` (bottom first) in isolation into the layer `keepId`.
- * `keepBlend` (Merge Down): as in Photoshop, the result keeps the lower
+ * `keepBlend` (Merge Down): the result keeps the lower
  * layer's blend mode and the upper layer is composited onto the lower
  * layer's own pixels. Its opacity is baked into the pixels, so a stack of
  * Normal layers, or of layers in the same associative mode (Multiply,

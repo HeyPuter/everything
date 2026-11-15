@@ -27,7 +27,9 @@ test('layer workflow, undo, project round trip and PNG export', async ({ page })
   await page.getByRole('spinbutton', { name: 'X', exact: true }).fill('40');
   await page.getByRole('spinbutton', { name: 'X', exact: true }).press('Tab');
   await idle(page);
-  await menu(page, 'Layer', 'Duplicate Layer');
+  await menu(page, 'Layer', 'Duplicate Layer…');
+  await page.locator('#dialog[open]').getByRole('button', { name: 'OK' }).click();
+  await idle(page);
   await expect(page.locator('#layer-count')).toHaveText('3');
   await page.keyboard.press('ControlOrMeta+z');
   await expect(page.locator('#layer-count')).toHaveText('2');

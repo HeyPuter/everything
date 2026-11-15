@@ -341,6 +341,8 @@ export class FreeTransform {
       let hit = picked;
       if (request.needsHit) {
         for (const pick of pickFallbacks) hit ??= pick(request.document, ...p);
+        // Auto-Select: Group picks the outermost group around the layer.
+        if (hit && this.e.settings.autoSelectTarget === 'group') hit = outermostGroup(request.document.layers, hit.id) ?? hit;
         const found = hit;
         if (event.shiftKey && hit) {
           this.e.selectLayer(hit.id, true);
@@ -703,6 +705,8 @@ export class FreeTransform {
     if (this.guides.smart) html += smartGuidesSvg(e, this.guides.smart);
     // Adjustment layers have no bounds of their own to transform.
     if (e.tool !== 'move' || !l || !l.visible || l.kind === 'adjustment' || !this.editable()) return html;
+    // Move tool > Show Transform Controls off: the frame appears only while transforming.
+    if (!this.active && e.settings.showTransformControls === false) return html;
     const t = this.frame(doc);
     if (!t) return html;
     const corners = [
@@ -739,6 +743,21 @@ export class FreeTransform {
     html += `<line class="transform-frame" x1="${top[0]}" y1="${top[1]}" x2="${rx}" y2="${ry}" stroke-width="${1 / z}"/><g class="transform-handle handle-rotate" data-transform-handle="rotate"><circle class="handle-hit" cx="${rx}" cy="${ry}" r="${10 / z}"/><circle cx="${rx}" cy="${ry}" r="${4 / z}" stroke-width="${1 / z}"/></g>`;
     return html;
   }
+}
+
+/** The outermost group containing a layer (artboards count as canvases, not
+ * groups, so the search continues inside them). */
+export function outermostGroup(layers: Layer[], id: string): Layer | undefined {
+  for (const l of layers) {
+    if (l.kind !== 'group') continue;
+    if (l.artboard) {
+      const inner = outermostGroup(l.children, id);
+      if (inner) return inner;
+      continue;
+    }
+    if (l.id === id || findLayer(l.children, id)) return l;
+  }
+  return undefined;
 }
 
 /** A changed transform proves the document differs; other edits use the full comparison. */
