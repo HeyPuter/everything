@@ -259,6 +259,8 @@ async function duplicateDialog(e: Editor) {
   const dest = v.dest ?? '';
   if (!dest) {
     duplicateSelected(e, one ? v.as?.trim() : undefined);
+    // Actions replay a copy within the document as the plain duplicate step.
+    e.recorder?.('layer.duplicate', undefined);
     return;
   }
   e.transform.apply();

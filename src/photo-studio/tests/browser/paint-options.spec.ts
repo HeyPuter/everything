@@ -33,6 +33,8 @@ test('clearing a painting or selection tool option keeps its value', async ({ pa
   const wrong: string[] = [];
   for (const [tool, selector, value] of fields) {
     await page.evaluate((t) => window.photoStudio.setTool(t), tool);
+    // The marquee's width field is editable only with a fixed style.
+    if (tool === 'rect-marquee') await page.evaluate(() => { window.photoStudio.settings.marqueeStyle = 'size'; window.photoStudio.options(); });
     await idle(page);
     const input = page.locator(`#options ${selector}, ${selector}`).first();
     await input.fill(value);
