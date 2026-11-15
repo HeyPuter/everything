@@ -126,11 +126,30 @@ describe('fitStroke and restoreCorners', () => {
     expect(out).toHaveLength(pts.length);
     expect(out[corners[0]]).toEqual(pts[corners[0]]);
     // Without the restart the string cuts across the corner by about its length.
-    const s = new Stabilizer(50, 1, pts[0]);
+    const s = new Stabilizer(50, 1, pts[0], undefined, 'string');
     const cut = [pts[0], ...pts.slice(1).map((p) => s.push(p))];
     const closest = (list) => Math.min(...list.map((p) => Math.hypot(p.x - 100, p.y)));
     expect(closest(cut)).toBeGreaterThan(5);
     expect(closest(out)).toBeLessThan(0.5);
+  });
+
+  it('live Smoothing rounds a corner, and keeps it with Corners on', () => {
+    const pts = polyline([[0, 0], [100, 0], [100, 100]]);
+    const closest = (list) => Math.min(...list.map((p) => Math.hypot(p.x - 100, p.y)));
+    const draw = () => {
+      const s = new Stabilizer(50, 1, pts[0]);
+      return { s, drawn: [pts[0], ...pts.slice(1).map((p) => s.push(p))] };
+    };
+    const round = draw();
+    expect(closest(round.s.settle(round.drawn, 0).points)).toBeGreaterThan(3);
+    const sharp = draw();
+    const kept = sharp.s.settle(sharp.drawn, 50);
+    expect(kept.corners).toHaveLength(1);
+    expect(kept.points).toHaveLength(pts.length);
+    expect(kept.points[kept.corners[0]]).toEqual(pts[kept.corners[0]]);
+    expect(closest(kept.points)).toBeLessThan(0.5);
+    // The straight runs on either side of the corner stay straight.
+    for (const p of kept.points) expect(Math.min(Math.abs(p.y), Math.abs(p.x - 100))).toBeLessThan(0.01);
   });
 });
 

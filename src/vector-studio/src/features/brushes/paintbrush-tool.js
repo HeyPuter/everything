@@ -16,7 +16,7 @@ import { newPathStyle } from '../../tools/pen.js';
 import { brushById } from './brush-model.js';
 import { brushState } from './brush-actions.js';
 import { pressureSamples, pressureWidthProfile, smoothPressures, pressureScale, GrowingStrokePreview } from './pressure.js';
-import { drawString } from '../../tools/stabilizer.js';
+import { drawString, SMOOTHING_STYLES } from '../../tools/stabilizer.js';
 
 export { pressureSamples };
 
@@ -237,12 +237,13 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     }
     const half = Math.max(0.5, ((editor.style.strokeWidth > 0 ? editor.style.strokeWidth : 1) * editor.view.zoom) / 2);
     const st = editor.style.stroke || editor.style.fill;
-    // Smoothing reaches two points ahead, so all but the last two keep their width.
+    // Pressure smoothing reaches two points ahead, so all but the last two keep their width; live
+    // smoothing still moves the points near the pen.
     (this.preview ||= new GrowingStrokePreview()).draw(
       ctx,
       pts.map((p) => editor.view.toScreen(p.x, p.y)),
       smoothPressures(pressures).map((p) => half * pressureScale(p)),
-      { color: st?.type === 'solid' ? st.color : '#000000', settled: pts.length - 2, key: half },
+      { color: st?.type === 'solid' ? st.color : '#000000', settled: Math.min(pts.length - 2, this.stabilizer?.firm ?? pts.length), key: half },
     );
     drawString(ctx, editor, this.stabilizer);
   }
@@ -255,6 +256,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: o.fidelity },
         { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: o.smoothing ?? 0 },
         { key: 'corners', label: 'Corners (keeps sharp turns sharp)', type: 'range', min: 0, max: 100, value: o.corners ?? 0 },
+        { key: 'smoothingStyle', label: 'Smoothing style', type: 'radio', options: SMOOTHING_STYLES, value: this.smoothingStyle },
         { type: 'heading', label: 'Options' },
         { key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: o.fill },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: o.keepSelected },
@@ -266,6 +268,7 @@ export class BrushPaintbrushTool extends PaintbrushTool {
     });
     if (!v) return;
     const next = v.__action === 'reset' ? { ...DEFAULTS } : { fidelity: v.fidelity, smoothing: v.smoothing, corners: v.corners, fill: v.fill, keepSelected: v.keepSelected, editSelected: v.editSelected, within: v.within, pressure: v.pressure };
+    if (v.__action !== 'reset') this.smoothingStyle = v.smoothingStyle;
     this.opts = next;
     this.fidelity = next.fidelity;
     this.keepSelected = next.keepSelected;

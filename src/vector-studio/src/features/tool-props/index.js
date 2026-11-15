@@ -11,6 +11,7 @@ import { numberField, segmented } from '../../ui/widgets.js';
 import { PropertiesPanel } from '../../ui/panels/properties.js';
 import { docBrushes, BRUSH_TYPES } from '../brushes/brush-model.js';
 import { brushState } from '../brushes/brush-actions.js';
+import { SMOOTHING_STYLES } from '../../tools/stabilizer.js';
 
 let seq = 0;
 const nextId = () => `tp-${++seq}`;
@@ -29,10 +30,12 @@ function freehandSettings(tool) {
     { key: 'fidelity', label: 'Fidelity', type: 'range', min: 0, max: 100, value: tool.fidelity ?? 50, hint: 'Accurate to Smooth' },
     { key: 'smoothing', label: 'Smoothing', type: 'range', min: 0, max: 100, value: tool.smoothing ?? 0, hint: 'Steadies the line while drawing' },
     { key: 'corners', label: 'Corners', type: 'range', min: 0, max: 100, value: tool.corners ?? 0, hint: 'Keeps sharp turns sharp' },
+    { key: 'smoothingStyle', label: 'Style', type: 'radio', options: SMOOTHING_STYLES, value: tool.smoothingStyle },
     { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: Boolean(tool.keepSelected) },
   ];
   if (opts) fields.push({ key: 'fill', label: 'Fill new brush strokes', type: 'checkbox', value: Boolean(opts.fill) }, { key: 'editSelected', label: 'Edit selected paths', type: 'checkbox', value: Boolean(opts.editSelected) }, { key: 'pressure', label: 'Pen pressure varies the width', type: 'checkbox', value: opts.pressure !== false });
-  return { fields, set: (k, v) => write({ [k]: v }) };
+  // The smoothing style is one preference shared by the freehand tools, not a Paintbrush option.
+  return { fields, set: (k, v) => (k === 'smoothingStyle' ? (tool.smoothingStyle = v) : write({ [k]: v })) };
 }
 
 /** Settings adapters by tool id: tool -> { fields, set(key, value) }. Fields use the dialog field format. */
@@ -46,12 +49,14 @@ const ADAPTERS = {
       { key: 'fidelity', label: 'Fidelity', type: 'range', min: 0, max: 100, value: t.fidelity, hint: 'Accurate to Smooth' },
       { key: 'smoothing', label: 'Smoothing', type: 'range', min: 0, max: 100, value: t.smoothing, hint: 'Steadies the line while drawing' },
       { key: 'corners', label: 'Corners', type: 'range', min: 0, max: 100, value: t.corners, hint: 'Keeps sharp turns sharp' },
+      { key: 'smoothingStyle', label: 'Style', type: 'radio', options: SMOOTHING_STYLES, value: t.smoothingStyle },
       { key: 'pressure', label: 'Pen pressure varies the size', type: 'checkbox', value: t.pressureSize },
     ],
     set: (k, v) => {
       if (k === 'pressure') t.pressureSize = v;
       else if (k === 'fidelity') t.fidelity = v;
       else if (k === 'smoothing') t.smoothing = v;
+      else if (k === 'smoothingStyle') t.smoothingStyle = v;
       else if (k === 'corners') t.corners = v;
       else t.size = v;
     },

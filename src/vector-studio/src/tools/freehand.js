@@ -14,7 +14,7 @@ import { fitCurve, simplifyPolyline, flattenPath, nearestOnPath, insertAnchor, p
 import { newPathStyle } from './pen.js';
 import { isSmooth, mirrorAngle } from './direct-selection.js';
 import { removeEmptyContainers } from '../ops/object-ops.js';
-import { Stabilizer, drawString } from './stabilizer.js';
+import { Stabilizer, drawString, smoothingStyle, SMOOTHING_STYLES } from './stabilizer.js';
 import { fitStroke } from './corners.js';
 
 /** Fit tolerance in document units for a fidelity value 0 (accurate) .. 100 (smooth). */
@@ -52,7 +52,7 @@ export class PencilTool extends Tool {
     this.stabilizer = null;
   }
 
-  /** Smoothing 0 (off) .. 100: how far the drawn line trails the pen to steady it. */
+  /** Smoothing 0 (off) .. 100: how much the drawn line is steadied while drawing. */
   get smoothing() {
     const v = Number(this.app.prefs.get(this.constructor.smoothingPref));
     return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
@@ -60,6 +60,15 @@ export class PencilTool extends Tool {
 
   set smoothing(v) {
     this.app.prefs.set(this.constructor.smoothingPref, Math.max(0, Math.min(100, Number(v) || 0)));
+  }
+
+  /** How Smoothing steadies the line: 'live' (the line stays under the pen) or 'string' (it trails on a string). Shared by the freehand tools. */
+  get smoothingStyle() {
+    return smoothingStyle(this.app.prefs);
+  }
+
+  set smoothingStyle(v) {
+    this.app.prefs.set('smoothingStyle', v === 'string' ? 'string' : 'live');
   }
 
   /** Corners 0 (off) .. 100: how readily a sharp turn in the stroke is kept as a corner. */
@@ -99,7 +108,7 @@ export class PencilTool extends Tool {
       return;
     }
     this.points = [{ x: e.x, y: e.y }];
-    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y }, e.native?.timeStamp);
+    this.stabilizer = new Stabilizer(this.smoothing, this.editor.view.zoom, { x: e.x, y: e.y }, e.native?.timeStamp, this.smoothingStyle);
     this.continueFrom = this.#endpointNear(e);
   }
 
@@ -208,12 +217,14 @@ export class PencilTool extends Tool {
         { key: 'fidelity', label: 'Fidelity (Accurate to Smooth)', type: 'range', min: 0, max: 100, value: this.fidelity },
         { key: 'smoothing', label: 'Smoothing (steadies the line while drawing)', type: 'range', min: 0, max: 100, value: this.smoothing },
         { key: 'corners', label: 'Corners (keeps sharp turns sharp)', type: 'range', min: 0, max: 100, value: this.corners },
+        { key: 'smoothingStyle', label: 'Smoothing style', type: 'radio', options: SMOOTHING_STYLES, value: this.smoothingStyle },
         { key: 'keepSelected', label: 'Keep selected', type: 'checkbox', value: this.keepSelected },
       ],
     });
     if (!v) return;
     this.fidelity = v.fidelity;
     this.smoothing = v.smoothing;
+    this.smoothingStyle = v.smoothingStyle;
     this.corners = v.corners;
     this.keepSelected = v.keepSelected;
   }

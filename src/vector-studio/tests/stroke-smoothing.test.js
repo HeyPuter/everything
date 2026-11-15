@@ -1,11 +1,11 @@
-// Smoothing (a pulled-string stabilizer) for the Pencil, Paintbrush and Merge Brush, and the Merge Brush's Fidelity.
+// Smoothing (live, or a pulled string) for the Pencil, Paintbrush and Merge Brush, and the Merge Brush's Fidelity.
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { bootAppWithFeatures } from './helpers.js';
 import { setGeomSource, loadGeom } from '../src/features/geometry/engine/index.js';
 import { toolSettings } from '../src/features/tool-props/index.js';
-import { Stabilizer, stringLength, MAX_STRING_PX } from '../src/tools/stabilizer.js';
+import { Stabilizer, stringLength, MAX_STRING_PX, reachLength, MAX_REACH_PX } from '../src/tools/stabilizer.js';
 
 let app;
 beforeAll(async () => {
@@ -39,7 +39,7 @@ const wobble = (n) => Math.max(...n.anchors.flatMap((a) => [a.y, a.iy, a.oy].map
 
 describe('Stabilizer', () => {
   it('keeps tremor shorter than the string out of the line, one point per sample', () => {
-    const s = new Stabilizer(50, 1, { x: 0, y: 0 });
+    const s = new Stabilizer(50, 1, { x: 0, y: 0 }, undefined, 'string');
     expect(s.length).toBe(MAX_STRING_PX / 2);
     const out = [];
     for (let i = 1; i <= 100; i++) out.push(s.push({ x: i * 2, y: i % 2 ? 4 : -4 }));
@@ -55,17 +55,68 @@ describe('Stabilizer', () => {
     expect(stringLength(100, 2)).toBe(MAX_STRING_PX / 2);
     expect(stringLength(0, 1)).toBe(0);
     expect(stringLength(250, 1)).toBe(MAX_STRING_PX);
-    const off = new Stabilizer(0, 1, { x: 0, y: 0 });
+    const off = new Stabilizer(0, 1, { x: 0, y: 0 }, undefined, 'string');
     expect(off.push({ x: 3, y: 4 })).toEqual({ x: 3, y: 4 });
+    expect(new Stabilizer(0, 1, { x: 0, y: 0 }).push({ x: 3, y: 4 })).toEqual({ x: 3, y: 4 });
   });
 
   it('keeps the pen path for a stroke shorter than the string', () => {
-    const s = new Stabilizer(100, 1, { x: 0, y: 0 });
+    const s = new Stabilizer(100, 1, { x: 0, y: 0 }, undefined, 'string');
     const pts = [{ x: 0, y: 0 }];
     for (let i = 1; i <= 5; i++) pts.push(s.push({ x: i * 2, y: 0 }));
     expect(pts.every((p) => p.x === 0)).toBe(true);
     const kept = s.finish(pts);
     expect(kept.map((p) => p.x)).toEqual([0, 2, 4, 6, 8, 10]);
+  });
+});
+
+describe('Live smoothing', () => {
+  /** A pen moving right 2 units a sample with a tremor 8 units tall, 8 samples to a cycle. */
+  const tremor = (i) => ({ x: i * 2, y: 4 * Math.sin((i * Math.PI) / 4) });
+
+  it('steadies the line under the pen, with nothing trailing behind', () => {
+    const s = new Stabilizer(50, 1, tremor(0));
+    expect(s.style).toBe('live');
+    expect(s.length).toBe(0);
+    expect(s.reach).toBe(MAX_REACH_PX / 2);
+    expect(reachLength(100, 2)).toBe(MAX_REACH_PX / 2);
+    const pts = [tremor(0)];
+    let lag = 0;
+    for (let i = 1; i <= 200; i++) {
+      pts.push(s.push(tremor(i)));
+      // The end of the drawn line stays at the pen (the string trails by its length, 20 here).
+      if (i > 20) lag = Math.max(lag, Math.abs(i * 2 - pts.at(-1).x));
+    }
+    expect(pts).toHaveLength(201);
+    expect(lag).toBeLessThan(2);
+    const ys = pts.slice(20).map((p) => p.y);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(2.5);
+    // Away from the pen the tremor is all but gone.
+    const settled = pts.slice(20, s.firm).map((p) => p.y);
+    expect(Math.max(...settled) - Math.min(...settled)).toBeLessThan(0.8);
+  });
+
+  it('settles the points near the pen in place, and leaves firm points alone', () => {
+    const s = new Stabilizer(50, 1, tremor(0));
+    const pts = [tremor(0)];
+    for (let i = 1; i <= 60; i++) pts.push(s.push(tremor(i)));
+    expect(s.firm).toBeGreaterThan(1);
+    expect(s.firm).toBeLessThan(pts.length);
+    const before = pts.map((p) => ({ ...p }));
+    const firm = s.firm;
+    for (let i = 61; i <= 120; i++) pts.push(s.push(tremor(i)));
+    expect(pts.slice(0, firm)).toEqual(before.slice(0, firm));
+    // The point that was at the pen has moved since.
+    expect(pts[60]).not.toEqual(before[60]);
+    expect(s.settle(pts).points).toBe(pts);
+  });
+
+  it('follows a curve without cutting far inside it', () => {
+    const arc = (i) => ({ x: 100 * Math.cos(i / 50), y: 100 * Math.sin(i / 50) });
+    const s = new Stabilizer(50, 1, arc(0));
+    const pts = [arc(0)];
+    for (let i = 1; i <= 150; i++) pts.push(s.push(arc(i)));
+    for (const p of pts) expect(Math.abs(Math.hypot(p.x, p.y) - 100)).toBeLessThan(2);
   });
 });
 
@@ -87,6 +138,39 @@ describe('Smoothing in the freehand tools', () => {
     expect(steady.id).not.toBe(rough.id);
     expect(wobble(rough)).toBeGreaterThan(2);
     expect(wobble(steady)).toBeLessThan(1.5);
+    tool.smoothing = 0;
+    app.setTool('selection');
+  });
+
+  it('the tools smooth with a pulled string when the style is set to it', async () => {
+    const ed = newDoc();
+    app.setTool('pencil');
+    const tool = app.tool;
+    expect(tool.smoothingStyle).toBe('live');
+    tool.fidelity = 0;
+    tool.smoothing = 60;
+    tool.onPointerDown(ev(...shaky[0]));
+    shaky.slice(1).forEach((p) => tool.onPointerMove(ev(...p)));
+    expect(tool.stabilizer.style).toBe('live');
+    expect(Math.abs(tool.points.at(-1).x - 400)).toBeLessThan(2);
+    tool.cancel();
+    tool.smoothingStyle = 'string';
+    expect(app.prefs.get('smoothingStyle')).toBe('string');
+    for (const id of ['paintbrush', 'blob-brush']) {
+      app.setTool(id);
+      expect(app.tool.smoothingStyle).toBe('string');
+      expect(toolSettings(app).fields.find((f) => f.key === 'smoothingStyle').value).toBe('string');
+    }
+    app.setTool('pencil');
+    tool.onPointerDown(ev(...shaky[0]));
+    shaky.slice(1).forEach((p) => tool.onPointerMove(ev(...p)));
+    expect(tool.stabilizer.style).toBe('string');
+    // The line trails the pen by the string.
+    expect(400 - tool.points.at(-1).x).toBeGreaterThan(15);
+    await tool.onPointerUp(ev(...shaky.at(-1)));
+    expect(wobble(ed.doc.leaves().at(-1))).toBeLessThan(1.5);
+    toolSettings(app).set('smoothingStyle', 'live');
+    expect(app.prefs.get('smoothingStyle')).toBe('live');
     tool.smoothing = 0;
     app.setTool('selection');
   });
@@ -160,7 +244,7 @@ describe('Merge Brush Fidelity', () => {
     newDoc();
     app.setTool('blob-brush');
     const s = toolSettings(app);
-    expect(s.fields.map((f) => f.key)).toEqual(['size', 'fidelity', 'smoothing', 'corners', 'pressure']);
+    expect(s.fields.map((f) => f.key)).toEqual(['size', 'fidelity', 'smoothing', 'corners', 'smoothingStyle', 'pressure']);
     s.set('fidelity', 40);
     s.set('smoothing', 25);
     expect(app.tool.fidelity).toBe(40);
