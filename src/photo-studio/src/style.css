@@ -724,7 +724,8 @@ a:hover {
   min-height: 0;
   overflow: hidden;
   touch-action: none;
-  outline-offset: -3px;
+  /* The canvas takes keyboard focus for shortcuts but shows no focus ring. */
+  outline: none;
 }
 .rulers-hidden #viewport {
   grid-area: 1/1;
