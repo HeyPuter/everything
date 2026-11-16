@@ -25,7 +25,7 @@ for (const late of [false, true]) {
       const { commentsOf } = await import('/src/features/collab/state.ts');
       commentsOf(window.photoStudio).add({ x: 4, y: 4 }, 'Saved note');
     });
-    await run(page, 'file.save-as');
+    await run(page, 'file.save-as', 'photo');
     await page.waitForFunction(() => !!(window as unknown as { finishCommentSave?: () => void }).finishCommentSave);
     await page.evaluate(async (late) => {
       if (late) {

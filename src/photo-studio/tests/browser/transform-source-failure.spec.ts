@@ -38,7 +38,7 @@ for (const command of ['file.save', 'file.save-as', 'image.duplicate', 'close-sa
       await page.locator('dialog[open]').getByRole('button', { name: 'Save', exact: true }).click();
       return;
     }
-    await start(page, command);
+    await start(page, command, command === 'file.save-as' ? 'photo' : undefined);
     if (command === 'image.duplicate') await page.getByRole('dialog', { name: 'Duplicate Image' }).getByRole('button', { name: 'Duplicate', exact: true }).click();
   };
   await begin();

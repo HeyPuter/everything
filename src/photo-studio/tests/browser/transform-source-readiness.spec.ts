@@ -25,7 +25,7 @@ for (const duplicate of [false, true]) test(`${duplicate ? 'Duplicate Image' : '
     startSession(e, { mode: 'distort', quad: [{ x: 4, y: 3 }, { x: 26, y: 3 }, { x: 20, y: 15 }, { x: 4, y: 15 }] });
   });
   await page.waitForFunction(() => !!(window as unknown as { finishSourceRead?: () => void }).finishSourceRead);
-  await start(page, duplicate ? 'image.duplicate' : 'file.save-as');
+  await start(page, duplicate ? 'image.duplicate' : 'file.save-as', duplicate ? undefined : 'photo');
   if (duplicate) await page.getByRole('dialog', { name: 'Duplicate Image' }).getByRole('button', { name: 'Duplicate', exact: true }).click();
   try {
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));

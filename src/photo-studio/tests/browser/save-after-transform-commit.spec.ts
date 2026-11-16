@@ -25,7 +25,7 @@ for (const duplicate of [false, true]) test(`${duplicate ? 'Duplicate Image' : '
   await page.locator('#tool-options').getByRole('button', { name: 'Commit transform', exact: true }).click();
   await page.waitForFunction(() => !!(window as unknown as { finishCommittedAsset?: () => void }).finishCommittedAsset);
   expect(await page.evaluate(() => !!window.photoStudio.modal)).toBe(false);
-  await start(page, duplicate ? 'image.duplicate' : 'file.save-as');
+  await start(page, duplicate ? 'image.duplicate' : 'file.save-as', duplicate ? undefined : 'photo');
   if (duplicate) await page.getByRole('dialog', { name: 'Duplicate Image' }).getByRole('button', { name: 'Duplicate', exact: true }).click();
   try {
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));

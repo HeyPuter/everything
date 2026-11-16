@@ -35,14 +35,14 @@ export function installFiles(e: Editor) {
   const cmd = (id: string, label: string, run: Command['run'], extra: Partial<Command> = {}) =>
     registerCommand({ id, label, run, recordable: false, ...extra });
   // A command whose implementation is a function of a lazily loaded module.
-  const lcmd = <M,>(id: string, label: string, mod: Lazy<M>, run: (m: M, e: Editor) => unknown, extra: Partial<Command> = {}) =>
+  const lcmd = <M,>(id: string, label: string, mod: Lazy<M>, run: (m: M, e: Editor, arg?: unknown) => unknown, extra: Partial<Command> = {}) =>
     registerCommand({ id, label, recordable: false, ...lazyRun(mod, run), ...extra });
   lcmd('file.new', 'New…', newDocument, (m) => void m.newDocumentWindow(e), { shortcut: 'Mod+N', description: 'Create a document from a preset or custom settings' });
   // These replace the basic versions registered by core.
   lcmd('file.open-cloud', 'Open from Puter…', saving, (m) => m.openFromCloud(e), { description: 'Open one or more files from Puter' });
-  lcmd('file.save', 'Save', saving, (m) => m.save(e), { shortcut: 'Mod+S', enabled: hasDoc, description: 'Save the project to Puter' });
-  lcmd('file.save-as', 'Save As…', saving, (m) => m.saveAs(e), { shortcut: 'Mod+Shift+S', enabled: hasDoc, description: 'Save the project to a new Puter location' });
-  lcmd('file.save-copy', 'Save a Copy…', saving, (m) => m.saveAs(e, true), { shortcut: 'Mod+Alt+S', enabled: hasDoc, description: 'Save a copy to Puter without changing where this document saves' });
+  lcmd('file.save', 'Save', saving, (m) => m.save(e), { shortcut: 'Mod+S', enabled: hasDoc, description: 'Save to Puter: a document opened from a PSD saves as a PSD, others as a .photo project' });
+  lcmd('file.save-as', 'Save As…', saving, (m, _e, format) => m.saveAs(e, false, format), { shortcut: 'Mod+Shift+S', enabled: hasDoc, description: 'Save to a new Puter location as a PSD or a .photo project' });
+  lcmd('file.save-copy', 'Save a Copy…', saving, (m, _e, format) => m.saveAs(e, true, format), { shortcut: 'Mod+Alt+S', enabled: hasDoc, description: 'Save a copy to Puter without changing where this document saves' });
   lcmd('file.download-project', 'Download Project (.photo)', saving, (m) => m.downloadProject(e), { enabled: hasDoc });
   lcmd('file.export-as', 'Export As…', exportDialog, (m) => m.exportAsDialog(e), { shortcut: 'Mod+Alt+Shift+W', enabled: hasDoc, description: 'Export with format, size, metadata and color options' });
   // The label follows Preferences → Export → Quick export format.

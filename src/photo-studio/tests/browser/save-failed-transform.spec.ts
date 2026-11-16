@@ -27,7 +27,7 @@ for (const command of ['file.save', 'file.save-as', 'image.duplicate']) test(`${
     return e.session.id;
   }, command);
   const begin = async () => {
-    await start(page, command);
+    await start(page, command, command === 'file.save-as' ? 'photo' : undefined);
     if (command === 'image.duplicate') await page.getByRole('dialog', { name: 'Duplicate Image' }).getByRole('button', { name: 'Duplicate', exact: true }).click();
   };
   await begin();

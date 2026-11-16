@@ -238,8 +238,9 @@ export class Editor {
   }
   // Called after a document tab closes (features drop state tied to it).
   closeHooks: ((s: DocumentSession) => void)[] = [];
-  // Called after a document is saved (the project blob written).
-  saveHooks: ((s: DocumentSession, project: Blob) => void)[] = [];
+  // Called after a document is saved, with the native project that was
+  // written (absent when the file written was a PSD).
+  saveHooks: ((s: DocumentSession, project?: Blob) => void)[] = [];
   /** Edits still held by the active tool, outside the session's history. */
   hasPendingChanges(s = this.session) {
     return s === this.session && (this.transform.changed || !!this.modal?.pendingChanges);

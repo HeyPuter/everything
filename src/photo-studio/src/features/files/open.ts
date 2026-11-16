@@ -341,7 +341,8 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     s.history.reset(loaded.document);
     s.hasDocument = true;
     s.storage.reset();
-    if (source.kind === 'puter' && isProject && lower.endsWith('.photo')) s.storage.path = source.path;
+    // A project or a PSD on Puter saves back to its own file.
+    if (source.kind === 'puter' && ((isProject && lower.endsWith('.photo')) || (isPsd && /\.ps[db]$/.test(lower)))) s.storage.path = source.path;
     s.saved = s.doc;
     s.fileName = name;
     e.selected = s.doc.layers.at(-1)?.id ?? '';

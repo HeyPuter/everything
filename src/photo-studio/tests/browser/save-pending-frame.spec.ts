@@ -26,7 +26,7 @@ for (const saveAs of [false, true]) test(`${saveAs ? 'Save As' : 'Save'} waits f
       return add(...args);
     };
   }, saveAs);
-  await start(page, saveAs ? 'file.save-as' : 'file.save');
+  await start(page, saveAs ? 'file.save-as' : 'file.save', saveAs ? 'photo' : undefined);
   await page.waitForFunction(() => !!(window as unknown as { finishFrameAsset?: () => void }).finishFrameAsset);
   try {
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));

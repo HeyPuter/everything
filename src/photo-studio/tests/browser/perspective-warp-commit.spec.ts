@@ -25,7 +25,7 @@ for (const duplicate of [false, true]) test(`${duplicate ? 'Duplicate Image' : '
       return add(...args);
     };
   });
-  await start(page, duplicate ? 'image.duplicate' : 'file.save-as');
+  await start(page, duplicate ? 'image.duplicate' : 'file.save-as', duplicate ? undefined : 'photo');
   if (duplicate) await page.getByRole('dialog', { name: 'Duplicate Image' }).getByRole('button', { name: 'Duplicate', exact: true }).click();
   await page.waitForFunction(() => !!(window as unknown as { finishWarpAsset?: () => void }).finishWarpAsset);
   try {

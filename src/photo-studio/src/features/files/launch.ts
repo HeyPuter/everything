@@ -1,7 +1,7 @@
 // Files handed over by the Puter desktop: the ones the app was launched with
 // (a double-click, "Open with") and those dragged onto its window from the
 // desktop or a folder window. They open where they live, as File → Open from
-// Puter does, so a .photo project saves back to its own file.
+// Puter does, so a .photo project or a PSD saves back to its own file.
 // https://docs.puter.com/UI/onLaunchedWithItems/
 import type { Editor } from '../../editor';
 import type { CloudItem } from './cloud';

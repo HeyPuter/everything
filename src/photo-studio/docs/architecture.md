@@ -429,7 +429,13 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   setting subscribe with `e.preferenceHooks`.
 - `src/persistence/local-store.ts` wraps IndexedDB (`MemoryStore` for tests);
   `persistence/versions.ts` stores versions and recovery records on it.
-  `e.saveHooks` run after a project is written (versions, recovery cleanup).
+  `e.saveHooks` run after a document is saved (versions, recovery cleanup),
+  with the project blob when the file written was a native project.
+- File → Save (`features/files/save.ts`) follows the session's file name: a
+  `.psd`/`.psb` name saves a PSD built by `buildPsd` (`features/files/psd-export.ts`),
+  anything else a `.photo` project. `model/psd-losses.ts` lists what the PSD
+  writer flattens or leaves out; keep it in step with `savePsd` so Save can ask
+  before writing a PSD that loses something.
 - Warnings that can be turned off use `warnOnce` (`features/preferences/warnings.ts`).
 
 ## Canvas edits and document-wide state

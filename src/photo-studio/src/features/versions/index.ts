@@ -187,7 +187,10 @@ export function installVersions(e: Editor) {
   );
   // A version on every save.
   e.saveHooks.push((s, project) => {
-    if (e.preferences.versionsOnSave) void addVersion(e, s, 'Saved', 'save', project).catch((err) => console.error(err));
+    if (!e.preferences.versionsOnSave) return;
+    // Versions are native projects: a save that wrote a PSD gets one of what it saved.
+    const saved = s.saved ?? s.doc;
+    void (async () => addVersion(e, s, 'Saved', 'save', project ?? (await serialize(saved, s.assets))))().catch((err) => console.error(err));
   });
   e.closeHooks.push((s) => {
     if (s === e.session) exitPreview(e);

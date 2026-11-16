@@ -43,22 +43,17 @@ function psdChannels(e: Editor, doc: PhotoDocument) {
     .map((c) => ({ name: c.name, data: readMask(e.assets.tiles, c.grid, area).data, color: c.color, opacity: c.opacity, spot: c.spot }));
 }
 
-export async function exportPsd(e: Editor) {
+/** The document as PSD bytes. A document that opened as a preview of a PSD
+ * gives back that file while it is unedited and fails with PsdPreviewEditError
+ * once it is not. Resolves undefined when the compatibility question is
+ * cancelled. `live` is the document state that was written. */
+export async function buildPsd(e: Editor): Promise<{ blob: Blob; extension: 'psd' | 'psb'; original: boolean; live: PhotoDocument } | undefined> {
   // Pending renders (embedded object frames) finish before the copy is taken.
   await e.renderer.beforeReadback?.();
+  const live = e.doc;
   // A video timeline exports the current time as drawn (clips and fades applied).
-  const doc = structuredClone(presentTimeline(e.doc));
-  if (doc.psdOriginal) {
-    try {
-      const { blob, extension } = await saveOriginalPsd(doc, (id) => e.assets.blob(id));
-      download(blob, `${doc.name}.${extension}`);
-      e.message('Original PSD downloaded with its layers retained.');
-    } catch (error) {
-      if (!(error instanceof PsdPreviewEditError)) throw error;
-      information('PSD export', `<p>${escapeXML(error.message)}</p>`);
-    }
-    return;
-  }
+  const doc = structuredClone(presentTimeline(live));
+  if (doc.psdOriginal) return { ...(await saveOriginalPsd(doc, (id) => e.assets.blob(id))), original: true, live };
   // Preferences → File Handling → Maximize PSD compatibility.
   let composite = e.preferences.psdCompatibility !== 'never';
   if (e.preferences.psdCompatibility === 'ask') {
@@ -96,9 +91,24 @@ export async function exportPsd(e: Editor) {
       (l) => maskGridPlane(e, l),
       { composite, channels: psdChannels(e, doc) },
     );
-    download(blob, `${doc.name}.psd`);
-    e.message(`PSD downloaded with pixel layers, layer masks, clipping and blend modes. Text and adjustments are rasterized; save a .photo project to keep every control.${doc.mode === 'multichannel' ? ' Multichannel documents are written as their RGB composite; the ink channels stay in the .photo project.' : ''}${allLayers(doc.layers).some((l) => l.adjustment && isSpatialKind(l.adjustment.kind)) ? ' Clarity & Dehaze and Grain layers have no PSD equivalent: they are written as empty layers and only the merged image shows their effect.' : ''}`);
+    return { blob, extension: 'psd', original: false, live };
   } finally {
     renderer.dispose();
   }
+}
+
+export async function exportPsd(e: Editor) {
+  let out: Awaited<ReturnType<typeof buildPsd>>;
+  try {
+    out = await buildPsd(e);
+  } catch (error) {
+    if (!(error instanceof PsdPreviewEditError)) throw error;
+    information('PSD export', `<p>${escapeXML(error.message)}</p>`);
+    return;
+  }
+  if (!out) return;
+  const doc = out.live;
+  download(out.blob, `${doc.name}.${out.extension}`);
+  if (out.original) return e.message('Original PSD downloaded with its layers retained.');
+  e.message(`PSD downloaded with pixel layers, layer masks, clipping and blend modes. Text and adjustments are rasterized; save a .photo project to keep every control.${doc.mode === 'multichannel' ? ' Multichannel documents are written as their RGB composite; the ink channels stay in the .photo project.' : ''}${allLayers(doc.layers).some((l) => l.adjustment && isSpatialKind(l.adjustment.kind)) ? ' Clarity & Dehaze and Grain layers have no PSD equivalent: they are written as empty layers and only the merged image shows their effect.' : ''}`);
 }

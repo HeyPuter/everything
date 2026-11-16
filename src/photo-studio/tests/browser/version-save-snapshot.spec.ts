@@ -19,7 +19,7 @@ for (const edit of ['document', 'comments']) {
       const { commentsOf } = await import('/src/features/collab/state.ts');
       commentsOf(e).add({ x: 4, y: 4 }, 'First');
     });
-    await run(page, 'file.save-as');
+    await run(page, 'file.save-as', 'photo');
     await page.waitForFunction(() => !!(window as unknown as { finishVersionSave?: () => void }).finishVersionSave);
     await page.evaluate(async (edit) => {
       const e = window.photoStudio;
