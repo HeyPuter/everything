@@ -3,7 +3,7 @@ import type { Editor } from '../../editor';
 import type { DocumentSession } from '../../app/session';
 import { serialize } from '../../model/serialization';
 import { download } from '../../persistence/puter';
-import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles } from './cloud';
+import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, type CloudItem } from './cloud';
 import { openFile } from './open';
 import { noteRecent, removeRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
 import { emitAppEvent } from '../../app/app-events';
@@ -83,23 +83,24 @@ export async function downloadProject(e: Editor) {
   void emitAppEvent('after-save', s);
 }
 
+/** Open files that live on Puter where they are: a .photo project saves back to its path. */
+export async function openCloudItems(e: Editor, items: CloudItem[]) {
+  // One file that cannot be read or opened does not stop the others.
+  const failed: string[] = [];
+  for (const item of items)
+    try {
+      const blob = typeof item.read === 'function' ? await item.read() : await cloudRead(item.path);
+      await openFile(e, blob, item.name, false, { source: { kind: 'puter', path: item.path } });
+    } catch (error) {
+      if (items.length === 1) throw error;
+      failed.push(`${item.name} could not be opened: ${errorText(error)}`);
+    }
+  if (failed.length) throw new Error(failed.join(' '));
+}
 export function openFromCloud(e: Editor) {
   e.release();
   void pickCloudFiles(true)
-    .then((items) =>
-      e.run(async () => {
-        // One file that cannot be read or opened does not stop the others.
-        const failed: string[] = [];
-        for (const item of items)
-          try {
-            await openFile(e, await item.read(), item.name, false, { source: { kind: 'puter', path: item.path } });
-          } catch (error) {
-            if (items.length === 1) throw error;
-            failed.push(`${item.name} could not be opened: ${errorText(error)}`);
-          }
-        if (failed.length) throw new Error(failed.join(' '));
-      }),
-    )
+    .then((items) => e.run(() => openCloudItems(e, items)))
     .catch((error) => e.message(errorText(error)));
 }
 

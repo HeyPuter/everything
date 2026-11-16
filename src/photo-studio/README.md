@@ -60,7 +60,7 @@ Serve `dist/` over HTTPS in production; WebGPU requires a secure context (localh
 
 ## Files
 
-- **Open:** PSD and PSB (8, 16 and 32-bit RGB), TIFF (including BigTIFF, tiled, 16-bit and float), PNG (animated PNG as frames), JPEG, WebP, AVIF, GIF (first frame, frames as layers or a frame animation), BMP, ICO/CUR, TGA, Netpbm and SVG, plus native `.photo` projects. Embedded ICC profiles and resolution are kept. Import Layers adds every layer of a PSD/PSB or .photo file (local or Puter) as a group. Any of these can also be opened or placed as an embedded object, placed as a linked file (local or Puter), or loaded as a stack of layers.
+- **Open:** PSD and PSB (8, 16 and 32-bit RGB), TIFF (including BigTIFF, tiled, 16-bit and float), PNG (animated PNG as frames), JPEG, WebP, AVIF, GIF (first frame, frames as layers or a frame animation), BMP, ICO/CUR, TGA, Netpbm and SVG, plus native `.photo` projects. Embedded ICC profiles and resolution are kept. Import Layers adds every layer of a PSD/PSB or .photo file (local or Puter) as a group. Any of these can also be opened or placed as an embedded object, placed as a linked file (local or Puter), or loaded as a stack of layers. Inside the Puter desktop the app registers for "Open with": double-clicking a file (or dragging files onto the window from the desktop) opens it from its Puter path, and a `.photo` project saves back to that file.
 - **New documents:** File → New offers Photo, Print, Art & Illustration, Web, Mobile and Film & Video presets, recently used and saved presets, and settings for units (including columns), orientation, artboards, resolution, color mode, background, color profile and pixel aspect ratio. The start screen creates a document from common presets in one click, takes a described edit (with an optional image) for the Assistant, and lists recent documents with thumbnails; local files reopen after a reload.
 - **Import:** File → Import → Images from Device captures photos from a camera (camera and resolution choice, mirroring, a 3/5/10-second timer and bursts of 3–10 shots) into a new document, one layer per shot, or as embedded objects in the current document; Import → Notes adds notes from JSON or text files.
 - **Versions and recovery:** Version History (File menu and panel) keeps versions in this browser on each save, at the autosave interval and with Save Version; versions can be previewed on the canvas, restored as a history step, opened as a copy or deleted. Unsaved documents are kept in browser storage at the recovery interval and offered again after a crash or a closed tab.
@@ -139,6 +139,7 @@ npm run wasm:build
 - [Puter.js documentation index](https://docs.puter.com/llms.txt)
 - [Filesystem writes](https://docs.puter.com/FS/write/)
 - [Open file picker](https://docs.puter.com/UI/showOpenFilePicker/)
+- [Launch items](https://docs.puter.com/UI/onLaunchedWithItems/)
 - [Save file picker](https://docs.puter.com/UI/showSaveFilePicker/)
 - [AI image generation](https://docs.puter.com/AI/txt2img/)
 - [AI chat and tool calling](https://docs.puter.com/AI/chat/)
