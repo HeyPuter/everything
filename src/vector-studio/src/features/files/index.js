@@ -135,21 +135,52 @@ function installDrop(app, service) {
   });
 }
 
-/** Puter desktop integration: launch items, window title, close prompt. */
+/**
+ * Puter desktop integration: files handed over by the desktop (a double-click,
+ * "Open with", a drag from the desktop or a folder window), and, in a desktop
+ * window, the window title and the close prompt.
+ *
+ * The desktop opens an app in a window of its own (app.env is 'app') or in a
+ * browser tab, where the SDK reports 'web' and hands the session and the file
+ * over a moment after load. Files are taken in both.
+ * https://docs.puter.com/UI/onLaunchedWithItems/
+ */
 export function installPuterHooks(app, service) {
   const puter = app.puter;
   const ui = puter?.ui;
-  if (!ui || app.env !== 'app') return;
-  const openItems = async (items) => {
+  if (!ui) return;
+  const isDir = (it) => Boolean(it.is_dir || it.isDir || it.isDirectory || it.fsentry_is_dir);
+  const openItems = async (given) => {
+    const items = (Array.isArray(given) ? given : [given]).filter((it) => it && typeof it === 'object');
+    const files = items.filter((it) => typeof it.path === 'string' && it.path && !isDir(it));
+    if (!files.length) {
+      if (items.some(isDir)) app.notify?.('Folders cannot be opened. Open the files inside instead.');
+      return;
+    }
     // An open dialog (and the preview it shows) is cancelled first, so the document is never left mid-change.
-    if (items?.length) await cancelOpenDialogs();
-    for (const it of items || []) {
-      if (!it || it.is_dir || it.isDir || !it.path) continue;
-      await service.openPath(it.path, { name: it.name || baseName(it.path) });
+    await cancelOpenDialogs();
+    // In a browser tab the session arrives with the file: the app follows it, so Save goes to the cloud.
+    if (!app.user && puter.auth?.isSignedIn?.()) await Promise.resolve(app.onSessionChange?.()).catch(() => {});
+    for (const it of files) {
+      await service.openPath(it.path, { name: it.name || baseName(it.path), ...(typeof it.read === 'function' ? { item: it } : {}) });
     }
   };
-  ui.onLaunchedWithItems?.(openItems);
-  ui.onItemsOpened?.(openItems);
+  try {
+    // The SDK answers at once (or as soon as the desktop has handed it over) when the app was started with a file.
+    ui.onLaunchedWithItems?.(openItems);
+    ui.onItemsOpened?.(openItems);
+  } catch {
+    // An SDK without launch items.
+  }
+  // Files dragged in from the Puter desktop do not arrive as a browser drop: the SDK
+  // dispatches a drop of its own with the drive's entries in its detail.
+  window.addEventListener('drop', (e) => {
+    const items = e.detail?.items;
+    if (e.dataTransfer || !Array.isArray(items)) return;
+    e.preventDefault();
+    openItems(items);
+  });
+  if (app.env !== 'app') return;
 
   // Mirror the page title (document name, unsaved marker) onto the Puter window.
   let last = '';

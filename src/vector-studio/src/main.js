@@ -43,6 +43,11 @@ async function boot() {
   const root = document.getElementById('app');
   const puter = await waitForPuter();
   const env = puter?.env || 'web';
+  // In a browser tab the Puter desktop opened, the session is handed over a moment after load:
+  // wait for it (briefly), so the app starts signed in and the file it was opened with can be read.
+  if (typeof puter?.openerLaunch_?.then === 'function') {
+    await Promise.race([Promise.resolve(puter.openerLaunch_).catch(() => {}), new Promise((r) => setTimeout(r, 4000))]);
+  }
   let user = null;
   let picture = null;
   if (puter && (env === 'app' || puter.auth.isSignedIn())) ({ user, picture } = await profile(puter));

@@ -834,6 +834,67 @@ describe('Puter desktop hooks', () => {
   });
 });
 
+describe('Puter desktop hooks in a browser tab', () => {
+  // The desktop can open the app in a tab instead of a window: the SDK then reports 'web'.
+  function setup({ user = null, signedIn = true } = {}) {
+    const handlers = {};
+    const puter = {
+      auth: { isSignedIn: () => signedIn },
+      ui: { onLaunchedWithItems: (f) => (handlers.launch = f), setWindowTitle: vi.fn(), onWindowClose: vi.fn() },
+    };
+    const app = { env: 'web', user, puter, editors: [], notify: vi.fn(), onSessionChange: vi.fn(async () => (app.user = { username: 'u' })) };
+    const service = { openPath: vi.fn(async () => null) };
+    return { handlers, puter, app, service };
+  }
+
+  it('opens the file the app was launched with, signed in, without taking over the window', async () => {
+    const { installPuterHooks } = await import('../src/features/files/index.js');
+    const { handlers, puter, app, service } = setup();
+    installPuterHooks(app, service);
+    const item = { path: '~/Desktop/Logo.ai', name: 'Logo.ai', isDirectory: false, read: async () => new Blob([]) };
+    let userAtOpen = null;
+    service.openPath.mockImplementation(async () => (userAtOpen = app.user));
+    await handlers.launch([item]);
+    expect(service.openPath).toHaveBeenCalledWith('~/Desktop/Logo.ai', { name: 'Logo.ai', item });
+    // The session that came with the file is picked up before the file opens.
+    expect(app.onSessionChange).toHaveBeenCalledTimes(1);
+    expect(userAtOpen).toEqual({ username: 'u' });
+    // The window title and close prompt belong to a desktop window only.
+    expect(puter.ui.setWindowTitle).not.toHaveBeenCalled();
+    expect(puter.ui.onWindowClose).not.toHaveBeenCalled();
+  });
+
+  it('takes a single item, names it from its path, and leaves folders out', async () => {
+    const { installPuterHooks } = await import('../src/features/files/index.js');
+    const { handlers, app, service } = setup({ user: { username: 'u' } });
+    installPuterHooks(app, service);
+    await handlers.launch({ path: '/u/Art/Poster.ai' });
+    expect(service.openPath).toHaveBeenCalledWith('/u/Art/Poster.ai', { name: 'Poster.ai' });
+    expect(app.onSessionChange).not.toHaveBeenCalled();
+    service.openPath.mockClear();
+    await handlers.launch([{ path: '/u/Art', isDirectory: true }, { path: '/u/Old', fsentry_is_dir: true }]);
+    expect(service.openPath).not.toHaveBeenCalled();
+    expect(app.notify).toHaveBeenCalledWith(expect.stringContaining('Folders cannot be opened'));
+  });
+
+  it('opens files dragged in from the Puter desktop, and leaves browser drops alone', async () => {
+    const { installPuterHooks } = await import('../src/features/files/index.js');
+    const { app, service } = setup({ user: { username: 'u' } });
+    installPuterHooks(app, service);
+    const drop = new CustomEvent('drop', { bubbles: true, cancelable: true, detail: { items: [{ path: '/u/Desktop/Mark.svg', name: 'Mark.svg' }] } });
+    document.body.dispatchEvent(drop);
+    await vi.waitFor(() => expect(service.openPath).toHaveBeenCalledWith('/u/Desktop/Mark.svg', { name: 'Mark.svg' }));
+    expect(drop.defaultPrevented).toBe(true);
+    service.openPath.mockClear();
+    // A drop of files from this computer carries a dataTransfer: the file drop handlers take it.
+    const local = new Event('drop', { bubbles: true, cancelable: true });
+    local.dataTransfer = { types: ['Files'], items: [], files: [] };
+    document.body.dispatchEvent(local);
+    await Promise.resolve();
+    expect(service.openPath).not.toHaveBeenCalled();
+  });
+});
+
 describe('bleed guides', () => {
   it('outsets the artboard by the document bleed on each side', async () => {
     const { bleedRect } = await import('../src/render/canvas-view.js');
