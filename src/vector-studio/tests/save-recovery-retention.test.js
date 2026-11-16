@@ -9,14 +9,14 @@ it.each(['artwork', 'comment'])('keeps recovery data containing a newer %s after
   const store = new RecoveryStore(memoryBackend());
   app.files.autosaver.fixedStore = store;
   const ed = app.newDocument({ name: 'Original' });
-  ed.file = { kind: 'puter', path: '/u/Artwork.vstudio', name: 'Artwork.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Artwork.ai', name: 'Artwork.ai' };
   ed.doc.transact('Earlier edit', () => ed.doc.updateRoot({ name: 'Earlier' }));
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   let writes = 0;
   app.puter = { fs: { write: vi.fn(async (path) => {
     if (++writes === 1) await gate;
-    return { path, name: 'Artwork.vstudio' };
+    return { path, name: 'Artwork.ai' };
   }) } };
   try {
     const saving = app.files.service.save(ed);

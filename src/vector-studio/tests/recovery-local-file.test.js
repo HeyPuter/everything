@@ -15,7 +15,7 @@ it.each([
   const store = new RecoveryStore(mode === 'page-close stash' ? { ...backend, writeBlob: () => new Promise(() => {}) } : backend);
   app.files.autosaver.fixedStore = store;
   const ed = app.newDocument();
-  const handle = { name: 'Drawing.vstudio' };
+  const handle = { name: 'Drawing.ai' };
   ed.file = { kind: 'local', name: handle.name, handle, handleId: 'stored-drawing-handle' };
   ed.doc.transact('Edit', () => ed.doc.updateRoot({ name: 'Recovered artwork' }));
   const getHandle = vi.spyOn(handleStore, 'get').mockResolvedValue(available ? handle : null);

@@ -18,7 +18,7 @@ async function setup(direction = 'Undo') {
   const editors = ['First', 'Second'].map((name) => {
     const doc = VDocument.create({ name });
     edit(doc, `${name} backed up`);
-    return { doc, file: { kind: 'puter', path: `/u/${name}.vstudio` }, get name() { return doc.root.name; } };
+    return { doc, file: { kind: 'puter', path: `/u/${name}.ai` }, get name() { return doc.root.name; } };
   });
   const second = editors[1];
   if (direction === 'Redo') edit(second.doc, 'Second backed up again');
@@ -65,7 +65,7 @@ it.each(['new work', 'new location', 'new comments', 'stashed newer work'])('sti
   try {
     await vi.waitFor(() => expect(writing).toHaveBeenCalledOnce());
     if (change !== 'new work') second.doc.undo();
-    if (change === 'new location') second.file = { kind: 'puter', path: '/u/Renamed.vstudio' };
+    if (change === 'new location') second.file = { kind: 'puter', path: '/u/Renamed.ai' };
     if (change === 'new comments') second.doc.setComments({ threads: [{ id: 'new-comment', text: 'New comment' }] });
     serialize.mockClear();
     release();

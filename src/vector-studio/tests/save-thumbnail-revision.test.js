@@ -10,7 +10,7 @@ it.each([
 ])('marks the serialized artwork saved after %s during thumbnail generation (Save again: %s)', async (action, again) => {
   const app = await bootAppWithFeatures();
   const ed = app.newDocument({ name: 'Original' });
-  ed.file = { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' };
   ed.doc.transact('First edit', () => ed.doc.updateRoot({ name: 'First edit' }));
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -18,7 +18,7 @@ it.each([
   let disk;
   app.puter = { fs: { write: vi.fn(async (path, blob) => {
     disk = new Uint8Array(await blob.arrayBuffer());
-    return { path, name: 'Drawing.vstudio' };
+    return { path, name: 'Drawing.ai' };
   }) } };
   try {
     const saving = app.files.service.save(ed);

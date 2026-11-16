@@ -59,6 +59,7 @@ import { exportView, frozenDocument } from './export-view.js';
 import { exportWriters } from './hooks.js';
 import { layoutContent } from './print-layout.js';
 import { securityHandler, encryptStream, newDocumentId } from './pdf-crypto.js';
+import { privateStreamDict, pieceInfoEntry } from '../files/container.js';
 import { transformBetween } from '../icc/profiles.js';
 import { spotTint } from '../prepress/separations.js';
 import { averageColor, freeformFrame, frameFractionMatrix, freeformPixels } from '../paint/freeform.js';
@@ -1443,6 +1444,7 @@ async function decodePixels(asset) {
  *   outputIntent    { name, bytes, n } (or just a name): the printing condition
  *   pdfx            'x1a' | 'x4': PDF/X identification, trim boxes, no
  *                   annotations or thumbnails, strict flattening (X-1a)
+ * and `document`: the document data a saved .ai file carries (files/container.js).
  * Returns { bytes: Uint8Array, warnings: string[] }.
  */
 export async function writePDF(source, pages, opts = {}) {
@@ -1482,7 +1484,9 @@ export async function writePDF(source, pages, opts = {}) {
   // The XMP dates match the information dictionary's (ISO 8601, UTC, whole seconds).
   const isoDate = `${d.toISOString().slice(0, 19)}Z`;
   const metadata = opts.pdfx === 'x4' ? ` /Metadata ${w.addStream('/Type /Metadata /Subtype /XML', xmpPacket({ title, version: 'PDF/X-4', date: isoDate, id: w.id, instance: newDocumentId() }), { compress: false })} 0 R` : '';
-  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent}${metadata} >>`);
+  // A saved document: the editable data rides along as the application's private data.
+  const piece = opts.document && !encrypt ? ` ${pieceInfoEntry(w.addStream(privateStreamDict(w.id), opts.document, { compress: false }), date)}` : '';
+  w.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R${ocProps}${intent}${metadata}${piece} >>`);
   // File Info metadata (doc.root.info) fills the document information dictionary.
   const list = (v) => (Array.isArray(v) ? v.join('; ') : v);
   const extra = [['Author', list(meta.author)], ['Subject', meta.description], ['Keywords', list(meta.keywords)]].filter(([, v]) => v).map(([k, v]) => `/${k} ${pdfText(v)} `).join('');

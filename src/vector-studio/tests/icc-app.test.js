@@ -128,7 +128,7 @@ describe('document profiles', () => {
     app.prefs.set('colorSettings', { askMissing: true });
     doc.transact('Profile', () => doc.updateRoot({ colorProfile: 'icc:00000000deadbeef' }));
     expect(registerDocumentProfiles(doc)).toEqual([]);
-    const ed2 = app.addDocument(doc, { file: { name: 'missing.vstudio' } });
+    const ed2 = app.addDocument(doc, { file: { name: 'missing.ai' } });
     await tick();
     await tick();
     expect(dlg().querySelector('.dialog-title').textContent).toBe('Missing Profile');

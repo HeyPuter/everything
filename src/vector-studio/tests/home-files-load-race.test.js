@@ -68,7 +68,7 @@ it('does not load thumbnails for an obsolete Home section after rerender', async
   app.renderHome(host);
   pending[1].resolve([item('Fresh.svg')]);
   await tick();
-  pending[0].resolve([item('Obsolete-native.vstudio', 'native')]);
+  pending[0].resolve([item('Obsolete-native.ai', 'native')]);
   await tick();
   expect(names()).toEqual(['Fresh.svg']);
   expect(files.recent.thumb.mock.calls.map(([entry]) => entry.path)).toEqual(['/u/Fresh.svg']);
@@ -79,7 +79,7 @@ it('stops a deferred thumbnail lookup when sign-out replaces the Home section', 
   const { app, files, host, pending } = setup();
   const thumb = deferred();
   files.recent.thumb.mockReturnValueOnce(thumb.promise);
-  pending[0].resolve([item('Before-signout.vstudio', 'native')]);
+  pending[0].resolve([item('Before-signout.ai', 'native')]);
   await tick();
   expect(files.recent.thumb).toHaveBeenCalledOnce();
   files.cloud = false;
@@ -107,18 +107,18 @@ it('renders current native thumbnails and preserves file actions', async () => {
   const { app, files, host, pending } = setup();
   const thumbnail = 'data:image/png;base64,CURRENT';
   app.puter.fs.read.mockResolvedValue(new Blob([JSON.stringify({ meta: { thumbnail } })]));
-  pending[0].resolve([item('Current-native-control.vstudio', 'native')]);
+  pending[0].resolve([item('Current-native-control.ai', 'native')]);
   await vi.waitFor(() => expect(host.querySelector('.files-list img')?.getAttribute('src')).toBe(thumbnail));
   expect(app.puter.fs.read).toHaveBeenCalledOnce();
   host.querySelector('.files-list .recent-item').click();
-  expect(files.service.openPath).toHaveBeenCalledWith('/u/Current-native-control.vstudio', { name: 'Current-native-control.vstudio' });
+  expect(files.service.openPath).toHaveBeenCalledWith('/u/Current-native-control.ai', { name: 'Current-native-control.ai' });
 });
 
 it('skips queued thumbnail downloads after a Home section is replaced', async () => {
   const { app, host, pending } = setup();
   const reads = [];
   app.puter.fs.read.mockImplementation(() => { const request = deferred(); reads.push(request); return request.promise; });
-  pending[0].resolve(Array.from({ length: 5 }, (_, i) => item(`Queued-native-${i}.vstudio`, 'native')));
+  pending[0].resolve(Array.from({ length: 5 }, (_, i) => item(`Queued-native-${i}.ai`, 'native')));
   try {
     await vi.waitFor(() => expect(reads).toHaveLength(3));
     app.renderHome(host);
@@ -142,7 +142,7 @@ it('loads current files alongside the real asynchronous Home renderer', async ()
 
 it.each(['recent', 'native', 'missing'])('shows a newly saved preview despite an unchanged timestamp and a cached %s preview', async (source) => {
   const { app, files, host, pending, refresh } = setup();
-  const entry = item(`Preview-freshness-${source}.vstudio`, 'native');
+  const entry = item(`Preview-freshness-${source}.ai`, 'native');
   const oldThumb = 'data:image/png;base64,OLD', newThumb = 'data:image/png;base64,NEW';
   files.cache = memoryBackend();
   files.recent = new RecentFiles(new Prefs(null), { cache: files.cache });
@@ -165,7 +165,7 @@ it.each(['recent', 'native', 'missing'])('shows a newly saved preview despite an
 
 it('reuses unchanged native previews without repeated cache reads or downloads', async () => {
   const { app, files, host, pending, refresh } = setup();
-  const entry = item('Preview-cache-fast-path.vstudio', 'native');
+  const entry = item('Preview-cache-fast-path.ai', 'native');
   const thumbnail = 'data:image/png;base64,UNCHANGED';
   files.cache = memoryBackend();
   files.recent = new RecentFiles(new Prefs(null), { cache: files.cache });

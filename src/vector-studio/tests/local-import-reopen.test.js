@@ -59,7 +59,7 @@ it('opens the original as a fresh import after Save As gives the previous docume
     first.doc.transact('Rename', () => first.doc.updateRoot({ name: 'Saved copy' }));
     c.app.user = { username: 'test' };
     c.app.prefs.set('filesSaveDialog', 'puter');
-    c.app.puter = { fs: {}, ui: { showSaveFilePicker: async () => ({ path: '/u/Copy.vstudio', name: 'Copy.vstudio' }) } };
+    c.app.puter = { fs: {}, ui: { showSaveFilePicker: async () => ({ path: '/u/Copy.ai', name: 'Copy.ai' }) } };
     expect(await c.service.saveAs(first)).toBe(true);
     expect(first.file.kind).toBe('puter');
     const second = await c.service.openFileBlob(c.file, { handle: c.handle() });

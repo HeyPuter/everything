@@ -189,18 +189,18 @@ describe('Version history of downloaded documents', () => {
     try {
       expect(await app.files.service.save(ed)).toBe(true);
       expect(await app.files.service.save(other)).toBe(true);
-      expect(ed.file).toMatchObject({ kind: 'download', name: 'Poster.vstudio' });
-      expect(other.file).toMatchObject({ kind: 'download', name: 'Poster.vstudio' });
+      expect(ed.file).toMatchObject({ kind: 'download', name: 'Poster.ai' });
+      expect(other.file).toMatchObject({ kind: 'download', name: 'Poster.ai' });
       await versionsSettle();
       expect(versionKey(ed)).not.toBe(versionKey(other));
       expect((await app.versions.list(versionKey(ed))).length).toBe(1);
       expect((await app.versions.list(versionKey(other))).length).toBe(1);
       // Opening the downloaded file again (another day, a renamed copy) finds its history.
-      const reopened = await app.files.service.openBytes(new Uint8Array(await dl.blobs[0].arrayBuffer()), { name: 'Poster (1).vstudio' });
+      const reopened = await app.files.service.openBytes(new Uint8Array(await dl.blobs[0].arrayBuffer()), { name: 'Poster (1).ai' });
       expect(versionKey(reopened)).toBe(versionKey(ed));
       // Save a Copy gives the copy its own identity.
       await app.files.service.saveAs(ed, { copy: true });
-      const copy = await app.files.service.openBytes(new Uint8Array(await dl.blobs.at(-1).arrayBuffer()), { name: 'Poster copy.vstudio' });
+      const copy = await app.files.service.openBytes(new Uint8Array(await dl.blobs.at(-1).arrayBuffer()), { name: 'Poster copy.ai' });
       expect(versionKey(copy)).not.toBe(versionKey(ed));
     } finally {
       dl.restore();
@@ -210,10 +210,10 @@ describe('Version history of downloaded documents', () => {
   it('a file from before documents had an identity lists its old versions and keeps them once saved', async () => {
     const { app, ed } = await setup();
     // Versions kept by older releases under the file name.
-    const legacy = hashKey('name:Old.vstudio');
-    const old = await app.versions.add(legacy, ed.doc, { name: 'Old.vstudio' });
+    const legacy = hashKey('name:Old.ai');
+    const old = await app.versions.add(legacy, ed.doc, { name: 'Old.ai' });
     const bytes = await serializeDocument(ed.doc, { id: null });
-    const opened = await app.files.service.openBytes(bytes, { name: 'Old.vstudio' });
+    const opened = await app.files.service.openBytes(bytes, { name: 'Old.ai' });
     expect(opened.doc.legacyVersionKey).toBe(legacy);
     const done = app.commands.run('file.versionHistory');
     const dlg = await openDialogEl();
@@ -360,16 +360,16 @@ describe('Package', () => {
     expect(fontsUsed(doc)).toEqual([{ family: 'Inter', weight: 700, style: 'normal', count: 1 }]);
     const { entries, report } = await packageEntries(app, ed, { includeFonts: false });
     const names = entries.map((e) => e.name);
-    expect(names).toContain('Poster/Poster.vstudio');
+    expect(names).toContain('Poster/Poster.ai');
     expect(names).toContain('Poster/Links/logo.png');
     expect(names).toContain('Poster/Report.txt');
     expect(report).toMatch(/Inter 700/);
     expect(report).toMatch(/logo\.png/);
     // Package options: folder name, images at the top level or left out, no report.
     const flat = (await packageEntries(app, ed, { includeFonts: false, linksFolder: false, report: false, folder: 'Out' })).entries.map((e) => e.name);
-    expect(flat).toEqual(['Out/Poster.vstudio', 'Out/logo.png']);
+    expect(flat).toEqual(['Out/Poster.ai', 'Out/logo.png']);
     const bare = (await packageEntries(app, ed, { includeFonts: false, copyLinks: false })).entries.map((e) => e.name);
-    expect(bare).toEqual(['Poster/Poster.vstudio', 'Poster/Report.txt']);
+    expect(bare).toEqual(['Poster/Poster.ai', 'Poster/Report.txt']);
   });
 });
 

@@ -79,7 +79,7 @@ describe('home screen accessibility', () => {
     const { installHome } = await import('../src/ui/home.js');
     const app = bootApp();
     installHome(app);
-    app.recentFiles = async () => [{ name: 'Logo.vstudio', when: 'today' }];
+    app.recentFiles = async () => [{ name: 'Logo.ai', when: 'today' }];
     app.showHome();
     await new Promise((r) => setTimeout(r, 0));
     expect(document.querySelectorAll('.recent-list [role="listitem"] > button.recent-item')).toHaveLength(1);

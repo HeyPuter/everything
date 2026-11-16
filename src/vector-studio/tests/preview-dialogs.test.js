@@ -115,7 +115,7 @@ describe('Preview dialogs and outside actions', () => {
     app.notify = (m) => notes.push(m);
     const editors = app.editors.length;
     const drop = new Event('drop', { cancelable: true, bubbles: true });
-    drop.dataTransfer = { types: ['Files'], items: [{ kind: 'file', getAsFile: () => new File(['<svg/>'], 'a.vstudio') }] };
+    drop.dataTransfer = { types: ['Files'], items: [{ kind: 'file', getAsFile: () => new File(['<svg/>'], 'a.ai') }] };
     window.dispatchEvent(drop);
     await new Promise((r) => setTimeout(r, 400));
     expect(drop.defaultPrevented).toBe(true);

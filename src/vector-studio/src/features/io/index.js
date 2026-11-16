@@ -14,6 +14,7 @@
  *   app.exporters.svg(editor, opts)    -> Promise<string>
  *   app.exporters.svgAsync(editor, opts) -> Promise<string> (same as svg)
  *   app.exporters.pdf(editor, opts)    -> Promise<Uint8Array>
+ *   app.exporters.documentFile(doc, data) -> Promise<Uint8Array> (a .ai file: PDF pages around the document data)
  *   app.exporters.raster(editor, opts) -> Promise<Blob>
  *   app.exporters.thumbnail(editor, { size, artboard }) -> Promise<Blob> (PNG)
  */
@@ -52,6 +53,7 @@ export function install(app) {
     svg: async (editor, opts) => (await loadIO()).svg(app, editor, opts),
     svgAsync: async (editor, opts) => (await loadIO()).svg(app, editor, opts),
     pdf: async (editor, opts) => (await loadIO()).pdf(app, editor, opts),
+    documentFile: async (doc, data) => (await loadIO()).documentFile(app, doc, data),
     raster: async (editor, opts) => (await loadIO()).raster(editor, opts),
     thumbnail: async (editor, opts) => (await loadIO()).thumbnail(editor, opts),
   };

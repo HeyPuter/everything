@@ -4,7 +4,7 @@ import { RecentFiles } from '../src/features/files/recent.js';
 import { memoryBackend } from '../src/features/files/backends.js';
 
 afterEach(() => vi.restoreAllMocks());
-const drawing = { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing' };
+const drawing = { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing' };
 const oldThumb = 'data:image/png;base64,OLD', newThumb = 'data:image/png;base64,NEW';
 function deferred() {
   let resolve;
@@ -62,7 +62,7 @@ it.each(['replace', 'clear'])('does not restore an old cache read after %s', asy
 it('does not evict a reopened file thumbnail after another entry finishes writing', async () => {
   const { cache, recent, persisted } = setup({ max: 1 });
   await recent.add({ ...drawing, thumb: oldThumb });
-  const other = { kind: 'puter', path: '/u/Other.vstudio', name: 'Other' };
+  const other = { kind: 'puter', path: '/u/Other.ai', name: 'Other' };
   const gate = deferred(), write = cache.writeJSON;
   const writing = vi.spyOn(cache, 'writeJSON').mockImplementationOnce(async (...args) => { await gate.promise; return write(...args); });
   const addingOther = recent.add({ ...other, thumb: oldThumb });
@@ -82,7 +82,7 @@ it('allows unrelated thumbnail writes to proceed while one file is blocked', asy
   const writing = vi.spyOn(cache, 'writeJSON').mockImplementationOnce(async (...args) => { await gate.promise; return write(...args); });
   const first = recent.setThumb(drawing, oldThumb);
   await vi.waitFor(() => expect(writing).toHaveBeenCalledOnce());
-  const other = { kind: 'puter', path: '/u/Other.vstudio', name: 'Other' };
+  const other = { kind: 'puter', path: '/u/Other.ai', name: 'Other' };
   try {
     await recent.setThumb(other, newThumb);
     expect(await persisted(other)).toBe(newThumb);

@@ -177,7 +177,7 @@ function graphemes(str) {
  * characters the fonts lack are placed as images (see textOutlines) and the
  * user is told which ones.
  */
-export async function collectTextOutlines(app, doc, rootIds, { images = false } = {}) {
+export async function collectTextOutlines(app, doc, rootIds, { images = false, quiet = false } = {}) {
   const out = new Map();
   if (!app?.textOutlines) return out;
   const missing = new Set();
@@ -192,7 +192,7 @@ export async function collectTextOutlines(app, doc, rootIds, { images = false } 
     for (const c of n.children || []) await visit(c);
   };
   for (const id of rootIds) await visit(id);
-  if (missing.size) {
+  if (missing.size && !quiet) {
     const chars = [...missing];
     const list = chars.slice(0, 8).join(' ') + (chars.length > 8 ? ' …' : '');
     app.notify?.(`Some characters have no outlines in their font and were placed as images: ${list}. Choose a font that includes them to keep them as vector shapes.`, { timeout: 8000 });

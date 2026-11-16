@@ -1266,7 +1266,7 @@ class StylesPanel extends Panel {
   }
 
   loadFromFile() {
-    const input = h('input', { type: 'file', accept: '.vstudio,application/octet-stream,application/json', hidden: true });
+    const input = h('input', { type: 'file', accept: '.ai,.vstudio,application/octet-stream,application/json', hidden: true });
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       input.remove();

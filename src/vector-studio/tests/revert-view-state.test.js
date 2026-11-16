@@ -16,7 +16,7 @@ it('keeps each shared window view settings and active artboard when reverting co
       { x: 250, y: 0, w: 200, h: 200, name: 'Two' },
     ] }));
     const bytes = await serializeDocument(first.doc);
-    first.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile: async () => new Blob([bytes]) } };
+    first.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile: async () => new Blob([bytes]) } };
     const second = newWindow(app, first);
     first.setViewOption('mode', 'outline');
     first.setViewOption('grid', true);
@@ -49,7 +49,7 @@ it('clamps an active artboard removed by reverting to the saved document', async
   try {
     const ed = app.newDocument();
     const bytes = await serializeDocument(ed.doc);
-    ed.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile: async () => new Blob([bytes]) } };
+    ed.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile: async () => new Blob([bytes]) } };
     ed.doc.transact('Add artboard', () => ed.doc.updateRoot({ artboards: [...ed.doc.artboards, { x: 250, y: 0, w: 200, h: 200, name: 'Unsaved' }] }));
     ed.setActiveArtboard(1);
     app.dialogs.confirm = async () => true;

@@ -6,7 +6,7 @@ import { dialogHooks } from '../src/ui/dialogs/dialog.js';
 it.each([['comment', false], ['edit then Undo', false], ['comment', true], ['edit then Undo', true]])('asks again before closing after %s (save the remaining changes: %s)', async (change, saveAgain) => {
   const app = await bootAppWithFeatures();
   const ed = app.newDocument();
-  ed.file = { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' };
   ed.doc.transact('First edit', () => ed.doc.updateRoot({ name: 'First edit' }));
   const originalRevision = ed.doc.revision;
   let releaseEncode, releaseWrite;
@@ -17,7 +17,7 @@ it.each([['comment', false], ['edit then Undo', false], ['comment', true], ['edi
     disk = new Uint8Array(await blob.arrayBuffer());
     writing = true;
     await writeGate;
-    return { path, name: 'Drawing.vstudio' };
+    return { path, name: 'Drawing.ai' };
   } } };
   const encode = app.files.service.encode.bind(app.files.service);
   const spy = vi.spyOn(app.files.service, 'encode').mockImplementation(async (...args) => {

@@ -10,7 +10,7 @@ async function setup() {
   let finish;
   const read = new Promise((resolve) => { finish = resolve; });
   const getFile = vi.fn(() => read);
-  first.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile } };
+  first.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile } };
   const second = newWindow(app, first);
   first.doc.transact('Rename', () => first.doc.updateRoot({ name: 'Unsaved' }));
   app.activate(first);

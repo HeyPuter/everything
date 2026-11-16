@@ -4,15 +4,15 @@ import { arrangeRecent } from '../src/ui/home.js';
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 const ITEMS = [
-  { name: 'zebra.vstudio', when: 'now' },
-  { name: 'Apple 10.vstudio', when: '1 h ago' },
-  { name: 'apple 2.vstudio', when: '2 h ago' },
+  { name: 'zebra.ai', when: 'now' },
+  { name: 'Apple 10.ai', when: '1 h ago' },
+  { name: 'apple 2.ai', when: '2 h ago' },
 ];
 
 describe('Home screen', () => {
   it('sorts and filters recent files', () => {
     expect(arrangeRecent(ITEMS).map((i) => i.name)).toEqual(ITEMS.map((i) => i.name));
-    expect(arrangeRecent(ITEMS, { sort: 'name' }).map((i) => i.name)).toEqual(['apple 2.vstudio', 'Apple 10.vstudio', 'zebra.vstudio']);
+    expect(arrangeRecent(ITEMS, { sort: 'name' }).map((i) => i.name)).toEqual(['apple 2.ai', 'Apple 10.ai', 'zebra.ai']);
     expect(arrangeRecent(ITEMS, { filter: 'APP' })).toHaveLength(2);
   });
 
@@ -27,7 +27,7 @@ describe('Home screen', () => {
     const filter = home.querySelector('.home-filter');
     filter.value = 'zeb';
     filter.dispatchEvent(new Event('input'));
-    expect(names()).toEqual(['zebra.vstudio']);
+    expect(names()).toEqual(['zebra.ai']);
     filter.value = 'nothing';
     filter.dispatchEvent(new Event('input'));
     expect(home.querySelector('.recent-list').hasAttribute('role')).toBe(false);
@@ -36,7 +36,7 @@ describe('Home screen', () => {
     const sort = home.querySelector('.home-sort');
     sort.value = 'name';
     sort.dispatchEvent(new Event('change'));
-    expect(names()[0]).toBe('apple 2.vstudio');
+    expect(names()[0]).toBe('apple 2.ai');
     expect(app.prefs.get('homeRecentSort')).toBe('name');
     home.querySelector('.home-view[data-mode="list"]').click();
     expect(home.querySelector('.recent-list').classList.contains('list-view')).toBe(true);

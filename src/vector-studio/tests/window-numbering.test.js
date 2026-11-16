@@ -31,14 +31,14 @@ it('keeps numbering distinct after the original window closes and the document i
   try {
     const first = app.newDocument({ name: 'Artwork' });
     const bytes = await serializeDocument(first.doc);
-    first.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile: async () => new Blob([bytes]) } };
+    first.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile: async () => new Blob([bytes]) } };
     const second = newWindow(app, first);
     await app.closeDocument(first, { force: true });
     second.doc.transact('Rename', () => second.doc.updateRoot({ name: 'Edited' }));
     app.dialogs.confirm = async () => true;
     const reverted = await app.files.service.revert(second);
-    expect(reverted.name).toBe('Artwork.vstudio:2');
-    expect(newWindow(app, reverted).name).toBe('Artwork.vstudio:3');
+    expect(reverted.name).toBe('Artwork.ai:2');
+    expect(newWindow(app, reverted).name).toBe('Artwork.ai:3');
   } finally {
     await closeAll(app);
   }

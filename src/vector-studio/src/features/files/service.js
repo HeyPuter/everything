@@ -12,15 +12,22 @@
  *     Access API in Chromium (true save-in-place) or an <input type=file>;
  *     Save writes through the handle or downloads, and offers sign-in.
  *
- * editor.file = { kind: 'puter', path, name } | { kind: 'local', name, handle, handleId }
+ * Documents are .ai files (container.js): Save writes a .ai file back where
+ * it is. A document opened from any other kind of file saves as a new .ai
+ * file, and a .ai file from another program asks before it is replaced.
+ *
+ * editor.file = { kind: 'puter', path, name, foreign? } | { kind: 'local', name, handle, handleId, foreign? }
  *             | { kind: 'download', name } | { kind: 'import', name, path?, format, source? }
+ * `foreign` marks a .ai file that was not saved here: its pages were imported.
  */
 import { h } from '../../lib/dom.js';
 import { uid } from '../../lib/ids.js';
 import { openDialog } from '../../ui/dialogs/dialog.js';
+import { VDocument } from '../../model/document.js';
 import { serializeDocument, parseDocument, documentId, newFileId, FileFormatError, toBytes, isGzip, gunzip, canCompress } from './format.js';
+import { isPDF, embeddedDocument, plainContainer } from './container.js';
 import { renderThumbnail } from './thumbnail.js';
-import { NATIVE_EXT, NATIVE_MIME, baseName, ensureExtension, extensionOf, fileKind, joinPath, stripExtension, suggestFileName, uniqueName } from './naming.js';
+import { NATIVE_EXT, NATIVE_MIME, LEGACY_EXT, LEGACY_MIME, baseName, ensureExtension, extensionOf, fileKind, joinPath, stripExtension, suggestFileName, uniqueName } from './naming.js';
 import { classifyError, errorText, saveErrorDialog, sleep } from './errors.js';
 import { handleStore, ensurePermission, fsAccessAvailable } from './handles.js';
 import { isMissing, toMs } from './backends.js';
@@ -28,7 +35,19 @@ import { isMissing, toMs } from './backends.js';
 /** App-relative fallback folder (inside the app's own Puter folder). */
 export const APPDATA_DIR = 'Documents';
 export const DOCS_SUBDIR = 'Vector Studio';
-export const OPEN_EXTS = ['.vstudio', '.svg', '.svgz'];
+export const OPEN_EXTS = [NATIVE_EXT, LEGACY_EXT, '.svg', '.svgz'];
+
+/** Whether a file is a .ai file, the only kind Save writes in place. */
+const isNativeFile = (file) => extensionOf(file?.name || file?.path) === NATIVE_EXT;
+
+/** The document as it is now (nodes are immutable), for a writer that yields while it works. */
+function frozen(doc) {
+  if (!(doc instanceof VDocument)) return doc;
+  const copy = new VDocument();
+  for (const [id, node] of doc.nodes) copy.nodes.set(id, node);
+  copy.assets = doc.assets;
+  return copy;
+}
 
 export function blobOf(bytes) {
   return new Blob([bytes], { type: NATIVE_MIME });
@@ -102,8 +121,29 @@ export class FileService {
     }
     const version = doc.nodes.version;
     const commentsRevision = doc.commentsRevision;
-    const bytes = await serializeDocument(doc, { thumbnail: thumb, id });
-    return { bytes, thumb, rev, version, commentsRevision };
+    const file = await this.write(doc, { thumbnail: thumb, id });
+    return { ...file, thumb, rev, version, commentsRevision };
+  }
+
+  /**
+   * The .ai file for a document as it is at the call: its artboards as PDF
+   * pages around the document data. Resolves { bytes, data, plain }: `data`
+   * is the document data alone, `plain` is set when the pages could not be
+   * drawn (the file still holds the whole document).
+   */
+  async write(doc, { thumbnail = null, id } = {}) {
+    // The pages and the data show the same state, whatever is edited while they are written.
+    const pages = frozen(doc);
+    const data = await serializeDocument(doc, { thumbnail, ...(id !== undefined ? { id } : {}) });
+    const draw = this.app.exporters?.documentFile;
+    if (draw) {
+      try {
+        return { bytes: await draw(pages, data), data };
+      } catch (err) {
+        console.warn('The pages of the file could not be drawn', err);
+      }
+    }
+    return { bytes: plainContainer(pages.artboards, data), data, plain: Boolean(draw) };
   }
 
   // ---- default folder ("Your files") ----
@@ -153,7 +193,7 @@ export class FileService {
     return APPDATA_DIR;
   }
 
-  /** .vstudio and .svg files in the default folders, newest first. */
+  /** .ai, .vstudio and .svg files in the default folders, newest first. */
   async listYourFiles() {
     if (!this.cloud) return [];
     const seen = new Set();
@@ -217,8 +257,16 @@ export class FileService {
 
   async #save(editor) {
     const f = editor.file;
-    if (f?.kind === 'puter' && f.path && this.puter?.fs) return this.#writeCloud(editor, f);
-    if (f?.kind === 'local' && f.handle) return this.#writeHandle(editor, f);
+    // Only a .ai file is written in place: a document from another kind of file saves as a new one.
+    const inPlace = isNativeFile(f) && ((f.kind === 'puter' && f.path && this.puter?.fs) || (f.kind === 'local' && f.handle));
+    if (inPlace && f.foreign) {
+      const choice = await this.#confirmReplace(f);
+      if (!choice) return false;
+      if (choice === 'saveAs') return this.saveAs(editor);
+      delete f.foreign;
+    }
+    if (inPlace && f.kind === 'puter') return this.#writeCloud(editor, f);
+    if (inPlace) return this.#writeHandle(editor, f);
     if (f?.kind === 'download') {
       const enc = await this.encode(editor);
       downloadBytes(enc.bytes, f.name);
@@ -226,6 +274,23 @@ export class FileService {
       return true;
     }
     return this.saveAs(editor);
+  }
+
+  /** Saving over a .ai file another program made keeps only what was imported: ask first (once). */
+  #confirmReplace(file) {
+    return openDialog({
+      title: 'Save',
+      body: h(
+        'div',
+        h('p.dialog-message', `"${file.name}" was made in another program. Saving replaces it with the artwork as it opened here.`),
+        h('p.dialog-message.muted', 'Anything that did not open with it is not kept in the file. Use Save As to keep the original.'),
+      ),
+      buttons: [
+        { label: 'Save As...', value: 'saveAs', left: true },
+        { label: 'Cancel', value: null },
+        { label: 'Replace', value: 'replace', primary: true },
+      ],
+    });
   }
 
   async #writeCloud(editor, file, enc = null) {
@@ -298,13 +363,14 @@ export class FileService {
     doc.savedRevision = enc.rev;
     const state = this.#saveStates.get(doc);
     if (state) state.snapshot = { file, version: enc.version, commentsRevision: enc.commentsRevision };
-    // Version History keeps these bytes: exactly what was written.
-    doc.emit('saved', { bytes: enc.bytes, thumb: enc.thumb, commentsRevision: enc.commentsRevision });
+    // Version History keeps the document data of exactly what was written.
+    doc.emit('saved', { bytes: enc.data || enc.bytes, thumb: enc.thumb, commentsRevision: enc.commentsRevision });
     this.#remember(file, enc.thumb);
     if (!doc.dirty) this.recovery?.discard(editor);
     this.app.renderTabs();
     this.app.emit('file-saved', editor);
-    this.app.notify(`Saved "${file.name}"`, { polite: true });
+    if (enc.plain) this.app.notify(`Saved "${file.name}" without a preview: other programs will show blank pages. The document itself is complete.`, { timeout: 8000 });
+    else this.app.notify(`Saved "${file.name}"`, { polite: true });
   }
 
   async #remember(file, thumb) {
@@ -388,8 +454,8 @@ export class FileService {
         return false;
       }
       if (!item) return false;
-      // Keep the native extension so the file opens with Vector Studio later.
-      if (!/\.vstudio$/i.test(item.name || '') && this.puter.fs.rename) {
+      // Keep the .ai extension so the file opens with Vector Studio later.
+      if (extensionOf(item.name) !== NATIVE_EXT && this.puter.fs.rename) {
         try {
           item = (await this.puter.fs.rename(item.path, ensureExtension(item.name))) || item;
         } catch {
@@ -491,7 +557,7 @@ export class FileService {
     try {
       handle = await window.showSaveFilePicker({
         suggestedName: suggested,
-        types: [{ description: 'Vector Studio document', accept: { [NATIVE_MIME]: [NATIVE_EXT] } }],
+        types: [{ description: 'AI document', accept: { [NATIVE_MIME]: [NATIVE_EXT] } }],
       });
     } catch (err) {
       if (err?.name === 'AbortError') return false;
@@ -542,7 +608,7 @@ export class FileService {
         const other = this.app.importers?.openTypes || [];
         handles = await window.showOpenFilePicker({
           multiple: true,
-          types: [{ description: 'Vector Studio and SVG files', accept: { [NATIVE_MIME]: [NATIVE_EXT], 'image/svg+xml': ['.svg', '.svgz'] } }, ...other],
+          types: [{ description: 'AI documents and SVG files', accept: { [NATIVE_MIME]: [NATIVE_EXT], [LEGACY_MIME]: [LEGACY_EXT], 'image/svg+xml': ['.svg', '.svgz'] } }, ...other],
         });
       } catch (err) {
         if (err?.name === 'AbortError') return null;
@@ -563,9 +629,9 @@ export class FileService {
     return last;
   }
 
-  /** Extensions File > Open accepts: native and SVG, plus the formats importers register. */
+  /** Extensions File > Open accepts: .ai, .vstudio and SVG, plus the formats importers register. */
   openExtensions() {
-    return [...OPEN_EXTS, ...(this.app.importers?.openExtensions || [])];
+    return [...new Set([...OPEN_EXTS, ...(this.app.importers?.openExtensions || [])])];
   }
 
   /** An editor already showing this file, if any. */
@@ -680,17 +746,20 @@ export class FileService {
   }
 
   /**
-   * Open file bytes as a new document tab. Native files open directly;
-   * SVG goes through the SVG importer when it is available.
+   * Open file bytes as a new document tab. A .ai file saved here (and the
+   * document data of a .vstudio file) opens directly; SVG goes through the
+   * SVG importer when it is available.
    */
   async openBytes(bytes, { name, file = null }) {
-    const kind = fileKind(name, bytes.subarray(0, 256));
+    // A PDF-compatible file saved here carries its document; any other PDF is imported from its pages.
+    const own = isPDF(bytes) && embeddedDocument(bytes) !== null;
+    const kind = own ? 'native' : fileKind(name, bytes.subarray(0, 256));
     if (kind === 'svg') return this.#openSvg(bytes, { name, file });
     // Other formats (PDF, EPS, DXF, raster images) through the importers that registered them.
     const format = kind === 'native' ? null : this.app.importers?.detect?.(name, bytes.subarray(0, 1024));
     if (format) return this.#openForeign(bytes, { name, file, format });
-    if (kind === 'unknown' && extensionOf(name) && extensionOf(name) !== NATIVE_EXT) {
-      await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${name}" is not a file Vector Studio can open. Open .vstudio documents or .svg files.` });
+    if (kind === 'unknown' && extensionOf(name) && ![NATIVE_EXT, LEGACY_EXT].includes(extensionOf(name))) {
+      await this.app.dialogs.alert({ title: 'Could Not Open', message: `"${name}" is not a file Vector Studio can open. Open .ai documents or .svg files.` });
       return null;
     }
     let parsed;
@@ -729,7 +798,7 @@ export class FileService {
       return null;
     }
     if (!doc) return null;
-    // Saving an imported SVG writes a new .vstudio file (Save As); the SVG is left untouched.
+    // Saving an imported SVG writes a new .ai file (Save As); the SVG is left untouched.
     const editor = this.app.addDocument(doc, { file: { kind: 'import', format: 'svg', name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) } });
     if (file?.kind === 'puter') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     else if (file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
@@ -746,9 +815,13 @@ export class FileService {
       return null;
     }
     if (!doc) return null;
-    // Like SVG, an imported file saves as a new .vstudio document; the original is left untouched.
-    const editor = this.app.addDocument(doc, { file: { kind: 'import', format, name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) } });
-    if (file?.kind === 'puter' || file?.kind === 'local') renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
+    // A .ai file from another program stays the document's file: Save asks once, then replaces it.
+    // Like SVG, any other imported file saves as a new .ai document; the original is left untouched.
+    const located = file?.kind === 'puter' || file?.kind === 'local';
+    const own = located && isNativeFile({ name: file.name || name }) && (format === 'pdf' || format === 'eps');
+    const fileInfo = own ? Object.assign(file, { foreign: true }) : { kind: 'import', format, name, path: file?.path || null, ...(file?.kind === 'local' ? { source: file } : {}) };
+    const editor = this.app.addDocument(doc, { file: fileInfo });
+    if (located) renderThumbnail(doc).then((thumb) => this.#remember(file, thumb));
     if (doc.importWarnings?.length) this.app.importers.report?.(doc.importWarnings);
     this.app.emit('file-opened', editor);
     return editor;
@@ -833,13 +906,13 @@ export class FileService {
     if (!current()) return false;
     let parsed;
     try {
-      parsed = await parseDocument(bytes);
+      parsed = await this.#readSaved(bytes, f);
     } catch (err) {
       if (!current()) return false;
       await this.app.dialogs.alert({ title: 'Could Not Revert', message: err.message });
       return false;
     }
-    if (!current()) return false;
+    if (!parsed || !current()) return false;
     if (doc.nodes.version !== nodeVersion || doc.commentsRevision !== commentsRevision) {
       this.app.notify('Revert cancelled because the document changed while its saved file was loading. Run Revert again to discard those changes.', { polite: true });
       return false;
@@ -851,6 +924,18 @@ export class FileService {
     const ed = await this.replaceDocument(editor, parsed.doc, f);
     this.app.renderTabs();
     return ed;
+  }
+
+  /** The document in a saved file: its own, or (a .ai file another program made) its pages imported again. */
+  async #readSaved(bytes, file) {
+    try {
+      return await parseDocument(bytes);
+    } catch (err) {
+      const format = err instanceof FileFormatError && isNativeFile(file) ? this.app.importers?.detect?.(file.name, bytes.subarray(0, 1024)) : null;
+      if (format !== 'pdf' && format !== 'eps') throw err;
+      const doc = await this.app.importers.open(bytes, { name: file.name, format });
+      return doc ? { doc } : null;
+    }
   }
 
   /** Swap the document shown in a tab, keeping its place in the tab order and its view. */

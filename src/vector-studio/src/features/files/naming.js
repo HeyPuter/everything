@@ -3,8 +3,12 @@
  * names and paths. Pure functions so they are easy to test.
  */
 
-export const NATIVE_EXT = '.vstudio';
-export const NATIVE_MIME = 'application/x-vector-studio';
+/** Documents are saved as PDF-compatible .ai files (container.js). */
+export const NATIVE_EXT = '.ai';
+export const NATIVE_MIME = 'application/vnd.adobe.illustrator';
+/** Files from before documents were saved as .ai: they open, and save as a new .ai file. */
+export const LEGACY_EXT = '.vstudio';
+export const LEGACY_MIME = 'application/x-vector-studio';
 
 /** Extensions we strip when suggesting a native file name for a document. */
 const KNOWN_EXT = /\.(vstudio|svg|svgz|ai|eps|epsf|ps|pdf|dxf|json|png|jpe?g|webp|gif|tiff?|bmp|psd)$/i;
@@ -13,7 +17,7 @@ const KNOWN_EXT = /\.(vstudio|svg|svgz|ai|eps|epsf|ps|pdf|dxf|json|png|jpe?g|web
 export function nextUntitled(counter = 0, openNames = []) {
   let n = Number.isFinite(counter) ? counter : 0;
   for (const name of openNames) {
-    const m = /^Untitled-(\d+)(?:\.vstudio)?$/i.exec(String(name || ''));
+    const m = /^Untitled-(\d+)(?:\.(?:ai|vstudio))?$/i.exec(String(name || ''));
     if (m) n = Math.max(n, Number(m[1]));
   }
   n += 1;
@@ -64,7 +68,7 @@ export function sanitizeStem(stem) {
 /**
  * Ensure a file name ends with `ext`. A different known extension (an
  * imported "logo.svg") is replaced; anything else is kept and the extension
- * appended ("v1.2" -> "v1.2.vstudio").
+ * appended ("v1.2" -> "v1.2.ai").
  */
 export function ensureExtension(name, ext = NATIVE_EXT) {
   const raw = String(name || '').trim();
@@ -80,7 +84,7 @@ export function suggestFileName(name) {
   return ensureExtension(name || 'Untitled', NATIVE_EXT);
 }
 
-/** A name not in `existing` (case-insensitive): "Logo.vstudio" -> "Logo 2.vstudio". */
+/** A name not in `existing` (case-insensitive): "Logo.ai" -> "Logo 2.ai". */
 export function uniqueName(name, existing) {
   const taken = new Set([...existing].map((n) => String(n).toLowerCase()));
   if (!taken.has(name.toLowerCase())) return name;
@@ -94,10 +98,14 @@ export function uniqueName(name, existing) {
   return `${base} ${Date.now()}${ext}`;
 }
 
-/** What kind of file a name or leading bytes describe: 'native' | 'svg' | 'unknown'. */
+/**
+ * What kind of file a name or leading bytes describe: 'native' (document
+ * data on its own, as .vstudio files hold) | 'svg' | 'unknown'. A .ai file
+ * is known by its contents (container.js): only one saved here carries a document.
+ */
 export function fileKind(name, head = null) {
   const ext = extensionOf(name);
-  if (ext === NATIVE_EXT) return 'native';
+  if (ext === LEGACY_EXT) return 'native';
   if (ext === '.svg' || ext === '.svgz') return 'svg';
   if (head && head.length >= 2 && head[0] === 0x1f && head[1] === 0x8b) return ext === '.svgz' ? 'svg' : 'native';
   if (head) {

@@ -1,7 +1,7 @@
 /**
  * Home screen additions: the recent list hooks (app.recentFiles,
  * app.openRecent, app.removeRecent) and a "Your files" section listing the
- * .vstudio and .svg files in the default Puter folder.
+ * .ai, .vstudio and .svg files in the default Puter folder.
  */
 import { h } from '../../lib/dom.js';
 import { icon } from '../../ui/icons.js';
@@ -157,7 +157,8 @@ async function loadThumb(app, files, it, current) {
     // No cached thumbnail.
   }
   if (!current()) return null;
-  if (it.format !== 'native' || it.size > 4 * 1024 * 1024) return null;
+  // A .ai file holds its pages as well as the document: about twice the document's size.
+  if (it.format !== 'native' || it.size > 8 * 1024 * 1024) return null;
   try {
     const thumb = await limited(async () => {
       if (!current()) return null;

@@ -91,6 +91,17 @@ export async function pdf(app, editor, opts = {}) {
   return bytes;
 }
 
+/**
+ * A document's .ai file: every artboard as a PDF page (type as outlines, so
+ * it looks the same everywhere; layers as PDF layers) around the document
+ * data, which opening the file here reads back (files/container.js).
+ */
+export async function documentFile(app, doc, data) {
+  const outlines = app.textOutlines ? await collectTextOutlines(app, doc, doc.root.children, { images: true, quiet: true }) : null;
+  const { bytes } = await writePDF(doc, doc.artboards, { outlines, outlinesWanted: Boolean(app.textOutlines), title: doc.name, layers: true, document: data });
+  return bytes;
+}
+
 export function raster(editor, opts = {}) {
   return rasterExport(editor, opts);
 }

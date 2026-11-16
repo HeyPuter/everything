@@ -19,14 +19,14 @@ it.each([
   const first = app.newDocument({ name: 'First' });
   edit(first.doc, 'First dirty');
   const original = app.newDocument({ name: 'Drawing' });
-  original.file = { kind: 'puter', path: '/u/Old.vstudio', name: 'Old.vstudio' };
+  original.file = { kind: 'puter', path: '/u/Old.ai', name: 'Old.ai' };
   edit(original.doc, 'Before Save As');
   const companion = newWindow(app, original);
   app.prefs.set('filesSaveDialog', 'puter');
   let saved;
   app.puter = { fs: {}, ui: { showSaveFilePicker: vi.fn(async (blob) => {
     saved = blob;
-    return { path: '/u/New.vstudio', name: 'New.vstudio' };
+    return { path: '/u/New.ai', name: 'New.ai' };
   }) } };
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -40,20 +40,20 @@ it.each([
     await vi.waitFor(() => expect(writing).toHaveBeenCalledOnce());
     if (closeOriginal) await app.closeDocument(original, { force: true });
     expect(await app.files.service.saveAs(companion)).toBe(true);
-    expect(companion.file.path).toBe('/u/New.vstudio');
+    expect(companion.file.path).toBe('/u/New.ai');
     expect((await parseDocument(saved)).doc.root.name).toBe('Before Save As');
     edit(companion.doc, 'Unsaved work at new location');
     release();
     expect(await pending).toBe(2);
     const entry = (await store.list()).find((entry) => entry.id === companion.doc.recoveryId);
     expect((await parseDocument(await store.read(entry))).doc.root.name).toBe('Unsaved work at new location');
-    expect(entry.file.path).toBe('/u/New.vstudio');
-    expect(entry.file.name).toBe('New.vstudio');
+    expect(entry.file.path).toBe('/u/New.ai');
+    expect(entry.file.name).toBe('New.ai');
     expect(entry.name).toBe((closeOriginal ? companion : original).name);
     expect(localStorage.getItem(`vs-recovery-unwritten:${entry.id}`)).toBeNull();
     expect(await saver.flush()).toBe(0);
     const recovered = await saver.recover(entry);
-    expect(recovered.file.path).toBe('/u/New.vstudio');
+    expect(recovered.file.path).toBe('/u/New.ai');
     expect(recovered.doc.root.name).toBe('Unsaved work at new location');
   } finally {
     release();

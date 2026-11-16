@@ -82,10 +82,10 @@ describe('version history', () => {
     let during = () => {};
     const handle = {
       kind: 'file',
-      name: 'Slow.vstudio',
+      name: 'Slow.ai',
       createWritable: async () => ({ write: async () => during(), close: async () => {} }),
     };
-    ed.file = { kind: 'local', name: 'Slow.vstudio', handle, handleId: 'h1' };
+    ed.file = { kind: 'local', name: 'Slow.ai', handle, handleId: 'h1' };
     during = () => add(20);
     expect(await app.files.service.save(ed)).toBe(true);
     during = () => {};
@@ -348,8 +348,8 @@ describe('opening', () => {
     app.puter = { fs: { read: async () => new Blob([bytes]) } };
     const count = app.editors.length;
     const [a, b] = await Promise.all([
-      app.files.service.openPath('/u/Logo.vstudio'),
-      app.files.service.openPath('/u/Logo.vstudio'),
+      app.files.service.openPath('/u/Logo.ai'),
+      app.files.service.openPath('/u/Logo.ai'),
     ]);
     expect(a).toBeTruthy();
     expect(b).toBe(a);
@@ -386,7 +386,7 @@ describe('revert', () => {
     const bytes = await serializeDocument(saved);
     app.puter = { fs: { read: async () => new Blob([bytes]) } };
     app.dialogs.confirm = async () => true;
-    const first = await app.files.service.openPath('/u/Logo.vstudio');
+    const first = await app.files.service.openPath('/u/Logo.ai');
     await app.commands.run('window.newWindow');
     const second = app.editor;
     expect(second.doc).toBe(first.doc);
@@ -395,7 +395,7 @@ describe('revert', () => {
     );
     app.activate(first);
     const reverted = await app.files.service.revert(first);
-    const windows = app.editors.filter((e) => e.file?.path === '/u/Logo.vstudio');
+    const windows = app.editors.filter((e) => e.file?.path === '/u/Logo.ai');
     expect(windows).toHaveLength(2);
     // Both show the saved document; neither keeps the discarded change to save over the file later.
     for (const w of windows) {
@@ -405,7 +405,7 @@ describe('revert', () => {
     }
     expect(app.editor).toBe(reverted);
     const other = windows.find((w) => w !== reverted);
-    expect(other.name).toBe('Logo.vstudio:2');
+    expect(other.name).toBe('Logo.ai:2');
     // The window it came from keeps its place in the tab order.
     expect(app.editors.indexOf(other)).toBe(app.editors.indexOf(reverted) + 1);
   });

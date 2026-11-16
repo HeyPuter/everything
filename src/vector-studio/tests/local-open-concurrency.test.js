@@ -13,7 +13,7 @@ async function setup({ stored = false, persistent = true } = {}) {
   const service = app.files.service;
   const bytes = await serializeDocument(VDocument.create({ name: 'Drawing' }), { compress: false });
   const read = deferred();
-  const file = { name: 'Drawing.vstudio', arrayBuffer: vi.fn(() => read.promise) };
+  const file = { name: 'Drawing.ai', arrayBuffer: vi.fn(() => read.promise) };
   const handle = (key = 'drawing') => ({
     kind: 'file', name: file.name, key,
     isSameEntry: async (other) => other.key === key,
@@ -185,7 +185,7 @@ it.each(['closed', 'saved elsewhere'])('rechecks a pending match if its window i
       a.doc.transact('Rename', () => a.doc.updateRoot({ name: 'Saved copy' }));
       c.app.user = { username: 'test' };
       c.app.prefs.set('filesSaveDialog', 'puter');
-      c.app.puter = { fs: {}, ui: { showSaveFilePicker: async () => ({ path: '/u/Copy.vstudio', name: 'Copy.vstudio' }) } };
+      c.app.puter = { fs: {}, ui: { showSaveFilePicker: async () => ({ path: '/u/Copy.ai', name: 'Copy.ai' }) } };
       expect(await c.service.saveAs(a)).toBe(true);
     }
     comparison.resolve(true);

@@ -6,7 +6,7 @@ import { parseDocument, serializeDocument } from '../src/features/files/format.j
 it.each([false, true])('serializes saves from shared windows (first window closes: %s)', async (closeFirst) => {
   const app = await bootAppWithFeatures();
   const first = app.newDocument({ name: 'Older' });
-  first.file = { kind: 'puter', path: '/u/Artwork.vstudio', name: 'Artwork.vstudio' };
+  first.file = { kind: 'puter', path: '/u/Artwork.ai', name: 'Artwork.ai' };
   const second = newWindow(app, first);
   const service = app.files.service;
   const snapshots = new Map([['Older', await serializeDocument(first.doc, { compress: false })]]);
@@ -21,7 +21,7 @@ it.each([false, true])('serializes saves from shared windows (first window close
     const index = writes++;
     if (index === 0) await gate;
     disk = new Uint8Array(await blob.arrayBuffer());
-    return { path, name: 'Artwork.vstudio' };
+    return { path, name: 'Artwork.ai' };
   }) } };
   try {
     const olderSave = service.save(first);

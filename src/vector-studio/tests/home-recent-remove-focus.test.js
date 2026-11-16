@@ -9,7 +9,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 async function setup(names = ['Alpha', 'Beta', 'Gamma']) {
   const prefs = new Prefs(null), cache = memoryBackend();
   const recent = new RecentFiles(prefs, { cache });
-  for (const name of names.slice().reverse()) await recent.add({ kind: 'puter', path: `/u/${name}.vstudio`, name, thumb: 'data:image/png;base64,PREVIEW' });
+  for (const name of names.slice().reverse()) await recent.add({ kind: 'puter', path: `/u/${name}.ai`, name, thumb: 'data:image/png;base64,PREVIEW' });
   const host = document.createElement('div');
   document.body.append(host);
   const pending = [];

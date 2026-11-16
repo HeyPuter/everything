@@ -14,9 +14,10 @@ import { uid } from '../../lib/ids.js';
 import { UserError } from '../../lib/errors.js';
 import { memoryBackend } from '../files/backends.js';
 import { hashKey } from '../files/recent.js';
-import { formatBytes, relativeTime } from '../files/naming.js';
+import { NATIVE_EXT, formatBytes, relativeTime } from '../files/naming.js';
 
 import { serializeDocument, parseDocument, documentId } from '../files/format.js';
+import { plainContainer } from '../files/container.js';
 import { renderThumbnail } from '../files/thumbnail.js';
 import { familyInfo } from '../type/fonts.js';
 import { VDocument } from '../../model/document.js';
@@ -421,8 +422,11 @@ export async function packageEntries(app, editor, { includeFonts = true, copyLin
   const { dataUrlToBytes, sniffMime } = await import('../io/image-info.js');
   const name = (editor.name || 'Untitled').replace(/\.[^.]+$/, '') || 'Untitled';
   const base = String(folder || '').replace(/[\\/:*?"<>|]+/g, '-').trim() || name;
-  const { bytes } = await encodeDoc(doc);
-  const entries = [{ name: `${base}/${name}.vstudio`, data: bytes }];
+  // The packaged document is a .ai file like a saved one, with its own identity.
+  const thumb = await renderThumbnail(doc, { size: 192 }).catch(() => null);
+  const service = app.files?.service;
+  const bytes = service?.write ? (await service.write(doc, { thumbnail: thumb, id: null })).bytes : plainContainer(doc.artboards, (await encodeDoc(doc)).bytes);
+  const entries = [{ name: `${base}/${name}${NATIVE_EXT}`, data: bytes }];
   const used = new Set();
   doc.walk((n) => {
     if (n.type === 'image' && n.asset) used.add(n.asset);

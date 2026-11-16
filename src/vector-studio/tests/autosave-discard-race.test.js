@@ -41,7 +41,7 @@ it.each(['encoding', 'storage'])('keeps later dirty work eligible after Save inv
     const discarding = saver.discard(editor);
     doc.undo();
     if (phase === 'encoding') {
-      editor.file = { kind: 'puter', path: '/u/Saved-as.vstudio', name: 'Saved-as.vstudio' };
+      editor.file = { kind: 'puter', path: '/u/Saved-as.ai', name: 'Saved-as.ai' };
       edit(doc, 'New work after Save');
     }
     const currentName = doc.root.name;
@@ -52,7 +52,7 @@ it.each(['encoding', 'storage'])('keeps later dirty work eligible after Save inv
     if (phase === 'encoding') expect(writing).not.toHaveBeenCalled();
     expect(await saver.flush()).toBe(1);
     expect(await names(store)).toEqual([currentName]);
-    if (phase === 'encoding') expect((await store.list())[0].file.path).toBe('/u/Saved-as.vstudio');
+    if (phase === 'encoding') expect((await store.list())[0].file.path).toBe('/u/Saved-as.ai');
     expect(await saver.flush()).toBe(0);
   } finally { gate.resolve(); }
 });

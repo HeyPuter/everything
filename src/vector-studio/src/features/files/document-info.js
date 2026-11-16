@@ -55,8 +55,10 @@ export async function documentInfoDialog(app, editor = app.editor) {
       ['Swatches', s.swatches],
     ])),
   );
-  serializeDocument(doc)
-    .then((bytes) => (sizeEl.textContent = `${formatBytes(bytes.length)} (compressed)`))
+  // The size Save would write now: the .ai file (pages and document), or the document alone without a file service.
+  const write = app.files?.service?.write ? app.files.service.write(doc).then((file) => file.bytes) : serializeDocument(doc);
+  write
+    .then((bytes) => (sizeEl.textContent = formatBytes(bytes.length)))
     .catch(() => (sizeEl.textContent = 'Unknown'));
   await openDialog({ title: 'Document Info', className: 'files-info-dialog', body, buttons: [{ label: 'Close', value: true, primary: true }] });
 }

@@ -255,7 +255,7 @@ export async function saveForWebDialog(app, editor) {
   const local = new Map(); // row id -> settings edited in this dialog
   let selection = new Set();
   let busy = 0;
-  const base = String(editor.file?.name || editor.name || 'Untitled').replace(/\.(vstudio|svg|pdf)$/i, '');
+  const base = String(editor.file?.name || editor.name || 'Untitled').replace(/\.(ai|vstudio|svg|pdf)$/i, '');
 
   // ---- controls ----
   const preset = h('select', h('option', { value: '' }, 'Custom'), PRESETS.map((p, i) => h('option', { value: String(i) }, p.label)));
@@ -672,7 +672,7 @@ export async function saveSelectedSlices(app, editor) {
   const last = app.prefs.get('saveForWeb') || {};
   const defaults = { ...DEFAULT_SETTINGS, ...(last.settings || {}) };
   const percent = last.percent || 100;
-  const base = String(editor.file?.name || editor.name || 'Untitled').replace(/\.(vstudio|svg|pdf)$/i, '');
+  const base = String(editor.file?.name || editor.name || 'Untitled').replace(/\.(ai|vstudio|svg|pdf)$/i, '');
   const files = [];
   app.notify('Saving slices...', { timeout: 1500 });
   for (const row of rows) {

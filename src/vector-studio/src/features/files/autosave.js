@@ -32,7 +32,8 @@ const DAMAGED_CODES = new Set(['invalid', 'empty', 'damaged', 'format', 'svg']);
 const sameRevisions = (a, b) => a?.revision === b.revision && a?.commentsRevision === b.commentsRevision;
 const sameFile = (a, b) => a === b || (a && b && a.kind === b.kind && a.path === b.path && a.name === b.name && a.handleId === b.handleId);
 const sameBackup = (snapshot, doc, file) => sameRevisions(snapshot, doc) && sameFile(snapshot.file, file);
-const fileInfo = (file) => file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null } : null;
+// `foreign` (a .ai file another program made) is kept so a recovered document still asks before replacing it.
+const fileInfo = (file) => file ? { kind: file.kind, path: file.path || null, name: file.name || null, handleId: file.handleId || null, ...(file.foreign ? { foreign: true } : {}) } : null;
 
 function storage() {
   try {
@@ -456,10 +457,11 @@ export class Autosaver {
     doc.savedRevision = -1;
     let file = null;
     const f = entry.file;
-    if (f?.kind === 'puter' && f.path) file = { kind: 'puter', path: f.path, name: f.name };
+    const foreign = f?.foreign === true ? { foreign: true } : {};
+    if (f?.kind === 'puter' && f.path) file = { kind: 'puter', path: f.path, name: f.name, ...foreign };
     else if (f?.kind === 'local' && f.handleId) {
       const handle = await handleStore.get(f.handleId);
-      if (handle) file = { kind: 'local', name: f.name, handle, handleId: f.handleId };
+      if (handle) file = { kind: 'local', name: f.name, handle, handleId: f.handleId, ...foreign };
     }
     // Unsaved recovered work is marked in its name so it is not mistaken for the saved file.
     if (!file) file = { kind: 'import', format: 'native', name: `${f?.name || entry.name || 'Untitled'} [Recovered]` };

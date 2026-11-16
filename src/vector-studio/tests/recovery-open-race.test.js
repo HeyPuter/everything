@@ -17,7 +17,7 @@ async function snapshot(name, sequence) {
 async function setup({ local = false, fallback = false } = {}) {
   const backend = memoryBackend(), other = memoryBackend();
   const store = new RecoveryStore(fallback ? [backend, other] : backend);
-  await store.put('drawing', { ...await snapshot('Shown work', 1), ...(local ? { file: { kind: 'local', name: 'Drawing.vstudio', handleId: 'handle' } } : {}) });
+  await store.put('drawing', { ...await snapshot('Shown work', 1), ...(local ? { file: { kind: 'local', name: 'Drawing.ai', handleId: 'handle' } } : {}) });
   const app = { editors: [], notify: vi.fn(), renderTabs: vi.fn(), addDocument: vi.fn((doc, { file }) => ({ doc, file })) };
   const saver = new Autosaver(app, { store, session: 'current' });
   saver.liveSessions = async () => new Set();
@@ -30,7 +30,7 @@ it.each(['parsing', 'local handle lookup', 'fallback publication', 'same capture
   const next = await snapshot('Newer work', phase === 'same capture metadata' ? 1 : 2);
   const publish = () => (phase === 'fallback publication' ? new RecoveryStore(other) : store).put('drawing', next);
   if (phase === 'local handle lookup') {
-    vi.spyOn(handleStore, 'get').mockImplementationOnce(async () => { await publish(); return { name: 'Drawing.vstudio' }; });
+    vi.spyOn(handleStore, 'get').mockImplementationOnce(async () => { await publish(); return { name: 'Drawing.ai' }; });
   } else {
     const read = backend.readBlob;
     vi.spyOn(backend, 'readBlob').mockImplementationOnce(async (path) => {

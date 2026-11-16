@@ -14,7 +14,7 @@ async function setup() {
   const bytes = await serializeDocument(ed.doc);
   const read = deferred();
   const getFile = vi.fn(() => read.promise);
-  ed.file = { kind: 'local', name: 'Original.vstudio', handle: { getFile } };
+  ed.file = { kind: 'local', name: 'Original.ai', handle: { getFile } };
   ed.doc.transact('Edit', () => ed.doc.updateRoot({ name: 'Edited' }));
   app.dialogs.confirm = async () => true;
   return { app, ed, getFile, read, bytes };
@@ -49,18 +49,18 @@ it('does not replace a document saved under another file while its old file is l
   const openPicker = window.showOpenFilePicker;
   window.showOpenFilePicker = async () => [];
   window.showSaveFilePicker = async () => ({
-    name: 'New.vstudio',
+    name: 'New.ai',
     createWritable: async () => ({ write: async () => {}, close: async () => {} }),
   });
   try {
     const pending = app.files.service.revert(ed);
     await vi.waitFor(() => expect(getFile).toHaveBeenCalledOnce());
     expect(await app.files.service.saveAs(ed)).toBe(true);
-    expect(ed.file.name).toBe('New.vstudio');
+    expect(ed.file.name).toBe('New.ai');
     read.resolve(new Blob([bytes]));
     expect((await pending) === false).toBe(true);
     expect(app.editor === ed).toBe(true);
-    expect(ed.file.name).toBe('New.vstudio');
+    expect(ed.file.name).toBe('New.ai');
     expect(ed.doc.root.name).toBe('Edited');
     expect(ed.doc.dirty).toBe(false);
   } finally {

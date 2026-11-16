@@ -6,7 +6,7 @@ it.each(['before write finishes', 'after write finishes'])('keeps cancelled prev
   const app = await bootAppWithFeatures();
   const ed = app.newDocument();
   ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
-  ed.file = { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' };
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   let disk, writing = false;
@@ -14,7 +14,7 @@ it.each(['before write finishes', 'after write finishes'])('keeps cancelled prev
     writing = true;
     disk = new Uint8Array(await blob.arrayBuffer());
     await gate;
-    return { path, name: 'Drawing.vstudio' };
+    return { path, name: 'Drawing.ai' };
   }) } };
   const ptr = (x, y) => ({ pointerId: 1, pointerType: 'mouse', button: 0, clientX: x, clientY: y, timeStamp: 1000 });
   try {
@@ -46,7 +46,7 @@ it.each(['unchanged preview', 'changed preview', 'cancelled preview', 'preview s
   const app = await bootAppWithFeatures();
   const ed = app.newDocument();
   ed.view.set({ zoom: 1, panX: 0, panY: 0, rotation: 0, width: 1000, height: 800 });
-  ed.file = { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' };
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   let disk, writes = 0;
@@ -54,7 +54,7 @@ it.each(['unchanged preview', 'changed preview', 'cancelled preview', 'preview s
     writes++;
     await gate;
     disk = new Uint8Array(await blob.arrayBuffer());
-    return { path, name: 'Drawing.vstudio' };
+    return { path, name: 'Drawing.ai' };
   }) } };
   const ptr = (x, y) => ({ pointerId: 1, pointerType: 'mouse', button: 0, clientX: x, clientY: y, timeStamp: 1000 });
   const draw = () => {
@@ -93,8 +93,8 @@ it.each(['unchanged preview', 'changed preview', 'cancelled preview', 'preview s
 it('does not mark a save dirty merely because an empty transaction is open', async () => {
   const app = await bootAppWithFeatures();
   const ed = app.newDocument();
-  ed.file = { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' };
-  app.puter = { fs: { write: async (path) => ({ path, name: 'Drawing.vstudio' }) } };
+  ed.file = { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' };
+  app.puter = { fs: { write: async (path) => ({ path, name: 'Drawing.ai' }) } };
   const tx = ed.doc.begin('No preview changes');
   try {
     expect(await app.commands.run('file.save')).toBe(true);

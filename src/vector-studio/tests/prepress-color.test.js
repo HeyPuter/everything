@@ -236,7 +236,7 @@ describe('color management policies', () => {
     const { app, doc } = await setup();
     app.prefs.set('colorSettings', { askOpen: true });
     doc.transact('Profile', () => doc.updateRoot({ colorProfile: 'p3' }));
-    const ed2 = app.addDocument(doc, { file: { name: 'opened.vstudio' } });
+    const ed2 = app.addDocument(doc, { file: { name: 'opened.ai' } });
     await tick();
     await tick();
     expect(dlg().querySelector('.dialog-title').textContent).toBe('Profile Mismatch');

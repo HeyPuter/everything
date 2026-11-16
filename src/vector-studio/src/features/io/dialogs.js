@@ -54,7 +54,7 @@ function radios(name, options, value, label) {
 }
 
 function docBaseName(editor) {
-  return safeFileName(String(editor.file?.name || editor.name || 'Untitled').replace(/\.(vstudio|svg|pdf)$/i, ''));
+  return safeFileName(String(editor.file?.name || editor.name || 'Untitled').replace(/\.(ai|vstudio|svg|pdf)$/i, ''));
 }
 
 function getPref(app, key, fallback) {

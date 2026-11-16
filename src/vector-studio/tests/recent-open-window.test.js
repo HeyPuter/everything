@@ -8,7 +8,7 @@ function setupService(app, get = async () => null) {
   app.dialogs.alert = vi.fn(async () => true);
   return service;
 }
-const entry = { kind: 'local', handleId: 'drawing-handle', name: 'Drawing.vstudio' };
+const entry = { kind: 'local', handleId: 'drawing-handle', name: 'Drawing.ai' };
 function openDrawing(app, kind) {
   const ed = app.newDocument();
   const source = { ...entry, handle: { getFile: vi.fn() } };

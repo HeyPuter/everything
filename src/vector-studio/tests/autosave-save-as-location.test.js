@@ -26,7 +26,7 @@ it.each([
   const saver = app.files.autosaver;
   saver.fixedStore = store;
   const editor = app.newDocument({ name: 'Drawing' });
-  editor.file = { kind: 'puter', path: '/u/Old.vstudio', name: 'Old.vstudio' };
+  editor.file = { kind: 'puter', path: '/u/Old.ai', name: 'Old.ai' };
   edit(editor.doc, 'Saved artwork');
   app.prefs.set('filesSaveDialog', 'puter');
   const savingGate = deferred(), backupGate = deferred();
@@ -34,7 +34,7 @@ it.each([
   app.puter = { fs: {}, ui: { showSaveFilePicker: vi.fn(async (blob) => {
     saved = blob;
     await savingGate.promise;
-    return { path: `/u/${target}.vstudio`, name: `${target}.vstudio` };
+    return { path: `/u/${target}.ai`, name: `${target}.ai` };
   }) } };
   const write = backend.writeBlob;
   const writing = vi.spyOn(backend, 'writeBlob').mockImplementationOnce(async (...args) => {
@@ -59,7 +59,7 @@ it.each([
     expect((await parseDocument(await store.read(before))).doc.root.name).toBe('Newer unsaved artwork');
     expect(await saver.flush()).toBe(writes);
     const [after] = await store.list();
-    expect(after.file.path).toBe(`/u/${target}.vstudio`);
+    expect(after.file.path).toBe(`/u/${target}.ai`);
     expect((await parseDocument(await store.read(after))).doc.root.name).toBe('Newer unsaved artwork');
     expect(await saver.flush()).toBe(0);
   } finally {
@@ -75,17 +75,17 @@ function setup() {
   const backend = memoryBackend(), store = new RecoveryStore(backend);
   const doc = VDocument.create({ name: 'Drawing' });
   edit(doc, 'Unsaved artwork');
-  const editor = { doc, file: { kind: 'puter', path: '/u/New.vstudio', name: 'New.vstudio' }, get name() { return this.file?.name || doc.root.name; } };
+  const editor = { doc, file: { kind: 'puter', path: '/u/New.ai', name: 'New.ai' }, get name() { return this.file?.name || doc.root.name; } };
   const app = { editors: [editor], prefs: new Prefs(null) };
   const saver = new Autosaver(app, { store, session: 'current' });
   return { backend, store, doc, editor, app, saver };
 }
 
 it.each([
-  ['path', { kind: 'puter', path: '/u/New.vstudio', name: 'New.vstudio' }, '/u/Moved.vstudio'],
-  ['name', { kind: 'puter', path: '/u/New.vstudio', name: 'New.vstudio' }, 'Renamed.vstudio'],
-  ['handleId', { kind: 'local', name: 'Local.vstudio', handleId: 'old-handle' }, 'new-handle'],
-  ['kind', { kind: 'import', name: 'Drawing.vstudio' }, 'download'],
+  ['path', { kind: 'puter', path: '/u/New.ai', name: 'New.ai' }, '/u/Moved.ai'],
+  ['name', { kind: 'puter', path: '/u/New.ai', name: 'New.ai' }, 'Renamed.ai'],
+  ['handleId', { kind: 'local', name: 'Local.ai', handleId: 'old-handle' }, 'new-handle'],
+  ['kind', { kind: 'import', name: 'Drawing.ai' }, 'download'],
 ])('tracks a changed %s without rewriting equivalent file objects', async (field, file, value) => {
   const { store, editor, saver } = setup();
   editor.file = file;
@@ -104,7 +104,7 @@ it('stashes a returned file location while a different association is about to r
   const { backend, store, editor, saver } = setup();
   await saver.flush();
   const currentFile = editor.file;
-  editor.file = { kind: 'puter', path: '/u/Other.vstudio', name: 'Other.vstudio' };
+  editor.file = { kind: 'puter', path: '/u/Other.ai', name: 'Other.ai' };
   const gate = deferred(), write = backend.writeBlob;
   const writing = vi.spyOn(backend, 'writeBlob').mockImplementationOnce(async (...args) => {
     await gate.promise;
@@ -117,13 +117,13 @@ it('stashes a returned file location while a different association is about to r
     editor.file = currentFile;
     saver.flush({ hiding: true });
     const stash = JSON.parse(localStorage.getItem(key).split('\n')[0]);
-    expect(stash.file.path).toBe('/u/New.vstudio');
+    expect(stash.file.path).toBe('/u/New.ai');
     gate.resolve();
     await pending;
     expect(localStorage.getItem(key)).not.toBeNull();
     expect(await saver.flush()).toBe(1);
     expect(localStorage.getItem(key)).toBeNull();
-    expect((await store.list())[0].file.path).toBe('/u/New.vstudio');
+    expect((await store.list())[0].file.path).toBe('/u/New.ai');
     expect(await saver.flush()).toBe(0);
   } finally { gate.resolve(); await pending; localStorage.removeItem(key); }
 });
@@ -132,17 +132,17 @@ it('supersedes a different stashed location even after returning to the existing
   const { backend, store, editor, saver } = setup();
   await saver.flush();
   const currentFile = editor.file;
-  editor.file = { kind: 'puter', path: '/u/Other.vstudio', name: 'Other.vstudio' };
+  editor.file = { kind: 'puter', path: '/u/Other.ai', name: 'Other.ai' };
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(backend, 'writeBlob').mockRejectedValueOnce(new Error('Storage unavailable'));
   const key = `vs-recovery-unwritten:${editor.doc.recoveryId}`;
   try {
     expect(await saver.flush({ hiding: true })).toBe(0);
-    expect(JSON.parse(localStorage.getItem(key).split('\n')[0]).file.path).toBe('/u/Other.vstudio');
+    expect(JSON.parse(localStorage.getItem(key).split('\n')[0]).file.path).toBe('/u/Other.ai');
     editor.file = currentFile;
     expect(await saver.flush()).toBe(1);
     expect(localStorage.getItem(key)).toBeNull();
-    expect((await store.list())[0].file.path).toBe('/u/New.vstudio');
+    expect((await store.list())[0].file.path).toBe('/u/New.ai');
     expect(await saver.flush()).toBe(0);
   } finally { localStorage.removeItem(key); }
 });

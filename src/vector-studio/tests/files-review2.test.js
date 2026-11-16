@@ -213,7 +213,7 @@ describe('closing with unsaved changes', () => {
     };
     const doc = VDocument.create({ name: 'Logo' });
     const ed = app.addDocument(doc, {
-      file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' },
+      file: { kind: 'puter', path: '/u/Logo.ai', name: 'Logo.ai' },
     });
     const layer = doc.layers()[0].id;
     doc.transact('Add', () => doc.insert(createPath(rectangle(0, 0, 10, 10), true), layer));
@@ -225,11 +225,11 @@ describe('closing with unsaved changes', () => {
     release();
     // Asked again rather than closing without the new change.
     const again = await waitDialog();
-    expect(again.textContent).toMatch(/Save changes to "Logo.vstudio"/);
+    expect(again.textContent).toMatch(/Save changes to "Logo.ai"/);
     click(again, 'Save');
     expect(await closing).toBe(true);
     expect(app.editors.includes(ed)).toBe(false);
-    const { doc: back } = await parseDocument(files.get('/u/Logo.vstudio'));
+    const { doc: back } = await parseDocument(files.get('/u/Logo.ai'));
     expect(back.get(layer).children.length).toBe(2);
     await app.files.autosaver.busy;
   });
@@ -349,7 +349,7 @@ describe('a document shown in two windows', () => {
     app.prefs.set('filesSaveDialog', 'puter');
     const doc = VDocument.create({ name: 'Logo' });
     const first = app.addDocument(doc, {
-      file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' },
+      file: { kind: 'puter', path: '/u/Logo.ai', name: 'Logo.ai' },
     });
     await app.commands.run('window.newWindow');
     const second = app.editor;
@@ -364,12 +364,12 @@ describe('a document shown in two windows', () => {
     const { app, files, doc, first, second, add } = await twoWindows();
     add();
     expect(await app.files.service.saveAs(first)).toBe(true);
-    expect(first.file.path).toBe('/u/Other/Logo.vstudio');
+    expect(first.file.path).toBe('/u/Other/Logo.ai');
     add();
     expect(await app.files.service.save(second)).toBe(true);
-    const { doc: back } = await parseDocument(files.get('/u/Other/Logo.vstudio'));
+    const { doc: back } = await parseDocument(files.get('/u/Other/Logo.ai'));
     expect(back.get(doc.layers()[0].id).children).toHaveLength(2);
-    expect(files.has('/u/Logo.vstudio')).toBe(false);
+    expect(files.has('/u/Logo.ai')).toBe(false);
   });
 
   it('keeps one recovery copy for the document, gone once it is saved', async () => {

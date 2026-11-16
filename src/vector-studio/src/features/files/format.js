@@ -1,15 +1,21 @@
 /**
- * The native .vstudio format: the document JSON (VDocument.toJSON(): nodes,
- * images as data URLs in `assets`) plus a `meta` block with a PNG
- * thumbnail, gzip-compressed with CompressionStream.
+ * Document data: the document JSON (VDocument.toJSON(): nodes, images as
+ * data URLs in `assets`) plus a `meta` block with a PNG thumbnail,
+ * gzip-compressed with CompressionStream.
  *
- * Loading accepts gzip or plain JSON (detected by the gzip magic bytes),
- * validates the structure with readable errors, and migrates older format
- * versions step by step up to FORMAT_VERSION.
+ * Saved files are .ai files: PDF-compatible files that carry this data
+ * (container.js). The data on its own is what recovery snapshots, versions
+ * and templates keep, and what the earlier .vstudio files hold.
+ *
+ * Loading accepts a PDF-compatible file saved here, gzip or plain JSON
+ * (detected by their first bytes), validates the structure with readable
+ * errors, and migrates older format versions step by step up to
+ * FORMAT_VERSION.
  */
 import { VDocument, FORMAT_VERSION } from '../../model/document.js';
 import { DEFAULT_SWATCHES } from '../../model/swatches.js';
 import { DEFAULT_CHAR, DEFAULT_PARA, DEFAULT_STYLE } from '../../model/nodes.js';
+import { isPDF, embeddedDocument } from './container.js';
 
 export { FORMAT_VERSION };
 
@@ -122,7 +128,7 @@ export function documentData(doc, { thumbnail = null, savedAt = Date.now(), app 
   return json;
 }
 
-/** Serialize a document to file bytes (gzip by default). */
+/** Serialize a document to its data bytes (gzip by default). A saved file wraps them (FileService.encode). */
 export async function serializeDocument(doc, { thumbnail = null, compress = true, savedAt, id } = {}) {
   const bytes = encoder.encode(JSON.stringify(documentData(doc, { thumbnail, savedAt, ...(id !== undefined ? { id } : {}) })));
   if (!compress || !canCompress()) return bytes;
@@ -326,11 +332,17 @@ export function validateData(data) {
   return { data: { ...data, nodes: fixed, assets }, repaired };
 }
 
-/** Decode file bytes (gzip or plain) to the parsed JSON object. */
+/** Decode file bytes (a PDF-compatible file saved here, gzip or plain JSON) to the parsed JSON object. */
 export async function decodeBytes(bytes) {
   let raw = bytes;
   if (!raw.length) throw new FileFormatError('The file is empty.', 'empty');
-  if (isGzip(raw)) {
+  if (isPDF(raw)) {
+    raw = embeddedDocument(raw);
+    // Saved by another program (or changed by one since): its pages can be imported instead.
+    if (!raw) throw new FileFormatError('This file was not saved by Vector Studio, or another program has changed it since.', 'foreign');
+  }
+  const compressed = isGzip(raw);
+  if (compressed) {
     if (!canCompress()) throw new FileFormatError('This browser cannot decompress Vector Studio files.', 'unsupported');
     try {
       raw = await gunzip(raw);
@@ -341,17 +353,16 @@ export async function decodeBytes(bytes) {
   const text = new TextDecoder().decode(raw).replace(/^﻿/, '');
   const head = text.trimStart().slice(0, 64);
   if (head.startsWith('<')) throw new FileFormatError('This is an SVG or XML file, not a Vector Studio document.', 'svg');
-  if (head.startsWith('%PDF')) throw new FileFormatError('This is a PDF file, not a Vector Studio document.', 'format');
   try {
     return JSON.parse(text);
   } catch {
-    throw new FileFormatError(isGzip(bytes) ? 'The file is damaged: its contents are not valid.' : 'This file is not a Vector Studio document.', 'damaged');
+    throw new FileFormatError(compressed || isPDF(bytes) ? 'The file is damaged: its contents are not valid.' : 'This file is not a Vector Studio document.', 'damaged');
   }
 }
 
 /**
  * Parse file contents into a document.
- * Returns { doc, meta, version, migrated, repaired, compressed }.
+ * Returns { doc, meta, version, migrated, repaired, compressed, container }.
  */
 export async function parseDocument(input) {
   const bytes = await toBytes(input);
@@ -373,6 +384,7 @@ export async function parseDocument(input) {
     migrated,
     repaired: checked.repaired,
     compressed: isGzip(bytes),
+    container: isPDF(bytes),
   };
 }
 

@@ -8,7 +8,7 @@ it.each(['floating', 'docked'])('preserves floating frames when reverting from a
   try {
     const first = app.newDocument({ name: 'Artwork' });
     const bytes = await serializeDocument(first.doc);
-    first.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile: async () => new Blob([bytes]) } };
+    first.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile: async () => new Blob([bytes]) } };
     const floating = newWindow(app, first);
     setArrangement(app, null, { float: true });
     const frame = { left: '137px', top: '83px', width: '480px', height: '320px' };
@@ -24,13 +24,13 @@ it.each(['floating', 'docked'])('preserves floating frames when reverting from a
     expect(app.floating.has(floating)).toBe(false);
     const host = app.views.get(reverted).host;
     expect(host.classList.contains('floating')).toBe(true);
-    expect(host.querySelector('.float-title').textContent).toBe('Artwork.vstudio:2');
+    expect(host.querySelector('.float-title').textContent).toBe('Artwork.ai:2');
     for (const [key, value] of Object.entries(frame)) expect(host.style[key]).toBe(value);
     expect(reverted.view.snapshot()).toEqual({ zoom: 2, panX: 34, panY: 56, rotation: 25 });
     const docked = app.editors.find((ed) => ed !== reverted);
     expect(app.views.get(docked).host.hidden).toBe(false);
     expect(app.floating.has(docked)).toBe(false);
-    expect(app.editors.map((ed) => ed.name)).toEqual(['Artwork.vstudio', 'Artwork.vstudio:2']);
+    expect(app.editors.map((ed) => ed.name)).toEqual(['Artwork.ai', 'Artwork.ai:2']);
     expect(app.editor === active).toBe(true);
     expect(active.windowNumber).toBe(from === 'floating' ? 2 : null);
   } finally {

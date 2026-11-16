@@ -5,7 +5,7 @@ import { memoryBackend } from '../src/features/files/backends.js';
 import { serializeDocument, parseDocument } from '../src/features/files/format.js';
 
 async function snapshot(name, sequence) {
-  return { name, file: { kind: 'puter', path: `/u/${name}.vstudio`, name: `${name}.vstudio` },
+  return { name, file: { kind: 'puter', path: `/u/${name}.ai`, name: `${name}.ai` },
     data: await serializeDocument(VDocument.create({ name }), { compress: false }),
     session: 'session', sequence, saved: sequence, revision: sequence };
 }
@@ -29,13 +29,13 @@ it.each(['index read', 'index write', 'partial blob write'])('keeps the previous
   try {
     await expect(store.put('drawing', after)).rejects.toThrow();
     const [entry] = await new RecoveryStore(backend).list();
-    expect(entry.file.path).toBe('/u/Original.vstudio');
+    expect(entry.file.path).toBe('/u/Original.ai');
     expect((await parseDocument(await store.read(entry))).doc.root.name).toBe('Original');
     expect([...backend.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
     // A retry publishes the new contents and location together.
     await store.put('drawing', after);
     const [latest] = await store.list();
-    expect(latest.file.path).toBe('/u/Changed.vstudio');
+    expect(latest.file.path).toBe('/u/Changed.ai');
     expect((await parseDocument(await store.read(latest))).doc.root.name).toBe('Changed');
     expect([...backend.files.keys()].filter((p) => p.endsWith('.vstudio'))).toHaveLength(1);
   } finally { vi.restoreAllMocks(); }
@@ -67,7 +67,7 @@ it('rejects an obsolete selection instead of pairing current contents with its o
   await store.put('drawing', after);
   await expect(store.read(entry)).rejects.toThrow();
   const [latest] = await store.list();
-  expect(latest.file.path).toBe('/u/Changed.vstudio');
+  expect(latest.file.path).toBe('/u/Changed.ai');
   expect((await parseDocument(await store.read(latest))).doc.root.name).toBe('Changed');
 });
 
@@ -131,7 +131,7 @@ it('keeps published bytes when an index write succeeds but its acknowledgement f
   try {
     await expect(store.put('drawing', after)).rejects.toThrow('Response lost');
     const [entry] = await new RecoveryStore(backend).list();
-    expect(entry.file.path).toBe('/u/Changed.vstudio');
+    expect(entry.file.path).toBe('/u/Changed.ai');
     expect((await parseDocument(await store.read(entry))).doc.root.name).toBe('Changed');
     // Removing the recovery document also clears leftover unpublished/old files.
     await store.remove('drawing');

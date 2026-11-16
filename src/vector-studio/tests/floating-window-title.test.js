@@ -21,13 +21,13 @@ it('updates every floating title and dock-button label immediately after Save As
   const openPicker = window.showOpenFilePicker;
   window.showOpenFilePicker = async () => [];
   window.showSaveFilePicker = async () => ({
-    name: 'Renamed.vstudio',
+    name: 'Renamed.ai',
     createWritable: async () => ({ write: async () => {}, close: async () => {} }),
   });
   try {
     expect(await app.files.service.saveAs(first)).toBe(true);
     expect(titles(app)).toEqual(app.editors.map((ed) => [ed.name, `Dock ${ed.name}`]));
-    expect(app.editors.every((ed) => ed.name.startsWith('Renamed.vstudio'))).toBe(true);
+    expect(app.editors.every((ed) => ed.name.startsWith('Renamed.ai'))).toBe(true);
     expect(views.map(({ host }) => [host.style.left, host.style.top, host.style.width, host.style.height])).toEqual(originalFrames);
     for (const spy of resize) expect(spy).not.toHaveBeenCalled();
   } finally {

@@ -149,22 +149,23 @@ describe('naming', () => {
   });
 
   it('handles extensions', () => {
-    expect(ensureExtension('Logo')).toBe('Logo.vstudio');
-    expect(ensureExtension('Logo.VSTUDIO')).toBe('Logo.vstudio');
-    expect(ensureExtension('logo.svg')).toBe('logo.vstudio');
-    expect(ensureExtension('v1.2')).toBe('v1.2.vstudio');
-    expect(ensureExtension('a/b:c?')).toBe('a-b-c-.vstudio');
-    expect(ensureExtension('   ')).toBe('Untitled.vstudio');
-    expect(suggestFileName('Untitled-3')).toBe('Untitled-3.vstudio');
-    expect(stripExtension('x.vstudio')).toBe('x');
+    expect(ensureExtension('Logo')).toBe('Logo.ai');
+    expect(ensureExtension('Logo.VSTUDIO')).toBe('Logo.ai');
+    expect(ensureExtension('logo.svg')).toBe('logo.ai');
+    expect(ensureExtension('v1.2')).toBe('v1.2.ai');
+    expect(ensureExtension('a/b:c?')).toBe('a-b-c-.ai');
+    expect(ensureExtension('   ')).toBe('Untitled.ai');
+    expect(suggestFileName('Untitled-3')).toBe('Untitled-3.ai');
+    expect(stripExtension('x.ai')).toBe('x');
   });
 
   it('makes unique names and parses paths', () => {
-    expect(uniqueName('Logo.vstudio', ['logo.vstudio', 'Logo 2.vstudio'])).toBe('Logo 3.vstudio');
-    expect(uniqueName('New.vstudio', [])).toBe('New.vstudio');
-    expect(baseName('/u/Documents/Logo.vstudio')).toBe('Logo.vstudio');
-    expect(dirName('/u/Documents/Logo.vstudio')).toBe('/u/Documents');
+    expect(uniqueName('Logo.ai', ['logo.ai', 'Logo 2.ai'])).toBe('Logo 3.ai');
+    expect(uniqueName('New.ai', [])).toBe('New.ai');
+    expect(baseName('/u/Documents/Logo.ai')).toBe('Logo.ai');
+    expect(dirName('/u/Documents/Logo.ai')).toBe('/u/Documents');
     expect(fileKind('a.vstudio')).toBe('native');
+    expect(fileKind('a.ai')).toBe('unknown');
     expect(fileKind('a.svg')).toBe('svg');
     expect(fileKind('drop', enc.encode('<?xml version="1.0"?><svg>'))).toBe('svg');
     expect(fileKind('drop', new Uint8Array([0x1f, 0x8b]))).toBe('native');
@@ -235,18 +236,18 @@ describe('recent files', () => {
 
   it('adds to the top, dedupes and caps the list', async () => {
     const { r } = make({ max: 3 });
-    await r.add({ kind: 'puter', path: '/u/a.vstudio', name: 'a.vstudio' });
-    await r.add({ kind: 'puter', path: '/u/b.vstudio', name: 'b.vstudio' });
-    await r.add({ kind: 'puter', path: '/u/a.vstudio', name: 'a.vstudio' });
-    expect(r.list().map((e) => e.name)).toEqual(['a.vstudio', 'b.vstudio']);
-    await r.add({ kind: 'puter', path: '/u/c.vstudio', name: 'c.vstudio' });
-    await r.add({ kind: 'puter', path: '/u/d.vstudio', name: 'd.vstudio' });
-    expect(r.list().map((e) => e.name)).toEqual(['d.vstudio', 'c.vstudio', 'a.vstudio']);
+    await r.add({ kind: 'puter', path: '/u/a.ai', name: 'a.ai' });
+    await r.add({ kind: 'puter', path: '/u/b.ai', name: 'b.ai' });
+    await r.add({ kind: 'puter', path: '/u/a.ai', name: 'a.ai' });
+    expect(r.list().map((e) => e.name)).toEqual(['a.ai', 'b.ai']);
+    await r.add({ kind: 'puter', path: '/u/c.ai', name: 'c.ai' });
+    await r.add({ kind: 'puter', path: '/u/d.ai', name: 'd.ai' });
+    expect(r.list().map((e) => e.name)).toEqual(['d.ai', 'c.ai', 'a.ai']);
   });
 
   it('keeps thumbnails in the cache, not in prefs', async () => {
     const { prefs, r } = make();
-    const e = await r.add({ kind: 'puter', path: '/u/a.vstudio', name: 'a', thumb: 'data:image/png;base64,X' });
+    const e = await r.add({ kind: 'puter', path: '/u/a.ai', name: 'a', thumb: 'data:image/png;base64,X' });
     expect(JSON.stringify(prefs.get('recentFiles'))).not.toContain('base64');
     r.thumbs.clear();
     expect(await r.thumb(e)).toBe('data:image/png;base64,X');
@@ -257,9 +258,9 @@ describe('recent files', () => {
 
   it('drops missing cloud files when validated, keeps them when offline', async () => {
     const { r } = make();
-    await r.add({ kind: 'puter', path: '/u/gone.vstudio', name: 'gone' });
-    await r.add({ kind: 'puter', path: '/u/here.vstudio', name: 'here' });
-    await r.add({ kind: 'puter', path: '/u/offline.vstudio', name: 'offline' });
+    await r.add({ kind: 'puter', path: '/u/gone.ai', name: 'gone' });
+    await r.add({ kind: 'puter', path: '/u/here.ai', name: 'here' });
+    await r.add({ kind: 'puter', path: '/u/offline.ai', name: 'offline' });
     const stat = vi.fn(async (p) => {
       if (p.includes('gone')) throw { code: 'subject_does_not_exist', message: 'Item does not exist' };
       if (p.includes('offline')) throw new Error('Failed to fetch');
@@ -288,11 +289,11 @@ describe('recovery bookkeeping', () => {
     const b = memoryBackend();
     const store = new RecoveryStore([b]);
     await store.put('r1', { name: 'A', data: new Uint8Array([1, 2]), session: 's1', saved: 10 });
-    await store.put('r2', { name: 'B', data: new Uint8Array([3]), session: 's1', saved: 20, file: { kind: 'puter', path: '/u/b.vstudio', name: 'b.vstudio' } });
+    await store.put('r2', { name: 'B', data: new Uint8Array([3]), session: 's1', saved: 20, file: { kind: 'puter', path: '/u/b.ai', name: 'b.ai' } });
     await store.put('r1', { name: 'A2', data: new Uint8Array([4]), session: 's1', saved: 30 });
     const list = await store.list();
     expect(list.map((e) => e.name)).toEqual(['A2', 'B']);
-    expect(list[1].file.path).toBe('/u/b.vstudio');
+    expect(list[1].file.path).toBe('/u/b.ai');
     const blob = await store.read(list[0]);
     expect([...new Uint8Array(await blob.arrayBuffer())]).toEqual([4]);
     await store.remove('r1');
@@ -664,23 +665,23 @@ describe('FileService', () => {
     const ed = app.addDocument(sampleDoc());
     expect(ed.doc.dirty).toBe(true);
     expect(await svc.save(ed)).toBe(true);
-    expect(puter.ui.showSaveFilePicker).toHaveBeenCalledWith(expect.any(Blob), 'Logo.vstudio');
-    expect(ed.file).toEqual({ kind: 'puter', path: '/u/Desktop/Logo.vstudio', name: 'Logo.vstudio' });
+    expect(puter.ui.showSaveFilePicker).toHaveBeenCalledWith(expect.any(Blob), 'Logo.ai');
+    expect(ed.file).toEqual({ kind: 'puter', path: '/u/Desktop/Logo.ai', name: 'Logo.ai' });
     expect(ed.doc.dirty).toBe(false);
     expect(discard).toHaveBeenCalledWith(ed);
-    expect(recent.list()[0].path).toBe('/u/Desktop/Logo.vstudio');
+    expect(recent.list()[0].path).toBe('/u/Desktop/Logo.ai');
 
     ed.doc.transact('Rename', () => ed.doc.updateRoot({ name: 'Changed' }));
     expect(await svc.save(ed)).toBe(true);
-    expect(puter.fs.write).toHaveBeenCalledWith('/u/Desktop/Logo.vstudio', expect.any(Blob), expect.objectContaining({ overwrite: true }));
-    const reopened = await parseDocument(files.get('/u/Desktop/Logo.vstudio'));
+    expect(puter.fs.write).toHaveBeenCalledWith('/u/Desktop/Logo.ai', expect.any(Blob), expect.objectContaining({ overwrite: true }));
+    const reopened = await parseDocument(files.get('/u/Desktop/Logo.ai'));
     expect(reopened.doc.root.name).toBe('Changed');
   });
 
   it('saves again after an in-flight save when the document changed meanwhile', async () => {
     const { app, files, puter } = fakeApp();
     const svc = new FileService(app, { recent: null });
-    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' } });
+    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.ai', name: 'Logo.ai' } });
     const write = puter.fs.write.getMockImplementation();
     let release;
     puter.fs.write.mockImplementationOnce((...a) => new Promise((r) => (release = () => r(write(...a)))));
@@ -694,13 +695,13 @@ describe('FileService', () => {
     expect(await second).toBe(true);
     expect(ed.doc.dirty).toBe(false);
     expect(puter.fs.write).toHaveBeenCalledTimes(2);
-    expect((await parseDocument(files.get('/u/Logo.vstudio'))).doc.root.name).toBe('Edited during save');
+    expect((await parseDocument(files.get('/u/Logo.ai'))).doc.root.name).toBe('Edited during save');
   });
 
   it('keeps the Save As location when an earlier save lands after it', async () => {
     const { app, files, puter } = fakeApp();
     const svc = new FileService(app, { recent: null });
-    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.vstudio', name: 'Logo.vstudio' } });
+    const ed = app.addDocument(sampleDoc(), { file: { kind: 'puter', path: '/u/Logo.ai', name: 'Logo.ai' } });
     const write = puter.fs.write.getMockImplementation();
     let release;
     puter.fs.write.mockImplementationOnce((...a) => new Promise((r) => (release = () => r(write(...a)))));
@@ -709,13 +710,13 @@ describe('FileService', () => {
     ed.doc.transact('Rename', () => ed.doc.updateRoot({ name: 'Edited' }));
     // Save As while the slow save is still writing: the new file is written first.
     expect(await svc.saveAs(ed)).toBe(true);
-    expect(ed.file.path).toBe('/u/Desktop/Logo.vstudio');
+    expect(ed.file.path).toBe('/u/Desktop/Logo.ai');
     release();
     expect(await first).toBe(true);
     // The tab stays on the file chosen last, and is saved.
-    expect(ed.file.path).toBe('/u/Desktop/Logo.vstudio');
+    expect(ed.file.path).toBe('/u/Desktop/Logo.ai');
     expect(ed.doc.dirty).toBe(false);
-    expect((await parseDocument(files.get('/u/Desktop/Logo.vstudio'))).doc.root.name).toBe('Edited');
+    expect((await parseDocument(files.get('/u/Desktop/Logo.ai'))).doc.root.name).toBe('Edited');
   });
 
   it('clears the file name message in the Save As dialog once the name is edited', async () => {
@@ -750,18 +751,18 @@ describe('FileService', () => {
     const { app, files } = fakeApp();
     const recent = new RecentFiles(app.prefs, { cache: memoryBackend() });
     const svc = new FileService(app, { recent });
-    files.set('/u/a.vstudio', await serializeDocument(sampleDoc()));
-    const ed = await svc.openPath('/u/a.vstudio');
-    expect(ed.file).toEqual({ kind: 'puter', path: '/u/a.vstudio', name: 'a.vstudio' });
-    expect(await svc.openPath('/u/a.vstudio')).toBe(ed);
+    files.set('/u/a.ai', await serializeDocument(sampleDoc()));
+    const ed = await svc.openPath('/u/a.ai');
+    expect(ed.file).toEqual({ kind: 'puter', path: '/u/a.ai', name: 'a.ai' });
+    expect(await svc.openPath('/u/a.ai')).toBe(ed);
     expect(app.editors).toHaveLength(1);
-    await recent.add({ kind: 'puter', path: '/u/gone.vstudio', name: 'gone.vstudio' });
+    await recent.add({ kind: 'puter', path: '/u/gone.ai', name: 'gone.ai' });
     // The home screen listing it is redrawn without it.
     app.home = { hidden: false };
     app.renderHome = vi.fn();
-    expect(await svc.openPath('/u/gone.vstudio')).toBe(null);
+    expect(await svc.openPath('/u/gone.ai')).toBe(null);
     expect(app.dialogs.alert).toHaveBeenCalled();
-    expect(recent.list().some((e) => e.name === 'gone.vstudio')).toBe(false);
+    expect(recent.list().some((e) => e.name === 'gone.ai')).toBe(false);
     expect(app.renderHome).toHaveBeenCalledWith(app.home);
   });
 
@@ -817,12 +818,12 @@ describe('Puter desktop hooks', () => {
     const dirty = { doc: { dirty: true } };
     const app = { env: 'app', puter, editors: [clean, dirty], activate: vi.fn(), closeDocument: vi.fn(async () => false) };
     const service = { openPath: vi.fn(async () => null) };
-    document.title = 'Logo.vstudio - Vector Studio';
+    document.title = 'Logo.ai - Vector Studio';
     installPuterHooks(app, service);
-    expect(puter.ui.setWindowTitle).toHaveBeenCalledWith('Logo.vstudio - Vector Studio');
-    await handlers.launch([{ path: '/u/a.vstudio', name: 'a.vstudio' }, { path: '/u/dir', is_dir: true }]);
+    expect(puter.ui.setWindowTitle).toHaveBeenCalledWith('Logo.ai - Vector Studio');
+    await handlers.launch([{ path: '/u/a.ai', name: 'a.ai' }, { path: '/u/dir', is_dir: true }]);
     expect(service.openPath).toHaveBeenCalledTimes(1);
-    expect(service.openPath).toHaveBeenCalledWith('/u/a.vstudio', { name: 'a.vstudio' });
+    expect(service.openPath).toHaveBeenCalledWith('/u/a.ai', { name: 'a.ai' });
     // Cancel in the save prompt keeps the window open.
     await handlers.close();
     expect(app.closeDocument).toHaveBeenCalledWith(dirty);

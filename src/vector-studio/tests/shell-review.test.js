@@ -221,7 +221,7 @@ describe('home recent files', () => {
   it('removing a recent file with the keyboard keeps focus in the list', async () => {
     const { bootAppWithFeatures } = await import('./helpers.js');
     const app = await bootAppWithFeatures();
-    const items = [{ name: 'a.vstudio' }, { name: 'b.vstudio' }, { name: 'c.vstudio' }];
+    const items = [{ name: 'a.ai' }, { name: 'b.ai' }, { name: 'c.ai' }];
     app.recentFiles = async () => items;
     app.removeRecent = async () => {};
     app.showHome();
@@ -231,11 +231,11 @@ describe('home recent files', () => {
     removes()[1].click();
     await new Promise((r) => setTimeout(r, 0));
     expect(document.activeElement).toBe(removes()[1]);
-    expect(document.activeElement.getAttribute('aria-label')).toBe('Remove c.vstudio from recent');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Remove c.ai from recent');
     // The last one: focus moves to the one before it, then to New file when the list is empty.
     removes()[1].click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(document.activeElement.getAttribute('aria-label')).toBe('Remove a.vstudio from recent');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Remove a.ai from recent');
     removes()[0].click();
     await new Promise((r) => setTimeout(r, 0));
     expect(document.activeElement.textContent).toBe('New file');

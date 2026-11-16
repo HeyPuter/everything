@@ -26,11 +26,11 @@ async function setup(patch) {
 }
 
 it.each([[42], [{}], [[]], [true]])('recovers all document contents when a stored file path is %j', async (path) => {
-  const { saver, store } = await setup({ file: { kind: 'puter', path, name: 'Drawing.vstudio' } });
+  const { saver, store } = await setup({ file: { kind: 'puter', path, name: 'Drawing.ai' } });
   const opened = await saver.offerRecovery();
   expect(opened.map((ed) => ed.doc.root.name)).toEqual(['Recover this', 'Other work']);
   expect(opened[0].file.kind).toBe('import');
-  expect(opened[0].file.name).toBe('Drawing.vstudio [Recovered]');
+  expect(opened[0].file.name).toBe('Drawing.ai [Recovered]');
   expect(await store.list()).toHaveLength(2);
 });
 
@@ -49,25 +49,25 @@ it('does not interpret an object-valued stored name as element attributes or mar
 });
 
 it('does not attach a non-string file name to a recovered editor', async () => {
-  const { saver } = await setup({ file: { kind: 'puter', path: '/u/Drawing.vstudio', name: { title: 'Bad name' } } });
+  const { saver } = await setup({ file: { kind: 'puter', path: '/u/Drawing.ai', name: { title: 'Bad name' } } });
   const [editor] = await saver.offerRecovery();
-  expect(editor.file.path).toBe('/u/Drawing.vstudio');
+  expect(editor.file.path).toBe('/u/Drawing.ai');
   expect(typeof editor.file.name === 'string' || editor.file.name == null).toBe(true);
   expect(editor.doc.root.name).toBe('Recover this');
 });
 
 it('does not request a stored local handle using malformed metadata', async () => {
-  const { saver } = await setup({ file: { kind: 'local', name: 'Drawing.vstudio', handleId: ['not', 'an', 'id'] } });
-  const get = vi.spyOn(handleStore, 'get').mockResolvedValue({ name: 'Wrong file.vstudio' });
+  const { saver } = await setup({ file: { kind: 'local', name: 'Drawing.ai', handleId: ['not', 'an', 'id'] } });
+  const get = vi.spyOn(handleStore, 'get').mockResolvedValue({ name: 'Wrong file.ai' });
   const [editor] = await saver.offerRecovery();
   expect(get).not.toHaveBeenCalled();
   expect(editor.file.kind).toBe('import');
-  expect(editor.file.name).toBe('Drawing.vstudio [Recovered]');
+  expect(editor.file.name).toBe('Drawing.ai [Recovered]');
 });
 
 it('keeps genuine text names as text and preserves a valid original save location', async () => {
   const name = '<b>Drawing & artwork</b>';
-  const { saver } = await setup({ name, file: { kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' } });
+  const { saver } = await setup({ name, file: { kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' } });
   dialogHooks.open = async (opts) => {
     const label = opts.body.querySelector('.files-recover-name');
     expect(label.textContent).toBe(name);
@@ -75,5 +75,5 @@ it('keeps genuine text names as text and preserves a valid original save locatio
     return 'recover';
   };
   const [editor] = await saver.offerRecovery();
-  expect(editor.file).toEqual({ kind: 'puter', path: '/u/Drawing.vstudio', name: 'Drawing.vstudio' });
+  expect(editor.file).toEqual({ kind: 'puter', path: '/u/Drawing.ai', name: 'Drawing.ai' });
 });

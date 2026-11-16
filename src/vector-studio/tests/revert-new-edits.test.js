@@ -9,7 +9,7 @@ it.each(['committed edit', 'unfinished edit', 'comment'])('preserves a newer %s 
   let finishRead;
   const read = new Promise((resolve) => { finishRead = resolve; });
   const getFile = vi.fn(() => read);
-  ed.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile } };
+  ed.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile } };
   ed.doc.transact('Edit', () => ed.doc.updateRoot({ name: 'Edited' }));
   app.dialogs.confirm = async () => true;
   app.notify = vi.fn();
@@ -44,7 +44,7 @@ it('still reverts after changing only the viewport and view options while loadin
   let finishRead;
   const read = new Promise((resolve) => { finishRead = resolve; });
   const getFile = vi.fn(() => read);
-  ed.file = { kind: 'local', name: 'Artwork.vstudio', handle: { getFile } };
+  ed.file = { kind: 'local', name: 'Artwork.ai', handle: { getFile } };
   ed.doc.transact('Edit', () => ed.doc.updateRoot({ name: 'Edited' }));
   app.dialogs.confirm = async () => true;
   try {

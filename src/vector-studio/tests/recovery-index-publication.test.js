@@ -8,7 +8,7 @@ import { dialogHooks } from '../src/ui/dialogs/dialog.js';
 
 async function value(name, sequence) {
   return { name, session: 'session', sequence, saved: sequence, revision: sequence,
-    file: { kind: 'puter', path: `/u/${name}.vstudio`, name: `${name}.vstudio` },
+    file: { kind: 'puter', path: `/u/${name}.ai`, name: `${name}.ai` },
     data: await serializeDocument(VDocument.create({ name }), { compress: false }) };
 }
 async function names(store) {
@@ -37,7 +37,7 @@ it.each(['replace', 'add', 'remove'])('retains the complete published index afte
       expect((await restarted.list()).map((e) => e.id)).toEqual(['second']);
     } else {
       await restarted.put(action === 'replace' ? 'first' : 'third', await value('Changed', 3));
-      expect((await names(restarted))[0]).toEqual(['Changed', 'Changed', '/u/Changed.vstudio']);
+      expect((await names(restarted))[0]).toEqual(['Changed', 'Changed', '/u/Changed.ai']);
       expect((await restarted.list()).some((e) => e.id === 'second')).toBe(true);
     }
   } finally { vi.restoreAllMocks(); }
@@ -56,7 +56,7 @@ it('preserves legacy entries when migration is interrupted', async () => {
   });
   try {
     await expect(store.put('first', await value('Changed', 2))).rejects.toThrow();
-    expect(await names(new RecoveryStore(backend))).toEqual([['Legacy', 'Legacy', '/u/Legacy.vstudio']]);
+    expect(await names(new RecoveryStore(backend))).toEqual([['Legacy', 'Legacy', '/u/Legacy.ai']]);
   } finally { vi.restoreAllMocks(); }
 });
 
@@ -119,7 +119,7 @@ it('does not trust an older index when the newer slot cannot be read', async () 
     await store.put('other', await value('Other', 3));
     expect((await store.list()).map((e) => e.id)).toEqual(['other']);
   } finally { vi.restoreAllMocks(); }
-  expect(await names(new RecoveryStore(backend))).toEqual([['Other', 'Other', '/u/Other.vstudio'], ['Newest', 'Newest', '/u/Newest.vstudio']]);
+  expect(await names(new RecoveryStore(backend))).toEqual([['Other', 'Other', '/u/Other.ai'], ['Newest', 'Newest', '/u/Newest.ai']]);
 });
 
 it.each([false, true])('does not restore or discard an older snapshot when a damaged index leaves newer bytes unindexed (old cleanup failed: %s)', async (cleanupFailed) => {

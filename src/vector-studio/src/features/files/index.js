@@ -1,12 +1,12 @@
 /**
- * Files feature: the native .vstudio format, opening and saving in the
+ * Files feature: documents as PDF-compatible .ai files, opening and saving in the
  * Puter cloud or on this computer, recent files, autosave and recovery,
  * New Document / New from Template, Document Setup, Document Info and
  * Preferences, Puter launch items and window close handling.
  */
 import { BookmarkPlus, RectangleVertical } from 'lucide';
 import { registerIcons } from '../../ui/icons.js';
-import { baseName, dirName, extensionOf } from './naming.js';
+import { NATIVE_EXT, LEGACY_EXT, baseName, dirName, extensionOf } from './naming.js';
 import { RecentFiles } from './recent.js';
 import { Autosaver } from './autosave.js';
 import { FileService } from './service.js';
@@ -98,13 +98,17 @@ function recentMenuItems(app, files) {
   ];
 }
 
-/** Dropping .vstudio files anywhere opens them; .svg opens when no document is showing. */
+/**
+ * Dropping .ai (or .vstudio) documents opens them; other files open when no
+ * document is showing. Onto the canvas of an open document, a .ai file is
+ * placed as artwork instead (io/system.js handles that drop first).
+ */
 function installDrop(app, service) {
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
   const ours = (name) => {
     const ext = extensionOf(name);
     const other = ext === '.svg' || ext === '.svgz' || (app.importers?.openExtensions || []).includes(ext);
-    return ext === '.vstudio' || (other && (!app.editor || !app.home.hidden));
+    return ext === NATIVE_EXT || ext === LEGACY_EXT || (other && (!app.editor || !app.home.hidden));
   };
   window.addEventListener('dragover', (e) => {
     if (e.defaultPrevented || !hasFiles(e)) return;
@@ -125,7 +129,7 @@ function installDrop(app, service) {
     // Chromium can hand over a writable handle, so Save writes back to the dropped file.
     const handles = await Promise.all(picked.map(({ it }) => (it.getAsFileSystemHandle ? it.getAsFileSystemHandle().catch(() => null) : null)));
     for (let i = 0; i < picked.length; i++) {
-      const handle = handles[i]?.kind === 'file' && extensionOf(picked[i].file.name) === '.vstudio' ? handles[i] : null;
+      const handle = handles[i]?.kind === 'file' && [NATIVE_EXT, LEGACY_EXT].includes(extensionOf(picked[i].file.name)) ? handles[i] : null;
       await service.openFileBlob(picked[i].file, { handle });
     }
   });

@@ -5,7 +5,7 @@ import { parseDocument } from '../src/features/files/format.js';
 it('honors Save requested while a follow-up save is already writing', async () => {
   const app = await bootAppWithFeatures();
   const ed = app.newDocument({ name: 'First' });
-  ed.file = { kind: 'puter', path: '/u/Artwork.vstudio', name: 'Artwork.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Artwork.ai', name: 'Artwork.ai' };
   const releases = [];
   const gates = [0, 1].map(() => new Promise((resolve) => releases.push(resolve)));
   let disk, writes = 0;
@@ -13,7 +13,7 @@ it('honors Save requested while a follow-up save is already writing', async () =
     const index = writes++;
     if (index < gates.length) await gates[index];
     disk = new Uint8Array(await blob.arrayBuffer());
-    return { path, name: 'Artwork.vstudio' };
+    return { path, name: 'Artwork.ai' };
   }) } };
   try {
     const first = app.files.service.save(ed);
@@ -40,12 +40,12 @@ it('honors Save requested while a follow-up save is already writing', async () =
 it('coalesces repeated Save requests when no newer edit needs writing', async () => {
   const app = await bootAppWithFeatures();
   const ed = app.newDocument();
-  ed.file = { kind: 'puter', path: '/u/Artwork.vstudio', name: 'Artwork.vstudio' };
+  ed.file = { kind: 'puter', path: '/u/Artwork.ai', name: 'Artwork.ai' };
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   app.puter = { fs: { write: vi.fn(async (path) => {
     await gate;
-    return { path, name: 'Artwork.vstudio' };
+    return { path, name: 'Artwork.ai' };
   }) } };
   try {
     const first = app.files.service.save(ed);
