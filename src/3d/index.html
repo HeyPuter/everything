@@ -38,6 +38,14 @@
           dispatchEvent(new Event('puter-loaded'));
         };
         document.head.appendChild(s);
+
+        // Privacy-friendly analytics by Plausible, also left out with online access off
+        var pa = document.createElement('script');
+        pa.async = true;
+        pa.src = 'https://plausible.io/js/pa-Kz_31JEVlyLKAEQhsHbTb.js';
+        document.head.appendChild(pa);
+        window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+        plausible.init();
       })();
     </script>
   </head>
