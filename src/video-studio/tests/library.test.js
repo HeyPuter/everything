@@ -945,6 +945,30 @@ describe('AutoSaver', () => {
   });
 });
 
+describe('a move to the Trash that failed halfway', () => {
+  it('shows the project in the Trash once it is opened, so it can be restored', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend, { cache: null });
+    const p = await lib.createProject({ name: 'Trip' });
+    // The project file is written; the list is not.
+    const write = backend.writeJSON;
+    backend.writeJSON = async (path, value) => {
+      if (path === 'index.json') throw new Error('Failed to fetch');
+      return write(path, value);
+    };
+    await expect(lib.trashProject(p.id)).rejects.toThrow();
+    backend.writeJSON = write;
+    expect((await lib.listTrash()).map((x) => x.name)).toEqual([]);
+    const opened = await lib.openForEditing(p.id);
+    expect(opened.project.deletedAt).toBeTruthy();
+    expect(opened.claim).toBeNull();
+    expect((await lib.listTrash()).map((x) => x.name)).toEqual(['Trip']);
+    expect((await lib.listProjects()).map((x) => x.name)).toEqual([]);
+    await lib.restoreProject(p.id);
+    expect((await lib.listProjects()).map((x) => x.name)).toEqual(['Trip']);
+  });
+});
+
 describe('the project list with two tabs open', () => {
   /** navigator.locks as browsers have it: one holder of a name at a time, across "tabs". */
   function fakeLocks() {

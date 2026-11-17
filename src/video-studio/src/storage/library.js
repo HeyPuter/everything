@@ -364,6 +364,10 @@ export class Library extends Emitter {
     }
     if (!project.deletedAt) return { project, claim };
     claim.release();
+    // The file says Trash; the list may not, when writing it failed as the project was moved
+    // there. The list then follows the file, so the project is in the Trash to be restored.
+    const listed = (this.index || (await this._readIndex().catch(() => []))).find((e) => e.id === id);
+    if (listed && !listed.deletedAt) await this._editEntry(id, (e) => ({ ...e, deletedAt: project.deletedAt })).catch(() => {});
     return { project, claim: null };
   }
 
