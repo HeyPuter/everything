@@ -1203,6 +1203,8 @@ puter-user-menu::part(apps-panel) {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
+  /* Three buttons are wider than a phone: they wrap instead of running off the left edge, out of reach. */
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px 20px 18px;
 }
