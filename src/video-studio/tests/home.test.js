@@ -111,6 +111,34 @@ describe('home screen', () => {
     expect(root.textContent).toContain('The Trash is empty.');
   });
 
+  it('does not call the Trash empty when it failed to load, or emptied when emptying failed', async () => {
+    const lib = new Library(memoryBackend());
+    const p = await lib.createProject({ name: 'Doomed' });
+    await lib.trashProject(p.id);
+    const list = vi.spyOn(lib, 'listProjects').mockRejectedValueOnce(new Error('offline'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = mount(lib);
+    await settle();
+    h.show('trash');
+    expect(root.textContent).toContain("Couldn't load the Trash.");
+    expect(root.textContent).not.toContain('The Trash is empty.');
+    list.mockRestore();
+    [...root.querySelectorAll('.trash-grid .btn')].find((b) => b.textContent === 'Try again').click();
+    await settle();
+    expect(titles()).toEqual(['Doomed']);
+
+    vi.spyOn(lib, 'emptyTrash').mockRejectedValueOnce(new Error('offline'));
+    const live = document.getElementById('live-region') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'live-region' }));
+    live.textContent = '';
+    const done = h.emptyTrash();
+    await settle();
+    [...document.querySelectorAll('dialog .btn')].find((b) => b.textContent === 'Empty Trash').click();
+    await done;
+    await settle(80);
+    expect(live.textContent).not.toContain('Trash emptied');
+    expect(titles()).toEqual(['Doomed']);
+  });
+
   it('does not trash, delete or rename a project that is open in another tab', async () => {
     const lib = new Library(memoryBackend());
     const p = await lib.createProject({ name: 'Busy' });

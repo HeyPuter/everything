@@ -626,13 +626,15 @@ export class Home {
     if (!n) return;
     const ok = await confirmDialog({ title: 'Empty the Trash?', message: `${n} project${n === 1 ? '' : 's'} will be deleted permanently. This can't be undone.`, confirm: 'Empty Trash', danger: true });
     if (!ok) return;
+    let emptied = true;
     try {
       await this.library.emptyTrash();
     } catch {
+      emptied = false;
       toast("Couldn't empty the Trash.", { kind: 'error' });
     }
     await this.refreshLists().catch(() => {});
-    announce('Trash emptied');
+    if (emptied) announce('Trash emptied');
   }
 
   /* Project files ------------------------------------------------------------------ */
