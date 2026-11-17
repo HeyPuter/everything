@@ -888,6 +888,12 @@
   gap: 4px;
 }
 
+/* The list item around each suggestion's button; the button fills it. */
+.ai-line-item {
+  display: flex;
+  flex-direction: column;
+}
+
 .ai-line {
   display: flex;
   align-items: center;

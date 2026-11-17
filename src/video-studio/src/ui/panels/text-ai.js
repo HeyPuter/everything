@@ -48,7 +48,8 @@ export function textAiPanel(ctx, { chat = (p) => puter.ai.chat(p) } = {}) {
   const useTranscript = h('input', { type: 'checkbox' });
   const transcriptRow = h('label.check-row', useTranscript, h('span', 'Use the transcript'));
   const go = h('button.btn.primary.block', { type: 'button' }, icon('magic', 16), 'Write');
-  const list = h('div.ai-results', { role: 'list', 'aria-label': 'Suggestions', 'aria-live': 'polite' });
+  // Not a live region: new suggestions are announced once (announce()), not read out twice.
+  const list = h('div.ai-results', { role: 'list', 'aria-label': 'Suggestions' });
 
   async function run() {
     if (busy) return;
@@ -79,12 +80,13 @@ export function textAiPanel(ctx, { chat = (p) => puter.ai.chat(p) } = {}) {
   function render() {
     const k = WRITE_KINDS.find((x) => x.id === kind) || WRITE_KINDS[0];
     list.replaceChildren(...results.map((line) => {
-      const b = h('button.ai-line', { type: 'button', role: 'listitem', 'aria-label': `Add "${line}" as text` }, h('span', line), icon('plus', 14));
+      const b = h('button.ai-line', { type: 'button', 'aria-label': `Add "${line}" as text` }, h('span', line), icon('plus', 14));
       b.addEventListener('click', () => {
         actions.addText(k.preset, { text: line });
         announce('Text added');
       });
-      return b;
+      // The list item holds the button: a button with the item's role stops being a button.
+      return h('div.ai-line-item', { role: 'listitem' }, b);
     }));
   }
 
