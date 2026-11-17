@@ -72,6 +72,8 @@ export function createPlayerView(ctx) {
   ], { side: 'top', align: 'end', label: 'Preview zoom' });
   const fsBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Full screen', 'data-tip': 'Full screen' }, icon('fullscreen', 18));
   fsBtn.addEventListener('click', () => toggleFullscreen());
+  // Not offered where the browser has no full screen for pages (iPhones): the button did nothing there.
+  if (document.fullscreenEnabled === false || typeof Element.prototype.requestFullscreen !== 'function') fsBtn.hidden = true;
 
   const bar = h('div.player-bar',
     h('div.player-bar-left', h('span.timecode', { 'aria-label': 'Current time and duration' }, cur, h('span.tc-sep', ' / '), total)),

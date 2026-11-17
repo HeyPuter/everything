@@ -201,7 +201,8 @@ export function installTooltips() {
     const kbd = (cmd && tipShortcut?.(cmd)) || el.getAttribute('data-tip-key');
     tip = h('div.tooltip', { role: 'tooltip' }, text, kbd ? h('span.tooltip-key', kbd) : null);
     // A modal dialog is in the top layer, above anything in the page: put the tooltip in it.
-    (el.closest('dialog[open]') || document.body).append(tip);
+    // Likewise in full screen, where only the full-screen element is shown.
+    (el.closest('dialog[open]') || document.fullscreenElement || document.body).append(tip);
     const r = el.getBoundingClientRect();
     const t = tip.getBoundingClientRect();
     let x = r.left + r.width / 2 - t.width / 2;

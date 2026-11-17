@@ -176,7 +176,8 @@ export function showMenu(anchor, items, opts = {}) {
       }
     }
   });
-  document.body.append(menu);
+  // Full screen shows one element and nothing outside it: the menu goes inside it then.
+  (document.fullscreenElement || document.body).append(menu);
   // An element, a rect ({left, right, top, bottom}, e.g. a DOMRect) or a {x, y} point.
   const rect = anchor instanceof Element ? anchor.getBoundingClientRect() : 'right' in anchor ? anchor : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
   position(menu, rect, opts);

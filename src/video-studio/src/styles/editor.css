@@ -827,6 +827,29 @@ puter-user-menu::part(apps-panel) {
 .player-panel:fullscreen {
   border-radius: 0;
   background: #000;
+  /* On black whatever the theme: the light theme's dark text and blue could not be read here. */
+  color-scheme: dark;
+  --bg-panel: #222224;
+  --bg-panel-2: #2a2a2d;
+  --bg-elev: #303034;
+  --bg-input: #18181a;
+  --bg-hover: rgba(255, 255, 255, 0.07);
+  --bg-active: rgba(255, 255, 255, 0.12);
+  --border: #323236;
+  --border-strong: #44444a;
+  --text: #ececee;
+  --text-2: #a9a9b1;
+  --text-3: #8d8d96;
+  --accent: #4f8ff7;
+  --accent-hover: #6ea3fa;
+  --accent-soft: rgba(79, 143, 247, 0.18);
+  --accent-text: #8fb6fb;
+  --on-accent: #04122b;
+  --focus: #8fb6fb;
+  --danger: #f46a6a;
+  --success: #3fbf7f;
+  --warning: #f2a93b;
+  color: var(--text);
 }
 
 .player-panel:fullscreen .player-stage {
