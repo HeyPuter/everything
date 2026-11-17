@@ -1393,12 +1393,14 @@ export function createTimeline(ctx) {
     player.pause();
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
+    // Gathered once for the drag (on first use), not on every move: they do not change while scrubbing.
+    let pts = null;
     const at = (ev) => {
       const r = content.getBoundingClientRect();
       let t = xToTime(ev.clientX - r.left);
       // Alt flips snapping, as when dragging clips, trims and markers.
       if (store.toggles.snap !== ev.altKey) {
-        const pts = T.snapPoints(store.project, {});
+        pts ||= T.snapPoints(store.project, {});
         const s = T.snap(t, pts, snapThreshold());
         if (s.snapped) t = s.time;
       }
