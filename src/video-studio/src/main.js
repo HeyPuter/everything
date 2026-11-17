@@ -16,6 +16,7 @@ import { toast, confirmDialog } from './ui/dialog.js';
 import { loadDsp } from './media/dsp.js';
 import { parseReviewHash } from './review/protocol.js';
 import { confirmLeave, finishUploads } from './ui/leave.js';
+import { installLaunchOpen, isBundleName } from './ui/launch.js';
 
 const root = document.getElementById('app');
 applyTheme();
@@ -26,6 +27,8 @@ let account = null;
 let view = null;
 // Set once the user chose to leave the page (signing out, closing the window): no more questions.
 let leaving = false;
+// The project being opened, if any: files handed over by the Puter desktop wait for it.
+let navigating = Promise.resolve();
 
 function loading(text) {
   root.setAttribute('aria-busy', 'true');
@@ -60,7 +63,13 @@ function showHome() {
   });
 }
 
-async function openProject(id, files) {
+function openProject(id, files) {
+  const job = openProjectNow(id, files);
+  navigating = job.catch(() => {});
+  return job;
+}
+
+async function openProjectNow(id, files) {
   // Asked for while an editor is open (an old "Open" button on a Home message): its last
   // edits are saved first, and the user can stay when they cannot be.
   if (view?.prepareToLeave && !view._disposed && !(await view.prepareToLeave())) return;
@@ -138,16 +147,59 @@ async function createProject(opts = {}, files) {
   }
 }
 
-async function openBundle(file) {
-  loading('Opening project file...');
-  try {
-    const { project } = await importProjectBundle(library, file);
-    await openProject(project.id);
-  } catch (err) {
-    console.error(err);
-    toast(err?.message || "Couldn't open the project file.", { kind: 'error' });
-    showHome();
+/** Until whatever is being opened (a project, the editor) is on screen. */
+async function settled() {
+  let current;
+  do {
+    current = navigating;
+    await current;
+  } while (current !== navigating);
+}
+
+/**
+ * Files handed over by the Puter desktop (see ui/launch.js). Project files
+ * open as projects; media dragged onto an open project goes into its media,
+ * otherwise it starts a new project, as files dropped on Home do.
+ */
+async function openHandedOver(files, { dropped }) {
+  await settled();
+  const bundles = files.filter((f) => isBundleName(f.name));
+  const media = files.filter((f) => !bundles.includes(f));
+  const editor = view?.ctx && !view._disposed ? view : null;
+  if (!bundles.length && dropped && editor) {
+    const assets = await editor.ctx.actions.importFiles(media);
+    if (assets.length) toast(assets.length === 1 ? `${assets[0].name} added to the project's media.` : `${assets.length} files added to the project's media.`, { kind: 'info' });
+    return;
   }
+  // The open project is saved first (with its cover, as leaving it does); the user can stay when it cannot be.
+  const open = view;
+  if (open?.prepareToLeave && !open._disposed) {
+    if (!(await open.prepareToLeave())) return;
+    await open.saveCover?.();
+    if (open.store?.dirty && !(await open.prepareToLeave())) return;
+  }
+  // Something else was opened meanwhile: it stays.
+  if (view !== open) return;
+  view?.dispose?.();
+  view = null;
+  if (!bundles.length) {
+    await createProject({ ratio: 'original' }, media);
+    return;
+  }
+  loading(bundles.length === 1 ? 'Opening project file...' : 'Opening project files...');
+  const opened = [];
+  for (const file of bundles) {
+    try {
+      opened.push((await importProjectBundle(library, file)).project);
+    } catch (err) {
+      console.error(err);
+      toast(err?.message || `Couldn't open ${file.name}.`, { kind: 'error' });
+    }
+  }
+  // Both at once: the project files are added, then the media opens in a new project.
+  if (media.length) await createProject({ ratio: 'original' }, media);
+  else if (opened.length) await openProject(opened[0].id);
+  else showHome();
 }
 
 async function profilePicture() {
@@ -181,6 +233,7 @@ async function startSignedIn(env) {
   };
   watchWindowClose();
   route();
+  installLaunchOpen(puter, openHandedOver);
   // Videos Puter saved for AI generations the page closed on are deleted a while after start (see cleanAiTemp).
   const started = library;
   setTimeout(() => {
@@ -242,6 +295,7 @@ function startLocal(env) {
   };
   watchWindowClose();
   route();
+  if (typeof puter !== 'undefined') installLaunchOpen(puter, openHandedOver);
 }
 
 /** A review link (#review=...): the focused review screen, for reviewers and the owner alike. */
@@ -292,28 +346,6 @@ function route() {
   if (review) openReview(review);
   else if (m) openProject(decodeURIComponent(m[1]));
   else showHome();
-  // Files opened with the app from the Puter desktop start a new project.
-  if (typeof puter !== 'undefined' && puter.ui?.onLaunchedWithItems) {
-    puter.ui.onLaunchedWithItems(async (items) => {
-      const files = [];
-      for (const it of items || []) {
-        if (it.is_dir) continue;
-        try {
-          const blob = await puter.fs.read(it.path || it.uid);
-          files.push(new File([blob], it.name, { type: blob.type }));
-        } catch {
-          /* skip unreadable */
-        }
-      }
-      // Project files (exported from the home screen) open as projects.
-      const bundles = files.filter((f) => /\.zip$/i.test(f.name));
-      if (bundles.length) {
-        openBundle(bundles[0]);
-        return;
-      }
-      if (files.length) createProject({ ratio: 'original' }, files);
-    });
-  }
 }
 
 async function boot() {
@@ -327,6 +359,11 @@ async function boot() {
     // Offline or blocked: still usable, saving in this browser.
     startLocal('web');
     return;
+  }
+  // In a browser tab the Puter desktop opened, the session is handed over a moment after load:
+  // wait for it (briefly), so the app starts signed in and the file it was opened with can be read.
+  if (typeof puter.openerLaunch_?.then === 'function') {
+    await Promise.race([Promise.resolve(puter.openerLaunch_).catch(() => {}), new Promise((r) => setTimeout(r, 4000))]);
   }
   const env = puter.env;
   if (env === 'app' || puter.auth.isSignedIn()) startSignedIn(env);
