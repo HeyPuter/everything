@@ -576,7 +576,7 @@ export class Compositor {
     const cover = Math.max(W / info.width, H / info.height);
     // No enhance either: sharpening a picture that is then blurred shows nothing, and at this
     // size it kept evicting the clip's own enhanced frame, which was then redone every frame.
-    const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, masks: null, extras: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
+    const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, masks: null, extras: null, enhance: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
     const fit = Math.min(W / info.width, H / info.height);
     fake.scale = cover / fit;
     this._drawLayer(fake, time);
