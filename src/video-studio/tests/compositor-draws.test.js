@@ -102,6 +102,32 @@ describe('clips with effects', () => {
   });
 });
 
+describe('clips with effects and motion blur', () => {
+  it('draw the blur samples around the clip in its buffer and place the clip once', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    a.transform.scale = 0.5;
+    a.keyframes.x = [{ t: 0, v: -0.2, ease: 'linear' }, { t: s(4), v: 0.2, ease: 'linear' }];
+    a.motionBlur = { on: true, amount: 50 };
+    a.effects = [{ id: 'glitch', params: {}, on: true }];
+    const { c, layers } = draw(p, 3);
+    const n = layers[0].extras.motion.length;
+    const samples = c.quads.slice(0, n);
+    // In the buffer (the clip's own size) every sample is full size, a little to either side of the middle.
+    for (const q of samples) {
+      expect(q).toMatchObject({ projW: 1920, projH: 1080 });
+      expect(q.w).toBeCloseTo(1920, 3);
+      expect(Math.abs(q.cx - 960)).toBeLessThan(40);
+    }
+    expect(samples[0].cx).toBeLessThan(960);
+    expect(samples.at(-1).cx).toBeGreaterThan(960);
+    // Placed once at the clip's place and half size.
+    const placed = c.quads.at(-1);
+    expect(placed.cx).toBeCloseTo(960 + layers[0].x * 1920, 3);
+    expect(placed).toMatchObject({ w: 960, h: 540, projW: 1920 });
+  });
+});
+
 describe('compound clips', () => {
   it('place the motion blur samples of a clip inside them where they place the clip', () => {
     const p = fixture();

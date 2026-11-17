@@ -133,6 +133,34 @@ function personFor(comp, layer, info) {
 const bucket = (s) => 2 ** (Math.ceil(Math.log2(Math.max(1e-3, s)) * 2) / 2);
 
 /**
+ * The layer's extras for drawing it untransformed in its own buffer: motion
+ * blur samples (places on the frame) become places relative to the layer, so
+ * the transform is applied once, when the buffer is placed.
+ */
+function innerExtras(layer, W, H, natW, natH) {
+  const ex = layer.extras;
+  if (!ex?.motion) return ex;
+  const a = (-layer.rotation * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const lsx = layer.sx ?? 1;
+  const lsy = layer.sy ?? 1;
+  const motion = ex.motion.map((m) => {
+    const dx = (m.x - layer.x) * W;
+    const dy = (m.y - layer.y) * H;
+    return {
+      x: (dx * cos - dy * sin) / (layer.scale * lsx) / natW,
+      y: (dx * sin + dy * cos) / (layer.scale * lsy) / natH,
+      scale: m.scale / layer.scale,
+      rotation: m.rotation - layer.rotation,
+      sx: (m.sx ?? 1) / lsx,
+      sy: (m.sy ?? 1) / lsy,
+    };
+  });
+  return { ...ex, motion };
+}
+
+/**
  * Draw a visual layer that carries layer.effects into the target bound by
  * the caller (blending premultiplied over it). Falls back to a plain draw
  * when the layer has no effects.
@@ -176,7 +204,7 @@ export function drawLayerWithEffects(comp, layer, time) {
   comp.resolve = () => info;
   let ok;
   try {
-    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, sx: 1, sy: 1, rotation: 0, opacity: 1, blur: 0 }, time);
+    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, sx: 1, sy: 1, rotation: 0, opacity: 1, blur: 0, extras: innerExtras(layer, saved.projW, saved.projH, natW, natH) }, time);
   } finally {
     comp.projW = saved.projW;
     comp.projH = saved.projH;
