@@ -264,6 +264,28 @@ describe('media tab', () => {
     expect(allClips(store.project)).toHaveLength(0);
   });
 
+  it('keeps the selection to the items on show, so the bar never acts on hidden media', async () => {
+    mount();
+    setPref('mediaSort', { key: 'name', dir: 'asc' });
+    tab.el.querySelector('[data-cat="project"]').click();
+    const byName = (n) => [...tab.el.querySelectorAll('.tile')].find((t) => t.querySelector('.tile-label')?.textContent === n);
+    byName('aud').click();
+    byName('vid').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    await flush();
+    expect(tab.el.querySelector('.media-selcount').textContent).toBe('4 selected');
+    tab.el.querySelector('[data-cat="video"]').click();
+    await flush();
+    expect(tab.el.querySelector('.media-selcount').textContent).toBe('2 selected');
+    expect([...tab.el.querySelectorAll('.media-selbar .btn')].some((b) => /Add 2 to timeline/.test(b.textContent))).toBe(true);
+    tab.el.querySelector('[data-cat="backdrops"]').click();
+    await flush();
+    expect(tab.el.querySelector('.media-selbar').hidden).toBe(true);
+    expect(tab.el.querySelector('.media-selbar [data-tip="Delete"]')).toBeNull();
+    tab.el.querySelector('[data-cat="project"]').click();
+    await flush();
+    expect(tab.el.querySelector('.media-selbar').hidden).toBe(true);
+  });
+
   it('will not delete media from inside a compound clip when clips outside it use the media', async () => {
     const p = fixture();
     const [a, b] = [makeClip('video', { assetId: 'vid', start: 0, duration: 5e6 }), makeClip('video', { assetId: 'silent', start: 5e6, duration: 5e6 })];

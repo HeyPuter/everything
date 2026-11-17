@@ -325,7 +325,10 @@ export function mediaTab(ctx) {
 
   const selBar = h('div.media-selbar', { role: 'toolbar', 'aria-label': 'Selected media', hidden: true });
   function syncSelection() {
-    for (const id of [...selection]) if (!store.project.assets[id]) selection.delete(id);
+    // The selection is what is on show: the bar counts and acts on exactly those items, so a
+    // category, folder or search that hides an item also drops it from the selection.
+    const shown = new Set(visible.map((a) => a.id));
+    for (const id of [...selection]) if (!shown.has(id) || !store.project.assets[id]) selection.delete(id);
     for (const el of layout.el.querySelectorAll('[data-asset]')) {
       const on = selection.has(el.dataset.asset);
       el.classList.toggle('selected', on);
@@ -713,6 +716,11 @@ export function mediaTab(ctx) {
       viewBtn.hidden = !binView;
       layout?.el.querySelector('.asset-menu-btn')?.toggleAttribute('hidden', !binView);
       folderBtn.disabled = !binView;
+      if (!binView) {
+        // Backdrops, timelines and generated results are not project media: nothing stays selected behind them.
+        visible = [];
+        if (selection.size) queueMicrotask(syncSelection);
+      }
       if (cat === 'backdrops') return renderBackdrops(q);
       if (cat === 'timelines') return renderTimelines(ctx, q);
       if (cat === 'generate') return (gen ||= generatePanel(ctx, { getFolder: currentFolder })).el;
