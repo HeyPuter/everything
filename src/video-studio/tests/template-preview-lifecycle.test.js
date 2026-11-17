@@ -132,3 +132,26 @@ describe('template card playback', () => {
     }
   });
 });
+
+describe('template dialog while the template is being made', () => {
+  it('stays open until the work is done, so nothing is made behind a closed dialog', async () => {
+    let finish;
+    const onUse = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const dialog = openTemplateDialog(TEMPLATES[0], { onUse });
+    const use = dialog.el.querySelector('.btn.primary');
+    use.click();
+    use.click();
+    expect(onUse).toHaveBeenCalledTimes(1);
+    // Escape, the X and Cancel all wait.
+    dialog.el.dispatchEvent(new Event('cancel', { cancelable: true }));
+    dialog.el.querySelector('.dialog-close').click();
+    dialog.close();
+    expect(dialog.el.isConnected).toBe(true);
+    expect(dialog.el.querySelector('.dialog-close').disabled).toBe(true);
+    finish();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(dialog.el.isConnected).toBe(false);
+  });
+});
+

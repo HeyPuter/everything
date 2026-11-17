@@ -526,6 +526,8 @@ export class Home {
         const project = await createProjectFromTemplate(this.library, t, { onProgress });
         await this.saveTemplateCover(t, project.id).catch(() => {});
         const slots = Object.values(project.assets).some((a) => a.kind === 'image' && /placeholder/i.test(a.name));
+        // Home was left meanwhile (another project opened): the new project waits in the list.
+        if (this.disposed) return;
         if (slots) toast('Tip: select a placeholder clip and use Replace clip to put in your own media.', { duration: 9000 });
         this.onOpen(project.id);
       },
