@@ -90,6 +90,31 @@ describe('Remove silences dialog settings', () => {
   });
 });
 
+describe('Remove silences dialog numbers', () => {
+  it.each([['', 0], ['38', 0], ['-38', 1]])('does not listen with a level of %j', async (level, searches) => {
+    const calls = mixdown.mock.calls.length;
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: {} };
+    ctx.actions = createActions(ctx);
+    ctx.actions.removeSilences();
+    const dlg = document.querySelector('dialog[open]');
+    const thr = dlg.querySelector('input');
+    thr.value = level;
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Find silences').click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mixdown.mock.calls.length - calls).toBe(searches);
+    if (!searches) {
+      expect(dlg.querySelector('[role=status]').textContent).toMatch(/-70 to -10/);
+      expect(thr.getAttribute('aria-invalid')).toBe('true');
+      expect(document.activeElement).toBe(thr);
+    }
+    dlg.dispatchEvent(new Event('cancel', { cancelable: true }));
+    document.body.replaceChildren();
+  });
+});
+
 describe('scene detection', () => {
   const solid = (r, g, b) => {
     const px = new Uint8ClampedArray(SIG_W * SIG_H * 4);

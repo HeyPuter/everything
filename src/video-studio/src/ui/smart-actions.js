@@ -219,7 +219,30 @@ export function createSmartActions(ctx) {
         el.addEventListener('input', changed);
         el.addEventListener('change', changed);
       }
+      // An empty box reads as 0 dB (everything is "quieter than" that, so nearly the whole
+      // timeline was found silent and cut) and a level typed without its minus is no better.
+      const fields = [
+        [thr, -70, -10, 'Quieter than takes a level from -70 to -10 dB.'],
+        [min, 0.2, 10, 'For at least takes a time from 0.2 to 10 seconds.'],
+        [pad, 0, 1, 'Keep around speech takes a time from 0 to 1 second.'],
+      ];
+      const invalid = () => {
+        let first = null;
+        for (const [el, lo, hi, message] of fields) {
+          const v = Number(el.value);
+          const bad = el.value.trim() === '' || !Number.isFinite(v) || v < lo || v > hi;
+          el.setAttribute('aria-invalid', String(bad));
+          if (bad) first ||= { el, message };
+        }
+        return first;
+      };
       find.addEventListener('click', async () => {
+        const wrong = invalid();
+        if (wrong) {
+          status.textContent = wrong.message;
+          wrong.el.focus();
+          return;
+        }
         const o = read();
         setPref('silenceOpts', o);
         if (!clipsForScope(store.project, o.scope).length) {
