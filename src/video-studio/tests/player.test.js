@@ -290,3 +290,23 @@ describe('warming up the next clip', () => {
   });
 });
 
+describe('a player that was disposed', () => {
+  it('stays stopped when something it was waiting for finishes later', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const player = new Player({ store, library: { mediaURL: () => 'blob:x' }, canvas: document.createElement('canvas') });
+    player.playing = true;
+    player.dispose();
+    const raf = vi.spyOn(globalThis, 'requestAnimationFrame');
+    const seek = vi.spyOn(store, 'seek');
+    player.invalidate();
+    player._tick();
+    player.play();
+    expect(player.playing).toBe(false);
+    expect(raf).not.toHaveBeenCalled();
+    expect(seek).not.toHaveBeenCalled();
+    raf.mockRestore();
+  });
+});
+
