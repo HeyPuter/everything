@@ -1,5 +1,5 @@
 // Shared dialogs: which button Enter presses, and focus.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { confirmDialog } from '../src/ui/dialog.js';
 
 afterEach(() => {
@@ -89,6 +89,52 @@ describe('dialogs that load before they open', () => {
     await expect(failing()).rejects.toThrow('no frame');
     await expect(failing()).rejects.toThrow('no frame');
     expect(document.documentElement.classList.contains('opening-dialog')).toBe(false);
+  });
+});
+
+describe('messages while a dialog is open', () => {
+  it('show inside the dialog, where they can be seen and are read out, and stay after it closes', async () => {
+    const { openDialog, toast } = await import('../src/ui/dialog.js');
+    const { announce } = await import('../src/lib/dom.js');
+    const live = document.getElementById('live-region') || document.body.appendChild(Object.assign(document.createElement('div'), { id: 'live-region' }));
+    const d = openDialog({ title: 'Share for review', body: document.createElement('p') });
+    toast("Couldn't create the link.", { kind: 'error' });
+    expect(d.el.querySelector('.toast')?.textContent).toContain("Couldn't create the link.");
+    announce('Link copied');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(d.el.querySelector('.dialog-live').textContent).toBe('Link copied');
+    expect(live.textContent).not.toBe('Link copied');
+    // Announced as the dialog closes: spoken by the page's region, the dialog's is gone.
+    announce('Crop applied');
+    d.close();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(live.textContent).toBe('Crop applied');
+    expect(document.body.querySelector(':scope > .toasts .toast')?.textContent).toContain("Couldn't create the link.");
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+  });
+});
+
+describe('a dialog the browser closes on its own', () => {
+  it('runs its cleanup, or opens again when it may not close yet', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    const onClose = vi.fn();
+    const d = openDialog({ title: 'Record', body: document.createElement('p'), onClose });
+    d.el.close();
+    d.el.dispatchEvent(new Event('close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(d.el.isConnected).toBe(false);
+    await expect(d.result).resolves.toBeUndefined();
+
+    let busy = true;
+    const saving = openDialog({ title: 'Voiceover', body: document.createElement('p'), beforeClose: () => !busy, onClose });
+    saving.el.close();
+    saving.el.dispatchEvent(new Event('close'));
+    expect(saving.el.isConnected).toBe(true);
+    expect(saving.el.open).toBe(true);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    busy = false;
+    saving.close();
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });
 

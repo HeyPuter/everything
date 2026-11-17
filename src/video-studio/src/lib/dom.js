@@ -88,13 +88,42 @@ export function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 
+/**
+ * Where page-level things (messages, the live region) have to go to be seen and heard: a
+ * modal dialog makes the rest of the page inert and covers it, so while one is open it is
+ * the dialog; in full screen it is the element shown full screen; otherwise the page.
+ */
+export function topLayerHost() {
+  const dialogs = document.querySelectorAll('dialog[open]');
+  return dialogs[dialogs.length - 1] || document.fullscreenElement || document.body;
+}
+
+/** The live region to speak through: the page's, or one inside the open modal dialog. */
+function liveRegion() {
+  const page = document.getElementById('live-region');
+  const dialogs = document.querySelectorAll('dialog[open]');
+  const modal = dialogs[dialogs.length - 1];
+  if (!modal || !page) return page;
+  let region = modal.querySelector(':scope > .dialog-live');
+  if (!region) {
+    region = document.createElement('div');
+    region.className = 'sr-only dialog-live';
+    region.setAttribute('aria-live', 'polite');
+    region.setAttribute('aria-atomic', 'true');
+    modal.append(region);
+  }
+  return region;
+}
+
 /** Announce a message to assistive tech through the shared live region. */
 export function announce(message) {
-  const region = document.getElementById('live-region');
+  const region = liveRegion();
   if (!region) return;
   region.textContent = '';
-  // A separate task so repeated identical messages are still spoken.
+  // A separate task so repeated identical messages are still spoken. The region is looked up
+  // again then: a dialog that announces and closes takes its own region with it.
   setTimeout(() => {
-    region.textContent = message;
+    const now = region.isConnected ? region : liveRegion();
+    if (now) now.textContent = message;
   }, 30);
 }
