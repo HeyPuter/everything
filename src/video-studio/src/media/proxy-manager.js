@@ -121,9 +121,14 @@ export class ProxyManager extends Emitter {
           await this.cache.remove(`${PROXY_DIR}/${f.name}`).catch(() => {});
           continue;
         }
-        if (!this.entries.has(p.hash)) this.entries.set(p.hash, { state: 'ready', progress: 1, name: f.name, size: f.size });
+        // Asked for while the proxies on this device were still being listed: it is here already.
+        const waiting = this.entries.get(p.hash)?.state === 'queued';
+        if (waiting) this.queue = this.queue.filter((h) => h !== p.hash);
+        if (waiting || !this.entries.has(p.hash)) this.entries.set(p.hash, { state: 'ready', progress: 1, name: f.name, size: f.size });
       }
+      this.listed = true;
       this.emit('change', {});
+      this._pump();
     })();
     return this.ready;
   }
@@ -209,6 +214,8 @@ export class ProxyManager extends Emitter {
 
   async _pump() {
     if (this.running || this.disposed) return;
+    // Nothing is encoded before the proxies already on this device are known (init() goes on from here).
+    if (this.ready && !this.listed) return;
     let hash;
     while ((hash = this.queue.shift())) {
       if (this.entries.get(hash)?.state === 'queued') break;
@@ -240,7 +247,12 @@ export class ProxyManager extends Emitter {
           }
         },
       });
-      if (ctrl.signal.aborted) throw Object.assign(new Error('Canceled'), { code: 'canceled' });
+      if (ctrl.signal.aborted) {
+        // Stopped just as the encoder finished: its file is already in place and must not stay,
+        // or the proxy the user deleted would be back the next time the app opens.
+        if (res?.name) await this.cache.remove(`${PROXY_DIR}/${res.name}`).catch(() => {});
+        throw Object.assign(new Error('Canceled'), { code: 'canceled' });
+      }
       if (!isCurrentProxy(res?.name)) throw new Error('The proxy encoder returned an unexpected file.');
       if (res.blob) await this.cache.writeBlob(`${PROXY_DIR}/${res.name}`, res.blob);
       Object.assign(entry, { state: 'ready', progress: 1, name: res.name, size: res.size || res.blob?.size || 0, ctrl: null });
@@ -290,8 +302,8 @@ export class ProxyManager extends Emitter {
   /** Delete an asset's proxy (or stop making it); auto will not make it again on this device. */
   async remove(asset) {
     const hash = asset.hash;
-    this.cancel(hash);
     const e = this.entries.get(hash);
+    this.cancel(hash);
     this.entries.delete(hash);
     this.skip.add(hash);
     this._save();
