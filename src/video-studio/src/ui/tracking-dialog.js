@@ -12,7 +12,7 @@ import { valueAt } from '../model/keyframes.js';
 import { clipLayer } from '../engine/scene.js';
 import { Tracker, grayFrames } from '../media/tracker.js';
 import { thinKeys } from '../media/reframe.js';
-import { openDialog, toast } from './dialog.js';
+import { openDialog, toast, oneAtATime } from './dialog.js';
 
 const TW = 256;
 const TH = 144;
@@ -77,7 +77,7 @@ export function trackingSource(project, target, t) {
   return cands[0] || null;
 }
 
-export async function openTrackingDialog(ctx, targetId = ctx.store.selected?.clip.id) {
+export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.selected?.clip.id) => {
   const { store } = ctx;
   const f = targetId && T.findClip(store.project, targetId);
   if (!f || !('transform' in f.clip)) {
@@ -110,6 +110,8 @@ export async function openTrackingDialog(ctx, targetId = ctx.store.selected?.cli
     toast(err?.message || 'Could not read the video.', { kind: 'error' });
     return;
   }
+  // Either clip may have been deleted while the frame was read.
+  if (T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
   let box = null; // in 0..1 of the frame
   const boxEl = h('div.track-box', { hidden: true });
   const stage = h('div.track-stage', canvas, boxEl);
@@ -211,4 +213,4 @@ export async function openTrackingDialog(ctx, targetId = ctx.store.selected?.cli
       go.disabled = false;
     }
   });
-}
+});

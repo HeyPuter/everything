@@ -489,3 +489,10 @@ kbd,
   color: var(--text-2);
   justify-content: center;
 }
+
+/* A dialog that is loading what it needs before it opens (ui/dialog.js oneAtATime). */
+.opening-dialog,
+.opening-dialog * {
+  cursor: progress !important;
+}
+

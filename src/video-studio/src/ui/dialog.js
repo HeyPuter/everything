@@ -52,6 +52,24 @@ export function openDialog({ title, body, actions = [], className = '', onClose,
   return { el, close, result };
 }
 
+/**
+ * Wrap a dialog opener that has to load something first (a frame, a model):
+ * a second click or key press while it loads does not open a second dialog,
+ * and the pointer shows that something is on its way.
+ */
+export function oneAtATime(open) {
+  let running = null;
+  return (...args) => {
+    if (running) return running;
+    document.documentElement.classList.add('opening-dialog');
+    running = (async () => open(...args))().finally(() => {
+      running = null;
+      document.documentElement.classList.remove('opening-dialog');
+    });
+    return running;
+  };
+}
+
 export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false }) {
   const ok = h(`button.btn${danger ? '.danger' : '.primary'}`, { type: 'button' }, confirm);
   const no = h('button.btn', { type: 'button' }, cancel);

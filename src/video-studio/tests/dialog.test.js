@@ -66,3 +66,29 @@ describe('toasts', () => {
     }
   });
 });
+
+describe('dialogs that load before they open', () => {
+  it('open once however often they are asked for while loading', async () => {
+    const { oneAtATime } = await import('../src/ui/dialog.js');
+    let finish;
+    let opened = 0;
+    const open = oneAtATime(async () => {
+      await new Promise((r) => (finish = r));
+      opened++;
+    });
+    const first = open();
+    const second = open();
+    expect(second).toBe(first);
+    expect(document.documentElement.classList.contains('opening-dialog')).toBe(true);
+    finish();
+    await first;
+    expect(opened).toBe(1);
+    expect(document.documentElement.classList.contains('opening-dialog')).toBe(false);
+    // Once it has settled (even by failing), it opens again.
+    const failing = oneAtATime(async () => { throw new Error('no frame'); });
+    await expect(failing()).rejects.toThrow('no frame');
+    await expect(failing()).rejects.toThrow('no frame');
+    expect(document.documentElement.classList.contains('opening-dialog')).toBe(false);
+  });
+});
+
