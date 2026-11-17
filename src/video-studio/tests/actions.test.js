@@ -589,3 +589,55 @@ describe('reverse', () => {
     document.body.replaceChildren();
   });
 });
+
+describe('locked tracks', () => {
+  it('refuses filter, animation and transition changes on a locked track', () => {
+    const { store, actions, main } = setup(clip('video', 0, 4), clip('video', 4, 4));
+    const [a] = main().clips;
+    actions.addFilter('mono', { toClip: a });
+    actions.applyTransition('mix', { clipId: a.id });
+    store.select(a.id);
+    actions.applyAnimation('in', 'fade-in');
+    expect(main().clips[0].filter).toBeTruthy();
+    expect(main().clips[0].transition).toBeTruthy();
+    expect(main().clips[0].animIn).toBeTruthy();
+    store.update('Lock track', (p) => { mainTrack(p).locked = true; });
+    const before = JSON.stringify(main().clips);
+    const steps = store.history.undoStack.length;
+
+    actions.addFilter(null, { toClip: main().clips[0] });
+    actions.applyTransition(null, { clipId: a.id });
+    actions.applyTransition('wipe-left', { clipId: a.id });
+    expect(actions.applyTransitionToAll('mix')).toBe(false);
+    expect(actions.applyAnimation('in', null)).toBe(false);
+    expect(actions.applyAnimation('loop', 'pulse')).toBe(false);
+
+    expect(JSON.stringify(main().clips)).toBe(before);
+    expect(store.history.undoStack.length).toBe(steps);
+    expect(toasts().some((t) => /Unlock the track/.test(t))).toBe(true);
+  });
+
+  it('keeps a clip on a locked track selected and says why it was not deleted', () => {
+    const { store, actions, main } = setup(clip('video', 0, 4));
+    const [a] = main().clips;
+    store.update('Lock track', (p) => { mainTrack(p).locked = true; });
+    store.select(a.id);
+    actions.deleteSelected();
+    expect(main().clips).toHaveLength(1);
+    expect(store.selection.has?.(a.id) ?? store.selected?.clip.id === a.id).toBe(true);
+    expect(document.getElementById('live-region')?.textContent || '').not.toMatch(/deleted/);
+    expect(toasts().some((t) => /Unlock the track to delete/.test(t))).toBe(true);
+  });
+
+  it('does not detach the audio of a clip on a locked track', () => {
+    const { store, actions, main, p } = setup(clip('video', 0, 4));
+    const [a] = main().clips;
+    store.update('Lock track', (proj) => { mainTrack(proj).locked = true; });
+    store.select(a.id);
+    actions.detachAudio();
+    expect(main().clips[0].audioDetached).toBeFalsy();
+    expect(main().clips[0].muted).toBeFalsy();
+    expect(allClips(p())).toHaveLength(1);
+    expect(toasts().some((t) => /Unlock the track to detach/.test(t))).toBe(true);
+  });
+});

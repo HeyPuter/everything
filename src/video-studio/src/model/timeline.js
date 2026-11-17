@@ -356,7 +356,21 @@ export function moveClip(project, id, target, opts = {}) {
     clip.start = origStart + dt;
     // Grouped clips move first so they never block the primary clip.
     const moving = new Set([id, ...others.map((o) => o.clip.id)]);
-    for (const o of others) o.clip.start += dt;
+    // An overlay moving together with the base clip it sits on follows that clip into its new
+    // slot (withRipple moves it there): shifting it here as well would move it twice.
+    const follows = new Set();
+    if (opts.ripple && opts.linkOverlays) {
+      const main = mainTrack(project);
+      const hosts = [...(dest.main ? [{ ...clip, start: origStart }] : []), ...others.filter((o) => o.track === main).map((o) => o.clip)];
+      const hosted = (c, track, start) => {
+        const host = hosts.find((b) => b.start <= start && start < clipEnd(b));
+        return Boolean(host) && (track.kind !== 'audio' || start + c.duration <= clipEnd(host) + 1000);
+      };
+      for (const o of others) if (o.track !== main && hosted(o.clip, o.track, o.clip.start)) follows.add(o.clip);
+      // The same for the dragged clip itself when a base clip under it moves along.
+      if (from !== main && dest === from && hosted(clip, from, origStart)) clip.start = origStart;
+    }
+    for (const o of others) if (!follows.has(o.clip)) o.clip.start += dt;
     for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
     if (dest.main && opts.ripple) {
       const index = mainInsertIndex(project, clip.start, clip.id);
@@ -764,7 +778,10 @@ export function freezeFrame(project, id, t, length = 3 * US, opts = {}) {
   // Within a frame of an edge there is nothing to split: the still goes at that edge.
   const at = right ? t : t - clip.start < clip.duration / 2 ? clip.start : clipEnd(clip);
   const still = structuredClone(clip);
-  Object.assign(still, { id: uid('c'), start: at, duration: length, in: sourceT, freeze: true, speed: 1, keyframes: {}, fadeIn: 0, fadeOut: 0, animIn: null, animOut: null, animLoop: null, transition: null, muted: true });
+  // A still has no speed, so nothing of a speed ramp stays on it (its accent keys go with the
+  // keyframes; the motion blur it added would otherwise stay for good).
+  if (still.speedRamp) stripRampAccents(still);
+  Object.assign(still, { id: uid('c'), start: at, duration: length, in: Math.round(sourceT), freeze: true, speed: 1, keyframes: {}, fadeIn: 0, fadeOut: 0, animIn: null, animOut: null, animLoop: null, transition: null, muted: true });
   delete still.speedCurve;
   return withRipple(project, opts, () => {
     if (track.main && opts.ripple) {
@@ -811,7 +828,7 @@ export function soundCopy(project, clip) {
 /** Put a video clip's sound on its own audio clip and mute the original. */
 export function detachAudio(project, id) {
   const found = findClip(project, id);
-  if (!found || found.clip.type !== 'video') return null;
+  if (!found || found.clip.type !== 'video' || found.track.locked) return null;
   const { clip } = found;
   const audio = soundCopy(project, { ...clip, freeze: false });
   if (!audio) return null;
@@ -863,7 +880,7 @@ function clampTransition(project, clip) {
 
 export function setTransition(project, id, transitionId, duration = 500_000) {
   const found = findClip(project, id);
-  if (!found || (found.clip.type !== 'video' && found.clip.type !== 'image')) return false;
+  if (!found || found.track.locked || (found.clip.type !== 'video' && found.clip.type !== 'image')) return false;
   if (!transitionId) {
     found.clip.transition = null;
     return true;
@@ -876,7 +893,21 @@ export function setTransition(project, id, transitionId, duration = 500_000) {
 
 /** Drop transitions whose clips no longer touch (after moves or deletes). */
 export function cleanupTransitions(project) {
-  for (const t of project.tracks) for (const c of t.clips) if (c.transition) clampTransition(project, c);
+  // One pass per track (this runs after every structural edit): looking each clip's neighbor
+  // up from the whole project made a long slideshow slower with every transition it had.
+  for (const t of project.tracks) {
+    if (!t.clips.some((c) => c.transition)) continue;
+    sortTrack(t);
+    for (let i = 0; i < t.clips.length; i++) {
+      const c = t.clips[i];
+      if (!c.transition) continue;
+      const next = t.clips[i + 1];
+      const touching = next && Math.abs(next.start - clipEnd(c)) <= 2000 && next.type !== 'compound' && c.type !== 'compound';
+      const max = touching ? Math.max(0, Math.min(c.duration, next.duration, 5 * US)) : 0;
+      if (max < MIN_TRANSITION) c.transition = null;
+      else c.transition.duration = Math.min(c.transition.duration, max);
+    }
+  }
 }
 
 /**

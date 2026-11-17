@@ -178,6 +178,8 @@ export class Player extends Emitter {
   }
 
   invalidate() {
+    // Late results (a decoded frame, a loaded font or worklet) arrive after the editor is left.
+    if (this.disposed) return;
     this.dirty = true;
     if (!this.raf) this.raf = requestAnimationFrame(this._tick);
   }
@@ -206,7 +208,7 @@ export class Player extends Emitter {
 
   /** loop overrides the preference for this playback only (for one-shot previews). */
   play({ range, loop } = {}) {
-    if (this.playing) return;
+    if (this.playing || this.disposed) return;
     if (range !== undefined) this.playRange = Boolean(range);
     this._loopOverride = loop == null ? null : Boolean(loop);
     const end = this._stopAt();
@@ -300,6 +302,7 @@ export class Player extends Emitter {
 
   _tick() {
     this.raf = 0;
+    if (this.disposed) return;
     if (this.playing) {
       const now = performance.now();
       const t = this._heldTime(now) ?? this.timeStart + (now - this.clockStart) * 1000;
@@ -468,8 +471,12 @@ export class Player extends Emitter {
       if (el.paused) {
         if (Math.abs(el.currentTime - sec) > 0.03) this.pool.seek(entry, sec);
         el.play().catch(() => {});
-      } else if (Math.abs(el.currentTime - sec) > 0.2 * rate) {
-        this.pool.seek(entry, sec);
+      } else if (!el.seeking && Math.abs(el.currentTime - sec) > 0.2 * rate) {
+        // A seek takes time and playback goes on meanwhile: on a file that seeks slowly (long
+        // keyframe gaps, 4K) the element landed behind again, was sent after the clock again,
+        // and never caught up, so its sound stayed away until playback was stopped. It is
+        // aimed at where the clock will be when it lands, and not sent again while on its way.
+        this.pool.seek(entry, sec + this.pool.seekLead(entry) * rate);
         this.audioGraph.reset(entry);
       }
     } else {
@@ -500,8 +507,9 @@ export class Player extends Emitter {
       el.play().catch(() => {});
       return;
     }
-    if (Math.abs(drift) > 0.25 * Math.max(1, v)) {
-      this.pool.seek(entry, sec);
+    if (!el.seeking && Math.abs(drift) > 0.25 * Math.max(1, v)) {
+      // Aimed ahead by the time the seek takes, as in _drive.
+      this.pool.seek(entry, sec + this.pool.seekLead(entry) * v);
       this.audioGraph.reset(entry);
     }
     // Catch up over about half a second, within +-50% of the curve's speed.
@@ -561,7 +569,12 @@ export class Player extends Emitter {
   }
 
   dispose() {
+    // Stopped for good: nothing that finishes later may start the frame loop again, which
+    // would make new media elements and keep moving the playhead of an editor that is gone.
+    this.disposed = true;
+    this.playing = false;
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
     this.offs.forEach((off) => off());
     this.pool.dispose();
     this.frames.dispose();

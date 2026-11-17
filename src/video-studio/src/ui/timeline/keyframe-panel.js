@@ -389,8 +389,16 @@ export function createKeyframePanel(ctx, timeline) {
       if (open && !drag && !ctx.player?.playing) render();
     }),
   ];
+  // The timeline says its view changed on every scroll and render (twice per scroll event, and
+  // on each frame of playback when it follows the playhead): the panel redraws once a frame.
+  let viewQueued = false;
   timeline.onView?.(() => {
-    if (!drag) render();
+    if (viewQueued || !open) return;
+    viewQueued = true;
+    requestAnimationFrame(() => {
+      viewQueued = false;
+      if (open && !drag) render();
+    });
   });
 
   return {

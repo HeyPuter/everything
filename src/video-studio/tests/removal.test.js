@@ -424,6 +424,47 @@ describe('follow motion', () => {
     expect(keys.at(-1).v).toBeGreaterThan(-0.25 + 0.12);
     expect(progress).toHaveBeenLastCalledWith(1);
   });
+
+  it('keys the region it started on when an earlier region is deleted while it tracks', async () => {
+    const p = createProject();
+    p.assets.a = { id: 'a', kind: 'video', name: 'v.mp4', width: 320, height: 180, duration: US, hasVideo: true };
+    const c = makeClip('video', { assetId: 'a', duration: US });
+    addRegion(c, box(0.3, 0.3, 0.1, 0.1));
+    addRegion(c, box(-0.25, 0, 0.1, 0.1));
+    addRegion(c, box(0.3, -0.3, 0.1, 0.1));
+    T.mainTrack(p).clips.push(c);
+    const store = new EditorStore(p);
+    const ctx = { store };
+    ctx.actions = createActions(ctx);
+    const tracked = c.removal.regions[1].id;
+    const frameAt = (k) => {
+      const f = new Float32Array(320 * 180);
+      for (let y = 80; y < 100; y++) for (let x = 70 + 4 * k; x < 90 + 4 * k; x++) f[y * 320 + x] = 1;
+      for (let i = 0; i < f.length; i += 7) f[i] += 0.05;
+      return f;
+    };
+    let deleted = false;
+    const frames = async (srcTimes) => {
+      if (!deleted) {
+        deleted = true;
+        ctx.actions.editClip(c.id, 'Delete removal region', (x) => removeRegion(x, 0));
+      }
+      return srcTimes.map((t) => ({ t, frame: frameAt(Math.round((t / US) * 15)) }));
+    };
+    expect(await followRegion(ctx, c.id, 1, { frames })).toBeGreaterThan(0);
+    const now = T.findClip(store.project, c.id).clip;
+    expect(now.removal.regions.map((r) => r.id).indexOf(tracked)).toBe(0);
+    expect(now.keyframes['remove0.x']?.length).toBeGreaterThan(0);
+    expect(now.keyframes['remove1.x']).toBeUndefined();
+    // The region is gone: nothing is keyed and nothing is reported.
+    ctx.actions.editClip(c.id, 'Keep still', (x) => { delete x.keyframes['remove0.x']; delete x.keyframes['remove0.y']; });
+    const gone = async (srcTimes) => {
+      ctx.actions.editClip(c.id, 'Delete removal region', (x) => removeRegion(x, 0));
+      return srcTimes.map((t) => ({ t, frame: frameAt(Math.round((t / US) * 15)) }));
+    };
+    expect(await followRegion(ctx, c.id, 0, { frames: gone })).toBe(0);
+    expect(T.findClip(store.project, c.id).clip.keyframes?.['remove0.x']).toBeUndefined();
+  });
 });
 
 /* Inspector ------------------------------------------------------------------------- */

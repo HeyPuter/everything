@@ -59,6 +59,11 @@ export function openFindReplace(ctx, { query = '' } = {}) {
     const clips = new Set(matches.map((m) => m.clipId)).size;
     count.textContent = !find.value ? 'Type to search captions and text.' : matches.length ? `${matches.length} match${matches.length === 1 ? '' : 'es'} in ${clips} clip${clips === 1 ? '' : 's'}` : 'No matches';
     allBtn.disabled = !matches.some((m) => !m.locked);
+    // The list is rebuilt after each replacement: keyboard focus stays on the same row's button
+    // (the next match moves up into it), so replacing one by one needs no tabbing back.
+    const had = list.contains(document.activeElement) ? document.activeElement : null;
+    const row = had ? [...list.children].indexOf(had.closest('.fr-item')) : -1;
+    const kind = had?.classList.contains('fr-one') ? '.fr-one' : '.fr-go';
     list.replaceChildren(...matches.slice(0, 500).map((m) => {
       const go = h('button.fr-go', { type: 'button', 'aria-label': `Go to match at ${clock(m.at)}: ${m.text}` }, h('span.fr-time', clock(m.at)), snippet(m));
       go.addEventListener('click', () => jump(m));
@@ -66,6 +71,13 @@ export function openFindReplace(ctx, { query = '' } = {}) {
       one.addEventListener('click', () => replaceMatch(m));
       return h('li.fr-item', go, one);
     }));
+    if (row >= 0 && !list.contains(document.activeElement)) {
+      const next = list.children[Math.min(row, list.children.length - 1)];
+      const target = [next?.querySelector(kind), next?.querySelector('.fr-go')].find((b) => b && !b.disabled) || find;
+      target.focus({ preventScroll: true });
+    }
+    // More matches than are listed: say so, rather than let the list look complete.
+    if (matches.length > 500) count.textContent += ' (the first 500 are listed)';
   }
 
   function jump(m) {

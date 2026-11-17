@@ -224,6 +224,10 @@ export class Editor {
     ctx.timeline.mounted?.();
     document.title = `${project.name} - Video Studio`;
     store.on('change', () => (document.title = `${store.project.name} - Video Studio`));
+    // The store refuses edits that would lose work when saved, and says which.
+    store.on('limit', ({ kind, max }) => {
+      if (kind === 'compound-depth') toast(`Compound clips can sit inside each other ${max} deep at most.`, { kind: 'info' });
+    });
     this._coverTimer = null;
     this._coverIdle = null;
     store.on('change', () => this._scheduleCover());
@@ -322,8 +326,17 @@ export class Editor {
       if (e.key === 'Escape') t.blur();
       return;
     }
+    // Text selected in an assistant reply keeps the browser's own Copy and Select all (and Cut, which
+    // has nothing to cut there): the clip commands would copy, or delete, a clip instead.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && ['c', 'x', 'a'].includes(e.key.toLowerCase())) {
+      const sel = typeof getSelection === 'function' ? getSelection() : null;
+      const inLog = (n) => Boolean((n?.nodeType === 1 ? n : n?.parentElement)?.closest?.('.ai-log'));
+      const focus = document.activeElement;
+      const here = !focus || focus === document.body || Boolean(focus.closest?.('.ai-panel, .sheet'));
+      if (e.key.toLowerCase() === 'a' ? inLog(t) : here && sel && !sel.isCollapsed && inLog(sel.anchorNode)) return;
+    }
     // Space and Enter activate focused buttons and check boxes, except where a control opts in to play.
-    if ((e.key === ' ' || e.key === 'Enter') && t.matches?.('button, [role=button], [role=tab], [role=radio], [role=switch], [role=checkbox], input[type=checkbox], a') && !t.closest('[data-space-plays]')) return;
+    if ((e.key === ' ' || e.key === 'Enter') && t.matches?.('button, [role=button], [role=tab], [role=radio], [role=switch], [role=checkbox], input[type=checkbox], input[type=color], a') && !t.closest('[data-space-plays]')) return;
     // Arrow keys belong to sliders, tab lists and the timeline's own navigation.
     if (e.key.startsWith('Arrow') && (t.matches?.('input[type=range], [role=tab], [role=radio], [role=separator], [role=slider]') || t.closest?.('[data-own-arrows]'))) return;
     runKey(this.ctx.commands, e);
@@ -512,6 +525,9 @@ export class Editor {
     try {
       if (!(await this.prepareToLeave()) || this._disposed) return false;
       await this.saveCover();
+      // Saving the cover takes a moment on a slow connection, and the editor still works
+      // meanwhile: an edit made then is saved as well (or asked about) before leaving.
+      if (this.store.dirty && (!(await this.prepareToLeave()) || this._disposed)) return false;
       this.dispose();
     } finally {
       this._exiting = false;

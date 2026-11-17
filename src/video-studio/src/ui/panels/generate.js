@@ -63,11 +63,18 @@ export function generatePanel(ctx, { getFolder = () => null } = {}) {
   });
 
   async function importResult(r, { add }) {
+    // A second click while the picture is still being imported would import (and add) it twice.
+    if (r.importing) return;
     if (!r.assetId || !store.project.assets[r.assetId]) {
-      const file = new File([r.blob], imageFileName(r.prompt, (r.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: r.blob.type || 'image/png' });
-      const [asset] = await actions.importFiles([file], { folder: getFolder(), origin: 'generate' });
-      if (!asset) return;
-      r.assetId = asset.id;
+      r.importing = true;
+      try {
+        const file = new File([r.blob], imageFileName(r.prompt, (r.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: r.blob.type || 'image/png' });
+        const [asset] = await actions.importFiles([file], { folder: getFolder(), origin: 'generate' });
+        if (!asset) return;
+        r.assetId = asset.id;
+      } finally {
+        r.importing = false;
+      }
     }
     const asset = store.project.assets[r.assetId];
     if (add) actions.addAsset(asset);

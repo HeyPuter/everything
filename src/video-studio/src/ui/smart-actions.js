@@ -45,15 +45,19 @@ export function sceneSplitTimes(clip, cuts, fps) {
 export function progressDialog(title, text) {
   const ac = new AbortController();
   const bar = h('span');
-  const msg = h('p.dialog-text', text);
+  // What it is doing is read out as it changes, and the bar says how far along it is.
+  const msg = h('p.dialog-text', { role: 'status' }, text);
+  const track = h('div.progress', { role: 'progressbar', 'aria-label': title, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, bar);
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title, body: h('div', msg, h('div.progress', bar)), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
+  const d = openDialog({ title, body: h('div', msg, track), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
   cancel.addEventListener('click', () => d.close());
   return {
     signal: ac.signal,
     set: (f, line) => {
-      bar.style.width = `${Math.round(Math.min(1, f) * 100)}%`;
-      if (line) msg.textContent = line;
+      const pct = Math.round(Math.max(0, Math.min(1, f || 0)) * 100);
+      bar.style.width = `${pct}%`;
+      track.setAttribute('aria-valuenow', String(pct));
+      if (line && msg.textContent !== line) msg.textContent = line;
     },
     close: () => d.close(),
   };
@@ -219,7 +223,30 @@ export function createSmartActions(ctx) {
         el.addEventListener('input', changed);
         el.addEventListener('change', changed);
       }
+      // An empty box reads as 0 dB (everything is "quieter than" that, so nearly the whole
+      // timeline was found silent and cut) and a level typed without its minus is no better.
+      const fields = [
+        [thr, -70, -10, 'Quieter than takes a level from -70 to -10 dB.'],
+        [min, 0.2, 10, 'For at least takes a time from 0.2 to 10 seconds.'],
+        [pad, 0, 1, 'Keep around speech takes a time from 0 to 1 second.'],
+      ];
+      const invalid = () => {
+        let first = null;
+        for (const [el, lo, hi, message] of fields) {
+          const v = Number(el.value);
+          const bad = el.value.trim() === '' || !Number.isFinite(v) || v < lo || v > hi;
+          el.setAttribute('aria-invalid', String(bad));
+          if (bad) first ||= { el, message };
+        }
+        return first;
+      };
       find.addEventListener('click', async () => {
+        const wrong = invalid();
+        if (wrong) {
+          status.textContent = wrong.message;
+          wrong.el.focus();
+          return;
+        }
         const o = read();
         setPref('silenceOpts', o);
         if (!clipsForScope(store.project, o.scope).length) {

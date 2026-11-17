@@ -16,6 +16,8 @@ import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
 import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize, makeRoom } from './timeline.js';
 import { switchTimeline } from './timelines.js';
+import { angleTracks, fitMulticam } from './multicam.js';
+import { MAX_COMPOUND_DEPTH, compoundDepth } from './project.js';
 
 /** Projects up to this much JSON keep a copy to roll back a failed step of a drag to. */
 const ROLLBACK_MAX = 1_000_000;
@@ -37,7 +39,20 @@ function applyCompoundEdits(project, id, inner, opts) {
   const ripple = rippleResize(project, id, opts);
   // An untrimmed compound follows its contents; an existing shorter trim stays shorter.
   const toEnd = cc.in + cc.duration >= sequenceLength(cc.sequence) - 1;
+  const anglesBefore = cc.multicam ? angleTracks(cc).map((t) => t.id) : null;
   cc.sequence = { tracks: structuredClone(inner.tracks) };
+  if (anglesBefore) {
+    // Cuts and the sound source name angles by position: an angle deleted or moved inside
+    // shifts the others, so they are renumbered by track (cuts to a deleted angle go).
+    const now = angleTracks(cc).map((t) => t.id);
+    const to = anglesBefore.map((tid) => now.indexOf(tid));
+    const audio = cc.multicam.audio;
+    cc.multicam = {
+      cuts: cc.multicam.cuts.filter((c) => to[c.angle] >= 0).map((c) => ({ ...c, angle: to[c.angle] })),
+      audio: Number.isInteger(audio) ? Math.max(0, to[audio] ?? 0) : audio,
+    };
+    fitMulticam(cc);
+  }
   adoptProjectFields(project, inner);
   const len = sequenceLength(cc.sequence);
   if (!len) {
@@ -223,6 +238,16 @@ export class EditorStore extends Emitter {
       cancel();
       return false;
     }
+    // An edit that would nest compound clips deeper than a saved project holds is refused: the
+    // innermost contents would be gone the next time the project is opened.
+    if (opts.structural !== false && this.nest.length + compoundDepth(this.project.tracks) > MAX_COMPOUND_DEPTH) {
+      const was = before || (rollback ? JSON.parse(rollback) : null);
+      if (was && this.nest.length + compoundDepth(was.tracks) <= MAX_COMPOUND_DEPTH) {
+        cancel();
+        this.emit('limit', { kind: 'compound-depth', max: MAX_COMPOUND_DEPTH });
+        return false;
+      }
+    }
     if (opts.structural !== false) {
       cleanupTransitions(this.project);
       if (!opts.keepEmptyTracks) {
@@ -384,10 +409,17 @@ const isObject = (v) => v !== null && typeof v === 'object';
  */
 function restoreInto(target, src) {
   if (Array.isArray(src)) {
+    // Each of target's objects is taken once: items that share an id (the same effect added
+    // twice to a clip, whose id is the effect's kind) must not end up as one object.
     const byId = new Map();
-    for (const x of target) if (isObject(x) && x.id !== undefined) byId.set(x.id, x);
+    for (const x of target) {
+      if (!isObject(x) || x.id === undefined) continue;
+      const same = byId.get(x.id);
+      if (same) same.push(x);
+      else byId.set(x.id, [x]);
+    }
     const next = src.map((v, i) => {
-      const cur = isObject(v) && v.id !== undefined ? byId.get(v.id) : target[i];
+      const cur = isObject(v) && v.id !== undefined ? byId.get(v.id)?.shift() : target[i];
       return restoreValue(cur, v);
     });
     target.length = next.length;

@@ -333,3 +333,21 @@ export function hoverPlay(tileEl, canvas, draw, { rest = 0 } = {}) {
   tileEl.addEventListener('focus', on);
   tileEl.addEventListener('blur', off);
 }
+
+/**
+ * Run fn (a rebuild of the list in root) and keep keyboard focus on the item
+ * that had it: the rebuilt item for the same media, else the one with the
+ * same name. Without this, adding by keyboard drops focus to the page and
+ * the next key lands on an editor shortcut.
+ */
+export function keepItemFocus(root, fn) {
+  const had = root.contains(document.activeElement) ? document.activeElement : null;
+  fn();
+  if (!had || had.isConnected) return;
+  const asset = had.closest?.('[data-asset]')?.dataset.asset;
+  const label = had.getAttribute('aria-label');
+  const again = (asset && root.querySelector(`[data-asset="${CSS.escape(asset)}"]`))
+    || (label && root.querySelector(`button[aria-label="${CSS.escape(label)}"]`));
+  again?.focus({ preventScroll: true });
+}
+

@@ -229,7 +229,8 @@ function escapedAt(src, i) {
 // An address may hold parentheses in pairs, one deep, as Wikipedia's do (…/Mercury_(planet)); an unpaired one ends it.
 // An underscore within a word opens no emphasis (snake_case), which the pattern says before it looks for a closing one:
 // each looked to the end of the line, and a line of column names took a long while to draw, again each frame.
-const INLINE = /(`+)([\s\S]*?[^`])\1(?!`)|!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)(?:\s+"[^"]*")?\)|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)|(\*\*|(?<!\w)__)(?=\S)([\s\S]*?\S)\7|~~(?=\S)([\s\S]*?\S)~~|(\*|(?<!\w)_)(?=[^\s*_])([\s\S]*?[^\s*_])\10(?![\w*])|(https?:\/\/(?:[^\s<>()]|\([^\s<>()]*\))*(?:[^\s<>().,;:!?'"*_]|\([^\s<>()]*\)))/g;
+// Code opens with a whole run of backticks, never part of one: trying every shorter run of a long row of them froze the page.
+const INLINE = /(?<!`)(`+)(?!`)([\s\S]*?[^`])\1(?!`)|!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)(?:\s+"[^"]*")?\)|\[((?:!\[[^\]]*\]\([^()\s]*\)|[^\]])+)\]\(((?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)|(\*\*|(?<!\w)__)(?=\S)([\s\S]*?\S)\7|~~(?=\S)([\s\S]*?\S)~~|(\*|(?<!\w)_)(?=[^\s*_])([\s\S]*?[^\s*_])\10(?![\w*])|(https?:\/\/(?:[^\s<>()]|\([^\s<>()]*\))*(?:[^\s<>().,;:!?'"*_]|\([^\s<>()]*\)))/g;
 
 /** Inline Markdown: code, emphasis, links (web and mail only), and references in the plain text. */
 export function inline(text, options = {}) {
@@ -248,7 +249,8 @@ export function inline(text, options = {}) {
     if (m.index > last) out.push(...plainText(src.slice(last, m.index), options));
     if (m[1]) out.push(el('code.md-inline', {}, ...plainText(m[2].replace(/^ (.*) $/, '$1'), options, true)));
     else if (m[3] !== undefined && m[4] !== undefined && src[m.index] === '!') out.push(el('span.md-image', { title: 'Pictures in replies are not loaded' }, m[3] ? `[${unescape(m[3])}]` : '[picture]'));
-    else if (m[5] !== undefined) out.push(link(unescape(m[6]), inline(m[5], { ...options, refs: null })));
+    // A link inside a link's text (an address written out, usually) stays text: links do not nest.
+    else if (m[5] !== undefined) out.push(...(options.inLink ? inline(m[5], options) : [link(unescape(m[6]), inline(m[5], { ...options, refs: null, inLink: true }))]));
     else if (m[7] && m[8].length > 1 && m[8][0] === m[7][0] && src[m.index + m[0].length] === m[7][0] && /\S/.test(m[8][1])) {
       // ***both***: the bold pattern stops a mark short at each end, which would show as a stray * on either side.
       out.push(el('strong', {}, el('em', {}, ...inline(m[8].slice(1), options))));
@@ -258,7 +260,7 @@ export function inline(text, options = {}) {
     else if (m[7]) out.push(el('strong', {}, ...inline(m[8], options)));
     else if (m[9] !== undefined) out.push(el('s', {}, ...inline(m[9], options)));
     else if (m[10]) out.push(el('em', {}, ...inline(m[11], options)));
-    else if (m[12]) out.push(link(m[12], [m[12]]));
+    else if (m[12]) out.push(options.inLink ? m[12] : link(m[12], [m[12]]));
     last = m.index + m[0].length;
   }
   if (last < src.length) out.push(...plainText(src.slice(last), options));

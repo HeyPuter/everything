@@ -53,6 +53,8 @@ export async function followRegion(ctx, clipId, index, { signal, onProgress, fra
   const aspect = (asset?.width || 16) / (asset?.height || 9);
   const t0 = Math.round(Math.min(clip.duration - 1, Math.max(0, store.time - clip.start)));
   const region = evaluateRegions(clip, t0)[index];
+  // Regions are numbered by position, which shifts when another one is deleted while tracking runs.
+  const regionId = clip.removal?.regions?.[index]?.id;
   const bounds = region && regionBounds(region, aspect);
   if (!bounds) throw new Error('Paint or draw the region first.');
   const { tw, th } = trackSize(aspect);
@@ -85,13 +87,16 @@ export async function followRegion(ctx, clipId, index, { signal, onProgress, fra
   await run(fwd);
   // Backward pass starts again from the region at the playhead.
   if (back.length) await run([t0, ...back], true);
+  if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
   const keys = followKeys(region, points, t0, (k) => thinKeys(k, 0.0015));
   if (!keys) return 0;
-  ctx.actions.editClip(clip.id, 'Follow motion', (c) => {
-    if (!c.removal?.regions?.[index]) return false;
+  const ok = ctx.actions.editClip(clip.id, 'Follow motion', (c) => {
+    const regions = c.removal?.regions || [];
+    const at = regionId ? regions.findIndex((r) => r.id === regionId) : regions[index] ? index : -1;
+    if (at < 0) return false;
     c.keyframes ||= {};
-    c.keyframes[regionProp(index, 'x')] = keys.x;
-    c.keyframes[regionProp(index, 'y')] = keys.y;
+    c.keyframes[regionProp(at, 'x')] = keys.x;
+    c.keyframes[regionProp(at, 'y')] = keys.y;
   });
-  return keys.x.length + keys.y.length;
+  return ok === false ? 0 : keys.x.length + keys.y.length;
 }

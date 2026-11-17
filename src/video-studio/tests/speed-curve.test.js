@@ -251,6 +251,25 @@ describe('clips with a speed curve', () => {
     for (let t = orig.start + s(1); t <= c.start + c.duration; t += s(0.1)) expect(Math.abs(T.sourceTimeAt(c, t) - T.sourceTimeAt(orig, t))).toBeLessThan(2);
   });
 
+  it('an edge trimmed into a ramp and dragged back out continues at the edge speed', () => {
+    const half = sliceCurve(presetPoints('ramp-up'), 0, 0.5);
+    const edge = half.at(-1).v;
+    const out = sliceCurve(half, 0, 3);
+    for (let x = 0; x <= 1; x += 0.05) expect(curveSpeedAt(out, x / 3)).toBeCloseTo(curveSpeedAt(half, x), 5);
+    for (let x = 1.001; x <= 3; x += 0.05) expect(curveSpeedAt(out, x / 3)).toBeCloseTo(edge, 5);
+    const lead = sliceCurve(presetPoints('ramp-up'), 0.5, 1);
+    const back = sliceCurve(lead, -2, 1);
+    for (let x = -2; x < -0.001; x += 0.05) expect(curveSpeedAt(back, (x + 2) / 3)).toBeCloseTo(lead[0].v, 5);
+    for (let x = 0; x <= 1; x += 0.05) expect(curveSpeedAt(back, (x + 2) / 3)).toBeCloseTo(curveSpeedAt(lead, x), 5);
+    // And on a clip: the source it plays never runs past the end of its media.
+    const p = fixture();
+    const [c] = onMain(p, clip('video', 0, 8, { in: 0 }));
+    T.setSpeedCurve(p, c.id, presetPoints('ramp-up'), {});
+    T.trimClip(p, c.id, 'end', c.start + Math.round(c.duration / 2), {});
+    T.trimClip(p, c.id, 'end', T.trimBounds(p, c.id, 'end').hi, {});
+    expect(c.in + sourceSpan(c)).toBeLessThanOrEqual(p.assets[c.assetId].duration + 2);
+  });
+
   it('trim bounds use the edge speeds', () => {
     const p = fixture();
     const [c] = onMain(p, clip('video', 5, 2, { in: s(2) }));

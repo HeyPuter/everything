@@ -15,7 +15,7 @@ import { drawSticker, STICKER_SIZE, isAnimatedSticker, stickerColor } from './st
 import { drawAvatar } from './avatars.js';
 import { poseKey } from './avatar-motion.js';
 import { caseOf, applyCase } from '../model/text-style.js';
-import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, bidiPositions } from './text-layout.js';
+import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, bidiPositions, graphemes, lineOffsets } from './text-layout.js';
 import { glyphState, animKey, animMargin } from './text-anim.js';
 import { bubbleGeometry, drawBubble, hasBubble } from './bubbles.js';
 import { fontsVersion, onFontsChange } from './font-registry.js';
@@ -32,7 +32,7 @@ export function fontString(style, size) {
 
 /** Letters a typewriter reveal shows (line breaks do not count), Infinity for all. */
 function revealedChars(text, reveal) {
-  return reveal < 1 ? Math.floor([...text.replace(/\n/g, '')].length * reveal) : Infinity;
+  return reveal < 1 ? Math.floor(graphemes(text.replace(/\n/g, '')).length * reveal) : Infinity;
 }
 
 /** Largest text raster side, in pixels. */
@@ -72,7 +72,11 @@ const setSpacing = (ctx, px) => {
 };
 
 // Glyph positions per (font, spacing, line); measuring letter by letter is the slow part.
+// They are only good for the font they were measured with: when a web or uploaded font
+// arrives after the first frame was laid out with the fallback, they are measured again.
 const glyphCache = new Map();
+onFontsChange(() => glyphCache.clear());
+if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => glyphCache.clear());
 function glyphsFor(line, font, spacing) {
   const key = `${font}|${spacing}|${line}`;
   let g = glyphCache.get(key);
@@ -95,7 +99,7 @@ function glyphsFor(line, font, spacing) {
  * Layout of a text clip at a raster scale: canvas size, content rectangle
  * and the runs to draw. opts: { reveal, anim: [{ id, phase, p }], color }.
  */
-function layoutText(clip, scale, opts = {}) {
+export function layoutText(clip, scale, opts = {}) {
   const style = clip.style;
   const reveal = opts.reveal ?? 1;
   const anim = opts.anim?.length ? opts.anim : null;
@@ -126,20 +130,17 @@ function layoutText(clip, scale, opts = {}) {
   const marks = clip.marks?.length ? new Set(clip.marks) : null;
   const perGlyph = Boolean(anim) || arc !== 0 || Boolean(marks);
   const revealCount = revealedChars(text, reveal);
+  // The count runs over the text as typed; each line knows where in it it starts.
+  const offsets = revealCount === Infinity ? null : lineOffsets(text, lines);
 
   let runs;
   let totals = null;
   let shiftX = 0;
   let shiftY = 0;
   if (!perGlyph) {
-    let left = revealCount;
     runs = lines.map((line, i) => {
       let t = line;
-      if (left !== Infinity) {
-        const chars = [...line];
-        t = chars.slice(0, Math.max(0, left)).join('');
-        left -= chars.length;
-      }
+      if (offsets) t = graphemes(line).slice(0, Math.max(0, revealCount - offsets[i])).join('');
       return { plain: true, text: t, x: xFor(i), y: offY + lineH * (i + 0.5), w: widths[i], alpha: 1 };
     });
   } else {
@@ -149,13 +150,16 @@ function layoutText(clip, scale, opts = {}) {
       // Right-to-left letters are placed from the right, as the line is drawn whole.
       const xs = bidiPositions(logical);
       const glyphs = logical.map((g, k) => ({ ...g, cx: x0 + (xs ? xs[k] : g.x) + g.w / 2 }));
-      return { y: offY + lineH * (i + 0.5), x0, w: widths[i], glyphs };
+      return { y: offY + lineH * (i + 0.5), x0, w: widths[i], glyphs, joins: Boolean(lines.joins?.has(i)) };
     });
     totals = indexGlyphs(gl);
     // Curved text: place glyphs on circles, then make the bent block the content box.
     let placed = null;
     if (arc) {
-      const rel = gl.map((l) => ({ y: l.y - contentH / 2, glyphs: l.glyphs.map((g) => ({ cx: g.cx - contentW / 2, w: g.w })) }));
+      // Bent around the middle of the text itself, not of a wider box it is aligned in: measured
+      // from the box's middle, left or right aligned text went most of the way round the circle.
+      const inBlock = (l) => (style.align === 'left' ? 0 : style.align === 'right' ? textW - l.w : (textW - l.w) / 2);
+      const rel = gl.map((l) => ({ y: l.y - contentH / 2, glyphs: l.glyphs.map((g) => ({ cx: g.cx - l.x0 + inBlock(l) - textW / 2, w: g.w })) }));
       placed = arcLayout(rel, arc, textW, lineH).lines;
       const pts = [];
       placed.forEach((pl, li) => pl.forEach((q, gi) => pts.push({ x: q.x, y: q.y, rot: q.rot, hw: gl[li].glyphs[gi].adv / 2 + 1, hh: lineH / 2 })));
@@ -166,11 +170,10 @@ function layoutText(clip, scale, opts = {}) {
       shiftY = -b.minY;
     }
     runs = [];
-    let n = 0;
     gl.forEach((l, li) => {
       const lineCx = l.x0 + l.w / 2;
       l.glyphs.forEach((g, gi) => {
-        if (n++ >= revealCount) return;
+        if (offsets && offsets[li] + gi >= revealCount) return;
         const q = placed?.[li][gi];
         const run = {
           plain: false,
@@ -231,7 +234,8 @@ function eachRun(ctx, L, ox, oy, fn) {
   const canFilter = 'filter' in ctx;
   let filtered = false;
   for (const r of L.runs) {
-    if (r.alpha <= 0.002 || (!r.plain && (r.scale <= 0.002 || r.space))) continue;
+    // Spaces have nothing to draw, except the underline that runs on under them.
+    if (r.alpha <= 0.002 || (!r.plain && (r.scale <= 0.002 || (r.space && !L.style.underline)))) continue;
     ctx.setTransform(1, 0, 0, 1, ox, oy);
     ctx.globalAlpha = r.alpha;
     if (r.plain) {
@@ -491,6 +495,7 @@ export class TextCache {
     this.pendingFonts.add(spec);
     document.fonts.load(spec).then(() => {
       this.pendingFonts.delete(spec);
+      glyphCache.clear();
       this.fontEpoch++;
       this.onFontLoaded?.();
     }, () => this.pendingFonts.delete(spec));

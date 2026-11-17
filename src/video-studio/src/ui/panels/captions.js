@@ -572,12 +572,14 @@ function listPanel(ctx, opts) {
   }
 
   function remove(id) {
-    store.update('Delete caption', (p) => {
+    const ok = store.update('Delete caption', (p) => {
       const f = T.findClip(p, id);
       if (!f || f.track.locked) return false;
       f.track.clips.splice(f.index, 1);
     });
-    announce('Caption deleted');
+    if (ok === false) toast('Unlock the caption track to delete.', { kind: 'info' });
+    else announce('Caption deleted');
+    return ok !== false;
   }
 
   function mergeNext(id) {
@@ -632,8 +634,7 @@ function listPanel(ctx, opts) {
     del.addEventListener('click', () => {
       const ids = [...rows.keys()];
       const neighbor = ids[ids.indexOf(c.id) + 1] || ids[ids.indexOf(c.id) - 1];
-      remove(c.id);
-      rows.get(neighbor)?.text.focus({ preventScroll: true });
+      if (remove(c.id)) rows.get(neighbor)?.text.focus({ preventScroll: true });
     });
     const row = h('div.cap-row', { role: 'listitem', 'data-id': c.id }, time, text, h('div.cap-row-actions', merge, del));
     return { row, text, time };
@@ -679,10 +680,14 @@ function listPanel(ctx, opts) {
   function marks() {
     const t = store.time;
     let now = null;
+    // One pass over the clips, not a search of the whole project per caption: this runs on
+    // every edit, and on every playhead move while it is between captions.
+    const clips = new Map();
+    for (const track of store.project.tracks) for (const c of track.clips) if (rows.has(c.id)) clips.set(c.id, c);
     for (const [id, r] of rows) {
       r.row.classList.toggle('selected', store.selection.has(id));
-      const f = T.findClip(store.project, id);
-      if (f && t >= f.clip.start && t < T.clipEnd(f.clip)) now = id;
+      const c = clips.get(id);
+      if (c && t >= c.start && t < T.clipEnd(c)) now = id;
     }
     if (now !== current) {
       rows.get(current)?.row.classList.remove('current');
@@ -919,23 +924,36 @@ function openTranslate(ctx, { onClose } = {}) {
   return d;
 }
 
+/** Stores with a caption AI request (emojis, key words) out. */
+const aiCaptionJobs = new WeakSet();
+
 /** Let Puter AI pick an emoji for captions where one fits, appended to the line. */
-async function addEmojis(ctx) {
+export async function addEmojis(ctx) {
   const { store } = ctx;
   const clips = captionClips(store.project);
   if (!clips.length) {
     toast('There are no captions yet.', { kind: 'info' });
     return;
   }
+  // One paid request at a time: a second pick while the first is out would add every emoji twice.
+  if (aiCaptionJobs.has(store)) {
+    toast('Still working on the captions...', { kind: 'info' });
+    return;
+  }
+  aiCaptionJobs.add(store);
+  const source = editingContext(store);
+  const sent = new Map(clips.map((c) => [c.id, c.text]));
   toast('Choosing emojis...', { kind: 'info' });
   try {
     const picks = await emojiForLines(clips.map((c) => c.text));
+    // The answer is for the captions that were sent: not another timeline's, and not lines edited since.
+    if (editingContext(store) !== source) return;
     const byId = new Map(clips.map((c, i) => [c.id, picks[i]]));
     let n = 0;
     store.update('Add emojis', (p) => {
       for (const t of p.tracks) for (const c of t.clips) {
         const e = byId.get(c.id);
-        if (!e || t.locked) continue;
+        if (!e || t.locked || c.text !== sent.get(c.id)) continue;
         c.text = `${c.text} ${e}`;
         n++;
       }
@@ -945,6 +963,8 @@ async function addEmojis(ctx) {
   } catch (err) {
     console.error(err);
     toast(errorMessage(err, "Couldn't add emojis."), { kind: 'error' });
+  } finally {
+    aiCaptionJobs.delete(store);
   }
 }
 
@@ -952,14 +972,21 @@ async function addEmojis(ctx) {
  * Mark the key words of every caption (drawn in the caption's highlight
  * color): picked on this device, or by Puter AI when ai is set.
  */
-async function highlightKeywords(ctx, { ai = false } = {}) {
+export async function highlightKeywords(ctx, { ai = false } = {}) {
   const { store } = ctx;
   const clips = captionClips(store.project);
   if (!clips.length) {
     toast('There are no captions yet.', { kind: 'info' });
     return;
   }
+  if (ai && aiCaptionJobs.has(store)) {
+    toast('Still working on the captions...', { kind: 'info' });
+    return;
+  }
+  const source = editingContext(store);
+  const sent = new Map(clips.map((c) => [c.id, c.text]));
   let picks;
+  if (ai) aiCaptionJobs.add(store);
   try {
     if (ai) toast('Choosing key words...', { kind: 'info' });
     picks = ai ? await keywordsForLines(clips.map((c) => c.text)) : clips.map((c) => pickKeywords(c.text));
@@ -967,13 +994,17 @@ async function highlightKeywords(ctx, { ai = false } = {}) {
     console.error(err);
     toast(errorMessage(err, "Couldn't choose key words."), { kind: 'error' });
     return;
+  } finally {
+    if (ai) aiCaptionJobs.delete(store);
   }
+  // Word numbers are for the lines that were sent: not another timeline's, and not lines edited since.
+  if (editingContext(store) !== source) return;
   const byId = new Map(clips.map((c, i) => [c.id, picks[i]]));
   let n = 0;
   store.update('Highlight key words', (p) => {
     for (const t of p.tracks) for (const c of t.clips) {
       const m = byId.get(c.id);
-      if (!m || t.locked) continue;
+      if (!m || t.locked || c.text !== sent.get(c.id)) continue;
       if (m.length) c.marks = m;
       else delete c.marks;
       n += m.length;

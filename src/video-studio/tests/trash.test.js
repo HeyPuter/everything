@@ -127,7 +127,6 @@ describe('Trash', () => {
     backend.files.set('media/abc.mp4', new Blob(['12345']));
     const usage = await lib.storageUsage();
     expect(usage).toMatchObject({ projects: 1, trashed: 1, mediaFiles: 1 });
-    // The memory backend does not report sizes.
-    expect(usage.mediaBytes).toBe(null);
+    expect(usage.mediaBytes).toBe(5);
   });
 });

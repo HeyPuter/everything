@@ -28,6 +28,8 @@ const DAY = 24 * 60 * 60 * 1000;
 const UPLOAD_RETRY = [5_000, 15_000, 30_000, 60_000, 120_000];
 /** A listing of the media folder is reused this long (a batch of imports lists it once). */
 const MEDIA_LIST_AGE = 30_000;
+/** How long one tab may hold its turn at changing the project list. */
+const INDEX_TURN = 15_000;
 /** Projects in the Trash are deleted for good after this many days. */
 export const TRASH_DAYS = 30;
 
@@ -102,7 +104,30 @@ export class Library extends Emitter {
     });
   }
 
+  /**
+   * The index is read, changed and written back: another tab doing the same in between
+   * (an editor saving while Home adds a project) would lose one of the two changes, so
+   * tabs take turns. A turn is given up after a while, so a write stuck on a dead
+   * connection in one tab does not hold up saving in the others.
+   */
   async _writeIndex() {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+    if (!locks?.request) return this._writeIndexNow();
+    let work = null;
+    try {
+      await locks.request('video-studio:index', {}, () => {
+        work = this._writeIndexNow();
+        let timer = 0;
+        const turnOver = new Promise((r) => (timer = setTimeout(r, INDEX_TURN)));
+        return Promise.race([work, turnOver]).finally(() => clearTimeout(timer));
+      });
+    } catch {
+      // Locks are not available here (the page is going away): write as before.
+    }
+    return work || this._writeIndexNow();
+  }
+
+  async _writeIndexNow() {
     const batch = this._indexPending;
     this._indexPending = null;
     try {
@@ -339,6 +364,10 @@ export class Library extends Emitter {
     }
     if (!project.deletedAt) return { project, claim };
     claim.release();
+    // The file says Trash; the list may not, when writing it failed as the project was moved
+    // there. The list then follows the file, so the project is in the Trash to be restored.
+    const listed = (this.index || (await this._readIndex().catch(() => []))).find((e) => e.id === id);
+    if (listed && !listed.deletedAt) await this._editEntry(id, (e) => ({ ...e, deletedAt: project.deletedAt })).catch(() => {});
     return { project, claim: null };
   }
 
@@ -453,8 +482,9 @@ export class Library extends Emitter {
       // Same content imported before: nothing to upload.
       const name = `${asset.hash}.${asset.ext}`;
       const stored = await this._storedMedia();
+      // Only a file of the same size counts: an empty one is what a write that never finished leaves.
       const size = stored.get(name);
-      if (size === undefined || (size && size !== blob.size)) {
+      if (size !== blob.size) {
         await this.backend.writeBlob(path, blob);
         stored.set(name, blob.size);
       }
@@ -522,7 +552,9 @@ export class Library extends Emitter {
   async missingMedia(assets) {
     this._storedMedia(true);
     const stored = await this.stored.files;
-    return assets.filter((a) => !stored.has(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
+    // On this device's own storage an empty file is a write that never finished: missing as well.
+    const there = (name) => stored.has(name) && !(this.backend.kind === 'local' && stored.get(name) === 0);
+    return assets.filter((a) => !there(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
   }
 
   /**
@@ -547,6 +579,11 @@ export class Library extends Emitter {
   async _readMedia(asset) {
     const path = this.mediaPath(asset);
     let blob = this.cache ? await this.cache.readBlob(path).catch(() => null) : null;
+    // An empty cached file is a write that never finished, not the media: read the real one.
+    if (blob && !blob.size) {
+      blob = null;
+      await this.cache.remove(path).catch(() => {});
+    }
     if (!blob) {
       blob = await this.backend.readBlob(path);
       if (!blob) throw new Error(`Media file missing: ${asset.name}`);

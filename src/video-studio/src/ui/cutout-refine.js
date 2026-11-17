@@ -11,7 +11,7 @@ import * as T from '../model/timeline.js';
 import { CUTOUT_DEFAULT, MAX_STROKES, normalizeStrokes, strokeOverride, applyOverride, matteWindow } from '../model/cutout.js';
 import { SEG_SIZE, ready, segment, segmenterError } from '../media/segmenter.js';
 import { segmented, sliderField } from './controls.js';
-import { openDialog, toast } from './dialog.js';
+import { openDialog, toast, oneAtATime } from './dialog.js';
 
 const VIEW_W = 960;
 
@@ -43,7 +43,7 @@ async function sourceFrame(ctx, clip, t) {
   return { canvas, asset };
 }
 
-export async function openCutoutRefine(ctx, clipId = ctx.store.selected?.clip.id) {
+export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.selected?.clip.id) => {
   const { store } = ctx;
   const f = clipId && T.findClip(store.project, clipId);
   if (!f || (f.clip.type !== 'video' && f.clip.type !== 'image')) {
@@ -61,6 +61,8 @@ export async function openCutoutRefine(ctx, clipId = ctx.store.selected?.clip.id
     toast(err?.message || 'Could not read this clip.', { kind: 'error' });
     return;
   }
+  // The clip may have been deleted while its frame and the model were loading.
+  if (T.findClip(store.project, clipId)?.clip !== clip) return;
   const { canvas } = frame;
   const aspect = canvas.width / canvas.height;
   // The model's matte for this frame.
@@ -218,4 +220,4 @@ export async function openCutoutRefine(ctx, clipId = ctx.store.selected?.clip.id
     announce(list.length ? `Cutout refined with ${list.length} stroke${list.length === 1 ? '' : 's'}` : 'Cutout fixes cleared');
     d.close();
   });
-}
+});

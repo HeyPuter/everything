@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { Player } from '../src/engine/player.js';
+import { MediaPool } from '../src/engine/media-pool.js';
 import { evaluate } from '../src/engine/scene.js';
 import { addClip } from '../src/model/timeline.js';
 import { fixture, clip, onMain, s } from './helpers.js';
@@ -287,6 +288,77 @@ describe('warming up the next clip', () => {
     for (const t of [4.2, 5.5, 6.5]) frame(s(t));
     // Once a has left the screen it is not sought back to its start to be readied again.
     expect(entries.get(a.id).el.currentTime).toBeCloseTo(5.5, 5);
+  });
+});
+
+describe('a player that was disposed', () => {
+  it('stays stopped when something it was waiting for finishes later', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const player = new Player({ store, library: { mediaURL: () => 'blob:x' }, canvas: document.createElement('canvas') });
+    player.playing = true;
+    player.dispose();
+    const raf = vi.spyOn(globalThis, 'requestAnimationFrame');
+    const seek = vi.spyOn(store, 'seek');
+    player.invalidate();
+    player._tick();
+    player.play();
+    expect(player.playing).toBe(false);
+    expect(raf).not.toHaveBeenCalled();
+    expect(seek).not.toHaveBeenCalled();
+    raf.mockRestore();
+  });
+});
+
+describe('a jump during playback on a file that seeks slowly', () => {
+  /** Drive the real clock, element drive and seek bookkeeping against an element whose seeks take `latency` ms. */
+  function simulate(latency, seconds = 6) {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const el = {
+      paused: false, seeking: false, duration: 600, playbackRate: 1, readyState: 4, pos: 2, target: 0, done: 0, seeks: 0,
+      play() { this.paused = false; return Promise.resolve(); },
+      pause() { this.paused = true; },
+    };
+    Object.defineProperty(el, 'currentTime', {
+      get() { return this.seeking ? this.target : this.pos; },
+      set(v) { this.target = v; this.seeking = true; this.done = now + latency; this.seeks++; },
+    });
+    const entry = { el, pendingSeek: null, gain: null };
+    const pool = { seek: MediaPool.prototype.seek, seekLead: MediaPool.prototype.seekLead, _seeked: MediaPool.prototype._seeked };
+    const p = Object.assign(Object.create(Player.prototype), { playing: true, store: { fps: 30 }, pool, audioGraph: { reset() {} }, invalidate() {} });
+    const c = { id: 'c', start: 0, in: 0, duration: 600e6, speed: 1 };
+    // The user clicks the timeline at 10 s while it plays.
+    p.timeStart = 10e6;
+    p.clockStart = now;
+    p._holdClock();
+    const dt = 1000 / 60;
+    let lag = 0;
+    for (let i = 0; i < seconds * 60; i++) {
+      now += dt;
+      if (el.seeking && now >= el.done) {
+        el.seeking = false;
+        el.pos = el.target;
+        pool._seeked(entry);
+      } else if (!el.paused && !el.seeking) el.pos += dt / 1000;
+      const t = p._heldTime(now) ?? p.timeStart + (now - p.clockStart) * 1000;
+      const w = p._startWait;
+      if (w && !w.ref && !el.paused) w.ref = { entry, sec: t / 1e6, t, speed: 1 };
+      p._drive(entry, c, t / 1e6, 30, true, t, false);
+      if (p._startWait) p._startWait.synced = true;
+      if (i > 4 * 60) lag = Math.max(lag, Math.abs(t / 1e6 - el.currentTime));
+    }
+    clock.mockRestore();
+    return { seeks: el.seeks, seeking: el.seeking, lag };
+  }
+
+  it.each([60, 190, 230, 300, 600, 1200])('settles when a seek takes %i ms', (latency) => {
+    const r = simulate(latency);
+    expect(r.seeking).toBe(false);
+    expect(r.seeks).toBeLessThanOrEqual(4);
+    // Within what playback tolerates without seeking again.
+    expect(r.lag).toBeLessThan(0.2);
   });
 });
 

@@ -5,21 +5,40 @@
  * tested without a canvas.
  */
 
+let segmenter;
+/**
+ * The letters of a string as a reader counts them: an emoji with its skin
+ * tone, a flag, a family joined by zero-width joiners or a letter with its
+ * accent is one, though each is several code points. Drawn or measured code
+ * point by code point they fall apart (a flag becomes two boxed letters).
+ */
+export function graphemes(str) {
+  const s = String(str);
+  // Plain text (the usual case) has nothing to join.
+  if (!/[^\u0000-\u024F]/.test(s)) return [...s];
+  if (segmenter === undefined) segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  return segmenter ? Array.from(segmenter.segment(s), (x) => x.segment) : [...s];
+}
+
 /**
  * Split text into lines. Explicit newlines always break; when maxW > 0,
  * words wrap to fit and a word wider than the box breaks between letters.
- * measure(str) returns the drawn width of str.
+ * measure(str) returns the drawn width of str. The lines that go on with a
+ * word broken off the line before are listed in the result's joins (a Set of
+ * line numbers): they start no new word.
  */
 export function wrapLines(text, maxW, measure) {
   const paragraphs = String(text).split('\n');
   if (!(maxW > 0)) return paragraphs;
   const out = [];
+  const joins = new Set();
   // Pieces of a word wider than the box: all but the last become lines.
   const breakWord = (word) => {
     let piece = '';
-    for (const ch of word) {
+    for (const ch of graphemes(word)) {
       if (piece && measure(piece + ch) > maxW) {
         out.push(piece);
+        joins.add(out.length);
         piece = '';
       }
       piece += ch;
@@ -42,6 +61,26 @@ export function wrapLines(text, maxW, measure) {
     }
     out.push(line.replace(/\s+$/, ''));
   }
+  // Kept off the list of the array's own items, so the lines still compare as plain lines.
+  if (joins.size) Object.defineProperty(out, 'joins', { value: joins });
+  return out;
+}
+
+/**
+ * Where each line starts in the text it was wrapped from, counted in letters
+ * with line breaks left out: the spaces a wrap swallows are not in the lines,
+ * so counting through the lines alone runs ahead of the text.
+ */
+export function lineOffsets(text, lines) {
+  const raw = graphemes(String(text).replace(/\n/g, ''));
+  const out = [];
+  let pos = 0;
+  for (const line of lines) {
+    const first = graphemes(line)[0];
+    if (first !== undefined) while (pos < raw.length && raw[pos] !== first && /\s/.test(raw[pos])) pos++;
+    out.push(pos);
+    pos += graphemes(line).length;
+  }
   return out;
 }
 
@@ -53,7 +92,7 @@ export function wrapLines(text, maxW, measure) {
  *  measurePlain(ch)    width of a single glyph without spacing
  */
 export function lineGlyphs(line, measureSpaced, measurePlain) {
-  const chars = [...line];
+  const chars = graphemes(line);
   const out = [];
   let prev = 0;
   let prefix = '';
@@ -128,7 +167,8 @@ export function indexGlyphs(lines) {
   let inWord = false;
   const wordLens = [];
   for (const line of lines) {
-    inWord = false;
+    // A line that goes on with a word broken by wrapping is still in that word.
+    if (!line.joins) inWord = false;
     for (const g of line.glyphs) {
       if (/\s/.test(g.ch)) {
         g.ci = -1;

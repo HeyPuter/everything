@@ -191,3 +191,75 @@ describe('media worker failures', () => {
     service.dispose();
   });
 });
+
+describe('media files that could not be read', () => {
+  it('asks for the waveform again after a read that failed, instead of keeping it empty for good', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    const mediaBlob = vi.fn().mockRejectedValueOnce(new Error('Failed to fetch')).mockResolvedValue(new Blob(['audio']));
+    const service = new MediaService({ mediaBlob });
+    const changed = vi.fn();
+    service.on('peaks', changed);
+    expect(await service.peaks(video)).toMatchObject({ duration: 0 });
+    await vi.advanceTimersByTimeAsync(3000);
+    // The empty answer is dropped and the panel told, so the next ask reads the file again.
+    expect(changed).toHaveBeenCalledTimes(2);
+    const again = service.peaks(video);
+    await flush();
+    expect(mediaBlob).toHaveBeenCalledTimes(2);
+    const { id } = made[0].postMessage.mock.calls[0][0];
+    const peaks = { rate: 100, data: new Float32Array([0, 1]), duration: 1 };
+    made[0].onmessage({ data: { id, ok: true, result: peaks } });
+    expect(await again).toBe(peaks);
+    service.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for a missing file to be found, then reads it again', async () => {
+    vi.useFakeTimers();
+    workers();
+    const mediaBlob = vi.fn().mockRejectedValue(new Error('Media file missing: v.mp4'));
+    const service = new MediaService({ mediaBlob });
+    service.missing = new Set([video.hash]);
+    await service.peaks(video);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await service.peaks(video);
+    expect(mediaBlob).toHaveBeenCalledTimes(1);
+    service.missing = new Set();
+    service.forget(video.hash);
+    service.peaks(video);
+    await flush();
+    expect(mediaBlob).toHaveBeenCalledTimes(2);
+    service.dispose();
+  });
+});
+
+describe('thumbnail memory', () => {
+  it('keeps a bounded number of thumbnails per video, letting go of the ones drawn longest ago', async () => {
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    const long = { id: 'l', hash: 'long', kind: 'video', duration: 3_600_000_000 };
+    const closed = [];
+    const ask = async (from, count) => {
+      for (let i = 0; i < count; i++) service.thumb(long, from + i, 1);
+      await new Promise((r) => setTimeout(r, 30));
+      await flush();
+      const w = made.at(-1);
+      const { id, times } = w.postMessage.mock.calls.at(-1)[0];
+      times.forEach((t, index) => w.onmessage({ data: { id, partial: { index, bitmap: { t, close: () => closed.push(t) } } } }));
+      w.onmessage({ data: { id, ok: true } });
+      await flush();
+    };
+    await ask(0, 500);
+    expect(service.thumb(long, 0, 1)?.t).toBe(0);
+    await ask(1000, 500);
+    const strip = service.strips.get('long');
+    expect([...strip.values()].filter((v) => v !== 'pending').length).toBeLessThanOrEqual(600);
+    expect(closed.length).toBeGreaterThanOrEqual(400);
+    // The one drawn again just before stayed; the newest are all there.
+    expect(closed).not.toContain(0);
+    expect(service.thumb(long, 1499, 1)?.t).toBe(1499);
+    service.dispose();
+  });
+});
+

@@ -118,11 +118,7 @@ export class MediaPool {
     const kick = () => { if (!entry.destroyed && !this.disposed) this.onReady?.(); };
     el.addEventListener('loadeddata', kick);
     el.addEventListener('seeked', () => {
-      if (entry.pendingSeek !== null) {
-        const t = entry.pendingSeek;
-        entry.pendingSeek = null;
-        if (Math.abs(el.currentTime - t) > 0.001) el.currentTime = t;
-      }
+      this._seeked(entry);
       kick();
     });
     const url = this._url(asset);
@@ -172,6 +168,22 @@ export class MediaPool {
     return best;
   }
 
+  /** A seek of the element finished: note how long it took, and go on to the one asked for meanwhile. */
+  _seeked(entry) {
+    const el = entry.el;
+    // How long this file takes to seek, for seeks made while it plays (see seekLead).
+    if (entry.seekAt) {
+      const took = Math.min(2, (performance.now() - entry.seekAt) / 1000);
+      entry.seekTook = entry.seekTook ? (entry.seekTook + took) / 2 : took;
+      entry.seekAt = 0;
+    }
+    if (entry.pendingSeek !== null) {
+      const t = entry.pendingSeek;
+      entry.pendingSeek = null;
+      if (Math.abs(el.currentTime - t) > 0.001) this.seek(entry, t);
+    }
+  }
+
   /** Move an element to a time without piling up seeks while one is in flight. */
   seek(entry, sec) {
     const el = entry.el;
@@ -179,7 +191,14 @@ export class MediaPool {
       entry.pendingSeek = sec;
       return;
     }
+    entry.seekAt = performance.now();
     el.currentTime = sec;
+  }
+
+  /** Seconds a seek of this element has been taking: how far ahead to aim one made during playback. */
+  seekLead(entry) {
+    // Quick seeks need no lead (and are within what playback tolerates anyway).
+    return entry.seekTook > 0.15 ? Math.min(1.5, entry.seekTook) : 0;
   }
 
   /** Pause and silence everything not claimed this frame; drop long-idle elements. */
@@ -201,6 +220,9 @@ export class MediaPool {
     entry.el.removeAttribute('src');
     entry.el.load();
     try {
+      // Its effect processor is told to end: one that keeps answering "more to come" is kept
+      // alive, with its echo and reverb buffers, until the whole audio context closes.
+      entry.fx?.node.port.postMessage({ dispose: true });
       entry.gain?.disconnect();
       entry.fx?.node.disconnect();
     } catch {

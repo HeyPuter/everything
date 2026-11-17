@@ -333,7 +333,9 @@ export class Compositor {
     if (info.between) return betweenTexture(this, info);
     const gl = this.gl;
     let entry = this.textures.get(info.key);
-    const needsUpload = !entry || info.dynamic || entry.version !== info.version;
+    // A playing video is uploaded once per rendered frame, however often the frame draws it
+    // (each motion blur sample, the blurred backdrop behind it, a transition's two sides).
+    const needsUpload = !entry || (info.dynamic ? entry.uploaded !== this.frame : entry.version !== info.version);
     if (!entry) {
       const tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -349,6 +351,7 @@ export class Compositor {
       try {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, info.source);
         entry.version = info.version;
+        entry.uploaded = this.frame;
         entry.w = info.width;
         entry.h = info.height;
         entry.ok = true;
@@ -571,7 +574,9 @@ export class Compositor {
     const W = this.projW;
     const H = this.projH;
     const cover = Math.max(W / info.width, H / info.height);
-    const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, masks: null, extras: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
+    // No enhance either: sharpening a picture that is then blurred shows nothing, and at this
+    // size it kept evicting the clip's own enhanced frame, which was then redone every frame.
+    const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, masks: null, extras: null, enhance: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
     const fit = Math.min(W / info.width, H / info.height);
     fake.scale = cover / fit;
     this._drawLayer(fake, time);

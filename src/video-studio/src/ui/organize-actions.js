@@ -108,6 +108,9 @@ export function applyAttributes(clip, captured, groupIds, sourceDuration) {
   return speed;
 }
 
+/** Names of MARKER_COLORS, in their order, for screen readers and tooltips. */
+const MARKER_COLOR_NAMES = ['Yellow', 'Red', 'Green', 'Blue', 'Purple', 'Cyan', 'Pink', 'White'];
+
 export function createOrganizeActions(ctx) {
   const { store } = ctx;
   let attrBoard = null;
@@ -247,14 +250,30 @@ export function createOrganizeActions(ctx) {
       let color = m.color;
       const name = h('input.input', { type: 'text', value: m.label || '', maxlength: 200, placeholder: 'Marker name', 'aria-label': 'Marker name' });
       const note = h('textarea.input.marker-note', { rows: 4, maxlength: 2000, placeholder: 'Notes', 'aria-label': 'Notes' }, m.note || '');
-      const swatches = h('div.marker-swatches', { role: 'radiogroup', 'aria-label': 'Color' }, MARKER_COLORS.map((c) => {
-        const b = h('button.marker-swatch', { type: 'button', role: 'radio', 'aria-checked': String(c === color), 'aria-label': c, style: { '--swatch': c } });
-        b.addEventListener('click', () => {
-          color = c;
-          swatches.querySelectorAll('.marker-swatch').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+      // Named, not read out as "#f5b83d"; one tab stop, with the arrow keys moving between colors.
+      const pick = (b, c) => {
+        color = c;
+        swatches.querySelectorAll('.marker-swatch').forEach((x) => {
+          x.setAttribute('aria-checked', String(x === b));
+          x.tabIndex = x === b ? 0 : -1;
         });
+      };
+      const swatches = h('div.marker-swatches', { role: 'radiogroup', 'aria-label': 'Color' }, MARKER_COLORS.map((c, i) => {
+        const b = h('button.marker-swatch', { type: 'button', role: 'radio', 'aria-checked': String(c === color), 'aria-label': MARKER_COLOR_NAMES[i] || c, title: MARKER_COLOR_NAMES[i] || c, tabindex: c === color || (!MARKER_COLORS.includes(color) && i === 0) ? '0' : '-1', style: { '--swatch': c } });
+        b.addEventListener('click', () => pick(b, c));
         return b;
       }));
+      swatches.addEventListener('keydown', (e) => {
+        const all = [...swatches.querySelectorAll('.marker-swatch')];
+        const at = all.indexOf(document.activeElement);
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (at < 0 || (!step && e.key !== 'Home' && e.key !== 'End')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const to = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : (at + step + all.length) % all.length;
+        all[to].focus();
+        pick(all[to], MARKER_COLORS[to]);
+      });
       const del = h('button.btn.danger', { type: 'button' }, 'Delete');
       const cancel = h('button.btn', { type: 'button' }, 'Cancel');
       const save = h('button.btn.primary', { type: 'button' }, 'Save');
@@ -419,10 +438,11 @@ export function createOrganizeActions(ctx) {
         return null;
       }
       let made = null;
-      store.update('Create compound clip', (p) => {
+      const ok = store.update('Create compound clip', (p) => {
         made = createCompound(p, T.expandGroups(p, ids), store.opts);
         return Boolean(made);
       });
+      if (!ok) made = null;
       if (made) {
         store.select(made.id);
         announce(`${made.name} created`);

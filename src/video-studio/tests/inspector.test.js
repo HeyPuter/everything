@@ -1039,4 +1039,52 @@ describe('keyboard focus survives list updates', () => {
     expect(focused()).toBe(env.el.querySelector('.mark-chip'));
     expect(focused().getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('applies a caption style to the other captions, except on locked tracks', () => {
+    const cap = (text, start) => makeClip('text', { caption: true, text, start, duration: US });
+    const [a, b, locked] = [cap('One', 0), cap('Two', US), cap('Three', 0)];
+    env.store.update('Add captions', (p) => {
+      p.tracks.push({ id: 'cap1', kind: 'text', locked: false, hidden: false, muted: false, clips: [a, b] });
+      p.tracks.push({ id: 'cap2', kind: 'text', locked: true, hidden: false, muted: false, clips: [locked] });
+    });
+    env.store.update('Style', (p) => { T.findClip(p, a.id).clip.style.size = 123; });
+    env.store.select(a.id);
+    env.el.querySelectorAll('.section-toggle[aria-expanded=false]').forEach((x) => x.click());
+    [...env.el.querySelectorAll('button')].find((x) => x.textContent === 'Apply style to all captions').click();
+    expect(clip(b.id).style.size).toBe(123);
+    expect(clip(locked.id).style.size).not.toBe(123);
+  });
+
+  it('slider keys make one undo step when they move the value and none at its end', () => {
+    env.store.select(env.v1.id);
+    const r = range('Opacity');
+    const steps = () => env.store.history.undoStack.length;
+    const key = (type) => r.dispatchEvent(new KeyboardEvent(type, { key: 'ArrowRight', bubbles: true }));
+    const before = steps();
+    expect(Number(r.value)).toBe(100);
+    key('keydown');
+    key('keyup');
+    expect(steps()).toBe(before);
+    expect(env.store.dirty).toBeFalsy();
+    r.value = '100';
+    r.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    for (const v of [99, 98]) {
+      r.value = String(v);
+      r.dispatchEvent(new Event('input', { bubbles: true }));
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    r.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }));
+    expect(clip(env.v1.id).opacity).toBeCloseTo(0.98);
+    expect(steps()).toBe(before + 1);
+  });
+
+  it('a switch on a locked clip goes back to what the clip has', () => {
+    env.store.update('Lock', (p) => { T.findClip(p, env.aud.id).track.locked = true; });
+    env.store.select(env.aud.id);
+    const sw = [...env.el.querySelectorAll('.switch-field')].find((f) => /Mute clip/.test(f.textContent)).querySelector('[role=switch]');
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    sw.click();
+    expect(clip(env.aud.id).muted).toBeFalsy();
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+  });
 });

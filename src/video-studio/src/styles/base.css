@@ -166,7 +166,7 @@ p {
 }
 
 .btn.danger {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: #fff;
   border-color: transparent;
 }
@@ -389,6 +389,11 @@ input[type='range']:focus-visible::-moz-range-thumb {
   transition: transform var(--t-fast) var(--ease);
 }
 
+/* Off, the track still has to stand out from a white panel (3:1 for controls). */
+:root[data-theme-resolved='light'] .switch:not([aria-checked='true']) {
+  background: #8e8e98;
+}
+
 .switch[aria-checked='true'] {
   background: var(--accent);
 }
@@ -489,3 +494,10 @@ kbd,
   color: var(--text-2);
   justify-content: center;
 }
+
+/* A dialog that is loading what it needs before it opens (ui/dialog.js oneAtATime). */
+.opening-dialog,
+.opening-dialog * {
+  cursor: progress !important;
+}
+

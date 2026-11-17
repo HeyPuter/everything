@@ -18,6 +18,11 @@ class ClipFxProcessor extends AudioWorkletProcessor {
       const m = e.data || {};
       if ('settings' in m) this.apply(m.settings);
       if (m.reset) this.chain?.reset();
+      // The element this processor served is gone: process() then ends it.
+      if (m.dispose) {
+        this.done = true;
+        this.chain = null;
+      }
     };
   }
 
@@ -48,7 +53,7 @@ class ClipFxProcessor extends AudioWorkletProcessor {
     this.chain?.process(L, R, n);
     out[0].set(L);
     if (out[1]) out[1].set(R);
-    return true;
+    return !this.done;
   }
 }
 

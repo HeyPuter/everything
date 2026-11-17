@@ -26,12 +26,12 @@ async function analysisKit(view) {
 }
 
 /** Decode the selected clip's source range. */
-async function clipSound(view) {
+async function clipSound(view, opts) {
   const c = view.clip;
   const asset = c && view.project.assets[c.assetId];
   if (!asset) throw new Error('This clip has no media.');
   const kit = await analysisKit(view);
-  const snd = await kit.decodeClipSound(kit.open, asset, c);
+  const snd = await kit.decodeClipSound(kit.open, asset, c, opts);
   if (!snd || !snd.channels[0]?.length) throw new Error('No sound found in this clip.');
   return { kit, snd };
 }
@@ -197,8 +197,9 @@ export function denoiseSection(view) {
   });
   const relearn = h('button.btn.small', { type: 'button' }, icon('audioLines', 14), 'Learn noise again');
   const learn = async () => {
-    const { kit, snd } = await clipSound(view);
-    // A couple of minutes is plenty to find the quiet stretches.
+    // A couple of minutes is plenty to find the quiet stretches, so no more than that is decoded
+    // (a long clip used to be decoded whole, twenty minutes of it, to use the first three).
+    const { kit, snd } = await clipSound(view, { maxSeconds: 180 });
     const max = snd.sampleRate * 180;
     const chans = snd.channels.map((ch) => ch.subarray(0, Math.min(ch.length, max)));
     return kit.noiseProfile(chans, snd.sampleRate);
@@ -333,6 +334,8 @@ export function beatsSection(view) {
     const r = kit.detectBeats(dec, snd.sampleRate / k);
     if (!r) throw new Error('No steady beat found in this clip.');
     const c = view.clip;
+    // The clip was deleted while its sound was analysed.
+    if (!c) return;
     const beats = r.beats.map((t) => Math.round(c.in + t * US));
     view.edit('Detect beats', (x) => {
       x.beats = beats;

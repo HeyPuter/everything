@@ -510,6 +510,48 @@ body:has(.editor[data-layout='phone']) .toasts {
     height: 36px;
   }
 
+  /* iOS zooms the page into any field with text under 16px, and stays zoomed. */
+  .input,
+  .select,
+  .textarea,
+  textarea.rv-textarea {
+    font-size: 16px;
+  }
+
+  /* Small controls keep their look and get a finger-sized area around them. */
+  .switch::before,
+  .fav-btn::before,
+  .rv-mark::before {
+    content: '';
+    position: absolute;
+    inset: -11px -6px;
+  }
+
+  .fav-btn:not(.tile-fav) {
+    position: relative;
+  }
+
+  .fav-btn::before {
+    inset: -6px;
+  }
+
+  .rv-mark::before {
+    inset: -14px -10px;
+  }
+
+  .chip,
+  .subtabs .insp-tab {
+    min-height: 36px;
+  }
+
+  .nav-item {
+    min-height: 40px;
+  }
+
+  .home-chip {
+    min-height: 36px;
+  }
+
   input[type='range'] {
     height: 40px;
   }

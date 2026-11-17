@@ -8,7 +8,7 @@ import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US } from '../lib/time.js';
 import * as T from '../model/timeline.js';
-import { openDialog, toast } from './dialog.js';
+import { openDialog, toast, oneAtATime } from './dialog.js';
 
 const MIN = 0.02; // smallest crop side as a fraction of the source
 
@@ -91,7 +91,7 @@ function draw(src, w, hgt, maxW) {
   return c;
 }
 
-export async function openCropDialog(ctx, clipId = ctx.store.selected?.clip.id) {
+export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected?.clip.id) => {
   const { store, actions } = ctx;
   const f = clipId && T.findClip(store.project, clipId);
   if (!f || (f.clip.type !== 'video' && f.clip.type !== 'image')) {
@@ -109,6 +109,9 @@ export async function openCropDialog(ctx, clipId = ctx.store.selected?.clip.id) 
     toast(err?.message || 'Could not load this clip.', { kind: 'error' });
     return;
   }
+  // The clip may have been deleted or locked while its frame was read.
+  const now = T.findClip(store.project, clipId);
+  if (now?.clip !== f.clip || now.track.locked) return;
   const srcW = Number(frameCanvas.dataset.srcW) || frameCanvas.width;
   const srcH = Number(frameCanvas.dataset.srcH) || frameCanvas.height;
   let rect = rectFromCrop(f.clip.crop || { l: 0, t: 0, r: 0, b: 0 });
@@ -246,12 +249,13 @@ export async function openCropDialog(ctx, clipId = ctx.store.selected?.clip.id) 
   cancel.addEventListener('click', () => d.close());
   apply.addEventListener('click', () => {
     const crop = cropFromRect(rect);
-    actions.editClip(clipId, 'Crop', (c) => {
+    const ok = actions.editClip(clipId, 'Crop', (c) => {
       c.crop = crop;
     });
-    announce('Crop applied');
+    if (ok === false) toast('This clip can no longer be cropped.', { kind: 'info' });
+    else announce('Crop applied');
     d.close();
   });
   requestAnimationFrame(paint);
   box.focus();
-}
+});

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  deleteClips, trimToPlayhead, duplicateClip, pasteClips, setSpeed, freezeFrame, detachAudio,
-  mainTrack, addClip, captureLinks, compactMain, sourceTimeAt, clipEnd,
+  deleteClips, trimToPlayhead, duplicateClip, pasteClips, setSpeed, freezeFrame, detachAudio, applySpeedRamp,
+  mainTrack, addClip, captureLinks, compactMain, sourceTimeAt, clipEnd, moveClip, findClip,
 } from '../src/model/timeline.js';
 import { fixture, clip, onMain, spans, trackOf, noOverlaps, kinds, s } from './helpers.js';
 
@@ -321,6 +321,17 @@ describe('freezeFrame', () => {
     expect(mainTrack(p).clips[1]).toBe(still);
   });
 
+  it('makes a still with a whole-microsecond source time and nothing left of a speed ramp', () => {
+    const p = fixture();
+    const [c] = onMain(p, clip('video', 0, 4, { in: s(1) }));
+    expect(applySpeedRamp(p, c.id, 'whip-through', RIPPLE)).toBeTruthy();
+    const still = freezeFrame(p, c.id, c.start + Math.round(c.duration / 3), s(3), RIPPLE);
+    expect(Number.isInteger(still.in)).toBe(true);
+    expect(still.speedRamp).toBeUndefined();
+    expect(still.motionBlur).toBeUndefined();
+    expect(still.keyframes).toEqual({});
+  });
+
   it('pushes later clips on the same track without ripple', () => {
     const p = fixture();
     const [c, after] = onMain(p, clip('video', 0, 4), clip('video', 6, 2));
@@ -371,3 +382,28 @@ describe('detachAudio', () => {
     expect(detachAudio(p, v.id)).toBe(null);
   });
 });
+
+describe('moving a base clip together with a clip that sits on it', () => {
+  const build = () => {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2), clip('video', 4, 2));
+    const title = clip('text', 2.5, 1);
+    addClip(p, title, FREE);
+    return { p, b, title };
+  };
+
+  it.each(['base clip', 'title'])('keeps the title where it was inside the clip (dragging the %s)', (dragged) => {
+    const { p, b, title } = build();
+    const primary = dragged === 'title' ? title : b;
+    expect(moveClip(p, primary.id, { start: primary.start + s(3.2), trackId: findClip(p, primary.id).track.id }, { ...RIPPLE, with: [b.id, title.id] })).toBe(true);
+    expect(b.start).toBe(s(4));
+    expect(title.start - b.start).toBe(s(0.5));
+  });
+
+  it('still moves a title dragged on its own', () => {
+    const { p, title } = build();
+    moveClip(p, title.id, { start: s(0.2), trackId: findClip(p, title.id).track.id }, RIPPLE);
+    expect(title.start).toBe(s(0.2));
+  });
+});
+

@@ -8,7 +8,7 @@ import { h, announce } from '../lib/dom.js';
 import { uid } from '../lib/ids.js';
 import * as T from '../model/timeline.js';
 import { ATTRIBUTE_GROUPS, attributeGroupsFor, captureAttributes } from './organize-actions.js';
-import { openDialog, toast, promptDialog } from './dialog.js';
+import { openDialog, toast, promptDialog, confirmDialog } from './dialog.js';
 import { prefs, setPref } from './prefs.js';
 
 export const MAX_PRESETS = 100;
@@ -117,10 +117,16 @@ export function managePresets() {
         await renameClipPreset(p.id);
         render();
       });
-      const del = h('button.btn.small.ghost', { type: 'button' }, 'Delete');
-      del.addEventListener('click', () => {
+      const del = h('button.btn.small.ghost', { type: 'button', 'aria-label': `Delete ${p.name}` }, 'Delete');
+      del.addEventListener('click', async () => {
+        // A preset cannot be brought back: asked first, as for a saved color look.
+        if (!(await confirmDialog({ title: 'Delete preset?', message: `${p.name} will be deleted. Clips it was applied to keep their look.`, confirm: 'Delete', danger: true }))) return;
+        const at = [...list.children].indexOf(del.closest('.preset-row'));
         deleteClipPreset(p.id);
         render();
+        // Focus goes to the preset that took its place, the one before, or Done.
+        const row = list.children[Math.min(at, list.children.length - 1)];
+        (row?.querySelector('button:last-of-type') || list.closest('dialog')?.querySelector('.dialog-actions .btn'))?.focus();
       });
       const what = ATTRIBUTE_GROUPS.filter((g) => p.groups[g.id]).map((g) => g.label).join(', ');
       return h('div.preset-row', { role: 'listitem' }, h('div.preset-text', h('strong', p.name), h('span.asset-hint', what)), rename, del);

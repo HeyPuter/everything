@@ -406,6 +406,42 @@ describe('proxy manager', () => {
     expect(await proxies.usage()).toMatchObject({ files: 1 });
   });
 
+  it('does not encode again a proxy asked for while the ones on the device are still being listed', async () => {
+    const a = vid('a');
+    const b = vid('b');
+    const current = `proxies/${proxyFileName(a.hash, 'mp4')}`;
+    const { proxies, generate } = managerSetup({ seed: { [current]: new Blob(['p']) } });
+    const listed = proxies.init();
+    // The editor syncs on its first store change, and the user asks for one by hand, before the listing is back.
+    proxies.sync(projectWith(a, b));
+    proxies.create(a);
+    await listed;
+    await flush();
+    expect(proxies.isReady(a)).toBe(true);
+    // The one that is not on the device is made once the listing is in.
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.jobs[0].base.startsWith(b.hash)).toBe(true);
+    expect(proxies.status(b).state).toBe('generating');
+  });
+
+  it('removes the file of a proxy deleted just as its encoding finished', async () => {
+    const { proxies, generate, cache } = managerSetup();
+    await proxies.init();
+    const a = vid('a');
+    proxies.sync(projectWith(a));
+    await flush();
+    const [job] = generate.jobs;
+    // The encoder has put its file in place and is about to answer when the proxy is deleted.
+    const name = `${job.base}.mp4`;
+    cache.files.set(`proxies/${name}`, new Blob(['p']));
+    job.done();
+    const removed = proxies.remove(a);
+    await removed;
+    await flush();
+    expect(proxies.status(a).state).toBe('none');
+    expect([...cache.files.keys()].filter((k) => k.startsWith('proxies/'))).toEqual([]);
+  });
+
   it('keys proxies by content: a replaced file gets its own proxy', async () => {
     const { proxies, generate } = managerSetup();
     await proxies.init();
@@ -441,6 +477,16 @@ describe('proxy manager', () => {
     await flush();
     expect(generate).toHaveBeenCalledTimes(2);
     expect(await proxies.usage()).toEqual({ files: 0, bytes: 0 });
+  });
+
+  it('says so when a proxy file could not be deleted, and still lists it', async () => {
+    const a = vid('a');
+    const current = `proxies/${proxyFileName(a.hash, 'mp4')}`;
+    const { proxies, cache } = managerSetup({ seed: { [current]: new Blob(['p']) } });
+    await proxies.init();
+    cache.remove = async () => { throw new Error('locked'); };
+    await expect(proxies.removeAll()).rejects.toThrow(/could not be deleted/);
+    expect(proxies.isReady(a)).toBe(true);
   });
 
   it('makes a proxy in auto for media the preview found slow', async () => {

@@ -190,3 +190,26 @@ describe('menu item shortcuts', () => {
     expect(tl.querySelector('.menu-shortcut').classList.contains('menu-key')).toBe(false);
   });
 });
+
+describe('menus while the player is full screen', () => {
+  it('open inside the full-screen element, the only thing on show', async () => {
+    const { showMenu, closeMenus } = await import('../src/ui/menu.js');
+    const panel = document.createElement('section');
+    const button = document.createElement('button');
+    panel.append(button);
+    document.body.append(panel);
+    Object.defineProperty(document, 'fullscreenElement', { value: panel, configurable: true });
+    try {
+      showMenu(button, [{ label: 'Zoom to fit', onSelect() {} }]);
+      expect(panel.querySelector('.menu')).toBeTruthy();
+    } finally {
+      closeMenus();
+      delete document.fullscreenElement;
+      panel.remove();
+    }
+    showMenu(document.body, [{ label: 'Zoom to fit', onSelect() {} }]);
+    expect(document.body.querySelector(':scope > .menu')).toBeTruthy();
+    closeMenus();
+  });
+});
+

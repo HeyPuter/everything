@@ -151,11 +151,32 @@ export class Home {
     const trash = await this.library.listTrash();
     if (this.disposed || request !== this.listRequest) return;
     this.projects = projects;
+    const wasLoaded = this.loaded && !this.loadError;
     this.trash = trash;
     this.loaded = true;
     this.loadError = false;
-    this.renderView();
+    if (wasLoaded && this.view === 'home' && this.grid?.isConnected) this.refreshGrid();
+    else this.renderView();
     this.refreshUsage();
+  }
+
+  /**
+   * The project list changed (a rename, a copy, a move to the Trash): only the list and the
+   * counts are drawn again. Rebuilding the whole page took the search box from under the
+   * person typing in it, and left keyboard focus on nothing after every project action.
+   */
+  refreshGrid() {
+    const cards = [...this.grid.children];
+    const card = this.grid.contains(document.activeElement) ? document.activeElement.closest('.project-grid > *') : null;
+    const at = card ? cards.indexOf(card) : -1;
+    const more = at >= 0 && document.activeElement.classList.contains('project-more');
+    this.renderNav();
+    this.renderGrid();
+    if (at < 0 || this.grid.contains(document.activeElement)) return;
+    // The card in the same place (the next project, after one went to the Trash), else the search box.
+    const next = this.grid.children[Math.min(at, this.grid.children.length - 1)];
+    const target = next?.querySelector(more ? '.project-more' : '.project-open') || next?.querySelector('button') || this.content.querySelector('.home-search');
+    target?.focus({ preventScroll: true });
   }
 
   /* Shell ---------------------------------------------------------------------- */
@@ -526,6 +547,8 @@ export class Home {
         const project = await createProjectFromTemplate(this.library, t, { onProgress });
         await this.saveTemplateCover(t, project.id).catch(() => {});
         const slots = Object.values(project.assets).some((a) => a.kind === 'image' && /placeholder/i.test(a.name));
+        // Home was left meanwhile (another project opened): the new project waits in the list.
+        if (this.disposed) return;
         if (slots) toast('Tip: select a placeholder clip and use Replace clip to put in your own media.', { duration: 9000 });
         this.onOpen(project.id);
       },
@@ -564,6 +587,7 @@ export class Home {
     empty.addEventListener('click', () => this.emptyTrash());
     const list = h('div.project-grid.trash-grid', { role: 'list', 'aria-label': 'Projects in the Trash' });
     if (!this.loaded) list.append(h('div.home-loading', { role: 'status' }, h('div.spinner'), 'Loading...'));
+    else if (this.loadError) list.append(h('div.home-empty', { role: 'listitem' }, icon('cloudOff', 28), h('p', "Couldn't load the Trash."), h('button.btn', { type: 'button', onclick: () => this.load() }, 'Try again')));
     else if (!this.trash.length) list.append(h('div.home-empty', { role: 'listitem' }, icon('trash', 28), h('p', 'The Trash is empty.')));
     else list.append(...this.trash.map((p) => this.trashCard(p)));
     return h('section.home-section', { 'aria-labelledby': 'trash-h' },
@@ -625,20 +649,22 @@ export class Home {
     if (!n) return;
     const ok = await confirmDialog({ title: 'Empty the Trash?', message: `${n} project${n === 1 ? '' : 's'} will be deleted permanently. This can't be undone.`, confirm: 'Empty Trash', danger: true });
     if (!ok) return;
+    let emptied = true;
     try {
       await this.library.emptyTrash();
     } catch {
+      emptied = false;
       toast("Couldn't empty the Trash.", { kind: 'error' });
     }
     await this.refreshLists().catch(() => {});
-    announce('Trash emptied');
+    if (emptied) announce('Trash emptied');
   }
 
   /* Project files ------------------------------------------------------------------ */
 
   progress(title, text) {
-    const bar = h('progress.home-progress', { max: 1, value: 0 });
-    const label = h('p.dialog-text', text);
+    const bar = h('progress.home-progress', { max: 1, value: 0, 'aria-label': title });
+    const label = h('p.dialog-text', { role: 'status' }, text);
     const d = openDialog({ title, body: h('div', label, bar), className: 'small', closeOnBackdrop: false });
     return {
       set(done, total, msg) {
@@ -686,6 +712,10 @@ export class Home {
     });
     save.addEventListener('click', async () => {
       save.disabled = true;
+      // Puter's file picker never answers when it is dismissed: the button comes back when
+      // this window has focus again, so the file can still be saved.
+      const back = () => (save.disabled = false);
+      if (puter.ui?.showSaveFilePicker) window.addEventListener('focus', back, { once: true });
       try {
         let item;
         if (puter.ui?.showSaveFilePicker) item = await puter.ui.showSaveFilePicker(blob, fileName);
@@ -698,6 +728,8 @@ export class Home {
       } catch (err) {
         toast(`Could not save to Puter: ${err?.message || err}`, { kind: 'error' });
         save.disabled = false;
+      } finally {
+        window.removeEventListener('focus', back);
       }
     });
   }

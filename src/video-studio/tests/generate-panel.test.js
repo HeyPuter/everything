@@ -50,6 +50,38 @@ describe('picture generation panel', () => {
     expect(document.body.textContent).not.toContain('Late generation error');
   });
 
+  it('imports and adds a generated picture once however often its buttons are clicked', async () => {
+    vi.mocked(generateImage).mockResolvedValue({ blob: new Blob(['image'], { type: 'image/png' }), prompt: 'A forest' });
+    vi.stubGlobal('puter', { ai: {} });
+    const store = new EditorStore(createProject());
+    const actions = {
+      importFiles: vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        const asset = { id: `a${actions.importFiles.mock.calls.length}`, kind: 'image', name: 'forest.png' };
+        store.project.assets[asset.id] = asset;
+        return [asset];
+      }),
+      addAsset: vi.fn(),
+    };
+    const panel = generatePanel({ store, library: { backend: { kind: 'puter' } }, actions });
+    document.body.append(panel.el);
+    try {
+      const text = panel.el.querySelector('textarea');
+      text.value = 'A forest';
+      text.dispatchEvent(new Event('input'));
+      panel.el.querySelector('.tts-actions button').click();
+      await vi.waitFor(() => expect(panel.el.querySelector('.gen-card')).toBeTruthy());
+      const add = panel.el.querySelector('.gen-card .btn.primary');
+      add.click();
+      add.click();
+      panel.el.querySelector('.gen-card .btn:not(.primary)').click();
+      await vi.waitFor(() => expect(actions.addAsset).toHaveBeenCalled());
+      await new Promise((r) => setTimeout(r, 15));
+      expect(actions.importFiles).toHaveBeenCalledTimes(1);
+      expect(actions.addAsset).toHaveBeenCalledTimes(1);
+    } finally { panel.dispose(); }
+  });
+
   it.each([{ isComposing: true }, { keyCode: 229 }])('does not generate while a prompt is being composed (%j)', async (composition) => {
     vi.mocked(generateImage).mockResolvedValue({ blob: new Blob(['image'], { type: 'image/png' }), prompt: 'A forest' });
     const { panel, text } = setup();

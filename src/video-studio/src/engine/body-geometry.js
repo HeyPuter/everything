@@ -242,7 +242,10 @@ function personOffset(m, p) {
     if (m.slim) {
       // The whole body (arms at the sides too) narrows; the head does not.
       const hw = f.sw * 0.8;
-      const along = smoothstep(-0.08 * f.torso, 0.2 * f.torso, v) * fade(f.legEnd + 0.1 * f.torso, f.legEnd + 0.4 * f.torso, v);
+      // With the ankles out of frame the legs have no end (Infinity), and nothing tapers off:
+      // fading between two infinities gave NaN for every point of the frame.
+      const tail = Number.isFinite(f.legEnd) ? fade(f.legEnd + 0.1 * f.torso, f.legEnd + 0.4 * f.torso, v) : 1;
+      const along = smoothstep(-0.08 * f.torso, 0.2 * f.torso, v) * tail;
       const k = a * m.slim * along * fade(hw, 2 * hw, abs);
       dx += f.ux[0] * k;
       dy += f.ux[1] * k;

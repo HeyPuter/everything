@@ -13,6 +13,7 @@ import { FULL_VS, QUAD_VS, PLACE_FS, effectShader } from './shaders.js';
 import { effectIsOff, effectUniforms } from '../model/effect-params.js';
 import { isBodyEffect } from '../model/body-effects.js';
 import { bindPersonMatte, MATTE_UNIT } from './cutout.js';
+import { drawClipCanvas } from './layer-extras.js';
 
 const failed = new Set();
 
@@ -133,6 +134,38 @@ function personFor(comp, layer, info) {
 const bucket = (s) => 2 ** (Math.ceil(Math.log2(Math.max(1e-3, s)) * 2) / 2);
 
 /**
+ * The layer's extras for drawing it untransformed in its own buffer: motion
+ * blur samples (places on the frame) become places relative to the layer, so
+ * the transform is applied once, when the buffer is placed.
+ */
+function innerExtras(layer, W, H, natW, natH) {
+  if (!layer.extras) return layer.extras;
+  // The canvas fill is behind the clip, on the frame (drawLayerWithEffects draws it there).
+  const { canvas, ...ex } = layer.extras;
+  void canvas;
+  if (!Object.keys(ex).length) return null;
+  if (!ex.motion) return ex;
+  const a = (-layer.rotation * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const lsx = layer.sx ?? 1;
+  const lsy = layer.sy ?? 1;
+  const motion = ex.motion.map((m) => {
+    const dx = (m.x - layer.x) * W;
+    const dy = (m.y - layer.y) * H;
+    return {
+      x: (dx * cos - dy * sin) / (layer.scale * lsx) / natW,
+      y: (dx * sin + dy * cos) / (layer.scale * lsy) / natH,
+      scale: m.scale / layer.scale,
+      rotation: m.rotation - layer.rotation,
+      sx: (m.sx ?? 1) / lsx,
+      sy: (m.sy ?? 1) / lsy,
+    };
+  });
+  return { ...ex, motion };
+}
+
+/**
  * Draw a visual layer that carries layer.effects into the target bound by
  * the caller (blending premultiplied over it). Falls back to a plain draw
  * when the layer has no effects.
@@ -145,8 +178,12 @@ export function drawLayerWithEffects(comp, layer, time) {
   const box = comp.layerBox(layer, info);
   const scale = Math.abs(layer.scale);
   if (!(scale > 1e-4) || !(box.w > 0) || !(box.h > 0)) return false;
-  const natW = box.w / scale;
-  const natH = box.h / scale;
+  // The clip's own size, before its scale and its separate width and height scales: those
+  // are applied once, when the buffer is placed (step 3).
+  const ax = Math.abs(layer.sx ?? 1) || 1;
+  const ay = Math.abs(layer.sy ?? 1) || 1;
+  const natW = box.w / (scale * ax);
+  const natH = box.h / (scale * ay);
   // Buffer size: the clip's size on screen (in output pixels), bucketed and capped.
   const k = comp.width / comp.projW;
   let sz = bucket(scale) * k;
@@ -158,6 +195,10 @@ export function drawLayerWithEffects(comp, layer, time) {
   const back = comp.bound ?? null;
   let cur = poolTarget(comp, 'a', w, h);
   let other = poolTarget(comp, 'b', w, h);
+
+  // The clip's canvas fills the frame behind it. Drawn inside the clip's buffer it covered
+  // only the clip, moved and turned with it, and took its effects.
+  if (layer.extras?.canvas) drawClipCanvas(comp, layer, layer.extras.canvas, time, back);
 
   // 1. The clip's own pixels (crop, color, mask, chroma key), untransformed.
   comp._into(cur);
@@ -172,7 +213,7 @@ export function drawLayerWithEffects(comp, layer, time) {
   comp.resolve = () => info;
   let ok;
   try {
-    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, blur: 0 }, time);
+    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, sx: 1, sy: 1, rotation: 0, opacity: 1, blur: 0, extras: innerExtras(layer, saved.projW, saved.projH, natW, natH) }, time);
   } finally {
     comp.projW = saved.projW;
     comp.projH = saved.projH;

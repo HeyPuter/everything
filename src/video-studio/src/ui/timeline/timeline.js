@@ -207,7 +207,9 @@ export function createTimeline(ctx) {
       if (anchorPx < 0 || anchorPx > vw) anchorPx = vw / 2;
     }
     setPref('zoom', pps);
-    render(true);
+    // Not a rebuild: every clip, cut and keyframe is placed again by an ordinary render. Zooming
+    // by wheel or pinch comes many times a second, and replacing every lane each time made it drag.
+    render();
     scroller.scrollLeft = Math.max(0, PAD + (anchorT / US) * pps - anchorPx);
     syncZoomSlider();
   }
@@ -268,11 +270,15 @@ export function createTimeline(ctx) {
     if (sig === headerSig) return;
     headerSig = sig;
     const names = trackNames();
+    // The headers are rebuilt whole: a button that had keyboard focus (Lock was just pressed)
+    // gets it back on its new self, or the next key would land on the page.
+    const had = headers.contains(document.activeElement) ? document.activeElement.closest('button[data-act]') : null;
+    const refocus = had ? { track: had.closest('[data-track]')?.dataset.track, act: had.dataset.act } : null;
     headers.replaceChildren(...rows.map(({ track, y, h: hgt }, i) => {
       const name = names[i];
       track._label = name;
       const btn = (prop, on, off, labelOn, labelOff) => {
-        const b = h('button.icon-btn.small', { type: 'button', 'aria-pressed': String(Boolean(track[prop])), 'aria-label': `${track[prop] ? labelOff : labelOn} ${name}`, 'data-tip': track[prop] ? labelOff : labelOn }, icon(track[prop] ? on : off, 14));
+        const b = h('button.icon-btn.small', { type: 'button', 'data-act': prop, 'aria-pressed': String(Boolean(track[prop])), 'aria-label': `${track[prop] ? labelOff : labelOn} ${name}`, 'data-tip': track[prop] ? labelOff : labelOn }, icon(track[prop] ? on : off, 14));
         b.addEventListener('click', () => actions.toggleTrack(track.id, prop));
         return b;
       };
@@ -280,14 +286,14 @@ export function createTimeline(ctx) {
       if (track.kind !== 'audio') controls.push(btn('hidden', 'eyeOff', 'eye', 'Hide', 'Show'));
       if (track.kind === 'audio' || track.kind === 'video') controls.push(btn('muted', 'mute', 'volume', 'Mute', 'Unmute'));
       if (track.solo || (anySolo && (track.kind === 'audio' || track.kind === 'video'))) {
-        const solo = h('button.icon-btn.small.solo-btn', { type: 'button', 'aria-pressed': String(Boolean(track.solo)), 'aria-label': `${track.solo ? 'Unsolo' : 'Solo'} ${name}`, 'data-tip': track.solo ? 'Unsolo' : 'Solo' }, icon('solo', 14));
+        const solo = h('button.icon-btn.small.solo-btn', { type: 'button', 'data-act': 'solo', 'aria-pressed': String(Boolean(track.solo)), 'aria-label': `${track.solo ? 'Unsolo' : 'Solo'} ${name}`, 'data-tip': track.solo ? 'Unsolo' : 'Solo' }, icon('solo', 14));
         solo.addEventListener('click', () => actions.toggleSolo(track.id));
         controls.push(solo);
       }
-      const more = h('button.icon-btn.small.tl-header-more', { type: 'button', 'aria-label': `${name} options`, 'aria-haspopup': 'menu', 'data-tip': 'Track options' }, icon('more', 14));
+      const more = h('button.icon-btn.small.tl-header-more', { type: 'button', 'data-act': 'more', 'aria-label': `${name} options`, 'aria-haspopup': 'menu', 'data-tip': 'Track options' }, icon('more', 14));
       more.addEventListener('click', () => trackMenu(more, track));
       controls.push(more);
-      const head = h(`div.tl-header${track.main ? '.main' : ''}${track.solo ? '.solo' : ''}`, { style: { top: `${y}px`, height: `${hgt}px` }, role: 'group', 'aria-label': name },
+      const head = h(`div.tl-header${track.main ? '.main' : ''}${track.solo ? '.solo' : ''}`, { style: { top: `${y}px`, height: `${hgt}px` }, role: 'group', 'aria-label': name, 'data-track': track.id },
         h('span.tl-header-icon', { 'data-tip': name }, icon(TRACK_ICON[track.kind], 14)),
         hgt >= 40 || track.name ? h('span.tl-header-name', { title: name }, name) : null,
         h('div.tl-header-btns', controls),
@@ -313,6 +319,10 @@ export function createTimeline(ctx) {
       }
       return head;
     }));
+    if (refocus?.track) {
+      const head = [...headers.children].find((x) => x.dataset.track === refocus.track);
+      (head?.querySelector(`button[data-act="${refocus.act}"]`) || head?.querySelector('button'))?.focus({ preventScroll: true });
+    }
   }
 
   function trackMenu(anchor, track) {
@@ -1036,14 +1046,16 @@ export function createTimeline(ctx) {
     tracksEl.addEventListener('pointercancel', up);
   }
 
-  function startMove(e, id, p0) {
+  function startMove(e, id, p0, { withGroup = false } = {}) {
     const { clip, track } = T.findClip(store.project, id);
     const kind = track.kind;
+    // A finger picks one clip (the phone's clip tools are for one), but a group still moves as one.
+    const group = withGroup ? new Set(T.groupMembers(store.project, id)) : null;
     // Where each moving clip starts, found in one pass (selections can hold thousands of clips).
     const starts = new Map();
     for (const t of store.project.tracks) {
       if (t.locked) continue;
-      for (const c of t.clips) if (store.selection.has(c.id) || c.id === id) starts.set(c.id, c.start);
+      for (const c of t.clips) if (store.selection.has(c.id) || c.id === id || group?.has(c.id)) starts.set(c.id, c.start);
     }
     const moving = [...starts.keys()];
     const exclude = new Set(moving);
@@ -1271,7 +1283,7 @@ export function createTimeline(ctx) {
         if (!store.selection.has(id)) store.select(id);
         navigator.vibrate?.(8);
         holdTouch(pointerId);
-        startMove(e, id, p);
+        startMove(e, id, p, { withGroup: true });
       },
     });
     press = lp;
@@ -1393,12 +1405,14 @@ export function createTimeline(ctx) {
     player.pause();
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
+    // Gathered once for the drag (on first use), not on every move: they do not change while scrubbing.
+    let pts = null;
     const at = (ev) => {
       const r = content.getBoundingClientRect();
       let t = xToTime(ev.clientX - r.left);
       // Alt flips snapping, as when dragging clips, trims and markers.
       if (store.toggles.snap !== ev.altKey) {
-        const pts = T.snapPoints(store.project, {});
+        pts ||= T.snapPoints(store.project, {});
         const s = T.snap(t, pts, snapThreshold());
         if (s.snapped) t = s.time;
       }

@@ -588,15 +588,19 @@ function basicPanel(view) {
       const style = structuredClone(view.clip.style);
       let n = 0;
       view.store.update('Apply caption style', (p) => {
-        for (const x of allClips(p)) {
-          if (x.type === 'text' && x.caption && x.id !== view.id) {
-            x.style = structuredClone(style);
-            n++;
+        // Captions on locked tracks keep their style, as with every other edit.
+        for (const t of p.tracks) {
+          if (t.locked) continue;
+          for (const x of t.clips) {
+            if (x.type === 'text' && x.caption && x.id !== view.id) {
+              x.style = structuredClone(style);
+              n++;
+            }
           }
         }
         return n > 0;
       }, { structural: false });
-      announce(n ? `Style applied to ${n} captions` : 'No other captions');
+      announce(n ? `Style applied to ${n} caption${n === 1 ? '' : 's'}` : 'No other captions to style');
     });
     captionAll = b;
   }

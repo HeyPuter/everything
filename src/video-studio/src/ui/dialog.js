@@ -2,7 +2,7 @@
  * Modal dialogs on top of <dialog> (native focus trapping, Escape, inert
  * background), plus confirm/prompt helpers and toasts.
  */
-import { h, announce } from '../lib/dom.js';
+import { h, announce, topLayerHost } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 
 let dialogCount = 0;
@@ -26,16 +26,32 @@ export function openDialog({ title, body, actions = [], className = '', onClose,
   const result = new Promise((r) => (resolve = r));
   const opener = document.activeElement;
   let closed = false;
-  const close = (value) => {
-    if (closed) return;
-    if (beforeClose?.(value) === false) return;
+  const finish = (value) => {
     closed = true;
-    el.close();
+    if (el.open) el.close();
+    // Messages shown in this dialog stay on screen after it: they move to what is on top now.
+    if (toastHost && el.contains(toastHost)) topLayerHost().append(toastHost);
     el.remove();
     onClose?.(value);
     resolve(value);
     if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
   };
+  const close = (value) => {
+    if (closed) return;
+    if (beforeClose?.(value) === false) return;
+    finish(value);
+  };
+  // The browser can close a dialog on its own: Escape pressed twice in a row is not ours to
+  // refuse. A dialog that may not close yet (a take is being saved) opens again; any other
+  // is closed properly, so its cleanup runs and whoever waits for it hears.
+  el.addEventListener('close', () => {
+    if (closed) return;
+    if (beforeClose?.(undefined) === false) {
+      if (el.isConnected) el.showModal();
+      return;
+    }
+    finish(undefined);
+  });
   closeBtn.addEventListener('click', () => close(undefined));
   el.addEventListener('cancel', (e) => {
     e.preventDefault();
@@ -50,6 +66,24 @@ export function openDialog({ title, body, actions = [], className = '', onClose,
   const first = content.querySelector('[autofocus], input:not([type=hidden]), select, textarea') || footer?.querySelector('.btn.primary') || closeBtn;
   first?.focus();
   return { el, close, result };
+}
+
+/**
+ * Wrap a dialog opener that has to load something first (a frame, a model):
+ * a second click or key press while it loads does not open a second dialog,
+ * and the pointer shows that something is on its way.
+ */
+export function oneAtATime(open) {
+  let running = null;
+  return (...args) => {
+    if (running) return running;
+    document.documentElement.classList.add('opening-dialog');
+    running = (async () => open(...args))().finally(() => {
+      running = null;
+      document.documentElement.classList.remove('opening-dialog');
+    });
+    return running;
+  };
 }
 
 export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false }) {
@@ -93,10 +127,11 @@ export function promptDialog({ title, label, value = '', confirm = 'Save', maxLe
 let toastHost = null;
 
 export function toast(message, { kind = 'info', action, duration = kind === 'error' ? 8000 : 3800 } = {}) {
-  if (!toastHost?.isConnected) {
-    toastHost ||= h('div.toasts', { role: 'region', 'aria-label': 'Notifications' });
-    document.body.append(toastHost);
-  }
+  // Shown in the open modal dialog (or the full-screen player) when there is one: outside it
+  // a message is under the backdrop, cannot be clicked and is not read out.
+  const host = topLayerHost();
+  toastHost ||= h('div.toasts', { role: 'region', 'aria-label': 'Notifications' });
+  if (toastHost.parentElement !== host) host.append(toastHost);
   const iconName = kind === 'error' ? 'alert' : kind === 'success' ? 'check' : 'info';
   const btn = action ? h('button.toast-action', { type: 'button' }, action.label) : null;
   const t = h(`div.toast.${kind}`, { role: kind === 'error' ? 'alert' : 'status' }, icon(iconName, 16), h('span.toast-text', message), btn);
@@ -166,7 +201,8 @@ export function installTooltips() {
     const kbd = (cmd && tipShortcut?.(cmd)) || el.getAttribute('data-tip-key');
     tip = h('div.tooltip', { role: 'tooltip' }, text, kbd ? h('span.tooltip-key', kbd) : null);
     // A modal dialog is in the top layer, above anything in the page: put the tooltip in it.
-    (el.closest('dialog[open]') || document.body).append(tip);
+    // Likewise in full screen, where only the full-screen element is shown.
+    (el.closest('dialog[open]') || document.fullscreenElement || document.body).append(tip);
     const r = el.getBoundingClientRect();
     const t = tip.getBoundingClientRect();
     let x = r.left + r.width / 2 - t.width / 2;

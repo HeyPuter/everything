@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { normalizeMulticam, angleAt, segments, activeRanges, switchAngle, removeCut, moveCut, setAudioSource, angleTracks, angleName, visibleCuts, isMulticam } from '../src/model/multicam.js';
 import { createMulticam, flattenMulticam } from '../src/model/multicam-edit.js';
 import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, pasteClips } from '../src/model/timeline.js';
-import { normalizeProject } from '../src/model/project.js';
+import { normalizeProject, createProject, normalizeAsset, makeClip } from '../src/model/project.js';
+import { EditorStore } from '../src/model/store.js';
+import { deleteClips } from '../src/model/timeline.js';
 import { evaluate, audibleClips, showsAt } from '../src/engine/scene.js';
 import { expandProject } from '../src/engine/compound.js';
 import { sliceProject } from '../src/model/slice.js';
@@ -285,3 +287,40 @@ describe('rendering multi-camera clips', () => {
     expect(shown(p, 3.5)).toEqual(['silent']);
   });
 });
+
+describe('editing inside a multi-camera clip', () => {
+  it('keeps cuts and the sound source on their angles when an angle is deleted inside', () => {
+    const p = createProject();
+    for (const id of ['camA', 'camB', 'camC']) p.assets[id] = normalizeAsset({ id, kind: 'video', name: id, duration: s(20), hasAudio: true });
+    const store = new EditorStore(p, { toggles: { ripple: false } });
+    const ids = [];
+    store.update('Add', (pr) => {
+      for (const [i, id] of ['camA', 'camB', 'camC'].entries()) ids.push(addClip(pr, makeClip('video', { assetId: id, start: 0, duration: s(10) }), { main: i === 0 }).clip.id);
+    });
+    let made;
+    store.update('Multicam', (pr) => { made = createMulticam(pr, ids, store.opts); });
+    const live = () => findClip(store.project, made.id).clip;
+    store.update('Cuts', (pr) => {
+      const c = findClip(pr, made.id).clip;
+      c.multicam = switchAngle(c.multicam, s(3), 2, 3, s(10));
+      c.multicam = switchAngle(c.multicam, s(6), 1, 3, s(10));
+      c.multicam = setAudioSource(c.multicam, 2, 3);
+    });
+    const names = () => angleTracks(live()).map((t) => t.name);
+    const shown = () => live().multicam.cuts.map((k) => [k.t / 1e6, names()[k.angle]]);
+    expect(shown()).toEqual([[0, 'camA'], [3, 'camC'], [6, 'camB']]);
+
+    store.openCompound(made.id);
+    const gone = store.project.tracks.find((t) => t.angle && t.name === 'camB').clips[0];
+    store.update('Delete', (pr) => deleteClips(pr, [gone.id], store.opts));
+    store.closeCompound();
+
+    expect(names()).toEqual(['camA', 'camC']);
+    expect(shown()).toEqual([[0, 'camA'], [3, 'camC']]);
+    expect(names()[live().multicam.audio]).toBe('camC');
+    // The saved project says the same.
+    const back = findClip(normalizeProject(JSON.parse(JSON.stringify(store.projectForSave()))), made.id).clip;
+    expect(back.multicam).toEqual(live().multicam);
+  });
+});
+

@@ -49,6 +49,40 @@ describe('shortcuts while typing', () => {
     expect(document.activeElement).not.toBe(input);
   });
 
+  it('opens the color picker with Space on a color swatch instead of playing', () => {
+    const toggle = vi.spyOn(editor.ctx.player, 'toggle').mockImplementation(() => {});
+    const swatch = Object.assign(document.createElement('input'), { type: 'color' });
+    root.querySelector('.inspector, .workspace').append(swatch);
+    swatch.focus();
+    expect(press(swatch, { key: ' ', code: 'Space' }).defaultPrevented).toBe(false);
+    expect(toggle).not.toHaveBeenCalled();
+  });
+
+  it('leaves Copy and Cut to the browser while text of an assistant reply is selected', () => {
+    const log = document.createElement('div');
+    log.className = 'ai-log';
+    log.textContent = 'Trim the first clip to four seconds.';
+    root.append(log);
+    const [c] = editor.ctx.store.project.tracks.flatMap((t) => t.clips);
+    editor.ctx.store.select(c.id);
+    const copy = vi.spyOn(editor.ctx.actions, 'copy');
+    const cut = vi.spyOn(editor.ctx.actions, 'cut');
+    const range = document.createRange();
+    range.selectNodeContents(log);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    document.activeElement?.blur?.();
+    expect(press(document.body, mod('c')).defaultPrevented).toBe(false);
+    expect(press(document.body, mod('x')).defaultPrevented).toBe(false);
+    expect(copy).not.toHaveBeenCalled();
+    expect(cut).not.toHaveBeenCalled();
+    expect(editor.ctx.store.project.tracks.flatMap((t) => t.clips)).toHaveLength(1);
+    // Without selected text the clip commands work as before.
+    getSelection().removeAllRanges();
+    expect(press(document.body, mod('c')).defaultPrevented).toBe(true);
+    expect(copy).toHaveBeenCalledTimes(1);
+  });
+
   it('saves with Mod+S in a text field instead of letting the browser save the page', () => {
     const save = vi.spyOn(editor.ctx.commands.get('save'), 'run');
     const input = Object.assign(document.createElement('input'), { type: 'text' });

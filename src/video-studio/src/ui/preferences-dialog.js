@@ -5,7 +5,7 @@
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US } from '../lib/time.js';
-import { openDialog, confirmDialog } from './dialog.js';
+import { openDialog, confirmDialog, toast } from './dialog.js';
 import { formatBytes } from '../model/bins.js';
 import { prefs, setPref, getTheme, setTheme } from './prefs.js';
 
@@ -92,8 +92,12 @@ function proxyStorageRow(proxies) {
     const ok = await confirmDialog({ title: 'Delete all proxies?', message: 'The preview plays the original files until proxies are made again. Your media and projects are not changed.', confirm: 'Delete', danger: true });
     if (!ok) return;
     del.disabled = true;
-    const n = await proxies.removeAll();
-    announce(n ? 'All proxies deleted' : 'No proxies to delete');
+    try {
+      const n = await proxies.removeAll();
+      announce(n ? 'All proxies deleted' : 'No proxies to delete');
+    } catch (err) {
+      toast(err?.message || "Couldn't delete the proxies.", { kind: 'error' });
+    }
     refresh();
   });
   refresh();

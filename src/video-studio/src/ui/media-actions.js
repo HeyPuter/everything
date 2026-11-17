@@ -104,8 +104,11 @@ export function createMediaActions(ctx) {
     if (!media?.missing) return;
     const next = new Set(list.map((x) => x.hash));
     if (next.size === media.missing.size && [...next].every((x) => media.missing.has(x))) return;
+    const found = [...media.missing].filter((hash) => !next.has(hash));
     media.missing = next;
     media.emit?.('missing');
+    // A file that is back gets its thumbnails, poster and waveform read again.
+    for (const hash of found) media.forget?.(hash);
   };
   const a = {
     async removeUnusedMedia() {

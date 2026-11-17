@@ -14,6 +14,9 @@ export function extractedName(name) {
   return `${base.slice(0, 100)} audio.wav`;
 }
 
+/** Gaps in decoded sound shorter than this (seconds) are rounding between chunks, not silence. */
+const GAP_MIN = 0.005;
+
 /**
  * Decode the source range the clip plays and encode it as 16-bit WAV.
  * Returns { file, seconds } or null when there is no sound. The range is
@@ -64,6 +67,14 @@ export async function extractClipAudio(open, asset, clip, { name, signal, onProg
       const a = Math.max(0, Math.round((from - t0) * chunk.sampleRate));
       const b = Math.min(n, Math.round((to - t0) * chunk.sampleRate));
       if (b > a) {
+        // Sound that starts late or has a hole keeps its place: the gap is written as silence
+        // (leaving it out moved everything after it earlier, out of step with the picture).
+        const gap = Math.round((t0 + a / chunk.sampleRate - from) * chunk.sampleRate) - frames;
+        if (gap > chunk.sampleRate * GAP_MIN) {
+          const quiet = Array.from({ length: numCh }, () => new Float32Array(Math.min(gap, chunk.sampleRate)));
+          for (let left = gap; left > 0; left -= quiet[0].length) write(quiet, 0, Math.min(left, quiet[0].length));
+          frames += gap;
+        }
         write(chunk.channels, a, b);
         frames += b - a;
       }

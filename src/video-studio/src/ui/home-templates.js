@@ -151,21 +151,31 @@ export function openTemplateDialog(tpl, { onUse, actionLabel = 'Use template', b
         slots ? h('li', icon('image', 14), `${slots} placeholder${slots === 1 ? '' : 's'} to replace with your own media`) : null,
         h('li', icon('pencil', 14), 'Everything stays editable on the timeline')),
       status));
-  const d = openDialog({ title: tpl.name, body, actions: [cancel, use], className: 'tpl-dialog-wrap', wide: true, onClose: () => p.stop({ poster: false }) });
+  // While the template is being made the dialog stays: closing it (Escape, the X, a click
+  // outside) did not stop the work, and the project then opened, or the clips landed, unasked.
+  let busy = false;
+  const d = openDialog({ title: tpl.name, body, actions: [cancel, use], className: 'tpl-dialog-wrap', wide: true, beforeClose: () => !busy, onClose: () => p.stop({ poster: false }) });
+  const closeBtn = d.el.querySelector('.dialog-close');
   cancel.addEventListener('click', () => d.close());
   use.addEventListener('click', async () => {
+    if (busy) return;
+    busy = true;
     use.disabled = true;
     cancel.disabled = true;
+    if (closeBtn) closeBtn.disabled = true;
     status.textContent = `${busyLabel}...`;
     try {
       await onUse(tpl, { onProgress: ({ done, total }) => (status.textContent = `${busyLabel}... ${Math.round((done / Math.max(1, total)) * 100)}%`) });
+      busy = false;
       d.close();
     } catch (err) {
       console.error(err);
+      busy = false;
       status.textContent = '';
       toast(err?.message || "Couldn't create the project.", { kind: 'error' });
       use.disabled = false;
       cancel.disabled = false;
+      if (closeBtn) closeBtn.disabled = false;
     }
   });
   return d;

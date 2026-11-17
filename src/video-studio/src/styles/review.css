@@ -7,6 +7,8 @@
   flex-direction: column;
   background: var(--bg-app);
   color: var(--text);
+  /* The page reaches under a notch or the home indicator (viewport-fit=cover): keep clear of them. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 .rv-header {
@@ -632,7 +634,9 @@
 .rv-share-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
   width: 100%;
 }
 
@@ -802,14 +806,22 @@
 
 /* Phones and narrow windows ----------------------------------------------------- */
 @media (max-width: 760px) {
+  /* The page itself scrolls (nothing above it does): the video stays in view, the comments run on below. */
   .rv-page {
-    height: auto;
-    min-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .rv-header {
+    flex: none;
   }
 
   .rv-body {
     display: flex;
     flex-direction: column;
+    flex: none;
+    min-height: auto;
   }
 
   .rv-stage {

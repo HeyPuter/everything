@@ -773,6 +773,23 @@
   transform: rotate(45deg);
   cursor: ew-resize;
   padding: 0;
+  /* Dragged along its row, not scrolled with the list. */
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  /* A finger-sized area around the 10px diamond. */
+  .kf-key::before {
+    content: '';
+    position: absolute;
+    inset: -9px;
+  }
+
+  /* Three buttons in a 30px row: the general 40px touch size made them overlap the rows around. */
+  .kf-nav .icon-btn.small {
+    min-width: 28px;
+    min-height: 28px;
+  }
 }
 
 .kf-key[data-ease='hold'] {
@@ -869,6 +886,12 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* The list item around each suggestion's button; the button fills it. */
+.ai-line-item {
+  display: flex;
+  flex-direction: column;
 }
 
 .ai-line {

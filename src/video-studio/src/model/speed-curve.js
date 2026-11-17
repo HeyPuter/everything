@@ -345,6 +345,15 @@ export function sliceCurve(points, a, b) {
     const t = sp.ts[i];
     if (t <= a + eps || t >= b - eps) continue;
     out.push({ t: (t - a) / w, v: points[i].v, k: sp.ms[i] * w });
+    // An end of the original that the slice runs past: the speed is flat from there on, but the
+    // end point keeps the slope it arrived with. A twin point right next to it carries the flat
+    // tangent; without it the slope carried on into the added part and the speed bulged.
+    const g = 1e-6;
+    if (i === sp.n - 1 && b > 1 && sp.ms[i] !== 0) out.push({ t: (t - a) / w + g, v: points[i].v, k: 0 });
+    if (i === 0 && a < 0 && sp.ms[i] !== 0) {
+      const p = out.pop();
+      out.push({ t: p.t - g, v: p.v, k: 0 }, p);
+    }
   }
   const tail = at(b);
   out.push({ t: 1, v: tail.v, k: tail.k * w });

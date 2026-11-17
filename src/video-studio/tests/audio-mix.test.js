@@ -265,3 +265,24 @@ describe('limiting a loud mix', () => {
     expect(10 * Math.log10(products / tones)).toBeLessThan(-40);
   });
 });
+
+describe('surround sound', () => {
+  it('keeps the center and the surrounds when mixed down to two channels', async () => {
+    const { stereoDown } = await import('../src/engine/audio-mix.js');
+    const ch = (v) => new Float32Array(4).fill(v);
+    const stereo = [ch(0.1), ch(0.2)];
+    expect(stereoDown(stereo)).toBe(stereo);
+    // 5.1: speech only in the center used to vanish.
+    const [L, R] = stereoDown([ch(0), ch(0), ch(0.5), ch(0.9), ch(0), ch(0)]);
+    expect(L[0]).toBeCloseTo(0.5 * Math.SQRT1_2);
+    expect(R[0]).toBeCloseTo(0.5 * Math.SQRT1_2);
+    const [l2, r2] = stereoDown([ch(0.1), ch(0.2), ch(0), ch(0), ch(0.4), ch(0.6)]);
+    expect(l2[0]).toBeCloseTo(0.1 + 0.4 * Math.SQRT1_2);
+    expect(r2[0]).toBeCloseTo(0.2 + 0.6 * Math.SQRT1_2);
+    // Quad: front and back of each side averaged.
+    const [l4, r4] = stereoDown([ch(0.2), ch(0.4), ch(0.6), ch(0.8)]);
+    expect(l4[0]).toBeCloseTo(0.4);
+    expect(r4[0]).toBeCloseTo(0.6);
+  });
+});
+

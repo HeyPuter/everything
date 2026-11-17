@@ -51,7 +51,7 @@ export function transitionView(view) {
   applyAll.addEventListener('click', () => {
     const c = view.clip;
     if (!c?.transition) return;
-    actions.applyTransitionToAll(c.transition.id, c.transition.duration);
+    if (actions.applyTransitionToAll(c.transition.id, c.transition.duration) === false) return;
     announce(`${transitionLabel(c.transition.id)} applied to every cut on the base track`);
   });
   const remove = h('button.btn.small', { type: 'button' }, icon('trash', 14), 'Remove');

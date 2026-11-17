@@ -6,6 +6,10 @@
 import { Emitter } from '../lib/emitter.js';
 
 const THUMB_H = 96;
+/** Thumbnails kept per video (about 65 KB each at this height). */
+const THUMBS_KEPT = 600;
+/** Times a file that could not be read is tried again on its own. */
+const READ_RETRIES = 4;
 
 export class MediaService extends Emitter {
   constructor(library) {
@@ -23,6 +27,7 @@ export class MediaService extends Emitter {
     this.busy = 0;
     this.proxies = null; // ProxyManager: thumbnails decode a ready proxy, which is faster
     this.missing = new Set(); // hashes of media whose file is not in storage ('missing' event when it changes)
+    this.readFailures = new Map(); // hash -> reads that failed in a row
   }
 
   /** File to decode pictures from: the proxy when one is ready, else the original. */
@@ -31,7 +36,33 @@ export class MediaService extends Emitter {
       const b = await this.proxies.blob(asset).catch(() => null);
       if (b) return b;
     }
-    return this.library.mediaBlob(asset);
+    return this._mediaBlob(asset);
+  }
+
+  /** The asset's file. A failed read is marked, to tell it from a file that cannot be decoded. */
+  async _mediaBlob(asset) {
+    try {
+      const blob = await this.library.mediaBlob(asset);
+      this.readFailures.delete(asset.hash);
+      return blob;
+    } catch (err) {
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), { readFailed: asset.hash });
+    }
+  }
+
+  /**
+   * Drop what is remembered about a file that gave nothing (blank thumbnails, no poster, an
+   * empty waveform), so it is read again: its file was found again or put back.
+   */
+  forget(hash) {
+    if (this.disposed) return;
+    this.readFailures.delete(hash);
+    const strip = this.strips.get(hash);
+    if (strip) for (const [key, v] of strip) if (v === 'pending') strip.delete(key);
+    if (this.posters.get(hash)?.value === null) this.posters.delete(hash);
+    const peaks = this.peakCache.get(hash);
+    if (peaks?.settled && !peaks.value?.data?.length) this.peakCache.delete(hash);
+    for (const type of ['thumb', 'poster', 'peaks']) this.emit(type, { hash });
   }
 
   _worker() {
@@ -84,13 +115,38 @@ export class MediaService extends Emitter {
 
   /** Retry only a worker failure, with backoff; unsupported media stays cached as unavailable. */
   _retryWorkerFailure(error, retry) {
-    if (!error?.workerFailed || this.disposed) return;
-    const delay = Math.min(60_000, 2000 * 2 ** Math.min(5, Math.max(0, this.workerFailures - 1)));
+    if (this.disposed) return;
+    let delay;
+    if (error?.readFailed) {
+      // The file could not be read (offline, a storage hiccup): tried again a few times, further
+      // apart each time. A file that is not in storage at all waits to be found (forget()).
+      const hash = error.readFailed;
+      const tries = (this.readFailures.get(hash) || 0) + 1;
+      if (this.missing.has(hash) || tries > READ_RETRIES) return;
+      this.readFailures.set(hash, tries);
+      delay = Math.min(60_000, 3000 * 2 ** (tries - 1));
+    } else if (error?.workerFailed) delay = Math.min(60_000, 2000 * 2 ** Math.min(5, Math.max(0, this.workerFailures - 1)));
+    else return;
     const timer = setTimeout(() => {
       this.retryTimers.delete(timer);
       if (!this.disposed) retry();
     }, delay);
     this.retryTimers.add(timer);
+  }
+
+  /**
+   * Keep a video's thumbnails to a bounded number: scrolling a long clip at a close zoom made
+   * thousands (each zoom level its own set), none let go until the editor closed. The ones
+   * drawn longest ago go first; one that is needed again is made again.
+   */
+  _trimStrip(strip) {
+    if (strip.size <= THUMBS_KEPT) return;
+    for (const [key, bitmap] of strip) {
+      if (strip.size <= THUMBS_KEPT) break;
+      if (bitmap === 'pending') continue;
+      bitmap.close?.();
+      strip.delete(key);
+    }
   }
 
   /** Quantization step (seconds) for a timeline zoom in px per second. */
@@ -116,7 +172,12 @@ export class MediaService extends Emitter {
     const q = Math.max(0, Math.round(sec / step) * step);
     const key = q.toFixed(3);
     const have = strip.get(key);
-    if (have && have !== 'pending') return have;
+    if (have && have !== 'pending') {
+      // Used again: last in line to be let go (see _trimStrip).
+      strip.delete(key);
+      strip.set(key, have);
+      return have;
+    }
     if (!have) {
       strip.set(key, 'pending');
       this._enqueue(asset, q, key);
@@ -159,6 +220,7 @@ export class MediaService extends Emitter {
       const strip = this.strips.get(job.asset.hash);
       await this._call({ op: 'thumbs', blob, times: items.map((i) => i.sec), height: THUMB_H }, ({ index, bitmap }) => {
         strip.set(items[index].key, bitmap);
+        this._trimStrip(strip);
         this.emit('thumb', { hash: job.asset.hash });
       });
     } catch (error) {
@@ -183,7 +245,7 @@ export class MediaService extends Emitter {
     if (!entry) {
       entry = { value: null, promise: null };
       entry.promise = (async () => {
-        const blob = asset.kind === 'video' ? await this._pictureBlob(asset) : await this.library.mediaBlob(asset);
+        const blob = asset.kind === 'video' ? await this._pictureBlob(asset) : await this._mediaBlob(asset);
         if (this.disposed) return null;
         if (asset.kind === 'image') {
           const bmp = await createImageBitmap(blob, { resizeHeight: 240, resizeQuality: 'medium' });
@@ -227,8 +289,7 @@ export class MediaService extends Emitter {
     if (this.disposed) return Promise.resolve({ rate: 100, data: new Float32Array(0), duration: 0 });
     let p = this.peakCache.get(asset.hash);
     if (!p) {
-      p = this.library
-        .mediaBlob(asset)
+      p = this._mediaBlob(asset)
         .then((blob) => this._call({ op: 'peaks', blob, rate: 100 }))
         .catch((error) => {
           this._retryWorkerFailure(error, () => {

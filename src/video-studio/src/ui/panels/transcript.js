@@ -242,6 +242,15 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     }
     paintSelection();
   });
+  // A drag the browser takes over (a touch that turns into a scroll) is over: without this the
+  // next tap went on with it, and seeked to the word the old drag started on.
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    paintSelection();
+  };
+  body.addEventListener('pointercancel', endDrag);
+  body.addEventListener('lostpointercapture', endDrag);
   body.addEventListener('keydown', (e) => {
     const n = words().length;
     if (!n) return;

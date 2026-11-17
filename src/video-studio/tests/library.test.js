@@ -589,6 +589,38 @@ describe('Library media cache', () => {
   }
   const cached = (cache) => [...cache.files.keys()].filter((k) => k.startsWith('media/')).sort();
 
+  it('reads the stored file when the cached copy is an empty leftover of a write that never finished', async () => {
+    const { lib, cache, onlyA } = await setup();
+    const path = lib.mediaPath(onlyA);
+    cache.files.set(path, new Blob([]));
+    const blob = await lib.mediaBlob(onlyA);
+    expect(blob.size).toBe(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cache.files.get(path).size).toBe(1);
+  });
+
+  it('stores media again when storage only holds an empty file under its name', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend, { cache: null });
+    const meta = { kind: 'image', name: 'p.png', ext: 'png', mime: 'image/png', width: 2, height: 2 };
+    const bytes = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+    const first = await lib.addMediaBlob(meta, bytes);
+    await lib.flushUploads();
+    const path = lib.mediaPath(first);
+    // What a full disk or a closed tab leaves behind.
+    backend.files.set(path, new Blob([]));
+    lib.stored = null;
+    await lib.addMediaBlob(meta, bytes);
+    expect(await lib.flushUploads()).toBe(true);
+    expect(backend.files.get(path).size).toBe(3);
+    // The same content stored whole is not written twice.
+    const writes = backend.writes;
+    lib.stored = null;
+    await lib.addMediaBlob(meta, bytes);
+    await lib.flushUploads();
+    expect(backend.writes).toBe(writes);
+  });
+
   it('drops cached copies of media only a project deleted for good used', async () => {
     const { lib, cache, a, onlyA, shared } = await setup();
     expect(cached(cache)).toEqual([lib.mediaPath(onlyA), lib.mediaPath(shared)].sort());
@@ -912,3 +944,66 @@ describe('AutoSaver', () => {
     expect(backend.writes).toBe(writes);
   });
 });
+
+describe('a move to the Trash that failed halfway', () => {
+  it('shows the project in the Trash once it is opened, so it can be restored', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend, { cache: null });
+    const p = await lib.createProject({ name: 'Trip' });
+    // The project file is written; the list is not.
+    const write = backend.writeJSON;
+    backend.writeJSON = async (path, value) => {
+      if (path === 'index.json') throw new Error('Failed to fetch');
+      return write(path, value);
+    };
+    await expect(lib.trashProject(p.id)).rejects.toThrow();
+    backend.writeJSON = write;
+    expect((await lib.listTrash()).map((x) => x.name)).toEqual([]);
+    const opened = await lib.openForEditing(p.id);
+    expect(opened.project.deletedAt).toBeTruthy();
+    expect(opened.claim).toBeNull();
+    expect((await lib.listTrash()).map((x) => x.name)).toEqual(['Trip']);
+    expect((await lib.listProjects()).map((x) => x.name)).toEqual([]);
+    await lib.restoreProject(p.id);
+    expect((await lib.listProjects()).map((x) => x.name)).toEqual(['Trip']);
+  });
+});
+
+describe('the project list with two tabs open', () => {
+  /** navigator.locks as browsers have it: one holder of a name at a time, across "tabs". */
+  function fakeLocks() {
+    const tails = new Map();
+    return {
+      request(name, options, fn) {
+        const run = (tails.get(name) || Promise.resolve()).then(() => fn());
+        tails.set(name, run.catch(() => {}));
+        return run;
+      },
+    };
+  }
+
+  it('keeps a project one tab adds while another tab saves', async () => {
+    vi.stubGlobal('navigator', { ...globalThis.navigator, locks: fakeLocks() });
+    try {
+      const backend = memoryBackend();
+      const slow = (ms) => new Promise((r) => setTimeout(r, ms));
+      const tick = backend.tick;
+      backend.tick = async () => {
+        await slow(5);
+        return tick();
+      };
+      const home = new Library(backend, { cache: null });
+      const old = await home.createProject({ name: 'Old' });
+      const editor = new Library(backend, { cache: null });
+      const open = await editor.openProject(old.id);
+      open.name = 'Old, edited';
+      // The editor's autosave and Home's new project change the list at the same moment.
+      await Promise.all([editor.saveProject(open), home.createProject({ name: 'New' })]);
+      const names = (await new Library(backend, { cache: null }).listProjects()).map((p) => p.name).sort();
+      expect(names).toEqual(['New', 'Old, edited']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
