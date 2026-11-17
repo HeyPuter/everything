@@ -46,6 +46,41 @@ const abortError = () => new DOMException('Export canceled', 'AbortError');
  * own stream from it, so two clips of one file decode independently.
  * Returns null when the file has no decodable audio.
  */
+/**
+ * Surround sound mixed down to two channels, as browsers do when they play it
+ * (the Web Audio rules): the center, where speech sits, and the surrounds go
+ * to both sides at -3 dB; the bass channel is left out. Everything that reads
+ * sound (the export mix, extracted audio, loudness, captions) keeps to the
+ * first two channels, so without this a 5.1 file lost its dialogue.
+ */
+export function stereoDown(channels) {
+  const n = channels.length;
+  if (n <= 2) return channels;
+  const len = channels[0].length;
+  const L = new Float32Array(len);
+  const R = new Float32Array(len);
+  const g = Math.SQRT1_2;
+  // [left gain, right gain] per channel: quad is L R SL SR; otherwise L R C (LFE) SL SR, then extra pairs.
+  const quad = n === 4;
+  const gains = channels.map((_, c) => {
+    if (c === 0) return [1, 0];
+    if (c === 1) return [0, 1];
+    if (quad) return c === 2 ? [0.5, 0] : [0, 0.5];
+    if (c === 2) return [g, g];
+    if (c === 3 && n >= 6) return [0, 0];
+    const side = (c - (n >= 6 ? 4 : 3)) % 2;
+    return side === 0 ? [g, 0] : [0, g];
+  });
+  if (quad) gains[0] = [0.5, 0], gains[1] = [0, 0.5];
+  for (let c = 0; c < n; c++) {
+    const [gl, gr] = gains[c];
+    const src = channels[c];
+    if (gl) for (let i = 0; i < len; i++) L[i] += src[i] * gl;
+    if (gr) for (let i = 0; i < len; i++) R[i] += src[i] * gr;
+  }
+  return [L, R];
+}
+
 export function mediabunnyOpener(library) {
   return async (asset) => {
     const blob = await library.mediaBlob(asset);
@@ -63,7 +98,7 @@ export function mediabunnyOpener(library) {
           for await (const { buffer, timestamp } of sink.buffers(Math.max(0, startSec))) {
             const channels = [];
             for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
-            yield { timestamp, sampleRate: buffer.sampleRate, channels };
+            yield { timestamp, sampleRate: buffer.sampleRate, channels: stereoDown(channels) };
           }
         },
         close: () => input.dispose(),
