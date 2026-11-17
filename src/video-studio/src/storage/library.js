@@ -28,6 +28,8 @@ const DAY = 24 * 60 * 60 * 1000;
 const UPLOAD_RETRY = [5_000, 15_000, 30_000, 60_000, 120_000];
 /** A listing of the media folder is reused this long (a batch of imports lists it once). */
 const MEDIA_LIST_AGE = 30_000;
+/** How long one tab may hold its turn at changing the project list. */
+const INDEX_TURN = 15_000;
 /** Projects in the Trash are deleted for good after this many days. */
 export const TRASH_DAYS = 30;
 
@@ -102,7 +104,30 @@ export class Library extends Emitter {
     });
   }
 
+  /**
+   * The index is read, changed and written back: another tab doing the same in between
+   * (an editor saving while Home adds a project) would lose one of the two changes, so
+   * tabs take turns. A turn is given up after a while, so a write stuck on a dead
+   * connection in one tab does not hold up saving in the others.
+   */
   async _writeIndex() {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+    if (!locks?.request) return this._writeIndexNow();
+    let work = null;
+    try {
+      await locks.request('video-studio:index', {}, () => {
+        work = this._writeIndexNow();
+        let timer = 0;
+        const turnOver = new Promise((r) => (timer = setTimeout(r, INDEX_TURN)));
+        return Promise.race([work, turnOver]).finally(() => clearTimeout(timer));
+      });
+    } catch {
+      // Locks are not available here (the page is going away): write as before.
+    }
+    return work || this._writeIndexNow();
+  }
+
+  async _writeIndexNow() {
     const batch = this._indexPending;
     this._indexPending = null;
     try {

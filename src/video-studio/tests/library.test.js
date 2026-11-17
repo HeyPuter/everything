@@ -944,3 +944,42 @@ describe('AutoSaver', () => {
     expect(backend.writes).toBe(writes);
   });
 });
+
+describe('the project list with two tabs open', () => {
+  /** navigator.locks as browsers have it: one holder of a name at a time, across "tabs". */
+  function fakeLocks() {
+    const tails = new Map();
+    return {
+      request(name, options, fn) {
+        const run = (tails.get(name) || Promise.resolve()).then(() => fn());
+        tails.set(name, run.catch(() => {}));
+        return run;
+      },
+    };
+  }
+
+  it('keeps a project one tab adds while another tab saves', async () => {
+    vi.stubGlobal('navigator', { ...globalThis.navigator, locks: fakeLocks() });
+    try {
+      const backend = memoryBackend();
+      const slow = (ms) => new Promise((r) => setTimeout(r, ms));
+      const tick = backend.tick;
+      backend.tick = async () => {
+        await slow(5);
+        return tick();
+      };
+      const home = new Library(backend, { cache: null });
+      const old = await home.createProject({ name: 'Old' });
+      const editor = new Library(backend, { cache: null });
+      const open = await editor.openProject(old.id);
+      open.name = 'Old, edited';
+      // The editor's autosave and Home's new project change the list at the same moment.
+      await Promise.all([editor.saveProject(open), home.createProject({ name: 'New' })]);
+      const names = (await new Library(backend, { cache: null }).listProjects()).map((p) => p.name).sort();
+      expect(names).toEqual(['New', 'Old, edited']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
