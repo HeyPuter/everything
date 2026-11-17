@@ -49,6 +49,20 @@ describe('leaving the editor', () => {
     expect((await library.openProject(p.id)).name).toBe('Saved name');
   });
 
+  it('saves an edit made while the cover picture is being saved on the way out', async () => {
+    const { library, onExit, p } = await open();
+    rename('Before the cover');
+    let finish;
+    vi.spyOn(editor, 'saveCover').mockImplementation(() => new Promise((r) => (finish = r)));
+    const leaving = editor.exit();
+    await vi.waitFor(() => expect(finish).toBeTruthy());
+    rename('During the cover');
+    finish();
+    await leaving;
+    expect(onExit).toHaveBeenCalled();
+    expect((await library.openProject(p.id)).name).toBe('During the cover');
+  });
+
   it('waits for files being imported, so they are in the saved project', async () => {
     const { library, onExit, p } = await open();
     // Reading the file takes a moment; the user leaves meanwhile.

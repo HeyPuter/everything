@@ -525,6 +525,9 @@ export class Editor {
     try {
       if (!(await this.prepareToLeave()) || this._disposed) return false;
       await this.saveCover();
+      // Saving the cover takes a moment on a slow connection, and the editor still works
+      // meanwhile: an edit made then is saved as well (or asked about) before leaving.
+      if (this.store.dirty && (!(await this.prepareToLeave()) || this._disposed)) return false;
       this.dispose();
     } finally {
       this._exiting = false;
