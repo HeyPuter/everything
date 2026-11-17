@@ -132,7 +132,7 @@ export function bindLayerMask(comp, p, layer, box) {
 }
 
 /** Fill the bound target behind a clip: color, gradient or a blurred copy of the clip. */
-function drawClipCanvas(comp, layer, cv, time, dst) {
+export function drawClipCanvas(comp, layer, cv, time, dst) {
   const gl = comp.gl;
   if (cv.type === 'blur') {
     const info = comp.resolve(layer);

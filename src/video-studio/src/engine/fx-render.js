@@ -13,6 +13,7 @@ import { FULL_VS, QUAD_VS, PLACE_FS, effectShader } from './shaders.js';
 import { effectIsOff, effectUniforms } from '../model/effect-params.js';
 import { isBodyEffect } from '../model/body-effects.js';
 import { bindPersonMatte, MATTE_UNIT } from './cutout.js';
+import { drawClipCanvas } from './layer-extras.js';
 
 const failed = new Set();
 
@@ -138,8 +139,12 @@ const bucket = (s) => 2 ** (Math.ceil(Math.log2(Math.max(1e-3, s)) * 2) / 2);
  * the transform is applied once, when the buffer is placed.
  */
 function innerExtras(layer, W, H, natW, natH) {
-  const ex = layer.extras;
-  if (!ex?.motion) return ex;
+  if (!layer.extras) return layer.extras;
+  // The canvas fill is behind the clip, on the frame (drawLayerWithEffects draws it there).
+  const { canvas, ...ex } = layer.extras;
+  void canvas;
+  if (!Object.keys(ex).length) return null;
+  if (!ex.motion) return ex;
   const a = (-layer.rotation * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
@@ -190,6 +195,10 @@ export function drawLayerWithEffects(comp, layer, time) {
   const back = comp.bound ?? null;
   let cur = poolTarget(comp, 'a', w, h);
   let other = poolTarget(comp, 'b', w, h);
+
+  // The clip's canvas fills the frame behind it. Drawn inside the clip's buffer it covered
+  // only the clip, moved and turned with it, and took its effects.
+  if (layer.extras?.canvas) drawClipCanvas(comp, layer, layer.extras.canvas, time, back);
 
   // 1. The clip's own pixels (crop, color, mask, chroma key), untransformed.
   comp._into(cur);

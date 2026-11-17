@@ -26,8 +26,10 @@ function fakeComp(resolve, W = 1920, H = 1080) {
   const counts = {};
   const c = Object.assign(Object.create(Compositor.prototype), { gl: fakeGl(counts), width: W, height: H, projW: W, projH: H, programs: new Map(), textures: new Map(), frame: 0, lost: false, resolve, curveTextures: new Map(), lutTextures: new Map() });
   c.programsUsed = [];
+  c.targets = [];
   c._program = (key) => {
     c.programsUsed.push(key);
+    c.targets.push(c._bound);
     return { prog: {}, u: new Map() };
   };
   c.quads = [];
@@ -125,6 +127,27 @@ describe('clips with effects and motion blur', () => {
     const placed = c.quads.at(-1);
     expect(placed.cx).toBeCloseTo(960 + layers[0].x * 1920, 3);
     expect(placed).toMatchObject({ w: 960, h: 540, projW: 1920 });
+  });
+});
+
+describe('clips with effects and a canvas fill', () => {
+  it('fill the frame behind the clip, before and outside the clip\'s effect buffer', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    a.transform.scale = 0.5;
+    a.canvas = { on: true, type: 'color', color: '#112233', color2: '#000000', angle: 180, blur: 50 };
+    a.effects = [{ id: 'glitch', params: {}, on: true }];
+    const { c, layers } = draw(p, 1);
+    expect(layers[0].extras?.canvas).toBeTruthy();
+    const used = c.programsUsed;
+    expect(used.filter((k) => k === 'clipCanvas')).toHaveLength(1);
+    // The fill comes first; then the clip alone, its effect, and its placing.
+    expect(used.indexOf('clipCanvas')).toBeLessThan(used.indexOf('layer'));
+    expect(used.indexOf('layer')).toBeLessThan(used.indexOf('fx:glitch'));
+    expect(used.indexOf('fx:glitch')).toBeLessThan(used.indexOf('clipfx-place'));
+    // It goes where the finished clip goes, not into the buffer the clip is drawn in alone.
+    expect(c.targets[used.indexOf('clipCanvas')]).toBe(c.targets[used.indexOf('clipfx-place')]);
+    expect(c.targets[used.indexOf('clipCanvas')]).not.toBe(c.targets[used.indexOf('layer')]);
   });
 });
 
