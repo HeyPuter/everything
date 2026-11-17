@@ -453,8 +453,9 @@ export class Library extends Emitter {
       // Same content imported before: nothing to upload.
       const name = `${asset.hash}.${asset.ext}`;
       const stored = await this._storedMedia();
+      // Only a file of the same size counts: an empty one is what a write that never finished leaves.
       const size = stored.get(name);
-      if (size === undefined || (size && size !== blob.size)) {
+      if (size !== blob.size) {
         await this.backend.writeBlob(path, blob);
         stored.set(name, blob.size);
       }
@@ -522,7 +523,9 @@ export class Library extends Emitter {
   async missingMedia(assets) {
     this._storedMedia(true);
     const stored = await this.stored.files;
-    return assets.filter((a) => !stored.has(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
+    // On this device's own storage an empty file is a write that never finished: missing as well.
+    const there = (name) => stored.has(name) && !(this.backend.kind === 'local' && stored.get(name) === 0);
+    return assets.filter((a) => !there(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
   }
 
   /**
@@ -547,6 +550,11 @@ export class Library extends Emitter {
   async _readMedia(asset) {
     const path = this.mediaPath(asset);
     let blob = this.cache ? await this.cache.readBlob(path).catch(() => null) : null;
+    // An empty cached file is a write that never finished, not the media: read the real one.
+    if (blob && !blob.size) {
+      blob = null;
+      await this.cache.remove(path).catch(() => {});
+    }
     if (!blob) {
       blob = await this.backend.readBlob(path);
       if (!blob) throw new Error(`Media file missing: ${asset.name}`);

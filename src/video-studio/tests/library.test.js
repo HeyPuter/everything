@@ -589,6 +589,38 @@ describe('Library media cache', () => {
   }
   const cached = (cache) => [...cache.files.keys()].filter((k) => k.startsWith('media/')).sort();
 
+  it('reads the stored file when the cached copy is an empty leftover of a write that never finished', async () => {
+    const { lib, cache, onlyA } = await setup();
+    const path = lib.mediaPath(onlyA);
+    cache.files.set(path, new Blob([]));
+    const blob = await lib.mediaBlob(onlyA);
+    expect(blob.size).toBe(1);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cache.files.get(path).size).toBe(1);
+  });
+
+  it('stores media again when storage only holds an empty file under its name', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend, { cache: null });
+    const meta = { kind: 'image', name: 'p.png', ext: 'png', mime: 'image/png', width: 2, height: 2 };
+    const bytes = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+    const first = await lib.addMediaBlob(meta, bytes);
+    await lib.flushUploads();
+    const path = lib.mediaPath(first);
+    // What a full disk or a closed tab leaves behind.
+    backend.files.set(path, new Blob([]));
+    lib.stored = null;
+    await lib.addMediaBlob(meta, bytes);
+    expect(await lib.flushUploads()).toBe(true);
+    expect(backend.files.get(path).size).toBe(3);
+    // The same content stored whole is not written twice.
+    const writes = backend.writes;
+    lib.stored = null;
+    await lib.addMediaBlob(meta, bytes);
+    await lib.flushUploads();
+    expect(backend.writes).toBe(writes);
+  });
+
   it('drops cached copies of media only a project deleted for good used', async () => {
     const { lib, cache, a, onlyA, shared } = await setup();
     expect(cached(cache)).toEqual([lib.mediaPath(onlyA), lib.mediaPath(shared)].sort());

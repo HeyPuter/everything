@@ -92,10 +92,20 @@ export function opfsBackend(root = 'video-studio') {
     },
     async writeBlob(path, blob) {
       const { dir, name } = await resolve(path, { create: true });
+      const existed = await dir.getFileHandle(name).then(() => true, () => false);
       const fh = await dir.getFileHandle(name, { create: true });
-      const w = await fh.createWritable();
-      await w.write(blob);
-      await w.close();
+      let w = null;
+      try {
+        w = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+      } catch (err) {
+        // A write that fails (the disk is full) must not leave the empty file made above: it
+        // would later be listed, and read, as if the media had been stored.
+        await w?.abort?.().catch(() => {});
+        if (!existed) await dir.removeEntry(name).catch(() => {});
+        throw err;
+      }
     },
     async readJSON(path) {
       const blob = await backend.readBlob(path);
@@ -184,7 +194,11 @@ export function memoryBackend(seed = {}) {
         const [first, ...more] = key.slice(prefix.length).split('/');
         names.set(first, more.length > 0);
       }
-      return [...names].map(([name, isDir]) => ({ name, isDir, modified: Date.now(), size: 0 }));
+      const sizeOf = (name) => {
+        const v = files.get(prefix + name);
+        return typeof v === 'string' ? v.length : v?.size || 0;
+      };
+      return [...names].map(([name, isDir]) => ({ name, isDir, modified: Date.now(), size: isDir ? 0 : sizeOf(name) }));
     },
   };
   return backend;
