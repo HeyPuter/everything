@@ -642,8 +642,8 @@ export class Home {
   /* Project files ------------------------------------------------------------------ */
 
   progress(title, text) {
-    const bar = h('progress.home-progress', { max: 1, value: 0 });
-    const label = h('p.dialog-text', text);
+    const bar = h('progress.home-progress', { max: 1, value: 0, 'aria-label': title });
+    const label = h('p.dialog-text', { role: 'status' }, text);
     const d = openDialog({ title, body: h('div', label, bar), className: 'small', closeOnBackdrop: false });
     return {
       set(done, total, msg) {
@@ -691,6 +691,10 @@ export class Home {
     });
     save.addEventListener('click', async () => {
       save.disabled = true;
+      // Puter's file picker never answers when it is dismissed: the button comes back when
+      // this window has focus again, so the file can still be saved.
+      const back = () => (save.disabled = false);
+      if (puter.ui?.showSaveFilePicker) window.addEventListener('focus', back, { once: true });
       try {
         let item;
         if (puter.ui?.showSaveFilePicker) item = await puter.ui.showSaveFilePicker(blob, fileName);
@@ -703,6 +707,8 @@ export class Home {
       } catch (err) {
         toast(`Could not save to Puter: ${err?.message || err}`, { kind: 'error' });
         save.disabled = false;
+      } finally {
+        window.removeEventListener('focus', back);
       }
     });
   }
