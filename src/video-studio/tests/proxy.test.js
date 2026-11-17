@@ -479,6 +479,16 @@ describe('proxy manager', () => {
     expect(await proxies.usage()).toEqual({ files: 0, bytes: 0 });
   });
 
+  it('says so when a proxy file could not be deleted, and still lists it', async () => {
+    const a = vid('a');
+    const current = `proxies/${proxyFileName(a.hash, 'mp4')}`;
+    const { proxies, cache } = managerSetup({ seed: { [current]: new Blob(['p']) } });
+    await proxies.init();
+    cache.remove = async () => { throw new Error('locked'); };
+    await expect(proxies.removeAll()).rejects.toThrow(/could not be deleted/);
+    expect(proxies.isReady(a)).toBe(true);
+  });
+
   it('makes a proxy in auto for media the preview found slow', async () => {
     const memory = { value: null, get() { return this.value; }, set(v) { this.value = v; } };
     const { proxies, generate } = managerSetup({ memory });

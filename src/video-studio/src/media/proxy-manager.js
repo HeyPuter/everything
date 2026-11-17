@@ -324,7 +324,15 @@ export class ProxyManager extends Emitter {
     await this.cache.remove(PROXY_DIR).catch(() => {});
     for (const hash of [...this.urls.keys()]) this._dropUrl(hash);
     this.entries.clear();
+    // A file still being written can refuse to go: what is left is listed again, and the
+    // caller hears about it instead of "all deleted".
+    const left = (await this.cache.list(PROXY_DIR).catch(() => [])).filter((f) => !f.isDir);
+    for (const f of left) {
+      const p = isCurrentProxy(f.name) ? parseProxyName(f.name) : null;
+      if (p) this.entries.set(p.hash, { state: 'ready', progress: 1, name: f.name, size: f.size });
+    }
     this.emit('change', { removed: true });
+    if (left.length) throw new Error(`${left.length} proxy file${left.length === 1 ? '' : 's'} could not be deleted. Try again in a moment.`);
     return files.length;
   }
 
