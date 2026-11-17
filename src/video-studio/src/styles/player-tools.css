@@ -30,6 +30,8 @@
 .user-guide {
   position: absolute;
   pointer-events: auto;
+  /* Dragged, not scrolled: without this a finger or pen drag is taken by the browser as a pan. */
+  touch-action: none;
 }
 
 .user-guide::after {
@@ -96,6 +98,7 @@
   background: var(--bg-panel-2);
   z-index: 4;
   cursor: row-resize;
+  touch-action: none;
 }
 
 .player-ruler.left {
