@@ -220,6 +220,9 @@ export class MediaPool {
     entry.el.removeAttribute('src');
     entry.el.load();
     try {
+      // Its effect processor is told to end: one that keeps answering "more to come" is kept
+      // alive, with its echo and reverb buffers, until the whole audio context closes.
+      entry.fx?.node.port.postMessage({ dispose: true });
       entry.gain?.disconnect();
       entry.fx?.node.disconnect();
     } catch {
