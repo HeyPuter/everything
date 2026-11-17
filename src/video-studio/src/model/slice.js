@@ -13,17 +13,26 @@ export function trimTo(clip, start, end) {
   const e = Math.min(clipEnd(clip), end);
   if (e - s < MIN_CLIP / 2) return null;
   const head = s - clip.start;
+  const tail = clipEnd(clip) - e;
   // Speed curves are sliced to the kept part (no-op for constant speed at the tail).
-  if (head > 0 || e < clipEnd(clip)) windowSource(clip, head, e - clip.start);
+  if (head > 0 || tail > 0) windowSource(clip, head, e - clip.start);
   if (head > 0) {
     if (clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, -head, clip.duration - head);
     if (clip.fadeIn) clip.fadeIn = Math.max(0, clip.fadeIn - head);
     if (clip.animIn) clip.animIn = null;
   }
-  // Cut at the end too: keep only the keys that still fall inside.
-  if (clipEnd(clip) > e && clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, 0, e - s);
+  // Cut at the end too: keep only the keys that still fall inside; drop end fades/anims
+  // that belonged to the cut-away tail (mirrors the head handling above).
+  if (tail > 0 && clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, 0, e - s);
+  if (tail > 0) {
+    if (clip.fadeOut) clip.fadeOut = Math.max(0, clip.fadeOut - tail);
+    if (clip.animOut) clip.animOut = null;
+  }
   clip.duration = e - s;
   clip.start = s;
+  // Fades that still overlap the kept range must fit the new length.
+  if (clip.fadeIn) clip.fadeIn = Math.min(clip.fadeIn, clip.duration);
+  if (clip.fadeOut) clip.fadeOut = Math.min(clip.fadeOut, Math.max(0, clip.duration - (clip.fadeIn || 0)));
   return clip;
 }
 

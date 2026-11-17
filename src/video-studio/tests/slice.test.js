@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sliceProject, exportSpan } from '../src/model/slice.js';
+import { sliceProject, exportSpan, trimTo } from '../src/model/slice.js';
 import { addClip, mainTrack, projectDuration } from '../src/model/timeline.js';
 import { evaluate, gainAt } from '../src/engine/scene.js';
 import { captionCues } from '../src/media/transcribe.js';
@@ -109,5 +109,39 @@ describe('exportSpan', () => {
     expect(exportSpan(p, 'selection', [b.id])).toEqual({ start: s(4), end: s(8) });
     expect(exportSpan(p, 'selection', [])).toEqual({ start: 0, end: s(8) });
     void a;
+  });
+});
+
+describe('trimTo', () => {
+  it('clears fadeOut and animOut when the cut end removes the out region', () => {
+    const c = clip('video', 0, 10, {
+      fadeIn: s(1),
+      fadeOut: s(2),
+      animIn: { id: 'fade-in', duration: s(1) },
+      animOut: { id: 'fade-out', duration: s(2) },
+    });
+    const kept = trimTo(structuredClone(c), 0, s(5));
+    expect(kept).toMatchObject({ start: 0, duration: s(5), fadeIn: s(1), fadeOut: 0, animOut: null });
+    expect(kept.animIn).toEqual({ id: 'fade-in', duration: s(1) });
+    expect(gainAt(kept, s(2.5))).toBeCloseTo(1, 6);
+  });
+
+  it('shortens fadeOut that still overlaps the kept range', () => {
+    const c = clip('video', 0, 10, { fadeOut: s(3) });
+    const kept = trimTo(structuredClone(c), 0, s(9));
+    expect(kept.fadeOut).toBe(s(2));
+    expect(kept.duration).toBe(s(9));
+  });
+
+  it('clears fadeIn and animIn when the cut head removes the in region', () => {
+    const c = clip('video', 0, 10, {
+      fadeIn: s(2),
+      fadeOut: s(1),
+      animIn: { id: 'fade-in', duration: s(2) },
+      animOut: { id: 'fade-out', duration: s(1) },
+    });
+    const kept = trimTo(structuredClone(c), s(5), s(10));
+    expect(kept).toMatchObject({ duration: s(5), fadeIn: 0, fadeOut: s(1), animIn: null });
+    expect(kept.animOut).toEqual({ id: 'fade-out', duration: s(1) });
   });
 });
