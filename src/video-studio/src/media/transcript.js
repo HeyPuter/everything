@@ -280,7 +280,12 @@ export function parseJsonArray(reply, expected) {
   const start = text.indexOf('[');
   const end = text.lastIndexOf(']');
   if (start < 0 || end <= start) throw new Error('The translation came back in an unexpected form.');
-  const arr = JSON.parse(text.slice(start, end + 1));
+  let arr = null;
+  try {
+    arr = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    // Not quite JSON (a trailing comma, a stray bracket): said in plain words below, not as a parser message.
+  }
   if (!Array.isArray(arr)) throw new Error('The translation came back in an unexpected form.');
   const out = arr.map((x) => String(x ?? ''));
   if (expected !== undefined && out.length !== expected) throw new Error('The translation did not match the captions one to one.');
