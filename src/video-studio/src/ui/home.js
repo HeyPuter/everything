@@ -564,6 +564,7 @@ export class Home {
     empty.addEventListener('click', () => this.emptyTrash());
     const list = h('div.project-grid.trash-grid', { role: 'list', 'aria-label': 'Projects in the Trash' });
     if (!this.loaded) list.append(h('div.home-loading', { role: 'status' }, h('div.spinner'), 'Loading...'));
+    else if (this.loadError) list.append(h('div.home-empty', { role: 'listitem' }, icon('cloudOff', 28), h('p', "Couldn't load the Trash."), h('button.btn', { type: 'button', onclick: () => this.load() }, 'Try again')));
     else if (!this.trash.length) list.append(h('div.home-empty', { role: 'listitem' }, icon('trash', 28), h('p', 'The Trash is empty.')));
     else list.append(...this.trash.map((p) => this.trashCard(p)));
     return h('section.home-section', { 'aria-labelledby': 'trash-h' },
