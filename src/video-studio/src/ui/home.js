@@ -151,11 +151,32 @@ export class Home {
     const trash = await this.library.listTrash();
     if (this.disposed || request !== this.listRequest) return;
     this.projects = projects;
+    const wasLoaded = this.loaded && !this.loadError;
     this.trash = trash;
     this.loaded = true;
     this.loadError = false;
-    this.renderView();
+    if (wasLoaded && this.view === 'home' && this.grid?.isConnected) this.refreshGrid();
+    else this.renderView();
     this.refreshUsage();
+  }
+
+  /**
+   * The project list changed (a rename, a copy, a move to the Trash): only the list and the
+   * counts are drawn again. Rebuilding the whole page took the search box from under the
+   * person typing in it, and left keyboard focus on nothing after every project action.
+   */
+  refreshGrid() {
+    const cards = [...this.grid.children];
+    const card = this.grid.contains(document.activeElement) ? document.activeElement.closest('.project-grid > *') : null;
+    const at = card ? cards.indexOf(card) : -1;
+    const more = at >= 0 && document.activeElement.classList.contains('project-more');
+    this.renderNav();
+    this.renderGrid();
+    if (at < 0 || this.grid.contains(document.activeElement)) return;
+    // The card in the same place (the next project, after one went to the Trash), else the search box.
+    const next = this.grid.children[Math.min(at, this.grid.children.length - 1)];
+    const target = next?.querySelector(more ? '.project-more' : '.project-open') || next?.querySelector('button') || this.content.querySelector('.home-search');
+    target?.focus({ preventScroll: true });
   }
 
   /* Shell ---------------------------------------------------------------------- */

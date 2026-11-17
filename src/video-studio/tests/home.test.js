@@ -139,6 +139,33 @@ describe('home screen', () => {
     expect(titles()).toEqual(['Doomed']);
   });
 
+  it('keeps the search box and keyboard focus when a project action refreshes the list', async () => {
+    const lib = new Library(memoryBackend());
+    const a = await lib.createProject({ name: 'Beach' });
+    await new Promise((r) => setTimeout(r, 3));
+    await lib.createProject({ name: 'Berlin' });
+    const h = mount(lib);
+    await settle();
+    const search = root.querySelector('.home-search');
+    search.value = 'Be ';
+    search.dispatchEvent(new Event('input'));
+    expect(titles().sort()).toEqual(['Beach', 'Berlin']);
+    // A refresh while typing leaves the box, and what was typed, alone.
+    search.focus();
+    await h.refreshLists();
+    expect(root.querySelector('.home-search')).toBe(search);
+    expect(search.value).toBe('Be ');
+    expect(document.activeElement).toBe(search);
+    // Moving a project to the Trash from its menu button leaves focus on the next card's button.
+    const more = [...root.querySelectorAll('.project-more')].find((b) => b.getAttribute('aria-label').includes('Beach'));
+    more.focus();
+    await h.remove({ id: a.id, name: 'Beach' });
+    await settle();
+    expect(titles()).toEqual(['Berlin']);
+    expect(document.activeElement?.classList.contains('project-more')).toBe(true);
+    expect(document.activeElement.getAttribute('aria-label')).toContain('Berlin');
+  });
+
   it('does not trash, delete or rename a project that is open in another tab', async () => {
     const lib = new Library(memoryBackend());
     const p = await lib.createProject({ name: 'Busy' });
