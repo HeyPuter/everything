@@ -273,7 +273,11 @@ function musicPanel(ctx) {
       playBtn.setAttribute('aria-label', `Preparing ${m.title}`);
       try {
         const s = await musicSamples(m.id);
-        if (!el.isConnected) return;
+        if (!el.isConnected) {
+          // The tab was left while the music was being prepared: its rows come back as they are, so the button must not keep its spinner.
+          setPlaying(false);
+          return;
+        }
         if (preview.playChannels(key, [s.left, s.right], s.sampleRate, () => setPlaying(false))) {
           setPlaying(true);
           current = { id: m.id, bar };
