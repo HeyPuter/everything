@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  deleteClips, trimToPlayhead, duplicateClip, pasteClips, setSpeed, freezeFrame, detachAudio,
+  deleteClips, trimToPlayhead, duplicateClip, pasteClips, setSpeed, freezeFrame, detachAudio, applySpeedRamp,
   mainTrack, addClip, captureLinks, compactMain, sourceTimeAt, clipEnd,
 } from '../src/model/timeline.js';
 import { fixture, clip, onMain, spans, trackOf, noOverlaps, kinds, s } from './helpers.js';
@@ -319,6 +319,17 @@ describe('freezeFrame', () => {
     expect(still).toMatchObject({ freeze: true, in: s(2), start: s(1), duration: s(3), muted: true, speed: 1, animOut: null });
     expect(spans(mainTrack(p))).toEqual([[0, 1], [1, 3], [4, 3]]);
     expect(mainTrack(p).clips[1]).toBe(still);
+  });
+
+  it('makes a still with a whole-microsecond source time and nothing left of a speed ramp', () => {
+    const p = fixture();
+    const [c] = onMain(p, clip('video', 0, 4, { in: s(1) }));
+    expect(applySpeedRamp(p, c.id, 'whip-through', RIPPLE)).toBeTruthy();
+    const still = freezeFrame(p, c.id, c.start + Math.round(c.duration / 3), s(3), RIPPLE);
+    expect(Number.isInteger(still.in)).toBe(true);
+    expect(still.speedRamp).toBeUndefined();
+    expect(still.motionBlur).toBeUndefined();
+    expect(still.keyframes).toEqual({});
   });
 
   it('pushes later clips on the same track without ripple', () => {

@@ -764,7 +764,10 @@ export function freezeFrame(project, id, t, length = 3 * US, opts = {}) {
   // Within a frame of an edge there is nothing to split: the still goes at that edge.
   const at = right ? t : t - clip.start < clip.duration / 2 ? clip.start : clipEnd(clip);
   const still = structuredClone(clip);
-  Object.assign(still, { id: uid('c'), start: at, duration: length, in: sourceT, freeze: true, speed: 1, keyframes: {}, fadeIn: 0, fadeOut: 0, animIn: null, animOut: null, animLoop: null, transition: null, muted: true });
+  // A still has no speed, so nothing of a speed ramp stays on it (its accent keys go with the
+  // keyframes; the motion blur it added would otherwise stay for good).
+  if (still.speedRamp) stripRampAccents(still);
+  Object.assign(still, { id: uid('c'), start: at, duration: length, in: Math.round(sourceT), freeze: true, speed: 1, keyframes: {}, fadeIn: 0, fadeOut: 0, animIn: null, animOut: null, animLoop: null, transition: null, muted: true });
   delete still.speedCurve;
   return withRipple(project, opts, () => {
     if (track.main && opts.ripple) {
