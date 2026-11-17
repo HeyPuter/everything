@@ -378,3 +378,21 @@ describe('EditorStore dirty state', () => {
     expect(store.opts).toEqual({ ripple: false, linkOverlays: true });
   });
 });
+
+describe('restoring after a cancelled edit', () => {
+  it('keeps two effects of the same kind on a clip apart', () => {
+    const store = storeWith(clip('video', 0, 4));
+    const live = () => mainTrack(store.project).clips[0];
+    store.update('Add effects', (p) => {
+      mainTrack(p).clips[0].effects = [{ id: 'blur', params: { amount: 10 } }, { id: 'blur', params: { amount: 90 } }];
+    }, { structural: false });
+    expect(store.update('Nothing to do', () => false)).toBe(false);
+    expect(live().effects.map((e) => e.params.amount)).toEqual([10, 90]);
+    expect(live().effects[0]).not.toBe(live().effects[1]);
+    store.update('Edit the first', (p) => { mainTrack(p).clips[0].effects[0].params.amount = 33; }, { structural: false });
+    expect(live().effects.map((e) => e.params.amount)).toEqual([33, 90]);
+    store.undo();
+    expect(live().effects.map((e) => e.params.amount)).toEqual([10, 90]);
+  });
+});
+

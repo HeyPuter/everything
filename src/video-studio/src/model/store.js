@@ -384,10 +384,17 @@ const isObject = (v) => v !== null && typeof v === 'object';
  */
 function restoreInto(target, src) {
   if (Array.isArray(src)) {
+    // Each of target's objects is taken once: items that share an id (the same effect added
+    // twice to a clip, whose id is the effect's kind) must not end up as one object.
     const byId = new Map();
-    for (const x of target) if (isObject(x) && x.id !== undefined) byId.set(x.id, x);
+    for (const x of target) {
+      if (!isObject(x) || x.id === undefined) continue;
+      const same = byId.get(x.id);
+      if (same) same.push(x);
+      else byId.set(x.id, [x]);
+    }
     const next = src.map((v, i) => {
-      const cur = isObject(v) && v.id !== undefined ? byId.get(v.id) : target[i];
+      const cur = isObject(v) && v.id !== undefined ? byId.get(v.id)?.shift() : target[i];
       return restoreValue(cur, v);
     });
     target.length = next.length;
