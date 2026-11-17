@@ -1039,4 +1039,19 @@ describe('keyboard focus survives list updates', () => {
     expect(focused()).toBe(env.el.querySelector('.mark-chip'));
     expect(focused().getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('applies a caption style to the other captions, except on locked tracks', () => {
+    const cap = (text, start) => makeClip('text', { caption: true, text, start, duration: US });
+    const [a, b, locked] = [cap('One', 0), cap('Two', US), cap('Three', 0)];
+    env.store.update('Add captions', (p) => {
+      p.tracks.push({ id: 'cap1', kind: 'text', locked: false, hidden: false, muted: false, clips: [a, b] });
+      p.tracks.push({ id: 'cap2', kind: 'text', locked: true, hidden: false, muted: false, clips: [locked] });
+    });
+    env.store.update('Style', (p) => { T.findClip(p, a.id).clip.style.size = 123; });
+    env.store.select(a.id);
+    env.el.querySelectorAll('.section-toggle[aria-expanded=false]').forEach((x) => x.click());
+    [...env.el.querySelectorAll('button')].find((x) => x.textContent === 'Apply style to all captions').click();
+    expect(clip(b.id).style.size).toBe(123);
+    expect(clip(locked.id).style.size).not.toBe(123);
+  });
 });
