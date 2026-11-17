@@ -1077,4 +1077,14 @@ describe('keyboard focus survives list updates', () => {
     expect(clip(env.v1.id).opacity).toBeCloseTo(0.98);
     expect(steps()).toBe(before + 1);
   });
+
+  it('a switch on a locked clip goes back to what the clip has', () => {
+    env.store.update('Lock', (p) => { T.findClip(p, env.aud.id).track.locked = true; });
+    env.store.select(env.aud.id);
+    const sw = [...env.el.querySelectorAll('.switch-field')].find((f) => /Mute clip/.test(f.textContent)).querySelector('[role=switch]');
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    sw.click();
+    expect(clip(env.aud.id).muted).toBeFalsy();
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+  });
 });

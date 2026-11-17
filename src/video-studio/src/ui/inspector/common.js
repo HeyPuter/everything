@@ -81,6 +81,13 @@ export function createClipView(ctx, id) {
       view.scope = createScope();
     },
     /**
+     * An edit of a clip on a locked track was refused: the control that asked has already
+     * moved (a switch flipped, a tile got picked), so every control shows the clip again.
+     */
+    refused() {
+      if (view.found?.track.locked) view.scope.update();
+    },
+    /**
      * Edit the clip. key names the control so consecutive drag steps merge
      * into one undo step; final ends that run. A one-off edit that changes
      * nothing (a reset at the defaults) adds no undo step.
@@ -96,12 +103,14 @@ export function createClipView(ctx, id) {
       };
       const ok = actions.editClip(id, label, key ? fn : once, key ? { coalesce: `${key}:${id}` } : {});
       if (final) store.seal();
+      if (ok === false) view.refused();
       return same || ok;
     },
     /** Keyframable value: a key at the playhead when the prop has keys, else the base value. */
     animate(prop, value, { label = 'Edit', final = true, key = prop } = {}) {
       const ok = actions.setAnimatable(id, prop, value, { label, coalesce: `${key}:${id}` });
       if (final) store.seal();
+      if (ok === false) view.refused();
       return ok;
     },
     /** Current (possibly keyframed) value of an animatable prop at the playhead. */
