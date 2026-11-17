@@ -286,6 +286,18 @@ describe('media tab', () => {
     expect(tab.el.querySelector('.media-selbar').hidden).toBe(true);
   });
 
+  it('keeps keyboard focus on a media tile when adding it rebuilds the list', async () => {
+    mount();
+    tab.el.querySelector('[data-cat="project"]').click();
+    const vid = () => tab.el.querySelector('[data-asset="vid"]');
+    const first = vid();
+    first.focus();
+    actions.addAsset(store.project.assets.vid);
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    expect(first.isConnected).toBe(false);
+    expect(document.activeElement).toBe(vid());
+  });
+
   it('will not delete media from inside a compound clip when clips outside it use the media', async () => {
     const p = fixture();
     const [a, b] = [makeClip('video', { assetId: 'vid', start: 0, duration: 5e6 }), makeClip('video', { assetId: 'silent', start: 5e6, duration: 5e6 })];

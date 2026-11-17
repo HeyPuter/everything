@@ -16,7 +16,7 @@ import {
 } from '../../model/bins.js';
 import { BACKDROPS, BACKDROP_GROUPS, drawBackdrop } from '../../media/backdrops.js';
 import { MEDIA_ACCEPT } from '../../media/media-types.js';
-import { tabLayout, tileGrid, tile, tileNote, emptyState } from './common.js';
+import { tabLayout, tileGrid, tile, tileNote, emptyState, keepItemFocus } from './common.js';
 import { generatePanel } from './generate.js';
 import { renderTimelines, timelinesSignature } from './timelines.js';
 import { showMenu, menuButton } from '../menu.js';
@@ -760,7 +760,7 @@ export function mediaTab(ctx) {
     cancelAnimationFrame(pendingRefresh);
     pendingRefresh = requestAnimationFrame(() => {
       if (layout.category === 'generate') return;
-      layout.refresh();
+      keepItemFocus(layout.el, () => layout.refresh());
     });
   };
   // Re-render only when the media list, folders or which media is in use change.

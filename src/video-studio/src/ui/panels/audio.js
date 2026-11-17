@@ -6,7 +6,7 @@
 import { h } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { clock, US } from '../../lib/time.js';
-import { tabLayout, tileGrid, tile, emptyState, emptyFavorites, favoriteButton } from './common.js';
+import { tabLayout, tileGrid, tile, emptyState, emptyFavorites, favoriteButton, keepItemFocus } from './common.js';
 import { favoriteIds } from './favorites.js';
 import { SFX, SFX_BY_ID, SFX_GROUPS, renderSfx } from '../../media/sfx.js';
 import { MUSIC, MUSIC_BY_ID, musicDuration } from '../../media/music.js';
@@ -603,8 +603,14 @@ export function audioTab(ctx) {
   const menuBtn = layout.el.querySelector('.asset-menu-btn');
   if (menuBtn) menuBtn.hidden = layout.category !== 'music';
   // Only the asset lists depend on the project; the other categories keep their state.
+  // They are rebuilt only when the media they list changed, and keyboard focus stays on its tile.
+  const assetSignature = () => Object.values(store.project.assets).map((a) => `${a.id}:${a.kind}:${a.hasAudio ? 1 : 0}:${a.duration}:${a.name}`).join('|');
+  let assetSig = assetSignature();
   const off = store.on('change', () => {
-    if (layout.category === 'yours' || layout.category === 'extracted') layout.refresh();
+    const next = assetSignature();
+    if (next === assetSig) return;
+    assetSig = next;
+    if (layout.category === 'yours' || layout.category === 'extracted') keepItemFocus(layout.el, () => layout.refresh());
   });
   // Previews don't play on over the timeline or from a tab that is gone.
   const stopPreviews = () => {
