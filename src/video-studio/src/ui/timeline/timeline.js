@@ -207,7 +207,9 @@ export function createTimeline(ctx) {
       if (anchorPx < 0 || anchorPx > vw) anchorPx = vw / 2;
     }
     setPref('zoom', pps);
-    render(true);
+    // Not a rebuild: every clip, cut and keyframe is placed again by an ordinary render. Zooming
+    // by wheel or pinch comes many times a second, and replacing every lane each time made it drag.
+    render();
     scroller.scrollLeft = Math.max(0, PAD + (anchorT / US) * pps - anchorPx);
     syncZoomSlider();
   }
