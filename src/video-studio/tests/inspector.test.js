@@ -1054,4 +1054,27 @@ describe('keyboard focus survives list updates', () => {
     expect(clip(b.id).style.size).toBe(123);
     expect(clip(locked.id).style.size).not.toBe(123);
   });
+
+  it('slider keys make one undo step when they move the value and none at its end', () => {
+    env.store.select(env.v1.id);
+    const r = range('Opacity');
+    const steps = () => env.store.history.undoStack.length;
+    const key = (type) => r.dispatchEvent(new KeyboardEvent(type, { key: 'ArrowRight', bubbles: true }));
+    const before = steps();
+    expect(Number(r.value)).toBe(100);
+    key('keydown');
+    key('keyup');
+    expect(steps()).toBe(before);
+    expect(env.store.dirty).toBeFalsy();
+    r.value = '100';
+    r.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    for (const v of [99, 98]) {
+      r.value = String(v);
+      r.dispatchEvent(new Event('input', { bubbles: true }));
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    r.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }));
+    expect(clip(env.v1.id).opacity).toBeCloseTo(0.98);
+    expect(steps()).toBe(before + 1);
+  });
 });
