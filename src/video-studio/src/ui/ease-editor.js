@@ -90,9 +90,14 @@ export function openEaseEditor(current = 'linear') {
     const up = () => {
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      handle.removeEventListener('lostpointercapture', up);
     };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', up);
+    // Without these a drag that the browser takes over keeps moving the handle on later hovers.
+    handle.addEventListener('pointercancel', up);
+    handle.addEventListener('lostpointercapture', up);
   };
   h1.addEventListener('pointerdown', drag(0));
   h2.addEventListener('pointerdown', drag(1));

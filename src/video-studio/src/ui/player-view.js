@@ -441,9 +441,14 @@ export function createPlayerView(ctx) {
       stage.classList.remove('panning');
       stage.removeEventListener('pointermove', move);
       stage.removeEventListener('pointerup', up);
+      stage.removeEventListener('pointercancel', up);
+      stage.removeEventListener('lostpointercapture', up);
     };
     stage.addEventListener('pointermove', move);
     stage.addEventListener('pointerup', up);
+    // Without these a pan that the browser takes over keeps following the pointer afterwards.
+    stage.addEventListener('pointercancel', up);
+    stage.addEventListener('lostpointercapture', up);
   });
 
   function updateTime() {
