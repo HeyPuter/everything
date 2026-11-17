@@ -455,9 +455,15 @@ export function createActions(ctx) {
     deleteSelected() {
       const ids = sel();
       if (!ids.length) return;
-      store.update(ids.length === 1 ? 'Delete clip' : 'Delete clips', (p) => T.deleteClips(p, ids, store.opts) > 0);
+      let n = 0;
+      store.update(ids.length === 1 ? 'Delete clip' : 'Delete clips', (p) => (n = T.deleteClips(p, ids, store.opts)) > 0);
+      if (!n) {
+        // Clips on locked tracks stay, and stay selected: say why nothing happened.
+        toast(ids.length === 1 ? 'Unlock the track to delete this clip.' : 'Unlock the tracks to delete these clips.', { kind: 'info' });
+        return;
+      }
       store.clearSelection();
-      announce(ids.length === 1 ? 'Clip deleted' : `${ids.length} clips deleted`);
+      announce(n === 1 ? 'Clip deleted' : `${n} clips deleted`);
     },
 
     deleteLeft() {
@@ -516,7 +522,7 @@ export function createActions(ctx) {
         pasted = T.pasteClips(p, clipboard, at(), store.opts);
         return pasted.length > 0;
       });
-      store.select(pasted.map((c) => c.id));
+      if (pasted.length) store.select(pasted.map((c) => c.id));
     },
 
     hasClipboard: () => clipboard.length > 0,

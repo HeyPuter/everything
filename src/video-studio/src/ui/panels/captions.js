@@ -572,12 +572,14 @@ function listPanel(ctx, opts) {
   }
 
   function remove(id) {
-    store.update('Delete caption', (p) => {
+    const ok = store.update('Delete caption', (p) => {
       const f = T.findClip(p, id);
       if (!f || f.track.locked) return false;
       f.track.clips.splice(f.index, 1);
     });
-    announce('Caption deleted');
+    if (ok === false) toast('Unlock the caption track to delete.', { kind: 'info' });
+    else announce('Caption deleted');
+    return ok !== false;
   }
 
   function mergeNext(id) {
@@ -632,8 +634,7 @@ function listPanel(ctx, opts) {
     del.addEventListener('click', () => {
       const ids = [...rows.keys()];
       const neighbor = ids[ids.indexOf(c.id) + 1] || ids[ids.indexOf(c.id) - 1];
-      remove(c.id);
-      rows.get(neighbor)?.text.focus({ preventScroll: true });
+      if (remove(c.id)) rows.get(neighbor)?.text.focus({ preventScroll: true });
     });
     const row = h('div.cap-row', { role: 'listitem', 'data-id': c.id }, time, text, h('div.cap-row-actions', merge, del));
     return { row, text, time };

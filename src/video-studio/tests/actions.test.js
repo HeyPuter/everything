@@ -616,4 +616,16 @@ describe('locked tracks', () => {
     expect(store.history.undoStack.length).toBe(steps);
     expect(toasts().some((t) => /Unlock the track/.test(t))).toBe(true);
   });
+
+  it('keeps a clip on a locked track selected and says why it was not deleted', () => {
+    const { store, actions, main } = setup(clip('video', 0, 4));
+    const [a] = main().clips;
+    store.update('Lock track', (p) => { mainTrack(p).locked = true; });
+    store.select(a.id);
+    actions.deleteSelected();
+    expect(main().clips).toHaveLength(1);
+    expect(store.selection.has?.(a.id) ?? store.selected?.clip.id === a.id).toBe(true);
+    expect(document.getElementById('live-region')?.textContent || '').not.toMatch(/deleted/);
+    expect(toasts().some((t) => /Unlock the track to delete/.test(t))).toBe(true);
+  });
 });
