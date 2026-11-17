@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { US } from '../src/lib/time.js';
 import { createProject, makeClip } from '../src/model/project.js';
+import { prefs, setPref } from '../src/ui/prefs.js';
 
 vi.mock('../src/engine/exporter.js', async (orig) => {
   const real = await orig();
@@ -194,6 +195,23 @@ describe('export dialog', () => {
     scope.dispatchEvent(new Event('change'));
     expect(exportBtn.disabled).toBe(true);
     d.close();
+  });
+
+  it('starts on the whole timeline even when an older version remembered a selection export', async () => {
+    const p = createProject({ name: 'Trip' });
+    const a = makeClip('image', { assetId: 'a', duration: 2 * US });
+    const b = makeClip('image', { assetId: 'a', start: 2 * US, duration: 2 * US });
+    p.tracks[0].clips.push(a, b);
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    setPref('exportSettings', { ...(prefs().exportSettings || {}), scope: 'selection' });
+    const ctx = ctxWith(p);
+    ctx.store.selectedIds = [b.id];
+    const d = openExportDialog(ctx);
+    await flush();
+    const scope = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'selection'));
+    expect(scope.value).toBe('all');
+    d.close();
+    setPref('exportSettings', null);
   });
 
   it('holds Export and explains when a WAV would be too long for its format', async () => {

@@ -28,10 +28,14 @@ const pickedFps = new Map();
 
 const signedIn = (ctx) => ctx.library?.backend?.kind === 'puter' && typeof puter !== 'undefined';
 
-/** Settings worth remembering on this device (not the per-project name). */
+/**
+ * Settings worth remembering on this device: not the per-project name, and not what to
+ * export. A remembered "Selected clip" would quietly export only part of the next video.
+ */
 function remember(s) {
-  const { name, ...rest } = s;
+  const { name, scope, ...rest } = s;
   void name;
+  void scope;
   setPref('exportSettings', rest);
 }
 
@@ -123,7 +127,7 @@ export function openExportDialog(ctx) {
   let caps = null;
   // With several timelines the file is named after the project and the timeline.
   const multi = (ctx.timelines?.list().length || 0) > 1;
-  let s = { ...DEFAULT_SETTINGS, ...EXTRA_DEFAULTS, ...saved, name: multi ? `${full.name} - ${ctx.timelines.active().name}` : full.name };
+  let s = { ...DEFAULT_SETTINGS, ...EXTRA_DEFAULTS, ...saved, scope: 'all', name: multi ? `${full.name} - ${ctx.timelines.active().name}` : full.name };
   // Frame rate: the timeline's own, unless another was picked for it earlier.
   const fpsKey = `${full.id}/${full.timelineId || ''}`;
   const ownFps = FRAME_RATES.includes(full.settings.fps) ? full.settings.fps : s.fps;
