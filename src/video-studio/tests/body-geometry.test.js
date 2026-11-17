@@ -245,6 +245,21 @@ describe('leg stretch', () => {
   });
 });
 
+describe('a person whose feet are out of frame', () => {
+  it('slims without a single undefined offset', () => {
+    const pose = syntheticPose();
+    pose.vis[POSE.ankleA] = 0.1;
+    pose.vis[POSE.ankleB] = 0.1;
+    const p = plan({ slim: 0.6 }, [pose]);
+    const grid = bodyGrid(p);
+    expect([...grid.data].every(Number.isFinite)).toBe(true);
+    // And it still slims: a point beside the torso moves toward the body.
+    const f = bodyFrame(pose);
+    const beside = [f.neck[0] + f.sw * 0.6, f.neck[1] + f.torso * 0.5];
+    expect(Math.abs(off(p, beside[0], beside[1])[0])).toBeGreaterThan(1);
+  });
+});
+
 describe('offset grid', () => {
   it('reads back like the field it was sampled from', () => {
     const p = plan({ slim: 0.6, waist: 0.5, head: 0.4, shoulders: 0.5, arms: 0.7, legs: 0.5 });
