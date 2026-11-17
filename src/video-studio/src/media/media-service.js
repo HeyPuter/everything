@@ -6,6 +6,8 @@
 import { Emitter } from '../lib/emitter.js';
 
 const THUMB_H = 96;
+/** Thumbnails kept per video (about 65 KB each at this height). */
+const THUMBS_KEPT = 600;
 /** Times a file that could not be read is tried again on its own. */
 const READ_RETRIES = 4;
 
@@ -132,6 +134,21 @@ export class MediaService extends Emitter {
     this.retryTimers.add(timer);
   }
 
+  /**
+   * Keep a video's thumbnails to a bounded number: scrolling a long clip at a close zoom made
+   * thousands (each zoom level its own set), none let go until the editor closed. The ones
+   * drawn longest ago go first; one that is needed again is made again.
+   */
+  _trimStrip(strip) {
+    if (strip.size <= THUMBS_KEPT) return;
+    for (const [key, bitmap] of strip) {
+      if (strip.size <= THUMBS_KEPT) break;
+      if (bitmap === 'pending') continue;
+      bitmap.close?.();
+      strip.delete(key);
+    }
+  }
+
   /** Quantization step (seconds) for a timeline zoom in px per second. */
   static stepFor(pxPerSec, thumbW) {
     const raw = thumbW / Math.max(1e-6, pxPerSec);
@@ -155,7 +172,12 @@ export class MediaService extends Emitter {
     const q = Math.max(0, Math.round(sec / step) * step);
     const key = q.toFixed(3);
     const have = strip.get(key);
-    if (have && have !== 'pending') return have;
+    if (have && have !== 'pending') {
+      // Used again: last in line to be let go (see _trimStrip).
+      strip.delete(key);
+      strip.set(key, have);
+      return have;
+    }
     if (!have) {
       strip.set(key, 'pending');
       this._enqueue(asset, q, key);
@@ -198,6 +220,7 @@ export class MediaService extends Emitter {
       const strip = this.strips.get(job.asset.hash);
       await this._call({ op: 'thumbs', blob, times: items.map((i) => i.sec), height: THUMB_H }, ({ index, bitmap }) => {
         strip.set(items[index].key, bitmap);
+        this._trimStrip(strip);
         this.emit('thumb', { hash: job.asset.hash });
       });
     } catch (error) {

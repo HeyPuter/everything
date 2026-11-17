@@ -234,3 +234,32 @@ describe('media files that could not be read', () => {
   });
 });
 
+describe('thumbnail memory', () => {
+  it('keeps a bounded number of thumbnails per video, letting go of the ones drawn longest ago', async () => {
+    const made = workers();
+    const service = new MediaService({ mediaBlob: async () => new Blob(['video']) });
+    const long = { id: 'l', hash: 'long', kind: 'video', duration: 3_600_000_000 };
+    const closed = [];
+    const ask = async (from, count) => {
+      for (let i = 0; i < count; i++) service.thumb(long, from + i, 1);
+      await new Promise((r) => setTimeout(r, 30));
+      await flush();
+      const w = made.at(-1);
+      const { id, times } = w.postMessage.mock.calls.at(-1)[0];
+      times.forEach((t, index) => w.onmessage({ data: { id, partial: { index, bitmap: { t, close: () => closed.push(t) } } } }));
+      w.onmessage({ data: { id, ok: true } });
+      await flush();
+    };
+    await ask(0, 500);
+    expect(service.thumb(long, 0, 1)?.t).toBe(0);
+    await ask(1000, 500);
+    const strip = service.strips.get('long');
+    expect([...strip.values()].filter((v) => v !== 'pending').length).toBeLessThanOrEqual(600);
+    expect(closed.length).toBeGreaterThanOrEqual(400);
+    // The one drawn again just before stayed; the newest are all there.
+    expect(closed).not.toContain(0);
+    expect(service.thumb(long, 1499, 1)?.t).toBe(1499);
+    service.dispose();
+  });
+});
+
