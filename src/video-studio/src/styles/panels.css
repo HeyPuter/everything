@@ -137,7 +137,7 @@
 }
 
 .fav-btn.on {
-  color: #f5c542;
+  color: var(--star);
 }
 
 .fav-btn.on .icon {

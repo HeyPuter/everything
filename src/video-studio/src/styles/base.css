@@ -166,7 +166,7 @@ p {
 }
 
 .btn.danger {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: #fff;
   border-color: transparent;
 }
@@ -387,6 +387,11 @@ input[type='range']:focus-visible::-moz-range-thumb {
   border-radius: 50%;
   background: #fff;
   transition: transform var(--t-fast) var(--ease);
+}
+
+/* Off, the track still has to stand out from a white panel (3:1 for controls). */
+:root[data-theme-resolved='light'] .switch:not([aria-checked='true']) {
+  background: #8e8e98;
 }
 
 .switch[aria-checked='true'] {

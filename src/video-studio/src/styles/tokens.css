@@ -37,9 +37,13 @@
   --marker: #f5b83d;
   --playhead: #ffffff;
   --snap: #f5d142;
-  --danger: #f04d4d;
+  /* Read as text on the dark panels (4.5:1 and more); the light theme has darker ones. */
+  --danger: #f46a6a;
   --success: #3fbf7f;
   --warning: #f2a93b;
+  /* Behind white text (the destructive button), in both themes. */
+  --danger-fill: #d32f2f;
+  --star: #f5c542;
 }
 
 :root,
@@ -98,6 +102,11 @@
   --accent-soft: rgba(31, 99, 214, 0.12);
   --accent-text: #1a58c2;
   --on-accent: #ffffff;
+  /* Status text on white and light gray: 4.5:1 and more (the dark theme's are for dark panels). */
+  --danger: #c62828;
+  --success: #17703f;
+  --warning: #8a5300;
+  --star: #a87900;
   --focus: #1f63d6;
   --scrim: rgba(20, 20, 25, 0.4);
   --playhead: #17171a;
