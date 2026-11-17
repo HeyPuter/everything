@@ -206,6 +206,8 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.maskUse = clip.maskUse || null;
     layer.masks = evaluateMasks(clip, local);
     layer.extras = layerExtras(clip, local, project.settings.fps, (l) => motionStateAt(clip, l));
+    // Motion blur samples are places of the clip too: inside a compound clip they go where it puts them.
+    if (clip.parent && layer.extras?.motion) for (const sample of layer.extras.motion) placeInParents(sample, clip.parent, t, project);
     // Passes on the source picture itself: object removal, then enhance (engine/source-fx.js).
     layer.removal = removalAt(clip, local);
     layer.enhance = enhanceAt(clip, local);
@@ -246,6 +248,24 @@ function withParent(layer, parent, t, project) {
   if (layer.blend === 'normal' && parent.blend && parent.blend !== 'normal') layer.blend = parent.blend;
   // Inner compound first, then the one holding it.
   if (parent.parent) withParent(layer, parent.parent, t, project);
+}
+
+/** Place { x, y, scale, rotation } inside the compound clips holding its clip (innermost first), as withParent does for a layer. */
+function placeInParents(state, parent, t, project) {
+  const W = project.settings.width;
+  const H = project.settings.height;
+  for (let c = parent; c; c = c.parent) {
+    const local = t - c.start;
+    const tr = keyedTransform(c, local);
+    const p = applyAnimations(c, local, { x: tr.x, y: tr.y, scale: tr.scale, rotation: tr.rotation, opacity: 1, blur: 0, reveal: 1 });
+    const r = (p.rotation * Math.PI) / 180;
+    const X = state.x * W * (tr.flipH ? -1 : 1);
+    const Y = state.y * H * (tr.flipV ? -1 : 1);
+    state.x = p.x + ((X * Math.cos(r) - Y * Math.sin(r)) * p.scale) / W;
+    state.y = p.y + ((X * Math.sin(r) + Y * Math.cos(r)) * p.scale) / H;
+    state.scale *= p.scale;
+    state.rotation += p.rotation;
+  }
 }
 
 /**

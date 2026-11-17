@@ -103,9 +103,23 @@ describe('clips with effects', () => {
 });
 
 describe('compound clips', () => {
-  it('stand-in exists so the helpers stay in use', () => {
+  it('place the motion blur samples of a clip inside them where they place the clip', () => {
     const p = fixture();
     const [a] = onMain(p, clip('video', 0, 4));
-    expect(createCompound(p, [a.id], { ripple: true, linkOverlays: true })).toBeTruthy();
+    a.keyframes.x = [{ t: 0, v: -0.2, ease: 'linear' }, { t: s(4), v: 0.2, ease: 'linear' }];
+    a.motionBlur = { on: true, amount: 50 };
+    const comp = createCompound(p, [a.id], { ripple: true, linkOverlays: true });
+    Object.assign(comp.transform, { scale: 0.5, x: 0.25 });
+    p.modified++;
+    const [layer] = evaluate(p, s(2));
+    const samples = layer.extras.motion;
+    expect(layer).toMatchObject({ scale: 0.5 });
+    expect(layer.x).toBeCloseTo(0.25);
+    for (const m of samples) expect(m.scale).toBeCloseTo(0.5);
+    // The samples straddle the clip's place, half as far apart as outside the compound.
+    const mid = samples[Math.floor(samples.length / 2)];
+    expect(mid.x).toBeCloseTo(0.25, 2);
+    expect(samples.at(-1).x - samples[0].x).toBeGreaterThan(0);
+    expect(samples.at(-1).x - samples[0].x).toBeLessThan(0.02);
   });
 });
