@@ -178,6 +178,40 @@ describe('style tab', () => {
     insp.dispose();
   });
 
+  it('keeps a running restyle and its picture across tab changes, and imports the picture once', async () => {
+    const { insp, ctx, store } = env();
+    let finish;
+    ctx.restyleServices.restyle = vi.fn(() => new Promise((r) => (finish = () => r({ blob: new Blob(['r'], { type: 'image/png' }) }))));
+    const importFile = vi.spyOn(ctx.library, 'importFile');
+    const tab = (name) => [...insp.el.querySelectorAll('[role=tab]')].find((t) => t.textContent === name).click();
+    [...insp.el.querySelectorAll('.restyle-chip')].find((b) => b.textContent === 'Graphite').click();
+    button(insp.el, 'Restyle').click();
+    await vi.waitFor(() => expect(finish).toBeTruthy());
+    // Leaving and coming back shows the same job, and it cannot be started again.
+    tab('Animation');
+    tab('Style');
+    [...insp.el.querySelectorAll('.restyle-chip')].find((b) => b.textContent === 'Graphite').click();
+    expect(button(insp.el, 'Restyle').disabled).toBe(true);
+    button(insp.el, 'Restyle').click();
+    expect(ctx.restyleServices.restyle).toHaveBeenCalledTimes(1);
+    // The picture arrives while another tab is open and is there on return.
+    tab('Animation');
+    finish();
+    await new Promise((r) => setTimeout(r, 5));
+    tab('Style');
+    expect(insp.el.querySelector('.restyle-result img')).toBeTruthy();
+    const assets = Object.keys(store.project.assets).length;
+    button(insp.el, 'Save to media').click();
+    button(insp.el, 'Save to media').click();
+    button(insp.el, 'Add as clip').click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(importFile).toHaveBeenCalledTimes(1);
+    expect(Object.keys(store.project.assets).length).toBe(assets + 1);
+    insp.el.querySelector('[aria-label="Discard result"]').click();
+    expect(insp.el.querySelector('.restyle-result img')).toBeNull();
+    insp.dispose();
+  });
+
   it('adds a restyled picture as a new clip over the source', async () => {
     const { ctx, store, img } = env();
     const asset = normalizeAsset({ kind: 'image', name: 'r.png', width: 10, height: 10 });

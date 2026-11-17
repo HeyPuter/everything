@@ -131,6 +131,27 @@ function looksSection(view) {
   });
 }
 
+// A restyle is slow and paid for: its job and its result belong to the clip, not to the tab
+// that asked, so leaving the tab and coming back neither loses the picture nor starts it twice.
+const restyleJobs = new Map(); // clip id -> promise of { blob, styleId }
+const restyleResults = new Map(); // clip id -> { blob, url, styleId, assetId, pending }
+const RESULTS_KEPT = 4;
+
+function keepResult(id, result) {
+  dropResult(id);
+  restyleResults.set(id, result);
+  for (const old of restyleResults.keys()) {
+    if (restyleResults.size <= RESULTS_KEPT) break;
+    dropResult(old);
+  }
+}
+
+function dropResult(id) {
+  const r = restyleResults.get(id);
+  if (r) URL.revokeObjectURL(r.url);
+  restyleResults.delete(id);
+}
+
 function restyleSection(view) {
   const { ctx, store } = view;
   if (!aiAvailable(ctx)) {
@@ -138,8 +159,10 @@ function restyleSection(view) {
     return propSection('AI restyle', [note('AI restyle redraws the picture with Puter AI, so it needs a Puter account.', 'user'), btn]);
   }
   let style = null;
+  const clipId = `${store.project.id}:${view.id}`;
   let busy = false;
-  let result = null; // { blob, url, styleId, assetId }
+  let acting = false;
+  let result = restyleResults.get(clipId) || null;
   const chips = RESTYLE_STYLES.map((s) => {
     const b = h('button.restyle-chip', { type: 'button', 'aria-pressed': 'false' }, s.label);
     b.addEventListener('click', () => {
@@ -156,19 +179,28 @@ function restyleSection(view) {
   prompt.addEventListener('input', () => sync());
 
   const clearResult = () => {
-    if (result) URL.revokeObjectURL(result.url);
+    dropResult(clipId);
     result = null;
     out.replaceChildren();
   };
 
   async function toMedia() {
-    if (result.assetId && store.project.assets[result.assetId]) return store.project.assets[result.assetId];
-    const c = view.clip;
-    const file = new File([result.blob], restyleFileName(c?.name || store.project.assets[c?.assetId]?.name, result.styleId, result.blob.type || 'image/png'), { type: result.blob.type || 'image/png' });
-    const [asset] = await ctx.actions.importFiles([file], { origin: 'restyle' });
-    if (!asset) throw new Error("Couldn't add the picture to your media.");
-    result.assetId = asset.id;
-    return asset;
+    const r = result;
+    if (r.assetId && store.project.assets[r.assetId]) return store.project.assets[r.assetId];
+    // One import however many buttons ask for it.
+    r.pending ||= (async () => {
+      const c = view.clip;
+      const file = new File([r.blob], restyleFileName(c?.name || store.project.assets[c?.assetId]?.name, r.styleId, r.blob.type || 'image/png'), { type: r.blob.type || 'image/png' });
+      const [asset] = await ctx.actions.importFiles([file], { origin: 'restyle' });
+      if (!asset) throw new Error("Couldn't add the picture to your media.");
+      r.assetId = asset.id;
+      return asset;
+    })();
+    try {
+      return await r.pending;
+    } finally {
+      r.pending = null;
+    }
   }
 
   function renderResult() {
@@ -180,12 +212,17 @@ function restyleSection(view) {
     const drop = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Discard result', 'data-tip': 'Discard' }, icon('close', 14));
     const id = view.id;
     const act = (fn, done) => async () => {
+      // A second click while the picture is still being imported would use it twice.
+      if (acting) return;
+      acting = true;
       try {
         const asset = await toMedia();
         fn(asset);
         announce(done);
       } catch (err) {
         toast(err?.message || "Couldn't use the picture.", { kind: 'error' });
+      } finally {
+        acting = false;
       }
     };
     add.addEventListener('click', act((asset) => addRestyledClip(ctx, id, asset), 'Restyled picture added'));
@@ -195,28 +232,40 @@ function restyleSection(view) {
     out.replaceChildren(h('img', { src: result.url, alt: 'Restyled picture' }), h('div.restyle-actions', add, replace, save, drop));
   }
 
-  go.addEventListener('click', async () => {
-    const c = view.clip;
-    if (!c || busy) return;
+  /** Show a running job and take its picture when it is ready. */
+  async function follow(job) {
     busy = true;
     sync();
-    const svc = services(ctx);
     try {
-      status.replaceChildren(h('span.spinner'), c.type === 'video' ? 'Capturing the frame...' : 'Preparing the picture...');
-      const picture = await svc.picture(c, store.time);
-      status.replaceChildren(h('span.spinner'), 'Restyling... this can take a little while.');
-      const { blob } = await svc.restyle(picture, { prompt: prompt.value, style });
-      clearResult();
-      result = { blob, url: URL.createObjectURL(blob), styleId: style, assetId: null };
+      await job;
+      result = restyleResults.get(clipId) || null;
       renderResult();
       status.textContent = 'Done. Add it as a clip, replace the picture, or save it to your media.';
-      announce('Restyled picture ready');
-    } catch (err) {
+    } catch {
       status.replaceChildren();
-      toast(err?.message || "Couldn't restyle the picture.", { kind: 'error' });
     }
     busy = false;
     sync();
+  }
+
+  go.addEventListener('click', () => {
+    const c = view.clip;
+    if (!c || busy || restyleJobs.has(clipId)) return;
+    const svc = services(ctx);
+    const styleId = style;
+    const words = prompt.value;
+    status.replaceChildren(h('span.spinner'), c.type === 'video' ? 'Capturing the frame...' : 'Preparing the picture...');
+    const job = (async () => {
+      const picture = await svc.picture(c, store.time);
+      status.replaceChildren(h('span.spinner'), 'Restyling... this can take a little while.');
+      const { blob } = await svc.restyle(picture, { prompt: words, style: styleId });
+      keepResult(clipId, { blob, url: URL.createObjectURL(blob), styleId, assetId: null, pending: null });
+      announce('Restyled picture ready');
+    })();
+    restyleJobs.set(clipId, job);
+    // The job reports for itself: the tab that started it may be gone when it ends.
+    job.catch((err) => toast(err?.message || "Couldn't restyle the picture.", { kind: 'error' })).finally(() => restyleJobs.delete(clipId));
+    follow(job);
   });
 
   const what = h('p.field-hint');
@@ -228,6 +277,11 @@ function restyleSection(view) {
   }
   view.bind(sync);
   sync();
+  renderResult();
+  if (restyleJobs.has(clipId)) {
+    status.replaceChildren(h('span.spinner'), 'Restyling... this can take a little while.');
+    follow(restyleJobs.get(clipId));
+  }
   return propSection('AI restyle', [what, h('div.restyle-chips', { role: 'group', 'aria-label': 'Styles' }, chips), prompt, h('div.tts-actions', go), status, out]);
 }
 
