@@ -356,7 +356,21 @@ export function moveClip(project, id, target, opts = {}) {
     clip.start = origStart + dt;
     // Grouped clips move first so they never block the primary clip.
     const moving = new Set([id, ...others.map((o) => o.clip.id)]);
-    for (const o of others) o.clip.start += dt;
+    // An overlay moving together with the base clip it sits on follows that clip into its new
+    // slot (withRipple moves it there): shifting it here as well would move it twice.
+    const follows = new Set();
+    if (opts.ripple && opts.linkOverlays) {
+      const main = mainTrack(project);
+      const hosts = [...(dest.main ? [{ ...clip, start: origStart }] : []), ...others.filter((o) => o.track === main).map((o) => o.clip)];
+      const hosted = (c, track, start) => {
+        const host = hosts.find((b) => b.start <= start && start < clipEnd(b));
+        return Boolean(host) && (track.kind !== 'audio' || start + c.duration <= clipEnd(host) + 1000);
+      };
+      for (const o of others) if (o.track !== main && hosted(o.clip, o.track, o.clip.start)) follows.add(o.clip);
+      // The same for the dragged clip itself when a base clip under it moves along.
+      if (from !== main && dest === from && hosted(clip, from, origStart)) clip.start = origStart;
+    }
+    for (const o of others) if (!follows.has(o.clip)) o.clip.start += dt;
     for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
     if (dest.main && opts.ripple) {
       const index = mainInsertIndex(project, clip.start, clip.id);
