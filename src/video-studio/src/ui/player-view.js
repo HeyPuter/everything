@@ -174,6 +174,7 @@ export function createPlayerView(ctx) {
     announce(`Aspect ratio ${r.label}`);
   }
 
+  let layoutSig = '';
   function relayout() {
     const rect = stage.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -797,7 +798,15 @@ export function createPlayerView(ctx) {
     removeEdit.on('change', drawOverlay),
     store.on('change', () => {
       updateTime();
-      relayout();
+      // Laying the stage out again (measuring it, sizing every layer, redrawing rulers and
+      // guides) is only for a change of frame size or guides; every other edit, each step of a
+      // slider or handle drag among them, just redraws the selection's outline.
+      const s = store.project.settings;
+      const sig = `${s.width}x${s.height}|${s.ratio}|${JSON.stringify(store.project.guides ?? null)}`;
+      if (sig !== layoutSig) {
+        layoutSig = sig;
+        relayout();
+      } else drawOverlay();
       renderTimelineName();
     }),
   ];
