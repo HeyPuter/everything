@@ -73,6 +73,7 @@ export function soundClips(project) {
 }
 
 let previewTimer = 0;
+let stopWatching = null;
 
 /** Play a few seconds of the clip (from the playhead when it is over the clip) so the effect is heard. */
 export function previewClip(view, seconds = 3.5) {
@@ -83,13 +84,27 @@ export function previewClip(view, seconds = 3.5) {
   const t = store.time;
   const from = t >= c.start && t < c.start + c.duration - 0.5 * US ? t : c.start;
   store.seek(from);
-  player.play();
   clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => {
+  stopWatching?.();
+  player.play();
+  // The preview ends itself only while it is still the same playback: once the user pauses
+  // (and maybe plays again), the playback is theirs and is left alone.
+  const timer = setTimeout(() => {
+    stopWatching?.();
     if (!player.playing) return;
     player.pause();
     store.seek(from);
   }, seconds * 1000);
+  previewTimer = timer;
+  const off = player.on?.('play', ({ playing }) => {
+    if (playing) return;
+    clearTimeout(timer);
+    stopWatching?.();
+  });
+  stopWatching = () => {
+    stopWatching = null;
+    off?.();
+  };
   return true;
 }
 
