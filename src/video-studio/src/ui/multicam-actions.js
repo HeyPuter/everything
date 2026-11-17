@@ -119,11 +119,11 @@ export function createMulticamActions(ctx) {
         return null;
       }
       let made = null;
-      store.update('Create multi-camera clip', (proj) => {
+      const ok = store.update('Create multi-camera clip', (proj) => {
         made = createMulticam(proj, found.map((f) => f.clip.id), { starts: sync.starts, ...store.opts });
         return Boolean(made);
       });
-      if (!made) return null;
+      if (!made || !ok) return null;
       store.select(made.id);
       const n = found.length;
       const names = sync.unmatched.map((f) => T.clipLabel(store.project, f.clip));

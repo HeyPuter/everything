@@ -16,6 +16,7 @@ import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
 import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize, makeRoom } from './timeline.js';
 import { switchTimeline } from './timelines.js';
+import { MAX_COMPOUND_DEPTH, compoundDepth } from './project.js';
 
 /** Projects up to this much JSON keep a copy to roll back a failed step of a drag to. */
 const ROLLBACK_MAX = 1_000_000;
@@ -222,6 +223,16 @@ export class EditorStore extends Emitter {
     if (result === false) {
       cancel();
       return false;
+    }
+    // An edit that would nest compound clips deeper than a saved project holds is refused: the
+    // innermost contents would be gone the next time the project is opened.
+    if (opts.structural !== false && this.nest.length + compoundDepth(this.project.tracks) > MAX_COMPOUND_DEPTH) {
+      const was = before || (rollback ? JSON.parse(rollback) : null);
+      if (was && this.nest.length + compoundDepth(was.tracks) <= MAX_COMPOUND_DEPTH) {
+        cancel();
+        this.emit('limit', { kind: 'compound-depth', max: MAX_COMPOUND_DEPTH });
+        return false;
+      }
     }
     if (opts.structural !== false) {
       cleanupTransitions(this.project);

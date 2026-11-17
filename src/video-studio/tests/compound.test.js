@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
 import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips, MIN_CLIP } from '../src/model/timeline.js';
-import { normalizeProject, makeClip } from '../src/model/project.js';
+import { normalizeProject, makeClip, MAX_COMPOUND_DEPTH, compoundDepth } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 const RIPPLE = { ripple: true, linkOverlays: true };
@@ -433,3 +433,41 @@ describe('nested compound clips', () => {
     expect(rootClip(layer.clip)).toBe(outer);
   });
 });
+
+describe('nesting depth', () => {
+  it('refuses a compound clip deeper than a saved project keeps, so nothing is lost on reload', () => {
+    const p = fixture();
+    const [c] = onMain(p, clip('video', 0, 2));
+    const store = new EditorStore(p);
+    const limits = [];
+    store.on('limit', (d) => limits.push(d));
+    let id = c.id;
+    const nest = () => {
+      let made = null;
+      const ok = store.update('Create compound clip', (proj) => {
+        made = createCompound(proj, [id], RIPPLE);
+        return Boolean(made);
+      });
+      if (ok) id = made.id;
+      return ok;
+    };
+    for (let i = 0; i < MAX_COMPOUND_DEPTH; i++) expect(nest()).toBe(true);
+    expect(compoundDepth(store.project.tracks)).toBe(MAX_COMPOUND_DEPTH);
+    const steps = store.history.undoStack.length;
+    expect(nest()).toBe(false);
+    expect(limits).toEqual([{ kind: 'compound-depth', max: MAX_COMPOUND_DEPTH }]);
+    expect(compoundDepth(store.project.tracks)).toBe(MAX_COMPOUND_DEPTH);
+    expect(store.history.undoStack.length).toBe(steps);
+    // What is there survives saving and loading whole.
+    const media = (tracks) => tracks.flatMap((t) => t.clips.flatMap((x) => (x.type === 'compound' ? media(x.sequence.tracks) : [x.assetId])));
+    const back = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(media(back.tracks)).toEqual(media(store.project.tracks));
+    expect(media(back.tracks)).toHaveLength(1);
+    // Inside an open compound clip the levels above count too.
+    store.openCompound(id);
+    id = store.project.tracks.flatMap((t) => t.clips)[0].id;
+    expect(nest()).toBe(false);
+    expect(limits).toHaveLength(2);
+  });
+});
+

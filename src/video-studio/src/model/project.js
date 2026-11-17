@@ -547,6 +547,18 @@ function fitTransitions(track) {
   });
 }
 
+/** How deep compound clips nest: one inside another counts two. Deeper ones are not kept on load. */
+export const MAX_COMPOUND_DEPTH = 4;
+
+/** How deep the compound clips on these tracks nest (0 when there are none). */
+export function compoundDepth(tracks) {
+  let deepest = 0;
+  for (const t of tracks || []) {
+    for (const c of t.clips || []) if (c.type === 'compound') deepest = Math.max(deepest, 1 + compoundDepth(c.sequence?.tracks));
+  }
+  return deepest;
+}
+
 /** Tracks of a compound clip, validated against the project's media (nesting depth is limited). */
 function normSequence(raw, assets, depth) {
   const tracks = [];
@@ -559,7 +571,7 @@ function normSequence(raw, assets, depth) {
       if (!n || seen.has(n.id) || TRACK_KIND_FOR[n.type] !== t.kind) continue;
       if (n.assetId !== undefined && n.assetId !== null && !assetFits(n, assets)) continue;
       if (n.type === 'compound') {
-        if (depth >= 4) continue;
+        if (depth >= MAX_COMPOUND_DEPTH) continue;
         n.sequence = normSequence(n.sequence, assets, depth + 1);
         fitMulticam(n);
       }

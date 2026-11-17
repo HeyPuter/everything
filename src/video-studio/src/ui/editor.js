@@ -224,6 +224,10 @@ export class Editor {
     ctx.timeline.mounted?.();
     document.title = `${project.name} - Video Studio`;
     store.on('change', () => (document.title = `${store.project.name} - Video Studio`));
+    // The store refuses edits that would lose work when saved, and says which.
+    store.on('limit', ({ kind, max }) => {
+      if (kind === 'compound-depth') toast(`Compound clips can sit inside each other ${max} deep at most.`, { kind: 'info' });
+    });
     this._coverTimer = null;
     this._coverIdle = null;
     store.on('change', () => this._scheduleCover());

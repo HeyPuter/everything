@@ -419,10 +419,11 @@ export function createOrganizeActions(ctx) {
         return null;
       }
       let made = null;
-      store.update('Create compound clip', (p) => {
+      const ok = store.update('Create compound clip', (p) => {
         made = createCompound(p, T.expandGroups(p, ids), store.opts);
         return Boolean(made);
       });
+      if (!ok) made = null;
       if (made) {
         store.select(made.id);
         announce(`${made.name} created`);

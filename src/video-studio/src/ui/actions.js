@@ -518,11 +518,11 @@ export function createActions(ctx) {
     paste() {
       if (!clipboard.length) return;
       let pasted = [];
-      store.update('Paste', (p) => {
+      const ok = store.update('Paste', (p) => {
         pasted = T.pasteClips(p, clipboard, at(), store.opts);
         return pasted.length > 0;
       });
-      if (pasted.length) store.select(pasted.map((c) => c.id));
+      if (ok && pasted.length) store.select(pasted.map((c) => c.id));
     },
 
     hasClipboard: () => clipboard.length > 0,

@@ -129,11 +129,13 @@ export function createTimelineActions(ctx) {
     insert(id) {
       leaveCompounds();
       let clip = null;
-      store.update('Insert timeline', (p) => {
+      const ok = store.update('Insert timeline', (p) => {
         // Like media: onto the base track (rippling it when that is on), else the first track with room.
         clip = TL.insertTimeline(p, id, store.time, { ...store.opts, main: true });
         if (!clip) return false;
       });
+      // The store refused it (compound clips nested too deep) and has said so.
+      if (!ok && clip) return;
       if (clip) {
         store.select(clip.id);
         announce(`Inserted ${clip.name} as a compound clip`);
