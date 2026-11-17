@@ -680,10 +680,14 @@ function listPanel(ctx, opts) {
   function marks() {
     const t = store.time;
     let now = null;
+    // One pass over the clips, not a search of the whole project per caption: this runs on
+    // every edit, and on every playhead move while it is between captions.
+    const clips = new Map();
+    for (const track of store.project.tracks) for (const c of track.clips) if (rows.has(c.id)) clips.set(c.id, c);
     for (const [id, r] of rows) {
       r.row.classList.toggle('selected', store.selection.has(id));
-      const f = T.findClip(store.project, id);
-      if (f && t >= f.clip.start && t < T.clipEnd(f.clip)) now = id;
+      const c = clips.get(id);
+      if (c && t >= c.start && t < T.clipEnd(c)) now = id;
     }
     if (now !== current) {
       rows.get(current)?.row.classList.remove('current');
