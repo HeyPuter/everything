@@ -471,8 +471,12 @@ export class Player extends Emitter {
       if (el.paused) {
         if (Math.abs(el.currentTime - sec) > 0.03) this.pool.seek(entry, sec);
         el.play().catch(() => {});
-      } else if (Math.abs(el.currentTime - sec) > 0.2 * rate) {
-        this.pool.seek(entry, sec);
+      } else if (!el.seeking && Math.abs(el.currentTime - sec) > 0.2 * rate) {
+        // A seek takes time and playback goes on meanwhile: on a file that seeks slowly (long
+        // keyframe gaps, 4K) the element landed behind again, was sent after the clock again,
+        // and never caught up, so its sound stayed away until playback was stopped. It is
+        // aimed at where the clock will be when it lands, and not sent again while on its way.
+        this.pool.seek(entry, sec + this.pool.seekLead(entry) * rate);
         this.audioGraph.reset(entry);
       }
     } else {
@@ -503,8 +507,9 @@ export class Player extends Emitter {
       el.play().catch(() => {});
       return;
     }
-    if (Math.abs(drift) > 0.25 * Math.max(1, v)) {
-      this.pool.seek(entry, sec);
+    if (!el.seeking && Math.abs(drift) > 0.25 * Math.max(1, v)) {
+      // Aimed ahead by the time the seek takes, as in _drive.
+      this.pool.seek(entry, sec + this.pool.seekLead(entry) * v);
       this.audioGraph.reset(entry);
     }
     // Catch up over about half a second, within +-50% of the curve's speed.
