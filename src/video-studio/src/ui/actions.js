@@ -553,7 +553,7 @@ export function createActions(ctx) {
         audio = T.detachAudio(p, s.clip.id);
         return Boolean(audio);
       });
-      if (!audio) toast('This clip has no audio to extract.', { kind: 'info' });
+      if (!audio) toast(T.findClip(store.project, s.clip.id)?.track.locked ? 'Unlock the track to detach this clip\'s audio.' : 'This clip has no audio to extract.', { kind: 'info' });
       else announce('Audio extracted to its own track');
     },
 

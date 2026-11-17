@@ -811,7 +811,7 @@ export function soundCopy(project, clip) {
 /** Put a video clip's sound on its own audio clip and mute the original. */
 export function detachAudio(project, id) {
   const found = findClip(project, id);
-  if (!found || found.clip.type !== 'video') return null;
+  if (!found || found.clip.type !== 'video' || found.track.locked) return null;
   const { clip } = found;
   const audio = soundCopy(project, { ...clip, freeze: false });
   if (!audio) return null;
