@@ -191,3 +191,46 @@ describe('media worker failures', () => {
     service.dispose();
   });
 });
+
+describe('media files that could not be read', () => {
+  it('asks for the waveform again after a read that failed, instead of keeping it empty for good', async () => {
+    vi.useFakeTimers();
+    const made = workers();
+    const mediaBlob = vi.fn().mockRejectedValueOnce(new Error('Failed to fetch')).mockResolvedValue(new Blob(['audio']));
+    const service = new MediaService({ mediaBlob });
+    const changed = vi.fn();
+    service.on('peaks', changed);
+    expect(await service.peaks(video)).toMatchObject({ duration: 0 });
+    await vi.advanceTimersByTimeAsync(3000);
+    // The empty answer is dropped and the panel told, so the next ask reads the file again.
+    expect(changed).toHaveBeenCalledTimes(2);
+    const again = service.peaks(video);
+    await flush();
+    expect(mediaBlob).toHaveBeenCalledTimes(2);
+    const { id } = made[0].postMessage.mock.calls[0][0];
+    const peaks = { rate: 100, data: new Float32Array([0, 1]), duration: 1 };
+    made[0].onmessage({ data: { id, ok: true, result: peaks } });
+    expect(await again).toBe(peaks);
+    service.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for a missing file to be found, then reads it again', async () => {
+    vi.useFakeTimers();
+    workers();
+    const mediaBlob = vi.fn().mockRejectedValue(new Error('Media file missing: v.mp4'));
+    const service = new MediaService({ mediaBlob });
+    service.missing = new Set([video.hash]);
+    await service.peaks(video);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await service.peaks(video);
+    expect(mediaBlob).toHaveBeenCalledTimes(1);
+    service.missing = new Set();
+    service.forget(video.hash);
+    service.peaks(video);
+    await flush();
+    expect(mediaBlob).toHaveBeenCalledTimes(2);
+    service.dispose();
+  });
+});
+
