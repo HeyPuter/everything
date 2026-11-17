@@ -43,6 +43,10 @@ export async function reverseFile(blob, name, { onProgress, signal } = {}) {
   const check = () => {
     if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   };
+  // What a cancel or a failure has to let go of: the output's encoders, and decoded frames held for a slice.
+  let output = null;
+  let finished = false;
+  const open = new Set();
   try {
     const video = await input.getPrimaryVideoTrack();
     const audio = await input.getPrimaryAudioTrack();
@@ -51,7 +55,7 @@ export async function reverseFile(blob, name, { onProgress, signal } = {}) {
     const useMp4 = await canEncodeVideo('avc');
     const vCodec = useMp4 ? 'avc' : 'vp9';
     const aCodec = useMp4 ? 'aac' : 'opus';
-    const output = new Output({ format: useMp4 ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(), target: new BufferTarget() });
+    output = new Output({ format: useMp4 ? new Mp4OutputFormat({ fastStart: 'in-memory' }) : new WebMOutputFormat(), target: new BufferTarget() });
     const vSource = new VideoSampleSource({ codec: vCodec, bitrate: QUALITY_HIGH });
     output.addVideoTrack(vSource, { rotation: await video.getRotation?.().catch(() => 0) });
     let aSource = null;
@@ -83,17 +87,23 @@ export async function reverseFile(blob, name, { onProgress, signal } = {}) {
         const held = [];
         // Decoding starts at the span's keyframe; only this slice's frames are kept.
         for await (const sample of sink.samples(span.start, span.end)) {
-          if (sample.timestamp >= lo - 1e-6 && sample.timestamp <= hi + 1e-6) held.push(sample);
-          else sample.close();
+          if (sample.timestamp >= lo - 1e-6 && sample.timestamp <= hi + 1e-6) {
+            held.push(sample);
+            open.add(sample);
+          } else sample.close();
           if (sample.timestamp > hi + 1e-6) break;
         }
         for (let i = held.length - 1; i >= 0; i--) {
           const sm = held[i];
           const d = sm.duration || 1 / 30;
           const out = new VideoSample(sm.toVideoFrame(), { timestamp: Math.max(0, duration - sm.timestamp - d), duration: d });
-          await vSource.add(out);
-          out.close();
+          try {
+            await vSource.add(out);
+          } finally {
+            out.close();
+          }
           sm.close();
+          open.delete(sm);
           done++;
         }
         onProgress?.(Math.min(0.95, (done / totalFrames) * (audioOk ? 0.85 : 0.95)));
@@ -141,11 +151,15 @@ export async function reverseFile(blob, name, { onProgress, signal } = {}) {
       aSource.close();
     }
     await output.finalize();
+    finished = true;
     onProgress?.(1);
     const base = name.replace(/\.[^.]+$/, '');
     const type = useMp4 ? 'video/mp4' : 'video/webm';
     return new File([output.target.buffer], `${base} (reversed).${useMp4 ? 'mp4' : 'webm'}`, { type });
   } finally {
+    for (const sample of open) sample.close();
+    // Cancelled or failed part way: the encoders are closed now, not whenever they are collected.
+    if (output && !finished) await Promise.resolve().then(() => output.cancel()).catch(() => {});
     input.dispose();
   }
 }
