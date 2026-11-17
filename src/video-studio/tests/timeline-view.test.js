@@ -444,3 +444,22 @@ describe('timeline keyboard focus with Shift+Tab', () => {
     expect(document.activeElement).toBe(tracks);
   });
 });
+
+describe('track header buttons', () => {
+  it('keep keyboard focus when pressing one rebuilds the headers', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2));
+    const { store, tl } = mountTimeline(p);
+    const lock = () => tl.el.querySelector('.tl-header button[data-act="locked"]');
+    const first = lock();
+    first.focus();
+    first.click();
+    tl.render();
+    expect(store.project.tracks[0].locked).toBe(true);
+    expect(first.isConnected).toBe(false);
+    expect(document.activeElement).toBe(lock());
+    expect(lock().getAttribute('aria-label')).toMatch(/^Unlock/);
+    tl.dispose();
+  });
+});
+
