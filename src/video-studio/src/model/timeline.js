@@ -879,7 +879,21 @@ export function setTransition(project, id, transitionId, duration = 500_000) {
 
 /** Drop transitions whose clips no longer touch (after moves or deletes). */
 export function cleanupTransitions(project) {
-  for (const t of project.tracks) for (const c of t.clips) if (c.transition) clampTransition(project, c);
+  // One pass per track (this runs after every structural edit): looking each clip's neighbor
+  // up from the whole project made a long slideshow slower with every transition it had.
+  for (const t of project.tracks) {
+    if (!t.clips.some((c) => c.transition)) continue;
+    sortTrack(t);
+    for (let i = 0; i < t.clips.length; i++) {
+      const c = t.clips[i];
+      if (!c.transition) continue;
+      const next = t.clips[i + 1];
+      const touching = next && Math.abs(next.start - clipEnd(c)) <= 2000 && next.type !== 'compound' && c.type !== 'compound';
+      const max = touching ? Math.max(0, Math.min(c.duration, next.duration, 5 * US)) : 0;
+      if (max < MIN_TRANSITION) c.transition = null;
+      else c.transition.duration = Math.min(c.transition.duration, max);
+    }
+  }
 }
 
 /**
