@@ -9,7 +9,7 @@ import { icon } from '../../lib/icons.js';
 import { US, timecode } from '../../lib/time.js';
 import { sourceTimeAt } from '../../model/timeline.js';
 import { angleTracks, angleName, angleAt, visibleCuts } from '../../model/multicam.js';
-import { propSection, row, note, uidFor } from './common.js';
+import { propSection, row, note, uidFor, keepFocus } from './common.js';
 
 const THUMB_W = 160;
 const THUMB_H = 90;
@@ -149,7 +149,11 @@ export function multicamTab(view) {
       const go = h('button.icon-btn.small', { type: 'button', 'aria-label': `Go to ${timecode(at, fps)}`, 'data-tip': 'Go to' }, icon('arrowRight', 14));
       go.addEventListener('click', () => view.store.seek(at));
       const del = removable ? h('button.icon-btn.small', { type: 'button', 'aria-label': `Delete the cut at ${timecode(at, fps)}`, 'data-tip': 'Delete cut' }, icon('trash', 14)) : null;
-      del?.addEventListener('click', () => view.actions.removeMulticamCut(t, view.id));
+      // The list is rebuilt without this cut: focus goes to the cut that takes its place, or the one before.
+      del?.addEventListener('click', () => {
+        const at = [...cutList.children].indexOf(del.closest('li'));
+        keepFocus(() => view.actions.removeMulticamCut(t, view.id), () => cutList.children[at]?.querySelector('button:last-of-type'), () => cutList.children[at - 1]?.querySelector('button:last-of-type'), () => cutList.querySelector('button'));
+      });
       return h('li.mc-cut', h('span.mc-cut-time', removable ? timecode(at, fps) : 'Start'), h('span.mc-cut-num', String(angle + 1)), h('span.mc-cut-name', angleName(c, angle)), go, del);
     };
     cutList.replaceChildren(rowFor(c.in, first, false), ...cuts.map((x) => rowFor(x.t, x.angle, true)));
