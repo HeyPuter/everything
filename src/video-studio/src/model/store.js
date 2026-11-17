@@ -16,6 +16,7 @@ import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
 import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize, makeRoom } from './timeline.js';
 import { switchTimeline } from './timelines.js';
+import { angleTracks, fitMulticam } from './multicam.js';
 import { MAX_COMPOUND_DEPTH, compoundDepth } from './project.js';
 
 /** Projects up to this much JSON keep a copy to roll back a failed step of a drag to. */
@@ -38,7 +39,20 @@ function applyCompoundEdits(project, id, inner, opts) {
   const ripple = rippleResize(project, id, opts);
   // An untrimmed compound follows its contents; an existing shorter trim stays shorter.
   const toEnd = cc.in + cc.duration >= sequenceLength(cc.sequence) - 1;
+  const anglesBefore = cc.multicam ? angleTracks(cc).map((t) => t.id) : null;
   cc.sequence = { tracks: structuredClone(inner.tracks) };
+  if (anglesBefore) {
+    // Cuts and the sound source name angles by position: an angle deleted or moved inside
+    // shifts the others, so they are renumbered by track (cuts to a deleted angle go).
+    const now = angleTracks(cc).map((t) => t.id);
+    const to = anglesBefore.map((tid) => now.indexOf(tid));
+    const audio = cc.multicam.audio;
+    cc.multicam = {
+      cuts: cc.multicam.cuts.filter((c) => to[c.angle] >= 0).map((c) => ({ ...c, angle: to[c.angle] })),
+      audio: Number.isInteger(audio) ? Math.max(0, to[audio] ?? 0) : audio,
+    };
+    fitMulticam(cc);
+  }
   adoptProjectFields(project, inner);
   const len = sequenceLength(cc.sequence);
   if (!len) {
