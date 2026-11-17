@@ -45,15 +45,19 @@ export function sceneSplitTimes(clip, cuts, fps) {
 export function progressDialog(title, text) {
   const ac = new AbortController();
   const bar = h('span');
-  const msg = h('p.dialog-text', text);
+  // What it is doing is read out as it changes, and the bar says how far along it is.
+  const msg = h('p.dialog-text', { role: 'status' }, text);
+  const track = h('div.progress', { role: 'progressbar', 'aria-label': title, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, bar);
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title, body: h('div', msg, h('div.progress', bar)), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
+  const d = openDialog({ title, body: h('div', msg, track), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
   cancel.addEventListener('click', () => d.close());
   return {
     signal: ac.signal,
     set: (f, line) => {
-      bar.style.width = `${Math.round(Math.min(1, f) * 100)}%`;
-      if (line) msg.textContent = line;
+      const pct = Math.round(Math.max(0, Math.min(1, f || 0)) * 100);
+      bar.style.width = `${pct}%`;
+      track.setAttribute('aria-valuenow', String(pct));
+      if (line && msg.textContent !== line) msg.textContent = line;
     },
     close: () => d.close(),
   };
