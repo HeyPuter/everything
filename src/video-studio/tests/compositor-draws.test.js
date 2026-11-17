@@ -1,0 +1,111 @@
+// What the compositor draws for a frame, watched through a stand-in WebGL context:
+// where each quad is placed, which programs run, and how often a source is uploaded.
+import { describe, it, expect } from 'vitest';
+import { Compositor } from '../src/engine/compositor.js';
+import { evaluate } from '../src/engine/scene.js';
+import { createCompound } from '../src/model/compound.js';
+import { fixture, clip, onMain, s } from './helpers.js';
+
+function fakeGl(counts) {
+  return new Proxy({}, {
+    get(_, k) {
+      if (k === 'getParameter') return () => 33984;
+      if (k === 'isEnabled') return () => true;
+      if (k === 'getExtension') return () => null;
+      if (typeof k === 'string' && /^[A-Z0-9_]+$/.test(k)) return 1;
+      return () => {
+        counts[k] = (counts[k] || 0) + 1;
+        return {};
+      };
+    },
+  });
+}
+
+/** A compositor with no real context: records programs used and quads placed. */
+function fakeComp(resolve, W = 1920, H = 1080) {
+  const counts = {};
+  const c = Object.assign(Object.create(Compositor.prototype), { gl: fakeGl(counts), width: W, height: H, projW: W, projH: H, programs: new Map(), textures: new Map(), frame: 0, lost: false, resolve, curveTextures: new Map(), lutTextures: new Map() });
+  c.programsUsed = [];
+  c._program = (key) => {
+    c.programsUsed.push(key);
+    return { prog: {}, u: new Map() };
+  };
+  c.quads = [];
+  const matrix = Compositor.prototype._matrix;
+  c._matrix = (cx, cy, w, h, r) => {
+    c.quads.push({ cx, cy, w, h, r, projW: c.projW, projH: c.projH });
+    return matrix.call(c, cx, cy, w, h, r);
+  };
+  c.counts = counts;
+  return c;
+}
+
+const video = { key: 'vid:1', source: { tag: 'video' }, width: 1920, height: 1080, dynamic: true };
+const draw = (p, t, info = video, size = [1920, 1080]) => {
+  const c = fakeComp(() => info, ...size);
+  const layers = evaluate(p, s(t));
+  c.render(layers, { settings: p.settings, time: t });
+  return { c, layers };
+};
+
+describe('uploads', () => {
+  it('uploads a playing video once per frame, however often the frame draws it', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    a.keyframes.x = [{ t: 0, v: -0.2, ease: 'linear' }, { t: s(4), v: 0.2, ease: 'linear' }];
+    a.motionBlur = { on: true, amount: 50 };
+    const { c, layers } = draw(p, 3);
+    expect(layers[0].extras.motion.length).toBeGreaterThan(4);
+    expect(c.counts.texImage2D).toBe(1);
+    // The next frame uploads the next picture.
+    c.render(layers, { settings: p.settings, time: 3 });
+    expect(c.counts.texImage2D).toBe(2);
+
+    const q = fixture();
+    onMain(q, clip('video', 0, 4));
+    q.settings.background = { type: 'blur', blur: 0.5, color: '#000000' };
+    expect(draw(q, 1).c.counts.texImage2D).toBe(1);
+  });
+
+  it('enhances a still once, also behind a blurred backdrop', () => {
+    for (const type of ['color', 'blur']) {
+      const p = fixture();
+      Object.assign(p.settings, { width: 1080, height: 1920, background: { type, blur: 0.5, color: '#000000' } });
+      Object.assign(p.assets.img, { width: 1920, height: 1080 });
+      const [a] = onMain(p, clip('image', 0, 4));
+      a.enhance = { on: true, strength: 50 };
+      const c = fakeComp(() => ({ key: 'img:img', source: {}, width: 1920, height: 1080, version: 1 }), 1080, 1920);
+      const passes = [];
+      for (let f = 0; f < 3; f++) {
+        c.programsUsed.length = 0;
+        c.render(evaluate(p, s(1)), { settings: p.settings, time: 1 });
+        passes.push(c.programsUsed.filter((k) => k.startsWith('srcfx')).length);
+      }
+      expect(passes[0]).toBeGreaterThan(0);
+      expect(passes.slice(1)).toEqual([0, 0]);
+    }
+  });
+});
+
+describe('clips with effects', () => {
+  it('apply a separate width scale once', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    a.transform.sx = 0.5;
+    a.effects = [{ id: 'glitch', params: {}, on: true }];
+    const { c } = draw(p, 1);
+    const [inner, placed] = [c.quads[0], c.quads.at(-1)];
+    // Inside its buffer the clip fills it, unsqueezed.
+    expect(inner).toMatchObject({ w: 1920, h: 1080, projW: 1920, projH: 1080 });
+    // Placed, it is half as wide and as tall as the frame.
+    expect(placed).toMatchObject({ cx: 960, cy: 540, w: 960, h: 1080, projW: 1920, projH: 1080 });
+  });
+});
+
+describe('compound clips', () => {
+  it('stand-in exists so the helpers stay in use', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    expect(createCompound(p, [a.id], { ripple: true, linkOverlays: true })).toBeTruthy();
+  });
+});

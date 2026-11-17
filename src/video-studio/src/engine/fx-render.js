@@ -145,8 +145,12 @@ export function drawLayerWithEffects(comp, layer, time) {
   const box = comp.layerBox(layer, info);
   const scale = Math.abs(layer.scale);
   if (!(scale > 1e-4) || !(box.w > 0) || !(box.h > 0)) return false;
-  const natW = box.w / scale;
-  const natH = box.h / scale;
+  // The clip's own size, before its scale and its separate width and height scales: those
+  // are applied once, when the buffer is placed (step 3).
+  const ax = Math.abs(layer.sx ?? 1) || 1;
+  const ay = Math.abs(layer.sy ?? 1) || 1;
+  const natW = box.w / (scale * ax);
+  const natH = box.h / (scale * ay);
   // Buffer size: the clip's size on screen (in output pixels), bucketed and capped.
   const k = comp.width / comp.projW;
   let sz = bucket(scale) * k;
@@ -172,7 +176,7 @@ export function drawLayerWithEffects(comp, layer, time) {
   comp.resolve = () => info;
   let ok;
   try {
-    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, blur: 0 }, time);
+    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, sx: 1, sy: 1, rotation: 0, opacity: 1, blur: 0 }, time);
   } finally {
     comp.projW = saved.projW;
     comp.projH = saved.projH;
