@@ -355,6 +355,7 @@ export async function decodeClipSound(open, asset, clip, { maxSeconds = 1200, si
   const parts = [];
   let rate = src.sampleRate;
   let nch = 1;
+  let have = 0;
   try {
     for await (const chunk of src.read(from)) {
       if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
@@ -366,7 +367,17 @@ export async function decodeClipSound(open, asset, clip, { maxSeconds = 1200, si
       if (t1 <= from) continue;
       const a = Math.max(0, Math.round((from - t0) * rate));
       const b = Math.min(n, Math.round((to - t0) * rate));
-      if (b > a) parts.push(chunk.channels.map((c) => c.slice(a, b)));
+      if (b > a) {
+        // Sound that starts late or has a hole keeps its place: the gap becomes silence, so
+        // times measured in the result (beats, lyrics, lip movements) still match the clip.
+        const gap = Math.round((t0 + a / rate - from) * rate) - have;
+        if (gap > rate * 0.005) {
+          parts.push(chunk.channels.map(() => new Float32Array(gap)));
+          have += gap;
+        }
+        parts.push(chunk.channels.map((c) => c.slice(a, b)));
+        have += b - a;
+      }
       onProgress?.(Math.min(1, (t1 - from) / Math.max(1e-6, to - from)));
       if (t1 >= to) break;
     }
