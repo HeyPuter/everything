@@ -138,6 +138,8 @@ export function removeTab(view) {
 
   // --- Selected region: position (keyframes) and follow motion ------------------------
   let tracking = null; // { ac, index }
+  // Tracking stops with the tab: nothing is left on show to stop it or to say it finished.
+  view.scope.onDispose(() => tracking?.ac.abort());
   const progressBar = h('span');
   const progress = h('div.progress', { hidden: true }, progressBar);
   const trackStatus = h('p.asset-hint', { role: 'status' });
@@ -180,7 +182,7 @@ export function removeTab(view) {
       try {
         const n = await followRegion(view.ctx, view.id, i, { signal: ac.signal, onProgress: (p) => (progressBar.style.width = `${Math.round(p * 100)}%`) });
         trackStatus.textContent = n ? 'The region now follows the object. Adjust its position at any frame to fix the path.' : '';
-        announce('Region follows the object');
+        if (n) announce('Region follows the object');
       } catch (err) {
         trackStatus.textContent = err?.name === 'AbortError' ? 'Stopped.' : '';
         if (err?.name !== 'AbortError') toast(err?.message || 'Tracking failed.', { kind: 'error' });
