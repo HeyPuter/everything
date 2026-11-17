@@ -373,14 +373,19 @@ export class ClipFrames {
   }
 }
 
+/** Decoded pictures an export keeps ready when they are not on screen. */
+const IMAGES_KEPT = 6;
+
 /** Decoded media shared by the frame loop: one Input per video file, clip streams, images. */
-class MediaFrames {
+export class MediaFrames {
   constructor(project, library) {
     this.project = project;
     this.library = library;
     this.inputs = new Map(); // assetId -> Promise<{ input, track }>
     this.clips = new Map(); // clipId -> ClipFrames
     this.images = new Map(); // assetId -> ImageBitmap
+    this.imageSeen = new Map(); // assetId -> the frame it was last drawn in
+    this.frame = 0;
     this.used = new Set();
     this.resolved = new Map(); // clipId -> texture info for the current frame
   }
@@ -419,6 +424,7 @@ class MediaFrames {
 
   /** Decode whatever the layers need for this frame. */
   async prepare(layers) {
+    this.frame++;
     this.used.clear();
     this.resolved.clear();
     const want = async (layer) => {
@@ -431,6 +437,7 @@ class MediaFrames {
       const { clip, asset } = layer;
       if (clip.type === 'image') {
         const bmp = await this._image(asset);
+        this.imageSeen.set(asset.id, this.frame);
         this.resolved.set(clip.id, { key: `img:${asset.id}`, source: bmp, width: bmp.width, height: bmp.height, version: 1 });
         return;
       }
@@ -453,6 +460,18 @@ class MediaFrames {
       if (this.used.has(id)) continue;
       await stream.close();
       this.clips.delete(id);
+    }
+    // Decoded pictures are big (a 12 megapixel photo is about 48 MB): a slideshow of hundreds
+    // kept every one until the export ended. Beyond a few, the ones not drawn longest go; one
+    // that comes back (a logo on every other clip) is decoded again.
+    if (this.images.size > IMAGES_KEPT) {
+      const idle = [...this.images.keys()].filter((id) => this.imageSeen.get(id) !== this.frame).sort((a, b) => (this.imageSeen.get(a) || 0) - (this.imageSeen.get(b) || 0));
+      for (const id of idle) {
+        if (this.images.size <= IMAGES_KEPT) break;
+        this.images.get(id).close?.();
+        this.images.delete(id);
+        this.imageSeen.delete(id);
+      }
     }
   }
 
