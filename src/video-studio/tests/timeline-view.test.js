@@ -463,3 +463,28 @@ describe('track header buttons', () => {
   });
 });
 
+describe('touch drags', () => {
+  it('move a grouped clip together with its group, though a finger selects one clip', async () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 6));
+    const [a, b] = [clip('text', 0, 1), clip('sticker', 1, 1)];
+    T.addClip(p, a, { ripple: false });
+    T.addClip(p, b, { ripple: false });
+    T.groupClips(p, [a.id, b.id]);
+    const { store, tl, tracks, node } = mountTimeline(p);
+    store.setToggle('snap', false);
+    tracks.setPointerCapture = () => {};
+    const touch = (target, type, x) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: 0, pointerId: 7, pointerType: 'touch', button: 0, buttons: type === 'pointerup' ? 0 : 1, isPrimary: true }));
+    const x0 = 16 + 10;
+    touch(node(a.id), 'pointerdown', x0);
+    await new Promise((r) => setTimeout(r, 400));
+    expect([...store.selection]).toEqual([a.id]);
+    touch(tracks, 'pointermove', x0 + 2 * tl.pps);
+    touch(tracks, 'pointerup', x0 + 2 * tl.pps);
+    const start = (id) => T.findClip(store.project, id).clip.start;
+    expect(start(a.id)).toBe(s(2));
+    expect(start(b.id)).toBe(s(3));
+    tl.dispose();
+  });
+});
+

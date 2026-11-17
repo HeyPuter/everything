@@ -1044,14 +1044,16 @@ export function createTimeline(ctx) {
     tracksEl.addEventListener('pointercancel', up);
   }
 
-  function startMove(e, id, p0) {
+  function startMove(e, id, p0, { withGroup = false } = {}) {
     const { clip, track } = T.findClip(store.project, id);
     const kind = track.kind;
+    // A finger picks one clip (the phone's clip tools are for one), but a group still moves as one.
+    const group = withGroup ? new Set(T.groupMembers(store.project, id)) : null;
     // Where each moving clip starts, found in one pass (selections can hold thousands of clips).
     const starts = new Map();
     for (const t of store.project.tracks) {
       if (t.locked) continue;
-      for (const c of t.clips) if (store.selection.has(c.id) || c.id === id) starts.set(c.id, c.start);
+      for (const c of t.clips) if (store.selection.has(c.id) || c.id === id || group?.has(c.id)) starts.set(c.id, c.start);
     }
     const moving = [...starts.keys()];
     const exclude = new Set(moving);
@@ -1279,7 +1281,7 @@ export function createTimeline(ctx) {
         if (!store.selection.has(id)) store.select(id);
         navigator.vibrate?.(8);
         holdTouch(pointerId);
-        startMove(e, id, p);
+        startMove(e, id, p, { withGroup: true });
       },
     });
     press = lp;
