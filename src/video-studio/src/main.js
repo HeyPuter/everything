@@ -61,6 +61,9 @@ function showHome() {
 }
 
 async function openProject(id, files) {
+  // Asked for while an editor is open (an old "Open" button on a Home message): its last
+  // edits are saved first, and the user can stay when they cannot be.
+  if (view?.prepareToLeave && !view._disposed && !(await view.prepareToLeave())) return;
   view?.dispose?.();
   loading('Opening project...');
   let project;
@@ -250,6 +253,11 @@ async function openReview(link) {
       return;
     }
     await view.saveCover?.();
+    // An edit made while the cover was saved is saved as well.
+    if (view.store?.dirty && !(await view.prepareToLeave())) {
+      history.replaceState(null, '', `#project=${encodeURIComponent(view.store.project.id)}`);
+      return;
+    }
   }
   view?.dispose?.();
   loading('Opening review...');
