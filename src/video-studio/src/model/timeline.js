@@ -863,7 +863,7 @@ function clampTransition(project, clip) {
 
 export function setTransition(project, id, transitionId, duration = 500_000) {
   const found = findClip(project, id);
-  if (!found || (found.clip.type !== 'video' && found.clip.type !== 'image')) return false;
+  if (!found || found.track.locked || (found.clip.type !== 'video' && found.clip.type !== 'image')) return false;
   if (!transitionId) {
     found.clip.transition = null;
     return true;

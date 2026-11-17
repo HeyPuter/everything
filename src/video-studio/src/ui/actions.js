@@ -226,10 +226,15 @@ export function createActions(ctx) {
       const f = FILTERS.find((x) => x.id === filterId);
       const target = opts.toClip ?? store.selected?.clip;
       if (target && (target.type === 'video' || target.type === 'image') && !opts.asTrack) {
-        store.update(`Apply ${f?.label || 'filter'}`, (p) => {
-          const c = T.findClip(p, target.id)?.clip;
-          if (c) c.filter = filterId ? { id: filterId, intensity: c.filter?.intensity ?? 100 } : null;
+        const ok = store.update(`Apply ${f?.label || 'filter'}`, (p) => {
+          const found = T.findClip(p, target.id);
+          if (!found || found.track.locked) return false;
+          found.clip.filter = filterId ? { id: filterId, intensity: found.clip.filter?.intensity ?? 100 } : null;
         });
+        if (ok === false) {
+          toast('Unlock the track to change this clip.', { kind: 'info' });
+          return null;
+        }
         announce(filterId ? `${f?.label} applied to clip` : 'Filter removed');
         return null;
       }
@@ -279,6 +284,10 @@ export function createActions(ctx) {
         toast('Add a transition between two clips that touch on the same track.', { kind: 'info' });
         return false;
       }
+      if (T.findClip(p, clipId)?.track.locked) {
+        toast('Unlock the track to change this transition.', { kind: 'info' });
+        return false;
+      }
       const tr = TRANSITIONS.find((x) => x.id === transitionId);
       const ok = store.update(transitionId ? `Add ${tr?.label || 'transition'}` : 'Remove transition', (proj) => T.setTransition(proj, clipId, transitionId, opts.duration ?? defaultLength.transition()));
       if (!ok) toast('These clips are too short for a transition.', { kind: 'info' });
@@ -287,8 +296,9 @@ export function createActions(ctx) {
     },
 
     applyTransitionToAll(transitionId, duration = defaultLength.transition()) {
-      store.update('Apply transition to all', (p) => {
+      return store.update('Apply transition to all', (p) => {
         const main = T.mainTrack(p);
+        if (!main || main.locked) return false;
         for (const c of main.clips) if (T.canTransition(p, c)) T.setTransition(p, c.id, transitionId, duration);
       });
     },
@@ -300,10 +310,16 @@ export function createActions(ctx) {
         toast('Select a video, image, text or graphic clip first.', { kind: 'info' });
         return false;
       }
+      if (T.findClip(store.project, s.clip.id)?.track.locked) {
+        toast('Unlock the track to change this clip.', { kind: 'info' });
+        return false;
+      }
       const key = kind === 'in' ? 'animIn' : kind === 'out' ? 'animOut' : 'animLoop';
       const def = kind === 'loop' ? 2 * US : defaultLength.animation();
       return store.update(animId ? 'Add animation' : 'Remove animation', (p) => {
-        const c = T.findClip(p, s.clip.id).clip;
+        const found = T.findClip(p, s.clip.id);
+        if (!found || found.track.locked) return false;
+        const c = found.clip;
         if (!animId) c[key] = null;
         else {
           c[key] = { id: animId, duration: Math.min(duration ?? c[key]?.duration ?? def, c.duration) };

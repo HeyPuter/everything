@@ -589,3 +589,31 @@ describe('reverse', () => {
     document.body.replaceChildren();
   });
 });
+
+describe('locked tracks', () => {
+  it('refuses filter, animation and transition changes on a locked track', () => {
+    const { store, actions, main } = setup(clip('video', 0, 4), clip('video', 4, 4));
+    const [a] = main().clips;
+    actions.addFilter('mono', { toClip: a });
+    actions.applyTransition('mix', { clipId: a.id });
+    store.select(a.id);
+    actions.applyAnimation('in', 'fade-in');
+    expect(main().clips[0].filter).toBeTruthy();
+    expect(main().clips[0].transition).toBeTruthy();
+    expect(main().clips[0].animIn).toBeTruthy();
+    store.update('Lock track', (p) => { mainTrack(p).locked = true; });
+    const before = JSON.stringify(main().clips);
+    const steps = store.history.undoStack.length;
+
+    actions.addFilter(null, { toClip: main().clips[0] });
+    actions.applyTransition(null, { clipId: a.id });
+    actions.applyTransition('wipe-left', { clipId: a.id });
+    expect(actions.applyTransitionToAll('mix')).toBe(false);
+    expect(actions.applyAnimation('in', null)).toBe(false);
+    expect(actions.applyAnimation('loop', 'pulse')).toBe(false);
+
+    expect(JSON.stringify(main().clips)).toBe(before);
+    expect(store.history.undoStack.length).toBe(steps);
+    expect(toasts().some((t) => /Unlock the track/.test(t))).toBe(true);
+  });
+});
