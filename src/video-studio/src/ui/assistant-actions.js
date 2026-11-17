@@ -66,6 +66,9 @@ function setConstant(c, prop, set) {
  * function that makes its edits; the analysis runs outside the request's
  * undo step, so what the user does meanwhile stays a step of its own.
  */
+/** The assistant does not duplicate past this many clips on a timeline. */
+const MAX_ASSISTANT_CLIPS = 2000;
+
 export function createAssistantRunner(ctx, deps = {}) {
   const { store, actions } = ctx;
   const d = { prepareCaptions, findSilences, ...deps };
@@ -140,6 +143,9 @@ export function createAssistantRunner(ctx, deps = {}) {
     },
 
     duplicate_clips({ ids }) {
+      // Doubling "all" clips a few times over would grow the project until the page stops answering.
+      const count = T.allClips(store.project).length;
+      if (count + ids.length > MAX_ASSISTANT_CLIPS) return fail('duplicate_clips', `that would make more than ${MAX_ASSISTANT_CLIPS} clips on the timeline`);
       const made = [];
       store.update('Duplicate', (p) => {
         for (const id of ids) {

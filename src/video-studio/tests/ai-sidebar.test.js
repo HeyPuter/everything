@@ -6,7 +6,7 @@ import { mainTrack, findClip, allClips } from '../src/model/timeline.js';
 import { createAiToolRunner } from '../src/ui/ai-tool-runner.js';
 import { addTimeline } from '../src/model/timelines.js';
 import { createCompound } from '../src/model/compound.js';
-import { createAgent, requestMessages, userContent, userText, suggestions, SYSTEM_PROMPT, MAX_ROUNDS } from '../src/media/ai-agent.js';
+import { createAgent, requestMessages, userContent, userText, suggestions, SYSTEM_PROMPT, MAX_ROUNDS, MAX_CALLS_PER_REPLY } from '../src/media/ai-agent.js';
 import { TOOLS, toolSpecs, changesProject, costly, describeCall, mediaBrief, projectSnapshot } from '../src/media/ai-tools.js';
 import { txt2vidOptions, fitSeconds, videoAspectFor, generateVideo, cleanAiTemp, videoBlobFrom, videoErrorMessage, modelForFrames, estimateCents, formatCents, modelSummary, VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from '../src/media/ai-video.js';
 import { txt2imgOptions, IMAGE_MODELS } from '../src/media/imagegen.js';
@@ -711,6 +711,22 @@ describe('AI sidebar conversation', () => {
     await agent.send('loop', (e) => e.type === 'text' && texts.push(e.text));
     expect(chat).toHaveBeenCalledTimes(MAX_ROUNDS);
     expect(texts.join('')).toMatch(/say "continue"/i);
+  });
+
+  it('runs only so many steps of one reply and answers the rest as not run', async () => {
+    let round = 0;
+    const chat = vi.fn(() => (async function* () {
+      if (round++ === 0) for (let i = 0; i < MAX_CALLS_PER_REPLY + 5; i++) yield call('get_project', {});
+      else yield { type: 'text', text: 'Done.' };
+    })());
+    const runTool = vi.fn(async () => ({ ok: true, content: 'state' }));
+    const agent = createAgent({ chat, runTool, describe: describeIt, approve: vi.fn() });
+    await agent.send('do a lot', () => {});
+    expect(runTool).toHaveBeenCalledTimes(MAX_CALLS_PER_REPLY);
+    // Every call still has its answer, so the conversation stays well formed.
+    const tools = agent.messages.filter((m) => m.role === 'tool');
+    expect(tools).toHaveLength(MAX_CALLS_PER_REPLY + 5);
+    expect(tools.at(-1).content).toMatch(/Not run: a reply can run/);
   });
 
   it('quotes a closing tag written into the project, and cuts old turns down', () => {

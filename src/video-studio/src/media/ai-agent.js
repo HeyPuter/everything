@@ -32,6 +32,8 @@ export const DEFAULT_APPROVAL = 'video';
 export const MAX_ROUNDS = 24;
 /** The most one model reply may write, its tool calls' arguments included. */
 export const MAX_OUTPUT_TOKENS = 16000;
+/** Steps one reply may run; more than this in a single reply are answered as not run. */
+export const MAX_CALLS_PER_REPLY = 32;
 const CUT_CALL = `Error: not run. Your reply reached the output limit (${MAX_OUTPUT_TOKENS.toLocaleString('en-US')} tokens) while you were writing this call, so its arguments were cut off. Do the work in smaller pieces.`;
 const CUT_AFTER = `Note: your reply reached the output limit (${MAX_OUTPUT_TOKENS.toLocaleString('en-US')} tokens) after this call and was cut off there; anything you wrote after it, other calls included, was lost. Work in smaller pieces.`;
 const CUT_TEXT = '[My reply was cut off here: it reached the output limit.]';
@@ -270,13 +272,18 @@ export function createAgent({ chat, runTool, describe, approve, snapshot = () =>
           if (empty) emit({ type: 'text', text });
           return { stopped: false, cut, steps, ...(empty ? { empty: true } : {}) };
         }
-        for (const call of calls) {
+        for (const [n, call] of calls.entries()) {
           const step = { id: call.id, name: call.name, args: call.input, status: 'running', ...safeDescribe(describe, call) };
           steps.push(step);
           let content;
           if (run.stopped) {
             step.status = 'skipped';
             content = 'Not run: the user stopped the assistant.';
+          } else if (n >= MAX_CALLS_PER_REPLY) {
+            // One reply asking for a great many steps is a runaway (or text it read steering it):
+            // the rest wait for the next reply, where what the first ones did can be seen.
+            step.status = 'skipped';
+            content = `Not run: a reply can run ${MAX_CALLS_PER_REPLY} steps at most. Look at the project as it is now, then ask for what is still needed.`;
           } else if (call.cut) {
             step.status = 'error';
             step.error = 'The reply reached its length limit while writing this step, so it was not run.';
