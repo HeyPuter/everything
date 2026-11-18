@@ -87,7 +87,7 @@ export async function reframePlan(c, asset, blob, { dstAR, follow = 0.35, zoom =
   const scale = coverScale(srcAR, dstAR, zoom);
   const toCrop = (pt) => ({ ...pt, x: (pt.x - crop.l) / cw, y: (pt.y - crop.t) / ch });
   let path;
-  if (c.type === 'image' || c.freeze) {
+  if (c.type === 'image') {
     const bmp = await createImageBitmap(blob);
     const cv = new OffscreenCanvas(RF_W, RF_H);
     const g = cv.getContext('2d', { willReadFrequently: true });
@@ -95,6 +95,10 @@ export async function reframePlan(c, asset, blob, { dstAR, follow = 0.35, zoom =
     bmp.close?.();
     const a = attentionCenter(g.getImageData(0, 0, RF_W, RF_H).data, RF_W, RF_H);
     path = [{ t: 0, x: a.x, y: a.y }];
+  } else if (c.freeze) {
+    // A held frame still belongs to a video file. Decode that source instant
+    // once, then keep its framing stationary for the whole freeze clip.
+    path = (await attentionPath(blob, c.in, c.in + 1, { signal, onProgress })).map((pt) => ({ ...pt, t: 0 }));
   } else {
     const span = sourceSpan(c);
     const fps = Math.min(2, 240 / Math.max(1, span / US));
