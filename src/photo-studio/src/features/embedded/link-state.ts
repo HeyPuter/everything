@@ -11,6 +11,9 @@ export type LinkStatus = 'current' | 'modified' | 'unavailable';
 // File handles and status are page state: never saved, keyed by contents ID.
 export const handles = new Map<string, FileHandle>();
 export const statuses = new Map<string, LinkStatus>();
+// Size and date of local files found unchanged in content (touched, saved
+// again with the same bytes): the focus check compares with these.
+export const confirmed = new Map<string, { size: number; modified: number }>();
 // Readers for link kinds other features provide (library graphics), so this
 // feature does not load theirs.
 export const linkReaders: { library?: (c: EmbeddedContents) => Promise<Blob | undefined> } = {};
@@ -45,7 +48,8 @@ export function watchLinks(e: Editor) {
         if (!handle || c.link!.kind !== 'local') continue;
         try {
           const f = await handle.getFile();
-          const next: LinkStatus = f.size !== c.link!.size || f.lastModified !== c.link!.modified ? 'modified' : 'current';
+          const known = confirmed.get(c.id) ?? c.link!;
+          const next: LinkStatus = f.size !== known.size || f.lastModified !== known.modified ? 'modified' : 'current';
           if (statuses.get(c.id) !== next) changed = true;
           statuses.set(c.id, next);
         } catch {

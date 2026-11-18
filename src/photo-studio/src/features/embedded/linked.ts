@@ -11,7 +11,7 @@ import { formDialog } from '../../ui/dialog';
 import { download } from '../../persistence/puter';
 import { contentsFromFile, fittedTransform, insertInstance, instanceLayer, plainContents, setContents } from './contents';
 import { contentsFile, contentsFormats, fileAccept, pickLocalFiles, selectedObject } from './convert';
-import { handles, linkedIn, linkReaders, statuses, type FileHandle } from './link-state';
+import { confirmed, handles, linkedIn, linkReaders, statuses, type FileHandle } from './link-state';
 
 export { hasLinked, linkStatus, linkStatusText, watchLinks, type LinkStatus } from './link-state';
 type Picker = (options?: { multiple?: boolean }) => Promise<FileHandle[]>;
@@ -110,8 +110,11 @@ export async function updateModified(e: Editor, all: boolean) {
     const hash = await sha256(blob);
     if (hash === c.link!.hash) {
       statuses.set(c.id, 'current');
+      // Touched but not changed: later checks compare with this date.
+      if (blob instanceof File) confirmed.set(c.id, { size: blob.size, modified: blob.lastModified });
       continue;
     }
+    confirmed.delete(c.id);
     const next = await contentsFromFile(e, doc, e.assets, blob, c.link!.name);
     updates.push({ ...next, id: c.id, name: c.name, link: { ...c.link!, size: blob.size, modified: blob instanceof File ? blob.lastModified : Date.now(), hash } });
   }
@@ -135,6 +138,7 @@ export async function relink(e: Editor) {
     const id = old?.id ?? next.id;
     if (picked.handle) handles.set(id, picked.handle);
     else handles.delete(id);
+    confirmed.delete(id);
     statuses.set(id, 'current');
     e.command('Relink to File', (d) => {
       const t = findLayer(d.layers, l.id);
@@ -185,11 +189,11 @@ export async function convertToLinked(e: Editor) {
   ], 'Save and Link', `The contents of “${c.name}” are written to a file and the object links to it; edit the file elsewhere and use Update Modified Content to bring changes in.`);
   if (!v) return;
   const file = await contentsFile(e, c, v.format);
-  const link = async (kind: 'local' | 'puter', name: string, path?: string, handle?: FileHandle) => {
+  const link = async (kind: 'local' | 'puter', name: string, path?: string, handle?: FileHandle, written?: File) => {
     const id = existing?.id ?? c.id;
     if (handle) handles.set(id, handle);
     statuses.set(id, kind === 'local' && !handle ? 'unavailable' : 'current');
-    const embedLink = await linkFor(kind, file.blob, name, path);
+    const embedLink = await linkFor(kind, written ?? file.blob, name, path);
     e.command('Convert to Linked', (d) => {
       const t = findLayer(d.layers, l.id);
       if (!t) return;
@@ -224,7 +228,8 @@ export async function convertToLinked(e: Editor) {
       const w = await handle.createWritable();
       await w.write(file.blob);
       await w.close();
-      await link('local', handle.name || file.name, undefined, handle);
+      // The link records the written file's own date, which the focus check compares.
+      await link('local', handle.name || file.name, undefined, handle, await handle.getFile().catch(() => undefined));
       return;
     }
   }
