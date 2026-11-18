@@ -18,6 +18,8 @@ import { sanitizeStyle } from '../../model/layer-style';
 import { styleBoundsExpansion } from '../../imaging/effects/bounds';
 import { layerBounds } from '../../model/artboard';
 import { assertSize, cropDocument, type PhotoDocument } from '../../model/document';
+import { hasMask } from '../../model/masks';
+import type { RGBA8 } from '../../imaging/types';
 import { formDialog } from '../../ui/dialog';
 import { insertAboveSelection } from '../layers/insert';
 import { commitTarget, compositeRGBA, pixelTarget, toRGBA8 } from '../pixels';
@@ -299,7 +301,22 @@ async function definePattern(e: Editor) {
   if (!v) return;
   // The visible pixels of the selected layer, or of the image when no pixel layer is selected.
   const l = e.layer;
-  let img = l?.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, rect) : undefined;
+  let img: RGBA8 | undefined;
+  if (l?.kind === 'pixel' && l.pixels) {
+    const masked = !l.maskDisabled && (hasMask(l) || !!l.maskGrid || !!l.pixelMask);
+    if (!masked) img = readRGBA(e.assets.tiles, l.pixels, rect);
+    else {
+      // The mask decides what is visible: render the layer alone, without effects.
+      const samples = await e.renderer.layerPixels({ ...l, style: undefined }, doc, e.assets);
+      const all = toRGBA8(samples, doc.width, doc.height);
+      const data = new Uint8ClampedArray(rect.width * rect.height * 4);
+      img = { width: rect.width, height: rect.height, data };
+      for (let y = 0; y < rect.height; y++) {
+        const from = ((rect.y + y) * all.width + rect.x) * 4;
+        img.data.set(all.data.subarray(from, from + rect.width * 4), y * rect.width * 4);
+      }
+    }
+  }
   if (!img) {
     const all = await compositeRGBA(e);
     img = { width: rect.width, height: rect.height, data: new Uint8ClampedArray(rect.width * rect.height * 4) };
