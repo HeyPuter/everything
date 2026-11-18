@@ -3,7 +3,7 @@
 // app.recorder (the multitrack editor records armed tracks with it).
 //
 // app.recorder API:
-//   app.recorder.active                      true while opening input or recording
+//   app.recorder.active                      true while opening, recording, or finalizing
 //   await app.recorder.start(opts)           opens the input and starts capturing
 //     opts.doc        AudioFile to record into (Waveform mode); omit for external
 //     opts.at         frame to insert at (default doc.cursor)
@@ -149,21 +149,26 @@ export function createRecorder(app) {
         await new Promise((r) => setTimeout(r, 120));
         s.off();
         clearTimeout(s.timer);
-        session = null;
-        app.recording = false;
         if (!app.inputMetering) {
           engine.closeInput();
           app.meterInput?.(false);
         }
-        let channels = s.take.toChannels();
-        if (s.rate !== s.sampleRate && s.take.length) channels = await resampleChannels(channels, s.rate, s.sampleRate);
-        const frames = channels[0]?.length ?? 0;
-        if (s.doc) commit(s, channels);
-        app.emit('transport', 'stopped');
-        const secs = frames / s.sampleRate;
-        app.setStatus(frames ? `Recorded ${secs.toFixed(1)} seconds` : 'Recording stopped');
-        announce(frames ? `Recording stopped, ${secs.toFixed(1)} seconds` : 'Recording stopped');
-        return { channels, sampleRate: s.sampleRate, frames, latencyFrames: s.latencyFrames, doc: s.doc };
+        // Keep ownership until conversion and commit finish. Another Record or
+        // Stop during the asynchronous DSP load still belongs to this take.
+        try {
+          let channels = s.take.toChannels();
+          if (s.rate !== s.sampleRate && s.take.length) channels = await resampleChannels(channels, s.rate, s.sampleRate);
+          const frames = channels[0]?.length ?? 0;
+          if (s.doc) commit(s, channels);
+          const secs = frames / s.sampleRate;
+          app.setStatus(frames ? `Recorded ${secs.toFixed(1)} seconds` : 'Recording stopped');
+          announce(frames ? `Recording stopped, ${secs.toFixed(1)} seconds` : 'Recording stopped');
+          return { channels, sampleRate: s.sampleRate, frames, latencyFrames: s.latencyFrames, doc: s.doc };
+        } finally {
+          session = null;
+          app.recording = false;
+          app.emit('transport', 'stopped');
+        }
       })();
       return s.stopping;
     },
