@@ -29,7 +29,11 @@ self.onmessage = (e) => {
     }
   } else if (m.type === 'cancel') {
     const job = jobs.get(m.id);
-    if (job) job.cancelled = true;
+    if (job) {
+      job.cancelled = true;
+      for (const resume of job.waiting.values()) resume();
+      job.waiting.clear();
+    }
   }
 };
 
@@ -51,10 +55,18 @@ async function run({ id, graph, start, end, module, block = 8192 }) {
     const scratch = createScratch(block);
     const total = end - start;
     let lastProgress = 0;
+    let lastYield = performance.now();
     for (let at = start; at < end; at += block) {
+      // Cached chunks and silent tails only await resolved promises. Yield
+      // periodically to the task queue so incoming Cancel messages can run.
+      if (performance.now() - lastYield >= 32) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        lastYield = performance.now();
+      }
       if (job.cancelled) throw new Error('cancelled');
       const n = Math.min(block, end - at);
       await ensureChunks(id, job, graph, at, n);
+      if (job.cancelled) throw new Error('cancelled');
       const out = Array.from({ length: graph.surround ? 6 : 2 }, () => new Float32Array(n));
       renderBlock(graph, job.store, at, n, out, scratch, { runFx: host ? (chain, buf, f) => host.run(chain, buf, f) : null });
       self.postMessage({ type: 'data', id, at: at - start, channels: out }, out.map((c) => c.buffer));
