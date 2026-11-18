@@ -174,3 +174,24 @@ test('the Delete button of a tool preset row works from the keyboard instead of 
   await page.keyboard.press('Enter');
   await expect.poll(() => page.evaluate(() => window.photoStudio.tool)).toBe('brush');
 });
+
+test('the toolbar and menu editors keep the keyboard focus on the button used', async ({ page }) => {
+  await start(page, 'edit.toolbar');
+  const tbe = page.locator('dialog.toolbar-editor');
+  await tbe.locator('[data-slot-up="lasso"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(tbe.locator('[data-slot-up="lasso"]')).toBeFocused();
+  // Pressed again, it moves the same slot further up.
+  await page.keyboard.press('Enter');
+  await expect(tbe.locator('[data-slot-up="lasso"]')).toBeFocused();
+  await tbe.locator('[data-move-tool="lasso"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(tbe.locator('.tbe-extra [data-move-tool="lasso"]')).toBeFocused();
+  await tbe.locator('[data-tbe-cancel]').click();
+  await start(page, 'edit.menus');
+  const me = page.locator('dialog.menu-editor');
+  await me.locator('[data-menu-tab="2"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(me.locator('[data-menu-tab="2"]')).toBeFocused();
+  await expect(me.locator('[data-menu-tab="2"]')).toHaveAttribute('aria-selected', 'true');
+});

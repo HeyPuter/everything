@@ -7,6 +7,7 @@ import { EXTRA_SLOT, assignTool, slotOrder, slotTools, toolbarLayout, setToolbar
 import { menuSkeleton } from '../../app/menus';
 import { resolveMenu, withContributions, type Resolved } from '../../app/menubar';
 import { customizeItem, menuCustomization, menuTagColors, setMenuCustomization, type MenuCustomization, type MenuTag } from '../../app/menu-custom';
+import { keepFocus } from '../../ui/keep-focus';
 
 // Edit → Toolbar… and Edit → Menus…: dialogs that edit the toolbar layout and
 // the menu customization. Changes preview in the dialog and apply on Done.
@@ -47,7 +48,10 @@ export function openToolbarEditor(e: Editor) {
     draft = { ...draft, order };
     render();
   };
-  d.addEventListener('click', (ev) => {
+  // Buttons redraw the dialog: one used from the keyboard keeps the focus
+  // (on the same tool or slot in its new place).
+  d.addEventListener('click', (ev) => keepFocus(d, () => toolbarClick(ev)));
+  const toolbarClick = (ev: MouseEvent) => {
     const t = ev.target as HTMLElement;
     const move = t.closest<HTMLElement>('[data-move-tool]');
     if (move) {
@@ -65,7 +69,7 @@ export function openToolbarEditor(e: Editor) {
       draft = {};
       render();
     } else if (t.closest('[data-tbe-cancel]')) d.close();
-  });
+  };
   let dragging: { tool?: string; slot?: string } = {};
   const clear = () => d.querySelectorAll('.drop-target,.drop-above').forEach((n) => n.classList.remove('drop-target', 'drop-above'));
   d.addEventListener('dragstart', (ev) => {
@@ -157,7 +161,7 @@ export function openMenuEditor(e: Editor) {
     const tab = t.closest<HTMLElement>('[data-menu-tab]');
     if (tab) {
       menu = Number(tab.dataset.menuTab);
-      render();
+      keepFocus(d, render);
       return;
     }
     const vis = t.closest<HTMLElement>('[data-toggle-visible]');
@@ -170,7 +174,7 @@ export function openMenuEditor(e: Editor) {
     }
     if (t.closest('[data-me-reset]')) {
       draft = {};
-      render();
+      keepFocus(d, render);
     } else if (t.closest('[data-me-cancel]')) d.close();
   });
   d.addEventListener('change', (ev) => {
