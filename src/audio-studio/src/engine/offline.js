@@ -10,6 +10,7 @@ import { sourceKey } from './engine.js';
 let worker = null;
 let nextId = 1;
 const jobs = new Map();
+const cancelled = () => Object.assign(new Error('Cancelled'), { name: 'AbortError' });
 
 function getWorker() {
   if (worker) return worker;
@@ -54,25 +55,35 @@ function getWorker() {
  * @returns {Promise<Float32Array[] | null>} the channels, or null when streaming through onData
  */
 export async function renderGraph(graph, sources, { start = 0, end, onProgress, signal, onData } = {}) {
+  if (signal?.aborted) throw cancelled();
   const module = await dspModule().catch(() => null);
+  if (signal?.aborted) throw cancelled();
   const w = getWorker();
   const id = nextId++;
   const total = end - start;
   const out = onData ? null : Array.from({ length: graph.surround ? 6 : 2 }, () => new Float32Array(total));
-  await new Promise((resolve, reject) => {
-    jobs.set(id, {
-      sources,
-      resolve,
-      reject,
-      onProgress,
-      onData: (at, ch) => {
-        if (onData) onData(at, ch);
-        else ch.forEach((c, i) => out[i]?.set(c, at));
-      },
+  const onAbort = () => w.postMessage({ type: 'cancel', id });
+  try {
+    await new Promise((resolve, reject) => {
+      jobs.set(id, {
+        sources,
+        resolve,
+        reject,
+        onProgress,
+        onData: (at, ch) => {
+          if (onData) onData(at, ch);
+          else ch.forEach((c, i) => out[i]?.set(c, at));
+        },
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      w.postMessage({ type: 'render', id, graph: structuredClone(graph), start, end, module });
     });
-    signal?.addEventListener('abort', () => w.postMessage({ type: 'cancel', id }), { once: true });
-    w.postMessage({ type: 'render', id, graph: structuredClone(graph), start, end, module });
-  });
+    // Completion can already be queued when the user presses Cancel.
+    if (signal?.aborted) throw cancelled();
+  } finally {
+    jobs.delete(id);
+    signal?.removeEventListener('abort', onAbort);
+  }
   return out;
 }
 
