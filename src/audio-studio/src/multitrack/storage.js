@@ -17,15 +17,32 @@ import { normalizePath, relativePath } from '../lib/paths.js';
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
+const homeRelative = (p) => p === '~' || p.startsWith('~/');
+const homeParent = (p) => p === '~/..' || p.startsWith('~/../');
+const couldAlias = (a, b) => a !== b && a.split('/').pop() === b.split('/').pop() && (homeRelative(a) !== homeRelative(b) || homeParent(a) || homeParent(b));
 
 // Per session destination, source id -> the immutable media revision uploaded there.
 // Keep old files intact: a failed save must not change audio used by its previous manifest.
 const savedMedia = new WeakMap();
-const savedMediaOf = (session, path) => {
+const savedMediaOf = (session, path, paths) => {
   if (!savedMedia.has(session)) savedMedia.set(session, new Map());
   const destinations = savedMedia.get(session);
-  if (!destinations.has(path)) destinations.set(path, new Map());
-  return destinations.get(path);
+  const key = paths ? paths.resolve(path) : normalizePath(path);
+  if (!destinations.has(key)) {
+    let prior;
+    // Normalized absolute keys already match directly. Only home resolution
+    // can reveal an older cache stored under a different spelling.
+    if (paths?.hasHome) {
+      for (const [p, cache] of destinations) {
+        if (paths.resolve(p) === key) { prior = cache; break; }
+      }
+    }
+    destinations.set(key, prior || new Map());
+  }
+  // Keep the spelling used by the association linked to the same cache, so
+  // later saves need not resolve the home again just to reuse uploaded media.
+  destinations.set(normalizePath(path), destinations.get(key));
+  return destinations.get(key);
 };
 
 const cloudSaves = new WeakMap();
@@ -37,6 +54,40 @@ function orderedSave(queue, key, work) {
   queue.set(key, pending);
   return pending.finally(() => {
     if (queue.get(key) === pending) queue.delete(key);
+  });
+}
+
+function orderedDestination(app, path, work) {
+  const key = normalizePath(path);
+  // Register before resolving the home: a later alias must not bypass an
+  // earlier save whose account lookup is still pending.
+  const previous = [...cloudDestinations].filter(([p]) => p === key || couldAlias(p, key));
+  let home;
+  const paths = {
+    get hasHome() { return Boolean(home); },
+    resolve: (p) => normalizePath(home && homeRelative(p) ? `${home}${p.slice(1)}` : p),
+    async ensureHome() {
+      if (home) return;
+      const found = await puter.homeDir();
+      if (!found.startsWith('/')) throw new Error('Could not resolve the Puter home folder. Try saving this session again.');
+      home = found;
+    },
+    prepareMatches() {
+      if (!home && (app.documents || []).some((d) => d.kind === 'session' && d.source?.type === 'puter' && d.source.path && couldAlias(normalizePath(d.source.path), key))) return paths.ensureHome();
+    },
+  };
+  const pending = (async () => {
+    if (previous.some(([p]) => p !== key)) await paths.ensureHome();
+    const matching = paths.prepareMatches();
+    if (matching) await matching;
+    for (const [p, earlier] of previous) {
+      if (paths.resolve(p) === paths.resolve(key)) await earlier.catch(() => {});
+    }
+    return work(paths);
+  })();
+  cloudDestinations.set(key, pending);
+  return pending.finally(() => {
+    if (cloudDestinations.get(key) === pending) cloudDestinations.delete(key);
   });
 }
 
@@ -77,9 +128,9 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
     }
     // Different tabs may target the same file after Save As. Reserve its
     // complete preparation/upload sequence before waiting for any media work.
-    return orderedSave(cloudDestinations, path, async () => {
+    return orderedDestination(app, path, async (paths) => {
       await prepareSessionMedia(doc);
-      return writeCloudSession(app, doc, { path, name, copy });
+      return writeCloudSession(app, doc, { path, name, copy, paths });
     });
   }
   await prepareSessionMedia(doc);
@@ -90,30 +141,26 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
   return true;
 }
 
-async function writeCloudSession(app, doc, { path, name, copy }) {
+async function writeCloudSession(app, doc, { path, name, copy, paths }) {
   const dir = dirOf(path);
-  const homeRelative = (p) => p === '~' || p.startsWith('~/');
-  let home;
   // Resolve unlike roots only when a used offline source needs it. Ordinary
   // saves and references using the same root require no account lookup.
   sources: for (const c of doc.state.clips) {
     for (const id of [c.sourceId, c.stretch?.sourceId, c.remix?.sourceId, c.soundAssistant?.duration?.orig?.sourceId]) {
       const src = doc.pool.get(id);
-      if (src?.offline && src.path && homeRelative(src.path) !== homeRelative(dir)) {
-        home = await puter.homeDir();
-        if (!home.startsWith('/')) throw new Error('Could not resolve the Puter home folder. Try saving this session again.');
+      if (src?.offline && src.path && (homeRelative(src.path) !== homeRelative(dir) || homeParent(normalizePath(src.path)) || homeParent(normalizePath(dir)))) {
+        await paths.ensureHome();
         break sources;
       }
     }
   }
-  const resolved = (p) => home && homeRelative(p) ? `${home}${p.slice(1)}` : p;
   // What the file holds: edits made while the media uploads stay unsaved.
   const saved = doc.state;
-  const onDisk = savedMediaOf(doc, path);
+  const onDisk = savedMediaOf(doc, path, paths);
   const { text, media, video } = serializeSession(doc, {
     name,
     mediaPath: (id, src, file) => {
-      if (src.offline && src.path) return relativePath(resolved(dir), resolved(src.path));
+      if (src.offline && src.path) return relativePath(paths.resolve(dir), paths.resolve(src.path));
       const prior = onDisk.get(id);
       if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
       return src.channels?.length ? mediaRevision(file) : file;
@@ -122,7 +169,7 @@ async function writeCloudSession(app, doc, { path, name, copy }) {
     // the saved manifest. Existing Puter paths remain references, not uploads.
     videoPath: (_id, src, file) => src.blob ? mediaRevision(file) : file,
   });
-  const snapshot = captureSavedSession(doc, saved, media, video, dir);
+  const snapshot = captureSavedSession(doc, saved, media, video, paths.resolve(dir));
   await saveSessionVideo(app, doc, video, dir, { copy });
   let written = 0;
   for (const m of media) {
@@ -135,20 +182,23 @@ async function writeCloudSession(app, doc, { path, name, copy }) {
     onDisk.set(m.id, m);
   }
   await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
+  // A tab may have opened or moved to an alias during the upload.
+  const matching = paths.prepareMatches();
+  if (matching) await matching;
   if (!copy) {
     doc.source = { type: 'puter', path };
     if (doc.name !== name) doc.rename(name);
     doc.markSaved(saved, snapshot);
     rememberRecent(app, { name, path });
-  } else if (doc.source?.type === 'puter' && doc.source.path === path) {
+  } else if (doc.source?.type === 'puter' && doc.source.path && paths.resolve(doc.source.path) === paths.resolve(path)) {
     // Replacing the associated file changes what Undo must compare against,
     // even when the user chose Save a Copy rather than Save.
     doc.markSaved(saved, snapshot);
   }
   for (const other of app.documents || []) {
-    if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || other.source.path !== path) continue;
+    if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || !other.source.path || paths.resolve(other.source.path) !== paths.resolve(path)) continue;
     const imported = savedSessionSnapshot(other, snapshot);
-    const cache = savedMediaOf(other, path);
+    const cache = savedMediaOf(other, other.source.path, paths);
     for (const m of imported.media) cache.set(m.id, m);
     other.markSaved(imported.state);
   }
