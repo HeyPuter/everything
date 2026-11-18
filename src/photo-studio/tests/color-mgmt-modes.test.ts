@@ -127,6 +127,27 @@ describe('Indexed mode', { timeout: 120000 }, () => {
     expect(toIndexed(img(1, 1, () => [9, 9, 9]), { colors: 2 }).colors).toBeGreaterThanOrEqual(1);
   });
 
+  it('keeps every color of an image that fits a local palette', () => {
+    // A 256-level gray ramp used to collapse into 32 grays (one per 5-bit
+    // histogram bin), and two near colors into one averaged color.
+    const ramp = img(256, 4, (x) => [x, x, x]);
+    for (const palette of ['adaptive', 'perceptual'] as const) {
+      const res = toIndexed(ramp, { palette, colors: 256, dither: 'diffusion' });
+      expect(res.colors).toBe(256);
+      expect(Array.from(indexedToRGBA(res).data)).toEqual(Array.from(ramp.data));
+      const near = img(2, 1, (x) => (x ? [12, 12, 12] : [10, 10, 10]));
+      const nearOut = indexedToRGBA(toIndexed(near, { palette, colors: 16 }));
+      expect(Array.from(nearOut.data)).toEqual(Array.from(near.data));
+    }
+    // One more color than slots: median cut splits down to single colors.
+    const extra = img(256, 4, (x, y) => (x === 0 && y === 0 ? [255, 0, 0] : [x, x, x]));
+    const res = indexedToRGBA(toIndexed(extra, { palette: 'adaptive', colors: 256 }));
+    expect(Array.from(res.data.slice(0, 3))).toEqual([255, 0, 0]);
+    let worst = 0;
+    for (let x = 1; x < 256; x++) worst = Math.max(worst, Math.abs(res.data[x * 4] - x));
+    expect(worst).toBeLessThanOrEqual(1);
+  });
+
   it('never builds a uniform palette larger than the requested color count', () => {
     // Fewer than 8 free slots cannot hold even a 2x2x2 cube.
     expect(toIndexed(gradient, { palette: 'uniform', colors: 4 }).colors).toBeLessThanOrEqual(4);
