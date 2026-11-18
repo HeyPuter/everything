@@ -5,8 +5,8 @@
  */
 import { uid } from '../lib/ids.js';
 import { retainMotion } from './inherited-motion.js';
-import { makeClip, makeTrack, DEFAULT_TRANSFORM } from './project.js';
-import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, MIN_CLIP } from './timeline.js';
+import { makeClip, makeTrack, DEFAULT_TRANSFORM, VISUAL_KINDS } from './project.js';
+import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, trackFree, pruneTracks, MIN_CLIP } from './timeline.js';
 import { trimTo } from './slice.js';
 import { storedTimelineTracks } from './timelines.js';
 
@@ -38,7 +38,7 @@ export function skipsBaseClips(project, ids) {
 
 /**
  * Nest the given clips into a new compound clip placed where they were
- * (on the base track when any of them was there). Returns the compound, or
+ * (on the base track when it can preserve their playback controls). Returns the compound, or
  * null when there is nothing to nest or the base track clips are not next
  * to each other.
  */
@@ -50,9 +50,11 @@ export function createCompound(project, ids, opts = {}) {
   const chosen = new Set(found.map((f) => f.clip.id));
   const onMain = found.some((f) => f.track.main);
   const nested = [];
+  const sources = [];
   for (const track of project.tracks) {
     const picked = track.clips.filter((c) => chosen.has(c.id));
     if (!picked.length) continue;
+    sources.push(track);
     nested.push({
       id: uid('t'),
       kind: track.kind,
@@ -60,6 +62,7 @@ export function createCompound(project, ids, opts = {}) {
       locked: false,
       hidden: Boolean(track.hidden),
       muted: Boolean(track.muted),
+      ...(track.solo ? { solo: true } : {}),
       clips: picked.map((c) => {
         const copy = structuredClone(c);
         copy.start = c.start - a;
@@ -78,7 +81,22 @@ export function createCompound(project, ids, opts = {}) {
   // A transition into a clip left outside has no partner in there.
   cleanupTransitions({ tracks: nested });
   const compound = makeClip('compound', { start: a, duration: b - a, name: `Compound clip ${nextNumber(project)}`, sequence: { tracks: nested } });
-  addClip(project, compound, { ...opts, main: onMain });
+  const solo = sources.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
+  const bottom = sources.findLast(t => VISUAL_KINDS.has(t.kind));
+  const host = onMain ? mainTrack(project) : bottom?.kind === 'video' ? bottom : null;
+  const acceptsControls = host && Boolean(host.solo) === solo
+    && (!host.hidden || sources.every(t => !VISUAL_KINDS.has(t.kind) || t.hidden))
+    && (!host.muted || sources.every(t => (t.kind !== 'audio' && t.kind !== 'video') || t.muted));
+  if (acceptsControls && ((host.main && opts.ripple) || trackFree(host, a, b))) {
+    addClip(project, compound, { ...opts, main: Boolean(host.main), trackId: host.id });
+  } else {
+    // A group cannot inherit a destination's mute/hide/solo when its source tracks
+    // disagree. Keep the other tracks' controls and the original timing intact.
+    const track = makeTrack('video', { ...(solo ? { solo: true } : {}), clips: [compound] });
+    const at = project.tracks.indexOf(bottom || mainTrack(project));
+    project.tracks.splice(Math.max(0, at), 0, track);
+    pruneTracks(project);
+  }
   return compound;
 }
 
