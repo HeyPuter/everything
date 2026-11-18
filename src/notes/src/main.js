@@ -99,6 +99,14 @@ async function startApp(backend, user, env) {
   });
   window.notesApp = app;
   await app.start();
+  try {
+    // Double-click or Open with on the Puter desktop, in a desktop window or a browser tab it opened. Registered
+    // once the notebooks are open, as the files are imported into the section that is shown. (Files dragged in
+    // from desktop folders arrive as drop events, see App.bindDriveDrops.)
+    if (typeof puter !== 'undefined') puter.ui?.onLaunchedWithItems?.((items) => app.openLaunchItems(items).catch((err) => app.reportError(err)));
+  } catch {
+    /* an SDK without launch items */
+  }
 }
 
 /** Public read-only view of a published page: #view=<read URL>. */

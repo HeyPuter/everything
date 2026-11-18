@@ -1143,48 +1143,172 @@ export async function importBackup(app, backup) {
   return nb;
 }
 
+/** The files Import takes, from this device or from Puter: Markdown, HTML, text and notebook backups. */
+const IMPORT_EXTENSIONS = '.md,.markdown,.txt,.html,.htm,.json';
+export const isImportable = (name) => /\.(md|markdown|txt|html?|json)$/i.test(String(name || ''));
+
+/** Import > From This Device. */
 export function importFiles(app) {
-  const input = h('input', { type: 'file', multiple: true, accept: '.md,.markdown,.txt,.html,.htm,.json,text/markdown,text/plain,text/html,application/json', style: { display: 'none' } });
-  input.addEventListener('change', async () => {
+  const input = h('input', { type: 'file', multiple: true, accept: `${IMPORT_EXTENSIONS},text/markdown,text/plain,text/html,application/json`, style: { display: 'none' } });
+  input.addEventListener('change', () => {
     const files = [...input.files];
     input.remove();
-    let firstPage = null;
-    let count = 0;
-    for (const file of files) {
-      try {
-        const text = await file.text();
-        if (/\.json$/i.test(file.name)) {
-          const data = JSON.parse(text);
-          if (data?.format !== 'notes-backup') throw new Error(`${file.name} is not a notebook backup`);
-          const nb = await importBackup(app, data);
-          app.selectNotebook(nb.id);
-          count++;
-          continue;
-        }
-        let html;
-        let title = file.name.replace(/\.[^.]+$/, '');
-        if (/\.html?$/i.test(file.name)) {
-          const doc = new DOMParser().parseFromString(text, 'text/html');
-          title = doc.querySelector('title')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || title;
-          html = sanitizeHtml(doc.body?.innerHTML || '');
-        } else if (/\.(md|markdown)$/i.test(file.name)) {
-          const { title: heading, body } = markdownTitle(text);
-          if (heading) title = heading;
-          html = markdownToHtml(body);
-        } else html = sanitizeHtml(textToHtml(text));
-        if (!app.store.section(app.state.sectionId)) app.newSection();
-        const meta = app.store.createPage(app.state.sectionId, { title, outlines: [{ id: uid('o'), x: 48, y: 140, w: 720, html }] });
-        firstPage ||= meta.id;
-        count++;
-      } catch (err) {
-        toast(`Couldn't import ${file.name}: ${err.message}`, { kind: 'error' });
-      }
-    }
-    if (firstPage) app.openPage(firstPage);
-    if (count) toast(`Imported ${count} ${count === 1 ? 'file' : 'files'}`);
+    importFileList(app, files);
   });
   document.body.append(input);
   input.click();
+}
+
+/**
+ * Makes each file a page of the current section (a notebook backup becomes a
+ * notebook of its own) and opens the first page. Returns how many were imported.
+ */
+export async function importFileList(app, files) {
+  let firstPage = null;
+  let count = 0;
+  // A locked section is unlocked once for the whole batch, as New Page asks.
+  const section = app.store.section(app.state.sectionId);
+  if (section && app.store.isLocked(section.id) && files.some((f) => !/\.json$/i.test(f.name))) await unlockSection(app, section);
+  for (const file of files) {
+    try {
+      const text = await file.text();
+      if (/\.json$/i.test(file.name)) {
+        let data = null;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          /* refused below */
+        }
+        if (data?.format !== 'notes-backup') throw new Error(`${file.name} is not a notebook backup`);
+        const nb = await importBackup(app, data);
+        app.selectNotebook(nb.id);
+        count++;
+        continue;
+      }
+      let html;
+      let title = file.name.replace(/\.[^.]+$/, '');
+      if (/\.html?$/i.test(file.name)) {
+        const doc = new DOMParser().parseFromString(text, 'text/html');
+        title = doc.querySelector('title')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || title;
+        html = sanitizeHtml(doc.body?.innerHTML || '');
+      } else if (/\.(md|markdown)$/i.test(file.name)) {
+        const { title: heading, body } = markdownTitle(text);
+        if (heading) title = heading;
+        html = markdownToHtml(body);
+      } else html = sanitizeHtml(textToHtml(text));
+      if (!app.store.section(app.state.sectionId)) app.newSection();
+      const meta = app.store.createPage(app.state.sectionId, { title, outlines: [{ id: uid('o'), x: 48, y: 140, w: 720, html }] });
+      firstPage ||= meta.id;
+      count++;
+    } catch (err) {
+      toast(`Couldn't import ${file.name}: ${err.message}`, { kind: 'error' });
+    }
+  }
+  if (firstPage) app.openPage(firstPage);
+  if (count) toast(`Imported ${count} ${count === 1 ? 'file' : 'files'}`);
+  return count;
+}
+
+// ------------------------------------------------------------ Puter files
+
+const isDriveDir = (it) => Boolean(it.is_dir || it.isDir || it.isDirectory || it.fsentry_is_dir);
+const driveName = (it) => it.name || it.path.replace(/\/+$/, '').split('/').pop();
+const PICTURE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+
+/**
+ * The files among entries of the Puter drive (launch items, picked files or
+ * a drop from a desktop folder). Folders are left out, with a word when there
+ * is nothing else.
+ */
+function driveFiles(given) {
+  const all = [].concat(given || []).filter((it) => it && typeof it === 'object');
+  const files = all.filter((it) => typeof it.path === 'string' && it.path && !isDriveDir(it));
+  if (!files.length && all.some(isDriveDir)) toast("Folders can't be opened. Open the files inside instead.", { kind: 'error' });
+  return files;
+}
+
+/** A drive entry's contents as a File. Picture types the drive leaves out come from the name, as the page shows pictures by type. */
+export async function readDriveFile(it, name = driveName(it)) {
+  // Launch items and picked files can read themselves; dropped entries are plain records.
+  const blob = typeof it.read === 'function' ? await it.read() : await puter.fs.read(it.path);
+  const type = blob.type || PICTURE_TYPES[name.split('.').pop().toLowerCase()] || '';
+  return new File([blob], name, { type });
+}
+
+const readError = (err) => err?.message || err?.error?.message || 'the file could not be read';
+
+/**
+ * Opens Puter files in Notes: double-click, Open with, Import > From Puter
+ * and a drop outside the page. Notes keeps its notebooks itself, so a file
+ * is imported as File > Import does it.
+ */
+export async function openDriveItems(app, given) {
+  const files = [];
+  for (const it of driveFiles(given)) {
+    const name = driveName(it);
+    if (!isImportable(name)) {
+      toast(`${name} can't be opened in Notes. Open a Markdown, HTML or text file, or a notebook backup.`, { kind: 'error' });
+      continue;
+    }
+    try {
+      files.push(await readDriveFile(it, name));
+    } catch (err) {
+      toast(`Couldn't open ${name}: ${readError(err)}`, { kind: 'error' });
+    }
+  }
+  return files.length ? importFileList(app, files) : 0;
+}
+
+/**
+ * The files Notes was launched with. Inside Puter the launch stays in the
+ * window's address, so a reload hands the same files over again: those were
+ * imported already, and are not imported twice.
+ */
+export async function openLaunchItems(app, given) {
+  const KEY = 'notes:launched';
+  const keyOf = (it) => `${location.search}|${it?.uid || it?.id || it?.path}`;
+  let seen = [];
+  try {
+    seen = JSON.parse(sessionStorage.getItem(KEY) || '[]');
+  } catch {
+    /* storage blocked: every launch is new */
+  }
+  const items = [].concat(given || []).filter((it) => !seen.includes(keyOf(it)));
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify([...seen, ...items.map(keyOf)].slice(-50)));
+  } catch {
+    /* as above */
+  }
+  return items.length ? openDriveItems(app, items) : 0;
+}
+
+/** Import > From Puter: Puter's Open dialog. */
+export async function importFromCloud(app) {
+  const picker = app.cloudPicker();
+  if (!picker) return 0;
+  let picked;
+  try {
+    picked = await picker({ multiple: true, accept: IMPORT_EXTENSIONS });
+  } catch {
+    return 0;
+  }
+  return openDriveItems(app, picked);
+}
+
+/** Puter files dropped on the page go into it as files dropped from this device do: pictures shown, other files attached. */
+export async function dropDriveItems(app, given, point) {
+  const page = app.editor.page;
+  const files = [];
+  for (const it of driveFiles(given)) {
+    const name = driveName(it);
+    try {
+      files.push(await readDriveFile(it, name));
+    } catch (err) {
+      toast(`Couldn't insert ${name}: ${readError(err)}`, { kind: 'error' });
+    }
+  }
+  // The files take a while to read: if another page was opened meanwhile, they must not land on it.
+  if (files.length && app.editor.page === page) await app.editor.dropFiles(files, point);
 }
 
 // ------------------------------------------------------------ share

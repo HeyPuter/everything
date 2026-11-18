@@ -63,6 +63,7 @@ export class App {
     this.build();
     this.bindStore();
     this.bindKeys();
+    this.bindDriveDrops();
     this.keytips = new KeyTips(this);
     installTooltips(document);
     this.removeThemeListener = onThemeChange(() => this.themeChanged());
@@ -1535,6 +1536,34 @@ export class App {
 
   exportNotebook() {
     return features.exportNotebook(this, this.state.notebookId);
+  }
+
+  importFromCloud() {
+    return features.importFromCloud(this);
+  }
+
+  /** Double-click or Open with on the Puter desktop, in a desktop window or a browser tab it opened. */
+  openLaunchItems(items) {
+    return features.openLaunchItems(this, items);
+  }
+
+  /**
+   * Files dragged in from a Puter desktop folder don't come the browser's
+   * way: the SDK dispatches a drop of its own on the element under the
+   * pointer, with the drive entries and the point in its detail and no
+   * dataTransfer. On the page they go in as a drop from this device does;
+   * anywhere else they are opened (imported).
+   */
+  bindDriveDrops() {
+    this.listen(window, 'drop', (e) => {
+      const items = e.detail?.items;
+      if (e.dataTransfer || !Array.isArray(items)) return;
+      e.preventDefault();
+      if (document.querySelector('dialog[open]')) return;
+      const ed = this.editor;
+      if (ed.page && !ed.readOnly && ed.scroller.contains(e.target)) features.dropDriveItems(this, items, { target: e.target, clientX: e.detail.clientX, clientY: e.detail.clientY }).catch((err) => this.reportError(err));
+      else features.openDriveItems(this, items).catch((err) => this.reportError(err));
+    });
   }
 
   importFiles() {

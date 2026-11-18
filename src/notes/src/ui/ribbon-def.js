@@ -95,7 +95,7 @@ export function fileMenu(app) {
     { label: 'New Section Group', icon: 'sectionGroup', run: () => app.runCommand('newSectionGroup') },
     { label: 'New Notebook...', icon: 'notebook', run: () => app.runCommand('newNotebook') },
     { type: 'sep' },
-    { label: 'Import...', icon: 'upload', run: () => app.runCommand('import') },
+    { label: 'Import', icon: 'upload', submenu: () => app.commands.get('import').menu(app) },
     { label: 'Export', icon: 'download', submenu: () => app.commands.get('export').menu(app) },
     { label: 'Share...', icon: 'share', disabled: !app.editor?.page, run: () => app.runCommand('share') },
     { label: 'Print...', icon: 'print', shortcut: 'Mod+P', disabled: !app.editor?.page, run: () => app.runCommand('print') },

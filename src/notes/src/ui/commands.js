@@ -323,7 +323,13 @@ export function buildCommands() {
         { label: 'Export Notebook Backup (.json)', icon: 'download', run: () => app.exportNotebook() },
       ],
     },
-    { id: 'import', label: 'Import', icon: 'upload', desc: 'Import Markdown, HTML, text or a notebook backup.', run: (app) => app.importFiles() },
+    {
+      id: 'import', label: 'Import', icon: 'upload', desc: 'Import Markdown, HTML, text or a notebook backup.', run: (app) => app.importFiles(),
+      menu: (app) => [
+        { label: 'From This Device...', icon: 'upload', run: () => app.importFiles() },
+        { label: 'From Puter...', icon: 'cloud', disabled: !app.cloudPicker(), run: () => app.importFromCloud() },
+      ],
+    },
     { id: 'share', label: 'Share', icon: 'share', enabled: (app) => Boolean(app.editor?.page), run: (app) => app.shareDialog() },
     { id: 'syncNow', label: 'Sync Now', icon: 'sync', key: 'Mod+S', run: (app) => app.syncNow() },
     { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: 'keyboard', key: 'Mod+Shift+Slash', run: (app) => app.shortcutsDialog() },

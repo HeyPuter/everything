@@ -1016,10 +1016,19 @@ export class PageEditor extends Emitter {
     const html = !files.length && !this.draggingOwn ? e.dataTransfer?.getData('text/html') : '';
     if (!files.length && !html) return;
     e.preventDefault();
-    const body = e.target.closest?.('.outline-body');
+    this.placeDrop(e);
+    if (html) {
+      this.commitTyping();
+      await this.pasteHtml(cleanPastedHtml(html));
+    } else await this.insertFiles(files);
+  }
+
+  /** Puts the caret where something was dropped: in the note under it, or in a new note at that point. */
+  placeDrop({ target, clientX, clientY }) {
+    const body = target?.closest?.('.outline-body');
     if (body) {
-      const pos = document.caretPositionFromPoint?.(e.clientX, e.clientY);
-      const range = pos ? document.createRange() : document.caretRangeFromPoint?.(e.clientX, e.clientY);
+      const pos = document.caretPositionFromPoint?.(clientX, clientY);
+      const range = pos ? document.createRange() : document.caretRangeFromPoint?.(clientX, clientY);
       if (pos) range.setStart(pos.offsetNode, pos.offset);
       if (range) {
         range.collapse(true);
@@ -1027,13 +1036,16 @@ export class PageEditor extends Emitter {
         selectRange(range);
       }
     } else {
-      const p = this.pagePoint(e);
+      const p = this.pagePoint({ clientX, clientY });
       this.createOutlineAt(p.x, p.y);
     }
-    if (html) {
-      this.commitTyping();
-      await this.pasteHtml(cleanPastedHtml(html));
-    } else await this.insertFiles(files);
+  }
+
+  /** Files dropped from elsewhere than the browser (a Puter folder), at the point they were dropped. */
+  async dropFiles(files, point) {
+    if (this.readOnly || !this.page) return;
+    this.placeDrop(point);
+    await this.insertFiles(files);
   }
 
   nextFreeY() {
