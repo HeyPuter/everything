@@ -694,6 +694,13 @@ test('Magic Wand, Grow and the Paint Bucket finish in the document they started 
   s = await state();
   expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
   expect(s.find((d) => d.name === 'gray')!.steps.at(-1)).toBe('Grow');
+  // Loading the composite channel as a selection (Channels panel).
+  await during(() =>
+    page.evaluate(() => void window.photoStudio.runCommand('select.load-active-channel')),
+  );
+  s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  expect(s.find((d) => d.name === 'gray')!.steps.at(-1)).toBe('Load Selection');
   // The Paint Bucket does not fill the document shown when the fill is ready.
   await page.evaluate(() => {
     const e = window.photoStudio;
