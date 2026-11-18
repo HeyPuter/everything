@@ -171,10 +171,15 @@ export function boundingBox(m: Mask8, threshold = 1): IRect | null {
 
 // Colors present in the selection, quantized to 5 bits per channel and dilated by
 // the tolerance (per-channel, matching the magic wand's max-channel metric).
+// Colors are premultiplied by alpha, and the selected alphas form a second set,
+// so transparent pixels never match opaque ones whatever color they hide.
 function colorSet(img: RGBA8, m: Mask8, tolerance: number) {
-  const N = 32, set = new Uint8Array(N * N * N), d = img.data;
+  const N = 32, set = new Uint8Array(N * N * N), alphas = new Uint8Array(256), d = img.data;
   for (let i = 0; i < m.data.length; i++)
-    if (m.data[i] >= 128) set[((d[i * 4] >> 3) << 10) | ((d[i * 4 + 1] >> 3) << 5) | (d[i * 4 + 2] >> 3)] = 1;
+    if (m.data[i] >= 128) {
+      set[key(d, i)] = 1;
+      alphas[d[i * 4 + 3]] = 1;
+    }
   const r = Math.ceil(tolerance / 8);
   if (r > 0) {
     const tmp = new Uint8Array(set.length);
@@ -188,14 +193,23 @@ function colorSet(img: RGBA8, m: Mask8, tolerance: number) {
       }
     }
   }
-  return set;
+  const t = Math.max(0, Math.round(tolerance));
+  const seen = alphas.slice();
+  for (let a = 0; a < 256; a++)
+    if (seen[a]) alphas.fill(1, Math.max(0, a - t), Math.min(256, a + t + 1));
+  return (i: number) => set[key(d, i)] === 1 && alphas[d[i * 4 + 3]] === 1;
 }
-const key = (d: Uint8ClampedArray, i: number) => ((d[i * 4] >> 3) << 10) | ((d[i * 4 + 1] >> 3) << 5) | (d[i * 4 + 2] >> 3);
+const key = (d: Uint8ClampedArray, i: number) => {
+  const a = d[i * 4 + 3];
+  if (a === 255) return ((d[i * 4] >> 3) << 10) | ((d[i * 4 + 1] >> 3) << 5) | (d[i * 4 + 2] >> 3);
+  const pm = (c: number) => ((c * a + 127) / 255) >> 3;
+  return (pm(d[i * 4]) << 10) | (pm(d[i * 4 + 1]) << 5) | pm(d[i * 4 + 2]);
+};
 
 // Grow: add pixels connected to the selection whose color is within `tolerance`
 // of a selected color.
 export function grow(img: RGBA8, m: Mask8, tolerance = 32): Mask8 {
-  const { width: w, height: h } = m, set = colorSet(img, m, tolerance), o = mask8(w, h), d = img.data;
+  const { width: w, height: h } = m, matches = colorSet(img, m, tolerance), o = mask8(w, h);
   const stack = new Int32Array(w * h);
   let sp = 0;
   for (let i = 0; i < m.data.length; i++)
@@ -209,7 +223,7 @@ export function grow(img: RGBA8, m: Mask8, tolerance = 32): Mask8 {
     const i = stack[--sp], x = i % w;
     for (let k = 0; k < 4; k++) {
       const j = k === 0 ? (x > 0 ? i - 1 : -1) : k === 1 ? (x < w - 1 ? i + 1 : -1) : k === 2 ? i - w : i + w;
-      if (j >= 0 && j < n && !visited[j] && o.data[j] < 255 && set[key(d, j)]) {
+      if (j >= 0 && j < n && !visited[j] && o.data[j] < 255 && matches(j)) {
         visited[j] = 1;
         o.data[j] = 255;
         stack[sp++] = j;
@@ -220,8 +234,8 @@ export function grow(img: RGBA8, m: Mask8, tolerance = 32): Mask8 {
 }
 // Similar: like grow but across the whole image regardless of connectivity.
 export function similar(img: RGBA8, m: Mask8, tolerance = 32): Mask8 {
-  const set = colorSet(img, m, tolerance), o = mask8(m.width, m.height), d = img.data;
-  for (let i = 0; i < o.data.length; i++) o.data[i] = set[key(d, i)] ? 255 : m.data[i];
+  const matches = colorSet(img, m, tolerance), o = mask8(m.width, m.height);
+  for (let i = 0; i < o.data.length; i++) o.data[i] = matches(i) ? 255 : m.data[i];
   return o;
 }
 
