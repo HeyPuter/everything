@@ -149,3 +149,28 @@ test('preset manager reorders and deletes presets, and system info opens', async
   await expect(page.locator('dialog[open] .system-info')).toContainText(/WebGPU|WebGL2/);
   await expect(page.locator('dialog[open] [data-copy-info]')).toBeVisible();
 });
+
+test('the Delete button of a tool preset row works from the keyboard instead of applying the preset', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  for (const name of ['Keep', 'Remove Me']) {
+    await start(page, 'tool.preset-new');
+    await page.locator('dialog[open] input[name="name"]').fill(name);
+    await page.locator('dialog[open] button.primary').click();
+  }
+  await page.evaluate(() => {
+    window.photoStudio.setTool('move');
+    window.photoStudio.dock.show('tool-presets');
+  });
+  const panel = page.locator('.tool-presets-panel');
+  await page.locator('[data-current-tool-only]').uncheck();
+  await expect(panel.locator('[data-tool-preset]')).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Delete Remove Me' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(panel.locator('[data-tool-preset]')).toHaveText(['Keep']);
+  // Nothing was applied: the Move tool is still the current tool.
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('move');
+  // Enter on the row itself still applies the preset.
+  await panel.locator('[data-tool-preset]').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.photoStudio.tool)).toBe('brush');
+});
