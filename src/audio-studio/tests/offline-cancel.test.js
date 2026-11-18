@@ -52,6 +52,17 @@ describe('offline render cancellation', () => {
     expect(mock.workers[0].sent.map((m) => m.type)).toEqual(['render', 'cancel']);
   });
 
+  it('reports cancellation when DSP loading fails after an effect render was cancelled', async () => {
+    let fail;
+    mock.module.mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const controller = new AbortController();
+    const pending = renderGraph({ ...graph, master: { gain: 1, fx: [{ enabled: true }] } }, new Map(), { end: 4, signal: controller.signal });
+    controller.abort();
+    fail(new Error('DSP download failed'));
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(mock.workers).toHaveLength(0);
+  });
+
   it('removes the abort listener after a successful render', async () => {
     const controller = new AbortController();
     const out = await renderGraph(graph, new Map(), { end: 4, signal: controller.signal });

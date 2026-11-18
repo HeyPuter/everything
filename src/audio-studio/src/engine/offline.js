@@ -59,7 +59,14 @@ function getWorker() {
  */
 export async function renderGraph(graph, sources, { start = 0, end, onProgress, signal, onData } = {}) {
   if (signal?.aborted) throw cancelled();
-  const module = await dspModule().catch(() => null);
+  const module = await dspModule().catch((err) => {
+    if (signal?.aborted) throw cancelled();
+    // Plain mixes can render without WASM, but applying or exporting active
+    // effects must never silently produce dry audio and report success.
+    const active = (chain) => chain?.some((s) => s.enabled !== false || s.shadow);
+    if (active(graph.master?.fx) || graph.tracks.some((t) => active(t.fx) || t.clips?.some((c) => active(c.fx)))) throw err;
+    return null;
+  });
   if (signal?.aborted) throw cancelled();
   const w = getWorker();
   const id = nextId++;
