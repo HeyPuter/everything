@@ -356,3 +356,17 @@ test('Dodge with Protect Tones brightens highlights without clipping or shifting
   expect(Math.abs(r / g - 230 / 200)).toBeLessThan(0.02);
   expect(Math.abs(b / g - 180 / 200)).toBeLessThan(0.02);
 });
+
+test('Alt-click loads the Mixer Brush with the paint under it, kept for the next stroke', async ({
+  page,
+}) => {
+  await filledLayer(page, [255, 0, 0, 255]);
+  await page.evaluate(() => window.photoStudio.setForeground('#0000ff'));
+  // Load and Clean after each stroke stay on (the defaults).
+  await setTool(page, 'mixer-brush', { size: 10 }, { mixerSolidOnly: true });
+  await canvasClick(page, 100, 60, ['Alt']);
+  await expect(page.locator('#mixer-load-menu span').first()).toHaveAttribute(
+    'style',
+    /background:\s*#ff0000/,
+  );
+});

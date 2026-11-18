@@ -20,6 +20,8 @@ const ID = 'mixer-brush';
 let brush: MixerBrush | undefined;
 // True after Alt-click loaded the brush by hand (kept for the next stroke).
 let manualLoad = false;
+// An Alt-click load is in progress (its release ends no stroke).
+let loading = false;
 const pct = (e: Editor, key: string, d: number) => Number(e.settings[key] ?? d);
 export function mixerSettings(e: Editor): MixerSettings {
   return { wet: pct(e, 'mixerWet', 50) / 100, load: pct(e, 'mixerLoad', 50) / 100, mix: pct(e, 'mixerMix', 50) / 100, flow: brushFor(ID).flow };
@@ -190,13 +192,21 @@ export function mixerBrushTool(): Tool {
     },
     pointerDown: async (e, p) => {
       if (p.alt) {
+        loading = true;
         await loadFromCanvas(e, p.x, p.y);
         return;
       }
+      loading = false;
       if (sampleAll(e)) await warmBelow(e);
       return base.pointerDown!(e, p);
     },
     pointerUp: async (e, p) => {
+      // The release of an Alt-click that loaded the brush: no stroke ended,
+      // so the loaded paint stays for the next one.
+      if (loading) {
+        loading = false;
+        return;
+      }
       await base.pointerUp!(e, p);
       const b = mixer(e);
       manualLoad = false;
