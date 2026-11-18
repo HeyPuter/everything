@@ -104,9 +104,14 @@ export async function audioFileFromBlob(blob, name, source = { type: 'local' }) 
   return doc;
 }
 
+// Share a pending cloud read/decode within one app, as well as completed opens.
+const pendingOpens = new WeakMap();
+
 /** Opens files (File objects or Puter FSItems) as documents. Returns the docs opened. */
 export async function openFiles(app, items, { activate = true } = {}) {
   const docs = [];
+  let pending = pendingOpens.get(app);
+  if (!pending) pendingOpens.set(app, (pending = new Map()));
   const context = { items, consumed: new Set() };
   // Documents with openers (sessions) first, so they can claim their media.
   const ordered = [...items].sort((a, b) => Number(OPENERS.has(extensionOf(b.name || ''))) - Number(OPENERS.has(extensionOf(a.name || ''))));
@@ -120,8 +125,6 @@ export async function openFiles(app, items, { activate = true } = {}) {
         app.notify(`"${name}" is a folder. Open audio files from it in the Media Browser.`);
         continue;
       }
-      let blob = item;
-      let source = { type: 'local' };
       // A Puter file that is already open is shown, not opened a second time: two copies
       // of one file would each save over the other's changes.
       const isOpen = (d) => d.source?.type === 'puter' && d.source.path === item.path;
@@ -131,18 +134,32 @@ export async function openFiles(app, items, { activate = true } = {}) {
         app.setStatus(`${name} is already open`);
         continue;
       }
-      if (!(item instanceof Blob) && (typeof item.read === 'function' || item.path)) {
-        // Puter FSItems (file pickers, "Open with", Media Browser) read through the SDK.
-        blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);
-        source = { type: 'puter', path: item.path, uid: item.uid };
+      const key = !(item instanceof Blob) && item.path;
+      let loading = key && pending.get(key);
+      if (!loading) {
+        loading = (async () => {
+          let blob = item;
+          let source = { type: 'local' };
+          if (!(item instanceof Blob) && (typeof item.read === 'function' || item.path)) {
+            // Puter FSItems (file pickers, "Open with", Media Browser) read through the SDK.
+            blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);
+            source = { type: 'puter', path: item.path, uid: item.uid };
+          }
+          const opener = OPENERS.get(extensionOf(name));
+          const doc = opener ? await opener(app, blob, name, source, context) : await audioFileFromBlob(blob, name, source);
+          if (!opener) for (const hook of OPEN_HOOKS) await hook(app, doc, blob, name, source);
+          app.addDocument(doc, { activate: activate && !docs.length });
+          app.setStatus(`Opened in ${((performance.now() - t0) / 1000).toFixed(2)} seconds`);
+          if (source.type === 'puter') rememberRecent(app, { name, path: item.path });
+          return doc;
+        })();
+        if (key) pending.set(key, loading);
       }
-      const opener = OPENERS.get(extensionOf(name));
-      const doc = opener ? await opener(app, blob, name, source, context) : await audioFileFromBlob(blob, name, source);
-      if (!opener) for (const hook of OPEN_HOOKS) await hook(app, doc, blob, name, source);
-      app.addDocument(doc, { activate: activate && !docs.length });
-      docs.push(doc);
-      app.setStatus(`Opened in ${((performance.now() - t0) / 1000).toFixed(2)} seconds`);
-      if (source.type === 'puter') rememberRecent(app, { name, path: item.path });
+      try {
+        docs.push(await loading);
+      } finally {
+        if (key && pending.get(key) === loading) pending.delete(key);
+      }
     } catch (err) {
       console.error(err);
       // With several files opening, say which one failed when the message does not.

@@ -252,6 +252,53 @@ describe('file probing and decoding', () => {
     const more = await openFiles(app, [{ name: 'Other.wav', path: '/u/Other.wav', read }]);
     expect(more[0].source).toMatchObject({ type: 'puter', path: '/u/Other.wav' });
   });
+  it('shares an in-flight open of the same Puter file across overlapping requests', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    let release;
+    const ready = new Promise((resolve) => { release = resolve; });
+    const read = vi.fn(async () => { await ready; return new Blob([good]); });
+    const app = {
+      documents: [], setStatus: vi.fn(), notify: vi.fn(), activate: vi.fn(),
+      prefs: { get: () => [], set: () => {} },
+      addDocument(doc) { this.documents.push(doc); },
+    };
+    const item = { name: 'Song.wav', path: '/u/Song.wav', read };
+    const first = openFiles(app, [item], { activate: false });
+    const second = openFiles(app, [item]);
+    // Both gestures arrived before the first read completed.
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a[0] === b[0]).toBe(true);
+    expect(read).toHaveBeenCalledOnce();
+    expect(app.documents).toEqual([a[0]]);
+    expect(app.activate).toHaveBeenCalledWith(a[0]);
+  });
+
+  it('can retry a failed cloud open and still opens local files with identical names separately', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    const read = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(new Blob([good]));
+    const app = {
+      documents: [], setStatus: vi.fn(), notify: vi.fn(), activate: vi.fn(),
+      prefs: { get: () => [], set: () => {} },
+      addDocument(doc) { this.documents.push(doc); },
+    };
+    const item = { name: 'Song.wav', path: '/u/Song.wav', read };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await openFiles(app, [item])).toEqual([]);
+      expect((await openFiles(app, [item]))[0]).toBe(app.documents[0]);
+      expect(read).toHaveBeenCalledTimes(2);
+      const local = await openFiles(app, [new File([good], 'Song.wav'), new File([good], 'Song.wav')]);
+      expect(local).toHaveLength(2);
+      expect(local[0] === local[1]).toBe(false);
+      expect(app.documents).toHaveLength(3);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('rejects empty and known-unsupported files with clear messages', async () => {
     await expect(decodeAudio(new ArrayBuffer(0), 'a.mp3')).rejects.toThrow(/empty/);
     await expect(decodeAudio(new ArrayBuffer(16), 'a.wma')).rejects.toThrow(/Windows Media Audio/);
