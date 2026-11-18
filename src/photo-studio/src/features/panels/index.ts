@@ -56,14 +56,16 @@ const historyPanel: Panel = {
   update: (e, el) => {
     const done = e.history.labels,
       undone = e.history.redoLabels;
+    // Screen readers hear which state the document is in and which steps are undone.
+    const current = (on: boolean) => (on ? 'aria-current="step"' : '');
     const rows = [
       // Once older steps are dropped, the first row is the result of the
       // latest dropped step rather than the opened document.
       e.history.baseLabel
-        ? `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" title="Earlier steps are no longer kept">${svg('history', 14)}<span>${escapeXML(e.history.baseLabel)}</span></button>`
-        : `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0">${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
-      ...done.map((l, i) => `<button class="history-row ${i === done.length - 1 ? 'current' : ''}" data-history="${i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
-      ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
+        ? `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" ${current(done.length === 0)} title="Earlier steps are no longer kept">${svg('history', 14)}<span>${escapeXML(e.history.baseLabel)}</span></button>`
+        : `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" ${current(done.length === 0)}>${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
+      ...done.map((l, i) => `<button class="history-row ${i === done.length - 1 ? 'current' : ''}" data-history="${i + 1}" ${current(i === done.length - 1)}>${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
+      ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span><span class="sr-only">(undone)</span></button>`),
     ];
     const snaps = sessionSnapshots(e);
     const source = historySourceId(e) ?? '';
