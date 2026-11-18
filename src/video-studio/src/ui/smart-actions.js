@@ -10,6 +10,7 @@ import { icon } from '../lib/icons.js';
 import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { openDialog, toast } from './dialog.js';
+import { frameDialogSignal, openFrameDialog } from './frame-dialog.js';
 import { prefs, setPref } from './prefs.js';
 import { detectScenes, silentRanges, syncEnvelope, bestLag } from '../media/smart-edit.js';
 import { mixdown, clipsForScope } from '../media/transcribe.js';
@@ -44,14 +45,15 @@ export function sceneSplitTimes(clip, cuts, fps) {
 }
 
 /** A small modal with a progress bar and Cancel; returns { set, close, signal }. */
-export function progressDialog(title, text) {
+export function progressDialog(title, text, lifetime) {
   const ac = new AbortController();
   const bar = h('span');
   // What it is doing is read out as it changes, and the bar says how far along it is.
   const msg = h('p.dialog-text', { role: 'status' }, text);
   const track = h('div.progress', { role: 'progressbar', 'aria-label': title, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, bar);
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title, body: h('div', msg, track), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() });
+  const options = { title, body: h('div', msg, track), actions: [cancel], className: 'small', closeOnBackdrop: false, onClose: () => ac.abort() };
+  const d = lifetime ? openFrameDialog(options, lifetime) : openDialog(options);
   cancel.addEventListener('click', () => d.close());
   return {
     signal: ac.signal,
@@ -331,6 +333,8 @@ export function createSmartActions(ctx) {
     },
 
     async stabilize(clipId = store.selected?.clip.id) {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return;
       const f = clipId && T.findClip(store.project, clipId);
       if (!f || f.clip.type !== 'video' || f.clip.freeze) {
         toast('Select a video clip to stabilize.', { kind: 'info' });
@@ -347,15 +351,16 @@ export function createSmartActions(ctx) {
       strength.value = String(prefs().stabilizeStrength || '15');
       const go = h('button.btn.primary', { type: 'button' }, icon('focus', 16), 'Stabilize');
       const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-      const dlg = openDialog({
+      const dlg = openFrameDialog({
         title: 'Stabilize',
         body: h('div.prefs', h('p.dialog-text', 'Smooths out camera shake by moving each frame back onto a steady path and zooming in slightly to hide the edges. Position and scale keyframes on this clip are replaced.'), h('label.pref-row', h('span.pref-label', 'Smoothing'), h('span.pref-ctl', strength))),
         actions: [cancel, go],
         className: 'prefs-dialog',
-      });
+      }, lifetime);
       cancel.addEventListener('click', () => dlg.close());
       go.addEventListener('click', async () => {
         dlg.close();
+        if (lifetime.aborted) return;
         setPref('stabilizeStrength', strength.value);
         if (!isCurrentSource()) {
           toast(changedMessage, { kind: 'error' });
@@ -371,7 +376,7 @@ export function createSmartActions(ctx) {
         const fps = 15;
         const times = [];
         for (let t = 0; t < clip.duration; t += US / fps) times.push(Math.round(t));
-        const p = progressDialog('Stabilizing', 'Following the camera movement...');
+        const p = progressDialog('Stabilizing', 'Following the camera movement...', lifetime);
         try {
           const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
           requireSource();
