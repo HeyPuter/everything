@@ -432,6 +432,8 @@ export function createSmartActions(ctx) {
      * changes and write exposure keyframes that cancel the quick wobble.
      */
     async removeFlicker(clipId = store.selected?.clip.id) {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return;
       const f = clipId && T.findClip(store.project, clipId);
       if (!f || f.clip.type !== 'video' || f.clip.freeze) {
         toast('Select a video clip to remove its flicker.', { kind: 'info' });
@@ -448,15 +450,16 @@ export function createSmartActions(ctx) {
       span.value = String(prefs().flickerSpan || '0.4');
       const go = h('button.btn.primary', { type: 'button' }, icon('brightness', 16), 'Remove flicker');
       const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-      const dlg = openDialog({
+      const dlg = openFrameDialog({
         title: 'Remove flicker',
         body: h('div.prefs', h('p.dialog-text', 'Evens out quick changes in brightness, such as flickering lights or a pulsing timelapse, while keeping real changes like a cut or a sunset. Exposure keyframes on this clip are replaced.'), h('label.pref-row', h('span.pref-label', 'Even out'), h('span.pref-ctl', span))),
         actions: [cancel, go],
         className: 'prefs-dialog',
-      });
+      }, lifetime);
       cancel.addEventListener('click', () => dlg.close());
       go.addEventListener('click', async () => {
         dlg.close();
+        if (lifetime.aborted) return;
         setPref('flickerSpan', span.value);
         if (!isCurrentSource()) {
           toast(changedMessage, { kind: 'error' });
@@ -470,7 +473,7 @@ export function createSmartActions(ctx) {
         // Every source frame (an even grid for fast, long or curved clips).
         const { local, source } = frameGrid(clip, asset?.fps || store.project.settings.fps || 30);
         const fps = local.length / Math.max(1e-3, clip.duration / US);
-        const p = progressDialog('Removing flicker', 'Measuring the brightness of each frame...');
+        const p = progressDialog('Removing flicker', 'Measuring the brightness of each frame...', lifetime);
         try {
           const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
           requireSource();
