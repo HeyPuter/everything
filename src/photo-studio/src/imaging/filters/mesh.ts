@@ -8,6 +8,7 @@
 // the source once per pixel, so any fold-overs simply draw last-wins.
 import type { IRect, Progress, RGBA8 } from '../types';
 import { checkCancelled, rgba8 } from '../types';
+import { resize } from './resample';
 import { type Interp, samplerFor } from './sampling';
 
 export type MeshGrid = {
@@ -143,7 +144,8 @@ export function evalMesh(g: MeshGrid, u: number, v: number, out: Float64Array = 
   return out;
 }
 
-export type MeshWarpOptions = { progress?: Progress; clip?: IRect };
+// `draft` skips prefiltering for previews redrawn while the pointer moves.
+export type MeshWarpOptions = { progress?: Progress; clip?: IRect; draft?: boolean };
 
 export function meshWarp(
   src: RGBA8,
@@ -267,6 +269,21 @@ export function meshWarp(
       tri(a, d, c, us[i], us[i + 1], us[i], vs[j], vs[j + 1], vs[j + 1]);
     }
   }
+  // A warp that reduces the source (a frame scaled down, then warped) reads
+  // a prefiltered copy, as transformImage does, instead of aliasing.
+  let source = src,
+    kx = 1,
+    ky = 1;
+  if (method !== 'nearest' && !opts.draft) {
+    const [fx, fy] = meshReduction(vx, vy, us, vs, NU, NV, sw, sh);
+    if (fx >= 2 || fy >= 2) {
+      const w = fx >= 2 ? Math.max(1, Math.round(sw / Math.min(fx, sw))) : sw,
+        h = fy >= 2 ? Math.max(1, Math.round(sh / Math.min(fy, sh))) : sh;
+      source = resize(src, w, h, 'bilinear');
+      kx = w / sw;
+      ky = h / sh;
+    }
+  }
   const image = rgba8(W, H),
     od = image.data,
     sampler = samplerFor(method),
@@ -275,7 +292,7 @@ export function meshWarp(
     for (let x = 0, k = y * W; x < W; x++, k++) {
       const mx = mapX[k];
       if (!(mx === mx)) continue;
-      sampler(src, mx, mapY[k], 'transparent', px, 0);
+      sampler(source, mx * kx, mapY[k] * ky, 'transparent', px, 0);
       od[k * 4] = px[0];
       od[k * 4 + 1] = px[1];
       od[k * 4 + 2] = px[2];
@@ -291,6 +308,39 @@ export function meshWarp(
   }
   opts.progress?.report?.(1);
   return { image, rect };
+}
+
+/** The smallest reduction (source pixels per destination pixel) of each
+ * source axis over the interior cells of a tessellated mesh. */
+function meshReduction(
+  vx: Float64Array,
+  vy: Float64Array,
+  us: Float64Array,
+  vs: Float64Array,
+  NU: number,
+  NV: number,
+  sw: number,
+  sh: number,
+): [number, number] {
+  let fx = Infinity,
+    fy = Infinity;
+  for (let j = 1; j < NV - 2; j++)
+    for (let i = 1; i < NU - 2; i++) {
+      const k = j * NU + i,
+        su = (us[i + 1] - us[i]) * sw,
+        sv = (vs[j + 1] - vs[j]) * sh;
+      // Destination movement per source pixel along x (a, c) and y (b, d).
+      const a = (vx[k + 1] - vx[k]) / su,
+        c = (vy[k + 1] - vy[k]) / su,
+        b = (vx[k + NU] - vx[k]) / sv,
+        d = (vy[k + NU] - vy[k]) / sv;
+      const det = Math.abs(a * d - b * c);
+      if (!(det > 1e-12)) continue;
+      // Rows of the inverse Jacobian: how fast source x and y change.
+      fx = Math.min(fx, Math.hypot(b, d) / det);
+      fy = Math.min(fy, Math.hypot(a, c) / det);
+    }
+  return [fx === Infinity ? 1 : fx, fy === Infinity ? 1 : fy];
 }
 
 // ---------------------------------------------------------------------------

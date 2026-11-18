@@ -774,7 +774,7 @@ export class TransformSession {
         const src = settled ? this.source : this.small;
         if (!src) return;
         const scale = this.previewScale(settled);
-        const r = this.render(src, scale, 'bilinear', false);
+        const r = this.render(src, scale, 'bilinear', false, !settled);
         const old = this.previewTiles;
         this.previewTiles = [];
         if (!r) next = { ...l, visible: false };
@@ -794,7 +794,7 @@ export class TransformSession {
       const src = settled ? this.source : this.small;
       if (!src) return;
       const scale = this.previewScale(settled);
-      const r = this.render(src, scale, 'bilinear', false);
+      const r = this.render(src, scale, 'bilinear', false, !settled);
       this.overlayImage = r ? { href: tintedURL(r.image), rect: { x: r.rect.x / scale, y: r.rect.y / scale, width: r.image.width / scale, height: r.image.height / scale } } : undefined;
       e.overlay();
     }
@@ -817,7 +817,7 @@ export class TransformSession {
       const src = settled ? this.source : this.small;
       if (!src) return;
       const scale = this.previewScale(settled);
-      const r = this.render(src, scale, 'bilinear', false);
+      const r = this.render(src, scale, 'bilinear', false, !settled);
       const old = this.previewTiles;
       this.previewTiles = [];
       const grid = r && gridFromImage(e.assets.tiles, r.image);
@@ -840,8 +840,8 @@ export class TransformSession {
     if (area > budget) s *= Math.sqrt(budget / area);
     return Math.max(s, 0.02);
   }
-  private render(src: RGBA8, scale: number, method: Interp, exact: boolean) {
-    return renderFrame(src, this.rect, this.quad, this.mesh, { scale, method, exact, doc: this.base });
+  private render(src: RGBA8, scale: number, method: Interp, exact: boolean, draft = false) {
+    return renderFrame(src, this.rect, this.quad, this.mesh, { scale, method, exact, doc: this.base, draft });
   }
   private retire() {
     this.retireTiles(this.previewTiles);

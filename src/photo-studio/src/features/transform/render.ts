@@ -17,6 +17,8 @@ export type RenderOptions = {
   exact?: boolean;
   // Results are limited to one canvas size around this document's canvas.
   doc?: Pick<PhotoDocument, 'width' | 'height'>;
+  // A preview redrawn while dragging: warps skip prefiltering reductions.
+  draft?: boolean;
 };
 /** Render `src`, which covers the document rectangle `rect`, onto `quad` (or
  * through `mesh`, in document coordinates). The result rect is in scaled
@@ -27,7 +29,10 @@ export function renderFrame(src: RGBA8, rect: IRect, quad: Quad, mesh: MeshGrid 
   const S = scaleM(scale, scale);
   const limit = opts.doc ? scaledLimit(opts.doc, scale) : undefined;
   if (mesh) {
-    const r = meshWarp(src, mapMesh(S, mesh), method, limit ? { clip: limit } : {});
+    const r = meshWarp(src, mapMesh(S, mesh), method, {
+      ...(limit ? { clip: limit } : {}),
+      draft: opts.draft,
+    });
     return r.rect.width && r.rect.height ? r : undefined;
   }
   // Source pixels → document rectangle → frame → output scale.

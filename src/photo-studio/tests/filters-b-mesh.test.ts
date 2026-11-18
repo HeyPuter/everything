@@ -77,6 +77,23 @@ describe('mesh warp', () => {
       rb = evalMesh(g, 1, 1);
     expect(lb[1] - lt[1]).toBeLessThan(rb[1] - rt[1]);
   });
+  it('prefilters a warp that reduces the image instead of aliasing (except drafts)', () => {
+    const src = rgba8(256, 256);
+    for (let y = 0; y < 256; y++)
+      for (let x = 0; x < 256; x++)
+        src.data.set((x + y) & 1 ? [255, 255, 255, 255] : [0, 0, 0, 255], (y * 256 + x) * 4);
+    const worst = (draft: boolean) => {
+      const r = meshWarp(src, identityGrid({ x: 0, y: 0, width: 70, height: 70 }), 'bicubic', {
+        draft,
+      });
+      let w = 0;
+      for (let y = 2; y < 68; y++)
+        for (let x = 2; x < 68; x++) w = Math.max(w, Math.abs(r.image.data[(y * 70 + x) * 4] - 128));
+      return w;
+    };
+    expect(worst(false)).toBeLessThanOrEqual(12);
+    expect(worst(true)).toBeGreaterThan(60);
+  });
   it('produces transparent antialiased edges for a rotated quad', () => {
     const src = rgba8(20, 20, [255, 0, 0, 255]);
     const P = new Float64Array(8);
