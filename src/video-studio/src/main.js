@@ -44,9 +44,9 @@ function loading(text) {
   root.replaceChildren(h('div.splash', { role: 'status' }, appIcon(56), h('div.spinner'), h('p', text)));
 }
 
-function errorScreen(title, message, retry) {
+function errorScreen(title, message, retry, retryLabel = 'Try again') {
   root.removeAttribute('aria-busy');
-  root.replaceChildren(h('main#main.splash', icon('cloudOff', 32), h('h1.splash-title', title), h('p.splash-sub', message), retry ? h('button.btn.primary', { type: 'button', onclick: retry }, 'Try again') : null));
+  root.replaceChildren(h('main#main.splash', icon('cloudOff', 32), h('h1.splash-title', title), h('p.splash-sub', message), retry ? h('button.btn.primary', { type: 'button', onclick: retry }, retryLabel) : null));
 }
 
 /** A part of the app failed to load: say so, with a reload (which also picks up a new version). */
@@ -389,8 +389,16 @@ function route() {
   }
   const m = /#project=([^&]+)/.exec(location.hash);
   if (review) openReview(review);
-  else if (m) openProject(decodeURIComponent(m[1]));
-  else showHome();
+  else if (m) {
+    let id;
+    try {
+      id = decodeURIComponent(m[1]);
+    } catch {
+      errorScreen('This project link does not work', 'The project address is incomplete or damaged. Open the project from your projects instead.', showHome, 'Back to projects');
+      return;
+    }
+    openProject(id);
+  } else showHome();
 }
 
 async function boot() {

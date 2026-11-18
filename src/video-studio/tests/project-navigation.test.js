@@ -157,3 +157,28 @@ describe('overlapping project navigation', () => {
   });
 
 });
+
+describe('project link routing', () => {
+  it('recovers from malformed percent escapes without trying to read a project', async () => {
+    history.replaceState(null, '', '/?local#project=%');
+    vi.resetModules();
+    await import('../src/main.js');
+    const root = document.getElementById('app');
+    expect(root.querySelector('h1')?.textContent).toBe('This project link does not work');
+    expect(state.library.openForEditing).not.toHaveBeenCalled();
+    const back = root.querySelector('button');
+    expect(back.textContent).toBe('Back to projects');
+    back.click();
+    expect(root.textContent).toBe('Home');
+    expect(location.hash).toBe('');
+  });
+
+  it('still decodes valid escaped project ids', async () => {
+    state.library.openForEditing.mockResolvedValue(opened('A'));
+    history.replaceState(null, '', '/?local#project=%41');
+    vi.resetModules();
+    await import('../src/main.js');
+    await vi.waitFor(() => expect(document.getElementById('app').textContent).toBe('A'));
+    expect(state.library.openForEditing).toHaveBeenCalledWith('A');
+  });
+});
