@@ -288,7 +288,7 @@ export function validateDocument(value: unknown): PhotoDocument {
       validateFrame(l);
       validatePinWarp(l);
       const gen = l.generated;
-      if (gen !== undefined && (!gen || typeof gen !== 'object' || !['generate', 'edit', 'upscale', 'fill', 'expand'].includes(gen.kind) || typeof gen.prompt !== 'string' || gen.prompt.length > 4000 ||
+      if (gen !== undefined && (!gen || typeof gen !== 'object' || !['generate', 'edit', 'upscale', 'fill', 'expand'].includes(gen.kind) || typeof gen.prompt !== 'string' || gen.prompt.length > maxGeneratedPrompt ||
         (gen.model !== undefined && typeof gen.model !== 'string') || (gen.style !== undefined && typeof gen.style !== 'string')))
         throw new Error('Invalid generated layer information.');
       if (l.assetColorSpace !== undefined && !['document', 'srgb'].includes(l.assetColorSpace))
@@ -403,6 +403,19 @@ export function validateDocument(value: unknown): PhotoDocument {
   migrateGuides(doc);
   return doc;
 }
+const maxGeneratedPrompt = 4000;
+// Generate Image kept prompts of any length with its layers, so projects saved
+// with a longer one were refused on opening. The prompt only describes how the
+// layer was made: it is cut to the limit instead.
+function shortenGeneratedPrompts(layers: unknown, depth = 0) {
+  if (!Array.isArray(layers) || depth > 12) return;
+  for (const l of layers as ({ generated?: { prompt?: unknown }; children?: unknown } | null)[]) {
+    const gen = l?.generated;
+    if (gen && typeof gen === 'object' && typeof gen.prompt === 'string' && gen.prompt.length > maxGeneratedPrompt)
+      gen.prompt = gen.prompt.slice(0, maxGeneratedPrompt);
+    shortenGeneratedPrompts(l?.children, depth + 1);
+  }
+}
 /** Read a .photo project. With `into`, its assets are added to an existing
  * store (assets already present keep their data; IDs are immutable content). */
 export async function deserialize(
@@ -421,8 +434,9 @@ export async function deserialize(
     assets: { id: string; size: number; type: string }[];
     sidecars?: Record<string, unknown>;
   };
-  const read = data.document as { animation?: unknown } | null;
+  const read = data.document as { animation?: unknown; layers?: unknown } | null;
   if (read && typeof read === 'object' && read.animation !== undefined) read.animation = unpackAnimation(read.animation);
+  if (read && typeof read === 'object') shortenGeneratedPrompts(read.layers);
   const document = validateDocument(data.document),
     assets = into ?? new Assets();
   if (data.sidecars && typeof data.sidecars === 'object')
