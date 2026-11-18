@@ -7,7 +7,7 @@ import { readRgbProfile } from '../../color/profile';
 import type { RGBA8 } from '../../imaging/types';
 import { canEncodeAvif, fitSize, formatInfo, type ExportContext, type ExportFormat, type ExportSettings, type SourceImage } from './encode';
 import { decodeFile, openFile } from './open';
-import { encodeOffThread, bytesBlob, documentSource, exportContext, formatBytes, loadSettings, samplesToSource } from './pipeline';
+import { encodeOffThread, bytesBlob, documentSource, exportContext, formatBytes, loadSettings, mustConvert, samplesToSource } from './pipeline';
 import { pickCloudFiles } from './cloud';
 import { uniqueName, zipStore } from './zip';
 import { saveToCloudFolder } from './layers-export';
@@ -154,10 +154,11 @@ export async function imageProcessor(e: Editor, batch: boolean) {
 
 export type RunOptions = { resize: boolean; w: number; h: number; enlarge: boolean; format: ExportFormat; quality: number; srgb: boolean; steps: BatchStep[] };
 
-async function loadInput(e: Editor, input: Input, documentSteps: BatchStep[]): Promise<{ src: SourceImage; ctx: ExportContext }> {
+// `linear`: a 32-bit document's linear samples, which are always converted to sRGB (as Export As does).
+async function loadInput(e: Editor, input: Input, documentSteps: BatchStep[]): Promise<{ src: SourceImage; ctx: ExportContext; linear?: boolean }> {
   if (input.session && !documentSteps.length) {
     const s = input.session;
-    return { src: samplesToSource(await e.renderer.documentPixels({ ...s.doc, selection: null }, s.assets), s.doc.width, s.doc.height), ctx: exportContext(s.doc) };
+    return { src: samplesToSource(await e.renderer.documentPixels({ ...s.doc, selection: null }, s.assets), s.doc.width, s.doc.height), ctx: exportContext(s.doc), linear: mustConvert(s.doc) };
   }
   const blob = input.blob ?? (await input.load!());
   const native = /\.(photo|psd|psb)$/i.test(input.name);
@@ -178,7 +179,7 @@ async function loadInput(e: Editor, input: Input, documentSteps: BatchStep[]): P
   const s = e.sessions.find((x) => !before.has(x)) ?? e.session;
   try {
     for (const step of documentSteps) await step.document!(e);
-    return { src: await documentSource(e, s.doc), ctx: exportContext(s.doc) };
+    return { src: await documentSource(e, s.doc), ctx: exportContext(s.doc), linear: mustConvert(s.doc) };
   } finally {
     await e.closeSession(s, true);
     if (e.sessions.includes(previous)) await e.switchSession(previous);
@@ -201,14 +202,16 @@ async function processAll(e: Editor, inputs: Input[], o: RunOptions, report: (s:
     const input = inputs[i];
     report(`Processing ${i + 1} of ${inputs.length}: ${input.name}`);
     try {
-      let { src, ctx } = await loadInput(e, input, documentSteps);
+      const loaded = await loadInput(e, input, documentSteps);
+      let { src } = loaded;
+      const { ctx } = loaded;
       for (const step of o.steps)
         if (step.apply) {
           const img = src.data instanceof Uint16Array ? { width: src.width, height: src.height, data: rgba16To8(src.data) } : (src as RGBA8);
           src = await step.apply(img, { name: input.name });
         }
       const [w, h] = o.resize ? fitSize(src.width, src.height, o.w, o.h, o.enlarge) : [src.width, src.height];
-      const settings: ExportSettings = { ...base, format: o.format, quality: o.quality, convertSrgb: o.srgb, sizeMode: 'exact', width: w, height: h, canvasWidth: 0, canvasHeight: 0, depth: 16 };
+      const settings: ExportSettings = { ...base, format: o.format, quality: o.quality, convertSrgb: o.srgb || !!loaded.linear, sizeMode: 'exact', width: w, height: h, canvasWidth: 0, canvasHeight: 0, depth: 16 };
       const { bytes } = await encodeOffThread(src, settings, ctx);
       const name = uniqueName(`${input.name.replace(/\.[^.]+$/, '')}.${formatInfo[o.format].ext}`, used);
       files.push({ name, bytes, blob: bytesBlob(bytes, formatInfo[o.format].mime) });
