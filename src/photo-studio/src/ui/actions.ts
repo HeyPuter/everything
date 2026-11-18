@@ -2,7 +2,7 @@ import { isVectorGradient } from "../model/vector-gradient";
 import { gradientStop } from "../model/gradient-edit";
 import { hasMask } from '../model/masks';
 import type { Editor } from '../editor';
-import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRoots } from '../model/layers';
+import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRoots, visibleRows } from '../model/layers';
 import { placeDuplicateArtboards } from '../model/artboard';
 import { releaseBackground } from '../model/housekeeping';
 import { Renderer } from '../renderer/renderer';
@@ -420,12 +420,29 @@ export async function performAction(e: Editor, action: string): Promise<void> {
       break;
     case 'delete': {
       assertEditable(e.doc, e.selectedLayers);
+      // The layer below the deleted ones (or else above them) becomes the
+      // selection, so deleting can continue down the stack.
+      const gone = new Set(allLayers(e.selectedLayers).map((l) => l.id));
+      const rows = visibleRows(e.doc.layers, e.collapsedGroups);
+      const first = rows.findIndex((l) => gone.has(l.id));
+      const last = rows.length - 1 - [...rows].reverse().findIndex((l) => gone.has(l.id));
+      const next =
+        rows.slice(last + 1).find((l) => !gone.has(l.id)) ??
+        rows
+          .slice(0, Math.max(0, first))
+          .reverse()
+          .find((l) => !gone.has(l.id));
+      const before = e.doc;
       e.command('Delete layers', (d) => {
         for (const l of selectedRoots(d.layers, e.selectedIds)) {
           const list = containerOf(d.layers, l.id)!;
           list.splice(list.indexOf(l), 1);
         }
       });
+      if (e.doc !== before && next) {
+        e.selectLayers([next.id]);
+        e.update();
+      }
       break;
     }
     case 'duplicate':

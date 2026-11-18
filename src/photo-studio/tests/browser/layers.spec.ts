@@ -123,6 +123,18 @@ test('a drop just under an expanded group\'s row lands at the top of the group',
   await expect(page.locator('#layers .layer-select').nth(1)).toHaveAccessibleName('C');
 });
 
+test('deleting a layer selects the layer below it, or above it at the bottom', async ({ page }) => {
+  const selected = () => page.evaluate(() => window.photoStudio.layer?.name);
+  // Rows: C, B, A.
+  await pick(page, 'B').click();
+  await run(page, 'layer.delete');
+  expect(await selected()).toBe('A');
+  await run(page, 'layer.delete');
+  expect(await selected()).toBe('C');
+  await undo(page);
+  expect(await selected()).toBe('A');
+});
+
 test('shared resize and nudge commit once and preserve selected layers through undo', async ({
   page,
 }) => {
