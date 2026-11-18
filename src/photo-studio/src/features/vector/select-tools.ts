@@ -208,13 +208,16 @@ export function directDown(e: Editor, p: CanvasPointer) {
   if (st.selectionKey !== activeKey(t)) selectKnots(e, t, []);
   const tl = tol(e);
   const m = t.mask;
-  // Handles of selected anchors and their neighbours are draggable.
+  // Handles of selected anchors and their neighbours are draggable (the
+  // ones the overlay shows: an open path's ends have one neighbour).
   const visible: KnotRef[] = [];
   for (const r of st.knots) {
     const sp = m.paths[r.path];
     if (!sp) continue;
     const n = sp.knots.length;
-    visible.push(r, { path: r.path, knot: (r.knot + 1) % n }, { path: r.path, knot: (r.knot - 1 + n) % n });
+    visible.push(r);
+    if (!sp.open || r.knot < n - 1) visible.push({ path: r.path, knot: (r.knot + 1) % n });
+    if (!sp.open || r.knot > 0) visible.push({ path: r.path, knot: (r.knot - 1 + n) % n });
   }
   const h = hitHandle(m, p.x, p.y, tl, visible);
   if (h) {
