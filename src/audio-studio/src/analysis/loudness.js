@@ -421,7 +421,10 @@ export function loudnessPanel(app) {
         const plan = planMatch(m, s);
         e.status = 'Exporting...';
         renderRows();
-        const name = await exportMatched(e.doc, plan, s, x, {
+        // The plan belongs to the measured state; edits during the scan must
+        // not receive a gain or skip decision calculated for different audio.
+        const source = { name: e.doc.name, state: e.state };
+        const name = await exportMatched(source, plan, s, x, {
           write: (n, blob) => out.write(n, blob),
           onProgress: (f) => {
             e.status = `Exporting ${Math.round(f * 100)}%`;
