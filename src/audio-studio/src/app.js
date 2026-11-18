@@ -39,6 +39,7 @@ export class App extends Emitter {
     applyTheme(this.prefs.get('theme'));
     this.#migrateLayouts();
     this.pendingReturn = null; // second-stop mode: where the next Stop returns to
+    this.playbackRequest = null;
     this.prefs.on('change', (key) => {
       if (key === 'theme') applyTheme(this.prefs.get('theme'));
       if (key === 'historyLimit') for (const d of this.documents) if (d.history) d.history.limit = Math.max(10, Number(this.prefs.get('historyLimit')) || 200);
@@ -84,7 +85,7 @@ export class App extends Emitter {
 
   activate(doc) {
     if (this.active === doc) return;
-    if (engine.playing) this.stop();
+    if (engine.playing || this.playbackPending) this.stop();
     this.active = doc;
     this.previewFx = null;
     this.pendingReturn = null;
@@ -108,7 +109,7 @@ export class App extends Emitter {
         }
       }
     }
-    if (this.active === doc && engine.playing) this.stop();
+    if (this.active === doc && (engine.playing || this.playbackPending)) this.stop();
     const i = this.documents.indexOf(doc);
     if (i >= 0) this.documents.splice(i, 1);
     doc.emit('close');
@@ -191,6 +192,8 @@ export class App extends Emitter {
     if (!doc) return;
     // Real playback ends any scrubbing: its pending stop must not cut this off.
     this.endScrub();
+    this.playbackRequest?.abort();
+    const request = this.playbackRequest = new AbortController();
     try {
       const sel = doc.selection;
       const len = doc.length;
@@ -204,15 +207,24 @@ export class App extends Emitter {
       if (loopRange && !hasSel) end = Math.max(end ?? 0, loopRange.end);
       this.pendingReturn = null;
       this.playStart = start;
-      await engine.play({ from: start, to: end ?? len, loop: loopRange });
+      this.emit('transport', 'playback-pending');
+      await engine.play({ from: start, to: end ?? len, loop: loopRange, signal: request.signal });
+      if (request.signal.aborted) return;
+      this.playbackRequest = null;
       this.emit('transport', 'playing');
     } catch (err) {
+      if (request.signal.aborted) return;
+      this.playbackRequest = null;
+      this.playStart = null;
+      this.emit('transport', engine.state);
       if (!isUserError(err)) console.error(err);
       this.notify(isUserError(err) ? err.message : 'Playback is not available in this browser.', { error: true });
     }
   }
 
   stop() {
+    this.playbackRequest?.abort();
+    this.playbackRequest = null;
     if (!engine.playing && this.pendingReturn != null) {
       // Second stop: back to where playback started.
       this.#returnTo(this.pendingReturn);
@@ -226,9 +238,13 @@ export class App extends Emitter {
     return !engine.playing && this.pendingReturn != null && this.active != null;
   }
 
+  get playbackPending() {
+    return Boolean(this.playbackRequest);
+  }
+
   togglePlay() {
-    if (engine.playing) this.stop();
-    else this.play();
+    if (engine.playing || this.playbackPending) return this.stop();
+    return this.play();
   }
 
   #onEnded(frame) {
