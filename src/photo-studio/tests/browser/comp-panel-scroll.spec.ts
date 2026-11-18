@@ -11,6 +11,15 @@ test('the layer comp list keeps its browsing position through edits and applying
   await openProject(page, doc);
   const body = await panel(page, 'Layer Comps');
   await idle(page);
+  // The drawer slides in: clicking a button while the list still moves makes
+  // the test runner scroll the list to reach it, which is not the app's doing.
+  await page.evaluate(() =>
+    Promise.all(
+      [...document.querySelectorAll('.dock-drawer')]
+        .flatMap((d) => d.getAnimations())
+        .map((a) => a.finished),
+    ),
+  );
   // Resolve the current list inside the same browser task as the read/write;
   // a panel update can replace a locator's element before evaluate runs.
   const position = await page.evaluate(() => {
