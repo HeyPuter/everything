@@ -593,6 +593,8 @@ export function createSmartActions(ctx) {
      * video and photo clip to fill it and pan to follow its subject.
      */
     async autoReframe() {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return;
       const st = store.project.settings;
       const sel = store.selectedIds.map((id) => T.findClip(store.project, id)?.clip).filter((c) => c && (c.type === 'video' || c.type === 'image'));
       const ratio = h('select.select', h('option', { value: 'keep' }, `Keep ${st.width} x ${st.height}`), RATIOS.map((r) => h('option', { value: r.id }, `${r.label}  ${r.hint}`)));
@@ -605,16 +607,20 @@ export function createSmartActions(ctx) {
       const row = (label, el) => h('label.pref-row', h('span.pref-label', label), h('span.pref-ctl', el));
       const go = h('button.btn.primary', { type: 'button' }, icon('focus', 16), 'Reframe');
       const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-      const d = openDialog({
+      let closed = false;
+      const d = openFrameDialog({
         title: 'Auto reframe',
         body: h('div.prefs', h('p.dialog-text', 'Changes the frame shape and keeps the subject in view: each clip zooms to fill the new frame and pans to follow what matters. Existing position keyframes on these clips are replaced.'),
           row('Frame shape', ratio), row('Clips', which), row('Follow movement', follow), row('Zoom', zoom)),
         actions: [cancel, go],
         className: 'prefs-dialog',
-      });
+        onClose: () => { closed = true; },
+      }, lifetime);
       cancel.addEventListener('click', () => d.close());
       go.addEventListener('click', async () => {
+        if (closed || lifetime.aborted) return;
         d.close();
+        if (lifetime.aborted) return;
         setPref('reframeRatio', ratio.value);
         setPref('reframeFollow', follow.value);
         const project = store.project;
@@ -622,7 +628,7 @@ export function createSmartActions(ctx) {
         const { width: W, height: H, ratio: ratioId } = reframeSize(st, r);
         const dstAR = W / H;
         const targets = which.value === 'selected' ? sel : T.allClips(project).filter((c) => c.type === 'video' || c.type === 'image');
-        const p = progressDialog('Auto reframe', 'Finding the subject in each clip...');
+        const p = progressDialog('Auto reframe', 'Finding the subject in each clip...', lifetime);
         const plans = [];
         try {
           for (let i = 0; i < targets.length; i++) {
@@ -645,6 +651,7 @@ export function createSmartActions(ctx) {
           if (!canceled && err?.name !== 'AbortError') toast(err?.message || 'Could not reframe these clips.', { kind: 'error' });
           return;
         }
+        if (lifetime.aborted) return;
         store.update('Auto reframe', (proj) => {
           if (r) Object.assign(proj.settings, { width: W, height: H, ratio: ratioId });
           for (const plan of plans) {
@@ -652,7 +659,7 @@ export function createSmartActions(ctx) {
             if (f) applyReframePlan(f.clip, plan);
           }
         });
-        toast(`Reframed ${plans.length} clip${plans.length === 1 ? '' : 's'}${r ? ` for ${r.label}` : ''}.`, { kind: 'success' });
+        if (!lifetime.aborted) toast(`Reframed ${plans.length} clip${plans.length === 1 ? '' : 's'}${r ? ` for ${r.label}` : ''}.`, { kind: 'success' });
       });
     },
 
