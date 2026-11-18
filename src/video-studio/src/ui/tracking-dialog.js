@@ -23,7 +23,7 @@ const FPS = 15;
 export function mediaBox(project, layer) {
   const W = project.settings.width;
   const H = project.settings.height;
-  const a = layer.asset || {};
+  const a = layer.pictureSize || layer.asset || {};
   const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
   const sw = (a.width || W) * (1 - crop.l - crop.r);
   const sh = (a.height || H) * (1 - crop.t - crop.b);

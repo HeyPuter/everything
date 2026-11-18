@@ -566,7 +566,7 @@ describe('AI sidebar tools', () => {
     const { store, ctx, main } = setup(clip('image', 0, 3));
     const img = main().clips[0];
     Object.assign(img.adjust, { exposure: 20, contrast: 15 });
-    const baked = { settings: { adjust: { ...img.adjust } }, keyframes: {} };
+    const baked = { settings: { adjust: { ...img.adjust } }, keyframes: {}, pictureSize: { width: 72, height: 40.5 } };
     let finish;
     const { runner } = runnerFor(ctx, {
       picture: vi.fn(async () => ({ ...picture(), baked })),
@@ -578,8 +578,22 @@ describe('AI sidebar tools', () => {
     finish();
     expect((await pending).ok).toBe(true);
     expect(findClip(store.project, img.id).clip.adjust).toMatchObject({ exposure: 35, contrast: 0 });
+    expect(findClip(store.project, img.id).clip.pictureSize).toEqual(baked.pictureSize);
     store.undo();
     expect(findClip(store.project, img.id).clip.adjust).toMatchObject({ exposure: 35, contrast: 15 });
+  });
+
+  it('keeps the captured framing when an edited picture is added as an overlay', async () => {
+    const { store, ctx, main } = setup(clip('image', 0, 3));
+    const size = { width: 72, height: 40.5 };
+    const { runner } = runnerFor(ctx, { picture: vi.fn(async () => ({ ...picture(), baked: { pictureSize: size } })) });
+    const result = await runner.run('edit_image', { source: main().clips[0].id, instruction: 'night', replace: false });
+    expect(result.ok).toBe(true);
+    const id = result.target.ids[0];
+    expect(findClip(store.project, id).clip.pictureSize).toEqual(size);
+    expect(store.history.undoStack).toHaveLength(1);
+    store.undo(); expect(findClip(store.project, id)).toBeNull();
+    store.redo(); expect(findClip(store.project, id).clip.pictureSize).toEqual(size);
   });
 
   it('makes and edits pictures, and speaks a voiceover', async () => {

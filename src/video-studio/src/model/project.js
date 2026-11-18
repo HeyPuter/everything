@@ -408,6 +408,9 @@ export function normalizeClip(c) {
     if (inherited) out.inherited = inherited;
   }
   if (c.type === 'video' || c.type === 'image') {
+    if (c.type === 'image' && Number.isFinite(c.pictureSize?.width) && Number.isFinite(c.pictureSize?.height) && c.pictureSize.width > 0 && c.pictureSize.height > 0) {
+      out.pictureSize = { width: c.pictureSize.width, height: c.pictureSize.height };
+    }
     const cr = c.crop || {};
     out.crop = { l: clampN(cr.l, 0, 0.95, 0), t: clampN(cr.t, 0, 0.95, 0), r: clampN(cr.r, 0, 0.95, 0), b: clampN(cr.b, 0, 0.95, 0) };
     out.adjust = normAdjust(c.adjust);

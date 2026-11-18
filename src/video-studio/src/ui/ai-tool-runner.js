@@ -543,7 +543,9 @@ export function createAiToolRunner(ctx, services = {}) {
           const clip = T.findClip(store.project, sourceClip.id)?.clip;
           return { clip, words: `in place of the picture of clip ${sourceClip.id}` };
         }
-        return place(asset, { place: a.place || 'overlay', start: a.start ?? (sourceClip ? sourceClip.start / US : store.time / US) });
+        const placed = place(asset, { place: a.place || 'overlay', start: a.start ?? (sourceClip ? sourceClip.start / US : store.time / US) });
+        if (placed.clip && got.picture.baked?.pictureSize) actions.editClip(placed.clip.id, 'Keep picture framing', c => { c.pictureSize = { ...got.picture.baked.pictureSize }; });
+        return placed;
       }, at);
       if (value.clip) store.select(value.clip.id);
       return ok(`changed the picture from ${got.from} (new media ${asset.id}) and put it ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });

@@ -144,8 +144,8 @@ export function drawClipCanvas(comp, layer, cv, time, dst) {
     if (!info?.source) return;
     const W = comp.projW;
     const H = comp.projH;
-    const iw = info.width || layer.width;
-    const ih = info.height || layer.height;
+    const iw = layer.pictureSize?.width || info.width || layer.width;
+    const ih = layer.pictureSize?.height || info.height || layer.height;
     const cover = Math.max(W / iw, H / ih);
     const fit = Math.min(W / iw, H / ih);
     const fake = { ...layer, inner: true, extras: null, enhance: null, masks: null, cutout: null, retouch: null, faceShape: null, hairColor: null, bodyShape: null, makeup: null, effects: null, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, sx: 1, sy: 1, skew: 0, scale: cover / fit, crop: ZERO_CROP, flipH: false, flipV: false };

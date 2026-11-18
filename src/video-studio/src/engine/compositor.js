@@ -405,8 +405,9 @@ export class Compositor {
     let bh;
     if (layer.kind === 'media') {
       const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
-      const sw = (info?.width || layer.width) * (1 - crop.l - crop.r);
-      const sh = (info?.height || layer.height) * (1 - crop.t - crop.b);
+      const dimensions = layer.pictureSize || info || layer;
+      const sw = (dimensions.width || layer.width) * (1 - crop.l - crop.r);
+      const sh = (dimensions.height || layer.height) * (1 - crop.t - crop.b);
       const fit = Math.min(W / sw, H / sh);
       bw = sw * fit;
       bh = sh * fit;
@@ -573,11 +574,12 @@ export class Compositor {
     if (!info?.source) return;
     const W = this.projW;
     const H = this.projH;
-    const cover = Math.max(W / info.width, H / info.height);
+    const dimensions = first.pictureSize || info;
+    const cover = Math.max(W / dimensions.width, H / dimensions.height);
     // No enhance either: sharpening a picture that is then blurred shows nothing, and at this
     // size it kept evicting the clip's own enhanced frame, which was then redone every frame.
     const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, skew: 0, masks: null, extras: null, enhance: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
-    const fit = Math.min(W / info.width, H / info.height);
+    const fit = Math.min(W / dimensions.width, H / dimensions.height);
     fake.scale = cover / fit;
     this._drawLayer(fake, time);
     const blurred = this._blurInto(small.tex, this._target('bgA', 0.25), this._target('bgB', 0.25), (1 + (bg.blur ?? 0.5) * 3) * this.pxScale);

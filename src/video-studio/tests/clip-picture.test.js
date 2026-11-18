@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/engine/exporter.js', () => ({ renderStill: vi.fn(async () => ({ width: 64, height: 36, close: vi.fn() })) }));
 import { renderStill } from '../src/engine/exporter.js';
-import { clipPicture, replacePicture } from '../src/ui/inspector/stylize.js';
+import { clipPicture, replacePicture, addRestyledClip } from '../src/ui/inspector/stylize.js';
 import { createCompound, breakApart } from '../src/model/compound.js';
 import { normalizeProject } from '../src/model/project.js';
 import { setTransition } from '../src/model/timeline.js';
@@ -12,6 +12,8 @@ import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { findClip } from '../src/model/timeline.js';
 import { defaultMask } from '../src/model/masks.js';
+import { Compositor } from '../src/engine/compositor.js';
+import { mediaBox } from '../src/ui/tracking-dialog.js';
 
 beforeEach(() => {
   renderStill.mockClear();
@@ -50,6 +52,21 @@ describe('isolated pictures for AI restyling', () => {
     const [layer] = await capture(p, c, s(1));
     expect(layer.masks).toHaveLength(0);
     expect(layer.clip.keyframes['mask0.x']).toBeUndefined();
+  });
+
+  it.each([
+    [10, 1000, 0.95, 0.5, 1000, 16, 1000],
+    [4000, 3000, 0.1, 3600, 3000, 1024, 854],
+  ])('bounds bitmap pixels independently of source framing (%s by %s)', async (width, height, left, logicalW, logicalH, pixelW, pixelH) => {
+    const p = fixture();
+    const [c] = onMain(p, clip('image', 0, 4, { crop: { l: left, r: 0, t: 0, b: 0 } }));
+    Object.assign(p.assets[c.assetId], { width, height });
+    const picture = await clipPicture({ store: { project: p }, library: {} }, c, 0);
+    const [project, , , options] = renderStill.mock.lastCall;
+    expect(project.settings.width).toBeCloseTo(logicalW);
+    expect(project.settings.height).toBeCloseTo(logicalH);
+    expect(picture.baked.pictureSize.width).toBeCloseTo(logicalW);
+    expect(options.pixelSize).toEqual({ width: pixelW, height: pixelH });
   });
 
   it.each(['image', 'video'])('fits a cropped %s capture to the visible source aspect ratio', async (type) => {
@@ -149,6 +166,50 @@ describe('replacing a captured picture', () => {
     expect(live().keyframes['adjust.exposure']).toBeUndefined();
     expect(live().keyframes.x).toHaveLength(2);
     expect(live().adjust.exposure).toBe(0);
+  });
+
+  it('keeps fractional crop framing when replacing, adding, and reopening a result', async () => {
+    const { ctx, store, live, asset } = setup();
+    const src = store.project.assets[live().assetId];
+    Object.assign(src, { width: 96, height: 54 });
+    live().crop = { l: 0.25, r: 0, t: 0, b: 0.25 };
+    const original = structuredClone(live());
+    const before = evaluate(store.project, s(1))[0];
+    const picture = await clipPicture(ctx, live(), s(1));
+    const [captureProject, , , options] = renderStill.mock.lastCall;
+    expect(captureProject.settings).toMatchObject({ width: 72, height: 40.5 });
+    expect(options.pixelSize).toEqual({ width: 72, height: 42 });
+    Object.assign(asset, { width: 72, height: 42 });
+    replacePicture(ctx, live().id, asset, picture.baked);
+    const size = layer => Compositor.prototype.layerBox.call({ projW: 1920, projH: 1080 }, layer, asset);
+    const after = evaluate(store.project, s(1))[0];
+    const expected = Compositor.prototype.layerBox.call({ projW: 1920, projH: 1080 }, before, src);
+    expect(size(after)).toEqual(expected);
+    expect(mediaBox(store.project, after).w).toBeCloseTo(expected.w);
+    expect(mediaBox(store.project, after).h).toBeCloseTo(expected.h);
+    const reopened = normalizeProject(store.projectForSave());
+    expect(size(evaluate(reopened, s(1))[0])).toEqual(expected);
+    store.undo(); expect(live()).toEqual(original);
+    const added = addRestyledClip(ctx, live().id, asset, picture.baked);
+    expect(evaluate(store.project, s(1)).find(l => l.clip.id === added.id).width).toBe(72);
+    expect(evaluate(store.project, s(1)).find(l => l.clip.id === added.id).height).toBe(40.5);
+  });
+
+  it('uses the new media framing for an ordinary replacement and restores precise sizing on undo', () => {
+    const { ctx, store, live, asset } = setup();
+    live().pictureSize = { width: 72, height: 40.5 };
+    expect(ctx.actions.replaceClip(live().id, asset)).toBe(true);
+    expect(live().pictureSize).toBeUndefined();
+    store.undo();
+    expect(live().pictureSize).toEqual({ width: 72, height: 40.5 });
+  });
+
+  it('rejects malformed picture dimensions on reopening', () => {
+    const { store, live } = setup();
+    for (const size of [{ width: 0, height: 1 }, { width: Infinity, height: 10 }, { width: 10, height: NaN }]) {
+      live().pictureSize = size;
+      expect(findClip(normalizeProject(store.projectForSave()), live().id).clip.pictureSize).toBeUndefined();
+    }
   });
 
   it('retains mask source coordinates when replacing a cropped picture', async () => {

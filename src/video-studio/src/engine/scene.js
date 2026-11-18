@@ -187,6 +187,11 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.asset = asset;
     layer.width = asset?.width || project.settings.width;
     layer.height = asset?.height || project.settings.height;
+    if (clip.pictureSize) {
+      layer.pictureSize = clip.pictureSize;
+      layer.width = clip.pictureSize.width;
+      layer.height = clip.pictureSize.height;
+    }
     layer.sourceTime = 0;
     if (clip.type === 'video') {
       const { time, held } = sourceTimeForTransition(clip, t, asset);

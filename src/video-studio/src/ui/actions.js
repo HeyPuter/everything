@@ -643,6 +643,7 @@ export function createActions(ctx) {
       return actions.editClip(id, 'Replace clip', (clip) => preserveMotionClock(clip, () => {
         clip.assetId = asset.id;
         clip.name = asset.name;
+        delete clip.pictureSize;
         clip.in = 0;
         clip.freeze = false;
         clip.reversed = false;

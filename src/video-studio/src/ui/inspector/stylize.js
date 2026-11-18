@@ -72,15 +72,17 @@ export async function clipPicture(ctx, clip, time) {
   if (!asset) throw new Error('This clip has no media.');
   // Cropping is baked into the pixels. Match their visible aspect ratio so
   // fitting the result back into any project frame preserves its footprint.
+  const source = clip.pictureSize || asset;
   const crop = clip.crop || {};
-  const sourceW = Math.max(1, (asset.width || p.settings.width) * (1 - (crop.l || 0) - (crop.r || 0)));
-  const sourceH = Math.max(1, (asset.height || p.settings.height) * (1 - (crop.t || 0) - (crop.b || 0)));
+  const sourceW = Math.max(1e-6, (source.width || p.settings.width) * (1 - (crop.l || 0) - (crop.r || 0)));
+  const sourceH = Math.max(1e-6, (source.height || p.settings.height) * (1 - (crop.t || 0) - (crop.b || 0)));
   const size = fitSize(sourceW, sourceH);
   const w = Math.max(16, Math.round(size.w / 2) * 2);
   const hh = Math.max(16, Math.round(size.h / 2) * 2);
   const one = structuredClone(clip);
   const baked = pictureSettings(one);
-  baked.source = { width: asset.width || p.settings.width, height: asset.height || p.settings.height, maskSpace: structuredClone(clip.maskSpace) };
+  baked.source = { width: source.width || p.settings.width, height: source.height || p.settings.height, maskSpace: structuredClone(clip.maskSpace) };
+  baked.pictureSize = { width: sourceW, height: sourceH };
   Object.assign(one, { start: 0, transform: { ...DEFAULT_TRANSFORM }, opacity: 1, blend: 'normal', animIn: null, animOut: null, animLoop: null, keyframes: structuredClone(baked.keyframes), transition: null });
   // Retained group placement and transition partners belong to the timeline,
   // not the isolated source picture sent for restyling. Keep source timing.
@@ -93,10 +95,10 @@ export async function clipPicture(ctx, clip, time) {
     }
   } else delete one.masks;
   const local = Math.min(Math.max(0, time - clip.start), Math.max(0, clip.duration - 1000));
-  const project = { ...p, settings: { ...p.settings, width: w, height: hh, background: { type: 'color', color: '#000000', blur: 0 } }, tracks: [makeTrack('video', { main: true, clips: [one] })], markers: [] };
+  const project = { ...p, settings: { ...p.settings, width: sourceW, height: sourceH, background: { type: 'color', color: '#000000', blur: 0 } }, tracks: [makeTrack('video', { main: true, clips: [one] })], markers: [] };
   delete project.range;
   const { renderStill } = await import('../../engine/exporter.js');
-  const bmp = await renderStill(project, ctx.library, local, { maxWidth: w });
+  const bmp = await renderStill(project, ctx.library, local, { pixelSize: { width: w, height: hh } });
   const c = document.createElement('canvas');
   c.width = bmp.width;
   c.height = bmp.height;
@@ -116,7 +118,7 @@ function services(ctx) {
 }
 
 /** Put a restyled picture on an overlay track over the clip it came from (or at the playhead for a video frame). */
-export function addRestyledClip(ctx, sourceId, asset) {
+export function addRestyledClip(ctx, sourceId, asset, baked) {
   const { store } = ctx;
   const src = T.findClip(store.project, sourceId)?.clip;
   const still = src?.type === 'image';
@@ -126,6 +128,7 @@ export function addRestyledClip(ctx, sourceId, asset) {
     start: still ? src.start : store.time,
     duration: still ? src.duration : Math.max(T.MIN_CLIP, defaultLength.image()),
   });
+  if (baked?.pictureSize) clip.pictureSize = { ...baked.pictureSize };
   if (src) {
     // The new source pixels have no placement. Retain the source clip's full
     // motion, including former group axes, at this clip's timeline position.
@@ -147,6 +150,8 @@ export function replacePicture(ctx, clipId, asset, baked) {
     consumePictureSettings(c, baked);
     c.assetId = asset.id;
     c.name = asset.name;
+    if (baked?.pictureSize) c.pictureSize = { ...baked.pictureSize };
+    else delete c.pictureSize;
     // The new picture brings its own look; a live look on top would double it.
     delete c.stylize;
   });
@@ -290,7 +295,7 @@ function restyleSection(view) {
         acting = false;
       }
     };
-    add.addEventListener('click', act((asset) => addRestyledClip(ctx, id, asset), 'Restyled picture added'));
+    add.addEventListener('click', act((asset) => addRestyledClip(ctx, id, asset, baked), 'Restyled picture added'));
     replace?.addEventListener('click', act((asset) => replacePicture(ctx, id, asset, baked), 'Picture replaced'));
     save.addEventListener('click', act(() => save.replaceChildren(icon('check', 14), 'In media'), 'Saved to media'));
     drop.addEventListener('click', clearResult);

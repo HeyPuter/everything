@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProject, makeClip } from '../src/model/project.js';
 
-const runtime = vi.hoisted(() => ({ outputs: [], render: vi.fn(), dispose: vi.fn(), add: vi.fn(), people: vi.fn() }));
+const runtime = vi.hoisted(() => ({ outputs: [], render: vi.fn(), dispose: vi.fn(), resize: vi.fn(), add: vi.fn(), people: vi.fn() }));
 vi.mock('../src/engine/compositor.js', () => ({
   Compositor: class {
-    resize() {}
+    resize(...args) { runtime.resize(...args); }
     render() { return runtime.render(); }
     dispose() { runtime.dispose(); }
   },
@@ -33,6 +33,7 @@ beforeEach(() => {
   runtime.outputs.length = 0;
   runtime.render.mockReset().mockReturnValue(true);
   runtime.dispose.mockReset();
+  runtime.resize.mockReset();
   runtime.add.mockReset();
   runtime.people.mockReset().mockResolvedValue(true);
 });
@@ -110,4 +111,19 @@ describe('canceling export preparation', () => {
       vi.unstubAllGlobals();
     }
   });
+});
+
+
+it('keeps fractional logical framing separate from explicit still bitmap dimensions', async () => {
+  const p = createProject();
+  Object.assign(p.settings, { width: 72, height: 40.5 });
+  vi.stubGlobal('createImageBitmap', async canvas => ({ width: canvas.width, height: canvas.height, close() {} }));
+  try {
+    const bitmap = await renderStill(p, {}, 0, { pixelSize: { width: 72, height: 42 } });
+    expect(bitmap).toMatchObject({ width: 72, height: 42 });
+    expect(runtime.resize).toHaveBeenLastCalledWith(72, 42, 72, 40.5);
+    Object.assign(p.settings, { width: 1920, height: 1080 });
+    await renderStill(p, {}, 0, { maxWidth: 64 });
+    expect(runtime.resize).toHaveBeenLastCalledWith(64, 36, 1920, 1080);
+  } finally { vi.unstubAllGlobals(); }
 });

@@ -19,7 +19,7 @@ export function clipBoxSize(view) {
   const { width: W, height: H } = view.project.settings;
   let base;
   if (c.type === 'video' || c.type === 'image') {
-    const a = view.project.assets[c.assetId];
+    const a = c.pictureSize || view.project.assets[c.assetId];
     base = fitBox(a?.width || W, a?.height || H, c.crop, W, H);
   } else {
     const m = view.ctx.player?.text?.measure?.(c);

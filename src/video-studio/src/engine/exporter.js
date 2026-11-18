@@ -536,12 +536,15 @@ async function thumbnail(canvas, maxW = 360) {
 const PEOPLE_TOOLS_FAILED = "The people tools this video uses (background removal, retouch or body effects) couldn't load. Check your connection and try again.";
 
 /** Render one frame of the project at time t to an ImageBitmap (previews and thumbnails). */
-export async function renderStill(project, library, t = 0, { maxWidth = 640, signal } = {}) {
+export async function renderStill(project, library, t = 0, { maxWidth = 640, pixelSize, signal } = {}) {
   checkAbort(signal);
   const snap = structuredClone(project);
   const { width: pw, height: ph } = snap.settings;
   const k = Math.min(1, maxWidth / pw);
-  const r = new FrameRenderer(snap, library, even(pw * k), even(ph * k), { signal });
+  // A source capture may have fractional logical dimensions. Keep layout
+  // exact while rasterizing into its separately bounded bitmap dimensions.
+  const explicit = pixelSize && Number.isFinite(pixelSize.width) && Number.isFinite(pixelSize.height) && pixelSize.width > 0 && pixelSize.height > 0;
+  const r = new FrameRenderer(snap, library, even(explicit ? pixelSize.width : pw * k), even(explicit ? pixelSize.height : ph * k), { signal });
   let bitmap = null;
   try {
     try {

@@ -21,7 +21,7 @@ const shapeOf = (type) => MASK_SHAPES.find((s) => s.id === type) || MASK_SHAPES[
 
 function aspectOf(view) {
   const c = view.clip;
-  const a = c?.maskSpace || (c && view.project.assets[c.assetId]);
+  const a = c?.maskSpace || c?.pictureSize || (c && view.project.assets[c.assetId]);
   return a?.width && a?.height ? a.width / a.height : view.project.settings.width / view.project.settings.height;
 }
 
@@ -53,7 +53,7 @@ export function maskTab(view) {
   function add(type) {
     let index = -1;
     view.edit(`Add ${shapeOf(type).label.toLowerCase()} mask`, (c) => {
-      const asset = view.project.assets[c.assetId];
+      const asset = c.pictureSize || view.project.assets[c.assetId];
       const aspect = asset?.width && asset?.height ? asset.width / asset.height : aspectOf(view);
       index = addMask(c, defaultMaskInSpace(defaultMask(type, aspect), c.masks?.length ? c.maskSpace : null));
       return index >= 0;
@@ -249,7 +249,7 @@ export function maskTab(view) {
         else {
           // Finishing: fit the box to the path (when nothing is keyed) so its handles hug the drawing.
           const c = view.clip;
-          const a = c?.maskSpace || view.project.assets[c?.assetId];
+          const a = c?.maskSpace || c?.pictureSize || view.project.assets[c?.assetId];
           const t = c?.masks?.[i];
           if (t?.path?.length >= 3 && a?.width && !MASK_KEYED.some((k) => c.keyframes?.[maskProp(i, k)]?.length)) {
             const fit = fitPathBox(t, a.width, a.height);
