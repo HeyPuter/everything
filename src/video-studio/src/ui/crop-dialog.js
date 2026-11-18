@@ -9,7 +9,9 @@ import { icon } from '../lib/icons.js';
 import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { pictureSizeFor } from '../model/picture-size.js';
-import { openDialog, toast, oneAtATime } from './dialog.js';
+import { toast } from './dialog.js';
+import { frameDialog, openFrameDialog } from './frame-dialog.js';
+import { abortable } from '../lib/abort.js';
 
 const MIN = 0.02; // smallest crop side as a fraction of the source
 
@@ -50,14 +52,19 @@ export const cropFromRect = (r) => ({ l: round(r.x), t: round(r.y), r: round(1 -
 const round = (v) => Math.max(0, Math.round(v * 10000) / 10000);
 
 /** The source frame of a clip at the playhead (or its first frame) as a canvas. */
-async function sourceFrame(ctx, clip) {
+async function sourceFrame(ctx, clip, signal) {
   const asset = ctx.store.project.assets[clip.assetId];
   if (!asset) throw new Error('This clip has no media.');
   const maxW = 1280;
   if (clip.type === 'image') {
     const img = new Image();
-    img.src = await ctx.library.mediaURL(asset);
-    await img.decode();
+    img.src = await abortable(() => ctx.library.mediaURL(asset), signal);
+    try {
+      await abortable(() => img.decode(), signal);
+      signal.throwIfAborted();
+    } finally {
+      if (signal.aborted) img.src = '';
+    }
     const canvas = draw(img, img.naturalWidth, img.naturalHeight, maxW);
     const size = pictureSizeFor(clip, asset);
     if (size) {
@@ -71,18 +78,20 @@ async function sourceFrame(ctx, clip) {
     return canvas;
   }
   // Decode the exact frame with WebCodecs (works in background tabs too).
-  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
-  const input = new Input({ source: new BlobSource(await ctx.library.mediaBlob(asset)), formats: ALL_FORMATS });
+  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+  const blob = await abortable(() => ctx.library.mediaBlob(asset), signal);
+  signal.throwIfAborted();
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
   try {
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
+    const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
+    if (!track || !(await abortable(() => track.canDecode(), signal))) throw new Error('This video can not be decoded here.');
     const t = ctx.store.time;
     const local = clamp(t - clip.start, 0, clip.duration - 1);
     const sec = T.sourceTimeAt(clip, clip.start + local) / US;
     const w = asset.width || track.displayWidth;
     const hgt = asset.height || track.displayHeight;
     const sink = new CanvasSink(track, { width: Math.min(maxW, w), fit: 'contain', poolSize: 1 });
-    const wrapped = (await sink.getCanvas(sec + FRAME_SLACK)) || (await sink.getCanvas(0));
+    const wrapped = (await abortable(() => sink.getCanvas(sec + FRAME_SLACK), signal)) || (await abortable(() => sink.getCanvas(0), signal));
     if (!wrapped) throw new Error('Could not read a frame from this video.');
     return draw(wrapped.canvas, w, hgt, maxW);
   } finally {
@@ -102,7 +111,7 @@ function draw(src, w, hgt, maxW) {
   return c;
 }
 
-export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected?.clip.id) => {
+export const openCropDialog = frameDialog(async (ctx, clipId = ctx.store.selected?.clip.id, signal) => {
   const { store, actions } = ctx;
   const f = clipId && T.findClip(store.project, clipId);
   if (!f || (f.clip.type !== 'video' && f.clip.type !== 'image')) {
@@ -116,11 +125,11 @@ export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected
   const assetId = f.clip.assetId;
   const isCurrentSource = () => {
     const now = T.findClip(store.project, clipId);
-    return now?.clip === f.clip && now.clip.assetId === assetId && !now.track.locked;
+    return !signal.aborted && now?.clip === f.clip && now.clip.assetId === assetId && !now.track.locked;
   };
   let frameCanvas;
   try {
-    frameCanvas = await sourceFrame(ctx, f.clip);
+    frameCanvas = await sourceFrame(ctx, f.clip, signal);
   } catch (err) {
     if (isCurrentSource()) toast(err?.message || 'Could not load this clip.', { kind: 'error' });
     return;
@@ -252,13 +261,13 @@ export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected
     setRatio('free');
   });
 
-  const d = openDialog({
+  const d = openFrameDialog({
     title: 'Crop',
     body: h('div.crop-editor', stage, h('div.crop-bar', ratioBtns, h('span.spacer'), readout)),
     actions: [reset, h('span.spacer'), cancel, apply],
     wide: true,
     className: 'crop-dialog',
-  });
+  }, signal);
   const ro = new ResizeObserver(paint);
   ro.observe(frameCanvas);
   d.result.then(() => ro.disconnect());

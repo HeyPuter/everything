@@ -73,16 +73,20 @@ export function openDialog({ title, body, actions = [], className = '', onClose,
  * a second click or key press while it loads does not open a second dialog,
  * and the pointer shows that something is on its way.
  */
-export function oneAtATime(open) {
-  let running = null;
+let openingDialogs = 0;
+export function oneAtATime(open, keyFor = () => null) {
+  const running = new Map();
   return (...args) => {
-    if (running) return running;
+    const key = keyFor(...args);
+    if (running.has(key)) return running.get(key);
+    openingDialogs++;
     document.documentElement.classList.add('opening-dialog');
-    running = (async () => open(...args))().finally(() => {
-      running = null;
-      document.documentElement.classList.remove('opening-dialog');
+    const pending = (async () => open(...args))().finally(() => {
+      running.delete(key);
+      if (--openingDialogs === 0) document.documentElement.classList.remove('opening-dialog');
     });
-    return running;
+    running.set(key, pending);
+    return pending;
   };
 }
 

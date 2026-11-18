@@ -11,31 +11,38 @@ import * as T from '../model/timeline.js';
 import { CUTOUT_DEFAULT, MAX_STROKES, normalizeStrokes, strokeOverride, applyOverride, matteWindow } from '../model/cutout.js';
 import { SEG_SIZE, ready, segment, segmenterError } from '../media/segmenter.js';
 import { segmented, sliderField } from './controls.js';
-import { openDialog, toast, oneAtATime } from './dialog.js';
+import { toast } from './dialog.js';
+import { frameDialog, openFrameDialog } from './frame-dialog.js';
+import { abortable } from '../lib/abort.js';
 
 const VIEW_W = 960;
 
 /** The source frame of a clip at timeline time t, upright, as a canvas. */
-async function sourceFrame(ctx, clip, t) {
+async function sourceFrame(ctx, clip, t, signal) {
   const asset = ctx.store.project.assets[clip.assetId];
-  const blob = await ctx.library.mediaBlob(asset);
+  const blob = await abortable(() => ctx.library.mediaBlob(asset), signal);
+  signal.throwIfAborted();
   const w = Math.min(VIEW_W, asset.width || VIEW_W);
   const hh = Math.round((w * (asset.height || 540)) / (asset.width || 960));
   const canvas = h('canvas.refine-frame', { width: w, height: hh });
   const g = canvas.getContext('2d');
   if (clip.type === 'image') {
     const bmp = await createImageBitmap(blob);
-    g.drawImage(bmp, 0, 0, w, hh);
-    bmp.close?.();
+    try {
+      signal.throwIfAborted();
+      g.drawImage(bmp, 0, 0, w, hh);
+    } finally {
+      bmp.close?.();
+    }
     return { canvas, asset };
   }
-  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
+  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
   try {
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
+    const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
+    if (!track || !(await abortable(() => track.canDecode(), signal))) throw new Error('This video can not be decoded here.');
     const sink = new CanvasSink(track, { width: w, height: hh, fit: 'fill', poolSize: 1 });
-    const frame = await sink.getCanvas(T.sourceTimeAt(clip, t) / US + FRAME_SLACK);
+    const frame = await abortable(() => sink.getCanvas(T.sourceTimeAt(clip, t) / US + FRAME_SLACK), signal);
     if (frame) g.drawImage(frame.canvas, 0, 0, w, hh);
   } finally {
     input.dispose();
@@ -43,7 +50,7 @@ async function sourceFrame(ctx, clip, t) {
   return { canvas, asset };
 }
 
-export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.selected?.clip.id) => {
+export const openCutoutRefine = frameDialog(async (ctx, clipId = ctx.store.selected?.clip.id, signal) => {
   const { store } = ctx;
   const f = clipId && T.findClip(store.project, clipId);
   if (!f || (f.clip.type !== 'video' && f.clip.type !== 'image')) {
@@ -58,12 +65,12 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
   const assetId = clip.assetId;
   const isCurrentSource = () => {
     const now = T.findClip(store.project, clipId);
-    return now?.clip === clip && now.clip.assetId === assetId && !now.track.locked;
+    return !signal.aborted && now?.clip === clip && now.clip.assetId === assetId && !now.track.locked;
   };
   const t = clamp(store.time, clip.start, T.clipEnd(clip) - 1);
   let frame;
   try {
-    const [ok, fr] = await Promise.all([ready({ retry: true }), sourceFrame(ctx, clip, t)]);
+    const [ok, fr] = await abortable(() => Promise.all([ready({ retry: true }), sourceFrame(ctx, clip, t, signal)]), signal);
     if (!ok) throw new Error(segmenterError() || 'Background removal could not start in this browser.');
     frame = fr;
   } catch (err) {
@@ -152,7 +159,8 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
   const hint = h('p.asset-hint', 'Paint with Keep over parts that should stay, and with Remove over parts that should go. Fixes stay in place on the picture, so they work best when the camera and the person move little. Hold Alt to switch brushes while painting.');
   const done = h('button.btn.primary', { type: 'button' }, 'Done');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title: 'Refine cutout', body: h('div.refine-editor', stage, tools, hint), actions: [cancel, done], wide: true, className: 'refine-dialog', closeOnBackdrop: false });
+  let raf = 0;
+  const d = openFrameDialog({ title: 'Refine cutout', body: h('div.refine-editor', stage, tools, hint), actions: [cancel, done], wide: true, className: 'refine-dialog', closeOnBackdrop: false, onClose: () => cancelAnimationFrame(raf) }, signal);
   cancel.addEventListener('click', () => d.close());
   paint();
 
@@ -167,7 +175,6 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
     const r = canvas.getBoundingClientRect();
     return [clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1)];
   };
-  let raf = 0;
   const schedule = () => {
     if (!raf) {
       raf = requestAnimationFrame(() => {

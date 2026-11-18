@@ -661,6 +661,7 @@ export class Editor {
     this._disposed = true;
     this._scriptLifetime?.abort();
     this._highlightsLifetime?.abort();
+    this._frameDialogLifetime?.abort();
     this._fitObserver?.disconnect();
     this._offTheme?.();
     this._offTipKeys?.();

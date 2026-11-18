@@ -138,3 +138,11 @@ describe('a dialog the browser closes on its own', () => {
   });
 });
 
+
+it('keeps the busy cursor until all independent dialog openers settle', async () => {
+  const { oneAtATime } = await import('../src/ui/dialog.js'); let finishA, finishB;
+  const a = oneAtATime(() => new Promise(r => { finishA = r; })), b = oneAtATime(() => new Promise(r => { finishB = r; }));
+  const pa = a(), pb = b(); finishA(); await pa;
+  expect(document.documentElement.classList.contains('opening-dialog')).toBe(true);
+  finishB(); await pb; expect(document.documentElement.classList.contains('opening-dialog')).toBe(false);
+});

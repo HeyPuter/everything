@@ -13,7 +13,9 @@ import { valueAt } from '../model/keyframes.js';
 import { clipLayer } from '../engine/scene.js';
 import { Tracker, grayFrames } from '../media/tracker.js';
 import { thinKeys } from '../media/reframe.js';
-import { openDialog, toast, oneAtATime } from './dialog.js';
+import { toast } from './dialog.js';
+import { frameDialog, openFrameDialog } from './frame-dialog.js';
+import { abortable } from '../lib/abort.js';
 
 const TW = 256;
 const TH = 144;
@@ -105,7 +107,7 @@ export function trackingSource(project, target, t) {
   return cands[0] || null;
 }
 
-export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.selected?.clip.id) => {
+export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.selected?.clip.id, signal) => {
   const { store } = ctx;
   const f = targetId && T.findClip(store.project, targetId);
   if (!f || !('transform' in f.clip)) {
@@ -123,23 +125,24 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
   let blob;
   const canvas = h('canvas.track-frame', { width: TW * 3, height: TH * 3 });
   try {
-    blob = await ctx.library.mediaBlob(asset);
-    const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
+    blob = await abortable(() => ctx.library.mediaBlob(asset), signal);
+    const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+    signal.throwIfAborted();
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
     try {
-      const track = await input.getPrimaryVideoTrack();
+      const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
       const sink = new CanvasSink(track, { width: TW * 3, height: TH * 3, fit: 'fill', poolSize: 1 });
-      const w = await sink.getCanvas(T.sourceTimeAt(src.clip, t0) / US + FRAME_SLACK);
+      const w = await abortable(() => sink.getCanvas(T.sourceTimeAt(src.clip, t0) / US + FRAME_SLACK), signal);
       if (w) canvas.getContext('2d')?.drawImage(w.canvas, 0, 0, canvas.width, canvas.height);
     } finally {
       input.dispose();
     }
   } catch (err) {
-    toast(err?.message || 'Could not read the video.', { kind: 'error' });
+    if (!signal.aborted) toast(err?.message || 'Could not read the video.', { kind: 'error' });
     return;
   }
   // Either clip may have been deleted while the frame was read.
-  if (T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
+  if (signal.aborted || T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
   let box = null; // in 0..1 of the frame
   const boxEl = h('div.track-box', { hidden: true });
   const stage = h('div.track-stage', canvas, boxEl);
@@ -149,8 +152,8 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
   const progress = h('div.progress', { hidden: true }, bar);
   const go = h('button.btn.primary', { type: 'button', disabled: true }, icon('crosshair', 16), 'Track');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title: 'Track motion', body: h('div.track-editor', hint, stage, progress, status), actions: [cancel, go], wide: true, className: 'track-dialog', closeOnBackdrop: false, onClose: () => ac?.abort() });
   let ac = null;
+  const d = openFrameDialog({ title: 'Track motion', body: h('div.track-editor', hint, stage, progress, status), actions: [cancel, go], wide: true, className: 'track-dialog', closeOnBackdrop: false, onClose: () => ac?.abort() }, signal);
   cancel.addEventListener('click', () => d.close());
 
   const paintBox = () => {
@@ -220,8 +223,10 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
     try {
       status.textContent = 'Following the object...';
       await run(fwd);
+      ac.signal.throwIfAborted();
       // Backward pass starts again from the box at the playhead.
       if (back.length) await run([t0, ...back], true);
+      ac.signal.throwIfAborted();
       const keys = pinKeys(store.project, target, points, t0);
       ctx.actions.editClip(target.id, 'Track motion', (c) => {
         c.keyframes ||= {};
