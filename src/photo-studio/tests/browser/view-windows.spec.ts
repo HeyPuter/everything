@@ -122,3 +122,20 @@ test('Window › Documents lists the open windows, checks the active one and swi
   await menu(page, 'Window', 'Documents', 'first');
   await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('first');
 });
+
+test('Close (Mod+W) closes only the active window of a document open in two', async ({ page }) => {
+  await run(page, 'select.all');
+  await run(page, 'edit.fill-foreground');
+  await run(page, 'window.new-window');
+  expect(await page.evaluate(() => window.photoStudio.views.length)).toBe(2);
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('ControlOrMeta+w');
+  await idle(page);
+  // No question about unsaved changes: the document stays open in its other window.
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  const counts = () =>
+    page.evaluate(() => [window.photoStudio.views.length, window.photoStudio.sessions.length]);
+  expect(await counts()).toEqual([1, 1]);
+  await page.keyboard.press('ControlOrMeta+w');
+  await expect(page.getByRole('dialog', { name: /^Save changes to/ })).toBeVisible();
+});

@@ -97,7 +97,8 @@ export function installCore(e: Editor) {
     input.click();
   }, { shortcut: 'Mod+O', recordable: false });
   cmd('file.place-embedded', 'Place Embedded…', () => pickFiles(e, true), { enabled: hasDoc, recordable: false });
-  cmd('file.close', 'Close', () => void e.closeSession(e.session), { shortcut: 'Mod+W', recordable: false });
+  // Like a tab's close button: a document open in other windows stays open.
+  cmd('file.close', 'Close', () => void e.closeView(e.activeView), { shortcut: 'Mod+W', recordable: false });
   cmd('file.close-all', 'Close All', async () => {
     for (const s of [...e.sessions]) if (!(await e.closeSession(s))) break;
   }, { shortcut: 'Mod+Alt+W', recordable: false });
