@@ -170,7 +170,7 @@ export function videoExtension(src) {
  * `embed`, for ZIP packages) it is written into the session's media folder.
  * Returns null without a video clip.
  */
-export function serializeVideo(session, { folder, embed = false, taken = new Set() } = {}) {
+export function serializeVideo(session, { folder, embed = false, taken = new Set(), mediaPath } = {}) {
   const v = videoClip(session.state);
   const src = v && videoPool(session).get(v.sourceId);
   if (!src) return null;
@@ -182,7 +182,7 @@ export function serializeVideo(session, { folder, embed = false, taken = new Set
     const ext = videoExtension(src);
     let file = `${base}.${ext}`;
     for (let i = 2; taken.has(file.toLowerCase()); i++) file = `${base} ${i}.${ext}`;
-    entry.file = `${folder}/${file}`;
+    entry.file = mediaPath?.(src.id, src, `${folder}/${file}`) ?? `${folder}/${file}`;
     media = { id: src.id, file: entry.file, blob: src.blob };
   }
   return { entry, media };

@@ -47,9 +47,9 @@ export function mediaFolderName(sessionName) {
  * { id, file, channels, sampleRate } for every source used by the session and
  * video is the video file to write ({ id, file, blob }) or null. `embedVideo`
  * stores the video in the media folder even when it is referenced on Puter.
- * `mediaPath(id, source, defaultPath)` can retain immutable cloud media paths.
+ * `mediaPath` and `videoPath` (id, source, defaultPath) can retain immutable cloud media paths.
  */
-export function serializeSession(session, { name = session.name, embedVideo = false, mediaPath } = {}) {
+export function serializeSession(session, { name = session.name, embedVideo = false, mediaPath, videoPath } = {}) {
   const state = session.state;
   // A clip stretched by Sound Assistant Duration keeps its original audio for undoing the stretch.
   // A time-stretched clip keeps its original audio for restretching, a remixed clip for remixing again.
@@ -70,7 +70,7 @@ export function serializeSession(session, { name = session.name, embedVideo = fa
     sources.push({ id, name: src.name, file: path, sampleRate: session.sampleRate, channels: src.channels?.length ?? src.channelCount ?? 2, frames });
     media.push({ id, file: path, channels: src.channels, sampleRate: session.sampleRate });
   }
-  const video = serializeVideo(session, { folder, embed: embedVideo, taken });
+  const video = serializeVideo(session, { folder, embed: embedVideo, taken, mediaPath: videoPath });
   const doc = {
     format: SESSION_FORMAT,
     version: SESSION_VERSION,

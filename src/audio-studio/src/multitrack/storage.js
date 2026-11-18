@@ -29,7 +29,7 @@ const cloudSaves = new WeakMap();
 
 function mediaRevision(file) {
   const id = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16).padStart(8, '0')).join('');
-  return file.replace(/\.wav$/i, `-${id}.wav`);
+  return file.replace(/(\.[^/.]+)$/, `-${id}$1`);
 }
 
 function mediaBlob(m) {
@@ -76,6 +76,9 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
         if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
         return src.channels?.length ? mediaRevision(file) : file;
       },
+      // A replacement may have the same name as a video still used by Undo or
+      // the saved manifest. Existing Puter paths remain references, not uploads.
+      videoPath: (_id, src, file) => src.blob ? mediaRevision(file) : file,
     });
     await saveSessionVideo(app, doc, video, dir, { copy });
     let written = 0;
