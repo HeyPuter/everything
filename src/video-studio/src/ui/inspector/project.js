@@ -162,7 +162,7 @@ export function projectView(ctx) {
   });
   const hint = h('p.proxy-hint');
   // The line shows every percent; screen readers hear the start, each quarter and the end.
-  const status = h('p.proxy-status');
+  const status = h('p.proxy-status', { 'aria-hidden': 'true' });
   const spoken = h('p.sr-only', { role: 'status' });
   const proxyBody = h('div.proxy-settings',
     h('div.field.insp-row', h('span.field-label', 'Use proxies'), h('div.insp-row-control', modeCtl.el)),
