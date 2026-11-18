@@ -703,6 +703,11 @@ export function createSmartActions(ctx) {
           toast(changedMessage, { kind: 'error' });
           return;
         }
+        const changesFrame = r && (W !== st.width || H !== st.height || ratioId !== st.ratio);
+        if (!plans.length && !changesFrame) {
+          toast('No clips could be reframed. Choose video or photo clips with available media on unlocked tracks.', { kind: 'info' });
+          return;
+        }
         const saved = store.update('Auto reframe', (proj) => {
           if (!currentSource()) return false;
           const edits = plans.map((plan) => ({ plan, found: currentIndex().get(plan.id) }));
@@ -718,7 +723,9 @@ export function createSmartActions(ctx) {
           if (!lifetime.aborted) toast(currentSource() ? 'Reframing could not be saved. Check track locks and try again.' : changedMessage, { kind: 'error' });
           return;
         }
-        if (!lifetime.aborted) toast(`Reframed ${plans.length} clip${plans.length === 1 ? '' : 's'}${r ? ` for ${r.label}` : ''}.`, { kind: 'success' });
+        if (!lifetime.aborted) toast(plans.length
+          ? `Reframed ${plans.length} clip${plans.length === 1 ? '' : 's'}${r ? ` for ${r.label}` : ''}.`
+          : `Changed frame shape to ${r.label}. No clips were reframed.`, { kind: 'success' });
       });
     },
 
