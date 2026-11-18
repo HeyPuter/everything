@@ -819,9 +819,9 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
     }
     output.setMetadataTags({ title: s.name || project.name, date: new Date() });
     await output.start();
-    await preloadFonts(project);
-    await ensureLuts(project, library).catch(() => {});
-    if (!(await ensureCutout(project, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
+    await abortable(() => preloadFonts(project), signal);
+    await abortable(() => ensureLuts(project, library).catch(() => {}), signal);
+    if (!(await abortable(() => ensureCutout(project, { retry: true }), signal))) throw new Error(PEOPLE_TOOLS_FAILED);
 
     let audioAt = 0; // seconds of sound handed to the encoder
     let audioDone = !audioSource;
@@ -990,12 +990,12 @@ export async function* renderFrames(project, library, { width, height, fps, star
   const stop = end ?? projectDuration(snap);
   const total = Math.max(1, frameCount(stop - start, fps));
   // Imported .cube LUTs, as the video export and stills load them.
-  await ensureLuts(snap, library).catch(() => {});
+  await abortable(() => ensureLuts(snap, library).catch(() => {}), signal);
   checkAbort(signal);
   const r = new FrameRenderer(snap, library, even(width), even(height), { signal });
   try {
-    await preloadFonts(snap);
-    if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
+    await abortable(() => preloadFonts(snap), signal);
+    if (!(await abortable(() => ensureCutout(snap, { retry: true }), signal))) throw new Error(PEOPLE_TOOLS_FAILED);
     let lastYield = performance.now();
     for (let i = 0; i < total; i++) {
       checkAbort(signal);
