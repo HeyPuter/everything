@@ -2,7 +2,8 @@ import type { Editor } from '../editor';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
 import { showContextMenu } from './menubar';
-import { commands, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
+import { commands, menuContributions, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
+import { menuSkeleton } from './menus';
 import { BottomDock } from './bottom-dock';
 import { keepFocus } from '../ui/keep-focus';
 
@@ -212,13 +213,19 @@ export class Dock {
   registerCommands() {
     // A feature may register its panel's command itself (to place it
     // directly in the Window menu rather than under Panels).
+    // A panel command the Window menu already lists by name stays out of its
+    // Panels submenu, so it is not offered twice there (Scripts, Timeline).
+    const listed = (id: string) => {
+      const has = (items: MenuItem[]): boolean => items.some((i) => i === id || (typeof i === 'object' && has(i.items)));
+      return menuSkeleton.some((m) => m.id === 'window' && has(m.items)) || menuContributions.some((c) => c.menu === 'window' && has(c.items));
+    };
     for (const p of panels.values())
       if (!commands.has(`window.panel.${p.id}`))
         registerCommand({
           id: `window.panel.${p.id}`,
           label: p.title,
           shortcut: p.shortcut,
-          menu: 'window.panels',
+          menu: listed(`window.panel.${p.id}`) ? undefined : 'window.panels',
           checked: () => this.isVisible(p.id),
           run: () => this.show(p.id, true),
           recordable: false,

@@ -195,3 +195,13 @@ test('the toolbar and menu editors keep the keyboard focus on the button used', 
   await expect(me.locator('[data-menu-tab="2"]')).toBeFocused();
   await expect(me.locator('[data-menu-tab="2"]')).toHaveAttribute('aria-selected', 'true');
 });
+
+test('the Window menu offers each panel once (Scripts and Timeline are not repeated under Panels)', async ({ page }) => {
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  const ids = await page.locator('.menubar-entry.open > .menu-pop [data-command]').evaluateAll((items) => items.map((i) => (i as HTMLElement).dataset.command!));
+  expect(ids.filter((id, k) => ids.indexOf(id) !== k)).toEqual([]);
+  expect(ids).toContain('window.panel.scripts');
+  expect(ids).toContain('window.panel.timeline');
+  // Panels that only the Type menu also lists stay under Window › Panels.
+  expect(ids).toContain('window.panel.character');
+});
