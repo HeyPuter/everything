@@ -441,6 +441,9 @@ function installWindowClose(app) {
   if (!p?.ui?.onWindowClose || puter.env() !== 'app') return;
   p.ui.onWindowClose(async () => {
     if (app.recorder.active) await app.recorder.stop();
+    // Finalizing a session take can add unsaved audio files and edit the
+    // session. Finish it before taking the list of documents to prompt for.
+    if (app.multitrack?.recorder?.active) await app.multitrack.recorder.stop();
     for (const doc of app.documents.filter((d) => d.dirty)) {
       if (!(await app.closeDocument(doc))) return; // Cancel keeps the window open
     }
