@@ -6,7 +6,7 @@ import type { App } from '../app/app';
 import { appHost } from '../app/assistant-host';
 import { doSignIn } from '../app/start';
 import { type ChatFn, puterChat } from '../platform/ai';
-import { cloudAvailable, env, puter } from '../platform/puter';
+import { type PuterFSItem, cloudAvailable, env, puter } from '../platform/puter';
 import { h, nextDomId } from '../ui/dom';
 import { icon } from '../ui/icons';
 import { toast } from '../ui/overlay';
@@ -386,6 +386,29 @@ export class AssistantPanel {
 
   // ---------- attachments ----------
 
+  /** Attaches files of the Puter drive. Folders and files the assistant cannot read are not read. */
+  async attachDriveItems(items: unknown[]) {
+    type Entry = PuterFSItem & { isDirectory?: boolean; fsentry_is_dir?: boolean };
+    const entries = items.filter((it): it is Entry => !!it && typeof it === 'object' && typeof (it as Entry).path === 'string' && !!(it as Entry).path);
+    const isDir = (it: Entry) => !!(it.is_dir || it.isDir || it.isDirectory || it.fsentry_is_dir);
+    if (entries.some(isDir)) toast({ message: 'Folders cannot be attached. Attach the files inside instead.', timeout: 5000 });
+    const files: File[] = [];
+    for (const it of entries) {
+      if (isDir(it)) continue;
+      const name = it.name || it.path.replace(/\/+$/, '').split('/').pop() || 'File';
+      // Size not known yet counts as non-empty: what is read is checked again by attach.
+      const problem = attachmentProblem({ name, size: typeof it.size === 'number' ? it.size : 1 });
+      if (problem) { toast({ kind: 'warning', message: problem, timeout: 5000 }); continue; }
+      try {
+        const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
+        files.push(new File([blob], name, { type: blob.type }));
+      } catch {
+        toast({ kind: 'warning', message: `${name} could not be read`, timeout: 5000 });
+      }
+    }
+    if (files.length) this.attach(files);
+  }
+
   /** Takes files for the next message. Each is read as it comes, so Send rarely waits. */
   attach(files: File[]) {
     let over = 0;
@@ -458,6 +481,14 @@ export class AssistantPanel {
     this.el.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
     this.el.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; this.el.classList.remove('as-drop'); } });
     this.el.addEventListener('drop', (e) => {
+      // Files dragged in from a Puter folder window: the SDK's own drop event, with drive entries in its detail.
+      const items = (e as unknown as CustomEvent<{ items?: unknown }>).detail?.items;
+      if (!e.dataTransfer && Array.isArray(items)) {
+        e.preventDefault();
+        e.stopPropagation();
+        void this.attachDriveItems(items).then(() => this.input.focus());
+        return;
+      }
       if (!hasFiles(e)) return;
       e.preventDefault();
       e.stopPropagation();
