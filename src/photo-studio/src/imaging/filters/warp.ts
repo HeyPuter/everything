@@ -93,13 +93,14 @@ export function transformedBounds(m: Mat3, width: number, height: number): IRect
   return { x, y, width: Math.ceil(Math.max(...xs)) - x, height: Math.ceil(Math.max(...ys)) - y };
 }
 
-// Source pixels per destination pixel at a destination point (square root of
-// the inverse Jacobian determinant).
-function inverseScale(inv: Mat3, x: number, y: number) {
+// Source pixels per destination pixel at a destination point, per source
+// axis: how fast the source x and y coordinates change across one output
+// pixel. A reduction of one axis only leaves the other at about 1.
+function inverseScales(inv: Mat3, x: number, y: number): [number, number] {
   const p = applyMat3(inv, x, y),
     px = applyMat3(inv, x + 1, y),
     py = applyMat3(inv, x, y + 1);
-  return Math.sqrt(Math.abs((px.x - p.x) * (py.y - p.y) - (px.y - p.y) * (py.x - p.x)));
+  return [Math.hypot(px.x - p.x, py.x - p.x), Math.hypot(px.y - p.y, py.y - p.y)];
 }
 
 function projectiveRow(
@@ -149,16 +150,19 @@ export function transformImage(
   let source = src;
   if (method !== 'nearest') {
     const r = outRect;
-    const minScale = Math.min(
-      inverseScale(inv, r.x, r.y),
-      inverseScale(inv, r.x + W, r.y),
-      inverseScale(inv, r.x, r.y + H),
-      inverseScale(inv, r.x + W, r.y + H),
-    );
-    if (minScale >= 2) {
-      const f = Math.min(minScale, Math.min(src.width, src.height));
-      const sw = Math.max(1, Math.round(src.width / f)),
-        sh = Math.max(1, Math.round(src.height / f));
+    const corners = [
+      inverseScales(inv, r.x, r.y),
+      inverseScales(inv, r.x + W, r.y),
+      inverseScales(inv, r.x, r.y + H),
+      inverseScales(inv, r.x + W, r.y + H),
+    ];
+    // Prefilter each axis by its own reduction: shrinking only the width
+    // must not blur the height.
+    const fx = Math.min(...corners.map((c) => c[0])),
+      fy = Math.min(...corners.map((c) => c[1]));
+    if (fx >= 2 || fy >= 2) {
+      const sw = fx >= 2 ? Math.max(1, Math.round(src.width / Math.min(fx, src.width))) : src.width,
+        sh = fy >= 2 ? Math.max(1, Math.round(src.height / Math.min(fy, src.height))) : src.height;
       source = resize(src, sw, sh, 'bilinear');
       inv = mat3Multiply([sw / src.width, 0, 0, 0, sh / src.height, 0, 0, 0, 1], inv);
     }
