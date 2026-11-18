@@ -53,3 +53,17 @@ test('W x H x Resolution too large for the canvas leaves the image uncropped', a
   expect(await docSize(page)).toEqual([400, 300]);
   expect(await historyLabels(page)).toEqual([]);
 });
+
+test('W x H x Resolution crops and resamples in one undo step', async ({ page }) => {
+  await page.evaluate(() => (window.photoStudio.settings.crop = { preset: 'whr', tw: 100, th: 75, tunit: 'px', res: 300, resUnit: 'PPI' }));
+  await tool(page, 'Crop Tool');
+  await canvasDrag(page, [[50, 50], [250, 200]], 5);
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect(await docSize(page)).toEqual([100, 75]);
+  expect(await page.evaluate(() => window.photoStudio.doc.resolution?.horizontalResolution)).toBe(300);
+  expect(await historyLabels(page)).toEqual(['Crop']);
+  await undo(page);
+  expect(await docSize(page)).toEqual([400, 300]);
+  expect(await historyLabels(page)).toEqual([]);
+});
