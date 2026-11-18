@@ -34,7 +34,7 @@ export async function analyzeVoiceAsset(library, asset, { signal } = {}) {
   ]);
   checkAvatar(signal);
   const span = { in: 0, duration: asset.duration || LIP_MAX_SECONDS * US, speed: 1 };
-  const snd = await decodeClipSound(mediabunnyOpener(library), asset, span, { maxSeconds: LIP_MAX_SECONDS, signal });
+  const snd = await decodeClipSound(mediabunnyOpener(library, { signal }), asset, span, { maxSeconds: LIP_MAX_SECONDS, signal });
   checkAvatar(signal);
   if (!snd?.channels[0]?.length) throw new Error('No sound found in the voice.');
   return encodeLips(analyzeVoice(downmix(snd.channels), snd.sampleRate));
