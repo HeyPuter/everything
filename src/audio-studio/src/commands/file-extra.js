@@ -205,6 +205,14 @@ async function exportRangesDialog(app) {
   // batch on the audio version present when Export was confirmed.
   const state = doc.state;
   const chosen = ranges.filter((_, i) => checks[i].checked);
+  const currentMarkers = new Map(state.markers.map((m) => [m.id, m]));
+  if (chosen.some((m) => {
+    const current = currentMarkers.get(m.id);
+    return !current || current.start !== m.start || current.duration !== m.duration;
+  })) {
+    app.notify('The selected ranges changed while this dialog was open. Reopen range export to review them.', { error: true });
+    return false;
+  }
   const settings = { ...saved, format: getFormat(fmt.value).id };
   const options = exportOptionsFor(settings, { sampleRate: state.sampleRate, channels: state.channels.length });
   const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format });
