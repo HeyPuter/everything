@@ -124,11 +124,14 @@ interface LegacyLayers {
   attrs: Attr[];
   structs: { domain: Domain; type: string; holder: BStruct; addr: ReturnType<BStruct['ptr']> }[];
   dvert: BStruct | null;
+  /** 3.x/4.x: active and render UV map, as indices among the corner float2 layers */
+  uvActive: number;
+  uvRender: number;
 }
 
 /** CustomData layers (3.x/4.x and older). Generic layers become Attr; struct layers are returned raw. */
 function customDataLayers(me: BStruct, ctx: Ctx, counts: Record<Domain, number>): LegacyLayers {
-  const res: LegacyLayers = { attrs: [], structs: [], dvert: null };
+  const res: LegacyLayers = { attrs: [], structs: [], dvert: null, uvActive: -1, uvRender: -1 };
   const doms: [string, Domain][] = [
     ['vdata', 'POINT'],
     ['edata', 'EDGE'],
@@ -157,6 +160,11 @@ function customDataLayers(me: BStruct, ctx: Ctx, counts: Record<Domain, number>)
         continue;
       }
       const kind = CD_STRUCT[stName] ?? CD_TYPE[type];
+      if (domain === 'CORNER' && kind === 'float2' && res.uvActive < 0) {
+        // every layer of the type carries the indices of the active and render layer among them
+        res.uvActive = l.num('active');
+        res.uvRender = l.num('active_rnd');
+      }
       if (!kind || stName === 'MStringProperty' || type === 12) {
         if (!name.startsWith('.')) ctx.warn.add('Mesh layers of unsupported type skipped', `${me.idName}: ${name || stName || `type ${type}`}`);
         continue;
@@ -363,7 +371,10 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   const extraUVs: { name: string; data: Float32Array }[] = [];
   let uvActiveIndex = 0;
   let uvName = 'UVMap';
-  const uvChoice = uvAttrs.find((a) => a.name === activeUvName) ?? uvAttrs[0];
+  // 5.x names the active map; 3.x/4.x keep its index on the layers (counted among all float2 corner layers)
+  const cdUv = (i: number) => (i >= 0 ? legacy.attrs.filter((a) => a.kind === 'float2' && a.domain === 'CORNER')[i] : undefined);
+  const legacyActive = !activeUvName ? cdUv(legacy.uvActive) : undefined;
+  const uvChoice = uvAttrs.find((a) => a.name === activeUvName) ?? (legacyActive && uvAttrs.includes(legacyActive) ? legacyActive : uvAttrs[0]);
   if (uvChoice) {
     const v = take(uvChoice);
     if (v) uvs = Float32Array.from(v);
@@ -401,7 +412,7 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   if (extraUVs.length) {
     mesh.uv_layers_extra = extraUVs;
     mesh.uv_active_index = uvActiveIndex;
-    const render = me.cstr('default_uv_map_attribute');
+    const render = me.cstr('default_uv_map_attribute') || (!activeUvName ? cdUv(legacy.uvRender)?.name : '');
     if (render) mesh.uv_render_name = render;
   }
   if (seams) mesh.seams = Uint32Array.from(seams);

@@ -50,7 +50,7 @@ export const opensFromPuter = () => sdk()?.env === 'app' && canOpenFromPuter();
 export const savesToPuter = () => sdk()?.env === 'app' && typeof sdk()?.ui?.showSaveFilePicker === 'function';
 
 /** File extensions File ▸ Open reads (as `isReadableFile` decides). */
-export const openExtensions = () => [...new Set(['.p3d', '.json', ...formats.flatMap((f) => (f.import ? f.extensions : []))])];
+export const openExtensions = () => [...new Set(['.blend', '.p3d', '.json', ...formats.flatMap((f) => (f.import ? f.extensions : []))])];
 
 // ---------------------------------------------------------------------------
 // save targets
@@ -103,6 +103,7 @@ export function saveToPuter(bytes: Uint8Array, name: string, copy: boolean): boo
       // saved as of when the dialog opened: edits made meanwhile keep the file modified
       if (app.revision === rev) app.dirty = false;
       fileEvents.saveTarget = item.path ? puterSaveTarget(item.path, saved) : null;
+      fileEvents.keepOriginal = false;
     }
     for (const f of fileEvents.saved) f(saved, bytes);
     app.report('INFO', copy ? `Saved a copy as "${saved}"` : `Saved "${saved}"`);

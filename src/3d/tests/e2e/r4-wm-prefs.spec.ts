@@ -187,7 +187,7 @@ test('an installed application template is offered by File ▸ New and starts ne
   await page.locator('.menu .menu-item', { hasText: /^New/ }).first().hover();
   await page.locator('.menu .menu-item', { hasText: 'Studio Setup' }).click();
   await expect.poll(() => page.evaluate(() => Object.values((window as any).app.doc.objects).some((o: any) => o.name === 'TemplateMarker'))).toBe(true);
-  expect(await page.evaluate(() => (window as any).app.filename)).toBe('untitled.p3d');
+  expect(await page.evaluate(() => (window as any).app.filename)).toBe('untitled.blend');
   await run(page, 'preferences.app_template_remove', { name: 'Studio Setup' });
   await page.locator('.tb-menu', { hasText: 'File' }).click();
   await page.locator('.menu .menu-item', { hasText: /^New/ }).first().hover();

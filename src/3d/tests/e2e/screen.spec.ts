@@ -152,7 +152,7 @@ test('File menu: save adds to Open Recent, revert, save copy, startup file', asy
   const dl = page.waitForEvent('download');
   await page.evaluate(() => (window as any).app.run('wm.save_mainfile'));
   await dl;
-  await expect.poll(() => page.evaluate(async () => (await import('/src/io/session.ts')).recentFiles().map((e) => e.name))).toEqual(['untitled.p3d']);
+  await expect.poll(() => page.evaluate(async () => (await import('/src/io/session.ts')).recentFiles().map((e) => e.name))).toEqual(['untitled.blend']);
   // change something, then revert to the saved state
   await page.evaluate(() => {
     const a = (window as any).app;
@@ -165,7 +165,7 @@ test('File menu: save adds to Open Recent, revert, save copy, startup file', asy
   const v = await areaBox(page, 'VIEW_3D');
   await page.mouse.move(v.x + 300, v.y + 300);
   await page.keyboard.press('Control+Shift+o');
-  await expect(page.locator('.menu .menu-item', { hasText: 'untitled.p3d' })).toBeVisible();
+  await expect(page.locator('.menu .menu-item', { hasText: 'untitled.blend' })).toBeVisible();
   await page.keyboard.press('Escape');
   // Ctrl N opens the New File menu
   await page.keyboard.press('Control+n');
@@ -178,7 +178,7 @@ test('File menu: save adds to Open Recent, revert, save copy, startup file', asy
   });
   const dl2 = page.waitForEvent('download');
   await page.evaluate(() => (window as any).app.run('wm.save_as_mainfile', { filepath: 'other.p3d', copy: true }, { invoke: false }));
-  expect((await dl2).suggestedFilename()).toBe('other.p3d');
+  expect((await dl2).suggestedFilename()).toBe('other.blend');
   expect(await get(page, 'app.filename')).toBe('mine.p3d');
   // startup file: New File starts from it
   await page.evaluate(async () => {
@@ -546,8 +546,8 @@ test('File Browser: save the project into browser storage, then Save updates it 
   await fb.locator('.fb-side-item', { hasText: 'Browser Storage' }).click();
   await expect(fb.locator('.fb-empty-small', { hasText: 'empty' })).toBeVisible();
   await page.evaluate(() => { const a = (window as any).app; return a.run('file.save_project_here', { filename: 'proj' }, { area: a.hoverArea }); });
-  await expect(fb.locator('.fb-item', { hasText: 'proj.p3d' })).toBeVisible();
-  expect(await get(page, 'app.filename')).toBe('proj.p3d');
+  await expect(fb.locator('.fb-item', { hasText: 'proj.blend' })).toBeVisible();
+  expect(await get(page, 'app.filename')).toBe('proj.blend');
   // change and save: no download, the stored file is updated
   let downloaded = false;
   page.on('download', () => (downloaded = true));
@@ -562,7 +562,7 @@ test('File Browser: save the project into browser storage, then Save updates it 
       page.evaluate(async () => {
         const { decodeDocument } = await import('/src/io/native.ts');
         const root = await navigator.storage.getDirectory();
-        const f = await (await root.getFileHandle('proj.p3d')).getFile();
+        const f = await (await root.getFileHandle('proj.blend')).getFile();
         const d = decodeDocument(new Uint8Array(await f.arrayBuffer())).doc;
         return Object.values(d.objects).find((o: any) => o.name === 'Cube')!.location[2];
       }),

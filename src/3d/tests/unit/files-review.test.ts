@@ -142,8 +142,8 @@ describe('saving into a folder', () => {
   it('keeps edits made while the file was being written', async () => {
     const { saveFile } = await import('../../src/io/files');
     let finish: () => void = () => {};
-    app.filename = 'project.p3d';
-    fileEvents.saveTarget = { name: 'project.p3d', write: () => new Promise<void>((r) => (finish = r)) };
+    app.filename = 'project.blend';
+    fileEvents.saveTarget = { name: 'project.blend', write: () => new Promise<void>((r) => (finish = r)) };
     app.dirty = true;
     saveFile();
     // an edit lands before the write completes
@@ -151,7 +151,7 @@ describe('saving into a folder', () => {
     app.changed('doc');
     finish();
     await new Promise((r) => setTimeout(r, 0));
-    expect(app.reports.at(-1)?.message).toBe('Saved "project.p3d"');
+    expect(app.reports.at(-1)?.message).toBe('Saved "project.blend"');
     expect(app.dirty).toBe(true);
     // a save with nothing happening meanwhile clears it
     saveFile();
@@ -161,7 +161,7 @@ describe('saving into a folder', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(app.dirty).toBe(false);
     // a failed write leaves it modified
-    fileEvents.saveTarget = { name: 'project.p3d', write: async () => Promise.reject(new Error('denied')) };
+    fileEvents.saveTarget = { name: 'project.blend', write: async () => Promise.reject(new Error('denied')) };
     saveFile();
     await new Promise((r) => setTimeout(r, 0));
     expect(app.reports.at(-1)?.type).toBe('ERROR');
@@ -189,15 +189,16 @@ describe('auto save snapshots', () => {
 });
 
 describe('save names', () => {
-  it('adds .p3d without cutting names that contain dots', async () => {
+  it('saves .blend files without cutting names that contain dots', async () => {
     const { saveFile } = await import('../../src/io/files');
     const name = (n: string) => (saveFile(n), app.filename);
-    expect(name('scene v1.2')).toBe('scene v1.2.p3d');
-    expect(name('Robot.final')).toBe('Robot.final.p3d');
-    expect(name('model.zztest')).toBe('model.p3d');
-    expect(name('old.blend')).toBe('old.p3d');
-    expect(name('legacy.3d.json')).toBe('legacy.p3d');
-    expect(name('done.P3D')).toBe('done.P3D');
+    expect(name('scene v1.2')).toBe('scene v1.2.blend');
+    expect(name('Robot.final')).toBe('Robot.final.blend');
+    expect(name('model.zztest')).toBe('model.blend');
+    expect(name('old.blend')).toBe('old.blend');
+    expect(name('legacy.3d.json')).toBe('legacy.blend');
+    expect(name('done.P3D')).toBe('done.blend');
+    expect(name('Shot.BLEND')).toBe('Shot.BLEND');
   });
 });
 

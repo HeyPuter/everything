@@ -99,11 +99,19 @@ on Puter AI: it reads the scene, writes and runs scripts against the `bpy`-style
 is rolled back), looks up the API, takes viewport screenshots to check its work, and reads attached
 reference images, PDFs and text files. Everything it changes for one message is a single undo step.
 
-**Files.** Native `.p3d` project format with autosave/recovery; import of `.blend` files written by
-Blender 2.80–5.x; import/export of glTF/GLB, FBX, OBJ/MTL, STL, PLY and USD (USDA/USDC/USDZ);
-import of Collada and Alembic; Grease Pencil SVG/PDF export and SVG import; legacy `.3d.json` scenes
-from earlier versions of this app. File › Link / Append bring data in from other `.p3d` or `.blend`
-files, as read-only linked data (with library overrides) or as local copies.
+**Files.** Projects are saved as `.blend` files in the 4.2 LTS layout, which Blender 4.2 and every
+later version opens: scene settings, collections and the view layer, objects (transforms, parenting,
+display and visibility), meshes with their attributes, UV maps, colors, edge data and vertex groups,
+cameras, lights, material and world node trees and packed images. Each file also carries the whole
+project in a block other programs skip, so reopening it here loses nothing; a `.blend` file another
+program saved is read through the importer and Save then writes a new file rather than replacing it.
+Autosave/recovery keeps using the `.p3d` container, and `.p3d` projects from earlier versions still
+open. Import of `.blend` files written by Blender 2.80–5.x; import/export of glTF/GLB, FBX, OBJ/MTL,
+STL, PLY and USD (USDA/USDC/USDZ); import of Collada and Alembic; Grease Pencil SVG/PDF export and SVG
+import; legacy `.3d.json` scenes from earlier versions of this app. File › Link / Append bring data in
+from other `.p3d` or `.blend` files, as read-only linked data (with library overrides) or as local
+copies. Inside the Puter desktop, files open with a double click or "Open with", from Puter's Open
+dialog or by dragging them in from a Puter folder, and Save writes them back there.
 
 ## Known limitations
 
@@ -114,7 +122,11 @@ files, as read-only linked data (with library overrides) or as local copies.
   to download Pyodide.
 - `.blend` import covers the active scene and common data (not volumes, point clouds or line
   rendering settings); unsupported data is reported, not lost
-  silently. Export to `.blend` is not supported.
+  silently.
+- In saved `.blend` files, modifier stacks, shape keys, curves and text are stored as their evaluated
+  meshes; constraints, animation, armatures, particles, rigid bodies, grease pencil, metaballs and
+  other object types beyond meshes, cameras, lights and empties are not stored for other programs
+  (this app keeps them in the project the file carries). Save reports what was left out.
 - See the module headers and the pull-request description for per-feature limitations.
 
 ## Layout of the code

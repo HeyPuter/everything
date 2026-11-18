@@ -188,7 +188,7 @@ export async function clearStartupFile() {
 export function loadStartupFile(): boolean {
   if (!startup) return false;
   try {
-    loadProjectBytes(startup, 'untitled.p3d', '');
+    loadProjectBytes(startup, 'untitled.blend', '');
     return true;
   } catch {
     return false;

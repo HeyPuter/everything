@@ -47,6 +47,12 @@ commercial-only, source-available or custom-licensed packages are used.
   compositor node data) list node, socket and property *names, identifiers, enum items and default
   values* of the public `bpy` API. These are interface facts needed to read and write compatible
   data, not expressive code; they are flagged here for legal review.
+- The `.blend` writer's tables (`src/io/blend/write/dna.gen.ts`, `src/io/blend/write/nodes.gen.ts`)
+  list the *layouts* (field names and types) of the structs a `.blend` file stores, the non-zero
+  values new data-blocks of those kinds have, and the legacy type numbers and sockets of shader nodes.
+  They were read back from a probe file written by `tests/fixtures/blend/make_write_dna.py`; they are
+  interface facts for writing files other programs open, flagged here for legal review like the
+  tables above.
 - Test fixtures in `tests/fixtures/` (`.blend`, `.glb`, `.fbx`, `.usd*`, `.abc`, …) were generated for
   this project by the scripts in the same folders or written by hand.
 - "Blender" is a trademark of the Blender Foundation. It is used only to name the `.blend` file

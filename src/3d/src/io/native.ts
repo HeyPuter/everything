@@ -2,8 +2,11 @@
 //   magic "P3D\0" | u32 version | u32 jsonLength | json (utf-8) | padding to 8 | binary buffers
 // Typed arrays inside the document are stored as {"$buf": index, "$type": "Float32Array"} and
 // their bytes are appended to the binary section (8-byte aligned).
+// Saved projects are .blend files that carry this container whole (see blend/embed.ts): reading one
+// here reads the project inside it, so a .blend file this app saved is a project file too.
 import type { DocumentData } from '../data/types';
 import { defaultRender, emptyDocument, newObject } from '../data/defaults';
+import { embeddedProject } from './blend/embed';
 
 const MAGIC = 0x00443350; // 'P3D\0' little endian
 export const FORMAT_VERSION = 1;
@@ -62,11 +65,20 @@ export function encodeDocument(doc: DocumentData, extra: Record<string, unknown>
   return out;
 }
 
-export function isNativeFile(bytes: Uint8Array) {
+function isContainer(bytes: Uint8Array) {
   return bytes.length >= 12 && new DataView(bytes.buffer, bytes.byteOffset).getUint32(0, true) === MAGIC;
 }
 
+/** A project file: the .p3d container, or a .blend file this app saved (which carries one). */
+export function isNativeFile(bytes: Uint8Array) {
+  return isContainer(bytes) || embeddedProject(bytes) !== null;
+}
+
 export function decodeDocument(bytes: Uint8Array): { doc: DocumentData; extra: Record<string, unknown> } {
+  if (!isContainer(bytes)) {
+    const inner = embeddedProject(bytes);
+    if (inner) bytes = inner.slice();
+  }
   try {
     return decode(bytes);
   } catch (e) {

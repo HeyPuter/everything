@@ -72,7 +72,7 @@ function loadTemplate(name: string): boolean {
   fileEvents.beforeReplace('Before New File');
   app.setDocument(doc);
   if (extra.ui && prefs.use_load_ui) projectUiState.load(extra.ui as Record<string, unknown>);
-  app.filename = 'untitled.p3d';
+  app.filename = 'untitled.blend';
   fileEvents.saveTarget = null;
   app.dirty = false;
   return true;

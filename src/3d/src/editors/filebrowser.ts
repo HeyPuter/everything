@@ -11,8 +11,7 @@ import { addKeys } from '../app/keymap';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { openMenu, openPie, openPopover, promptText, type MenuItem } from '../ui/menu';
 import { textField, enumRow, checkbox } from '../ui/widgets';
-import { openFile, formats, fileEvents, projectUiState } from '../io/files';
-import { encodeDocument } from '../io/native';
+import { openFile, formats, fileEvents, projectFileName, encodeProjectFile } from '../io/files';
 import { imageFromFile } from '../ops/imageobjects';
 import { newText } from '../data/defaults';
 import { registerIcons } from '../ui/icons';
@@ -651,7 +650,8 @@ export class FileBrowser implements Editor {
       await openFile(file, 'open');
       // a project opened from a writable folder is saved back in place
       const h = it.handle;
-      if (h?.createWritable && app.filename === file.name && file.name.toLowerCase().endsWith('.p3d')) fileEvents.saveTarget = { name: file.name, write: (bytes) => writeFile(h, bytes) };
+      // (a .blend file another program wrote is not replaced: Save makes a new file, see keepOriginal)
+      if (h?.createWritable && app.filename === file.name && projectFileName(file.name) === file.name && !fileEvents.keepOriginal) fileEvents.saveTarget = { name: file.name, write: (bytes) => writeFile(h, bytes) };
     }
     else if (cat === 'model') await openFile(file, 'import');
     else if (cat === 'image') {
@@ -912,12 +912,13 @@ export class FileBrowser implements Editor {
   async saveProjectHere(name = app.filename) {
     const d = await this.writable();
     if (!d) return false;
-    if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
+    name = projectFileName(name);
     try {
       const h = await d.getFileHandle!(name, { create: true });
-      await writeFile(h, encodeDocument(app.doc, { ui: projectUiState.save() }));
+      await writeFile(h, encodeProjectFile());
       app.filename = name;
       app.dirty = false;
+      fileEvents.keepOriginal = false;
       fileEvents.saveTarget = { name, write: (bytes) => writeFile(h, bytes) };
       app.report('INFO', `Saved "${name}" in ${d.name || 'Browser Storage'}`);
     } catch (e) {

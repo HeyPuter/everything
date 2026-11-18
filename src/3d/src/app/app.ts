@@ -146,7 +146,7 @@ export class App {
   pointer = { x: 0, y: 0 };
   playing: false | 'forward' | 'reverse' = false;
   dirty = false;
-  filename = 'untitled.p3d';
+  filename = 'untitled.blend';
   private listeners = new Set<(kinds: Set<ChangeKind>) => void>();
   private pending = new Set<ChangeKind>();
   private scheduled = false;

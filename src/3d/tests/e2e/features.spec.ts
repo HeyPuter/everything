@@ -42,15 +42,18 @@ test('save a project file and open it again', async ({ page }) => {
   await page.keyboard.press('Enter');
   const download = page.waitForEvent('download');
   await run(page, 'wm.save_mainfile');
-  const file = await (await download).path();
+  const saved = await download;
+  // projects are saved as .blend files
+  expect(saved.suggestedFilename()).toBe('untitled.blend');
+  const file = await saved.path();
   expect(file).toBeTruthy();
   const bytes = readFileSync(file!);
   expect(bytes.length).toBeGreaterThan(100);
   await run(page, 'wm.read_homefile');
   expect(await get(page, 'app.activeObject.location[1]')).toBe(0);
-  page.once('filechooser', (fc) => fc.setFiles({ name: 'roundtrip.p3d', mimeType: 'application/octet-stream', buffer: bytes }));
+  page.once('filechooser', (fc) => fc.setFiles({ name: 'roundtrip.blend', mimeType: 'application/octet-stream', buffer: bytes }));
   await page.evaluate(() => (window as any).app.run('wm.open_mainfile', {})); // eslint-disable-line @typescript-eslint/no-explicit-any
-  await page.waitForFunction(() => (window as any).app.filename === 'roundtrip.p3d'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForFunction(() => (window as any).app.filename === 'roundtrip.blend'); // eslint-disable-line @typescript-eslint/no-explicit-any
   expect(await get(page, 'Object.values(app.doc.objects).find(o => o.name === "Cube").location[1]')).toBeCloseTo(3);
   await expectNoErrors(errors);
 });

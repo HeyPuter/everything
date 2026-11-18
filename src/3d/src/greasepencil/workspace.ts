@@ -139,7 +139,7 @@ export function animation2DDocument(): DocumentData {
 /** Load the 2D Animation template: document, workspaces and Draw Mode. */
 export function load2DAnimation() {
   app.setDocument(animation2DDocument());
-  app.filename = 'untitled.p3d';
+  app.filename = 'untitled.blend';
   app.dirty = false;
   app.flush();
   if (shell) {

@@ -25,7 +25,8 @@ registerFormat({
     // the whole file is converted before the current document is touched
     const r = await load(file);
     app.setDocument(r.doc);
-    app.filename = file.name.replace(/\.blend\d*$/i, '.p3d');
+    // the name stays: Save writes a .blend file (as a new file, see fileEvents.keepOriginal)
+    app.filename = file.name.replace(/\.blend\d+$/i, '.blend');
     const extra = reportWarnings(file, r);
     app.report('INFO', `Opened "${file.name}" (file version ${r.version}, scene "${r.sceneName}", ${r.stats.objects} objects)${extra}`);
   },

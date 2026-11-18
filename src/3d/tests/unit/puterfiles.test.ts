@@ -10,6 +10,7 @@ import { App, setApp, app } from '../../src/app/app';
 import { startupDocument } from '../../src/data/defaults';
 import { fileEvents, registerFormat, saveFile } from '../../src/io/files';
 import { encodeDocument } from '../../src/io/native';
+import { writeBlend } from '../../src/io/blend/write/writer';
 import { installPuterFiles, openDriveItems, openLaunchItems, openPuterPath, pickFromPuter, type DriveItem } from '../../src/io/puterfiles';
 import { PUTER_LOADED } from '../../src/assistant/puter';
 import { captureMenuItems } from '../../src/ui/menu';
@@ -26,11 +27,11 @@ registerFormat({
   handlesUndo: true,
 });
 
-/** A project file whose scene ends at `frameEnd` (to tell files apart). */
+/** A .blend file this app saved, whose scene ends at `frameEnd` (to tell files apart). */
 function project(frameEnd: number) {
   const doc = startupDocument();
   doc.scene.frame_end = frameEnd;
-  return encodeDocument(doc);
+  return writeBlend(doc, { embed: encodeDocument(doc) }).bytes;
 }
 
 interface Stub {
@@ -114,8 +115,8 @@ afterEach(() => {
 describe('launch from the Puter desktop', () => {
   it('opens a double-clicked file once, and Save writes it back in place', async () => {
     const stub = installSdk({ launch: [] });
-    stub.drive.set('/u/Desktop/robot.p3d', project(91));
-    const item = fsItem(stub, '/u/Desktop/robot.p3d');
+    stub.drive.set('/u/Desktop/robot.blend', project(91));
+    const item = fsItem(stub, '/u/Desktop/robot.blend');
     stub.ui.onLaunchedWithItems.mockImplementation((cb: (items: DriveItem[]) => void) => cb([item]));
     stub.ui.onItemsOpened.mockImplementation((cb: (items: DriveItem[]) => void) => cb([item]));
     installPuterFiles(Promise.resolve());
@@ -123,9 +124,9 @@ describe('launch from the Puter desktop', () => {
     // the deprecated handler would get the same items: it is not used
     expect(stub.ui.onItemsOpened).not.toHaveBeenCalled();
     expect(item.read).toHaveBeenCalledTimes(1);
-    expect(app.filename).toBe('robot.p3d');
+    expect(app.filename).toBe('robot.blend');
     expect(app.doc.scene.frame_end).toBe(91);
-    expect(openPuterPath()).toBe('/u/Desktop/robot.p3d');
+    expect(openPuterPath()).toBe('/u/Desktop/robot.blend');
     expect(app.dirty).toBe(false);
 
     app.doc.scene.frame_end = 120;
@@ -133,38 +134,38 @@ describe('launch from the Puter desktop', () => {
     saveFile();
     await settle();
     expect(stub.fs.write).toHaveBeenCalledTimes(1);
-    expect(stub.fs.write.mock.calls[0][0]).toBe('/u/Desktop/robot.p3d');
+    expect(stub.fs.write.mock.calls[0][0]).toBe('/u/Desktop/robot.blend');
     expect(stub.fs.write.mock.calls[0][2]).toMatchObject({ overwrite: true });
     expect(stub.ui.showSaveFilePicker).not.toHaveBeenCalled();
     expect(clicks).toEqual([]);
     expect(app.dirty).toBe(false);
-    expect(messages().at(-1)).toBe('INFO: Saved "robot.p3d"');
+    expect(messages().at(-1)).toBe('INFO: Saved "robot.blend"');
   });
 
   it('registers once the SDK arrives after the app started, also in a browser tab the desktop opened', async () => {
     installPuterFiles(Promise.resolve());
     const stub = installSdk({ env: 'web' });
-    stub.drive.set('/u/scene.p3d', project(33));
-    stub.ui.onLaunchedWithItems.mockImplementation((cb: (items: DriveItem[]) => void) => cb([fsItem(stub, '/u/scene.p3d')]));
+    stub.drive.set('/u/scene.blend', project(33));
+    stub.ui.onLaunchedWithItems.mockImplementation((cb: (items: DriveItem[]) => void) => cb([fsItem(stub, '/u/scene.blend')]));
     dispatchEvent(new Event(PUTER_LOADED));
     dispatchEvent(new Event(PUTER_LOADED));
     await settle();
     expect(stub.ui.onLaunchedWithItems).toHaveBeenCalledTimes(1);
-    expect(app.filename).toBe('scene.p3d');
+    expect(app.filename).toBe('scene.blend');
     expect(app.doc.scene.frame_end).toBe(33);
   });
 
   it('waits for the recovered session before opening', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/a.p3d', project(44));
-    stub.ui.onLaunchedWithItems.mockImplementation((cb: (items: DriveItem[]) => void) => cb([fsItem(stub, '/u/a.p3d')]));
+    stub.drive.set('/u/a.blend', project(44));
+    stub.ui.onLaunchedWithItems.mockImplementation((cb: (items: DriveItem[]) => void) => cb([fsItem(stub, '/u/a.blend')]));
     let recovered: () => void = () => {};
     installPuterFiles(new Promise<void>((r) => (recovered = r)));
     await settle();
     expect(stub.fs.read).not.toHaveBeenCalled();
     recovered();
     await settle();
-    expect(app.filename).toBe('a.p3d');
+    expect(app.filename).toBe('a.blend');
   });
 
   it('skips folders and says so', async () => {
@@ -172,7 +173,7 @@ describe('launch from the Puter desktop', () => {
     await openLaunchItems([{ name: 'Models', path: '/u/Models', is_dir: true }]);
     expect(stub.fs.read).not.toHaveBeenCalled();
     expect(messages().at(-1)).toMatch(/^WARNING: Folders cannot be opened/);
-    expect(app.filename).toBe('untitled.p3d');
+    expect(app.filename).toBe('untitled.blend');
   });
 
   it('does not read a file no format reads', async () => {
@@ -185,30 +186,30 @@ describe('launch from the Puter desktop', () => {
 
   it('reports a file that cannot be read and keeps the current file', async () => {
     const stub = installSdk();
-    const keep = { name: 'mine.p3d', write: async () => {} };
+    const keep = { name: 'mine.blend', write: async () => {} };
     fileEvents.saveTarget = keep;
-    await openLaunchItems([fsItem(stub, '/u/gone.p3d')]);
-    expect(messages().at(-1)).toBe('ERROR: Cannot open "gone.p3d": Subject does not exist');
+    await openLaunchItems([fsItem(stub, '/u/gone.blend')]);
+    expect(messages().at(-1)).toBe('ERROR: Cannot open "gone.blend": Subject does not exist');
     expect(fileEvents.saveTarget).toBe(keep);
     // a damaged file does not take over Save either
-    stub.drive.set('/u/bad.p3d', project(1).slice(0, 40));
-    await openLaunchItems([fsItem(stub, '/u/bad.p3d')]);
-    expect(messages().at(-1)).toMatch(/^ERROR: Cannot open "bad.p3d"/);
+    stub.drive.set('/u/bad.blend', project(1).slice(0, 40));
+    await openLaunchItems([fsItem(stub, '/u/bad.blend')]);
+    expect(messages().at(-1)).toMatch(/^ERROR: Cannot open "bad.blend"/);
     expect(fileEvents.saveTarget).toBe(keep);
   });
 
   it('opens a file once when it is opened twice at the same time, and not again while it is open', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/twice.p3d', project(55));
+    stub.drive.set('/u/twice.blend', project(55));
     const opened: string[] = [];
     fileEvents.opened.push((name) => opened.push(name));
     try {
-      await Promise.all([openLaunchItems([fsItem(stub, '/u/twice.p3d')]), openDriveItems([fsItem(stub, '/u/twice.p3d')])]);
+      await Promise.all([openLaunchItems([fsItem(stub, '/u/twice.blend')]), openDriveItems([fsItem(stub, '/u/twice.blend')])]);
       expect(stub.fs.read).toHaveBeenCalledTimes(1);
-      expect(opened).toEqual(['twice.p3d']);
-      await openDriveItems([fsItem(stub, '/u/twice.p3d')]);
+      expect(opened).toEqual(['twice.blend']);
+      await openDriveItems([fsItem(stub, '/u/twice.blend')]);
       expect(stub.fs.read).toHaveBeenCalledTimes(1);
-      expect(messages().at(-1)).toBe('INFO: "twice.p3d" is already open');
+      expect(messages().at(-1)).toBe('INFO: "twice.blend" is already open');
     } finally {
       fileEvents.opened.pop();
     }
@@ -216,35 +217,35 @@ describe('launch from the Puter desktop', () => {
 
   it('does not open a launch again after a reload brought the recovered file back', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/kept.p3d', project(66));
-    await openLaunchItems([fsItem(stub, '/u/kept.p3d')]);
+    stub.drive.set('/u/kept.blend', project(66));
+    await openLaunchItems([fsItem(stub, '/u/kept.blend')]);
     expect(stub.fs.read).toHaveBeenCalledTimes(1);
     // reload: the recovered session is that file, with edits; the save target is gone
     fileEvents.saveTarget = null;
     app.doc.scene.frame_end = 77;
-    await openLaunchItems([fsItem(stub, '/u/kept.p3d')]);
+    await openLaunchItems([fsItem(stub, '/u/kept.blend')]);
     expect(stub.fs.read).toHaveBeenCalledTimes(1);
     expect(app.doc.scene.frame_end).toBe(77);
-    expect(openPuterPath()).toBe('/u/kept.p3d');
+    expect(openPuterPath()).toBe('/u/kept.blend');
   });
 });
 
 describe("Puter's Open dialog", () => {
   it('File ▸ Open inside the desktop opens the picked file, and Save writes back to it', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/Documents/car.p3d', project(12));
-    stub.ui.showOpenFilePicker.mockReturnValue(answered(fsItem(stub, '/u/Documents/car.p3d')));
+    stub.drive.set('/u/Documents/car.blend', project(12));
+    stub.ui.showOpenFilePicker.mockReturnValue(answered(fsItem(stub, '/u/Documents/car.blend')));
     app.run('wm.open_mainfile', {}, { invoke: true });
     await settle();
     const opts = stub.ui.showOpenFilePicker.mock.calls[0][0];
     expect(opts.multiple).toBe(false);
-    expect(opts.accept).toEqual(expect.arrayContaining(['.p3d', '.zzmodel']));
+    expect(opts.accept).toEqual(expect.arrayContaining(['.blend', '.zzmodel']));
     expect(clicks).toEqual([]);
-    expect(app.filename).toBe('car.p3d');
+    expect(app.filename).toBe('car.blend');
     expect(app.doc.scene.frame_end).toBe(12);
     saveFile();
     await settle();
-    expect(stub.fs.write.mock.calls[0][0]).toBe('/u/Documents/car.p3d');
+    expect(stub.fs.write.mock.calls[0][0]).toBe('/u/Documents/car.blend');
   });
 
   it('does nothing when it is cancelled', async () => {
@@ -283,7 +284,7 @@ describe("Puter's Open dialog", () => {
     app.run('wm.import', {}, { invoke: true });
     await settle();
     expect(imported).toEqual([{ name: 'part.zzmodel', bytes: 'part bytes' }]);
-    expect(app.filename).toBe('untitled.p3d');
+    expect(app.filename).toBe('untitled.blend');
     expect(openPuterPath()).toBeNull();
     // cancelling picks nothing
     stub.ui.showOpenFilePicker.mockReturnValue(cancelled());
@@ -301,48 +302,48 @@ describe("Puter's Save dialog", () => {
     await settle();
     const [blob, suggested] = stub.ui.showSaveFilePicker.mock.calls[0];
     expect(blob).toBeInstanceOf(Blob);
-    expect(suggested).toBe('untitled.p3d');
+    expect(suggested).toBe('untitled.blend');
     expect(clicks).toEqual([]);
-    expect(app.filename).toBe('tower.p3d');
+    expect(app.filename).toBe('tower.blend');
     expect(app.dirty).toBe(false);
-    expect(openPuterPath()).toBe('/u/Documents/tower.p3d');
-    expect(messages().at(-1)).toBe('INFO: Saved "tower.p3d"');
+    expect(openPuterPath()).toBe('/u/Documents/tower.blend');
+    expect(messages().at(-1)).toBe('INFO: Saved "tower.blend"');
     saveFile();
     await settle();
     expect(stub.ui.showSaveFilePicker).toHaveBeenCalledTimes(1);
-    expect(stub.fs.write.mock.calls.map((c) => c[0])).toEqual(['/u/Documents/tower.p3d']);
+    expect(stub.fs.write.mock.calls.map((c) => c[0])).toEqual(['/u/Documents/tower.blend']);
   });
 
   it('Save As asks even for the open Puter file, and the chosen file becomes the one Save writes to', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/a.p3d', project(10));
-    await openDriveItems([fsItem(stub, '/u/a.p3d')]);
-    stub.ui.showSaveFilePicker.mockReturnValue(answered({ name: 'b.p3d', path: '/u/Backup/b.p3d' }));
+    stub.drive.set('/u/a.blend', project(10));
+    await openDriveItems([fsItem(stub, '/u/a.blend')]);
+    stub.ui.showSaveFilePicker.mockReturnValue(answered({ name: 'b.blend', path: '/u/Backup/b.blend' }));
     app.run('wm.save_as_mainfile', {}, { invoke: true });
     await settle();
-    expect(stub.ui.showSaveFilePicker.mock.calls[0][1]).toBe('a.p3d');
+    expect(stub.ui.showSaveFilePicker.mock.calls[0][1]).toBe('a.blend');
     expect(stub.fs.write).not.toHaveBeenCalled();
-    expect(app.filename).toBe('b.p3d');
-    expect(openPuterPath()).toBe('/u/Backup/b.p3d');
+    expect(app.filename).toBe('b.blend');
+    expect(openPuterPath()).toBe('/u/Backup/b.blend');
     // Save Copy leaves the current file alone
-    stub.ui.showSaveFilePicker.mockReturnValue(answered({ name: 'b_copy.p3d', path: '/u/b_copy.p3d' }));
+    stub.ui.showSaveFilePicker.mockReturnValue(answered({ name: 'b_copy.blend', path: '/u/b_copy.blend' }));
     app.run('wm.save_as_mainfile', { copy: true }, { invoke: true });
     await settle();
-    expect(stub.ui.showSaveFilePicker.mock.calls[1][1]).toBe('b_copy.p3d');
-    expect(app.filename).toBe('b.p3d');
-    expect(openPuterPath()).toBe('/u/Backup/b.p3d');
-    expect(messages().at(-1)).toBe('INFO: Saved a copy as "b_copy.p3d"');
+    expect(stub.ui.showSaveFilePicker.mock.calls[1][1]).toBe('b_copy.blend');
+    expect(app.filename).toBe('b.blend');
+    expect(openPuterPath()).toBe('/u/Backup/b.blend');
+    expect(messages().at(-1)).toBe('INFO: Saved a copy as "b_copy.blend"');
   });
 
   it('a file saved under another name than it was opened with goes through the dialog', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/old.p3d', project(10));
-    await openDriveItems([fsItem(stub, '/u/old.p3d')]);
+    stub.drive.set('/u/old.blend', project(10));
+    await openDriveItems([fsItem(stub, '/u/old.blend')]);
     stub.ui.showSaveFilePicker.mockReturnValue(cancelled());
     // e.g. Save Incremental, or a file whose type is saved under another extension
-    saveFile('old.001.p3d');
+    saveFile('old.001.blend');
     await settle();
-    expect(stub.ui.showSaveFilePicker.mock.calls[0][1]).toBe('old.001.p3d');
+    expect(stub.ui.showSaveFilePicker.mock.calls[0][1]).toBe('old.001.blend');
     expect(stub.fs.write).not.toHaveBeenCalled();
   });
 
@@ -355,7 +356,7 @@ describe("Puter's Save dialog", () => {
     saveFile();
     await settle();
     expect(stub.ui.showSaveFilePicker).toHaveBeenCalledTimes(1);
-    expect(app.filename).toBe('untitled.p3d');
+    expect(app.filename).toBe('untitled.blend');
     expect(app.dirty).toBe(true);
     // the app has the focus back: the dialog is gone, the next save asks again
     stub.ui.showSaveFilePicker.mockReturnValue(cancelled());
@@ -374,9 +375,9 @@ describe("Puter's Save dialog", () => {
     saveFile();
     app.doc.scene.frame_end = 3;
     app.changed('doc');
-    answer({ name: 'x.p3d', path: '/u/x.p3d' });
+    answer({ name: 'x.blend', path: '/u/x.blend' });
     await settle();
-    expect(app.filename).toBe('x.p3d');
+    expect(app.filename).toBe('x.blend');
     expect(app.dirty).toBe(true);
   });
 });
@@ -385,23 +386,23 @@ describe('outside Puter', () => {
   it('downloads the file, as before, on the web and without the SDK', async () => {
     const stub = installSdk({ env: 'web' });
     saveFile();
-    expect(clicks).toEqual(['download untitled.p3d']);
+    expect(clicks).toEqual(['download untitled.blend']);
     expect(stub.ui.showSaveFilePicker).not.toHaveBeenCalled();
     delete (globalThis as unknown as { puter?: unknown }).puter;
-    app.run('wm.save_as_mainfile', { filepath: 'other.p3d' }, { invoke: false });
-    expect(clicks).toEqual(['download untitled.p3d', 'download other.p3d']);
-    expect(app.filename).toBe('other.p3d');
+    app.run('wm.save_as_mainfile', { filepath: 'other.blend' }, { invoke: false });
+    expect(clicks).toEqual(['download untitled.blend', 'download other.blend']);
+    expect(app.filename).toBe('other.blend');
     const { openFromMenu } = await import('../../src/ui/topbar');
     expect(openFromMenu()).toEqual([]);
   });
 
   it('a Puter file opened in a browser tab is still saved back in place', async () => {
     const stub = installSdk({ env: 'web' });
-    stub.drive.set('/u/w.p3d', project(5));
-    await openDriveItems([fsItem(stub, '/u/w.p3d')]);
+    stub.drive.set('/u/w.blend', project(5));
+    await openDriveItems([fsItem(stub, '/u/w.blend')]);
     saveFile();
     await settle();
-    expect(stub.fs.write.mock.calls.map((c) => c[0])).toEqual(['/u/w.p3d']);
+    expect(stub.fs.write.mock.calls.map((c) => c[0])).toEqual(['/u/w.blend']);
     expect(clicks).toEqual([]);
   });
 });
@@ -433,34 +434,34 @@ describe('files dragged in from a Puter folder window', () => {
 
   it('a dropped project file opened from the drop menu is saved back to the drive', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/drop.p3d', project(21));
-    sdkDrop([{ name: 'drop.p3d', path: '/u/drop.p3d', is_dir: false }]);
+    stub.drive.set('/u/drop.blend', project(21));
+    sdkDrop([{ name: 'drop.blend', path: '/u/drop.blend', is_dir: false }]);
     await settle();
     const items = captureMenuItems(() => app.run('wm.drop_blend_file', {}, { invoke: false }));
     expect(items.map((i) => i.label)).toContain('Open');
     items.find((i) => i.label === 'Open')!.action!();
     await settle();
-    expect(app.filename).toBe('drop.p3d');
+    expect(app.filename).toBe('drop.blend');
     expect(app.doc.scene.frame_end).toBe(21);
-    expect(openPuterPath()).toBe('/u/drop.p3d');
+    expect(openPuterPath()).toBe('/u/drop.blend');
     // dropping it again while it is open does not read it again
-    sdkDrop([{ name: 'drop.p3d', path: '/u/drop.p3d', is_dir: false }]);
+    sdkDrop([{ name: 'drop.blend', path: '/u/drop.blend', is_dir: false }]);
     await settle();
     expect(stub.fs.read).toHaveBeenCalledTimes(1);
-    expect(messages().at(-1)).toBe('INFO: "drop.p3d" is already open');
+    expect(messages().at(-1)).toBe('INFO: "drop.blend" is already open');
   });
 
   it('a launch and a drop of the same file at once give one open', async () => {
     const stub = installSdk();
-    stub.drive.set('/u/both.p3d', project(8));
+    stub.drive.set('/u/both.blend', project(8));
     const opened: string[] = [];
     fileEvents.opened.push((name) => opened.push(name));
     try {
-      const launch = openLaunchItems([fsItem(stub, '/u/both.p3d')]);
-      sdkDrop([{ name: 'both.p3d', path: '/u/both.p3d', is_dir: false }]);
+      const launch = openLaunchItems([fsItem(stub, '/u/both.blend')]);
+      sdkDrop([{ name: 'both.blend', path: '/u/both.blend', is_dir: false }]);
       await launch;
       await settle();
-      expect(opened).toEqual(['both.p3d']);
+      expect(opened).toEqual(['both.blend']);
       expect(stub.fs.read).toHaveBeenCalledTimes(1);
     } finally {
       fileEvents.opened.pop();

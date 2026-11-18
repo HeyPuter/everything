@@ -7,6 +7,7 @@ import { importLegacyScene } from './legacy';
 import type { MenuItem } from '../ui/menu';
 import { openMenu } from '../ui/menu';
 import { canOpenFromPuter, opensFromPuter, pickFromPuter, saveToPuter, savesToPuter } from './puterfiles';
+import { writeBlend } from './blend/write/writer';
 
 export interface FormatHandler {
   id: string;
@@ -55,6 +56,11 @@ export const fileEvents = {
   beforeSave: [] as (() => void)[],
   /** called right before the document is replaced (keeps unsaved work recoverable) */
   beforeReplace: ((_reason: string) => {}) as (reason: string) => void,
+  /**
+   * The open file was written by another program (a .blend file saved in Blender): Save puts the
+   * project in a new file instead of replacing that one, which may hold data this app cannot keep.
+   */
+  keepOriginal: false,
 };
 
 let autosaveTimer = 0;
@@ -88,7 +94,7 @@ function status(s: string) {
 /** Whether some format (or the project / legacy readers) opens this file by its name. */
 export function isReadableFile(name: string) {
   const n = name.toLowerCase();
-  return n.endsWith('.p3d') || n.endsWith('.json') || formats.some((f) => f.import && f.extensions.some((x) => n.endsWith(x)));
+  return n.endsWith('.p3d') || /\.blend\d*$/.test(n) || n.endsWith('.json') || formats.some((f) => f.import && f.extensions.some((x) => n.endsWith(x)));
 }
 
 export async function openFile(file: File, mode: 'open' | 'import' = 'open', companions: File[] = []) {
@@ -96,10 +102,12 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open', com
   const name = file.name.toLowerCase();
   try {
     if (isNativeFile(bytes)) {
+      // a .p3d project, or a .blend file saved here (it carries the project whole)
       const { doc, extra } = decodeDocument(bytes);
       fileEvents.beforeReplace('Before Opening a File');
       // the save target belongs to the replaced file (a file that fails to open keeps it)
       fileEvents.saveTarget = null;
+      fileEvents.keepOriginal = false;
       app.setDocument(doc);
       app.filename = file.name;
       // Preferences ▸ Save & Load ▸ Load UI
@@ -110,8 +118,9 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open', com
       const doc = importLegacyScene(new TextDecoder().decode(bytes));
       fileEvents.beforeReplace('Before Opening a File');
       fileEvents.saveTarget = null;
+      fileEvents.keepOriginal = false;
       app.setDocument(doc);
-      app.filename = file.name.replace(/\.3d\.json$|\.json$/i, '.p3d');
+      app.filename = file.name.replace(/\.3d\.json$|\.json$/i, '.blend');
       app.report('INFO', `Imported legacy scene "${file.name}"`);
     } else {
       const handler = formats.find((f) => f.import && f.extensions.some((x) => name.endsWith(x)));
@@ -120,6 +129,8 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open', com
         fileEvents.beforeReplace('Before Opening a File');
         await handler.open(file);
         fileEvents.saveTarget = null;
+        // a .blend file from another program is not replaced by Save (see keepOriginal)
+        fileEvents.keepOriginal = handler.id === 'blend';
         app.dirty = false;
         return;
       }
@@ -141,21 +152,50 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open', com
 /** A name without its file type extension (".blend", ".json", "model.glb"…); other dots ("v1.2") stay. */
 function stripFileExtension(name: string): string {
   const lower = name.toLowerCase();
-  const known = ['.blend', '.3d.json', '.json', ...formats.flatMap((f) => f.extensions)];
+  const known = ['.blend', '.p3d', '.3d.json', '.json', ...formats.flatMap((f) => f.extensions)];
   const ext = known.find((x) => lower.endsWith(x.toLowerCase()) && lower.length > x.length) ?? (/\.blend\d+$/.exec(lower)?.[0] ?? '');
   return ext ? name.slice(0, name.length - ext.length) : name;
 }
 
+/** Saved projects are .blend files: "scene.p3d" or "scene" → "scene.blend". */
+export function projectFileName(name: string): string {
+  return /\.blend$/i.test(name) ? name : `${stripFileExtension(name)}.blend`;
+}
+
+let reportedSaveNotes = '';
 /**
- * Save the project (download, or Puter's Save dialog inside the Puter desktop). A copy leaves the
- * current file name and modified state alone. `ask` (Save As) never updates the file in place.
+ * The bytes Save writes: a .blend file other programs open, carrying this app's project whole (so
+ * reopening it here loses nothing). What a .blend file holds differently is said once per change.
+ */
+export function encodeProjectFile(): Uint8Array {
+  const project = encodeDocument(app.doc, { ui: projectUiState.save() });
+  const { bytes, warnings } = writeBlend(app.doc, { embed: project });
+  const key = warnings.join('\n');
+  if (key && key !== reportedSaveNotes) {
+    for (const w of warnings) app.report('INFO', `.blend file: ${w}`);
+    app.report('WARNING', `${warnings.length} thing${warnings.length > 1 ? 's are' : ' is'} stored differently in the .blend file for other programs (this app keeps everything, see Info log)`);
+  }
+  reportedSaveNotes = key;
+  return bytes;
+}
+
+/**
+ * Save the project as a .blend file (download, or Puter's Save dialog inside the Puter desktop). A
+ * copy leaves the current file name and modified state alone. `ask` (Save As) never updates the file
+ * in place, and neither does Save of a .blend file another program wrote (see keepOriginal).
  */
 export function saveFile(name = app.filename, copy = false, ask = false) {
   for (const f of fileEvents.beforeSave) f();
-  const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
-  if (!name.toLowerCase().endsWith('.p3d')) name = `${stripFileExtension(name)}.p3d`;
+  let bytes: Uint8Array;
+  try {
+    bytes = encodeProjectFile();
+  } catch (e) {
+    app.report('ERROR', `Cannot save "${name}": ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  name = projectFileName(name);
   const target = fileEvents.saveTarget;
-  if (target && !copy && !ask && target.name === name) {
+  if (target && !copy && !ask && !fileEvents.keepOriginal && target.name === name) {
     // the file came from a writable folder: update it in place
     // saved as of now: edits made while the file is being written mark it modified again
     app.dirty = false;
@@ -176,6 +216,7 @@ export function saveFile(name = app.filename, copy = false, ask = false) {
   if (!copy) {
     app.filename = name;
     app.dirty = false;
+    fileEvents.keepOriginal = false;
   }
   for (const f of fileEvents.saved) f(name, bytes);
   app.report('INFO', copy ? `Saved a copy as "${name}"` : `Saved "${name}"`);
@@ -191,15 +232,17 @@ registerOperators([
     exec: (_ctx, p) => {
       fileEvents.beforeReplace('Before New File');
       if (!p.use_factory_startup && fileEvents.loadStartup()) {
-        app.filename = 'untitled.p3d';
+        app.filename = 'untitled.blend';
         fileEvents.saveTarget = null;
+        fileEvents.keepOriginal = false;
         app.dirty = false;
         void clearRecovery();
         return;
       }
       app.setDocument(startupDocument());
-      app.filename = 'untitled.p3d';
+      app.filename = 'untitled.blend';
       fileEvents.saveTarget = null;
+      fileEvents.keepOriginal = false;
       app.dirty = false;
       void clearRecovery();
     },
@@ -207,7 +250,7 @@ registerOperators([
   {
     idname: 'wm.open_mainfile',
     label: 'Open…',
-    description: 'Open a project file (.p3d), a legacy scene (.3d.json) or a supported 3D model',
+    description: 'Open a .blend file, a project file (.p3d), a legacy scene (.3d.json) or a supported 3D model',
     undo: false,
     props: [
       { id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true },
@@ -223,23 +266,23 @@ registerOperators([
         void pickFromPuter('open');
         return 'CANCELLED';
       }
-      void pickFile(['.p3d', '.json', ...formats.flatMap((f) => (f.import ? f.extensions : []))].join(',')).then((f) => f && openFile(f));
+      void pickFile([...new Set(['.blend', '.p3d', '.json', ...formats.flatMap((f) => (f.import ? f.extensions : []))])].join(',')).then((f) => f && openFile(f));
       return 'CANCELLED';
     },
   },
   {
     idname: 'wm.save_mainfile',
     label: 'Save',
-    description: 'Save the current project (downloads a .p3d file)',
+    description: 'Save the current project as a .blend file (back where it came from, or as a new file)',
     props: [{ id: 'incremental', label: 'Incremental', type: 'bool', default: false }],
     undo: false,
     exec: (_ctx, p) => {
       if (!p.incremental) return void saveFile();
-      // name.p3d → name.001.p3d → name.002.p3d …
-      const base = app.filename.replace(/\.p3d$/i, '');
+      // name.blend → name.001.blend → name.002.blend …
+      const base = stripFileExtension(app.filename);
       const m = /^(.*)\.(\d{3})$/.exec(base);
       const next = m ? `${m[1]}.${String(Number(m[2]) + 1).padStart(3, '0')}` : `${base}.001`;
-      saveFile(`${next}.p3d`);
+      saveFile(`${next}.blend`);
     },
   },
   {
@@ -253,7 +296,7 @@ registerOperators([
     ],
     invoke: (_ctx, p) => {
       const copy = !!p.copy;
-      const suggest = copy ? app.filename.replace(/(\.p3d)?$/i, '_copy.p3d') : app.filename;
+      const suggest = copy ? `${stripFileExtension(app.filename)}_copy.blend` : projectFileName(app.filename);
       // inside the Puter desktop Puter's Save dialog asks for the name and the folder
       if (savesToPuter()) {
         saveFile(suggest, copy, true);
