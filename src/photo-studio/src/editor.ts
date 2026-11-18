@@ -889,7 +889,16 @@ export class Editor {
         const v = this.views.find((x) => x.id === close.dataset.closeView);
         // Closing waits for the task, which may be working on that document.
         if (v && this.busy) this.message(`“${v.session.doc.name}” can be closed when the current task finishes.`);
-        else if (v) void this.closeView(v);
+        else if (v) {
+          // Closed from the keyboard, the focus moves to the tab shown now
+          // instead of falling to the page with the removed button.
+          const keyboard = document.activeElement === close;
+          void this.closeView(v).then((closed) => {
+            const now = document.activeElement;
+            if (!closed || !keyboard || close.isConnected || (now && now !== document.body && now.isConnected)) return;
+            this.root.querySelector<HTMLElement>('.document-tab.focused')?.focus({ preventScroll: true });
+          });
+        }
         e.stopPropagation();
         return;
       }

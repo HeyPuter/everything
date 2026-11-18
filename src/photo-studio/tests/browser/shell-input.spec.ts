@@ -349,3 +349,21 @@ test('document tabs switch documents from the keyboard', async ({ page }) => {
   // The arrows switched tabs; they did not nudge a layer with the Move tool.
   expect(await page.evaluate(() => JSON.stringify(window.photoStudio.sessions.map((s) => s.doc.layers.map((l) => l.transform))))).toBe(layers);
 });
+
+test('closing a document tab from the keyboard moves the focus to the tab shown next', async ({ page }) => {
+  await openImage(page, 120, 90, '#336699', 'second.png');
+  await openImage(page, 120, 90, '#996633', 'third.png');
+  await page.locator('.document-tab.focused .tab-close').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
+  await expect(page.locator('.document-tab.focused')).toBeFocused();
+  // Two windows onto one document, tiled: closing one window works the same way.
+  await page.evaluate(() => window.photoStudio.runCommand('window.new-window'));
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('window.tile-vertical'));
+  await idle(page);
+  await page.locator('.document-tab.focused .tab-close').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.photoStudio.views.length)).toBe(2);
+  await expect(page.locator('.document-tab.focused')).toBeFocused();
+});
