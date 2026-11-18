@@ -387,8 +387,19 @@ export function createSmartActions(ctx) {
       if (f.track.locked) return;
       const clip = f.clip;
       const assetId = clip.assetId;
-      const isCurrentSource = () => T.findClip(store.project, clip.id)?.clip === clip
-        && clip.assetId === assetId && clip.type === 'video' && !clip.freeze;
+      const project = store.project;
+      // Preserve the sampled timing, camera geometry and framing keys being replaced.
+      // Timeline movement, names, grading and frame rate do not affect this analysis.
+      const sourceStamp = () => {
+        const a = store.project.assets[clip.assetId], settings = store.project.settings;
+        return JSON.stringify([store.project.id, store.project.timelineId, (store.nest || []).map((f) => f.id),
+          settings.width, settings.height, clip.type, clip.assetId, clip.in, clip.duration, clip.speed, clip.speedCurve, clip.freeze,
+          clip.transform?.x, clip.transform?.y, clip.transform?.scale, clip.keyframes?.x, clip.keyframes?.y, clip.keyframes?.scale,
+          a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration, a?.width, a?.height]);
+      };
+      const stamp = sourceStamp();
+      const isCurrentSource = () => project === store.project
+        && T.findClip(store.project, clip.id)?.clip === clip && stamp === sourceStamp();
       const changedMessage = 'The clip changed. Reopen Stabilize to analyze its current video.';
       const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage); };
       const strength = h('select.select', h('option', { value: '6' }, 'Light'), h('option', { value: '15' }, 'Medium'), h('option', { value: '30' }, 'Strong'));
