@@ -48,6 +48,17 @@ export function unlinkLayers(layers: Layer[], ids: Iterable<string>) {
   for (const l of allLayers(layers)) if (set.has(l.id)) delete l.linkGroup;
   cleanLinks(layers);
 }
+/** Give layers brought in from elsewhere (imported, copied from another
+ * document) link groups of their own: layers linked together stay linked to
+ * each other, never to layers already in the document or to another copy. */
+export function renewLinkGroups(layers: Layer[]) {
+  const renamed = new Map<string, string>();
+  for (const l of allLayers(layers))
+    if (l.linkGroup) {
+      if (!renamed.has(l.linkGroup)) renamed.set(l.linkGroup, crypto.randomUUID());
+      l.linkGroup = renamed.get(l.linkGroup);
+    }
+}
 /** Dissolve link groups with fewer than two members. */
 export function cleanLinks(layers: Layer[]) {
   const all = allLayers(layers);

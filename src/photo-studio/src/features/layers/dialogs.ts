@@ -19,6 +19,7 @@ import { rgba8 } from '../../imaging/types';
 import { nextLayerName } from '../pixels';
 import { insertAboveSelection } from './insert';
 import { releaseBackground } from '../../model/housekeeping';
+import { renewLinkGroups } from '../../model/links';
 import { recordsSettings, settingsDialog } from '../action-settings';
 import { formDialog, type Field } from '../../ui/dialog';
 import { duplicateSelected } from '../../ui/actions';
@@ -216,6 +217,7 @@ function freshIds(layers: Layer[]) {
     item.id = crypto.randomUUID();
     delete item.psdId;
   }
+  renewLinkGroups(layers);
 }
 
 /** Layer → Duplicate Layer…: name the copy and choose where it goes — this

@@ -8,6 +8,7 @@ import { Assets } from '../../model/assets';
 import { deserialize } from '../../model/serialization';
 import { contentsOf, copyContents, type EmbeddedContents } from '../../model/embedded';
 import { assertEditable } from '../../model/layers';
+import { renewLinkGroups } from '../../model/links';
 import { gridDocBounds, unionRect } from '../../model/tiles';
 import { transformBounds } from '../../model/transform';
 import { formDialog } from '../../ui/dialog';
@@ -221,6 +222,7 @@ export async function convertToLayers(e: Editor) {
     x.id = crypto.randomUUID();
     delete x.psdId;
   }
+  renewLinkGroups(nested.layers);
   // Content space → document: the frame's bounds when warped (not applied).
   const content = { x: 0, y: 0, width: c.width, height: c.height };
   const warped = !!l.embed?.frame;
