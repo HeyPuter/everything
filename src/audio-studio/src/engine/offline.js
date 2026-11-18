@@ -14,8 +14,9 @@ const cancelled = () => Object.assign(new Error('Cancelled'), { name: 'AbortErro
 
 function getWorker() {
   if (worker) return worker;
-  worker = new OfflineWorker();
-  worker.onmessage = (e) => {
+  const w = worker = new OfflineWorker();
+  w.onmessage = (e) => {
+    if (worker !== w) return;
     const m = e.data;
     const job = jobs.get(m.id);
     if (!job) return;
@@ -24,7 +25,7 @@ function getWorker() {
       const start = m.index * CHUNK;
       const len = channels ? Math.max(0, Math.min(CHUNK, channels[0].length - start)) : 0;
       const data = channels ? channels.map((c) => c.toArray(start, start + len)) : [new Float32Array(0)];
-      worker.postMessage({ type: 'chunk', id: m.id, key: m.key, index: m.index, channels: data }, data.map((d) => d.buffer));
+      w.postMessage({ type: 'chunk', id: m.id, key: m.key, index: m.index, channels: data }, data.map((d) => d.buffer));
     } else if (m.type === 'data') {
       job.onData(m.at, m.channels);
     } else if (m.type === 'progress') {
@@ -37,12 +38,14 @@ function getWorker() {
       job.reject(new Error(m.message === 'cancelled' ? 'Cancelled' : m.message));
     }
   };
-  worker.onerror = (e) => {
+  w.onerror = (e) => {
+    if (worker !== w) return;
+    worker = null;
+    w.terminate();
     for (const job of jobs.values()) job.reject(new Error(e.message || 'Rendering failed'));
     jobs.clear();
-    worker = null;
   };
-  return worker;
+  return w;
 }
 
 /**
