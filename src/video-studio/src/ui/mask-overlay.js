@@ -351,7 +351,7 @@ export function createMaskOverlay({ store, actions, stage }) {
       const lp = [l0[0] / (2 * a), l0[1] / (2 * b)];
       const strokes = [...(raw.strokes || []), { size, erase: maskEdit.brush.erase, pts: lp }];
       edit(maskEdit.brush.erase ? 'Erase mask' : 'Paint mask', { strokes }, coalesce);
-      drag = { ...drag, raw: { ...raw, strokes } };
+      drag = { ...drag, raw: { ...raw, strokes }, lastCss: p0 };
     }
     root.setPointerCapture?.(e.pointerId);
     drag.pointerId = e.pointerId;
@@ -494,16 +494,18 @@ export function createMaskOverlay({ store, actions, stage }) {
         break;
       }
       case 'paint': {
+        // Keep spacing in screen pixels, independent of source axes and the
+        // mask's size or rotation. Avoid copying a stroke for redundant moves.
+        if (Math.hypot(p[0] - drag.lastCss[0], p[1] - drag.lastCss[1]) < 1.5) break;
         const strokes = raw.strokes.map((s) => s);
         const last = { ...strokes[strokes.length - 1] };
-        const lp = [l[0] / (2 * a), l[1] / (2 * b)];
+        const lp = [Math.round(l[0] / (2 * a) * 10000) / 10000, Math.round(l[1] / (2 * b) * 10000) / 10000];
         const pts = last.pts;
         const px = pts[pts.length - 2];
         const py = pts[pts.length - 1];
-        // Skip points closer than about a css pixel.
-        const step = 1.5 / Math.max(1e-6, Math.abs(cur.box.w) * cur.k);
-        if (Math.hypot(lp[0] - px, lp[1] - py) < step) break;
-        last.pts = [...pts, Math.round(lp[0] * 10000) / 10000, Math.round(lp[1] * 10000) / 10000];
+        if (lp[0] === px && lp[1] === py) break;
+        drag.lastCss = p;
+        last.pts = [...pts, ...lp];
         strokes[strokes.length - 1] = last;
         drag.raw = { ...raw, strokes };
         edit(maskEdit.brush.erase ? 'Erase mask' : 'Paint mask', { strokes }, coalesce);

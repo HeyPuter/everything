@@ -190,3 +190,20 @@ it.each([[false, 1, 0], [false, 0, 1], [true, 1, 0], [true, 0, 1]])('samples rem
   expect(env.shape.strokes.at(-1).pts).toHaveLength(6);
   fire(env.overlay.el, 'pointerup', 4);
 });
+
+it.each([[false, 1, 0], [false, 0, 1], [true, 1, 0], [true, 0, 1]])('samples mask strokes in screen pixels (nested %s, direction %s/%s)', (nested, dx, dy) => {
+  const env = setup('mask', nested), original = structuredClone(env.shape.strokes);
+  Object.assign(env.shape, { w: 0.5, h: 0.8 }); env.draw();
+  const at = env.project(1100, 600);
+  const fire = (el, type, distance) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: at[0] + dx * distance, clientY: at[1] + dy * distance }));
+  fire(env.overlay.el.querySelector('[data-mh=paint]'), 'pointerdown', 0);
+  fire(env.overlay.el, 'pointermove', 3);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(4);
+  for (let i = 1; i <= 10; i++) fire(env.overlay.el, 'pointermove', 3 + i * 0.09);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(4);
+  fire(env.overlay.el, 'pointermove', 5);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(6);
+  fire(env.overlay.el, 'pointerup', 5);
+  env.store.undo(); expect(env.shape.strokes).toEqual(original);
+  env.store.redo(); expect(env.shape.strokes.at(-1).pts).toHaveLength(6);
+});
