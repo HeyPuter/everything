@@ -10,6 +10,7 @@ import { markerOptions, markersOnlyChange } from './markers.js';
 let nextId = 1;
 
 export class AudioFile extends Emitter {
+  savedStateKnown = true;
   /**
    * @param {object} o
    * @param {string} o.name file name shown in the Files panel and editor tab
@@ -84,7 +85,7 @@ export class AudioFile extends Emitter {
   }
 
   get dirty() {
-    return this.state !== this.savedState;
+    return !this.savedStateKnown || this.state !== this.savedState;
   }
 
   get hasSelection() {
@@ -99,7 +100,14 @@ export class AudioFile extends Emitter {
 
   /** Marks `state` (by default the current one) as what the file holds. */
   markSaved(state = this.state) {
+    this.savedStateKnown = true;
     this.savedState = state;
+    this.emit('change', { kind: 'saved' });
+  }
+
+  /** A completed upload may have replaced this file through an unresolved alias. */
+  invalidateSaved() {
+    this.savedStateKnown = false;
     this.emit('change', { kind: 'saved' });
   }
 

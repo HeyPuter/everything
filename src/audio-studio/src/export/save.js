@@ -21,6 +21,32 @@ import * as puter from '../storage/puter.js';
 import { downloadBlob, rememberRecent } from '../storage/files.js';
 import { VIDEO_EXTENSIONS, extensionOf } from '../audio/decode.js';
 import { wavChunksOf } from '../audio/wav.js';
+import { normalizePath } from '../lib/paths.js';
+
+const homeRelative = (p) => p === '~' || p.startsWith('~/');
+const homeParent = (p) => p === '~/..' || p.startsWith('~/../');
+const couldAlias = (a, b) => a !== b && a.split('/').pop() === b.split('/').pop() && (homeRelative(a) !== homeRelative(b) || homeParent(a) || homeParent(b));
+
+function destinationPaths(app, path) {
+  const key = normalizePath(path);
+  let home;
+  const paths = {
+    key,
+    resolve: (p) => normalizePath(home && homeRelative(p) ? `${home}${p.slice(1)}` : p),
+    async ensureHome() {
+      if (home) return;
+      const found = await puter.homeDir();
+      if (!found.startsWith('/')) throw new Error('Could not resolve the Puter home folder. Try saving this file again.');
+      home = found;
+    },
+    prepareMatches(writtenPath) {
+      if (!home && (app.documents || []).some((d) => d.kind === 'audio' && d.source?.type === 'puter' && d.source.path && (!writtenPath || !d.source.path.startsWith('/')) && couldAlias(normalizePath(d.source.path), key))) return paths.ensureHome();
+    },
+    matches: (p, writtenPath) => paths.resolve(p) === paths.resolve(key) || paths.resolve(p) === writtenPath,
+    uncertain: (p, writtenPath) => !home && (!writtenPath || !paths.resolve(p).startsWith('/')) && couldAlias(normalizePath(p), key),
+  };
+  return paths;
+}
 
 /** Encodes frames [start, end) of a document with export options. */
 export function encodeDoc(doc, options, { start = 0, end = doc.length, onProgress, signal } = {}) {
@@ -54,7 +80,7 @@ function encodeWithProgress(doc, options, range, label) {
   return withProgress(label, (onProgress, signal) => encodeDoc(doc, options, { ...range, onProgress, signal }), { detail: label });
 }
 
-/** Puter path -> completion of the last reserved encode/upload operation. */
+/** Normalized path -> completion of its reserved encode/upload operations. */
 const uploads = new Map();
 let nextSaveAs = 0;
 const appliedSaveAs = new WeakMap();
@@ -86,18 +112,26 @@ function stateWithChunks(state, chunks) {
 }
 
 /** Reserve write order before encoding, while allowing encodes to run in parallel. */
-async function withUploadOrder(path, work) {
-  if (!path) return work(null);
-  const before = uploads.get(path);
+async function withUploadOrder(app, path, work) {
+  if (!path) return work(null, null);
+  const paths = destinationPaths(app, path);
+  const previous = [...uploads.values()].filter((p) => p.key === paths.key || couldAlias(p.key, paths.key));
   let release;
   const done = new Promise((resolve) => { release = resolve; });
-  // A failed/cancelled middle encode must still keep later writes behind its
-  // predecessor. Only release the whole chain once both have settled.
-  const settled = Promise.resolve(before).then(() => done);
-  uploads.set(path, settled);
-  settled.then(() => uploads.get(path) === settled && uploads.delete(path));
+  // Retain the whole chain for each spelling. A failed middle encode must
+  // not hide its older predecessor from a later save through another alias.
+  const reservation = { key: paths.key, done: Promise.all([uploads.get(paths.key)?.done, done]) };
+  uploads.set(paths.key, reservation);
+  reservation.done.then(() => uploads.get(paths.key) === reservation && uploads.delete(paths.key));
+  const before = async () => {
+    if (previous.some((p) => p.key !== paths.key)) await paths.ensureHome();
+    const matching = paths.prepareMatches();
+    if (matching) await matching;
+    await Promise.all(previous.filter((p) => paths.matches(p.key)).map((p) => p.done));
+  };
   try {
-    return await work((label, blob) => upload(label, path, blob, before));
+    // Resolve identity only when encoded bytes are ready; encodes stay parallel.
+    return await work((label, blob) => upload(label, path, blob, before()), paths);
   } finally {
     release();
   }
@@ -127,10 +161,33 @@ async function upload(label, path, blob, before) {
   return item;
 }
 
+async function writtenDestination(paths, item) {
+  const writtenPath = typeof item?.path === 'string' && item.path.startsWith('/') ? normalizePath(item.path) : null;
+  // A newly opened alias may need a lookup after the upload. Its failure must
+  // not undo a committed save or leave an uncertain tab falsely clean.
+  let unresolved = false;
+  try {
+    const matching = paths?.prepareMatches(writtenPath);
+    if (matching) await matching;
+  } catch { unresolved = true; }
+  return { paths, writtenPath, unresolved };
+}
+
 /** Keep every open view of a written audio file consistent with its disk state. */
-function markWritten(app, doc, { path, state, options, size, chunks, range = null, associate = false }) {
-  const targets = new Set([doc, ...(app.documents || [])].filter((d) =>
-    (d === doc && associate) || (d.kind === 'audio' && path && d.source?.type === 'puter' && d.source.path === path)));
+function markWritten(app, doc, { path, identity, state, options, size, chunks, range = null, associate = false }) {
+  const { paths, writtenPath, unresolved } = identity;
+  const targets = new Set();
+  let invalidated = false;
+  for (const target of new Set([doc, ...(app.documents || [])])) {
+    if (target === doc && associate) targets.add(target);
+    else if (target.kind === 'audio' && path && target.source?.type === 'puter' && target.source.path) {
+      if (paths.matches(target.source.path, writtenPath)) targets.add(target);
+      else if (unresolved && paths.uncertain(target.source.path, writtenPath)) {
+        target.invalidateSaved(); invalidated = true;
+      }
+    }
+  }
+  if (invalidated) app.notify(`Saved ${path.split('/').pop()}, but could not verify which open tabs refer to this file. Affected tabs are marked unsaved. Reopen the file to see its saved version.`, { error: true });
   if (!targets.size) return;
   // Partial exports retain a shared-block snapshot for Revert, while keeping
   // each tab's editable audio and history untouched.
@@ -157,16 +214,17 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
   const format = inPlace ? formatForName(path) : null;
   if (!saveAs && !copy && path && format && getFormat(format)) {
     if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return false;
-    return withUploadOrder(path, async (write) => {
+    return withUploadOrder(app, path, async (write, paths) => {
       const options = optionsForSave(doc, format);
       const state = doc.state;
       const chunks = wavChunksOf(doc);
       const name = doc.name;
       const blob = await encodeWithProgress(doc, options, {}, `Saving ${name}`);
       if (!blob) return false;
-      await write(`Saving ${name}`, blob);
+      const item = await write(`Saving ${name}`, blob);
       // Save As may have moved this document while the old write was pending.
-      markWritten(app, doc, { path, state, options, size: blob.size, chunks });
+      const identity = await writtenDestination(paths, item);
+      markWritten(app, doc, { path, identity, state, options, size: blob.size, chunks });
       app.setStatus(`Saved ${name}`);
       return true;
     });
@@ -227,7 +285,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         }
       }
     }
-    return withUploadOrder(path, async (write) => {
+    return withUploadOrder(app, path, async (write, paths) => {
       const state = sourceDoc.state;
       const chunks = wavChunksOf(sourceDoc);
       const label = `${mode === 'export' || mode === 'download' ? 'Exporting' : 'Saving'} ${r.fileName}`;
@@ -241,6 +299,8 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         item = await write(label, blob);
         rememberRecent(app, { name: r.fileName, path });
       } else downloadBlob(blob, r.fileName);
+      // Finish any alias lookup before deciding which Save As association wins.
+      const identity = await writtenDestination(paths, item);
       // Independent destinations can finish out of order. Keep the newest
       // successful Save As association; failed/cancelled attempts don't win.
       const associate = mode === 'saveAs' && saveAsId > (appliedSaveAs.get(doc) || 0);
@@ -249,7 +309,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
         if (doc.name !== r.fileName) doc.rename(r.fileName);
       }
-      markWritten(app, doc, { path, state, options: r.options, size: blob.size, chunks, range: range ? bounds : null, associate });
+      markWritten(app, doc, { path, identity, state, options: r.options, size: blob.size, chunks, range: range ? bounds : null, associate });
       app.setStatus(path ? `Saved ${r.fileName} to ${dir}` : `Downloaded ${r.fileName}`);
       app.emit('exported', { doc, path, fileName: r.fileName, options: r.options, mode });
       return true;

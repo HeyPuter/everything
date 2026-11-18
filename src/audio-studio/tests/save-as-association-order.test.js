@@ -231,3 +231,37 @@ it.each(['save', 'saveAs'])('tracks the encoded state when Undo returns to previ
   expect(doc.dirty).toBe(false);
   expect(app.notify).not.toHaveBeenCalled();
 });
+
+it.each(['resolved', 'failed'])('keeps newer Save As state after an older post-upload alias lookup is %s', async (outcome) => {
+  const { app, doc, saved } = setup();
+  let uploadWaiting = false, lookupWaiting = false, releaseUpload, releaseLookup;
+  const uploadWait = new Promise((resolve) => { releaseUpload = resolve; });
+  const lookupWait = new Promise((resolve) => { releaseLookup = resolve; });
+  window.puter.auth.getUser = async () => {
+    lookupWaiting = true; await lookupWait;
+    if (outcome === 'failed') throw new Error('Lookup failed');
+    return { username: 'u' };
+  };
+  window.puter.fs.write = async (path, blob) => {
+    if (path === '/u/Earlier.wav') { uploadWaiting = true; await uploadWait; }
+    saved.set(path, blob); return { path, uid: path };
+  };
+  const first = (await saveAs(app, 'Earlier.wav')).pending;
+  await ready(0); encoding.jobs[0].finish();
+  await vi.waitFor(() => expect(uploadWaiting).toBe(true), { interval: 1 });
+  const alias = addDoc(app, 'Earlier.wav'); alias.source.path = '~/Earlier.wav';
+  releaseUpload();
+  await vi.waitFor(() => expect(lookupWaiting).toBe(true), { interval: 1 });
+  try {
+    app.activate(doc); doc.setSelection(0, 16); await app.commands.run('edit.crop'); await app.commands.run('fx.invert');
+    const latest = doc.state;
+    await (await saveAs(app, 'Latest.wav')).pending;
+    releaseLookup(); await first;
+    expect(doc.source.path).toBe('/u/Latest.wav'); expect(doc.name).toBe('Latest.wav');
+    expect(doc.state).toBe(latest); expect(doc.savedState).toBe(latest); expect(doc.dirty).toBe(false);
+    expect(doc.info.size).toBe(saved.get('/u/Latest.wav').size);
+    expect(await samples(saved, '/u/Earlier.wav')).toEqual(Array(32).fill(0.25));
+    expect(await samples(saved, '/u/Latest.wav')).toEqual(Array(16).fill(-0.25));
+    expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+  } finally { releaseUpload(); releaseLookup(); await first; }
+});
