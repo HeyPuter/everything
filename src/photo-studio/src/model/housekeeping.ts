@@ -17,15 +17,21 @@ export function isEmptyLayer(l: Layer): boolean {
 /** Remove matching layers anywhere in the tree (a removed group takes its
  * children along); returns how many layers were removed. */
 export function removeLayers(layers: Layer[], match: (l: Layer) => boolean): number {
+  const removed = removeMatching(layers, match);
+  // Links are counted over the whole tree: a layer in a group may be linked
+  // to one outside it.
+  if (removed) cleanLinks(layers);
+  return removed;
+}
+function removeMatching(layers: Layer[], match: (l: Layer) => boolean): number {
   let removed = 0;
   for (let i = layers.length - 1; i >= 0; i--) {
     const l = layers[i];
     if (match(l)) {
       layers.splice(i, 1);
       removed += 1 + allLayers(l.children).length;
-    } else removed += removeLayers(l.children, match);
+    } else removed += removeMatching(l.children, match);
   }
-  if (removed) cleanLinks(layers);
   return removed;
 }
 /** Remove empty layers repeatedly, so groups emptied by the pass go too.

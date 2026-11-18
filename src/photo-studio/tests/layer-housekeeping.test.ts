@@ -177,6 +177,17 @@ describe('housekeeping', () => {
     expect(a.linkGroup).toBeUndefined();
     void c;
   });
+  it('keeps links between layers inside and outside a group when a hidden layer in the group goes', () => {
+    const { doc, a, b } = fixture();
+    const g = layer('group', 'G', 1, 1);
+    const hidden = layer('solid', 'H', 1, 1);
+    hidden.visible = false;
+    doc.layers = [a, g];
+    g.children = [b, hidden];
+    linkLayers(doc.layers, [a.id, b.id], 'pair');
+    expect(removeHiddenLayers(doc.layers)).toBe(1);
+    expect([a.linkGroup, b.linkGroup]).toEqual(['pair', 'pair']);
+  });
   it('splits transparency into a mask and an opaque image', () => {
     const img = { width: 2, height: 1, data: new Uint8ClampedArray([10, 20, 30, 128, 1, 2, 3, 0]) };
     const { mask, opaque } = transparencyToMask(img);
