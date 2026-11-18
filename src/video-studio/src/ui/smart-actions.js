@@ -679,10 +679,12 @@ export function createSmartActions(ctx) {
       }
       const p = progressDialog('Syncing by sound', 'Comparing the two recordings...');
       try {
-        const open = mediabunnyOpener(ctx.library);
+        const open = mediabunnyOpener(ctx.library, { signal: p.signal });
         const a = await decodeClipSound(open, store.project.assets[ref.clip.assetId], ref.clip, { maxSeconds: 600, signal: p.signal });
+        p.signal.throwIfAborted();
         p.set(0.4);
         const b = await decodeClipSound(open, store.project.assets[mov.clip.assetId], mov.clip, { maxSeconds: 600, signal: p.signal });
+        p.signal.throwIfAborted();
         p.set(0.7);
         if (!a || !b) throw new Error('Could not read the sound of both clips.');
         const hop = 0.01;
