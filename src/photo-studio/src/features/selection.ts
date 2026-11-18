@@ -572,10 +572,22 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
     H = img.height,
     d = img.data;
   const t = e.tolerance * img.unit;
+  // Colors are compared premultiplied by alpha: transparent pixels are alike
+  // whatever color was erased there.
+  const full = 255 * img.unit;
   const i0 = (y * W + x) * 4;
-  const ref = [d[i0], d[i0 + 1], d[i0 + 2], d[i0 + 3]];
-  const within = (i: number) =>
-    Math.abs(d[i] - ref[0]) <= t && Math.abs(d[i + 1] - ref[1]) <= t && Math.abs(d[i + 2] - ref[2]) <= t && Math.abs(d[i + 3] - ref[3]) <= t;
+  const k0 = d[i0 + 3] / full;
+  const ref = [d[i0] * k0, d[i0 + 1] * k0, d[i0 + 2] * k0, d[i0 + 3]];
+  const within = (i: number) => {
+    const a = d[i + 3];
+    if (Math.abs(a - ref[3]) > t) return false;
+    const k = a / full;
+    return (
+      Math.abs(d[i] * k - ref[0]) <= t &&
+      Math.abs(d[i + 1] * k - ref[1]) <= t &&
+      Math.abs(d[i + 2] * k - ref[2]) <= t
+    );
+  };
   const out = new Uint8Array(W * H);
   if (e.settings.contiguous === false) {
     for (let p = 0; p < W * H; p++) if (within(p * 4)) out[p] = 255;
