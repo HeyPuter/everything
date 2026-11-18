@@ -67,6 +67,7 @@ export async function insertVideoHook(app, session, state, inserted) {
     });
     if (!ok) return null;
   }
+  if (!app.documents.includes(session)) return null;
   const sourceId = linkVideo(session, info);
   const c = hit.clip;
   // A whole file shows the whole picture; a range of it shows the same range.
