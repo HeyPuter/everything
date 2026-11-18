@@ -85,7 +85,7 @@ export function createCommands(ctx) {
     { id: 'removeSilences', label: 'Remove silences', group: 'Editing', keys: [], run: () => actions.removeSilences() },
     { id: 'dub', label: 'Dub into another language', group: 'Editing', keys: [], run: () => import('./dub-dialog.js').then((m) => m.openDubDialog(ctx)) },
     { id: 'assistant', label: 'AI assistant', group: 'Editing', keys: ['Mod+K'], run: () => ctx.assistant?.toggle() },
-    { id: 'trackMotion', label: 'Track motion', group: 'Editing', keys: [], run: () => ctx.openTracking?.(), enabled: () => Boolean(store.selected && 'transform' in store.selected.clip) },
+    { id: 'trackMotion', label: 'Track motion', group: 'Editing', keys: [], run: () => ctx.openTracking?.(), enabled: () => Boolean(store.selected && !store.selected.track.locked && 'transform' in store.selected.clip) },
     { id: 'savePreset', label: 'Save clip as preset', group: 'Editing', keys: [], run: () => import('./clip-presets.js').then((m) => m.saveClipPreset(ctx)), enabled: () => Boolean(store.selected) },
     { id: 'managePresets', label: 'Manage clip presets', group: 'Editing', keys: [], run: () => import('./clip-presets.js').then((m) => m.managePresets(ctx)) },
     { id: 'removeBackground', label: 'Remove background', group: 'Editing', keys: [], run: () => actions.removeBackground(), enabled: () => [...store.selection].some((id) => /^(video|image)$/.test(findClip(store.project, id)?.clip.type || '')) },

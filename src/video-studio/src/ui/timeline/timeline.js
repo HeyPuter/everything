@@ -1643,7 +1643,7 @@ export function createTimeline(ctx) {
       c.type === 'video' || c.type === 'image' ? { label: 'Remove object...', icon: 'eraser', onSelect: () => ctx.inspector?.showVideoSub?.('remove') } : null,
       c.type === 'video' && !c.freeze ? { label: 'Stabilize...', icon: 'focus', onSelect: () => actions.stabilize(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Remove flicker...', icon: 'brightness', onSelect: () => actions.removeFlicker(id) } : null,
-      visual && !f.track.main ? { label: 'Track motion...', icon: 'crosshair', onSelect: () => ctx.openTracking?.(id) } : null,
+      visual && !f.track.main ? { label: 'Track motion...', icon: 'crosshair', disabled: f.track.locked, onSelect: () => ctx.openTracking?.(id) } : null,
       store.selection.size === 2 ? { label: 'Sync the two clips by sound', icon: 'waveform', onSelect: () => actions.syncBySound() } : null,
     ].filter(Boolean);
     showMenu(anchor, [

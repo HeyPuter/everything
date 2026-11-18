@@ -114,6 +114,10 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
     toast('Select a text, graphic or overlay clip to pin to a moving object.', { kind: 'info' });
     return;
   }
+  if (f.track.locked) {
+    toast('Unlock the track to track motion.', { kind: 'info' });
+    return;
+  }
   const target = f.clip;
   const t0 = clamp(store.time, target.start, T.clipEnd(target) - 1);
   const src = trackingSource(store.project, target, t0);
@@ -142,7 +146,7 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
     return;
   }
   // Either clip may have been deleted while the frame was read.
-  if (signal.aborted || T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
+  if (signal.aborted || T.findClip(store.project, target.id)?.track.locked || T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
   let box = null; // in 0..1 of the frame
   const boxEl = h('div.track-box', { hidden: true });
   const stage = h('div.track-stage', canvas, boxEl);
@@ -186,6 +190,10 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
 
   go.addEventListener('click', async () => {
     if (!box || ac) return;
+    if (T.findClip(store.project, target.id)?.track.locked) {
+      status.textContent = 'Unlock the track to track motion.';
+      return;
+    }
     ac = new AbortController();
     go.disabled = true;
     progress.hidden = false;
@@ -228,11 +236,17 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
       if (back.length) await run([t0, ...back], true);
       ac.signal.throwIfAborted();
       const keys = pinKeys(store.project, target, points, t0);
-      ctx.actions.editClip(target.id, 'Track motion', (c) => {
+      const saved = ctx.actions.editClip(target.id, 'Track motion', (c) => {
         c.keyframes ||= {};
         c.keyframes.x = keys.x;
         c.keyframes.y = keys.y;
       });
+      if (saved === false) {
+        status.textContent = T.findClip(store.project, target.id)?.track.locked
+          ? 'Unlock the track, then try tracking again.'
+          : 'Motion tracking could not be saved. The clip may no longer be available.';
+        return;
+      }
       announce('Motion tracked');
       toast(`${T.clipLabel(store.project, target)} now follows the object.`, { kind: 'success' });
       d.close();
