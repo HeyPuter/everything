@@ -29,6 +29,15 @@ let view = null;
 let leaving = false;
 // The project being opened, if any: files handed over by the Puter desktop wait for it.
 let navigating = Promise.resolve();
+// Only the latest navigation may replace the screen; late reads still release their claims.
+let navigation = 0;
+
+function navigate(run) {
+  const token = ++navigation;
+  const job = run(() => navigation === token);
+  navigating = job.catch(() => {});
+  return job;
+}
 
 function loading(text) {
   root.setAttribute('aria-busy', 'true');
@@ -52,6 +61,7 @@ function cantLoad(err, what) {
 }
 
 function showHome() {
+  navigation++;
   view?.dispose?.();
   if (/#(project|review)=/.test(location.hash)) history.replaceState(null, '', `${location.pathname}${location.search}`);
   view = new Home(root, {
@@ -64,16 +74,16 @@ function showHome() {
 }
 
 function openProject(id, files) {
-  const job = openProjectNow(id, files);
-  navigating = job.catch(() => {});
-  return job;
+  return navigate((current) => openProjectNow(id, files, current));
 }
 
-async function openProjectNow(id, files) {
+async function openProjectNow(id, files, current) {
   // Asked for while an editor is open (an old "Open" button on a Home message): its last
   // edits are saved first, and the user can stay when they cannot be.
   if (view?.prepareToLeave && !view._disposed && !(await view.prepareToLeave())) return;
+  if (!current()) return;
   view?.dispose?.();
+  view = null;
   loading('Opening project...');
   let project;
   let claim;
@@ -81,8 +91,13 @@ async function openProjectNow(id, files) {
     // Read once claimed: something written into the file meanwhile stays (see openForEditing).
     ({ project, claim } = await library.openForEditing(id));
   } catch (err) {
+    if (!current()) return;
     toast(err?.message || "Couldn't open the project.", { kind: 'error' });
     showHome();
+    return;
+  }
+  if (!current()) {
+    claim?.release();
     return;
   }
   if (project.deletedAt) {
@@ -99,6 +114,10 @@ async function openProjectNow(id, files) {
       confirm: 'Open anyway',
       cancel: 'Go back',
     });
+    if (!current()) {
+      claim.release();
+      return;
+    }
     if (!ok) {
       claim.release();
       showHome();
@@ -107,6 +126,10 @@ async function openProjectNow(id, files) {
   }
   try {
     const { Editor } = await import('./ui/editor.js');
+    if (!current()) {
+      claim.release();
+      return;
+    }
     view = new Editor(root, {
       library,
       project,
@@ -120,6 +143,7 @@ async function openProjectNow(id, files) {
     // The editor's code didn't load (offline, or the app was updated meanwhile) or couldn't start:
     // back to Home rather than "Opening project..." for good, and let another tab open it.
     claim.release();
+    if (!current()) return;
     view = null;
     cantLoad(err, 'the editor');
     showHome();
@@ -127,20 +151,29 @@ async function openProjectNow(id, files) {
   }
   history.replaceState(null, '', `#project=${encodeURIComponent(id)}`);
   if (files?.length) {
-    const { ctx } = view;
+    const editor = view;
+    const { ctx } = editor;
     const assets = await ctx.actions.importFiles(files);
+    // A later navigation may have been declined: finish while this editor still owns the screen.
+    if (view !== editor || editor._disposed) return;
     // One after another, as one undo step (the first picture or video sets the project's shape).
     ctx.actions.addAssets(assets, { start: ctx.store.duration });
     ctx.store.seek(0);
   }
 }
 
-async function createProject(opts = {}, files) {
+function createProject(opts = {}, files) {
+  return navigate((current) => createProjectNow(opts, files, current));
+}
+
+async function createProjectNow(opts, files, current) {
   loading('Creating project...');
   try {
     const project = await library.createProject({ name: await library.nextProjectName(), ratio: opts.ratio || 'original' });
+    if (!current()) return;
     await openProject(project.id, files);
   } catch (err) {
+    if (!current()) return;
     console.error(err);
     toast("Couldn't create a project.", { kind: 'error' });
     showHome();
@@ -299,31 +332,43 @@ function startLocal(env) {
 }
 
 /** A review link (#review=...): the focused review screen, for reviewers and the owner alike. */
-async function openReview(link) {
+function openReview(link) {
+  return navigate((current) => openReviewNow(link, current));
+}
+
+async function openReviewNow(link, current) {
   // A review link pasted over the editor: save first, and stay if the user wants to after a failed save.
   if (view?.prepareToLeave) {
     if (!(await view.prepareToLeave())) {
+      if (!current()) return;
       history.replaceState(null, '', `#project=${encodeURIComponent(view.store.project.id)}`);
       return;
     }
+    if (!current()) return;
     await view.saveCover?.();
+    if (!current()) return;
     // An edit made while the cover was saved is saved as well.
     if (view.store?.dirty && !(await view.prepareToLeave())) {
+      if (!current()) return;
       history.replaceState(null, '', `#project=${encodeURIComponent(view.store.project.id)}`);
       return;
     }
   }
+  if (!current()) return;
   view?.dispose?.();
+  view = null;
   loading('Opening review...');
   let ReviewPage;
   try {
     ({ ReviewPage } = await import('./ui/review/review-page.js'));
   } catch (err) {
+    if (!current()) return;
     view = null;
     cantLoad(err, 'the review');
     showHome();
     return;
   }
+  if (!current()) return;
   view = new ReviewPage(root, {
     puter: typeof puter !== 'undefined' ? puter : null,
     account,
