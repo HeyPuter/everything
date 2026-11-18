@@ -12,6 +12,7 @@ import { zipStore, unzipStore } from '../lib/zip.js';
 import * as puter from '../storage/puter.js';
 import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
 import { sessionSaveDialog } from './save-dialog.js';
+import { captureSavedSession, savedSessionSnapshot } from './saved-snapshot.js';
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
@@ -80,6 +81,7 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       // the saved manifest. Existing Puter paths remain references, not uploads.
       videoPath: (_id, src, file) => src.blob ? mediaRevision(file) : file,
     });
+    const snapshot = captureSavedSession(doc, saved, media, video, dir);
     await saveSessionVideo(app, doc, video, dir, { copy });
     let written = 0;
     for (const m of media) {
@@ -101,6 +103,13 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       // Replacing the associated file changes what Undo must compare against,
       // even when the user chose Save a Copy rather than Save.
       doc.markSaved(saved);
+    }
+    for (const other of app.documents || []) {
+      if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || other.source.path !== path) continue;
+      const imported = savedSessionSnapshot(other, snapshot);
+      const cache = savedMediaOf(other, path);
+      for (const m of imported.media) cache.set(m.id, m);
+      other.markSaved(imported.state);
     }
     app.setStatus(`Saved ${name}`);
     return true;
