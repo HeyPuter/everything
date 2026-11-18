@@ -219,12 +219,26 @@ export async function imageSizeDialog(e: Editor, arg?: unknown) {
       method = $<HTMLSelectElement>('#is-method'),
       link = $<HTMLButtonElement>('.is-link');
     const canvas = $<HTMLCanvasElement>('canvas');
+    // Fields holding an entry that is not a size (empty, 0 or negative): OK
+    // waits for a valid one instead of applying the last size silently.
+    const invalid = new Set<HTMLInputElement>();
     const sync = (except?: HTMLElement) => {
       const pw = Math.max(1, Math.round(st.w)),
         ph = Math.max(1, Math.round(st.h));
-      if (except !== w) w.value = fmt(fromPixels(st.w, st.wu, st.ppi, ow), st.wu);
-      if (except !== h) h.value = fmt(fromPixels(st.h, st.hu, st.ppi, oh), st.hu);
-      if (except !== res) res.value = String(Math.round((st.resUnit === 'PPCM' ? ppiToPpcm(st.ppi) : st.ppi) * 1000) / 1000);
+      if (except !== w) {
+        w.value = fmt(fromPixels(st.w, st.wu, st.ppi, ow), st.wu);
+        invalid.delete(w);
+      }
+      if (except !== h) {
+        h.value = fmt(fromPixels(st.h, st.hu, st.ppi, oh), st.hu);
+        invalid.delete(h);
+      }
+      for (const f of [w, h]) f.setAttribute('aria-invalid', String(invalid.has(f)));
+      if (except !== res) {
+        res.value = String(Math.round((st.resUnit === 'PPCM' ? ppiToPpcm(st.ppi) : st.ppi) * 1000) / 1000);
+        invalid.delete(res);
+      }
+      res.setAttribute('aria-invalid', String(invalid.has(res)));
       wu.innerHTML = unitOptions(st.wu);
       hu.innerHTML = unitOptions(st.hu);
       resu.value = st.resUnit;
@@ -244,15 +258,20 @@ export async function imageSizeDialog(e: Editor, arg?: unknown) {
       $('[data-is="was"]').textContent = now !== was ? `(was ${formatBytes(was)})` : '';
       $('[data-is="dims"]').textContent = `${pw} px × ${ph} px`;
       const tooBig = pw > 8192 || ph > 8192 || pw * ph > 24_000_000;
-      $('[data-is="note"]').textContent = tooBig ? 'Use dimensions up to 8192 pixels and 24 megapixels.' : st.resample ? `Resample with ${RESAMPLE_METHODS.find(([v]) => v === st.method)![1].replace(/ \(.*\)/, '')}${st.method === 'automatic' ? ` (${labelFor(resolveMethod('automatic', ow, oh, pw, ph))})` : ''}.` : 'Pixel dimensions stay the same; only the print size and resolution change.';
-      (form.querySelector('[type=submit]') as HTMLButtonElement).disabled = tooBig;
+      $('[data-is="note"]').textContent = invalid.size ? (invalid.has(res) && invalid.size === 1 ? 'Enter a resolution greater than 0.' : 'Enter a width and height greater than 0.') : tooBig ? 'Use dimensions up to 8192 pixels and 24 megapixels.' : st.resample ? `Resample with ${RESAMPLE_METHODS.find(([v]) => v === st.method)![1].replace(/ \(.*\)/, '')}${st.method === 'automatic' ? ` (${labelFor(resolveMethod('automatic', ow, oh, pw, ph))})` : ''}.` : 'Pixel dimensions stay the same; only the print size and resolution change.';
+      (form.querySelector('[type=submit]') as HTMLButtonElement).disabled = tooBig || invalid.size > 0;
       clearTimeout(previewTimer);
       previewTimer = window.setTimeout(() => void drawPreview(canvas, composite, ow, oh, st), 120);
     };
     const onLength = (axis: 'w' | 'h') => () => {
       const input = axis === 'w' ? w : h;
-      const v = Number(input.value);
-      if (!(v > 0)) return;
+      const v = input.value.trim() === '' ? NaN : Number(input.value);
+      if (!(v > 0)) {
+        invalid.add(input);
+        sync(input);
+        return;
+      }
+      invalid.delete(input);
       const unit = axis === 'w' ? st.wu : st.hu,
         base = axis === 'w' ? ow : oh;
       if (st.resample) {
@@ -273,8 +292,13 @@ export async function imageSizeDialog(e: Editor, arg?: unknown) {
     w.addEventListener('input', onLength('w'));
     h.addEventListener('input', onLength('h'));
     res.addEventListener('input', () => {
-      const v = Number(res.value);
-      if (!(v > 0)) return;
+      const v = res.value.trim() === '' ? NaN : Number(res.value);
+      if (!(v > 0)) {
+        invalid.add(res);
+        sync(res);
+        return;
+      }
+      invalid.delete(res);
       const ppi = st.resUnit === 'PPCM' ? ppcmToPpi(v) : v;
       // Resampling keeps the print size, so pixel dimensions follow the resolution.
       if (st.resample) {

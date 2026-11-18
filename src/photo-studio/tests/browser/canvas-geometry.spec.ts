@@ -403,3 +403,25 @@ test('Rotate Canvas by an angle fills the background layer’s new corners with 
   });
   expect(mid).toEqual([255, 0, 0, 255]);
 });
+
+test('Image Size waits for a width and height greater than 0 instead of applying the old size', async ({ page }) => {
+  await openImage(page, 300, 200, '#ff0000');
+  await start(page, 'image.image-size');
+  const dialog = page.locator('dialog[open]', { hasText: 'Image Size' });
+  const ok = dialog.getByRole('button', { name: 'OK' });
+  for (const value of ['0', '', '-5']) {
+    await dialog.locator('#is-w').fill(value);
+    await expect(ok).toBeDisabled();
+    await expect(dialog.locator('#is-w')).toHaveAttribute('aria-invalid', 'true');
+    await expect(dialog.locator('[data-is="note"]')).toContainText('greater than 0');
+  }
+  await dialog.locator('#is-w').fill('150');
+  await expect(ok).toBeEnabled();
+  await dialog.locator('#is-res').fill('0');
+  await expect(ok).toBeDisabled();
+  await dialog.locator('#is-res').fill('72');
+  await expect(ok).toBeEnabled();
+  await ok.click();
+  await idle(page);
+  expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([150, 100]);
+});
