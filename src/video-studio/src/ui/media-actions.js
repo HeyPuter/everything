@@ -113,6 +113,37 @@ export function createMediaActions(ctx) {
     // A file that is back gets its thumbnails, poster and waveform read again.
     for (const hash of found) media.forget?.(hash);
   };
+  /** Read and apply a replacement, including any audio-removal confirmation. */
+  async function replaceAssetFileNow(assetId) {
+    const old = store.project.assets[assetId];
+    if (!old) return null;
+    const file = await pickFile(ACCEPT_FOR[old.kind] || '');
+    if (!file) return null;
+    let asset;
+    try {
+      asset = await ctx.library.importFile(file);
+    } catch (err) {
+      toast(importErrorText(file, err), { kind: 'error' });
+      return null;
+    }
+    if (asset.kind !== old.kind && !(old.kind === 'video' && asset.kind === 'image')) {
+      toast(`${file.name} is ${asset.kind === 'audio' ? 'an audio file' : asset.kind === 'image' ? 'a photo' : 'a video'}, not ${old.kind === 'audio' ? 'audio' : old.kind === 'image' ? 'a photo' : 'a video'}.`, { kind: 'error' });
+      return null;
+    }
+    // A photo can't play the video's sound: its audio clips go, after asking.
+    const sound = asset.kind === 'image' && old.kind === 'video' ? soundClips(store.projectForSave?.() || store.project, assetId).length : 0;
+    if (sound && !(await confirmDialog({ title: 'Replace with a photo?', message: `${sound} audio clip${sound === 1 ? '' : 's'} playing the sound of ${old.name} will be removed, since a photo has no sound.`, confirm: 'Replace', danger: true }))) return null;
+    // Clips outside the compound clip being edited use it too: switch them all.
+    if (a.usedOutsideCompound([assetId]).length) while (store.nest.length) store.closeCompound();
+    let n = 0;
+    store.update('Replace media file', (p) => {
+      n = swapAsset(p, assetId, asset);
+    });
+    if (asset.duration && old.duration && asset.duration < old.duration) toast('The new file is shorter, so some clips may now run past its end.', { kind: 'info' });
+    announce(`${n} clip${n === 1 ? '' : 's'} now use ${asset.name}`);
+    return asset;
+  }
+
   const a = {
     async removeUnusedMedia() {
       // Inside a compound clip, media used anywhere in the project counts.
@@ -163,35 +194,13 @@ export function createMediaActions(ctx) {
       announce(`${clips.length} clip${clips.length === 1 ? '' : 's'} selected`);
     },
 
-    /** Choose a new file for an asset; every clip using it switches over. */
-    async replaceAssetFile(assetId) {
-      const old = store.project.assets[assetId];
-      if (!old) return null;
-      const file = await pickFile(ACCEPT_FOR[old.kind] || '');
-      if (!file) return null;
-      let asset;
-      try {
-        asset = await ctx.library.importFile(file);
-      } catch (err) {
-        toast(importErrorText(file, err), { kind: 'error' });
-        return null;
-      }
-      if (asset.kind !== old.kind && !(old.kind === 'video' && asset.kind === 'image')) {
-        toast(`${file.name} is ${asset.kind === 'audio' ? 'an audio file' : asset.kind === 'image' ? 'a photo' : 'a video'}, not ${old.kind === 'audio' ? 'audio' : old.kind === 'image' ? 'a photo' : 'a video'}.`, { kind: 'error' });
-        return null;
-      }
-      // A photo can't play the video's sound: its audio clips go, after asking.
-      const sound = asset.kind === 'image' && old.kind === 'video' ? soundClips(store.projectForSave?.() || store.project, assetId).length : 0;
-      if (sound && !(await confirmDialog({ title: 'Replace with a photo?', message: `${sound} audio clip${sound === 1 ? '' : 's'} playing the sound of ${old.name} will be removed, since a photo has no sound.`, confirm: 'Replace', danger: true }))) return null;
-      // Clips outside the compound clip being edited use it too: switch them all.
-      if (a.usedOutsideCompound([assetId]).length) while (store.nest.length) store.closeCompound();
-      let n = 0;
-      store.update('Replace media file', (p) => {
-        n = swapAsset(p, assetId, asset);
-      });
-      if (asset.duration && old.duration && asset.duration < old.duration) toast('The new file is shorter, so some clips may now run past its end.', { kind: 'info' });
-      announce(`${n} clip${n === 1 ? '' : 's'} now use ${asset.name}`);
-      return asset;
+    /** Replacements are pending imports too: leaving must wait before saving. */
+    replaceAssetFile(assetId) {
+      const job = replaceAssetFileNow(assetId);
+      const imports = (ctx.imports ||= new Set());
+      imports.add(job);
+      job.finally(() => imports.delete(job)).catch(() => {});
+      return job;
     },
 
     /**

@@ -323,3 +323,36 @@ describe('a failed save where the status has no room', () => {
     expect(errorToasts()).toEqual(["Couldn't save your changes: your storage is full. Free up space to keep saving."]);
   });
 });
+
+describe('pending replacement and file reads', () => {
+  it('saves a replacement that finishes reading while leaving for Home', async () => {
+    const { library, onExit, p } = await open();
+    let finish;
+    const reading = new Promise(resolve => { finish = resolve; });
+    const replacement = { ...p.assets.vid, id: 'replacement', hash: 'replacement-hash', name: 'New take.mp4' };
+    vi.spyOn(library, 'importFile').mockImplementation(async () => { await reading; return replacement; });
+    vi.spyOn(editor, 'saveCover').mockResolvedValue();
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function () {
+      Object.defineProperty(this, 'files', { value: [new File(['video'], 'New take.mp4', { type: 'video/mp4' })] });
+      this.dispatchEvent(new Event('change'));
+    });
+    const replacing = editor.ctx.actions.replaceAssetFile('vid');
+    await vi.waitFor(() => expect(library.importFile).toHaveBeenCalled());
+    const leaving = editor.exit();
+    try {
+      await settle();
+      expect(onExit).not.toHaveBeenCalled();
+    } finally {
+      finish();
+      await replacing;
+      await leaving;
+    }
+    const saved = await library.openProject(p.id);
+    expect(saved.tracks[0].clips[0].assetId).toBe('replacement');
+    expect(saved.assets.replacement.name).toBe('New take.mp4');
+    expect(saved.assets.vid).toBeUndefined();
+    expect(editor.ctx.imports.size).toBe(0);
+    expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+});
