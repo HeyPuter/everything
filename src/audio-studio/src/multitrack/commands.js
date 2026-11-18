@@ -730,6 +730,7 @@ export function installMultitrackCommands(app) {
   };
   const mixdown = async (scope) => {
     const doc = session(app);
+    const state = doc.state;
     let o;
     if (scope === 'time') o = { start: doc.selection.start, end: doc.selection.end };
     else if (scope === 'clips') {
@@ -737,11 +738,12 @@ export function installMultitrackCommands(app) {
       const [a, b] = clipsRange(clips);
       o = { start: a, end: b, clipIds: new Set(clips.map((c) => c.id)) };
     } else o = { start: 0, end: doc.length };
-    const { data } = await rendered('Mixing down', o);
-    // Preferences > Markers & Metadata: session markers in the range go into the mixdown.
-    const markers = app.prefs.get('markersInMixdowns') ? markersInRange(doc.state.markers, o.start, o.end).map((m) => createMarker(m)) : [];
+    // Keep output metadata with the rendered snapshot. Revert and later edits
+    // may change the live session's rate, master width or markers while we wait.
+    const markers = app.prefs.get('markersInMixdowns') ? markersInRange(state.markers, o.start, o.end).map((m) => createMarker(m)) : [];
+    const { data } = await rendered('Mixing down', { ...o, state });
     // A mono master mixes down to a mono file.
-    return renderedDoc(app, doc, doc.state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers);
+    return renderedDoc(app, doc, state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers, state.sampleRate);
   };
   const bounce = async (scope) => {
     const doc = session(app);

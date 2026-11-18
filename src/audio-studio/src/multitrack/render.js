@@ -77,11 +77,11 @@ export function bounceGraph(graph, trackId) {
   return graph;
 }
 
-/** Wraps rendered stereo data in a new AudioFile document (not yet added). */
-export function renderedDoc(app, session, data, name, markers = []) {
+/** Wraps rendered data in an AudioFile, optionally using its captured render rate. */
+export function renderedDoc(app, session, data, name, markers = [], sampleRate = session.sampleRate) {
   return new AudioFile({
     name: app.uniqueName(name, '.wav'),
-    sampleRate: session.sampleRate,
+    sampleRate,
     channels: data.map((d) => Channel.fromSamples(d)),
     markers,
     info: { bitDepth: 32, format: 'wav' },
