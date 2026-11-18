@@ -114,7 +114,11 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   if (!d) throw new Error('Unsupported image format.');
   assertSize(d.width, d.height);
   const notes = d.notes.filter((n) => !/first was opened/.test(n));
-  const out: DecodedFile = { image: applyOrientation(d.rgba8, d.orientation), icc: d.icc, dpi: d.dpi?.x };
+  // The decoders turn gray and CMYK samples into RGB, which a Gray or CMYK
+  // profile does not describe: only an RGB profile tags the document.
+  const icc = d.icc?.length && iccColorSpace(d.icc) === 'RGB ' ? d.icc : undefined;
+  if (d.icc?.length && !icc) notes.push(`The embedded ${spaceNames[iccColorSpace(d.icc)] ?? 'color'} profile does not describe the opened RGB pixels and was not applied.`);
+  const out: DecodedFile = { image: applyOrientation(d.rgba8, d.orientation), icc, dpi: d.dpi?.x };
   if (d.data16) out.deep = { data: orient(d.data16, d.width, d.height, d.orientation), depth: 16 };
   else if (d.dataF32) out.deep = { data: orient(d.dataF32, d.width, d.height, d.orientation), depth: 32 };
   if (d.tiffPages && d.tiffPages.length > 1) {
@@ -139,6 +143,10 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   if (notes.length) out.notice = notes.join(' ');
   return out;
 }
+
+/** The data color space signature of an ICC profile ('RGB ', 'GRAY', 'CMYK'...). */
+const iccColorSpace = (icc: Uint8Array) => (icc.length >= 20 ? String.fromCharCode(...icc.subarray(16, 20)) : '');
+const spaceNames: Record<string, string> = { GRAY: 'Gray', CMYK: 'CMYK', 'Lab ': 'Lab' };
 
 /** True when the renderer's color management can use this RGB profile. */
 function usableProfile(icc: Uint8Array | undefined) {
