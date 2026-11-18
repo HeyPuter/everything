@@ -353,6 +353,14 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     return true;
   }
   if (isProject || isPsd) {
+    // A project or PSD on Puter that is already open saves back to the same
+    // file: a second tab of it would overwrite one tab's work with the other's.
+    const open = source.kind === 'puter' ? e.sessions.find((x) => x.hasDocument && x.storage.path === source.path) : undefined;
+    if (open) {
+      await e.switchSession(open);
+      e.message(`${name} is already open.`);
+      return true;
+    }
     // The document is named after the file without its extension.
     const psdName = /\.ps[db]$/i.test(name) ? name : name.replace(/\.[^.]+$/, '');
     const loaded = isPsd ? await (await import('../../model/psd')).openPsd(blob, psdName, e.engine) : await deserialize(blob);

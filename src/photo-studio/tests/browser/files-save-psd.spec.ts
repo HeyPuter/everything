@@ -207,3 +207,21 @@ test('cancelling the PSD question of Save while closing keeps the tab open at on
   expect((await session(page)).dirty).toBe(true);
   expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
 });
+
+test('opening a PSD from Puter that is already open shows its tab instead of a second copy', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openPsdFromDrive(page);
+  const first = await page.evaluate(() => window.photoStudio.session.id);
+  await page.evaluate(() => window.photoStudio.command('Fade', (d) => (d.layers[0].opacity = 0.5)));
+  // Switch to the other tab, then open the same file again.
+  await page.evaluate(() => window.photoStudio.switchSession(window.photoStudio.sessions[0]));
+  await page.evaluate(() => {
+    const w = window as unknown as Stub;
+    window.dispatchEvent(new CustomEvent('drop', { detail: { items: [w.__item('/me/art.psd')] } }));
+  });
+  await expect.poll(() => page.evaluate(() => window.photoStudio.session.id)).toBe(first);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
+  // The edit made in that tab is still there.
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].opacity)).toBe(0.5);
+});
