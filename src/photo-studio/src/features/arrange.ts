@@ -229,7 +229,9 @@ export function setCustomShortcuts(custom: Record<string, string>) {
 function shortcutEditor(e: Editor) {
   const d = document.querySelector<HTMLDialogElement>('#dialog')!;
   const custom = customShortcuts();
-  const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.') || true).sort((a, b) => a.id.localeCompare(b.id));
+  // Panel toggles (window.panel.<id>) take shortcuts; the panel menu's own
+  // items act on the panel whose menu is open, so a shortcut has no panel.
+  const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.menu-')).sort((a, b) => a.id.localeCompare(b.id));
   d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
     .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? c.shortcut[0] : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
     .join('')}</div><div class="dialog-actions"><button type="button" data-reset-shortcuts>Reset to Defaults</button><button type="button" id="cancel-dialog">Cancel</button><button class="primary">OK</button></div></form>`;

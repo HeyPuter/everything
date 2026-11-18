@@ -225,6 +225,13 @@ test('a panel button used from the keyboard keeps the focus when the panel redra
   expect(await page.evaluate(() => !!document.activeElement?.closest('[data-panel="history"]'))).toBe(true);
 });
 
+test('the shortcut editor lists panel toggles but not the panel menu items that act on an open panel menu', async ({ page }) => {
+  await start(page, 'edit.keyboard-shortcuts');
+  const d = page.locator('dialog[open]');
+  await expect(d.locator('.shortcut-entry[data-id="window.panel.layers"]')).toHaveCount(1);
+  await expect(d.locator('.shortcut-entry[data-id^="window.panel.menu-"]')).toHaveCount(0);
+});
+
 test('the keyboard can move through the shortcut editor, record a shortcut and close it', async ({ page }) => {
   await page.evaluate(() => localStorage.removeItem('photo-studio-shortcuts'));
   await start(page, 'edit.keyboard-shortcuts');
