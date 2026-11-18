@@ -52,7 +52,8 @@ export function psdLosses(doc: PhotoDocument, extras: { comments?: boolean } = {
   omitted('variables', 'variables and data sets', !!doc.variables && (Object.keys(doc.variables.layers).length > 0 || doc.variables.sets.length > 0));
   const a = doc.annotations;
   omitted('annotations', 'samplers, counts, notes and the measurement scale', !!a && !!(a.samplers?.length || a.counts?.length || a.notes?.length || a.scale));
-  omitted('guides', 'guides', !!doc.guides?.length);
+  // Canvas guides are written; guides of artboards are not.
+  omitted('guides', 'artboard guides', layers.some((l) => l.artboard?.guides?.length));
   omitted('paths', 'saved paths', !!doc.paths?.length || !!doc.workPath?.paths.length);
   omitted('info', 'File Info', Object.values(doc.info ?? {}).some(Boolean));
   omitted('patterns', 'defined patterns', !!doc.patterns?.length);

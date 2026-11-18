@@ -32,21 +32,29 @@ describe('PSD losses', () => {
 
   it('lists document data and comments that are left out', () => {
     const d = doc(layer('pixel', 'Background', 64, 48));
-    d.guides = [{ orientation: 'vertical', position: 10 }];
+    d.slices = [{ id: 's', rect: { x: 0, y: 0, width: 8, height: 8 } }];
     d.mode = 'cmyk';
     d.variables = { layers: {}, sets: [] };
     d.annotations = { samplers: [] };
-    expect(ids(d)).toEqual(['guides', 'mode']);
-    expect(ids(d, { comments: true })).toEqual(['guides', 'mode', 'comments']);
+    expect(ids(d)).toEqual(['slices', 'mode']);
+    expect(ids(d, { comments: true })).toEqual(['slices', 'mode', 'comments']);
+  });
+
+  it('keeps canvas guides but not the guides of artboards', () => {
+    const d = doc(layer('pixel', 'Background', 64, 48));
+    d.guides = [{ orientation: 'vertical', position: 10 }];
+    expect(ids(d)).toEqual([]);
+    const board = { ...layer('group', 'Artboard', 64, 48), artboard: { rect: { x: 0, y: 0, width: 64, height: 48 }, guides: [{ orientation: 'horizontal' as const, position: 4 }] } } as Layer;
+    expect(psdLosses(doc(board))).toEqual([{ id: 'guides', kind: 'omitted', label: 'artboard guides' }]);
   });
 
   it('describes both kinds of loss in one sentence', () => {
     const styled = { ...layer('pixel', 'Styled', 64, 48), style: { stroke: [{ enabled: true }] } };
     const d = doc(styled, layer('solid', 'Fill', 64, 48));
-    d.guides = [{ orientation: 'vertical', position: 10 }];
-    expect(describePsdLosses(psdLosses(d))).toBe('A PSD flattens layer styles and fill layers into pixels and leaves out guides.');
+    d.slices = [{ id: 's', rect: { x: 0, y: 0, width: 8, height: 8 } }];
+    expect(describePsdLosses(psdLosses(d))).toBe('A PSD flattens layer styles and fill layers into pixels and leaves out slices.');
     expect(describePsdLosses(psdLosses(doc(styled)))).toBe('A PSD flattens layer styles into pixels.');
     d.layers = [];
-    expect(describePsdLosses(psdLosses(d, { comments: true }))).toBe('A PSD leaves out guides and review comments.');
+    expect(describePsdLosses(psdLosses(d, { comments: true }))).toBe('A PSD leaves out slices and review comments.');
   });
 });

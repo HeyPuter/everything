@@ -72,10 +72,16 @@ test('a PSD opened from Puter saves back to its own file as a PSD', async ({ pag
 test('saving a PSD that would lose something asks once per kind of loss', async ({ page }) => {
   await boot(page, 'default', sdk);
   await openPsdFromDrive(page);
-  await page.evaluate(() => window.photoStudio.command('Guide', (d) => (d.guides = [{ orientation: 'vertical', position: 4 }])));
+  // Guides are written to the PSD; slices are not.
+  await page.evaluate(() =>
+    window.photoStudio.command('Slice', (d) => {
+      d.guides = [{ orientation: 'vertical', position: 4 }];
+      d.slices = [{ id: crypto.randomUUID(), rect: { x: 0, y: 0, width: 8, height: 8 } }];
+    }),
+  );
   await start(page, 'file.save');
   const dialog = page.locator('#dialog[open]');
-  await expect(dialog).toContainText('A PSD leaves out guides. A .photo project keeps everything.');
+  await expect(dialog).toContainText('A PSD leaves out slices. A .photo project keeps everything.');
   // Cancelling writes nothing and leaves the document unsaved.
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await idle(page);
@@ -97,7 +103,7 @@ test('saving a PSD that would lose something asks once per kind of loss', async 
   // A new kind of loss asks again; a project goes to a file of its own.
   await page.evaluate(() => window.photoStudio.command('Info', (d) => (d.info = { title: 'Poster' })));
   await start(page, 'file.save');
-  await expect(dialog).toContainText('A PSD leaves out guides and File Info.');
+  await expect(dialog).toContainText('A PSD leaves out slices and File Info.');
   await dialog.getByRole('button', { name: 'Save as .photo', exact: true }).click();
   await expect.poll(async () => (await stub(page)).picked).toEqual(['art.photo']);
   await idle(page);

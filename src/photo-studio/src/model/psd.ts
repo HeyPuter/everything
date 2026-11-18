@@ -226,6 +226,14 @@ export async function openPsd(blob: Blob, name: string, engine?: ImageEngine) {
   if (channelDepth > 8) document.bitsPerChannel = channelDepth as 16 | 32;
   if (psd.imageResources?.resolutionInfo)
     document.resolution = { ...psd.imageResources.resolutionInfo };
+  // Canvas guides (resource 1032 stores 1/32 pixels as unsigned 32-bit values;
+  // guides left of or above the canvas wrap around).
+  const guides = psd.imageResources?.gridAndGuidesInformation?.guides;
+  if (guides?.length)
+    document.guides = guides.map((g) => ({
+      orientation: g.direction,
+      position: g.location >= 0x4000000 ? g.location - 0x8000000 : g.location,
+    }));
   const aspect = psd.imageResources?.pixelAspectRatio?.aspect;
   if (aspect && Number.isFinite(aspect) && aspect >= 0.1 && aspect <= 10 && Math.abs(aspect - 1) > 1e-6)
     document.pixelAspect = aspect;
@@ -972,6 +980,14 @@ export async function savePsd(
     imageResources: {
       resolutionInfo: doc.resolution ? { ...doc.resolution } : undefined,
       pixelAspectRatio: doc.pixelAspect ? { aspect: doc.pixelAspect } : undefined,
+      gridAndGuidesInformation: doc.guides?.length
+        ? {
+            guides: doc.guides.map((g) => ({
+              location: Math.round(g.position * 32) / 32,
+              direction: g.orientation,
+            })),
+          }
+        : undefined,
       iccUntaggedProfile: doc.iccUntaggedProfile,
       versionInfo: {
         hasRealMergedData: composite,
