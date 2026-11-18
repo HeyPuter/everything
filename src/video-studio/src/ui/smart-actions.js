@@ -489,8 +489,19 @@ export function createSmartActions(ctx) {
       if (f.track.locked) return;
       const clip = f.clip;
       const assetId = clip.assetId;
-      const isCurrentSource = () => T.findClip(store.project, clip.id)?.clip === clip
-        && clip.assetId === assetId && clip.type === 'video' && !clip.freeze;
+      const project = store.project;
+      // Match the sampled source grid and the exposure state this action replaces.
+      // Movement, framing, names and other grading controls remain independent.
+      const sourceStamp = () => {
+        const a = store.project.assets[clip.assetId];
+        return JSON.stringify([store.project.id, store.project.timelineId, (store.nest || []).map((f) => f.id),
+          clip.type, clip.assetId, clip.in, clip.duration, clip.speed, clip.speedCurve, clip.freeze,
+          clip.adjust?.exposure, clip.keyframes?.[adjustProp('exposure')], clip.grade?.off?.light,
+          a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration, a?.fps || store.project.settings.fps || 30]);
+      };
+      const stamp = sourceStamp();
+      const isCurrentSource = () => project === store.project
+        && T.findClip(store.project, clip.id)?.clip === clip && stamp === sourceStamp();
       const changedMessage = 'The clip changed. Reopen Remove flicker to analyze its current video.';
       const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage); };
       const span = h('select.select', h('option', { value: '0.15' }, 'Quick flicker only'), h('option', { value: '0.4' }, 'Balanced'), h('option', { value: '1' }, 'Slow pulsing too'));
