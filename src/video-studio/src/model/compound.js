@@ -87,8 +87,9 @@ export function createCompound(project, ids, opts = {}) {
   const acceptsControls = host && Boolean(host.solo) === solo
     && (!host.hidden || sources.every(t => !VISUAL_KINDS.has(t.kind) || t.hidden))
     && (!host.muted || sources.every(t => (t.kind !== 'audio' && t.kind !== 'video') || t.muted));
-  if (acceptsControls && ((host.main && opts.ripple) || trackFree(host, a, b))) {
-    addClip(project, compound, { ...opts, main: Boolean(host.main), trackId: host.id });
+  if (acceptsControls && trackFree(host, a, b)) {
+    // Nesting replaces a selection in place; it does not insert new timeline time.
+    addClip(project, compound, { ...opts, main: Boolean(host.main), trackId: host.id, ripple: false, linkOverlays: false });
   } else {
     // A group cannot inherit a destination's mute/hide/solo when its source tracks
     // disagree. Keep the other tracks' controls and the original timing intact.
