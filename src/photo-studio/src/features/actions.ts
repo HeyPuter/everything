@@ -90,6 +90,8 @@ function syncBatchSteps() {
     registerBatchStep({
       id: `action:${action.id}`,
       label: `Action: ${action.name}`,
+      // Batch runs the action chosen in the Actions panel, not every action.
+      preselected: () => find().action?.id === action.id,
       document: async (e) => {
         const current = allActions().find((x) => x.action.id === action.id)?.action;
         if (!current) throw new Error(`The action “${action.name}” no longer exists.`);

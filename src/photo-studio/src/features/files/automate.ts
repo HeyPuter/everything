@@ -46,7 +46,7 @@ export async function imageProcessor(e: Editor, batch: boolean) {
       <label class="dialog-field">Quality<input type="number" name="quality" min="1" max="100" value="${remembered.quality}"></label></div>
       <label class="dialog-field checkbox-field">Convert to sRGB<input type="checkbox" name="srgb" ${remembered.convertSrgb ? 'checked' : ''}></label>
     </section>
-    ${stepList.length ? `<section class="processor-step"><h3><span>4</span>Steps</h3>${stepList.map((s) => `<label class="dialog-field checkbox-field">${escapeXML(s.label)}<input type="checkbox" name="step:${escapeXML(s.id)}" ${batch ? 'checked' : ''}></label>`).join('')}</section>` : ''}
+    ${stepList.length ? `<section class="processor-step"><h3><span>4</span>Steps</h3>${stepList.map((s) => `<label class="dialog-field checkbox-field">${escapeXML(s.label)}<input type="checkbox" name="step:${escapeXML(s.id)}" ${batch && s.preselected?.() ? 'checked' : ''}></label>`).join('')}</section>` : ''}
     <section class="processor-step"><h3><span>${stepList.length ? 5 : 4}</span>Save</h3>
       <label class="dialog-field">Destination<select name="dest"><option value="zip">Download as ZIP archive</option><option value="puter">Save to a Puter folder…</option></select></label>
     </section>
