@@ -18,7 +18,7 @@
 // patterns, altered video frames) are atomic with their register. Selections
 // and a few view settings (PRIVATE_DOC) are each person's own and never shared.
 import * as Y from 'yjs';
-import type { Layer, PhotoDocument } from '../model/document';
+import { allLayers, type Layer, type PhotoDocument } from '../model/document';
 import { computeBounds, type TileGrid } from '../model/tiles';
 import { syncPixelTransform } from '../model/pixel-layer';
 import type { Assets } from '../model/assets';
@@ -434,6 +434,11 @@ export class SharedProject {
         return l;
       });
     document.layers = build('', 0, false);
+    // One Background, at the bottom of the stack: when people made different
+    // layers the Background at the same time (or moved layers under it), the
+    // others become ordinary layers, alike in every browser.
+    const bottom = document.layers[0];
+    for (const l of allLayers(document.layers)) if (l.background && l !== bottom) delete l.background;
     document.version = 1;
     const dropped = [...this.docDropped, ...unreadable, ...salvageDocument(document, this.shape)];
     this.shape = { name: document.name, width: document.width, height: document.height };
