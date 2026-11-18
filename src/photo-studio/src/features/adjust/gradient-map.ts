@@ -143,6 +143,8 @@ export function gradientMapEditor(body: HTMLElement, host: AdjustHost<'gradient-
       ev.stopPropagation();
       selected = i;
       (del as HTMLButtonElement).click();
+      // The stops were redrawn: keep the keyboard on the one now selected.
+      lane.querySelector<HTMLElement>(`[data-i="${selected}"]`)?.focus();
       return;
     }
     if (!d) return;
