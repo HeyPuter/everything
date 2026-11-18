@@ -72,3 +72,27 @@ it('keeps a real sync undoable without adding another undo step when repeated', 
   x.store.redo();
   expect(findClip(normalizeProject(x.store.projectForSave()), x.mov).clip.start).toBe(0);
 });
+
+it.each([0, 3])('preserves clips at %s seconds when their match is before timeline zero and supports retry after moving the reference', async movStart => {
+  const x = setup(0, movStart, 1), before = JSON.stringify(x.store.projectForSave());
+  await x.ctx.actions.syncBySound();
+  expect(JSON.stringify(x.store.projectForSave())).toBe(before);
+  expect(x.store.history.undoStack).toHaveLength(0);
+  expect(x.store.revision).toBe(0);
+  expect(x.store.dirty).toBe(false);
+  expect(document.querySelector('.toast.success')).toBeNull();
+  expect(document.body.textContent).toContain('before the start of the timeline');
+  expect(document.body.textContent).toContain('Move the reference clip later');
+  x.store.update('Move reference', p => { findClip(p, x.ref).clip.start = 2000000; });
+  document.querySelector('.toasts')?.replaceChildren();
+  await x.ctx.actions.syncBySound();
+  expect(findClip(x.store.project, x.mov).clip.start).toBe(1000000);
+  expect(x.store.history.undoStack).toHaveLength(2);
+  expect(document.querySelector('.toast.success')).not.toBeNull();
+  x.store.undo();
+  expect(findClip(x.store.project, x.mov).clip.start).toBe(movStart * 1000000);
+  x.store.redo();
+  const reopened = normalizeProject(x.store.projectForSave());
+  expect(findClip(reopened, x.ref).clip.start).toBe(2000000);
+  expect(findClip(reopened, x.mov).clip.start).toBe(1000000);
+});
