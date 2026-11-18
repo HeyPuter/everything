@@ -167,15 +167,36 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     return false;
   }
 
+  // A confirmation describes these words and this timeline, not later edits.
+  const cutSourceStamp = () => {
+    const p = store.project;
+    const assets = [...new Set((p.transcript?.words || []).map((w) => w.a).filter(Boolean))].map((id) => {
+      const a = p.assets[id];
+      return [id, a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration];
+    });
+    return JSON.stringify([editingContext(), p.tracks, p.transcript, assets]);
+  };
+  async function confirmCuts(options, ranges, label) {
+    const project = store.project;
+    const stamp = cutSourceStamp();
+    if (!(await confirmDialog(options))) return false;
+    if (project !== store.project || stamp !== cutSourceStamp()) {
+      toast('Timeline or transcript changed. Review the words and try again.', { kind: 'error' });
+      return false;
+    }
+    // Validate and commit in the same turn, before another queued edit can run.
+    return applyCuts(ranges, label);
+  }
+
   fillerBtn.addEventListener('click', async () => {
     const idx = findFillers(words(), { language: store.project.transcript?.language, soft });
     if (!idx.length) {
       toast('No filler words found.', { kind: 'info' });
       return;
     }
-    const ok = await confirmDialog({ title: 'Remove filler words?', message: `${idx.length} filler word${idx.length === 1 ? '' : 's'} will be cut from the video.`, confirm: 'Remove' });
+    const ranges = rangesForWords(words(), idx);
+    const ok = await confirmCuts({ title: 'Remove filler words?', message: `${idx.length} filler word${idx.length === 1 ? '' : 's'} will be cut from the video.`, confirm: 'Remove' }, ranges, 'Remove filler words');
     if (!ok) return;
-    if (!applyCuts(rangesForWords(words(), idx), 'Remove filler words')) return;
     toast(`Removed ${idx.length} filler word${idx.length === 1 ? '' : 's'}.`, { kind: 'success' });
   });
   pauseBtn.addEventListener('click', async () => {
@@ -185,9 +206,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
       return;
     }
     const total = pauses.reduce((s, r) => s + r.end - r.start, 0);
-    const ok = await confirmDialog({ title: 'Shorten pauses?', message: `${pauses.length} pause${pauses.length === 1 ? '' : 's'} (${(total / US).toFixed(1)} s in all) will be cut from the video.`, confirm: 'Shorten' });
-    if (!ok) return;
-    applyCuts(pauses, 'Shorten pauses');
+    await confirmCuts({ title: 'Shorten pauses?', message: `${pauses.length} pause${pauses.length === 1 ? '' : 's'} (${(total / US).toFixed(1)} s in all) will be cut from the video.`, confirm: 'Shorten' }, pauses, 'Shorten pauses');
   });
   moreBtn.addEventListener('click', () => showMenu(moreBtn, [
     { label: 'Highlight filler words', checked: showFillers, onSelect: () => { showFillers = !showFillers; render(); } },
