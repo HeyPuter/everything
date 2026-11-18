@@ -51,3 +51,38 @@ test('a pasted pattern overlay brings its document pattern into the other docume
   await run(page, 'edit.undo');
   expect(await page.evaluate(() => window.photoStudio.doc.patterns)).toBeUndefined();
 });
+
+test('Paste Layer Style works when the last selected layer is an adjustment layer', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 64, 64, '#ffffff');
+  const styled = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const a = layer('solid', 'A', 64, 64),
+      b = layer('solid', 'B', 64, 64),
+      adj = layer('adjustment', 'Invert', 64, 64);
+    adj.adjustment = { kind: 'invert', params: {} };
+    a.style = {
+      enabled: true,
+      colorOverlay: [
+        { enabled: true, blendMode: 'normal', opacity: 1, color: { r: 255, g: 0, b: 0 } },
+      ],
+    };
+    e.command('Add', (d) => d.layers.push(a, b, adj));
+    e.selectLayers([a.id]);
+    await e.runCommand('layer.style-copy');
+    // B and the adjustment layer, the adjustment layer last.
+    e.selectLayers([b.id, adj.id]);
+    await e.runCommand('layer.style-paste');
+    return e.doc.layers.map((l) => [l.name, !!l.style]);
+  });
+  await idle(page);
+  expect(styled).toEqual([
+    ['Background', false],
+    ['A', true],
+    ['B', true],
+    ['Invert', false],
+  ]);
+});

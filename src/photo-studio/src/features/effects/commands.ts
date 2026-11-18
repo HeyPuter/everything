@@ -154,7 +154,8 @@ export function installEffectCommands() {
     {
       id: 'layer.style-paste',
       label: 'Paste Layer Style',
-      enabled: (e) => !!clipboard && styleable(e.layer),
+      // Pastes onto every selected layer that can carry a style (editStyles).
+      enabled: (e) => !!clipboard && e.selectedLayers.some(styleable),
       run: (e) => {
         const c = clipboard;
         if (!c) return;
