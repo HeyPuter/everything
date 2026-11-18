@@ -93,7 +93,11 @@ export function moveLayers(
     : position === 'inside'
       ? list.length
       : list.indexOf(target) + (position === 'above' ? 1 : 0);
+  // Dropped under a clipped layer, the layers join its clipping group (as a
+  // new layer inserted there does), so the clipped layers keep their base.
+  const joins = !!list[index]?.clipped;
   list.splice(index, 0, ...roots);
+  if (joins) for (const l of roots) if (!l.artboard) l.clipped = true;
   assertTree(doc.layers);
 }
 export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): string | undefined {
