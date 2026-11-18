@@ -13,7 +13,11 @@ import type { LayerFill } from '../../model/fill-layer';
 import type { LayerStyle } from '../../imaging/effects/types';
 import type { AdvancedBlending } from '../../model/blending';
 import { stylePreset } from '../../imaging/effects/presets';
-import { activeLayerStyle } from '../../renderer/layer-style';
+import { activeLayerStyle, documentAnchored } from '../../renderer/layer-style';
+import { sanitizeStyle } from '../../model/layer-style';
+import { styleBoundsExpansion } from '../../imaging/effects/bounds';
+import { layerBounds } from '../../model/artboard';
+import { assertSize, cropDocument, type PhotoDocument } from '../../model/document';
 import { formDialog } from '../../ui/dialog';
 import { insertAboveSelection } from '../layers/insert';
 import { commitTarget, compositeRGBA, pixelTarget, toRGBA8 } from '../pixels';
@@ -197,8 +201,12 @@ export function installEffectCommands() {
         }
         // Effects composite onto transparency here: modes such as Multiply
         // then look like Normal, as when merging onto an empty layer.
-        const samples = await e.renderer.layerPixels({ ...l, opacity: 1, blend: 'normal' }, e.doc, e.assets);
-        const grid = gridFromImage(e.assets.tiles, toRGBA8(samples, e.doc.width, e.doc.height));
+        const max = e.renderer.backend.maxSize;
+        const { doc: area, layer: source, rect } = rasterArea(e.doc, l, max);
+        const plain = { ...source, opacity: 1, blend: 'normal' as const };
+        const samples = await e.renderer.layerPixels(plain, area, e.assets);
+        const image = toRGBA8(samples, rect.width, rect.height);
+        const grid = gridFromImage(e.assets.tiles, image, rect.x, rect.y);
         const id = l.id;
         e.command('Rasterize Layer Style', (d) => {
           const t = findLayer(d.layers, id)!;
@@ -247,6 +255,34 @@ function newFillLayer(e: Editor, type: 'gradient' | 'pattern') {
   insertAboveSelection(e, l, 'New Fill Layer');
   e.dock?.show('properties');
 }
+/** Where a layer is rendered to rasterize its style: the canvas grown to the
+ * layer and its effects, so content outside the canvas is kept. Styles
+ * anchored to the document (unaligned gradients, unlinked patterns) and
+ * areas too large for one render use the canvas as it is. */
+function rasterArea(doc: PhotoDocument, l: Layer, maxSize: number) {
+  const canvas = { x: 0, y: 0, width: doc.width, height: doc.height };
+  const style = sanitizeStyle(activeLayerStyle(l)!);
+  const b = layerBounds(l);
+  if (!b || documentAnchored(style)) return { doc, layer: l, rect: canvas };
+  const r = styleBoundsExpansion(style);
+  const x0 = Math.min(0, Math.floor(b.x - r.left)),
+    y0 = Math.min(0, Math.floor(b.y - r.top));
+  const x1 = Math.max(doc.width, Math.ceil(b.x + b.width + r.right)),
+    y1 = Math.max(doc.height, Math.ceil(b.y + b.height + r.bottom));
+  const rect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  const same = rect.width === doc.width && rect.height === doc.height;
+  if (same) return { doc, layer: l, rect: canvas };
+  try {
+    assertSize(rect.width, rect.height);
+    if (rect.width > maxSize || rect.height > maxSize) throw new Error();
+  } catch {
+    return { doc, layer: l, rect: canvas };
+  }
+  const area = structuredClone({ ...doc, layers: [l] }) as PhotoDocument;
+  cropDocument(area, rect);
+  return { doc: area, layer: area.layers[0], rect };
+}
+
 async function definePattern(e: Editor) {
   const doc = e.doc;
   const sel = selectionGrid(doc, e.assets.tiles);
