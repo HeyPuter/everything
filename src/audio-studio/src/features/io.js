@@ -401,20 +401,32 @@ function audioHardwarePrefs(app) {
 
 export async function importMarkers(app) {
   const doc = audio(app);
+  if (!doc) return false;
+  const targetOpen = () => {
+    if (app.documents.includes(doc)) return true;
+    app.notify('Marker import stopped because the destination file was closed.', { error: true });
+    return false;
+  };
   let file = null;
   let item = null;
   if (puter.sdk() && puter.isSignedIn()) {
     [item] = await puter.pickFiles({ multiple: false, accept: '.csv,.txt,.tsv' });
-    if (item) file = await item.read();
+    if (item) {
+      if (!targetOpen()) return false;
+      file = await item.read();
+    }
   } else {
     [file] = await pickLocalFiles({ accept: '.csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values', multiple: false });
   }
   if (!file) return;
+  if (!targetOpen()) return false;
   const name = file.name || item?.name || '';
   let parsed;
   try {
     const timeOptions = { timeFormat: app.prefs.get('timeFormat'), ...app.timeOptions() };
-    parsed = parseMarkerText(await file.text(), doc.sampleRate, timeOptions);
+    const text = await file.text();
+    if (!targetOpen()) return false;
+    parsed = parseMarkerText(text, doc.sampleRate, timeOptions);
   } catch (err) {
     // A file with no readable markers is the user's to fix, not a failure of the command.
     const why = err?.message ? ` ${err.message}` : '';

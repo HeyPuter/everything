@@ -13,6 +13,7 @@ const { AudioFile } = await import('../src/model/audio-file.js');
 function fakeApp(doc) {
   return {
     active: doc,
+    documents: [doc],
     notify: vi.fn(),
     prefs: { get: () => undefined },
     timeOptions: () => ({}),
