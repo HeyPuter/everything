@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
 import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips, MIN_CLIP } from '../src/model/timeline.js';
 import { normalizeProject, makeClip, MAX_COMPOUND_DEPTH, compoundDepth } from '../src/model/project.js';
@@ -568,5 +568,43 @@ describe('nested track settings', () => {
     mainTrack(loaded).muted = true;
     loaded.modified++;
     expect(audibleClips(loaded)).toEqual([]);
+  });
+});
+
+
+describe('compound render cache invalidation', () => {
+  it('reflects consecutive edits made in the same millisecond', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const comp = createCompound(p, [a.id], FREE);
+    const store = new EditorStore(p);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(p.modified);
+    try {
+      expect(evaluate(store.project, s(1))).toHaveLength(1);
+      expect(audibleClips(store.project)).toHaveLength(1);
+      store.update('Hide and mute track', q => {
+        mainTrack(q).hidden = true;
+        mainTrack(q).muted = true;
+      }, { structural: false });
+      expect(evaluate(store.project, s(1))).toHaveLength(0);
+      expect(audibleClips(store.project)).toHaveLength(0);
+      store.update('Show and unmute track', q => {
+        mainTrack(q).hidden = false;
+        mainTrack(q).muted = false;
+      }, { structural: false });
+      expect(evaluate(store.project, s(1))).toHaveLength(1);
+      expect(audibleClips(store.project)).toHaveLength(1);
+      store.openCompound(comp.id);
+      store.update('Move nested video', q => { mainTrack(q).clips[0].transform.x = 0.3; }, { structural: false });
+      store.closeCompound();
+      expect(evaluate(store.project, s(1))[0].x).toBeCloseTo(0.3);
+      store.undo();
+      expect(evaluate(store.project, s(1))[0].x).toBeCloseTo(0);
+      store.redo();
+      expect(evaluate(store.project, s(1))[0].x).toBeCloseTo(0.3);
+      expect(expandProject(store.project)).toBe(expandProject(store.project));
+    } finally {
+      now.mockRestore();
+    }
   });
 });

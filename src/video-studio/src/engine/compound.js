@@ -14,6 +14,7 @@
 import { trimTo } from '../model/slice.js';
 import { clipEnd } from '../model/timeline.js';
 import { activeRanges } from '../model/multicam.js';
+import { projectRevision } from '../model/revision.js';
 
 const cache = new WeakMap(); // project -> { key, expanded }
 
@@ -21,7 +22,7 @@ const hasCompound = (tracks) => tracks.some((t) => t.clips.some((c) => c.type ==
 
 /** Cheap fingerprint of the parts of a project expansion depends on. */
 function keyOf(project) {
-  let k = `${project.modified}|${project.tracks.length}`;
+  let k = `${projectRevision(project)}|${project.modified}|${project.tracks.length}`;
   for (const t of project.tracks) for (const c of t.clips) if (c.type === 'compound') k += `|${c.id}:${c.start}:${c.duration}:${c.in}:${c.disabled ? 1 : 0}${c.multicam ? JSON.stringify(c.multicam) : ''}`;
   return k;
 }
