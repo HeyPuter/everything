@@ -66,13 +66,46 @@ function labOf(r: number, g: number, b: number, out: number[]) {
   out[2] = 200 * (y - z);
 }
 
-function medianCut(px: Uint8ClampedArray, mask: Uint8Array | null, count: number, perceptual: boolean): number[][] {
-  // 5 bits per channel histogram with exact color sums.
-  const H = 32768;
-  const cnt = new Float64Array(H),
-    sr = new Float64Array(H),
-    sg = new Float64Array(H),
-    sb = new Float64Array(H);
+// Color bins for median cut: one per distinct color when the image has few
+// enough of them (so palettes can split down to single colors and keep every
+// color of a simple graphic), else a 5 bits per channel histogram.
+const EXACT_BINS = 32768;
+type Bins = { n: number; cnt: Float64Array; sr: Float64Array; sg: Float64Array; sb: Float64Array };
+function colorBins(px: Uint8ClampedArray, mask: Uint8Array | null): Bins {
+  // One pass over distinct colors; gives up once there are too many.
+  const ids = new Map<number, number>();
+  let cnt = new Float64Array(EXACT_BINS),
+    sr = new Float64Array(EXACT_BINS),
+    sg = new Float64Array(EXACT_BINS),
+    sb = new Float64Array(EXACT_BINS);
+  let lastKey = -1,
+    last = -1,
+    exact = true;
+  for (let i = 0, p = 0; i < px.length; i += 4, p++) {
+    if (mask && !mask[p]) continue;
+    const k = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2];
+    if (k !== lastKey) {
+      let id = ids.get(k);
+      if (id === undefined) {
+        if (ids.size >= EXACT_BINS) {
+          exact = false;
+          break;
+        }
+        ids.set(k, (id = ids.size));
+      }
+      lastKey = k;
+      last = id;
+    }
+    cnt[last]++;
+    sr[last] += px[i];
+    sg[last] += px[i + 1];
+    sb[last] += px[i + 2];
+  }
+  if (exact) return { n: ids.size, cnt, sr, sg, sb };
+  cnt = new Float64Array(32768);
+  sr = new Float64Array(32768);
+  sg = new Float64Array(32768);
+  sb = new Float64Array(32768);
   for (let i = 0, p = 0; i < px.length; i += 4, p++) {
     if (mask && !mask[p]) continue;
     const k = ((px[i] >> 3) << 10) | ((px[i + 1] >> 3) << 5) | (px[i + 2] >> 3);
@@ -81,6 +114,11 @@ function medianCut(px: Uint8ClampedArray, mask: Uint8Array | null, count: number
     sg[k] += px[i + 1];
     sb[k] += px[i + 2];
   }
+  return { n: 32768, cnt, sr, sg, sb };
+}
+
+function medianCut(px: Uint8ClampedArray, mask: Uint8Array | null, count: number, perceptual: boolean): number[][] {
+  const { n: H, cnt, sr, sg, sb } = colorBins(px, mask);
   const bins: number[] = [];
   for (let k = 0; k < H; k++) if (cnt[k]) bins.push(k);
   if (!bins.length) return [];
@@ -229,8 +267,11 @@ export function toIndexed(img: RGBA8, opts: IndexedOptions = {}): IndexedResult 
   const remaining = slots - palette.length;
   let exactMap: Map<number, number> | null = null;
   const perceptual = kind === 'perceptual';
+  // Local palettes (and Exact) keep every color of an image that has no more
+  // colors than free slots, mapped exactly and without dithering.
+  const local = kind === 'exact' || kind === 'adaptive' || kind === 'perceptual';
   if (remaining > 0) {
-    if (kind === 'exact') {
+    if (local) {
       const seen = new Map<number, number>();
       for (let p = 0; p < px && seen.size <= remaining; p++)
         if (opaque[p]) {
@@ -242,7 +283,7 @@ export function toIndexed(img: RGBA8, opts: IndexedOptions = {}): IndexedResult 
         for (const k of seen.keys()) palette.push([k >> 16, (k >> 8) & 255, k & 255]);
         exactMap = new Map();
         for (const [k, i] of seen) exactMap.set(k, base + i);
-      } else palette.push(...medianCut(rgb, opaque, remaining, false));
+      } else palette.push(...medianCut(rgb, opaque, remaining, perceptual));
     } else if (kind === 'web') palette.push(...webColors().slice(0, remaining));
     else if (kind === 'uniform') {
       const levels = Math.max(2, Math.floor(Math.cbrt(remaining) + 1e-9));
@@ -256,7 +297,6 @@ export function toIndexed(img: RGBA8, opts: IndexedOptions = {}): IndexedResult 
       if (cube.length > remaining) palette.push(...[0, 7, 4, 2, 1, 6, 5, 3].slice(0, remaining).map((i) => cube[i]));
       else palette.push(...cube);
     } else if (kind === 'custom') palette.push(...(opts.customPalette ?? []).slice(0, remaining).map((c) => [...c]));
-    else palette.push(...medianCut(rgb, opaque, remaining, perceptual));
   }
   if (!palette.length) palette = [[...matte]];
   const n = palette.length;

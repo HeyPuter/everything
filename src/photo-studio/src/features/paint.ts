@@ -1,6 +1,7 @@
 import type { Editor } from '../editor';
 import { registerTool, registerCommand, type Tool } from '../app/registry';
 import type { CanvasPointer } from '../app/pointer';
+import type { DocumentSession } from '../app/session';
 import { brushSizeStep } from '../app/shortcuts';
 import { StrokeSession, type BrushTip, type PaintMode, type PaintTarget, type BrushDynamics } from '../engine/paint';
 import { smudgeSpacing } from '../engine/smudge';
@@ -77,7 +78,13 @@ function samplingRing(e: Editor, p: CanvasPointer) {
   e.screenOverlayContent = `<g class="sampling-ring"><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="#000" stroke-opacity=".5" stroke-width="16"/>${arc(1, e.color)}${arc(0, eyedrop?.previous ?? e.color)}<circle cx="${x}" cy="${y}" r="${r + 7}" fill="none" stroke="#fff" stroke-opacity=".7"/><circle cx="${x}" cy="${y}" r="${r - 7}" fill="none" stroke="#fff" stroke-opacity=".7"/></g>`;
   e.screenOverlay();
 }
-const lastPoint = new Map<string, [number, number]>();
+// Where each tool's last stroke ended, per document (Shift-click continues it).
+const lastPoints = new WeakMap<DocumentSession, Map<string, [number, number]>>();
+function lastPoint(e: Editor) {
+  let points = lastPoints.get(e.session);
+  if (!points) lastPoints.set(e.session, (points = new Map()));
+  return points;
+}
 
 // Which brush controls a tool's options bar shows: only those that change
 // what the tool does (Dodge and Burn have Exposure instead of Opacity and
@@ -107,7 +114,7 @@ const brushControlTable: Record<string, BrushControls> = {
   'smudge-tool': { ...focusControls, numberKey: pct('smudgeStrength') },
   dodge: { modes: false, opacity: false, flow: false, numberKey: pct('toneExposure') },
   burn: { modes: false, opacity: false, flow: false, numberKey: pct('toneExposure') },
-  sponge: { modes: false, opacity: false, flow: false, numberKey: pct('toneExposure') },
+  sponge: { modes: false, opacity: false, flow: false, numberKey: pct('spongeFlow') },
 };
 export type EraserMode = 'brush' | 'pencil' | 'block';
 export const eraserMode = (e: Editor): EraserMode => (e.settings.eraserMode === 'pencil' || e.settings.eraserMode === 'block' ? e.settings.eraserMode : 'brush');
@@ -310,6 +317,9 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         samplingRing(e, p);
         return;
       }
+      // A stroke still running (its release never came, or another pointer
+      // pressed) is stored first, so it is neither lost nor left airbrushing.
+      if (active?.session) finish(e, active, id);
       const a: Active = { queue: [p], label: history };
       active = a;
       const target = await pixelTarget(e);
@@ -346,7 +356,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         ...(patternPreviewOn(e) ? { wrap: { width: e.doc.width, height: e.doc.height } } : {}),
       });
       // Shift-click continues with a straight line from the previous stroke.
-      const prev = lastPoint.get(id);
+      const prev = lastPoint(e).get(id);
       if (p.shift && prev) a.session.addPoint(prev[0], prev[1], p.pressure);
       const queue = a.queue;
       a.queue = [];
@@ -443,7 +453,7 @@ function finish(e: Editor, a: Active, id: string) {
   if (a.last) {
     const p = e.pointerInfo;
     if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
-    lastPoint.set(id, a.last);
+    lastPoint(e).set(id, a.last);
   }
   const grid = a.session!.commit();
   delete e.settings.quickMaskPreview;
@@ -545,10 +555,15 @@ function bucketTool(): Tool {
       const x = Math.floor(p.x),
         y = Math.floor(p.y);
       if (x < 0 || y < 0 || x >= e.doc.width || y >= e.doc.height) return;
+      const session = e.session;
       const target = await pixelTarget(e);
       if (!target) return;
       const region = await wandMask(e, x, y);
-      const sel = selectionGrid(e.doc, e.assets.tiles);
+      // Another document was shown while the pixels were read: the fill
+      // would land there, so it is dropped (as a stroke still starting is).
+      if (e.session !== session) return;
+      // In Quick Mask mode the mask is the selection being edited.
+      const sel = target.kind === 'quick-mask' ? null : selectionGrid(e.doc, e.assets.tiles);
       const area = canvasRect(e.doc);
       const cover = sel ? readMask(e.assets.tiles, sel, area).data : undefined;
       const source = e.settings.bucketSource;
@@ -645,7 +660,15 @@ function bucketTool(): Tool {
   };
 }
 
-export function installPaint(_e: Editor) {
+export function installPaint(editor: Editor) {
+  // A zoom or rotation made while the pointer rests (a pinch, Ctrl+wheel, a
+  // shortcut) resizes the brush outline at once, not on the next move.
+  editor.viewHooks.push((e) => {
+    const p = e.pointerInfo;
+    const shown = e.screenOverlayContent;
+    if (p && /brush-cursor-(outer|cross)/.test(shown) && !shown.includes('brush-adjust'))
+      cursor(e, e.tool, p);
+  });
   registerTool(
     strokeTool('brush', 'Brush Tool', 'paintbrush', 'brush', 'B', 'Brush Tool'),
     strokeTool('pencil', 'Pencil Tool', 'pencil', 'brush', 'B', 'Pencil'),

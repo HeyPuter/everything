@@ -50,6 +50,16 @@ export function toggleGuideKind(p: GuidePrefs, key: 'showCanvasGuides' | 'showAr
   p[key] = p[key] === false;
   if (p.showCanvasGuides === false && p.showArtboardGuides === false) p.showGuides = false;
 }
+/** New guides turn guides on (as new slices show slices): View › Show ›
+ * Guides, and the kind of guide made (canvas or artboard). Without an owner,
+ * only guides as a whole (a guide being dragged out of a ruler). */
+function revealGuides(e: Editor, owners: GuideOwner[] = []) {
+  const p = e.preferences;
+  const before = JSON.stringify([p.showGuides, p.showCanvasGuides, p.showArtboardGuides]);
+  if (!p.showGuides) setGuidesShown(p, true);
+  for (const o of owners) p[o === 'canvas' ? 'showCanvasGuides' : 'showArtboardGuides'] = true;
+  if (JSON.stringify([p.showGuides, p.showCanvasGuides, p.showArtboardGuides]) !== before) e.savePreferences();
+}
 function guidesVisible(e: Editor) {
   return e.hasDocument && e.preferences.showGuides && !extraHidden(e, 'guides');
 }
@@ -113,6 +123,8 @@ function bindGuides(e: Editor) {
     if (!e.hasDocument || e.preferences.guidesLocked) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
+    // A guide pulled out of a ruler is shown while it is placed.
+    if (!key) revealGuides(e);
     const at = e.docPoint(ev.clientX, ev.clientY) as [number, number];
     const source = key ? parseGuideKey(key) : undefined;
     const existing = source && placedGuides(e.doc).find((g) => g.key === key);
@@ -187,6 +199,7 @@ function bindGuides(e: Editor) {
       return;
     }
     let key: string | undefined;
+    let made: GuideOwner | undefined;
     e.command(d.source ? (removed ? 'Delete Guide' : 'Move Guide') : 'New Guide', (draft) => {
       const target = dropOwner(draft, d.at);
       const absolute: Guide = { orientation: d.orientation, position: d.position };
@@ -205,7 +218,9 @@ function bindGuides(e: Editor) {
       const list = [...ownerGuides(draft, target), stored];
       setOwnerGuides(draft, target, list);
       key = guideKey(target, list.length - 1);
+      made = target;
     });
+    if (made) revealGuides(e, [made]);
     // The moved or new guide becomes the selection.
     selectGuides(e, key ? [key] : []);
   };
@@ -285,6 +300,7 @@ async function newGuide(e: Editor) {
   ], 'OK');
   if (!v || !Number.isFinite(Number(v.position))) return;
   const owner = ownerFromChoice(v.owner);
+  revealGuides(e, [owner]);
   e.command('New Guide', (d) => setOwnerGuides(d, owner, [...ownerGuides(d, owner), { orientation: v.orientation as Guide['orientation'], position: Number(v.position) }]));
 }
 
@@ -321,6 +337,7 @@ async function newGuideLayout(e: Editor) {
   const owner = ownerFromChoice(v.owner);
   const rect = ownerRect(e.doc, owner) ?? { x: 0, y: 0, width: e.doc.width, height: e.doc.height };
   const guides = layoutGuides(rect.width, rect.height, Number(v.columns), Number(v.rows), Number(v.gutter), Number(v.margin));
+  revealGuides(e, [owner]);
   e.command('New Guide Layout', (d) => setOwnerGuides(d, owner, v.clear === 'yes' ? guides : [...ownerGuides(d, owner), ...guides]));
 }
 
@@ -360,6 +377,7 @@ async function guidesFromShape(e: Editor) {
     e.message('Select a shape, a layer with a vector mask or a layer with content.');
     return;
   }
+  revealGuides(e, [...byOwner.values()].map((b) => b.owner));
   e.command('New Guides From Shape', (d) => {
     for (const { owner, guides } of byOwner.values()) setOwnerGuides(d, owner, mergeGuides(ownerGuides(d, owner), guides));
   });

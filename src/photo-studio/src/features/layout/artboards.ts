@@ -453,7 +453,8 @@ async function renameArtboard(e: Editor, id: string) {
   const a = findLayer(e.doc.layers, id);
   if (!a) return;
   const v = await formDialog('Rename Artboard', [{ name: 'name', label: 'Name', value: a.name }], 'Rename');
-  if (v?.name) e.command('Rename Artboard', (d) => (findLayer(d.layers, id)!.name = v.name));
+  const name = v?.name.trim();
+  if (name) e.command('Rename Artboard', (d) => (findLayer(d.layers, id)!.name = name));
 }
 
 // ----- Commands -----
@@ -497,7 +498,7 @@ async function newArtboardDialog(e: Editor) {
   e.settings.artboardSize = { width, height, preset: matchingPreset(width, height, v.preset)?.id };
   let id = '';
   layoutCommand(e, 'New Artboard', (d) => {
-    const a = createArtboard(d, newArtboardRect(d, width, height), { background: v.background as ArtboardBackground, preset: matchingPreset(width, height, v.preset)?.id, ...(v.background === 'custom' ? { color: e.color } : {}) }, v.name || undefined);
+    const a = createArtboard(d, newArtboardRect(d, width, height), { background: v.background as ArtboardBackground, preset: matchingPreset(width, height, v.preset)?.id, ...(v.background === 'custom' ? { color: e.color } : {}) }, v.name.trim() || undefined);
     id = a.id;
     d.layers.push(a);
   });
@@ -515,7 +516,8 @@ async function fromLayers(e: Editor, group: boolean) {
   if (!group) {
     const v = await formDialog('Artboard from Layers', [{ name: 'name', label: 'Name', value: `Artboard ${artboardLayers(e.doc).length + 1}` }], 'Create');
     if (!v) return;
-    name = v.name;
+    // A blank name keeps the default.
+    name = v.name.trim();
   }
   const ids = new Set(e.selectedIds);
   let id = '';

@@ -3,7 +3,7 @@
 import type { Editor } from '../../editor';
 import { contributeMenu, registerCommand, registerOverlay } from '../../app/registry';
 import { snapProviders } from '../../model/transform';
-import { sliceRect, type Slice, type SliceFormat } from '../../model/slices';
+import { MAX_SLICE_NAME, MAX_SLICES, sliceRect, type Slice, type SliceFormat } from '../../model/slices';
 import { formDialog } from '../../ui/dialog';
 import { escapeXML } from '../../model/assets';
 import { modal, fieldValue } from '../files/ui';
@@ -98,14 +98,24 @@ async function divide(e: Editor) {
   const s = selectedSlices(e)[0];
   const r = s && !s.layerId ? sliceRect(e.doc, s) : undefined;
   if (!s || !r) return;
+  // The parts replace the slice; the document keeps at most MAX_SLICES.
+  const room = MAX_SLICES - (e.doc.slices?.length ?? 0) + 1;
+  if (room < 2) {
+    e.message(`This document already has ${MAX_SLICES} slices, the most it can hold.`);
+    return;
+  }
   const v = await formDialog('Divide Slice', [
-    { name: 'cols', label: 'Columns', value: 2, type: 'number', min: 1, max: Math.min(64, r.width), step: 1 },
-    { name: 'rows', label: 'Rows', value: 1, type: 'number', min: 1, max: Math.min(64, r.height), step: 1 },
-  ], 'Divide', `Split the ${r.width} × ${r.height} px slice into equal parts.`);
+    { name: 'cols', label: 'Columns', value: 2, type: 'number', min: 1, max: Math.min(64, r.width, room), step: 1 },
+    { name: 'rows', label: 'Rows', value: 1, type: 'number', min: 1, max: Math.min(64, r.height, room), step: 1 },
+  ], 'Divide', `Split the ${r.width} × ${r.height} px slice into equal parts.\n\nColumns × rows can be at most ${room} (a document holds up to ${MAX_SLICES} slices).`);
   if (!v) return;
   const cols = Math.max(1, Math.min(64, r.width, Math.round(Number(v.cols)) || 1)),
     rows = Math.max(1, Math.min(64, r.height, Math.round(Number(v.rows)) || 1));
   if (cols * rows < 2) return;
+  if (cols * rows > room) {
+    e.message(`${cols} × ${rows} would make ${cols * rows} slices; at most ${room} fit (a document holds up to ${MAX_SLICES}).`);
+    return;
+  }
   const parts: Slice[] = [];
   for (let j = 0; j < rows; j++)
     for (let i = 0; i < cols; i++) {
@@ -114,7 +124,9 @@ async function divide(e: Editor) {
       const y0 = r.y + Math.round((r.height * j) / rows),
         y1 = r.y + Math.round((r.height * (j + 1)) / rows);
       const { id: _id, name, ...rest } = s;
-      parts.push({ ...rest, id: newSliceId(), ...(name ? { name: `${name}_${parts.length + 1}` } : {}), rect: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } });
+      // Numbered names stay within the name limit.
+      const suffix = `_${parts.length + 1}`;
+      parts.push({ ...rest, id: newSliceId(), ...(name ? { name: name.slice(0, MAX_SLICE_NAME - suffix.length) + suffix } : {}), rect: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } });
     }
   e.command('Divide Slice', (d) => {
     const list = d.slices ?? [];
@@ -146,6 +158,11 @@ async function fromGuides(e: Editor) {
   const users = (e.doc.slices ?? []).filter((s) => !s.layerId);
   if (users.length && !(await formDialog('Slices From Guides', [], 'Replace', `This replaces the ${users.length} existing user slice${users.length > 1 ? 's' : ''}.`))) return;
   const cells = guideCells(e.doc.width, e.doc.height, guides);
+  const kept = (e.doc.slices ?? []).filter((s) => s.layerId).length;
+  if (kept + cells.length > MAX_SLICES) {
+    e.message(`The guides make ${cells.length} cells; a document holds up to ${MAX_SLICES} slices. Remove some guides first.`);
+    return;
+  }
   const fresh = cells.map((rect) => ({ id: newSliceId(), rect }));
   e.command('Slices From Guides', (d) => {
     d.slices = [...(d.slices ?? []).filter((s) => s.layerId), ...fresh];
@@ -215,6 +232,11 @@ export function installSlices(e: Editor) {
         const s: Slice = { id, layerId: l.id, rect: { x: 0, y: 0, width: 0, height: 0 } };
         if (!sliceRect(ed.doc, s)) {
           ed.message('The layer has no visible area on the canvas.');
+          return;
+        }
+        const list = ed.doc.slices ?? [];
+        if (list.length >= MAX_SLICES && !list.some((x) => x.layerId === l.id)) {
+          ed.message(`This document already has ${MAX_SLICES} slices, the most it can hold.`);
           return;
         }
         ed.command('New Layer Based Slice', (d) => {

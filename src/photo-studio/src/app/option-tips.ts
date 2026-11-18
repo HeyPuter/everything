@@ -3,7 +3,7 @@
 // the common controls (with their keyboard shortcuts), the command's label,
 // shortcut and description for command buttons, else its visible label.
 import { commands } from './registry';
-import { formatShortcut } from './shortcuts';
+import { formatShortcut, isMac } from './shortcuts';
 
 const tips: Record<string, string> = {
   // Brushes (painting and retouching tools).
@@ -18,6 +18,7 @@ const tips: Record<string, string> = {
   'tool-strength': 'Strength of the effect per stroke',
   'tone-range': 'Tones the tool changes most',
   'tone-exposure': 'Strength of the effect per stroke',
+  'sponge-flow': 'How much the saturation changes per stroke',
   'protect-tones': 'Keeps hues from shifting and clipping while dodging or burning',
   'sponge-mode': 'Remove or add color saturation',
   'pattern-scale': 'Size of the pattern relative to its definition',
@@ -108,7 +109,7 @@ const tips: Record<string, string> = {
   'count-label': 'Size of the numbers',
   'note-tool-author': 'Name shown on new notes',
   // Move and view.
-  'auto-select': 'Click selects the topmost layer under the pointer (or hold Mod)',
+  'auto-select': `Click selects the topmost layer under the pointer (or hold ${isMac ? '⌘' : 'Ctrl'})`,
   'transform-snap': 'Snap to guides, layers and the canvas while transforming',
   'transform-proportions': 'Keep the proportions while scaling (Shift switches)',
   'view-angle': 'Rotation of the view in degrees',

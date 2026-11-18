@@ -106,6 +106,10 @@ export class FilterPreview {
   private sig = '';
   private paneImg?: PaneImage;
   private fullRes?: { sig: string; grid: TileGrid };
+  // Tiles each full-resolution result added (beyond the source's), released
+  // once the result is neither the latest nor shown on the canvas.
+  private results = new Map<TileGrid, string[]>();
+  private shown?: TileGrid;
   // The full-resolution render in progress, so OK can wait for it.
   private fullRun?: { sig: string; promise: Promise<TileGrid> };
   private fullTimer = 0;
@@ -186,11 +190,13 @@ export class FilterPreview {
   setCanvasPreview(on: boolean) {
     this.canvasPreview = on;
     if (on) {
-      if (this.fullRes?.sig === this.sig) this.s.e.preview(sessionDoc(this.s, this.fullRes.grid));
+      if (this.fullRes?.sig === this.sig) this.show(this.fullRes.grid);
       else this.scheduleFull(0);
     } else {
       delete this.s.e.settings.quickMaskPreview;
       this.s.e.preview(this.s.e.doc);
+      this.shown = undefined;
+      this.release();
     }
   }
   private refreshView() {
@@ -351,11 +357,17 @@ export class FilterPreview {
       );
       const grid = resultGrid(this.s, res.tiles!);
       if (this.disposed) return grid;
+      const base = new Set(Object.values(this.s.base.tiles));
+      this.results.set(
+        grid,
+        Object.values(grid.tiles).filter((id) => !base.has(id)),
+      );
       this.fullRes = { sig, grid };
       if (sig === this.sig) {
-        if (this.canvasPreview) this.s.e.preview(sessionDoc(this.s, grid));
+        if (this.canvasPreview) this.show(grid);
         this.draw();
       }
+      this.release();
       return grid;
     } catch (error) {
       if (!isCancel(error)) this.s.e.message(error instanceof Error ? error.message : String(error));
@@ -387,7 +399,38 @@ export class FilterPreview {
   private hideProgress() {
     if (!this.progressBusy.size) this.ui.progress.hidden = true;
   }
-  dispose() {
+  private show(grid: TileGrid) {
+    this.s.e.preview(sessionDoc(this.s, grid));
+    this.shown = grid;
+  }
+  /** Free the tiles of results that are no longer the latest or shown, once
+   * a render of them still in progress has finished. `keep` is the result
+   * to hold on to (all others go). */
+  private release(
+    keep: (grid: TileGrid) => boolean = (g) => g === this.fullRes?.grid || g === this.shown,
+  ) {
+    const ids: string[] = [];
+    for (const [grid, created] of this.results)
+      if (!keep(grid)) {
+        ids.push(...created);
+        this.results.delete(grid);
+      }
+    if (!ids.length) return;
+    const store = this.s.e.assets.tiles;
+    const done = () => {
+      for (const id of ids) store.delete(id);
+    };
+    const r = this.s.e.renderer;
+    if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
+    else done();
+  }
+  /** Stop rendering. A cancelled preview frees its results' tiles; an applied
+   * one keeps the latest result, which OK commits. */
+  dispose(applied = false) {
+    if (!this.disposed) {
+      const latest = applied ? this.fullRes?.grid : undefined;
+      this.release((g) => g === latest);
+    }
     this.disposed = true;
     clearTimeout(this.fullTimer);
     clearTimeout(this.watchdog);

@@ -372,3 +372,56 @@ test('Rotate Canvas turns imported pixel masks with their layers', async ({ page
   const after = await composite(page);
   expect(differing(turned(before), after)).toBe(0);
 });
+
+test('Rotate Canvas by 0° adds no history step', async ({ page }) => {
+  await openImage(page, 300, 200, '#ff0000');
+  for (const direction of ['cw', 'ccw']) await run(page, 'image.rotate-arbitrary', { params: { angle: 0, direction } });
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+  expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([300, 200]);
+});
+
+test('Rotate Canvas by an angle fills the background layer’s new corners with the background color', async ({ page }) => {
+  await openImage(page, 300, 200, '#ff0000');
+  await page.evaluate(() => (window.photoStudio.background = '#00ff00'));
+  // A second layer keeps transparent corners.
+  await run(page, 'layer.duplicate');
+  await run(page, 'image.rotate-arbitrary', { params: { angle: 30, direction: 'cw' } });
+  const corner = (index: number) =>
+    page.evaluate(async (index) => {
+      const e = window.photoStudio;
+      const { readRGBA } = await import('/src/model/tiles.ts');
+      const l = e.doc.layers[index];
+      return Array.from(readRGBA(e.assets.tiles, l.pixels!, { x: 1, y: 1, width: 1, height: 1 }).data);
+    }, index);
+  expect(await corner(0)).toEqual([0, 255, 0, 255]);
+  expect((await corner(1))[3]).toBe(0);
+  // The middle keeps the image.
+  const mid = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    return Array.from(readRGBA(e.assets.tiles, e.doc.layers[0].pixels!, { x: Math.floor(e.doc.width / 2), y: Math.floor(e.doc.height / 2), width: 1, height: 1 }).data);
+  });
+  expect(mid).toEqual([255, 0, 0, 255]);
+});
+
+test('Image Size waits for a width and height greater than 0 instead of applying the old size', async ({ page }) => {
+  await openImage(page, 300, 200, '#ff0000');
+  await start(page, 'image.image-size');
+  const dialog = page.locator('dialog[open]', { hasText: 'Image Size' });
+  const ok = dialog.getByRole('button', { name: 'OK' });
+  for (const value of ['0', '', '-5']) {
+    await dialog.locator('#is-w').fill(value);
+    await expect(ok).toBeDisabled();
+    await expect(dialog.locator('#is-w')).toHaveAttribute('aria-invalid', 'true');
+    await expect(dialog.locator('[data-is="note"]')).toContainText('greater than 0');
+  }
+  await dialog.locator('#is-w').fill('150');
+  await expect(ok).toBeEnabled();
+  await dialog.locator('#is-res').fill('0');
+  await expect(ok).toBeDisabled();
+  await dialog.locator('#is-res').fill('72');
+  await expect(ok).toBeEnabled();
+  await ok.click();
+  await idle(page);
+  expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([150, 100]);
+});

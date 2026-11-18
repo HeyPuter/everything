@@ -3,7 +3,7 @@ import { commands, findCommand, interactiveOnly, registerCommand, registerPanel,
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { formDialog } from '../ui/dialog';
-import { registerBatchStep } from './files/automate-steps';
+import { batchSteps, registerBatchStep } from './files/automate-steps';
 import { takeDialogCancelled } from './action-settings';
 import { modal } from './files/ui';
 
@@ -81,12 +81,17 @@ const save = () => {
   }
   syncBatchSteps();
 };
-// Every action is offered as a step in File > Automate > Batch.
+// Every action is offered as a step in File > Automate > Batch, and only
+// while it exists: Batch checks every step, so a deleted one would fail each file.
 function syncBatchSteps() {
+  const live = new Set(allActions().map(({ action }) => `action:${action.id}`));
+  for (const id of batchSteps.keys()) if (id.startsWith('action:') && !live.has(id)) batchSteps.delete(id);
   for (const { action } of allActions())
     registerBatchStep({
       id: `action:${action.id}`,
       label: `Action: ${action.name}`,
+      // Batch runs the action chosen in the Actions panel, not every action.
+      preselected: () => find().action?.id === action.id,
       document: async (e) => {
         const current = allActions().find((x) => x.action.id === action.id)?.action;
         if (!current) throw new Error(`The action “${action.name}” no longer exists.`);
@@ -278,17 +283,21 @@ const actionsPanel: Panel = {
     });
   },
   update: (e, el) => {
+    // Each row's name is a button, so sets, actions and steps can be chosen
+    // from the keyboard (Play and Delete act on the chosen one).
+    const choose = (row: string, on: boolean, text: string) =>
+      `<button type="button" class="action-name" data-action-choose="${escapeXML(row)}" aria-pressed="${on}">${escapeXML(text)}</button>`;
     const html = sets
       .map(
-        (s) => `<div class="action-set"><div class="action-row set ${selected.set === s.id && !selected.action ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}::"><button class="group-disclosure" data-set-toggle="${escapeXML(s.id)}" aria-label="${s.open ? 'Collapse' : 'Expand'} ${escapeXML(s.name)}">${svg(s.open ? 'chevron-down' : 'chevron-right', 13)}</button>${svg('folder', 14)}<span>${escapeXML(s.name)}</span></div>${
+        (s) => `<div class="action-set"><div class="action-row set ${selected.set === s.id && !selected.action ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}::"><button class="group-disclosure" data-set-toggle="${escapeXML(s.id)}" aria-label="${s.open ? 'Collapse' : 'Expand'} ${escapeXML(s.name)}">${svg(s.open ? 'chevron-down' : 'chevron-right', 13)}</button>${svg('folder', 14)}${choose(`${s.id}::`, selected.set === s.id && !selected.action, s.name)}</div>${
           s.open
             ? s.actions
                 .map(
-                  (a) => `<div class="action-row action ${selected.action === a.id && selected.step === undefined ? 'selected' : ''} ${recording === a ? 'recording' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:"><span class="indent"></span>${svg('play', 12)}<span>${escapeXML(a.name)}</span><small>${a.steps.length}</small></div>${
+                  (a) => `<div class="action-row action ${selected.action === a.id && selected.step === undefined ? 'selected' : ''} ${recording === a ? 'recording' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:"><span class="indent"></span>${svg('play', 12)}${choose(`${s.id}:${a.id}:`, selected.action === a.id && selected.step === undefined, a.name)}<small>${a.steps.length}</small></div>${
                     selected.action === a.id
                       ? a.steps
                           .map(
-                            (st, i) => `<div class="action-row step ${selected.step === i ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:${i}"><button class="step-check" data-step-toggle="${escapeXML(a.id)}:${i}:enabled" aria-label="${st.enabled ? 'Disable' : 'Enable'} step" aria-pressed="${st.enabled}">${st.enabled ? '✓' : ''}</button><button class="step-dialog" data-step-toggle="${escapeXML(a.id)}:${i}:dialog" aria-label="Toggle dialog" aria-pressed="${st.dialog}" title="Show dialog during playback">${st.dialog ? svg('ellipsis', 12) : ''}</button><span>${escapeXML(label(st.command, st.arg))}</span></div>`,
+                            (st, i) => `<div class="action-row step ${selected.step === i ? 'selected' : ''}" data-action-row="${escapeXML(s.id)}:${escapeXML(a.id)}:${i}"><button class="step-check" data-step-toggle="${escapeXML(a.id)}:${i}:enabled" aria-label="${st.enabled ? 'Disable' : 'Enable'} step" aria-pressed="${st.enabled}">${st.enabled ? '✓' : ''}</button><button class="step-dialog" data-step-toggle="${escapeXML(a.id)}:${i}:dialog" aria-label="Toggle dialog" aria-pressed="${st.dialog}" title="Show dialog during playback">${st.dialog ? svg('ellipsis', 12) : ''}</button>${choose(`${s.id}:${a.id}:${i}`, selected.action === a.id && selected.step === i, label(st.command, st.arg))}</div>`,
                           )
                           .join('')
                       : ''
@@ -468,6 +477,8 @@ export function installActions(e: Editor) {
       label: 'Reset Actions',
       recordable: false,
       run: (e) => {
+        // The action being recorded goes with the old sets.
+        if (recording) stopRecording(e);
         sets = defaults();
         selected = { set: sets[0].id };
         save();

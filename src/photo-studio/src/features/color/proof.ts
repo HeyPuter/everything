@@ -219,7 +219,17 @@ export function syncDisplay(e: Editor) {
 }
 
 // ----- Gamut warning overlay -----
-let gamutOverlay: { doc: PhotoDocument; key: string; url: string; width: number; height: number } | undefined;
+// One overlay at a time, for the document it was measured on; another
+// document (after a tab switch) shows none until its own is ready.
+type GamutOverlay = {
+  session: DocumentSession;
+  doc: PhotoDocument;
+  key: string;
+  url: string;
+  width: number;
+  height: number;
+};
+let gamutOverlay: GamutOverlay | undefined;
 let gamutTimer = 0;
 let gamutJob = 0;
 export function gamutOverlaySvg(e: Editor): string {
@@ -227,7 +237,8 @@ export function gamutOverlaySvg(e: Editor): string {
   if (!st.gamut || !e.hasDocument) return '';
   const key = gamutKey(e, st);
   if (!gamutOverlay || gamutOverlay.doc !== e.doc || gamutOverlay.key !== key) scheduleGamut(e, key);
-  if (!gamutOverlay || gamutOverlay.key !== key || gamutOverlay.width !== e.doc.width || gamutOverlay.height !== e.doc.height) return '';
+  if (!gamutOverlay || gamutOverlay.session !== e.session || gamutOverlay.key !== key) return '';
+  if (gamutOverlay.width !== e.doc.width || gamutOverlay.height !== e.doc.height) return '';
   return `<image class="gamut-warning-overlay" href="${gamutOverlay.url}" x="0" y="0" width="${gamutOverlay.width}" height="${gamutOverlay.height}" preserveAspectRatio="none" style="image-rendering:pixelated;pointer-events:none"/>`;
 }
 function gamutKey(e: Editor, st: ProofState) {
@@ -239,7 +250,8 @@ function scheduleGamut(e: Editor, key: string) {
   gamutTimer = window.setTimeout(async () => {
     const job = ++gamutJob;
     const doc = e.doc;
-    const st = proofState(e.session);
+    const session = e.session;
+    const st = proofState(session);
     try {
       await ensureProfile(st.setup.ref);
       const img = await compositeRGBA(e, doc);
@@ -261,7 +273,8 @@ function scheduleGamut(e: Editor, key: string) {
       const blob = await canvas.convertToBlob({ type: 'image/png' });
       if (job !== gamutJob) return;
       if (gamutOverlay) URL.revokeObjectURL(gamutOverlay.url);
-      gamutOverlay = { doc, key, url: URL.createObjectURL(blob), width: img.width, height: img.height };
+      const url = URL.createObjectURL(blob);
+      gamutOverlay = { session, doc, key, url, width: img.width, height: img.height };
       e.overlay();
     } catch (error) {
       e.message(`Gamut warning failed: ${error instanceof Error ? error.message : String(error)}`);

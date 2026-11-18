@@ -186,6 +186,10 @@ export async function openRestore(e: Editor, opts: RestoreDialogOptions = {}): P
   const clients = [preview, full, aiClient];
 
   const say = (t: string) => (statusEl.textContent = t);
+  // A notice about the last action (a loaded preset) stays in front of the
+  // filter summary the finished preview shows, until the next change.
+  let notice = '';
+  const tell = (t: string) => say((notice = t));
   const busy = (label: string | null, f = 0) => {
     busyEl.hidden = !label;
     if (label) {
@@ -634,6 +638,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     if (k !== undefined) view.setBefore(befores.get(k));
   };
   function changed() {
+    notice = '';
     renderOutput();
     void refresh();
   }
@@ -669,7 +674,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     }
     if (my !== gen) return;
     busy(null);
-    say(summary());
+    say(notice ? `${notice} ${summary()}` : summary());
     maybeFull();
   }
   // Zoomed in past the preview's resolution: render full size once settled.
@@ -825,7 +830,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
       renderControls();
       renderOutput();
       changed();
-      say(`Preset “${p.name}” loaded.${stopped ? ' The running AI request was stopped.' : ''}`);
+      tell(`Preset “${p.name}” loaded.${stopped ? ' The running AI request was stopped.' : ''}`);
     } else if (del !== undefined) {
       const p = presets[Number(del)];
       if (p) deletePreset(p.name);
@@ -874,7 +879,7 @@ ${def.overlay ? `<label class="pr-row pr-check"><input type="checkbox" class="pr
     renderControls();
     renderOutput();
     changed();
-    if (stopped) say('Reset All stopped the running AI request.');
+    if (stopped) tell('Reset All stopped the running AI request.');
   });
 
   // ----- Apply -----

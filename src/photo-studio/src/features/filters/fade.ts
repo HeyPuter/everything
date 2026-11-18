@@ -7,7 +7,7 @@ import type { TileGrid } from '../../model/tiles';
 import { isBlendMode, blendModes, type BlendMode } from '../../imaging/blend';
 import type { IRect } from '../../imaging/types';
 import { escapeXML } from '../../model/assets';
-import { previewTarget, type PixelTarget } from '../pixels';
+import { previewTarget, previewTiles, type PixelTarget } from '../pixels';
 import { canFade, filterState } from './state';
 import { Lane, isCancel, registerSource, releaseSource } from './client';
 import { gridPayload, mergeTiles } from './tilepack';
@@ -61,7 +61,7 @@ export async function fade(e: Editor, arg?: { opacity: number; mode: BlendMode }
       commit(await render(arg.opacity, arg.mode), arg.opacity, arg.mode);
       return;
     }
-    await fadeDialog(e, f.label, render, commit, f.target);
+    await fadeDialog(e, f.label, render, commit, f.target, f.after);
   } catch (error) {
     if (!isCancel(error)) throw error;
   } finally {
@@ -70,7 +70,8 @@ export async function fade(e: Editor, arg?: { opacity: number; mode: BlendMode }
   }
 }
 
-function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) => Promise<TileGrid>, commit: (g: TileGrid, o: number, m: BlendMode) => void, target: PixelTarget) {
+// `after`: the grid each preview is made from (its tiles are not the preview's).
+function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) => Promise<TileGrid>, commit: (g: TileGrid, o: number, m: BlendMode) => void, target: PixelTarget, after: TileGrid) {
   const dialog = document.createElement('dialog');
   dialog.className = 'filter-dialog fade-dialog';
   dialog.innerHTML = `<form method="dialog" novalidate><h2>Fade</h2><p class="fd-note">${escapeXML(label)}</p>
@@ -81,9 +82,11 @@ function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) 
   document.body.append(dialog);
   makeMovable(dialog);
   const q = <T extends HTMLElement>(s: string) => dialog.querySelector<T>(s)!;
+  const tiles = previewTiles(e, after);
   let opacity = 1,
     mode: BlendMode = 'normal',
     latest: { key: string; grid: TileGrid } | undefined,
+    closed = false,
     timer = 0;
   const key = () => `${opacity}:${mode}`;
   const show = async () => {
@@ -95,8 +98,12 @@ function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) 
     const k = key();
     try {
       const grid = latest?.key === k ? latest.grid : await render(opacity, mode);
+      // A result superseded before it was shown, or finished after the
+      // dialog closed, is freed at once.
+      if (closed) return tiles.discard(grid);
+      if (latest && latest.grid !== grid) tiles.discard(latest.grid);
       latest = { key: k, grid };
-      if (k === key()) e.preview(previewTarget(e, target, grid));
+      if (k === key()) e.preview(previewTarget(e, target, tiles.show(grid)));
     } catch (error) {
       if (!isCancel(error)) e.message(String(error));
     }
@@ -120,16 +127,19 @@ function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) 
   q('#fade-opacity').addEventListener('change', (ev) => ((ev.target as HTMLInputElement).value = String(Math.round(opacity * 100))));
   q('#fade-preview').addEventListener('change', () => void show());
   return new Promise<void>((resolve) => {
-    const close = () => {
+    const close = (applied?: TileGrid) => {
       clearTimeout(timer);
       lane.cancel();
       dialog.close();
       dialog.remove();
       delete e.settings.quickMaskPreview;
       e.update();
+      closed = true;
+      if (latest && latest.grid !== applied) tiles.discard(latest.grid);
+      tiles.release(applied);
       resolve();
     };
-    q('.fd-cancel').addEventListener('click', close);
+    q('.fd-cancel').addEventListener('click', () => close());
     dialog.addEventListener('cancel', (ev) => {
       ev.preventDefault();
       close();
@@ -140,7 +150,7 @@ function fadeDialog(e: Editor, label: string, render: (o: number, m: BlendMode) 
       try {
         const grid = latest?.key === key() ? latest.grid : await render(opacity, mode);
         const [o, m] = [opacity, mode];
-        close();
+        close(grid);
         commit(grid, o, m);
       } catch (error) {
         if (!isCancel(error)) e.message(String(error));

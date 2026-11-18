@@ -1,6 +1,7 @@
 import type { Editor } from '../../editor';
 import type { Mask8 } from '../../imaging/types';
 import type { TileGrid } from '../../model/tiles';
+import type { Rect } from '../../model/document';
 import { emptyGrid, readMask, readRGBA, writeRect } from '../../model/tiles';
 import { canvasRect, selectionGrid, selectionOutline } from '../../model/selection';
 import { vectorBounds, vectorUnbounded, type VectorMask } from '../../model/vector';
@@ -18,13 +19,44 @@ export async function maskCoverage(e: Editor, mask: VectorMask, doc = e.doc): Pr
   const r = await e.engine.vectorMask(mask, rect);
   return { width: rect.width, height: rect.height, data: r.coverage };
 }
-/** A one-channel tile grid holding a path's coverage; unbounded masks reveal outside the canvas. */
-export async function maskToGrid(e: Editor, mask: VectorMask, doc = e.doc): Promise<TileGrid> {
-  const cov = await maskCoverage(e, mask, doc);
+/** A one-channel tile grid holding a path's coverage; unbounded masks reveal
+ * outside the stored area. Where the masked layer's content (`extent`) runs
+ * past the canvas edge, the mask is rasterized there too (up to one canvas
+ * size around it), so it stays whole when the layer moves that content onto
+ * the canvas. */
+export async function maskToGrid(
+  e: Editor,
+  mask: VectorMask,
+  doc = e.doc,
+  extent?: Rect | null,
+): Promise<TileGrid> {
   const base = { ...emptyGrid(1), fill: vectorUnbounded(mask) ? 255 : 0 };
-  return writeRect(e.assets.tiles, base, 0, 0, cov);
+  const canvas = canvasRect(doc);
+  let rect = canvas;
+  const v = extent && mask.paths.length ? vectorBounds(mask) : null;
+  // Off-canvas coverage only matters over the layer's content.
+  const b = v && extent && (vectorUnbounded(mask) ? extent : intersectRects(v, extent));
+  if (b) {
+    const x0 = Math.max(-canvas.width, Math.min(0, Math.floor(b.x))),
+      y0 = Math.max(-canvas.height, Math.min(0, Math.floor(b.y))),
+      x1 = Math.min(2 * canvas.width, Math.max(canvas.width, Math.ceil(b.x + b.width))),
+      y1 = Math.min(2 * canvas.height, Math.max(canvas.height, Math.ceil(b.y + b.height)));
+    rect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  }
+  if (rect === canvas)
+    return writeRect(e.assets.tiles, base, 0, 0, await maskCoverage(e, mask, doc));
+  const r = await e.engine.vectorMask(mask, rect);
+  const cov = { width: rect.width, height: rect.height, data: r.coverage };
+  return writeRect(e.assets.tiles, base, rect.x, rect.y, cov);
 }
 /** Bounding box of nonzero coverage (canvas coordinates), or null. */
+function intersectRects(a: Rect, b: Rect): Rect | null {
+  const x = Math.max(a.x, b.x),
+    y = Math.max(a.y, b.y),
+    r = Math.min(a.x + a.width, b.x + b.width),
+    t = Math.min(a.y + a.height, b.y + b.height);
+  return r > x && t > y ? { x, y, width: r - x, height: t - y } : null;
+}
 export function coverageBounds(m: Mask8) {
   let x0 = m.width, y0 = m.height, x1 = -1, y1 = -1;
   for (let y = 0; y < m.height; y++) {

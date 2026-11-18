@@ -93,6 +93,83 @@ test('dragging a divider between panel groups resizes only those two groups, als
   expect(await page.locator('[data-resize="dock-top"]').evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
 });
 
+test('a minimized panel group keeps its size for when it is restored, and the divider above it moves the next open group', async ({ page }) => {
+  const heights = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>('.dock-column .panel-group:not(.empty)')].map((g) => [g.dataset.location, Math.round(g.getBoundingClientRect().height)])));
+  const before = await heights();
+  const tabs = page.locator('[data-location="dock-middle"] .panel-tabs');
+  const box = (await tabs.boundingBox())!;
+  await tabs.dblclick({ position: { x: box.width - 60, y: 10 } });
+  expect((await heights())['dock-middle']).toBeLessThan(40);
+  // The minimized group's own edge cannot be dragged (it used to store the
+  // tab bar's height as the group's size).
+  await expect(page.locator('[data-resize="dock-middle"]')).toBeHidden();
+  const collapsed = await heights();
+  const b = (await page.locator('[data-resize="dock-top"]').boundingBox())!;
+  await page.mouse.move(b.x + 40, b.y + 3);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 40, b.y + 3 - 30, { steps: 4 });
+  await page.mouse.up();
+  const now = await heights();
+  expect(Math.abs(now['dock-top'] - (collapsed['dock-top'] - 30))).toBeLessThanOrEqual(2);
+  expect(Math.abs(now['dock-bottom'] - (collapsed['dock-bottom'] + 30))).toBeLessThanOrEqual(2);
+  await tabs.dblclick({ position: { x: box.width - 60, y: 10 } });
+  expect((await heights())['dock-middle']).toBeGreaterThan(before['dock-middle'] / 2);
+});
+
+test.describe('in a short window', () => {
+  test.use({ viewport: { width: 1280, height: 560 } });
+  test('every icon panel in the strip can be reached: the strip scrolls', async ({ page }) => {
+    const strip = page.locator('.dock-strip');
+    const icons = strip.locator('[data-strip-panel]');
+    const last = icons.last();
+    const visible = async () => {
+      const s = (await strip.boundingBox())!;
+      const b = (await last.boundingBox())!;
+      return b.y >= s.y - 1 && b.y + b.height <= s.y + s.height + 1;
+    };
+    // The keyboard reaches the last icon and it scrolls into sight.
+    await icons.first().focus();
+    await page.keyboard.press('End');
+    await expect(last).toBeFocused();
+    expect(await visible()).toBe(true);
+    // So does the mouse wheel.
+    await strip.evaluate((el) => (el.scrollTop = 0));
+    const s = (await strip.boundingBox())!;
+    await page.mouse.move(s.x + s.width / 2, s.y + 40);
+    await page.mouse.wheel(0, 400);
+    await expect.poll(visible).toBe(true);
+    await last.click();
+    await expect(page.locator('.dock-drawer')).toBeVisible();
+  });
+});
+
+test('panel tabs follow Home and End as well as the arrows', async ({ page }) => {
+  const tabs = page.locator('.panel-group[data-location="dock-top"] [data-panel-tab]');
+  const ids = await tabs.evaluateAll((t) => t.map((x) => (x as HTMLElement).dataset.panelTab!));
+  expect(ids.length).toBeGreaterThan(2);
+  await page.locator(`[data-panel-tab="${ids[0]}"]`).focus();
+  await page.keyboard.press('End');
+  await expect(page.locator(`[data-panel-tab="${ids.at(-1)}"]`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`[data-panel-tab="${ids.at(-1)}"]`)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(page.locator(`[data-panel-tab="${ids[0]}"]`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`[data-panel-tab="${ids[0]}"]`)).toBeFocused();
+});
+
+test('the icon strip keeps the Tab stop on the icon used last', async ({ page }) => {
+  const icons = page.locator('.dock-strip [data-strip-panel]');
+  await icons.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  const third = await icons.nth(2).getAttribute('data-strip-panel');
+  await expect(icons.nth(2)).toBeFocused();
+  const stops = () => icons.evaluateAll((b) => b.filter((x) => (x as HTMLElement).tabIndex === 0).map((x) => (x as HTMLElement).dataset.stripPanel));
+  expect(await stops()).toEqual([third]);
+  // Still so after the dock redraws (another tab chosen).
+  await page.locator('[data-panel-tab][aria-selected="false"]').first().click();
+  expect(await stops()).toEqual([third]);
+});
+
 test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on its slot', async ({ page }) => {
   const slot = page.locator('[data-slot="marquee"]');
   await slot.focus();
@@ -173,6 +250,13 @@ test('a panel button used from the keyboard keeps the focus when the panel redra
   // Tab carries on inside the panel instead of starting over from the top of the page.
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => !!document.activeElement?.closest('[data-panel="history"]'))).toBe(true);
+});
+
+test('the shortcut editor lists panel toggles but not the panel menu items that act on an open panel menu', async ({ page }) => {
+  await start(page, 'edit.keyboard-shortcuts');
+  const d = page.locator('dialog[open]');
+  await expect(d.locator('.shortcut-entry[data-id="window.panel.layers"]')).toHaveCount(1);
+  await expect(d.locator('.shortcut-entry[data-id^="window.panel.menu-"]')).toHaveCount(0);
 });
 
 test('the keyboard can move through the shortcut editor, record a shortcut and close it', async ({ page }) => {

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { TileStore, emptyGrid, gridFromImage, readRGBA } from '../src/model/tiles';
+import {
+  TileStore,
+  emptyGrid,
+  filledMask,
+  gridFromImage,
+  readRGBA,
+  writeRect,
+} from '../src/model/tiles';
 import { StrokeSession } from '../src/engine/paint';
 import { SmudgeFinger, smudgeSpacing } from '../src/engine/smudge';
 
@@ -134,5 +141,98 @@ describe('finger painting and square tips', () => {
     expect(a(39, 39)).toBe(255);
     expect(a(19, 30)).toBe(0);
     expect(a(40, 30)).toBe(0);
+  });
+});
+
+describe('stroke sessions limited by a moved selection', () => {
+  it('paint follows a selection outline that was moved off the document origin', () => {
+    const store = new TileStore();
+    // A 40 px square at the origin, moved 50 px right and 300 px down (across a tile edge).
+    const sel = { ...filledMask(store, { x: 0, y: 0, width: 40, height: 40 }), x: 50, y: 300 };
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip,
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [255, 0, 0], mode: 'normal' },
+      selection: sel,
+    });
+    s.addPoint(70, 320);
+    s.lift();
+    s.addPoint(20, 20);
+    const g = s.commit();
+    const alpha = (x: number, y: number) =>
+      readRGBA(store, g, { x, y, width: 1, height: 1 }).data[3];
+    expect(alpha(70, 320)).toBe(255);
+    expect(alpha(20, 20)).toBe(0);
+  });
+});
+
+describe('stroke sessions limited by a soft selection', () => {
+  it('scale each pixel by its selection coverage across selection tile edges', () => {
+    const store = new TileStore();
+    // Coverage varies per pixel; the grid is offset so its tiles straddle the document's.
+    const W = 300,
+      H = 300;
+    const cover = new Uint8Array(W * H);
+    for (let i = 0; i < cover.length; i++) cover[i] = (i * 37) % 256;
+    const mask = { width: W, height: H, data: cover };
+    const sel = { ...writeRect(store, emptyGrid(1), 0, 0, mask), x: 120, y: 10 };
+    const stroke = (selection: typeof sel | null) => {
+      const s = new StrokeSession(store, emptyGrid(4), {
+        tip: { size: 40, hardness: 0.3, spacing: 10, roundness: 1, angle: 0 },
+        opacity: 1,
+        flow: 1,
+        target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+        selection,
+      });
+      // One dab across the document's tile edges (256) and the selection's (376, 266).
+      s.addPoint(376, 261);
+      return readRGBA(store, s.commit(), { x: 340, y: 225, width: 72, height: 72 }).data;
+    };
+    const full = stroke(null),
+      limited = stroke(sel);
+    for (let y = 0; y < 72; y++)
+      for (let x = 0; x < 72; x++) {
+        const dx = 340 + x - 120,
+          dy = 225 + y - 10;
+        const c = dx >= 0 && dy >= 0 && dx < W && dy < H ? cover[dy * W + dx] : 0;
+        const expected = Math.round((full[(y * 72 + x) * 4 + 3] * c) / 255);
+        expect(Math.abs(limited[(y * 72 + x) * 4 + 3] - expected)).toBeLessThanOrEqual(1);
+      }
+  });
+});
+
+describe('sampled brush tips', () => {
+  it('keep the proportions of a tip sampled from a wide area', () => {
+    const store = new TileStore();
+    // A 4 × 2 tip, fully opaque: at 40 px it paints a 40 × 20 rectangle.
+    const sample = { width: 4, height: 2, data: new Uint8Array(8).fill(255) };
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip: { size: 40, hardness: 1, spacing: 1, roundness: 1, angle: 0, sample },
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+    });
+    s.addPoint(50, 50);
+    expect(s.commit().bounds).toEqual({ x: 30, y: 40, width: 40, height: 20 });
+  });
+});
+
+describe('pressure-controlled opacity', () => {
+  it('a lighter dab never lightens paint an earlier dab of the stroke laid down', () => {
+    const store = new TileStore();
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip: { size: 20, hardness: 1, spacing: 0.1, roundness: 1, angle: 0 },
+      dynamics: { pressureOpacity: true },
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+    });
+    s.addPoint(30, 30, 1);
+    // The pen eases off while moving on: the light dabs overlap the first one.
+    s.addPoint(36, 30, 0.1);
+    const alpha = (x: number) => readRGBA(store, s.grid, { x, y: 30, width: 1, height: 1 }).data[3];
+    expect(alpha(30)).toBe(255);
+    expect(alpha(44)).toBeLessThan(80);
   });
 });

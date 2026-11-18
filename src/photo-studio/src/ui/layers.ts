@@ -20,9 +20,14 @@ export function bindLayerDrag(e: Editor, panel: HTMLElement = e.el('.layers-pane
     const rect = row.getBoundingClientRect();
     const fraction = (event.clientY - rect.top) / rect.height;
     const id = row.dataset.row!;
-    const group = findLayer(e.doc.layers, id)?.kind === 'group';
-    const position: DropPosition =
+    const l = findLayer(e.doc.layers, id);
+    const group = l?.kind === 'group';
+    let position: DropPosition =
       group && fraction >= 0.25 && fraction <= 0.75 ? 'inside' : fraction < 0.5 ? 'above' : 'below';
+    // Under an expanded group's row come its own layers: a drop there goes
+    // into the group, at the top, rather than below the whole group.
+    if (position === 'below' && group && l.children.length && !e.collapsedGroups.has(id))
+      position = 'inside';
     return { id, position, element: row };
   };
   panel.addEventListener('dragstart', (event) => {

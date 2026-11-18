@@ -164,15 +164,18 @@ async function loadChannel(e: Editor, id: string, op: ReturnType<typeof selectio
   const doc = e.doc;
   const area = canvasRect(doc);
   if (['rgb', 'red', 'green', 'blue'].includes(id)) {
-    // Loading a color channel selects by its luminance/values.
+    // Loading a color channel selects by its luminance/values, in the
+    // document it was chosen in even if another is shown once it is read.
+    const session = e.session;
     const { compositeRGBA } = await import('./pixels');
-    const img = await compositeRGBA(e);
+    const img = await compositeRGBA(e, doc);
     const m = new Uint8Array(area.width * area.height);
     for (let i = 0; i < m.length; i++) {
       const r = img.data[i * 4], g = img.data[i * 4 + 1], b = img.data[i * 4 + 2];
       m[i] = id === 'red' ? r : id === 'green' ? g : id === 'blue' ? b : Math.round(0.299 * r + 0.587 * g + 0.114 * b);
     }
-    commitSelectionMask(e, { width: area.width, height: area.height, data: m }, op, 'Load Selection');
+    const mask = { width: area.width, height: area.height, data: m };
+    if (e.sessions.includes(session)) commitSelectionMask(e, mask, op, 'Load Selection', session);
     return;
   }
   const ch = doc.channels?.find((c) => c.id === id);

@@ -16,6 +16,7 @@ import { emptyGrid, gridDocBounds, gridFromImage, readMask, readRGBA, writeRect,
 import { canvasRect } from '../../model/selection';
 import { transformBounds } from '../../model/transform';
 import { formDialog } from '../../ui/dialog';
+import { renameLayer } from './dialogs';
 import { svg } from '../../app/icons';
 import { layerListBanners, layerRowFilters } from '../panels/layers';
 import { hexRgb, layerRGBA, legacyMaskToGrid, prepareRasterize } from '../pixels';
@@ -57,6 +58,9 @@ export function installHousekeeping(e: Editor) {
     get: () => (e.selectedIds.size === 1 ? !!e.layer?.linkGroup : allLinked(e.doc.layers, e.selectedIds)) ? 'Unlink Layers' : 'Link Layers',
   });
   cmd(linkCommand);
+  // A link group left with one member (its partners were deleted, merged or
+  // cut) dissolves, whatever edit removed them.
+  e.documentHooks.push((d) => cleanLinks(d.layers));
   cmd({
     id: 'layer.select-linked',
     label: 'Select Linked Layers',
@@ -192,7 +196,7 @@ export function installHousekeeping(e: Editor) {
         return;
       }
       const v = await formDialog('Rename Layer', [{ name: 'name', label: 'Name', value: l.name }], 'Rename');
-      if (v?.name.trim()) e.editLayer('Rename Layer', (x) => (x.name = v.name.trim()));
+      if (v?.name.trim()) renameLayer(e, l.id, v.name);
     },
     recordable: false,
   });

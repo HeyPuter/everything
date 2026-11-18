@@ -6,16 +6,17 @@
 // Live preview of adjustment kinds on a plain layer uses the GPU: a
 // temporary adjustment layer clipped to the target (and masked by the
 // selection) makes the compositor adjust only the target. Masks, Quick Mask,
-// layers already inside a clipping group and non-LUT operations preview the
-// exact CPU result instead.
+// layers already inside a clipping group, layers with a style and non-LUT
+// operations preview the exact CPU result instead.
 import type { Editor } from '../../editor';
 import { ADJUSTMENT_LABELS, defaultParams, histograms, isSpatialKind, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
 import type { IRect, OperationContext, ParamSpec, ParamValues, RGBA8 } from '../../imaging/types';
 import { allLayers, findLayer, layer, type Layer, type PhotoDocument } from '../../model/document';
+import { activeLayerStyle } from '../../model/layer-style';
 import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
 import { canvasRect, selectionGrid } from '../../model/selection';
 import { escapeXML } from '../../model/assets';
-import { applyToLayer, hexRgb, layerRGBA, pixelTarget, previewTarget, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
+import { applyToLayer, hexRgb, layerRGBA, pixelTarget, previewTarget, previewTiles, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
 import { DEFAULT_MATCH, labStats, matchColorLut, type LabStats, type MatchOptions } from './match-color';
 import type { AdjustHost } from './host';
 import { adjustmentSpec, specAdjustment } from './compile';
@@ -27,6 +28,7 @@ import { h, slider, checkbox, select } from './ui';
 import { svg } from '../../app/icons';
 import { noteDialogCancelled } from '../action-settings';
 import { presetBar, rememberLast } from './user-presets';
+import { keepFocus } from '../../ui/keep-focus';
 
 const PREVIEW_ID = 'adjust-dialog-preview';
 
@@ -226,12 +228,13 @@ function restore(e: Editor) {
   e.update();
 }
 
-const sourceFor = (src: TargetPixels): SourceImage => ({
-  image: src.image,
-  x: src.area.x,
-  y: src.area.y,
-  hist: histograms(src.image, src.cover ? { width: src.image.width, height: src.image.height, data: src.cover } : undefined),
-});
+const sourceFor = (src: TargetPixels): SourceImage => {
+  const { width, height } = src.image;
+  // Analysis (histogram, Auto) counts only the selected pixels.
+  const selection = src.cover ? { width, height, data: src.cover } : undefined;
+  const hist = histograms(src.image, selection);
+  return { image: src.image, x: src.area.x, y: src.area.y, selection, hist };
+};
 
 // ----- Adjustment kind dialogs -----
 
@@ -242,11 +245,20 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   if (!src) return e.message('The layer is empty.');
   const label = ADJUSTMENT_LABELS[kind];
   const shell = openShell(e, label, { wide: kind === 'curves' || kind === 'levels' || kind === 'hue-saturation' || kind === 'gradient-map' });
+  const tiles = previewTiles(e, target.grid);
   // Clarity & Dehaze and Grain read neighboring pixels: clipped to a masked
   // layer, the GPU would see the hidden part as transparent while OK adjusts
   // the pixels under the mask too, so those preview the CPU result.
   const masked = target.kind === 'pixels' && !!target.layer.maskGrid && !target.layer.maskDisabled;
-  const gpu = target.kind === 'pixels' && !target.layer.clipped && !(masked && isSpatialKind(kind));
+  // A clipped adjustment would also recolor the layer's effects (shadows,
+  // overlays, strokes), which OK leaves alone, so styled layers preview the
+  // CPU result too.
+  const styled = target.kind === 'pixels' && !!activeLayerStyle(target.layer);
+  const gpu =
+    target.kind === 'pixels' &&
+    !target.layer.clipped &&
+    !styled &&
+    !(masked && isSpatialKind(kind));
   const schedule = latest();
   const source = sourceFor(src);
   const host: AdjustHost<K> = {
@@ -263,9 +275,13 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
       const pt = await pickPoint(e);
       return pt ? sampleAt(src.image, pt[0] - src.area.x, pt[1] - src.area.y) : null;
     },
+    // Rebuilt after choices (Pencil, Auto options): the keyboard focus stays
+    // on the control used instead of falling off the dialog.
     rerender() {
-      shell.body.innerHTML = '';
-      kindEditors[kind](shell.body, host as never);
+      keepFocus(shell.body, () => {
+        shell.body.innerHTML = '';
+        kindEditors[kind](shell.body, host as never);
+      });
     },
   };
   const adjustment = () => ({ kind, params: host.params }) as Adjustment;
@@ -283,7 +299,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
       if (!shell.dialog.isConnected) return;
       shell.status.textContent = '';
       if (!shell.preview.checked) return;
-      const doc = previewTarget(e, target, resultGrid(e, target, src, out));
+      const doc = previewTarget(e, target, tiles.show(resultGrid(e, target, src, out)));
       e.overlay();
       e.preview(doc);
     });
@@ -301,6 +317,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   refresh();
   const ok = await shell.result;
   restore(e);
+  tiles.release();
   if (!ok) return noteDialogCancelled();
   rememberLast(kind, host.params);
   const adj = structuredClone(adjustment());
@@ -345,6 +362,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, op.label.replace(/…$/, ''));
+  const tiles = previewTiles(e, target.grid);
   const values: ParamValues = initial ? operationValues(op.params, initial) : Object.fromEntries(op.params.map((p) => [p.key, p.default]));
   const schedule = latest();
   const refresh = () => {
@@ -356,7 +374,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
       if (!shell.dialog.isConnected) return;
       shell.status.textContent = '';
       if (!shell.preview.checked) return;
-      const doc = previewTarget(e, target, resultGrid(e, target, src, out));
+      const doc = previewTarget(e, target, tiles.show(resultGrid(e, target, src, out)));
       e.overlay();
       e.preview(doc);
     });
@@ -383,6 +401,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   refresh();
   const ok = await shell.result;
   restore(e);
+  tiles.release();
   if (!ok) return noteDialogCancelled();
   const v = { ...values };
   await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
@@ -422,6 +441,7 @@ export async function matchColorDialog(e: Editor) {
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, 'Match Color');
+  const tiles = previewTiles(e, target.grid);
   const own = labStats(src.image, src.cover);
   const options: [string, string][] = [['', 'None']];
   for (const l of allLayers(e.doc.layers))
@@ -459,7 +479,7 @@ export async function matchColorDialog(e: Editor) {
       if (!shell.dialog.isConnected) return;
       shell.status.textContent = '';
       if (!shell.preview.checked) return;
-      e.preview(previewTarget(e, target, resultGrid(e, target, src, out)));
+      e.preview(previewTarget(e, target, tiles.show(resultGrid(e, target, src, out))));
       e.overlay();
     });
   };
@@ -492,6 +512,7 @@ export async function matchColorDialog(e: Editor) {
   refresh();
   const ok = await shell.result;
   restore(e);
+  tiles.release();
   if (!ok) return;
   // OK while the chosen source is still being measured applies that source.
   await measuring;

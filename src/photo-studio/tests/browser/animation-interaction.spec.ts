@@ -57,3 +57,46 @@ test('loading frame thumbnails does not scroll away from the frames being browse
     return first.left >= bounds.left && first.right <= bounds.right;
   })).toBe(true);
 });
+
+test('Space and Enter on the New Frame button in the frame strip add a frame instead of playing', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 48, 32);
+  await run(page, 'animation.create');
+  await run(page, 'animation.new-frame');
+  await page.evaluate(() => window.photoStudio.dock.show('timeline'));
+  const add = page.locator('.timeline-frames .frame-add');
+  await add.focus();
+  await page.keyboard.press('Space');
+  await idle(page);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.animation?.frames.length)).toBe(3);
+  await expect(page.locator('.timeline-play')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('.timeline-frames .frame-add').focus();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.animation?.frames.length)).toBe(4);
+  // Space on the strip itself still plays.
+  await page.locator('.timeline-frames').focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.timeline-play')).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Space');
+  await expect(page.locator('.timeline-play')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('Space on a video timeline track button uses the button instead of starting playback', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 48, 32);
+  await run(page, 'timeline.create');
+  await page.evaluate(() => window.photoStudio.dock.show('timeline'));
+  const disclosure = page.locator('.vt-disclosure').first();
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await disclosure.focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.vt-disclosure').first()).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.vt-controls [data-command="animation.play"]')).toHaveAttribute('aria-pressed', 'false');
+  // Space on the timeline itself still plays.
+  await page.locator('.vt-body').focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.vt-controls [data-command="animation.play"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Space');
+  await expect(page.locator('.vt-controls [data-command="animation.play"]')).toHaveAttribute('aria-pressed', 'false');
+});

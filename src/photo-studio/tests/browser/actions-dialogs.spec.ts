@@ -158,3 +158,44 @@ test('Insert Stop pauses playback with a message, then continues or stops', asyn
   await idle(page);
   expect(await flips()).toBe(3);
 });
+
+test('an action and its steps can be chosen and played from the keyboard', async ({ page }) => {
+  await openImage(page, 40, 30);
+  await page.evaluate(() => window.photoStudio.dock.show('actions'));
+  const play = page.locator('[data-command="actions.play"]');
+  await expect(play).toBeDisabled();
+  const mirror = page.getByRole('button', { name: 'Mirror Canvas', exact: true });
+  await mirror.focus();
+  await page.keyboard.press('Enter');
+  await expect(mirror).toHaveAttribute('aria-pressed', 'true');
+  await expect(mirror).toBeFocused();
+  await expect(play).toBeEnabled();
+  // The action's step is chosen the same way.
+  const flip = page.getByRole('button', { name: 'Flip Canvas Horizontal', exact: true });
+  await flip.focus();
+  await page.keyboard.press('Space');
+  await expect(flip).toHaveAttribute('aria-pressed', 'true');
+  await expect(mirror).toHaveAttribute('aria-pressed', 'false');
+  await mirror.focus();
+  await page.keyboard.press('Enter');
+  await play.focus();
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.filter((l) => /Flip/.test(l)).length)).toBe(1);
+});
+
+test('Record and Stop used from the keyboard hand the focus to each other as they turn disabled', async ({ page }) => {
+  await openImage(page, 40, 30);
+  await page.evaluate(() => window.photoStudio.dock.show('actions'));
+  await page.getByRole('button', { name: 'Mirror Canvas', exact: true }).click();
+  const record = page.getByRole('button', { name: 'Begin recording' });
+  const stop = page.getByRole('button', { name: 'Stop recording' });
+  await record.focus();
+  await page.keyboard.press('Enter');
+  await expect(record).toBeDisabled();
+  await expect(stop).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(stop).toBeDisabled();
+  await expect(record).toBeFocused();
+  expect(await page.evaluate(() => !!window.photoStudio.recorder)).toBe(false);
+});

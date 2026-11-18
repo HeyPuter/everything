@@ -78,35 +78,10 @@ export function ellipsePoints(x: number, y: number, w: number, h: number): [numb
   }
   return pts;
 }
-/** Gaussian-like feather of a canvas mask: three box blurs (Wells 1986). */
+/** Feather a canvas mask by a radius in pixels: the same Gaussian as Select >
+ * Modify > Feather and Select and Mask, so one radius softens alike everywhere. */
 export function featherMask(m: Mask8, radius: number): Mask8 {
-  if (radius <= 0) return m;
-  const { width: w, height: h } = m;
-  let a = Float32Array.from(m.data);
-  let b = new Float32Array(a.length);
-  const r = Math.max(1, Math.round(radius / Math.sqrt(3)));
-  for (let pass = 0; pass < 3; pass++) {
-    for (let y = 0; y < h; y++) {
-      let sum = 0;
-      for (let x = -r; x <= r; x++) sum += a[y * w + Math.min(w - 1, Math.max(0, x))];
-      for (let x = 0; x < w; x++) {
-        b[y * w + x] = sum / (2 * r + 1);
-        sum += a[y * w + Math.min(w - 1, x + r + 1)] - a[y * w + Math.max(0, x - r)];
-      }
-    }
-    for (let x = 0; x < w; x++) {
-      let sum = 0;
-      for (let y = -r; y <= r; y++) sum += b[Math.min(h - 1, Math.max(0, y)) * w + x];
-      for (let y = 0; y < h; y++) {
-        a[y * w + x] = sum / (2 * r + 1);
-        sum += b[Math.min(h - 1, y + r + 1) * w + x] - b[Math.max(0, y - r) * w + x];
-      }
-    }
-    [a, b] = [a, b];
-  }
-  const out = new Uint8Array(a.length);
-  for (let i = 0; i < a.length; i++) out[i] = Math.round(a[i]);
-  return { width: w, height: h, data: out };
+  return radius > 0 ? feather(m, radius) : m;
 }
 
 // ----- Selection state helpers -----
@@ -299,9 +274,15 @@ export function marqueePixels(r: { x: number; y: number; width: number; height: 
   return { x, y, width: Math.round(r.x + r.width) - x, height: Math.round(r.y + r.height) - y };
 }
 const marqueeStyle = (e: Editor): MarqueeStyle => ({ style: e.settings.marqueeStyle, width: e.settings.marqueeW, height: e.settings.marqueeH });
-export function finishShape(e: Editor, op: SelectionOp, mask: Mask8 | null, label: string) {
+export function finishShape(
+  e: Editor,
+  op: SelectionOp,
+  mask: Mask8 | null,
+  label: string,
+  session = e.session,
+) {
   const feather = Number(e.settings.selectionFeather ?? 0);
-  commitSelectionMask(e, mask && feather ? featherMask(mask, feather) : mask, op, label);
+  commitSelectionMask(e, mask && feather ? featherMask(mask, feather) : mask, op, label, session);
 }
 /** Options for the marquee tools: the shared selection options, then Style
  * with its width and height (swappable, only editable for a fixed style).
@@ -461,10 +442,13 @@ const polygonTool: Tool = {
   bindOptions: ({ e, el }) => bindSelectionOptions(e, el),
   deactivate: () => {
     polygon = undefined;
+    hoverPoint = undefined;
   },
   pointerDown: (e, p) => {
     if (!polygon) {
       polygon = { points: [[p.x, p.y]], op: selectionOp(e, p) };
+      // The rubber band starts at the new point, not where the last shape was left.
+      hoverPoint = undefined;
       return;
     }
     const [fx, fy] = polygon.points[0];
@@ -542,9 +526,12 @@ const wandTool: Tool = {
       y = Math.floor(p.y);
     if (x < 0 || y < 0 || x >= e.doc.width || y >= e.doc.height) return;
     const op = selectionOp(e, p);
+    // The selection belongs to the document clicked, even if another is shown
+    // by the time its pixels are read.
+    const session = e.session;
     e.message('Selecting similar pixels…');
     const mask = await wandMask(e, x, y);
-    finishShape(e, op, mask, 'Magic Wand');
+    if (e.sessions.includes(session)) finishShape(e, op, mask, 'Magic Wand', session);
     e.message('Ready');
   },
 };
@@ -572,10 +559,22 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
     H = img.height,
     d = img.data;
   const t = e.tolerance * img.unit;
+  // Colors are compared premultiplied by alpha: transparent pixels are alike
+  // whatever color was erased there.
+  const full = 255 * img.unit;
   const i0 = (y * W + x) * 4;
-  const ref = [d[i0], d[i0 + 1], d[i0 + 2], d[i0 + 3]];
-  const within = (i: number) =>
-    Math.abs(d[i] - ref[0]) <= t && Math.abs(d[i + 1] - ref[1]) <= t && Math.abs(d[i + 2] - ref[2]) <= t && Math.abs(d[i + 3] - ref[3]) <= t;
+  const k0 = d[i0 + 3] / full;
+  const ref = [d[i0] * k0, d[i0 + 1] * k0, d[i0 + 2] * k0, d[i0 + 3]];
+  const within = (i: number) => {
+    const a = d[i + 3];
+    if (Math.abs(a - ref[3]) > t) return false;
+    const k = a / full;
+    return (
+      Math.abs(d[i] * k - ref[0]) <= t &&
+      Math.abs(d[i + 1] * k - ref[1]) <= t &&
+      Math.abs(d[i + 2] * k - ref[2]) <= t
+    );
+  };
   const out = new Uint8Array(W * H);
   if (e.settings.contiguous === false) {
     for (let p = 0; p < W * H; p++) if (within(p * 4)) out[p] = 255;
@@ -679,8 +678,10 @@ export function installSelection(_e: Editor) {
       description: 'Add adjacent pixels within the Magic Wand tolerance of the selected colors.',
       enabled: has,
       run: async (e) => {
+        const session = e.session;
         const m = readMask(e.assets.tiles, selectionGrid(e.doc, e.assets.tiles)!, canvasRect(e.doc));
-        commitSelectionMask(e, grow(await wandRGBA(e), m, e.tolerance), 'replace', 'Grow');
+        const grown = grow(await wandRGBA(e), m, e.tolerance);
+        if (e.sessions.includes(session)) commitSelectionMask(e, grown, 'replace', 'Grow', session);
       },
     },
     {
@@ -689,8 +690,11 @@ export function installSelection(_e: Editor) {
       description: 'Add pixels anywhere in the image within the Magic Wand tolerance of the selected colors.',
       enabled: has,
       run: async (e) => {
+        const session = e.session;
         const m = readMask(e.assets.tiles, selectionGrid(e.doc, e.assets.tiles)!, canvasRect(e.doc));
-        commitSelectionMask(e, similar(await wandRGBA(e), m, e.tolerance), 'replace', 'Similar');
+        const found = similar(await wandRGBA(e), m, e.tolerance);
+        if (e.sessions.includes(session))
+          commitSelectionMask(e, found, 'replace', 'Similar', session);
       },
     },
     {
@@ -717,7 +721,8 @@ export function installSelection(_e: Editor) {
   let cache: { grid: TileGrid; zoom: number; d: string } | undefined;
   registerOverlay('selection', (e) => {
     const grid = e.doc.selectionMask ?? (e.doc.selection ? selectionGrid(e.doc, e.assets.tiles) : null);
-    if (!grid || e.settings.hideSelectionEdges) return '';
+    // In Quick Mask mode the mask shows the selection being edited.
+    if (!grid || e.settings.hideSelectionEdges || e.settings.quickMask) return '';
     if (!cache || cache.grid !== grid) cache = { grid, zoom: e.zoom, d: selectionOutline(e.doc, e.assets.tiles, grid) };
     const z = e.zoom;
     const off = outlineOffset();

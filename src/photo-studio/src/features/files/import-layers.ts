@@ -11,6 +11,7 @@ import { setDocumentResolution } from '../../model/text-layer';
 import { pickLocalFiles } from '../embedded/convert';
 import { pickCloudFiles } from './cloud';
 import { inMemoryFile } from './open';
+import { renewLinkGroups } from '../../model/links';
 
 export const importAccept = '.psd,.psb,.photo';
 
@@ -33,6 +34,7 @@ export function importGroup(source: PhotoDocument, name: string): { group: Layer
       artboards++;
     }
   }
+  renewLinkGroups(layers);
   if (artboards) notes.push(`${artboards} artboard${artboards === 1 ? ' became a group' : 's became groups'}.`);
   const group = newLayer('group', name, source.width, source.height);
   group.children = layers;

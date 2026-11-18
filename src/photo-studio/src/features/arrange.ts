@@ -5,7 +5,7 @@ import { linkedPartners } from '../model/links';
 import { moveGroupMasks, transformBounds } from '../model/transform';
 import { assertEditable } from '../model/layers';
 import { escapeXML } from '../model/assets';
-import { eventShortcut, formatShortcut, normalizeShortcut } from '../app/shortcuts';
+import { eventShortcut, formatShortcut, normalizeShortcut, platformShortcut } from '../app/shortcuts';
 import { svg } from '../app/icons';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -117,7 +117,7 @@ function openSearch(e: Editor) {
     list = pop.querySelector<HTMLElement>('.search-results')!;
   type Item = { kind: string; label: string; detail: string; run: () => void; icon: string };
   const items: Item[] = [
-    ...[...commands.values()].filter((c) => !c.hidden && !c.id.startsWith('window.panel.')).map((c) => ({ kind: 'Command', label: c.label.replace('…', ''), detail: formatShortcut(c.shortcut), run: () => void e.runCommand(c.id), icon: 'chevron-right' })),
+    ...[...commands.values()].filter((c) => !c.hidden && !c.id.startsWith('window.panel.') && !c.id.startsWith('window.document-')).map((c) => ({ kind: 'Command', label: c.label.replace('…', ''), detail: formatShortcut(c.shortcut), run: () => void e.runCommand(c.id), icon: 'chevron-right' })),
     ...[...tools.values()].map((t) => ({ kind: 'Tool', label: t.label, detail: t.key ?? '', run: () => e.setTool(t.id), icon: t.icon })),
     ...[...panels.values()].map((p) => ({ kind: 'Panel', label: p.title, detail: '', run: () => e.dock.show(p.id), icon: p.icon })),
   ];
@@ -229,16 +229,19 @@ export function setCustomShortcuts(custom: Record<string, string>) {
 function shortcutEditor(e: Editor) {
   const d = document.querySelector<HTMLDialogElement>('#dialog')!;
   const custom = customShortcuts();
-  const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.') || true).sort((a, b) => a.id.localeCompare(b.id));
+  // Panel toggles (window.panel.<id>) take shortcuts; the panel menu's own
+  // items act on the panel whose menu is open, so a shortcut has no panel.
+  const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.menu-') && !c.id.startsWith('window.document-')).sort((a, b) => a.id.localeCompare(b.id));
   d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
-    .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? c.shortcut[0] : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
+    .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? (c.shortcut.find((x) => platformShortcut(x)) ?? c.shortcut[0]) : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
     .join('')}</div><div class="dialog-actions"><button type="button" data-reset-shortcuts>Reset to Defaults</button><button type="button" id="cancel-dialog">Cancel</button><button class="primary">OK</button></div></form>`;
   const conflicts = () => {
     const seen = new Map<string, HTMLInputElement[]>();
     d.querySelectorAll<HTMLInputElement>('[data-shortcut]').forEach((i) => {
       i.classList.remove('conflict');
       if (!i.value) return;
-      const k = normalizeShortcut(i.value);
+      // Compared as typed on this platform: away from macOS, Ctrl+X and Mod+X are one key.
+      const k = platformShortcut(i.value) ?? normalizeShortcut(i.value);
       seen.set(k, [...(seen.get(k) ?? []), i]);
     });
     for (const group of seen.values()) if (group.length > 1) group.forEach((i) => i.classList.add('conflict'));
@@ -288,10 +291,16 @@ function shortcutEditor(e: Editor) {
     const q = (ev.target as HTMLInputElement).value.toLowerCase();
     d.querySelectorAll<HTMLElement>('.shortcut-entry').forEach((row) => (row.hidden = !!q && !row.textContent!.toLowerCase().includes(q)));
   });
+  // Reset shows the default shortcuts in the fields; OK applies them and
+  // Cancel keeps the custom ones.
   d.querySelector('[data-reset-shortcuts]')!.addEventListener('click', () => {
-    setCustomShortcuts({});
-    d.close();
-    e.message('Keyboard shortcuts reset to defaults.');
+    for (const id of Object.keys(custom)) delete custom[id];
+    d.querySelectorAll<HTMLInputElement>('[data-shortcut]').forEach((i) => {
+      const id = i.dataset.shortcut!;
+      const s = defaultShortcuts.has(id) ? defaultShortcuts.get(id) : commands.get(id)?.shortcut;
+      i.value = (Array.isArray(s) ? s[0] : s) ?? '';
+    });
+    conflicts();
   });
   d.querySelector('#cancel-dialog')!.addEventListener('click', () => d.close());
   form.onsubmit = (ev) => {

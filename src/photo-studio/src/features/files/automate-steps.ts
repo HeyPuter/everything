@@ -14,6 +14,8 @@ export type BatchStep = {
   label: string;
   apply?: (image: RGBA8, info: { name: string }) => RGBA8 | Promise<RGBA8>;
   document?: (e: Editor) => Promise<void>;
+  /** Batch starts with this step ticked (the action chosen in the Actions panel). */
+  preselected?: () => boolean;
 };
 export const batchSteps = new Map<string, BatchStep>();
 const steps = batchSteps;

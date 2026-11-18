@@ -236,6 +236,31 @@ describe('duplicating layers in a clipping group', () => {
   });
 });
 
+describe('moving layers into a clipping group', () => {
+  it('a layer dropped between the base and a clipped layer joins the clipping group', () => {
+    const doc = newDocument(40, 30);
+    const [base, clipped, x] = ['Base', 'Clipped', 'X'].map((n) => layer('solid', n, 40, 30));
+    clipped.clipped = true;
+    doc.layers = [base, clipped, x];
+    moveLayers(doc, new Set([x.id]), clipped.id, 'below');
+    expect(doc.layers.map((l) => [l.name, !!l.clipped])).toEqual([
+      ['Base', false],
+      ['X', true],
+      ['Clipped', true],
+    ]);
+    // Dropped above the clipping group, it stays an ordinary layer.
+    const y = layer('solid', 'Y', 40, 30);
+    doc.layers.unshift(y);
+    moveLayers(doc, new Set([y.id]), clipped.id, 'above');
+    expect(doc.layers.map((l) => [l.name, !!l.clipped])).toEqual([
+      ['Base', false],
+      ['X', true],
+      ['Clipped', true],
+      ['Y', false],
+    ]);
+  });
+});
+
 describe('creating and releasing clipping masks', () => {
   function fixture() {
     const doc = newDocument(40, 30);

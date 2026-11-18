@@ -143,7 +143,7 @@ export function levelsEditor(body: HTMLElement, host: AdjustHost<'levels'>) {
     button('Auto', async () => {
       const s = await host.source();
       if (!s) return;
-      Object.assign(p, autoLevels(s.image, 'tone'));
+      Object.assign(p, autoLevels(s.image, 'tone', { selection: s.selection }));
       host.change(true);
       host.rerender();
     }, { title: 'Automatic per-channel levels' }),

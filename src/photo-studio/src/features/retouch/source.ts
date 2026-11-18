@@ -25,13 +25,22 @@ export async function retouchTarget(e: Editor, what: string): Promise<PixelsTarg
 
 // Merged-image reads go through the GPU; documents are immutable snapshots, so
 // the layer stack's serialized form identifies the picture.
-let composite: { key: string; img: RGBA8 } | undefined;
+let composite: { key: string; img: RGBA8; session: string } | undefined;
+// Closing its document frees the cached image (the size of the canvas).
+const watching = new WeakSet<Editor>();
 export function stackKey(e: Editor) {
   return `${e.doc.width}x${e.doc.height}:${JSON.stringify(e.doc.layers)}`;
 }
 export async function mergedImage(e: Editor): Promise<RGBA8> {
-  const key = stackKey(e);
-  if (composite?.key !== key) composite = { key, img: await compositeRGBA(e) };
+  if (!watching.has(e)) {
+    watching.add(e);
+    e.closeHooks.push((s) => {
+      if (composite?.session === s.id) composite = undefined;
+    });
+  }
+  const key = stackKey(e),
+    session = e.session.id;
+  if (composite?.key !== key) composite = { key, img: await compositeRGBA(e), session };
   return composite.img;
 }
 /** Canvas-sized source: the merged image, or the current pixel layer. */

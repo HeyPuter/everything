@@ -2,7 +2,8 @@ import type { Editor } from '../editor';
 import { escapeXML } from '../model/assets';
 import { svg } from './icons';
 import { showContextMenu } from './menubar';
-import { commands, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
+import { commands, menuContributions, panels, registerCommand, type MenuItem, type Panel, type PanelLocation } from './registry';
+import { menuSkeleton } from './menus';
 import { BottomDock } from './bottom-dock';
 import { keepFocus } from '../ui/keep-focus';
 
@@ -150,16 +151,25 @@ export class Dock {
         return;
       }
       const tab = (ev.target as HTMLElement).closest<HTMLElement>('[data-panel-tab]');
-      if (!tab || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return;
+      if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
       const tabs = [...tab.parentElement!.querySelectorAll<HTMLElement>('[data-panel-tab]')];
-      const next = tabs[(tabs.indexOf(tab) + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+      const next = ev.key === 'Home' ? tabs[0] : ev.key === 'End' ? tabs.at(-1)! : tabs[(tabs.indexOf(tab) + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       this.activate(next.dataset.panelTab!);
       this.el.querySelector<HTMLElement>(`[data-panel-tab="${next.dataset.panelTab}"]`)?.focus();
       ev.preventDefault();
     });
+    // The icon strip is one tab stop: the icon used last (roving tabindex).
+    el.addEventListener('focusin', (ev) => {
+      const icon = (ev.target as HTMLElement).closest<HTMLElement>('[data-strip-panel]');
+      if (!icon) return;
+      this.stripStop = icon.dataset.stripPanel;
+      for (const b of this.el.querySelectorAll<HTMLElement>('[data-strip-panel]')) b.tabIndex = b === icon ? 0 : -1;
+    });
     this.bindResize();
     this.bindDrag();
   }
+  // The strip icon that takes the Tab stop.
+  private stripStop?: string;
   private save() {
     try {
       localStorage.setItem(storageKey, JSON.stringify(this.layout));
@@ -198,7 +208,9 @@ export class Dock {
     };
     return [...panels.values()]
       .map((p, i) => ({ p, i }))
-      .filter(({ p }) => this.locationOf(p) === loc && this.inDock(p.id))
+      // Panels registered under the canvas stay there, even where a layout
+      // saved by an earlier version placed them in the side dock.
+      .filter(({ p }) => p.location !== 'bottom' && this.locationOf(p) === loc && this.inDock(p.id))
       .sort((a, b) => rank(a.p.id) - rank(b.p.id) || (loc === 'strip' ? stripSection(a.p.id) - stripSection(b.p.id) : 0) || a.i - b.i)
       .map(({ p }) => p);
   }
@@ -210,13 +222,19 @@ export class Dock {
   registerCommands() {
     // A feature may register its panel's command itself (to place it
     // directly in the Window menu rather than under Panels).
+    // A panel command the Window menu already lists by name stays out of its
+    // Panels submenu, so it is not offered twice there (Scripts, Timeline).
+    const listed = (id: string) => {
+      const has = (items: MenuItem[]): boolean => items.some((i) => i === id || (typeof i === 'object' && has(i.items)));
+      return menuSkeleton.some((m) => m.id === 'window' && has(m.items)) || menuContributions.some((c) => c.menu === 'window' && has(c.items));
+    };
     for (const p of panels.values())
       if (!commands.has(`window.panel.${p.id}`))
         registerCommand({
           id: `window.panel.${p.id}`,
           label: p.title,
           shortcut: p.shortcut,
-          menu: 'window.panels',
+          menu: listed(`window.panel.${p.id}`) ? undefined : 'window.panels',
           checked: () => this.isVisible(p.id),
           run: () => this.show(p.id, true),
           recordable: false,
@@ -333,6 +351,9 @@ export class Dock {
     const loc = this.locationOf(p);
     if (toggle && this.isVisible(id)) {
       if (loc === 'strip') this.toggleDrawer(undefined);
+      // A locked workspace keeps its groups as they are (minimizing one is
+      // an arrangement change, as with a double-click on its tabs).
+      else if (this.locked) return;
       else {
         this.layout.collapsed.push(loc);
         this.save();
@@ -361,7 +382,7 @@ export class Dock {
   /** Place a panel in a group or the strip, before another panel when given. */
   move(id: string, loc: PanelLocation, before?: string) {
     const p = panels.get(id);
-    if (!p || this.locked || before === id) return;
+    if (!p || p.location === 'bottom' || this.locked || before === id) return;
     const placement = { ...(this.layout.placement ?? {}) };
     if (loc === p.location) delete placement[id];
     else placement[id] = loc;
@@ -424,6 +445,11 @@ export class Dock {
     const draggable = this.locked ? 'false' : 'true';
     // Detach mounted bodies before rebuilding the chrome so their state survives.
     for (const body of this.mounted.values()) body.remove();
+    // Sizes are flex weights in pixels once a divider was dragged. A group
+    // without one of its own (minimized or empty back then) takes the others'
+    // average: its default weight (1) would leave it a bare tab bar.
+    const sized = groupLocations.map((l) => this.layout.sizes[l]).filter((n): n is number => !!n);
+    const fallback = sized.length ? sized.reduce((a, b) => a + b, 0) / sized.length : undefined;
     // Empty groups stay in the markup as drop zones, shown only while dragging.
     column.innerHTML = groupLocations
       .map((loc) => {
@@ -431,7 +457,7 @@ export class Dock {
         if (!list.length) return `<section class="panel-group empty" data-location="${loc}"><div class="panel-tabs" data-drop-location="${loc}"><span class="drop-hint">Drop a panel here</span></div></section>`;
         const active = this.activeIn(loc)!;
         const collapsed = this.layout.collapsed.includes(loc);
-        const size = this.layout.sizes[loc];
+        const size = this.layout.sizes[loc] ?? fallback;
         return `<section class="panel-group ${collapsed ? 'collapsed' : ''}" data-location="${loc}" ${size && !collapsed ? `style="flex:${size} 1 0"` : ''}><div class="panel-tabs" role="tablist" aria-label="Panels" data-drop-location="${loc}">${list
           .map((p) => `<button role="tab" data-panel-tab="${p.id}" draggable="${draggable}" aria-selected="${p.id === active.id}" tabindex="${p.id === active.id ? 0 : -1}" aria-controls="panel-${p.id}">${escapeXML(p.title)}</button>`)
           .join('')}<span class="panel-tabs-spacer"></span>${menuButton(active, 'data-panel-menu')}</div><div class="panel-slot"></div><div class="group-resizer" data-resize="${loc}" aria-hidden="true"></div></section>`;
@@ -447,6 +473,7 @@ export class Dock {
     }
     const strip = this.el.querySelector<HTMLElement>('.dock-strip')!;
     const stripPanels = this.group('strip');
+    const stop = stripPanels.find((p) => p.id === this.stripStop)?.id ?? stripPanels[0]?.id;
     strip.dataset.dropLocation = 'strip';
     strip.innerHTML = stripPanels
       .map((p, i) => {
@@ -454,7 +481,7 @@ export class Dock {
         const start = i === 0 || stripSection(stripPanels[i - 1].id) !== section;
         const end = i === stripPanels.length - 1 || stripSection(stripPanels[i + 1].id) !== section;
         const label = stripSections[section]?.[0] ?? 'More panels';
-        return `${start ? `<div class="strip-section" role="group" aria-label="${label}">` : ''}<button data-strip-panel="${p.id}" draggable="${draggable}" aria-label="${escapeXML(p.title)}" title="${escapeXML(p.title)}" aria-pressed="${this.drawer === p.id}" tabindex="${i === 0 ? 0 : -1}">${svg(p.icon)}</button>${end ? '</div>' : ''}`;
+        return `${start ? `<div class="strip-section" role="group" aria-label="${label}">` : ''}<button data-strip-panel="${p.id}" draggable="${draggable}" aria-label="${escapeXML(p.title)}" title="${escapeXML(p.title)}" aria-pressed="${this.drawer === p.id}" tabindex="${p.id === stop ? 0 : -1}">${svg(p.icon)}</button>${end ? '</div>' : ''}`;
       })
       .join('');
     strip.classList.toggle('empty', !stripPanels.length);
@@ -536,9 +563,13 @@ export class Dock {
     this.el.addEventListener('pointerdown', (ev) => {
       const handle = (ev.target as HTMLElement).closest<HTMLElement>('[data-resize]');
       if (!handle || this.locked) return;
+      // A minimized group keeps its tab-bar height: its divider does nothing
+      // (a size taken from it would leave the group a tab bar when restored),
+      // and the divider above it moves the next open group's edge.
       const a = handle.parentElement as HTMLElement;
+      if (a.classList.contains('collapsed')) return;
       let b = a.nextElementSibling as HTMLElement | null;
-      while (b && b.classList.contains('empty')) b = b.nextElementSibling as HTMLElement | null;
+      while (b && (b.classList.contains('empty') || b.classList.contains('collapsed'))) b = b.nextElementSibling as HTMLElement | null;
       if (!b) return;
       // Sizes are flex weights: give every open group its current height as
       // its weight, or groups still on their default weight (1) would collapse.

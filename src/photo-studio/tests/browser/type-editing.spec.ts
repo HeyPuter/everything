@@ -203,3 +203,43 @@ test('each resize of a paragraph frame is its own undo step', async ({ page }) =
   await page.keyboard.press('Meta+z');
   expect(await box()).toEqual(start);
 });
+
+test('a click past a word broken across lines keeps the caret on the clicked line', async ({ page }) => {
+  await canvasDrag(page, [[50, 50], [130, 250]]);
+  await page.keyboard.insertText('abcdefghijklmnopqrstuvwxyz');
+  const state = () =>
+    page.evaluate(() => {
+      const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+      const s = m.currentSession()!;
+      const L = m.sessionLayout(window.photoStudio)!;
+      const caret = document.querySelector('.type-caret')!;
+      return { focus: s.focus, first: L.lines[0], second: L.lines[1], caretY: Number(caret.getAttribute('y2')) };
+    });
+  const s0 = await state();
+  expect(s0.first.end).toBe(s0.second.start);
+  // Right of the first line's last letter, on that line.
+  const y = await page.evaluate(() => {
+    const m = (window as unknown as { photoStudioType: typeof import('../../src/features/type/session') }).photoStudioType;
+    const L = m.sessionLayout(window.photoStudio)!;
+    return L.lines[0].y - 2;
+  });
+  await canvasClick(page, 128, y);
+  const s1 = await state();
+  expect(s1.focus).toBe(s0.first.end);
+  // The caret's bottom is on the first line, not the second.
+  expect(Math.abs(s1.caretY - (s1.first.y + s1.first.descent))).toBeLessThan(Math.abs(s1.caretY - (s1.second.y + s1.second.descent)));
+  // End on the first line does the same.
+  await page.keyboard.press('Meta+ArrowUp');
+  await page.keyboard.press('End');
+  const s2 = await state();
+  expect(s2.focus).toBe(s0.first.end);
+  expect(Math.abs(s2.caretY - (s2.first.y + s2.first.descent))).toBeLessThan(Math.abs(s2.caretY - (s2.second.y + s2.second.descent)));
+  // Down from there goes to the second line.
+  await page.keyboard.press('ArrowDown');
+  expect((await state()).focus).toBeGreaterThan(s0.first.end);
+  // Arrowing to the break shows the caret at the second line's start; Home keeps it there.
+  await page.keyboard.press('Meta+ArrowUp');
+  for (let i = 0; i < s0.first.end; i++) await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Home');
+  expect((await state()).focus).toBe(s0.first.end);
+});

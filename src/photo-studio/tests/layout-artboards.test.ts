@@ -1,3 +1,4 @@
+import { makeBackground } from '../src/model/housekeeping';
 import { describe, expect, it } from 'vitest';
 import { cropDocument, layer, newDocument, resizeDocument } from '../src/model/document';
 import {
@@ -92,6 +93,21 @@ describe('artboard geometry', () => {
     expect(artboardFromLayers(doc2, new Set([g.id]), true)).toBe(g.id);
     expect(g.artboard!.rect).toEqual({ x: 10, y: 20, width: 101, height: 50 });
     expect(g.blend).toBe('normal');
+  });
+  it('leaves the Background and locked layers out of Artboard from Layers, as Group does', () => {
+    const doc = newDocument(800, 600);
+    const bg = layer('solid', 'Background', 800, 600);
+    makeBackground(bg);
+    const x = layer('solid', 'X', 10, 10);
+    doc.layers = [bg, x];
+    expect(() => artboardFromLayers(doc, new Set([bg.id, x.id]))).toThrow(/Background/);
+    x.locked = true;
+    expect(() => artboardFromLayers(doc, new Set([x.id]))).toThrow(/Unlock/);
+    expect(doc.layers).toEqual([bg, x]);
+    x.locked = false;
+    artboardFromLayers(doc, new Set([x.id]));
+    expect(doc.layers[0]).toBe(bg);
+    expect(doc.layers[1].children).toEqual([x]);
   });
   it('keeps artboards at the top level', () => {
     const { doc, a, b } = board();

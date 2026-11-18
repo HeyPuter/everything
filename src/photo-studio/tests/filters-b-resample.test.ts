@@ -179,6 +179,23 @@ describe('homography and projective transforms', () => {
     );
     for (let i = 0; i < out.data.length; i += 4) expect(Math.abs(out.data[i] - 128)).toBeLessThanOrEqual(10);
   });
+  it('prefilters only the reduced axis of a one-sided scale', () => {
+    // Horizontal stripes two rows tall: all of the detail runs vertically.
+    const src = rgba8(200, 64);
+    for (let y = 0; y < 64; y++)
+      for (let x = 0; x < 200; x++)
+        src.data.set(y & 2 ? [255, 255, 255, 255] : [0, 0, 0, 255], (y * 200 + x) * 4);
+    for (const m of ['bilinear', 'bicubic'] as const) {
+      const out = transformImage(
+        src,
+        [0.1, 0, 0, 0, 1, 0, 0, 0, 1],
+        { x: 0, y: 0, width: 20, height: 64 },
+        m,
+      );
+      for (let y = 4; y < 60; y++)
+        expect(Math.abs(out.data[(y * 20 + 10) * 4] - (y & 2 ? 255 : 0))).toBeLessThanOrEqual(40);
+    }
+  });
   it('rectifyQuad of the full frame is the identity and a sub-quad crops', () => {
     const src = gradient(32, 24);
     const full = [

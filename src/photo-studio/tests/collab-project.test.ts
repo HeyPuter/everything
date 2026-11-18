@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { layer, newDocument, findLayer, type PhotoDocument } from '../src/model/document';
 import { newPixelLayer } from '../src/model/pixel-layer';
+import { makeBackground } from '../src/model/housekeeping';
+import { linkLayers } from '../src/model/links';
 import { TileStore, readRGBA, writeRect, TILE } from '../src/model/tiles';
 import { Assets } from '../src/model/assets';
 import { validateDocument } from '../src/model/serialization';
@@ -311,3 +313,54 @@ describe('merges of a kind change with a content edit', () => {
   });
 });
 
+
+describe('the Background layer after concurrent edits', () => {
+  it('keeps one Background, at the bottom, when two people each make one', async () => {
+    const { a, doc, ids } = base();
+    await write(a, null, doc);
+    const b = participant();
+    exchange(a, b);
+    const da = view(a),
+      db = view(b);
+    // A makes Top the Background; B makes Fill the Background at the same time.
+    const ea = structuredClone(da);
+    const top = ea.layers.splice(1, 1)[0];
+    makeBackground(top);
+    ea.layers.unshift(top);
+    const eb = structuredClone(db);
+    const fill = eb.layers.pop()!;
+    makeBackground(fill);
+    eb.layers.unshift(fill);
+    await write(a, da, ea);
+    await write(b, db, eb);
+    exchange(a, b);
+    for (const p of [a, b]) {
+      const out = view(p);
+      const marked = out.layers.filter((l) => l.background).map((l) => l.id);
+      expect(marked).toHaveLength(1);
+      expect(out.layers[0].background).toBe(true);
+      expect(out.layers.slice(1).some((l) => l.background)).toBe(false);
+    }
+    expect(view(a).layers.map((l) => [l.id, !!l.background])).toEqual(
+      view(b).layers.map((l) => [l.id, !!l.background]),
+    );
+    void ids;
+  });
+  it('drops a link whose partner someone deleted at the same time', async () => {
+    const { a, doc, ids } = base();
+    await write(a, null, doc);
+    const b = participant();
+    exchange(a, b);
+    const da = view(a),
+      db = view(b);
+    // A links Top and Fill; B deletes Fill.
+    const ea = structuredClone(da);
+    linkLayers(ea.layers, [ids.top, ids.text], 'pair');
+    const eb = structuredClone(db);
+    eb.layers = eb.layers.filter((l) => l.id !== ids.text);
+    await write(a, da, ea);
+    await write(b, db, eb);
+    exchange(a, b);
+    for (const p of [a, b]) expect(findLayer(view(p).layers, ids.top)!.linkGroup).toBeUndefined();
+  });
+});

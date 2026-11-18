@@ -244,7 +244,9 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
       return;
     }
     const range = (e.settings.toneRange as string) ?? 'midtones';
-    const exposure = Number(e.settings.toneExposure ?? 50) / 100;
+    // The Sponge's Flow is its own setting, apart from Dodge and Burn Exposure.
+    const key = kind === 'sponge' ? 'spongeFlow' : 'toneExposure';
+    const exposure = Number(e.settings[key] ?? 50) / 100;
     const saturate = e.settings.spongeMode !== 'desaturate';
     const vibrance = e.settings.spongeVibrance !== false;
     const protect = e.settings.protectTones !== false;
@@ -275,11 +277,17 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
         // Weight by tonal range so shadows, midtones or highlights change most.
         const w = range === 'shadows' ? (1 - l) ** 2 : range === 'highlights' ? l ** 2 : 1 - Math.abs(l - 0.5) * 2;
         const amount = exposure * Math.max(0, w) * 0.5;
+        // Protecting tones scales the channels together toward the dodged
+        // lightness, stopping before any channel clips, so hues do not shift.
+        let gain = 0;
+        if (protect && kind === 'dodge' && l > 0) {
+          gain = (l + (1 - l) * amount) / l;
+          const top = Math.max(r, g, b) / 255;
+          if (top * gain > 1) gain = Math.max(1, 1 / top);
+        }
         for (let c = 0; c < 3; c++) {
           const v = base[c] / 255;
-          let n = kind === 'dodge' ? v + (1 - v) * amount : v * (1 - amount);
-          // Protecting tones keeps hues from shifting by scaling channels together.
-          if (protect && kind === 'dodge') n = Math.min(1, v * (1 + amount * 1.2) + amount * 0.05);
+          const n = gain ? v * gain : kind === 'dodge' ? v + (1 - v) * amount : v * (1 - amount);
           out[c] = n * 255;
         }
         out[3] = base[3];
@@ -302,12 +310,18 @@ const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
   bindNumberField(el, '#tool-strength', () => Number(e.settings[key] ?? 50), (v) => (e.settings[key] = Math.max(1, Math.min(100, v))));
 const toneFields = (sponge: boolean) => (e: Editor) =>
   sponge
-    ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label><label class="transform-setting" title="Saturating raises muted colors most and never clips a channel"><input type="checkbox" id="sponge-vibrance" ${e.settings.spongeVibrance !== false ? 'checked' : ''}>Vibrance</label>`
+    ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="sponge-flow" type="number" min="1" max="100" value="${Number(e.settings.spongeFlow ?? 50)}">%</label><label class="transform-setting" title="Saturating raises muted colors most and never clips a channel"><input type="checkbox" id="sponge-vibrance" ${e.settings.spongeVibrance !== false ? 'checked' : ''}>Vibrance</label>`
     : `<label>Range <select id="tone-range">${['shadows', 'midtones', 'highlights'].map((r) => `<option value="${r}" ${(e.settings.toneRange ?? 'midtones') === r ? 'selected' : ''}>${r[0].toUpperCase() + r.slice(1)}</option>`).join('')}</select></label><label>Exposure <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label><label class="transform-setting"><input type="checkbox" id="protect-tones" ${e.settings.protectTones !== false ? 'checked' : ''}>Protect Tones</label>`;
 const bindTone = (e: Editor, el: HTMLElement) => {
   el.querySelector<HTMLSelectElement>('#tone-range')?.addEventListener('change', (ev) => (e.settings.toneRange = (ev.target as HTMLSelectElement).value));
   el.querySelector<HTMLSelectElement>('#sponge-mode')?.addEventListener('change', (ev) => (e.settings.spongeMode = (ev.target as HTMLSelectElement).value));
   bindNumberField(el, '#tone-exposure', () => Number(e.settings.toneExposure ?? 50), (v) => (e.settings.toneExposure = Math.max(1, Math.min(100, v))));
+  bindNumberField(
+    el,
+    '#sponge-flow',
+    () => Number(e.settings.spongeFlow ?? 50),
+    (v) => (e.settings.spongeFlow = Math.max(1, Math.min(100, v))),
+  );
   el.querySelector<HTMLInputElement>('#protect-tones')?.addEventListener('change', (ev) => (e.settings.protectTones = (ev.target as HTMLInputElement).checked));
   el.querySelector<HTMLInputElement>('#sponge-vibrance')?.addEventListener('change', (ev) => (e.settings.spongeVibrance = (ev.target as HTMLInputElement).checked));
 };
@@ -453,9 +467,12 @@ export function installRetouchTools(_e: Editor) {
         const x = Math.floor(p.x),
           y = Math.floor(p.y);
         if (x < 0 || y < 0 || x >= e.doc.width || y >= e.doc.height) return;
+        const session = e.session;
         const target = await pixelTarget(e, { allowMask: false, create: false });
         if (!target || target.kind !== 'pixels') return;
         const region = await wandMask(e, x, y);
+        // Another document was shown meanwhile: do not erase in it.
+        if (e.session !== session) return;
         const area = canvasRect(e.doc);
         const sel = selectionGrid(e.doc, e.assets.tiles);
         const cover = sel ? readMask(e.assets.tiles, sel, area).data : undefined;

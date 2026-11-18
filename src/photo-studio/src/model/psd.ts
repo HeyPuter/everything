@@ -226,6 +226,14 @@ export async function openPsd(blob: Blob, name: string, engine?: ImageEngine) {
   if (channelDepth > 8) document.bitsPerChannel = channelDepth as 16 | 32;
   if (psd.imageResources?.resolutionInfo)
     document.resolution = { ...psd.imageResources.resolutionInfo };
+  // Canvas guides (resource 1032 stores 1/32 pixels as unsigned 32-bit values;
+  // guides left of or above the canvas wrap around).
+  const guides = psd.imageResources?.gridAndGuidesInformation?.guides;
+  if (guides?.length)
+    document.guides = guides.map((g) => ({
+      orientation: g.direction,
+      position: g.location >= 0x4000000 ? g.location - 0x8000000 : g.location,
+    }));
   const aspect = psd.imageResources?.pixelAspectRatio?.aspect;
   if (aspect && Number.isFinite(aspect) && aspect >= 0.1 && aspect <= 10 && Math.abs(aspect - 1) > 1e-6)
     document.pixelAspect = aspect;
@@ -882,7 +890,10 @@ export async function savePsd(
         Number.isInteger(t.x) &&
         Number.isInteger(t.y) &&
         t.width === l.sourceWidth &&
-        t.height === l.sourceHeight;
+        t.height === l.sourceHeight &&
+        // Pixel content transformed past the document size limits is written
+        // as it shows on the canvas, a layer every reader (this one too) opens.
+        withinDocumentLimits(l.sourceWidth, l.sourceHeight);
       if (plainRaster) {
         // Layer rectangles are signed 32-bit coordinates in PSD and PSB.
         if (
@@ -969,6 +980,14 @@ export async function savePsd(
     imageResources: {
       resolutionInfo: doc.resolution ? { ...doc.resolution } : undefined,
       pixelAspectRatio: doc.pixelAspect ? { aspect: doc.pixelAspect } : undefined,
+      gridAndGuidesInformation: doc.guides?.length
+        ? {
+            guides: doc.guides.map((g) => ({
+              location: Math.round(g.position * 32) / 32,
+              direction: g.orientation,
+            })),
+          }
+        : undefined,
       iccUntaggedProfile: doc.iccUntaggedProfile,
       versionInfo: {
         hasRealMergedData: composite,
@@ -997,6 +1016,15 @@ export async function savePsd(
   if (options.channels?.length)
     buffer = appendPsdChannels(new Uint8Array(buffer), options.channels).buffer as ArrayBuffer;
   return new Blob([buffer], { type: "image/vnd.adobe.photoshop" });
+}
+
+function withinDocumentLimits(width: number, height: number) {
+  try {
+    assertSize(width, height);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function narrowComposite(buffer: ArrayBuffer, pixels: PixelData): ArrayBuffer {

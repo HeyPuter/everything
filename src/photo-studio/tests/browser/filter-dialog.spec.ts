@@ -62,3 +62,44 @@ test('OK and Fade accept typed values between the field steps', async ({ page })
   await idle(page);
   expect(await historyLabels(page)).toEqual(['Gaussian Blur', 'Fade Gaussian Blur']);
 });
+
+test('replaced and cancelled filter previews free their pixels', async ({ page }) => {
+  await openImage(page, 600, 400, '#808080');
+  const tiles = () => page.evaluate(() => window.photoStudio.assets.tiles.size);
+  // Tile IDs of the layer the canvas shows (the dialog's preview while it runs).
+  const shown = () =>
+    page.evaluate(() => JSON.stringify(window.photoStudio.shownDoc.layers[0].pixels?.tiles));
+  const initial = await tiles();
+  const dialog = page.locator('dialog.filter-dialog[open]');
+  const preview = async (radius: string) => {
+    const before = await shown();
+    const field = dialog.locator('input[type=number][data-key="radius"]');
+    await field.fill(radius);
+    await field.dispatchEvent('input');
+    await expect.poll(shown).not.toBe(before);
+  };
+  await start(page, 'filter.apply.gaussian-blur');
+  await expect(dialog).toBeVisible();
+  for (const r of ['4', '9', '15']) await preview(r);
+  // Only the preview on the canvas keeps its tiles (six for 600 x 400).
+  await expect.poll(tiles).toBe(initial + 6);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  await expect.poll(tiles).toBe(initial);
+  // Applying keeps the result it shows.
+  await start(page, 'filter.apply.gaussian-blur');
+  await expect(dialog).toBeVisible();
+  for (const r of ['5', '12']) await preview(r);
+  await dialog.locator('.fd-ok').click();
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  expect(await historyLabels(page)).toEqual(['Gaussian Blur']);
+  await expect.poll(tiles).toBe(initial + 6);
+  const px = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const p = await e.renderer.documentPixels(e.doc, e.assets);
+    return p.length;
+  });
+  expect(px).toBe(600 * 400 * 4);
+});

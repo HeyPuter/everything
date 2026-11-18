@@ -93,7 +93,11 @@ export function moveLayers(
     : position === 'inside'
       ? list.length
       : list.indexOf(target) + (position === 'above' ? 1 : 0);
+  // Dropped under a clipped layer, the layers join its clipping group (as a
+  // new layer inserted there does), so the clipped layers keep their base.
+  const joins = !!list[index]?.clipped;
   list.splice(index, 0, ...roots);
+  if (joins) for (const l of roots) if (!l.artboard) l.clipped = true;
   assertTree(doc.layers);
 }
 export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): string | undefined {
@@ -107,6 +111,9 @@ export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): strin
   const topIndex = list.indexOf(roots.at(-1)!);
   const insertion = list.slice(0, topIndex).filter((l) => !roots.includes(l)).length;
   const group = layer('group', 'Group', doc.width, doc.height);
+  // Pass Through, as for New Group: grouping keeps how the layers blend with
+  // the layers below the group (a Normal group would composite them alone).
+  group.blend = 'pass through';
   group.children = roots;
   // Layers clipped to a base outside the selection: the group takes their
   // place in the clipping group, so they still show only inside the base.

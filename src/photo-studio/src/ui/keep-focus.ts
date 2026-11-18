@@ -25,7 +25,20 @@ function mark(root: HTMLElement): Mark | undefined {
   return { el: f, selector, loose, index: [...root.querySelectorAll(selector)].indexOf(f), start: caret(f, 'selectionStart'), end: caret(f, 'selectionEnd') };
 }
 
-function restore(root: HTMLElement, m: Mark) {
+const focusable = 'button, input:not([type="hidden"]), select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+const usable = (el: Element) => !el.matches(':disabled') && el.getClientRects().length > 0;
+/** The control next to `at` that can take the focus: the one before it in its
+ * group of controls (else the one after it), then in larger groups up to `root`. */
+function nearby(root: HTMLElement, at: HTMLElement): HTMLElement | undefined {
+  for (let box = at.parentElement; box; box = box === root ? null : box.parentElement) {
+    const list = [...box.querySelectorAll<HTMLElement>(focusable)].filter((el) => el !== at && !at.contains(el) && usable(el));
+    const before = list.filter((el) => el.compareDocumentPosition(at) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const pick = before.at(-1) ?? list.find((el) => at.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (pick) return pick;
+  }
+}
+
+function restore(root: HTMLElement, m: Mark, fallback?: () => HTMLElement | null | undefined) {
   const now = document.activeElement;
   // The focus moved on purpose (a dialog, another field): leave it there.
   if (now === m.el || (now && now !== document.body && now.isConnected)) return;
@@ -35,15 +48,20 @@ function restore(root: HTMLElement, m: Mark) {
     const list = exact.length ? exact : root.querySelectorAll<HTMLElement>(m.loose);
     next = list[Math.max(0, Math.min(m.index, list.length - 1))];
   }
+  // A control that cannot take the focus any more (Record while recording)
+  // hands it to its neighbor rather than letting it fall to the page.
+  if (!next || !usable(next)) next = fallback?.() ?? (next ? nearby(root, next) : undefined);
   if (!next) return;
   next.focus({ preventScroll: true });
   if (m.start !== null && m.end !== null && caret(next, 'selectionStart') !== null) (next as HTMLInputElement).setSelectionRange(m.start, m.end);
 }
 
-/** Run `redraw` on `root`, keeping the keyboard focus inside it. */
-export function keepFocus<T>(root: HTMLElement, redraw: () => T): T {
+/** Run `redraw` on `root`, keeping the keyboard focus inside it. When the
+ * focused control is gone or disabled afterwards, `fallback` (else its
+ * nearest usable neighbor) takes the focus. */
+export function keepFocus<T>(root: HTMLElement, redraw: () => T, fallback?: () => HTMLElement | null | undefined): T {
   const m = mark(root);
   const out = redraw();
-  if (m) restore(root, m);
+  if (m) restore(root, m, fallback);
   return out;
 }

@@ -149,3 +149,64 @@ test('every toolbar tool and options-bar control has a tooltip, with its keys', 
   });
   expect(missing).toEqual([]);
 });
+
+test('tooltips name the modifier key of the platform, not a placeholder or the Mac key on Windows', async ({ page }) => {
+  const tips = () =>
+    page.evaluate(async () => {
+      window.photoStudio.setTool('move');
+      window.photoStudio.dock.show('swatches');
+      await new Promise((r) => requestAnimationFrame(r));
+      return { auto: document.querySelector('#auto-select')?.closest('label')?.title ?? document.querySelector('#auto-select')?.getAttribute('title') ?? '', swatch: document.querySelector('[data-swatch]')?.getAttribute('title') ?? '' };
+    });
+  const mac = await tips();
+  expect(mac.auto).toContain('⌘');
+  expect(mac.auto).not.toMatch(/\bMod\b/);
+  expect(mac.swatch).toContain('⌘-click');
+  await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'Win32' }));
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  const win = await tips();
+  expect(win.auto).toContain('hold Ctrl');
+  expect(win.swatch).toContain('Ctrl-click');
+  expect(win.swatch).not.toContain('⌘');
+});
+
+test('on Windows the shortcut editor shows the alternative that can be typed and finds Ctrl and Mod conflicts', async ({ page }) => {
+  // A shortcut recorded on a Mac with the Control key, now used on Windows.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+    localStorage.setItem('photo-studio-shortcuts', JSON.stringify({ 'image.trim': 'Ctrl+J' }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  await page.evaluate(() => void window.photoStudio.runCommand('edit.keyboard-shortcuts'));
+  const d = page.locator('dialog[open]');
+  await expect(d.locator('[data-shortcut="image.trim"]')).toHaveClass(/conflict/);
+  await expect(d.locator('[data-shortcut="layer.via-copy"]')).toHaveClass(/conflict/);
+  // Last Filter's Mac-only Mod+Ctrl+F cannot be typed here: its other shortcut is shown.
+  await expect(d.locator('[data-shortcut="filter.last"]')).toHaveValue('Mod+Alt+F');
+});
+
+test('the Measurement Log names Record Measurements by its own shortcut on each platform', async ({ page }) => {
+  const texts = () =>
+    page.evaluate(async () => {
+      window.photoStudio.dock.show('measurement-log');
+      await new Promise((r) => requestAnimationFrame(r));
+      const body = document.querySelector('[data-panel="measurement-log"]')!;
+      return { title: body.querySelector('[data-command="analysis.record"]')?.getAttribute('title') ?? '', empty: body.querySelector('.log-empty')?.textContent ?? '' };
+    });
+  const mac = await texts();
+  expect(mac.title).toBe('Record Measurements (⇧⌘M)');
+  expect(mac.empty).toContain('(⇧⌘M)');
+  // On Windows, with the shortcut changed in the shortcut editor.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+    localStorage.setItem('photo-studio-shortcuts', JSON.stringify({ 'analysis.record': 'Mod+Alt+R' }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  const win = await texts();
+  expect(win.title).toBe('Record Measurements (Ctrl+Alt+R)');
+  expect(win.empty).toContain('(Ctrl+Alt+R)');
+  expect(win.empty).not.toContain('⌘');
+});

@@ -463,6 +463,8 @@ function mount(e: Editor, el: HTMLElement) {
   body.addEventListener('keydown', (ev) => {
     const ed = editor;
     if (!ed || ed.busy || (ev.target as HTMLElement).closest('input,select')) return;
+    // Track buttons (keyframes, mute, disclosure) keep Space and Enter for themselves.
+    if ((ev.key === ' ' || ev.key === 'Enter') && (ev.target as HTMLElement).closest('button')) return;
     const tl = timelineOf(ed);
     if (!tl) return;
     const [ws, we] = workArea(tl);

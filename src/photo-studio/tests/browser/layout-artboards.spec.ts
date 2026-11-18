@@ -212,3 +212,25 @@ test('artboards: create, add beside, nest moved layers, frames and exports', asy
   expect(Math.abs(cx - center[0])).toBeLessThan(2);
   expect(Math.abs(cy - center[1])).toBeLessThan(2);
 });
+
+test('a blank artboard name keeps the default name', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  const submit = async (name: string) => {
+    await page.locator('#dialog input[name="name"]').fill(name);
+    await page.locator('#dialog button[type=submit]').click();
+    await idle(page);
+  };
+  await start(page, 'layer.new-artboard');
+  await submit('   ');
+  expect((await artboards(page)).map((a) => a.name)).toEqual(['Artboard 1']);
+  // Renaming to a blank name leaves the name as it was.
+  const id = (await artboards(page))[0].id;
+  await page.evaluate((id) => window.photoStudio.selectLayers([id]), id);
+  await page.locator(`[data-artboard-name="${id}"]`).dblclick();
+  await submit('  ');
+  expect((await artboards(page)).map((a) => a.name)).toEqual(['Artboard 1']);
+  await page.locator(`[data-artboard-name="${id}"]`).dblclick();
+  await submit('  Cover  ');
+  expect((await artboards(page)).map((a) => a.name)).toEqual(['Cover']);
+});

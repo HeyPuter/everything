@@ -11,7 +11,7 @@ import { showContextMenu } from '../../app/menubar';
 import type { Panel } from '../../app/registry';
 import { effectRows, fillThumb, fxBadge } from '../effects/layer-effects';
 import { patchList } from '../../ui/patch-list';
-import { colorLabelItems, isLayerColor } from '../layers/dialogs';
+import { colorLabelItems, isLayerColor, renameLayer } from '../layers/dialogs';
 
 const kindIcon: Record<string, string> = {
   group: 'folder',
@@ -61,6 +61,12 @@ function visibleInFilter(l: Layer): boolean {
   const own = matches(l) && (!filterEditor || layerRowFilters.every((f) => f(filterEditor!, l)));
   return own || l.children.some(visibleInFilter);
 }
+/** Whether the Layers list shows `l` under its filter and isolation (its
+ * groups being expanded). */
+export function shownInLayerList(e: Editor, l: Layer) {
+  filterEditor = e;
+  return visibleInFilter(l);
+}
 // Features add sub-rows under a layer (Live Filters) without editing this file.
 export const layerRowExtras: ((e: Editor, l: Layer, depth: number) => string)[] = [];
 // Features add badges over a layer's thumbnail and a note under its name
@@ -102,6 +108,37 @@ ${fxBadge(l)}${l.linkGroup ? `<span class="link-badge ${linkActive ? 'active' : 
     });
   return out;
 }
+/** Shift-click: select the rows from the anchor to `id` as the list shows
+ * them, so layers hidden by filtering or isolation are left out. */
+function selectShownRange(e: Editor, el: HTMLElement, id: string, add: boolean) {
+  const shown = [...el.querySelectorAll<HTMLElement>('#layers .layer-row')].map((r) => r.dataset.row!);
+  const a = shown.indexOf(e.session.selectionAnchor),
+    b = shown.indexOf(id);
+  if (a < 0 || b < 0) return false;
+  e.transform.apply();
+  const range = shown.slice(Math.min(a, b), Math.max(a, b) + 1);
+  e.selectLayers(add ? [...e.selectedIds, ...range] : range);
+  e.update();
+  return true;
+}
+// The inline rename in progress, kept across redraws of the list: a rebuilt
+// row gets the same field back, with the typed name and focus.
+let renaming: { id: string; input: HTMLInputElement; done: (commit: boolean) => void } | undefined;
+let patching = false;
+function keepRenaming(list: Element) {
+  const r = renaming;
+  if (!r || r.input.isConnected) return;
+  const text = list.querySelector(`[data-row="${CSS.escape(r.id)}"] .layer-name .name-text`);
+  // The layer is gone (deleted, or filtered out of the list): nothing to rename.
+  if (!text) {
+    renaming = undefined;
+    return;
+  }
+  const { selectionStart, selectionEnd } = r.input;
+  text.replaceWith(r.input);
+  r.input.focus();
+  r.input.setSelectionRange(selectionStart, selectionEnd);
+}
 function blendSelect(l?: Layer, disabled = false) {
   const options = (l?.kind === 'group' && !l.artboard && !l.frame ? (['pass through', ...blends] as Layer['blend'][]) : blends)
     .map((b) => `${blendGroupStarts.includes(b) ? '<option disabled>──────────</option>' : ''}<option value="${b}" ${l?.blend === b ? 'selected' : ''}>${blendLabel(b)}</option>`)
@@ -141,11 +178,17 @@ export const layersPanel: Panel = {
       }
       const vis = target.closest<HTMLElement>('[data-visibility]')?.dataset.visibility;
       if (vis) {
-        // Alt-click shows only this layer; a second Alt-click shows all layers again.
+        // Alt-click shows only this layer (with the groups around it, and a
+        // group's own layers as they are); a second Alt-click shows all
+        // layers again.
         if (ev.altKey) {
-          const only = allLayers(e.doc.layers).every((l) => l.id === vis || !l.visible);
+          const target = findLayer(e.doc.layers, vis);
+          if (!target) return;
+          const inside = new Set(allLayers(target.children).map((l) => l.id));
+          const shown = (l: Layer) => l.id === vis || !!findLayer(l.children, vis);
+          const only = allLayers(e.doc.layers).every((l) => inside.has(l.id) || (shown(l) ? l.visible : !l.visible));
           e.command('Show/Hide Layers', (d) => {
-            for (const l of allLayers(d.layers)) l.visible = only ? true : l.id === vis || !!findLayer(l.children, vis);
+            for (const l of allLayers(d.layers)) if (only || !inside.has(l.id)) l.visible = only || shown(l);
           });
         } else
           e.command('Toggle visibility', (d) => {
@@ -191,8 +234,36 @@ export const layersPanel: Panel = {
         // Re-selecting the only selected layer keeps the rows in place, so the
         // second click of a double-click lands on the same element.
         const only = e.selectedIds.size === 1 && e.selectedIds.has(id) && !e.maskTarget;
+        if (ev.shiftKey && selectShownRange(e, el, id, ev.metaKey || ev.ctrlKey)) return;
         if (!(only && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey)) e.selectLayer(id, ev.metaKey || ev.ctrlKey, ev.shiftKey);
       }
+    });
+    // Keyboard: with a layer focused, Up and Down (Home, End) select the
+    // layer above or below and move focus with it (Shift extends the
+    // selection); Left and Right collapse and expand a group. The keys stay in
+    // the list instead of nudging the layer on the canvas.
+    el.addEventListener('keydown', (ev) => {
+      const t = ev.target as HTMLElement;
+      if (!t.matches('#layers .layer-select') || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'ArrowLeft', 'ArrowRight'].includes(ev.key)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const focus = (id: string) => el.querySelector<HTMLElement>(`#layers .layer-select[data-layer="${CSS.escape(id)}"]`)?.focus();
+      const own = t.dataset.layer!;
+      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+        if (findLayer(e.doc.layers, own)?.kind !== 'group') return;
+        if (ev.key === 'ArrowLeft') e.collapsedGroups.add(own);
+        else e.collapsedGroups.delete(own);
+        e.update();
+        return focus(own);
+      }
+      const shown = [...el.querySelectorAll<HTMLElement>('#layers .layer-select')];
+      const at = shown.indexOf(t);
+      const next = ev.key === 'Home' ? shown[0] : ev.key === 'End' ? shown.at(-1) : shown[at + (ev.key === 'ArrowUp' ? -1 : 1)];
+      if (!next) return;
+      const id = next.dataset.layer!;
+      if (!(ev.shiftKey && selectShownRange(e, el, id, false))) e.selectLayer(id);
+      focus(id);
     });
     el.addEventListener('dblclick', async (ev) => {
       const name = (ev.target as HTMLElement).closest<HTMLElement>('.layer-name');
@@ -238,17 +309,28 @@ export const layersPanel: Panel = {
         const done = (commit: boolean) => {
           if (finished) return;
           finished = true;
+          if (renaming?.input === input) renaming = undefined;
           if (commit && input.value.trim() && input.value !== l.name) {
             e.selected = id;
-            e.editLayer('Rename Layer', (x) => (x.name = input.value.trim()));
+            renameLayer(e, id, input.value);
           } else e.update();
         };
+        renaming?.done(true);
+        renaming = { id, input, done };
         input.addEventListener('keydown', (k) => {
-          if (k.key === 'Enter') done(true);
-          if (k.key === 'Escape') done(false);
+          if (k.key === 'Enter' || k.key === 'Escape') {
+            // The key only ends the rename: it does not also press whatever
+            // control the redraw would hand the focus to. The focus goes back
+            // to the renamed layer's row.
+            k.preventDefault();
+            done(k.key === 'Enter');
+            el.querySelector<HTMLElement>(`#layers .layer-select[data-layer="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+          }
           k.stopPropagation();
         });
-        input.addEventListener('blur', () => done(true), { once: true });
+        // Leaving the field commits; the list being redrawn under it (another
+        // edit, a collaborator's change) does not.
+        input.addEventListener('blur', () => !patching && done(true));
       } else if (thumb) {
         const l = findLayer(e.doc.layers, id);
         if (l?.kind === 'text') void e.runCommand('type.edit');
@@ -327,22 +409,28 @@ export const layersPanel: Panel = {
     const locked = !!l && !!layerLock(e.doc.layers, l.id, 'all', false);
     const options = el.querySelector('.layer-options')!;
     const focus = document.activeElement?.id;
-    patchList(options, [`${blendSelect(l, locked || l?.locked)}<label class="opacity-control">Opacity <input id="opacity" type="number" min="0" max="100" value="${Math.round((l?.opacity ?? 1) * 100)}" ${!l || locked ? 'disabled' : ''}>%</label>`]);
+    patchList(options, [`${blendSelect(l, locked || l?.locked)}<label class="opacity-control">Opacity <input id="opacity" type="number" min="0" max="100" value="${Math.round((l?.opacity ?? 1) * 100)}" ${!l || locked || l.locked ? 'disabled' : ''}>%</label>`]);
     const lockRow = el.querySelector('.lock-row')!;
     const own = (k: 'transparency' | 'pixels' | 'position') => !!l && ownLock(l, k);
     patchList(lockRow, [`<span class="lock-label-text">Lock:</span>
-<button class="icon-button toggle" data-lock-button="transparency" aria-pressed="${own('transparency')}" title="Lock transparent pixels" aria-label="Lock transparency" ${!l ? 'disabled' : ''}>${svg('grid-2x2', 14)}</button>
-<button class="icon-button toggle" data-lock-button="composite" aria-pressed="${own('pixels')}" title="Lock image pixels" aria-label="Lock image pixels" ${!l ? 'disabled' : ''}>${svg('paintbrush', 14)}</button>
-<button class="icon-button toggle" data-lock-button="position" aria-pressed="${own('position')}" title="Lock position" aria-label="Lock position" ${!l ? 'disabled' : ''}>${svg('move', 14)}</button>
-<button class="icon-button toggle" data-lock-button="all" aria-pressed="${!!l?.locked}" title="Lock all" aria-label="Lock layer" ${!l ? 'disabled' : ''}>${svg('lock', 14)}</button>
-<label class="opacity-control fill-control">Fill <input id="fill-opacity" type="number" min="0" max="100" value="${Math.round((l?.fillOpacity ?? 1) * 100)}" ${!l || locked ? 'disabled' : ''}>%</label>`]);
+<button class="icon-button toggle" data-lock-button="transparency" aria-pressed="${own('transparency')}" title="Lock transparent pixels" aria-label="Lock transparency" ${!l || locked ? 'disabled' : ''}>${svg('grid-2x2', 14)}</button>
+<button class="icon-button toggle" data-lock-button="composite" aria-pressed="${own('pixels')}" title="Lock image pixels" aria-label="Lock image pixels" ${!l || locked ? 'disabled' : ''}>${svg('paintbrush', 14)}</button>
+<button class="icon-button toggle" data-lock-button="position" aria-pressed="${own('position')}" title="Lock position" aria-label="Lock position" ${!l || locked ? 'disabled' : ''}>${svg('move', 14)}</button>
+<button class="icon-button toggle" data-lock-button="all" aria-pressed="${!!l?.locked}" title="Lock all" aria-label="Lock layer" ${!l || locked ? 'disabled' : ''}>${svg('lock', 14)}</button>
+<label class="opacity-control fill-control">Fill <input id="fill-opacity" type="number" min="0" max="100" value="${Math.round((l?.fillOpacity ?? 1) * 100)}" ${!l || locked || l.locked ? 'disabled' : ''}>%</label>`]);
     if (focus === 'blend' || focus === 'opacity' || focus === 'fill-opacity') el.querySelector<HTMLElement>(`#${focus}`)?.focus();
     const list = el.querySelector('#layers')!;
     const scroll = list.scrollTop;
     filterEditor = e;
     const banners = layerListBanners.map((f) => f(e)).filter(Boolean);
     const list_ = [...banners, ...rows(e, e.doc.layers, 0)];
-    patchList(list, list_.length ? list_ : [`<div class="empty-layers">${svg('layers-2', 22)}<p>Your layers will appear here</p><button data-command="file.open">Add an image</button></div>`]);
+    patching = true;
+    try {
+      patchList(list, list_.length ? list_ : [`<div class="empty-layers">${svg('layers-2', 22)}<p>Your layers will appear here</p><button data-command="file.open">Add an image</button></div>`]);
+    } finally {
+      patching = false;
+    }
+    keepRenaming(list);
     list.scrollTop = scroll;
     el.querySelector('.layer-root-drop')!.toggleAttribute('hidden', !e.doc.layers.length);
     el.querySelector('#layer-count')!.textContent = String(allLayers(e.doc.layers).length);

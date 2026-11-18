@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { installActions, playAction, readActionSets } from '../src/features/actions';
-import { registerCommand, renamedCommands } from '../src/app/registry';
+import { commands, registerCommand, renamedCommands } from '../src/app/registry';
 import type { Editor } from '../src/editor';
 
 describe('action sets from stored data and files', () => {
@@ -57,5 +57,14 @@ describe('playing actions', () => {
     const { e } = editor();
     // Duplicate Layer is not registered here, so the action cannot run.
     await expect(step.document!(e)).rejects.toThrow('The action “Desaturated Copy” stopped: The command “layer.duplicate” is not available.');
+  });
+  it('a deleted action is no longer offered as a Batch step', async () => {
+    const e = { dock: { update() {} }, message() {}, update() {} } as unknown as Editor;
+    installActions(e);
+    const { batchSteps } = await import('../src/features/files/automate-steps');
+    expect(batchSteps.has('action:a-trim')).toBe(true);
+    // With only the set selected, Delete removes the whole Default Actions set.
+    await commands.get('actions.delete')!.run(e);
+    expect([...batchSteps.keys()].filter((id) => id.startsWith('action:'))).toEqual([]);
   });
 });

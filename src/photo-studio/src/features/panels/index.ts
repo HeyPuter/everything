@@ -1,11 +1,13 @@
 import type { Editor } from '../../editor';
 import { registerPanel, registerCommand, commands, type Panel } from '../../app/registry';
+import { isMac } from '../../app/shortcuts';
 import { layersPanel } from './layers';
 import { propertiesPanel } from './properties';
 import { ColorControls } from '../../ui/color';
 import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
-import { findLayer } from '../../model/document';
+import { findLayer, type Layer } from '../../model/document';
+import { layerLock } from '../../model/locks';
 import { readRGBA } from '../../model/tiles';
 import { canvasRect } from '../../model/selection';
 import { commitSelectionMask, selectionOp } from '../selection';
@@ -54,14 +56,16 @@ const historyPanel: Panel = {
   update: (e, el) => {
     const done = e.history.labels,
       undone = e.history.redoLabels;
+    // Screen readers hear which state the document is in and which steps are undone.
+    const current = (on: boolean) => (on ? 'aria-current="step"' : '');
     const rows = [
       // Once older steps are dropped, the first row is the result of the
       // latest dropped step rather than the opened document.
       e.history.baseLabel
-        ? `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" title="Earlier steps are no longer kept">${svg('history', 14)}<span>${escapeXML(e.history.baseLabel)}</span></button>`
-        : `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0">${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
-      ...done.map((l, i) => `<button class="history-row ${i === done.length - 1 ? 'current' : ''}" data-history="${i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
-      ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
+        ? `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" ${current(done.length === 0)} title="Earlier steps are no longer kept">${svg('history', 14)}<span>${escapeXML(e.history.baseLabel)}</span></button>`
+        : `<button class="history-row ${done.length === 0 ? 'current' : ''}" data-history="0" ${current(done.length === 0)}>${svg('image', 14)}<span>${escapeXML(e.doc.name)}</span></button>`,
+      ...done.map((l, i) => `<button class="history-row ${i === done.length - 1 ? 'current' : ''}" data-history="${i + 1}" ${current(i === done.length - 1)}>${svg('history', 14)}<span>${escapeXML(l)}</span></button>`),
+      ...undone.map((l, i) => `<button class="history-row undone" data-history="${done.length + i + 1}">${svg('history', 14)}<span>${escapeXML(l)}</span><span class="sr-only">(undone)</span></button>`),
     ];
     const snaps = sessionSnapshots(e);
     const source = historySourceId(e) ?? '';
@@ -181,7 +185,7 @@ const swatchesPanel: Panel = {
     });
   },
   update: (e, el) => {
-    const html = `<div class="swatch-grid" role="group" aria-label="Swatches">${swatches.map((c, i) => `<button data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click or Delete: remove" aria-label="Swatch ${c}" aria-keyshortcuts="Delete"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
+    const html = `<div class="swatch-grid" role="group" aria-label="Swatches">${swatches.map((c, i) => `<button data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${isMac ? '⌘' : 'Ctrl'}-click: background, Alt-click or Delete: remove" aria-label="Swatch ${c}" aria-keyshortcuts="Delete"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
     // Updates run after every edit; rebuilding unchanged buttons would cost
     // time and take the keyboard focus off the swatch just chosen.
     if (swatchMarkup.get(el) === html) return;
@@ -327,8 +331,15 @@ export function installPanels(e: Editor) {
       run: (e) => {
         const l = e.layer;
         if (l?.kind !== 'solid') return;
-        void import('../color/picker').then(({ pickColor }) => pickColor(e, l.color, 'Fill Color')).then((c) => {
+        const id = l.id;
+        // The canvas previews the color while picking, as the gradient and
+        // pattern fill and adjustment Properties do; Cancel shows it as it was.
+        const recolor = (layers: Layer[], color: string): Layer[] =>
+          layers.map((x) => (x.id === id ? { ...x, color } : x.children.length ? { ...x, children: recolor(x.children, color) } : x));
+        const preview = layerLock(e.doc.layers, id, 'all') ? undefined : (c: string) => e.preview({ ...e.doc, layers: recolor(e.doc.layers, c) });
+        void import('../color/picker').then(({ pickColor }) => pickColor(e, l.color, 'Fill Color', preview)).then((c) => {
           if (c) e.editLayer('Change Fill Color', (x) => (x.color = c));
+          else e.preview(e.displayDoc);
         });
       },
     },

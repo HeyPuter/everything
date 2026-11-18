@@ -42,7 +42,7 @@ export function registerStyleRenderer(fn: StyleRenderFn | undefined) {
 
 // Whether the style samples document-anchored content (non-aligned
 // gradients, unlinked patterns), which a translation would misplace.
-function documentAnchored(s: LayerStyle) {
+export function documentAnchored(s: LayerStyle) {
   return !!s.gradientOverlay?.some((g) => g.enabled && g.alignWithLayer === false) ||
     (!!s.patternOverlay?.enabled && !s.patternOverlay.linkWithLayer) ||
     (!!s.bevel?.enabled && !!s.bevel.texture && !s.bevel.texture.linkWithLayer) ||

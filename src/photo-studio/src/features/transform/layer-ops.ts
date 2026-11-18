@@ -28,6 +28,7 @@ import {
   rectQuad,
   rgbaFromMask,
   rotateM,
+  quarterTurns,
   rotatedCanvasSize,
   samplerInterp,
   scaleM,
@@ -41,6 +42,7 @@ import { setFrame } from '../embedded/frame';
 import type { Assets } from '../../model/assets';
 import type { MeshGrid } from '../../imaging/filters/mesh';
 import { mapMesh } from './math';
+import { backgroundLayer, fillBehind } from './canvas-size';
 
 // ----- Mask grids -----
 /** Document rectangle covered by a grid's stored tiles (constant elsewhere). */
@@ -320,6 +322,12 @@ export async function transformCanvasBy(e: Editor, label: string, m: Mat3, width
   const store = e.assets.tiles;
   if (opts.trim)
     for (const p of prepared.values()) if (p.pixels) p.pixels = trimGrid(store, p.pixels, { x: 0, y: 0, width, height });
+  // Canvas the old image no longer covers (corners of a turned image) shows
+  // the background color on the background layer, as Canvas Size fills it.
+  const bg = backgroundLayer(doc);
+  const bp = bg && prepared.get(bg.id);
+  if (bp?.pixels && !coversCanvas(m, doc, width, height))
+    bp.pixels = fillBehind(store, bp.pixels, [{ x: 0, y: 0, width, height }], hexRgb(e.background));
   const sel = selectionGrid(doc, store);
   const selection = sel ? transformMaskGrid(store, sel, m, method, after) : null;
   const quickMask = doc.quickMask && transformMaskGrid(store, doc.quickMask, m, method, after);
@@ -343,6 +351,21 @@ export async function transformCanvasBy(e: Editor, label: string, m: Mat3, width
   e.fit();
   e.update();
 }
+/** Whether the old canvas, mapped through `m`, covers all of the new one. */
+function coversCanvas(m: Mat3, doc: Pick<PhotoDocument, 'width' | 'height'>, width: number, height: number) {
+  const q = [applyMat3(m, 0, 0), applyMat3(m, doc.width, 0), applyMat3(m, doc.width, doc.height), applyMat3(m, 0, doc.height)];
+  let sign = 0;
+  for (const [x, y] of [[0, 0], [width, 0], [width, height], [0, height]])
+    for (let i = 0; i < 4; i++) {
+      const a = q[i],
+        b = q[(i + 1) % 4];
+      const c = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+      if (Math.abs(c) < 1e-6 * Math.max(1, Math.hypot(b.x - a.x, b.y - a.y))) continue;
+      if (sign && Math.sign(c) !== sign) return false;
+      sign = Math.sign(c);
+    }
+  return true;
+}
 /** Keep only the pixels of a grid inside `r`. */
 export function trimGrid(store: TileStore, grid: TileGrid, r: IRect): TileGrid {
   const b = gridDocBounds(grid);
@@ -351,6 +374,8 @@ export function trimGrid(store: TileStore, grid: TileGrid, r: IRect): TileGrid {
   return gridFromImage(store, readRGBA(store, grid, r), r.x, r.y);
 }
 export const rotateCanvas = (e: Editor, deg: number) => {
+  // A whole turn changes nothing: no empty Rotate Canvas step.
+  if (quarterTurns(deg) === 0) return;
   const size = rotatedCanvasSize(e.doc.width, e.doc.height, deg);
   const label = deg === 180 ? 'Rotate Canvas 180°' : deg === 90 ? 'Rotate Canvas 90° Clockwise' : deg === -90 ? 'Rotate Canvas 90° Counter Clockwise' : 'Rotate Canvas';
   if (size.width > 8192 || size.height > 8192 || size.width * size.height > 24_000_000) {

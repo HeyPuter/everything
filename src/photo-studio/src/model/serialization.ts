@@ -34,6 +34,8 @@ import { migrateGuides } from './guides';
 // Tile grids are stored as one packed asset each; the saved JSON names the pack
 // in place of the live tile map.
 type PackedRef = { pack: string };
+// Pixel layer content as large as one RGBA buffer the browser can hold.
+const maxPixelLayerArea = 2 ** 28;
 // Projects the app can make must reopen: Duplicate Layer, Paste and opening
 // long animations as layers are not capped, so this only bounds damaged files.
 const maxLayers = 10000;
@@ -288,12 +290,17 @@ export function validateDocument(value: unknown): PhotoDocument {
       validateFrame(l);
       validatePinWarp(l);
       const gen = l.generated;
-      if (gen !== undefined && (!gen || typeof gen !== 'object' || !['generate', 'edit', 'upscale', 'fill', 'expand'].includes(gen.kind) || typeof gen.prompt !== 'string' || gen.prompt.length > 4000 ||
+      if (gen !== undefined && (!gen || typeof gen !== 'object' || !['generate', 'edit', 'upscale', 'fill', 'expand'].includes(gen.kind) || typeof gen.prompt !== 'string' || gen.prompt.length > maxGeneratedPrompt ||
         (gen.model !== undefined && typeof gen.model !== 'string') || (gen.style !== undefined && typeof gen.style !== 'string')))
         throw new Error('Invalid generated layer information.');
       if (l.assetColorSpace !== undefined && !['document', 'srgb'].includes(l.assetColorSpace))
         throw new Error('Invalid source color space.');
-      assertSize(l.sourceWidth, l.sourceHeight);
+      // A pixel layer's size is the bounds of its content, which a transform
+      // can take past the canvas and past the document size limits.
+      if (l.kind === 'pixel') {
+        if (![l.sourceWidth, l.sourceHeight].every((n) => Number.isInteger(n) && n >= 1) || l.sourceWidth * l.sourceHeight > maxPixelLayerArea)
+          throw new Error('Invalid pixel layer size.');
+      } else assertSize(l.sourceWidth, l.sourceHeight);
       if (
         !l.transform ||
         !l.filters ||
@@ -403,6 +410,19 @@ export function validateDocument(value: unknown): PhotoDocument {
   migrateGuides(doc);
   return doc;
 }
+const maxGeneratedPrompt = 4000;
+// Generate Image kept prompts of any length with its layers, so projects saved
+// with a longer one were refused on opening. The prompt only describes how the
+// layer was made: it is cut to the limit instead.
+function shortenGeneratedPrompts(layers: unknown, depth = 0) {
+  if (!Array.isArray(layers) || depth > 12) return;
+  for (const l of layers as ({ generated?: { prompt?: unknown }; children?: unknown } | null)[]) {
+    const gen = l?.generated;
+    if (gen && typeof gen === 'object' && typeof gen.prompt === 'string' && gen.prompt.length > maxGeneratedPrompt)
+      gen.prompt = gen.prompt.slice(0, maxGeneratedPrompt);
+    shortenGeneratedPrompts(l?.children, depth + 1);
+  }
+}
 /** Read a .photo project. With `into`, its assets are added to an existing
  * store (assets already present keep their data; IDs are immutable content). */
 export async function deserialize(
@@ -421,8 +441,9 @@ export async function deserialize(
     assets: { id: string; size: number; type: string }[];
     sidecars?: Record<string, unknown>;
   };
-  const read = data.document as { animation?: unknown } | null;
+  const read = data.document as { animation?: unknown; layers?: unknown } | null;
   if (read && typeof read === 'object' && read.animation !== undefined) read.animation = unpackAnimation(read.animation);
+  if (read && typeof read === 'object') shortenGeneratedPrompts(read.layers);
   const document = validateDocument(data.document),
     assets = into ?? new Assets();
   if (data.sidecars && typeof data.sidecars === 'object')

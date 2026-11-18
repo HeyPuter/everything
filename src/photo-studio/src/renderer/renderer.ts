@@ -21,6 +21,7 @@ import {
   linearSrgbProfile,
 } from "../color/profile";
 import { decodeIccProfile } from "../model/psd-resources";
+import { adjustmentKey } from "./adjustment-key";
 import { floatRaster } from "../model/raster";
 import { vectorBounds, vectorMatrix, vectorUnbounded } from "../model/vector";
 import { vectorDocumentRgb, vectorColorRgb } from "../color/vector";
@@ -973,7 +974,7 @@ export class Renderer {
     return mask?.texture;
   }
   private lutTexture(l: Layer) {
-    const id = `lut:${l.id}`, key = JSON.stringify(l.adjustment);
+    const id = `lut:${l.id}`, key = adjustmentKey(l.adjustment);
     const old = this.sources.get(id);
     if (old?.key === key) return old.lut ? { texture: old.texture, uniforms: old.lut } : undefined;
     if (old) {
@@ -1247,7 +1248,9 @@ export class Renderer {
         const actual = this.documentLayer(l, doc);
         const u = uniforms(actual, doc.width, doc.height, doc.width, doc.height);
         u[23] = this.boundedRgb ? 1 : 0;
-        if (clipped) u[29] = 2;
+        // The adjusted colors replace the backdrop's (by opacity and masks);
+        // its coverage stays, partly transparent pixels included.
+        u[29] = 5;
         blendingUniforms(l, u);
         const gridMask = this.gridMaskUniforms(l, u, assets);
         pixelMaskUniforms(l, u);
@@ -1382,7 +1385,12 @@ export class Renderer {
     // render in progress. Without the chain, two callers would both spin on
     // an already-settled `idle` promise.
     const run = this.exclusiveChain.then(() => this.runExclusive(task));
-    this.exclusiveChain = run.catch(() => {});
+    // The chain keeps no result: a readback's pixels (hundreds of megabytes
+    // for a large float image) would stay alive until the next readback.
+    this.exclusiveChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
   private async runExclusive<T>(task: () => Promise<T>): Promise<T> {

@@ -13,7 +13,7 @@ import { SKY_PRESETS, foregroundLightMask, renderSky, skyHorizon, skyLight, type
 import type { Mask8, RGBA8 } from '../../imaging/types';
 import { latest, openShell } from '../adjust/dialog';
 import { checkbox, h, select, slider } from '../adjust/ui';
-import { compositeRGBA, rgbHex } from '../pixels';
+import { compositeRGBA, previewTiles, rgbHex } from '../pixels';
 import { heavy } from '../retouch/client';
 import { decodeFile } from '../files/open';
 import { previewJob } from './client';
@@ -112,6 +112,7 @@ export async function skyReplacementDialog(e: Editor) {
     return p;
   };
   const shell = openShell(e, 'Sky Replacement', { wide: true });
+  const tiles = previewTiles(e);
   shell.body.classList.add('comp-form');
   const schedule = latest();
   let parts: Parts | null = null;
@@ -134,7 +135,11 @@ export async function skyReplacementDialog(e: Editor) {
         parts = p;
         if (!shell.dialog.isConnected) return;
         shell.status.textContent = '';
-        if (shell.preview.checked) e.preview({ ...e.doc, selection: null, selectionMask: null, layers: [...e.doc.layers, group(e.doc, buildLayers(e, s, p))] });
+        if (shell.preview.checked) {
+          const layers = buildLayers(e, s, p);
+          tiles.show(...layers.flatMap((l) => [l.pixels, l.maskGrid]).filter((g) => !!g));
+          e.preview({ ...e.doc, selection: null, selectionMask: null, layers: [...e.doc.layers, group(e.doc, layers)] });
+        }
       } catch (error) {
         shell.status.textContent = error instanceof Error ? error.message : String(error);
       }
@@ -201,6 +206,8 @@ export async function skyReplacementDialog(e: Editor) {
   refresh();
   const ok = await shell.result;
   e.update();
+  // OK builds its own layers.
+  tiles.release();
   if (!ok) return;
   remembered = { ...s, source: s.source === 'custom' ? DEFAULTS.source : s.source };
   const p = parts ?? (await compute());

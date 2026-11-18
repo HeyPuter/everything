@@ -114,3 +114,37 @@ test('promote, divide, name and lock slices', async ({ page }) => {
   await idle(page);
   expect(await page.evaluate(() => window.photoStudio.doc.slices!.length)).toBe(1);
 });
+
+test('Divide Slice keeps names and slice counts that the project can reopen with', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200, '#808080', 'divide.png');
+  await page.evaluate(() =>
+    window.photoStudio.command('Slice', (d) => {
+      d.slices = [{ id: crypto.randomUUID(), name: 'n'.repeat(256), rect: { x: 0, y: 0, width: 300, height: 200 } }];
+    }),
+  );
+  await tool(page, 'Slice Select Tool');
+  await canvasDrag(page, [[50, 50], [50, 50]]);
+  const divide = async (cols: string, rows: string) => {
+    await start(page, 'slices.divide');
+    const dialog = page.locator('dialog[open]');
+    await dialog.locator('input[name=cols]').fill(cols);
+    await dialog.locator('input[name=rows]').fill(rows);
+    await dialog.getByRole('button', { name: 'Divide' }).click();
+    await idle(page);
+  };
+  // 64 × 64 parts would be over the slice limit: nothing changes.
+  await divide('64', '64');
+  await expect(page.locator('#status')).toContainText('2000');
+  expect(await page.evaluate(() => window.photoStudio.doc.slices!.length)).toBe(1);
+  await divide('3', '1');
+  const names = await page.evaluate(() => window.photoStudio.doc.slices!.map((s) => s.name!));
+  expect(names.map((n) => n.length)).toEqual([256, 256, 256]);
+  expect(names[2].endsWith('_3')).toBe(true);
+  const valid = await page.evaluate(async () => {
+    const { validateSlices } = await import('/src/model/slices.ts');
+    validateSlices(window.photoStudio.doc.slices);
+    return true;
+  });
+  expect(valid).toBe(true);
+});

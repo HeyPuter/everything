@@ -54,6 +54,7 @@ export function historyPaintTarget(e: Editor, target: PixelTarget & { kind: 'pix
     kind: 'color',
     rgb: [0, 0, 0],
     mode,
+    restore: true,
     source: (x, y, out) => {
       const lx = x - grid.x,
         ly = y - grid.y;

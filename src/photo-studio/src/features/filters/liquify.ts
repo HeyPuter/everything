@@ -464,7 +464,10 @@ class LiquifyWorkspace {
     d.addEventListener('keydown', (ev) => this.key(ev, true));
     d.addEventListener('keyup', (ev) => this.key(ev, false));
     const c = this.canvas;
-    let stroke: { x: number; y: number; tool: Tool; sx: number; sy: number; ox: number; oy: number; pressure: number; timer: number } | undefined;
+    let stroke: { x: number; y: number; tool: Tool; sx: number; sy: number; ox: number; oy: number; pressure: number; timer: number; last: number } | undefined;
+    // Stationary tools (twirl, pucker, bloat, reconstruct, smooth) work at a
+    // rate in time: one full dab per interval whether the pointer rests or moves.
+    const INTERVAL = 33;
     const pressureOf = (ev: PointerEvent) => (this.pressure / 100) * (this.stylus && ev.pointerType === 'pen' ? Math.max(0.05, ev.pressure) : 1);
     c.addEventListener('pointerdown', (ev) => {
       if (ev.button !== 0) return;
@@ -479,20 +482,19 @@ class LiquifyWorkspace {
         this.endReconstruct();
         this.snapshot();
       }
-      stroke = { x: p.x, y: p.y, tool, sx: ev.clientX, sy: ev.clientY, ox: this.ox, oy: this.oy, pressure: pressureOf(ev), timer: 0 };
+      stroke = { x: p.x, y: p.y, tool, sx: ev.clientX, sy: ev.clientY, ox: this.ox, oy: this.oy, pressure: pressureOf(ev), timer: 0, last: performance.now() };
       if (tool !== 'hand') {
         this.dab(stroke.tool, p.x, p.y, 0, 0, stroke.pressure);
         // Stationary tools keep working while the button is held.
-        if (!['forward-warp', 'push-left'].includes(tool)) {
-          const tick = () => {
-            if (!stroke) return;
-            this.dab(stroke.tool, stroke.x, stroke.y, 0, 0, stroke.pressure);
-            stroke.timer = window.setTimeout(tick, 33);
-          };
-          stroke.timer = window.setTimeout(tick, 33);
-        }
+        if (!['forward-warp', 'push-left'].includes(tool)) stroke.timer = window.setTimeout(tick, INTERVAL);
       }
     });
+    const tick = () => {
+      if (!stroke) return;
+      this.dab(stroke.tool, stroke.x, stroke.y, 0, 0, stroke.pressure);
+      stroke.last = performance.now();
+      stroke.timer = window.setTimeout(tick, INTERVAL);
+    };
     c.addEventListener('pointermove', (ev) => {
       this.moveCursor(ev);
       if (!stroke) return;
@@ -511,12 +513,23 @@ class LiquifyWorkspace {
         const dist = Math.hypot(dx, dy);
         // Dabs every ~10% of the brush keep strokes even at any speed.
         const spacing = Math.max(1, this.size * 0.1);
-        if (dist < spacing && ['forward-warp', 'push-left'].includes(stroke.tool)) continue;
+        const push = ['forward-warp', 'push-left'].includes(stroke.tool);
+        if (dist < spacing && push) continue;
         const n = Math.max(1, Math.ceil(dist / spacing));
+        // Stationary tools spread the time since their last dab along the move.
+        let strength = 1;
+        // (Freeze and Thaw paint the mask along the stroke like a brush.)
+        if (!push && stroke.tool !== 'freeze' && stroke.tool !== 'thaw') {
+          const now = performance.now();
+          strength = Math.min(1, (now - stroke.last) / INTERVAL) / n;
+          stroke.last = now;
+          clearTimeout(stroke.timer);
+          stroke.timer = window.setTimeout(tick, INTERVAL);
+        }
         for (let i = 1; i <= n; i++) {
           const x = stroke.x + (dx * i) / n,
             y = stroke.y + (dy * i) / n;
-          this.dab(stroke.tool, x, y, dx / n, dy / n, stroke.pressure);
+          this.dab(stroke.tool, x, y, dx / n, dy / n, stroke.pressure * strength);
         }
         stroke.x = p.x;
         stroke.y = p.y;

@@ -9,11 +9,17 @@ import { canvasRect, selectionBounds, selectionGrid } from '../../model/selectio
 import { readMask, writeRect } from '../../model/tiles';
 import { renderPattern } from '../../imaging/pattern/pattern';
 import { compositeRGBA8 } from '../../imaging/blend/composite';
-import type { LayerFill } from '../../model/fill-layer';
+import type { DocumentPattern, LayerFill } from '../../model/fill-layer';
 import type { LayerStyle } from '../../imaging/effects/types';
 import type { AdvancedBlending } from '../../model/blending';
 import { stylePreset } from '../../imaging/effects/presets';
-import { activeLayerStyle } from '../../renderer/layer-style';
+import { activeLayerStyle, documentAnchored } from '../../renderer/layer-style';
+import { sanitizeStyle } from '../../model/layer-style';
+import { styleBoundsExpansion } from '../../imaging/effects/bounds';
+import { layerBounds } from '../../model/artboard';
+import { assertSize, cropDocument, type PhotoDocument } from '../../model/document';
+import { hasMask } from '../../model/masks';
+import type { RGBA8 } from '../../imaging/types';
 import { formDialog } from '../../ui/dialog';
 import { insertAboveSelection } from '../layers/insert';
 import { commitTarget, compositeRGBA, pixelTarget, toRGBA8 } from '../pixels';
@@ -29,12 +35,24 @@ import { allStyles } from './style-thumbs';
 // Layer style, fill layer and pattern definition commands.
 // Effects with a direct entry in Layer → Layer Style, in dialog order.
 const effectEntries = Object.entries(effectLabels).filter(([k]) => k !== 'blending');
-let clipboard: { style: LayerStyle; fillOpacity?: number; blending?: AdvancedBlending } | undefined;
+// Document patterns the style uses travel with it (as pixels: each document
+// keeps its own tiles), so pasting into another document keeps them.
+type CopiedPattern = Omit<DocumentPattern, 'grid'> & { image: RGBA8 };
+let clipboard: { style?: LayerStyle; fillOpacity?: number; blending?: AdvancedBlending; patterns: CopiedPattern[] } | undefined;
+// What Copy Layer Style carries: effects, fill opacity and blending options.
+const copyable = (l: Layer | undefined) => hasStyle(l) || !!l?.blending || (l?.fillOpacity ?? 1) !== 1;
+/** Pattern IDs a layer style refers to (pattern overlay, pattern strokes). */
+function stylePatternIds(style: LayerStyle): Set<string> {
+  const ids = new Set<string>();
+  if (style.patternOverlay?.patternId) ids.add(style.patternOverlay.patternId);
+  for (const s of Array.isArray(style.stroke) ? style.stroke : []) if (s?.fill?.type === 'pattern' && s.fill.patternId) ids.add(s.fill.patternId);
+  return ids;
+}
 const styleable = (l: Layer | undefined) => !!l && l.kind !== 'adjustment';
 const hasStyle = (l: Layer | undefined) => !!l?.style && Object.keys(l.style).some((k) => !['enabled', 'scale', 'globalAngle', 'globalAltitude'].includes(k));
 
 /** Applies `edit` to every selected, editable layer that can carry a style. */
-function editStyles(e: Editor, label: string, edit: (l: Layer) => void) {
+function editStyles(e: Editor, label: string, edit: (l: Layer) => void, also?: (d: PhotoDocument) => void) {
   const ids = selectedRoots(e.doc.layers, e.selectedIds).filter((l) => styleable(l) && !layerLock(e.doc.layers, l.id, 'all')).map((l) => l.id);
   if (!ids.length) {
     e.message('Select an unlocked layer first.');
@@ -45,6 +63,7 @@ function editStyles(e: Editor, label: string, edit: (l: Layer) => void) {
       const l = findLayer(d.layers, id);
       if (l) edit(l);
     }
+    also?.(d);
   });
 }
 /** Give the selected layers a copy of `style` as one step (Libraries). */
@@ -120,29 +139,41 @@ export function installEffectCommands() {
     {
       id: 'layer.style-copy',
       label: 'Copy Layer Style',
-      enabled: (e) => hasStyle(e.layer),
+      enabled: (e) => copyable(e.layer),
       recordable: false,
       run: (e) => {
         const l = e.layer;
-        if (!l?.style) return;
-        clipboard = { style: structuredClone(l.style) as LayerStyle, fillOpacity: l.fillOpacity, blending: l.blending && structuredClone(l.blending) };
+        if (!l || !copyable(l)) return;
+        const style = l.style ? (structuredClone(l.style) as LayerStyle) : undefined;
+        const used = style ? stylePatternIds(style) : new Set<string>();
+        const patterns = (e.doc.patterns ?? [])
+          .filter((p) => used.has(p.id))
+          .map(({ grid, ...p }) => ({ ...p, image: readRGBA(e.assets.tiles, grid, { x: 0, y: 0, width: p.width, height: p.height }) }));
+        clipboard = { style, fillOpacity: l.fillOpacity, blending: l.blending && structuredClone(l.blending), patterns };
         e.message('Layer style copied.');
       },
     },
     {
       id: 'layer.style-paste',
       label: 'Paste Layer Style',
-      enabled: (e) => !!clipboard && styleable(e.layer),
+      // Pastes onto every selected layer that can carry a style (editStyles).
+      enabled: (e) => !!clipboard && e.selectedLayers.some(styleable),
       run: (e) => {
         const c = clipboard;
         if (!c) return;
+        const missing = c.patterns
+          .filter((p) => !e.doc.patterns?.some((x) => x.id === p.id))
+          .map(({ image, ...p }) => ({ ...p, grid: gridFromImage(e.assets.tiles, image) }));
         editStyles(e, 'Paste Layer Style', (l) => {
-          l.style = structuredClone(c.style) as Record<string, unknown>;
+          if (c.style) l.style = structuredClone(c.style) as Record<string, unknown>;
+          else delete l.style;
           if (c.fillOpacity !== undefined && c.fillOpacity !== 1) l.fillOpacity = c.fillOpacity;
           else delete l.fillOpacity;
           // Blending options travel with the style.
           if (c.blending) l.blending = structuredClone(c.blending);
           else delete l.blending;
+        }, (d) => {
+          if (missing.length) d.patterns = [...(d.patterns ?? []), ...missing];
         });
       },
     },
@@ -197,8 +228,12 @@ export function installEffectCommands() {
         }
         // Effects composite onto transparency here: modes such as Multiply
         // then look like Normal, as when merging onto an empty layer.
-        const samples = await e.renderer.layerPixels({ ...l, opacity: 1, blend: 'normal' }, e.doc, e.assets);
-        const grid = gridFromImage(e.assets.tiles, toRGBA8(samples, e.doc.width, e.doc.height));
+        const max = e.renderer.backend.maxSize;
+        const { doc: area, layer: source, rect } = rasterArea(e.doc, l, max);
+        const plain = { ...source, opacity: 1, blend: 'normal' as const };
+        const samples = await e.renderer.layerPixels(plain, area, e.assets);
+        const image = toRGBA8(samples, rect.width, rect.height);
+        const grid = gridFromImage(e.assets.tiles, image, rect.x, rect.y);
         const id = l.id;
         e.command('Rasterize Layer Style', (d) => {
           const t = findLayer(d.layers, id)!;
@@ -247,6 +282,34 @@ function newFillLayer(e: Editor, type: 'gradient' | 'pattern') {
   insertAboveSelection(e, l, 'New Fill Layer');
   e.dock?.show('properties');
 }
+/** Where a layer is rendered to rasterize its style: the canvas grown to the
+ * layer and its effects, so content outside the canvas is kept. Styles
+ * anchored to the document (unaligned gradients, unlinked patterns) and
+ * areas too large for one render use the canvas as it is. */
+function rasterArea(doc: PhotoDocument, l: Layer, maxSize: number) {
+  const canvas = { x: 0, y: 0, width: doc.width, height: doc.height };
+  const style = sanitizeStyle(activeLayerStyle(l)!);
+  const b = layerBounds(l);
+  if (!b || documentAnchored(style)) return { doc, layer: l, rect: canvas };
+  const r = styleBoundsExpansion(style);
+  const x0 = Math.min(0, Math.floor(b.x - r.left)),
+    y0 = Math.min(0, Math.floor(b.y - r.top));
+  const x1 = Math.max(doc.width, Math.ceil(b.x + b.width + r.right)),
+    y1 = Math.max(doc.height, Math.ceil(b.y + b.height + r.bottom));
+  const rect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  const same = rect.width === doc.width && rect.height === doc.height;
+  if (same) return { doc, layer: l, rect: canvas };
+  try {
+    assertSize(rect.width, rect.height);
+    if (rect.width > maxSize || rect.height > maxSize) throw new Error();
+  } catch {
+    return { doc, layer: l, rect: canvas };
+  }
+  const area = structuredClone({ ...doc, layers: [l] }) as PhotoDocument;
+  cropDocument(area, rect);
+  return { doc: area, layer: area.layers[0], rect };
+}
+
 async function definePattern(e: Editor) {
   const doc = e.doc;
   const sel = selectionGrid(doc, e.assets.tiles);
@@ -263,7 +326,22 @@ async function definePattern(e: Editor) {
   if (!v) return;
   // The visible pixels of the selected layer, or of the image when no pixel layer is selected.
   const l = e.layer;
-  let img = l?.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, rect) : undefined;
+  let img: RGBA8 | undefined;
+  if (l?.kind === 'pixel' && l.pixels) {
+    const masked = !l.maskDisabled && (hasMask(l) || !!l.maskGrid || !!l.pixelMask);
+    if (!masked) img = readRGBA(e.assets.tiles, l.pixels, rect);
+    else {
+      // The mask decides what is visible: render the layer alone, without effects.
+      const samples = await e.renderer.layerPixels({ ...l, style: undefined }, doc, e.assets);
+      const all = toRGBA8(samples, doc.width, doc.height);
+      const data = new Uint8ClampedArray(rect.width * rect.height * 4);
+      img = { width: rect.width, height: rect.height, data };
+      for (let y = 0; y < rect.height; y++) {
+        const from = ((rect.y + y) * all.width + rect.x) * 4;
+        img.data.set(all.data.subarray(from, from + rect.width * 4), y * rect.width * 4);
+      }
+    }
+  }
   if (!img) {
     const all = await compositeRGBA(e);
     img = { width: rect.width, height: rect.height, data: new Uint8ClampedArray(rect.width * rect.height * 4) };

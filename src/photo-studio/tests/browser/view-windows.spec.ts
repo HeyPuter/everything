@@ -95,3 +95,47 @@ test('2-up and tiled layouts show every document; clicking a window activates it
   await expect(page.locator('.view-frame')).toHaveCount(0);
   await expect(page.locator('.document-tabs .document-tab')).toHaveCount(3);
 });
+
+test('Cascade and Float All in Windows leave the tiled layout, also for the next session', async ({ page }) => {
+  await openImage(page, 200, 300, '#3060c0', 'second.png');
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('photo-studio-preferences') ?? '{}').windowLayout);
+  for (const id of ['window.cascade', 'window.float-all']) {
+    await page.evaluate(() => window.photoStudio.runCommand('window.tile-vertical'));
+    await idle(page);
+    expect(await stored()).toBe('tile-vertical');
+    await page.evaluate((id) => window.photoStudio.runCommand(id), id);
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.views.every((v) => !!v.floating))).toBe(true);
+    expect(await stored(), id).toBe('tabs');
+  }
+});
+
+test('Window › Documents lists the open windows, checks the active one and switches to another', async ({ page }) => {
+  await openImage(page, 200, 300, '#3060c0', 'second.png');
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  const docs = page.locator('.menubar-entry.open > .menu-pop > .has-submenu').filter({ has: page.locator(':scope > .menu-label', { hasText: /^Documents$/ }) });
+  await expect(docs).toHaveCount(1);
+  const items = docs.locator('.submenu > .menu-item');
+  await expect(items.locator('.menu-label')).toHaveText(['first', 'second']);
+  await expect(items.nth(1)).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await menu(page, 'Window', 'Documents', 'first');
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('first');
+});
+
+test('Close (Mod+W) closes only the active window of a document open in two', async ({ page }) => {
+  await run(page, 'select.all');
+  await run(page, 'edit.fill-foreground');
+  await run(page, 'window.new-window');
+  expect(await page.evaluate(() => window.photoStudio.views.length)).toBe(2);
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('ControlOrMeta+w');
+  await idle(page);
+  // No question about unsaved changes: the document stays open in its other window.
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  const counts = () =>
+    page.evaluate(() => [window.photoStudio.views.length, window.photoStudio.sessions.length]);
+  expect(await counts()).toEqual([1, 1]);
+  await page.keyboard.press('ControlOrMeta+w');
+  await expect(page.getByRole('dialog', { name: /^Save changes to/ })).toBeVisible();
+});

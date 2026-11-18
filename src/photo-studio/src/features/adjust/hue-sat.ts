@@ -10,6 +10,7 @@ import { svg } from '../../app/icons';
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 const mod = (v: number) => ((v % 360) + 360) % 360;
 type Range4 = HueSatRange['range'];
+const HANDLE_LABELS = ['Falloff start', 'Range start', 'Range end', 'Falloff end'];
 
 const PRESETS: Record<string, { label: string; apply: (p: AdjustHost<'hue-saturation'>['params']) => void }> = {
   default: { label: 'Default', apply: () => {} },
@@ -22,6 +23,23 @@ const PRESETS: Record<string, { label: string; apply: (p: AdjustHost<'hue-satura
   cyanotype: { label: 'Cyanotype', apply: (p) => Object.assign(p, { colorize: true, colorizeHue: 205, colorizeSaturation: 32 }) },
   aged: { label: 'Aged Photo', apply: (p) => ((p.master.saturation = -55), (p.master.hue = 8)) },
 };
+
+/** Move handle `i` of a range by `dh` degrees (or the whole range when i is
+ * -1); each handle stays between its neighbors along the circle and the
+ * falloff ends never meet. */
+export function moveRangeHandle(orig: Range4, i: number, dh: number): Range4 {
+  if (i < 0) return orig.map((v) => mod(v + dh)) as Range4;
+  const r = [...orig] as Range4;
+  const span = (x: number, y: number) => mod(y - x);
+  const prev = i > 0 ? span(orig[i - 1], orig[i]) : Infinity;
+  const next = i < 3 ? span(orig[i], orig[i + 1]) : Infinity;
+  const total = span(orig[0], orig[3]);
+  let d = Math.max(-prev, Math.min(next, dh));
+  if (i === 0) d = Math.max(-(358 - total), d);
+  if (i === 3) d = Math.min(358 - total, d);
+  r[i] = mod(orig[i] + d);
+  return r;
+}
 
 /** Shift a range so its full-effect center sits on `hue`, keeping widths. */
 export function centerRange(r: Range4, hue: number): Range4 {
@@ -146,7 +164,11 @@ export function hueSaturationEditor(body: HTMLElement, host: AdjustHost<'hue-sat
       C = fix(c, B),
       A = fix(a, B),
       D = fix(d, C);
-    rangeLayer.innerHTML = `<div class="falloff" style="left:${A}%;width:${B - A}%"></div><div class="full" style="left:${B}%;width:${C - B}%" title="Drag to move the range"></div><div class="falloff right" style="left:${C}%;width:${D - C}%"></div>${[A, B, C, D].map((x, i) => `<button type="button" class="hue-handle h${i}" style="left:${x}%" data-i="${i}" aria-label="${['Falloff start', 'Range start', 'Range end', 'Falloff end'][i]}" title="${['Falloff start', 'Range start', 'Range end', 'Falloff end'][i]}"></button>`).join('')}`;
+    const handle = (x: number, i: number) =>
+      `<button type="button" class="hue-handle h${i}" style="left:${x}%" data-i="${i}" ` +
+      `role="slider" aria-valuemin="0" aria-valuemax="359" aria-valuenow="${sel.range[i]}" ` +
+      `aria-valuetext="${sel.range[i]}°" aria-label="${HANDLE_LABELS[i]}" title="${HANDLE_LABELS[i]}"></button>`;
+    rangeLayer.innerHTML = `<div class="falloff" style="left:${A}%;width:${B - A}%"></div><div class="full" style="left:${B}%;width:${C - B}%" title="Drag to move the range"></div><div class="falloff right" style="left:${C}%;width:${D - C}%"></div>${[A, B, C, D].map(handle).join('')}`;
     (bar.querySelector('.adj-range-values') as HTMLElement).textContent = `${sel.range[0]}° / ${sel.range[1]}°   ${sel.range[2]}° \\ ${sel.range[3]}°`;
   };
   drawBar();
@@ -161,21 +183,7 @@ export function hueSaturationEditor(body: HTMLElement, host: AdjustHost<'hue-sat
       const orig = [...sel.range] as Range4;
       const i = handle ? Number(handle.dataset.i) : -1;
       const move = (m: PointerEvent) => {
-        const dh = Math.round(((m.clientX - startX) / rect.width) * 360);
-        if (i < 0) sel.range = orig.map((v) => mod(v + dh)) as Range4;
-        else {
-          // Each handle stays between its neighbors along the circle.
-          const r = [...orig] as Range4;
-          const span = (x: number, y: number) => mod(y - x);
-          const prev = i > 0 ? span(orig[i - 1], orig[i]) : Infinity;
-          const next = i < 3 ? span(orig[i], orig[i + 1]) : Infinity;
-          const total = span(orig[0], orig[3]);
-          let d = Math.max(-prev, Math.min(next, dh));
-          if (i === 0) d = Math.max(-(358 - total), d);
-          if (i === 3) d = Math.min(358 - total, d);
-          r[i] = mod(orig[i] + d);
-          sel.range = r;
-        }
+        sel.range = moveRangeHandle(orig, i, Math.round(((m.clientX - startX) / rect.width) * 360));
         drawBar();
         host.change(false);
       };
@@ -186,6 +194,21 @@ export function hueSaturationEditor(body: HTMLElement, host: AdjustHost<'hue-sat
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
+    });
+    // Arrow keys move a focused handle by one degree (ten with Shift).
+    rangeLayer.addEventListener('keydown', (ev) => {
+      const handle = (ev.target as HTMLElement).closest<HTMLElement>('.hue-handle');
+      const k = ev.key;
+      const d =
+        k === 'ArrowLeft' || k === 'ArrowDown' ? -1 : k === 'ArrowRight' || k === 'ArrowUp' ? 1 : 0;
+      if (!handle || !d) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const i = Number(handle.dataset.i);
+      sel.range = moveRangeHandle(sel.range, i, d * (ev.shiftKey ? 10 : 1));
+      drawBar();
+      rangeLayer.querySelector<HTMLElement>(`.hue-handle[data-i="${i}"]`)?.focus();
+      host.change(true);
     });
   }
 }

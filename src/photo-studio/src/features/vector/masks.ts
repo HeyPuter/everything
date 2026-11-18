@@ -6,6 +6,13 @@ import { hasMask } from '../../model/masks';
 import { maskToGrid } from './raster';
 import { activeKey, setActive, targetLocked, targetPath, writeTarget, type PathTarget } from './state';
 import { cleanMask } from './geometry';
+import { selectionFrame, transformBounds } from '../../model/transform';
+
+/** Document bounds of a layer's content (a group's: its layers'). */
+function contentExtent(l: Layer) {
+  const f = selectionFrame([l]);
+  return f ? transformBounds(f) : null;
+}
 
 // Vector mask commits rasterize asynchronously; commits are queued so they land
 // in order, and tools wait for them before reading path state again.
@@ -30,7 +37,8 @@ async function applyPathEdit(e: Editor, t: PathTarget, mask: VectorMask, label: 
     const l = findLayer(e.doc.layers, t.id);
     if (!l?.vectorMask) return false;
     const clean = cleanMask(structuredClone(mask));
-    const grid = await maskToGrid(e, { ...l.vectorMask.mask, paths: clean.paths });
+    const next = { ...l.vectorMask.mask, paths: clean.paths };
+    const grid = await maskToGrid(e, next, e.doc, contentExtent(l));
     e.command(label, (d) => {
       writeTarget(d, t, clean);
       const x = findLayer(d.layers, t.id);
@@ -64,7 +72,7 @@ export async function addVectorMask(e: Editor, mask: VectorMask, label: string) 
     return;
   }
   const clean = structuredClone(mask);
-  const grid = await maskToGrid(e, clean);
+  const grid = await maskToGrid(e, clean, e.doc, contentExtent(l));
   const id = l.id;
   e.command(label, (d) => {
     const x = findLayer(d.layers, id)!;

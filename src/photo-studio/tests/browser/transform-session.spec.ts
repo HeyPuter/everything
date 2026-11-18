@@ -90,3 +90,57 @@ test('a negative linked height flips only vertically', async ({ page }) => {
   expect([q.sx, q.sy]).toEqual([0.5, -0.5]);
   await page.keyboard.press('Escape');
 });
+
+test('clearing a transform field keeps the value in use instead of entering 0', async ({
+  page,
+}) => {
+  await openImage(page, 300, 200, '#808080');
+  await run(page, 'edit.free-transform');
+  await page.locator('#ts-angle').fill('30');
+  await page.locator('#ts-angle').press('Enter');
+  const quad = () =>
+    page.evaluate(
+      () => (window.photoStudio.modal as unknown as { quad: { x: number; y: number }[] }).quad,
+    );
+  const start = await quad();
+  for (const [id, value] of [
+    ['#ts-x', '150'],
+    ['#ts-angle', '30'],
+    ['#ts-w', '100'],
+  ]) {
+    await page.locator(id).fill('');
+    await page.locator(id).press('Enter');
+    await expect(page.locator(id)).toHaveValue(value);
+  }
+  expect(await quad()).toEqual(start);
+  await page.keyboard.press('Escape');
+});
+
+test('Enter in a transform field applies it and the next Enter commits; Escape there keeps the value', async ({
+  page,
+}) => {
+  await openImage(page, 300, 200, '#808080');
+  await run(page, 'edit.free-transform');
+  const scale = () =>
+    page.evaluate(
+      () =>
+        (window.photoStudio.modal as unknown as { params: { sx: number } } | undefined)?.params.sx,
+    );
+  await page.locator('#ts-w').fill('50');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#ts-w')).toHaveValue('100');
+  await expect(page.locator('#viewport')).toBeFocused();
+  expect(await scale()).toBe(1);
+  await page.locator('#ts-w').fill('50');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#viewport')).toBeFocused();
+  expect(await scale()).toBe(0.5);
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect(
+    await page.evaluate(() => [
+      !!window.photoStudio.modal,
+      window.photoStudio.history.labels.at(-1),
+    ]),
+  ).toEqual([false, 'Transform']);
+});

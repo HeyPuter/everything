@@ -39,14 +39,14 @@ export class History {
    * and drops the step when it returns to the state before it. */
   execute(label: string, edit: (doc: PhotoDocument) => void, coalesce = false) {
     const before = this.document,
-      after = structuredClone(before);
+      after = cloneDocument(before);
     edit(after);
     this.normalize?.(after, before);
-    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    if (sameJson(before, after)) return;
     const last = this.states.length - 1;
     const top = this.states[this.index];
     if (coalesce && this.index > 0 && this.index === last && top.label === label && top.doc === before) {
-      if (JSON.stringify(this.states[this.index - 1].doc) === JSON.stringify(after)) {
+      if (sameJson(this.states[this.index - 1].doc, after)) {
         this.states.pop();
         this.index--;
         this.document = this.states[this.index].doc;
@@ -103,6 +103,13 @@ export class History {
     if (this.index === 0 || this.index !== this.states.length - 1 || top.label !== label) return this.mark();
     this.holds++;
     return { state: this.states[this.index - 1], existing: new Set(this.states.filter((s) => s !== top)), open: true };
+  }
+  /** Close a mark without combining anything (its states stay as they are). */
+  release(mark: HistoryMark) {
+    if (!mark.open) return;
+    mark.open = false;
+    this.holds--;
+    this.trim();
   }
   /** Replace the states recorded since `mark` with one step showing the
    * current document. Returns whether the edits left a step behind. */
@@ -184,5 +191,63 @@ export class History {
   /** Labels of the edits up to the current state. */
   get labels() {
     return this.states.slice(1, this.index + 1).map((s) => s.label);
+  }
+}
+
+/** A copy of a document for the next history state. Long strings (a loaded
+ * .cube file's text, for example) are shared with the original instead of
+ * copied: strings are immutable, and every retained state would otherwise
+ * hold a copy of its own. */
+export function cloneDocument(doc: PhotoDocument): PhotoDocument {
+  const copy = structuredClone(doc);
+  shareLongStrings(doc, copy);
+  return copy;
+}
+function shareLongStrings(from: unknown, to: unknown) {
+  if (typeof from !== 'object' || typeof to !== 'object' || !from || !to) return;
+  if (ArrayBuffer.isView(from)) return;
+  const a = from as Record<string, unknown>,
+    b = to as Record<string, unknown>;
+  for (const k in b) {
+    const v = b[k];
+    if (typeof v === 'string') {
+      if (v.length >= 1024 && a[k] === v) b[k] = a[k];
+    } else if (typeof v === 'object' && v) shareLongStrings(a[k], v);
+  }
+}
+
+const omitted = (v: unknown) => v === undefined || typeof v === 'function' || typeof v === 'symbol';
+/** Whether `JSON.stringify(a) === JSON.stringify(b)`, without building the
+ * strings: history compares whole documents on every edit. */
+export function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  const toJson = (v: unknown) => (v as { toJSON?: unknown } | null)?.toJSON;
+  if (typeof toJson(a) === 'function') a = (a as { toJSON(): unknown }).toJSON();
+  if (typeof toJson(b) === 'function') b = (b as { toJSON(): unknown }).toJSON();
+  if (typeof a === 'number' && !Number.isFinite(a)) a = null;
+  if (typeof b === 'number' && !Number.isFinite(b)) b = null;
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  const x = a as Record<string, unknown>,
+    y = b as Record<string, unknown>;
+  const arrays = Array.isArray(a);
+  if (arrays !== Array.isArray(b)) return false;
+  if (arrays) {
+    const p = a as unknown[],
+      q = b as unknown[];
+    if (p.length !== q.length) return false;
+    for (let i = 0; i < p.length; i++)
+      if (!sameJson(omitted(p[i]) ? null : p[i], omitted(q[i]) ? null : q[i])) return false;
+    return true;
+  }
+  // Same keys in the same order, as JSON writes them (undefined values and
+  // functions are left out).
+  const kx = Object.keys(x),
+    ky = Object.keys(y);
+  for (let i = 0, j = 0; ; i++, j++) {
+    while (i < kx.length && omitted(x[kx[i]])) i++;
+    while (j < ky.length && omitted(y[ky[j]])) j++;
+    if (i === kx.length || j === ky.length) return i === kx.length && j === ky.length;
+    if (kx[i] !== ky[j] || !sameJson(x[kx[i]], y[ky[j]])) return false;
   }
 }

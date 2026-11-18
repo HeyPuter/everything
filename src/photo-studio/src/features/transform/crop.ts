@@ -180,30 +180,37 @@ async function commitCrop(e: Editor) {
   }
   // Committing the untouched box changes nothing: no empty Crop step.
   if (untouched(e) && !s.deleteCropped && !target) return;
-  if (Math.abs(b.angle) < 1e-9) {
-    const r = { x: Math.round(b.cx - b.w / 2), y: Math.round(b.cy - b.h / 2), width: w, height: h };
-    const store = e.assets.tiles;
-    e.command('Crop', (d) => {
-      cropDocument(d, r);
-      d.selection = null;
-      d.selectionMask = null;
-      if (!s.deleteCropped) return;
-      for (const l of allLayers(d.layers)) {
-        if (l.kind !== 'pixel' || !l.pixels) continue;
-        commitPixelTranslation(l);
-        l.pixels = trimGrid(store, l.pixels, { x: 0, y: 0, width: d.width, height: d.height });
-        syncPixelTransform(l, d);
-      }
-    });
-  } else {
-    // Turn the image so the box becomes upright, then keep the box.
-    const m = compose(translate(w / 2, h / 2), rotateM(-b.angle), translate(-b.cx, -b.cy));
-    await transformCanvasBy(e, 'Crop', m, w, h, { trim: s.deleteCropped });
-  }
-  if (target) {
-    const { width: tw, height: th } = target;
-    if (tw !== e.doc.width || th !== e.doc.height) resampleDocument(e, tw, th, resolveMethod('automatic', e.doc.width, e.doc.height, tw, th), ppi, s.resUnit);
-    else e.command('Image Size', (d) => setDocumentResolution(d, { horizontalResolution: s.res, horizontalResolutionUnit: s.resUnit, widthUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches', verticalResolution: s.res, verticalResolutionUnit: s.resUnit, heightUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches' }));
+  // Resampling to W x H x Resolution belongs to the crop: one undo step.
+  const history = e.history;
+  const mark = target ? history.mark() : undefined;
+  try {
+    if (Math.abs(b.angle) < 1e-9) {
+      const r = { x: Math.round(b.cx - b.w / 2), y: Math.round(b.cy - b.h / 2), width: w, height: h };
+      const store = e.assets.tiles;
+      e.command('Crop', (d) => {
+        cropDocument(d, r);
+        d.selection = null;
+        d.selectionMask = null;
+        if (!s.deleteCropped) return;
+        for (const l of allLayers(d.layers)) {
+          if (l.kind !== 'pixel' || !l.pixels) continue;
+          commitPixelTranslation(l);
+          l.pixels = trimGrid(store, l.pixels, { x: 0, y: 0, width: d.width, height: d.height });
+          syncPixelTransform(l, d);
+        }
+      });
+    } else {
+      // Turn the image so the box becomes upright, then keep the box.
+      const m = compose(translate(w / 2, h / 2), rotateM(-b.angle), translate(-b.cx, -b.cy));
+      await transformCanvasBy(e, 'Crop', m, w, h, { trim: s.deleteCropped });
+    }
+    if (target) {
+      const { width: tw, height: th } = target;
+      if (tw !== e.doc.width || th !== e.doc.height) resampleDocument(e, tw, th, resolveMethod('automatic', e.doc.width, e.doc.height, tw, th), ppi, s.resUnit);
+      else e.command('Image Size', (d) => setDocumentResolution(d, { horizontalResolution: s.res, horizontalResolutionUnit: s.resUnit, widthUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches', verticalResolution: s.res, verticalResolutionUnit: s.resUnit, heightUnit: s.resUnit === 'PPCM' ? 'Centimeters' : 'Inches' }));
+    }
+  } finally {
+    if (mark) history.squash(mark, 'Crop');
   }
   resetBox(e);
   e.fit();
@@ -359,7 +366,8 @@ export const cropTool: Tool = {
     });
     num('crop-tw', (v) => (s.tw = v));
     num('crop-th', (v) => (s.th = v));
-    num('crop-res', (v) => (s.res = v || 72));
+    // A cleared resolution is not reset to 72: the field shows the one in use.
+    num('crop-res', (v) => (s.res = v || s.res));
     el.querySelector<HTMLSelectElement>('#crop-tunit')?.addEventListener('change', (ev) => (s.tunit = (ev.target as HTMLSelectElement).value as LengthUnit));
     el.querySelector<HTMLSelectElement>('#crop-resunit')?.addEventListener('change', (ev) => (s.resUnit = (ev.target as HTMLSelectElement).value as 'PPI' | 'PPCM'));
     el.querySelector<HTMLSelectElement>('#crop-overlay')?.addEventListener('change', (ev) => {

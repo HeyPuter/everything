@@ -231,3 +231,62 @@ test('runs a script from its row in the Scripts panel even when it is not listed
   await row.getByRole('button', { name: 'Run Unlisted Script' }).click();
   await expect.poll(() => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toContain('From unlisted');
 });
+
+test('the Scripts panel shows output written while its drawer was closed, and keeps showing new output', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.dock.show('scripts'));
+  const lines = page.locator('.scripts-log-lines');
+  await expect(lines).toBeVisible();
+  // Closed: the panel is out of the page while the script writes.
+  await page.evaluate(() => window.photoStudio.dock.show('scripts', true));
+  await expect(lines).toHaveCount(0);
+  await runSource(page, `console.log('while closed')`, 'Closed');
+  await page.evaluate(() => window.photoStudio.dock.show('scripts'));
+  await expect(lines).toContainText('while closed');
+  await page.evaluate(async () => {
+    const { runScript } = await import('/src/features/scripting/run.ts');
+    await window.photoStudio.run(async () => void (await runScript(window.photoStudio, { name: 'Open', source: `console.log('while open')`, trusted: true })));
+  });
+  await expect(lines).toContainText('while open');
+});
+
+test('the script editor indents with Tab but lets the keyboard leave after Escape', async ({ page }) => {
+  await page.evaluate(async () => {
+    const { openScriptEditor } = await import('/src/features/scripting/code-editor.ts');
+    openScriptEditor(window.photoStudio);
+  });
+  const code = page.getByRole('textbox', { name: 'Script source' });
+  await expect(code).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(code).toBeFocused();
+  expect(await code.inputValue()).toMatch(/^ {2}\/\/ @name/);
+  // Escape, then Tab, moves on; the editor stays open.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('dialog.script-editor')).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(code).not.toBeFocused();
+  expect(await page.evaluate(() => !!document.activeElement?.closest('dialog.script-editor'))).toBe(true);
+  // Back in the text, Tab indents again, and Escape twice closes (asking about the change).
+  await code.focus();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Tab');
+  await expect(code).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Discard Changes?' })).toBeVisible();
+});
+
+test('a script is chosen from the keyboard in the Scripts panel, so Delete and Edit work without a mouse', async ({ page }) => {
+  await page.evaluate(async () => {
+    const store = await import('/src/features/scripting/store.ts');
+    await store.saveScript(store.newScriptRecord(`// @name Keyboard Pick\nconsole.log(1);`, 'Keyboard Pick', { trusted: true, enabled: false }));
+  });
+  await page.evaluate(() => window.photoStudio.dock.show('scripts'));
+  const pick = page.getByRole('button', { name: 'Keyboard Pick', exact: true });
+  await pick.focus();
+  await page.keyboard.press('Enter');
+  await expect(pick).toHaveAttribute('aria-pressed', 'true');
+  await expect(pick).toBeFocused();
+  await expect(page.locator('.layer-footer [data-command="scripts.delete"]')).toBeEnabled();
+  // Nothing ran and no editor opened.
+  await expect(page.locator('dialog.script-editor')).toHaveCount(0);
+});

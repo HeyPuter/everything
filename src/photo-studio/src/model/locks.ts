@@ -32,19 +32,22 @@ export function layerLock(
 }
 export function setFullLock(layer: Layer, locked: boolean) {
   layer.locked = locked;
+  // Unlocked, the Background keeps the locks that make it the Background
+  // (see makeBackground); converting it releases them.
+  const kept = locked || !!layer.background;
   // Preserve old projects' compact representation until individual options are
   // used. Imported flags remain independent of the legacy record flag.
   if (layer.protection)
     layer.protection = {
-      transparency: locked,
+      transparency: kept,
       composite: locked,
-      position: locked,
+      position: kept,
       ...(layer.protection.artboards !== undefined
         ? { artboards: locked && layer.protection.artboards }
         : {}),
     };
   if (layer.transparencyProtected !== undefined)
-    layer.transparencyProtected = locked;
+    layer.transparencyProtected = kept;
 }
 export function setPartialLock(
   layer: Layer,

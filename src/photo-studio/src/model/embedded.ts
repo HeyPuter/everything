@@ -80,6 +80,8 @@ export type EmbedFrame = {
 };
 export type LayerEmbed = { contents: string; frame?: EmbedFrame };
 
+/** Longest name an embedded object's contents keep (projects refuse longer ones). */
+export const maxContentsName = 512;
 export const contentsOf = (doc: Pick<PhotoDocument, 'embeds'>, l: Layer | undefined) =>
   l?.embed ? doc.embeds?.[l.embed.contents] : undefined;
 export const isEmbedded = (l: Layer | undefined): l is Layer & { kind: 'image' } => l?.kind === 'image';
@@ -114,7 +116,7 @@ export function validateEmbeds(doc: PhotoDocument) {
     if (!embeds || typeof embeds !== 'object' || Array.isArray(embeds) || Object.keys(embeds).length > 1000)
       throw new Error('Invalid embedded objects.');
     for (const [key, c] of Object.entries(embeds)) {
-      if (!c || typeof c !== 'object' || c.id !== key || !isDocumentId(c.id) || typeof c.name !== 'string' || c.name.length > 512 ||
+      if (!c || typeof c !== 'object' || c.id !== key || !isDocumentId(c.id) || typeof c.name !== 'string' || c.name.length > maxContentsName ||
         !Number.isInteger(c.width) || !Number.isInteger(c.height) || c.width < 1 || c.height < 1 || c.width > 8192 || c.height > 8192 ||
         !isId(c.composite) || (c.project !== undefined && !isId(c.project)) || (c.source !== undefined && !isId(c.source)) ||
         (c.sourceName !== undefined && (typeof c.sourceName !== 'string' || c.sourceName.length > 512)) ||

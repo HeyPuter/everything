@@ -173,3 +173,21 @@ for (const backend of ['default', 'WebGL'] as Backend[])
       expect(outside).toEqual([255, 255, 255, 255]);
     }
   });
+
+test('the Background cannot be the base of a clipping mask', async ({ page }) => {
+  const clipped = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => !!l.clipped));
+  await boot(page);
+  await openImage(page, 120, 80);
+  await run(page, 'layer.background-from-layer');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].background)).toBe(true);
+  await run(page, 'layer.new-quick');
+  await run(page, 'layer.clipping-mask');
+  expect(await clipped()).toEqual([false, false]);
+  await expect(page.locator('#status')).toHaveText(
+    'The Background layer cannot be the base of a clipping mask.',
+  );
+  // Above another layer, the same command clips.
+  await run(page, 'layer.new-quick');
+  await run(page, 'layer.clipping-mask');
+  expect(await clipped()).toEqual([false, false, true]);
+});

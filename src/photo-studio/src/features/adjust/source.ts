@@ -25,8 +25,18 @@ export function documentBelow(doc: PhotoDocument, id: string): PhotoDocument {
 // `x`, `y`: document position of the image's top-left pixel (default 0, 0).
 export type SourceImage = { image: RGBA8; hist: Histograms; selection?: Mask8; x?: number; y?: number };
 const cache = new Map<string, Promise<SourceImage>>();
+// Closing a document frees its composites (each the size of the canvas).
+const watching = new WeakSet<Editor>();
+function forgetClosed(e: Editor) {
+  if (watching.has(e)) return;
+  watching.add(e);
+  e.closeHooks.push((s) => {
+    for (const key of [...cache.keys()]) if (key.startsWith(`${s.id}:`)) cache.delete(key);
+  });
+}
 /** Composite beneath an adjustment layer, memoized on the document content. */
 export function belowSource(e: Editor, id: string): Promise<SourceImage> {
+  forgetClosed(e);
   const below = documentBelow(e.doc, id);
   // Hidden layers do not contribute, so editing this layer (or anything
   // above it) keeps the cached composite.

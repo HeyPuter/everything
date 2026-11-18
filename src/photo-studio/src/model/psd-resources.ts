@@ -86,15 +86,15 @@ export function decodePsdImageResources(bytes: Uint8Array) {
 }
 
 // These IDs are defined by the format's image resource table, not by any test document.
-// Resolution/profile/untagged state belong to the editable document, even when
-// removed. Index-based layer state/link tables need regeneration after tree
+// Resolution/profile/untagged state and the canvas guides (1032) belong to the
+// editable document, even when removed. Index-based layer state/link tables need regeneration after tree
 // edits; cached thumbnails and writer information must not describe old pixels.
 // Retain all of them in the native asset, but do not replay them into a new PSD.
 // Layer-link/selection interoperability is a separate, still pending feature.
 // Alpha channel names, identifiers and display (1006, 1007, 1045, 1053, 1077) describe the
 // channels written with the document's own channels.
 const regeneratedResources = new Set([
-  1000, 1003, 1005, 1006, 1007, 1024, 1026, 1033, 1036, 1039, 1041, 1045, 1053, 1057, 1069, 1072, 1077,
+  1000, 1003, 1005, 1006, 1007, 1024, 1026, 1032, 1033, 1036, 1039, 1041, 1045, 1053, 1057, 1069, 1072, 1077,
 ]);
 export function restorePsdImageResources(
   bytes: Uint8Array,

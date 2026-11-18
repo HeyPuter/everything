@@ -39,6 +39,8 @@ export class WindowManager {
   private frames: DocumentView[][] = [];
   private snapshots = new WeakMap<DocumentSession, Snapshot>();
   private drawQueued = false;
+  // The view whose tab the strip last brought into view.
+  private tabShown?: string;
   private capturing?: Promise<void>;
   private host: HTMLElement;
   private area: HTMLElement;
@@ -220,7 +222,21 @@ export class WindowManager {
   renderTabs() {
     const e = this.e;
     if (!this.multi) {
-      e.el('.document-tabs').innerHTML = e.views.map((v) => this.tabHTML(v)).join('');
+      const strip = e.el('.document-tabs');
+      strip.innerHTML = e.views.map((v) => this.tabHTML(v)).join('');
+      // A document shown from elsewhere (opened, chosen in Window › Documents)
+      // brings its tab into the strip's view; otherwise the strip stays where
+      // it was scrolled.
+      if (this.tabShown !== e.activeView.id) {
+        this.tabShown = e.activeView.id;
+        const tab = strip.querySelector<HTMLElement>('.document-tab.focused');
+        if (tab) {
+          const s = strip.getBoundingClientRect(),
+            r = tab.getBoundingClientRect();
+          if (r.left < s.left) strip.scrollLeft -= s.left - r.left;
+          else if (r.right > s.right) strip.scrollLeft += Math.min(r.right - s.right, r.left - s.left);
+        }
+      }
       return;
     }
     e.el('.document-tabs').innerHTML = '';
@@ -282,7 +298,7 @@ export class WindowManager {
             const doc = s.doc, fonts = measurementGeneration();
             await this.e.renderer.drawFrame(doc, s.assets, (canvas) => this.capture(s, canvas, doc, fonts));
           }
-          await this.e.render(this.e.displayDoc);
+          await this.e.render(this.e.shownDoc);
         }
       } catch (error) {
         console.error(error);

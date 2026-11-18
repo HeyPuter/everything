@@ -326,3 +326,38 @@ test('block text, vertical forms and named stylistic sets', async ({ page }) => 
   });
   expect(v).toEqual({ orientation: 'vertical', block: undefined, vertical: 'rotate' });
 });
+
+test('a guide made while guides are hidden turns guides on, so it is not invisible', async ({ page }) => {
+  await addArtboard(page);
+  const shown = () => page.evaluate(() => {
+    const p = window.photoStudio.preferences;
+    return { all: p.showGuides, canvas: p.showCanvasGuides !== false, artboard: p.showArtboardGuides !== false };
+  });
+  const lines = () => page.locator('#overlay line.guide:not(.dragging), svg line.guide:not(.dragging)').count();
+  await page.evaluate(() => {
+    const p = window.photoStudio.preferences;
+    p.showGuides = false;
+    window.photoStudio.savePreferences();
+    window.photoStudio.update();
+  });
+  // Dragged out of a ruler onto the canvas.
+  await dragGuide(page, '#ruler-y', [100, 300]);
+  expect(await shown()).toMatchObject({ all: true, canvas: true });
+  expect(await lines()).toBeGreaterThan(0);
+  // Artboard guides hidden: a guide dropped on the artboard shows them.
+  await page.evaluate(() => {
+    window.photoStudio.preferences.showArtboardGuides = false;
+    window.photoStudio.update();
+  });
+  await dragGuide(page, '#ruler-x', [400, 120]);
+  expect(await shown()).toMatchObject({ all: true, artboard: true });
+  // New Guide… does the same.
+  await page.evaluate(() => {
+    window.photoStudio.preferences.showGuides = false;
+    window.photoStudio.update();
+  });
+  await start(page, 'view.guides-new');
+  await page.locator('dialog[open] button.primary').click();
+  await idle(page);
+  expect((await shown()).all).toBe(true);
+});

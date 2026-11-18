@@ -72,10 +72,16 @@ test('a PSD opened from Puter saves back to its own file as a PSD', async ({ pag
 test('saving a PSD that would lose something asks once per kind of loss', async ({ page }) => {
   await boot(page, 'default', sdk);
   await openPsdFromDrive(page);
-  await page.evaluate(() => window.photoStudio.command('Guide', (d) => (d.guides = [{ orientation: 'vertical', position: 4 }])));
+  // Guides are written to the PSD; slices are not.
+  await page.evaluate(() =>
+    window.photoStudio.command('Slice', (d) => {
+      d.guides = [{ orientation: 'vertical', position: 4 }];
+      d.slices = [{ id: crypto.randomUUID(), rect: { x: 0, y: 0, width: 8, height: 8 } }];
+    }),
+  );
   await start(page, 'file.save');
   const dialog = page.locator('#dialog[open]');
-  await expect(dialog).toContainText('A PSD leaves out guides. A .photo project keeps everything.');
+  await expect(dialog).toContainText('A PSD leaves out slices. A .photo project keeps everything.');
   // Cancelling writes nothing and leaves the document unsaved.
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await idle(page);
@@ -97,7 +103,7 @@ test('saving a PSD that would lose something asks once per kind of loss', async 
   // A new kind of loss asks again; a project goes to a file of its own.
   await page.evaluate(() => window.photoStudio.command('Info', (d) => (d.info = { title: 'Poster' })));
   await start(page, 'file.save');
-  await expect(dialog).toContainText('A PSD leaves out guides and File Info.');
+  await expect(dialog).toContainText('A PSD leaves out slices and File Info.');
   await dialog.getByRole('button', { name: 'Save as .photo', exact: true }).click();
   await expect.poll(async () => (await stub(page)).picked).toEqual(['art.photo']);
   await idle(page);
@@ -176,4 +182,46 @@ test('an edited preview of a PSD that cannot be rewritten offers a project inste
   expect((await stub(page)).written).toEqual(['/me/preview.psd']);
   expect(await magic(page, '/me/preview.photo')).toBe('PHOTO001');
   expect(await session(page)).toEqual({ file: 'preview.photo', path: '/me/preview.photo', dirty: false });
+});
+
+test('cancelling the PSD question of Save while closing keeps the tab open at once', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openPsdFromDrive(page);
+  await page.evaluate(() =>
+    window.photoStudio.command('Slice', (d) => {
+      d.slices = [{ id: crypto.randomUUID(), rect: { x: 0, y: 0, width: 8, height: 8 } }];
+    }),
+  );
+  // The close request answers by itself once the question is cancelled,
+  // without waiting for another click or key press.
+  await page.evaluate(() => {
+    const w = window as unknown as { closeResult?: boolean };
+    void window.photoStudio.closeSession(window.photoStudio.session).then((closed) => (w.closeResult = closed));
+  });
+  const dialog = page.locator('#dialog[open]');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toContainText('A PSD leaves out slices.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { closeResult?: boolean }).closeResult)).toBe(false);
+  expect(await stub(page)).toEqual({ written: [], picked: [] });
+  expect((await session(page)).dirty).toBe(true);
+  expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
+});
+
+test('opening a PSD from Puter that is already open shows its tab instead of a second copy', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openPsdFromDrive(page);
+  const first = await page.evaluate(() => window.photoStudio.session.id);
+  await page.evaluate(() => window.photoStudio.command('Fade', (d) => (d.layers[0].opacity = 0.5)));
+  // Switch to the other tab, then open the same file again.
+  await page.evaluate(() => window.photoStudio.switchSession(window.photoStudio.sessions[0]));
+  await page.evaluate(() => {
+    const w = window as unknown as Stub;
+    window.dispatchEvent(new CustomEvent('drop', { detail: { items: [w.__item('/me/art.psd')] } }));
+  });
+  await expect.poll(() => page.evaluate(() => window.photoStudio.session.id)).toBe(first);
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
+  // The edit made in that tab is still there.
+  expect(await page.evaluate(() => window.photoStudio.doc.layers[0].opacity)).toBe(0.5);
 });

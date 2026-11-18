@@ -14,6 +14,7 @@ import { bindCanvas, type CanvasPointer } from './app/pointer';
 import { commands, findCommand, overlays, tools, type Tool } from './app/registry';
 import { brushSizeStep, eventShortcut, platformShortcut } from './app/shortcuts';
 import { watchOptionTips } from './app/option-tips';
+import { scrollableRow } from './app/scroll-row';
 import { svg } from './app/icons';
 import { loadError, startIdleWork } from './app/lazy';
 import { emitActivity } from './app/activity';
@@ -241,6 +242,9 @@ export class Editor {
   // Called after a document is saved, with the native project that was
   // written (absent when the file written was a PSD).
   saveHooks: ((s: DocumentSession, project?: Blob) => void)[] = [];
+  // Called when a save of the document is given up by the user (a question
+  // before writing was cancelled), so a pending close can stop waiting.
+  saveCancelHooks: ((s: DocumentSession) => void)[] = [];
   /** Edits still held by the active tool, outside the session's history. */
   hasPendingChanges(s = this.session) {
     return s === this.session && (this.transform.changed || !!this.modal?.pendingChanges);
@@ -305,7 +309,9 @@ export class Editor {
     const answer = new Promise<boolean>((resolve) => (saved = resolve));
     const hook = (x: DocumentSession) => x === s && saved(true);
     const other = () => saved(false);
+    const cancelled = (x: DocumentSession) => x === s && saved(false);
     this.saveHooks.push(hook);
+    this.saveCancelHooks.push(cancelled);
     try {
       if (this.busy) await task().catch((error) => this.message(error instanceof Error ? error.message : String(error)));
       else await this.run(task);
@@ -316,6 +322,7 @@ export class Editor {
       return (await answer) && !s.dirty;
     } finally {
       this.saveHooks.splice(this.saveHooks.indexOf(hook), 1);
+      this.saveCancelHooks.splice(this.saveCancelHooks.indexOf(cancelled), 1);
       document.removeEventListener('pointerdown', other, true);
       document.removeEventListener('keydown', other, true);
     }
@@ -576,6 +583,7 @@ export class Editor {
   }
   async render(doc = this.doc) {
     if (!this.renderer) return;
+    this.shown = { doc, session: this.session };
     await this.renderer.render(doc, this.assets);
     // Startup measurements (docs/performance.md) look for the first document frame.
     if (this.hasDocument && !this.firstFrame) {
@@ -584,6 +592,12 @@ export class Editor {
     }
   }
   private firstFrame = false;
+  // The state last drawn on the canvas, which can be a dialog's preview.
+  private shown?: { doc: PhotoDocument; session: DocumentSession };
+  /** The document state the canvas shows (a live preview included). */
+  get shownDoc() {
+    return this.shown?.session === this.session ? this.shown.doc : this.displayDoc;
+  }
   preview(doc: PhotoDocument) {
     this.lastDoc = doc;
     if (this.renderFrame) return;
@@ -859,6 +873,8 @@ export class Editor {
   // ----- Input -----
   private bind() {
     watchOptionTips(this.el('#tool-options'));
+    scrollableRow(this.el('#tool-options'));
+    scrollableRow(this.el('.document-tabs'));
     this.el('#tool-options').addEventListener(
       'keydown',
       (e) => {
@@ -876,7 +892,16 @@ export class Editor {
         const v = this.views.find((x) => x.id === close.dataset.closeView);
         // Closing waits for the task, which may be working on that document.
         if (v && this.busy) this.message(`“${v.session.doc.name}” can be closed when the current task finishes.`);
-        else if (v) void this.closeView(v);
+        else if (v) {
+          // Closed from the keyboard, the focus moves to the tab shown now
+          // instead of falling to the page with the removed button.
+          const keyboard = document.activeElement === close;
+          void this.closeView(v).then((closed) => {
+            const now = document.activeElement;
+            if (!closed || !keyboard || close.isConnected || (now && now !== document.body && now.isConnected)) return;
+            this.root.querySelector<HTMLElement>('.document-tab.focused')?.focus({ preventScroll: true });
+          });
+        }
         e.stopPropagation();
         return;
       }
@@ -1008,12 +1033,20 @@ export class Editor {
     }
     const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
-    // Tab navigates focused controls; the canvas keeps its hide-panels shortcut.
-    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey && target.closest('button,a[href],[tabindex]:not(#viewport)')) return;
+    // A modal dialog makes the workspace behind it inert: keys that reach the
+    // page (the focus fell off a control the dialog rebuilt, or Tab left its
+    // last control) stay out of the workspace, and Tab goes back into the dialog.
+    if (modalDialogOpen()) return;
+    // Tab navigates focused controls (and the start screen, where the focus
+    // starts on the page); the canvas keeps its hide-panels shortcut.
+    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey && (target.closest('button,a[href],[tabindex]:not(#viewport)') || !this.hasDocument)) return;
     const shortcut = eventShortcut(e);
     // Modified shortcuts work while typing in numeric fields; bare keys never do,
     // and the field keeps the keys that edit its own text (select all, copy, cut, paste).
-    if (typing && (!shortcut.startsWith('Mod+') || /^Mod\+[ACVX]$/.test(shortcut) || target.closest('textarea,[contenteditable="true"]'))) return;
+    // Text fields also keep their own undo, redo and line deletion: Mod+Backspace
+    // in a search box must not fill the layer.
+    const textField = target instanceof HTMLInputElement && /^(text|search|url|email|password|tel)$/.test(target.type);
+    if (typing && (!shortcut.startsWith('Mod+') || /^Mod\+[ACVX]$/.test(shortcut) || target.closest('textarea,[contenteditable="true"]') || (textField && /^Mod\+(Shift\+)?(Z|Y|Backspace|Delete)$/.test(shortcut)))) return;
     if (this.busy) return;
     if (this.activeTool?.keyDown?.(this, e)) {
       e.preventDefault();
@@ -1105,6 +1138,14 @@ function setMarkup(el: Element, html: string) {
 }
 
 /** Stored preferences, upgraded from older storage keys. */
+function modalDialogOpen() {
+  try {
+    return !!document.querySelector('dialog:modal');
+  } catch {
+    // Without :modal support, any open dialog counts.
+    return !!document.querySelector('dialog[open]');
+  }
+}
 function readPreferences(): Preferences {
   const get = (key: string) => {
     try {

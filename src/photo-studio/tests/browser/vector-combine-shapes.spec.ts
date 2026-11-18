@@ -79,3 +79,36 @@ test('Subtract Shapes at Overlap removes only the overlap', async ({ page }) => 
   expect(await ink(page, 130, 100)).toBe(false);
   expect(await ink(page, 220, 160)).toBe(true);
 });
+
+test('Unite Shapes at Overlap keeps the overlap with each part of a front layer made of separate shapes', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 300, 200, '#ffffff');
+  await tool(page, 'Rectangle Tool');
+  await canvasDrag(page, [
+    [20, 20],
+    [280, 180],
+  ]);
+  // The front layer holds two separate rectangles.
+  await canvasDrag(page, [
+    [40, 40],
+    [100, 100],
+  ]);
+  await page.locator('#vec-op').selectOption('combine');
+  await canvasDrag(page, [
+    [200, 100],
+    [260, 160],
+  ]);
+  await page.locator('#vec-op').selectOption('new');
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.selectLayers(e.doc.layers.filter((l) => l.kind === 'vector').map((l) => l.id));
+  });
+  await idle(page);
+  await menu(page, 'Layer', 'Combine Shapes', 'Unite Shapes at Overlap');
+  expect(await ink(page, 70, 70)).toBe(true);
+  expect(await ink(page, 230, 130)).toBe(true);
+  expect(await ink(page, 150, 60)).toBe(false);
+  expect(await ink(page, 25, 25)).toBe(false);
+});

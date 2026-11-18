@@ -6,6 +6,7 @@ import type { Editor } from '../../editor';
 import { commands, registerCommand, registerPanel } from '../../app/registry';
 import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
+import { formatShortcut } from '../../app/shortcuts';
 import { layer as newLayer, type Layer } from '../../model/document';
 import { selectionGrid, canvasRect } from '../../model/selection';
 import { readMask } from '../../model/tiles';
@@ -156,8 +157,13 @@ function sortedRows() {
 function logColumns() {
   return enabledPoints().filter((d) => log.rows.some((r) => r.values[d.id] !== undefined));
 }
+/** Record Measurements' shortcut as this platform shows it (it can be changed). */
+const recordKeys = () => {
+  const keys = formatShortcut(commands.get('analysis.record')?.shortcut);
+  return keys ? ` (${keys})` : '';
+};
 function logHtml() {
-  if (!log.rows.length) return `<p class="muted log-empty">Measure with a selection, the Ruler tool or the Count tool, then choose Image › Analysis › Record Measurements (⇧⌘M).</p>`;
+  if (!log.rows.length) return `<p class="muted log-empty">Measure with a selection, the Ruler tool or the Count tool, then choose Image › Analysis › Record Measurements${escapeXML(recordKeys())}.</p>`;
   const cols = logColumns();
   const arrow = (k: string) => (log.sort?.key === k ? (log.sort.dir > 0 ? ' ▲' : ' ▼') : '');
   const head = `<tr><th scope="col"><button data-log-sort="id">#${arrow('id')}</button></th>${cols.map((c) => `<th scope="col"><button data-log-sort="${c.id}">${escapeXML(c.label)}${arrow(c.id)}</button></th>`).join('')}</tr>`;
@@ -462,7 +468,7 @@ export function installAnalysis(_e: Editor) {
         top = scroll?.scrollTop ?? 0;
       const n = log.rows.length,
         sel = log.selected.size;
-      el.innerHTML = `<div class="log-toolbar"><button data-command="analysis.record" title="Record Measurements (⇧⌘M)">${svg('plus', 14)} Record</button><span class="muted">${n} row${n === 1 ? '' : 's'}${sel ? `, ${sel} selected` : ''}</span><span class="panel-tabs-spacer"></span><button class="icon-button" data-command="log.export" ${n ? '' : 'disabled'} title="${sel ? 'Export selected rows as CSV' : 'Export all rows as CSV'}" aria-label="Export CSV">${svg('download', 14)}</button><button class="icon-button" data-command="log.delete" ${sel ? '' : 'disabled'} title="Delete selected rows" aria-label="Delete selected rows">${svg('trash-2', 14)}</button></div>${logHtml()}`;
+      el.innerHTML = `<div class="log-toolbar"><button data-command="analysis.record" title="Record Measurements${escapeXML(recordKeys())}">${svg('plus', 14)} Record</button><span class="muted">${n} row${n === 1 ? '' : 's'}${sel ? `, ${sel} selected` : ''}</span><span class="panel-tabs-spacer"></span><button class="icon-button" data-command="log.export" ${n ? '' : 'disabled'} title="${sel ? 'Export selected rows as CSV' : 'Export all rows as CSV'}" aria-label="Export CSV">${svg('download', 14)}</button><button class="icon-button" data-command="log.delete" ${sel ? '' : 'disabled'} title="Delete selected rows" aria-label="Delete selected rows">${svg('trash-2', 14)}</button></div>${logHtml()}`;
       el.tabIndex = -1;
       const next = el.querySelector('.log-scroll');
       if (next) {

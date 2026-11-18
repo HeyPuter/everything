@@ -6,7 +6,13 @@
 // or tile since, and never removes other people's work. The History panel
 // lists this person's steps; other people's edits appear without steps.
 import * as Y from 'yjs';
-import { History, type HistoryMark, type HistoryPosition } from '../history/history';
+import {
+  History,
+  cloneDocument,
+  sameJson,
+  type HistoryMark,
+  type HistoryPosition,
+} from '../history/history';
 import type { PhotoDocument } from '../model/document';
 import type { Assets } from '../model/assets';
 import { ORIGIN } from './shared-project';
@@ -48,10 +54,10 @@ export class SharedHistory extends History {
       return;
     }
     const before = this.document,
-      after = structuredClone(before);
+      after = cloneDocument(before);
     edit(after);
     this.normalize?.(after, before);
-    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    if (sameJson(before, after)) return;
     this.remember(before);
     this.document = after;
     const merge = this.marks > 0 ? this.binding.undoCount > this.markedAt : coalesce && this.binding.topLabel() === label;

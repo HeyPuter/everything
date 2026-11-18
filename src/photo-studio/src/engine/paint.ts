@@ -22,7 +22,8 @@ export type BrushTip = {
   // Ellipse minor/major ratio and rotation of the major axis, in degrees.
   roundness: number;
   angle: number;
-  // Optional sampled tip; coverage is scaled to the dab size and rotated.
+  // Optional sampled tip; coverage is scaled so its longer side spans the
+  // dab size (keeping its proportions) and rotated.
   sample?: Mask8;
   // Pencil: pixels inside the tip are painted fully and the rest not at all
   // (no anti-aliasing); the pixel under the center is always painted.
@@ -57,6 +58,10 @@ export type PaintTarget =
       // Per-pixel source color (clone stamp, pattern stamp, history brush).
       // Writes straight RGBA into `out` and returns false where there is no source.
       source?: (x: number, y: number, out: Uint8ClampedArray) => boolean;
+      // With a source in Normal or Dissolve: move each pixel toward the
+      // source pixel, alpha included, instead of painting the source over it
+      // (the History Brush restores transparent areas too).
+      restore?: boolean;
     }
   | {
       // Per-pixel processing of existing pixels (dodge, burn, sponge, blur...).
@@ -100,6 +105,8 @@ type Working = {
   base: TileData | null;
   work: TileData;
   cov: Float32Array;
+  // Strongest opacity each pixel has received, when dabs differ in opacity.
+  amount?: Float32Array;
 };
 
 export class StrokeSession {
@@ -115,6 +122,8 @@ export class StrokeSession {
   private scratch2 = new Uint8ClampedArray(4);
   private blendScratch = { b: [0, 0, 0], s: [0, 0, 0], out: [0, 0, 0] };
   private seed: number;
+  // Pressure or jitter gives dabs of one stroke different opacities.
+  private varyingOpacity: boolean;
   dabs = 0;
   constructor(
     private store: TileStore,
@@ -126,6 +135,7 @@ export class StrokeSession {
       throw new Error('The paint target does not match the tile format.');
     this.preview = { ...original, tiles: { ...original.tiles } };
     this.seed = options.seed ?? 1;
+    this.varyingOpacity = !!(options.dynamics?.pressureOpacity || options.dynamics?.opacityJitter);
     let state = (options.seed ?? 1) >>> 0 || 1;
     this.random = () => {
       // xorshift32: cheap and deterministic for replayable jitter.
@@ -220,9 +230,10 @@ export class StrokeSession {
       dirty = unionRect(dirty, this.stamp(sx, sy, size, angle, roundness, flow, cap));
     return dirty;
   }
+  // Selection tiles by their own tile coordinates (a moved selection outline
+  // has a grid origin other than 0).
   private selectionAt(tx: number, ty: number) {
     const sel = this.options.selection!;
-    // Selection tiles align with document tiles only when the grid origin is 0.
     const key = tileKey(tx, ty);
     let entry = this.selectionTiles.get(key);
     if (entry === undefined) {
@@ -241,6 +252,7 @@ export class StrokeSession {
       const work = base ? new Uint8ClampedArray(base) : new Uint8ClampedArray(tileBytes(this.channels));
       if (!base && this.channels === 1 && this.original.fill) work.fill(this.original.fill);
       w = { id: this.store.add(work), base, work, cov: new Float32Array(TILE * TILE) };
+      if (this.varyingOpacity) w.amount = new Float32Array(TILE * TILE);
       this.working.set(key, w);
       this.preview.tiles[key] = w.id;
       // Live reads must see the new working copy.
@@ -280,10 +292,20 @@ export class StrokeSession {
     const inner = radius * hard,
       soft = Math.max(1, radius - inner);
     const sample = tip.sample;
+    // Sample pixels per document pixel along both axes.
+    const sampleScale = sample ? Math.max(sample.width, sample.height) / size : 0;
     const c = this.channels;
     const px = this.scratch,
       src = this.scratch2;
     if (target.kind === 'custom') target.dab?.(cx, cy, size, this.readLive);
+    // The selection tile row under the last pixel, valid for document x in
+    // [selX0, selX1) on row selY (neighbouring pixels share it).
+    let selY = NaN,
+      selX0 = 0,
+      selX1 = 0,
+      selRow: TileData | null = null,
+      selOffset = 0,
+      selValue = 0;
     for (let ty = Math.floor((y0 - gy) / TILE); ty <= Math.floor((y1 - 1 - gy) / TILE); ty++)
       for (let tx = Math.floor((x0 - gx) / TILE); tx <= Math.floor((x1 - 1 - gx) / TILE); tx++) {
         const w = this.workingTile(tx, ty);
@@ -306,8 +328,8 @@ export class StrokeSession {
               if (tip.square ? Math.abs(u) > radius || Math.abs(v) > radius : u * u + v * v > radius * radius && (x !== Math.floor(cx) || y !== Math.floor(cy))) continue;
               alpha = 1;
             } else if (sample) {
-              const sxp = Math.floor((u / size + 0.5) * sample.width),
-                syp = Math.floor((v / size + 0.5) * sample.height);
+              const sxp = Math.floor(u * sampleScale + sample.width / 2),
+                syp = Math.floor(v * sampleScale + sample.height / 2);
               if (sxp < 0 || syp < 0 || sxp >= sample.width || syp >= sample.height) continue;
               alpha = sample.data[syp * sample.width + sxp] / 255;
             } else {
@@ -323,8 +345,19 @@ export class StrokeSession {
             }
             if (alpha <= 0) continue;
             if (selection) {
-              const sel = this.selectionAt(Math.floor(x / TILE), Math.floor(y / TILE));
-              const sv = typeof sel === 'number' ? sel : sel[(((y % TILE) + TILE) % TILE) * TILE + (((x % TILE) + TILE) % TILE)];
+              if (y !== selY || x < selX0 || x >= selX1) {
+                const stx = Math.floor((x - selection.x) / TILE),
+                  ly = y - selection.y,
+                  sty = Math.floor(ly / TILE);
+                const entry = this.selectionAt(stx, sty);
+                selRow = typeof entry === 'number' ? null : entry;
+                selValue = typeof entry === 'number' ? entry : 0;
+                selY = y;
+                selX0 = selection.x + stx * TILE;
+                selX1 = selX0 + TILE;
+                selOffset = (ly - sty * TILE) * TILE - selX0;
+              }
+              const sv = selRow ? selRow[selOffset + x] : selValue;
               if (!sv) continue;
               alpha *= sv / 255;
             }
@@ -345,6 +378,11 @@ export class StrokeSession {
             const cov = before + alpha * flow * (1 - before);
             w.cov[li] = cov;
             const k = Math.min(1, cov) * cap;
+            // A lighter dab never takes back paint a stronger one laid down.
+            if (w.amount) {
+              if (k <= w.amount[li]) continue;
+              w.amount[li] = k;
+            }
             if (c === 1) {
               const b = w.base ? w.base[li] : (this.original.fill ?? 0);
               w.work[li] = b + ((target as { value: number }).value - b) * k;
@@ -380,6 +418,29 @@ export class StrokeSession {
             // Behind paints only transparent pixels and Clear removes alpha:
             // neither can change a layer whose transparency is locked.
             if (t.preserveAlpha && (t.mode === 'behind' || t.mode === 'clear')) continue;
+            if (t.restore && t.source && (t.mode === 'normal' || t.mode === 'dissolve')) {
+              const r = t.mode === 'dissolve' ? (hash01(x, y, this.seed) < k ? 1 : 0) : k;
+              if (!r) continue;
+              if (t.preserveAlpha) {
+                // Locked transparency: only the color of the source returns.
+                if (!sa) continue;
+                w.work[i] = br + (sr - br) * r;
+                w.work[i + 1] = bg + (sg - bg) * r;
+                w.work[i + 2] = bb + (sb - bb) * r;
+                w.work[i + 3] = ba;
+              } else {
+                const ba1 = ba / 255,
+                  oa = ba1 + (sa - ba1) * r;
+                if (oa > 0) {
+                  w.work[i] = (br * ba1 * (1 - r) + sr * sa * r) / oa;
+                  w.work[i + 1] = (bg * ba1 * (1 - r) + sg * sa * r) / oa;
+                  w.work[i + 2] = (bb * ba1 * (1 - r) + sb * sa * r) / oa;
+                }
+                w.work[i + 3] = oa * 255;
+              }
+              changed = true;
+              continue;
+            }
             let a = k * sa;
             // Dissolve turns partial coverage into a stable per-pixel choice.
             if (t.mode === 'dissolve') a = hash01(x, y, this.seed) < a ? 1 : 0;

@@ -35,3 +35,68 @@ for (const late of [false, true]) {
     expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(1);
   });
 }
+
+test('contents of a parent that refuses edits (view-only sharing) stay unsaved', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 24, 24, '#ffffff', 'parent.png');
+  await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(16, 16);
+    canvas.getContext('2d')!.fillRect(0, 0, 16, 16);
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, await canvas.convertToBlob(), 'child.png', true);
+  });
+  await run(page, 'layer.embed-edit');
+  const result = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const s = e.session;
+    const { saveContents, ownerOf } = await import('/src/features/embedded/edit.ts');
+    const parent = ownerOf(s)!.parent;
+    // As a shared document opened for viewing: edits are refused.
+    const refusal = 'You can view this shared document but not change it.';
+    Object.defineProperty(parent.history, 'refusal', { get: () => refusal });
+    parent.history.execute = () => e.message(refusal);
+    const before = parent.doc;
+    e.command('Hide', (d) => (d.layers[0].visible = false));
+    await saveContents(e, s);
+    return {
+      dirty: s.dirty,
+      parentChanged: parent.doc !== before,
+      status: document.querySelector('#status')!.textContent,
+    };
+  });
+  expect(result.dirty).toBe(true);
+  expect(result.parentChanged).toBe(false);
+  expect(result.status).toContain('stay unsaved');
+});
+
+test('Replace Contents leaves a locked embedded object as it is', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 24, 24, '#ffffff', 'parent.png');
+  await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(16, 16);
+    canvas.getContext('2d')!.fillRect(0, 0, 16, 16);
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, await canvas.convertToBlob(), 'child.png', true);
+  });
+  const result = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const id = e.layer!.id;
+    e.command('Lock', (d) => (d.layers.find((l) => l.id === id)!.locked = true));
+    const before = JSON.stringify(e.doc.layers.find((l) => l.id === id));
+    const canvas = new OffscreenCanvas(30, 10);
+    canvas.getContext('2d')!.fillRect(0, 0, 30, 10);
+    const file = new File([await canvas.convertToBlob()], 'other.png', { type: 'image/png' });
+    const { replaceContents } = await import('/src/features/embedded/convert.ts');
+    let error = '';
+    try {
+      await replaceContents(e, file);
+    } catch (x) {
+      error = String(x);
+    }
+    return { error, same: JSON.stringify(e.doc.layers.find((l) => l.id === id)) === before };
+  });
+  expect(result.error).toContain('Unlock');
+  expect(result.same).toBe(true);
+});

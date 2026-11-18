@@ -300,7 +300,8 @@ test('presets save and load the settings', async ({ page }) => {
   await d.locator('.pr-presets summary').click();
   await d.getByRole('button', { name: 'Soft focus', exact: true }).click();
   await expect(d.getByRole('checkbox', { name: 'Use Depth Blur' })).toBeChecked();
-  await expect(d.locator('.pr-status')).toContainText('Soft focus');
+  // The notice stays in front of the summary the finished preview shows.
+  await expect(d.locator('.pr-status')).toHaveText('Preset “Soft focus” loaded. 2 filters on.');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
   await idle(page);

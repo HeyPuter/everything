@@ -6,7 +6,7 @@ import type { CanvasPointer } from '../../app/pointer';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import type { Rect } from '../../model/document';
-import { clipRect, partitionSlices, sliceAt, sliceRect, type Slice } from '../../model/slices';
+import { clipRect, MAX_SLICES, partitionSlices, sliceAt, sliceRect, type Slice } from '../../model/slices';
 
 // ----- Shared state (per editor session; IDs that vanish are ignored) -----
 export const sliceState = {
@@ -138,6 +138,10 @@ function resized(r: Rect, h: string, p: [number, number]): Rect {
 export function addSlice(e: Editor, rect: Rect, label = 'Slice') {
   const r = clipRect(rect, e.doc.width, e.doc.height);
   if (!r) return;
+  if ((e.doc.slices?.length ?? 0) >= MAX_SLICES) {
+    e.message(`This document already has ${MAX_SLICES} slices, the most it can hold.`);
+    return;
+  }
   const id = newSliceId();
   e.command(label, (d) => {
     d.slices = [...(d.slices ?? []), { id, rect: r }];

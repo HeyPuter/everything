@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { layer, newDocument, allLayers, type PhotoDocument } from '../src/model/document';
-import { allLinked, cleanLinks, expandLinked, followLinkedMasks, linkLayers, linkedPartners, maskLinked, unlinkLayers } from '../src/model/links';
+import { allLinked, cleanLinks, expandLinked, followLinkedMasks, linkLayers, linkedPartners, maskLinked, renewLinkGroups, unlinkLayers } from '../src/model/links';
 import { isEmptyLayer, makeBackground, pasteMask, releaseBackground, removeEmptyLayers, removeHiddenLayers, transparencyToMask } from '../src/model/housekeeping';
 import { selectedRoots } from '../src/model/layers';
 import { selectionFrame, transformSelection } from '../src/model/transform';
@@ -176,6 +176,29 @@ describe('housekeeping', () => {
     expect(allLayers(doc.layers).map((l) => l.name)).toEqual(['A', 'C', 'G']);
     expect(a.linkGroup).toBeUndefined();
     void c;
+  });
+  it('keeps links between layers inside and outside a group when a hidden layer in the group goes', () => {
+    const { doc, a, b } = fixture();
+    const g = layer('group', 'G', 1, 1);
+    const hidden = layer('solid', 'H', 1, 1);
+    hidden.visible = false;
+    doc.layers = [a, g];
+    g.children = [b, hidden];
+    linkLayers(doc.layers, [a.id, b.id], 'pair');
+    expect(removeHiddenLayers(doc.layers)).toBe(1);
+    expect([a.linkGroup, b.linkGroup]).toEqual(['pair', 'pair']);
+  });
+  it('gives layers brought in from elsewhere link groups of their own', () => {
+    const { a, b, c } = fixture();
+    const g = layer('group', 'G', 1, 1);
+    g.children = [c];
+    a.linkGroup = b.linkGroup = 'one';
+    c.linkGroup = 'two';
+    renewLinkGroups([a, b, g]);
+    expect(a.linkGroup).toBe(b.linkGroup);
+    expect([a.linkGroup, c.linkGroup]).not.toContain('one');
+    expect(c.linkGroup).not.toBe('two');
+    expect(c.linkGroup).not.toBe(a.linkGroup);
   });
   it('splits transparency into a mask and an opaque image', () => {
     const img = { width: 2, height: 1, data: new Uint8ClampedArray([10, 20, 30, 128, 1, 2, 3, 0]) };

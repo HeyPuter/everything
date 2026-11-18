@@ -12,7 +12,7 @@ import { gridFromImage } from '../../model/tiles';
 import { escapeXML } from '../../model/assets';
 import { channelBlends, channelPlane, type ChannelBlend, type ChannelOptions, type SourceChannel, type TargetChannel } from '../../imaging/channels/apply';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
-import { commitTarget, pixelTarget, previewTarget, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
+import { commitTarget, pixelTarget, previewTarget, previewTiles, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
 import { latest, openShell, resultGrid } from '../adjust/dialog';
 import { checkbox, h, select, slider } from '../adjust/ui';
 import { commitSelectionMask } from '../selection';
@@ -176,6 +176,7 @@ export async function applyImageDialog(e: Editor) {
   const o: ChannelOptions = { blend: 'multiply', opacity: 1, scale: 1, offset: 0, preserveTransparency: false };
   let channel: TargetChannel = 'rgb';
   const shell = openShell(e, 'Apply Image', { wide: true });
+  const tiles = previewTiles(e, target.grid);
   shell.body.classList.add('comp-form');
   const schedule = latest();
   let last: RGBA8 | null = null;
@@ -201,7 +202,10 @@ export async function applyImageDialog(e: Editor) {
         last = out;
         if (!shell.dialog.isConnected) return;
         shell.status.textContent = '';
-        if (shell.preview.checked) e.preview(previewTarget(e, target, resultGrid(e, target, src, { width: out.width, height: out.height, data: new Uint8ClampedArray(out.data) })));
+        if (shell.preview.checked) {
+          const copy = { ...out, data: new Uint8ClampedArray(out.data) };
+          e.preview(previewTarget(e, target, tiles.show(resultGrid(e, target, src, copy))));
+        }
       } catch (error) {
         shell.status.textContent = error instanceof Error ? error.message : String(error);
       }
@@ -224,6 +228,7 @@ export async function applyImageDialog(e: Editor) {
   const ok = await shell.result;
   delete e.settings.quickMaskPreview;
   e.update();
+  tiles.release();
   if (!ok) return;
   const out = last ?? (await compute());
   commitTarget(e, target, resultGrid(e, target, src, out), 'Apply Image');

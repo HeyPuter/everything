@@ -12,7 +12,8 @@ import { escapeXML } from '../../model/assets';
 import { replaceDocument, type PhotoDocument } from '../../model/document';
 import { deserialize, serialize } from '../../model/serialization';
 import { formDialog } from '../../ui/dialog';
-import { relativeTime, VersionStore, type VersionEntry, type VersionKind } from '../../persistence/versions';
+import { relativeTime, VersionStore, versionFileKey, type VersionEntry, type VersionKind } from '../../persistence/versions';
+import { openedFiles } from '../../app/app-events';
 import { documentThumbnail } from './thumbs';
 import { installRecovery, recoveryTick } from './recovery';
 import { warnOnce } from '../preferences/warnings';
@@ -20,7 +21,9 @@ import { warnOnce } from '../preferences/warnings';
 const store = new VersionStore();
 const kindLabel: Record<VersionKind, string> = { auto: 'Autosave', save: 'Saved', named: 'Named' };
 // Per panel: the document listed and its versions.
-let listed: { docId: string; list: VersionEntry[]; urls: string[] } | undefined;
+let listed: { docId: string; file?: string; list: VersionEntry[]; urls: string[] } | undefined;
+/** The file a session's versions are also found by. */
+const fileOf = (s: DocumentSession) => versionFileKey(s.storage.path, openedFiles.get(s));
 let revision = 0;
 let previewing: { id: string; name: string; docId: string } | undefined;
 
@@ -31,7 +34,8 @@ export async function addVersion(e: Editor, s: DocumentSession, name: string, ki
   const extrasRevision = project ? s.savedExtrasRevision : s.extrasRevision;
   const blob = project ?? (await serialize(doc, s.assets));
   const thumb = await documentThumbnail(e, s, 192, doc).catch(() => undefined);
-  const v = await store.add({ docId: doc.id, docName: doc.name, name, kind, width: doc.width, height: doc.height, thumb }, blob, e.preferences.versionsPerDocument);
+  const file = fileOf(s);
+  const v = await store.add({ docId: doc.id, ...(file ? { file } : {}), docName: doc.name, name, kind, width: doc.width, height: doc.height, thumb }, blob, e.preferences.versionsPerDocument);
   lastVersioned.set(s, { doc, extrasRevision });
   revision++;
   refresh(e);
@@ -140,7 +144,8 @@ const versionsPanel: Panel = {
   },
   update: (e, el) => {
     const docId = e.doc.id;
-    const key = `${docId}:${revision}:${previewing?.id ?? ''}:${e.hasDocument}`;
+    const file = fileOf(e.session);
+    const key = `${docId}:${file ?? ''}:${revision}:${previewing?.id ?? ''}:${e.hasDocument}`;
     if (el.dataset.key === key) return;
     el.dataset.key = key;
     const draw = () => {
@@ -154,12 +159,12 @@ const versionsPanel: Panel = {
           : '<p class="versions-empty">No versions yet. Versions are kept when you save, at the autosave interval, and with Save Version.</p>';
       el.innerHTML = head + banner + body;
     };
-    if (listed?.docId === docId) return draw();
-    void store.list(docId).then((list) => {
+    if (listed?.docId === docId && listed.file === file) return draw();
+    void store.list(docId, file).then((list) => {
       // A tab switch or refresh can supersede this request before it resolves.
       if (el.dataset.key !== key) return;
       for (const u of listed?.urls ?? []) URL.revokeObjectURL(u);
-      listed = { docId, list, urls: list.map((v) => (v.thumb ? URL.createObjectURL(v.thumb) : '')) };
+      listed = { docId, file, list, urls: list.map((v) => (v.thumb ? URL.createObjectURL(v.thumb) : '')) };
       draw();
     });
   },

@@ -19,7 +19,7 @@ import {
   type CloneTransform,
   type Sampler,
 } from '../../imaging/retouch/clone-transform';
-import { compositeRGBA } from '../pixels';
+import { compositeRGBA, toRGBA8 } from '../pixels';
 import { gridSampler, imageSampler } from '../retouch/samplers';
 
 export type SampleMode = 'current' | 'below' | 'all';
@@ -30,6 +30,8 @@ export type CloneSource = CloneTransform & {
   sessionId: string;
   docName: string;
   layerName: string;
+  // The layer that was current when the source was set.
+  layerId?: string;
   // Pixels captured from another document when the source was set there.
   snapshot?: RGBA8;
 };
@@ -80,10 +82,14 @@ export function layersBelow(layers: Layer[], id: string, hideAdjustments = false
 export function withoutAdjustments(list: Layer[]): Layer[] {
   return list.map((l) => (l.kind === 'adjustment' ? { ...l, visible: false } : l.kind === 'group' ? { ...l, children: withoutAdjustments(l.children) } : l));
 }
-function sampledDoc(e: Editor, mode: SampleMode): PhotoDocument {
-  const doc = e.doc;
-  if (mode === 'below' && e.layer) {
-    const layers = layersBelow(doc.layers, e.layer.id, ignoreAdjustments(e));
+function sampledDoc(
+  e: Editor,
+  mode: SampleMode,
+  doc = e.doc,
+  layerId = e.layer?.id,
+): PhotoDocument {
+  if (mode === 'below' && layerId) {
+    const layers = layersBelow(doc.layers, layerId, ignoreAdjustments(e));
     if (layers) return { ...doc, layers };
   }
   if (ignoreAdjustments(e)) return { ...doc, layers: withoutAdjustments(doc.layers) };
@@ -127,12 +133,39 @@ async function captureSnapshot(e: Editor, mode: SampleMode): Promise<RGBA8 | und
   if (l?.kind === 'pixel' && l.pixels) return readRGBA(e.assets.tiles, l.pixels, canvasRect(e.doc));
   return compositeRGBA(e, { ...e.doc, layers: l ? [{ ...l, visible: true }] : [] });
 }
+/** Pixels of a source set in another document: captured when it was set
+ * (with several documents open), else read now from that document while it
+ * is still open (the source was set while it was the only document). */
+export async function foreignSnapshot(
+  e: Editor,
+  src: CloneSource,
+  mode: SampleMode,
+): Promise<RGBA8 | undefined> {
+  if (src.snapshot) return src.snapshot;
+  const s = e.sessions.find((x) => x.id === src.sessionId);
+  if (!s?.hasDocument) return;
+  const doc = s.doc;
+  const l = src.layerId ? findLayer(doc.layers, src.layerId) : undefined;
+  let img: RGBA8;
+  if (mode === 'current' && l?.kind === 'pixel' && l.pixels)
+    img = readRGBA(s.assets.tiles, l.pixels, canvasRect(doc));
+  else {
+    const shown =
+      mode === 'current'
+        ? { ...doc, layers: l ? [{ ...l, visible: true }] : [] }
+        : sampledDoc(e, mode, doc, src.layerId);
+    img = toRGBA8(await e.renderer.documentPixels(shown, s.assets), doc.width, doc.height);
+  }
+  // Kept with the source, as a snapshot taken when it was set would be.
+  src.snapshot = img;
+  return img;
+}
 
 /** Alt-click: set the active source at a point of the current document. */
 export async function setSource(e: Editor, x: number, y: number, tool: 'clone' | 'heal') {
   const prev = activeSource();
   const t: CloneTransform = prev ? { scaleW: prev.scaleW, scaleH: prev.scaleH, rotation: prev.rotation, flipH: prev.flipH, flipV: prev.flipV } : { ...cloneState.pending };
-  const src: CloneSource = { ...t, point: [x, y], sessionId: e.session.id, docName: e.doc.name, layerName: sampleMode(e, tool) === 'current' ? (e.layer?.name ?? '') : sampleMode(e, tool) === 'all' ? 'All Layers' : `${e.layer?.name ?? ''} and below` };
+  const src: CloneSource = { ...t, point: [x, y], sessionId: e.session.id, docName: e.doc.name, layerId: e.layer?.id, layerName: sampleMode(e, tool) === 'current' ? (e.layer?.name ?? '') : sampleMode(e, tool) === 'all' ? 'All Layers' : `${e.layer?.name ?? ''} and below` };
   cloneState.sources[cloneState.active] = src;
   cloneSourceChanged();
   // Another document may be painted later; keep this one's pixels with the source.
@@ -151,11 +184,12 @@ export async function strokeSampler(e: Editor, src: CloneSource, anchor: [number
   const map = sourceMapping(src.point, anchor, src);
   const translation = isTranslation(src);
   if (src.sessionId !== e.session.id) {
-    if (!src.snapshot) {
+    const snapshot = await foreignSnapshot(e, src, mode);
+    if (!snapshot) {
       e.message('The clone source document is no longer available. Alt-click to set a new source.');
       return;
     }
-    return mappedSampler(bilinearSampler(src.snapshot), imageSampler(src.snapshot), map, translation);
+    return mappedSampler(bilinearSampler(snapshot), imageSampler(snapshot), map, translation);
   }
   if (mode === 'current') return currentLayerSampler(e, src, anchor, targetLayer);
   const img = await compositeFor(e, mode);
@@ -176,7 +210,7 @@ export function currentLayerSampler(e: Editor, src: CloneSource, anchor: [number
 
 /** Whole source image (healing reads a rectangle of it). */
 export async function sourceImage(e: Editor, src: CloneSource, mode: SampleMode, targetLayer: Layer): Promise<RGBA8 | undefined> {
-  if (src.sessionId !== e.session.id) return src.snapshot;
+  if (src.sessionId !== e.session.id) return foreignSnapshot(e, src, mode);
   if (mode === 'current') {
     const grid = findLayer(e.doc.layers, targetLayer.id)?.pixels ?? targetLayer.pixels;
     return grid ? readRGBA(e.assets.tiles, grid, canvasRect(e.doc)) : undefined;
@@ -191,7 +225,12 @@ let overlayImage: { key: string; url: string; width: number; height: number; sca
 let overlayPending = '';
 async function buildOverlay(e: Editor, key: string, src: CloneSource, mode: SampleMode) {
   overlayPending = key;
-  const img = src.sessionId === e.session.id ? (e.layer ? await sourceImage(e, src, mode, e.layer) : undefined) : src.snapshot;
+  const img =
+    src.sessionId === e.session.id
+      ? e.layer
+        ? await sourceImage(e, src, mode, e.layer)
+        : undefined
+      : await foreignSnapshot(e, src, mode);
   if (!img || overlayPending !== key) return;
   const scale = Math.min(1, 2048 / Math.max(img.width, img.height));
   const w = Math.max(1, Math.round(img.width * scale)),

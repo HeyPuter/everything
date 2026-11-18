@@ -77,11 +77,14 @@ export async function createStyleLayers(e: Editor) {
     for (const m of made) setLayerPixels(m.layer, m.grid, d);
     delete t.style;
     const at = list.indexOf(t);
-    const below = made.filter((m) => m.stage === 'below').map((m) => m.layer);
-    // Clipped layers must sit directly above their base.
-    const above = [...made.filter((m) => m.stage === 'interior'), ...made.filter((m) => m.stage === 'above')].map((m) => m.layer);
-    list.splice(at + 1, 0, ...above);
-    list.splice(at, 0, ...below);
+    const pick = (stage: string) => made.filter((m) => m.stage === stage).map((m) => m.layer);
+    // Interior effects clip to the layer directly above it; outer effects go
+    // above the layers already clipped to it, which keep their base.
+    let end = at + 1;
+    while (end < list.length && list[end].clipped) end++;
+    list.splice(end, 0, ...pick('above'));
+    list.splice(at + 1, 0, ...pick('interior'));
+    list.splice(at, 0, ...pick('below'));
   });
   e.message(`Created ${made.length} layer${made.length === 1 ? '' : 's'} from the layer’s effects.`);
 }

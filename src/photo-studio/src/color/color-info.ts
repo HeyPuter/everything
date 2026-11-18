@@ -127,8 +127,18 @@ export function harmonySwatches(baseHex: string, scheme: HarmonyScheme): Swatch[
     tetradic: [0, 90, 180, 270],
     monochromatic: [0, 0, 0, 0, 0],
   };
+  // Monochromatic: five brightness steps 20 apart around the color, moved to
+  // fit 10..100, with the step nearest the color replaced by the color itself
+  // (so the shades stay distinct and include it).
+  const start = Math.min(20, Math.max(10, v - 40));
+  const steps = [0, 1, 2, 3, 4].map((i) => start + i * 20);
+  const nearest = steps.reduce(
+    (best, x, i) => (Math.abs(x - v) < Math.abs(steps[best] - v) ? i : best),
+    0,
+  );
+  steps[nearest] = v;
   return offsets[scheme].map((o, i) => {
-    const vv = scheme === 'monochromatic' ? Math.max(10, Math.min(100, v - 40 + i * 20)) : v;
+    const vv = scheme === 'monochromatic' ? steps[i] : v;
     const rgb = hsbToRgb((h + o + 360) % 360, s, vv);
     return { name: `${scheme} ${i + 1}`, hex: toHex(rgb) };
   });

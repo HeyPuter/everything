@@ -7,6 +7,10 @@ export type VersionKind = 'auto' | 'save' | 'named';
 export type VersionEntry = {
   id: string;
   docId: string;
+  // The file the document was opened from or saved to (see versionFileKey).
+  // Documents opened from an image or a PSD get a new ID each time; their
+  // versions are found again by the file.
+  file?: string;
   docName: string;
   name: string;
   kind: VersionKind;
@@ -40,14 +44,14 @@ export class VersionStore {
         throw error;
       }
     }
-    const automatic = (await this.list(full.docId)).filter((v) => v.kind !== 'named');
+    const automatic = (await this.list(full.docId, full.file)).filter((v) => v.kind !== 'named');
     for (const old of automatic.slice(Math.max(1, keep))) await this.remove(old.id);
     return full;
   }
-  /** Versions of a document, newest first. */
-  async list(docId: string): Promise<VersionEntry[]> {
+  /** Versions of a document, or of the file it was opened from or saved to, newest first. */
+  async list(docId: string, file?: string): Promise<VersionEntry[]> {
     const all = await this.store.all<VersionEntry>('versions');
-    return all.filter((v) => v.docId === docId).sort((a, b) => b.time - a.time);
+    return all.filter((v) => v.docId === docId || (!!file && v.file === file)).sort((a, b) => b.time - a.time);
   }
   /** Every stored version, newest first. */
   async listAll(): Promise<VersionEntry[]> {
@@ -68,6 +72,17 @@ export class VersionStore {
     await this.store.delete('versions', id);
     await this.store.delete('blobs', id);
   }
+}
+
+/** The identity of the file behind a document: its Puter path, or for a
+ * file from this device its name, size and modification time (the editor
+ * never writes to it, so it stays the same until it is changed elsewhere). */
+export function versionFileKey(path: string | undefined, opened?: { blob: Blob; name: string; path?: string }): string | undefined {
+  const at = path ?? opened?.path;
+  if (at) return `puter:${at}`;
+  if (!opened) return undefined;
+  const modified = opened.blob instanceof File ? opened.blob.lastModified : '';
+  return `local:${opened.name}:${opened.blob.size}:${modified}`;
 }
 
 export type RecoveryRecord = {

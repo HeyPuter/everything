@@ -17,7 +17,7 @@ import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
 import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
-import { layerLock } from '../model/locks';
+import { layerLock, setFullLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
 import { recordsSettings, settingsDialog } from './action-settings';
 
@@ -31,6 +31,55 @@ function cmd(id: string, label: string, run: Command['run'], extra: Partial<Comm
 let clipboard: { image: RGBA8; x: number; y: number } | undefined;
 /** The internal clipboard (Paste Special, Purge). */
 export const internalClipboard = () => clipboard;
+// The system clipboard can change while the page is not focused (a copy in
+// another app or tab). After that, Paste takes the system clipboard's image
+// unless it is the one copied here.
+let leftPage = false;
+// Whether the copy made here reached the system clipboard. When it did not
+// (no permission, or the browser refused the write outside a gesture), the
+// system clipboard still holds whatever was there before, so it cannot tell
+// a newer copy from elsewhere and the copy made here is pasted.
+let systemHoldsOwn = false;
+if (typeof window !== 'undefined') window.addEventListener('blur', () => (leftPage = true));
+/** Whether two images have the same size and (allowing for the rounding of a
+ * trip through the system clipboard) the same pixels. */
+export function sameClipboardImage(a: RGBA8, b: RGBA8) {
+  if (a.width !== b.width || a.height !== b.height) return false;
+  const n = a.width * a.height;
+  const step = Math.max(1, Math.floor(n / 20000));
+  for (let p = 0; p < n; p += step) {
+    const i = p * 4;
+    if (Math.abs(a.data[i + 3] - b.data[i + 3]) > 2) return false;
+    // Colors of nearly transparent pixels do not survive premultiplication.
+    if (a.data[i + 3] < 16) continue;
+    for (let c = 0; c < 3; c++) if (Math.abs(a.data[i + c] - b.data[i + c]) > 3) return false;
+  }
+  return true;
+}
+/** The image to paste: the copy made here, or the system clipboard's image
+ * when that holds something else (copied elsewhere since). */
+export async function clipboardContent(): Promise<{ image: RGBA8; x: number; y: number; own: boolean } | undefined> {
+  const own = clipboard;
+  if (own && (!leftPage || !systemHoldsOwn)) return { ...own, own: true };
+  let system: RGBA8 | undefined;
+  try {
+    for (const it of await navigator.clipboard.read()) {
+      const type = it.types.find((t) => t.startsWith('image/'));
+      if (!type) continue;
+      const { decodeBrowserImage } = await import('./files/open');
+      system = await decodeBrowserImage(await it.getType(type));
+      break;
+    }
+  } catch {
+    /* Reading the system clipboard needs permission; the own copy is used. */
+  }
+  if (!system) return own && { ...own, own: true };
+  if (own && sameClipboardImage(own.image, system)) {
+    leftPage = false;
+    return { ...own, own: true };
+  }
+  return { image: system, x: 0, y: 0, own: false };
+}
 export function purgeClipboard() {
   clipboard = undefined;
 }
@@ -48,7 +97,8 @@ export function installCore(e: Editor) {
     input.click();
   }, { shortcut: 'Mod+O', recordable: false });
   cmd('file.place-embedded', 'Place Embedded…', () => pickFiles(e, true), { enabled: hasDoc, recordable: false });
-  cmd('file.close', 'Close', () => void e.closeSession(e.session), { shortcut: 'Mod+W', recordable: false });
+  // Like a tab's close button: a document open in other windows stays open.
+  cmd('file.close', 'Close', () => void e.closeView(e.activeView), { shortcut: 'Mod+W', recordable: false });
   cmd('file.close-all', 'Close All', async () => {
     for (const s of [...e.sessions]) if (!(await e.closeSession(s))) break;
   }, { shortcut: 'Mod+Alt+W', recordable: false });
@@ -57,8 +107,16 @@ export function installCore(e: Editor) {
   }, { shortcut: 'Mod+Alt+P', enabled: (e) => e.sessions.length > 1, recordable: false });
   cmd('file.revert', 'Revert', () => {
     if (!e.saved) return;
-    const saved = e.saved;
+    const s = e.session,
+      saved = e.saved,
+      before = s.doc;
     e.command('Revert', (d) => replaceDocument(d, saved));
+    // The reverted document is the saved one, so it has no unsaved changes;
+    // Undo brings them back (and marks them unsaved again).
+    if (s.doc !== before) {
+      s.saved = s.doc;
+      e.update();
+    }
   }, { shortcut: 'F12', enabled: (e) => !!e.saved && e.doc !== e.saved });
   cmd('file.export-original-psd', 'Download Original PSD', () => performAction(e, 'save-original-psd'), { enabled: (e) => !!e.doc.psdOriginal, recordable: false });
   cmd('app.account', 'Puter Account', () => performAction(e, 'account'), { hidden: true, recordable: false });
@@ -185,6 +243,13 @@ export function installCore(e: Editor) {
       e.message('There is no layer below to clip to.');
       return;
     }
+    // As in Layer → New → Layer…, the Background never becomes a base.
+    let base = list.indexOf(l) - 1;
+    while (base > 0 && list[base].clipped) base--;
+    if (!l.clipped && list[base]?.background) {
+      e.message('The Background layer cannot be the base of a clipping mask.');
+      return;
+    }
     if (e.selectedIds.size > 1) {
       e.message('Select a single layer for this adjustment.');
       return;
@@ -219,7 +284,8 @@ export function installCore(e: Editor) {
     e.command(lock ? 'Lock Layers' : 'Unlock Layers', (d) => {
       for (const id of ids) {
         const l = findLayer(d.layers, id);
-        if (l) l.locked = lock;
+        // As the panel's Lock All button: the individual locks follow.
+        if (l) setFullLock(l, lock);
       }
     });
   }, { shortcut: 'Mod+/', enabled: hasLayer });
@@ -512,6 +578,8 @@ async function copySelection(e: Editor, cut: boolean, merged: boolean) {
     for (let i = 0; i < cover.length; i++) src.data[i * 4 + 3] = (src.data[i * 4 + 3] * cover[i]) / 255;
   }
   clipboard = { image: src, x: b.x, y: b.y };
+  leftPage = false;
+  systemHoldsOwn = false;
   void writeSystemClipboard(src);
   if (cut) await clearSelection(e, 'Cut');
   else e.message(merged ? 'Copied merged pixels' : 'Copied');
@@ -521,7 +589,10 @@ async function writeSystemClipboard(img: RGBA8) {
     const canvas = new OffscreenCanvas(img.width, img.height);
     canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
     const blob = await canvas.convertToBlob({ type: 'image/png' });
-    await navigator.clipboard?.write?.([new ClipboardItem({ 'image/png': blob })]);
+    if (!navigator.clipboard?.write) return;
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    // A newer copy made here while this one was encoding owns the clipboard.
+    if (clipboard?.image === img) systemHoldsOwn = true;
   } catch {
     /* The system clipboard is optional (permissions, unfocused page). */
   }
@@ -539,24 +610,9 @@ export function cropImage(img: RGBA8, r: { x: number; y: number; width: number; 
   return { width: r.width, height: r.height, data: out };
 }
 async function paste(e: Editor, inPlace: boolean) {
-  let item = clipboard;
-  if (!item) {
-    try {
-      const items = await navigator.clipboard.read();
-      for (const it of items) {
-        const type = it.types.find((t) => t.startsWith('image/'));
-        if (type) {
-          const { decodeBrowserImage } = await import('./files/open');
-          const image = await decodeBrowserImage(await it.getType(type));
-          item = { image, x: 0, y: 0 };
-          inPlace = false;
-          break;
-        }
-      }
-    } catch {
-      /* Clipboard read needs permission; fall through. */
-    }
-  }
+  const item = await clipboardContent();
+  // An image from elsewhere has no position here.
+  if (item && !item.own) inPlace = false;
   if (!item) {
     e.message('Nothing to paste.');
     return;

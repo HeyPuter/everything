@@ -35,6 +35,19 @@ describe('workspace presets', () => {
     expect(l.order!.slice(0, 3)).toEqual(['histogram', 'navigator', 'info']);
     expect(l.sizes['dock-bottom']).toBe(380);
   });
+  it('panels registered under the canvas stay out of the side dock; Motion opens the Timeline there', () => {
+    const withTimeline: [string, PanelLocation][] = [...registered, ['timeline', 'bottom']];
+    for (const p of workspacePresets) {
+      const l = presetDockLayout(p, withTimeline);
+      expect(l.placement ?? {}, p.id).not.toHaveProperty('timeline');
+      expect(l.order ?? [], p.id).not.toContain('timeline');
+      expect(Object.values(l.active), p.id).not.toContain('timeline');
+    }
+    expect(baseSnapshot({ saved: [] }, 'motion', withTimeline).bottom).toBe('timeline');
+    expect(baseSnapshot({ saved: [] }, 'photography', withTimeline).bottom).toBeUndefined();
+    // Without a Timeline panel there is nothing to open.
+    expect(baseSnapshot({ saved: [] }, 'motion', registered).bottom).toBeUndefined();
+  });
   it('every preset produces a valid layout', () => {
     for (const p of workspacePresets) {
       const l = presetDockLayout(p, registered);

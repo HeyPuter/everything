@@ -66,7 +66,8 @@ const cubeIcon = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="t
  * Open the color picker. Resolves with the chosen color (#rrggbb, document
  * RGB) or null when cancelled. Safe to call while another dialog is open.
  */
-export async function pickColor(e: Editor, initial: string, title = 'Color Picker'): Promise<string | null> {
+/** `onChange` hears each color shown while picking (for a live preview). */
+export async function pickColor(e: Editor, initial: string, title = 'Color Picker', onChange?: (hex: string) => void): Promise<string | null> {
   const doc = docProfile(e.doc);
   const ref = docCmykRef(e.doc);
   if (!profileReady(ref)) e.message('Preparing the CMYK profile…');
@@ -192,6 +193,7 @@ export async function pickColor(e: Editor, initial: string, title = 'Color Picke
   const commit = (next: PickerState, skip?: string) => {
     state = onlyWeb ? fromRgb(webSafe(next.rgb), next, lab) : next;
     paint(skip);
+    onChange?.(toHex(state.rgb));
   };
   const setRgb = (rgb: RGB, skip?: string) => commit(fromRgb(rgb.map((v) => Math.max(0, Math.min(255, Math.round(v)))) as RGB, state, lab), skip);
 

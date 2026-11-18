@@ -29,7 +29,13 @@ const saveUser = () => {
     /* Quota or privacy mode; presets stay for this session. */
   }
 };
-const toB64 = (d: Uint8Array) => btoa(String.fromCharCode(...d));
+// In chunks: spreading a large tip into one call overflows the stack.
+const toB64 = (d: Uint8Array) => {
+  let binary = '';
+  for (let i = 0; i < d.length; i += 8192)
+    binary += String.fromCharCode(...d.subarray(i, i + 8192));
+  return btoa(binary);
+};
 const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 function sampleOf(p: StoredPreset): Mask8 | undefined {
   return p.sample ? { width: p.sample.width, height: p.sample.height, data: fromB64(p.sample.data) } : undefined;
@@ -98,8 +104,12 @@ function strokePreview(p: StoredPreset, w = 120, h = 28) {
     g.translate(x, y);
     g.rotate((tip.angle * Math.PI) / 180);
     g.scale(1, tip.roundness);
-    if (stamp) g.drawImage(stamp, -size / 2, -size / 2, size, size);
-    else {
+    if (stamp) {
+      // The longer side spans the size, as when painting.
+      const sw = (stamp.width * size) / Math.max(stamp.width, stamp.height),
+        sh = (stamp.height * size) / Math.max(stamp.width, stamp.height);
+      g.drawImage(stamp, -sw / 2, -sh / 2, sw, sh);
+    } else {
       const grad = g.createRadialGradient(0, 0, 0, 0, 0, size / 2);
       grad.addColorStop(0, 'rgba(210,210,210,0.35)');
       grad.addColorStop(Math.min(0.99, tip.hardness), 'rgba(210,210,210,0.35)');

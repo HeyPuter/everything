@@ -242,7 +242,8 @@ const panel: Panel = {
     });
     el.addEventListener('keydown', (ev) => {
       const row = (ev.target as HTMLElement).closest<HTMLElement>('[data-tool-preset]');
-      if (!row) return;
+      // A row's Delete button keeps its own keys.
+      if (!row || (ev.target as HTMLElement).closest('button')) return;
       const p = presets.find((x) => x.id === row.dataset.toolPreset);
       if (p && (ev.key === 'Enter' || ev.key === ' ')) applyToolPreset(e, p);
       else if (p && (ev.key === 'Delete' || ev.key === 'Backspace')) deletePreset(e, p.id);

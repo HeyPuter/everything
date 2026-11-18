@@ -9,6 +9,7 @@ import {
 } from '../src/model/locks';
 import { assertEditable, reorderLayers } from '../src/model/layers';
 import { validateDocument } from '../src/model/serialization';
+import { makeBackground } from '../src/model/housekeeping';
 
 describe('independent PSD layer protection', () => {
   it('checks each operation independently for every combination of protection bits', () => {
@@ -76,6 +77,15 @@ describe('independent PSD layer protection', () => {
       composite: false,
       position: false,
     });
+  });
+  it('unlocking the Background keeps its transparency and position locks', () => {
+    const l = layer('pixel', 'Background', 37, 23);
+    makeBackground(l);
+    setFullLock(l, true);
+    expect(exportProtection(l)).toEqual({ transparency: true, composite: true, position: true });
+    setFullLock(l, false);
+    expect(l.locked).toBe(false);
+    expect([ownLock(l, 'transparency'), ownLock(l, 'pixels'), ownLock(l, 'position')]).toEqual([true, false, true]);
   });
   it('retains legacy transparency flags separately and applies full-lock overrides on export', () => {
     const l = layer('paint', 'Record flag', 37, 23);

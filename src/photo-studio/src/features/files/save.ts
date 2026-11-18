@@ -6,7 +6,7 @@ import type { PhotoDocument } from '../../model/document';
 import { projectExtras, serialize } from '../../model/serialization';
 import { describePsdLosses, psdLosses, type PsdLoss } from '../../model/psd-losses';
 import { download } from '../../persistence/puter';
-import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, type CloudItem } from './cloud';
+import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, puterError, puterMissing, type CloudItem } from './cloud';
 import { openFile } from './open';
 import { noteRecent, removeRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
 import { emitAppEvent } from '../../app/app-events';
@@ -16,7 +16,7 @@ export type SaveFormat = 'photo' | 'psd';
 // What was encoded for a save. `project` is set when the bytes are a native project.
 type Written = { blob: Blob; ext: string; doc: PhotoDocument; extrasRevision: number; project?: Blob };
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const errorText = (error: unknown) => puterError(error).message;
 const projectName = (name: string) => (/\.photo$/i.test(name) ? name : `${name}.photo`);
 const isPsdName = (name?: string) => /\.ps[db]$/i.test(name ?? '');
 const extension = (path: string) => /\.([^./]+)$/.exec(path)?.[1].toLowerCase();
@@ -45,6 +45,12 @@ function markSaved(e: Editor, s: DocumentSession, w: Written, item: { name: stri
   void emitAppEvent('after-save', s);
 }
 
+/** The user gave up the save of `s` at a question: a close waiting on it stops. */
+const cancelSave = (e: Editor, s: DocumentSession): undefined => {
+  for (const hook of [...e.saveCancelHooks]) hook(s);
+  return undefined;
+};
+
 /** The document's bytes in a format, or undefined when cancelled. A document
  * that cannot be written as a PSD offers a project instead. */
 async function encode(e: Editor, s: DocumentSession, format: SaveFormat): Promise<Written | undefined> {
@@ -52,11 +58,13 @@ async function encode(e: Editor, s: DocumentSession, format: SaveFormat): Promis
   if (format === 'psd') {
     try {
       const out = await (await import('./psd-export')).buildPsd(e);
-      return out && { blob: out.blob, ext: out.extension, doc: out.live, extrasRevision };
+      // Undefined: the Maximize Compatibility question was cancelled.
+      if (!out) return cancelSave(e, s);
+      return { blob: out.blob, ext: out.extension, doc: out.live, extrasRevision };
     } catch (error) {
       // Messages for the user are plain Errors; anything else is a bug.
       if (!(error instanceof Error) || error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) throw error;
-      if (!(await askChoice('Save as PSD', `This document cannot be saved as a PSD. ${error.message}`, [['photo', 'Save as .photo']]))) return;
+      if (!(await askChoice('Save as PSD', `This document cannot be saved as a PSD. ${error.message}`, [['photo', 'Save as .photo']]))) return cancelSave(e, s);
     }
   }
   const doc = s.doc;
@@ -105,7 +113,7 @@ export async function save(e: Editor) {
         ['photo', 'Save as .photo'],
         ['psd', 'Save as PSD'],
       ]);
-      if (!choice) return;
+      if (!choice) return cancelSave(e, s);
       format = choice;
       if (choice === 'psd') acceptLosses(s, losses);
     }
@@ -161,7 +169,7 @@ export async function openCloudItems(e: Editor, items: CloudItem[]) {
   const failed: string[] = [];
   for (const item of items)
     try {
-      const blob = typeof item.read === 'function' ? await item.read() : await cloudRead(item.path);
+      const blob = typeof item.read === 'function' ? await item.read().catch((thrown) => Promise.reject(puterError(thrown))) : await cloudRead(item.path);
       await openFile(e, blob, item.name, false, { source: { kind: 'puter', path: item.path } });
     } catch (error) {
       if (items.length === 1) throw error;
@@ -179,7 +187,15 @@ export function openFromCloud(e: Editor) {
 /** Open a file from the recent list. */
 export async function openRecentEntry(e: Editor, entry: { name: string; source: RecentSource }) {
   const src = entry.source;
-  const blob = src.kind === 'puter' ? await cloudRead(src.path) : src.kind === 'stored' ? await storedBlob(src.key) : src.blob;
+  let blob: Blob | undefined;
+  try {
+    blob = src.kind === 'puter' ? await cloudRead(src.path) : src.kind === 'stored' ? await storedBlob(src.key) : src.blob;
+  } catch (error) {
+    // Moved or deleted on Puter: the entry would fail every time.
+    if (src.kind !== 'puter' || !puterMissing(error)) throw error;
+    removeRecent(e, entry);
+    throw new Error(`${entry.name} is no longer at ${src.path} and was removed from Open Recent.`);
+  }
   if (!blob) {
     // Browser data was cleared: the entry would fail every time.
     removeRecent(e, entry);

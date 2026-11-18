@@ -71,6 +71,13 @@ export async function saveContents(e: Editor, s: DocumentSession) {
     return;
   }
   const parent = o.parent;
+  // A shared parent this person may only view or comment on takes no edits:
+  // the tab stays unsaved, so closing it still offers to keep the changes.
+  const refused = parent.history.refusal;
+  if (refused) {
+    e.message(`${refused} The contents stay unsaved; use Save As to keep them as a separate document.`);
+    return;
+  }
   const pdoc = parent.doc;
   const prev: EmbeddedContents | undefined = o.contents ? pdoc.embeds?.[o.contents] : undefined;
   const target = o.contents ? instancesOf(pdoc, o.contents) : [findLayer(pdoc.layers, o.layerId)].filter((l): l is Layer => l?.kind === 'image');

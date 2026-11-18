@@ -221,7 +221,7 @@ async function studio(s: Session) {
   let placed: { image: RGBA8; info: GeneratedInfo; fit: FitMode } | undefined;
   add.addEventListener('click', () => {
     if (chosen < 0 || !used) return;
-    placed = { image: images[chosen], info: { kind: mode, prompt: used.prompt, model: used.model || undefined, style: used.style }, fit: remembered.fit };
+    placed = { image: images[chosen], info: { kind: mode, prompt: used.prompt.slice(0, 4000), model: used.model || undefined, style: used.style }, fit: remembered.fit };
     ws.close();
   });
   prompt.focus();

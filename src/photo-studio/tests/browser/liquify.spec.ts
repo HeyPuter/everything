@@ -92,3 +92,33 @@ test('a stroke made while Reconstruct is open is kept', async ({ page }) => {
   expect(await canvasSum(page)).toBe(original);
   await d.locator('.lq-cancel').click();
 });
+
+test('Twirl works at the same rate whether the pointer moves or rests', async ({ page }) => {
+  await openStripes(page);
+  await openLiquify(page);
+  const d = dialog(page);
+  await d.locator('[data-tool="twirl-cw"]').click();
+  // Sum of the dab strengths applied by a burst of small pointer moves that
+  // takes almost no time: about one dab, not one per move event.
+  const total = await page.evaluate(async () => {
+    const { LiquifyField } = await import('/src/imaging/filters/liquify.ts');
+    const proto = LiquifyField.prototype as unknown as { applyBrush: (...a: unknown[]) => unknown };
+    const original = proto.applyBrush;
+    let sum = 0;
+    proto.applyBrush = function (this: unknown, ...a: unknown[]) {
+      sum += a[6] as number;
+      return original.apply(this, a);
+    };
+    const c = document.querySelector<HTMLCanvasElement>('.liquify-dialog .lq-canvas')!;
+    const r = c.getBoundingClientRect();
+    const at = (k: number) => ({ clientX: r.left + r.width / 2 + k * 0.3, clientY: r.top + r.height / 2, pointerId: 1, button: 0, bubbles: true });
+    c.dispatchEvent(new PointerEvent('pointerdown', at(0)));
+    for (let k = 1; k <= 40; k++) c.dispatchEvent(new PointerEvent('pointermove', at(k)));
+    c.dispatchEvent(new PointerEvent('pointerup', at(40)));
+    proto.applyBrush = original;
+    return sum;
+  });
+  expect(total).toBeGreaterThan(0.5);
+  expect(total).toBeLessThan(3);
+  await d.locator('.lq-cancel').click();
+});

@@ -129,7 +129,8 @@ export async function openSession(e: Editor, opId: string, params: ParamValues, 
   }
   const target = await pixelTarget(e, { create: false });
   if (!target) return;
-  const selection = selectionGrid(e.doc, e.assets.tiles);
+  // In Quick Mask mode the mask is the selection being edited.
+  const selection = target.kind === 'quick-mask' ? null : selectionGrid(e.doc, e.assets.tiles);
   const selBounds = selection ? selectionBounds(e.doc, selection) : null;
   if (selection && !selBounds) {
     e.message('No pixels are selected.');

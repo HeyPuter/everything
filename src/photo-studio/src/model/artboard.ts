@@ -1,5 +1,6 @@
 import { allLayers, assertSize, containerOf, cropDocument, findLayer, layer, type Layer, type PhotoDocument, type Rect } from './document';
 import { transformBounds, transformSelection } from './transform';
+import { assertEditable } from './layers';
 
 // Artboards are top-level groups with their own rectangle, a background and
 // an option to clip their contents. Layers outside every artboard stay on the
@@ -169,6 +170,11 @@ export function artboardFromLayers(doc: PhotoDocument, ids: ReadonlySet<string>,
   const nested = [...ids].some((id) => !doc.layers.some((l) => l.id === id) && findLayer(doc.layers, id));
   if (!roots.length || nested) throw new Error('Select top-level layers outside artboards.');
   if (roots.some(isArtboard)) throw new Error('Artboards cannot contain other artboards.');
+  // As for Group Layers: locked layers stay where they are, and the
+  // Background stays at the bottom of the stack.
+  assertEditable(doc, roots);
+  if (roots.some((l) => l.background))
+    throw new Error('The Background layer stays at the bottom. Convert it with Layer from Background first.');
   const bounds = unionRect(roots.map(layerBounds).filter((r): r is Rect => !!r)) ?? { x: 0, y: 0, width: doc.width, height: doc.height };
   const rect = {
     x: Math.floor(bounds.x),

@@ -8,7 +8,7 @@ import { download } from '../../persistence/puter';
 import type { PhotoDocument } from '../../model/document';
 import { frameDocument, gifLoop, loopLabel, sampleFrames, totalDuration, type FrameAnimation } from '../../model/animation';
 import { fpsLabel, timecode, timeDocument, workArea } from '../../model/video-timeline-ops';
-import { encodeApng } from '../../imaging/codecs/apng';
+import { ApngWriter } from '../../imaging/codecs/apng';
 import { muxAnimatedWebp } from '../../imaging/codecs/webp-anim';
 import { muxWebm, type WebmAudio, type WebmFrame } from '../../imaging/codecs/webm';
 import { audioPlan } from '../../model/audio-timeline';
@@ -81,9 +81,7 @@ export function canEncodeWebp() {
 /** Render frames at the output size as 8-bit RGBA (sRGB when the export
  * settings convert), one at a time through the compositor. */
 export async function renderFrames(e: Editor, indices: number[], settings: ExportSettings, label = 'frame', progress?: Progress): Promise<RGBA8[]> {
-  const doc = e.doc;
-  const s = effectiveSettings(doc, settings);
-  const ctx = exportContext(doc);
+  const render = frameRenderer(e, settings);
   const out: RGBA8[] = [];
   // Identical frames (for example video samples) render once.
   const done = new Map<number, RGBA8>();
@@ -92,14 +90,23 @@ export async function renderFrames(e: Editor, indices: number[], settings: Expor
     let img = done.get(i);
     if (!img) {
       e.message(`Rendering ${label} ${k + 1} of ${indices.length}…`);
-      const src = await documentSource(e, frameDocument(doc, i));
-      const p = prepareExport(src, s, ctx);
-      img = { width: p.width, height: p.height, data: p.data instanceof Uint16Array ? rgba16To8(p.data) : p.data };
+      img = await render(i);
       done.set(i, img);
     }
     out.push(img);
   }
   return out;
+}
+/** Renders one frame of the current document as `renderFrames` does. */
+function frameRenderer(e: Editor, settings: ExportSettings) {
+  const doc = e.doc;
+  const s = effectiveSettings(doc, settings);
+  const ctx = exportContext(doc);
+  return async (i: number): Promise<RGBA8> => {
+    const src = await documentSource(e, frameDocument(doc, i));
+    const p = prepareExport(src, s, ctx);
+    return { width: p.width, height: p.height, data: p.data instanceof Uint16Array ? rgba16To8(p.data) : p.data };
+  };
 }
 
 const loopOptions = (anim: FrameAnimation) => {
@@ -164,35 +171,49 @@ export async function exportAnimation(e: Editor, preset?: AnimationFormat) {
   savePrefs(next);
   const settings: ExportSettings = { ...loadSettings(), format: next.format === 'gif' ? 'gif' : 'png', depth: 8, sizeMode: 'percent', scale: next.scale, canvasWidth: 0, canvasHeight: 0, transparency: next.transparency };
   await cancellable(e, 'Exporting the animation', async (progress) => {
-    const images = await renderFrames(e, indices, settings, 'frame', progress);
     const delays = indices.map((i) => anim.frames[i].delay);
-    e.message(`Encoding ${images.length} frames…`);
     let bytes: Uint8Array, mime: string, ext: string;
     if (next.format === 'gif') {
+      // One palette for all frames needs every frame before encoding.
+      const images = await renderFrames(e, indices, settings, 'frame', progress);
+      e.message(`Encoding ${images.length} frames…`);
       bytes = await encodeGifOffThread(images.map((rgba, k) => ({ rgba, delayMs: delays[k] })), { colors: next.colors, dither: next.dither, loop: gifLoop(plays), palette: next.palette });
       [mime, ext] = ['image/gif', 'gif'];
-    } else if (next.format === 'png') {
-      bytes = encodeApng(images.map((rgba, k) => ({ rgba, delayMs: delays[k] })), { plays });
-      [mime, ext] = ['image/png', 'png'];
     } else {
-      const { width, height } = images[0];
-      const canvas = new OffscreenCanvas(width, height);
-      const g = canvas.getContext('2d')!;
+      // Animated PNG and WebP encode each frame as it renders, so only one
+      // frame's pixels are held at a time (a long animation would not fit).
+      const render = frameRenderer(e, settings);
+      const apng = next.format === 'png' ? new ApngWriter({ plays }) : undefined;
       const stills: Uint8Array[] = [];
-      for (const [k, img] of images.entries()) {
-        progress.step(k, images.length);
-        g.clearRect(0, 0, width, height);
-        g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
+      let canvas: OffscreenCanvas | undefined;
+      for (const [k, i] of indices.entries()) {
+        progress.step(k, indices.length);
+        e.message(`Rendering frame ${k + 1} of ${indices.length}…`);
+        const img = await render(i);
+        if (apng) {
+          apng.add({ rgba: img, delayMs: delays[k] });
+          continue;
+        }
+        canvas ??= new OffscreenCanvas(img.width, img.height);
+        const g = canvas.getContext('2d')!;
+        g.clearRect(0, 0, img.width, img.height);
+        g.putImageData(new ImageData(img.data as Uint8ClampedArray<ArrayBuffer>, img.width, img.height), 0, 0);
         stills.push(new Uint8Array(await (await canvas.convertToBlob({ type: 'image/webp', quality: next.quality / 100 })).arrayBuffer()));
       }
-      // Every frame covers the canvas and replaces it, so transparent areas
-      // never show the previous frame.
-      bytes = muxAnimatedWebp(stills.map((webp, k) => ({ webp, width, height, delayMs: delays[k], blend: false })), { width, height, plays });
-      [mime, ext] = ['image/webp', 'webp'];
+      if (apng) {
+        bytes = apng.finish();
+        [mime, ext] = ['image/png', 'png'];
+      } else {
+        const { width, height } = canvas!;
+        // Every frame covers the canvas and replaces it, so transparent areas
+        // never show the previous frame.
+        bytes = muxAnimatedWebp(stills.map((webp, k) => ({ webp, width, height, delayMs: delays[k], blend: false })), { width, height, plays });
+        [mime, ext] = ['image/webp', 'webp'];
+      }
     }
     progress.step(1, 1);
     download(bytesBlob(bytes, mime), `${doc.name}.${ext}`);
-    e.message(`Animation exported: ${images.length} frames, ${formatBytes(bytes.length)}`);
+    e.message(`Animation exported: ${indices.length} frames, ${formatBytes(bytes.length)}`);
   });
 }
 

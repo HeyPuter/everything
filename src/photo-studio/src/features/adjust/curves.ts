@@ -126,7 +126,7 @@ export function curvesEditor(body: HTMLElement, host: AdjustHost<'curves'>) {
       const s = await host.source();
       if (!s) return;
       const { autoLevels } = await import('../../imaging/adjust');
-      const lv = autoLevels(s.image, 'tone');
+      const lv = autoLevels(s.image, 'tone', { selection: s.selection });
       Object.assign(p, defaultParams('curves'));
       for (const k of ['r', 'g', 'b'] as const) p[k].points = [[lv[k].inBlack, 0], [lv[k].inWhite, 255]];
       host.change(true);

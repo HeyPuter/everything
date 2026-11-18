@@ -424,3 +424,322 @@ test('the Blur tool builds up while scrubbing within one stroke', async ({ page 
   expect(scrubbed).toBeLessThan(once - 30);
   expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Blur Tool');
 });
+
+test('the Paint Bucket fills the Quick Mask beyond the selection it started from', async ({
+  page,
+}) => {
+  // A selection of the left quarter becomes the Quick Mask.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await tool(page, 'Paint Bucket Tool');
+  await page.evaluate(() => window.photoStudio.setForeground('#ffffff'));
+  // The gray image is one region: white fills the whole mask.
+  const [cx, cy] = await client(page, 150, 60);
+  await page.mouse.click(cx, cy);
+  await idle(page);
+  const value = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readMask } = await import('/src/model/tiles.ts');
+    const q = e.doc.quickMask!;
+    return readMask(e.assets.tiles, q, { x: 150, y: 60, width: 1, height: 1 }).data[0];
+  });
+  expect(value).toBe(255);
+});
+
+test('Invert in Quick Mask inverts the whole mask, not only the selection it started from', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('adjust.invert'));
+  await idle(page);
+  const values = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readMask } = await import('/src/model/tiles.ts');
+    const q = e.doc.quickMask!;
+    const at = (x: number) =>
+      readMask(e.assets.tiles, q, { x, y: 60, width: 1, height: 1 }).data[0];
+    return [at(20), at(150)];
+  });
+  expect(values).toEqual([0, 255]);
+});
+
+test('Quick Mask hides the selection outline it was made from until it is left', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  const ants = page.locator('#overlay .marching.committed');
+  await expect(ants).toHaveCount(1);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  // The red film shows the selection; outlines of the old selection would go stale.
+  await expect(ants).toHaveCount(0);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await expect(ants).toHaveCount(1);
+});
+
+test('Shift-click draws a line only from a stroke in the same document', async ({ page }) => {
+  // beforeEach opened gray.png: paint a dot near its top-left corner.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('brush');
+    e.activeTool!.brush?.set(e, { size: 10, hardness: 1, smoothing: 0 });
+    e.setForeground('#ffffff');
+  });
+  await idle(page);
+  await canvasDrag(page, [[20, 20], [21, 20]]);
+  await openImage(page, 200, 120, '#404040', 'second.png');
+  // Shift-click in the second document has no earlier stroke to continue.
+  const [cx, cy] = await client(page, 180, 100);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(cx, cy);
+  await page.keyboard.up('Shift');
+  await idle(page);
+  const pixel = (x: number, y: number) =>
+    page.evaluate(
+      async ([x, y]) => {
+        const e = window.photoStudio;
+        const { readRGBA } = await import('/src/model/tiles.ts');
+        const g = e.doc.layers[0].pixels!;
+        return Array.from(readRGBA(e.assets.tiles, g, { x, y, width: 1, height: 1 }).data);
+      },
+      [x, y] as const,
+    );
+  expect(await pixel(180, 100)).toEqual([255, 255, 255, 255]);
+  // Halfway along a line from the first document's dot stays unpainted.
+  expect(await pixel(100, 60)).toEqual([64, 64, 64, 255]);
+});
+
+test('a stroke whose pointer capture is lost is stored and ends the gesture', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 20, hardness: 1, smoothing: 0 });
+    e.setForeground('#ffffff');
+  });
+  await idle(page);
+  const before = await page.evaluate(() => window.photoStudio.history.labels.length);
+  await page.mouse.move(...(await client(page, 40, 60)));
+  await page.mouse.down();
+  await page.mouse.move(...(await client(page, 120, 60)), { steps: 5 });
+  // The browser takes the capture away without a pointerup (the press may
+  // never be released over the canvas).
+  await page.evaluate(() => {
+    const v = window.photoStudio.el('#viewport');
+    const init = { pointerId: 1, pointerType: 'mouse', bubbles: true };
+    v.dispatchEvent(new PointerEvent('lostpointercapture', init));
+  });
+  await page.waitForFunction(() => !window.photoStudio.toolBusy);
+  await idle(page);
+  const after = await page.evaluate(() => window.photoStudio.history.labels);
+  expect(after.length).toBe(before + 1);
+  expect(after.at(-1)).toBe('Brush Tool');
+  await page.mouse.up();
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(before + 1);
+});
+
+test('a stroke started while another is unfinished stores the first and stops its airbrush', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const l = newPixelLayer('Air', e.doc);
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 10, hardness: 1, airbrush: true, smoothing: 0 });
+    // Track running intervals (the airbrush ticks every 50 ms).
+    const live = new Set<number>();
+    const set = window.setInterval.bind(window),
+      clear = window.clearInterval.bind(window);
+    (window as unknown as { liveTimers: Set<number> }).liveTimers = live;
+    window.setInterval = ((f: () => void, ms?: number) => {
+      const id = set(f, ms);
+      if (ms === 50) live.add(id);
+      return id;
+    }) as typeof window.setInterval;
+    window.clearInterval = ((id?: number) => {
+      live.delete(id!);
+      clear(id);
+    }) as typeof window.clearInterval;
+  });
+  await idle(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { canvasPoint } = await import('/src/app/pointer.ts');
+    const at = (x: number, y: number) => {
+      const [cx, cy] = e.clientPoint(x, y);
+      const init = { clientX: cx, clientY: cy, pointerType: 'pen', pressure: 1 };
+      return canvasPoint(e, new PointerEvent('pointerdown', init));
+    };
+    const t = e.activeTool!;
+    // The first stroke's release never arrives (a second pointer took over).
+    await t.pointerDown!(e, at(30, 30));
+    await t.pointerDown!(e, at(150, 90));
+    await t.pointerUp!(e, at(150, 90));
+  });
+  await idle(page);
+  const state = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const g = e.doc.layers.at(-1)!.pixels!;
+    const alpha = (x: number, y: number) =>
+      readRGBA(e.assets.tiles, g, { x, y, width: 1, height: 1 }).data[3];
+    return {
+      strokes: e.history.labels.filter((l) => l === 'Brush Tool').length,
+      first: alpha(30, 30),
+      second: alpha(150, 90),
+      timers: (window as unknown as { liveTimers: Set<number> }).liveTimers.size,
+    };
+  });
+  expect(state).toEqual({ strokes: 2, first: 255, second: 255, timers: 0 });
+});
+
+test('Magic Wand, Grow and the Paint Bucket finish in the document they started in', async ({
+  page,
+}) => {
+  // beforeEach opened gray.png (200 × 120); a second, larger document is opened later.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.settings.sampleAllLayers = true;
+    // Hold the merged-image readback until the test lets it go.
+    const r = e.renderer as unknown as { documentPixels: (...a: unknown[]) => Promise<unknown> };
+    const original = r.documentPixels.bind(r);
+    const w = window as unknown as { hold?: boolean; release?: () => void };
+    r.documentPixels = async (...a: unknown[]) => {
+      const result = await original(...a);
+      if (w.hold) await new Promise<void>((done) => (w.release = done));
+      return result;
+    };
+  });
+  const gray = await page.evaluate(() => window.photoStudio.session.id);
+  const second = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newDocument } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    // Its layer has the same id as gray.png's (as a duplicated image's would).
+    const doc = newDocument(320, 240, 'Second');
+    const layer = newPixelLayer('Copy', doc);
+    layer.id = e.doc.layers[0].id;
+    doc.layers = [layer];
+    const s = e.newSession(doc);
+    return s.id;
+  });
+  const show = (id: string) =>
+    page.evaluate(async (id) => {
+      const e = window.photoStudio;
+      await e.switchSession(e.sessions.find((s) => s.id === id)!);
+    }, id);
+  const state = () =>
+    page.evaluate(() =>
+      window.photoStudio.sessions.map((s) => ({
+        name: s.doc.name,
+        steps: s.history.labels,
+        sel: s.doc.selection,
+      })),
+    );
+  const during = async (start: () => Promise<unknown>) => {
+    await show(gray);
+    await idle(page);
+    await page.evaluate(() => ((window as unknown as { hold?: boolean }).hold = true));
+    await start();
+    await page.waitForFunction(() => !!(window as unknown as { release?: () => void }).release);
+    await show(second);
+    await page.evaluate(() => {
+      const w = window as unknown as { hold?: boolean; release?: () => void };
+      const go = w.release!;
+      w.hold = false;
+      w.release = undefined;
+      go();
+    });
+    await page.waitForFunction(() => !window.photoStudio.toolBusy && !window.photoStudio.busy);
+    await idle(page);
+  };
+  // The wand click lands on gray.png while its merged image is read.
+  await page.evaluate(() => window.photoStudio.setTool('magic-wand'));
+  await during(async () => {
+    const [cx, cy] = await client(page, 100, 60);
+    await page.mouse.click(cx, cy);
+  });
+  let s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  expect(s.find((d) => d.name === 'gray')!.sel).toEqual({ x: 0, y: 0, width: 200, height: 120 });
+  await during(() => page.evaluate(() => void window.photoStudio.runCommand('select.grow')));
+  s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  expect(s.find((d) => d.name === 'gray')!.steps.at(-1)).toBe('Grow');
+  // Loading the composite channel as a selection (Channels panel).
+  await during(() =>
+    page.evaluate(() => void window.photoStudio.runCommand('select.load-active-channel')),
+  );
+  s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  expect(s.find((d) => d.name === 'gray')!.steps.at(-1)).toBe('Load Selection');
+  // The Paint Bucket does not fill the document shown when the fill is ready.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('bucket');
+    e.setForeground('#ff0000');
+  });
+  await during(async () => {
+    const [cx, cy] = await client(page, 100, 60);
+    await page.mouse.click(cx, cy);
+  });
+  s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  // Its fill computed for gray.png never reaches the same-id layer of the other image.
+  expect(await page.locator('#status').textContent()).not.toMatch(/Missing pixel tile/);
+});
+
+test('a filter in Quick Mask edits the whole mask, not only the selection it started from', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await page.evaluate(() =>
+    window.photoStudio.runCommand('filter.apply.gaussian-blur', { params: { radius: 4 } }),
+  );
+  await idle(page);
+  // The blur softens the mask edge on both sides of x = 50.
+  const right = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readMask } = await import('/src/model/tiles.ts');
+    const at = { x: 52, y: 60, width: 1, height: 1 };
+    return readMask(e.assets.tiles, e.doc.quickMask!, at).data[0];
+  });
+  expect(right).toBeGreaterThan(20);
+});

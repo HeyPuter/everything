@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Editor } from '../src/editor';
-import { applyBrushPreset } from '../src/features/brushes';
+import { applyBrushPreset, currentBrushPreset } from '../src/features/brushes';
 import { brushFor } from '../src/features/paint';
 
 const editor = () => ({ tool: 'brush', options() {}, dock: { update() {} } }) as unknown as Editor;
@@ -20,5 +20,18 @@ describe('brush presets from files and libraries', () => {
     applyBrushPreset(e, { name: 'Sampled', tip: { size: 20 }, sample: { width: 2, height: 2, data: btoa('\x00\xff\x80\x10') } });
     expect(Array.from(brushFor('brush').sample!.data)).toEqual([0, 255, 128, 16]);
     expect(brushFor('brush').size).toBe(20);
+  });
+  it('saves the largest sampled tip a preset can hold as a library preset', () => {
+    const e = editor();
+    const data = new Uint8Array(1024 * 1024);
+    for (let i = 0; i < data.length; i++) data[i] = (i * 7) & 255;
+    let binary = '';
+    for (let i = 0; i < data.length; i += 4096)
+      binary += String.fromCharCode(...data.subarray(i, i + 4096));
+    const sample = { width: 1024, height: 1024, data: btoa(binary) };
+    applyBrushPreset(e, { name: 'Big', tip: { size: 100 }, sample });
+    expect(brushFor('brush').sample?.width).toBe(1024);
+    const saved = currentBrushPreset(e, 'Big copy');
+    expect(saved.sample?.data).toBe(btoa(binary));
   });
 });

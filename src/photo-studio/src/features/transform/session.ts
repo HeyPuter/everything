@@ -774,7 +774,7 @@ export class TransformSession {
         const src = settled ? this.source : this.small;
         if (!src) return;
         const scale = this.previewScale(settled);
-        const r = this.render(src, scale, 'bilinear', false);
+        const r = this.render(src, scale, 'bilinear', false, !settled);
         const old = this.previewTiles;
         this.previewTiles = [];
         if (!r) next = { ...l, visible: false };
@@ -794,7 +794,7 @@ export class TransformSession {
       const src = settled ? this.source : this.small;
       if (!src) return;
       const scale = this.previewScale(settled);
-      const r = this.render(src, scale, 'bilinear', false);
+      const r = this.render(src, scale, 'bilinear', false, !settled);
       this.overlayImage = r ? { href: tintedURL(r.image), rect: { x: r.rect.x / scale, y: r.rect.y / scale, width: r.image.width / scale, height: r.image.height / scale } } : undefined;
       e.overlay();
     }
@@ -817,7 +817,7 @@ export class TransformSession {
       const src = settled ? this.source : this.small;
       if (!src) return;
       const scale = this.previewScale(settled);
-      const r = this.render(src, scale, 'bilinear', false);
+      const r = this.render(src, scale, 'bilinear', false, !settled);
       const old = this.previewTiles;
       this.previewTiles = [];
       const grid = r && gridFromImage(e.assets.tiles, r.image);
@@ -840,8 +840,8 @@ export class TransformSession {
     if (area > budget) s *= Math.sqrt(budget / area);
     return Math.max(s, 0.02);
   }
-  private render(src: RGBA8, scale: number, method: Interp, exact: boolean) {
-    return renderFrame(src, this.rect, this.quad, this.mesh, { scale, method, exact, doc: this.base });
+  private render(src: RGBA8, scale: number, method: Interp, exact: boolean, draft = false) {
+    return renderFrame(src, this.rect, this.quad, this.mesh, { scale, method, exact, doc: this.base, draft });
   }
   private retire() {
     this.retireTiles(this.previewTiles);
@@ -893,6 +893,17 @@ export class TransformSession {
   }
   bindOptions(el: HTMLElement) {
     refocusAfterChoice(this.e, el);
+    // Enter applies a number field and Escape leaves it as it was; both hand
+    // the keys back to the canvas, where the next Enter commits the transform
+    // and Escape cancels it.
+    el.querySelectorAll<HTMLInputElement>('input[type="number"][id^="ts-"]').forEach((f) =>
+      f.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== 'Escape') return;
+        ev.preventDefault();
+        if (ev.key === 'Escape') this.syncFields(f);
+        this.e.el('#viewport').focus({ preventScroll: true });
+      }),
+    );
     el.querySelectorAll<HTMLButtonElement>('[data-ts-ref]').forEach((b) =>
       b.addEventListener('click', () => {
         const [x, y] = b.dataset.tsRef!.split(',').map(Number);
@@ -928,45 +939,52 @@ export class TransformSession {
       this.e.options();
     });
     on('ts-grid', (v) => this.setGrid(Number(v)));
-    const warpField = (key: 'bend' | 'hd' | 'vd') => (v: string) => {
-      const n = clamp(Number(v), -100, 100);
-      if (!Number.isFinite(n)) return this.syncFields();
+    // Number fields: a cleared (or rejected) entry is not 0; the field goes
+    // back to the value in use. `apply` returns false to reject a value.
+    const numeric = (id: string, apply: (n: number) => void | false) =>
+      el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener('change', (ev) => {
+        const t = ev.target as HTMLInputElement;
+        const n = t.value.trim() === '' ? NaN : Number(t.value);
+        if (!Number.isFinite(n) || apply(n) === false) this.syncFields(t);
+      });
+    const warpField = (key: 'bend' | 'hd' | 'vd') => (v: number) => {
+      const n = clamp(v, -100, 100);
       this.setWarp(this.warpStyle, key === 'bend' ? n : this.bend, key === 'hd' ? n : this.hd, key === 'vd' ? n : this.vd);
     };
-    on('ts-bend', warpField('bend'));
-    on('ts-hd', warpField('hd'));
-    on('ts-vd', warpField('vd'));
-    const field = (id: string, apply: (p: AffineParams, n: number) => void) =>
-      on(id, (v) => {
-        const n = Number(v);
-        if (!Number.isFinite(n)) return this.syncFields();
+    numeric('ts-bend', warpField('bend'));
+    numeric('ts-hd', warpField('hd'));
+    numeric('ts-vd', warpField('vd'));
+    const field = (id: string, apply: (p: AffineParams, n: number) => void | false) =>
+      numeric(id, (n) => {
         const p = { ...this.params };
-        apply(p, n);
+        if (apply(p, n) === false) return false;
         this.setParams(p);
       });
     const linked = () => this.e.settings.transformLink !== false;
-    field('ts-x', (p, n) => (p.x = n));
-    field('ts-y', (p, n) => (p.y = n));
+    field('ts-x', (p, n) => void (p.x = n));
+    field('ts-y', (p, n) => void (p.y = n));
     // A linked side keeps its own direction: a negative entry flips only the
     // side typed into.
     field('ts-w', (p, n) => {
-      if (!n) return;
+      if (!n) return false;
       if (linked()) p.sy = (Math.sign(p.sy) || 1) * Math.abs((p.sy / p.sx) * (n / 100));
       p.sx = n / 100;
     });
     field('ts-h', (p, n) => {
-      if (!n) return;
+      if (!n) return false;
       if (linked()) p.sx = (Math.sign(p.sx) || 1) * Math.abs((p.sx / p.sy) * (n / 100));
       p.sy = n / 100;
     });
-    field('ts-angle', (p, n) => (p.rotation = n));
-    field('ts-skx', (p, n) => (p.skewX = clamp(n, -89, 89)));
-    field('ts-sky', (p, n) => (p.skewY = clamp(n, -89, 89)));
+    field('ts-angle', (p, n) => void (p.rotation = n));
+    field('ts-skx', (p, n) => void (p.skewX = clamp(n, -89, 89)));
+    field('ts-sky', (p, n) => void (p.skewY = clamp(n, -89, 89)));
   }
-  syncFields() {
+  /** Show the current values; a focused field keeps what is being typed
+   * unless it is `force` (an entry that was refused). */
+  syncFields(force?: HTMLElement) {
     const set = (id: string, v: number) => {
       const f = this.e.root.querySelector<HTMLInputElement>(`#${id}`);
-      if (f && document.activeElement !== f) f.value = String(round(v));
+      if (f && (document.activeElement !== f || f === force)) f.value = String(round(v));
     };
     const p = this.params;
     set('ts-x', p.x);

@@ -72,8 +72,9 @@ export async function encodeDocument(e: Editor, settings: ExportSettings, doc: P
     const bytes = new TextEncoder().encode(text);
     return { bytes, width: 0, height: 0, mime: formatInfo.svg.mime, prepared: undefined };
   }
+  // A source made here is handed to the export worker instead of copied.
   const src = source ?? (await documentSource(e, doc));
-  const { bytes, prepared } = await encodeOffThread(src, s, ctx, true);
+  const { bytes, prepared } = await encodeOffThread(src, s, ctx, true, !source);
   return { bytes, width: prepared!.width, height: prepared!.height, mime: formatInfo[s.format].mime, prepared };
 }
 
@@ -136,8 +137,16 @@ function exportWorker() {
   };
   return worker;
 }
-/** prepareExport + encodeExport in the export worker. */
-export async function encodeOffThread(src: SourceImage, s: ExportSettings, ctx: ExportContext, keepPrepared = false): Promise<{ bytes: Uint8Array; prepared?: SourceImage }> {
+/** prepareExport + encodeExport in the export worker. With `transfer`, the
+ * source's pixels move to the worker (no copy; `src` is unusable after) and
+ * are prepared in place. */
+export async function encodeOffThread(
+  src: SourceImage,
+  s: ExportSettings,
+  ctx: ExportContext,
+  keepPrepared = false,
+  transfer = false,
+): Promise<{ bytes: Uint8Array; prepared?: SourceImage }> {
   let w: Worker;
   try {
     w = exportWorker();
@@ -148,7 +157,11 @@ export async function encodeOffThread(src: SourceImage, s: ExportSettings, ctx: 
   const id = ++jobId;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    w.postMessage({ id, src, settings: s, ctx, keepPrepared });
+    // Only a buffer holding just these pixels is handed over.
+    const { data } = src;
+    const owned = transfer && data.byteOffset === 0 && data.byteLength === data.buffer.byteLength;
+    const moved = owned ? [data.buffer as ArrayBuffer] : [];
+    w.postMessage({ id, src, settings: s, ctx, keepPrepared, owned }, moved);
   });
 }
 /** Animated GIF encoding in the export worker. */

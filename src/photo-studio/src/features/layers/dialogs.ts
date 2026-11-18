@@ -19,6 +19,7 @@ import { rgba8 } from '../../imaging/types';
 import { nextLayerName } from '../pixels';
 import { insertAboveSelection } from './insert';
 import { releaseBackground } from '../../model/housekeeping';
+import { renewLinkGroups } from '../../model/links';
 import { recordsSettings, settingsDialog } from '../action-settings';
 import { formDialog, type Field } from '../../ui/dialog';
 import { duplicateSelected } from '../../ui/actions';
@@ -216,6 +217,7 @@ function freshIds(layers: Layer[]) {
     item.id = crypto.randomUUID();
     delete item.psdId;
   }
+  renewLinkGroups(layers);
 }
 
 /** Layer → Duplicate Layer…: name the copy and choose where it goes — this
@@ -326,6 +328,16 @@ async function duplicateDialog(e: Editor) {
   e.message(`Duplicated into ${target.doc.name}`);
 }
 
+/** Rename a layer. Locks keep a layer's content and placement, not its
+ * name, so locked layers can be renamed too. */
+export function renameLayer(e: Editor, id: string, name: string) {
+  const value = name.trim();
+  if (!value) return;
+  e.command('Rename Layer', (d) => {
+    const l = findLayer(d.layers, id);
+    if (l) l.name = value;
+  });
+}
 /** Set the color label of every selected layer. */
 function setColorLabel(e: Editor, color: LayerColor | undefined) {
   const ids = [...e.selectedIds];

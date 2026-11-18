@@ -1,11 +1,13 @@
 import { isVectorGradient } from "../model/vector-gradient";
 import { gradientStop } from "../model/gradient-edit";
 import { hasMask } from '../model/masks';
+import { activeLayerStyle } from '../model/layer-style';
 import type { Editor } from '../editor';
-import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRoots } from '../model/layers';
+import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRoots, visibleRows } from '../model/layers';
 import { placeDuplicateArtboards } from '../model/artboard';
 import { releaseBackground } from '../model/housekeeping';
 import { Renderer } from '../renderer/renderer';
+import { shownInLayerList } from '../features/panels/layers';
 import {
   allLayers,
   containerOf,
@@ -420,12 +422,33 @@ export async function performAction(e: Editor, action: string): Promise<void> {
       break;
     case 'delete': {
       assertEditable(e.doc, e.selectedLayers);
+      // The layer below the deleted ones (or else above them) becomes the
+      // selection, so deleting can continue down the stack. A filtered or
+      // isolated Layers list offers only its own rows: a layer it hides is
+      // never selected (and deleted next) unseen.
+      const gone = new Set(allLayers(e.selectedLayers).map((l) => l.id));
+      const rows = visibleRows(e.doc.layers, e.collapsedGroups).filter(
+        (l) => gone.has(l.id) || shownInLayerList(e, l),
+      );
+      const first = rows.findIndex((l) => gone.has(l.id));
+      const last = rows.length - 1 - [...rows].reverse().findIndex((l) => gone.has(l.id));
+      const next =
+        rows.slice(last + 1).find((l) => !gone.has(l.id)) ??
+        rows
+          .slice(0, Math.max(0, first))
+          .reverse()
+          .find((l) => !gone.has(l.id));
+      const before = e.doc;
       e.command('Delete layers', (d) => {
         for (const l of selectedRoots(d.layers, e.selectedIds)) {
           const list = containerOf(d.layers, l.id)!;
           list.splice(list.indexOf(l), 1);
         }
       });
+      if (e.doc !== before && next) {
+        e.selectLayers([next.id]);
+        e.update();
+      }
       break;
     }
     case 'duplicate':
@@ -451,20 +474,31 @@ export async function performAction(e: Editor, action: string): Promise<void> {
         groups.some(
           (l) =>
             l.opacity !== 1 ||
-            l.blend !== 'normal' ||
+            // Pass Through (the default of new groups) composites the
+            // children as if they were not grouped.
+            (l.blend !== 'normal' && l.blend !== 'pass through') ||
             hasMask(l) ||
+            !!l.maskGrid ||
+            !!l.vectorMask ||
+            !!activeLayerStyle(l) ||
             Object.values(l.filters).some(Boolean),
         )
       )
         throw new Error(
-          'Reset group adjustments, masks, opacity and blend mode before ungrouping.',
+          'Clear the group’s mask, layer style, adjustments, opacity and blend mode before ungrouping.',
         );
+      // A clipped group's layers join its clipping group in its place, which
+      // shows them as before unless some of them clip to each other inside it.
+      if (groups.some((l) => l.clipped && l.children.some((c) => c.clipped)))
+        throw new Error('Release the clipping masks inside the clipped group before ungrouping it.');
       const ids = groups.flatMap((l) => l.children.map((c) => c.id));
       e.command('Ungroup layers', (d) => {
         for (const group of groups) {
           const list = containerOf(d.layers, group.id)!;
           const index = list.findIndex((l) => l.id === group.id);
-          list.splice(index, 1, ...list[index].children);
+          const g = list[index];
+          if (g.clipped) for (const c of g.children) c.clipped = true;
+          list.splice(index, 1, ...g.children);
         }
       });
       if (groups.length) e.selectLayers(ids);

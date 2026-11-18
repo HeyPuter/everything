@@ -84,6 +84,13 @@ export const options = (id: string, value: string, list: [string, string][]) =>
 export function bindRanges(root: HTMLElement, onChange: (id: string, v: number) => void) {
   root.querySelectorAll<HTMLInputElement>('.rw-range input[type=range]').forEach((r) => {
     const num = root.querySelector<HTMLInputElement>(`input[data-for="${r.id}"]`)!;
+    // Both controls are named after their field's caption (the slider's
+    // wrapping label would also read out the number box's value).
+    const caption = r.closest('.rw-field')?.querySelector(':scope > span')?.textContent?.trim();
+    if (caption) {
+      r.setAttribute('aria-label', caption);
+      num.setAttribute('aria-label', `${caption} value`);
+    }
     r.addEventListener('input', () => {
       num.value = r.value;
       onChange(r.id, Number(r.value));

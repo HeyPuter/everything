@@ -153,6 +153,9 @@ svg.icon { flex: none; display: block; }
 .menu-pop { display: none; position: absolute; top: calc(100% - 2px); left: 0; min-width: 230px; padding: 4px 0; background: var(--menu); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 24px #0008; z-index: 50; }
 .menubar-entry.open > .menu-pop { display: block; }
 .context-menu { display: block; position: fixed; }
+/* Menus longer than the window scroll (submenus are placed on the window, menubar.ts). */
+.menubar-entry > .menu-pop { max-height: calc(100dvh - 34px); overflow-y: auto; overscroll-behavior: contain; }
+.context-menu { max-height: calc(100dvh - 8px); overflow-y: auto; overscroll-behavior: contain; }
 .menu-item { position: relative; display: grid; grid-template-columns: 18px 1fr auto 14px; align-items: center; gap: 4px; height: 23px; padding: 0 8px 0 4px; cursor: default; outline: none; }
 .menu-item:focus, .menu-item:hover { background: var(--accent-fill); color: var(--accent-text); }
 .menu-item:focus kbd, .menu-item:hover kbd { color: var(--accent-text); }
@@ -173,6 +176,10 @@ svg.icon { flex: none; display: block; }
   .topbar { min-width: 0; }
   .menubar { flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .menubar::-webkit-scrollbar { display: none; }
+  /* More menus past the right edge: the bar fades there (app/scroll-row.ts). */
+  .menubar.more-left::before, .menubar.more-right::after { content: ''; position: sticky; flex: none; align-self: stretch; width: 24px; pointer-events: none; z-index: 1; }
+  .menubar.more-left::before { left: 0; margin-right: -24px; background: linear-gradient(to left, transparent, var(--chrome)); }
+  .menubar.more-right::after { right: 0; margin-left: -24px; background: linear-gradient(to right, transparent, var(--chrome)); }
   .menubar-entry > .menu-pop { position: fixed; top: 28px; left: 4px; right: 4px; min-width: 0; max-height: calc(100dvh - 36px); overflow-y: auto; }
   .submenu { top: calc(100% - 2px); left: 14px; right: 4px; min-width: 0; z-index: 51; }
   .top-actions { flex: none; }
@@ -202,6 +209,10 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .optionsbar { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
 .active-tool-icon { display: grid; place-items: center; width: 28px; height: 26px; border-right: 1px solid var(--line-soft); padding-right: 6px; }
 #tool-options { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; flex: 1; }
+/* More controls or tabs past an edge (narrow windows): that edge fades (app/scroll-row.ts). */
+.scroll-row.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+.scroll-row.more-left { mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+.scroll-row.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 #tool-options label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px; }
 #tool-options input[type='number'] { width: 50px; }
 .options-end { display: flex; align-items: center; gap: 6px; }
@@ -265,7 +276,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 
 /* Dock */
 .dock { display: flex; background: var(--bg); border-left: 1px solid var(--line); min-height: 0; position: relative; }
-.dock-strip { width: 38px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; background: var(--chrome); border-right: 1px solid var(--line); }
+.dock-strip { width: 38px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; background: var(--chrome); border-right: 1px solid var(--line); min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .dock-strip button { width: 30px; height: 28px; padding: 0; }
 .dock-strip button[aria-pressed='true'] { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
 .strip-section { display: flex; flex-direction: column; align-items: center; gap: 2px; }
@@ -287,6 +298,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .panel-group[data-location='dock-middle'] { flex: 1 1 0; }
 .panel-group[data-location='dock-bottom'] { flex: 1.4 1 0; }
 .panel-group.collapsed { flex: 0 0 26px !important; }
+.panel-group.collapsed .group-resizer { display: none; }
 .panel-tabs { display: flex; align-items: stretch; height: 26px; background: var(--panel-tab); border-bottom: 1px solid var(--line); flex: none; }
 .panel-tabs [role='tab'] { border-radius: 0; padding: 0 10px; font-size: 11px; color: var(--muted); border-right: 1px solid var(--line); min-height: 0; }
 .panel-tabs [role='tab'][aria-selected='true'] { background: var(--surface); color: var(--text); font-weight: 600; }
@@ -1193,6 +1205,8 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .action-row small { margin-left: auto; color: var(--muted); }
 .action-row.recording { color: #ff6b6b; }
 .step-check, .step-dialog { width: 18px; min-height: 18px; padding: 0; border: 1px solid var(--line-soft); font-size: 10px; }
+.action-name { display: block; flex: 1; min-width: 0; min-height: 18px; padding: 0 2px; color: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.action-name:hover:not(:disabled), .action-name:active:not(:disabled) { background: transparent; }
 .layer-footer .recording { color: #ff4d4d; }
 .history-snapshots { border-bottom: 2px solid var(--line); }
 .history-snapshot { display: flex; align-items: stretch; }

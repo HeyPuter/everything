@@ -104,6 +104,115 @@ test('native layer dragging moves inside groups, out to the root, and changes or
   await expect(firstRowName(page)).toHaveAccessibleName('B');
 });
 
+test('a drop just under an expanded group\'s row lands at the top of the group', async ({ page }) => {
+  await pick(page, 'A').click();
+  await pick(page, 'B').click({ modifiers: ['ControlOrMeta'] });
+  await group(page);
+  const groupName = await page.evaluate(() => window.photoStudio.layer!.name);
+  // Rows: C, Group, B, A. The bottom edge of the group's row is right above B.
+  const target = rowEl(page, groupName);
+  const bounds = (await target.boundingBox())!;
+  await row(page, 'C').dragTo(target, {
+    targetPosition: { x: bounds.width / 2, y: bounds.height - 2 },
+  });
+  await idle(page);
+  const names = await page.evaluate(() =>
+    window.photoStudio.doc.layers.map((l) => [l.name, l.children.map((c) => c.name)]),
+  );
+  expect(names).toEqual([[groupName, ['A', 'B', 'C']]]);
+  await expect(page.locator('#layers .layer-select').nth(1)).toHaveAccessibleName('C');
+});
+
+test('deleting a layer selects the layer below it, or above it at the bottom', async ({ page }) => {
+  const selected = () => page.evaluate(() => window.photoStudio.layer?.name);
+  // Rows: C, B, A.
+  await pick(page, 'B').click();
+  await run(page, 'layer.delete');
+  expect(await selected()).toBe('A');
+  await run(page, 'layer.delete');
+  expect(await selected()).toBe('C');
+  await undo(page);
+  expect(await selected()).toBe('A');
+});
+
+test('Shift-click and layer stepping use only the rows the list shows when layers are filtered', async ({ page }) => {
+  const selected = () =>
+    page.evaluate(() =>
+      [...window.photoStudio.selectedIds].map((id) => window.photoStudio.doc.layers.find((l) => l.id === id)!.name).sort(),
+    );
+  // Isolate A and C: B leaves the list.
+  await pick(page, 'A').click();
+  await pick(page, 'C').click({ modifiers: ['ControlOrMeta'] });
+  await run(page, 'select.isolate-layers');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(2);
+  await pick(page, 'C').click();
+  await pick(page, 'A').click({ modifiers: ['Shift'] });
+  expect(await selected()).toEqual(['A', 'C']);
+  // Stepping through the layers by keyboard skips B too.
+  await pick(page, 'C').click();
+  await run(page, 'layer.select-backward');
+  expect(await selected()).toEqual(['A']);
+  await run(page, 'layer.select-forward');
+  expect(await selected()).toEqual(['C']);
+  // With every row shown again, the same clicks take in B.
+  await run(page, 'select.isolate-layers');
+  await pick(page, 'C').click();
+  await pick(page, 'A').click({ modifiers: ['Shift'] });
+  expect(await selected()).toEqual(['A', 'B', 'C']);
+});
+
+test('deleting in a filtered Layers list selects a row the list shows', async ({ page }) => {
+  const selected = () => page.evaluate(() => window.photoStudio.layer?.name);
+  // Isolate A and C: B, between them, leaves the list.
+  await pick(page, 'A').click();
+  await pick(page, 'C').click({ modifiers: ['ControlOrMeta'] });
+  await run(page, 'select.isolate-layers');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(2);
+  await pick(page, 'C').click();
+  await run(page, 'layer.delete');
+  expect(await selected()).toBe('A');
+  // Deleting again takes A, not the hidden B.
+  await run(page, 'layer.delete');
+  const names = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name));
+  expect(await names()).toEqual(['B']);
+});
+
+test('arrow keys in the Layers list move the selection instead of nudging the layer', async ({
+  page,
+}) => {
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const selected = () =>
+    page.evaluate(() =>
+      [...window.photoStudio.selectedIds]
+        .map((id) => window.photoStudio.doc.layers.find((l) => l.id === id)!.name)
+        .sort(),
+    );
+  const positions = () =>
+    page.evaluate(() => window.photoStudio.doc.layers.map((l) => [l.transform.x, l.transform.y]));
+  const before = await positions();
+  // Rows: C, B, A.
+  await row(page, 'C').focus();
+  await page.keyboard.press('ArrowDown');
+  expect(await selected()).toEqual(['B']);
+  await expect(row(page, 'B')).toBeFocused();
+  await page.keyboard.press('Shift+ArrowDown');
+  expect(await selected()).toEqual(['A', 'B']);
+  await expect(row(page, 'A')).toBeFocused();
+  await page.keyboard.press('Home');
+  expect(await selected()).toEqual(['C']);
+  await expect(row(page, 'C')).toBeFocused();
+  expect(await positions()).toEqual(before);
+  // Left and Right collapse and expand a focused group.
+  await group(page);
+  const groupName = await page.evaluate(() => window.photoStudio.layer!.name);
+  await row(page, groupName).focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(3);
+  await expect(row(page, groupName)).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(4);
+});
+
 test('shared resize and nudge commit once and preserve selected layers through undo', async ({
   page,
 }) => {

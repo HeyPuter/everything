@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { boot, canvasClick, canvasDrag, compositePixel, historyLabels, idle, layerPixel, openFiles, panel, redo, run, undo } from './helpers';
+import { boot, canvasClick, canvasDrag, compositePixel, historyLabels, idle, layerPixel, openFiles, panel, redo, run, tool, undo } from './helpers';
 
 /** Open a 400 x 300 picture: dark vertical stripes every 40 px on light grey,
  * with a red square in the middle. */
@@ -280,4 +280,44 @@ test('Warps split along a clicked line and merge back', async ({ page }) => {
   await run(page, 'edit.remove-warp-split');
   await canvasClick(page, 121, 100);
   expect(await size()).toEqual([4, 4]);
+});
+
+test('Pin Warp on a shape layer rasterizes it only when committed', async ({ page }) => {
+  await tool(page, 'Rectangle Tool');
+  await canvasDrag(page, [
+    [100, 80],
+    [300, 220],
+  ]);
+  const before = await historyLabels(page);
+  const kind = () => page.evaluate(() => window.photoStudio.layer!.kind);
+  const start = async () => {
+    void page.evaluate(() => window.photoStudio.runCommand('edit.pin-warp'));
+    const dialog = page.locator('dialog[open]');
+    await expect(dialog).toContainText('Rasterize');
+    await dialog.getByRole('button', { name: 'Rasterize' }).click();
+    await expect(page.locator('.pw-mesh')).toHaveCount(1);
+  };
+  // Cancelling gives the shape back, with nothing to redo.
+  await start();
+  await page.keyboard.press('Escape');
+  await idle(page);
+  expect(await modal(page)).toBeNull();
+  expect(await kind()).toBe('vector');
+  expect(await historyLabels(page)).toEqual(before);
+  expect(await page.evaluate(() => window.photoStudio.history.canRedo)).toBe(false);
+  // Committing is one undo step that rasterizes and bends.
+  await start();
+  await canvasClick(page, 120, 150);
+  await canvasClick(page, 280, 150);
+  await canvasDrag(page, [
+    [280, 150],
+    [280, 190],
+  ]);
+  await option(page, 'Commit Pin Warp').click();
+  await idle(page);
+  expect(await historyLabels(page)).toEqual([...before, 'Pin Warp']);
+  expect(await kind()).toBe('pixel');
+  await undo(page);
+  expect(await kind()).toBe('vector');
+  expect(await historyLabels(page)).toEqual(before);
 });
