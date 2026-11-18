@@ -87,8 +87,8 @@ export function mediabunnyOpener(library, { signal } = {}) {
     const blob = await abortable(() => library.mediaBlob(asset), signal);
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
     try {
-      const track = await input.getPrimaryAudioTrack();
-      if (!track || !(await track.canDecode())) {
+      const track = await abortable(() => input.getPrimaryAudioTrack(), signal);
+      if (!track || !(await abortable(() => track.canDecode(), signal))) {
         input.dispose();
         return null;
       }

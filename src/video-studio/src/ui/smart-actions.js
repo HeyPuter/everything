@@ -564,7 +564,8 @@ export function createSmartActions(ctx) {
       const name = T.clipLabel(store.project, f.clip);
       const p = progressDialog('Extracting audio', `Reading the sound of ${name}...`);
       try {
-        const out = await extractClipAudio(mediabunnyOpener(ctx.library), asset, f.clip, { name, signal: p.signal, onProgress: (x) => p.set(x) });
+        const out = await extractClipAudio(mediabunnyOpener(ctx.library, { signal: p.signal }), asset, f.clip, { name, signal: p.signal, onProgress: (x) => p.set(x) });
+        p.signal.throwIfAborted();
         p.close();
         if (!out) {
           toast('This clip has no sound to extract.', { kind: 'info' });
