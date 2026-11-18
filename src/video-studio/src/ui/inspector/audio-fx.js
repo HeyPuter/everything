@@ -19,10 +19,24 @@ import { CHANNEL_MODES, LOUDNESS_TARGETS, NORMALIZE_LIMIT_DB, defaultAudioFx, en
 const fmtDb = (db) => `${db > 0 ? '+' : db < 0 ? '−' : ''}${Math.abs(db).toFixed(1)} dB`;
 const fmtLufs = (v) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)} LUFS`;
 
+// Controls retain the signal of the tab that created them, even after view.scope is replaced.
+const analysisLifetimes = new WeakMap();
+function analysisSignal(view) {
+  let ac = analysisLifetimes.get(view.scope);
+  if (!ac) {
+    ac = new AbortController();
+    analysisLifetimes.set(view.scope, ac);
+    view.scope.onDispose(() => ac.abort());
+  }
+  return ac.signal;
+}
+
 /** Lazy analysis helpers (decoder and DSP load only when used). */
-async function analysisKit(view) {
+async function analysisKit(view, signal) {
+  signal.throwIfAborted();
   const [{ mediabunnyOpener, renderAudio }, an] = await Promise.all([import('../../engine/audio-mix.js'), import('../../media/audio-analysis.js')]);
-  return { open: mediabunnyOpener(view.ctx.library), renderAudio, ...an };
+  signal.throwIfAborted();
+  return { open: mediabunnyOpener(view.ctx.library, { signal }), renderAudio, ...an };
 }
 
 /** Decode the selected clip's source range. */
@@ -30,8 +44,10 @@ async function clipSound(view, opts) {
   const c = view.clip;
   const asset = c && view.project.assets[c.assetId];
   if (!asset) throw new Error('This clip has no media.');
-  const kit = await analysisKit(view);
+  const kit = await analysisKit(view, opts.signal);
+  opts.signal.throwIfAborted();
   const snd = await kit.decodeClipSound(kit.open, asset, c, opts);
+  opts.signal.throwIfAborted();
   if (!snd || !snd.channels[0]?.length) throw new Error('No sound found in this clip.');
   return { kit, snd };
 }
@@ -40,23 +56,24 @@ async function clipSound(view, opts) {
  * Busy state for an async action button: disables it, shows a spinner and
  * a status line, and reports failures as a toast.
  */
-function runBusy(btn, status, label, fn) {
+function runBusy(view, btn, status, label, fn) {
+  const signal = analysisSignal(view);
   return async () => {
-    if (btn.disabled) return;
+    if (signal.aborted || btn.disabled) return;
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
     status.textContent = label;
     status.hidden = false;
     try {
-      await fn();
+      await fn(signal);
     } catch (err) {
-      if (err?.name !== 'AbortError') toast(err?.message || 'Audio analysis failed.', { kind: 'error' });
+      if (!signal.aborted && err?.name !== 'AbortError') toast(err?.message || 'Audio analysis failed.', { kind: 'error' });
     } finally {
       btn.disabled = false;
       btn.removeAttribute('aria-busy');
       status.textContent = '';
       status.hidden = true;
-      restoreFocus(btn);
+      if (!signal.aborted) restoreFocus(btn);
     }
   };
 }
@@ -67,11 +84,13 @@ function runBusy(btn, status, label, fn) {
  * (analysis); it returns a patch merged in the same edit.
  */
 function fxSection(view, { key, title, children, description, onEnable, open = true, resetLabel }) {
+  const signal = analysisSignal(view);
   const id = uidFor('fx');
   const sw = h('button.switch.small', { type: 'button', role: 'switch', id, 'aria-checked': 'false', 'aria-label': `${title}` });
   const status = h('p.fx-status', { role: 'status', hidden: true });
   const isOn = () => Boolean(view.clip?.audioFx?.[key]?.on);
   sw.addEventListener('click', async () => {
+    if (signal.aborted) return;
     const on = !isOn();
     if (on && onEnable) {
       if (sw.disabled) return;
@@ -80,15 +99,17 @@ function fxSection(view, { key, title, children, description, onEnable, open = t
       status.textContent = 'Analyzing…';
       let patch;
       try {
-        patch = await onEnable();
+        patch = await onEnable(signal);
+        signal.throwIfAborted();
       } catch (err) {
-        toast(err?.message || 'Audio analysis failed.', { kind: 'error' });
+        if (!signal.aborted && err?.name !== 'AbortError') toast(err?.message || 'Audio analysis failed.', { kind: 'error' });
         return;
       } finally {
         sw.disabled = false;
         status.hidden = true;
-        restoreFocus(sw);
+        if (!signal.aborted) restoreFocus(sw);
       }
+      if (signal.aborted) return;
       view.edit(title, (c) => {
         Object.assign(ensureAudioFx(c)[key], patch || {}, { on: true });
       });
@@ -137,8 +158,8 @@ export function normalizeSection(view) {
   const readout = h('p.fx-readout');
   const measureLabel = h('span', 'Measure');
   const measure = h('button.btn.small', { type: 'button' }, icon('audioLines', 14), measureLabel);
-  const measureLoudness = async () => {
-    const { kit, snd } = await clipSound(view);
+  const measureLoudness = async (signal) => {
+    const { kit, snd } = await clipSound(view, { signal });
     const lufs = kit.clipLoudness(snd.channels, snd.sampleRate);
     if (lufs === null) throw new Error('This clip is silent, so there is nothing to normalize.');
     return Math.round(lufs * 10) / 10;
@@ -147,9 +168,9 @@ export function normalizeSection(view) {
     key: 'normalize',
     title: 'Normalize loudness',
     description: 'Measure how loud the clip sounds and bring it to a target level.',
-    onEnable: async () => {
+    onEnable: async (signal) => {
       const n = view.clip?.audioFx?.normalize;
-      return Number.isFinite(n?.loudness) ? {} : { loudness: await measureLoudness() };
+      return Number.isFinite(n?.loudness) ? {} : { loudness: await measureLoudness(signal) };
     },
     children: [h('div.field.insp-row', h('label.field-label', 'Target'), h('div.insp-row-control', sel)), readout, measure],
   });
@@ -158,8 +179,9 @@ export function normalizeSection(view) {
       n.target = Number(sel.value);
     });
   });
-  measure.addEventListener('click', runBusy(measure, sec.status, 'Measuring loudness…', async () => {
-    const loudness = await measureLoudness();
+  measure.addEventListener('click', runBusy(view, measure, sec.status, 'Measuring loudness…', async (signal) => {
+    const loudness = await measureLoudness(signal);
+    signal.throwIfAborted();
     fxEdit(view, 'normalize', 'Measure loudness', (n) => {
       n.loudness = loudness;
     });
@@ -196,10 +218,10 @@ export function denoiseSection(view) {
     }, { key: 'denoise-amount', final }),
   });
   const relearn = h('button.btn.small', { type: 'button' }, icon('audioLines', 14), 'Learn noise again');
-  const learn = async () => {
+  const learn = async (signal) => {
     // A couple of minutes is plenty to find the quiet stretches, so no more than that is decoded
     // (a long clip used to be decoded whole, twenty minutes of it, to use the first three).
-    const { kit, snd } = await clipSound(view, { maxSeconds: 180 });
+    const { kit, snd } = await clipSound(view, { maxSeconds: 180, signal });
     const max = snd.sampleRate * 180;
     const chans = snd.channels.map((ch) => ch.subarray(0, Math.min(ch.length, max)));
     return kit.noiseProfile(chans, snd.sampleRate);
@@ -208,11 +230,12 @@ export function denoiseSection(view) {
     key: 'denoise',
     title: 'Reduce noise',
     description: 'Learns the background hiss and hum from the quietest moments of the clip and removes it.',
-    onEnable: async () => (view.clip?.audioFx?.denoise?.profile ? {} : { profile: await learn() }),
+    onEnable: async (signal) => (view.clip?.audioFx?.denoise?.profile ? {} : { profile: await learn(signal) }),
     children: [amount.el, relearn],
   });
-  relearn.addEventListener('click', runBusy(relearn, sec.status, 'Listening for noise…', async () => {
-    const profile = await learn();
+  relearn.addEventListener('click', runBusy(view, relearn, sec.status, 'Listening for noise…', async (signal) => {
+    const profile = await learn(signal);
+    signal.throwIfAborted();
     fxEdit(view, 'denoise', 'Learn noise', (d) => {
       d.profile = profile;
     });
@@ -325,8 +348,9 @@ export function beatsSection(view) {
   const info = h('p.fx-readout');
   const detect = h('button.btn.small', { type: 'button' }, icon('waveform', 14), 'Detect beats');
   const clearBtn = h('button.btn.small', { type: 'button' }, 'Clear');
-  detect.addEventListener('click', runBusy(detect, status, 'Finding beats…', async () => {
-    const { kit, snd } = await clipSound(view);
+  detect.addEventListener('click', runBusy(view, detect, status, 'Finding beats…', async (signal) => {
+    const { kit, snd } = await clipSound(view, { signal });
+    signal.throwIfAborted();
     // Beat tracking needs no more than ~22 kHz: decimate by an integer for speed.
     const mono = kit.downmix(snd.channels);
     const k = Math.max(1, Math.floor(snd.sampleRate / 22050));
@@ -412,15 +436,17 @@ export function duckSection(view, state = {}) {
     },
   });
   const run = h('button.btn.small', { type: 'button' }, icon('speech', 14), 'Lower under speech');
-  run.addEventListener('click', runBusy(run, status, 'Listening to the other clips…', async () => {
+  run.addEventListener('click', runBusy(view, run, status, 'Listening to the other clips…', async (signal) => {
     const c = view.clip;
     if (!c) return;
-    const kit = await analysisKit(view);
+    const kit = await analysisKit(view, signal);
+    signal.throwIfAborted();
     // Everything that plays except this clip, over this clip's time span.
     const project = view.project;
     const others = { ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.filter((x) => x.id !== c.id) })) };
     const sr = 8000;
-    const { channels } = await kit.renderAudio(others, view.ctx.library, { start: c.start, end: c.start + c.duration, sampleRate: sr, channels: 1 });
+    const { channels } = await kit.renderAudio(others, view.ctx.library, { start: c.start, end: c.start + c.duration, sampleRate: sr, channels: 1, signal });
+    signal.throwIfAborted();
     const hop = 0.05;
     const regions = kit.activeRegions(kit.levelEnvelope(channels[0], sr, hop), hop);
     if (!regions.length) throw new Error('No speech or other sound plays under this clip.');
