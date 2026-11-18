@@ -490,31 +490,45 @@ export class Engine extends Emitter {
         channelCount: { ideal: 2 },
       },
     });
-    await this.ctx.audioWorklet.addModule(captureUrl);
-    const src = this.ctx.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(this.ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
-    const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
-    const map = this.inputMap;
-    let route = [];
-    if (!(map[0] === 0 && map[1] === 1)) {
-      // Pick device channels for the recorded left and right channels.
-      const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
-      const split = this.ctx.createChannelSplitter(n);
-      const merge = this.ctx.createChannelMerger(2);
-      src.connect(split);
-      map.forEach((dev, ch) => {
-        if (dev >= 0 && dev < n) split.connect(merge, dev, ch);
-      });
-      merge.connect(node);
-      route = [split, merge];
-    } else src.connect(node);
-    node.port.onmessage = (e) => {
-      const m = e.data;
-      if (m.type === 'data') this.emit('record-data', m.channels);
-      else if (m.type === 'meter') this.emit('input-meter', m.peak);
-    };
-    this.input = { deviceId, stream, src, node, route, channels: route.length ? 2 : deviceChannels };
-    return this.input;
+    let src;
+    let node;
+    const route = [];
+    try {
+      await this.ctx.audioWorklet.addModule(captureUrl);
+      src = this.ctx.createMediaStreamSource(stream);
+      node = new AudioWorkletNode(this.ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
+      const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
+      const map = this.inputMap;
+      if (!(map[0] === 0 && map[1] === 1)) {
+        // Pick device channels for the recorded left and right channels.
+        const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
+        const split = this.ctx.createChannelSplitter(n);
+        route.push(split);
+        const merge = this.ctx.createChannelMerger(2);
+        route.push(merge);
+        src.connect(split);
+        map.forEach((dev, ch) => {
+          if (dev >= 0 && dev < n) split.connect(merge, dev, ch);
+        });
+        merge.connect(node);
+      } else src.connect(node);
+      node.port.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'data') this.emit('record-data', m.channels);
+        else if (m.type === 'meter') this.emit('input-meter', m.peak);
+      };
+      this.input = { deviceId, stream, src, node, route, channels: route.length ? 2 : deviceChannels };
+      return this.input;
+    } catch (err) {
+      // Permission may already be granted even though loading or connecting the
+      // capture processor failed. Release every resource acquired so far.
+      try { node?.port.postMessage({ type: 'close' }); } catch { /* Processor already gone. */ }
+      for (const n of [src, ...route]) {
+        try { n?.disconnect(); } catch { /* Already disconnected. */ }
+      }
+      for (const t of stream.getTracks()) t.stop();
+      throw err;
+    }
   }
 
   setRecording(on) {
