@@ -13,15 +13,17 @@ import { panGains, compensateLatency } from '../engine/mixcore.js';
  * @param {object} [o.state] state to render (defaults to the current one)
  * @param {Set<string>} [o.clipIds] only these clips
  * @param {string} [o.trackId] only this track, before its output routing and the master
+ * @param {Function} [o.onPrepared] observes ready media synchronously before the render graph is built
  * @param {boolean} [o.master] false renders audio that will play through a track and the master
  *   again (bounces, merged clips): it leaves out the master track's volume, effects and polarity,
  *   and the pan law's centre level, which the new track's centred pan applies once more
  */
-export async function renderSession(app, session, { state = session.state, start = 0, end = session.length, clipIds = null, trackId = null, master = true, label = 'Rendering' } = {}) {
+export async function renderSession(app, session, { state = session.state, start = 0, end = session.length, clipIds = null, trackId = null, master = true, label = 'Rendering', onPrepared } = {}) {
   if (end <= start) throw new Error('There is nothing to render in that range.');
   // Stretched and remixed clips render with their finished audio, not the preview.
   if (session.stretcher?.busy) await session.stretcher.whenIdle();
   if (session.remixer?.busy) await session.remixer.whenIdle();
+  onPrepared?.();
   const { graph, sources } = buildSessionGraph(state, session.pool, { clipIds, panLaw: { mode: app.prefs?.get('panLaw'), centerDb: app.prefs?.get('panLawDb') }, compensate: false });
   if (trackId) bounceGraph(graph, trackId);
   else if (!master) graph.master = { gain: 1 };

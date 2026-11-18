@@ -1164,12 +1164,44 @@ export function installMultitrackCommands(app) {
         // merged clip still plays through the track's EQ, polarity and pan, so they stay out.
         const dry = { volume: 0, pan: 0, fx: [], mode: 'off', mute: false, solo: false, output: 'master', invert: false, eq: { on: false, values: {} }, sends: [] };
         const tmp = { ...doc.state, tracks: doc.state.tracks.map((t) => (t.id === trackId ? { ...t, ...dry } : t)) };
-        const data = await renderSession(app, doc, { state: tmp, start: a, end: b, clipIds: graphClips, trackId, master: false, label: 'Merging clips' });
+        const media = new Map();
+        const linkedDocs = new Map(app.documents.map((d) => [d.id, d]));
+        const data = await renderSession(app, doc, {
+          state: tmp, start: a, end: b, clipIds: graphClips, trackId, master: false, label: 'Merging clips',
+          // Capture after pending stretch/remix renders finish, not their previews.
+          onPrepared: () => {
+            for (const c of clips) {
+              for (let id = c.sourceId; id && !media.has(id); ) {
+                const src = doc.pool.get(id);
+                media.set(id, { channels: src?.channels, linked: linkedDocs.get(src?.docId) });
+                id = src?.derived?.from;
+              }
+            }
+          },
+        });
         if (!isOpen(app, doc)) return;
-        const file = renderedDoc(app, doc, data, `${clips[0].name} Merged`);
+        const file = renderedDoc(app, doc, data, `${clips[0].name} Merged`, [], tmp.sampleRate);
         app.addDocument(file, { activate: false });
-        app.activate(doc);
+        const canCommit = () => {
+          if (!isOpen(app, doc)) return false;
+          const current = new Set(doc.state.clips);
+          const sameMedia = [...media].every(([id, { channels: before, linked }]) => {
+            const src = doc.pool.get(id);
+            // Converted linked audio updates after a debounce. Its waveform may
+            // already differ while the pool (or a derived preview) is unchanged.
+            if (linked && src?.stateRef !== linked.state) return false;
+            const channels = src?.channels;
+            return channels === before || (channels?.length === before?.length && before?.every((c, i) => c === channels[i]));
+          });
+          if (doc.sampleRate === tmp.sampleRate && S.findTrack(doc.state, trackId)?.type === 'audio' && clips.every((c) => current.has(c)) && sameMedia) return true;
+          app.notify('Merge stopped because its clips, audio, or session changed. Rendered audio remains in the Files panel; review the session and merge again.', { error: true });
+          return false;
+        };
+        // Replace only the inputs actually rendered. Later edits (including
+        // source edits with an unchanged timeline) must survive completion.
+        if (!canCommit()) return;
         const sourceId = await linkSource(doc, file);
+        if (!canCommit()) return;
         // The merged clip takes the place of the frontmost merged clip, so the clips it overlapped
         // stay in front of it or behind it as they were (the render already left out the parts
         // that clips in front hid).
