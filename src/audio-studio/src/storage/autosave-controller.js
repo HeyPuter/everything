@@ -32,15 +32,10 @@ export function installAutosave(app, { store = opfsAvailable() ? new AutosaveSto
   const keys = new Map(); // doc id -> storage key
   let running = null;
   let warned = false;
+  let revision = 0;
 
   // Hold a lock for the life of this tab so other tabs know these files are live.
   navigator.locks?.request?.(`${LOCK_PREFIX}${session}`, () => new Promise(() => {})).catch(() => {});
-
-  const keyFor = (doc) => {
-    let k = keys.get(doc.id);
-    if (!k) keys.set(doc.id, (k = `${session}-${doc.id}`));
-    return k;
-  };
 
   const drop = async (docId) => {
     const k = keys.get(docId);
@@ -67,22 +62,32 @@ export function installAutosave(app, { store = opfsAvailable() ? new AutosaveSto
         // Keep the default budget.
       }
       for (const doc of planAutosave(app.documents, written, budget)) {
+        if (!app.documents.includes(doc) || !doc.dirty) continue;
         if (app.recording && app.recorder?.take && doc === app.active) continue;
         const state = doc.state;
-        const key = keyFor(doc);
+        // Keep the previous audio/manifest pair intact until this revision commits.
+        const previousKey = keys.get(doc.id);
+        const key = `${session}-${doc.id}-${++revision}`;
+        keys.set(doc.id, key);
         try {
           await store.write(doc, buildManifest(doc, { session, key }));
           // Saved or closed while the copy was being written (drop() ran meanwhile):
           // remove it, or the next start would offer a closed document for recovery.
           if (keys.get(doc.id) !== key) await store.remove(key).catch(() => {});
           else written.set(doc.id, state);
+          if (previousKey) await store.remove(previousKey).catch(() => {});
         } catch (err) {
+          await store.remove(key).catch(() => {});
           if (keys.get(doc.id) !== key) {
-            await store.remove(key).catch(() => {});
-          } else if (!warned) {
-            warned = true;
-            console.warn('[autosave]', err);
-            app.notify('Autosave could not write to this browser\'s storage. Save your work to Puter or download it.', { error: true });
+            if (previousKey) await store.remove(previousKey).catch(() => {});
+          } else {
+            if (previousKey) keys.set(doc.id, previousKey);
+            else keys.delete(doc.id);
+            if (!warned) {
+              warned = true;
+              console.warn('[autosave]', err);
+              app.notify('Autosave could not write to this browser\'s storage. Save your work to Puter or download it.', { error: true });
+            }
           }
         }
       }

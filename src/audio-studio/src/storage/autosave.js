@@ -154,8 +154,13 @@ export class AutosaveStore {
     }
     const mf = await dir.getFileHandle(`${manifest.key}.json`, { create: true });
     const w = await mf.createWritable();
-    await w.write(JSON.stringify(manifest));
-    await w.close();
+    try {
+      await w.write(JSON.stringify(manifest));
+      await w.close();
+    } catch (err) {
+      await w.abort?.().catch(() => {});
+      throw err;
+    }
   }
 
   async remove(key) {
