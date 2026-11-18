@@ -528,5 +528,32 @@ describe('nested track settings', () => {
     expect(mainTrack(loaded).clips[0].sequence.tracks[0]).toMatchObject({ locked: true, solo: true, size: 'large' });
   });
 
-
+  it('keeps an inner solo local to its compound after closing it', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const inside = clip('audio', 0, 4);
+    const outside = clip('audio', 0, 4);
+    addClip(p, inside, FREE);
+    addClip(p, outside, FREE);
+    const comp = createCompound(p, [a.id, inside.id], FREE);
+    const store = new EditorStore(p);
+    store.openCompound(comp.id);
+    store.update('Solo inner music', q => { q.tracks.find(t => t.kind === 'audio').solo = true; }, { structural: false });
+    expect(audibleClips(store.project).map(x => x.clip.id)).toEqual([inside.id]);
+    store.closeCompound();
+    const heard = audibleClips(store.project).map(x => x.clip.sourceId || x.clip.id).sort();
+    expect(heard).toEqual([inside.id, outside.id].sort());
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(audibleClips(loaded).map(x => x.clip.sourceId || x.clip.id).sort()).toEqual(heard);
+    findClip(loaded, outside.id).track.solo = true;
+    loaded.modified++;
+    expect(audibleClips(loaded).map(x => x.clip.sourceId || x.clip.id)).toEqual([outside.id]);
+    findClip(loaded, outside.id).track.solo = false;
+    mainTrack(loaded).solo = true;
+    loaded.modified++;
+    expect(audibleClips(loaded).map(x => x.clip.sourceId || x.clip.id)).toEqual([inside.id]);
+    mainTrack(loaded).muted = true;
+    loaded.modified++;
+    expect(audibleClips(loaded)).toEqual([]);
+  });
 });

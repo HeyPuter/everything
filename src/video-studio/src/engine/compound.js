@@ -55,6 +55,9 @@ function anglePieces(v, comp, ranges, withSound) {
 function expandOne(comp, outerTrack) {
   const tracks = [];
   const mc = comp.multicam;
+  // Inner solos choose sound only within this compound; the outer track still follows
+  // the outer timeline's solo controls.
+  const solo = comp.sequence.tracks.some((t) => t.solo && (t.kind === 'audio' || t.kind === 'video'));
   let angle = -1;
   for (const nt of comp.sequence.tracks) {
     const clips = [];
@@ -73,7 +76,7 @@ function expandOne(comp, outerTrack) {
       if (ranges) clips.push(...anglePieces(v, comp, ranges, withSound));
       else clips.push(v);
     }
-    tracks.push({ id: `${outerTrack.id}~${nt.id}`, kind: nt.kind, main: false, locked: true, hidden: outerTrack.hidden || nt.hidden, muted: outerTrack.muted || nt.muted, solo: outerTrack.solo, clips, virtual: true });
+    tracks.push({ id: `${outerTrack.id}~${nt.id}`, kind: nt.kind, main: false, locked: true, hidden: outerTrack.hidden || nt.hidden, muted: outerTrack.muted || nt.muted || (solo && !nt.solo), solo: outerTrack.solo, clips, virtual: true });
   }
   return tracks;
 }
