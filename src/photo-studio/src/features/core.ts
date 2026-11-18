@@ -185,6 +185,13 @@ export function installCore(e: Editor) {
       e.message('There is no layer below to clip to.');
       return;
     }
+    // As in Layer → New → Layer…, the Background never becomes a base.
+    let base = list.indexOf(l) - 1;
+    while (base > 0 && list[base].clipped) base--;
+    if (!l.clipped && list[base]?.background) {
+      e.message('The Background layer cannot be the base of a clipping mask.');
+      return;
+    }
     if (e.selectedIds.size > 1) {
       e.message('Select a single layer for this adjustment.');
       return;
