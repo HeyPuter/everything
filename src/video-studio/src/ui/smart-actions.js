@@ -679,14 +679,36 @@ export function createSmartActions(ctx) {
         toast('Syncing works on clips at normal speed.', { kind: 'info' });
         return;
       }
+      const project = store.project;
+      const inputs = [ref, mov];
+      const sourceStamp = () => JSON.stringify([
+        store.project.id, store.project.timelineId, (store.nest || []).map((f) => f.id),
+        inputs.map(({ clip }, i) => {
+          const f = T.findClip(store.project, clip.id);
+          if (!f) return null;
+          const c = f.clip, a = store.project.assets[c.assetId];
+          return [f.track.id, i === 1 && f.track.locked, c.type, c.assetId, c.start, c.in, c.duration,
+            c.speed, c.speedCurve, c.reverse, c.freeze, a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration, a?.hasAudio];
+        }),
+      ]);
+      const stamp = sourceStamp();
+      const isCurrentSource = () => project === store.project
+        && inputs.every(({ clip }) => T.findClip(store.project, clip.id)?.clip === clip)
+        && stamp === sourceStamp();
+      const changedMessage = () => T.findClip(store.project, mov.clip.id)?.track.locked
+        ? 'The clip to move is locked. Unlock it and run sync again.'
+        : 'The clips or their sound changed. Run sync again to compare their current audio.';
+      const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage()); };
       const p = progressDialog('Syncing by sound', 'Comparing the two recordings...', lifetime);
       try {
         const open = mediabunnyOpener(ctx.library, { signal: p.signal });
         const a = await decodeClipSound(open, store.project.assets[ref.clip.assetId], ref.clip, { maxSeconds: 600, signal: p.signal });
         p.signal.throwIfAborted();
+        requireSource();
         p.set(0.4);
         const b = await decodeClipSound(open, store.project.assets[mov.clip.assetId], mov.clip, { maxSeconds: 600, signal: p.signal });
         p.signal.throwIfAborted();
+        requireSource();
         p.set(0.7);
         if (!a || !b) throw new Error('Could not read the sound of both clips.');
         const hop = 0.01;
@@ -694,7 +716,6 @@ export function createSmartActions(ctx) {
         const eb = syncEnvelope(downmix(b.channels), b.sampleRate, hop);
         const maxLag = Math.min(Math.max(ea.length, eb.length), Math.round(60 / hop));
         const { lag, score } = bestLag(ea, eb, maxLag);
-        p.close();
         if (score < 0.2) {
           toast('These clips do not seem to share the same sound.', { kind: 'info' });
           return;
@@ -703,14 +724,17 @@ export function createSmartActions(ctx) {
         const target = Math.max(0, Math.round(ref.clip.start + lag * hop * US));
         const delta = target - mov.clip.start;
         const name = T.clipLabel(store.project, mov.clip);
-        const ok = store.update('Sync by sound', (proj) => T.moveClip(proj, mov.clip.id, { start: target, trackId: mov.track.id }, { ...store.opts, with: [] }));
+        const ok = store.update('Sync by sound', (proj) => isCurrentSource()
+          ? T.moveClip(proj, mov.clip.id, { start: target, trackId: mov.track.id }, { ...store.opts, with: [] }) : false);
+        if (ok === false) throw new Error(isCurrentSource() ? 'The alignment could not be saved. Check track locks and try again.' : changedMessage());
         if (ok) toast(`Moved ${name} by ${(delta / US).toFixed(2)} s to match.`, { kind: 'success' });
       } catch (err) {
-        p.close();
         if (!lifetime.aborted && err?.name !== 'AbortError') {
           console.error(err);
-          toast(err?.message || 'Could not sync these clips.', { kind: 'error' });
+          toast(isCurrentSource() ? err?.message || 'Could not sync these clips.' : changedMessage(), { kind: 'error' });
         }
+      } finally {
+        p.close();
       }
     },
   };
