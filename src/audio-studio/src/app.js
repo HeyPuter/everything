@@ -105,6 +105,9 @@ export class App extends Emitter {
       const answer = await saveChangesDialog(doc.name);
       if (answer === null) return false;
       if (answer === 'save') {
+        // A pending open can change the active document while the dialog is up.
+        // Save dispatches by active document, including document-kind overrides.
+        this.activate(doc);
         const ok = await this.commands.run('file.save');
         if (doc.dirty) {
           if (ok) this.notify(`"${doc.name}" changed while saving and was left open. Save again to keep the latest changes.`);
