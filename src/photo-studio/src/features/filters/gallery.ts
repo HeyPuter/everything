@@ -158,7 +158,7 @@ export async function galleryDialog(e: Editor, opts: { edit?: { layerId: string;
       if (closed) return;
       closed = true;
       thumbLane.cancel();
-      preview.dispose();
+      preview.dispose(applied);
       closeSession(s);
       ui.dialog.close();
       ui.dialog.remove();

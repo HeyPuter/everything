@@ -251,7 +251,7 @@ export async function filterDialog(e: Editor, opId: string, opts: DialogOptions 
     const close = (applied: boolean) => {
       if (closed) return;
       closed = true;
-      preview.dispose();
+      preview.dispose(applied);
       closeSession(s);
       ui.dialog.close();
       ui.dialog.remove();
