@@ -161,6 +161,12 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     h('div.tr-selbar', selInfo, deleteBtn),
   );
 
+  function applyCuts(ranges, label) {
+    if (removeRanges(store, ranges, label) !== false) return true;
+    toast('No cuts were applied. Check whether the affected tracks are locked.', { kind: 'error' });
+    return false;
+  }
+
   fillerBtn.addEventListener('click', async () => {
     const idx = findFillers(words(), { language: store.project.transcript?.language, soft });
     if (!idx.length) {
@@ -169,7 +175,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     }
     const ok = await confirmDialog({ title: 'Remove filler words?', message: `${idx.length} filler word${idx.length === 1 ? '' : 's'} will be cut from the video.`, confirm: 'Remove' });
     if (!ok) return;
-    removeRanges(store, rangesForWords(words(), idx), 'Remove filler words');
+    if (!applyCuts(rangesForWords(words(), idx), 'Remove filler words')) return;
     toast(`Removed ${idx.length} filler word${idx.length === 1 ? '' : 's'}.`, { kind: 'success' });
   });
   pauseBtn.addEventListener('click', async () => {
@@ -181,7 +187,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     const total = pauses.reduce((s, r) => s + r.end - r.start, 0);
     const ok = await confirmDialog({ title: 'Shorten pauses?', message: `${pauses.length} pause${pauses.length === 1 ? '' : 's'} (${(total / US).toFixed(1)} s in all) will be cut from the video.`, confirm: 'Shorten' });
     if (!ok) return;
-    removeRanges(store, pauses, 'Shorten pauses');
+    applyCuts(pauses, 'Shorten pauses');
   });
   moreBtn.addEventListener('click', () => showMenu(moreBtn, [
     { label: 'Highlight filler words', checked: showFillers, onSelect: () => { showFillers = !showFillers; render(); } },
@@ -207,7 +213,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     if (!r) return;
     const idx = [];
     for (let i = r[0]; i <= r[1]; i++) idx.push(i);
-    removeRanges(store, rangesForWords(words(), idx), idx.length === 1 ? 'Cut word' : `Cut ${idx.length} words`);
+    if (!applyCuts(rangesForWords(words(), idx), idx.length === 1 ? 'Cut word' : `Cut ${idx.length} words`)) return;
     focus = Math.min(r[0], words().length - 1);
     anchor = -1;
     announce(`${idx.length} word${idx.length === 1 ? '' : 's'} cut`);
