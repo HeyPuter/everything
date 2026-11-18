@@ -533,3 +533,90 @@ test('Shift-click draws a line only from a stroke in the same document', async (
   // Halfway along a line from the first document's dot stays unpainted.
   expect(await pixel(100, 60)).toEqual([64, 64, 64, 255]);
 });
+
+test('a stroke whose pointer capture is lost is stored and ends the gesture', async ({ page }) => {
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 20, hardness: 1, smoothing: 0 });
+    e.setForeground('#ffffff');
+  });
+  await idle(page);
+  const before = await page.evaluate(() => window.photoStudio.history.labels.length);
+  await page.mouse.move(...(await client(page, 40, 60)));
+  await page.mouse.down();
+  await page.mouse.move(...(await client(page, 120, 60)), { steps: 5 });
+  // The browser takes the capture away without a pointerup (the press may
+  // never be released over the canvas).
+  await page.evaluate(() => {
+    const v = window.photoStudio.el('#viewport');
+    const init = { pointerId: 1, pointerType: 'mouse', bubbles: true };
+    v.dispatchEvent(new PointerEvent('lostpointercapture', init));
+  });
+  await page.waitForFunction(() => !window.photoStudio.toolBusy);
+  await idle(page);
+  const after = await page.evaluate(() => window.photoStudio.history.labels);
+  expect(after.length).toBe(before + 1);
+  expect(after.at(-1)).toBe('Brush Tool');
+  await page.mouse.up();
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(before + 1);
+});
+
+test('a stroke started while another is unfinished stores the first and stops its airbrush', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const l = newPixelLayer('Air', e.doc);
+    e.command('New Layer', (d) => d.layers.push(l));
+    e.selected = l.id;
+    e.setTool('brush');
+    e.activeTool!.brush!.set(e, { size: 10, hardness: 1, airbrush: true, smoothing: 0 });
+    // Track running intervals (the airbrush ticks every 50 ms).
+    const live = new Set<number>();
+    const set = window.setInterval.bind(window),
+      clear = window.clearInterval.bind(window);
+    (window as unknown as { liveTimers: Set<number> }).liveTimers = live;
+    window.setInterval = ((f: () => void, ms?: number) => {
+      const id = set(f, ms);
+      if (ms === 50) live.add(id);
+      return id;
+    }) as typeof window.setInterval;
+    window.clearInterval = ((id?: number) => {
+      live.delete(id!);
+      clear(id);
+    }) as typeof window.clearInterval;
+  });
+  await idle(page);
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { canvasPoint } = await import('/src/app/pointer.ts');
+    const at = (x: number, y: number) => {
+      const [cx, cy] = e.clientPoint(x, y);
+      const init = { clientX: cx, clientY: cy, pointerType: 'pen', pressure: 1 };
+      return canvasPoint(e, new PointerEvent('pointerdown', init));
+    };
+    const t = e.activeTool!;
+    // The first stroke's release never arrives (a second pointer took over).
+    await t.pointerDown!(e, at(30, 30));
+    await t.pointerDown!(e, at(150, 90));
+    await t.pointerUp!(e, at(150, 90));
+  });
+  await idle(page);
+  const state = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    const g = e.doc.layers.at(-1)!.pixels!;
+    const alpha = (x: number, y: number) =>
+      readRGBA(e.assets.tiles, g, { x, y, width: 1, height: 1 }).data[3];
+    return {
+      strokes: e.history.labels.filter((l) => l === 'Brush Tool').length,
+      first: alpha(30, 30),
+      second: alpha(150, 90),
+      timers: (window as unknown as { liveTimers: Set<number> }).liveTimers.size,
+    };
+  });
+  expect(state).toEqual({ strokes: 2, first: 255, second: 255, timers: 0 });
+});

@@ -317,6 +317,9 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         samplingRing(e, p);
         return;
       }
+      // A stroke still running (its release never came, or another pointer
+      // pressed) is stored first, so it is neither lost nor left airbrushing.
+      if (active?.session) finish(e, active, id);
       const a: Active = { queue: [p], label: history };
       active = a;
       const target = await pixelTarget(e);

@@ -63,6 +63,8 @@ export function bindCanvas(e: Editor) {
   let suppressMenu = false;
   // Touch points on the viewport (client coordinates).
   const touches = new Map<number, [number, number]>();
+  // The gesture pointer's latest move, where a gesture whose capture is lost ends.
+  let lastMove: PointerEvent | undefined;
   const startTool = (down: PointerEvent) => {
     const tool = e.activeTool;
     gesture = { kind: 'tool', pointer: down.pointerId };
@@ -159,6 +161,7 @@ export function bindCanvas(e: Editor) {
     if (event.defaultPrevented || e.busy || !e.renderer) return;
     if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;
     viewport.focus({ preventScroll: true });
+    lastMove = undefined;
     if (event.pointerType === 'touch') {
       touches.set(event.pointerId, [event.clientX, event.clientY]);
       // Captured, so its release is seen even off the canvas.
@@ -229,6 +232,7 @@ export function bindCanvas(e: Editor) {
       return;
     }
     if (event.pointerId !== gesture.pointer) return;
+    lastMove = event;
     if (gesture.kind === 'touch') {
       if (Math.hypot(event.clientX - gesture.down.clientX, event.clientY - gesture.down.clientY) < TOUCH_SLOP) return;
       commitTouch();
@@ -257,7 +261,8 @@ export function bindCanvas(e: Editor) {
     e.activeTool?.pointerMove?.(e, p);
   });
   const end = (event: PointerEvent) => {
-    touches.delete(event.pointerId);
+    // A lost capture leaves the finger down (it may still join a pinch).
+    if (event.type !== 'lostpointercapture') touches.delete(event.pointerId);
     if (gesture?.kind === 'pinch') {
       if (!gesture.ids.includes(event.pointerId)) return;
       // The remaining finger does nothing until it lifts.
@@ -268,7 +273,7 @@ export function bindCanvas(e: Editor) {
     if (!gesture || event.pointerId !== gesture.pointer) return;
     // A tap: the tool gets its press and release.
     if (gesture.kind === 'touch') {
-      if (event.type === 'pointercancel') {
+      if (event.type === 'pointercancel' || event.type === 'lostpointercapture') {
         clearTimeout(gesture.timer);
         gesture = undefined;
         return;
@@ -301,11 +306,20 @@ export function bindCanvas(e: Editor) {
     }
     if (g.kind === 'tool') {
       e.toolBusy = false;
-      void Promise.resolve(e.activeTool?.pointerUp?.(e, canvasPoint(e, event))).catch((error) => e.message(String(error?.message ?? error)));
+      // A lost capture reports no position of its own: release where the pointer last was.
+      const lost = event.type === 'lostpointercapture' && lastMove?.pointerId === event.pointerId;
+      const at = canvasPoint(e, lost ? lastMove! : event);
+      void Promise.resolve(e.activeTool?.pointerUp?.(e, at)).catch((error) =>
+        e.message(String(error?.message ?? error)),
+      );
     }
   };
   viewport.addEventListener('pointerup', end);
   viewport.addEventListener('pointercancel', end);
+  // The browser can end the capture without a pointerup (the element lost it,
+  // the window lost the pointer): the gesture ends there instead of waiting
+  // forever with the tool still busy.
+  viewport.addEventListener('lostpointercapture', end);
   viewport.addEventListener('dblclick', (event) => {
     if ((event.target as HTMLElement).closest('button,input,.canvas-ui')) return;
     e.activeTool?.doubleClick?.(e, canvasPoint(e, event));
