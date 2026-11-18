@@ -661,6 +661,8 @@ export function createSmartActions(ctx) {
      * (or the later-selected one) moves to match the other.
      */
     async syncBySound() {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return;
       const ids = store.selectedIds;
       const clips = ids.map((id) => T.findClip(store.project, id)).filter((f) => f && (f.clip.type === 'audio' || (f.clip.type === 'video' && store.project.assets[f.clip.assetId]?.hasAudio)));
       if (clips.length !== 2) {
@@ -677,7 +679,7 @@ export function createSmartActions(ctx) {
         toast('Syncing works on clips at normal speed.', { kind: 'info' });
         return;
       }
-      const p = progressDialog('Syncing by sound', 'Comparing the two recordings...');
+      const p = progressDialog('Syncing by sound', 'Comparing the two recordings...', lifetime);
       try {
         const open = mediabunnyOpener(ctx.library, { signal: p.signal });
         const a = await decodeClipSound(open, store.project.assets[ref.clip.assetId], ref.clip, { maxSeconds: 600, signal: p.signal });
@@ -705,7 +707,7 @@ export function createSmartActions(ctx) {
         if (ok) toast(`Moved ${name} by ${(delta / US).toFixed(2)} s to match.`, { kind: 'success' });
       } catch (err) {
         p.close();
-        if (err?.name !== 'AbortError') {
+        if (!lifetime.aborted && err?.name !== 'AbortError') {
           console.error(err);
           toast(err?.message || 'Could not sync these clips.', { kind: 'error' });
         }
