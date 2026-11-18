@@ -23,6 +23,8 @@ import { serializeSession } from '../model/session-io.js';
 import { sessionFromText } from '../multitrack/storage.js';
 import { LOCK_PREFIX } from './autosave.js';
 import { wavHeader } from '../audio/wav.js';
+import { normalizePath, relativePath } from '../lib/paths.js';
+import { dirname } from './puter.js';
 
 export const BACKUP_DIR = 'audio-studio-session-backups';
 const VERSION = 1;
@@ -205,10 +207,20 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
 
   /** Backs up one session now (whether or not it changed). */
   const backup = async (doc) => {
-    const { text, media } = serializeSession(doc);
+    // Save As can move the session while its media are being written. Keep
+    // this snapshot's location and its unavailable media references together.
+    const source = doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path } : { type: doc.source?.type || 'new' };
+    const { text, media } = serializeSession(doc, {
+      mediaPath: (_id, src, file) => source.type === 'puter' && src.offline && src.path ? relativePath(dirname(source.path), src.path) : file,
+    });
     const parsed = JSON.parse(text);
     const entries = [];
+    const offlinePaths = Object.create(null);
     const fresh = new Set();
+    for (const m of media) {
+      const src = doc.pool.get(m.id);
+      if (src.offline) offlinePaths[m.id] = src.path || null;
+    }
     for (const m of media) {
       if (!m.channels?.length) continue;
       const key = mediaKeyFor(doc, m.id, m.channels);
@@ -223,12 +235,13 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
       group: `${tab}-${doc.id}`.replace(/[^a-z0-9-]/gi, ''),
       tab,
       name: parsed.name || doc.name,
-      source: doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path } : { type: doc.source?.type || 'new' },
+      source,
       savedAt: at,
       dirty: Boolean(doc.dirty),
       offered: false,
       text,
       media: entries,
+      ...(Object.keys(offlinePaths).length ? { offlinePaths } : {}),
     };
     await store.writeManifest(manifest);
     const all = await store.list();
@@ -361,7 +374,21 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
         return key ? store.readMedia(key) : null;
       });
       // Saving a restored session asks where unless it came from Puter; its media are written again.
-      if (m.source?.type === 'puter') session.source = { type: 'puter', path: m.source.path };
+      if (m.source?.type === 'puter') {
+        session.source = { type: 'puter', path: m.source.path };
+      }
+      // Available backup audio is local and must be uploaded on Save. Keep
+      // known offline paths, including an explicit null for unavailable backup
+      // payloads whose filenames do not identify cloud files.
+      for (const src of session.pool.values()) {
+        if (!src.offline || !src.file) continue;
+        if (Object.hasOwn(m.offlinePaths || {}, src.id)) {
+          src.path = typeof m.offlinePaths[src.id] === 'string' ? m.offlinePaths[src.id] : null;
+        } else if (m.source?.type === 'puter' && !files.has(src.file)) {
+          // Older backups kept only relative media references.
+          src.path = normalizePath(`${dirname(m.source.path)}/${src.file}`);
+        }
+      }
       session.savedState = null;
       app.addDocument(session);
       return session;
