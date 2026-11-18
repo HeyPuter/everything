@@ -13,6 +13,7 @@ import { dsp, setDspBytes } from '../src/audio/dsp.js';
 import { serializeSession } from '../src/model/session-io.js';
 import { sessionFromText } from '../src/multitrack/storage.js';
 import { linkSource } from '../src/multitrack/insert.js';
+import { confirmSessionSave, sessionSaveForm } from './helpers/session-save.js';
 
 beforeEach(async () => {
   setDspBytes(fs.readFileSync('src/audio/dsp.wasm'));
@@ -26,6 +27,7 @@ afterEach(() => {
   delete window.puter;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  document.body.replaceChildren();
 });
 function setup() {
   const app = new App();
@@ -58,7 +60,7 @@ function storage(outcome = 'saved') {
     stored.set(path, blob);
     return {};
   });
-  window.puter = { auth: { isSignedIn: () => true }, fs: { write } };
+  window.puter = { auth: { isSignedIn: () => true }, fs: { write, stat: async (path) => { if (stored.has(path)) return { path }; throw { code: 'subject_does_not_exist' }; } } };
   return { release, stored, calls };
 }
 
@@ -216,11 +218,12 @@ it.each(['saveAs', 'saveCopy'])('keeps destination media independent when using 
   await app.commands.run('file.save');
   const oldManifest = cloud.stored.get('/u/Song.asesx');
   const oldState = doc.savedState;
-  window.puter.ui = { showSaveFilePicker: async () => ({ path: '/u/Other.asesx', name: 'Other.asesx' }) };
   doc.selectClips([clips[0].id]);
   await app.commands.run('edit.delete');
   const current = doc.state;
-  await app.commands.run(`file.${command}`);
+  const saving = app.commands.run(`file.${command}`);
+  await confirmSessionSave('Other.asesx');
+  await saving;
   const exported = JSON.parse(await cloud.stored.get('/u/Other.asesx').text());
   expect(exported.session.clips.map((clip) => clip.id)).toEqual([clips[1].id]);
   expect([...parseWav(await cloud.stored.get(`/u/${exported.sources[0].file}`).arrayBuffer()).channels[0]]).toEqual(Array(32).fill(-0.5));
@@ -238,27 +241,20 @@ it.each(['saveAs', 'saveCopy'])('keeps destination media independent when using 
   expect(app.notify).not.toHaveBeenCalled();
 });
 
-it.each(['saveAs', 'saveCopy'])('releases queued saves after cancelling the SDK %s picker', async (command) => {
+it.each(['saveAs', 'saveCopy'])('releases queued saves after cancelling the %s dialog', async (command) => {
   const app = setup();
   const { doc, clips } = session(app);
   const cloud = storage();
   cloud.release();
   const state = doc.state;
-  let cancel;
-  // Puter keeps its main picker promise pending on Cancel, but exposes this
-  // secondary promise for callers that need to finish their cancellation flow.
-  const picker = new Promise(() => {});
-  picker.undefinedOnCancel = new Promise((resolve) => { cancel = resolve; });
-  window.puter.ui = { showSaveFilePicker: vi.fn(() => picker) };
   let firstDone = false;
   let result;
   const first = app.commands.run(`file.${command}`).then((value) => { firstDone = true; result = value; });
-  await vi.waitFor(() => expect(window.puter.ui.showSaveFilePicker).toHaveBeenCalledOnce(), { interval: 1 });
-  cancel(undefined);
+  const form = await sessionSaveForm();
+  form.querySelector('.dialog-foot button[data-value="null"]').click();
   let nextDone = false;
   const next = app.commands.run('file.save').then(() => { nextDone = true; });
-  // Every remaining SDK call resolves immediately; this drains all save work
-  // without waiting on the deliberately never-settling primary picker promise.
+  // Every remaining SDK call resolves immediately; drain the queued save work.
   await setImmediate();
   expect.soft(firstDone).toBe(true);
   expect(nextDone).toBe(true);
@@ -275,61 +271,43 @@ it.each(['saveAs', 'saveCopy'])('releases queued saves after cancelling the SDK 
   expect(app.notify).not.toHaveBeenCalled();
 });
 
-it.each([
-  ['cancel-aware', 'saved'],
-  ['cancel-aware', 'failed'],
-  ['legacy', 'failed'],
-])('keeps session saves usable after a %s picker is %s', async (api, outcome) => {
+it.each([['saveAs', 'media'], ['saveAs', 'manifest'], ['saveCopy', 'media'], ['saveCopy', 'manifest']])('keeps an existing destination intact when %s fails during %s upload', async (command, failure) => {
   const app = setup();
-  const { doc } = session(app);
+  const { doc, clips } = session(app);
   const cloud = storage();
   cloud.release();
-  const item = { path: '/u/Other.asesx', name: 'Other.asesx' };
-  const error = new Error('Picker failed');
-  const pending = outcome === 'saved' ? Promise.resolve(item) : Promise.reject(error);
-  pending.catch(() => {});
-  if (api === 'cancel-aware') {
-    pending.undefinedOnCancel = outcome === 'saved' ? Promise.resolve(item) : Promise.reject(error);
-    pending.undefinedOnCancel.catch(() => {});
-  }
-  window.puter.ui = { showSaveFilePicker: vi.fn(() => pending) };
-  const originalSaved = doc.savedState;
-  await app.commands.run('file.saveAs');
-  expect(window.puter.ui.showSaveFilePicker).toHaveBeenCalledOnce();
-  expect(window.puter.ui.showSaveFilePicker.mock.calls[0][1]).toBe('Song.asesx');
-  expect(doc.savedState === (outcome === 'saved' ? doc.state : originalSaved)).toBe(true);
-  expect(doc.dirty).toBe(outcome !== 'saved');
-  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
   await app.commands.run('file.save');
-  const path = outcome === 'saved' ? '/u/Other.asesx' : '/u/Song.asesx';
-  expect(doc.source.path).toBe(path);
-  const manifest = JSON.parse(await cloud.stored.get(path).text());
-  expect(manifest.session.clips).toHaveLength(2);
-  expect(doc.dirty).toBe(false);
-});
-
-it('releases the save queue when only the primary SDK picker promise rejects', async () => {
-  const app = setup();
-  const { doc } = session(app);
-  const cloud = storage();
-  cloud.release();
-  const pending = Promise.reject(new Error('Picker setup failed'));
-  pending.catch(() => {});
-  // SDK setup can throw before registering a picker callback, so its
-  // cancellation companion never settles in this failure path.
-  pending.undefinedOnCancel = new Promise(() => {});
-  window.puter.ui = { showSaveFilePicker: () => pending };
-  let firstDone = false;
-  const first = app.commands.run('file.saveAs').then(() => { firstDone = true; });
-  let nextDone = false;
-  const next = app.commands.run('file.save').then(() => { nextDone = true; });
-  await setImmediate();
-  expect.soft(firstDone).toBe(true);
-  expect(nextDone).toBe(true);
-  await Promise.all([first, next]);
-  expect(app.notify).toHaveBeenCalledOnce();
-  expect(app.notify.mock.calls[0][0]).toContain('Picker setup failed');
+  // A second valid saved session references the already written media.
+  const previous = cloud.stored.get('/u/Song.asesx');
+  cloud.stored.set('/u/Existing.asesx', previous);
+  const previousState = doc.savedState;
+  doc.selectClips([clips[0].id]);
+  await app.commands.run('edit.delete');
+  const latest = doc.state;
+  window.puter.ui = { showSaveFilePicker: vi.fn(async (content) => {
+    // The SDK saves its supplied content before resolving with the FSItem.
+    cloud.stored.set('/u/Existing.asesx', content);
+    return { path: '/u/Existing.asesx', name: 'Existing.asesx' };
+  }) };
+  const write = window.puter.fs.write;
+  window.puter.fs.write = async (path, blob) => {
+    if ((failure === 'manifest' && path === '/u/Existing.asesx') || (failure === 'media' && path.endsWith('.wav'))) throw new Error('Upload failed');
+    return write(path, blob);
+  };
+  const saving = app.commands.run(`file.${command}`);
+  await confirmSessionSave('Existing.asesx', { replace: true });
+  await saving;
+  expect(window.puter.ui.showSaveFilePicker).not.toHaveBeenCalled();
+  expect.soft(cloud.stored.get('/u/Existing.asesx') === previous).toBe(true);
+  const manifest = JSON.parse(await cloud.stored.get('/u/Existing.asesx').text());
+  expect.soft(manifest.session.clips.map((clip) => clip.id)).toEqual(clips.map((clip) => clip.id));
+  expect.soft(manifest.sources.every((src) => cloud.stored.has(`/u/${src.file}`))).toBe(true);
+  expect(doc.state === latest).toBe(true);
+  expect(doc.savedState === previousState).toBe(true);
   expect(doc.source.path).toBe('/u/Song.asesx');
-  expect(cloud.stored.has('/u/Song.asesx')).toBe(true);
+  expect(doc.dirty).toBe(true);
+  expect(app.notify).toHaveBeenCalledOnce();
+  window.puter.fs.write = write;
+  await app.commands.run('file.save');
   expect(doc.dirty).toBe(false);
 });

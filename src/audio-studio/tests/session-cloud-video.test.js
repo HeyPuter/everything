@@ -11,6 +11,7 @@ import { INSERT_HOOKS, insertDocs } from '../src/multitrack/insert.js';
 import { insertVideoHook, setVideoOfDoc } from '../src/video/media.js';
 import { prepareSessionZip } from '../src/multitrack/storage.js';
 import { unzipStore } from '../src/lib/zip.js';
+import { confirmSessionSave } from './helpers/session-save.js';
 
 let hooks;
 beforeEach(() => {
@@ -37,7 +38,7 @@ function setup() {
   const doc = app.addDocument(new Session({ name: 'Film.asesx', sampleRate: 8000, tracks: 1, source: { type: 'puter', path: '/u/Film.asesx' } }));
   const stored = new Map();
   const writes = [];
-  window.puter = { auth: { isSignedIn: () => true }, fs: { write: async (path, blob) => { stored.set(path, blob); writes.push(path); return {}; } } };
+  window.puter = { auth: { isSignedIn: () => true }, fs: { stat: async (path) => { if (stored.has(path)) return { path }; throw { code: 'subject_does_not_exist' }; }, write: async (path, blob) => { stored.set(path, blob); writes.push(path); return {}; } } };
   return { app, doc, stored, writes };
 }
 async function insert(app, doc, bytes, path = null) {
@@ -106,8 +107,9 @@ it.each(['saveAs', 'saveCopy'])('keeps a local video and its ZIP intact through 
   const savedState = doc.savedState;
   const existingPath = '/u/Other_Media/Scene.webm';
   stored.set(existingPath, new Blob([new Uint8Array([9, 9, 9, 9])]));
-  window.puter.ui = { showSaveFilePicker: async () => ({ path: '/u/Other.asesx', name: 'Other.asesx' }) };
-  await app.commands.run(`file.${command}`);
+  const saving = app.commands.run(`file.${command}`);
+  await confirmSessionSave('Other.asesx');
+  await saving;
   const exported = JSON.parse(await stored.get('/u/Other.asesx').text());
   const exportedPath = videoPath(exported);
   expect(await bytesAt(stored, exportedPath)).toEqual([1, 2, 3, 4]);

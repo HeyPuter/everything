@@ -11,6 +11,7 @@ import { channelsAtRate } from './insert.js';
 import { zipStore, unzipStore } from '../lib/zip.js';
 import * as puter from '../storage/puter.js';
 import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
+import { sessionSaveDialog } from './save-dialog.js';
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
@@ -59,8 +60,7 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
     let path = !saveAs && !copy && doc.source?.type === 'puter' && /\.asesx$/i.test(doc.source.path || '') ? doc.source.path : null;
     let name = withExt(doc.name);
     if (!path) {
-      const draft = serializeSession(doc, { name });
-      const item = await puter.pickSave(new Blob([draft.text], { type: 'application/json' }), name);
+      const item = await sessionSaveDialog(app, doc, { copy });
       if (!item) return false;
       path = item.path;
       name = item.name;
