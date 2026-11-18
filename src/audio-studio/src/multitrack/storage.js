@@ -76,8 +76,8 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
     app.setStatus(`Saved ${name}`);
     return true;
   }
-  await prepareVideoBytes(doc);
-  const blob = sessionZip(doc);
+  const videoBytes = await prepareVideoBytes(doc, new WeakMap());
+  const blob = sessionZip(doc, { videoBytes });
   const fileName = `${sessionBaseName(doc.name)}.zip`;
   downloadBlob(blob, fileName);
   if (!copy) doc.markSaved();
@@ -86,7 +86,7 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
 }
 
 /** The session file and its media as one stored ZIP. */
-export function sessionZip(doc) {
+export function sessionZip(doc, { videoBytes } = {}) {
   const name = withExt(doc.name);
   const { text, media, video } = serializeSession(doc, { name, embedVideo: true });
   const files = [{ name, data: new TextEncoder().encode(text) }];
@@ -95,7 +95,7 @@ export function sessionZip(doc) {
     if (!m.channels?.length) continue;
     files.push({ name: m.file, data: wavBytes(doc.sampleRate, m.channels) });
   }
-  const v = videoZipEntry(video);
+  const v = videoZipEntry(video, videoBytes);
   if (v) files.push(v);
   return zipStore(files);
 }

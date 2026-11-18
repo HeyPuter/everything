@@ -1438,8 +1438,8 @@ export function installMultitrackCommands(app) {
         const doc = session(app);
         await stretchIdle(doc);
         await remixIdle(doc);
-        await prepareVideoBytes(doc);
-        downloadBlob(sessionZip(doc), `${sessionBaseName(doc.name)}.zip`);
+        const videoBytes = await prepareVideoBytes(doc, new WeakMap());
+        downloadBlob(sessionZip(doc, { videoBytes }), `${sessionBaseName(doc.name)}.zip`);
       },
     },
     'edit.cut': {

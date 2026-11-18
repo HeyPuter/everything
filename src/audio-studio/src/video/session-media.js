@@ -25,18 +25,19 @@ export async function saveSessionVideo(app, session, video, dir, { copy = false 
 
 const bytesCache = new WeakMap(); // Blob -> Uint8Array, read ahead for synchronous ZIP writing
 
-/** Reads the session's video into memory so sessionZip() can store it. */
-export async function prepareVideoBytes(session) {
+/** Reads the session's video ahead; concurrent ZIP jobs supply their own cache. */
+export async function prepareVideoBytes(session, bytes = bytesCache) {
   for (const src of videoPool(session).values()) {
-    if (src.blob && !bytesCache.has(src.blob) && session.state.video?.sourceId === src.id) bytesCache.set(src.blob, new Uint8Array(await src.blob.arrayBuffer()));
+    if (src.blob && !bytes.has(src.blob) && session.state.video?.sourceId === src.id) bytes.set(src.blob, new Uint8Array(await src.blob.arrayBuffer()));
   }
+  return bytes;
 }
 
 /** ZIP entry for the video returned by serializeSession({ embedVideo: true }), or null when not read ahead. */
-export function videoZipEntry(video) {
-  const data = video?.blob && bytesCache.get(video.blob);
+export function videoZipEntry(video, bytes = bytesCache) {
+  const data = video?.blob && bytes.get(video.blob);
   if (!data) return null;
-  bytesCache.delete(video.blob);
+  bytes.delete(video.blob);
   return { name: video.file, data };
 }
 
