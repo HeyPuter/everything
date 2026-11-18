@@ -47,7 +47,7 @@ import { normalizeRemoval } from './removal.js';
 import { normalizeRetouch, normalizeFaceShape, normalizeHairColor, normalizeBodyShape, normalizeMakeup } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
 import { normalizeProxyMode } from './proxy.js';
-import { isEase } from './keyframes.js';
+import { normalizeKeyCurve, isEase } from './keyframes.js';
 import { normalizeSmoothSlow } from './slow-motion.js';
 import { effectDefaults, normalizeEffectParams } from './effect-params.js';
 import { normalizeClipEffects, canHaveEffects } from './clip-effects.js';
@@ -323,7 +323,10 @@ function normKeyframes(k) {
     const keys = list
       .filter((x) => x && Number.isFinite(Number(x.t)) && x.v !== undefined)
       // ramp: added by a velocity ramp's accent (model/speed-ramps.js).
-      .map((x) => ({ t: Math.max(0, int(x.t)), v: num(x.v), ease: isEase(x.ease) ? x.ease : 'linear', ...(x.ramp === true ? { ramp: true } : {}) }))
+      .map((x) => {
+        const curve = normalizeKeyCurve(x.curve);
+        return { t: Math.max(0, int(x.t)), v: num(x.v), ease: isEase(x.ease) ? x.ease : 'linear', ...(x.ramp === true ? { ramp: true } : {}), ...(curve ? { curve } : {}) };
+      })
       .sort((a, b) => a.t - b.t);
     if (keys.length) out[prop] = keys;
   }

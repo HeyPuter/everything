@@ -1,7 +1,8 @@
 /**
  * Keyframes are stored per clip as { [prop]: [{ t, v, ease }] } where t is
  * clip-local time in microseconds (0 = clip start on the timeline) and ease
- * names how the value travels from this key to the next.
+ * names how the value travels from this key to the next. A trimmed segment
+ * may retain its original easing interval in curve, without adding visible keys.
  */
 
 export const KEYFRAME_PROPS = ['x', 'y', 'scale', 'rotation', 'opacity', 'volume'];
@@ -137,6 +138,28 @@ export function ease(name, p) {
   return q;
 }
 
+/** A retained interval of an easing curve after a trim or split. */
+export function normalizeKeyCurve(raw) {
+  if (!raw || !isEase(raw.ease)) return null;
+  const { from, to, start, end } = raw;
+  if (![from, to, start, end].every(Number.isFinite) || from < 0 || to > 1 || from >= to) return null;
+  return { ease: raw.ease, from, to, start, end };
+}
+
+function curveValue(curve, p) {
+  if (p <= 0) return curve.start;
+  if (p >= 1) return curve.end;
+  return curve.start + (curve.end - curve.start) * ease(curve.ease, p);
+}
+
+/** Edits to either endpoint or the easing replace the retained curve naturally. */
+function retainedCurve(a, b) {
+  const c = a.curve;
+  return c && c.ease === a.ease && a.v === curveValue(c, c.from) && b.v === curveValue(c, c.to) ? c : null;
+}
+
+const copyKey = k => ({ ...k, ...(k.curve ? { curve: { ...k.curve } } : {}) });
+
 /** Interpolated value of prop at local time t, or base when the prop has no keys. */
 export function valueAt(keyframes, prop, t, base) {
   const keys = keyframes?.[prop];
@@ -154,8 +177,11 @@ export function valueAt(keyframes, prop, t, base) {
   }
   const a = keys[lo];
   const b = keys[hi];
-  const p = ease(a.ease, (t - a.t) / (b.t - a.t));
-  return a.v + (b.v - a.v) * p;
+  if (t === a.t) return a.v;
+  const p = (t - a.t) / (b.t - a.t);
+  const curve = retainedCurve(a, b);
+  if (curve) return curveValue(curve, curve.from + (curve.to - curve.from) * p);
+  return a.v + (b.v - a.v) * ease(a.ease, p);
 }
 
 /** Index of a key within tolerance of t, or -1. */
@@ -213,38 +239,54 @@ export function splitKeyframes(keyframes, t) {
   const right = {};
   for (const [prop, keys] of Object.entries(keyframes || {})) {
     if (!keys.length) continue;
-    const v = valueAt(keyframes, prop, t, keys[0].v);
-    const l = keys.filter((k) => k.t < t).map((k) => ({ ...k }));
-    const r = keys.filter((k) => k.t > t).map((k) => ({ ...k, t: k.t - t }));
-    const atCut = keys.find((k) => k.t === t);
-    l.push({ t, v, ease: atCut?.ease || 'linear' });
-    r.unshift({ t: 0, v, ease: atCut?.ease || l[l.length - 2]?.ease || 'linear' });
-    left[prop] = l;
-    right[prop] = r;
+    left[prop] = windowKeys(keys, -Infinity, t, 0, false, true);
+    right[prop] = windowKeys(keys, t, Infinity, -t, true, false);
   }
   return [left, right];
 }
 
-/**
- * Shift all keys by dt and drop the ones outside [0, duration]. Used when
- * trimming. Keys cut off by the trim leave an interpolated key at the new
- * edge so the part of the motion that stays visible does not change.
- */
+/** Copy a key window, retaining the original curve on any shortened segments. */
+function windowKeys(keys, lo, hi, dt, startEdge, endEdge) {
+  const out = keys.filter(k => k.t >= lo && k.t <= hi).map(copyKey);
+  const value = t => valueAt({ v: keys }, 'v', t, keys[0].v);
+  if (startEdge && out[0]?.t !== lo) out.unshift({ t: lo, v: value(lo), ease: 'linear' });
+  if (endEdge && out.at(-1)?.t !== hi) out.push({ t: hi, v: value(hi), ease: 'linear' });
+  let index = 0;
+  for (let i = 0; i + 1 < out.length; i++) {
+    const a = out[i];
+    const b = out[i + 1];
+    while (index + 1 < keys.length && keys[index + 1].t <= a.t) index++;
+    const from = keys[index];
+    const to = keys[index + 1];
+    if (!to || a.t < from.t) continue;
+    if (a.t === from.t && b.t === to.t) continue;
+    a.ease = from.ease;
+    delete a.curve;
+    if (a.ease === 'linear' || a.ease === 'hold' || !isEase(a.ease)) continue;
+    const source = retainedCurve(from, to) || { ease: from.ease, from: 0, to: 1, start: from.v, end: to.v };
+    const span = source.to - source.from;
+    a.curve = {
+      ...source,
+      from: source.from + span * ((a.t - from.t) / (to.t - from.t)),
+      to: source.from + span * ((b.t - from.t) / (to.t - from.t)),
+    };
+    // Calculate edges from the retained interval too, avoiding accumulated rounding
+    // differences after repeated cuts. Equal values can still enclose a bounce.
+    a.v = curveValue(a.curve, a.curve.from);
+    b.v = curveValue(a.curve, a.curve.to);
+  }
+  for (const k of out) k.t += dt;
+  return out;
+}
+
+/** Shift and trim keys without restarting their easing at either new edge. */
 export function shiftKeyframes(keyframes, dt, duration) {
   const out = {};
   for (const [prop, keys] of Object.entries(keyframes || {})) {
     if (!keys.length) continue;
-    const all = keys.map((k) => ({ ...k, t: k.t + dt }));
-    const inside = all.filter((k) => k.t >= 0 && k.t <= duration);
-    const src = { [prop]: all };
-    if (all[0].t < 0 && inside[0]?.t !== 0) {
-      const before = all.filter((k) => k.t < 0).at(-1);
-      inside.unshift({ t: 0, v: valueAt(src, prop, 0, before.v), ease: before.ease });
-    }
-    if (all.at(-1).t > duration && inside.at(-1)?.t !== duration) {
-      inside.push({ t: duration, v: valueAt(src, prop, duration, all.at(-1).v), ease: 'linear' });
-    }
-    out[prop] = inside;
+    const lo = -dt;
+    const hi = duration - dt;
+    out[prop] = windowKeys(keys, lo, hi, dt, keys[0].t < lo, keys.at(-1).t > hi);
   }
   return out;
 }
@@ -252,6 +294,10 @@ export function shiftKeyframes(keyframes, dt, duration) {
 /** Scale key times by factor (used when speed changes). */
 export function scaleKeyframes(keyframes, factor) {
   const out = {};
-  for (const [prop, keys] of Object.entries(keyframes || {})) out[prop] = keys.map((k) => ({ ...k, t: Math.round(k.t * factor) }));
+  for (const [prop, keys] of Object.entries(keyframes || {})) out[prop] = keys.map((k) => {
+    const copy = copyKey(k);
+    copy.t = Math.round(k.t * factor);
+    return copy;
+  });
   return out;
 }

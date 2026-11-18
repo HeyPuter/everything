@@ -1270,6 +1270,7 @@ export function setKeyEaseAt(clip, t, easeName, tol = 0) {
     for (const k of keys) {
       if (Math.abs(k.t - t) <= tol) {
         k.ease = easeName;
+        delete k.curve;
         n++;
       }
     }
