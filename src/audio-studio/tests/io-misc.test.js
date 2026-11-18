@@ -229,7 +229,7 @@ describe('file probing and decoding', () => {
     const bad = good.slice();
     new DataView(bad.buffer).setUint16(22, 0, true); // zero channels: a damaged header
     const added = [];
-    const app = { setStatus: () => {}, notify: vi.fn(), addDocument: (d) => added.push(d), activate: vi.fn(), prefs: { get: () => [], set: () => {} } };
+    const app = { documents: added, setStatus: () => {}, notify: vi.fn(), addDocument: (d) => added.push(d), activate: vi.fn(), prefs: { get: () => [], set: () => {} } };
     const docs = await openFiles(app, [new File([bad], 'Broken.wav'), new File([good], 'Fine.wav')]);
     expect(docs.map((d) => d.name)).toEqual(['Fine.wav']);
     expect(app.activate).toHaveBeenCalledWith(docs[0]);
@@ -242,7 +242,7 @@ describe('file probing and decoding', () => {
     const read = vi.fn(async () => new Blob([good]));
     const prefs = { get: () => [], set: () => {} };
     const app = { documents: [open], setStatus: () => {}, notify: vi.fn(), prefs };
-    Object.assign(app, { addDocument: vi.fn(), activate: vi.fn() });
+    Object.assign(app, { addDocument: vi.fn((doc) => app.documents.push(doc)), activate: vi.fn() });
     const docs = await openFiles(app, [{ name: 'Song.wav', path: '/u/Song.wav', read }]);
     expect(docs).toEqual([open]);
     expect(read).not.toHaveBeenCalled();

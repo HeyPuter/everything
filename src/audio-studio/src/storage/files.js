@@ -168,7 +168,12 @@ export async function openFiles(app, items, { activate = true } = {}) {
       app.setStatus(`Could not open ${name}`);
     }
   }
-  if (docs.length && activate) app.activate(docs[0]);
+  // Earlier files can be closed while later ones are still reading/decoding.
+  // Keep the returned batch intact for callers, but never focus a removed file.
+  if (activate) {
+    const firstOpen = docs.find((doc) => app.documents.includes(doc));
+    if (firstOpen) app.activate(firstOpen);
+  }
   return docs;
 }
 
