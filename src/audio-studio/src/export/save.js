@@ -11,6 +11,7 @@ import {
   defaultOptions,
   docBitDepth,
   emptyExportError,
+  exportMarkers,
   formatForName,
   getFormat,
   outputFrames,
@@ -196,14 +197,26 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
       } else downloadBlob(blob, r.fileName);
       // Independent destinations can finish out of order. Keep the newest
       // successful Save As association; failed/cancelled attempts don't win.
-      if (mode === 'saveAs' && saveAsId > (appliedSaveAs.get(doc) || 0)) {
+      const associate = mode === 'saveAs' && saveAsId > (appliedSaveAs.get(doc) || 0);
+      if (associate) {
         appliedSaveAs.set(doc, saveAsId);
         doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
+        if (doc.name !== r.fileName) doc.rename(r.fileName);
+      }
+      if (associate || (path && doc.source?.type === 'puter' && doc.source.path === path)) {
         const from = { sampleRate: state.sampleRate, channels: state.channels.length };
         const exportOptions = { ...r.options, from };
         doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
-        if (doc.name !== r.fileName) doc.rename(r.fileName);
-        doc.markSaved(state);
+        // Copy/Export can replace the associated file too. A partial export
+        // needs its own snapshot so Undo stays dirty and Revert restores the
+        // written selection, without changing the current editable audio.
+        const partial = range && (bounds.start !== 0 || bounds.end !== (state.channels[0]?.length || 0));
+        const saved = partial ? {
+          ...state,
+          channels: state.channels.map((channel) => channel.slice(bounds.start, bounds.end)),
+          markers: exportMarkers(state.markers || [], bounds.start, bounds.end, state.sampleRate, state.sampleRate),
+        } : state;
+        doc.markSaved(saved);
       }
       app.setStatus(path ? `Saved ${r.fileName} to ${dir}` : `Downloaded ${r.fileName}`);
       app.emit('exported', { doc, path, fileName: r.fileName, options: r.options, mode });
