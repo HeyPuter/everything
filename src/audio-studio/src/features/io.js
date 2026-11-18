@@ -66,7 +66,7 @@ export function installIo(app) {
     },
     {
       id: 'transport.record',
-      label: (a) => (a.recording || a.recorder?.active ? 'Stop Recording' : 'Record'),
+      label: (a) => (a.recording || a.recorder?.active || a.multitrack?.recorder?.active ? 'Stop Recording' : 'Record'),
       shortcut: 'Shift+Space',
       // Base command for every kind: the multitrack session overrides run()
       // through its document kind to record into armed tracks.

@@ -36,6 +36,7 @@ export class SessionRecorder {
   constructor(app) {
     this.app = app;
     this.take = null;
+    this.starting = null;
     this.stopping = null;
     // Stopping the transport any other way (Space, switching documents)
     // ends the take instead of leaving the input capturing.
@@ -45,7 +46,7 @@ export class SessionRecorder {
   }
 
   get active() {
-    return Boolean(this.take || this.stopping);
+    return Boolean(this.starting || this.take || this.stopping);
   }
 
   async toggle(doc) {
@@ -62,12 +63,26 @@ export class SessionRecorder {
       return;
     }
     const engine = app.engine;
+    const pending = this.starting = {};
+    const offClose = doc.on('close', () => this.stop());
+    const offActive = app.on('active', (active) => { if (active !== doc) this.stop(); });
+    pending.off = () => { offClose(); offActive(); };
+    app.setStatus?.('Opening audio input...');
+    app.emit('transport', 'recording-pending');
     try {
       await engine.openInput();
     } catch (err) {
+      if (this.starting !== pending) return;
+      this.starting = null;
+      pending.off();
+      app.setStatus?.('');
+      app.emit('transport', engine.state || 'stopped');
       if (err.name !== 'AbortError') app.notify('The microphone could not be opened. Check the browser permission.', { error: true });
       return;
     }
+    if (this.starting !== pending) return;
+    this.starting = null;
+    pending.off();
     const chunks = [];
     const off = engine.on('record-data', (channels) => chunks.push(channels));
     let monitoring = false;
@@ -84,20 +99,23 @@ export class SessionRecorder {
     const preroll = punch ? Math.round((Number(app.prefs?.get('prerollSeconds')) || 0) * doc.sampleRate) : 0;
     const loop = Boolean(punch && app.loop);
     const from = punch ? Math.max(0, punch.start - preroll) : doc.cursor;
-    const take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id), closed: false };
+    const take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id), closed: false, controller: new AbortController() };
     // Closing the session stops the transport; the take must not reopen it.
-    take.offClose = doc.on('close', () => (take.closed = true));
+    take.offClose = doc.on('close', () => { take.closed = true; this.stop(); });
+    take.offActive = app.on('active', (active) => { if (active !== doc) this.stop(); });
     this.take = take;
     engine.setRecording(true);
     app.playStart = from;
     try {
-      await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null });
+      await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null, signal: take.controller.signal });
     } catch (err) {
+      if (this.take !== take) return; // Stop already owns this take's cleanup.
       // Playback refused (e.g. a rate this browser cannot play) or failed:
       // undo the start so the input is not left capturing, then report it.
       engine.setRecording(false);
       off();
       take.offClose();
+      take.offActive();
       if (this.take?.chunks === chunks) this.take = null;
       app.playStart = null;
       if (monitoring) {
@@ -109,14 +127,27 @@ export class SessionRecorder {
       }
       // The input stays open only for Meter Input Signal, which opened it for itself.
       if (!app.inputMetering) engine.closeInput();
+      app.setStatus?.('');
+      app.emit('transport', engine.state || 'stopped');
       throw err;
     }
+    if (this.take !== take) return;
+    app.setStatus?.('Recording...');
     app.recording = true;
     app.emit('transport', 'recording');
     announce('Recording');
   }
 
   async stop() {
+    if (this.starting) {
+      const pending = this.starting;
+      this.starting = null;
+      pending.off();
+      if (!this.app.inputMetering) this.app.engine.closeInput();
+      this.app.setStatus?.('Recording cancelled');
+      this.app.emit('transport', this.app.engine.state || 'stopped');
+      return;
+    }
     if (this.stopping) return this.stopping;
     const take = this.take;
     if (!take) return;
@@ -134,11 +165,13 @@ export class SessionRecorder {
   async #finish(take) {
     const app = this.app;
     const engine = app.engine;
+    take.controller.abort();
     engine.setRecording(false);
     // Let the capture worklet flush its last block.
     await new Promise((r) => setTimeout(r, 150));
     take.off();
     take.offClose();
+    take.offActive();
     engine.stop();
     const rate = engine.rate;
     // What the player heard left the speakers output latency late, and their
@@ -147,6 +180,7 @@ export class SessionRecorder {
     engine.closeInput();
     app.recording = false;
     app.playStart = null;
+    app.setStatus?.('Recording stopped');
     app.emit('transport', 'stopped');
     const doc = take.doc;
     const n = take.chunks.reduce((s, c) => s + c[0].length, 0);

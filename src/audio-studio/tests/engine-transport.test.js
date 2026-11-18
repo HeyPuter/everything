@@ -13,6 +13,21 @@ function fakeEngine() {
 }
 
 describe('engine transport', () => {
+  it('does not start cancelled playback after the audio context finishes resuming', async () => {
+    const { e, sent } = fakeEngine();
+    let resume;
+    e.ctx.state = 'suspended';
+    e.ctx.resume = () => new Promise((resolve) => { resume = resolve; });
+    const controller = new AbortController();
+    const playing = e.play({ signal: controller.signal });
+    controller.abort();
+    resume();
+    await playing;
+    const started = sent.some((m) => m.type === 'play');
+    e.stop();
+    expect(started).toBe(false);
+  });
+
   it('seeks and plays on whole frames, so the mixer never reads NaN samples', async () => {
     const { e, sent } = fakeEngine();
     e.state = 'playing';

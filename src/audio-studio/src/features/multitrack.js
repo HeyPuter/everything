@@ -30,6 +30,7 @@ export function installMultitrack(app) {
   installSessionStorage();
   const recorder = new SessionRecorder(app);
   app.multitrack = {
+    recorder,
     insertDocs: (session, docs, o) => insertDocs(app, session, docs, o),
     insertFiles: (session, files, o) => insertFiles(app, session, files, o),
     toggleRecording: (session) => recorder.toggle(session),

@@ -28,6 +28,71 @@ function setup() {
 afterEach(() => vi.useRealTimers());
 
 describe('session recording lifecycle', () => {
+  it('routes the Stop command to a session still waiting for input permission', async () => {
+    const { CommandRegistry } = await import('../src/commands/registry.js');
+    const { installCoreCommands } = await import('../src/commands/core.js');
+    const { app, doc, engine, recorder } = setup();
+    app.multitrack = { recorder };
+    app.commands = new CommandRegistry(app);
+    installCoreCommands(app);
+    let ready;
+    engine.openInput.mockImplementation(() => new Promise((resolve) => { ready = resolve; }));
+    const starting = recorder.start(doc);
+    expect(app.commands.isEnabled('transport.stop')).toBe(true);
+    await app.commands.run('transport.stop');
+    ready();
+    await starting;
+    expect(engine.play).not.toHaveBeenCalled();
+    expect(recorder.active).toBe(false);
+  });
+
+  it('cancels a pending microphone request when Record is pressed again', async () => {
+    const { app, doc, engine, recorder } = setup();
+    const ready = [];
+    engine.openInput.mockImplementation(() => new Promise((resolve) => ready.push(resolve)));
+    const starting = recorder.toggle(doc);
+    const cancelling = recorder.toggle(doc);
+    for (const resolve of ready) resolve();
+    await Promise.all([starting, cancelling]);
+    expect(engine.openInput).toHaveBeenCalledOnce();
+    expect(engine.play).not.toHaveBeenCalled();
+    expect(engine.setRecording).not.toHaveBeenCalledWith(true);
+    expect(recorder.active).toBe(false);
+    expect(app.recording).toBeFalsy();
+  });
+
+  it('does not start a take for a session closed while permission is pending', async () => {
+    const { doc, engine, recorder } = setup();
+    let ready;
+    engine.openInput.mockImplementation(() => new Promise((resolve) => { ready = resolve; }));
+    const starting = recorder.start(doc);
+    doc.emit('close');
+    ready();
+    await starting;
+    expect(engine.play).not.toHaveBeenCalled();
+    expect(recorder.active).toBe(false);
+  });
+
+  it('does not announce recording after a stopped take finishes initializing playback', async () => {
+    vi.useFakeTimers();
+    const { app, doc, engine, recorder } = setup();
+    const states = [];
+    app.on('transport', (state) => states.push(state));
+    let ready;
+    engine.play.mockImplementation(() => new Promise((resolve) => { ready = resolve; }));
+    const starting = recorder.start(doc);
+    await Promise.resolve();
+    const stopping = recorder.stop();
+    expect(engine.play.mock.calls[0][0].signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(150);
+    await stopping;
+    ready();
+    await starting;
+    expect(app.recording).toBe(false);
+    expect(recorder.active).toBe(false);
+    expect(states).not.toContain('recording');
+  });
+
   it('keeps rapid Record clicks from reopening capture while the previous take flushes', async () => {
     vi.useFakeTimers();
     const { app, doc, engine, recorder } = setup();

@@ -352,14 +352,17 @@ export class Engine extends Emitter {
 
   /**
    * Starts playback at `from`. `to` stops there (null plays to the end of the
-   * graph); `loop` = { start, end } repeats that range.
+   * graph); `loop` = { start, end } repeats that range. An optional signal
+   * cancels startup while the audio context is being initialized or resumed.
    */
-  async play({ from = 0, to = null, loop = null } = {}) {
+  async play({ from = 0, to = null, loop = null, signal } = {}) {
+    if (signal?.aborted) return;
     from = wholeFrame(from);
     if (to != null) to = wholeFrame(to);
     loop = wholeLoop(loop);
     const rate = this.graph.rate || this.rate;
     await this.ensure(rate);
+    if (signal?.aborted) return;
     if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
     this.range = { from, to, loop };
     this.toEnd = to != null && to === graphLength(this.graph);
