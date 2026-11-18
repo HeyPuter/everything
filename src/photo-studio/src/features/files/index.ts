@@ -40,8 +40,8 @@ export function installFiles(e: Editor) {
   lcmd('file.new', 'New…', newDocument, (m) => void m.newDocumentWindow(e), { shortcut: 'Mod+N', description: 'Create a document from a preset or custom settings' });
   // These replace the basic versions registered by core.
   lcmd('file.open-cloud', 'Open from Puter…', saving, (m) => m.openFromCloud(e), { description: 'Open one or more files from Puter' });
-  lcmd('file.save', 'Save', saving, (m) => m.save(e), { shortcut: 'Mod+S', enabled: hasDoc, description: 'Save to Puter: a document opened from a PSD saves as a PSD, others as a .photo project' });
-  lcmd('file.save-as', 'Save As…', saving, (m, _e, format) => m.saveAs(e, false, format), { shortcut: 'Mod+Shift+S', enabled: hasDoc, description: 'Save to a new Puter location as a PSD or a .photo project' });
+  lcmd('file.save', 'Save', saving, (m) => m.save(e), { shortcut: 'Mod+S', enabled: hasDoc, description: 'Save to Puter: a document opened from a PSD or an image file (PNG, JPEG, WebP, ...) saves back in that format, others as a .photo project' });
+  lcmd('file.save-as', 'Save As…', saving, (m, _e, format) => m.saveAs(e, false, format), { shortcut: 'Mod+Shift+S', enabled: hasDoc, description: 'Save to a new Puter location as a .photo project, a PSD or the image format the document came from' });
   lcmd('file.save-copy', 'Save a Copy…', saving, (m, _e, format) => m.saveAs(e, true, format), { shortcut: 'Mod+Alt+S', enabled: hasDoc, description: 'Save a copy to Puter without changing where this document saves' });
   lcmd('file.download-project', 'Download Project (.photo)', saving, (m) => m.downloadProject(e), { enabled: hasDoc });
   lcmd('file.export-as', 'Export As…', exportDialog, (m) => m.exportAsDialog(e), { shortcut: 'Mod+Alt+Shift+W', enabled: hasDoc, description: 'Export with format, size, metadata and color options' });

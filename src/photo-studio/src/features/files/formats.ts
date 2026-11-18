@@ -12,3 +12,10 @@ export const formatInfo: Record<ExportFormat, { label: string; ext: string; mime
   ico: { label: 'ICO', ext: 'ico', mime: 'image/vnd.microsoft.icon', alpha: true, lossy: false, deep: false, icc: false, text: false },
   svg: { label: 'SVG', ext: 'svg', mime: 'image/svg+xml', alpha: true, lossy: false, deep: false, icc: false, text: false },
 };
+
+/** Single-image formats File → Save writes back to: a document opened from
+ * one of these saves to the same file in the same format. */
+export type FlatSaveFormat = 'png' | 'jpeg' | 'webp' | 'avif' | 'gif' | 'tiff' | 'bmp' | 'tga';
+const flatExtensions: Record<string, FlatSaveFormat> = { png: 'png', apng: 'png', jpg: 'jpeg', jpeg: 'jpeg', jpe: 'jpeg', jfif: 'jpeg', webp: 'webp', avif: 'avif', gif: 'gif', tif: 'tiff', tiff: 'tiff', bmp: 'bmp', tga: 'tga' };
+/** The single-image format a file name saves back as, if any. */
+export const flatSaveFormat = (name?: string): FlatSaveFormat | undefined => flatExtensions[/\.([^./]+)$/.exec(name ?? '')?.[1].toLowerCase() ?? ''];

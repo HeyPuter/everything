@@ -433,9 +433,12 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   with the project blob when the file written was a native project.
 - File → Save (`features/files/save.ts`) follows the session's file name: a
   `.psd`/`.psb` name saves a PSD built by `buildPsd` (`features/files/psd-export.ts`),
-  anything else a `.photo` project. `model/psd-losses.ts` lists what the PSD
-  writer flattens or leaves out; keep it in step with `savePsd` so Save can ask
-  before writing a PSD that loses something.
+  a name `flatSaveFormat` (`features/files/formats.ts`) knows (PNG, JPEG, WebP,
+  ...) saves that image through the export pipeline, anything else a `.photo`
+  project. A file is only overwritten in its own format. `model/psd-losses.ts`
+  lists what the PSD writer (`psdLosses`) and a single image (`flatLosses`)
+  flatten or leave out; keep it in step with `savePsd` so Save can ask before
+  writing a file that loses something.
 - Warnings that can be turned off use `warnOnce` (`features/preferences/warnings.ts`).
 
 ## Canvas edits and document-wide state

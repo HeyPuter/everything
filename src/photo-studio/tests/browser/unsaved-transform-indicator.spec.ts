@@ -5,6 +5,8 @@ import type { Quad } from '../../src/features/transform/math';
 async function prepare(page: Page, embedded = false) {
   await boot(page, 'default', `window.puter={env:'app',fs:{write:async(path)=>({path,name:'saved.photo'})},ui:{showSaveFilePicker:async()=>({path:'/saved.photo',name:'saved.photo'})}};`);
   await openImage(page, 32, 24, '#ff0000', 'original.png');
+  // The layered document saves as a project (an opened PNG would save back as a flattened PNG).
+  await page.evaluate(() => (window.photoStudio.session.fileName = 'original.photo'));
   if (embedded) await page.evaluate(async () => {
     const { openFile } = await import('/src/features/files/open.ts');
     const canvas = new OffscreenCanvas(16, 12), g = canvas.getContext('2d')!;

@@ -10,6 +10,8 @@ for (const command of ['file.save', 'file.save-as', 'image.duplicate', 'close-sa
     window.failureSavedBlob=blob;return {path:'/failure.photo',name:'failure.photo'};
   }}};`);
   await openImage(page, 32, 24, '#ffffff', 'original.png');
+  // The layered document saves as a project (an opened PNG would save back as a flattened PNG).
+  await page.evaluate(() => (window.photoStudio.session.fileName = 'original.photo'));
   const original = await page.evaluate(async (command) => {
     const e = window.photoStudio;
     const { openFile } = await import('/src/features/files/open.ts');

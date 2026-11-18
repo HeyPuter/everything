@@ -20,6 +20,7 @@ import { decodePng16, rgba16To8 } from './png';
 import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers, maxFrames } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
+import { flatSaveFormat } from './formats';
 import { emitAppEvent, openedFiles } from '../../app/app-events';
 
 const browserTypes: Record<string, string> = {
@@ -386,6 +387,17 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     void emitAppEvent('open-document', s);
     return true;
   }
+  // An image file on Puter that Save writes back to (PNG, JPEG, ...): like a
+  // project, a second tab of it would overwrite one tab's work with the other's.
+  const savesBack = source.kind === 'puter' && !!flatSaveFormat(lower);
+  if (savesBack && source.kind === 'puter') {
+    const open = e.sessions.find((x) => x.hasDocument && x.storage.path === source.path);
+    if (open) {
+      await e.switchSession(open);
+      e.message(`${name} is already open.`);
+      return true;
+    }
+  }
   let decoded: DecodedFile;
   try {
     decoded = await decodeFile(blob, name, opts);
@@ -420,6 +432,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   s.history.reset(doc);
   s.hasDocument = true;
   s.storage.reset();
+  if (savesBack && source.kind === 'puter') s.storage.path = source.path;
   s.saved = s.doc;
   s.fileName = name;
   e.selected = doc.layers.at(decoded.animation ? 0 : -1)!.id;

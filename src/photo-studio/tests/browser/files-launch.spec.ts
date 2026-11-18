@@ -33,8 +33,8 @@ test('a .photo project handed over by the desktop saves back to its own file', a
   await boot(page, 'default', sdk(['/me/Desktop/card.png']));
   await expect.poll(() => page.evaluate(() => window.photoStudio.hasDocument)).toBe(true);
   await idle(page);
-  // An image has no project path of its own.
-  expect(await page.evaluate(() => window.photoStudio.session.storage.path)).toBeUndefined();
+  // A PNG Save can write saves back to its own file too.
+  expect(await page.evaluate(() => window.photoStudio.session.storage.path)).toBe('/me/Desktop/card.png');
   await page.evaluate(async () => {
     const w = window as unknown as { __drive: Record<string, () => Promise<Blob>>; __item: (path: string) => object };
     const { serialize } = await import('/src/model/serialization.ts');

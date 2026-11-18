@@ -8,6 +8,8 @@ for (const saveAs of [false, true]) test(`${saveAs ? 'Save As' : 'Save'} waits f
     window.frameSavedBlob=blob;return {path:'/frame.photo',name:'frame.photo'};
   }}};`);
   await openImage(page, 32, 24, '#ffffff');
+  // The layered document saves as a project (an opened PNG would save back as a flattened PNG).
+  await page.evaluate(() => (window.photoStudio.session.fileName = 'original.photo'));
   await page.evaluate(async (saveAs) => {
     const e = window.photoStudio;
     const { openFile } = await import('/src/features/files/open.ts');

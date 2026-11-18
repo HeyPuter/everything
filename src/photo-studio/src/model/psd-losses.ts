@@ -1,6 +1,7 @@
-// What a PSD written by savePsd (model/psd.ts) cannot hold, so that saving a
-// document as a PSD can say what it would lose first. Keep in step with the
-// writer: a feature listed here is either baked into pixels or not written.
+// What a PSD written by savePsd (model/psd.ts), or a single-image file such as
+// a PNG, cannot hold, so that saving a document in that format can say what
+// it would lose first. Keep in step with the writers: a feature listed here is
+// either baked into pixels or not written.
 import { allLayers, type Layer, type PhotoDocument } from './document';
 import { activeLayerStyle } from './layer-style';
 import { hasMask } from './masks';
@@ -65,12 +66,57 @@ export function psdLosses(doc: PhotoDocument, extras: { comments?: boolean } = {
   return out;
 }
 
-/** One sentence naming the losses, or '' when there are none. */
-export function describePsdLosses(losses: PsdLoss[]): string {
+/** One sentence naming the losses, or '' when there are none. `format`
+ * names the file type ("PSD", "PNG", ...). */
+export function describePsdLosses(losses: PsdLoss[], format = 'PSD'): string {
   const of = (kind: PsdLoss['kind']) => list(losses.filter((l) => l.kind === kind).map((l) => l.label));
   const flat = of('flattened'),
     gone = of('omitted');
-  if (flat && gone) return `A PSD flattens ${flat} into pixels and leaves out ${gone}.`;
-  if (flat) return `A PSD flattens ${flat} into pixels.`;
-  return gone ? `A PSD leaves out ${gone}.` : '';
+  const a = `${/^[AEIOU]/.test(format) ? 'An' : 'A'} ${format}`;
+  if (flat && gone) return `${a} flattens ${flat} into pixels and leaves out ${gone}.`;
+  if (flat) return `${a} flattens ${flat} into pixels.`;
+  return gone ? `${a} leaves out ${gone}.` : '';
+}
+
+// Document data a single-image file has no place for (a subset of what a PSD leaves out).
+const DOCUMENT_DATA = new Set(['animation', 'timeline', 'layer-comps', 'slices', 'variables', 'annotations', 'paths', 'info', 'patterns', 'text-styles', 'perspective', 'mode', 'image-assets', 'comments']);
+
+/** True for one layer a single-image file stores as it is: plain visible
+ * pixels at full opacity with nothing editable on top. */
+function plainLayer(l: Layer) {
+  const pixels = l.kind === 'pixel' || (l.kind === 'image' && !!l.asset && !l.embed && !resampled(l));
+  return (
+    pixels &&
+    l.visible &&
+    l.opacity === 1 &&
+    l.blend === 'normal' &&
+    !l.clipped &&
+    (l.fillOpacity ?? 1) === 1 &&
+    !hasMask(l) &&
+    !l.vectorMask &&
+    !activeLayerStyle(l) &&
+    !filtered(l) &&
+    !l.liveFilters?.length &&
+    !l.pinWarp &&
+    !l.frame &&
+    !l.artboard &&
+    !l.video &&
+    !l.strokes?.length
+  );
+}
+
+/** Everything a single-image file (PNG, JPEG, WebP, ...) would not keep.
+ * `text`: the format stores File Info; `deep`: it stores 16 bits per channel. */
+export function flatLosses(doc: PhotoDocument, opts: { comments?: boolean; text?: boolean; deep?: boolean } = {}): PsdLoss[] {
+  const out: PsdLoss[] = [];
+  const layers = allLayers(doc.layers);
+  if (layers.length > 1) out.push({ id: 'layers', label: 'the layers', kind: 'flattened' });
+  else if (layers.length === 1 && !plainLayer(layers[0])) out.push({ id: 'layer-settings', label: 'the layer’s visibility, opacity, mask, style or other settings', kind: 'flattened' });
+  const bits = doc.bitsPerChannel ?? 8;
+  if (bits > 8 && !opts.deep) out.push({ id: 'depth', label: `${bits}-bit color (written as 8-bit)`, kind: 'omitted' });
+  else if (bits === 32) out.push({ id: 'depth', label: '32-bit color (written as 16-bit)', kind: 'omitted' });
+  for (const l of psdLosses(doc, { comments: opts.comments })) if (DOCUMENT_DATA.has(l.id) && !(l.id === 'info' && opts.text)) out.push(l);
+  if (doc.guides?.length || layers.some((l) => l.artboard?.guides?.length)) out.push({ id: 'guides', label: 'guides', kind: 'omitted' });
+  if (doc.channels?.length) out.push({ id: 'channels', label: 'alpha channels', kind: 'omitted' });
+  return out;
 }

@@ -1,5 +1,6 @@
-// Save follows the format a document came from: a PSD saves back as a PSD
-// (asking first when it would lose something), and Save As offers both.
+// Save follows the format a document came from: a PSD saves back as a PSD,
+// a PNG or JPEG back to its image file (asking first when it would lose
+// something), and Save As offers a project, a PSD and the source format.
 import { test, expect, type Page } from '@playwright/test';
 import { boot, idle, openImage, run, start } from './helpers';
 
@@ -121,6 +122,8 @@ test('saving a PSD that would lose something asks once per kind of loss', async 
 test('a new document saves as a project; Save As offers a PSD, which later saves keep', async ({ page }) => {
   await boot(page, 'default', sdk);
   await openImage(page, 32, 24, '#00ff00', 'card.png');
+  // A new document has no file of its own (an opened PNG would save back as one).
+  await page.evaluate(() => (window.photoStudio.session.fileName = undefined));
   await run(page, 'file.save');
   await expect.poll(async () => (await stub(page)).picked).toEqual(['card.photo']);
   await idle(page);
@@ -224,4 +227,125 @@ test('opening a PSD from Puter that is already open shows its tab instead of a s
   expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
   // The edit made in that tab is still there.
   expect(await page.evaluate(() => window.photoStudio.doc.layers[0].opacity)).toBe(0.5);
+});
+
+/** Put an image file on the drive and open it from there. */
+async function openImageFromDrive(page: Page, path: string, type = 'image/png') {
+  await page.evaluate(
+    async ({ path, type }) => {
+      const w = window as unknown as Stub;
+      const c = new OffscreenCanvas(32, 24);
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#ff0000';
+      g.fillRect(0, 0, 32, 24);
+      w.__drive[path] = await c.convertToBlob({ type });
+      window.dispatchEvent(new CustomEvent('drop', { detail: { items: [w.__item(path)] } }));
+    },
+    { path, type },
+  );
+  await expect.poll(() => page.evaluate(() => window.photoStudio.hasDocument)).toBe(true);
+  await idle(page);
+}
+/** The red channel of the top-left pixel of an image file on the drive. */
+const firstRed = (page: Page, path: string) =>
+  page.evaluate(async (path) => {
+    const bitmap = await createImageBitmap((window as unknown as Stub).__drive[path]);
+    const c = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const g = c.getContext('2d')!;
+    g.drawImage(bitmap, 0, 0);
+    return g.getImageData(0, 0, 1, 1).data[0];
+  }, path);
+/** Paint the whole image blue: on its one layer, or on a new layer above. */
+async function paintBlue(page: Page, newLayer: boolean) {
+  await page.evaluate(async (newLayer) => {
+    const e = window.photoStudio;
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const data = new Uint8ClampedArray(32 * 24 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([0, 0, 255, 255], i);
+    const grid = gridFromImage(e.assets.tiles, new ImageData(data, 32, 24));
+    e.command('Blue', (d) => {
+      if (newLayer) d.layers.push(newPixelLayer('Blue', d, grid));
+      else d.layers[0] = { ...d.layers[0], pixels: grid };
+    });
+  }, newLayer);
+  await idle(page);
+}
+
+test('a PNG opened from Puter saves back to its own file as a PNG without asking', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openImageFromDrive(page, '/me/card.png');
+  expect(await session(page)).toEqual({ file: 'card.png', path: '/me/card.png', dirty: false });
+  // An edit a PNG holds as it is: new pixels on the one layer.
+  await paintBlue(page, false);
+  await run(page, 'file.save');
+  await expect(page.locator('#dialog[open]')).toHaveCount(0);
+  expect(await stub(page)).toEqual({ written: ['/me/card.png'], picked: [] });
+  expect(await magic(page, '/me/card.png')).toMatch(/^.PNG\r\n/);
+  expect(await firstRed(page, '/me/card.png')).toBe(0);
+  expect(await session(page)).toEqual({ file: 'card.png', path: '/me/card.png', dirty: false });
+  // Opening the same file again shows its tab.
+  const tabs = await page.evaluate(() => window.photoStudio.sessions.length);
+  await page.evaluate(() => {
+    const w = window as unknown as Stub;
+    window.dispatchEvent(new CustomEvent('drop', { detail: { items: [w.__item('/me/card.png')] } }));
+  });
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(tabs);
+});
+
+test('saving a PNG with layers asks once, flattens them into the file, or saves a project', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openImageFromDrive(page, '/me/card.png');
+  await paintBlue(page, true);
+  await start(page, 'file.save');
+  const dialog = page.locator('#dialog[open]');
+  await expect(dialog).toContainText('A PNG flattens the layers into pixels. A .photo project keeps everything.');
+  await dialog.getByRole('button', { name: 'Save as PNG', exact: true }).click();
+  await idle(page);
+  expect(await stub(page)).toEqual({ written: ['/me/card.png'], picked: [] });
+  // The file holds the composite: the blue layer on top.
+  expect(await firstRed(page, '/me/card.png')).toBe(0);
+  expect(await session(page)).toEqual({ file: 'card.png', path: '/me/card.png', dirty: false });
+
+  // The same loss is not asked about again.
+  await page.evaluate(() => window.photoStudio.command('Fade', (d) => (d.layers[1].opacity = 0.5)));
+  await run(page, 'file.save');
+  await expect(dialog).toHaveCount(0);
+  expect((await stub(page)).written).toEqual(['/me/card.png', '/me/card.png']);
+
+  // A new kind of loss asks again; a project goes to a file of its own and the PNG is left as it was.
+  await page.evaluate(() =>
+    window.photoStudio.command('Slice', (d) => {
+      d.slices = [{ id: crypto.randomUUID(), rect: { x: 0, y: 0, width: 8, height: 8 } }];
+    }),
+  );
+  await start(page, 'file.save');
+  await expect(dialog).toContainText('A PNG flattens the layers into pixels and leaves out slices.');
+  await dialog.getByRole('button', { name: 'Save as .photo', exact: true }).click();
+  await expect.poll(async () => (await stub(page)).picked).toEqual(['card.photo']);
+  await idle(page);
+  expect((await stub(page)).written).toEqual(['/me/card.png', '/me/card.png']);
+  expect(await magic(page, '/me/card.photo')).toBe('PHOTO001');
+  expect(await session(page)).toEqual({ file: 'card.photo', path: '/me/card.photo', dirty: false });
+});
+
+test('a JPEG keeps its extension, and Save As offers JPEG beside a project and a PSD', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openImageFromDrive(page, '/me/photo.jpeg', 'image/jpeg');
+  await paintBlue(page, false);
+  await run(page, 'file.save');
+  await expect(page.locator('#dialog[open]')).toHaveCount(0);
+  expect(await stub(page)).toEqual({ written: ['/me/photo.jpeg'], picked: [] });
+  expect(await page.evaluate(async () => [...new Uint8Array(await (window as unknown as Stub).__drive['/me/photo.jpeg'].slice(0, 2).arrayBuffer())])).toEqual([0xff, 0xd8]);
+
+  await start(page, 'file.save-copy');
+  const dialog = page.locator('#dialog[open]');
+  await expect(dialog.getByRole('button', { name: 'Photo Studio Project', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'PSD', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'JPEG', exact: true }).click();
+  await expect.poll(async () => (await stub(page)).picked).toEqual(['photo.jpeg']);
+  await idle(page);
+  // A copy leaves the document saving to its own file.
+  expect(await session(page)).toEqual({ file: 'photo.jpeg', path: '/me/photo.jpeg', dirty: false });
 });

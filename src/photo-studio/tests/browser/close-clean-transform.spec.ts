@@ -9,6 +9,8 @@ async function prepare(page: Page, kind: string, changed: boolean) {
     window.cleanCloseBlob=blob;return {path:'/clean.photo',name:'clean.photo'};
   }}};`);
   await openImage(page, 32, 24, '#ff0000', 'original.png');
+  // The layered document saves as a project (an opened PNG would save back as a flattened PNG).
+  await page.evaluate(() => (window.photoStudio.session.fileName = 'original.photo'));
   if (kind.startsWith('embedded')) await page.evaluate(async () => {
     const { openFile } = await import('/src/features/files/open.ts');
     const c = new OffscreenCanvas(16, 12), g = c.getContext('2d')!;
