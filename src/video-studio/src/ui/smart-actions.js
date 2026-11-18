@@ -652,13 +652,20 @@ export function createSmartActions(ctx) {
           return;
         }
         if (lifetime.aborted) return;
-        store.update('Auto reframe', (proj) => {
+        const saved = store.update('Auto reframe', (proj) => {
+          const edits = plans.map((plan) => ({ plan, found: T.findClip(proj, plan.id) }));
+          // A track may have been locked while another clip was being analyzed.
+          // Refuse the whole edit before changing either clips or frame shape.
+          if (edits.some(({ found }) => found?.track.locked)) return false;
           if (r) Object.assign(proj.settings, { width: W, height: H, ratio: ratioId });
-          for (const plan of plans) {
-            const f = T.findClip(proj, plan.id);
-            if (f) applyReframePlan(f.clip, plan);
+          for (const { plan, found } of edits) {
+            if (found) applyReframePlan(found.clip, plan);
           }
         });
+        if (saved === false) {
+          if (!lifetime.aborted) toast('Reframing could not be saved. Check track locks and try again.', { kind: 'error' });
+          return;
+        }
         if (!lifetime.aborted) toast(`Reframed ${plans.length} clip${plans.length === 1 ? '' : 's'}${r ? ` for ${r.label}` : ''}.`, { kind: 'success' });
       });
     },
