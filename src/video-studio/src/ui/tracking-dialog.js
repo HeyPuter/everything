@@ -223,7 +223,10 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
       let tracker = null;
       const srcTimes = times.map((t) => T.sourceTimeAt(src.clip, t));
       let i = 0;
-      for await (const { frame } of grayFrames(blob, srcTimes, { tw: TW, th: TH, signal: ac.signal })) {
+      for await (const { t: sourceTime, frame } of grayFrames(blob, srcTimes, { tw: TW, th: TH, signal: ac.signal })) {
+        // The decoder omits unreadable frames. Keep each remaining sample at
+        // its requested time, including reversed playback and the backward pass.
+        while (sourceTime !== undefined && i < srcTimes.length - 1 && srcTimes[i] !== sourceTime) i++;
         const t = times[i++];
         let c;
         if (!tracker) {
@@ -247,6 +250,10 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
       ac.signal.throwIfAborted();
       if (!isCurrentMedia()) {
         status.textContent = changedMessage;
+        return;
+      }
+      if (!points.length) {
+        status.textContent = 'Could not read any tracking frames. Try tracking again.';
         return;
       }
       const keys = pinKeys(store.project, target, points, t0);
