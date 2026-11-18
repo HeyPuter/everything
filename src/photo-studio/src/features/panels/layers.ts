@@ -121,6 +121,24 @@ function selectShownRange(e: Editor, el: HTMLElement, id: string, add: boolean) 
   e.update();
   return true;
 }
+// The inline rename in progress, kept across redraws of the list: a rebuilt
+// row gets the same field back, with the typed name and focus.
+let renaming: { id: string; input: HTMLInputElement; done: (commit: boolean) => void } | undefined;
+let patching = false;
+function keepRenaming(list: Element) {
+  const r = renaming;
+  if (!r || r.input.isConnected) return;
+  const text = list.querySelector(`[data-row="${CSS.escape(r.id)}"] .layer-name .name-text`);
+  // The layer is gone (deleted, or filtered out of the list): nothing to rename.
+  if (!text) {
+    renaming = undefined;
+    return;
+  }
+  const { selectionStart, selectionEnd } = r.input;
+  text.replaceWith(r.input);
+  r.input.focus();
+  r.input.setSelectionRange(selectionStart, selectionEnd);
+}
 function blendSelect(l?: Layer, disabled = false) {
   const options = (l?.kind === 'group' && !l.artboard && !l.frame ? (['pass through', ...blends] as Layer['blend'][]) : blends)
     .map((b) => `${blendGroupStarts.includes(b) ? '<option disabled>──────────</option>' : ''}<option value="${b}" ${l?.blend === b ? 'selected' : ''}>${blendLabel(b)}</option>`)
@@ -264,17 +282,22 @@ export const layersPanel: Panel = {
         const done = (commit: boolean) => {
           if (finished) return;
           finished = true;
+          if (renaming?.input === input) renaming = undefined;
           if (commit && input.value.trim() && input.value !== l.name) {
             e.selected = id;
             renameLayer(e, id, input.value);
           } else e.update();
         };
+        renaming?.done(true);
+        renaming = { id, input, done };
         input.addEventListener('keydown', (k) => {
           if (k.key === 'Enter') done(true);
           if (k.key === 'Escape') done(false);
           k.stopPropagation();
         });
-        input.addEventListener('blur', () => done(true), { once: true });
+        // Leaving the field commits; the list being redrawn under it (another
+        // edit, a collaborator's change) does not.
+        input.addEventListener('blur', () => !patching && done(true));
       } else if (thumb) {
         const l = findLayer(e.doc.layers, id);
         if (l?.kind === 'text') void e.runCommand('type.edit');
@@ -368,7 +391,13 @@ export const layersPanel: Panel = {
     filterEditor = e;
     const banners = layerListBanners.map((f) => f(e)).filter(Boolean);
     const list_ = [...banners, ...rows(e, e.doc.layers, 0)];
-    patchList(list, list_.length ? list_ : [`<div class="empty-layers">${svg('layers-2', 22)}<p>Your layers will appear here</p><button data-command="file.open">Add an image</button></div>`]);
+    patching = true;
+    try {
+      patchList(list, list_.length ? list_ : [`<div class="empty-layers">${svg('layers-2', 22)}<p>Your layers will appear here</p><button data-command="file.open">Add an image</button></div>`]);
+    } finally {
+      patching = false;
+    }
+    keepRenaming(list);
     list.scrollTop = scroll;
     el.querySelector('.layer-root-drop')!.toggleAttribute('hidden', !e.doc.layers.length);
     el.querySelector('#layer-count')!.textContent = String(allLayers(e.doc.layers).length);

@@ -71,3 +71,37 @@ test('changing one row leaves the rows after it in place', async ({ page }) => {
   const order = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#layers .layer-row')].map((r) => r.dataset.row));
   expect(order).toEqual([...ids].reverse());
 });
+
+test('an inline rename survives another edit redrawing its row', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  await run(page, 'layer.new-quick');
+  const id = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.id);
+  await page.locator(`#layers .layer-row[data-row="${id}"] .layer-name`).dblclick();
+  await page.locator('#layers input.layer-rename').fill('Half');
+  // An edit made elsewhere (a collaborator's) changes the row being renamed.
+  await page.evaluate((id) => {
+    window.photoStudio.history.execute(
+      'Hide',
+      (d) => (d.layers.find((l) => l.id === id)!.visible = false),
+    );
+    window.photoStudio.update();
+  }, id);
+  await idle(page);
+  // The draft is neither committed nor lost, and typing continues.
+  expect(
+    await page.evaluate((id) => window.photoStudio.doc.layers.find((l) => l.id === id)!.name, id),
+  ).toBe('Layer 1');
+  await expect(page.locator('#layers input.layer-rename')).toBeFocused();
+  await expect(page.locator('#layers input.layer-rename')).toHaveValue('Half');
+  await page.keyboard.type('way');
+  await page.keyboard.press('Enter');
+  await idle(page);
+  await expect(page.locator(`#layers .layer-row[data-row="${id}"] .name-text`)).toHaveText(
+    'Halfway',
+  );
+  expect(await page.evaluate(() => window.photoStudio.history.labels.slice(-2))).toEqual([
+    'Hide',
+    'Rename Layer',
+  ]);
+});
