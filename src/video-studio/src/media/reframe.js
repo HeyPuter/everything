@@ -91,20 +91,30 @@ export function framingOffset(u, v, srcAR, dstAR, scale) {
   return { x: Math.min(mx, Math.max(-mx, (0.5 - u) * bw)), y: Math.min(my, Math.max(-my, (0.5 - v) * bh)) };
 }
 
-/** Thin a path of keys to the ones needed to follow it within tolerance. */
+/** Thin linear keys within tolerance; independent easing intervals stay intact. */
 export function thinKeys(keys, tol = 0.004) {
   if (keys.length <= 2) return keys;
-  const out = [keys[0]];
-  for (let i = 1; i < keys.length - 1; i++) {
-    const a = out[out.length - 1];
-    const b = keys[i + 1];
-    const k = keys[i];
-    const f = (k.t - a.t) / Math.max(1, b.t - a.t);
-    const ex = a.v + (b.v - a.v) * f;
-    if (Math.abs(ex - k.v) > tol) out.push(k);
+  // Matching the knots of two eased segments does not match their motion
+  // between knots. Duplicate times likewise cannot define a single line.
+  if (keys.some((k, i) => k.curve || (k.ease && k.ease !== 'linear') || (i && k.t <= keys[i - 1].t))) return keys;
+  const keep = new Uint8Array(keys.length);
+  keep[0] = keep[keys.length - 1] = 1;
+  const pending = [0, keys.length - 1];
+  while (pending.length) {
+    const hi = pending.pop(), lo = pending.pop();
+    const a = keys[lo], b = keys[hi];
+    for (let i = lo + 1; i < hi; i++) {
+      const k = keys[i], f = (k.t - a.t) / (b.t - a.t);
+      if (Math.abs(a.v + (b.v - a.v) * f - k.v) <= tol) continue;
+      // Check every discarded sample against its final segment. Balanced splits
+      // bound the work to O(n log n), even for long noisy tracking paths.
+      const mid = (lo + hi) >>> 1;
+      keep[mid] = 1;
+      pending.push(lo, mid, mid, hi);
+      break;
+    }
   }
-  out.push(keys[keys.length - 1]);
-  return out;
+  return keys.filter((_, i) => keep[i]);
 }
 
 /** Attention path { t (µs, source), x, y } through [from, to) of a video blob. */
