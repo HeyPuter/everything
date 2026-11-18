@@ -4,6 +4,7 @@ import { escapeXML } from '../../model/assets';
 import { layerLock } from '../../model/locks';
 import { svg } from '../../app/icons';
 import { formDialog } from '../../ui/dialog';
+import { keepFocus } from '../../ui/keep-focus';
 import {
   defaultBevel, defaultColorOverlay, defaultDropShadow, defaultInnerGlow, defaultInnerShadow, defaultOuterGlow, defaultSatin, defaultStroke,
   type BevelFx, type GlowFx, type GradientOverlayFx, type LayerStyle, type PatternOverlayFx, type SatinFx, type ShadowFx, type StrokeFx,
@@ -124,7 +125,14 @@ export async function openStyleDialog(e: Editor, start?: string) {
       thumb.onload = () => (thumb.hidden = false);
     });
   };
+  // The list is rebuilt on every choice; the keyboard focus stays on the
+  // control used (or the chosen effect), not on the page behind the dialog.
   const renderList = () => {
+    // A control that went away (a deleted effect's buttons) hands the focus
+    // to the chosen effect.
+    keepFocus(list, buildList, () => list.querySelector<HTMLElement>('.ls-item.active .ls-name'));
+  };
+  const buildList = () => {
     const row = (key: string, label: string, opts: { index?: number; sub?: boolean; multi?: boolean } = {}) => {
       const s: Section = key === 'blending' ? { key: 'blending' } : opts.index !== undefined ? { key: key as Multi, index: opts.index } : ({ key } as Section);
       const fx = fxOf(s);
