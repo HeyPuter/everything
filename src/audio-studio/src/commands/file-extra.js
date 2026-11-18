@@ -201,9 +201,12 @@ async function exportRangesDialog(app) {
     },
   });
   if (r !== 'ok') return;
+  // Folder setup, encoding and uploads can yield to edits. Keep the whole
+  // batch on the audio version present when Export was confirmed.
+  const state = doc.state;
   const chosen = ranges.filter((_, i) => checks[i].checked);
   const settings = { ...saved, format: getFormat(fmt.value).id };
-  const options = exportOptionsFor(settings, { sampleRate: doc.sampleRate, channels: doc.channelCount });
+  const options = exportOptionsFor(settings, { sampleRate: state.sampleRate, channels: state.channels.length });
   const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format });
   // The Batch Process writer: files already in the Puter folder are kept (or replaced) as its
   // "If a file exists" setting says, and downloads too big for one ZIP arrive separately.
@@ -214,7 +217,7 @@ async function exportRangesDialog(app) {
     for (let i = 0; i < chosen.length; i++) {
       const m = chosen[i];
       const blob = await exportAudio(
-        { channels: doc.state.channels, sampleRate: doc.sampleRate, start: m.start, end: m.start + m.duration, markers: [], meta: doc.state.meta || {} },
+        { channels: state.channels, sampleRate: state.sampleRate, start: m.start, end: m.start + m.duration, markers: [], meta: state.meta || {} },
         options,
         { signal, onProgress: (f) => onProgress((i + f) / chosen.length) },
       );
