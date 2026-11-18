@@ -194,7 +194,9 @@ export function installCoreCommands(app) {
           const [opened] = await openFiles(app, [f], { activate: false });
           if (!opened) continue;
           const clip = await conformRate({ sampleRate: opened.sampleRate, channels: opened.state.channels }, doc);
-          app.closeDocument(opened, { force: true });
+          // The source is visible while preparation runs; keep any new edits
+          // or capture that has not reached its first waveform update yet.
+          if (!opened.dirty && app.recorder?.document !== opened) app.closeDocument(opened);
           doc.apply('Append', E.insertClip(doc.state, doc.length, clip));
         }
       },
@@ -210,7 +212,7 @@ export function installCoreCommands(app) {
         for (const d of docs.slice(1)) {
           const clip = await conformRate({ sampleRate: d.sampleRate, channels: d.state.channels }, first);
           first.apply('Append', E.insertClip(first.state, first.length, clip));
-          app.closeDocument(d, { force: true });
+          if (!d.dirty && app.recorder?.document !== d) app.closeDocument(d);
         }
         app.activate(first);
       },
