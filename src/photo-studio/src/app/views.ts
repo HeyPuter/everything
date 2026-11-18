@@ -282,7 +282,7 @@ export class WindowManager {
             const doc = s.doc, fonts = measurementGeneration();
             await this.e.renderer.drawFrame(doc, s.assets, (canvas) => this.capture(s, canvas, doc, fonts));
           }
-          await this.e.render(this.e.displayDoc);
+          await this.e.render(this.e.shownDoc);
         }
       } catch (error) {
         console.error(error);

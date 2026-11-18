@@ -576,6 +576,7 @@ export class Editor {
   }
   async render(doc = this.doc) {
     if (!this.renderer) return;
+    this.shown = { doc, session: this.session };
     await this.renderer.render(doc, this.assets);
     // Startup measurements (docs/performance.md) look for the first document frame.
     if (this.hasDocument && !this.firstFrame) {
@@ -584,6 +585,12 @@ export class Editor {
     }
   }
   private firstFrame = false;
+  // The state last drawn on the canvas, which can be a dialog's preview.
+  private shown?: { doc: PhotoDocument; session: DocumentSession };
+  /** The document state the canvas shows (a live preview included). */
+  get shownDoc() {
+    return this.shown?.session === this.session ? this.shown.doc : this.displayDoc;
+  }
   preview(doc: PhotoDocument) {
     this.lastDoc = doc;
     if (this.renderFrame) return;

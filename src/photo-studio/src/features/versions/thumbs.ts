@@ -17,8 +17,9 @@ export async function documentThumbnail(e: Editor, s: DocumentSession, size = 19
       c.drawImage(canvas, 0, 0, out.width, out.height);
     });
   } finally {
-    // The visible canvas drew another state; show the current one again.
-    await e.render(e.displayDoc);
+    // The visible canvas drew another state; show what it showed again,
+    // including a dialog's live preview.
+    await e.render(e.shownDoc);
   }
   return new Promise((resolve) => out.toBlob((b) => resolve(b ?? undefined), 'image/png'));
 }
