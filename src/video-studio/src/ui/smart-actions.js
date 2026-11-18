@@ -170,8 +170,18 @@ export function createSmartActions(ctx) {
       if (f.track.locked) return;
       const clip = f.clip;
       const assetId = clip.assetId;
-      const isCurrentSource = () => T.findClip(store.project, clip.id)?.clip === clip
-        && clip.assetId === assetId && clip.type === 'video' && !clip.freeze;
+      const project = store.project;
+      // Cuts belong to the analyzed source span and media content. A moved clip
+      // or a new project frame rate can still map those same source cuts below.
+      const sourceStamp = () => {
+        const a = store.project.assets[clip.assetId];
+        return JSON.stringify([store.project.id, store.project.timelineId, (store.nest || []).map((f) => f.id),
+          clip.type, clip.assetId, clip.in, clip.duration, clip.speed, clip.speedCurve, clip.freeze,
+          a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration]);
+      };
+      const stamp = sourceStamp();
+      const isCurrentSource = () => project === store.project
+        && T.findClip(store.project, clip.id)?.clip === clip && stamp === sourceStamp();
       const changedMessage = 'The clip changed. Run scene detection again to analyze its current video.';
       const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage); };
       const asset = store.project.assets[assetId];
