@@ -184,6 +184,16 @@ describe('cutout panel', () => {
     expect(clip().cutout).toBeUndefined();
   });
 
+  it('disables brush refinement while its track is locked and restores it on unlock', () => {
+    env.store.update('Enable cutout', p => { T.findClip(p, env.id).clip.cutout = { ...CUTOUT_DEFAULT }; });
+    tab('Cutout').click();
+    const refine = () => [...env.el.querySelectorAll('button')].find(b => b.textContent === 'Refine with brush...');
+    expect(refine().disabled).toBe(false);
+    env.store.update('Lock', p => { T.findClip(p, env.id).track.locked = true; });
+    expect(refine().disabled).toBe(true);
+    env.store.undo(); expect(refine().disabled).toBe(false);
+  });
+
   it('offers Try again when background removal could not load', async () => {
     tab('Cutout').click();
     env.el.querySelector('.video-tab [role=switch], .video-tab input[type=checkbox]').click();

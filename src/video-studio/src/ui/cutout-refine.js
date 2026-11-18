@@ -50,11 +50,15 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
     toast('Select a video or image clip first.', { kind: 'info' });
     return;
   }
+  if (f.track.locked) {
+    toast('This clip is on a locked track.', { kind: 'info' });
+    return;
+  }
   const clip = f.clip;
   const assetId = clip.assetId;
   const isCurrentSource = () => {
     const now = T.findClip(store.project, clipId);
-    return now?.clip === clip && now.clip.assetId === assetId;
+    return now?.clip === clip && now.clip.assetId === assetId && !now.track.locked;
   };
   const t = clamp(store.time, clip.start, T.clipEnd(clip) - 1);
   let frame;
@@ -217,11 +221,15 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
   });
   done.addEventListener('click', () => {
     const list = normalizeStrokes(strokes);
-    ctx.actions.editClip(clip.id, 'Refine cutout', (c) => {
+    const saved = ctx.actions.editClip(clip.id, 'Refine cutout', (c) => {
       c.cutout ||= { ...CUTOUT_DEFAULT };
       if (list.length) c.cutout.strokes = list;
       else delete c.cutout.strokes;
     });
+    if (saved === false) {
+      toast('Cutout changes could not be saved. The clip may be locked or no longer available.', { kind: 'error' });
+      return;
+    }
     announce(list.length ? `Cutout refined with ${list.length} stroke${list.length === 1 ? '' : 's'}` : 'Cutout fixes cleared');
     d.close();
   });

@@ -52,3 +52,38 @@ it.each(['crop', 'cutout'])('ignores a stale %s loading error but reports errors
   const previous = fail, live = open(ctx); await vi.waitFor(() => expect(fail).not.toBe(previous)); fail(new Error('Current source failed')); await live;
   expect(document.body.textContent).toContain('Current source failed');
 });
+
+it.each(['before', 'during'])('does not refine a cutout locked %s loading', async when => {
+  vi.stubGlobal('ImageData', class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage() {}, getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, clearRect() {} });
+  const p = fixture(); const [c] = onMain(p, clip('video', 0, 2)); const store = new EditorStore(p); store.select(c.id);
+  let finish;
+  const ctx = { store, library: { mediaBlob: vi.fn(() => when === 'before' ? Promise.resolve(new Blob()) : new Promise(r => { finish = r; })) } }; ctx.actions = createActions(ctx);
+  if (when === 'before') p.tracks[0].locked = true;
+  const pending = openCutoutRefine(ctx);
+  if (when === 'during') { await vi.waitFor(() => expect(finish).toBeTypeOf('function')); store.update('Lock', p => { p.tracks[0].locked = true; }); finish(new Blob()); }
+  await pending;
+  expect(document.querySelector('.refine-stage')).toBeNull();
+  if (when === 'before') expect(ctx.library.mediaBlob).not.toHaveBeenCalled();
+});
+
+it('keeps painted cutout work available if the track is locked before saving', async () => {
+  vi.stubGlobal('ImageData', class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage() {}, getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, clearRect() {} });
+  const p = fixture(); const [c] = onMain(p, clip('video', 0, 2)); const store = new EditorStore(p); store.select(c.id);
+  const ctx = { store, library: { mediaBlob: async () => new Blob() } }; ctx.actions = createActions(ctx);
+  await openCutoutRefine(ctx);
+  const stage = document.querySelector('.refine-stage');
+  stage.querySelector('canvas').getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 360 });
+  stage.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 320, clientY: 180, button: 0 }));
+  stage.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+  store.update('Lock', p => { p.tracks[0].locked = true; });
+  const done = [...document.querySelectorAll('button')].find(b => b.textContent === 'Done'); done.click();
+  expect(document.querySelector('.refine-stage')).toBe(stage);
+  expect(store.selected.clip.cutout).toBeUndefined();
+  expect(document.body.textContent).toContain('could not be saved');
+  store.update('Unlock', p => { p.tracks[0].locked = false; }); done.click();
+  expect(document.querySelector('.refine-stage')).toBeNull();
+  expect(store.selected.clip.cutout.strokes).toHaveLength(1);
+  store.undo(); expect(store.selected.clip.cutout).toBeUndefined();
+});
