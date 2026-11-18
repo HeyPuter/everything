@@ -29,6 +29,15 @@ async function capture(p, c, time) {
 }
 
 describe('isolated pictures for AI restyling', () => {
+  it.each(['image', 'video'])('fits a cropped %s capture to the visible source aspect ratio', async (type) => {
+    const p = fixture();
+    Object.assign(p.settings, { width: 72, height: 128 });
+    const [c] = onMain(p, clip(type, 0, 4, { crop: { l: 0.25, r: 0, t: 0, b: 0 } }));
+    Object.assign(p.assets[c.assetId], { width: 128, height: 72 });
+    await capture(p, c, s(1));
+    expect(renderStill.mock.lastCall[0].settings).toMatchObject({ width: 96, height: 72 });
+  });
+
   it.each(['unequal axes', 'animated'])('omits inherited %s after flattening and reopening', async (motion) => {
     const p = fixture();
     const [c] = onMain(p, clip('video', 0, 4, { in: s(1), crop: { l: 0.1, t: 0, r: 0, b: 0 }, adjust: { exposure: 20 } }));

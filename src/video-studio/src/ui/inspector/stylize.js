@@ -68,7 +68,12 @@ export async function clipPicture(ctx, clip, time) {
   const p = ctx.store.project;
   const asset = p.assets[clip.assetId];
   if (!asset) throw new Error('This clip has no media.');
-  const size = fitSize(asset.width || p.settings.width, asset.height || p.settings.height);
+  // Cropping is baked into the pixels. Match their visible aspect ratio so
+  // fitting the result back into any project frame preserves its footprint.
+  const crop = clip.crop || {};
+  const sourceW = Math.max(1, (asset.width || p.settings.width) * (1 - (crop.l || 0) - (crop.r || 0)));
+  const sourceH = Math.max(1, (asset.height || p.settings.height) * (1 - (crop.t || 0) - (crop.b || 0)));
+  const size = fitSize(sourceW, sourceH);
   const w = Math.max(16, Math.round(size.w / 2) * 2);
   const hh = Math.max(16, Math.round(size.h / 2) * 2);
   const one = structuredClone(clip);
