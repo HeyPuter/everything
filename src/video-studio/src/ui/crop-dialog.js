@@ -8,6 +8,7 @@ import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US } from '../lib/time.js';
 import * as T from '../model/timeline.js';
+import { pictureSizeFor } from '../model/picture-size.js';
 import { openDialog, toast, oneAtATime } from './dialog.js';
 
 const MIN = 0.02; // smallest crop side as a fraction of the source
@@ -57,7 +58,17 @@ async function sourceFrame(ctx, clip) {
     const img = new Image();
     img.src = await ctx.library.mediaURL(asset);
     await img.decode();
-    return draw(img, img.naturalWidth, img.naturalHeight, maxW);
+    const canvas = draw(img, img.naturalWidth, img.naturalHeight, maxW);
+    const size = pictureSizeFor(clip, asset);
+    if (size) {
+      canvas.dataset.srcW = String(size.width);
+      canvas.dataset.srcH = String(size.height);
+      // Keep the bounded bitmap, but display and crop in the same logical
+      // frame as the player. Bound width by both dialog and viewport height.
+      canvas.style.aspectRatio = `${size.width} / ${size.height}`;
+      canvas.style.width = `min(${canvas.width}px, calc(min(60vh, 560px) * ${size.width / size.height}))`;
+    }
+    return canvas;
   }
   // Decode the exact frame with WebCodecs (works in background tabs too).
   const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
