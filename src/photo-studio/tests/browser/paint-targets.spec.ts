@@ -709,3 +709,30 @@ test('Magic Wand, Grow and the Paint Bucket finish in the document they started 
   // Its fill computed for gray.png never reaches the same-id layer of the other image.
   expect(await page.locator('#status').textContent()).not.toMatch(/Missing pixel tile/);
 });
+
+test('a filter in Quick Mask edits the whole mask, not only the selection it started from', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await page.evaluate(() =>
+    window.photoStudio.runCommand('filter.apply.gaussian-blur', { params: { radius: 4 } }),
+  );
+  await idle(page);
+  // The blur softens the mask edge on both sides of x = 50.
+  const right = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readMask } = await import('/src/model/tiles.ts');
+    const at = { x: 52, y: 60, width: 1, height: 1 };
+    return readMask(e.assets.tiles, e.doc.quickMask!, at).data[0];
+  });
+  expect(right).toBeGreaterThan(20);
+});
