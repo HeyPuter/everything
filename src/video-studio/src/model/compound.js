@@ -4,7 +4,7 @@
  * apart" puts the clips back on the timeline.
  */
 import { uid } from '../lib/ids.js';
-import { makeClip, DEFAULT_TRANSFORM } from './project.js';
+import { makeClip, makeTrack, DEFAULT_TRANSFORM } from './project.js';
 import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, MIN_CLIP } from './timeline.js';
 import { trimTo } from './slice.js';
 import { storedTimelineTracks } from './timelines.js';
@@ -120,12 +120,14 @@ export function breakApart(project, id, opts = {}) {
   const f = findClip(project, id);
   if (!f || f.clip.type !== 'compound' || f.track.locked) return [];
   const c = f.clip;
-  const onMain = Boolean(f.track.main);
   f.track.clips.splice(f.track.clips.indexOf(c), 1);
   const restored = [];
   const W = project.settings.width;
   const H = project.settings.height;
-  for (const t of [...c.sequence.tracks].reverse()) {
+  const solo = c.sequence.tracks.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
+  let insertAt = project.tracks.indexOf(f.track);
+  for (const t of c.sequence.tracks) {
+    const copies = [];
     for (const child of t.clips) {
       const copy = trimTo(structuredClone(child), c.in, c.in + c.duration);
       // A sliver shorter than the shortest clip the editor allows (under a frame at 60 fps)
@@ -134,10 +136,28 @@ export function breakApart(project, id, opts = {}) {
       copy.id = uid('c');
       copy.start = c.start + copy.start - c.in;
       inheritFromCompound(copy, c, W, H);
-      const toMain = onMain && t.main && (copy.type === 'video' || copy.type === 'image');
-      addClip(project, copy, { ...opts, main: toMain });
-      restored.push(copy);
+      copies.push(copy);
     }
+    if (!copies.length) continue;
+    const hidden = Boolean(f.track.hidden || t.hidden);
+    const muted = Boolean(f.track.muted || t.muted || (solo && !t.solo));
+    const compatible = hidden === Boolean(f.track.hidden) && muted === Boolean(f.track.muted) && !t.locked;
+    const original = t.main && t.kind === f.track.kind && compatible;
+    if (original) {
+      // Reuse the original slot only when its controls match. A separate track keeps
+      // an inner hide/mute editable without altering other clips or their keyframes.
+      for (const copy of copies) f.track.clips.push(copy);
+      insertAt = project.tracks.indexOf(f.track) + 1;
+    } else {
+      // Restore each inner track at the compound's stack position. Choosing any free
+      // track can put a title above unrelated footage or give it different controls.
+      const track = makeTrack(t.kind, {
+        hidden, muted, solo: Boolean(f.track.solo), locked: Boolean(t.locked), clips: copies,
+        ...(t.name ? { name: t.name } : {}), ...(t.size ? { size: t.size } : {}),
+      });
+      project.tracks.splice(insertAt++, 0, track);
+    }
+    for (const copy of copies) restored.push(copy);
   }
   for (const t of project.tracks) sortTrack(t);
   return restored;
