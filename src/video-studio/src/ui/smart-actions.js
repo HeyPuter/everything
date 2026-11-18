@@ -227,6 +227,7 @@ export function createSmartActions(ctx) {
       const cut = h('button.btn.primary', { type: 'button', disabled: true }, icon('scissors', 16), 'Cut them');
       const cancel = h('button.btn', { type: 'button' }, 'Close');
       let found = [];
+      let source = null;
       let ac = null;
       let closed = false;
       const d = openFrameDialog({
@@ -241,6 +242,22 @@ export function createSmartActions(ctx) {
       cancel.addEventListener('click', () => d.close());
       const read = () => ({ scope: scope.value, thresholdDb: Number(thr.value), minSilence: Number(min.value), pad: Number(pad.value) });
       const AGAIN = 'Settings changed. Press Find silences to look again.';
+      // Cuts affect every unlocked track, even when listening only to the base track.
+      // Compare at action boundaries, not on every playback tick or project edit.
+      const sourceStamp = (o) => {
+        const p = store.project;
+        const assets = [...new Set(clipsForScope(p, o.scope).map(({ clip }) => clip.assetId))].map((id) => {
+          const a = p.assets[id];
+          return [id, a.kind, a.hash, a.ext, a.mime, a.size, a.duration, a.hasAudio];
+        });
+        return JSON.stringify([p.id, p.timelineId, (store.nest || []).map((f) => f.id), p.tracks, assets]);
+      };
+      const currentSource = () => source?.project === store.project && source.stamp === sourceStamp(source.options);
+      const sourceChanged = () => {
+        found = [];
+        cut.disabled = true;
+        status.textContent = 'Timeline changed. Press Find silences to analyze it again.';
+      };
       let searched = false;
       // What was found belongs to the settings it was found with.
       const changed = () => {
@@ -283,6 +300,8 @@ export function createSmartActions(ctx) {
           status.textContent = o.scope === 'main' ? 'The base track has no sound.' : 'There is no sound in this project.';
           return;
         }
+        source = { project: store.project, options: o, stamp: sourceStamp(o) };
+        found = [];
         ac = new AbortController();
         find.disabled = true;
         cut.disabled = true;
@@ -290,6 +309,7 @@ export function createSmartActions(ctx) {
         try {
           const ranges = await findSilences(ctx, o, { signal: ac.signal, onProgress: (x) => { if (!closed) status.textContent = `Listening... ${Math.round(x * 100)}%`; } });
           if (closed || ac.signal.aborted) return;
+          if (!currentSource()) { sourceChanged(); return; }
           searched = true;
           if (JSON.stringify(read()) !== JSON.stringify(o)) {
             status.textContent = AGAIN;
@@ -308,6 +328,7 @@ export function createSmartActions(ctx) {
       });
       cut.addEventListener('click', () => {
         if (closed || !found.length) return;
+        if (!currentSource()) { sourceChanged(); return; }
         removeRanges(store, found, 'Remove silences');
         toast(`Removed ${found.length} silent part${found.length === 1 ? '' : 's'}.`, { kind: 'success' });
         d.close();
