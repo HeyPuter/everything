@@ -17,7 +17,7 @@ import { transformBounds } from '../model/transform';
 import { insertAboveSelection } from './layers/insert';
 import { makeBackground } from '../model/housekeeping';
 import type { RGBA8 } from '../imaging/types';
-import { layerLock } from '../model/locks';
+import { layerLock, setFullLock } from '../model/locks';
 import { fillWithPattern } from './effects/commands';
 import { recordsSettings, settingsDialog } from './action-settings';
 
@@ -219,7 +219,8 @@ export function installCore(e: Editor) {
     e.command(lock ? 'Lock Layers' : 'Unlock Layers', (d) => {
       for (const id of ids) {
         const l = findLayer(d.layers, id);
-        if (l) l.locked = lock;
+        // As the panel's Lock All button: the individual locks follow.
+        if (l) setFullLock(l, lock);
       }
     });
   }, { shortcut: 'Mod+/', enabled: hasLayer });

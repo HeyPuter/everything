@@ -71,3 +71,28 @@ test('inside a locked group, the lock buttons of a layer are disabled', async ({
   );
   await expect(page.locator('.layers-panel [data-lock-button="all"]')).toBeEnabled();
 });
+
+test('Lock Layers (Mod+/) unlocks a layer fully, also its individual locks', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  await run(page, 'layer.new-quick');
+  // Lock position on its own, then Lock All from the panel.
+  await page.locator('.layers-panel [data-lock-button="position"]').click();
+  await page.locator('.layers-panel [data-lock-button="all"]').click();
+  await idle(page);
+  await run(page, 'layer.lock-all');
+  const state = await page.evaluate(async () => {
+    const { ownLock } = await import('/src/model/locks.ts');
+    const l = window.photoStudio.doc.layers.at(-1)!;
+    return [l.locked, ownLock(l, 'position'), ownLock(l, 'pixels'), ownLock(l, 'transparency')];
+  });
+  expect(state).toEqual([false, false, false, false]);
+  for (const key of ['transparency', 'composite', 'position', 'all'])
+    await expect(page.locator(`.layers-panel [data-lock-button="${key}"]`)).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  // Locking again locks everything.
+  await run(page, 'layer.lock-all');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.locked)).toBe(true);
+});
