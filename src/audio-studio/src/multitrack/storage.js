@@ -72,8 +72,9 @@ function orderedDestination(app, path, work) {
       if (!found.startsWith('/')) throw new Error('Could not resolve the Puter home folder. Try saving this session again.');
       home = found;
     },
-    prepareMatches() {
-      if (!home && (app.documents || []).some((d) => d.kind === 'session' && d.source?.type === 'puter' && d.source.path && couldAlias(normalizePath(d.source.path), key))) return paths.ensureHome();
+    prepareMatches(writtenPath) {
+      // A completed write's absolute path already identifies absolute views.
+      if (!home && (app.documents || []).some((d) => d.kind === 'session' && d.source?.type === 'puter' && d.source.path && (!writtenPath || !d.source.path.startsWith('/')) && couldAlias(normalizePath(d.source.path), key))) return paths.ensureHome();
     },
   };
   const pending = (async () => {
@@ -181,16 +182,17 @@ async function writeCloudSession(app, doc, { path, name, copy, paths }) {
     // A completed upload is reusable even if the following manifest write fails.
     onDisk.set(m.id, m);
   }
-  await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
+  const item = await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
+  const writtenPath = typeof item?.path === 'string' && item.path.startsWith('/') ? normalizePath(item.path) : null;
   // A tab may have opened or moved to an alias during the upload.
   // Failure here cannot undo the committed write or invalidate known matches.
   let unresolved = false;
   try {
-    const matching = paths.prepareMatches();
+    const matching = paths.prepareMatches(writtenPath);
     if (matching) await matching;
   } catch { unresolved = true; }
-  const matches = (p) => paths.resolve(p) === paths.resolve(path);
-  const uncertain = (p) => unresolved && couldAlias(normalizePath(p), normalizePath(path));
+  const matches = (p) => paths.resolve(p) === paths.resolve(path) || paths.resolve(p) === writtenPath;
+  const uncertain = (p) => unresolved && (!writtenPath || !paths.resolve(p).startsWith('/')) && couldAlias(normalizePath(p), normalizePath(path));
   let invalidated = false;
   const invalidate = (other) => { other.invalidateSaved(); invalidated = true; };
   if (!copy) {

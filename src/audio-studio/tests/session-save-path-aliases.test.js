@@ -103,19 +103,24 @@ it.each(['saveAs', 'saveCopy'])('recognizes the associated file through an alias
 });
 
 
-it.each(pairs.slice(0, 2).flatMap(([first, second]) => ['available', 'unavailable', 'upload-failed'].map((lookup) => [first, second, lookup])))('finishes a committed save to %s when %s opens during upload and lookup is %s', async (firstPath, secondPath, lookup) => {
+const latePairs = [...pairs.slice(0, 2), ['~/Song.asesx', '/u/Folder/../Song.asesx']];
+const lateCases = latePairs.flatMap(([first, second]) => ['available', 'unavailable', 'upload-failed'].flatMap((lookup) => (lookup === 'unavailable' ? ['absolute', 'missing', 'relative', 'invalid'] : ['absolute']).map((response) => [first, second, lookup, response, false])));
+lateCases.push(['~/Song.asesx', '/u/Song.asesx', 'unavailable', 'absolute', true]);
+it.each(lateCases)('tracks a save to %s when %s opens during upload (lookup %s, response %s, extra alias %s)', async (firstPath, secondPath, lookup, response, extraAlias) => {
   const app = new App(); app.syncGraph = vi.fn(); app.notify = vi.fn();
   installCoreCommands(app); app.registerDocumentKind('session', { commands: installMultitrackCommands(app) });
   const stored = new Map(), writes = [];
   let gate = false, waiting = false, release, failLookup = false;
   const wait = new Promise((resolve) => { release = resolve; });
-  window.puter = { auth: { isSignedIn: () => true, getUser: async () => {
+  window.puter = { auth: { isSignedIn: () => true, getUser: vi.fn(async () => {
     if (failLookup) throw new Error('Account lookup unavailable');
     return { username: 'u' };
-  } }, fs: { write: async (path, blob) => {
+  }) }, fs: { write: async (path, blob) => {
     writes.push(path);
     if (gate && path === firstPath) { gate = false; waiting = true; await wait; if (lookup === 'upload-failed') throw new Error('Upload failed'); }
-    stored.set(canonical(path), blob); return { path: canonical(path) };
+    stored.set(canonical(path), blob);
+    if (response === 'missing') return undefined;
+    return { path: response === 'relative' ? posix.basename(path) : response === 'invalid' ? {} : canonical(path) };
   } } };
   const first = session(app, firstPath, 0.25);
   await app.commands.run('file.save');
@@ -129,7 +134,8 @@ it.each(pairs.slice(0, 2).flatMap(([first, second]) => ['available', 'unavailabl
   try {
     const open = async (path) => app.addDocument(await sessionFromText(app, originalText, 'Song.asesx', { type: 'puter', path }, async (src) => stored.get(canonical(`/u/${src.file}`))));
     const alias = await open(secondPath), exact = await open(firstPath);
-    const independent = session(app, firstPath.startsWith('~') ? '~/Else/Song.asesx' : '/v/Song.asesx', 0.125); independent.markSaved();
+    const unresolvedTab = extraAlias ? await open('~/../u/Song.asesx') : null;
+    const independent = session(app, firstPath.startsWith('~') && response !== 'absolute' ? '~/Else/Song.asesx' : '/v/Song.asesx', 0.125); independent.markSaved();
     const aliasState = alias.state, exactState = exact.state;
     expect(alias.dirty).toBe(false); expect(exact.dirty).toBe(false);
     failLookup = lookup === 'unavailable';
@@ -150,10 +156,17 @@ it.each(pairs.slice(0, 2).flatMap(([first, second]) => ['available', 'unavailabl
     expect(first.state).toBe(firstState); expect(alias.state).toBe(aliasState); expect(exact.state).toBe(exactState);
     expect(pcm(alias)).toEqual(Array(32).fill(0.25)); expect(pcm(exact)).toEqual(Array(32).fill(0.25));
     expect.soft(pcm(exact, exact.savedState)).toEqual(Array(32).fill(-0.5));
-    expect(independent.dirty).toBe(false); expect(app.active).toBe(independent);
+    expect.soft(independent.dirty).toBe(false); expect(app.active).toBe(independent);
+    expect(window.puter.auth.getUser).toHaveBeenCalledTimes(Number(response !== 'absolute' || secondPath.startsWith('~') || extraAlias));
+    const warned = failLookup && (response !== 'absolute' || secondPath.startsWith('~') || extraAlias);
+    expect(app.notify).toHaveBeenCalledTimes(warned ? 1 : 0);
+    if (warned) expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/saved.*could not verify/i), { error: true });
+    if (unresolvedTab) {
+      expect(unresolvedTab.savedStateKnown).toBe(false); expect(unresolvedTab.dirty).toBe(true);
+      expect(pcm(unresolvedTab)).toEqual(Array(32).fill(0.25));
+    }
     app.activate(alias);
-    if (failLookup) {
-      expect(app.notify).toHaveBeenCalledWith(expect.stringMatching(/saved.*could not verify/i), { error: true });
+    if (failLookup && !(response === 'absolute' && secondPath.startsWith('/'))) {
       expect(app.commands.isEnabled('file.revert')).toBe(false);
       alias.revertToSaved(); expect(alias.state).toBe(aliasState);
       alias.apply('Tempo', { ...alias.state, tempo: 126 });
@@ -166,7 +179,8 @@ it.each(pairs.slice(0, 2).flatMap(([first, second]) => ['available', 'unavailabl
       alias.apply('Tempo', { ...alias.state, tempo: 127 });
       expect(app.commands.isEnabled('file.revert')).toBe(true);
     } else {
-      expect(app.notify).not.toHaveBeenCalled();
+      expect(pcm(alias, alias.savedState)).toEqual(Array(32).fill(-0.5));
+      failLookup = false;
       const reverting = app.commands.run('file.revert');
       await vi.waitFor(() => expect([...document.querySelectorAll('.dialog-foot button')].some((b) => b.textContent === 'Revert')).toBe(true), { interval: 1 });
       [...document.querySelectorAll('.dialog-foot button')].find((b) => b.textContent === 'Revert').click(); await reverting;
