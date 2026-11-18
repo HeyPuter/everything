@@ -12,7 +12,7 @@ vi.mock('mediabunny', () => ({
 }));
 vi.mock('../src/media/segmenter.js', () => ({ SEG_SIZE: 2, ready: async () => true, segment: () => ({ width: 2, height: 2, data: new Uint8ClampedArray(4).fill(255) }), segmenterError: () => null }));
 const cancel = () => [...document.querySelectorAll('button')].find(b => b.textContent === 'Cancel')?.click();
-afterEach(() => { cancel(); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); disposed.mockClear(); });
+afterEach(async () => { cancel(); await new Promise(requestAnimationFrame); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); disposed.mockClear(); });
 it.each([['crop', false], ['crop', true], ['cutout', false], ['cutout', true]])('shows the player frame in %s with freeze=%s', async (tool, freeze) => {
   vi.stubGlobal('ImageData', class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function () { return { drawImage: src => { this.frame = src.frame; }, getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, clearRect() {} }; });
@@ -86,4 +86,26 @@ it('keeps painted cutout work available if the track is locked before saving', a
   expect(document.querySelector('.refine-stage')).toBeNull();
   expect(store.selected.clip.cutout.strokes).toHaveLength(1);
   store.undo(); expect(store.selected.clip.cutout).toBeUndefined();
+});
+
+it.each(['crop', 'cutout'])('does not apply old %s work after media changes while the dialog is open', async tool => {
+  vi.stubGlobal('ImageData', class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage() {}, getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, clearRect() {} });
+  const p = fixture(); const [c] = onMain(p, clip('video', 0, 2)); const store = new EditorStore(p); store.select(c.id);
+  const ctx = { store, library: { mediaBlob: async () => new Blob() } }; ctx.actions = createActions(ctx);
+  await (tool === 'crop' ? openCropDialog(ctx) : openCutoutRefine(ctx));
+  const button = text => [...document.querySelectorAll('button')].find(b => b.textContent === text);
+  if (tool === 'crop') button('1:1').click();
+  else {
+    const stage = document.querySelector('.refine-stage');
+    stage.querySelector('canvas').getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 360 });
+    stage.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 320, clientY: 180, button: 0 }));
+    stage.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+  }
+  ctx.actions.replaceClip(c.id, p.assets.silent);
+  const before = JSON.stringify(store.projectForSave()), history = store.history.undoStack.length;
+  button(tool === 'crop' ? 'Apply' : 'Done').click();
+  expect(JSON.stringify(store.projectForSave())).toBe(before);
+  expect(store.history.undoStack).toHaveLength(history);
+  expect(document.body.textContent).toContain('media changed');
 });

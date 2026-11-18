@@ -221,13 +221,18 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
   });
   done.addEventListener('click', () => {
     const list = normalizeStrokes(strokes);
+    let mediaChanged = false;
     const saved = ctx.actions.editClip(clip.id, 'Refine cutout', (c) => {
+      if (c.assetId !== assetId) {
+        mediaChanged = true;
+        return false;
+      }
       c.cutout ||= { ...CUTOUT_DEFAULT };
       if (list.length) c.cutout.strokes = list;
       else delete c.cutout.strokes;
     });
     if (saved === false) {
-      toast('Cutout changes could not be saved. The clip may be locked or no longer available.', { kind: 'error' });
+      toast(mediaChanged ? "The clip's media changed. Reopen Refine cutout to edit its new picture." : 'Cutout changes could not be saved. The clip may be locked or no longer available.', { kind: 'error' });
       return;
     }
     announce(list.length ? `Cutout refined with ${list.length} stroke${list.length === 1 ? '' : 's'}` : 'Cutout fixes cleared');

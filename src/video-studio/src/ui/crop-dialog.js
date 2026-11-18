@@ -265,10 +265,15 @@ export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected
   cancel.addEventListener('click', () => d.close());
   apply.addEventListener('click', () => {
     const crop = cropFromRect(rect);
+    let mediaChanged = false;
     const ok = actions.editClip(clipId, 'Crop', (c) => {
+      if (c.assetId !== assetId) {
+        mediaChanged = true;
+        return false;
+      }
       c.crop = crop;
     });
-    if (ok === false) toast('This clip can no longer be cropped.', { kind: 'info' });
+    if (ok === false) toast(mediaChanged ? "The clip's media changed. Reopen Crop to edit its new picture." : 'This clip can no longer be cropped.', { kind: 'info' });
     else announce('Crop applied');
     d.close();
   });
