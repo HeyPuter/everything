@@ -15,17 +15,20 @@
 //   automation: { volume: [{t, v dB}], pan: [{t, v}] }, showAutomation,
 //   autoParam, height, minimized, hidden }
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
-//   fadeIn: { length, curve, xf? }, fadeOut: { length, curve, xf? }, crossfade
+//   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
 //   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}],
 //   mute, locked, loop, groupId, z, fx: clip effect slots { id, effect, values,
 //   enabled } (Sound Assistant chains), soundAssistant: Sound Assistant settings or null,
 //   stretch: time stretch and pitch settings or null (see clip-stretch.js),
-//   remix: remix settings and segments or null (see clip-remix.js) }
+//   remix: remix settings and segments or null (see clip-remix.js),
+//   mergeLayout?: baked overlap geometry (see merge-layout.js) }
 // Envelope times are relative to the clip start; fade curves follow
 // mixcore.fadeShape (0 linear, > 0 logarithmic, < 0 exponential, 2 cosine).
 // A fade's optional `xf` overrides automatic crossfading at that end (see
 // overlapCrossfades).
 
+import { copyMergeLayout, mergeScene, relocateMergeLayouts, splitMergeLayout, retargetSplitLayouts } from './merge-layout.js';
+import { sliceFade, restartFade } from './clip-fades.js';
 import { shiftMarkersForDelete } from './markers.js';
 
 let counter = 0;
@@ -121,6 +124,7 @@ export function createClip(o = {}) {
     loop: Boolean(o.loop),
     groupId: o.groupId || null,
     z: o.z || 0,
+    ...(o.mergeLayout ? { mergeLayout: copyMergeLayout(o.mergeLayout) } : {}),
     fx: Array.isArray(o.fx) ? o.fx.filter(Boolean).map((x) => ({ ...x, values: { ...(x.values || {}) } })) : [],
     // `essential` is the name used by earlier versions.
     soundAssistant: structuredClone(o.soundAssistant || o.essential || null),
@@ -128,6 +132,21 @@ export function createClip(o = {}) {
     stretch: o.stretch ? { ...o.stretch } : null,
     // Remix (see clip-remix.js); sourceId then names the remixed media. A clip is never both.
     remix: o.remix?.segments?.length ? { ...o.remix, segments: o.remix.segments.map(([a, b]) => [a, b]) } : null,
+  };
+}
+
+/** Remaps every audio reference when a clip moves between independent source pools. */
+export function remapClipSources(c, ids) {
+  const sourceId = (id) => id ? ids.get(id) : id;
+  return {
+    ...c,
+    sourceId: sourceId(c.sourceId),
+    stretch: c.stretch ? { ...c.stretch, sourceId: sourceId(c.stretch.sourceId) } : c.stretch,
+    remix: c.remix ? { ...c.remix, sourceId: sourceId(c.remix.sourceId) } : c.remix,
+    soundAssistant: c.soundAssistant?.duration?.orig ? {
+      ...c.soundAssistant,
+      duration: { ...c.soundAssistant.duration, orig: { ...c.soundAssistant.duration.orig, sourceId: sourceId(c.soundAssistant.duration.orig.sourceId) } },
+    } : c.soundAssistant,
   };
 }
 
@@ -297,7 +316,8 @@ export function duplicateTrack(state, id) {
   if (i < 0) return state;
   const src = state.tracks[i];
   const copy = createTrack({ ...src, id: undefined, name: `${src.name} Copy` });
-  const clips = state.clips.filter((c) => c.trackId === id).map((c) => ({ ...c, id: uid('c'), trackId: copy.id, groupId: null }));
+  const original = state.clips.filter((c) => c.trackId === id);
+  const clips = relocateMergeLayouts(original, original.map((c) => ({ ...c, id: uid('c'), trackId: copy.id, groupId: null })));
   const tracks = state.tracks.slice();
   tracks.splice(i + 1, 0, copy);
   return { ...state, tracks, clips: [...state.clips, ...clips] };
@@ -324,7 +344,7 @@ export function addClipsOnTop(state, clips) {
   if (!clips.length) return state;
   const top = Math.max(0, ...state.clips.map((c) => c.z)) + 1;
   const low = Math.min(...clips.map((c) => c.z || 0));
-  return addClips(state, clips.map((c) => ({ ...c, z: top + (c.z || 0) - low })));
+  return addClips(state, relocateMergeLayouts(clips, clips.map((c) => ({ ...c, z: top + (c.z || 0) - low }))));
 }
 
 export function removeClips(state, ids) {
@@ -386,9 +406,12 @@ export function moveClips(state, ids, dt, dTrack = 0, { copy = false } = {}) {
       }
       return { ...c, ...moved.get(c.id), id: uid('c'), groupId };
     });
-    return { ...state, clips: [...state.clips, ...copies] };
+    return { ...state, clips: [...state.clips, ...relocateMergeLayouts(moving, copies)] };
   }
-  return { ...state, clips: state.clips.map((c) => (moved.has(c.id) ? { ...c, ...moved.get(c.id) } : c)) };
+  if (!moving.some((c) => c.mergeLayout)) return { ...state, clips: state.clips.map((c) => (moved.has(c.id) ? { ...c, ...moved.get(c.id) } : c)) };
+  const relocated = relocateMergeLayouts(moving, moving.map((c) => ({ ...c, ...moved.get(c.id) })));
+  const byId = new Map(relocated.map((c) => [c.id, c]));
+  return { ...state, clips: state.clips.map((c) => byId.get(c.id) || c) };
 }
 
 /** Splits an envelope at clip-relative frame `at` into [left, right(shifted)]. */
@@ -425,19 +448,19 @@ export function splitClip(c, at) {
   const cut = at - c.start;
   const [lv, rv] = splitEnvelope(c.volumeEnv, cut, 0);
   const [lp, rp] = splitEnvelope(c.panEnv, cut, 0);
-  const left = { ...c, length: cut, fadeOut: { length: 0, curve: c.fadeOut.curve }, fadeIn: { ...c.fadeIn, length: Math.min(c.fadeIn.length, cut) }, volumeEnv: lv, panEnv: lp };
+  const left = { ...c, length: cut, fadeOut: sliceFade(c.fadeOut, c.length - cut, c.length), fadeIn: sliceFade(c.fadeIn, 0, cut), volumeEnv: lv, panEnv: lp };
   const right = {
     ...c,
     id: uid('c'),
     start: at,
     offset: c.offset + cut,
     length: c.length - cut,
-    fadeIn: { length: 0, curve: c.fadeIn.curve },
-    fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, c.length - cut) },
+    fadeIn: sliceFade(c.fadeIn, cut, c.length),
+    fadeOut: sliceFade(c.fadeOut, 0, c.length - cut),
     volumeEnv: rv,
     panEnv: rp,
   };
-  return [left, right];
+  return splitMergeLayout(c, [left, right]);
 }
 
 /** Splits the given clips (or all clips when ids is null) at `at`. Locked clips are split too, as in most editors. */
@@ -445,14 +468,16 @@ export function splitClips(state, ids, at) {
   const set = ids ? new Set(ids) : null;
   let changed = false;
   const clips = [];
+  const splits = new Map();
   for (const c of state.clips) {
     const parts = (!set || set.has(c.id)) && splitClip(c, at);
     if (parts) {
       clips.push(...parts);
+      splits.set(c.id, { original: c, pieces: parts });
       changed = true;
     } else clips.push(c);
   }
-  return changed ? { ...state, clips } : state;
+  return changed ? { ...state, clips: retargetSplitLayouts(clips, splits) } : state;
 }
 
 /** Shifts envelope points by -d (the clip start moved right by d) and drops points before 0. */
@@ -705,7 +730,7 @@ export function rippleDeleteGap(state, trackId, at) {
 export function setFade(state, ids, dir, patch) {
   const key = dir === 'in' ? 'fadeIn' : 'fadeOut';
   return updateClips(state, ids, (c) => {
-    const f = { ...c[key], ...patch };
+    const f = { ...restartFade(c[key]), ...patch };
     f.length = Math.max(0, Math.min(c.length, Math.round(f.length)));
     return { [key]: f };
   });
@@ -754,15 +779,17 @@ export function setAutomation(state, trackId, param, points) {
 
 // ------------------------------------------------------------- crossfades
 
+const overlapScene = (state) => state.clips.some((c) => c.mergeLayout) ? mergeScene(state.clips) : null;
+
 /**
  * Overlaps between clips on the same track. Each entry is
  * { trackId, out: clipId fading out, in: clipId fading in, start, end }.
  * Only partial overlaps crossfade; a clip wholly inside another does not.
  */
-export function crossfades(state) {
+export function crossfades(state, scene = overlapScene(state)) {
   const out = [];
   const byTrack = new Map();
-  for (const c of state.clips) {
+  for (const c of scene?.list || state.clips) {
     if (c.mute) continue;
     if (!byTrack.has(c.trackId)) byTrack.set(c.trackId, []);
     byTrack.get(c.trackId).push(c);
@@ -775,6 +802,7 @@ export function crossfades(state) {
         const b = clips[j];
         if (b.start >= clipEnd(a)) break;
         if (clipEnd(b) <= clipEnd(a) || b.start === a.start) continue; // containment
+        if (scene && !scene.interacts(a, b)) continue;
         out.push({ trackId, out: a.id, in: b.id, start: b.start, end: clipEnd(a) });
       }
     }
@@ -797,9 +825,9 @@ export function overlapCrossfades(state, outClip, inClip) {
 }
 
 /** Overlaps that are heard as crossfades (see crossfades and overlapCrossfades). */
-export function activeCrossfades(state) {
-  const byId = new Map(state.clips.map((c) => [c.id, c]));
-  return crossfades(state).filter((x) => overlapCrossfades(state, byId.get(x.out), byId.get(x.in)));
+export function activeCrossfades(state, scene = overlapScene(state)) {
+  const byId = new Map((scene?.list || state.clips).map((c) => [c.id, c]));
+  return crossfades(state, scene).filter((x) => overlapCrossfades(state, byId.get(x.out), byId.get(x.in)));
 }
 
 /** How a clip end sounds: 'crossfade' (with an overlapping clip), 'fade' or 'none'. */
@@ -817,10 +845,11 @@ export function fadeMode(state, clip, dir, active = activeCrossfades(state)) {
 export function setFadeMode(state, ids, dir, mode) {
   const key = dir === 'in' ? 'fadeIn' : 'fadeOut';
   const other = dir === 'in' ? 'fadeOut' : 'fadeIn';
-  const byId = new Map(state.clips.map((c) => [c.id, c]));
+  const scene = overlapScene(state);
+  const byId = new Map((scene?.list || state.clips).map((c) => [c.id, c]));
   // Overlaps at that end of each clip.
   const overlaps = new Map();
-  for (const x of crossfades(state)) {
+  for (const x of crossfades(state, scene)) {
     const id = dir === 'in' ? x.in : x.out;
     if (!overlaps.has(id)) overlaps.set(id, []);
     overlaps.get(id).push(x);
@@ -831,14 +860,14 @@ export function setFadeMode(state, ids, dir, mode) {
     const c = byId.get(id);
     if (!c) continue;
     const mine = overlaps.get(id) || [];
-    const f = { ...c[key] };
+    const f = restartFade(c[key]);
     if (mode === 'crossfade') {
       if (!mine.length) continue;
       f.xf = true;
       patch(id, key, f);
       for (const x of mine) {
         const n = dir === 'in' ? x.out : x.in;
-        patch(n, other, { ...(patches.get(n)?.[other] || byId.get(n)[other]), xf: true });
+        patch(n, other, { ...restartFade(patches.get(n)?.[other] || byId.get(n)[other]), xf: true });
       }
       continue;
     }
@@ -848,6 +877,17 @@ export function setFadeMode(state, ids, dir, mode) {
     if (mine.length) f.xf = false;
     else delete f.xf;
     patch(id, key, f);
+  }
+  // A baked partner has geometry but no separate audio clip. Its fade mode
+  // still controls the live neighbor, so keep edits in that owner's layout.
+  for (const [id, patch] of [...patches]) {
+    const ghost = scene?.ghosts.get(id);
+    if (!ghost) continue;
+    const owner = byId.get(ghost.owner);
+    const layout = patches.get(owner.id)?.mergeLayout || owner.mergeLayout;
+    const layers = layout.layers.map((layer, index) => index === ghost.index ? { ...layer, ...patch } : layer);
+    patches.set(owner.id, { ...patches.get(owner.id), mergeLayout: { ...layout, layers } });
+    patches.delete(id);
   }
   return patches.size ? updateClips(state, [...patches.keys()], (c) => patches.get(c.id)) : state;
 }

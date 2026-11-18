@@ -6,6 +6,8 @@
 // Entries are removed when a document is saved, reverted or closed, and the
 // total size is capped.
 
+import { wavChunksOf } from '../audio/wav.js';
+
 export const DIR_NAME = 'audio-studio-autosave';
 export const LOCK_PREFIX = 'audio-studio-session-';
 const VERSION = 1;
@@ -29,7 +31,7 @@ export function buildManifest(doc, { session, key, now = Date.now() }) {
     bitDepth: doc.info?.bitDepth ?? 32,
     format: doc.info?.format || 'wav',
     exportOptions: doc.info?.exportOptions || null,
-    wavChunks: packChunks(doc.info?.wavChunks),
+    wavChunks: packChunks(wavChunksOf(doc)),
     source: doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path, uid: doc.source.uid } : { type: doc.source?.type || 'new' },
     markers: doc.state.markers.map(({ id, ...m }) => m),
     meta: doc.state.meta || {},
@@ -132,7 +134,7 @@ export class AutosaveStore {
     try {
       const nch = channels.length;
       const frames = manifest.frames;
-      await out.write(floatWavHeader(doc.sampleRate, nch, frames));
+      await out.write(floatWavHeader(manifest.sampleRate, nch, frames));
       const tmp = Array.from({ length: nch }, () => new Float32Array(BLOCK));
       let blocks = 0;
       for (let at = 0; at < frames; at += BLOCK) {
@@ -154,8 +156,13 @@ export class AutosaveStore {
     }
     const mf = await dir.getFileHandle(`${manifest.key}.json`, { create: true });
     const w = await mf.createWritable();
-    await w.write(JSON.stringify(manifest));
-    await w.close();
+    try {
+      await w.write(JSON.stringify(manifest));
+      await w.close();
+    } catch (err) {
+      await w.abort?.().catch(() => {});
+      throw err;
+    }
   }
 
   async remove(key) {

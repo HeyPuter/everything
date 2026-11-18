@@ -19,6 +19,11 @@ const ascii = (dv, o, n) => {
  */
 export const KEPT_CHUNKS = ['iXML', 'axml', 'inst', 'smpl'];
 
+/** A reverted external snapshot may carry different chunks from the opened file. */
+export function wavChunksOf(doc) {
+  return doc.state?.wavChunks === undefined ? doc.info?.wavChunks : doc.state.wavChunks;
+}
+
 /**
  * The kept chunks still true of an export with this rate, channel count and length.
  * `source` = { sampleRate, channels, frames, list: [{ id, bytes }] } as the file was opened.

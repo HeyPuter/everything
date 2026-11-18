@@ -19,18 +19,27 @@ export async function channelsAtRate(channels, from, to) {
 
 /** Pool source id for an AudioFile, adding or refreshing the pool entry. */
 export async function linkSource(session, doc) {
-  for (const src of session.pool.values()) {
-    if (src.docId === doc.id && src.stateRef === doc.state) return src.id;
+  for (;;) {
+    const state = doc.state;
+    const sourceRate = doc.sampleRate;
+    const rate = session.sampleRate;
+    for (const src of session.pool.values()) {
+      if (src.docId === doc.id && src.channelRate === rate && src.stateRef === state) return src.id;
+    }
+    const channels = await channelsAtRate(state.channels, sourceRate, rate);
+    // Edits can arrive while DSP loads. Never cache old samples under a newer
+    // document version, or overwrite a source refreshed by a later request.
+    if (doc.state !== state || doc.sampleRate !== sourceRate || session.sampleRate !== rate) continue;
+    // Revert can switch session rates. Keep older-rate sources intact for Undo.
+    const existing = [...session.pool.values()].find((s) => s.docId === doc.id && s.channelRate === rate);
+    if (existing) {
+      session.updateSource(existing.id, { channels, stateRef: state, name: doc.name });
+      return existing.id;
+    }
+    const id = session.addSource({ name: doc.name, channels, sampleRate: sourceRate, docId: doc.id, path: doc.source?.path || null });
+    session.pool.get(id).stateRef = state;
+    return id;
   }
-  const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
-  const existing = [...session.pool.values()].find((s) => s.docId === doc.id);
-  if (existing) {
-    session.updateSource(existing.id, { channels, stateRef: doc.state, name: doc.name });
-    return existing.id;
-  }
-  const id = session.addSource({ name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: doc.source?.path || null });
-  session.pool.get(id).stateRef = doc.state;
-  return id;
 }
 
 /** Next free "Track N" name. */
@@ -109,8 +118,9 @@ export function freeTrackShift(state, base, spans) {
 
 /**
  * Called before an insert is committed: async (app, session, state, inserted)
- * => state, where inserted lists { doc, clip } (e.g. to add a video's picture
- * to the video track in the same undo step).
+ * => (state => state) | null, where inserted lists { doc, clip }. Prepare any
+ * asynchronous decisions, then return a synchronous edit of the latest state
+ * (e.g. to add a video's picture in the same undo step as its audio).
  */
 export const INSERT_HOOKS = [];
 
@@ -123,46 +133,109 @@ export const INSERT_HOOKS = [];
 export async function insertDocs(app, session, docs, { trackId, at, range } = {}) {
   docs = docs.filter((d) => d && d.kind === 'audio' && d.length > 0);
   if (!docs.length) return [];
+  // All prepared sources and frame positions must use the same session rate.
+  // Revert/Undo can replace it while conversion or a hook's dialog is pending.
+  const rate = session.sampleRate;
+  const canInsert = () => {
+    if (!app.documents.includes(session)) {
+      app.notify('Insertion stopped because the destination session was closed. Imported files remain open.', { error: true });
+    } else if (session.sampleRate !== rate) {
+      app.notify('Insertion stopped because the session sample rate changed. Review the session and insert the files again.', { error: true });
+    } else return true;
+    return false;
+  };
+  if (!canInsert()) return [];
   at = Math.max(0, Math.round(at ?? session.cursor));
-  let state = session.state;
-  // Clips never land on hidden tracks, where they could not be seen.
-  const audio = () => shownAudioTracks(state);
   // trackId null means "a new track"; undefined means the selected track.
-  let index = trackId === null ? -1 : audio().findIndex((t) => t.id === (trackId ?? session.selectedTrack));
+  const target = trackId === undefined ? session.selectedTrack : trackId;
   const ids = [];
   // Several files go one per track, or end to end on one track (Preferences > Multitrack Clips).
   const sameTrack = placementOptions.sameTrack && docs.length > 1;
   const parts = [];
-  let t = at;
   for (const [i, doc] of docs.entries()) {
+    const ratio = rate / doc.sampleRate;
+    const requested = range && i === 0 ? {
+      offset: Math.max(0, Math.round(range[0] * ratio)),
+      length: Math.max(1, Math.round((range[1] - range[0]) * ratio)),
+    } : null;
     const sourceId = await linkSource(session, doc);
-    const srcLen = session.sourceLength(sourceId);
-    let offset = 0;
-    let length = srcLen;
-    if (range && i === 0) {
-      const ratio = session.sampleRate / doc.sampleRate;
-      offset = Math.round(range[0] * ratio);
-      length = Math.max(1, Math.min(srcLen - offset, Math.round((range[1] - range[0]) * ratio)));
-    }
-    parts.push({ doc, sourceId, offset, length, start: sameTrack ? t : at, trackOffset: sameTrack ? 0 : i });
-    t += length;
+    if (!canInsert()) return [];
+    parts.push({ doc, sourceId, requested });
   }
-  if (placementOptions.avoidOverlap && index >= 0) index += freeTrackShift(state, index, parts.map((p) => ({ trackOffset: p.trackOffset, start: p.start, end: p.start + p.length })));
-  for (const p of parts) {
-    let track = index >= 0 ? audio()[index + p.trackOffset] : null;
-    if (!track) {
-      const last = state.tracks.filter((x) => x.type === 'audio').pop();
-      const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
-      state = made.state;
-      track = made.track;
-      if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
+  // Earlier sources can change while later ones convert. Refresh linked
+  // audio before deriving any bounds, including after a hook's dialog.
+  const ready = (p) => {
+    const src = session.pool.get(p.sourceId);
+    return src?.stateRef === p.doc.state && src.channelRate === rate;
+  };
+  const refreshSources = async () => {
+    for (const p of parts) {
+      if (ready(p)) continue;
+      p.sourceId = await linkSource(session, p.doc);
+      if (!canInsert()) return false;
     }
-    const clip = S.createClip({ trackId: track.id, sourceId: p.sourceId, name: baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
-    state = S.addClipsOnTop(state, [clip]);
-    ids.push(clip.id);
-    p.clip = clip;
+    return true;
+  };
+  while (!parts.every(ready)) if (!(await refreshSources())) return [];
+  let activeParts;
+  const place = (base) => {
+    let state = base;
+    let end = at;
+    activeParts = [];
+    for (const p of parts) {
+      p.prepared = session.pool.get(p.sourceId);
+      const length = session.sourceLength(p.sourceId);
+      if (!length) continue;
+      p.offset = p.requested ? Math.min(p.requested.offset, length - 1) : 0;
+      p.length = p.requested ? Math.min(p.requested.length, length - p.offset) : length;
+      p.start = sameTrack ? end : at;
+      p.trackOffset = sameTrack ? 0 : activeParts.length;
+      end += p.length;
+      activeParts.push(p);
+    }
+    // Re-resolve the original target after preparation; it may have been
+    // hidden, moved or deleted. Never restore tracks from an older snapshot.
+    const audio = () => shownAudioTracks(state);
+    let index = target === null ? -1 : audio().findIndex((t) => t.id === target);
+    ids.length = 0;
+    if (placementOptions.avoidOverlap && index >= 0) index += freeTrackShift(state, index, activeParts.map((p) => ({ trackOffset: p.trackOffset, start: p.start, end: p.start + p.length })));
+    for (const p of activeParts) {
+      let track = index >= 0 ? audio()[index + p.trackOffset] : null;
+      if (!track) {
+        const last = state.tracks.filter((x) => x.type === 'audio').pop();
+        const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
+        state = made.state;
+        track = made.track;
+        if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
+      }
+      const clip = S.createClip({ id: p.clip?.id, trackId: track.id, sourceId: p.sourceId, name: baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
+      state = S.addClipsOnTop(state, [clip]);
+      ids.push(clip.id);
+      p.clip = clip;
+    }
+    return state;
+  };
+  let base = session.state;
+  let state = place(base);
+  if (!ids.length) return [];
+  const edits = [];
+  for (const hook of INSERT_HOOKS) {
+    const edit = await hook(app, session, state, activeParts.map((p) => ({ doc: p.doc, clip: p.clip })));
+    if (!canInsert()) return [];
+    while (!parts.every(ready)) if (!(await refreshSources())) return [];
+    // Rebuild placement for source edits as well as timeline edits. Keep
+    // clip ids stable so hook edits can locate their current audio bounds.
+    if (session.state !== base || parts.some((p) => p.prepared !== session.pool.get(p.sourceId))) {
+      base = session.state;
+      state = place(base);
+      for (const prior of edits) state = prior(state);
+    }
+    if (edit) {
+      edits.push(edit);
+      state = edit(state);
+    }
   }
-  for (const hook of INSERT_HOOKS) state = (await hook(app, session, state, parts.map((p) => ({ doc: p.doc, clip: p.clip })))) || state;
+  if (!canInsert() || !ids.length) return [];
   session.apply(docs.length > 1 ? 'Insert Files' : 'Insert File', state, { clips: ids });
   const first = S.findClip(session.state, ids[0]);
   if (first) session.selectTrack(first.trackId);
@@ -172,9 +245,15 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
 
 /** Opens local files or Puter items (without activating them) and inserts them. */
 export async function insertFiles(app, session, items, opts = {}) {
+  const rate = session.sampleRate;
   const docs = await openFiles(app, items, { activate: false });
   // The session was closed while the files opened: they stay in the Files panel.
   if (!app.documents.includes(session)) return [];
+  // Drop/picker positions were captured before file I/O, in the old frame units.
+  if (session.sampleRate !== rate && docs.some((d) => d.kind === 'audio' && d.length > 0)) {
+    app.notify('Insertion stopped because the session sample rate changed. Review the session and insert the files again.', { error: true });
+    return [];
+  }
   if (app.active !== session) app.activate(session);
   return insertDocs(app, session, docs, opts);
 }
@@ -192,16 +271,26 @@ export function syncLinkedSources(app, doc) {
     for (const s of sessions) {
       for (const src of s.pool.values()) {
         if (src.docId !== doc.id || src.stateRef === doc.state) continue;
-        const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, s.sampleRate);
-        s.updateSource(src.id, { channels, stateRef: doc.state, name: doc.name });
-        const fitted = S.fitClipsToSource(s.state, src.id, channels[0]?.length ?? 0);
-        if (fitted !== s.state) s.apply('Fit Clips to Source', fitted);
+        for (;;) {
+          const state = doc.state;
+          const sourceRate = doc.sampleRate;
+          const rate = src.channelRate;
+          const channels = await channelsAtRate(state.channels, sourceRate, rate);
+          if (doc.state !== state || doc.sampleRate !== sourceRate) continue;
+          s.updateSource(src.id, { channels, stateRef: state, name: doc.name });
+          const fitted = S.fitClipsToSource(s.state, src.id, channels[0]?.length ?? 0);
+          if (fitted !== s.state) s.apply('Fit Clips to Source', fitted);
+          break;
+        }
       }
     }
     app.syncGraph();
   };
   clearTimeout(pending.get(doc.id));
-  const sameRate = sessions.every((s) => s.sampleRate === doc.sampleRate);
+  const sameRate = sessions.every((s) => {
+    for (const src of s.pool.values()) if (src.docId === doc.id && src.channelRate !== doc.sampleRate) return false;
+    return true;
+  });
   if (sameRate) run();
   else pending.set(doc.id, setTimeout(run, 300));
 }

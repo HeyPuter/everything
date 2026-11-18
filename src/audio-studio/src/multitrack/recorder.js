@@ -36,6 +36,8 @@ export class SessionRecorder {
   constructor(app) {
     this.app = app;
     this.take = null;
+    this.starting = null;
+    this.stopping = null;
     // Stopping the transport any other way (Space, switching documents)
     // ends the take instead of leaving the input capturing.
     app.on('transport', (state) => {
@@ -44,15 +46,16 @@ export class SessionRecorder {
   }
 
   get active() {
-    return Boolean(this.take);
+    return Boolean(this.starting || this.take || this.stopping);
   }
 
   async toggle(doc) {
-    if (this.take) return this.stop();
+    if (this.active) return this.stop();
     return this.start(doc);
   }
 
   async start(doc) {
+    if (this.active) return;
     const app = this.app;
     const armed = doc.state.tracks.filter((t) => t.type === 'audio' && t.arm);
     if (!armed.length) {
@@ -60,12 +63,26 @@ export class SessionRecorder {
       return;
     }
     const engine = app.engine;
+    const pending = this.starting = {};
+    const offClose = doc.on('close', () => this.stop());
+    const offActive = app.on('active', (active) => { if (active !== doc) this.stop(); });
+    pending.off = () => { offClose(); offActive(); };
+    app.setStatus?.('Opening audio input...');
+    app.emit('transport', 'recording-pending');
     try {
       await engine.openInput();
-    } catch {
-      app.notify('The microphone could not be opened. Check the browser permission.', { error: true });
+    } catch (err) {
+      if (this.starting !== pending) return;
+      this.starting = null;
+      pending.off();
+      app.setStatus?.('');
+      app.emit('transport', engine.state || 'stopped');
+      if (err.name !== 'AbortError') app.notify('The microphone could not be opened. Check the browser permission.', { error: true });
       return;
     }
+    if (this.starting !== pending) return;
+    this.starting = null;
+    pending.off();
     const chunks = [];
     const off = engine.on('record-data', (channels) => chunks.push(channels));
     let monitoring = false;
@@ -82,20 +99,22 @@ export class SessionRecorder {
     const preroll = punch ? Math.round((Number(app.prefs?.get('prerollSeconds')) || 0) * doc.sampleRate) : 0;
     const loop = Boolean(punch && app.loop);
     const from = punch ? Math.max(0, punch.start - preroll) : doc.cursor;
-    const take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id), closed: false };
+    const take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id), closed: false, controller: new AbortController() };
     // Closing the session stops the transport; the take must not reopen it.
-    take.offClose = doc.on('close', () => (take.closed = true));
+    take.offClose = doc.on('close', () => { take.closed = true; this.stop(); });
+    take.offActive = app.on('active', (active) => { if (active !== doc) this.stop(); });
     this.take = take;
-    engine.setRecording(true);
     app.playStart = from;
     try {
-      await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null });
+      await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null, signal: take.controller.signal });
     } catch (err) {
+      if (this.take !== take) return; // Stop already owns this take's cleanup.
       // Playback refused (e.g. a rate this browser cannot play) or failed:
       // undo the start so the input is not left capturing, then report it.
       engine.setRecording(false);
       off();
       take.offClose();
+      take.offActive();
       if (this.take?.chunks === chunks) this.take = null;
       app.playStart = null;
       if (monitoring) {
@@ -107,32 +126,69 @@ export class SessionRecorder {
       }
       // The input stays open only for Meter Input Signal, which opened it for itself.
       if (!app.inputMetering) engine.closeInput();
+      app.setStatus?.('');
+      app.emit('transport', engine.state || 'stopped');
       throw err;
     }
+    if (this.take !== take) return;
+    // Context/DSP preparation may wait on I/O. Capturing during that wait
+    // would prepend unrelated input before playback actually starts.
+    engine.setRecording(true);
+    app.setStatus?.('Recording...');
     app.recording = true;
     app.emit('transport', 'recording');
     announce('Recording');
   }
 
   async stop() {
-    const app = this.app;
+    if (this.starting) {
+      const pending = this.starting;
+      this.starting = null;
+      pending.off();
+      if (!this.app.inputMetering) this.app.engine.closeInput();
+      this.app.setStatus?.('Recording cancelled');
+      this.app.emit('transport', this.app.engine.state || 'stopped');
+      return;
+    }
+    if (this.stopping) return this.stopping;
     const take = this.take;
+    if (!take) return;
     this.take = null;
+    // Flushing and committing still own the input. A second Record click
+    // must not open another capture that this stop would then close.
+    this.stopping = this.#finish(take);
+    try {
+      return await this.stopping;
+    } finally {
+      this.stopping = null;
+      this.app.emit('transport', this.app.engine.state || 'stopped');
+    }
+  }
+
+  async #finish(take) {
+    const app = this.app;
     const engine = app.engine;
+    // A new playback may change the context while the last capture block is
+    // being delivered. These settings belong to the take that just stopped.
+    const rate = engine.rate;
+    // Both the playback delay and the input delay come off the recorded take.
+    const latency = engine.outputLatencyFrames + (engine.inputLatencyFrames || 0);
+    const inputRequest = engine.inputRequest;
+    take.controller.abort();
     engine.setRecording(false);
+    engine.stop();
+    app.recording = false;
+    app.playStart = null;
+    app.setStatus?.('Recording stopped');
+    app.emit('transport', 'stopped');
     // Let the capture worklet flush its last block.
     await new Promise((r) => setTimeout(r, 150));
     take.off();
     take.offClose();
-    engine.stop();
-    const rate = engine.rate;
-    // What the player heard left the speakers output latency late, and their
-    // performance reached the capture input latency late: both come off the take.
-    const latency = engine.outputLatencyFrames + (engine.inputLatencyFrames || 0);
-    engine.closeInput();
-    app.recording = false;
-    app.playStart = null;
-    app.emit('transport', 'stopped');
+    take.offActive();
+    // Context migration keeps this request id; an explicitly newer input
+    // request owns its own cleanup and must not be closed by the old take.
+    if (engine.inputRequest === inputRequest) engine.closeInput();
     const doc = take.doc;
     const n = take.chunks.reduce((s, c) => s + c[0].length, 0);
     if (n <= latency + 16) {
@@ -164,7 +220,9 @@ export class SessionRecorder {
     if (!take.armed.some((id) => S.findTrack(state, id))) {
       pieces.forEach((p, i) => {
         const name = this.app.uniqueName(pieces.length > 1 ? `Recording_Take ${i + 1}` : 'Recording_Take', '.wav');
-        app.addDocument(new AudioFile({ name, sampleRate: doc.sampleRate, channels: channels.map((c) => c.slice(p.start, p.start + p.length)), info: { bitDepth: 32, format: 'wav' } }), { activate: false });
+        const file = new AudioFile({ name, sampleRate: doc.sampleRate, channels: channels.map((c) => c.slice(p.start, p.start + p.length)), info: { bitDepth: 32, format: 'wav' } });
+        file.savedState = null;
+        app.addDocument(file, { activate: false });
       });
       app.notify(`The armed ${take.armed.length > 1 ? 'tracks were' : 'track was'} deleted while recording. The recording is in the Files panel.`);
       return;
@@ -182,6 +240,7 @@ export class SessionRecorder {
         const markers = app.prefs?.get('markersInMixdowns') ? markersInRange(doc.state.markers, p.at, p.at + p.length).map((m) => createMarker(m)) : [];
         const base = pieces.length > 1 ? `${track.name}_Take ${i + 1}` : `${track.name}_Take`;
         const file = new AudioFile({ name: this.app.uniqueName(base, '.wav'), sampleRate: doc.sampleRate, channels: own, markers, info: { bitDepth: 32, format: 'wav' } });
+        file.savedState = null;
         app.addDocument(file, { activate: false });
         const sourceId = await linkSource(doc, file);
         // Only the newest of stacked takes plays; the others stay to pick from.
@@ -196,7 +255,6 @@ export class SessionRecorder {
       app.notify(`${doc.name} was closed while recording. The recording is in the Files panel.`);
       return;
     }
-    if (app.active !== doc) app.activate(doc);
     doc.apply(pieces.length > 1 ? 'Record Takes' : 'Record', state, { clips: ids, cursor: pieces[0].at });
     announce(pieces.length > 1 ? `Recorded ${pieces.length} takes` : `Recorded ${ids.length} take${ids.length > 1 ? 's' : ''}`);
   }

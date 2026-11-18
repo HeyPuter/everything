@@ -3,7 +3,8 @@
 // app.recorder (the multitrack editor records armed tracks with it).
 //
 // app.recorder API:
-//   app.recorder.active                      true while recording
+//   app.recorder.active                      true while opening, recording, or finalizing
+//   app.recorder.document                    target AudioFile, or null for external capture
 //   await app.recorder.start(opts)           opens the input and starts capturing
 //     opts.doc        AudioFile to record into (Waveform mode); omit for external
 //     opts.at         frame to insert at (default doc.cursor)
@@ -17,10 +18,13 @@
 //                        take.peak, take.toChannels()
 //   await app.recorder.stop()                -> { channels: Channel[], sampleRate,
 //                                                 frames, latencyFrames, doc } | null
+// A failed conversion keeps a separate unsaved file at the capture rate and
+// returns that file with recovered: true.
 // While recording app.recording is true and 'transport' is emitted.
 
 import { Take, placeTake } from './take.js';
 import { Channel } from '../audio/channel.js';
+import { AudioFile } from '../model/audio-file.js';
 import { dsp } from '../audio/dsp.js';
 import { UserError } from '../lib/errors.js';
 import { announce } from '../lib/dom.js';
@@ -41,11 +45,13 @@ export function inputErrorMessage(err) {
 export function createRecorder(app) {
   const engine = app.engine;
   let session = null;
+  let starting = null;
 
-  async function openInput(deviceId) {
+  async function openInput(deviceId, pending) {
     try {
       return await engine.openInput({ deviceId: deviceId || undefined });
     } catch (err) {
+      if (starting !== pending) return;
       // A remembered device that was unplugged: fall back to the default input.
       if (deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError')) {
         app.notify('The selected input device was not found. Using the default input.');
@@ -57,23 +63,42 @@ export function createRecorder(app) {
 
   const recorder = {
     get active() {
-      return Boolean(session);
+      return Boolean(starting || session);
     },
 
     get take() {
       return session?.take || null;
     },
 
+    get document() {
+      return session?.doc || starting?.doc || null;
+    },
+
     async start(opts = {}) {
-      if (session) return;
+      if (starting || session) return;
       const doc = opts.doc || null;
       if (engine.playing && doc && !opts.keepPlaying) app.stop();
       const deviceId = opts.deviceId ?? app.prefs.get('inputDevice');
+      const pending = starting = { doc };
+      const offClose = doc?.on('close', () => recorder.stop());
+      const offActive = doc && app.on('active', (active) => { if (active !== doc) recorder.stop(); });
+      pending.off = () => { offClose?.(); offActive?.(); };
+      app.setStatus('Opening audio input...');
+      app.emit('transport', 'recording-pending');
       try {
-        await openInput(deviceId);
+        await openInput(deviceId, pending);
       } catch (err) {
+        if (starting !== pending) return;
+        starting = null;
+        pending.off();
+        app.setStatus('');
+        app.emit('transport', engine.state || 'stopped');
+        if (err.name === 'AbortError') return;
         throw new UserError(inputErrorMessage(err));
       }
+      if (starting !== pending) return;
+      starting = null;
+      pending.off();
       const rate = engine.rate;
       const sampleRate = opts.sampleRate || doc?.sampleRate || rate;
       const channels = opts.channels || doc?.channelCount || Math.min(2, engine.input?.channels || 2);
@@ -101,8 +126,10 @@ export function createRecorder(app) {
         recorder.stop();
       };
       track?.addEventListener?.('ended', onEnded);
+      const offSessionActive = doc && app.on('active', (active) => { if (active !== doc) recorder.stop(); });
       s.off = () => {
         offData();
+        offSessionActive?.();
         track?.removeEventListener?.('ended', onEnded);
       };
       engine.setRecording(true);
@@ -114,6 +141,15 @@ export function createRecorder(app) {
     },
 
     async stop() {
+      if (starting) {
+        const pending = starting;
+        starting = null;
+        pending.off();
+        if (!app.inputMetering) engine.closeInput();
+        app.setStatus('Recording cancelled');
+        app.emit('transport', engine.state || 'stopped');
+        return null;
+      }
       const s = session;
       if (!s) return null;
       if (s.stopping) return s.stopping;
@@ -123,25 +159,49 @@ export function createRecorder(app) {
         await new Promise((r) => setTimeout(r, 120));
         s.off();
         clearTimeout(s.timer);
-        session = null;
-        app.recording = false;
         if (!app.inputMetering) {
           engine.closeInput();
           app.meterInput?.(false);
         }
-        let channels = s.take.toChannels();
-        if (s.rate !== s.sampleRate && s.take.length) channels = await resampleChannels(channels, s.rate, s.sampleRate);
-        const frames = channels[0]?.length ?? 0;
-        if (s.doc) commit(s, channels);
-        app.emit('transport', 'stopped');
-        const secs = frames / s.sampleRate;
-        app.setStatus(frames ? `Recorded ${secs.toFixed(1)} seconds` : 'Recording stopped');
-        announce(frames ? `Recording stopped, ${secs.toFixed(1)} seconds` : 'Recording stopped');
-        return { channels, sampleRate: s.sampleRate, frames, latencyFrames: s.latencyFrames, doc: s.doc };
+        // Keep ownership until conversion and commit finish. Another Record or
+        // Stop during the asynchronous DSP load still belongs to this take.
+        try {
+          let channels = s.take.toChannels();
+          if (s.rate !== s.sampleRate && s.take.length) {
+            try {
+              channels = await resampleChannels(channels, s.rate, s.sampleRate);
+            } catch (err) {
+              return recover(s, channels, err);
+            }
+          }
+          const frames = channels[0]?.length ?? 0;
+          if (s.doc) commit(s, channels);
+          const secs = frames / s.sampleRate;
+          app.setStatus(frames ? `Recorded ${secs.toFixed(1)} seconds` : 'Recording stopped');
+          announce(frames ? `Recording stopped, ${secs.toFixed(1)} seconds` : 'Recording stopped');
+          return { channels, sampleRate: s.sampleRate, frames, latencyFrames: s.latencyFrames, doc: s.doc };
+        } finally {
+          session = null;
+          app.recording = false;
+          app.emit('transport', 'stopped');
+        }
       })();
       return s.stopping;
     },
   };
+
+  function recover(s, channels, err) {
+    const doc = new AudioFile({ name: app.uniqueName('Recovered Recording', '.wav'), sampleRate: s.rate, channels });
+    doc.savedState = null;
+    app.addDocument(doc, { activate: false });
+    // Remove only our unchanged live preview. Edits made over it belong to
+    // the user; the separate file keeps the complete take either way.
+    if (s.pushed && s.doc.state === s.last) s.doc.history.amend(s.base);
+    app.setStatus('Recording recovered');
+    app.notify(`Sample-rate conversion failed: ${err?.message || 'Unknown error'}. The original recording is available as "${doc.name}" in the Files panel.`, { error: true });
+    announce('Recording recovered in the Files panel');
+    return { channels, sampleRate: s.rate, frames: s.take.length, latencyFrames: s.latencyFrames, doc, recovered: true };
+  }
 
   /** Shows the growing take in the document as one "Record" history step. */
   function update(s) {
@@ -150,7 +210,7 @@ export function createRecorder(app) {
     s.onData?.(s.take);
     if (!s.doc || !s.take.length) return;
     // Undo or another edit while recording: end the take rather than overwrite it.
-    if (s.pushed && s.doc.history.state !== s.last) {
+    if (s.doc.history.state !== (s.pushed ? s.last : s.base)) {
       recorder.stop();
       return;
     }
@@ -174,9 +234,9 @@ export function createRecorder(app) {
     }
     const state = placeTake(s.base, channels, { at: s.at, replace: s.replace });
     if (s.pushed && doc.history.state === s.last) doc.history.amend(state);
-    else if (!s.pushed) doc.apply('Record', state);
+    else if (!s.pushed && doc.state === s.base) doc.apply('Record', state);
     else {
-      // The live step was undone or edited over: keep the take as a new step on top.
+      // The base or live step was undone or edited over: keep the take as a new step on top.
       doc.apply('Record', placeTake(doc.state, channels, { at: Math.min(s.at, doc.length), replace: null }));
     }
     const end = s.at + channels[0].length;

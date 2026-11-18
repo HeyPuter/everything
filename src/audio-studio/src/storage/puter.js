@@ -61,11 +61,17 @@ export async function pickFiles({ multiple = true, accept } = {}) {
   return Array.isArray(r) ? r : [r];
 }
 
-/** Puter save dialog. Resolves the saved FSItem. */
+/** Puter save dialog. Resolves the saved FSItem, or undefined on cancellation. */
 export async function pickSave(blob, suggestedName) {
   const p = sdk();
   if (!p?.ui?.showSaveFilePicker) throw new Error('The Puter save dialog is not available.');
-  return p.ui.showSaveFilePicker(blob, suggestedName);
+  return pickerResult(p.ui.showSaveFilePicker(blob, suggestedName));
+}
+
+function pickerResult(pending) {
+  // Cancel settles only the companion; setup errors can reject only the main
+  // promise. Observe both so neither path leaves a caller's save queue waiting.
+  return pending.undefinedOnCancel ? Promise.race([pending, pending.undefinedOnCancel]) : pending;
 }
 
 export async function readFile(path) {
@@ -149,11 +155,11 @@ export async function readURL(path, expiresIn = '2h') {
   return sdk().fs.getReadURL(path, expiresIn);
 }
 
-/** Puter folder picker. Resolves an FSItem (never resolves on cancel, per the SDK). */
+/** Puter folder picker. Resolves an FSItem, or undefined on cancellation. */
 export async function pickDirectory() {
   const p = sdk();
   if (!p?.ui?.showDirectoryPicker) throw new Error('The Puter folder picker is not available.');
-  const r = await p.ui.showDirectoryPicker({ multiple: false });
+  const r = await pickerResult(p.ui.showDirectoryPicker({ multiple: false }));
   return Array.isArray(r) ? r[0] : r;
 }
 

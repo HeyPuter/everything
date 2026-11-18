@@ -134,11 +134,13 @@ describe('autosave planning', () => {
     const doc = docWith('Song.wav', 1000);
     const manifest = buildManifest(doc, { session: 's1', key: 's1-f1' });
     const silence = () => doc.state.channels.map(() => Channel.silence(3000));
-    edit = () => doc.apply('Silence', { ...doc.state, channels: silence() });
+    edit = () => doc.apply('Convert', { ...doc.state, sampleRate: 96000, channels: silence() });
     await store.write(doc, manifest);
     expect(doc.length).toBe(3000);
+    expect(doc.sampleRate).toBe(96000);
     const wav = new Uint8Array(await (await store.readAudio('s1-f1')).arrayBuffer());
     expect(wav.length).toBe(44 + 1000 * 2 * 4);
+    expect(new DataView(wav.buffer).getUint32(24, true)).toBe(manifest.sampleRate);
     const f = new Float32Array(wav.buffer.slice(44));
     expect([f[0], f[1], f[1999]]).toEqual([0.5, -0.5, -0.5]);
   });
@@ -201,6 +203,49 @@ describe('autosave controller', () => {
     ctl2.destroy();
   });
 
+  it.each(['open', 'write', 'close'])('keeps the previous recovery pair when the manifest fails at %s', async (stage) => {
+    const root = new MemDir();
+    const store = new AutosaveStore(async () => root);
+    const app = fakeApp();
+    const ctl = installAutosave(app, { store, interval: 1e9 });
+    const doc = docWith('Take.wav', 10);
+    doc.apply('Edit', { ...doc.state, meta: { title: 'First' } });
+    app.documents.push(doc);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await ctl.run();
+      const [first] = await store.list();
+      const dir = await root.getDirectoryHandle(DIR_NAME);
+      const getFile = dir.getFileHandle.bind(dir);
+      const fault = vi.spyOn(dir, 'getFileHandle').mockImplementation(async (name, options) => {
+        if (!name.endsWith('.json') || !options?.create) return getFile(name, options);
+        if (stage === 'open') throw new Error('Disk full');
+        const file = await getFile(name, options);
+        return { createWritable: async () => {
+          const writer = await file.createWritable();
+          writer[stage] = async () => { throw new Error('Disk full'); };
+          return writer;
+        } };
+      });
+      doc.apply('Replace audio', { ...doc.state, channels: doc.state.channels.map(() => Channel.silence(20)), meta: { title: 'Second' } });
+      await ctl.run();
+      expect(await store.list()).toEqual([first]);
+      const wav = new Uint8Array(await (await store.readAudio(first.key)).arrayBuffer());
+      expect(wav.length).toBe(44 + 10 * 2 * 4);
+      expect(new Float32Array(wav.buffer.slice(44))[0]).toBe(0.5);
+      expect(app.notify).toHaveBeenCalledOnce();
+      fault.mockRestore();
+      await ctl.run();
+      const [second] = await store.list();
+      expect(second.frames).toBe(20);
+      expect(second.meta.title).toBe('Second');
+      expect(dir.children.size).toBe(2);
+    } finally {
+      ctl.destroy();
+      warn.mockRestore();
+    }
+  });
+
   it('leaves no recovery copy of a document closed or saved while its autosave was being written', async () => {
     const root = new MemDir();
     const store = new AutosaveStore(async () => root);
@@ -210,7 +255,9 @@ describe('autosave controller', () => {
     app.documents.push(doc);
     doc.on('change', (e) => app.emit('doc-change', doc, e));
     doc.apply('Edit', { ...doc.state, meta: { artist: 'A' } });
-    // Closed (without saving) while the write is in progress.
+    await ctl.run();
+    doc.apply('Next edit', { ...doc.state, meta: { artist: 'A2' } });
+    // Closed (without saving) while a replacement write is in progress.
     const pending = ctl.run();
     await new Promise((r) => setTimeout(r, 0));
     app.documents.length = 0;
@@ -222,6 +269,8 @@ describe('autosave controller', () => {
     app.documents.push(doc2);
     doc2.on('change', (e) => app.emit('doc-change', doc2, e));
     doc2.apply('Edit', { ...doc2.state, meta: { artist: 'B' } });
+    await ctl.run();
+    doc2.apply('Next edit', { ...doc2.state, meta: { artist: 'B2' } });
     const pending2 = ctl.run();
     await new Promise((r) => setTimeout(r, 0));
     doc2.markSaved();

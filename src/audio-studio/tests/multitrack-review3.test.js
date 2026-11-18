@@ -77,7 +77,7 @@ vi.mock('../src/storage/files.js', async (orig) => ({
 const { saveSession } = await import('../src/multitrack/storage.js');
 
 describe('saving sessions to Puter', () => {
-  it('rewrites a media file that came to hold another source after an undo', async () => {
+  it('keeps same-named sources correct through deletion, save, and undo', async () => {
     puterFiles.clear();
     const app = { setStatus() {}, prefs: { get: () => [], set() {} } };
     const doc = new Session({
@@ -86,7 +86,7 @@ describe('saving sessions to Puter', () => {
       tracks: 2,
       source: { type: 'puter', path: '/u/Song.asesx' },
     });
-    // Two sources with one name: their media files are "Take.wav" and "Take 2.wav".
+    // Two sources with one name must retain distinct media files.
     const a = doc.addSource({
       name: 'Take.wav',
       channels: [Channel.fromSamples(new Float32Array(100).fill(0.25))],
@@ -100,10 +100,10 @@ describe('saving sessions to Puter', () => {
     const cb = S.createClip({ trackId: t[1].id, sourceId: b, start: 0, length: 100 });
     doc.apply('Insert', S.addClips(doc.state, [ca, cb]));
     await saveSession(app, doc);
-    // Without A's clip, B is saved as "Take.wav", over A's audio.
+    // Saving only B must not reuse A's media file.
     doc.apply('Delete', S.removeClips(doc.state, [ca.id]));
     await saveSession(app, doc);
-    // A comes back: its file must hold its own audio again.
+    // A comes back: both sources must still have their own audio.
     doc.history.undo();
     await saveSession(app, doc);
     const saved = JSON.parse(new TextDecoder().decode(puterFiles.get('/u/Song.asesx')));

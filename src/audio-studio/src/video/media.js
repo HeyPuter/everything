@@ -54,26 +54,32 @@ export function linkVideo(session, info) {
  */
 export async function insertVideoHook(app, session, state, inserted) {
   const hit = inserted.find((x) => x.clip && videoOfDoc(x.doc));
-  if (!hit) return state;
+  if (!hit) return null;
   const info = videoOfDoc(hit.doc);
   const current = videoClip(state);
   const currentSrc = current && videoPool(session).get(current.sourceId);
-  if (current && currentSrc?.blob === info.blob) return state;
+  if (current && currentSrc?.blob === info.blob) return null;
   if (current) {
     const ok = await confirmDialog({
       title: 'Replace Video',
       message: `This session already shows the video "${current.name}". Replace it with "${baseName(info.name)}"? Its audio is inserted either way.`,
       confirm: 'Replace',
     });
-    if (!ok) return state;
+    if (!ok) return null;
   }
+  if (!app.documents.includes(session) || session.sampleRate !== state.sampleRate || !hit.doc.length) return null;
   const sourceId = linkVideo(session, info);
-  const c = hit.clip;
-  // A whole file shows the whole picture; a range of it shows the same range.
+  const audioId = hit.clip.id;
   const full = videoSourceFrames(videoPool(session).get(sourceId), session.sampleRate);
-  const length = c.offset === 0 && Number.isFinite(full) && Math.abs(full - c.length) < session.sampleRate ? full : c.length;
   announce(`Video ${baseName(info.name)} added to the video track`);
-  return setVideoClip(state, createVideoClip({ sourceId, name: baseName(info.name), start: c.start, offset: c.offset, length }));
+  return (latest) => {
+    // Source edits during the dialog can resize earlier sequential clips.
+    // Follow the rebuilt audio placement instead of its pre-dialog bounds.
+    const c = latest.clips.find((clip) => clip.id === audioId);
+    if (!c) return latest;
+    const length = c.offset === 0 && Number.isFinite(full) && Math.abs(full - c.length) < session.sampleRate ? full : c.length;
+    return setVideoClip(latest, createVideoClip({ sourceId, name: baseName(info.name), start: c.start, offset: c.offset, length }));
+  };
 }
 
 const urls = new WeakMap();

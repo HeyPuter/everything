@@ -37,12 +37,13 @@ export async function applyEffectToDoc(app, doc, def, values, { applyChain = laz
   const hadSelection = doc.hasSelection;
   const selBefore = [doc.selection.start, doc.selection.end];
   const before = doc.state;
+  const mask = doc.channelMask?.slice() ?? null;
   try {
     let { state, length } = await withProgress(app, `Applying ${def.name}`, (signal, onProgress) =>
-      renderEffect({ def, values, state: before, start, end, mask: doc.channelMask, route, signal, onProgress, doc, app, applyChain }),
+      renderEffect({ def, values, state: before, start, end, mask, route, signal, onProgress, doc, app, applyChain }),
     );
     // Preferences > Data: crossfade the processed range into the audio around it.
-    if (length === end - start) state = E.smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), route ? routeMask(route, before.channels.length, doc.channelMask) : doc.channelMask);
+    if (length === end - start) state = E.smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), route ? routeMask(route, before.channels.length, mask) : mask);
     if (doc.state !== before) {
       app.notify(`${def.name} was not applied because the file changed while it was processing.`, { error: true });
       return false;

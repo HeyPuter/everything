@@ -1,5 +1,5 @@
 // Multitrack session backups (Preferences > Auto Save). Every few minutes each
-// open session whose state changed since its last backup is written to the
+// open session whose state or media changed since its last backup is written to the
 // origin private file system: the session file text (the same .asesx JSON a
 // save writes) plus its media as 32-bit float WAV. Media are stored once per
 // source revision and shared by every backup that uses them, so a backup of a
@@ -23,6 +23,8 @@ import { serializeSession } from '../model/session-io.js';
 import { sessionFromText } from '../multitrack/storage.js';
 import { LOCK_PREFIX } from './autosave.js';
 import { wavHeader } from '../audio/wav.js';
+import { normalizePath, relativePath } from '../lib/paths.js';
+import { dirname } from './puter.js';
 
 export const BACKUP_DIR = 'audio-studio-session-backups';
 const VERSION = 1;
@@ -186,7 +188,7 @@ export class SessionBackupStore {
  */
 export function installSessionBackup(app, { store, tab, now = () => Date.now() } = {}) {
   if (!store) return null;
-  const written = new Map(); // session doc id -> state last backed up
+  const written = new Map(); // session doc id -> { state, poolVersion } last backed up
   const latest = new Map(); // session doc id -> newest manifest this tab wrote
   const mediaKeys = new WeakMap(); // channels array -> media key
   let seq = 0;
@@ -205,15 +207,25 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
 
   /** Backs up one session now (whether or not it changed). */
   const backup = async (doc) => {
-    const { text, media } = serializeSession(doc);
+    // Save As can move the session while its media are being written. Keep
+    // this snapshot's location and its unavailable media references together.
+    const source = doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path } : { type: doc.source?.type || 'new' };
+    const { text, media } = serializeSession(doc, {
+      mediaPath: (_id, src, file) => source.type === 'puter' && src.offline && src.path ? relativePath(dirname(source.path), src.path) : file,
+    });
     const parsed = JSON.parse(text);
     const entries = [];
+    const offlinePaths = Object.create(null);
     const fresh = new Set();
+    for (const m of media) {
+      const src = doc.pool.get(m.id);
+      if (src.offline) offlinePaths[m.id] = src.path || null;
+    }
     for (const m of media) {
       if (!m.channels?.length) continue;
       const key = mediaKeyFor(doc, m.id, m.channels);
       fresh.add(key);
-      if (!(await store.hasMedia(key))) await store.writeMedia(key, doc.sampleRate, m.channels);
+      if (!(await store.hasMedia(key))) await store.writeMedia(key, m.sampleRate, m.channels);
       entries.push({ file: m.file, key, frames: m.channels[0].length, channels: m.channels.length });
     }
     const at = now();
@@ -223,12 +235,13 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
       group: `${tab}-${doc.id}`.replace(/[^a-z0-9-]/gi, ''),
       tab,
       name: parsed.name || doc.name,
-      source: doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path } : { type: doc.source?.type || 'new' },
+      source,
       savedAt: at,
       dirty: Boolean(doc.dirty),
       offered: false,
       text,
       media: entries,
+      ...(Object.keys(offlinePaths).length ? { offlinePaths } : {}),
     };
     await store.writeManifest(manifest);
     const all = await store.list();
@@ -244,14 +257,18 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
     if (running) return running;
     running = (async () => {
       for (const doc of app.documents) {
-        if (doc.kind !== 'session' || written.get(doc.id) === doc.state) continue;
+        if (doc.kind !== 'session') continue;
+        const previous = written.get(doc.id);
+        if (previous?.state === doc.state && previous.poolVersion === doc.poolVersion) continue;
         // A session that was never edited has nothing worth keeping.
         if (!written.has(doc.id) && !doc.dirty) continue;
         if (doc.stretcher?.busy || doc.remixer?.busy) continue;
-        const state = doc.state;
+        // Linked waveform edits replace source audio without changing the timeline.
+        // Capture both before awaiting writes so pending edits get another backup.
+        const revision = { state: doc.state, poolVersion: doc.poolVersion };
         try {
           latest.set(doc.id, await backup(doc));
-          written.set(doc.id, state);
+          written.set(doc.id, revision);
           await settle(doc);
         } catch (err) {
           if (!warned) {
@@ -357,7 +374,21 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
         return key ? store.readMedia(key) : null;
       });
       // Saving a restored session asks where unless it came from Puter; its media are written again.
-      if (m.source?.type === 'puter') session.source = { type: 'puter', path: m.source.path };
+      if (m.source?.type === 'puter') {
+        session.source = { type: 'puter', path: m.source.path };
+      }
+      // Available backup audio is local and must be uploaded on Save. Keep
+      // known offline paths, including an explicit null for unavailable backup
+      // payloads whose filenames do not identify cloud files.
+      for (const src of session.pool.values()) {
+        if (!src.offline || !src.file) continue;
+        if (Object.hasOwn(m.offlinePaths || {}, src.id)) {
+          src.path = typeof m.offlinePaths[src.id] === 'string' ? m.offlinePaths[src.id] : null;
+        } else if (m.source?.type === 'puter' && !files.has(src.file)) {
+          // Older backups kept only relative media references.
+          src.path = normalizePath(`${dirname(m.source.path)}/${src.file}`);
+        }
+      }
       session.savedState = null;
       app.addDocument(session);
       return session;
@@ -390,21 +421,20 @@ export async function sessionRestoreDialog(app, controller, manifests) {
       { label: 'Restore', value: 'restore', primary: true },
     ],
   });
-  if (r !== 'restore') {
-    await controller.markOffered(manifests);
-    return [];
-  }
+  if (r !== 'restore') return [];
   const out = [];
+  const restored = [];
   for (const [i, m] of manifests.entries()) {
     if (!checks[i].checked) continue;
     try {
       out.push(await controller.restore(m));
+      restored.push(m);
     } catch (err) {
       console.warn('[session backup] restore failed', err);
       app.notify(`"${m.name}" could not be restored.`, { error: true });
     }
   }
-  await controller.markOffered(manifests);
+  await controller.markOffered(restored);
   if (out.length) app.notify(`Restored ${out.length} session${out.length > 1 ? 's' : ''}. Save to keep ${out.length > 1 ? 'them' : 'it'}.`);
   return out;
 }

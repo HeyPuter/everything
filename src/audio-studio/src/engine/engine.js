@@ -39,6 +39,10 @@ export function cleanMap(map) {
 
 const wholeFrame = (f) => Math.max(0, Math.round(Number(f) || 0));
 const wholeLoop = (loop) => (loop ? { ...loop, start: wholeFrame(loop.start), end: wholeFrame(loop.end) } : null);
+const needsEffects = (graph) => {
+  const active = (chain) => chain?.some((slot) => slot.enabled !== false || slot.shadow);
+  return active(graph.master?.fx) || graph.tracks.some((track) => active(track.fx) || track.clips?.some((clip) => active(clip.fx)));
+};
 
 export class Engine extends Emitter {
   constructor() {
@@ -60,7 +64,10 @@ export class Engine extends Emitter {
     this.timer = 0;
     this.meters = { master: [0, 0], tracks: new Map() };
     this.input = null;
+    this.inputRequest = 0;
     this.contextPromise = null;
+    this.dspInit = null;
+    this.dspRequest = 0;
     // Preferences > Audio Hardware and Audio Channel Mapping.
     this.latencyHint = 'interactive';
     this.sinkId = '';
@@ -96,11 +103,13 @@ export class Engine extends Emitter {
   }
 
   async #create(rate) {
+    if (this.dspInit && !this.dspInit.ready) this.dspInit.reject(new DOMException('Audio context replaced', 'AbortError'));
     this.stop();
     // An open input (input metering) moves to the new context.
     const input = this.input ? { deviceId: this.input.deviceId } : null;
+    const inputRequest = this.inputRequest;
     if (this.ctx) {
-      this.closeInput();
+      this.#releaseInput();
       try {
         await this.ctx.close();
       } catch {
@@ -127,35 +136,58 @@ export class Engine extends Emitter {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    node.port.onmessage = (e) => this.#onMessage(e.data);
-    node.onprocessorerror = (e) => console.warn('[engine] processor error', e);
+    node.port.onmessage = (e) => { if (this.node === node) this.#onMessage(e.data); };
+    node.onprocessorerror = (e) => {
+      if (this.node !== node) return;
+      console.warn('[engine] processor error', e);
+      this.dspInit?.reject(new Error('Audio processor failed'));
+      this.stop();
+      this.node = null; // A failed worklet is permanently silent; recreate it on retry.
+      this.emit('engine-error', 'The audio processor failed. Try Play again to retry.');
+    };
     this.node = node;
     this.outputRoute = null;
     this.#routeOutput();
     if (this.sinkId) await this.#applySink();
     // The worklet compiles the DSP from its bytes (a compiled module posted to
     // an AudioWorklet fails to arrive in Chrome, which left every effect out).
-    let bytes = null;
-    try {
-      bytes = await dspBytes();
-    } catch {
-      // Effects are unavailable without DSP; plain playback still works.
-    }
-    node.port.postMessage({ type: 'init', bytes });
+    this.#prepareDsp(node);
     this.sent.clear();
     node.port.postMessage({ type: 'graph', graph: this.graph });
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
     if (ctx.state === 'suspended') await ctx.resume();
     this.emit('context', ctx);
-    if (input) {
+    if (input && inputRequest === this.inputRequest) {
       try {
-        await this.#openInput(input);
+        await this.#openInput(input, inputRequest);
       } catch (err) {
-        console.warn('[engine] input', err);
-        this.emit('engine-error', 'The input stopped and could not be reopened.');
+        if (err.name !== 'AbortError') {
+          console.warn('[engine] input', err);
+          this.emit('engine-error', 'The input stopped and could not be reopened.');
+        }
       }
     }
     return ctx;
+  }
+
+  /** Download and compile effects once per worklet; failed attempts can retry. */
+  #prepareDsp(node) {
+    if (this.dspInit?.node === node && !this.dspInit.error) return this.dspInit;
+    const refresh = Boolean(this.dspInit?.error && this.dspInit.error.name !== 'AbortError');
+    const init = { node, id: ++this.dspRequest, ready: false, error: null };
+    init.promise = new Promise((resolve, reject) => {
+      init.resolve = resolve;
+      init.reject = (err) => { init.error = err; init.ready = false; reject(err); };
+    });
+    // Plain playback and input metering do not need DSP, but still start the
+    // download. Effect playback explicitly awaits this same promise.
+    init.promise.catch(() => {});
+    this.dspInit = init;
+    dspBytes({ refresh }).then((bytes) => {
+      if (this.node !== node || this.dspInit !== init) throw new DOMException('Audio context replaced', 'AbortError');
+      node.port.postMessage({ type: 'init', bytes, request: init.id });
+    }).catch(init.reject);
+    return init;
   }
 
   /** Chooses the device that plays output ('' = system default). Needs AudioContext.setSinkId. */
@@ -224,6 +256,15 @@ export class Engine extends Emitter {
   }
 
   #onMessage(m) {
+    const init = this.dspInit;
+    if (init && m.request === init.id) {
+      if (m.type === 'dsp-ready') {
+        init.ready = true;
+        init.resolve();
+        return;
+      }
+      if (m.type === 'error') init.reject(new Error(m.message));
+    }
     if (m.seq !== undefined && m.seq !== this.seq) {
       // Sent before the latest play, seek or loop jump: out of date.
       if (m.type === 'pos' || m.type === 'meters' || m.type === 'ended') return;
@@ -317,6 +358,10 @@ export class Engine extends Emitter {
    * Channel[]; chunks already sent for unchanged keys are reused.
    */
   setGraph(graph, sources) {
+    if (this.playing && needsEffects(graph) && !this.dspInit?.ready) {
+      this.stop();
+      this.emit('engine-error', 'Playback stopped because effects are not ready. Try Play again to load them.');
+    }
     // The context runs at one rate and the mixer does not convert: audio at
     // another rate (Convert Sample Type during playback, or undoing it) would
     // play at the wrong speed and pitch, so playback stops.
@@ -348,15 +393,29 @@ export class Engine extends Emitter {
 
   /**
    * Starts playback at `from`. `to` stops there (null plays to the end of the
-   * graph); `loop` = { start, end } repeats that range.
+   * graph); `loop` = { start, end } repeats that range. An optional signal
+   * cancels startup while the audio context is being initialized or resumed.
    */
-  async play({ from = 0, to = null, loop = null } = {}) {
+  async play({ from = 0, to = null, loop = null, signal } = {}) {
+    if (signal?.aborted) return;
     from = wholeFrame(from);
     if (to != null) to = wholeFrame(to);
     loop = wholeLoop(loop);
     const rate = this.graph.rate || this.rate;
+    const previousNode = this.node;
     await this.ensure(rate);
+    if (signal?.aborted) return;
     if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
+    if (needsEffects(this.graph)) {
+      const init = this.node !== previousNode ? this.dspInit : this.#prepareDsp(this.node);
+      try {
+        await init.promise;
+      } catch {
+        if (signal?.aborted) return;
+        throw new UserError('Effects could not be loaded. Try Play again to retry.');
+      }
+      if (signal?.aborted) return;
+    }
     this.range = { from, to, loop };
     this.toEnd = to != null && to === graphLength(this.graph);
     this.#jumped(from);
@@ -475,12 +534,18 @@ export class Engine extends Emitter {
 
   /** Opens an input device for metering and recording. */
   async openInput({ deviceId } = {}) {
+    const request = ++this.inputRequest;
     await this.ensure(this.graph.rate || this.rate);
-    return this.#openInput({ deviceId });
+    if (request !== this.inputRequest) throw new DOMException('Input request cancelled', 'AbortError');
+    return this.#openInput({ deviceId }, request);
   }
 
-  async #openInput({ deviceId }) {
-    this.closeInput();
+  async #openInput({ deviceId }, request) {
+    this.#releaseInput();
+    const ctx = this.ctx;
+    const checkCurrent = () => {
+      if (request !== this.inputRequest || ctx !== this.ctx || ctx.state === 'closed') throw new DOMException('Input request cancelled', 'AbortError');
+    };
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -489,32 +554,52 @@ export class Engine extends Emitter {
         autoGainControl: false,
         channelCount: { ideal: 2 },
       },
+    }).catch((err) => {
+      checkCurrent();
+      throw err;
     });
-    await this.ctx.audioWorklet.addModule(captureUrl);
-    const src = this.ctx.createMediaStreamSource(stream);
-    const node = new AudioWorkletNode(this.ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
-    const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
-    const map = this.inputMap;
-    let route = [];
-    if (!(map[0] === 0 && map[1] === 1)) {
-      // Pick device channels for the recorded left and right channels.
-      const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
-      const split = this.ctx.createChannelSplitter(n);
-      const merge = this.ctx.createChannelMerger(2);
-      src.connect(split);
-      map.forEach((dev, ch) => {
-        if (dev >= 0 && dev < n) split.connect(merge, dev, ch);
-      });
-      merge.connect(node);
-      route = [split, merge];
-    } else src.connect(node);
-    node.port.onmessage = (e) => {
-      const m = e.data;
-      if (m.type === 'data') this.emit('record-data', m.channels);
-      else if (m.type === 'meter') this.emit('input-meter', m.peak);
-    };
-    this.input = { deviceId, stream, src, node, route, channels: route.length ? 2 : deviceChannels };
-    return this.input;
+    let src;
+    let node;
+    const route = [];
+    try {
+      checkCurrent();
+      await ctx.audioWorklet.addModule(captureUrl);
+      checkCurrent();
+      src = ctx.createMediaStreamSource(stream);
+      node = new AudioWorkletNode(ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
+      const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
+      const map = this.inputMap;
+      if (!(map[0] === 0 && map[1] === 1)) {
+        // Pick device channels for the recorded left and right channels.
+        const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
+        const split = ctx.createChannelSplitter(n);
+        route.push(split);
+        const merge = ctx.createChannelMerger(2);
+        route.push(merge);
+        src.connect(split);
+        map.forEach((dev, ch) => {
+          if (dev >= 0 && dev < n) split.connect(merge, dev, ch);
+        });
+        merge.connect(node);
+      } else src.connect(node);
+      node.port.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'data') this.emit('record-data', m.channels);
+        else if (m.type === 'meter') this.emit('input-meter', m.peak);
+      };
+      this.input = { deviceId, stream, src, node, route, channels: route.length ? 2 : deviceChannels };
+      return this.input;
+    } catch (err) {
+      // Permission may already be granted even though loading or connecting the
+      // capture processor failed. Release every resource acquired so far.
+      try { node?.port.postMessage({ type: 'close' }); } catch { /* Processor already gone. */ }
+      for (const n of [src, ...route]) {
+        try { n?.disconnect(); } catch { /* Already disconnected. */ }
+      }
+      for (const t of stream.getTracks()) t.stop();
+      checkCurrent();
+      throw err;
+    }
   }
 
   setRecording(on) {
@@ -522,6 +607,12 @@ export class Engine extends Emitter {
   }
 
   closeInput() {
+    // Invalidate requests that are still waiting for permission or setup.
+    this.inputRequest++;
+    this.#releaseInput();
+  }
+
+  #releaseInput() {
     if (!this.input) return;
     // The processor sends what it still holds, then stops: one left running
     // would cost render time for good (and a mapped one kept posting silent meters).

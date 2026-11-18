@@ -7,7 +7,7 @@
 //       { id, gain, pan, mute, solo, volumeEnv?, panEnv?, fx?: [slot],
 //         bus?, output?, sends?: [{ target, gain, pan, pre }], soloSafe?, mono?,
 //         clips: [{ id, source, channels, start, offset, length, gain,
-//                   fadeIn, fadeInCurve, fadeOut, fadeOutCurve, mute, gainEnv?,
+//                   fadeIn, fadeInCurve, fadeOut, fadeOutCurve, fadeInOffset?, fadeOutOffset?, mute, gainEnv?,
 //                   panEnv?, base?, full?, fx?: [slot], fxTail? }] } ] }
 // `source` is a key into the chunk store: chunk i holds source frames
 // [i * CHUNK, (i + 1) * CHUNK) as one Float32Array per channel.
@@ -650,13 +650,15 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       const b = Math.min(pos + frames, ce);
       const n = b - a;
       const base = clip.base || 0;
-      const full = clip.full ?? clip.length;
+      const fadeEnd = (clip.full ?? clip.length) + (clip.fadeOutOffset || 0);
+      const fadeInOffset = clip.fadeInOffset || 0;
+      const fadeInEnd = clip.fadeIn - fadeInOffset;
       const panEnv = clip.panEnv && clip.panEnv.length ? clip.panEnv : null;
       for (let i = 0; i < n; i++) {
         const t = a + i - cs + base; // frame within the whole clip
         let g = clip.gain;
-        if (clip.fadeIn > 0 && t < clip.fadeIn) g *= fadeShape(t / clip.fadeIn, clip.fadeInCurve);
-        const fromEnd = full - t;
+        if (clip.fadeIn > 0 && t < fadeInEnd) g *= fadeShape((t + fadeInOffset) / clip.fadeIn, clip.fadeInCurve);
+        const fromEnd = fadeEnd - t;
         if (clip.fadeOut > 0 && fromEnd < clip.fadeOut) g *= fadeShape(fromEnd / clip.fadeOut, clip.fadeOutCurve);
         if (clip.gainEnv) g *= envelopeAt(clip.gainEnv, t);
         if (panEnv) {
@@ -809,12 +811,14 @@ function renderSix(graph, store, pos, frames, track, plan, master, scratch, { me
     const b = Math.min(pos + frames, ce);
     const n = b - a;
     const base = clip.base || 0;
-    const full = clip.full ?? clip.length;
+    const fadeEnd = (clip.full ?? clip.length) + (clip.fadeOutOffset || 0);
+    const fadeInOffset = clip.fadeInOffset || 0;
+    const fadeInEnd = clip.fadeIn - fadeInOffset;
     for (let i = 0; i < n; i++) {
       const t = a + i - cs + base;
       let g = clip.gain;
-      if (clip.fadeIn > 0 && t < clip.fadeIn) g *= fadeShape(t / clip.fadeIn, clip.fadeInCurve);
-      const fromEnd = full - t;
+      if (clip.fadeIn > 0 && t < fadeInEnd) g *= fadeShape((t + fadeInOffset) / clip.fadeIn, clip.fadeInCurve);
+      const fromEnd = fadeEnd - t;
       if (clip.fadeOut > 0 && fromEnd < clip.fadeOut) g *= fadeShape(fromEnd / clip.fadeOut, clip.fadeOutCurve);
       if (clip.gainEnv) g *= envelopeAt(clip.gainEnv, t);
       gains[i] = g;

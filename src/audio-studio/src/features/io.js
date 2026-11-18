@@ -66,7 +66,7 @@ export function installIo(app) {
     },
     {
       id: 'transport.record',
-      label: (a) => (a.recording ? 'Stop Recording' : 'Record'),
+      label: (a) => (a.recording || a.recorder?.active || a.multitrack?.recorder?.active ? 'Stop Recording' : 'Record'),
       shortcut: 'Shift+Space',
       // Base command for every kind: the multitrack session overrides run()
       // through its document kind to record into armed tracks.
@@ -77,7 +77,7 @@ export function installIo(app) {
       id: 'transport.punchRoll',
       label: 'Punch and Roll',
       // Waveform editor: rolls in from before the playhead (or selection) and records over what follows.
-      enabled: (a) => Boolean(audio(a)) && !a.recording,
+      enabled: (a) => Boolean(audio(a)) && !a.recording && !a.recorder?.active,
       run: () => punchAndRoll(app),
     },
     {
@@ -325,7 +325,7 @@ async function toggleInputMeter(app) {
       try {
         await engine.openInput({ deviceId: app.prefs.get('inputDevice') || undefined });
       } catch (err) {
-        app.notify(inputErrorMessage(err), { error: true });
+        if (err.name !== 'AbortError') app.notify(inputErrorMessage(err), { error: true });
         return;
       }
     }
@@ -369,7 +369,7 @@ function audioHardwarePrefs(app) {
       try {
         await app.engine.openInput({ deviceId: input.value || undefined });
       } catch (err) {
-        app.notify(inputErrorMessage(err), { error: true });
+        if (err.name !== 'AbortError') app.notify(inputErrorMessage(err), { error: true });
       }
     }
   });
@@ -401,20 +401,32 @@ function audioHardwarePrefs(app) {
 
 export async function importMarkers(app) {
   const doc = audio(app);
+  if (!doc) return false;
+  const targetOpen = () => {
+    if (app.documents.includes(doc)) return true;
+    app.notify('Marker import stopped because the destination file was closed.', { error: true });
+    return false;
+  };
   let file = null;
   let item = null;
   if (puter.sdk() && puter.isSignedIn()) {
     [item] = await puter.pickFiles({ multiple: false, accept: '.csv,.txt,.tsv' });
-    if (item) file = await item.read();
+    if (item) {
+      if (!targetOpen()) return false;
+      file = await item.read();
+    }
   } else {
     [file] = await pickLocalFiles({ accept: '.csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values', multiple: false });
   }
   if (!file) return;
+  if (!targetOpen()) return false;
   const name = file.name || item?.name || '';
   let parsed;
   try {
     const timeOptions = { timeFormat: app.prefs.get('timeFormat'), ...app.timeOptions() };
-    parsed = parseMarkerText(await file.text(), doc.sampleRate, timeOptions);
+    const text = await file.text();
+    if (!targetOpen()) return false;
+    parsed = parseMarkerText(text, doc.sampleRate, timeOptions);
   } catch (err) {
     // A file with no readable markers is the user's to fix, not a failure of the command.
     const why = err?.message ? ` ${err.message}` : '';
@@ -441,6 +453,9 @@ function installWindowClose(app) {
   if (!p?.ui?.onWindowClose || puter.env() !== 'app') return;
   p.ui.onWindowClose(async () => {
     if (app.recorder.active) await app.recorder.stop();
+    // Finalizing a session take can add unsaved audio files and edit the
+    // session. Finish it before taking the list of documents to prompt for.
+    if (app.multitrack?.recorder?.active) await app.multitrack.recorder.stop();
     for (const doc of app.documents.filter((d) => d.dirty)) {
       if (!(await app.closeDocument(doc))) return; // Cancel keeps the window open
     }

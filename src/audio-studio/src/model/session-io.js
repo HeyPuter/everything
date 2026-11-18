@@ -47,14 +47,19 @@ export function mediaFolderName(sessionName) {
  * { id, file, channels, sampleRate } for every source used by the session and
  * video is the video file to write ({ id, file, blob }) or null. `embedVideo`
  * stores the video in the media folder even when it is referenced on Puter.
+ * `mediaPath` and `videoPath` (id, source, defaultPath) can retain immutable cloud media paths.
  */
-export function serializeSession(session, { name = session.name, embedVideo = false } = {}) {
+export function serializeSession(session, { name = session.name, embedVideo = false, mediaPath, videoPath } = {}) {
   const state = session.state;
   // A clip stretched by Sound Assistant Duration keeps its original audio for undoing the stretch.
   // A time-stretched clip keeps its original audio for restretching, a remixed clip for remixing again.
   const used = new Set(state.clips.flatMap((c) => [c.sourceId, c.soundAssistant?.duration?.orig?.sourceId, c.stretch?.sourceId, c.remix?.sourceId].filter(Boolean)));
   const folder = mediaFolderName(name);
+  // Reserve missing files too: a new source must not take their ZIP filename.
   const taken = new Set();
+  for (const [id, src] of session.pool) {
+    if (used.has(id) && src.offline && src.file) taken.add(src.file.split('/').pop().toLowerCase());
+  }
   const media = [];
   const sources = [];
   for (const [id, src] of session.pool) {
@@ -63,12 +68,14 @@ export function serializeSession(session, { name = session.name, embedVideo = fa
     let file = `${base}.wav`;
     for (let i = 2; taken.has(file.toLowerCase()); i++) file = `${base} ${i}.wav`;
     taken.add(file.toLowerCase());
-    const path = `${folder}/${file}`;
+    const defaultPath = src.offline && src.file ? src.file : `${folder}/${file}`;
+    const path = mediaPath?.(id, src, defaultPath) ?? defaultPath;
+    taken.add(path.split('/').pop().toLowerCase());
     const frames = src.channels?.[0]?.length ?? src.frames ?? 0;
-    sources.push({ id, name: src.name, file: path, sampleRate: session.sampleRate, channels: src.channels?.length ?? src.channelCount ?? 2, frames });
+    sources.push({ id, name: src.name, file: path, sampleRate: session.sampleRate, channels: src.channels?.length || src.channelCount || 2, frames });
     media.push({ id, file: path, channels: src.channels, sampleRate: session.sampleRate });
   }
-  const video = serializeVideo(session, { folder, embed: embedVideo, taken });
+  const video = serializeVideo(session, { folder, embed: embedVideo, taken, mediaPath: videoPath });
   const doc = {
     format: SESSION_FORMAT,
     version: SESSION_VERSION,

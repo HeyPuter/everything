@@ -104,3 +104,25 @@ describe('shortcut keys from keyboard events', () => {
     expect(eventKey(ev({ key: '?', code: 'Slash', shiftKey: true }))).toBe('/');
   });
 });
+
+it('keeps ordinary command errors handled while allowing a chain to observe failure', async () => {
+  const notes = [];
+  const app = { prefs: new Prefs(memory()), notify: (message) => notes.push(message), lastCommand: null };
+  const registry = new CommandRegistry(app);
+  const error = Object.assign(new Error('Choose a shorter selection.'), { expected: true });
+  const finished = [];
+  registry.watch({ after: (id) => finished.push(id) });
+  registry.register([
+    { id: 'fails', label: 'Fails', repeatable: true, run: async () => { throw error; } },
+    { id: 'void', label: 'Void', repeatable: true, run: () => {} },
+  ]);
+  expect(await registry.run('fails')).toBeUndefined();
+  expect(notes).toEqual([error.message]);
+  await expect(registry.run('fails', undefined, { throwOnError: true })).rejects.toBe(error);
+  expect(notes).toEqual([error.message, error.message]);
+  expect(finished).toEqual([]);
+  expect(app.lastCommand).toBeNull();
+  expect(await registry.run('void', undefined, { throwOnError: true })).toBeUndefined();
+  expect(finished).toEqual(['void']);
+  expect(app.lastCommand.id).toBe('void');
+});

@@ -10,11 +10,13 @@ import { sourceKey } from './engine.js';
 let worker = null;
 let nextId = 1;
 const jobs = new Map();
+const cancelled = () => Object.assign(new Error('Cancelled'), { name: 'AbortError' });
 
 function getWorker() {
   if (worker) return worker;
-  worker = new OfflineWorker();
-  worker.onmessage = (e) => {
+  const w = worker = new OfflineWorker();
+  w.onmessage = (e) => {
+    if (worker !== w) return;
     const m = e.data;
     const job = jobs.get(m.id);
     if (!job) return;
@@ -23,7 +25,7 @@ function getWorker() {
       const start = m.index * CHUNK;
       const len = channels ? Math.max(0, Math.min(CHUNK, channels[0].length - start)) : 0;
       const data = channels ? channels.map((c) => c.toArray(start, start + len)) : [new Float32Array(0)];
-      worker.postMessage({ type: 'chunk', id: m.id, key: m.key, index: m.index, channels: data }, data.map((d) => d.buffer));
+      w.postMessage({ type: 'chunk', id: m.id, key: m.key, index: m.index, channels: data }, data.map((d) => d.buffer));
     } else if (m.type === 'data') {
       job.onData(m.at, m.channels);
     } else if (m.type === 'progress') {
@@ -36,12 +38,14 @@ function getWorker() {
       job.reject(new Error(m.message === 'cancelled' ? 'Cancelled' : m.message));
     }
   };
-  worker.onerror = (e) => {
+  w.onerror = (e) => {
+    if (worker !== w) return;
+    worker = null;
+    w.terminate();
     for (const job of jobs.values()) job.reject(new Error(e.message || 'Rendering failed'));
     jobs.clear();
-    worker = null;
   };
-  return worker;
+  return w;
 }
 
 /**
@@ -54,25 +58,42 @@ function getWorker() {
  * @returns {Promise<Float32Array[] | null>} the channels, or null when streaming through onData
  */
 export async function renderGraph(graph, sources, { start = 0, end, onProgress, signal, onData } = {}) {
-  const module = await dspModule().catch(() => null);
+  if (signal?.aborted) throw cancelled();
+  const module = await dspModule().catch((err) => {
+    if (signal?.aborted) throw cancelled();
+    // Plain mixes can render without WASM, but applying or exporting active
+    // effects must never silently produce dry audio and report success.
+    const active = (chain) => chain?.some((s) => s.enabled !== false || s.shadow);
+    if (active(graph.master?.fx) || graph.tracks.some((t) => active(t.fx) || t.clips?.some((c) => active(c.fx)))) throw err;
+    return null;
+  });
+  if (signal?.aborted) throw cancelled();
   const w = getWorker();
   const id = nextId++;
   const total = end - start;
   const out = onData ? null : Array.from({ length: graph.surround ? 6 : 2 }, () => new Float32Array(total));
-  await new Promise((resolve, reject) => {
-    jobs.set(id, {
-      sources,
-      resolve,
-      reject,
-      onProgress,
-      onData: (at, ch) => {
-        if (onData) onData(at, ch);
-        else ch.forEach((c, i) => out[i]?.set(c, at));
-      },
+  const onAbort = () => w.postMessage({ type: 'cancel', id });
+  try {
+    await new Promise((resolve, reject) => {
+      jobs.set(id, {
+        sources,
+        resolve,
+        reject,
+        onProgress,
+        onData: (at, ch) => {
+          if (onData) onData(at, ch);
+          else ch.forEach((c, i) => out[i]?.set(c, at));
+        },
+      });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      w.postMessage({ type: 'render', id, graph: structuredClone(graph), start, end, module });
     });
-    signal?.addEventListener('abort', () => w.postMessage({ type: 'cancel', id }), { once: true });
-    w.postMessage({ type: 'render', id, graph: structuredClone(graph), start, end, module });
-  });
+    // Completion can already be queued when the user presses Cancel.
+    if (signal?.aborted) throw cancelled();
+  } finally {
+    jobs.delete(id);
+    signal?.removeEventListener('abort', onAbort);
+  }
   return out;
 }
 

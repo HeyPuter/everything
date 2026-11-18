@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Take, mapInput, placeTake, recordingName } from '../src/record/take.js';
 import { createRecorder, inputErrorMessage } from '../src/record/recorder.js';
 import { Channel } from '../src/audio/channel.js';
@@ -7,6 +7,7 @@ import { Emitter } from '../src/lib/emitter.js';
 import { Prefs } from '../src/lib/prefs.js';
 
 const ramp = (n, from = 0) => Float32Array.from({ length: n }, (_, i) => (from + i) / 100000);
+afterEach(() => vi.useRealTimers());
 
 describe('Take', () => {
   it('assembles blocks across sealed buffers without copying them', () => {
@@ -117,6 +118,104 @@ function fakeApp() {
 }
 
 describe('recorder', () => {
+  it.each([false, true])('allows Stop during permission without disturbing input metering (%s)', async (metering) => {
+    const { CommandRegistry } = await import('../src/commands/registry.js');
+    const { installCoreCommands } = await import('../src/commands/core.js');
+    const app = fakeApp();
+    app.inputMetering = metering;
+    app.commands = new CommandRegistry(app);
+    installCoreCommands(app);
+    const rec = app.recorder = createRecorder(app);
+    let ready;
+    app.engine.openInput = vi.fn(() => new Promise((resolve) => { ready = resolve; }));
+    const close = vi.spyOn(app.engine, 'closeInput');
+    const doc = app.active = AudioFile.blank({});
+    const starting = rec.start({ doc });
+    expect(app.commands.isEnabled('transport.stop')).toBe(true);
+    await app.commands.run('transport.stop');
+    ready();
+    await starting;
+    expect(rec.active).toBe(false);
+    expect(app.engine.recording).toBe(false);
+    expect(close).toHaveBeenCalledTimes(metering ? 0 : 1);
+    expect(doc.length).toBe(0);
+  });
+
+  it('keeps a new startup intact when a cancelled permission request finishes later', async () => {
+    vi.useFakeTimers();
+    const app = fakeApp();
+    const rec = createRecorder(app);
+    const ready = [];
+    app.engine.openInput = () => new Promise((resolve) => ready.push(resolve));
+    const first = rec.start();
+    await rec.stop();
+    const second = rec.start();
+    ready[0]();
+    await first;
+    expect(rec.active).toBe(true);
+    expect(app.engine.recording).toBe(false);
+    ready[1]();
+    await second;
+    expect(app.engine.recording).toBe(true);
+    const stop = rec.stop();
+    await vi.advanceTimersByTimeAsync(120);
+    await stop;
+    expect(rec.active).toBe(false);
+  });
+
+  it('does not issue a second microphone request while recording startup is pending', async () => {
+    vi.useFakeTimers();
+    const app = fakeApp();
+    const rec = createRecorder(app);
+    let ready;
+    app.engine.openInput = vi.fn(() => new Promise((resolve) => { ready = resolve; }));
+    const starting = rec.start();
+    const firstReady = ready;
+    const again = rec.start();
+    firstReady();
+    if (ready !== firstReady) ready();
+    await Promise.all([starting, again]);
+    expect(app.engine.openInput).toHaveBeenCalledOnce();
+    const stopping = rec.stop();
+    await vi.advanceTimersByTimeAsync(120);
+    await stopping;
+  });
+
+  it('does not begin recording into a document closed while permission is pending', async () => {
+    const app = fakeApp();
+    const rec = createRecorder(app);
+    let ready;
+    app.engine.openInput = () => new Promise((resolve) => { ready = resolve; });
+    const doc = AudioFile.blank({});
+    const starting = rec.start({ doc });
+    doc.emit('close');
+    ready();
+    await starting;
+    expect(rec.active).toBe(false);
+    expect(app.engine.recording).toBe(false);
+  });
+
+  it.each(['live update', 'stop'])('preserves an Undo before the first recorded waveform appears (%s)', async (finish) => {
+    vi.useFakeTimers();
+    const app = fakeApp();
+    const rec = createRecorder(app);
+    const doc = AudioFile.blank({ sampleRate: 48000, channels: 1, seconds: 1 });
+    const original = doc.state;
+    doc.apply('Fill', { ...doc.state, channels: [Channel.fromSamples(new Float32Array(48000).fill(0.75))] });
+    await rec.start({ doc });
+    // Undo is available while recording, including before the first live update.
+    doc.history.undo();
+    app.engine.emit('record-data', [new Float32Array(64).fill(0.5)]);
+    const stopping = finish === 'stop' ? rec.stop() : null;
+    await vi.advanceTimersByTimeAsync(240);
+    if (stopping) await stopping;
+    expect(rec.active).toBe(false);
+    expect(doc.length).toBe(48064);
+    expect([...doc.state.channels[0].toArray(63, 65)]).toEqual([0.5, 0]);
+    doc.history.undo();
+    expect(doc.state).toBe(original);
+  });
+
   it('records into a document as a single undo step and leaves the playhead at the end', async () => {
     const app = fakeApp();
     const rec = createRecorder(app);

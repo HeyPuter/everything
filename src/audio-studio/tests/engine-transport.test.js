@@ -13,6 +13,21 @@ function fakeEngine() {
 }
 
 describe('engine transport', () => {
+  it('does not start cancelled playback after the audio context finishes resuming', async () => {
+    const { e, sent } = fakeEngine();
+    let resume;
+    e.ctx.state = 'suspended';
+    e.ctx.resume = () => new Promise((resolve) => { resume = resolve; });
+    const controller = new AbortController();
+    const playing = e.play({ signal: controller.signal });
+    controller.abort();
+    resume();
+    await playing;
+    const started = sent.some((m) => m.type === 'play');
+    e.stop();
+    expect(started).toBe(false);
+  });
+
   it('seeks and plays on whole frames, so the mixer never reads NaN samples', async () => {
     const { e, sent } = fakeEngine();
     e.state = 'playing';
@@ -521,7 +536,7 @@ describe('engine input capture', () => {
 });
 
 describe('engine input across audio contexts', () => {
-  it('moves an open input to a context made for another sample rate', async () => {
+  it.each([false, true])('moves an open input to another sample rate unless closed during setup (close: %s)', async (closeDuringSetup) => {
     const node = () => ({ connect() {}, disconnect() {}, port: { postMessage() {}, onmessage: null } });
     const made = [];
     vi.stubGlobal('AudioContext', function (opts) {
@@ -549,12 +564,13 @@ describe('engine input across audio contexts', () => {
     e.graph = { rate: 48000, tracks: [], master: { gain: 1 } };
     await e.openInput({ deviceId: 'mic' }); // input metering on
     expect(made[0].sources).toBe(1);
+    if (closeDuringSetup) e.on('context', () => e.closeInput());
     // A 44.1 kHz file plays: the context is made again at its rate.
     await e.ensure(44100);
     expect(made.length).toBe(2);
-    expect(made[1].sources).toBe(1);
-    expect(e.input).not.toBe(null);
-    expect(asked).toEqual([{ exact: 'mic' }, { exact: 'mic' }]);
+    expect(made[1].sources).toBe(closeDuringSetup ? 0 : 1);
+    expect(e.input === null).toBe(closeDuringSetup);
+    expect(asked).toEqual(closeDuringSetup ? [{ exact: 'mic' }] : [{ exact: 'mic' }, { exact: 'mic' }]);
     e.closeInput();
     vi.unstubAllGlobals();
   });

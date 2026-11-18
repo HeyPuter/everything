@@ -39,6 +39,7 @@ export class App extends Emitter {
     applyTheme(this.prefs.get('theme'));
     this.#migrateLayouts();
     this.pendingReturn = null; // second-stop mode: where the next Stop returns to
+    this.playbackRequest = null;
     this.prefs.on('change', (key) => {
       if (key === 'theme') applyTheme(this.prefs.get('theme'));
       if (key === 'historyLimit') for (const d of this.documents) if (d.history) d.history.limit = Math.max(10, Number(this.prefs.get('historyLimit')) || 200);
@@ -84,7 +85,7 @@ export class App extends Emitter {
 
   activate(doc) {
     if (this.active === doc) return;
-    if (engine.playing) this.stop();
+    if (engine.playing || this.playbackPending || this.scrubbing) this.stop();
     this.active = doc;
     this.previewFx = null;
     this.pendingReturn = null;
@@ -96,16 +97,25 @@ export class App extends Emitter {
 
   async closeDocument(doc, { force = false } = {}) {
     if (!doc) return true;
+    // Include the final capture block in both the save prompt and the saved
+    // file; closing a not-yet-previewed take must not remove its destination.
+    if (this.recorder?.document === doc) await this.recorder.stop();
     if (!force && doc.dirty) {
       this.activate(doc);
       const answer = await saveChangesDialog(doc.name);
       if (answer === null) return false;
       if (answer === 'save') {
+        // A pending open can change the active document while the dialog is up.
+        // Save dispatches by active document, including document-kind overrides.
+        this.activate(doc);
         const ok = await this.commands.run('file.save');
-        if (!ok && doc.dirty) return false;
+        if (doc.dirty) {
+          if (ok) this.notify(`"${doc.name}" changed while saving and was left open. Save again to keep the latest changes.`);
+          return false;
+        }
       }
     }
-    if (this.active === doc && engine.playing) this.stop();
+    if (this.active === doc && (engine.playing || this.playbackPending || this.scrubbing)) this.stop();
     const i = this.documents.indexOf(doc);
     if (i >= 0) this.documents.splice(i, 1);
     doc.emit('close');
@@ -188,6 +198,8 @@ export class App extends Emitter {
     if (!doc) return;
     // Real playback ends any scrubbing: its pending stop must not cut this off.
     this.endScrub();
+    this.playbackRequest?.abort();
+    const request = this.playbackRequest = new AbortController();
     try {
       const sel = doc.selection;
       const len = doc.length;
@@ -201,15 +213,25 @@ export class App extends Emitter {
       if (loopRange && !hasSel) end = Math.max(end ?? 0, loopRange.end);
       this.pendingReturn = null;
       this.playStart = start;
-      await engine.play({ from: start, to: end ?? len, loop: loopRange });
+      this.emit('transport', 'playback-pending');
+      await engine.play({ from: start, to: end ?? len, loop: loopRange, signal: request.signal });
+      if (request.signal.aborted) return;
+      this.playbackRequest = null;
       this.emit('transport', 'playing');
     } catch (err) {
+      if (request.signal.aborted) return;
+      this.playbackRequest = null;
+      this.playStart = null;
+      this.emit('transport', engine.state);
       if (!isUserError(err)) console.error(err);
       this.notify(isUserError(err) ? err.message : 'Playback is not available in this browser.', { error: true });
     }
   }
 
   stop() {
+    this.endScrub();
+    this.playbackRequest?.abort();
+    this.playbackRequest = null;
     if (!engine.playing && this.pendingReturn != null) {
       // Second stop: back to where playback started.
       this.#returnTo(this.pendingReturn);
@@ -223,9 +245,13 @@ export class App extends Emitter {
     return !engine.playing && this.pendingReturn != null && this.active != null;
   }
 
+  get playbackPending() {
+    return Boolean(this.playbackRequest);
+  }
+
   togglePlay() {
-    if (engine.playing) this.stop();
-    else this.play();
+    if (engine.playing || this.playbackPending) return this.stop();
+    return this.play();
   }
 
   #onEnded(frame) {
@@ -239,28 +265,36 @@ export class App extends Emitter {
    * scrubbing). Does nothing during normal playback.
    */
   async scrub(frame) {
-    if (!this.prefs.get('scrubAudio') || !this.active || (engine.playing && !this.scrubbing)) return;
+    if (!this.prefs.get('scrubAudio') || !this.active || this.playbackPending || (engine.playing && !this.scrubbing)) return;
     const now = performance.now();
     if (now - (this.lastScrub || 0) < 45) return;
     this.lastScrub = now;
     this.scrubbing = true;
     clearTimeout(this.scrubTimer);
+    this.scrubRequest?.abort();
+    const request = this.scrubRequest = new AbortController();
+    this.emit('transport', 'scrubbing');
     const len = Math.round(this.active.sampleRate * 0.07);
     try {
-      await engine.play({ from: Math.max(0, Math.round(frame)), to: Math.round(frame) + len, loop: null });
+      await engine.play({ from: Math.max(0, Math.round(frame)), to: Math.round(frame) + len, loop: null, signal: request.signal });
     } catch {
       // No audio output: scrubbing stays silent.
     }
+    if (request.signal.aborted) return;
     const token = (this.scrubToken = (this.scrubToken || 0) + 1);
     this.scrubTimer = setTimeout(() => {
       if (!this.scrubbing || token !== this.scrubToken) return;
+      this.scrubRequest = null;
       this.scrubbing = false;
       if (engine.playing) engine.stop();
+      else this.emit('transport', engine.state);
     }, 160);
   }
 
   /** Forgets any scrub in progress (its snippet and its delayed stop). */
   endScrub() {
+    this.scrubRequest?.abort();
+    this.scrubRequest = null;
     clearTimeout(this.scrubTimer);
     this.scrubToken = (this.scrubToken || 0) + 1;
     this.scrubbing = false;

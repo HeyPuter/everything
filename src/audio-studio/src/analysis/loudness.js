@@ -344,7 +344,12 @@ export function loudnessPanel(app) {
     const refocus = holdFocus();
     running = true;
     try {
-      for (const e of entries) if (e.state !== e.doc.state || !e.measure) await scanOne(e);
+      // Closing/removing a row during an await must not shift the next file
+      // past the iterator. Still skip rows removed before their turn.
+      for (const e of entries.slice()) {
+        if (!entries.includes(e)) continue;
+        if (e.state !== e.doc.state || !e.measure) await scanOne(e);
+      }
       status.textContent = 'Scan complete.';
       announce('Loudness scan complete');
     } catch (err) {
@@ -365,8 +370,8 @@ export function loudnessPanel(app) {
     let changed = 0;
     let short = 0;
     try {
-      for (const e of entries) {
-        if (!app.documents.includes(e.doc)) continue;
+      for (const e of entries.slice()) {
+        if (!entries.includes(e) || !app.documents.includes(e.doc)) continue;
         const m = e.state === e.doc.state && e.measure ? e.measure : await scanOne(e);
         const plan = planMatch(m, s);
         if (plan.action === 'skip') {
@@ -409,18 +414,22 @@ export function loudnessPanel(app) {
     const refocus = holdFocus();
     const s = prefs();
     const x = exportSettings();
-    const out = await outputWriter(app, x);
-    if (!out) return;
     running = true;
+    renderRows();
     let written = 0;
     try {
-      for (const e of entries) {
-        if (!app.documents.includes(e.doc)) continue;
+      const out = await outputWriter(app, x);
+      if (!out) return;
+      for (const e of entries.slice()) {
+        if (!entries.includes(e) || !app.documents.includes(e.doc)) continue;
         const m = e.state === e.doc.state && e.measure ? e.measure : await scanOne(e);
         const plan = planMatch(m, s);
         e.status = 'Exporting...';
         renderRows();
-        const name = await exportMatched(e.doc, plan, s, x, {
+        // The plan belongs to the measured state; edits during the scan must
+        // not receive a gain or skip decision calculated for different audio.
+        const source = { name: e.doc.name, state: e.state };
+        const name = await exportMatched(source, plan, s, x, {
           write: (n, blob) => out.write(n, blob),
           onProgress: (f) => {
             e.status = `Exporting ${Math.round(f * 100)}%`;

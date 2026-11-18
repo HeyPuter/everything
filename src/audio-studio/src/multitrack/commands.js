@@ -6,6 +6,9 @@ import { h, announce } from '../lib/dom.js';
 import { openDialog, promptDialog, confirmDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { Session } from '../model/session.js';
+import { mergeWithLayout, relocateMergeLayouts } from '../model/merge-layout.js';
+import { restartFade } from '../model/clip-fades.js';
+import { clipPlan } from '../model/session-graph.js';
 import * as S from '../model/session-edits.js';
 import { markersInRange } from '../model/edits.js';
 import { AudioFile } from '../model/audio-file.js';
@@ -17,8 +20,7 @@ import { videoClip } from '../model/session-video.js';
 import * as puter from '../storage/puter.js';
 import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks, trackChannelsFor } from './insert.js';
 import { renderSession, renderedDoc, clipsRange } from './render.js';
-import { saveSession, exportSession, sessionZip } from './storage.js';
-import { prepareVideoBytes } from '../video/session-media.js';
+import { saveSession, exportSession, prepareSessionZip } from './storage.js';
 import { openTrackEffects } from './fx-editor.js';
 import { sessionBaseName } from '../model/session-io.js';
 import { METRONOME_SOUNDS, DEFAULT_METRONOME_SOUND } from './metronome-sounds.js';
@@ -441,18 +443,92 @@ function clipboardFrom(doc, clips, range) {
   }
   return {
     type: 'clips',
+    sessionId: doc.id,
     sampleRate: doc.sampleRate,
-    clips: parts.map((c) => ({ ...c, start: c.start - t0, trackOffset: (idx.get(c.trackId) ?? 0) - firstTrack, groupId: null })),
+    clips: relocateMergeLayouts(parts, parts.map((c) => ({ ...c, start: c.start - t0, trackOffset: (idx.get(c.trackId) ?? 0) - firstTrack, groupId: null }))),
     pool,
   };
 }
 
+const pastedSources = new WeakMap(); // destination session -> source object -> imported id
+
+function importClipboardSources(doc, clip) {
+  let cache = pastedSources.get(doc);
+  if (!cache) pastedSources.set(doc, (cache = new WeakMap()));
+  const ids = new Map();
+  let links;
+  const rememberLink = (src) => {
+    if (!src.docId) return;
+    let rates = links.get(src.docId);
+    if (!rates) links.set(src.docId, (rates = new Map()));
+    if (!rates.has(src.channelRate)) rates.set(src.channelRate, src);
+  };
+  const linkedSource = (src) => {
+    if (!src.docId) return null;
+    if (!links) {
+      // Index once on demand instead of rescanning the pool for every source.
+      links = new Map();
+      for (const current of doc.pool.values()) rememberLink(current);
+    }
+    return links.get(src.docId)?.get(src.channelRate);
+  };
+  for (const [id, src] of clip.pool) {
+    if (!src) continue;
+    const current = doc.pool.get(id);
+    const sameLink = (s) => src.docId && s.docId === src.docId && s.channelRate === src.channelRate;
+    let imported;
+    // IDs are local to each saved session. Within the original session (or
+    // the same linked waveform), keep following that source's current audio.
+    if (current && (clip.sessionId === doc.id || current === src || sameLink(current))) imported = id;
+    else if (doc.pool.has(cache.get(src))) imported = cache.get(src);
+    else {
+      const linked = linkedSource(src);
+      if (linked) imported = linked.id;
+      else {
+        imported = id;
+        while (doc.pool.has(imported)) imported = S.uid('src');
+        doc.addSource({ ...src, id: imported });
+        // Keep source details outside addSource's common fields, including
+        // the linked state and offline frame/channel counts.
+        Object.assign(doc.pool.get(imported), src, { id: imported });
+        if (links) rememberLink(doc.pool.get(imported));
+      }
+    }
+    cache.set(src, imported);
+    ids.set(id, imported);
+  }
+  return ids;
+}
+
 async function pasteClips(app, doc, clip) {
   const at = doc.cursor;
+  const rate = doc.sampleRate;
+  const selected = S.findTrack(doc.state, doc.selectedTrack);
+  const target = selected?.type === 'audio' && !selected.hidden ? selected.id : null;
+  let prepared;
+  if (clip.type === 'audio') {
+    const canPaste = () => {
+      if (!isOpen(app, doc)) return false;
+      if (doc.sampleRate === rate) return true;
+      app.notify('Paste stopped because the session sample rate changed. Review the session and paste again.', { error: true });
+      return false;
+    };
+    // Keep the clipboard and frame units chosen when Paste began. Revert can
+    // replace the destination while its audio is being converted.
+    const channels = clip.sampleRate === rate ? clip.channels : await channelsAtRate(clip.channels, clip.sampleRate, rate);
+    if (!canPaste()) return;
+    const file = new AudioFile({ name: app.uniqueName('Pasted Audio', '.wav'), sampleRate: rate, channels });
+    app.addDocument(file, { activate: false });
+    const sourceId = await linkSource(doc, file);
+    if (!canPaste()) return;
+    prepared = { channels, file, sourceId };
+  }
+  // Resolve tracks and overlap against the current timeline after preparation.
+  // A moved target stays the target; a removed/hidden target gets a new track.
   let state = doc.state;
   const audio = () => shownAudioTracks(state);
-  let base = audio().findIndex((t) => t.id === doc.selectedTrack);
-  if (base < 0) base = 0;
+  let base = audio().findIndex((t) => t.id === target);
+  if (base < 0) base = prepared && target !== null ? audio().length : 0;
   const ids = [];
   // Preferences > Multitrack: move pasted clips down to tracks where they do not overlap others.
   if (placementOptions.avoidOverlap) {
@@ -461,12 +537,7 @@ async function pasteClips(app, doc, clip) {
   }
   if (clip.type === 'audio') {
     // Waveform audio becomes a new file in the Files panel and a clip.
-    const channels = clip.sampleRate === doc.sampleRate ? clip.channels : await channelsAtRate(clip.channels, clip.sampleRate, doc.sampleRate);
-    if (!isOpen(app, doc)) return;
-    const file = new AudioFile({ name: app.uniqueName('Pasted Audio', '.wav'), sampleRate: doc.sampleRate, channels });
-    app.addDocument(file, { activate: false });
-    app.activate(doc);
-    const sourceId = await linkSource(doc, file);
+    const { channels, file, sourceId } = prepared;
     let track = audio()[base];
     while (!track) {
       const made = newTrack(state, { channels: trackChannelsFor(state, channels.length) });
@@ -477,23 +548,23 @@ async function pasteClips(app, doc, clip) {
     state = S.addClipsOnTop(state, [c]);
     ids.push(c.id);
   } else {
-    for (const [id, src] of clip.pool) if (src && !doc.pool.has(id)) doc.pool.set(id, src);
     if (clip.sampleRate !== doc.sampleRate) {
       app.notify('Clips copied from a session at another sample rate cannot be pasted here.', { error: true });
       return;
     }
+    const sourceIds = importClipboardSources(doc, clip);
     const pasted = [];
     for (const c of clip.clips) {
       while (!audio()[base + c.trackOffset]) {
         const made = newTrack(state, {});
         state = made.state;
       }
-      const n = S.createClip({ ...c, id: undefined, trackId: audio()[base + c.trackOffset].id, start: at + c.start });
+      const n = S.createClip({ ...S.remapClipSources(c, sourceIds), id: undefined, trackId: audio()[base + c.trackOffset].id, start: at + c.start });
       pasted.push(n);
       ids.push(n.id);
     }
     // Pasted clips come to the front, like clips placed by a move.
-    state = S.addClipsOnTop(state, pasted);
+    state = S.addClipsOnTop(state, relocateMergeLayouts(clip.clips, pasted));
   }
   doc.apply('Paste', state, { clips: ids });
 }
@@ -621,7 +692,7 @@ export function installMultitrackCommands(app) {
         const f = c[key];
         // A crossfading end keeps its overlap length; the curve shapes the crossfade.
         const length = f.length || (crossfading.has(c.id) ? 0 : S.defaultFadeLength(c, doc.sampleRate));
-        return { [key]: { ...f, curve: S.FADE_CURVES[kind.toLowerCase()], length: Math.max(0, Math.min(c.length, Math.round(length))) } };
+        return { [key]: { ...restartFade(f), curve: S.FADE_CURVES[kind.toLowerCase()], length: Math.max(0, Math.min(c.length, Math.round(length))) } };
       });
       doc.apply(dir === 'in' ? 'Fade In' : 'Fade Out', state);
     },
@@ -662,6 +733,7 @@ export function installMultitrackCommands(app) {
   };
   const mixdown = async (scope) => {
     const doc = session(app);
+    const state = doc.state;
     let o;
     if (scope === 'time') o = { start: doc.selection.start, end: doc.selection.end };
     else if (scope === 'clips') {
@@ -669,14 +741,16 @@ export function installMultitrackCommands(app) {
       const [a, b] = clipsRange(clips);
       o = { start: a, end: b, clipIds: new Set(clips.map((c) => c.id)) };
     } else o = { start: 0, end: doc.length };
-    const { data } = await rendered('Mixing down', o);
-    // Preferences > Markers & Metadata: session markers in the range go into the mixdown.
-    const markers = app.prefs.get('markersInMixdowns') ? markersInRange(doc.state.markers, o.start, o.end).map((m) => createMarker(m)) : [];
+    // Keep output metadata with the rendered snapshot. Revert and later edits
+    // may change the live session's rate, master width or markers while we wait.
+    const markers = app.prefs.get('markersInMixdowns') ? markersInRange(state.markers, o.start, o.end).map((m) => createMarker(m)) : [];
+    const { data } = await rendered('Mixing down', { ...o, state });
     // A mono master mixes down to a mono file.
-    return renderedDoc(app, doc, doc.state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers);
+    return renderedDoc(app, doc, state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers, state.sampleRate);
   };
   const bounce = async (scope) => {
     const doc = session(app);
+    const state = doc.state;
     let o;
     let name;
     let after = doc.selectedTrack;
@@ -703,12 +777,22 @@ export function installMultitrackCommands(app) {
       after = clips[clips.length - 1]?.trackId || after;
     }
     // The new track plays through the master, so the bounce leaves the master out.
-    const { data } = await rendered('Bouncing', { ...o, master: false });
+    const { data } = await rendered('Bouncing', { ...o, state, master: false });
     // The session closed while it rendered: there is no track to put the bounce on.
     if (!isOpen(app, doc)) return;
-    const file = renderedDoc(app, doc, data, name);
+    const file = renderedDoc(app, doc, data, name, [], state.sampleRate);
     app.addDocument(file, { activate: false });
+    const canCommit = () => {
+      if (!isOpen(app, doc)) return false;
+      if (doc.sampleRate === state.sampleRate) return true;
+      app.notify('Bounce stopped because the session sample rate changed. Rendered audio remains in the Files panel; review the session and insert it again.', { error: true });
+      return false;
+    };
+    // Its samples and placement use the rendered rate, even if Revert replaced
+    // the session. Keep the completed file without inserting at an old frame time.
+    if (!canCommit()) return;
     const sourceId = await linkSource(doc, file);
+    if (!canCommit()) return;
     const afterTrack = S.findTrack(doc.state, after);
     // A 5.1 render goes on a 5.1 track, which plays all six channels.
     const made = newTrack(doc.state, { name: baseName(file.name), channels: data.length === 6 ? 6 : 2, afterId: afterTrack?.type === 'audio' ? after : undefined });
@@ -1083,19 +1167,57 @@ export function installMultitrackCommands(app) {
         // merged clip still plays through the track's EQ, polarity and pan, so they stay out.
         const dry = { volume: 0, pan: 0, fx: [], mode: 'off', mute: false, solo: false, output: 'master', invert: false, eq: { on: false, values: {} }, sends: [] };
         const tmp = { ...doc.state, tracks: doc.state.tracks.map((t) => (t.id === trackId ? { ...t, ...dry } : t)) };
-        const data = await renderSession(app, doc, { state: tmp, start: a, end: b, clipIds: graphClips, trackId, master: false, label: 'Merging clips' });
+        const renderedPlan = clipPlan(tmp);
+        const media = new Map();
+        const linkedDocs = new Map(app.documents.map((d) => [d.id, d]));
+        const data = await renderSession(app, doc, {
+          state: tmp, start: a, end: b, clipIds: graphClips, trackId, master: false, label: 'Merging clips',
+          // Capture after pending stretch/remix renders finish, not their previews.
+          onPrepared: () => {
+            for (const c of clips) {
+              for (let id = c.sourceId; id && !media.has(id); ) {
+                const src = doc.pool.get(id);
+                media.set(id, { channels: src?.channels, linked: linkedDocs.get(src?.docId) });
+                id = src?.derived?.from;
+              }
+            }
+          },
+        });
         if (!isOpen(app, doc)) return;
-        const file = renderedDoc(app, doc, data, `${clips[0].name} Merged`);
+        const file = renderedDoc(app, doc, data, `${clips[0].name} Merged`, [], tmp.sampleRate);
         app.addDocument(file, { activate: false });
-        app.activate(doc);
+        const canCommit = () => {
+          if (!isOpen(app, doc)) return false;
+          const current = new Set(doc.state.clips);
+          // Unselected clips can hide these clips or supply their crossfades.
+          // Compare what was heard, allowing unrelated edits and restored Undo.
+          const currentPlan = clipPlan(doc.state);
+          const samePlan = clips.every(({ id }) => {
+            const before = renderedPlan.get(id), after = currentPlan.get(id);
+            return before === after || (before && after &&
+              before.parts.length === after.parts.length && before.parts.every(([a, b], i) => a === after.parts[i][0] && b === after.parts[i][1]) &&
+              ['fadeIn', 'fadeOut'].every((key) => before[key].length === after[key].length && before[key].curve === after[key].curve &&
+                (before[key].duration ?? before[key].length) === (after[key].duration ?? after[key].length) && (before[key].offset || 0) === (after[key].offset || 0)));
+          });
+          const sameMedia = [...media].every(([id, { channels: before, linked }]) => {
+            const src = doc.pool.get(id);
+            // Converted linked audio updates after a debounce. Its waveform may
+            // already differ while the pool (or a derived preview) is unchanged.
+            if (linked && src?.stateRef !== linked.state) return false;
+            const channels = src?.channels;
+            return channels === before || (channels?.length === before?.length && before?.every((c, i) => c === channels[i]));
+          });
+          if (doc.sampleRate === tmp.sampleRate && S.findTrack(doc.state, trackId)?.type === 'audio' && clips.every((c) => current.has(c)) && sameMedia && samePlan) return true;
+          app.notify('Merge stopped because its clips, audio, or session changed. Rendered audio remains in the Files panel; review the session and merge again.', { error: true });
+          return false;
+        };
+        // Replace only the inputs actually rendered. Later edits (including
+        // source edits with an unchanged timeline) must survive completion.
+        if (!canCommit()) return;
         const sourceId = await linkSource(doc, file);
-        // The merged clip takes the place of the frontmost merged clip, so the clips it overlapped
-        // stay in front of it or behind it as they were (the render already left out the parts
-        // that clips in front hid).
-        const order = S.frontOrder(doc.state);
-        const front = doc.state.clips.filter((c) => graphClips.has(c.id)).reduce((p, c) => (!p || order.get(c.id) > order.get(p.id) ? c : p), null);
-        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length, z: front?.z || 0 });
-        const state = front ? { ...doc.state, clips: doc.state.clips.flatMap((c) => (c === front ? [merged] : graphClips.has(c.id) ? [] : [c])) } : S.addClips(S.removeClips(doc.state, [...graphClips]), [merged]);
+        if (!canCommit()) return;
+        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length });
+        const state = mergeWithLayout(doc.state, graphClips, merged);
         doc.apply('Merge Clips', state, { clips: [merged.id] });
       },
     },
@@ -1438,8 +1560,8 @@ export function installMultitrackCommands(app) {
         const doc = session(app);
         await stretchIdle(doc);
         await remixIdle(doc);
-        await prepareVideoBytes(doc);
-        downloadBlob(sessionZip(doc), `${sessionBaseName(doc.name)}.zip`);
+        const { blob, fileName } = await prepareSessionZip(doc);
+        downloadBlob(blob, fileName);
       },
     },
     'edit.cut': {

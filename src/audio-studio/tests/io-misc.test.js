@@ -229,7 +229,7 @@ describe('file probing and decoding', () => {
     const bad = good.slice();
     new DataView(bad.buffer).setUint16(22, 0, true); // zero channels: a damaged header
     const added = [];
-    const app = { setStatus: () => {}, notify: vi.fn(), addDocument: (d) => added.push(d), activate: vi.fn(), prefs: { get: () => [], set: () => {} } };
+    const app = { documents: added, setStatus: () => {}, notify: vi.fn(), addDocument: (d) => added.push(d), activate: vi.fn(), prefs: { get: () => [], set: () => {} } };
     const docs = await openFiles(app, [new File([bad], 'Broken.wav'), new File([good], 'Fine.wav')]);
     expect(docs.map((d) => d.name)).toEqual(['Fine.wav']);
     expect(app.activate).toHaveBeenCalledWith(docs[0]);
@@ -242,7 +242,7 @@ describe('file probing and decoding', () => {
     const read = vi.fn(async () => new Blob([good]));
     const prefs = { get: () => [], set: () => {} };
     const app = { documents: [open], setStatus: () => {}, notify: vi.fn(), prefs };
-    Object.assign(app, { addDocument: vi.fn(), activate: vi.fn() });
+    Object.assign(app, { addDocument: vi.fn((doc) => app.documents.push(doc)), activate: vi.fn() });
     const docs = await openFiles(app, [{ name: 'Song.wav', path: '/u/Song.wav', read }]);
     expect(docs).toEqual([open]);
     expect(read).not.toHaveBeenCalled();
@@ -252,6 +252,53 @@ describe('file probing and decoding', () => {
     const more = await openFiles(app, [{ name: 'Other.wav', path: '/u/Other.wav', read }]);
     expect(more[0].source).toMatchObject({ type: 'puter', path: '/u/Other.wav' });
   });
+  it('shares an in-flight open of the same Puter file across overlapping requests', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    let release;
+    const ready = new Promise((resolve) => { release = resolve; });
+    const read = vi.fn(async () => { await ready; return new Blob([good]); });
+    const app = {
+      documents: [], setStatus: vi.fn(), notify: vi.fn(), activate: vi.fn(),
+      prefs: { get: () => [], set: () => {} },
+      addDocument(doc) { this.documents.push(doc); },
+    };
+    const item = { name: 'Song.wav', path: '/u/Song.wav', read };
+    const first = openFiles(app, [item], { activate: false });
+    const second = openFiles(app, [item]);
+    // Both gestures arrived before the first read completed.
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a[0] === b[0]).toBe(true);
+    expect(read).toHaveBeenCalledOnce();
+    expect(app.documents).toEqual([a[0]]);
+    expect(app.activate).toHaveBeenCalledWith(a[0]);
+  });
+
+  it('can retry a failed cloud open and still opens local files with identical names separately', async () => {
+    const { openFiles } = await import('../src/storage/files.js');
+    const good = await bytesOf(WavWriter);
+    const read = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(new Blob([good]));
+    const app = {
+      documents: [], setStatus: vi.fn(), notify: vi.fn(), activate: vi.fn(),
+      prefs: { get: () => [], set: () => {} },
+      addDocument(doc) { this.documents.push(doc); },
+    };
+    const item = { name: 'Song.wav', path: '/u/Song.wav', read };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await openFiles(app, [item])).toEqual([]);
+      expect((await openFiles(app, [item]))[0]).toBe(app.documents[0]);
+      expect(read).toHaveBeenCalledTimes(2);
+      const local = await openFiles(app, [new File([good], 'Song.wav'), new File([good], 'Song.wav')]);
+      expect(local).toHaveLength(2);
+      expect(local[0] === local[1]).toBe(false);
+      expect(app.documents).toHaveLength(3);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('rejects empty and known-unsupported files with clear messages', async () => {
     await expect(decodeAudio(new ArrayBuffer(0), 'a.mp3')).rejects.toThrow(/empty/);
     await expect(decodeAudio(new ArrayBuffer(16), 'a.wma')).rejects.toThrow(/Windows Media Audio/);

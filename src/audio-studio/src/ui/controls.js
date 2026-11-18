@@ -11,8 +11,9 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 function roundTo(v, step) {
   if (!step) return v;
   const r = Math.round(v / step) * step;
-  const decimals = Math.max(0, -Math.floor(Math.log10(step)));
-  return Number(r.toFixed(Math.min(10, decimals)));
+  // The step's magnitude is not its precision: log fields use 0.0025.
+  // Keep fractional steps intact while removing floating-point arithmetic noise.
+  return Number(r.toFixed(10));
 }
 
 /**

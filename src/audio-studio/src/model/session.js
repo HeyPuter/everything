@@ -3,8 +3,9 @@
 // 'change' events) so shared panels and commands work with it, and adds clip
 // and track selection, drag previews and a media pool.
 //
-// The media pool maps source ids to { id, name, channels (at the session
-// rate), sampleRate (of the original file), docId (linked AudioFile, if
+// The media pool maps source ids to { id, name, channels (at channelRate),
+// channelRate (the session rate used to prepare them), sampleRate (of the
+// original file), docId (linked AudioFile, if
 // open), path (Puter path when saved), offline }. It is not part of the undo
 // state: sources only ever get added, and edits in the Waveform editor flow
 // into the clips that use them.
@@ -14,6 +15,7 @@ import { History } from '../lib/history.js';
 import { createSessionState, sessionLength, findClip, findTrack, expandGroups, uid, frontOrder, bringToFront, clipEnd } from './session-edits.js';
 import { markerOptions, markersOnlyChange } from './markers.js';
 import { videoEnd } from './session-video.js';
+import { captureSessionState, savedAudioMatches, savedVideoMatches, savedSessionSnapshot } from './session-snapshot.js';
 
 let nextId = 1;
 
@@ -25,6 +27,10 @@ function hiddenClipIds(state) {
 }
 
 export class Session extends Emitter {
+  savedStateKnown = true;
+  #savedMedia = null;
+  #checkedPoolVersion = -1;
+  #audioMatches = true;
   /**
    * @param {object} o
    * @param {string} o.name
@@ -96,7 +102,16 @@ export class Session extends Emitter {
   }
 
   get dirty() {
-    return this.state !== this.savedState;
+    if (!this.savedStateKnown) return true;
+    if (this.state !== this.savedState) return true;
+    if (!this.#savedMedia) return false;
+    // Linked waveform edits can change audio without changing the timeline.
+    // Recheck sources only when the pool changes, not on every UI refresh.
+    if (this.#checkedPoolVersion !== this.poolVersion) {
+      this.#audioMatches = savedAudioMatches(this, this.#savedMedia);
+      this.#checkedPoolVersion = this.poolVersion;
+    }
+    return !this.#audioMatches || !savedVideoMatches(this, this.#savedMedia);
   }
 
   get hasSelection() {
@@ -108,9 +123,32 @@ export class Session extends Emitter {
   }
 
   /** Marks `state` (by default the current one) as what the file holds. */
-  markSaved(state = this.state) {
+  markSaved(state = this.state, media = state ? captureSessionState(this, state) : null) {
+    this.savedStateKnown = true;
     this.savedState = state;
+    this.#savedMedia = media;
+    this.#checkedPoolVersion = -1;
     this.emit('change', { kind: 'saved' });
+  }
+
+  /** A completed write may have replaced this file, but its alias is unresolved. */
+  invalidateSaved() {
+    this.savedStateKnown = false;
+    this.emit('change', { kind: 'saved' });
+  }
+
+  /** Revert also restores saved media without changing linked waveform history. */
+  revertToSaved() {
+    if (!this.savedStateKnown) return;
+    let state = this.savedState;
+    if (!state) { this.history.goTo(0); return; }
+    if (this.#savedMedia && (!savedAudioMatches(this, this.#savedMedia) || !savedVideoMatches(this, this.#savedMedia))) {
+      state = savedSessionSnapshot(this, { ...this.#savedMedia, state }).state;
+    }
+    const index = this.history.entries.findIndex((e) => e.state === state);
+    if (index >= 0) this.history.goTo(index);
+    else this.apply('Revert', state);
+    this.markSaved(state);
   }
 
   /**
@@ -289,8 +327,8 @@ export class Session extends Emitter {
   // ---------------------------------------------------------------- pool
 
   /** Adds media to the pool; returns the source id. */
-  addSource({ id = uid('src'), name, channels, sampleRate = this.sampleRate, docId = null, path = null, offline = false }) {
-    this.pool.set(id, { id, name, channels, sampleRate, docId, path, offline });
+  addSource({ id = uid('src'), name, channels, sampleRate = this.sampleRate, channelRate = this.sampleRate, docId = null, path = null, offline = false, file, frames, channelCount }) {
+    this.pool.set(id, { id, name, channels, sampleRate, channelRate, docId, path, offline, file, frames, channelCount });
     this.poolVersion++;
     return id;
   }
@@ -299,6 +337,7 @@ export class Session extends Emitter {
   updateSource(id, patch) {
     const src = this.pool.get(id);
     if (!src) return;
+    if (!this.#savedMedia) this.#savedMedia = captureSessionState(this, this.savedState || this.state);
     this.pool.set(id, { ...src, ...patch });
     this.poolVersion++;
     this.emit('change', { kind: 'graph' });
@@ -306,7 +345,7 @@ export class Session extends Emitter {
 
   sourceLength(id) {
     const src = this.pool.get(id);
-    return src?.channels?.[0]?.length ?? 0;
+    return src?.channels?.[0]?.length ?? src?.frames ?? 0;
   }
 
   /** Source ids referenced by any clip in any history step (what a save must keep). */

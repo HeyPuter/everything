@@ -25,10 +25,12 @@ const hasAudio = (app) => Boolean(audio(app));
 const hasSel = (app) => Boolean(audio(app)?.hasSelection);
 const anyDoc = (app) => Boolean(app.active);
 
-/** Resamples clip channels to `rate` when needed (paste between files). */
-async function conformRate(clip, rate) {
-  if (!clip || clip.sampleRate === rate) return clip;
+/** Resamples to the destination's current rate, which may change while DSP loads. */
+async function conformRate(clip, doc) {
+  if (!clip || clip.sampleRate === doc.sampleRate) return clip;
   const d = await dsp();
+  const rate = doc.sampleRate;
+  if (clip.sampleRate === rate) return clip;
   return {
     sampleRate: rate,
     channels: clip.channels.map((c) => Channel.fromSamples(d.resample(c.toArray(), clip.sampleRate, rate))),
@@ -157,6 +159,11 @@ function aboutDialog() {
 
 export function installCoreCommands(app) {
   const C = app.commands;
+  const appendDestinationOpen = (doc) => {
+    if (app.documents.includes(doc)) return true;
+    app.notify('Append stopped because the destination file was closed. Imported files remain open.', { error: true });
+    return false;
+  };
   const markersOf = (args) => {
     const doc = audio(app);
     // The Markers panel's selection; without that panel (it is created when first shown),
@@ -191,8 +198,12 @@ export function installCoreCommands(app) {
         for (const f of files) {
           const [opened] = await openFiles(app, [f], { activate: false });
           if (!opened) continue;
-          const clip = await conformRate({ sampleRate: opened.sampleRate, channels: opened.state.channels }, doc.sampleRate);
-          app.closeDocument(opened, { force: true });
+          if (!appendDestinationOpen(doc)) return false;
+          const clip = await conformRate({ sampleRate: opened.sampleRate, channels: opened.state.channels }, doc);
+          if (!appendDestinationOpen(doc)) return false;
+          // The source is visible while preparation runs; keep any new edits
+          // or capture that has not reached its first waveform update yet.
+          if (!opened.dirty && app.recorder?.document !== opened) app.closeDocument(opened);
           doc.apply('Append', E.insertClip(doc.state, doc.length, clip));
         }
       },
@@ -205,10 +216,12 @@ export function installCoreCommands(app) {
         const docs = await openFiles(app, files, { activate: false });
         if (!docs.length) return;
         const first = docs[0];
+        if (!appendDestinationOpen(first)) return false;
         for (const d of docs.slice(1)) {
-          const clip = await conformRate({ sampleRate: d.sampleRate, channels: d.state.channels }, first.sampleRate);
+          const clip = await conformRate({ sampleRate: d.sampleRate, channels: d.state.channels }, first);
+          if (!appendDestinationOpen(first)) return false;
           first.apply('Append', E.insertClip(first.state, first.length, clip));
-          app.closeDocument(d, { force: true });
+          if (!d.dirty && app.recorder?.document !== d) app.closeDocument(d);
         }
         app.activate(first);
       },
@@ -256,19 +269,23 @@ export function installCoreCommands(app) {
       run: async () => {
         const current = app.active;
         for (const d of app.documents.filter((x) => x.dirty)) {
+          // Earlier uploads may finish after a queued file was closed/discarded.
+          if (!app.documents.includes(d)) continue;
           app.activate(d);
           await C.run('file.save');
         }
-        app.activate(current);
+        if (!current || app.documents.includes(current)) app.activate(current);
       },
     },
     {
       id: 'file.revert',
       label: 'Revert',
-      enabled: (a) => Boolean(a.active?.dirty && a.active.history),
+      enabled: (a) => Boolean(a.active?.dirty && a.active.history && a.active.savedStateKnown !== false),
       run: async () => {
         const doc = app.active;
         if (!(await confirmDialog({ title: 'Revert', message: `Discard all changes to "${doc.name}" since it was last saved?`, confirm: 'Revert', danger: true }))) return;
+        if (doc.savedStateKnown === false) return;
+        if (typeof doc.revertToSaved === 'function') { doc.revertToSaved(); return; }
         const i = doc.history.entries.findIndex((e) => e.state === doc.savedState);
         if (i >= 0) doc.history.goTo(i);
         // The saved state can be gone from the history (cleared, trimmed, or
@@ -354,7 +371,7 @@ export function installCoreCommands(app) {
         const doc = audio(app);
         // The clipboard as it was when Paste ran (another can be chosen while a clip is resampled).
         const source = app.clipboard;
-        const clip = await conformRate(source, doc.sampleRate);
+        const clip = await conformRate(source, doc);
         const n = clip.channels[0]?.length ?? 0;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         let state = doc.hasSelection ? E.replaceRange(doc.state, doc.selection.start, doc.selection.end, clip, doc.channelMask) : E.insertClip(doc.state, at, clip, doc.channelMask);
@@ -738,9 +755,17 @@ export function installCoreCommands(app) {
     })),
 
     // ------------------------------------------------------------ Transport
-    { id: 'transport.play', label: 'Play', enabled: anyDoc, run: () => (app.engine.playing ? null : app.play()) },
+    { id: 'transport.play', label: 'Play', enabled: anyDoc, run: () => (app.engine.playing || app.playbackPending ? null : app.play()) },
     { id: 'transport.toggle', label: 'Play/Stop', shortcut: 'Space', enabled: anyDoc, run: () => app.togglePlay() },
-    { id: 'transport.stop', label: 'Stop', enabled: (a) => a.engine.playing || Boolean(a.recording) || Boolean(a.canReturn), run: () => (app.recording ? C.run('transport.record') : app.stop()) },
+    {
+      id: 'transport.stop', label: 'Stop',
+      enabled: (a) => a.engine.playing || Boolean(a.playbackPending) || Boolean(a.scrubbing) || Boolean(a.recording) || Boolean(a.recorder?.active) || Boolean(a.multitrack?.recorder?.active) || Boolean(a.canReturn),
+      run: () => {
+        if (app.recorder?.active) return app.recorder.stop();
+        if (app.multitrack?.recorder?.active) return app.multitrack.recorder.stop();
+        return app.recording ? C.run('transport.record') : app.stop();
+      },
+    },
     {
       id: 'transport.pause',
       label: 'Pause',

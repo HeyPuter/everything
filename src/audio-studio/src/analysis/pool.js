@@ -26,15 +26,21 @@ export class WorkerPool {
   #start() {
     if (!this.ready) {
       this.ready = dspModule().then((module) => {
-        for (let i = 0; i < this.size; i++) {
+        for (let i = this.workers.length; i < this.size; i++) {
           const w = new AnalysisWorker();
           w.busy = 0;
           w.onmessage = (e) => this.#onMessage(w, e.data);
           w.onerror = (e) => {
+            if (w.failure) return;
+            w.failure = new Error(e.message || 'Analysis failed');
+            w.terminate();
+            this.workers = this.workers.filter((worker) => worker !== w);
+            this.ready = null; // Refill the pool on the next request.
+            w.busy = 0;
             for (const [id, job] of this.jobs) {
               if (job.worker === w) {
                 this.jobs.delete(id);
-                job.reject(new Error(e.message || 'Analysis failed'));
+                job.reject(w.failure);
               }
             }
           };
@@ -62,7 +68,9 @@ export class WorkerPool {
   }
 
   async #send(worker, msg, transfer) {
-    await this.#start();
+    // A streaming session cannot migrate: its analyzer state died with its worker.
+    if (worker?.failure) throw worker.failure;
+    if (!worker) await this.#start();
     const w = worker ?? this.workers.reduce((a, b) => (b.busy < a.busy ? b : a));
     const id = nextId++;
     w.busy++;

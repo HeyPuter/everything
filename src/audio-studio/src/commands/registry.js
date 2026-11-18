@@ -135,7 +135,9 @@ export class CommandRegistry {
     return typeof c.label === 'function' ? c.label(this.app) : c.label;
   }
 
-  async run(id, args) {
+  // Chained operations can opt into observing failures after the normal error
+  // notification; ordinary menu and shortcut calls keep their handled result.
+  async run(id, args, { throwOnError = false } = {}) {
     const c = this.get(id);
     if (!c) {
       console.warn(`Unknown command ${id}`);
@@ -152,6 +154,7 @@ export class CommandRegistry {
       // Validation messages (UserError) are expected: a notification is enough.
       if (!isUserError(err)) console.error(err);
       this.app.notify?.(err?.message || 'Something went wrong.', { error: true });
+      if (throwOnError) throw err;
       return undefined;
     }
   }
