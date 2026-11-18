@@ -6,7 +6,7 @@ import { assertSize, layer, MAX_LAYERS, type Layer, type PhotoDocument } from '.
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { encodeIccProfile } from '../../model/psd-resources';
-import { readRgbProfile } from '../../color/profile';
+import { curveValue, readRgbProfile, srgbProfile } from '../../color/profile';
 import type { RGBA8 } from '../../imaging/types';
 import { decodeImage } from '../../imaging/codecs/decode';
 import { decodeIco, pickIcoEntry } from '../../imaging/codecs/ico';
@@ -118,6 +118,9 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   // profile does not describe: only an RGB profile tags the document.
   const icc = d.icc?.length && iccColorSpace(d.icc) === 'RGB ' ? d.icc : undefined;
   if (d.icc?.length && !icc) notes.push(`The embedded ${spaceNames[iccColorSpace(d.icc)] ?? 'color'} profile does not describe the opened RGB pixels and was not applied.`);
+  // Untagged float samples are linear sRGB (as in the 32-bit document they
+  // open as); the 8-bit image, which callers read as sRGB, is encoded from them.
+  if (d.dataF32 && !icc) encodeLinearSrgb(d.dataF32, d.rgba8.data);
   const out: DecodedFile = { image: applyOrientation(d.rgba8, d.orientation), icc, dpi: d.dpi?.x };
   if (d.data16) out.deep = { data: orient(d.data16, d.width, d.height, d.orientation), depth: 16 };
   else if (d.dataF32) out.deep = { data: orient(d.dataF32, d.width, d.height, d.orientation), depth: 32 };
@@ -144,6 +147,17 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   return out;
 }
 
+/** Linear float RGB as 8-bit sRGB into `out` (alpha is left as it is). */
+function encodeLinearSrgb(samples: Float32Array, out: Uint8ClampedArray) {
+  const steps = 16384;
+  const table = new Uint8ClampedArray(steps + 1);
+  for (let i = 0; i <= steps; i++) table[i] = curveValue(srgbProfile.curves[0], i / steps, true) * 255;
+  for (let i = 0; i < out.length; i++)
+    if ((i & 3) !== 3) {
+      const v = samples[i];
+      out[i] = v > 0 ? table[Math.round(Math.min(1, v) * steps)] : 0;
+    }
+}
 /** The data color space signature of an ICC profile ('RGB ', 'GRAY', 'CMYK'...). */
 const iccColorSpace = (icc: Uint8Array) => (icc.length >= 20 ? String.fromCharCode(...icc.subarray(16, 20)) : '');
 const spaceNames: Record<string, string> = { GRAY: 'Gray', CMYK: 'CMYK', 'Lab ': 'Lab' };
