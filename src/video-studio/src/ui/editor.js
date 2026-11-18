@@ -159,10 +159,11 @@ export class Editor {
     ctx.timeline = createTimeline(ctx);
 
     const p = prefs();
+    const heading = h('h1.sr-only', `${project.name} - Video Studio editor`);
     // The workspace and, beside it, the AI sidebar (added once the mobile chrome knows the layout).
     const body = h('div.editor-body',
       h('main#main.workspace', { tabindex: '-1' },
-        h('h1.sr-only', `${project.name} - Video Studio editor`),
+        heading,
         h('div.upper',
           ctx.assets.el,
           this._resizer('v', 'left'),
@@ -223,7 +224,11 @@ export class Editor {
     ctx.playerView.mounted?.();
     ctx.timeline.mounted?.();
     document.title = `${project.name} - Video Studio`;
-    store.on('change', () => (document.title = `${store.project.name} - Video Studio`));
+    store.on('change', () => {
+      document.title = `${store.project.name} - Video Studio`;
+      const title = `${store.project.name} - Video Studio editor`;
+      if (heading.textContent !== title) heading.textContent = title;
+    });
     // The store refuses edits that would lose work when saved, and says which.
     store.on('limit', ({ kind, max }) => {
       if (kind === 'compound-depth') toast(`Compound clips can sit inside each other ${max} deep at most.`, { kind: 'info' });
