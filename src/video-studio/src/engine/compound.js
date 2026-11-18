@@ -86,18 +86,22 @@ function expandTracks(tracks) {
       out.push(t);
       continue;
     }
-    // Nested track i of every compound on this track shares one virtual track.
+    // Share a virtual track only when its stack position, kind and visibility agree.
+    // Neighboring compounds may have completely different inner track layouts.
     const merged = [];
     for (const comp of comps) {
       let inner = expandOne(comp, t);
       if (hasCompound(inner)) inner = expandTracks(inner);
       inner.forEach((vt, i) => {
-        if (!merged[i]) merged[i] = { ...vt, id: `${t.id}~${i}`, clips: [] };
-        merged[i].clips.push(...vt.clips);
+        const key = `${vt.kind}:${Number(Boolean(vt.hidden))}${Number(Boolean(vt.muted))}${Number(Boolean(vt.solo))}`;
+        const slot = (merged[i] ||= new Map());
+        if (!slot.has(key)) slot.set(key, { ...vt, id: `${t.id}~${i}~${key}`, clips: [] });
+        slot.get(key).clips.push(...vt.clips);
       });
     }
-    for (const m of merged) m.clips.sort((a, b) => a.start - b.start);
-    out.push(...merged, { ...t, clips: t.clips.filter((c) => c.type !== 'compound') });
+    const virtual = merged.flatMap((slot) => [...slot.values()]);
+    for (const m of virtual) m.clips.sort((a, b) => a.start - b.start);
+    out.push(...virtual, { ...t, clips: t.clips.filter((c) => c.type !== 'compound') });
   }
   return out;
 }

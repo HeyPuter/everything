@@ -471,3 +471,44 @@ describe('nesting depth', () => {
   });
 });
 
+
+describe('neighboring compounds with different track layouts', () => {
+  it('keeps a later video from inheriting an earlier effect track kind', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const fx = clip('effect', 0, 2);
+    addClip(p, fx, FREE);
+    createCompound(p, [a.id, fx.id], FREE);
+    createCompound(p, [b.id], FREE);
+    expect(evaluate(p, s(1)).map(l => l.kind)).toEqual(['media', 'effect']);
+    const second = evaluate(p, s(3));
+    expect(second.map(l => l.kind)).toEqual(['media']);
+    expect(second[0].clip.sourceId).toBe(b.id);
+    expect(audibleClips(p).map(({ clip: c }) => c.sourceId).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it.each([false, true])('preserves different hidden and mute states after a first compound with hidden=%s', (hidden) => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const first = createCompound(p, [a.id], FREE);
+    const second = createCompound(p, [b.id], FREE);
+    Object.assign(first.sequence.tracks[0], { hidden, muted: hidden });
+    Object.assign(second.sequence.tracks[0], { hidden: !hidden, muted: !hidden });
+    expect(evaluate(p, s(1))).toHaveLength(hidden ? 0 : 1);
+    expect(evaluate(p, s(3))).toHaveLength(hidden ? 1 : 0);
+    expect(audibleClips(p).map(({ clip: c }) => c.sourceId)).toEqual([hidden ? b.id : a.id]);
+    expect(evaluate(p, s(3), { includeHidden: true })).toHaveLength(1);
+  });
+  it('still shares compatible render tracks across many compounds', () => {
+    const p = fixture();
+    const child = clip('video', 0, 1);
+    const sequence = { tracks: [{ id: 'inner', kind: 'video', main: true, clips: [child] }] };
+    for (let i = 0; i < 1000; i++) onMain(p, clip('compound', i, 1, { sequence: structuredClone(sequence) }));
+    const expanded = expandProject(p);
+    expect(expanded.tracks.filter(t => t.virtual)).toHaveLength(1);
+    expect(expanded.tracks.find(t => t.virtual).clips).toHaveLength(1000);
+    expect(evaluate(p, s(999.5)).map(l => l.kind)).toEqual(['media']);
+    expect(expandProject(p)).toBe(expanded);
+  });
+
+});
