@@ -6,6 +6,7 @@
  * images of a fixed size.
  */
 import { US, FRAME_SLACK } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 
 /** Grayscale copy of an RGBA image. */
 export function toGray(rgba, w, h) {
@@ -142,18 +143,22 @@ export function trackFrames(frames, w, h, box, opts = {}) {
  * time: yields { t, frame } with frames of tw x th pixels.
  */
 export async function* grayFrames(blob, times, { tw = 256, th = 144, signal } = {}) {
-  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
+  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+  signal?.throwIfAborted();
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+  let frames;
   try {
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
+    const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
+    if (!track || !(await abortable(() => track.canDecode(), signal))) throw new Error('This video can not be decoded here.');
     const sink = new CanvasSink(track, { width: tw, height: th, fit: 'fill', poolSize: 1 });
     const cv = new OffscreenCanvas(tw, th);
     const g = cv.getContext('2d', { willReadFrequently: true });
     let i = 0;
     // The frame shown at each time, as the preview and export pick it (see FRAME_SLACK).
-    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t / US + FRAME_SLACK))) {
-      if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+    frames = sink.canvasesAtTimestamps(times.map((t) => t / US + FRAME_SLACK))[Symbol.asyncIterator]();
+    for (;;) {
+      const { value: wrapped, done } = await abortable(() => frames.next(), signal);
+      if (done) break;
       if (wrapped) {
         g.drawImage(wrapped.canvas, 0, 0, tw, th);
         yield { t: times[i], frame: toGray(g.getImageData(0, 0, tw, th).data, tw, th) };
@@ -162,5 +167,10 @@ export async function* grayFrames(blob, times, { tw = 256, th = 144, signal } = 
     }
   } finally {
     input.dispose();
+    // A canceled next() may still be pending in the iterator. Queue its cleanup
+    // without delaying cancellation; any late rejection remains handled.
+    const closed = frames?.return?.();
+    if (signal?.aborted) Promise.resolve(closed).catch(() => {});
+    else await closed;
   }
 }

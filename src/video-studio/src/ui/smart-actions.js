@@ -5,6 +5,7 @@
  * behind people, even out flicker and save a clip's sound as a file.
  */
 import { h, announce } from '../lib/dom.js';
+import { abortable } from '../lib/abort.js';
 import { icon } from '../lib/icons.js';
 import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
@@ -359,7 +360,7 @@ export function createSmartActions(ctx) {
         for (let t = 0; t < clip.duration; t += US / fps) times.push(Math.round(t));
         const p = progressDialog('Stabilizing', 'Following the camera movement...');
         try {
-          const blob = await ctx.library.mediaBlob(asset);
+          const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
           const shifts = [];
           const sampleTimes = [];
           const sourceTimes = times.map((t) => T.sourceTimeAt(clip, clip.start + t));
@@ -373,8 +374,8 @@ export function createSmartActions(ctx) {
             prev = frame;
             p.set(++i / times.length);
           }
+          p.signal.throwIfAborted();
           if (sampleTimes.length < 2) throw new Error('Could not read enough frames to stabilize this clip. Try again or use another video.');
-          p.close();
           const path = cameraPath(shifts);
           const smooth = smoothCamera(path, Number(strength.value));
           const { offsets, zoom } = corrections(path, smooth, W, H);
@@ -397,8 +398,9 @@ export function createSmartActions(ctx) {
           });
           toast(`Stabilized, zoomed in ${Math.round((zoom - 1) * 100)}%.`, { kind: 'success' });
         } catch (err) {
+          if (!p.signal.aborted && err?.name !== 'AbortError') toast(err?.message || 'Could not stabilize this clip.', { kind: 'error' });
+        } finally {
           p.close();
-          if (err?.name !== 'AbortError') toast(err?.message || 'Could not stabilize this clip.', { kind: 'error' });
         }
       });
     },
