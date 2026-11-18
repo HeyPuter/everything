@@ -113,6 +113,14 @@ export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
       void e.runCommand('layer.delete');
       return;
     }
+    // As Layer → Create/Release Clipping Mask: releasing a layer in the middle
+    // of a clipping group releases the ones above it, and the Background or
+    // the bottom of the stack is no base.
+    if (action === 'clip') {
+      e.selectLayers([id]);
+      void e.runCommand('layer.clipping-mask');
+      return;
+    }
     if (layerLock(e.doc.layers, id, 'all')) return e.message('Unlock this layer to edit it.');
     if (action === 'reset') {
       host.params = defaultParams(kind as AdjustmentKind);
@@ -121,11 +129,9 @@ export function mountLayerEditor(e: Editor, el: HTMLElement, l: Layer) {
       host.rerender();
       return;
     }
-    e.command(action === 'clip' ? (current()!.clipped ? 'Release Clipping Mask' : 'Create Clipping Mask') : 'Toggle visibility', (d) => {
+    e.command('Toggle visibility', (d) => {
       const t = findLayer(d.layers, id);
-      if (!t) return;
-      if (action === 'clip') t.clipped = !t.clipped;
-      else t.visible = !t.visible;
+      if (t) t.visible = !t.visible;
     });
   });
   drawFooter();
