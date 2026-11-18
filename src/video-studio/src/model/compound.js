@@ -211,13 +211,14 @@ export function restoreCompoundTracks(project, compound, outer, groups) {
   for (const t of project.tracks) sortTrack(t);
 }
 
-/** Every clip in the project, including the ones inside compound clips and on the other timelines. */
-export function allClipsDeep(project) {
+/** Every clip, including compound contents and other timelines; optionally skip disabled subtrees. */
+export function allClipsDeep(project, { includeDisabled = true } = {}) {
   const out = [];
   const walk = (tracks) => {
     for (const t of tracks) for (const c of t.clips) {
+      if (!includeDisabled && c.disabled) continue;
       out.push(c);
-      for (const slice of c.transitionSlices || []) out.push(slice.partner);
+      for (const slice of c.transitionSlices || []) if (includeDisabled || !slice.partner.disabled) out.push(slice.partner);
       if (c.type === 'compound') walk(c.sequence.tracks);
     }
   };

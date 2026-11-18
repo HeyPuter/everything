@@ -10,6 +10,7 @@ import { SEG_SIZE, segment, ready, segmenterState, onSegmenterChange } from '../
 import { matteWindow, steadyMatte, strokeOverride, applyOverride, CUTOUT_DEFAULT } from '../model/cutout.js';
 import { retouchAmounts } from '../model/retouch.js';
 import { clipUsesBodyEffect } from '../model/body-effects.js';
+import { allClipsDeep } from '../model/compound.js';
 import { frameOf, drawUpright, faceModelsIn, ensureFaceModels, onFaceModelsReady, bindFaceLayer } from './face-render.js';
 import { bindBodyLayer } from './body-render.js';
 
@@ -20,7 +21,8 @@ const makeCanvas = (w, h) => (typeof OffscreenCanvas === 'function' ? new Offscr
 
 /** Whether a project has any clip that needs the person matte (background removal, retouch, body effects, person or background color). */
 export function usesPersonMatte(project) {
-  return (project?.tracks || []).some((t) => t.clips.some((c) => (c.cutout || retouchAmounts(c.retouch) || clipUsesBodyEffect(c) || c.colorTarget) && !c.disabled));
+  return allClipsDeep({ tracks: project?.tracks || [] }, { includeDisabled: false })
+    .some((c) => c.cutout || retouchAmounts(c.retouch) || clipUsesBodyEffect(c) || c.colorTarget);
 }
 
 /** Whether a project needs any of the people models (person matte, face or pose landmarks, hair matte). */
