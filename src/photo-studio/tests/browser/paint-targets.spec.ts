@@ -424,3 +424,58 @@ test('the Blur tool builds up while scrubbing within one stroke', async ({ page 
   expect(scrubbed).toBeLessThan(once - 30);
   expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Blur Tool');
 });
+
+test('the Paint Bucket fills the Quick Mask beyond the selection it started from', async ({
+  page,
+}) => {
+  // A selection of the left quarter becomes the Quick Mask.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await tool(page, 'Paint Bucket Tool');
+  await page.evaluate(() => window.photoStudio.setForeground('#ffffff'));
+  // The gray image is one region: white fills the whole mask.
+  const [cx, cy] = await client(page, 150, 60);
+  await page.mouse.click(cx, cy);
+  await idle(page);
+  const value = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readMask } = await import('/src/model/tiles.ts');
+    const q = e.doc.quickMask!;
+    return readMask(e.assets.tiles, q, { x: 150, y: 60, width: 1, height: 1 }).data[0];
+  });
+  expect(value).toBe(255);
+});
+
+test('Invert in Quick Mask inverts the whole mask, not only the selection it started from', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.runCommand('adjust.invert'));
+  await idle(page);
+  const values = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readMask } = await import('/src/model/tiles.ts');
+    const q = e.doc.quickMask!;
+    const at = (x: number) =>
+      readMask(e.assets.tiles, q, { x, y: 60, width: 1, height: 1 }).data[0];
+    return [at(20), at(150)];
+  });
+  expect(values).toEqual([0, 255]);
+});

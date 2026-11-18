@@ -548,7 +548,8 @@ function bucketTool(): Tool {
       const target = await pixelTarget(e);
       if (!target) return;
       const region = await wandMask(e, x, y);
-      const sel = selectionGrid(e.doc, e.assets.tiles);
+      // In Quick Mask mode the mask is the selection being edited.
+      const sel = target.kind === 'quick-mask' ? null : selectionGrid(e.doc, e.assets.tiles);
       const area = canvasRect(e.doc);
       const cover = sel ? readMask(e.assets.tiles, sel, area).data : undefined;
       const source = e.settings.bucketSource;

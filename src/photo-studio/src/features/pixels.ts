@@ -240,7 +240,8 @@ export async function applyToLayer(e: Editor, label: string, op: (src: RGBA8, re
   const target = await pixelTarget(e, { create: false });
   if (!target) return;
   const doc = e.doc;
-  const sel = selectionGrid(doc, e.assets.tiles);
+  // In Quick Mask mode the mask is the selection being edited.
+  const sel = target.kind === 'quick-mask' ? null : selectionGrid(doc, e.assets.tiles);
   if (target.kind !== 'pixels') {
     // Masks are filtered as grayscale images.
     const rect = canvasRect(doc);
