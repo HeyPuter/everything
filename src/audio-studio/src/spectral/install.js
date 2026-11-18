@@ -44,11 +44,18 @@ export function installSpectral(app) {
   const layerOf = (doc) => [...layers].find((l) => l.doc === doc);
   const invalidateDoc = (doc) => layerOf(doc)?.invalidate();
   const commit = (doc, label, state) => (rawApply.get(doc) || doc.apply.bind(doc))(label, state);
+  const unchanged = (doc, before, label) => {
+    if (doc.state === before) return true;
+    app.notify(`${label} was not applied because the file changed while it was processing.`, { error: true });
+    return false;
+  };
 
   const services = {
     async heal(doc, selection) {
+      const before = doc.state;
       const d = dspSync || (await loadDsp());
-      const next = healSpectral(doc.state, selection, d);
+      if (!unchanged(doc, before, 'Spot Healing Brush')) return false;
+      const next = healSpectral(before, selection, d);
       if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
     },
     zoomFrequency(doc, factor, centre) {
@@ -203,6 +210,7 @@ export function installSpectral(app) {
       repeatable: true,
       run: async () => {
         const doc = audio();
+        const before = doc.state;
         let sel = spectralSelection(app, doc);
         // Healing works on the whole selection at once (memory grows with its length), so a
         // spectral selection has the same limit as a time selection.
@@ -216,7 +224,8 @@ export function installSpectral(app) {
         }
         if (!sel) sel = timeSelection(start, end, doc.sampleRate / 2, doc.selection.channels.slice());
         const d = dspSync || (await loadDsp());
-        commit(doc, 'Auto Heal', healSpectral(doc.state, sel, d));
+        if (!unchanged(doc, before, 'Auto Heal')) return false;
+        commit(doc, 'Auto Heal', healSpectral(before, sel, d));
       },
     },
   ]);
@@ -231,8 +240,10 @@ export function installSpectral(app) {
         const doc = a.active;
         const sel = spectralSelection(a, doc);
         if (!sel) return del.run(a, args);
+        const before = doc.state;
         const d = dspSync || (await loadDsp());
-        commit(doc, 'Delete', applySpectralMask(doc.state, sel, 0, d));
+        if (!unchanged(doc, before, 'Delete')) return false;
+        commit(doc, 'Delete', applySpectralMask(before, sel, 0, d));
       },
     });
   }
@@ -244,8 +255,10 @@ export function installSpectral(app) {
     async apply(doc, label, fn) {
       const sel = spectralSelection(app, doc);
       if (!sel) return false;
+      const before = doc.state;
       const d = dspSync || (await loadDsp());
-      return commit(doc, label, applySpectralMask(doc.state, sel, fn, d));
+      if (!unchanged(doc, before, label)) return false;
+      return commit(doc, label, applySpectralMask(before, sel, fn, d));
     },
     clear: (doc = app.active) => doc && setSpectralSelection(app, doc, null),
     /** Sets a spectral selection ({ channels, shapes }, see mask.js). */
