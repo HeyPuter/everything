@@ -3,7 +3,7 @@
  */
 import { uid } from '../lib/ids.js';
 import { makeClip } from './project.js';
-import { findClip, clipEnd, clipLabel, soundCopy } from './timeline.js';
+import { findClip, clipEnd, clipLabel, soundCopy, cleanupTransitions } from './timeline.js';
 import { trimTo } from './slice.js';
 import { inheritFromCompound, restoreCompoundTracks, placeCompound } from './compound.js';
 import { MIN_ANGLES, MAX_ANGLES, isMulticam, activeRanges } from './multicam.js';
@@ -52,6 +52,8 @@ export function createMulticam(project, ids, { starts = {}, ...opts } = {}) {
     delete copy.group;
     return { id: uid('t'), kind: 'video', main: i === 0, locked: false, hidden: Boolean(f.track.hidden), muted: Boolean(f.track.muted), ...(f.track.solo ? { solo: true } : {}), angle: true, name: clipLabel(project, f.clip).slice(0, 60), clips: [copy] };
   });
+  // Each angle is its own track; a former neighboring shot is no longer its partner.
+  cleanupTransitions({ tracks });
   const clip = makeClip('compound', {
     start: Math.max(0, a),
     duration: b - a,
@@ -124,6 +126,8 @@ export function flattenMulticam(project, id) {
         if (sound) { place(sound); sounds.push(sound); extras.push(sound); }
       }
     }
+    // Resolve transitions within this camera before different angles share a track.
+    cleanupTransitions({ tracks: [{ clips }] });
     groups.push({ track: t, clips, main: mergePictures || t === tracks[firstAngle] });
     groups.push({ track: { ...t, kind: 'audio' }, clips: sounds });
   }
