@@ -193,9 +193,18 @@ const objectSelectionTool: Tool = {
     if (!d) return;
     const lasso = e.settings.objectMode === 'lasso';
     const pts: Pt[] = lasso ? d.points : [d.start, [p.x, d.start[1]], [p.x, p.y], [d.start[0], p.y]];
-    const xs = pts.map((q) => q[0]),
-      ys = pts.map((q) => q[1]);
-    const box = { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+    // A long lasso has too many points to spread into Math.min.
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (const [x, y] of pts) {
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+    const box = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
     if (box.width < 4 || box.height < 4) {
       e.message(lasso ? 'Draw a loop around an object.' : 'Drag a rectangle around an object.');
       return;
@@ -258,7 +267,8 @@ function closeMagnetic(e: Editor) {
   if (m.anchors.length > 1) {
     // Close along the image edges back to the start.
     m.wire.setSeed(...m.anchors.at(-1)!);
-    pts.push(...m.wire.pathTo(...m.anchors[0]).slice(1));
+    // The closing path can be long: append without spreading it into a call.
+    for (const q of m.wire.pathTo(...m.anchors[0]).slice(1)) pts.push(q);
   }
   e.overlay();
   if (pts.length < 3) return;
