@@ -207,3 +207,21 @@ it.each([[false, 1, 0], [false, 0, 1], [true, 1, 0], [true, 0, 1]])('samples mas
   env.store.undo(); expect(env.shape.strokes).toEqual(original);
   env.store.redo(); expect(env.shape.strokes.at(-1).pts).toHaveLength(6);
 });
+
+it.each([false, true].flatMap(nested => ['x', 'y'].flatMap(axis => [[nested, axis, 4, false], [nested, axis, 9, false], [nested, axis, 4, true]])))('snaps a mask by displayed distance (nested %s, axis %s, distance %s, Alt %s)', (nested, axis, distance, altKey) => {
+  const env = setup('mask', nested);
+  Object.assign(env.shape, { type: 'rectangle', x: 0.2, y: 0.2 }); env.draw();
+  const center = env.project(960, 540);
+  const edge = env.project(axis === 'x' ? 2880 : 960, axis === 'y' ? 1620 : 540);
+  const length = Math.hypot(edge[0] - center[0], edge[1] - center[1]);
+  const offset = distance / length;
+  const target = { x: 0.15, y: 0.15, [axis]: offset };
+  const at = env.project(0.7 * 1920, 0.7 * 1080), end = env.project((0.5 + target.x) * 1920, (0.5 + target.y) * 1080);
+  const fire = (el, type, point) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, altKey, clientX: point[0], clientY: point[1] }));
+  fire(env.overlay.el.querySelector('[data-mh=move]'), 'pointerdown', at);
+  fire(env.overlay.el, 'pointermove', end);
+  fire(env.overlay.el, 'pointerup', end);
+  expect(env.shape[axis]).toBeCloseTo(distance < 6 && !altKey ? 0 : offset, 8);
+  expect(env.shape[axis === 'x' ? 'y' : 'x']).toBeCloseTo(0.15, 8);
+  env.store.undo(); expect(env.shape.x).toBe(0.2); expect(env.shape.y).toBe(0.2);
+});

@@ -398,10 +398,13 @@ export function createMaskOverlay({ store, actions, stage }) {
         let x = m.x + (s1[0] - s0[0]) / SW;
         let y = m.y + (s1[1] - s0[1]) / SH;
         if (!e.altKey) {
-          // Snap the center to the middle of the picture.
-          const pxPerSrc = Math.abs(cur.box.w) * cur.k / SW;
-          if (Math.abs(x) * SW * pxPerSrc < 6) x = 0;
-          if (Math.abs(y) * SH * pxPerSrc < 6) y = 0;
+          // Snap by the visible displacement along each source axis, including
+          // crop, unequal scales, and inherited rotation or shear.
+          const center = cur.srcToCss(SW / 2, SH / 2);
+          const ax = cur.srcToCss(SW * 1.5, SH / 2);
+          const ay = cur.srcToCss(SW / 2, SH * 1.5);
+          if (Math.abs(x) * Math.hypot(ax[0] - center[0], ax[1] - center[1]) < 6) x = 0;
+          if (Math.abs(y) * Math.hypot(ay[0] - center[0], ay[1] - center[1]) < 6) y = 0;
         }
         edit('Move mask', { x, y }, coalesce);
         break;
