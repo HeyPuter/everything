@@ -269,10 +269,12 @@ export function installCoreCommands(app) {
       run: async () => {
         const current = app.active;
         for (const d of app.documents.filter((x) => x.dirty)) {
+          // Earlier uploads may finish after a queued file was closed/discarded.
+          if (!app.documents.includes(d)) continue;
           app.activate(d);
           await C.run('file.save');
         }
-        app.activate(current);
+        if (!current || app.documents.includes(current)) app.activate(current);
       },
     },
     {
