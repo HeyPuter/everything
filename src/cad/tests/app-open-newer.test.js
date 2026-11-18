@@ -18,7 +18,7 @@ async function open(data) {
 describe('a .cad file written by a newer version of the app', () => {
   const file = { format: 'cad-drawing', ...new Drawing().toJSON() };
 
-  it('opens with a warning, and Save asks before replacing it', async () => {
+  it('opens with a warning', async () => {
     const { doc, log } = await open({ ...file, version: file.version + 1, views: [{ name: 'future' }] });
     expect(doc.file.dropped).toMatch(/newer version/);
     expect(log.some((t) => /newer version/.test(t))).toBe(true);
@@ -30,5 +30,19 @@ describe('a .cad file written by a newer version of the app', () => {
       expect(doc.file.dropped).toBeUndefined();
       expect(log.some((t) => /newer version/.test(t))).toBe(false);
     }
+  });
+});
+
+describe('saving a drawing opened from a .cad file', () => {
+  it('saves it as a new file instead of writing the .cad file', async () => {
+    const { doc } = await open({ format: 'cad-drawing', ...new Drawing().toJSON() });
+    expect(doc.file.kind).toBe('native');
+    const app = Object.create(App.prototype);
+    Object.assign(app, { doc });
+    app.saveAs = vi.fn(async () => true);
+    app.writeFile = vi.fn(async () => true);
+    expect(await app.save(doc)).toBe(true);
+    expect(app.saveAs).toHaveBeenCalledWith(doc);
+    expect(app.writeFile).not.toHaveBeenCalled();
   });
 });

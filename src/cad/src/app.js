@@ -614,7 +614,7 @@ export class App {
   async openBuffer(buffer, name, file) {
     const kind = fileKind(name);
     if (!kind) {
-      toast('Choose a .cad, .dwg or .dxf file.', { kind: 'error' });
+      toast('Choose a .dwg or .dxf file.', { kind: 'error' });
       return null;
     }
     const existing = file.path
@@ -632,7 +632,7 @@ export class App {
         const data = await decodeDrawing(buffer);
         drawing = new Drawing(data);
         if (data.version > NATIVE_VERSION) {
-          // What this version does not know is not kept: Save asks before replacing the file.
+          // What this version does not know is not kept; Save writes a new DWG file and leaves this one as it is.
           dropped = 'content from a newer version of the app';
           this.cmdline.log(`${name} was saved with a newer version of the app. Parts of it may be missing here.`, 'muted');
         }
@@ -686,20 +686,17 @@ export class App {
     });
   }
 
+  /** The file contents of a drawing: DXF for 'dxf', otherwise DWG. */
   async encode(doc, kind) {
+    const ext = doc.index.extents();
     if (kind === 'dxf') {
-      const ext = doc.index.extents();
       const { text, warnings } = await exportDxf(doc.drawing, ext);
       for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
       return new Blob([text], { type: 'application/dxf' });
     }
-    if (kind === 'dwg') {
-      const ext = doc.index.extents();
-      const { bytes, warnings } = await exportDwg(doc.drawing, ext);
-      for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
-      return new Blob([bytes], { type: 'image/vnd.dwg' });
-    }
-    return encodeDrawing(doc.drawing);
+    const { bytes, warnings } = await exportDwg(doc.drawing, ext);
+    for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
+    return new Blob([bytes], { type: 'image/vnd.dwg' });
   }
 
   /** Save; returns true when saved. */
@@ -710,7 +707,8 @@ export class App {
     if (doc._saving && (await this.afterSaving(doc)) && doc.file && !doc.drawing.modified) {
       return true;
     }
-    if (!doc.file || (!doc.file.path && !doc.file.handle)) return this.saveAs(doc);
+    // A .cad file from an earlier version is never written: save it as a new DWG (or DXF) file.
+    if (!doc.file || (!doc.file.path && !doc.file.handle) || doc.file.kind === 'native') return this.saveAs(doc);
     if (doc.file.dropped) {
       const file = doc.file,
         dropped = file.dropped;
@@ -761,7 +759,7 @@ export class App {
   }
 
   async writeFile(doc) {
-    const kind = doc.file.kind || 'native';
+    const kind = doc.file.kind || 'dwg';
     // Edits made while the file is written stay unsaved.
     const rev = doc.drawing.revision;
     try {
@@ -845,10 +843,10 @@ export class App {
       } else {
         const r = await storage.deviceSave(blob, fileName, null);
         if (!r) return false;
-        // Named with another drawing extension in the picker: write that format instead.
+        // Named with the other format's extension in the picker: write that format instead.
         let kind = target.kind;
         const picked = fileKind(r.name);
-        if (r.handle && picked && picked !== kind) {
+        if (r.handle && (picked === 'dwg' || picked === 'dxf') && picked !== kind) {
           kind = picked;
           await storage.deviceSave(await this.encode(doc, kind), r.name, r.handle);
         }
@@ -957,7 +955,7 @@ export class App {
     }
   }
 
-  /** Files opened from the Puter desktop (double click on a .cad, .dwg or .dxf). */
+  /** Files opened from the Puter desktop (double click on a .dwg or .dxf, or a .cad from an earlier version). */
   async handleLaunchItems() {
     // Files opened with the installed app (manifest file_handlers).
     window.launchQueue?.setConsumer(async (params) => {

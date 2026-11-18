@@ -24,8 +24,8 @@ Built with vanilla JavaScript, WebGL2, Vite, [Lucide](https://lucide.dev) icons,
 - **Blocks:** create blocks, insert them with scale and rotation, browse them with thumbnails, rename, and purge unused ones.
 - **Properties palette:** view and edit the shared properties and geometry of any selection, including polyline vertices.
 - **Files**
-  - Native `.cad` files (compressed JSON) that keep everything exactly.
-  - DWG import (AutoCAD R13 to 2018, the format current AutoCAD versions still save) and export (DWG 2004), and DXF import and export (R2000 ASCII), all parsed and written in a Web Worker. The DWG reader and writer are written from the Open Design Specification for .dwg files.
+  - Drawings are saved as DWG (DWG 2004) by default, or as DXF (R2000 ASCII). `.cad` files from earlier versions of the app still open and are saved as DWG.
+  - DWG import (AutoCAD R13 to 2018, the format current AutoCAD versions still save) and DXF import, all parsed and written in a Web Worker. The DWG reader and writer are written from the Open Design Specification for .dwg files.
   - Plot to PDF and PNG on standard paper sizes, fit or to scale, with a live preview. Export SVG, PNG, PDF, DWG and DXF.
   - Cloud files in your Puter drive, or files on your device. Open drawings are kept in the browser for recovery after a reload.
 - **Interface:** ribbon with contextual tabs, quick access tools, drawing tabs, command search (`Ctrl+K`), context menus, a navigation bar, a status bar for drafting aids, clean screen mode, and light, dark and system themes.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Drawing } from '../src/core/drawing.js';
-import { encodeDrawing, decodeDrawing, fileKind, baseName } from '../src/io/native.js';
+import { encodeDrawing, decodeDrawing, fileKind, kindExt, baseName } from '../src/io/native.js';
 
 describe('native drawing files', () => {
   it('round-trips a drawing through compressed JSON', async () => {
@@ -68,5 +68,8 @@ describe('native drawing files', () => {
     expect(fileKind('a/b/site.dxf')).toBe('dxf');
     expect(fileKind('photo.png')).toBeNull();
     expect(baseName('folder/Floor plan.dxf')).toBe('Floor plan');
+    expect(kindExt('dxf')).toBe('.dxf');
+    expect(kindExt('dwg')).toBe('.dwg');
+    expect(kindExt(undefined)).toBe('.dwg');
   });
 });
