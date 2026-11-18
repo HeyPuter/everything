@@ -430,10 +430,11 @@ export async function applyRack(app) {
   if (!rackActive(rack) || applying.has(doc)) return false;
   const [start, end] = rack.process === 'file' || !doc.hasSelection ? [0, doc.length] : [doc.selection.start, doc.selection.end];
   const before = doc.state;
+  const mask = doc.channelMask?.slice() ?? null;
   applying.add(doc);
   try {
     const state = await withProgress(app, 'Applying Effects Rack', (signal, onProgress) =>
-      renderRack({ rack, state: before, start, end, mask: doc.channelMask, signal, onProgress, applyChain: lazyApplyChain, doc }),
+      renderRack({ rack, state: before, start, end, mask, signal, onProgress, applyChain: lazyApplyChain, doc }),
     );
     if (doc.state !== before) {
       app.notify('The Effects Rack was not applied because the file changed while it was processing.', { error: true });
@@ -444,7 +445,7 @@ export async function applyRack(app) {
       app.notify('The Effects Rack was not applied because its effects changed while it was processing. Apply again to use the updated rack.', { error: true });
       return false;
     }
-    doc.apply('Effects Rack', smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), doc.channelMask));
+    doc.apply('Effects Rack', smoothBoundaries(before, state, start, end, editSmoothFrames(app, before.sampleRate), mask));
     // The rendered slots are unchanged; retain newer power, gain and range settings.
     setRack(app, doc, { ...rackFor(doc), slots: fitSlots([]) });
     announce('Effects Rack applied');
