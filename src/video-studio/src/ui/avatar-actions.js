@@ -137,9 +137,9 @@ export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal, 
         T.addClip(p, audio, { ...store.opts, main: false });
         voice = audio.id;
       }
-      // Moving or deleting them together keeps the lips in step.
-      const v = T.findClip(p, voice)?.clip;
-      if (v && !v.group) T.groupClips(p, [clip.id, voice]);
+      // Locked voices may be read for lip sync, but their grouping must stay untouched.
+      const v = T.findClip(p, voice);
+      if (v && !v.track.locked && !v.clip.group) T.groupClips(p, [clip.id, voice]);
     });
     if (!ok) return null;
     store.select(clip.id);
