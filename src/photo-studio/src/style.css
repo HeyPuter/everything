@@ -272,7 +272,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 
 /* Dock */
 .dock { display: flex; background: var(--bg); border-left: 1px solid var(--line); min-height: 0; position: relative; }
-.dock-strip { width: 38px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; background: var(--chrome); border-right: 1px solid var(--line); }
+.dock-strip { width: 38px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; background: var(--chrome); border-right: 1px solid var(--line); min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .dock-strip button { width: 30px; height: 28px; padding: 0; }
 .dock-strip button[aria-pressed='true'] { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); }
 .strip-section { display: flex; flex-direction: column; align-items: center; gap: 2px; }

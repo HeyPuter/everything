@@ -116,6 +116,33 @@ test('a minimized panel group keeps its size for when it is restored, and the di
   expect((await heights())['dock-middle']).toBeGreaterThan(before['dock-middle'] / 2);
 });
 
+test.describe('in a short window', () => {
+  test.use({ viewport: { width: 1280, height: 560 } });
+  test('every icon panel in the strip can be reached: the strip scrolls', async ({ page }) => {
+    const strip = page.locator('.dock-strip');
+    const icons = strip.locator('[data-strip-panel]');
+    const last = icons.last();
+    const visible = async () => {
+      const s = (await strip.boundingBox())!;
+      const b = (await last.boundingBox())!;
+      return b.y >= s.y - 1 && b.y + b.height <= s.y + s.height + 1;
+    };
+    // The keyboard reaches the last icon and it scrolls into sight.
+    await icons.first().focus();
+    await page.keyboard.press('End');
+    await expect(last).toBeFocused();
+    expect(await visible()).toBe(true);
+    // So does the mouse wheel.
+    await strip.evaluate((el) => (el.scrollTop = 0));
+    const s = (await strip.boundingBox())!;
+    await page.mouse.move(s.x + s.width / 2, s.y + 40);
+    await page.mouse.wheel(0, 400);
+    await expect.poll(visible).toBe(true);
+    await last.click();
+    await expect(page.locator('.dock-drawer')).toBeVisible();
+  });
+});
+
 test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on its slot', async ({ page }) => {
   const slot = page.locator('[data-slot="marquee"]');
   await slot.focus();
