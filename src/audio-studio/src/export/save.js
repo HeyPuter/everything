@@ -130,14 +130,17 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
     channelCount: doc.channelCount,
     length: doc.length,
   } : doc;
-  const [start, end] = range || [0, sourceDoc.length];
+  // Only explicit selections have fixed bounds. For whole files, encodeDoc
+  // must use the current length after the dialog and destination checks.
+  const bounds = range ? { start: range[0], end: range[1] } : {};
+  const frameCount = () => range ? bounds.end - bounds.start : sourceDoc.length;
   // After a declined Replace or a failed sign-in the dialog reopens with the same choices.
   let initial = null;
   for (;;) {
-    const r = await exportFileDialog(app, sourceDoc, { mode, frames: end - start, initial });
+    const r = await exportFileDialog(app, sourceDoc, { mode, frames: frameCount(), initial });
     if (!r) return false;
     // Nothing to encode in a format that cannot be empty: say so and let another format be chosen.
-    const outFrames = outputFrames(end - start, sourceDoc.sampleRate, r.options.sampleRate);
+    const outFrames = outputFrames(frameCount(), sourceDoc.sampleRate, r.options.sampleRate);
     const empty = emptyExportError(r.options.format, outFrames);
     if (empty) {
       app.notify(empty, { error: true });
@@ -165,7 +168,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
     }
     const state = sourceDoc.state;
     const label = `${mode === 'export' || mode === 'download' ? 'Exporting' : 'Saving'} ${r.fileName}`;
-    const blob = await encodeWithProgress(sourceDoc, r.options, { start, end }, label);
+    const blob = await encodeWithProgress(sourceDoc, r.options, bounds, label);
     if (!blob) {
       app.setStatus('Cancelled');
       return false;
