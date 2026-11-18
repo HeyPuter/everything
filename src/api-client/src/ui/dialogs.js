@@ -766,7 +766,7 @@ const TRANSPORTS = [
     value: 'auto',
     label: 'Automatic',
     icon: 'zap',
-    text: 'Tries the browser first. When the browser is blocked (for example by CORS) and the request is safe to retry, it is sent again through the Puter relay. Recommended.',
+    text: 'When you are signed in, requests go through the Puter relay, so CORS does not apply. Local servers (localhost and your network), which the relay cannot reach, are sent from the browser. When you are signed out, requests are sent from the browser. Recommended.',
   },
   {
     value: 'browser',

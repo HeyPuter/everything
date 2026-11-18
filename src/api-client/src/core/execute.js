@@ -7,7 +7,7 @@
  *   environmentId,      active environment or null
  *   local,              Map of runtime variables (shared across a runner session)
  *   sandbox,            ScriptSandbox or null (scripts are skipped without one)
- *   sendOptions,        options for send(): { mode, relay, relayHosts, timeoutMs, ... }
+ *   sendOptions,        options for send(): { mode, relay, timeoutMs, ... }
  *   info,               { iteration, iterationCount } for scripts
  *   data,               runner data row (object) or null, readable like variables
  *   signal,             AbortSignal

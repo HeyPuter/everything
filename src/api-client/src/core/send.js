@@ -5,13 +5,15 @@
  *   must allow cross-origin requests (CORS), some headers (Cookie, Host,
  *   Origin...) cannot be set, and only CORS-exposed response headers are
  *   visible.
- * - relay: a raw HTTP/1.1 client over Puter's socket relay (TLS runs in the
- *   browser). Works with any server, sends every header as written and
- *   shows every response header, but needs a signed-in Puter account.
+ * - relay: a raw HTTP/1.1 client over puter.net sockets, Puter's socket
+ *   relay (TLS runs in the browser). Works with any server, sends every
+ *   header as written and shows every response header, but needs a
+ *   signed-in Puter account.
  *
- * 'auto' uses the browser first and switches to the relay when the browser
- * cannot reach the server, but only when doing so cannot send the request
- * twice (see canRetry).
+ * 'auto' sends through the relay when signed in, and from the browser for
+ * local servers (the relay cannot reach them) and when signed out. When the
+ * relay cannot open a connection, nothing has been sent, so the browser
+ * tries instead.
  */
 import { buildBody, graphqlJson, USER_AGENT } from './prepare.js';
 import { http1Request, followRedirects, toBytes, MAX_TIMEOUT_MS } from './http1.js';
@@ -48,23 +50,31 @@ export function isSimpleRequest(resolved) {
 }
 
 /**
- * Requests the relay may repeat after the browser failed. A failed browser
- * request may still have reached the server (no preflight, or a response
- * that was only blocked on the way back), so only safe methods qualify.
+ * Requests that are safe to send again after the browser failed. A failed
+ * browser request may still have reached the server (no preflight, or a
+ * response that was only blocked on the way back), so only safe methods
+ * qualify.
  */
 export function canRetry(resolved) {
   return ['GET', 'HEAD', 'OPTIONS'].includes(resolved.method);
 }
 
 export class SendError extends Error {
-  constructor(message, { code = 'network', hint = '', transport = 'browser', cause } = {}) {
+  /** beforeConnect: no connection was opened, so nothing reached the server. */
+  constructor(message, { code = 'network', hint = '', transport = 'browser', beforeConnect = false, cause } = {}) {
     super(message);
     this.name = 'SendError';
     this.code = code;
     this.hint = hint;
     this.transport = transport;
+    if (beforeConnect) this.beforeConnect = true;
     if (cause) this.cause = cause;
   }
+}
+
+/** True when puter.net refused to open a socket because the Puter session is missing or expired. */
+function isAuthFailure(err) {
+  return /relay token[^]*\b40[13]\b|\b(unauthori[sz]ed|not signed in|authentication)\b/i.test(err?.message || '');
 }
 
 function abortError(signal) {
@@ -240,7 +250,7 @@ export function puterSockets(puter) {
 }
 
 export async function sendRelay(resolved, { files, signal, timeoutMs = 0, followRedirects: follow = true, openSocket, cookieJar, maxBytes = 100 * 1048576 } = {}) {
-  if (!openSocket) throw new SendError('Sign in to Puter to send requests through the relay.', { code: 'relay-unavailable', transport: 'relay' });
+  if (!openSocket) throw new SendError('Sign in to Puter to send requests through the Puter relay.', { code: 'signed-out', transport: 'relay', beforeConnect: true });
   let payload = null;
   let contentType = null;
   try {
@@ -263,6 +273,7 @@ export async function sendRelay(resolved, { files, signal, timeoutMs = 0, follow
   const start = performance.now();
   // One timeout for the whole exchange, redirects included, as in the browser.
   const t = withTimeout(signal, timeoutMs);
+  let answered = 0; // hops that got a response; after one, the request has reached a server
   const sendOnce = async ({ url, method, headers: hs, body }) => {
     const list = [...hs];
     if (cookieJar && !list.some(([k]) => k.toLowerCase() === 'cookie')) {
@@ -270,6 +281,7 @@ export async function sendRelay(resolved, { files, signal, timeoutMs = 0, follow
       if (cookie) list.push(['Cookie', cookie]);
     }
     const res = await http1Request({ url, method, headers: list, body, openSocket, signal: t.signal, maxBodyBytes: maxBytes });
+    answered++;
     if (cookieJar) {
       const set = res.headers.filter(([k]) => k.toLowerCase() === 'set-cookie').map(([, v]) => v);
       if (set.length) cookieJar.setFromResponse(url, set);
@@ -285,7 +297,11 @@ export async function sendRelay(resolved, { files, signal, timeoutMs = 0, follow
     if (err?.name === 'AbortError') throw new SendError('The request was cancelled.', { code: 'aborted', transport: 'relay' });
     if (err?.name === 'TimeoutError') throw new SendError(err.message || 'The request timed out.', { code: 'timeout', transport: 'relay' });
     if (err instanceof SendError) throw err;
-    throw new SendError(err?.message || 'Could not get a response through the relay.', { code: 'network', transport: 'relay', cause: err });
+    const beforeConnect = !!err?.beforeConnect && !answered;
+    if (beforeConnect && isAuthFailure(err)) {
+      throw new SendError('Your Puter session has expired.', { code: 'signed-out', hint: 'Sign in again to send requests through the Puter relay.', transport: 'relay', beforeConnect: true, cause: err });
+    }
+    throw new SendError(err?.message || 'Could not get a response through the relay.', { code: 'network', transport: 'relay', beforeConnect, cause: err });
   } finally {
     t.done();
   }
@@ -312,48 +328,52 @@ export async function sendRelay(resolved, { files, signal, timeoutMs = 0, follow
 /**
  * Picks a transport and sends. options.mode: 'auto' | 'browser' | 'relay'.
  * options.relay: { openSocket, cookieJar } or null when signed out.
- * options.relayHosts: Set of hosts known to need the relay (updated here).
  */
 export async function send(resolved, options = {}) {
-  const { mode = 'auto', relay = null, relayHosts = new Set() } = options;
-  let host = '';
+  const { mode = 'auto', relay = null } = options;
+  let target;
   try {
-    host = new URL(resolved.url).host;
+    target = new URL(resolved.url);
   } catch {
     throw new SendError('Enter a valid URL, for example https://api.example.com/items.', { code: 'bad-url' });
   }
   const relayOpts = { ...options, openSocket: relay?.openSocket, cookieJar: relay?.cookieJar };
   if (mode === 'relay') return sendRelay(resolved, relayOpts);
-  const local = isPrivateHost(new URL(resolved.url).hostname);
-  if (mode === 'auto' && relay && !local && relayHosts.has(host)) {
-    const res = await sendRelay(resolved, relayOpts);
-    return { ...res, autoRelay: 'remembered' };
+  const local = isPrivateHost(target.hostname);
+  let relayError = null;
+  if (mode === 'auto' && relay && !local) {
+    try {
+      return await sendRelay(resolved, relayOpts);
+    } catch (err) {
+      // Only a relay that never connected leaves the request unsent; anything later must not be repeated.
+      if (!(err instanceof SendError) || !err.beforeConnect) throw err;
+      relayError = err;
+    }
   }
   const warnings = [];
   const dropped = forbiddenHeaders(resolved.headers);
-  if (dropped.length && mode === 'browser') warnings.push(`The browser does not let pages set ${dropped.join(', ')}; ${dropped.length > 1 ? 'they were' : 'it was'} not sent.`);
+  if (dropped.length) {
+    warnings.push(
+      mode === 'browser' || local
+        ? `The browser does not let pages set ${dropped.join(', ')}; ${dropped.length > 1 ? 'they were' : 'it was'} not sent.`
+        : `The browser does not let pages set ${dropped.join(', ')}. Send through the Puter relay to include ${dropped.length > 1 ? 'them' : 'it'}.`,
+    );
+  }
+  if (relayError) warnings.unshift(relayError.code === 'signed-out' ? 'Your Puter session has expired, so this was sent from the browser. Sign in again to use the Puter relay.' : `The Puter relay could not connect (${relayError.message}), so this was sent from the browser.`);
   try {
     const res = await sendBrowser(resolved, options);
-    if (dropped.length && mode === 'auto') res.warnings.push(`The browser does not let pages set ${dropped.join(', ')}. Use the Puter relay to send ${dropped.length > 1 ? 'them' : 'it'}.`);
     res.warnings.unshift(...warnings);
     return res;
   } catch (err) {
     if (mode !== 'auto' || !(err instanceof SendError) || !['network', 'mixed-content'].includes(err.code) || local) throw err;
+    // The relay already failed to connect; its reason says more than the browser's.
+    if (relayError) throw relayError;
     if (!relay) {
-      err.hint = `${err.hint} Sign in to Puter to use the relay.`.trim();
-      err.code = err.code === 'mixed-content' ? err.code : 'cors';
-      throw err;
+      const again = err.code === 'mixed-content' || canRetry(resolved) ? '' : ' The request may already have reached the server, so check before sending it again.';
+      err.hint = `${err.hint} Sign in to Puter to send it through the Puter relay.${again}`.trim();
+      if (err.code !== 'mixed-content') err.code = 'cors';
     }
-    // The browser blocks mixed content before sending, so only a network error may have reached the server.
-    if (err.code !== 'mixed-content' && !canRetry(resolved)) {
-      throw new SendError('The browser could not read the response, and the request may already have reached the server.', {
-        code: 'maybe-sent',
-        hint: 'Send it again through the Puter relay if repeating it is safe.',
-      });
-    }
-    const res = await sendRelay(resolved, relayOpts);
-    relayHosts.add(host);
-    return { ...res, autoRelay: 'fallback' };
+    throw err;
   }
 }
 

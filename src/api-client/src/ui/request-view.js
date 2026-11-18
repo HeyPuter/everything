@@ -149,7 +149,9 @@ export class RequestView {
     menuButton(sendMore, () => [
       { label: 'Send', icon: 'sendH', kbd: shortcut('Mod+Enter'), run: () => this.app.sendTab(this.tab) },
       { label: 'Send from the browser', icon: 'globe', run: () => this.app.sendTab(this.tab, { transport: 'browser' }) },
-      { label: this.app.session.signedIn ? 'Send through Puter relay' : 'Send through Puter relay (sign in)', icon: 'server', disabled: !this.app.session.signedIn, run: () => this.app.sendTab(this.tab, { transport: 'relay' }) },
+      this.app.session.signedIn
+        ? { label: 'Send through Puter relay', icon: 'server', run: () => this.app.sendTab(this.tab, { transport: 'relay' }) }
+        : { label: 'Sign in and send through Puter relay', icon: 'server', disabled: !this.app.session.puter, run: () => this.app.signInAndSend(this.tab, 'relay') },
       '-',
       { label: 'Copy as cURL', icon: 'terminal', run: () => this.copyAs('curl') },
       { label: 'Show code snippet', icon: 'code', run: () => this.app.toggleRightPanel('code', true) },
@@ -168,6 +170,7 @@ export class RequestView {
     this.response = new ResponseView(this.app, this.tab, {
       onRetry: () => this.app.sendTab(this.tab),
       onRelay: () => this.app.sendTab(this.tab, { transport: 'relay' }),
+      onSignInSend: (transport) => this.app.signInAndSend(this.tab, transport),
       onSaveExample: (result) => this.#saveExample(result),
     });
     if (this.tab.result) this.response.show(this.tab.result);

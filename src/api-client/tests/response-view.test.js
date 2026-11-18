@@ -158,6 +158,26 @@ describe('response view', () => {
     expect(v.el.textContent).toContain('Try again');
   });
 
+  it('offers to sign in and send when the request needs the Puter relay', () => {
+    const onSignInSend = vi.fn();
+    const signedOut = { ...app, session: { signedIn: false, puter: {} } };
+    const failed = (error) => ({ response: null, tests: [], warnings: [], error, resolved: { method: 'GET', url: 'https://example.com/' } });
+    const button = (v) => [...v.el.querySelectorAll('button')].find((b) => b.textContent === 'Sign in and send');
+    const blocked = new ResponseView(signedOut, {}, { onSignInSend });
+    blocked.show(failed({ code: 'cors', transport: 'browser', message: 'Could not get a response.' }));
+    button(blocked).click();
+    expect(onSignInSend).toHaveBeenLastCalledWith('relay');
+    // An expired session in Automatic mode resends as Automatic, which uses the relay once signed in.
+    const expired = new ResponseView({ ...app, session: { signedIn: true, puter: {} } }, {}, { onSignInSend });
+    expired.show(failed({ code: 'signed-out', transport: 'relay', message: 'Your Puter session has expired.' }));
+    button(expired).click();
+    expect(onSignInSend).toHaveBeenLastCalledWith('relay');
+    // Without Puter.js there is nobody to sign in to.
+    const offline = new ResponseView({ ...app, session: { signedIn: false, puter: null } }, {}, { onSignInSend });
+    offline.show(failed({ code: 'cors', transport: 'browser', message: 'Could not get a response.' }));
+    expect(button(offline)).toBeUndefined();
+  });
+
   it('decodes HTML and XML with the charset they declare when the server names none', async () => {
     const latin1 = (text) => Uint8Array.from(text, (c) => c.charCodeAt(0));
     const v = view();

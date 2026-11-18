@@ -56,6 +56,8 @@ export const REPO_URL = 'https://github.com/heyputer/everything';
 
 /** The sidebar never grows past what leaves the editor this much room. */
 const MIN_EDITOR_WIDTH = 480;
+/** The request to send once sign-in reloads the app: { tabId, transport, at }. */
+const SEND_AFTER_SIGN_IN = 'api-client:send-after-sign-in';
 
 
 
@@ -84,7 +86,6 @@ export class App {
     const env = await this.ws.getMeta('activeEnvironment');
     this.environmentId = env && this.ws.getEnvironment(env) ? env : null;
     this.cookieJar = CookieJar.fromJSON((await this.ws.getMeta('cookies')) || []);
-    this.relayHosts = new Set((await this.ws.getMeta('relayHosts')) || []);
     this.sandbox = lazySandbox({ onSend: (req, options) => this.#scriptSend(req, options) });
     this.console = new ConsolePanel(this);
     this.sidebar = new Sidebar(this);
@@ -92,6 +93,7 @@ export class App {
     this.#build();
     await this.sidebar.load();
     await this.#restoreTabs();
+    this.#sendAfterSignIn();
     this.ws.on('change', (e) => this.#onWorkspaceChange(e));
     this.ws.on('storage-error', (err) => this.#onStorageError(err));
     this.sync?.on('status', () => this.#renderSync());
@@ -381,13 +383,43 @@ export class App {
     fill(this.accountEl, btn);
   }
 
-  async signIn() {
+  /** thenSend: { tabId, transport } to send once signed in (sign-in reloads the app). */
+  async signIn({ thenSend = null } = {}) {
+    if (thenSend) {
+      this.#flushEdits(); // the tab and its draft must be saved before the reload
+      try {
+        localStorage.setItem(SEND_AFTER_SIGN_IN, JSON.stringify({ ...thenSend, at: Date.now() }));
+      } catch {}
+    }
     try {
       await this.onSignIn();
     } catch (err) {
+      try {
+        localStorage.removeItem(SEND_AFTER_SIGN_IN);
+      } catch {}
       if (err?.error === 'popup_blocked') toast({ kind: 'error', title: 'Sign-in window blocked', text: 'Allow pop-ups for this site and try again.' });
       else if (err?.error !== 'auth_window_closed') toast({ kind: 'error', title: 'Could not sign in', text: 'Please try again.' });
     }
+  }
+
+  /** Signs in to Puter, then sends the tab's request through the Puter relay. */
+  signInAndSend(tab, transport = null) {
+    if (!tab) return this.signIn();
+    return this.signIn({ thenSend: { tabId: tab.id, transport } });
+  }
+
+  #sendAfterSignIn() {
+    let pending = null;
+    try {
+      pending = JSON.parse(localStorage.getItem(SEND_AFTER_SIGN_IN) || 'null');
+      localStorage.removeItem(SEND_AFTER_SIGN_IN);
+    } catch {}
+    // Stale when sign-in was abandoned and the app reopened much later.
+    if (!pending || !this.session.signedIn || !(Date.now() - pending.at < 10 * 60 * 1000)) return;
+    const tab = this.tabs.find((t) => t.id === pending.tabId && t.kind === 'request');
+    if (!tab) return;
+    this.activate(tab.id);
+    this.sendTab(tab, { transport: pending.transport || null });
   }
 
   async signOut() {
@@ -466,7 +498,6 @@ export class App {
     return {
       mode: prefs.get('transport'),
       relay: this.relay(),
-      relayHosts: this.relayHosts,
       timeoutMs: prefs.get('timeoutMs'),
       followRedirects: prefs.get('followRedirects'),
     };
@@ -499,10 +530,7 @@ export class App {
   }
 
   afterRelay(res) {
-    if (res?.transport === 'relay') {
-      this.persistCookies();
-      this.ws.setMeta('relayHosts', [...this.relayHosts]);
-    }
+    if (res?.transport === 'relay') this.persistCookies();
   }
 
   // Variables ---------------------------------------------------------------

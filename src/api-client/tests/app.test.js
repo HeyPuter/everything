@@ -9,12 +9,14 @@ if (typeof Range !== 'undefined' && !Range.prototype.getClientRects) {
   Range.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 });
 }
 
-async function makeApp() {
-  const ws = new Workspace(new MemoryDb());
-  await ws.load();
+async function makeApp({ ws = null, session = { signedIn: false, puter: null }, onSignIn = async () => {} } = {}) {
+  if (!ws) {
+    ws = new Workspace(new MemoryDb());
+    await ws.load();
+  }
   const root = document.createElement('div');
   document.body.append(root);
-  const app = new App(root, { ws, sync: null, shared: null, session: { signedIn: false, puter: null }, onSignIn: async () => {}, onSignOut: async () => {} });
+  const app = new App(root, { ws, sync: null, shared: null, session, onSignIn, onSignOut: async () => {} });
   await app.start();
   return app;
 }
@@ -1251,4 +1253,35 @@ it('tracks unsaved changes to a large body exactly', async () => {
   expect(app.tabs).toContain(tab);
   expect(tab.refId).toBe(null);
   expect(app.isDirty(tab)).toBe(true);
+});
+
+it('sends the request once signing in from its error has reloaded the app', async () => {
+  const { request } = await import('../src/core/model.js');
+  const KEY = 'api-client:send-after-sign-in';
+  localStorage.removeItem(KEY);
+  // A cancelled sign-in forgets the request.
+  const cancelled = await makeApp({ session: { signedIn: false, puter: {} }, onSignIn: async () => { throw { error: 'auth_window_closed' }; } });
+  const draft = cancelled.openTab('request', null, { draft: request({ url: 'https://example.com/' }) });
+  await cancelled.signInAndSend(draft, 'relay');
+  expect(localStorage.getItem(KEY)).toBeNull();
+
+  const before = await makeApp({ session: { signedIn: false, puter: {} } });
+  const tab = before.openTab('request', null, { draft: request({ url: 'https://example.com/' }) });
+  await before.signInAndSend(tab, 'relay');
+  expect(JSON.parse(localStorage.getItem(KEY))).toMatchObject({ tabId: tab.id, transport: 'relay' });
+
+  // The reload: the same tabs, now signed in.
+  const sendTab = vi.spyOn(App.prototype, 'sendTab').mockResolvedValue();
+  try {
+    await makeApp({ ws: before.ws, session: { signedIn: true, puter: {}, user: { username: 'u' } } });
+    expect(sendTab).toHaveBeenCalledTimes(1);
+    expect(sendTab.mock.calls[0][0].id).toBe(tab.id);
+    expect(sendTab.mock.calls[0][1]).toEqual({ transport: 'relay' });
+    expect(localStorage.getItem(KEY)).toBeNull();
+    // Only once.
+    await makeApp({ ws: before.ws, session: { signedIn: true, puter: {}, user: { username: 'u' } } });
+    expect(sendTab).toHaveBeenCalledTimes(1);
+  } finally {
+    sendTab.mockRestore();
+  }
 });

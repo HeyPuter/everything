@@ -369,7 +369,7 @@ function buildRequest({ url, method, headers: given, body }) {
 
 function connectError(host, port, reason) {
   const detail = reason ? `: ${reason}` : '';
-  return namedError('NetworkError', `Could not connect to ${host}:${port}${detail}`);
+  return namedError('NetworkError', `Could not connect to ${host}:${port}${detail}`, { beforeConnect: true });
 }
 
 function errorMessage(err) {

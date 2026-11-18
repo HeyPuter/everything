@@ -91,11 +91,19 @@ or override it per request.
 | Local servers (localhost, LAN) | Yes | No |
 
 The relay is a small HTTP/1.1 client (`src/core/http1.js`) running over
-Puter's socket relay. TLS runs in your browser, so Puter's servers only see
-encrypted bytes. **Automatic** mode (the default) tries the browser first. It
-switches to the relay only when the browser is blocked and retrying cannot
-send the request twice. For example, a plain POST that may already have
-reached the server is not retried automatically.
+`puter.net` sockets, Puter's socket relay. TLS runs in your browser, so
+Puter's servers only see encrypted bytes. `puter.net` needs a Puter account,
+so the relay works only while you are signed in.
+
+**Automatic** mode (the default) sends through the relay when you are signed
+in, and from the browser for local servers, which the relay cannot reach.
+If the relay cannot open a connection, for example because your Puter
+session expired, the request has not been sent yet, so the browser sends it
+instead. When you are signed out, requests are sent from the browser. If the
+browser is blocked (CORS, for example), the error offers **Sign in and send**.
+That button signs you in and then sends the request through the relay. A
+POST that may already have reached the server is flagged in the error, so
+you can check before sending it again.
 
 ## Where your data lives
 

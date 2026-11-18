@@ -299,26 +299,72 @@ describe('transport choice', () => {
     expect(contentTypeOf(res.headers)).toBe('application/json');
   });
 
-  it('falls back to the relay only when that cannot send twice', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
-    const relayHosts = new Set();
-    const noRelay = send(resolved('GET'), { mode: 'auto', relay: null, relayHosts });
-    await expect(noRelay).rejects.toMatchObject({ code: 'cors' });
-    const relay = { openSocket: () => { throw new Error('no sockets in tests'); }, cookieJar: null };
-    const simplePost = send(resolved('POST', [['Content-Type', 'text/plain']]), { mode: 'auto', relay, relayHosts });
-    await expect(simplePost).rejects.toMatchObject({ code: 'maybe-sent' });
-    const get = send(resolved('GET'), { mode: 'auto', relay, relayHosts });
-    await expect(get).rejects.toBeInstanceOf(SendError);
-    expect(relayHosts.size).toBe(0);
+  /** A socket that answers each request with `reply`, or fails with `error` before opening. */
+  const fakeSocket = ({ reply = 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok', error = null } = {}) =>
+    vi.fn(() => {
+      const handlers = {};
+      setTimeout(() => (error ? handlers.error?.(new Error(error)) : handlers.open?.()), 0);
+      return {
+        on: (e, fn) => (handlers[e] = fn),
+        write: () => setTimeout(() => handlers.data?.(new TextEncoder().encode(reply)), 0),
+        close() {},
+      };
+    });
+
+  it('sends through the relay first when signed in', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const openSocket = fakeSocket();
+    const res = await send(resolved('POST', [['Content-Type', 'application/json']]), { mode: 'auto', relay: { openSocket } });
+    expect(res.transport).toBe('relay');
+    expect(res.status).toBe(200);
+    expect(openSocket).toHaveBeenCalledWith('api.example.com', 443, true);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('retries a POST blocked as mixed content through the relay, since it never left the browser', async () => {
-    vi.stubGlobal('location', { protocol: 'https:' });
+  it('sends from the browser when the relay could not connect, since nothing was sent', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok')));
+    const res = await send(resolved('POST'), { mode: 'auto', relay: { openSocket: fakeSocket({ error: 'relay is down' }) } });
+    expect(res.transport).toBe('browser');
+    expect(res.warnings[0]).toMatch(/could not connect.*relay is down/);
+  });
+
+  it('does not repeat a request through the browser once the relay connected', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const openSocket = fakeSocket({ reply: 'HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort' });
+    // The socket closes before the body ends.
+    const broken = vi.fn((...a) => {
+      const s = openSocket(...a);
+      const on = s.on;
+      let close;
+      s.on = (e, fn) => (e === 'close' ? (close = fn) : on(e, e === 'data' ? (d) => (fn(d), setTimeout(() => close?.(true), 0)) : fn));
+      return s;
+    });
+    await expect(send(resolved('POST'), { mode: 'auto', relay: { openSocket: broken } })).rejects.toMatchObject({ transport: 'relay', code: 'network' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('asks to sign in again when the Puter session expired', async () => {
+    const openSocket = fakeSocket({ error: 'Failed to create relay token (HTTP 401 Unauthorized).' });
+    await expect(send(resolved('GET'), { mode: 'relay', relay: { openSocket } })).rejects.toMatchObject({ code: 'signed-out', message: 'Your Puter session has expired.' });
+    // Automatic mode still tries the browser, and reports the expired session when that fails too.
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
-    const openSocket = vi.fn(() => { throw new Error('no sockets in tests'); });
-    const relayHosts = new Set();
-    await expect(send(resolved('POST', [], 'http://api.example.com/items'), { mode: 'auto', relay: { openSocket }, relayHosts })).rejects.not.toMatchObject({ code: 'maybe-sent' });
-    expect(openSocket).toHaveBeenCalled();
+    await expect(send(resolved('GET'), { mode: 'auto', relay: { openSocket } })).rejects.toMatchObject({ code: 'signed-out' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok')));
+    const res = await send(resolved('GET'), { mode: 'auto', relay: { openSocket } });
+    expect(res.transport).toBe('browser');
+    expect(res.warnings[0]).toMatch(/session has expired/);
+  });
+
+  it('asks to sign in when signed out and the browser is blocked', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    const get = send(resolved('GET'), { mode: 'auto', relay: null });
+    await expect(get).rejects.toMatchObject({ code: 'cors', hint: expect.stringMatching(/Sign in to Puter/) });
+    await expect(get).rejects.not.toMatchObject({ hint: expect.stringMatching(/already have reached/) });
+    // A POST may have reached the server even though its response was blocked.
+    await expect(send(resolved('POST'), { mode: 'auto', relay: null })).rejects.toMatchObject({ hint: expect.stringMatching(/already have reached the server/) });
+    await expect(send(resolved('GET'), { mode: 'relay', relay: null })).rejects.toMatchObject({ code: 'signed-out', transport: 'relay' });
   });
 
   it('does not use the relay for local servers', async () => {

@@ -31,11 +31,12 @@ export function responseCharset(r) {
 }
 
 export class ResponseView {
-  constructor(app, tab, { onRetry, onRelay, onSaveExample } = {}) {
+  constructor(app, tab, { onRetry, onRelay, onSignInSend, onSaveExample } = {}) {
     this.app = app;
     this.tab = tab;
     this.onRetry = onRetry;
     this.onRelay = onRelay;
+    this.onSignInSend = onSignInSend;
     this.onSaveExample = onSaveExample;
     this.result = null;
     this.section = 'body';
@@ -115,9 +116,13 @@ export class ResponseView {
     const signedIn = this.app.session.signedIn;
     const actions = [];
     if (err.code !== 'aborted') actions.push(h('button.btn.sm', { type: 'button', onclick: () => this.onRetry?.() }, icon('refresh', 14), 'Try again'));
-    if (['cors', 'network', 'mixed-content', 'maybe-sent'].includes(err.code) && err.transport !== 'relay') {
+    const signInSend = (transport) => h('button.btn.sm.primary', { type: 'button', onclick: () => this.onSignInSend?.(transport) }, icon('logIn', 14), 'Sign in and send');
+    if (err.code === 'signed-out') {
+      // Signed out, or the Puter session expired: the relay needs an account.
+      if (this.app.session.puter) actions.push(signInSend(err.transport === 'relay' ? 'relay' : null));
+    } else if (['cors', 'network', 'mixed-content'].includes(err.code) && err.transport !== 'relay') {
       if (signedIn) actions.push(h('button.btn.sm.primary', { type: 'button', onclick: () => this.onRelay?.() }, icon('server', 14), 'Send through Puter relay'));
-      else if (this.app.session.puter) actions.push(h('button.btn.sm.primary', { type: 'button', onclick: () => this.app.signIn() }, icon('logIn', 14), 'Sign in to use the relay'));
+      else if (this.app.session.puter) actions.push(signInSend('relay'));
     }
     if (err.code === 'script') actions.push(h('button.btn.sm', { type: 'button', onclick: () => this.app.console.setOpen(true) }, icon('terminal', 14), 'Open console'));
     const title = err.code === 'aborted' ? 'Request cancelled' : err.code === 'script' ? 'Script error' : err.code === 'timeout' ? 'Request timed out' : 'Could not send request';
@@ -193,7 +198,7 @@ export class ResponseView {
     sizeBtn.addEventListener('click', () => showPopover(sizeBtn, this.#sizes(r), { align: 'end', label: 'Size', focus: false }));
     const transport = h(
       'span.resp-transport',
-      { title: r.transport === 'relay' ? (r.autoRelay === 'fallback' ? 'Sent through the Puter relay because the browser could not reach the server' : 'Sent through the Puter relay') : 'Sent from the browser' },
+      { title: r.transport === 'relay' ? 'Sent through the Puter relay' : 'Sent from the browser' },
       icon(r.transport === 'relay' ? 'server' : 'globe', 13),
       h('span', r.transport === 'relay' ? 'Relay' : 'Browser'),
     );
