@@ -32,6 +32,7 @@ dialog.help-window:not([open]) { display: none; }
 .tour-progress { height: 3px; margin: 6px 0 8px; border-radius: 2px; background: var(--surface2); overflow: hidden; }
 .tour-progress > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
 .tour-card h3 { font-size: 14px; margin: 0 0 6px; display: flex; align-items: center; gap: 6px; }
+.tour-card h3:focus-visible { outline: none; }
 .tour-card p { margin: 0 0 8px; line-height: 1.5; color: var(--text); }
 .tour-card .tour-status { color: var(--muted); font-size: 11.5px; }
 .tour-card .tour-status-done { color: var(--text); display: flex; align-items: center; gap: 5px; font-weight: 600; }

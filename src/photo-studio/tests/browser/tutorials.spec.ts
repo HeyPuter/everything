@@ -258,3 +258,27 @@ test('the other tutorials complete with real actions', async ({ page }) => {
   await page.locator('dialog[open]').getByRole('button', { name: 'OK', exact: true }).click();
   await at(7, 7);
 });
+
+test('Next and Back used from the keyboard move the focus to the new step, and Close back to the canvas', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => {
+    const { startTutorial } = await import('/src/features/help/tour-ui.ts');
+    await startTutorial(window.photoStudio, 'layers');
+  });
+  await expect(card(page)).toContainText('Step 1 of');
+  await card(page).getByRole('button', { name: 'Next' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(card(page)).toContainText('Step 2 of');
+  await expect(card(page).locator('h3')).toBeFocused();
+  // Back is disabled on the first step; the focus must not fall to the page.
+  await card(page).getByRole('button', { name: 'Back' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(card(page)).toContainText('Step 1 of');
+  await expect(card(page).locator('h3')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(card(page).getByRole('button', { name: 'Restart' })).toBeFocused();
+  await card(page).getByRole('button', { name: 'Close tutorial' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.locator('#viewport')).toBeFocused();
+});

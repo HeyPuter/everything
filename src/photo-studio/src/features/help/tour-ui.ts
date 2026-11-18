@@ -11,6 +11,7 @@ import { escapeXML } from '../../model/assets';
 import { isAction, stepDone, TourMachine, type Anchor, type Step, type Tutorial, type TourView } from './tour';
 import { tutorial } from './tutorials';
 import { openSample } from './open-sample';
+import { keepFocus } from '../../ui/keep-focus';
 
 // Time a finished step shows its check mark before the next one.
 const DONE_DELAY = 700;
@@ -103,7 +104,14 @@ class TourRun {
   async action(act: string) {
     clearTimeout(this.pending);
     this.pending = 0;
-    if (act === 'close') return this.close();
+    // From the keyboard, the next step's title takes the focus (and is read
+    // out); closing returns the keyboard to the canvas.
+    const keyboard = this.card.contains(document.activeElement);
+    if (act === 'close') {
+      this.close();
+      if (keyboard) this.e.root.querySelector<HTMLElement>('#viewport')?.focus({ preventScroll: true });
+      return;
+    }
     if (act === 'next' || act === 'skip') this.machine.next();
     else if (act === 'back') this.machine.back();
     else if (act === 'restart') {
@@ -116,21 +124,27 @@ class TourRun {
       return;
     }
     this.enter();
+    if (keyboard && current === this) this.card.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true });
   }
+  /** Draw the card; a button used from the keyboard (Next, Back) leaves the
+   * focus on the card's button in its place rather than on the page. */
   render(done = false) {
+    keepFocus(this.card, () => this.draw(done));
+  }
+  private draw(done: boolean) {
     const { step: n, of } = this.machine.progress();
     const s = this.step;
     this.card.classList.toggle('done', done);
     this.card.classList.toggle('finished', !s);
     if (!s) {
       this.key = '';
-      this.card.innerHTML = `<div class="tour-head"><span class="tour-kicker">${escapeXML(this.tour.title)}</span><button type="button" class="icon-button" data-tour="close" aria-label="Close tutorial" title="Close tutorial">${svg('x', 14)}</button></div><div class="tour-progress" aria-hidden="true"><span style="width:100%"></span></div><h3>${svg('check', 16)} Tutorial complete</h3><p>You finished “${escapeXML(this.tour.title)}”. The sample document stays open so you can keep experimenting.</p><div class="tour-actions"><button type="button" data-tour="back">Back</button><button type="button" data-tour="restart">Restart</button><span class="tour-spacer"></span><button type="button" data-tour="more">More tutorials</button><button type="button" class="primary" data-tour="close">Close</button></div>`;
+      this.card.innerHTML = `<div class="tour-head"><span class="tour-kicker">${escapeXML(this.tour.title)}</span><button type="button" class="icon-button" data-tour="close" aria-label="Close tutorial" title="Close tutorial">${svg('x', 14)}</button></div><div class="tour-progress" aria-hidden="true"><span style="width:100%"></span></div><h3 tabindex="-1">${svg('check', 16)} Tutorial complete</h3><p>You finished “${escapeXML(this.tour.title)}”. The sample document stays open so you can keep experimenting.</p><div class="tour-actions"><button type="button" data-tour="back">Back</button><button type="button" data-tour="restart">Restart</button><span class="tour-spacer"></span><button type="button" data-tour="more">More tutorials</button><button type="button" class="primary" data-tour="close">Close</button></div>`;
       this.place();
       return;
     }
     const action = isAction(s);
     const status = !action ? '' : done ? `<p class="tour-status tour-status-done" role="status">${svg('check', 14)} Done</p>` : `<p class="tour-status" role="status">Do this step to continue, or skip it.</p>`;
-    this.card.innerHTML = `<div class="tour-head"><span class="tour-kicker">${escapeXML(this.tour.title)} · Step ${n} of ${of}</span><button type="button" class="icon-button" data-tour="close" aria-label="Close tutorial" title="Close tutorial">${svg('x', 14)}</button></div><div class="tour-progress" aria-hidden="true"><span style="width:${Math.round(((n - 1) / of) * 100)}%"></span></div><h3>${escapeXML(s.title)}</h3><p>${escapeXML(s.text)}</p>${status}<div class="tour-actions"><button type="button" data-tour="back" ${this.machine.index === 0 ? 'disabled' : ''}>Back</button><button type="button" data-tour="restart" title="Start over with a fresh sample image">Restart</button><span class="tour-spacer"></span>${action ? `<button type="button" data-tour="skip">Skip step</button>` : `<button type="button" class="primary" data-tour="next">${n === of ? 'Finish' : 'Next'}</button>`}</div>`;
+    this.card.innerHTML = `<div class="tour-head"><span class="tour-kicker">${escapeXML(this.tour.title)} · Step ${n} of ${of}</span><button type="button" class="icon-button" data-tour="close" aria-label="Close tutorial" title="Close tutorial">${svg('x', 14)}</button></div><div class="tour-progress" aria-hidden="true"><span style="width:${Math.round(((n - 1) / of) * 100)}%"></span></div><h3 tabindex="-1">${escapeXML(s.title)}</h3><p>${escapeXML(s.text)}</p>${status}<div class="tour-actions"><button type="button" data-tour="back" ${this.machine.index === 0 ? 'disabled' : ''}>Back</button><button type="button" data-tour="restart" title="Start over with a fresh sample image">Restart</button><span class="tour-spacer"></span>${action ? `<button type="button" data-tour="skip">Skip step</button>` : `<button type="button" class="primary" data-tour="next">${n === of ? 'Finish' : 'Next'}</button>`}</div>`;
     this.key = '';
     this.place();
   }
