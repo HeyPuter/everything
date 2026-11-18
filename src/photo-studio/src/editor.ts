@@ -1026,7 +1026,10 @@ export class Editor {
     const shortcut = eventShortcut(e);
     // Modified shortcuts work while typing in numeric fields; bare keys never do,
     // and the field keeps the keys that edit its own text (select all, copy, cut, paste).
-    if (typing && (!shortcut.startsWith('Mod+') || /^Mod\+[ACVX]$/.test(shortcut) || target.closest('textarea,[contenteditable="true"]'))) return;
+    // Text fields also keep their own undo, redo and line deletion: Mod+Backspace
+    // in a search box must not fill the layer.
+    const textField = target instanceof HTMLInputElement && /^(text|search|url|email|password|tel)$/.test(target.type);
+    if (typing && (!shortcut.startsWith('Mod+') || /^Mod\+[ACVX]$/.test(shortcut) || target.closest('textarea,[contenteditable="true"]') || (textField && /^Mod\+(Shift\+)?(Z|Y|Backspace|Delete)$/.test(shortcut)))) return;
     if (this.busy) return;
     if (this.activeTool?.keyDown?.(this, e)) {
       e.preventDefault();

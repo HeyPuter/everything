@@ -241,6 +241,26 @@ test('Select All in an options field selects its text, not the document', async 
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
 });
 
+test('a text field keeps its own undo and line deletion instead of editing the document', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.dock.show('libraries'));
+  const search = page.locator('.lib-search');
+  await search.click();
+  await page.keyboard.type('hello world');
+  // Mod+Backspace deletes the line; it used to fill the layer with the background color.
+  await page.keyboard.press('ControlOrMeta+Backspace');
+  await idle(page);
+  await expect(search).not.toHaveValue('hello world');
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+  // With a document edit to undo, Mod+Z in the field still undoes the field's text.
+  await page.evaluate(() => window.photoStudio.runCommand('select.all'));
+  await idle(page);
+  await search.click();
+  await page.keyboard.type('abc');
+  await page.keyboard.press('ControlOrMeta+z');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual(['Select All']);
+});
+
 test('the toolbar and the options bar keep the keyboard focus when they redraw', async ({ page }) => {
   // Choosing a tool with Enter redraws the toolbar.
   await page.locator('[data-slot="brush"]').focus();
