@@ -27,7 +27,7 @@ import {
   syncWithTimeSelection,
 } from './state.js';
 
-const MAX_AUTO_HEAL_SECONDS = 4;
+const MAX_HEAL_SECONDS = 4;
 
 export function installSpectral(app) {
   const layers = new Set();
@@ -55,6 +55,13 @@ export function installSpectral(app) {
       // Pointer gestures do not run through the command registry's error handler.
       try {
         const before = doc.state;
+        // Like Auto Heal, the brush processes its whole mask at once. A small
+        // on-screen gesture can span minutes when a long file is zoomed out.
+        const bounds = selectionBounds(selection);
+        if (bounds && (bounds.t1 - bounds.t0) / before.sampleRate > MAX_HEAL_SECONDS) {
+          app.notify(`Spot healing works on selections up to ${MAX_HEAL_SECONDS} seconds. Zoom in or use a smaller brush.`, { error: true });
+          return false;
+        }
         const d = dspSync || (await loadDsp());
         if (!unchanged(doc, before, 'Spot Healing Brush')) return false;
         const next = healSpectral(before, selection, d);
@@ -224,8 +231,8 @@ export function installSpectral(app) {
         const [start, end] = sel
           ? [bounds?.t0 ?? 0, bounds?.t1 ?? 0]
           : [doc.selection.start, doc.selection.end];
-        if ((end - start) / doc.sampleRate > MAX_AUTO_HEAL_SECONDS) {
-          app.notify(`Auto Heal works on selections up to ${MAX_AUTO_HEAL_SECONDS} seconds. Select a shorter range around the problem.`, { error: true });
+        if ((end - start) / doc.sampleRate > MAX_HEAL_SECONDS) {
+          app.notify(`Auto Heal works on selections up to ${MAX_HEAL_SECONDS} seconds. Select a shorter range around the problem.`, { error: true });
           return false;
         }
         if (!sel) sel = timeSelection(start, end, doc.sampleRate / 2, doc.selection.channels.slice());
