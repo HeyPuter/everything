@@ -747,6 +747,7 @@ export function installMultitrackCommands(app) {
   };
   const bounce = async (scope) => {
     const doc = session(app);
+    const state = doc.state;
     let o;
     let name;
     let after = doc.selectedTrack;
@@ -773,12 +774,22 @@ export function installMultitrackCommands(app) {
       after = clips[clips.length - 1]?.trackId || after;
     }
     // The new track plays through the master, so the bounce leaves the master out.
-    const { data } = await rendered('Bouncing', { ...o, master: false });
+    const { data } = await rendered('Bouncing', { ...o, state, master: false });
     // The session closed while it rendered: there is no track to put the bounce on.
     if (!isOpen(app, doc)) return;
-    const file = renderedDoc(app, doc, data, name);
+    const file = renderedDoc(app, doc, data, name, [], state.sampleRate);
     app.addDocument(file, { activate: false });
+    const canCommit = () => {
+      if (!isOpen(app, doc)) return false;
+      if (doc.sampleRate === state.sampleRate) return true;
+      app.notify('Bounce stopped because the session sample rate changed. Rendered audio remains in the Files panel; review the session and insert it again.', { error: true });
+      return false;
+    };
+    // Its samples and placement use the rendered rate, even if Revert replaced
+    // the session. Keep the completed file without inserting at an old frame time.
+    if (!canCommit()) return;
     const sourceId = await linkSource(doc, file);
+    if (!canCommit()) return;
     const afterTrack = S.findTrack(doc.state, after);
     // A 5.1 render goes on a 5.1 track, which plays all six channels.
     const made = newTrack(doc.state, { name: baseName(file.name), channels: data.length === 6 ? 6 : 2, afterId: afterTrack?.type === 'audio' ? after : undefined });
