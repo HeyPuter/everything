@@ -229,6 +229,23 @@ test.describe('on a phone', () => {
   });
 });
 
+test('a submenu opened while its menu is still fading in appears beside its item', async ({ page }) => {
+  // Right after the menu opens (its 110 ms animation running), as a quick pointer does.
+  const at = await page.evaluate(() => {
+    const i = [...document.querySelectorAll('.menubar-button')].findIndex((b) => b.textContent === 'Layer');
+    window.photoStudio.menubar.show(i);
+    const owner = document.querySelectorAll('.menubar-entry')[i].querySelector<HTMLElement>(':scope > .menu-pop > .has-submenu')!;
+    owner.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const o = owner.getBoundingClientRect(),
+      s = owner.querySelector(':scope > .submenu')!.getBoundingClientRect();
+    return { gap: s.left - o.right, rise: o.top - s.top, animated: getComputedStyle(owner.parentElement!).animationName };
+  });
+  expect(at.animated).not.toBe('none');
+  expect(Math.abs(at.gap)).toBeLessThanOrEqual(1);
+  expect(at.rise).toBeGreaterThanOrEqual(0);
+  expect(at.rise).toBeLessThanOrEqual(10);
+});
+
 test.describe('in a window narrower than the menu bar', () => {
   test.use({ viewport: { width: 600, height: 700 } });
   test('the mouse wheel scrolls the menu bar to its last menus, but scrolls an open menu itself', async ({ page }) => {

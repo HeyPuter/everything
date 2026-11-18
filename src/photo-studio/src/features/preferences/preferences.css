@@ -41,13 +41,16 @@
 /* Panel animations (Interface → Enable panel animations). */
 @media (prefers-reduced-motion: no-preference) {
   #app.panel-animations .dock-drawer:not([hidden]) { animation: ps-slide-in 140ms ease-out; }
-  #app.panel-animations .menu-pop { animation: ps-fade-in 110ms ease-out; }
-  #app.panel-animations .tool-flyout, .panel-animations-root .context-menu { animation: ps-fade-in 110ms ease-out; }
+  /* Menus slide in by their margin: a transform would make an opening menu
+     the frame of the submenus placed on the window (app/menubar.ts). */
+  #app.panel-animations .menu-pop, .panel-animations-root .context-menu { animation: ps-menu-in 110ms ease-out; }
+  #app.panel-animations .tool-flyout { animation: ps-fade-in 110ms ease-out; }
   #app.panel-animations dialog[open] { animation: ps-pop-in 150ms ease-out; }
   #app.panel-animations .panel-body { transition: opacity 120ms; }
 }
 @keyframes ps-slide-in { from { opacity: 0; transform: translateX(10px); } }
 @keyframes ps-fade-in { from { opacity: 0; transform: translateY(-3px); } }
+@keyframes ps-menu-in { from { opacity: 0; margin-top: -3px; } }
 @keyframes ps-pop-in { from { opacity: 0; transform: scale(0.97); } }
 
 /* Rich tooltips (Interface → Rich tooltips). */
