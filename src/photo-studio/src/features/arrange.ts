@@ -291,10 +291,16 @@ function shortcutEditor(e: Editor) {
     const q = (ev.target as HTMLInputElement).value.toLowerCase();
     d.querySelectorAll<HTMLElement>('.shortcut-entry').forEach((row) => (row.hidden = !!q && !row.textContent!.toLowerCase().includes(q)));
   });
+  // Reset shows the default shortcuts in the fields; OK applies them and
+  // Cancel keeps the custom ones.
   d.querySelector('[data-reset-shortcuts]')!.addEventListener('click', () => {
-    setCustomShortcuts({});
-    d.close();
-    e.message('Keyboard shortcuts reset to defaults.');
+    for (const id of Object.keys(custom)) delete custom[id];
+    d.querySelectorAll<HTMLInputElement>('[data-shortcut]').forEach((i) => {
+      const id = i.dataset.shortcut!;
+      const s = defaultShortcuts.has(id) ? defaultShortcuts.get(id) : commands.get(id)?.shortcut;
+      i.value = (Array.isArray(s) ? s[0] : s) ?? '';
+    });
+    conflicts();
   });
   d.querySelector('#cancel-dialog')!.addEventListener('click', () => d.close());
   form.onsubmit = (ev) => {
