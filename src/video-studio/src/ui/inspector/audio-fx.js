@@ -31,6 +31,35 @@ function analysisSignal(view) {
   return ac.signal;
 }
 
+/** One analysis per section. Reset/off or a newer request retires its result and UI immediately. */
+function analysisJobs(view) {
+  const lifetime = analysisSignal(view);
+  let current;
+  return {
+    cancel() { current?.cancel(); },
+    begin(cleanup) {
+      current?.cancel();
+      const controller = new AbortController();
+      let finished = false;
+      const job = {
+        signal: controller.signal,
+        cancel() { controller.abort(); job.finish(); },
+        finish() {
+          if (finished) return;
+          finished = true;
+          lifetime.removeEventListener('abort', job.cancel);
+          if (current === job) current = null;
+          cleanup(controller.signal.aborted);
+        },
+      };
+      current = job;
+      lifetime.addEventListener('abort', job.cancel, { once: true });
+      if (lifetime.aborted) job.cancel();
+      return job;
+    },
+  };
+}
+
 /** Raw-source analysis tolerates placement/mix edits, but not changed media or source timing. */
 function analysisSource(view) {
   const project = view.project, clip = view.clip;
@@ -81,10 +110,18 @@ async function clipSound(view, opts) {
  * Busy state for an async action button: disables it, shows a spinner and
  * a status line, and reports failures as a toast.
  */
-function runBusy(view, btn, status, label, fn, { source = true } = {}) {
-  const signal = analysisSignal(view);
+function runBusy(view, btn, status, label, fn, { source = true, jobs = analysisJobs(view) } = {}) {
+  const lifetime = analysisSignal(view);
   return async () => {
-    if (signal.aborted || btn.disabled) return;
+    if (lifetime.aborted || btn.disabled) return;
+    const job = jobs.begin(cancelled => {
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+      status.textContent = '';
+      status.hidden = true;
+      if (!cancelled) restoreFocus(btn);
+    });
+    const { signal } = job;
     const requireSource = source ? analysisSource(view) : () => {};
     btn.disabled = true;
     btn.setAttribute('aria-busy', 'true');
@@ -95,11 +132,7 @@ function runBusy(view, btn, status, label, fn, { source = true } = {}) {
     } catch (err) {
       analysisError(signal, requireSource, err);
     } finally {
-      btn.disabled = false;
-      btn.removeAttribute('aria-busy');
-      status.textContent = '';
-      status.hidden = true;
-      if (!signal.aborted) restoreFocus(btn);
+      job.finish();
     }
   };
 }
@@ -110,17 +143,26 @@ function runBusy(view, btn, status, label, fn, { source = true } = {}) {
  * (analysis); it returns a patch merged in the same edit.
  */
 function fxSection(view, { key, title, children, description, onEnable, open = true, resetLabel }) {
-  const signal = analysisSignal(view);
+  const lifetime = analysisSignal(view), jobs = analysisJobs(view);
   const id = uidFor('fx');
   const sw = h('button.switch.small', { type: 'button', role: 'switch', id, 'aria-checked': 'false', 'aria-label': `${title}` });
   const status = h('p.fx-status', { role: 'status', hidden: true });
   const isOn = () => Boolean(view.clip?.audioFx?.[key]?.on);
   sw.addEventListener('click', async () => {
-    if (signal.aborted) return;
+    if (lifetime.aborted) return;
     const on = !isOn();
     if (on && onEnable) {
       if (sw.disabled) return;
+      const job = jobs.begin(cancelled => {
+        sw.disabled = false;
+        sw.removeAttribute('aria-busy');
+        status.hidden = true;
+        status.textContent = '';
+        if (!cancelled) restoreFocus(sw);
+      });
+      const { signal } = job;
       sw.disabled = true;
+      sw.setAttribute('aria-busy', 'true');
       status.hidden = false;
       status.textContent = 'Analyzing…';
       let patch;
@@ -133,9 +175,7 @@ function fxSection(view, { key, title, children, description, onEnable, open = t
         analysisError(signal, requireSource, err);
         return;
       } finally {
-        sw.disabled = false;
-        status.hidden = true;
-        if (!signal.aborted) restoreFocus(sw);
+        job.finish();
       }
       if (signal.aborted) return;
       try {
@@ -149,6 +189,7 @@ function fxSection(view, { key, title, children, description, onEnable, open = t
         return;
       }
     } else {
+      jobs.cancel();
       view.edit(on ? title : `${title} off`, (c) => {
         ensureAudioFx(c)[key].on = on;
       });
@@ -167,6 +208,7 @@ function fxSection(view, { key, title, children, description, onEnable, open = t
     open,
     actions: sw,
     onReset: () => {
+      jobs.cancel();
       view.edit(resetLabel || `Reset ${title.toLowerCase()}`, (c) => {
         if (c.audioFx) c.audioFx[key] = defaultAudioFx()[key];
       });
@@ -174,7 +216,7 @@ function fxSection(view, { key, title, children, description, onEnable, open = t
     },
   });
   sec.classList.add('fx-section');
-  return { el: sec, status };
+  return { el: sec, status, jobs };
 }
 
 /** Edit one audioFx value; adjusting a setting turns its section on. */
@@ -222,7 +264,7 @@ export function normalizeSection(view) {
       n.loudness = loudness;
     });
     announce(`Measured ${fmtLufs(loudness)}`);
-  }));
+  }, { jobs: sec.jobs }));
   const render = () => {
     const c = view.clip;
     if (!c) return;
@@ -277,7 +319,7 @@ export function denoiseSection(view) {
       d.profile = profile;
     });
     announce('Noise profile updated');
-  }));
+  }, { jobs: sec.jobs }));
   return sec.el;
 }
 
@@ -381,6 +423,7 @@ export function channelSection(view) {
 /* ---- Beats ------------------------------------------------------------------------------- */
 
 export function beatsSection(view) {
+  const jobs = analysisJobs(view);
   const status = h('p.fx-status', { role: 'status', hidden: true });
   const info = h('p.fx-readout');
   const detect = h('button.btn.small', { type: 'button' }, icon('waveform', 14), 'Detect beats');
@@ -403,8 +446,9 @@ export function beatsSection(view) {
       x.beats = beats;
     });
     announce(`${beats.length} beats found, about ${Math.round(r.bpm)} per minute`);
-  }));
+  }, { jobs }));
   clearBtn.addEventListener('click', () => {
+    jobs.cancel();
     view.edit('Clear beats', (x) => {
       delete x.beats;
     });
