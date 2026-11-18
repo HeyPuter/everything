@@ -57,6 +57,9 @@ export function installHousekeeping(e: Editor) {
     get: () => (e.selectedIds.size === 1 ? !!e.layer?.linkGroup : allLinked(e.doc.layers, e.selectedIds)) ? 'Unlink Layers' : 'Link Layers',
   });
   cmd(linkCommand);
+  // A link group left with one member (its partners were deleted, merged or
+  // cut) dissolves, whatever edit removed them.
+  e.documentHooks.push((d) => cleanLinks(d.layers));
   cmd({
     id: 'layer.select-linked',
     label: 'Select Linked Layers',

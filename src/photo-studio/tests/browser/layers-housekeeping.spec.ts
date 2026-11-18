@@ -60,6 +60,21 @@ test('linked layers move together and unlink again', async ({ page }) => {
   expect(await position(page, 'Blue')).toEqual([230, 140]);
 });
 
+test('deleting one of two linked layers unlinks the other; undo links both again', async ({ page }) => {
+  await addBox(page, 'Red', '#ff0000', { x: 20, y: 20, width: 40, height: 30 });
+  await addBox(page, 'Blue', '#0000ff', { x: 200, y: 120, width: 40, height: 30 });
+  await page.locator('#layers').getByRole('button', { name: 'Red', exact: true }).click();
+  await page.locator('#layers').getByRole('button', { name: 'Blue', exact: true }).click({ modifiers: ['Shift'] });
+  await run(page, 'layer.link');
+  await expect(page.locator('#layers .link-badge')).toHaveCount(2);
+  await page.locator('#layers').getByRole('button', { name: 'Blue', exact: true }).click();
+  await run(page, 'layer.delete');
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.find((l) => l.name === 'Red')!.linkGroup)).toBeUndefined();
+  await expect(page.locator('#layers .link-badge')).toHaveCount(0);
+  await undo(page);
+  await expect(page.locator('#layers .link-badge')).toHaveCount(2);
+});
+
 test('paste into masks the pasted pixels by the selection, unlinked', async ({ page }) => {
   await addBox(page, 'Red', '#ff0000', { x: 0, y: 0, width: 60, height: 60 });
   await selectRect(page, { x: 0, y: 0, width: 60, height: 60 });
