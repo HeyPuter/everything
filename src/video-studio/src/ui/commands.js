@@ -88,7 +88,10 @@ export function createCommands(ctx) {
     { id: 'trackMotion', label: 'Track motion', group: 'Editing', keys: [], run: () => ctx.openTracking?.(), enabled: () => Boolean(store.selected && !store.selected.track.locked && 'transform' in store.selected.clip) },
     { id: 'savePreset', label: 'Save clip as preset', group: 'Editing', keys: [], run: () => import('./clip-presets.js').then((m) => m.saveClipPreset(ctx)), enabled: () => Boolean(store.selected) },
     { id: 'managePresets', label: 'Manage clip presets', group: 'Editing', keys: [], run: () => import('./clip-presets.js').then((m) => m.managePresets(ctx)) },
-    { id: 'removeBackground', label: 'Remove background', group: 'Editing', keys: [], run: () => actions.removeBackground(), enabled: () => [...store.selection].some((id) => /^(video|image)$/.test(findClip(store.project, id)?.clip.type || '')) },
+    { id: 'removeBackground', label: 'Remove background', group: 'Editing', keys: [], run: () => actions.removeBackground(), enabled: () => [...store.selection].some((id) => {
+      const f = findClip(store.project, id);
+      return f && !f.track.locked && /^(video|image)$/.test(f.clip.type);
+    }) },
     { id: 'stabilize', label: 'Stabilize', group: 'Editing', keys: [], run: () => actions.stabilize(), enabled: () => store.selected?.clip.type === 'video' },
     { id: 'removeFlicker', label: 'Remove flicker', group: 'Editing', keys: [], run: () => actions.removeFlicker(), enabled: () => store.selected?.clip.type === 'video' && !store.selected.clip.freeze },
     { id: 'extractAudio', label: 'Extract audio', group: 'Editing', keys: [], run: () => actions.extractAudio(), enabled: () => store.selected?.clip.type === 'video' && Boolean(store.project.assets[store.selected.clip.assetId]?.hasAudio) },

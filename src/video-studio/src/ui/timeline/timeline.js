@@ -1639,7 +1639,7 @@ export function createTimeline(ctx) {
       hasAudio ? { label: 'Detach audio', icon: 'detachAudio', shortcut: k('detachAudio'), onSelect: () => actions.detachAudio() } : null,
       c.type === 'video' && store.project.assets[c.assetId]?.hasAudio ? { label: 'Extract audio', icon: 'fileAudio', onSelect: () => actions.extractAudio(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Split at scene changes', icon: 'scissors', onSelect: () => actions.splitScenes(id) } : null,
-      c.type === 'video' || c.type === 'image' ? { label: c.cutout ? 'Keep background' : 'Remove background', icon: 'cutout', onSelect: () => actions.removeBackground(id) } : null,
+      c.type === 'video' || c.type === 'image' ? { label: c.cutout ? 'Keep background' : 'Remove background', icon: 'cutout', disabled: f.track.locked, onSelect: () => actions.removeBackground(id) } : null,
       c.type === 'video' || c.type === 'image' ? { label: 'Remove object...', icon: 'eraser', onSelect: () => ctx.inspector?.showVideoSub?.('remove') } : null,
       c.type === 'video' && !c.freeze ? { label: 'Stabilize...', icon: 'focus', onSelect: () => actions.stabilize(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Remove flicker...', icon: 'brightness', onSelect: () => actions.removeFlicker(id) } : null,

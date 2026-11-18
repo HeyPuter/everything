@@ -319,9 +319,10 @@ export function createSmartActions(ctx) {
      */
     removeBackground(clipId = null) {
       const ids = clipId ? [clipId] : [...store.selection];
-      const clips = ids.map((id) => T.findClip(store.project, id)?.clip).filter((c) => c && (c.type === 'video' || c.type === 'image'));
+      const targets = ids.map((id) => T.findClip(store.project, id)).filter((f) => f && (f.clip.type === 'video' || f.clip.type === 'image'));
+      const clips = targets.filter((f) => !f.track.locked).map((f) => f.clip);
       if (!clips.length) {
-        toast('Select a video or image clip to remove its background.', { kind: 'info' });
+        toast(targets.length ? 'Unlock the track to change background removal.' : 'Select a video or image clip to remove its background.', { kind: 'info' });
         return false;
       }
       const off = clips.every((c) => c.cutout);
