@@ -326,6 +326,16 @@ async function duplicateDialog(e: Editor) {
   e.message(`Duplicated into ${target.doc.name}`);
 }
 
+/** Rename a layer. Locks keep a layer's content and placement, not its
+ * name, so locked layers can be renamed too. */
+export function renameLayer(e: Editor, id: string, name: string) {
+  const value = name.trim();
+  if (!value) return;
+  e.command('Rename Layer', (d) => {
+    const l = findLayer(d.layers, id);
+    if (l) l.name = value;
+  });
+}
 /** Set the color label of every selected layer. */
 function setColorLabel(e: Editor, color: LayerColor | undefined) {
   const ids = [...e.selectedIds];

@@ -11,7 +11,7 @@ import { showContextMenu } from '../../app/menubar';
 import type { Panel } from '../../app/registry';
 import { effectRows, fillThumb, fxBadge } from '../effects/layer-effects';
 import { patchList } from '../../ui/patch-list';
-import { colorLabelItems, isLayerColor } from '../layers/dialogs';
+import { colorLabelItems, isLayerColor, renameLayer } from '../layers/dialogs';
 
 const kindIcon: Record<string, string> = {
   group: 'folder',
@@ -246,7 +246,7 @@ export const layersPanel: Panel = {
           finished = true;
           if (commit && input.value.trim() && input.value !== l.name) {
             e.selected = id;
-            e.editLayer('Rename Layer', (x) => (x.name = input.value.trim()));
+            renameLayer(e, id, input.value);
           } else e.update();
         };
         input.addEventListener('keydown', (k) => {

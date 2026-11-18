@@ -35,3 +35,21 @@ test('Lock All protects opacity and blend mode from the keyboard and the panel',
   expect(await state()).toEqual({ locked: false, opacity: 0.5, blend: 'dissolve' });
   await expect(page.locator('.layers-panel #opacity')).toBeEnabled();
 });
+
+test('a locked layer can still be renamed in place', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  await run(page, 'layer.new-quick');
+  await page.locator('.layers-panel [data-lock-button="all"]').click();
+  await idle(page);
+  const id = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.id);
+  await page.locator(`#layers .layer-row[data-row="${id}"] .layer-name`).dblclick();
+  await page.locator('#layers input.layer-rename').fill('Locked title');
+  await page.locator('#layers input.layer-rename').press('Enter');
+  await idle(page);
+  const l = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!);
+  expect([l.name, l.locked]).toEqual(['Locked title', true]);
+  await expect(page.locator(`#layers .layer-row[data-row="${id}"] .name-text`)).toHaveText(
+    'Locked title',
+  );
+});
