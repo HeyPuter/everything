@@ -220,9 +220,10 @@ export class StrokeSession {
       dirty = unionRect(dirty, this.stamp(sx, sy, size, angle, roundness, flow, cap));
     return dirty;
   }
+  // Selection tiles by their own tile coordinates (a moved selection outline
+  // has a grid origin other than 0).
   private selectionAt(tx: number, ty: number) {
     const sel = this.options.selection!;
-    // Selection tiles align with document tiles only when the grid origin is 0.
     const key = tileKey(tx, ty);
     let entry = this.selectionTiles.get(key);
     if (entry === undefined) {
@@ -323,8 +324,13 @@ export class StrokeSession {
             }
             if (alpha <= 0) continue;
             if (selection) {
-              const sel = this.selectionAt(Math.floor(x / TILE), Math.floor(y / TILE));
-              const sv = typeof sel === 'number' ? sel : sel[(((y % TILE) + TILE) % TILE) * TILE + (((x % TILE) + TILE) % TILE)];
+              const lx = x - selection.x,
+                ly = y - selection.y;
+              const sel = this.selectionAt(Math.floor(lx / TILE), Math.floor(ly / TILE));
+              const sv =
+                typeof sel === 'number'
+                  ? sel
+                  : sel[(((ly % TILE) + TILE) % TILE) * TILE + (((lx % TILE) + TILE) % TILE)];
               if (!sv) continue;
               alpha *= sv / 255;
             }

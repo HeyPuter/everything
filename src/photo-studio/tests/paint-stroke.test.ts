@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TileStore, emptyGrid, gridFromImage, readRGBA } from '../src/model/tiles';
+import { TileStore, emptyGrid, filledMask, gridFromImage, readRGBA } from '../src/model/tiles';
 import { StrokeSession } from '../src/engine/paint';
 import { SmudgeFinger, smudgeSpacing } from '../src/engine/smudge';
 
@@ -134,5 +134,28 @@ describe('finger painting and square tips', () => {
     expect(a(39, 39)).toBe(255);
     expect(a(19, 30)).toBe(0);
     expect(a(40, 30)).toBe(0);
+  });
+});
+
+describe('stroke sessions limited by a moved selection', () => {
+  it('paint follows a selection outline that was moved off the document origin', () => {
+    const store = new TileStore();
+    // A 40 px square at the origin, moved 50 px right and 300 px down (across a tile edge).
+    const sel = { ...filledMask(store, { x: 0, y: 0, width: 40, height: 40 }), x: 50, y: 300 };
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip,
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [255, 0, 0], mode: 'normal' },
+      selection: sel,
+    });
+    s.addPoint(70, 320);
+    s.lift();
+    s.addPoint(20, 20);
+    const g = s.commit();
+    const alpha = (x: number, y: number) =>
+      readRGBA(store, g, { x, y, width: 1, height: 1 }).data[3];
+    expect(alpha(70, 320)).toBe(255);
+    expect(alpha(20, 20)).toBe(0);
   });
 });
