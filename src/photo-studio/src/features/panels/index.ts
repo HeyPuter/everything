@@ -5,7 +5,8 @@ import { propertiesPanel } from './properties';
 import { ColorControls } from '../../ui/color';
 import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
-import { findLayer } from '../../model/document';
+import { findLayer, type Layer } from '../../model/document';
+import { layerLock } from '../../model/locks';
 import { readRGBA } from '../../model/tiles';
 import { canvasRect } from '../../model/selection';
 import { commitSelectionMask, selectionOp } from '../selection';
@@ -327,8 +328,15 @@ export function installPanels(e: Editor) {
       run: (e) => {
         const l = e.layer;
         if (l?.kind !== 'solid') return;
-        void import('../color/picker').then(({ pickColor }) => pickColor(e, l.color, 'Fill Color')).then((c) => {
+        const id = l.id;
+        // The canvas previews the color while picking, as the gradient and
+        // pattern fill and adjustment Properties do; Cancel shows it as it was.
+        const recolor = (layers: Layer[], color: string): Layer[] =>
+          layers.map((x) => (x.id === id ? { ...x, color } : x.children.length ? { ...x, children: recolor(x.children, color) } : x));
+        const preview = layerLock(e.doc.layers, id, 'all') ? undefined : (c: string) => e.preview({ ...e.doc, layers: recolor(e.doc.layers, c) });
+        void import('../color/picker').then(({ pickColor }) => pickColor(e, l.color, 'Fill Color', preview)).then((c) => {
           if (c) e.editLayer('Change Fill Color', (x) => (x.color = c));
+          else e.preview(e.displayDoc);
         });
       },
     },
