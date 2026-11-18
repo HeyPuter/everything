@@ -409,11 +409,12 @@ export function loudnessPanel(app) {
     const refocus = holdFocus();
     const s = prefs();
     const x = exportSettings();
-    const out = await outputWriter(app, x);
-    if (!out) return;
     running = true;
+    renderRows();
     let written = 0;
     try {
+      const out = await outputWriter(app, x);
+      if (!out) return;
       for (const e of entries) {
         if (!app.documents.includes(e.doc)) continue;
         const m = e.state === e.doc.state && e.measure ? e.measure : await scanOne(e);
