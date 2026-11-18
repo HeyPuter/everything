@@ -440,10 +440,61 @@ function clipboardFrom(doc, clips, range) {
   }
   return {
     type: 'clips',
+    sessionId: doc.id,
     sampleRate: doc.sampleRate,
     clips: parts.map((c) => ({ ...c, start: c.start - t0, trackOffset: (idx.get(c.trackId) ?? 0) - firstTrack, groupId: null })),
     pool,
   };
+}
+
+const pastedSources = new WeakMap(); // destination session -> source object -> imported id
+
+function importClipboardSources(doc, clip) {
+  let cache = pastedSources.get(doc);
+  if (!cache) pastedSources.set(doc, (cache = new WeakMap()));
+  const ids = new Map();
+  let links;
+  const rememberLink = (src) => {
+    if (!src.docId) return;
+    let rates = links.get(src.docId);
+    if (!rates) links.set(src.docId, (rates = new Map()));
+    if (!rates.has(src.channelRate)) rates.set(src.channelRate, src);
+  };
+  const linkedSource = (src) => {
+    if (!src.docId) return null;
+    if (!links) {
+      // Index once on demand instead of rescanning the pool for every source.
+      links = new Map();
+      for (const current of doc.pool.values()) rememberLink(current);
+    }
+    return links.get(src.docId)?.get(src.channelRate);
+  };
+  for (const [id, src] of clip.pool) {
+    if (!src) continue;
+    const current = doc.pool.get(id);
+    const sameLink = (s) => src.docId && s.docId === src.docId && s.channelRate === src.channelRate;
+    let imported;
+    // IDs are local to each saved session. Within the original session (or
+    // the same linked waveform), keep following that source's current audio.
+    if (current && (clip.sessionId === doc.id || current === src || sameLink(current))) imported = id;
+    else if (doc.pool.has(cache.get(src))) imported = cache.get(src);
+    else {
+      const linked = linkedSource(src);
+      if (linked) imported = linked.id;
+      else {
+        imported = id;
+        while (doc.pool.has(imported)) imported = S.uid('src');
+        doc.addSource({ ...src, id: imported });
+        // Keep source details outside addSource's common fields, including
+        // the linked state and offline frame/channel counts.
+        Object.assign(doc.pool.get(imported), src, { id: imported });
+        if (links) rememberLink(doc.pool.get(imported));
+      }
+    }
+    cache.set(src, imported);
+    ids.set(id, imported);
+  }
+  return ids;
 }
 
 async function pasteClips(app, doc, clip) {
@@ -476,18 +527,18 @@ async function pasteClips(app, doc, clip) {
     state = S.addClipsOnTop(state, [c]);
     ids.push(c.id);
   } else {
-    for (const [id, src] of clip.pool) if (src && !doc.pool.has(id)) doc.pool.set(id, src);
     if (clip.sampleRate !== doc.sampleRate) {
       app.notify('Clips copied from a session at another sample rate cannot be pasted here.', { error: true });
       return;
     }
+    const sourceIds = importClipboardSources(doc, clip);
     const pasted = [];
     for (const c of clip.clips) {
       while (!audio()[base + c.trackOffset]) {
         const made = newTrack(state, {});
         state = made.state;
       }
-      const n = S.createClip({ ...c, id: undefined, trackId: audio()[base + c.trackOffset].id, start: at + c.start });
+      const n = S.createClip({ ...S.remapClipSources(c, sourceIds), id: undefined, trackId: audio()[base + c.trackOffset].id, start: at + c.start });
       pasted.push(n);
       ids.push(n.id);
     }

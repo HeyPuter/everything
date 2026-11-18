@@ -131,6 +131,21 @@ export function createClip(o = {}) {
   };
 }
 
+/** Remaps every audio reference when a clip moves between independent source pools. */
+export function remapClipSources(c, ids) {
+  const sourceId = (id) => id ? ids.get(id) : id;
+  return {
+    ...c,
+    sourceId: sourceId(c.sourceId),
+    stretch: c.stretch ? { ...c.stretch, sourceId: sourceId(c.stretch.sourceId) } : c.stretch,
+    remix: c.remix ? { ...c.remix, sourceId: sourceId(c.remix.sourceId) } : c.remix,
+    soundAssistant: c.soundAssistant?.duration?.orig ? {
+      ...c.soundAssistant,
+      duration: { ...c.soundAssistant.duration, orig: { ...c.soundAssistant.duration.orig, sourceId: sourceId(c.soundAssistant.duration.orig.sourceId) } },
+    } : c.soundAssistant,
+  };
+}
+
 /** A new session state with `tracks` stereo audio tracks and a stereo (or mono) master. */
 export function createSessionState({ sampleRate = 48000, bitDepth = 32, tracks = 6, template, autoCrossfade = true, masterChannels = 2 } = {}) {
   let list;

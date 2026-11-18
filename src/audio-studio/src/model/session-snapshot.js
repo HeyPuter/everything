@@ -1,6 +1,6 @@
 // A session's media pool is outside Undo. A file replaced by another session
 // needs independent source ids so Revert never changes media used by history.
-import { uid } from './session-edits.js';
+import { uid, remapClipSources } from './session-edits.js';
 import { addVideoSource, videoPool } from './session-video.js';
 
 const imports = new WeakMap();
@@ -90,19 +90,9 @@ export function savedSessionSnapshot(target, captured) {
   if (prior && prior.videoId === videoId && prior.ids.size === ids.size && [...ids].every(([id, mapped]) => prior.ids.get(id) === mapped)) {
     return { state: prior.state, media };
   }
-  const sourceId = (id) => id ? ids.get(id) : id;
   const state = {
     ...original,
-    clips: original.clips.map((c) => ({
-      ...c,
-      sourceId: sourceId(c.sourceId),
-      stretch: c.stretch ? { ...c.stretch, sourceId: sourceId(c.stretch.sourceId) } : c.stretch,
-      remix: c.remix ? { ...c.remix, sourceId: sourceId(c.remix.sourceId) } : c.remix,
-      soundAssistant: c.soundAssistant?.duration?.orig ? {
-        ...c.soundAssistant,
-        duration: { ...c.soundAssistant.duration, orig: { ...c.soundAssistant.duration.orig, sourceId: sourceId(c.soundAssistant.duration.orig.sourceId) } },
-      } : c.soundAssistant,
-    })),
+    clips: original.clips.map((c) => remapClipSources(c, ids)),
     ...(original.video ? { video: videoId ? { ...original.video, sourceId: videoId } : undefined } : {}),
   };
   cache.states.set(original, { ids, videoId, state });
