@@ -135,8 +135,7 @@ export function breakApart(project, id, opts = {}) {
   const restored = [];
   const W = project.settings.width;
   const H = project.settings.height;
-  const solo = c.sequence.tracks.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
-  let insertAt = project.tracks.indexOf(f.track);
+  const groups = [];
   for (const t of c.sequence.tracks) {
     const copies = [];
     for (const child of t.clips) {
@@ -149,29 +148,39 @@ export function breakApart(project, id, opts = {}) {
       inheritFromCompound(copy, c, W, H);
       copies.push(copy);
     }
+    groups.push({ track: t, clips: copies, main: Boolean(t.main) });
+    restored.push(...copies);
+  }
+  restoreCompoundTracks(project, c, f.track, groups);
+  return restored;
+}
+
+/** Restore placed clips at a compound's stack position with its track controls. */
+export function restoreCompoundTracks(project, compound, outer, groups) {
+  const solo = compound.sequence.tracks.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
+  let insertAt = project.tracks.indexOf(outer);
+  for (const { track: t, clips: copies, main = false } of groups) {
     if (!copies.length) continue;
-    const hidden = Boolean(f.track.hidden || t.hidden);
-    const muted = Boolean(f.track.muted || t.muted || (solo && !t.solo));
-    const compatible = hidden === Boolean(f.track.hidden) && muted === Boolean(f.track.muted) && !t.locked;
-    const original = t.main && t.kind === f.track.kind && compatible;
+    const hidden = Boolean(outer.hidden || t.hidden);
+    const muted = Boolean(outer.muted || t.muted || (solo && !t.solo));
+    const compatible = hidden === Boolean(outer.hidden) && muted === Boolean(outer.muted) && !t.locked;
+    const original = main && t.kind === outer.kind && compatible;
     if (original) {
       // Reuse the original slot only when its controls match. A separate track keeps
       // an inner hide/mute editable without altering other clips or their keyframes.
-      for (const copy of copies) f.track.clips.push(copy);
-      insertAt = project.tracks.indexOf(f.track) + 1;
+      for (const copy of copies) outer.clips.push(copy);
+      insertAt = Math.max(insertAt, project.tracks.indexOf(outer) + 1);
     } else {
       // Restore each inner track at the compound's stack position. Choosing any free
       // track can put a title above unrelated footage or give it different controls.
       const track = makeTrack(t.kind, {
-        hidden, muted, solo: Boolean(f.track.solo), locked: Boolean(t.locked), clips: copies,
+        hidden, muted, solo: Boolean(outer.solo), locked: Boolean(t.locked), clips: copies,
         ...(t.name ? { name: t.name } : {}), ...(t.size ? { size: t.size } : {}),
       });
       project.tracks.splice(insertAt++, 0, track);
     }
-    for (const copy of copies) restored.push(copy);
   }
   for (const t of project.tracks) sortTrack(t);
-  return restored;
 }
 
 /** Every clip in the project, including the ones inside compound clips and on the other timelines. */

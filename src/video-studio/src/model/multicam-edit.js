@@ -3,9 +3,9 @@
  */
 import { uid } from '../lib/ids.js';
 import { makeClip } from './project.js';
-import { findClip, clipEnd, addClip, sortTrack, clipLabel, soundCopy } from './timeline.js';
+import { findClip, clipEnd, addClip, clipLabel, soundCopy } from './timeline.js';
 import { trimTo } from './slice.js';
-import { inheritFromCompound } from './compound.js';
+import { inheritFromCompound, restoreCompoundTracks } from './compound.js';
 import { MIN_ANGLES, MAX_ANGLES, isMulticam, activeRanges } from './multicam.js';
 
 /** Number for the next "Multi-camera clip N" name. */
@@ -89,34 +89,45 @@ export function flattenMulticam(project, id) {
   };
   const pictures = [];
   const extras = [];
+  const groups = [];
+  const tracks = c.sequence.tracks;
+  const firstAngle = tracks.findIndex(t => t.angle);
+  const lastAngle = tracks.findLastIndex(t => t.angle);
+  // Consecutive camera tracks can share the original slot: only one picture shows
+  // at a time. An intervening title or look layer needs their separate stack slots.
+  const mergePictures = !tracks.slice(firstAngle, lastAngle + 1).some(t => !t.angle && t.kind !== 'audio' && t.clips.length);
   let angle = -1;
   for (const t of c.sequence.tracks) {
     if (!t.angle) {
+      const clips = [];
       for (const child of t.clips) {
         const copy = trimTo(structuredClone(child), lo, hi);
-        if (copy) extras.push(place(copy));
+        if (copy) { place(copy); clips.push(copy); extras.push(copy); }
       }
+      groups.push({ track: t, clips });
       continue;
     }
     angle++;
+    const clips = [];
+    const sounds = [];
     for (const child of t.clips) {
       for (const [a, b] of activeRanges(mc, angle, lo, hi)) {
         const copy = trimTo(structuredClone(child), a, b);
         if (!copy) continue;
         if (b < clipEnd(child)) copy.transition = null;
         if (mc.audio !== 'follow') copy.muted = true;
-        pictures.push(place(copy));
+        place(copy); clips.push(copy); pictures.push(copy);
       }
       if (mc.audio === angle) {
         const whole = trimTo(structuredClone(child), lo, hi);
         const sound = whole && soundCopy(project, whole);
-        if (sound) extras.push(place(sound));
+        if (sound) { place(sound); sounds.push(sound); extras.push(sound); }
       }
     }
+    groups.push({ track: t, clips, main: mergePictures || t === tracks[firstAngle] });
+    groups.push({ track: { ...t, kind: 'audio' }, clips: sounds });
   }
-  // The pictures never overlap (one angle at a time), so they take the clip's slot.
-  f.track.clips.splice(f.track.clips.indexOf(c), 1, ...pictures);
-  sortTrack(f.track);
-  for (const x of extras) addClip(project, x, { ripple: false, linkOverlays: false });
+  f.track.clips.splice(f.track.clips.indexOf(c), 1);
+  restoreCompoundTracks(project, c, f.track, groups);
   return [...pictures, ...extras];
 }
