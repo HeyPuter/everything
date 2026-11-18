@@ -219,8 +219,6 @@ export async function recoveryDialog(app, controller, manifests) {
   const chosen = manifests.filter((_, i) => checks[i].checked);
   if (r === 'recover') {
     const docs = await controller.recover(chosen);
-    const rest = manifests.filter((m) => !chosen.includes(m));
-    if (rest.length) await controller.discard(rest);
     if (docs.length) app.notify(`Recovered ${docs.length} file${docs.length > 1 ? 's' : ''}. Save to keep ${docs.length > 1 ? 'them' : 'it'}.`);
     return docs;
   }
