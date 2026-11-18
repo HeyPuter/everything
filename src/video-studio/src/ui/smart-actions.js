@@ -361,13 +361,19 @@ export function createSmartActions(ctx) {
         try {
           const blob = await ctx.library.mediaBlob(asset);
           const shifts = [];
+          const sampleTimes = [];
+          const sourceTimes = times.map((t) => T.sourceTimeAt(clip, clip.start + t));
           let prev = null;
           let i = 0;
-          for await (const { frame } of grayFrames(blob, times.map((t) => T.sourceTimeAt(clip, clip.start + t)), { tw: W, th: H, signal: p.signal })) {
+          for await (const { t: sourceTime, frame } of grayFrames(blob, sourceTimes, { tw: W, th: H, signal: p.signal })) {
+            // Unreadable frames are omitted by the sampler, not by the timeline.
+            while (i < sourceTimes.length - 1 && sourceTimes[i] !== sourceTime) i++;
+            sampleTimes.push(times[i]);
             if (prev) shifts.push(frameShift(prev, frame, W, H));
             prev = frame;
             p.set(++i / times.length);
           }
+          if (sampleTimes.length < 2) throw new Error('Could not read enough frames to stabilize this clip. Try again or use another video.');
           p.close();
           const path = cameraPath(shifts);
           const smooth = smoothCamera(path, Number(strength.value));
@@ -380,8 +386,8 @@ export function createSmartActions(ctx) {
           const fitW = srcAR >= dstAR ? 1 : srcAR / dstAR;
           const fitH = srcAR >= dstAR ? dstAR / srcAR : 1;
           const sc = scale0 * zoom;
-          const xs = offsets.map((o, k) => ({ t: Math.min(clip.duration, times[k] ?? clip.duration), v: clip.transform.x + (o.x / W) * fitW * sc, ease: 'linear' }));
-          const ys = offsets.map((o, k) => ({ t: Math.min(clip.duration, times[k] ?? clip.duration), v: clip.transform.y + (o.y / H) * fitH * sc, ease: 'linear' }));
+          const xs = offsets.map((o, k) => ({ t: Math.min(clip.duration, sampleTimes[k]), v: clip.transform.x + (o.x / W) * fitW * sc, ease: 'linear' }));
+          const ys = offsets.map((o, k) => ({ t: Math.min(clip.duration, sampleTimes[k]), v: clip.transform.y + (o.y / H) * fitH * sc, ease: 'linear' }));
           ctx.actions.editClip(clip.id, 'Stabilize', (c) => {
             c.keyframes ||= {};
             delete c.keyframes.scale;
