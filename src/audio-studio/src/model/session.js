@@ -3,8 +3,9 @@
 // 'change' events) so shared panels and commands work with it, and adds clip
 // and track selection, drag previews and a media pool.
 //
-// The media pool maps source ids to { id, name, channels (at the session
-// rate), sampleRate (of the original file), docId (linked AudioFile, if
+// The media pool maps source ids to { id, name, channels (at channelRate),
+// channelRate (the session rate used to prepare them), sampleRate (of the
+// original file), docId (linked AudioFile, if
 // open), path (Puter path when saved), offline }. It is not part of the undo
 // state: sources only ever get added, and edits in the Waveform editor flow
 // into the clips that use them.
@@ -316,8 +317,8 @@ export class Session extends Emitter {
   // ---------------------------------------------------------------- pool
 
   /** Adds media to the pool; returns the source id. */
-  addSource({ id = uid('src'), name, channels, sampleRate = this.sampleRate, docId = null, path = null, offline = false }) {
-    this.pool.set(id, { id, name, channels, sampleRate, docId, path, offline });
+  addSource({ id = uid('src'), name, channels, sampleRate = this.sampleRate, channelRate = this.sampleRate, docId = null, path = null, offline = false }) {
+    this.pool.set(id, { id, name, channels, sampleRate, channelRate, docId, path, offline });
     this.poolVersion++;
     return id;
   }

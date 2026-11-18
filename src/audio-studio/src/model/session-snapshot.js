@@ -62,7 +62,7 @@ export function savedSessionSnapshot(target, captured) {
       return v.signature === signature && src && !src.docId && src.channels === m.channels && audioKey(src) === signature;
     });
     if (!entry) {
-      const id = target.addSource({ ...m, id: freshId('src', target.pool), docId: null });
+      const id = target.addSource({ ...m, channelRate: m.sampleRate, id: freshId('src', target.pool), docId: null });
       Object.assign(target.pool.get(id), { frames: m.frames, channelCount: m.channelCount });
       versions.push((entry = { id, signature }));
     }

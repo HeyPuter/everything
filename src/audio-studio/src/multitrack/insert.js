@@ -24,13 +24,14 @@ export async function linkSource(session, doc) {
     const sourceRate = doc.sampleRate;
     const rate = session.sampleRate;
     for (const src of session.pool.values()) {
-      if (src.docId === doc.id && src.stateRef === state) return src.id;
+      if (src.docId === doc.id && src.channelRate === rate && src.stateRef === state) return src.id;
     }
     const channels = await channelsAtRate(state.channels, sourceRate, rate);
     // Edits can arrive while DSP loads. Never cache old samples under a newer
     // document version, or overwrite a source refreshed by a later request.
     if (doc.state !== state || doc.sampleRate !== sourceRate || session.sampleRate !== rate) continue;
-    const existing = [...session.pool.values()].find((s) => s.docId === doc.id);
+    // Revert can switch session rates. Keep older-rate sources intact for Undo.
+    const existing = [...session.pool.values()].find((s) => s.docId === doc.id && s.channelRate === rate);
     if (existing) {
       session.updateSource(existing.id, { channels, stateRef: state, name: doc.name });
       return existing.id;
@@ -225,9 +226,9 @@ export function syncLinkedSources(app, doc) {
         for (;;) {
           const state = doc.state;
           const sourceRate = doc.sampleRate;
-          const rate = s.sampleRate;
+          const rate = src.channelRate;
           const channels = await channelsAtRate(state.channels, sourceRate, rate);
-          if (doc.state !== state || doc.sampleRate !== sourceRate || s.sampleRate !== rate) continue;
+          if (doc.state !== state || doc.sampleRate !== sourceRate) continue;
           s.updateSource(src.id, { channels, stateRef: state, name: doc.name });
           const fitted = S.fitClipsToSource(s.state, src.id, channels[0]?.length ?? 0);
           if (fitted !== s.state) s.apply('Fit Clips to Source', fitted);
@@ -238,7 +239,10 @@ export function syncLinkedSources(app, doc) {
     app.syncGraph();
   };
   clearTimeout(pending.get(doc.id));
-  const sameRate = sessions.every((s) => s.sampleRate === doc.sampleRate);
+  const sameRate = sessions.every((s) => {
+    for (const src of s.pool.values()) if (src.docId === doc.id && src.channelRate !== doc.sampleRate) return false;
+    return true;
+  });
   if (sameRate) run();
   else pending.set(doc.id, setTimeout(run, 300));
 }
