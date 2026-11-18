@@ -119,14 +119,25 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
  * `range` = [start, end) for 'selection'.
  */
 export async function saveFlow(app, doc, { mode = 'export', range = null } = {}) {
-  const [start, end] = range || [0, doc.length];
+  // A selection's coordinates belong to the audio shown when the command ran.
+  // Keep its source stable through the dialog, sign-in and destination checks.
+  const sourceDoc = mode === 'selection' ? {
+    name: doc.name,
+    source: { ...doc.source },
+    info: { ...doc.info },
+    state: doc.state,
+    sampleRate: doc.sampleRate,
+    channelCount: doc.channelCount,
+    length: doc.length,
+  } : doc;
+  const [start, end] = range || [0, sourceDoc.length];
   // After a declined Replace or a failed sign-in the dialog reopens with the same choices.
   let initial = null;
   for (;;) {
-    const r = await exportFileDialog(app, doc, { mode, frames: end - start, initial });
+    const r = await exportFileDialog(app, sourceDoc, { mode, frames: end - start, initial });
     if (!r) return false;
     // Nothing to encode in a format that cannot be empty: say so and let another format be chosen.
-    const outFrames = outputFrames(end - start, doc.sampleRate, r.options.sampleRate);
+    const outFrames = outputFrames(end - start, sourceDoc.sampleRate, r.options.sampleRate);
     const empty = emptyExportError(r.options.format, outFrames);
     if (empty) {
       app.notify(empty, { error: true });
@@ -152,9 +163,9 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         }
       }
     }
-    const state = doc.state;
+    const state = sourceDoc.state;
     const label = `${mode === 'export' || mode === 'download' ? 'Exporting' : 'Saving'} ${r.fileName}`;
-    const blob = await encodeWithProgress(doc, r.options, { start, end }, label);
+    const blob = await encodeWithProgress(sourceDoc, r.options, { start, end }, label);
     if (!blob) {
       app.setStatus('Cancelled');
       return false;
