@@ -86,3 +86,32 @@ test('Paste Layer Style works when the last selected layer is an adjustment laye
     ['Invert', false],
   ]);
 });
+
+test('blending options and fill opacity copy without effects', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 64, 64, '#ffffff');
+  const out = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { findCommand } = await import('/src/app/registry.ts');
+    const { layer } = await import('/src/model/document.ts');
+    const a = layer('solid', 'A', 64, 64),
+      b = layer('solid', 'B', 64, 64);
+    a.blending = { knockout: 'shallow' };
+    a.fillOpacity = 0.5;
+    e.command('Add', (d) => d.layers.push(a, b));
+    e.selectLayers([a.id]);
+    const enabled = findCommand('layer.style-copy')!.enabled!(e);
+    await e.runCommand('layer.style-copy');
+    e.selectLayers([b.id]);
+    await e.runCommand('layer.style-paste');
+    const pasted = e.doc.layers.find((l) => l.id === b.id)!;
+    return {
+      enabled,
+      blending: pasted.blending,
+      fillOpacity: pasted.fillOpacity,
+      style: pasted.style,
+    };
+  });
+  await idle(page);
+  expect(out).toEqual({ enabled: true, blending: { knockout: 'shallow' }, fillOpacity: 0.5 });
+});

@@ -38,7 +38,9 @@ const effectEntries = Object.entries(effectLabels).filter(([k]) => k !== 'blendi
 // Document patterns the style uses travel with it (as pixels: each document
 // keeps its own tiles), so pasting into another document keeps them.
 type CopiedPattern = Omit<DocumentPattern, 'grid'> & { image: RGBA8 };
-let clipboard: { style: LayerStyle; fillOpacity?: number; blending?: AdvancedBlending; patterns: CopiedPattern[] } | undefined;
+let clipboard: { style?: LayerStyle; fillOpacity?: number; blending?: AdvancedBlending; patterns: CopiedPattern[] } | undefined;
+// What Copy Layer Style carries: effects, fill opacity and blending options.
+const copyable = (l: Layer | undefined) => hasStyle(l) || !!l?.blending || (l?.fillOpacity ?? 1) !== 1;
 /** Pattern IDs a layer style refers to (pattern overlay, pattern strokes). */
 function stylePatternIds(style: LayerStyle): Set<string> {
   const ids = new Set<string>();
@@ -137,13 +139,13 @@ export function installEffectCommands() {
     {
       id: 'layer.style-copy',
       label: 'Copy Layer Style',
-      enabled: (e) => hasStyle(e.layer),
+      enabled: (e) => copyable(e.layer),
       recordable: false,
       run: (e) => {
         const l = e.layer;
-        if (!l?.style) return;
-        const style = structuredClone(l.style) as LayerStyle;
-        const used = stylePatternIds(style);
+        if (!l || !copyable(l)) return;
+        const style = l.style ? (structuredClone(l.style) as LayerStyle) : undefined;
+        const used = style ? stylePatternIds(style) : new Set<string>();
         const patterns = (e.doc.patterns ?? [])
           .filter((p) => used.has(p.id))
           .map(({ grid, ...p }) => ({ ...p, image: readRGBA(e.assets.tiles, grid, { x: 0, y: 0, width: p.width, height: p.height }) }));
@@ -163,7 +165,8 @@ export function installEffectCommands() {
           .filter((p) => !e.doc.patterns?.some((x) => x.id === p.id))
           .map(({ image, ...p }) => ({ ...p, grid: gridFromImage(e.assets.tiles, image) }));
         editStyles(e, 'Paste Layer Style', (l) => {
-          l.style = structuredClone(c.style) as Record<string, unknown>;
+          if (c.style) l.style = structuredClone(c.style) as Record<string, unknown>;
+          else delete l.style;
           if (c.fillOpacity !== undefined && c.fillOpacity !== 1) l.fillOpacity = c.fillOpacity;
           else delete l.fillOpacity;
           // Blending options travel with the style.
