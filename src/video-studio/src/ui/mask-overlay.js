@@ -358,7 +358,7 @@ export function createMaskOverlay({ store, actions, stage }) {
   });
 
   root.addEventListener('pointermove', (e) => {
-    if (cur?.m?.type === 'brush' && !drag) {
+    if (cur?.m?.type === 'brush' && (!drag || drag.kind === 'paint')) {
       const p = pointer(e);
       maskEdit.cursor = p;
       const c = root.querySelector('.mask-brush-cursor');

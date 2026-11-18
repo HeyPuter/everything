@@ -131,3 +131,15 @@ it('uses the selected removal region’s brush units, including the eraser fallb
   removeEdit.set({ index: 1, tool: 'erase' }); env.draw();
   checkCursor(env, 0.05);
 });
+
+it('keeps the mask cursor at the pointer throughout a paint drag and redraw', () => {
+  const env = setup('mask', true), at = env.project(1100, 600), end = env.project(1200, 650);
+  const fire = (el, type, p) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: p[0], clientY: p[1] }));
+  fire(env.overlay.el, 'pointermove', at);
+  fire(env.overlay.el.querySelector('[data-mh=paint]'), 'pointerdown', at);
+  fire(env.overlay.el, 'pointermove', end);
+  close(mapped(env.overlay.el.querySelector('.mask-brush-cursor'), [0, 0]), end);
+  env.draw();
+  close(mapped(env.overlay.el.querySelector('.mask-brush-cursor'), [0, 0]), end);
+  fire(env.overlay.el, 'pointerup', end);
+});
