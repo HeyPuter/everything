@@ -213,7 +213,9 @@ export class SessionRecorder {
     if (!take.armed.some((id) => S.findTrack(state, id))) {
       pieces.forEach((p, i) => {
         const name = this.app.uniqueName(pieces.length > 1 ? `Recording_Take ${i + 1}` : 'Recording_Take', '.wav');
-        app.addDocument(new AudioFile({ name, sampleRate: doc.sampleRate, channels: channels.map((c) => c.slice(p.start, p.start + p.length)), info: { bitDepth: 32, format: 'wav' } }), { activate: false });
+        const file = new AudioFile({ name, sampleRate: doc.sampleRate, channels: channels.map((c) => c.slice(p.start, p.start + p.length)), info: { bitDepth: 32, format: 'wav' } });
+        file.savedState = null;
+        app.addDocument(file, { activate: false });
       });
       app.notify(`The armed ${take.armed.length > 1 ? 'tracks were' : 'track was'} deleted while recording. The recording is in the Files panel.`);
       return;
@@ -231,6 +233,7 @@ export class SessionRecorder {
         const markers = app.prefs?.get('markersInMixdowns') ? markersInRange(doc.state.markers, p.at, p.at + p.length).map((m) => createMarker(m)) : [];
         const base = pieces.length > 1 ? `${track.name}_Take ${i + 1}` : `${track.name}_Take`;
         const file = new AudioFile({ name: this.app.uniqueName(base, '.wav'), sampleRate: doc.sampleRate, channels: own, markers, info: { bitDepth: 32, format: 'wav' } });
+        file.savedState = null;
         app.addDocument(file, { activate: false });
         const sourceId = await linkSource(doc, file);
         // Only the newest of stacked takes plays; the others stay to pick from.

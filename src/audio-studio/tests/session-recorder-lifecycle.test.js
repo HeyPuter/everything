@@ -28,6 +28,26 @@ function setup() {
 afterEach(() => vi.useRealTimers());
 
 describe('session recording lifecycle', () => {
+  it.each([false, true])('asks before discarding a new session take (armed track deleted: %s)', async (deleted) => {
+    const { App } = await import('../src/app.js');
+    vi.useFakeTimers();
+    const { app, doc, engine, recorder } = setup();
+    await recorder.start(doc);
+    engine.emit('record-data', [new Float32Array(128).fill(0.25)]);
+    if (deleted) doc.apply('Delete armed track', S.removeTracks(doc.state, [doc.state.tracks[0].id]));
+    const stopping = recorder.stop();
+    await vi.advanceTimersByTimeAsync(150);
+    await stopping;
+    const file = app.documents[0];
+    expect(file.length).toBe(128);
+    const closing = App.prototype.closeDocument.call(app, file);
+    const cancel = [...document.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent === 'Cancel');
+    cancel?.click();
+    expect(await closing).toBe(false);
+    expect(app.documents).toContain(file);
+    expect(file.dirty).toBe(true);
+  });
+
   it('routes the Stop command to a session still waiting for input permission', async () => {
     const { CommandRegistry } = await import('../src/commands/registry.js');
     const { installCoreCommands } = await import('../src/commands/core.js');
