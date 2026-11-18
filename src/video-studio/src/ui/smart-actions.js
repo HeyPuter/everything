@@ -213,6 +213,8 @@ export function createSmartActions(ctx) {
 
     /** Find silent parts of the sound and cut them out of every unlocked track. */
     async removeSilences() {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return;
       const opts = { scope: 'main', thresholdDb: -38, minSilence: 0.6, pad: 0.12, ...(prefs().silenceOpts || {}) };
       const scope = h('select.select', h('option', { value: 'main' }, 'Base track'), h('option', { value: 'all' }, 'All audio'));
       scope.value = opts.scope;
@@ -226,15 +228,16 @@ export function createSmartActions(ctx) {
       const cancel = h('button.btn', { type: 'button' }, 'Close');
       let found = [];
       let ac = null;
-      const d = openDialog({
+      let closed = false;
+      const d = openFrameDialog({
         title: 'Remove silences',
         body: h('div.prefs', h('p.dialog-text', 'Finds stretches where it is quiet and cuts them out of the video, closing the gaps.'),
           row('Listen to', scope), row('Quieter than', thr, 'dB'), row('For at least', min, 's'), row('Keep around speech', pad, 's'), status),
         actions: [cancel, h('span.spacer'), find, cut],
         className: 'prefs-dialog',
         // However it closes (Close, Escape, the X), stop listening.
-        onClose: () => ac?.abort(),
-      });
+        onClose: () => { closed = true; found = []; cut.disabled = true; ac?.abort(); },
+      }, lifetime);
       cancel.addEventListener('click', () => d.close());
       const read = () => ({ scope: scope.value, thresholdDb: Number(thr.value), minSilence: Number(min.value), pad: Number(pad.value) });
       const AGAIN = 'Settings changed. Press Find silences to look again.';
@@ -267,6 +270,7 @@ export function createSmartActions(ctx) {
         return first;
       };
       find.addEventListener('click', async () => {
+        if (closed || ac) return;
         const wrong = invalid();
         if (wrong) {
           status.textContent = wrong.message;
@@ -284,7 +288,8 @@ export function createSmartActions(ctx) {
         cut.disabled = true;
         status.textContent = 'Listening...';
         try {
-          const ranges = await findSilences(ctx, o, { signal: ac.signal, onProgress: (x) => (status.textContent = `Listening... ${Math.round(x * 100)}%`) });
+          const ranges = await findSilences(ctx, o, { signal: ac.signal, onProgress: (x) => { if (!closed) status.textContent = `Listening... ${Math.round(x * 100)}%`; } });
+          if (closed || ac.signal.aborted) return;
           searched = true;
           if (JSON.stringify(read()) !== JSON.stringify(o)) {
             status.textContent = AGAIN;
@@ -295,14 +300,14 @@ export function createSmartActions(ctx) {
           status.textContent = ranges.length ? `${ranges.length} silent part${ranges.length === 1 ? '' : 's'}, ${(total / US).toFixed(1)} s in all.` : 'No silences that long were found.';
           cut.disabled = !ranges.length;
         } catch (err) {
-          if (err?.name !== 'AbortError') status.textContent = err?.message || 'Could not analyze the sound.';
+          if (!closed && err?.name !== 'AbortError') status.textContent = err?.message || 'Could not analyze the sound.';
         } finally {
-          find.disabled = false;
+          if (!closed) find.disabled = false;
           ac = null;
         }
       });
       cut.addEventListener('click', () => {
-        if (!found.length) return;
+        if (closed || !found.length) return;
         removeRanges(store, found, 'Remove silences');
         toast(`Removed ${found.length} silent part${found.length === 1 ? '' : 's'}.`, { kind: 'success' });
         d.close();
