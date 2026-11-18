@@ -151,3 +151,26 @@ it.each([[false, true, false], [true, false], [false, true, false, true, false]]
   const colors = [...env.overlay.el.querySelectorAll('mask path, mask circle')].map(el => el.getAttribute('stroke') || el.getAttribute('fill'));
   expect(colors).toEqual(erase.map(value => value ? '#000' : '#fff'));
 });
+
+it.each([
+  ['brush', 'plain'], ['rectangle', 'plain'],
+  ['brush', 'crop'], ['rectangle', 'crop'],
+  ['brush', 'nested crop'], ['rectangle', 'nested crop'],
+])('clips the %s removal tint to the visible source (%s)', (type, mode) => {
+  const env = setup('removal', mode === 'nested crop');
+  if (mode === 'plain') env.c.crop = { l: 0, r: 0, t: 0, b: 0 };
+  if (type === 'rectangle') env.c.removal.regions[0] = { ...defaultRegion(type), w: 2, h: 2 };
+  env.draw();
+  const tint = env.overlay.el.querySelector('.removal-tint');
+  const clipUrl = tint.getAttribute('clip-path');
+  expect(clipUrl).toMatch(/^url\(#.+\)$/);
+  const boundary = env.overlay.el.querySelector(clipUrl.slice(4, -1));
+  expect(boundary.getAttribute('clipPathUnits')).toBe('userSpaceOnUse');
+  const coords = boundary.querySelector('path').getAttribute('d').match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/gi).map(Number);
+  const crop = env.c.crop;
+  [[crop.l, crop.t], [1 - crop.r, crop.t], [1 - crop.r, 1 - crop.b], [crop.l, 1 - crop.b]].forEach(([x, y], i) => {
+    close(coords.slice(i * 2, i * 2 + 2), env.project(x * 1920, y * 1080));
+  });
+  // Cropping the tint must not strand a region's editing handles outside it.
+  expect(env.overlay.el.querySelector('.mask-handle').closest('[clip-path]')).toBeNull();
+});

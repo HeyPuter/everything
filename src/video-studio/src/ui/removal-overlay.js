@@ -95,6 +95,13 @@ export function createRemovalOverlay({ store, actions, stage }) {
     const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
     const clipPoly = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => srcToCss((crop.l + x * (1 - crop.l - crop.r)) * SW, (crop.t + y * (1 - crop.t - crop.b)) * SH));
     kids.push(svg('path', { class: `mask-clip-bounds catch-${tool === 'box' ? 'place' : 'paint'}`, d: pathD(clipPoly), 'data-rh': tool === 'box' ? 'box' : 'paint' }));
+    // Removal affects the source before crop. Tint only its visible picture;
+    // outlines and handles stay available even when a region crosses the edge.
+    const visibleId = `${uidBase}-visible`;
+    const visible = svg('clipPath', { id: visibleId, clipPathUnits: 'userSpaceOnUse' });
+    visible.append(svg('path', { d: `M${clipPoly.map(p => p.join(',')).join('L')}Z` }));
+    defs.append(visible);
+    const tintClip = `url(#${visibleId})`;
     const tintClass = `removal-tint${off ? ' off' : ''}`;
     regions.forEach((r, i) => {
       if (r.hidden) return;
@@ -112,7 +119,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
           paths.forEach(p => addStroke(p, p.erase ? '#000' : '#fff'));
           m.append(strokes);
           defs.append(m);
-          kids.push(svg('rect', { class: `${tintClass}${selected ? ' selected' : ''}`, x: 0, y: 0, width: cssW, height: cssH, mask: `url(#${id})` }));
+          kids.push(svg('rect', { class: `${tintClass}${selected ? ' selected' : ''}`, x: 0, y: 0, width: cssW, height: cssH, mask: `url(#${id})`, 'clip-path': tintClip }));
         }
         if (selected) {
           const bnd = regionBounds(r, SW / SH);
@@ -128,7 +135,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
       const { a, b } = maskHalf(r, SW, SH);
       const corners = { nw: [-a, -b], ne: [a, -b], se: [a, b], sw: [-a, b] };
       const poly = Object.values(corners).map(([x, y]) => L(r, x, y));
-      if (removeEdit.show) kids.push(svg('path', { class: `${tintClass}${selected ? ' selected' : ''}`, d: pathD(poly) }));
+      if (removeEdit.show) kids.push(svg('path', { class: `${tintClass}${selected ? ' selected' : ''}`, d: pathD(poly), 'clip-path': tintClip }));
       kids.push(svg('path', { class: `mask-outline${selected ? '' : ' other'}`, d: pathD(poly) }));
       // In box mode a box body picks and moves that region.
       if (tool === 'box') kids.push(svg('path', { class: 'removal-hit', d: pathD(poly), 'data-rh': 'move', 'data-i': i }));
