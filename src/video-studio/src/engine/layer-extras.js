@@ -11,6 +11,7 @@
 import { boxHalf } from '../lib/geometry.js';
 import { FULL_VS } from './shaders.js';
 import { MaskRaster } from './mask-raster.js';
+import { maskLayer } from '../model/mask-space.js';
 
 /** Texture unit of the mask coverage (layers use 0, curves 4, LUT 5). */
 export const MASK_UNIT = 6;
@@ -116,12 +117,15 @@ export function bindLayerMask(comp, p, layer, box) {
   let on = 0;
   const masks = layer.kind === 'media' ? layer.masks : null;
   if (masks?.length && layer.clip) {
-    const crop = layer.crop || ZERO_CROP;
+    const window = layer.maskSpace?.crop || ZERO_CROP;
+    comp._set(p, 'u_maskRect', [window.l, window.b, 1 - window.l - window.r, 1 - window.t - window.b]);
+    const frame = maskLayer(layer);
+    const crop = frame.crop || ZERO_CROP;
     const outScale = comp.width / (comp.projW || 1);
     const shownW = (Math.abs(box.w) / Math.max(0.05, 1 - crop.l - crop.r)) * outScale;
     const shownH = (Math.abs(box.h) / Math.max(0.05, 1 - crop.t - crop.b)) * outScale;
     comp._maskRaster ||= new MaskRaster();
-    const r = comp._maskRaster.get(layer.clip.id, masks, layer.width, layer.height, Math.max(shownW, shownH));
+    const r = comp._maskRaster.get(layer.clip.id, masks, frame.width, frame.height, Math.max(shownW, shownH));
     if (r) {
       gl.activeTexture(gl.TEXTURE0 + MASK_UNIT);
       const e = comp._texture({ key: `mask:${layer.clip.id}`, source: r.canvas, width: r.width, height: r.height, version: r.key });

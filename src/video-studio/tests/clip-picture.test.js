@@ -151,6 +151,25 @@ describe('replacing a captured picture', () => {
     expect(live().adjust.exposure).toBe(0);
   });
 
+  it('retains mask source coordinates when replacing a cropped picture', async () => {
+    const { ctx, store, live, asset } = setup();
+    live().masks = [{ ...defaultMask('rectangle'), x: -0.25, w: 0.5, h: 1, feather: 80 }];
+    live().keyframes['mask0.x'] = [{ t: 0, v: -0.25, ease: 'easeIn' }, { t: s(4), v: 0.25, ease: 'linear' }];
+    const original = structuredClone(live());
+    const picture = await clipPicture(ctx, live(), s(1));
+    replacePicture(ctx, live().id, asset, picture.baked);
+    expect(live().maskSpace).toEqual({ width: 800, height: 600, crop: original.crop });
+    expect(live().masks).toEqual(original.masks);
+    expect(live().keyframes['mask0.x']).toEqual(original.keyframes['mask0.x']);
+    const reopened = normalizeProject(store.projectForSave());
+    expect(findClip(reopened, live().id).clip.maskSpace).toEqual(live().maskSpace);
+    expect(evaluate(reopened, s(1))[0].maskSpace).toEqual(live().maskSpace);
+    store.undo();
+    expect(live()).toEqual(original);
+    store.redo();
+    expect(live().maskSpace.crop).toEqual(original.crop);
+  });
+
   it('keeps inactive source controls that were not rendered into the picture', async () => {
     const { ctx, live, asset } = setup();
     live().denoise.on = false;

@@ -9,6 +9,7 @@
  * drawing and brush painting. Edits go through the undoable store; a drag is
  * one undo step and keyed values get a key at the playhead.
  */
+import { maskLayer } from '../model/mask-space.js';
 import '../styles/masks.css';
 import { US } from '../lib/time.js';
 import { announce } from '../lib/dom.js';
@@ -53,6 +54,7 @@ export function createMaskOverlay({ store, actions, stage }) {
 
   /** Mapping helpers for the current draw. */
   function geometry(layer, box, k) {
+    layer = maskLayer(layer);
     const SW = layer.width || 1;
     const SH = layer.height || 1;
     const srcToCss = (sx, sy) => {
@@ -60,7 +62,7 @@ export function createMaskOverlay({ store, actions, stage }) {
       return [px * k, py * k];
     };
     const cssToSrc = (cx, cy) => projectToSource(layer, box, SW, SH, cx / k, cy / k);
-    return { SW, SH, srcToCss, cssToSrc };
+    return { SW, SH, srcToCss, cssToSrc, crop: layer.crop };
   }
 
   function edit(label, patch, coalesce) {
@@ -106,7 +108,7 @@ export function createMaskOverlay({ store, actions, stage }) {
     const kids = [];
     // Clip bounds; dragging inside moves the mask (or paints / places points).
     const clipPoly = [[0, 0], [SW, 0], [SW, SH], [0, SH]].map(([x, y]) => {
-      const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
+      const crop = g.crop || { l: 0, t: 0, r: 0, b: 0 };
       return srcToCss(crop.l * SW + (x / SW) * (1 - crop.l - crop.r) * SW, crop.t * SH + (y / SH) * (1 - crop.t - crop.b) * SH);
     });
     const catchMode = m.type === 'brush' ? 'paint' : m.type === 'pen' && maskEdit.drawing ? 'place' : 'move';

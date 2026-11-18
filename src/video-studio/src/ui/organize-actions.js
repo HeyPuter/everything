@@ -30,7 +30,7 @@ export const ATTRIBUTE_GROUPS = [
   { id: 'transform', label: 'Position, scale and rotation', keys: ['transform'], kf: ['x', 'y', 'scale', 'rotation', 'sx', 'sy'], types: ['video', 'image', 'text', 'sticker', 'avatar'] },
   { id: 'opacity', label: 'Opacity and blend mode', keys: ['opacity', 'blend'], kf: ['opacity'], types: ['video', 'image', 'text', 'sticker', 'avatar'] },
   { id: 'crop', label: 'Crop', keys: ['crop'], types: ['video', 'image'] },
-  { id: 'mask', label: 'Masks', keys: ['mask', 'masks', 'maskUse'], kfPrefix: 'mask', types: ['video', 'image'] },
+  { id: 'mask', label: 'Masks', keys: ['mask', 'masks', 'maskUse', 'maskSpace'], kfPrefix: 'mask', types: ['video', 'image'] },
   { id: 'picture', label: 'Motion blur, noise, relight and canvas', keys: ['motionBlur', 'denoise', 'relight', 'canvas'], kfPrefix: 'relight.', types: ['video', 'image'] },
   { id: 'chroma', label: 'Chroma key', keys: ['chroma'], types: ['video', 'image'] },
   { id: 'enhance', label: 'Enhance quality', keys: ['enhance'], kfPrefix: 'enhance.', types: ['video', 'image'] },
@@ -50,7 +50,7 @@ export const ATTRIBUTE_GROUPS = [
 ];
 
 /** Optional clip fields an attribute paste may create on a clip that lacks them. */
-const OPTIONAL_KEYS = ['mask', 'masks', 'motionBlur', 'denoise', 'relight', 'enhance', 'canvas', 'chroma', 'cutout', 'removal', 'retouch', 'faceShape', 'bodyShape', 'makeup', 'hairColor', 'colorTarget', 'maskUse', 'grade', 'audioFx', 'keepPitch', 'bubble', 'textFx', 'effects', 'smoothSlow', 'stylize'];
+const OPTIONAL_KEYS = ['mask', 'masks', 'maskSpace', 'motionBlur', 'denoise', 'relight', 'enhance', 'canvas', 'chroma', 'cutout', 'removal', 'retouch', 'faceShape', 'bodyShape', 'makeup', 'hairColor', 'colorTarget', 'maskUse', 'grade', 'audioFx', 'keepPitch', 'bubble', 'textFx', 'effects', 'smoothSlow', 'stylize'];
 /** Optional fields only video clips carry (their group also covers audio clips). */
 const VIDEO_ONLY_KEYS = ['smoothSlow'];
 
@@ -87,6 +87,7 @@ export function applyAttributes(clip, captured, groupIds, sourceDuration) {
     const g = ATTRIBUTE_GROUPS.find((x) => x.id === id);
     const entry = captured.groups[id];
     if (!g || !entry || !g.types.includes(clip.type)) continue;
+    if (id === 'mask' && entry.values.masks && !entry.values.maskSpace) delete clip.maskSpace;
     for (const [k, v] of Object.entries(entry.values)) {
       // Fields that only make sense for one clip type are not created on another.
       if (!(k in clip) && !OPTIONAL_KEYS.includes(k)) continue;

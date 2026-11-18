@@ -273,6 +273,7 @@ function remapMaskKeys(clip, order) {
 
 /** Add a mask (returns its index, or -1 when the clip is full). Mutates clip. */
 export function addMask(clip, mask) {
+  if (!clip.masks?.length) delete clip.maskSpace;
   clip.masks ||= [];
   if (clip.masks.length >= MAX_MASKS) return -1;
   clip.masks.push(mask);
@@ -285,7 +286,7 @@ export function removeMask(clip, index) {
   const order = clip.masks.map((_, i) => i).filter((i) => i !== index);
   clip.masks.splice(index, 1);
   remapMaskKeys(clip, order);
-  if (!clip.masks.length) delete clip.masks;
+  if (!clip.masks.length) { delete clip.masks; delete clip.maskSpace; }
   return true;
 }
 

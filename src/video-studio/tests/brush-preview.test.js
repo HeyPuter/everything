@@ -225,3 +225,25 @@ it.each([false, true].flatMap(nested => ['x', 'y'].flatMap(axis => [[nested, axi
   expect(env.shape[axis === 'x' ? 'y' : 'x']).toBeCloseTo(0.15, 8);
   env.store.undo(); expect(env.shape.x).toBe(0.2); expect(env.shape.y).toBe(0.2);
 });
+
+it('keeps brush outlines, cursor and painting aligned after the source crop is baked', () => {
+  const env = setup('mask', true);
+  const before = [...env.overlay.el.querySelectorAll('mask path, mask circle')].map(node => angles.map(a => circlePoint(node, a)));
+  const at = env.project(1100, 600), end = env.project(1200, 650), strokes = structuredClone(env.shape.strokes);
+  const asset = env.store.project.assets[env.c.assetId];
+  env.c.maskSpace = { width: asset.width, height: asset.height, crop: { ...env.c.crop } };
+  env.store.project.assets.baked = { ...asset, id: 'baked', width: asset.width * 0.7, height: asset.height * 0.8 };
+  env.c.assetId = 'baked';
+  env.c.crop = { l: 0, r: 0, t: 0, b: 0 };
+  env.draw();
+  [...env.overlay.el.querySelectorAll('mask path, mask circle')].forEach((node, i) => angles.forEach((a, j) => close(circlePoint(node, a), before[i][j])));
+  const fire = (el, type, p) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: p[0], clientY: p[1] }));
+  fire(env.overlay.el, 'pointermove', at);
+  fire(env.overlay.el.querySelector('[data-mh=paint]'), 'pointerdown', at);
+  fire(env.overlay.el, 'pointermove', end);
+  close(mapped(env.overlay.el.querySelector('.mask-brush-cursor'), [0, 0]), end);
+  fire(env.overlay.el, 'pointerup', end);
+  expect(env.shape.strokes).toHaveLength(strokes.length + 1);
+  env.store.undo(); expect(env.shape.strokes).toEqual(strokes);
+  env.store.redo(); expect(env.shape.strokes).toHaveLength(strokes.length + 1);
+});

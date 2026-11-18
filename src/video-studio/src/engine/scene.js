@@ -212,6 +212,7 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.colorTarget = clip.colorTarget || null;
     layer.maskUse = clip.maskUse || null;
     layer.masks = evaluateMasks(clip, local);
+    if (clip.maskSpace) layer.maskSpace = clip.maskSpace;
     layer.extras = layerExtras(clip, local, project.settings.fps, (l) => motionStateAt(clip, l));
     if (clip.inherited?.length && layer.extras?.motion) for (const sample of layer.extras.motion) placeInherited(sample, clip, local, project);
     // Motion blur samples are places of the clip too: inside a compound clip they go where it puts them.

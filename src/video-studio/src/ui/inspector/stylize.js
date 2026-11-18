@@ -15,6 +15,7 @@ import { icon } from '../../lib/icons.js';
 import { DEFAULT_TRANSFORM, makeClip, makeTrack, normalizeClip } from '../../model/project.js';
 import { inheritFromCompound } from '../../model/compound.js';
 import { parseMaskProp } from '../../model/masks.js';
+import { retainMaskSpace } from '../../model/mask-space.js';
 import * as T from '../../model/timeline.js';
 import { STYLE_LOOKS, STYLE_AMOUNT_DEFAULT, styleEffect, normalizeStylize } from '../../model/stylize.js';
 import { aiAvailable } from '../../media/tts.js';
@@ -79,6 +80,7 @@ export async function clipPicture(ctx, clip, time) {
   const hh = Math.max(16, Math.round(size.h / 2) * 2);
   const one = structuredClone(clip);
   const baked = pictureSettings(one);
+  baked.source = { width: asset.width || p.settings.width, height: asset.height || p.settings.height, maskSpace: structuredClone(clip.maskSpace) };
   Object.assign(one, { start: 0, transform: { ...DEFAULT_TRANSFORM }, opacity: 1, blend: 'normal', animIn: null, animOut: null, animLoop: null, keyframes: structuredClone(baked.keyframes), transition: null });
   // Retained group placement and transition partners belong to the timeline,
   // not the isolated source picture sent for restyling. Keep source timing.
@@ -141,6 +143,7 @@ export function addRestyledClip(ctx, sourceId, asset) {
 export function replacePicture(ctx, clipId, asset, baked) {
   return ctx.actions.editClip(clipId, 'Replace with restyled picture', (c) => {
     if (c.type !== 'image') return false;
+    retainMaskSpace(c, baked?.source, baked?.settings.crop);
     consumePictureSettings(c, baked);
     c.assetId = asset.id;
     c.name = asset.name;

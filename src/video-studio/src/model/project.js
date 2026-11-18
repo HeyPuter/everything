@@ -41,6 +41,7 @@ import { TEXT_STYLE_EXTRAS, normTextExtras } from './text-style.js';
 import { normalizeCurve, meanSpeed } from './speed-curve.js';
 import { normalizeSpeedRamp } from './speed-ramps.js';
 import { normalizeMasks } from './masks.js';
+import { normalizeMaskSpace } from './mask-space.js';
 import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
 import { normalizeRemoval } from './removal.js';
@@ -420,7 +421,11 @@ export function normalizeClip(c) {
     if (c.audioDetached) out.audioDetached = true;
     if (c.reversed) out.reversed = true;
     const masks = normalizeMasks(c);
-    if (masks.length) out.masks = masks;
+    if (masks.length) {
+      out.masks = masks;
+      const space = normalizeMaskSpace(c.maskSpace);
+      if (space) out.maskSpace = space;
+    }
     normalizeClipExtras(c, out);
     if (c.chroma && typeof c.chroma === 'object') out.chroma = { color: color(c.chroma.color, '#00ff00'), strength: clampN(c.chroma.strength, 0, 100, 40), spill: clampN(c.chroma.spill ?? c.chroma.shadow, 0, 100, 0) };
     if (c.cutout && typeof c.cutout === 'object') out.cutout = normalizeCutout(c.cutout);
