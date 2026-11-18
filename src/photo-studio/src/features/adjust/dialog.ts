@@ -227,12 +227,13 @@ function restore(e: Editor) {
   e.update();
 }
 
-const sourceFor = (src: TargetPixels): SourceImage => ({
-  image: src.image,
-  x: src.area.x,
-  y: src.area.y,
-  hist: histograms(src.image, src.cover ? { width: src.image.width, height: src.image.height, data: src.cover } : undefined),
-});
+const sourceFor = (src: TargetPixels): SourceImage => {
+  const { width, height } = src.image;
+  // Analysis (histogram, Auto) counts only the selected pixels.
+  const selection = src.cover ? { width, height, data: src.cover } : undefined;
+  const hist = histograms(src.image, selection);
+  return { image: src.image, x: src.area.x, y: src.area.y, selection, hist };
+};
 
 // ----- Adjustment kind dialogs -----
 
