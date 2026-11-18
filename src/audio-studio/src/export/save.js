@@ -115,12 +115,13 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
     return withUploadOrder(path, async (write) => {
       const options = optionsForSave(doc, format);
       const state = doc.state;
-      const blob = await encodeWithProgress(doc, options, {}, `Saving ${doc.name}`);
+      const name = doc.name;
+      const blob = await encodeWithProgress(doc, options, {}, `Saving ${name}`);
       if (!blob) return false;
-      await write(`Saving ${doc.name}`, blob);
-      // Only mark saved if nothing changed while encoding.
-      if (doc.state === state) doc.markSaved();
-      app.setStatus(`Saved ${doc.name}`);
+      await write(`Saving ${name}`, blob);
+      // Save As may have moved this document while the old write was pending.
+      if (doc.state === state && doc.source?.type === 'puter' && doc.source.path === path) doc.markSaved();
+      app.setStatus(`Saved ${name}`);
       return true;
     });
   }

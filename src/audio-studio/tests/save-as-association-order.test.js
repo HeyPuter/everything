@@ -120,3 +120,47 @@ it.each(['saved', 'failed', 'cancelled'])('retains the newest successful Save As
   expect(await samples(saved, `/u/${expected}`)).toEqual(Array(16).fill(-0.25));
   expect(doc.dirty).toBe(false);
 });
+
+it.each(['saved', 'failed'])('only cleans the current destination when a concurrent Save As is %s', async (outcome) => {
+  const { app, doc, saved, writes } = setup();
+  app.setStatus = vi.fn();
+  const original = doc.state;
+  const savingAs = (await saveAs(app, 'New.wav')).pending;
+  await ready(0);
+  await app.commands.run('fx.invert');
+  const latest = doc.state;
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  let writing = false;
+  const write = window.puter.fs.write;
+  window.puter.fs.write = async (path, blob) => {
+    if (path === '/u/Source.wav') { writing = true; await wait; }
+    return write(path, blob);
+  };
+  const oldSave = app.commands.run('file.save');
+  await vi.waitFor(() => expect(writing).toBe(true), { interval: 1 });
+  if (outcome === 'failed') encoding.fail = 0;
+  encoding.jobs[0].finish();
+  await savingAs;
+  const current = outcome === 'saved' ? 'New.wav' : 'Source.wav';
+  expect(doc.source.path).toBe(`/u/${current}`);
+  expect(doc.dirty).toBe(true);
+  release();
+  await oldSave;
+  expect(await samples(saved, '/u/Source.wav')).toEqual(Array(32).fill(-0.25));
+  if (outcome === 'saved') expect(await samples(saved, '/u/New.wav')).toEqual(Array(32).fill(0.25));
+  else expect(saved.has('/u/New.wav')).toBe(false);
+  expect.soft(doc.dirty).toBe(outcome === 'saved');
+  expect.soft(app.setStatus).toHaveBeenLastCalledWith('Saved Source.wav');
+  expect(doc.state === latest).toBe(true);
+  expect(doc.source.path).toBe(`/u/${current}`);
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+  await app.commands.run('file.save');
+  expect(writes.at(-1)).toBe(`/u/${current}`);
+  expect(await samples(saved, `/u/${current}`)).toEqual(Array(32).fill(-0.25));
+  expect(doc.dirty).toBe(false);
+  await app.commands.run('edit.undo');
+  expect(doc.state === original).toBe(true);
+  await app.commands.run('edit.redo');
+  expect(doc.state === latest).toBe(true);
+});
