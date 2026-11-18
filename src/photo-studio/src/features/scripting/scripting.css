@@ -40,6 +40,8 @@
 .script-row.off .script-title { color: var(--muted); }
 .script-row input[type='checkbox'] { flex: none; margin: 0; }
 .script-text { display: grid; flex: 1; min-width: 0; }
+button.script-text { justify-items: stretch; overflow: hidden; min-height: 0; padding: 1px 2px; color: inherit; text-align: left; white-space: normal; }
+button.script-text:hover:not(:disabled), button.script-text:active:not(:disabled) { background: transparent; }
 .script-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .script-text small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .script-row kbd { color: var(--muted); font: 10px ui-monospace, monospace; white-space: nowrap; }

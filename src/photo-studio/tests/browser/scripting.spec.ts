@@ -274,3 +274,19 @@ test('the script editor indents with Tab but lets the keyboard leave after Escap
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Discard Changes?' })).toBeVisible();
 });
+
+test('a script is chosen from the keyboard in the Scripts panel, so Delete and Edit work without a mouse', async ({ page }) => {
+  await page.evaluate(async () => {
+    const store = await import('/src/features/scripting/store.ts');
+    await store.saveScript(store.newScriptRecord(`// @name Keyboard Pick\nconsole.log(1);`, 'Keyboard Pick', { trusted: true, enabled: false }));
+  });
+  await page.evaluate(() => window.photoStudio.dock.show('scripts'));
+  const pick = page.getByRole('button', { name: 'Keyboard Pick', exact: true });
+  await pick.focus();
+  await page.keyboard.press('Enter');
+  await expect(pick).toHaveAttribute('aria-pressed', 'true');
+  await expect(pick).toBeFocused();
+  await expect(page.locator('.layer-footer [data-command="scripts.delete"]')).toBeEnabled();
+  // Nothing ran and no editor opened.
+  await expect(page.locator('dialog.script-editor')).toHaveCount(0);
+});
