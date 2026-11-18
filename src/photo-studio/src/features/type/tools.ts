@@ -24,6 +24,8 @@ import {
   ordered,
   selectParagraphAt,
   selectWordAt,
+  caretAffinity,
+  settleClickAffinity,
   session,
   sessionLayer,
   sessionLayout,
@@ -131,7 +133,10 @@ function selectAtClick(e: Editor, p: CanvasPointer) {
     gesture = { kind: 'select', anchor: ordered(s), unit: 'paragraph' };
   } else {
     if (p.shift) setSelection(e, s.anchor, i);
-    else setSelection(e, i, i);
+    else {
+      setSelection(e, i, i);
+      settleClickAffinity(e, p.x, p.y);
+    }
     gesture = { kind: 'select', anchor: p.shift ? [s.anchor, s.anchor] : [i, i], unit: 'char' };
   }
 }
@@ -356,7 +361,7 @@ function overlay(e: Editor): string {
   const [a, b] = ordered(s);
   if (a !== b) for (const r of layout.selectionRects(a, b)) out += `<polygon class="type-selection" points="${poly(warpedRect(s.data, layout, r, 4))}"/>`;
   else {
-    const r = layout.caretRect(s.focus);
+    const r = layout.caretRect(s.focus, caretAffinity(s));
     const p0 = warpLocal(s.data, layout, r.x, r.y);
     const p1 = warpLocal(s.data, layout, r.x + r.width, r.y + r.height);
     out += `<line class="type-caret" x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke-width="${Math.max(1.5 * k, 0.5)}"/>`;

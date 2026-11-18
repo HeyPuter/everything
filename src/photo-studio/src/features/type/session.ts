@@ -67,6 +67,10 @@ export type Session = {
   focus: number;
   caretStyle?: CharStyle;
   goal?: number;
+  // The caret sits at the end of a soft-wrapped line rather than at the
+  // start of the next one (same index): set by End and by clicks past a
+  // line's end, cleared by any other caret change.
+  upstream?: boolean;
   undo: Snapshot[];
   redo: Snapshot[];
   lastKind?: string;
@@ -489,10 +493,35 @@ export function setSelection(e: Editor, anchor: number, focus: number, keepGoal 
   s.focus = Math.max(0, Math.min(len, focus));
   s.caretStyle = undefined;
   s.lastKind = undefined;
+  s.upstream = undefined;
   if (!keepGoal) s.goal = undefined;
   e.overlay();
   positionInput(e);
   notify();
+}
+/** Which line the caret is drawn on at a soft wrap (see Session.upstream). */
+export function caretAffinity(s: Session): 'up' | 'down' {
+  return s.upstream && s.anchor === s.focus ? 'up' : 'down';
+}
+/** After a click at (x, y): a caret placed past the end of a soft-wrapped
+ * line stays drawn on that line. */
+export function settleClickAffinity(e: Editor, x: number, y: number) {
+  const s = session;
+  const l = sessionLayer();
+  const layout = sessionLayout(e);
+  if (!s || !l || !layout || s.anchor !== s.focus) return;
+  const up = layout.lineIndexAt(s.focus, 'up');
+  if (up === layout.lineIndexAt(s.focus, 'down')) return;
+  const [lx, ly] = toLocal(l, x, y);
+  const [ux, uy] = unwarpLocal(s.data, layout, lx, ly);
+  const line = layout.lines[up];
+  const across = layout.vertical ? ux : uy;
+  const near = layout.vertical ? Math.abs(across - line.x) <= line.leading / 2 : across <= line.y + line.descent;
+  if (near) {
+    s.upstream = true;
+    e.overlay();
+    positionInput(e);
+  }
 }
 
 // `forced`: the style the inserted text takes (a glyph from another font).
@@ -644,12 +673,21 @@ export function move(e: Editor, dir: -1 | 1, unit: 'char' | 'word' | 'line' | 'd
   else if (unit === 'word') to = dir < 0 ? prevWord(t, s.focus) : nextWord(t, s.focus);
   else if (unit === 'doc') to = dir < 0 ? 0 : t.length;
   else if (unit === 'line') {
-    const line = layout.lines[layout.lineIndexAt(s.focus, 'up')];
+    const line = layout.lines[layout.lineIndexAt(s.focus, caretAffinity(s))];
     to = dir < 0 ? line.start : line.lastInParagraph ? line.end : line.stops[Math.max(0, line.stops.length - 1 - line.hang)];
+    if (dir > 0 && !extend && to === line.end && !line.lastInParagraph) {
+      setSelection(e, to, to);
+      s.upstream = true;
+      e.overlay();
+      positionInput(e);
+      return;
+    }
   } else {
-    const r = layout.caretRect(s.focus);
+    const aff = caretAffinity(s);
+    const r = layout.caretRect(s.focus, aff);
     if (s.goal === undefined) s.goal = layout.vertical ? r.y : r.x;
-    to = layout.moveLine(s.focus, dir, s.goal);
+    // From the end of a soft-wrapped line, Up/Down count from that line.
+    to = layout.moveLine(s.focus, dir, s.goal, aff);
     keepGoal = true;
   }
   setSelection(e, extend ? s.anchor : to, to, keepGoal);
@@ -927,7 +965,7 @@ function positionInput(e: Editor) {
   const l = sessionLayer();
   const layout = sessionLayout(e);
   if (!l || !layout) return;
-  const r = layout.caretRect(session.focus);
+  const r = layout.caretRect(session.focus, caretAffinity(session));
   const [x, y] = toDoc(l, r.x, r.y + r.height);
   const [cx, cy] = e.clientPoint(x, y);
   input.style.left = `${Math.round(cx)}px`;

@@ -109,7 +109,7 @@ export type TextLayout = {
   selectionRects(start: number, end: number): Rect[];
   lineIndexAt(index: number, affinity?: 'up' | 'down'): number;
   // Up/Down arrow: index on the neighbouring line nearest `pos` (x, or y vertical).
-  moveLine(index: number, dir: -1 | 1, pos?: number): number;
+  moveLine(index: number, dir: -1 | 1, pos?: number, affinity?: 'up' | 'down'): number;
   // Left/Right arrow on a horizontal line with right-to-left text: the caret
   // stop next to `index` on screen (`dir` 1 = right). At the line's visual
   // end, or on a plain left-to-right line, `logical` gives the reading
@@ -909,8 +909,8 @@ function makeLayout(core: LayoutCore): TextLayout {
     }
     return out;
   };
-  const moveLine = (index: number, dir: -1 | 1, pos?: number) => {
-    const li = lineIndexAt(index);
+  const moveLine = (index: number, dir: -1 | 1, pos?: number, affinity: 'up' | 'down' = 'down') => {
+    const li = lineIndexAt(index, affinity);
     const target = li + dir;
     const l = lines[li];
     const at = pos ?? posOf(l, index);
