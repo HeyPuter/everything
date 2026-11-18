@@ -338,8 +338,9 @@ export function evaluate(project, t, { includeHidden = false } = {}) {
       if (t < cut - half || t >= cut + half) continue;
       const b = clips[i + 1];
       if (!b || Math.abs(b.start - cut) > 2000) continue;
-      // A disabled side turns the transition off; the enabled clip plays on its own.
-      if (a.disabled || b.disabled) continue;
+      // The fixed audio camera can keep whole clips outside its picture ranges.
+      // Its transitions must follow the camera cuts just like ordinary frames.
+      if (a.disabled || b.disabled || !showsAt(a, t) || !showsAt(b, t)) continue;
       layers.push({
         kind: 'transition',
         id: a.transition.id,
