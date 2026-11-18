@@ -237,3 +237,99 @@ it.each(['saveAs', 'saveCopy'])('keeps destination media independent when using 
   expect(doc.dirty).toBe(false);
   expect(app.notify).not.toHaveBeenCalled();
 });
+
+it.each(['saveAs', 'saveCopy'])('releases queued saves after cancelling the SDK %s picker', async (command) => {
+  const app = setup();
+  const { doc, clips } = session(app);
+  const cloud = storage();
+  cloud.release();
+  const state = doc.state;
+  let cancel;
+  // Puter keeps its main picker promise pending on Cancel, but exposes this
+  // secondary promise for callers that need to finish their cancellation flow.
+  const picker = new Promise(() => {});
+  picker.undefinedOnCancel = new Promise((resolve) => { cancel = resolve; });
+  window.puter.ui = { showSaveFilePicker: vi.fn(() => picker) };
+  let firstDone = false;
+  let result;
+  const first = app.commands.run(`file.${command}`).then((value) => { firstDone = true; result = value; });
+  await vi.waitFor(() => expect(window.puter.ui.showSaveFilePicker).toHaveBeenCalledOnce(), { interval: 1 });
+  cancel(undefined);
+  let nextDone = false;
+  const next = app.commands.run('file.save').then(() => { nextDone = true; });
+  // Every remaining SDK call resolves immediately; this drains all save work
+  // without waiting on the deliberately never-settling primary picker promise.
+  await setImmediate();
+  expect.soft(firstDone).toBe(true);
+  expect(nextDone).toBe(true);
+  await Promise.all([first, next]);
+  expect(result).toBe(false);
+  expect(doc.state === state).toBe(true);
+  expect(doc.dirty).toBe(false);
+  expect(doc.source.path).toBe('/u/Song.asesx');
+  const manifest = JSON.parse(await cloud.stored.get('/u/Song.asesx').text());
+  expect(manifest.session.clips.map((clip) => clip.id)).toEqual(clips.map((clip) => clip.id));
+  for (const [i, src] of manifest.sources.entries()) {
+    expect([...parseWav(await cloud.stored.get(`/u/${src.file}`).arrayBuffer()).channels[0]]).toEqual(Array(32).fill(i ? -0.5 : 0.25));
+  }
+  expect(app.notify).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['cancel-aware', 'saved'],
+  ['cancel-aware', 'failed'],
+  ['legacy', 'failed'],
+])('keeps session saves usable after a %s picker is %s', async (api, outcome) => {
+  const app = setup();
+  const { doc } = session(app);
+  const cloud = storage();
+  cloud.release();
+  const item = { path: '/u/Other.asesx', name: 'Other.asesx' };
+  const error = new Error('Picker failed');
+  const pending = outcome === 'saved' ? Promise.resolve(item) : Promise.reject(error);
+  pending.catch(() => {});
+  if (api === 'cancel-aware') {
+    pending.undefinedOnCancel = outcome === 'saved' ? Promise.resolve(item) : Promise.reject(error);
+    pending.undefinedOnCancel.catch(() => {});
+  }
+  window.puter.ui = { showSaveFilePicker: vi.fn(() => pending) };
+  const originalSaved = doc.savedState;
+  await app.commands.run('file.saveAs');
+  expect(window.puter.ui.showSaveFilePicker).toHaveBeenCalledOnce();
+  expect(window.puter.ui.showSaveFilePicker.mock.calls[0][1]).toBe('Song.asesx');
+  expect(doc.savedState === (outcome === 'saved' ? doc.state : originalSaved)).toBe(true);
+  expect(doc.dirty).toBe(outcome !== 'saved');
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+  await app.commands.run('file.save');
+  const path = outcome === 'saved' ? '/u/Other.asesx' : '/u/Song.asesx';
+  expect(doc.source.path).toBe(path);
+  const manifest = JSON.parse(await cloud.stored.get(path).text());
+  expect(manifest.session.clips).toHaveLength(2);
+  expect(doc.dirty).toBe(false);
+});
+
+it('releases the save queue when only the primary SDK picker promise rejects', async () => {
+  const app = setup();
+  const { doc } = session(app);
+  const cloud = storage();
+  cloud.release();
+  const pending = Promise.reject(new Error('Picker setup failed'));
+  pending.catch(() => {});
+  // SDK setup can throw before registering a picker callback, so its
+  // cancellation companion never settles in this failure path.
+  pending.undefinedOnCancel = new Promise(() => {});
+  window.puter.ui = { showSaveFilePicker: () => pending };
+  let firstDone = false;
+  const first = app.commands.run('file.saveAs').then(() => { firstDone = true; });
+  let nextDone = false;
+  const next = app.commands.run('file.save').then(() => { nextDone = true; });
+  await setImmediate();
+  expect.soft(firstDone).toBe(true);
+  expect(nextDone).toBe(true);
+  await Promise.all([first, next]);
+  expect(app.notify).toHaveBeenCalledOnce();
+  expect(app.notify.mock.calls[0][0]).toContain('Picker setup failed');
+  expect(doc.source.path).toBe('/u/Song.asesx');
+  expect(cloud.stored.has('/u/Song.asesx')).toBe(true);
+  expect(doc.dirty).toBe(false);
+});
