@@ -160,6 +160,8 @@ export function createSmartActions(ctx) {
   return {
     /** Split a video clip wherever the shot changes. */
     async splitScenes(clipId = store.selected?.clip.id) {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return;
       const f = clipId && T.findClip(store.project, clipId);
       if (!f || f.clip.type !== 'video' || f.clip.freeze) {
         toast('Select a video clip to split at its scene changes.', { kind: 'info' });
@@ -176,7 +178,7 @@ export function createSmartActions(ctx) {
       const from = clip.in;
       const to = clip.in + sourceSpan(clip);
       const sensitivity = prefs().sceneSensitivity ?? 0.5;
-      const p = progressDialog('Finding scene changes', `Looking through ${asset?.name || 'the clip'}...`);
+      const p = progressDialog('Finding scene changes', `Looking through ${asset?.name || 'the clip'}...`, lifetime);
       try {
         const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
         requireSource();
