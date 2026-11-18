@@ -113,16 +113,21 @@ export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected
     toast('This clip is on a locked track.', { kind: 'info' });
     return;
   }
+  const assetId = f.clip.assetId;
+  const isCurrentSource = () => {
+    const now = T.findClip(store.project, clipId);
+    return now?.clip === f.clip && now.clip.assetId === assetId && !now.track.locked;
+  };
   let frameCanvas;
   try {
     frameCanvas = await sourceFrame(ctx, f.clip);
   } catch (err) {
-    toast(err?.message || 'Could not load this clip.', { kind: 'error' });
+    if (isCurrentSource()) toast(err?.message || 'Could not load this clip.', { kind: 'error' });
     return;
   }
-  // The clip may have been deleted or locked while its frame was read.
-  const now = T.findClip(store.project, clipId);
-  if (now?.clip !== f.clip || now.track.locked) return;
+  // Replacement edits the clip in place, so identity alone does not prove
+  // that this frame still belongs to its current media.
+  if (!isCurrentSource()) return;
   const srcW = Number(frameCanvas.dataset.srcW) || frameCanvas.width;
   const srcH = Number(frameCanvas.dataset.srcH) || frameCanvas.height;
   let rect = rectFromCrop(f.clip.crop || { l: 0, t: 0, r: 0, b: 0 });

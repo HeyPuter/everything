@@ -2,6 +2,7 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { openCropDialog } from '../src/ui/crop-dialog.js';
 import { openCutoutRefine } from '../src/ui/cutout-refine.js';
 import { EditorStore } from '../src/model/store.js';
+import { createActions } from '../src/ui/actions.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 const disposed = vi.hoisted(() => vi.fn());
 vi.mock('mediabunny', () => ({
@@ -24,4 +25,30 @@ it.each([['crop', false], ['crop', true], ['cutout', false], ['cutout', true]])(
   expect(canvas).toBeTruthy();
   expect(canvas.frame).toBe(8);
   expect(disposed).toHaveBeenCalledOnce();
+});
+
+it.each(['crop', 'cutout'])('does not open stale %s media after the clip is replaced during loading', async tool => {
+  vi.stubGlobal('ImageData', class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function () { return { drawImage: src => { this.frame = src.frame; }, getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }), putImageData() {}, clearRect() {} }; });
+  const p = fixture(); const [c] = onMain(p, clip('video', 0, 2)); const store = new EditorStore(p); store.select(c.id);
+  let finish;
+  const ctx = { store, library: { mediaBlob: () => new Promise(r => { finish = r; }) } }; ctx.actions = createActions(ctx);
+  const pending = tool === 'crop' ? openCropDialog(ctx) : openCutoutRefine(ctx);
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+  expect(ctx.actions.replaceClip(c.id, p.assets.silent)).toBe(true);
+  finish(new Blob(['old video'])); await pending;
+  expect(document.querySelector(tool === 'crop' ? '.crop-stage' : '.refine-stage')).toBeNull();
+  expect(store.selected.clip.assetId).toBe('silent');
+});
+
+it.each(['crop', 'cutout'])('ignores a stale %s loading error but reports errors for current media', async tool => {
+  const p = fixture(); const [c] = onMain(p, clip('video', 0, 2)); const store = new EditorStore(p); store.select(c.id);
+  let fail;
+  const ctx = { store, library: { mediaBlob: () => new Promise((_, reject) => { fail = reject; }) } }; ctx.actions = createActions(ctx);
+  const open = tool === 'crop' ? openCropDialog : openCutoutRefine;
+  const stale = open(ctx); await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+  ctx.actions.replaceClip(c.id, p.assets.silent); fail(new Error('Old source failed')); await stale;
+  expect(document.body.textContent).not.toContain('Old source failed');
+  const previous = fail, live = open(ctx); await vi.waitFor(() => expect(fail).not.toBe(previous)); fail(new Error('Current source failed')); await live;
+  expect(document.body.textContent).toContain('Current source failed');
 });

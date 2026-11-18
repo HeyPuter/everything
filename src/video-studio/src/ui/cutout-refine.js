@@ -51,6 +51,11 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
     return;
   }
   const clip = f.clip;
+  const assetId = clip.assetId;
+  const isCurrentSource = () => {
+    const now = T.findClip(store.project, clipId);
+    return now?.clip === clip && now.clip.assetId === assetId;
+  };
   const t = clamp(store.time, clip.start, T.clipEnd(clip) - 1);
   let frame;
   try {
@@ -58,11 +63,11 @@ export const openCutoutRefine = oneAtATime(async (ctx, clipId = ctx.store.select
     if (!ok) throw new Error(segmenterError() || 'Background removal could not start in this browser.');
     frame = fr;
   } catch (err) {
-    toast(err?.message || 'Could not read this clip.', { kind: 'error' });
+    if (isCurrentSource()) toast(err?.message || 'Could not read this clip.', { kind: 'error' });
     return;
   }
-  // The clip may have been deleted while its frame and the model were loading.
-  if (T.findClip(store.project, clipId)?.clip !== clip) return;
+  // Replacement can preserve the clip object while changing its source.
+  if (!isCurrentSource()) return;
   const { canvas } = frame;
   const aspect = canvas.width / canvas.height;
   // The model's matte for this frame.
