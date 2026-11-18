@@ -33,7 +33,9 @@ export async function clipPicture(ctx, clip, time) {
   const hh = Math.max(16, Math.round(size.h / 2) * 2);
   const one = structuredClone(clip);
   Object.assign(one, { start: 0, transform: { ...DEFAULT_TRANSFORM }, opacity: 1, blend: 'normal', animIn: null, animOut: null, animLoop: null, keyframes: {}, transition: null });
-  for (const k of ['stylize', 'effects', 'masks', 'group', 'disabled', 'parent', 'canvas', 'motionBlur']) delete one[k];
+  // Retained group placement and transition partners belong to the timeline,
+  // not the isolated source picture sent for restyling. Keep source timing.
+  for (const k of ['stylize', 'effects', 'masks', 'group', 'disabled', 'parent', 'canvas', 'motionBlur', 'inherited', 'transitionSlices']) delete one[k];
   const local = Math.min(Math.max(0, time - clip.start), Math.max(0, clip.duration - 1000));
   const project = { ...p, settings: { ...p.settings, width: w, height: hh, background: { type: 'color', color: '#000000', blur: 0 } }, tracks: [makeTrack('video', { main: true, clips: [one] })], markers: [] };
   delete project.range;
