@@ -10,7 +10,7 @@ import { audioFileFromBlob, downloadBlob, rememberRecent, OPENERS, EXTRA_ACCEPT 
 import { channelsAtRate } from './insert.js';
 import { zipStore, unzipStore } from '../lib/zip.js';
 import * as puter from '../storage/puter.js';
-import { saveSessionVideo, prepareVideoBytes, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
+import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
@@ -76,24 +76,38 @@ export async function saveSession(app, doc, { saveAs = false, copy = false } = {
     app.setStatus(`Saved ${name}`);
     return true;
   }
-  const videoBytes = await prepareVideoBytes(doc, new WeakMap());
-  const blob = sessionZip(doc, { videoBytes });
-  const fileName = `${sessionBaseName(doc.name)}.zip`;
+  const { blob, fileName, state } = await prepareSessionZip(doc);
   downloadBlob(blob, fileName);
-  if (!copy) doc.markSaved();
+  if (!copy) doc.markSaved(state);
   app.setStatus(`Downloaded ${fileName}`);
   return true;
 }
 
 /** The session file and its media as one stored ZIP. */
 export function sessionZip(doc, { videoBytes } = {}) {
+  return packSessionZip(sessionZipData(doc), videoBytes);
+}
+
+function sessionZipData(doc) {
   const name = withExt(doc.name);
-  const { text, media, video } = serializeSession(doc, { name, embedVideo: true });
+  return { name, state: doc.state, ...serializeSession(doc, { name, embedVideo: true }) };
+}
+
+/** Captures one session version, reads its video, and returns its ZIP and saved state. */
+export async function prepareSessionZip(doc) {
+  const data = sessionZipData(doc);
+  const videoBytes = new WeakMap();
+  const videoBlob = data.video?.blob;
+  if (videoBlob) videoBytes.set(videoBlob, new Uint8Array(await videoBlob.arrayBuffer()));
+  return { blob: packSessionZip(data, videoBytes), fileName: `${sessionBaseName(data.name)}.zip`, state: data.state };
+}
+
+function packSessionZip({ name, text, media, video }, videoBytes) {
   const files = [{ name, data: new TextEncoder().encode(text) }];
-  // ZIP entries need bytes, so media are encoded synchronously here (the video is read ahead by prepareVideoBytes).
+  // Media descriptors hold the same audio and rate used by the manifest.
   for (const m of media) {
     if (!m.channels?.length) continue;
-    files.push({ name: m.file, data: wavBytes(doc.sampleRate, m.channels) });
+    files.push({ name: m.file, data: wavBytes(m.sampleRate, m.channels) });
   }
   const v = videoZipEntry(video, videoBytes);
   if (v) files.push(v);

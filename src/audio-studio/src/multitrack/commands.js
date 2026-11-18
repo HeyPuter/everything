@@ -17,8 +17,7 @@ import { videoClip } from '../model/session-video.js';
 import * as puter from '../storage/puter.js';
 import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks, trackChannelsFor } from './insert.js';
 import { renderSession, renderedDoc, clipsRange } from './render.js';
-import { saveSession, exportSession, sessionZip } from './storage.js';
-import { prepareVideoBytes } from '../video/session-media.js';
+import { saveSession, exportSession, prepareSessionZip } from './storage.js';
 import { openTrackEffects } from './fx-editor.js';
 import { sessionBaseName } from '../model/session-io.js';
 import { METRONOME_SOUNDS, DEFAULT_METRONOME_SOUND } from './metronome-sounds.js';
@@ -1438,8 +1437,8 @@ export function installMultitrackCommands(app) {
         const doc = session(app);
         await stretchIdle(doc);
         await remixIdle(doc);
-        const videoBytes = await prepareVideoBytes(doc, new WeakMap());
-        downloadBlob(sessionZip(doc, { videoBytes }), `${sessionBaseName(doc.name)}.zip`);
+        const { blob, fileName } = await prepareSessionZip(doc);
+        downloadBlob(blob, fileName);
       },
     },
     'edit.cut': {
