@@ -6,12 +6,13 @@
 // Live preview of adjustment kinds on a plain layer uses the GPU: a
 // temporary adjustment layer clipped to the target (and masked by the
 // selection) makes the compositor adjust only the target. Masks, Quick Mask,
-// layers already inside a clipping group and non-LUT operations preview the
-// exact CPU result instead.
+// layers already inside a clipping group, layers with a style and non-LUT
+// operations preview the exact CPU result instead.
 import type { Editor } from '../../editor';
 import { ADJUSTMENT_LABELS, defaultParams, histograms, isSpatialKind, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
 import type { IRect, OperationContext, ParamSpec, ParamValues, RGBA8 } from '../../imaging/types';
 import { allLayers, findLayer, layer, type Layer, type PhotoDocument } from '../../model/document';
+import { activeLayerStyle } from '../../model/layer-style';
 import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
 import { canvasRect, selectionGrid } from '../../model/selection';
 import { escapeXML } from '../../model/assets';
@@ -246,7 +247,15 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   // layer, the GPU would see the hidden part as transparent while OK adjusts
   // the pixels under the mask too, so those preview the CPU result.
   const masked = target.kind === 'pixels' && !!target.layer.maskGrid && !target.layer.maskDisabled;
-  const gpu = target.kind === 'pixels' && !target.layer.clipped && !(masked && isSpatialKind(kind));
+  // A clipped adjustment would also recolor the layer's effects (shadows,
+  // overlays, strokes), which OK leaves alone, so styled layers preview the
+  // CPU result too.
+  const styled = target.kind === 'pixels' && !!activeLayerStyle(target.layer);
+  const gpu =
+    target.kind === 'pixels' &&
+    !target.layer.clipped &&
+    !styled &&
+    !(masked && isSpatialKind(kind));
   const schedule = latest();
   const source = sourceFor(src);
   const host: AdjustHost<K> = {
