@@ -66,6 +66,52 @@ describe('Library projects', () => {
     expect((await lib.listProjects()).map((x) => x.id).sort()).toEqual([p.id, copy.id].sort());
   });
 
+  it('keeps the latest cover when an earlier backend write is delayed', async () => {
+    const write = backend.writeBlob.bind(backend);
+    let finish;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const calls = [];
+    vi.spyOn(backend, 'writeBlob').mockImplementation(async (path, blob) => {
+      calls.push(blob);
+      if (blob === 'old') await pending;
+      await write(path, blob);
+    });
+    const older = lib.saveCover('cover-order', 'old');
+    await vi.waitFor(() => expect(calls).toContain('old'));
+    const newer = lib.saveCover('cover-order', 'new');
+    // Give a concurrent write an opportunity to finish ahead of the first.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    finish();
+    await Promise.all([older, newer]);
+    expect(await lib.coverBlob('cover-order')).toBe('new');
+  });
+
+  it('continues cover writes after failure without blocking other projects or retaining queues', async () => {
+    const write = backend.writeBlob.bind(backend);
+    let finish;
+    const gate = new Promise((resolve) => { finish = resolve; });
+    vi.spyOn(backend, 'writeBlob').mockImplementation(async (path, blob) => {
+      if (blob === 'failed') {
+        await gate;
+        throw new Error('Offline');
+      }
+      return write(path, blob);
+    });
+    const events = [];
+    lib.on('cover', ({ id }) => events.push(id));
+    const failed = lib.saveCover('first', 'failed').catch((err) => err);
+    const next = lib.saveCover('first', 'recovered');
+    await lib.saveCover('second', 'independent');
+    expect(await lib.coverBlob('second')).toBe('independent');
+    expect(await lib.coverBlob('first')).toBeNull();
+    finish();
+    expect(await failed).toMatchObject({ message: 'Offline' });
+    await next;
+    expect(await lib.coverBlob('first')).toBe('recovered');
+    expect(events).toEqual(['second', 'first']);
+    expect(lib.coverWrites.size).toBe(0);
+  });
+
   it('gives each duplicate a name of its own', async () => {
     const p = await lib.createProject({ name: 'Trip' });
     const names = [];

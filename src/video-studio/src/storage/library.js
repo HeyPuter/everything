@@ -42,6 +42,7 @@ export class Library extends Emitter {
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
     this.reads = new Map(); // hash -> Promise<Blob>: files being read, shared by everyone asking
+    this.coverWrites = new Map(); // project id -> last cover write, ordered per project
     this.stored = null; // { at, files: Promise<Map(name -> size)> }: recent listing of the media folder
     this.uploads = new Map(); // hash -> Promise
     this.failed = new Map(); // hash -> { asset, blob, tries, timer }: uploads that failed, tried again later
@@ -337,8 +338,17 @@ export class Library extends Emitter {
   }
 
   async saveCover(id, blob) {
-    await this.backend.writeBlob(`covers/${id}.jpg`, blob);
-    this.emit('cover', { id });
+    const previous = this.coverWrites.get(id);
+    const write = (previous || Promise.resolve()).catch(() => {}).then(async () => {
+      await this.backend.writeBlob(`covers/${id}.jpg`, blob);
+      this.emit('cover', { id });
+    });
+    this.coverWrites.set(id, write);
+    try {
+      await write;
+    } finally {
+      if (this.coverWrites.get(id) === write) this.coverWrites.delete(id);
+    }
   }
 
   async coverBlob(id) {
