@@ -611,10 +611,26 @@ export class App {
     }
   }
 
-  async openBuffer(buffer, name, file) {
+  /**
+   * Open file contents as a drawing. Opening a drive file that is already
+   * being opened (a launch and a drop of the same file) waits for that one.
+   */
+  openBuffer(buffer, name, file) {
+    const key = file?.path;
+    const opening = (this._opening ??= new Map());
+    if (key && opening.has(key)) return opening.get(key);
+    const p = this._openBuffer(buffer, name, file);
+    if (key) {
+      opening.set(key, p);
+      p.finally(() => opening.delete(key));
+    }
+    return p;
+  }
+
+  async _openBuffer(buffer, name, file) {
     const kind = fileKind(name);
     if (!kind) {
-      toast('Choose a .cad, .dwg or .dxf file.', { kind: 'error' });
+      toast('Choose a .dwg or .dxf file.', { kind: 'error' });
       return null;
     }
     const existing = file.path
@@ -632,7 +648,7 @@ export class App {
         const data = await decodeDrawing(buffer);
         drawing = new Drawing(data);
         if (data.version > NATIVE_VERSION) {
-          // What this version does not know is not kept: Save asks before replacing the file.
+          // What this version does not know is not kept; Save writes a new DWG file and leaves this one as it is.
           dropped = 'content from a newer version of the app';
           this.cmdline.log(`${name} was saved with a newer version of the app. Parts of it may be missing here.`, 'muted');
         }
@@ -686,20 +702,17 @@ export class App {
     });
   }
 
+  /** The file contents of a drawing: DXF for 'dxf', otherwise DWG. */
   async encode(doc, kind) {
+    const ext = doc.index.extents();
     if (kind === 'dxf') {
-      const ext = doc.index.extents();
       const { text, warnings } = await exportDxf(doc.drawing, ext);
       for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
       return new Blob([text], { type: 'application/dxf' });
     }
-    if (kind === 'dwg') {
-      const ext = doc.index.extents();
-      const { bytes, warnings } = await exportDwg(doc.drawing, ext);
-      for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
-      return new Blob([bytes], { type: 'image/vnd.dwg' });
-    }
-    return encodeDrawing(doc.drawing);
+    const { bytes, warnings } = await exportDwg(doc.drawing, ext);
+    for (const w of (warnings || []).slice(0, 5)) this.cmdline.log(w, 'muted');
+    return new Blob([bytes], { type: 'image/vnd.dwg' });
   }
 
   /** Save; returns true when saved. */
@@ -710,7 +723,8 @@ export class App {
     if (doc._saving && (await this.afterSaving(doc)) && doc.file && !doc.drawing.modified) {
       return true;
     }
-    if (!doc.file || (!doc.file.path && !doc.file.handle)) return this.saveAs(doc);
+    // A .cad file from an earlier version is never written: save it as a new DWG (or DXF) file.
+    if (!doc.file || (!doc.file.path && !doc.file.handle) || doc.file.kind === 'native') return this.saveAs(doc);
     if (doc.file.dropped) {
       const file = doc.file,
         dropped = file.dropped;
@@ -761,7 +775,7 @@ export class App {
   }
 
   async writeFile(doc) {
-    const kind = doc.file.kind || 'native';
+    const kind = doc.file.kind || 'dwg';
     // Edits made while the file is written stay unsaved.
     const rev = doc.drawing.revision;
     try {
@@ -845,10 +859,10 @@ export class App {
       } else {
         const r = await storage.deviceSave(blob, fileName, null);
         if (!r) return false;
-        // Named with another drawing extension in the picker: write that format instead.
+        // Named with the other format's extension in the picker: write that format instead.
         let kind = target.kind;
         const picked = fileKind(r.name);
-        if (r.handle && picked && picked !== kind) {
+        if (r.handle && (picked === 'dwg' || picked === 'dxf') && picked !== kind) {
           kind = picked;
           await storage.deviceSave(await this.encode(doc, kind), r.name, r.handle);
         }
@@ -932,11 +946,52 @@ export class App {
       e.dataTransfer.dropEffect = document.querySelector('dialog[open]') ? 'none' : 'copy';
     });
     window.addEventListener('drop', (e) => {
+      // Files dragged in from a Puter desktop folder: the SDK dispatches a drop
+      // event of its own, with the drive entries in its detail and no dataTransfer.
+      const items = e.detail?.items;
+      if (!e.dataTransfer && Array.isArray(items)) {
+        e.preventDefault();
+        if (!document.querySelector('dialog[open]')) this.openDriveItems(items);
+        return;
+      }
       if (!hasFiles(e)) return;
       e.preventDefault();
       // Not behind a dialog that is waiting for an answer.
       if (!document.querySelector('dialog[open]')) this.openDropped(e.dataTransfer);
     });
+  }
+
+  /**
+   * Open entries of the Puter drive (launch items or a drop from a desktop
+   * folder) where they live, so Save writes back to the same file. Folders
+   * and files that are not drawings are left out.
+   */
+  async openDriveItems(given) {
+    const all = (Array.isArray(given) ? given : [given]).filter((it) => it && typeof it === 'object');
+    const isDir = (it) => !!(it.is_dir || it.isDir || it.isDirectory || it.fsentry_is_dir);
+    const files = all.filter((it) => typeof it.path === 'string' && it.path && !isDir(it));
+    if (!files.length && all.some(isDir)) toast('Folders cannot be opened. Open the drawings inside instead.');
+    for (const it of files) {
+      const path = it.path;
+      const name = it.name || path.replace(/\/+$/, '').split('/').pop();
+      if (!fileKind(name)) {
+        toast(`${name} is not a drawing. Choose a .dwg or .dxf file.`, { kind: 'error' });
+        continue;
+      }
+      const open = this.docs.find((d) => d.file?.path === path);
+      if (open) {
+        this.activate(open);
+        continue;
+      }
+      if (this._opening?.has(path)) continue;
+      try {
+        // Launch items can read themselves; dropped entries are plain records.
+        const buffer = typeof it.read === 'function' ? await (await it.read()).arrayBuffer() : await storage.cloudRead(path);
+        await this.openBuffer(buffer, name, { source: 'cloud', path });
+      } catch (err) {
+        this.fileError('open', err);
+      }
+    }
   }
 
   async openDropped(transfer) {
@@ -957,7 +1012,7 @@ export class App {
     }
   }
 
-  /** Files opened from the Puter desktop (double click on a .cad, .dwg or .dxf). */
+  /** Files opened from the Puter desktop (double click on a .dwg or .dxf, or a .cad from an earlier version). */
   async handleLaunchItems() {
     // Files opened with the installed app (manifest file_handlers).
     window.launchQueue?.setConsumer(async (params) => {
@@ -973,6 +1028,13 @@ export class App {
     });
     if (!(await platform.whenPuter())) return;
     try {
+      // Double click or "Open with" on the Puter desktop, in a desktop window or a browser tab it opened.
+      // (Drops from desktop folders arrive as drop events, see bindDrop.)
+      puter.ui?.onLaunchedWithItems?.((items) => this.openDriveItems(items));
+    } catch {
+      /* an SDK without launch items */
+    }
+    try {
       if (platform.puterEnv() !== 'app') return;
       // Closing the desktop window asks about unsaved drawings first.
       puter.ui.onWindowClose?.(async () => {
@@ -984,18 +1046,6 @@ export class App {
         }
         puter.exit();
       });
-      const open = async (items) => {
-        for (const it of items || []) {
-          try {
-            const blob = await it.read();
-            await this.openBuffer(await blob.arrayBuffer(), it.name, { source: 'cloud', path: it.path });
-          } catch (err) {
-            this.fileError('open', err);
-          }
-        }
-      };
-      puter.ui.onLaunchedWithItems?.(open);
-      puter.ui.onItemsOpened?.(open);
     } catch {
       /* not in the desktop */
     }

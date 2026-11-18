@@ -19,7 +19,6 @@ import { exportPdf } from '../io/export/pdf.js';
 import { exportSvg } from '../io/export/svg.js';
 import { exportPng, renderToCanvas } from '../io/export/raster.js';
 import * as storage from '../io/storage.js';
-import { NATIVE_EXT } from '../io/native.js';
 import { commandList } from '../editor/commands/index.js';
 import { lwLabel } from './combos.js';
 import { roving } from './roving.js';
@@ -79,7 +78,7 @@ export async function openFileDialog(app) {
     'div.open-dlg',
     h(
       'div.open-sources',
-      h('button.btn.big', { type: 'button', onClick: () => ((pick = { source: 'device' }), closeFn()) }, icon('upload', 20), h('span', h('strong', 'Open from this device'), h('small', 'A .cad, .dwg or .dxf file on your computer'))),
+      h('button.btn.big', { type: 'button', onClick: () => ((pick = { source: 'device' }), closeFn()) }, icon('upload', 20), h('span', h('strong', 'Open from this device'), h('small', 'A .dwg or .dxf file on your computer'))),
     ),
     h('h3.dlg-sub', 'Your Puter drive'),
     status,
@@ -155,18 +154,21 @@ export async function openFileDialog(app) {
   return pick;
 }
 
+/** The format Save as starts with: the drawing's own when it is DXF, otherwise DWG. */
+export function saveFormat(doc) {
+  return doc.file?.kind === 'dxf' ? 'dxf' : 'dwg';
+}
+
 export async function formatChoice(app, doc) {
-  const def = doc.file?.kind || 'native';
   const body = h(
     'div',
     radios(
       'fmt',
       [
-        ['native', `Drawing (${NATIVE_EXT})`, 'Keeps everything exactly. Recommended.'],
-        ['dwg', 'DWG (.dwg)', 'Opens in AutoCAD and most CAD programs.'],
+        ['dwg', 'DWG (.dwg)', 'Opens in AutoCAD and most CAD programs. Recommended.'],
         ['dxf', 'DXF (.dxf)', 'Opens in most CAD programs.'],
       ],
-      def,
+      saveFormat(doc),
     ),
   );
   const r = await openDialog({ title: 'Save as', body, size: 'sm', actions: [{ label: 'Cancel' }, { label: 'Continue', primary: true, onClick: () => radioValue(body, 'fmt') }] });
@@ -187,11 +189,10 @@ export async function saveAsDialog(app, doc) {
   const fmt = radios(
     'fmt',
     [
-      ['native', `Drawing (${NATIVE_EXT})`, 'Keeps everything exactly'],
-      ['dwg', 'DWG (.dwg)', 'For AutoCAD and other CAD programs'],
+      ['dwg', 'DWG (.dwg)', 'For AutoCAD and other CAD programs. Recommended.'],
       ['dxf', 'DXF (.dxf)', 'For other CAD programs'],
     ],
-    doc.file?.kind || 'native',
+    saveFormat(doc),
   );
   const body = h('form', { onSubmit: (e) => e.preventDefault() }, field('File name', name), err, h('fieldset.fs', h('legend', 'Location'), where), h('fieldset.fs', h('legend', 'Format'), fmt));
   const r = await openDialog({

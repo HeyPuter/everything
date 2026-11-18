@@ -1,6 +1,8 @@
 /**
- * Native drawing files (.cad): the drawing as JSON, gzip-compressed when the
- * platform supports it. Reading accepts both compressed and plain JSON.
+ * The drawing as JSON, gzip-compressed when the platform supports it, for
+ * local recovery copies. It is also the format of .cad files, which earlier
+ * versions of the app saved: they still open, but drawings are saved as DWG
+ * (or DXF). Reading accepts both compressed and plain JSON.
  */
 export const NATIVE_EXT = '.cad';
 export const FORMAT = 'cad-drawing';
@@ -68,11 +70,11 @@ export function fileKind(name) {
   return null;
 }
 
-/** File name extension for a file kind. */
+/** File name extension for a file kind ('dwg' when none is given). */
 export function kindExt(kind) {
   if (kind === 'dxf') return '.dxf';
-  if (kind === 'dwg') return '.dwg';
-  return NATIVE_EXT;
+  if (kind === 'native') return NATIVE_EXT;
+  return '.dwg';
 }
 
 export function baseName(name) {
