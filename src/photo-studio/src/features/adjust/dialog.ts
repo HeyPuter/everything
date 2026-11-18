@@ -28,6 +28,7 @@ import { h, slider, checkbox, select } from './ui';
 import { svg } from '../../app/icons';
 import { noteDialogCancelled } from '../action-settings';
 import { presetBar, rememberLast } from './user-presets';
+import { keepFocus } from '../../ui/keep-focus';
 
 const PREVIEW_ID = 'adjust-dialog-preview';
 
@@ -273,9 +274,13 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
       const pt = await pickPoint(e);
       return pt ? sampleAt(src.image, pt[0] - src.area.x, pt[1] - src.area.y) : null;
     },
+    // Rebuilt after choices (Pencil, Auto options): the keyboard focus stays
+    // on the control used instead of falling off the dialog.
     rerender() {
-      shell.body.innerHTML = '';
-      kindEditors[kind](shell.body, host as never);
+      keepFocus(shell.body, () => {
+        shell.body.innerHTML = '';
+        kindEditors[kind](shell.body, host as never);
+      });
     },
   };
   const adjustment = () => ({ kind, params: host.params }) as Adjustment;
