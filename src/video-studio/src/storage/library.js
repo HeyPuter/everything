@@ -451,6 +451,7 @@ export class Library extends Emitter {
     if (info.soundUnsupported) onNote?.(`${source.name || 'This video'}: its sound can't be played in this browser, so it was added without sound.`);
     this.blobs.set(hash, file);
     this._store(asset, file);
+    this.emit('media-available', { hash });
     return asset;
   }
 
@@ -465,6 +466,7 @@ export class Library extends Emitter {
     if (!asset) throw new Error(`Unsupported media: ${fields?.name || 'file'}`);
     const typed = asset.mime && blob.type !== asset.mime ? new Blob([blob], { type: asset.mime }) : blob;
     this.blobs.set(hash, typed);
+    this.emit('media-available', { hash });
     await this._store(asset, typed);
     return asset;
   }

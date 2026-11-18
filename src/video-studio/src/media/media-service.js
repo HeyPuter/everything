@@ -28,6 +28,12 @@ export class MediaService extends Emitter {
     this.proxies = null; // ProxyManager: thumbnails decode a ready proxy, which is faster
     this.missing = new Set(); // hashes of media whose file is not in storage ('missing' event when it changes)
     this.readFailures = new Map(); // hash -> reads that failed in a row
+    this.mediaVersions = new Map(); // invalidates thumbnail jobs and their delayed retries
+    this._offAvailable = library?.on?.('media-available', ({ hash }) => {
+      const wasMissing = this.missing.delete(hash);
+      this.forget(hash);
+      if (wasMissing) this.emit('missing');
+    });
   }
 
   /** File to decode pictures from: the proxy when one is ready, else the original. */
@@ -57,11 +63,17 @@ export class MediaService extends Emitter {
   forget(hash) {
     if (this.disposed) return;
     this.readFailures.delete(hash);
+    this.mediaVersions.set(hash, (this.mediaVersions.get(hash) || 0) + 1);
+    for (const job of this.queue) if (job.asset.hash === hash) {
+      job.cancelled = true;
+      job.cancel?.();
+    }
+    this.queue = this.queue.filter(job => job.started || !job.cancelled);
     const strip = this.strips.get(hash);
     if (strip) for (const [key, v] of strip) if (v === 'pending') strip.delete(key);
     if (this.posters.get(hash)?.value === null) this.posters.delete(hash);
     const peaks = this.peakCache.get(hash);
-    if (peaks?.settled && !peaks.value?.data?.length) this.peakCache.delete(hash);
+    if (peaks && (!peaks.settled || !peaks.value?.data?.length)) this.peakCache.delete(hash);
     for (const type of ['thumb', 'poster', 'peaks']) this.emit(type, { hash });
   }
 
@@ -199,7 +211,7 @@ export class MediaService extends Emitter {
   _enqueue(asset, sec, key) {
     let job = this.queue.find((j) => j.asset.hash === asset.hash && !j.started);
     if (!job) {
-      job = { asset, items: [], started: false };
+      job = { asset, items: [], started: false, version: this.mediaVersions.get(asset.hash) || 0 };
       this.queue.push(job);
     }
     job.items.push({ sec, key });
@@ -213,18 +225,27 @@ export class MediaService extends Emitter {
     if (!job) return;
     job.started = true;
     this.busy++;
+    const current = () => !this.disposed && !job.cancelled && job.version === (this.mediaVersions.get(job.asset.hash) || 0);
+    const cancelled = new Promise(resolve => { job.cancel = resolve; });
     try {
-      const blob = await this._pictureBlob(job.asset);
-      if (this.disposed) return;
-      const items = job.items.sort((a, b) => a.sec - b.sec);
-      const strip = this.strips.get(job.asset.hash);
-      await this._call({ op: 'thumbs', blob, times: items.map((i) => i.sec), height: THUMB_H }, ({ index, bitmap }) => {
-        strip.set(items[index].key, bitmap);
-        this._trimStrip(strip);
-        this.emit('thumb', { hash: job.asset.hash });
-      });
+      // A replaced read may never answer. Release its slot immediately while
+      // safely discarding any late decode result from the old job.
+      await Promise.race([cancelled, (async () => {
+        const blob = await this._pictureBlob(job.asset);
+        if (!current()) return;
+        const items = job.items.sort((a, b) => a.sec - b.sec);
+        const strip = this.strips.get(job.asset.hash);
+        await this._call({ op: 'thumbs', blob, times: items.map((i) => i.sec), height: THUMB_H }, ({ index, bitmap }) => {
+          if (!current()) { bitmap?.close?.(); return; }
+          strip.set(items[index].key, bitmap);
+          this._trimStrip(strip);
+          this.emit('thumb', { hash: job.asset.hash });
+        });
+      })()]);
     } catch (error) {
+      if (!current()) return;
       this._retryWorkerFailure(error, () => {
+        if (!current()) return;
         const strip = this.strips.get(job.asset.hash);
         for (const { key } of job.items) if (strip?.get(key) === 'pending') strip.delete(key);
         this.emit('thumb', { hash: job.asset.hash });
@@ -246,7 +267,7 @@ export class MediaService extends Emitter {
       entry = { value: null, promise: null };
       entry.promise = (async () => {
         const blob = asset.kind === 'video' ? await this._pictureBlob(asset) : await this._mediaBlob(asset);
-        if (this.disposed) return null;
+        if (this.disposed || this.posters.get(asset.hash) !== entry) return null;
         if (asset.kind === 'image') {
           const bmp = await createImageBitmap(blob, { resizeHeight: 240, resizeQuality: 'medium' });
           return bmp;
@@ -263,7 +284,7 @@ export class MediaService extends Emitter {
         return first;
       })()
         .catch((error) => {
-          this._retryWorkerFailure(error, () => {
+          if (this.posters.get(asset.hash) === entry) this._retryWorkerFailure(error, () => {
             if (this.posters.get(asset.hash) !== entry) return;
             this.posters.delete(asset.hash);
             this.emit('poster', { hash: asset.hash });
@@ -271,7 +292,7 @@ export class MediaService extends Emitter {
           return null;
         })
         .then((v) => {
-          if (this.disposed) {
+          if (this.disposed || this.posters.get(asset.hash) !== entry) {
             v?.close?.();
             return null;
           }
@@ -290,9 +311,11 @@ export class MediaService extends Emitter {
     let p = this.peakCache.get(asset.hash);
     if (!p) {
       p = this._mediaBlob(asset)
-        .then((blob) => this._call({ op: 'peaks', blob, rate: 100 }))
+        .then((blob) => this.peakCache.get(asset.hash) === p && !this.disposed
+          ? this._call({ op: 'peaks', blob, rate: 100 })
+          : { rate: 100, data: new Float32Array(0), duration: 0 })
         .catch((error) => {
-          this._retryWorkerFailure(error, () => {
+          if (this.peakCache.get(asset.hash) === p) this._retryWorkerFailure(error, () => {
             if (this.peakCache.get(asset.hash) !== p) return;
             this.peakCache.delete(asset.hash);
             this.emit('peaks', { hash: asset.hash });
@@ -302,7 +325,7 @@ export class MediaService extends Emitter {
         .then((r) => {
           p.settled = true;
           p.value = r;
-          if (!this.disposed) this.emit('peaks', { hash: asset.hash });
+          if (!this.disposed && this.peakCache.get(asset.hash) === p) this.emit('peaks', { hash: asset.hash });
           return r;
         });
       this.peakCache.set(asset.hash, p);
@@ -323,6 +346,7 @@ export class MediaService extends Emitter {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this._offAvailable?.();
     clearTimeout(this._flushTimer);
     for (const timer of this.retryTimers) clearTimeout(timer);
     this.retryTimers.clear();
