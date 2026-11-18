@@ -31,11 +31,12 @@ export function mount(e: Editor, el: HTMLElement) {
     const box = (ev.target as HTMLElement).closest<HTMLInputElement>('[data-enable]');
     if (box) void updateScript(box.dataset.enable!, { enabled: box.checked });
   });
-  // Output arrives while the panel is open (drawn once per frame); a detached
-  // panel stops listening.
+  // Output arrives while the panel is open (drawn once per frame). The dock
+  // mounts the panel once and takes it out of the page while its drawer is
+  // closed: output written meanwhile is drawn when it shows again (update).
   let frame = 0;
-  const stop = onScriptLog(() => {
-    if (!el.isConnected) return stop();
+  onScriptLog(() => {
+    if (!el.isConnected) return;
     frame ||= requestAnimationFrame(() => {
       frame = 0;
       renderLog(el);
@@ -43,9 +44,14 @@ export function mount(e: Editor, el: HTMLElement) {
   });
 }
 
-function renderLog(el: HTMLElement) {
+// The log entries each panel last drew (count and newest line).
+const drawn = new WeakMap<HTMLElement, [number, object | undefined]>();
+function renderLog(el: HTMLElement, force = false) {
   const log = el.querySelector<HTMLElement>('.scripts-log-lines');
   if (!log) return;
+  const was = drawn.get(el);
+  if (!force && was && was[0] === scriptLog.length && was[1] === scriptLog.at(-1)) return;
+  drawn.set(el, [scriptLog.length, scriptLog.at(-1)]);
   const lines = scriptLog.slice(-60);
   log.innerHTML = lines.length
     ? lines.map((l) => `<div class="log-${l.level}"><span class="muted">${escapeXML(l.script)}:</span> ${escapeXML(l.text)}</div>`).join('')
@@ -58,7 +64,7 @@ const shown = new WeakMap<HTMLElement, string>();
 export function update(e: Editor, el: HTMLElement) {
   const scripts = listScripts();
   const key = JSON.stringify([scriptSelection.id, scripts.map((s) => [s.id, s.name, s.description, s.enabled, s.shortcut])]);
-  if (shown.get(el) === key && el.querySelector('.scripts-list')) return;
+  if (shown.get(el) === key && el.querySelector('.scripts-list')) return renderLog(el);
   shown.set(el, key);
   void e;
   const rows = scripts
@@ -75,5 +81,5 @@ export function update(e: Editor, el: HTMLElement) {
   el.innerHTML = `<div class="scripts-list" role="listbox" aria-label="Installed scripts">${rows || '<p class="scripts-empty muted">No scripts installed. Create one, or install a .js file.</p>'}</div>
     <div class="scripts-log"><div class="scripts-log-head"><span>Output</span><button class="icon-button" data-clear-log aria-label="Clear output" title="Clear the output">${svg('trash-2', 12)}</button></div><div class="scripts-log-lines" aria-live="polite"></div></div>
     <div class="layer-footer"><button data-command="scripts.run-selected" aria-label="Run selected script" title="Run the selected script" ${scriptSelection.id ? '' : 'disabled'}>${svg('play', 14)}</button><button data-command="scripts.new" aria-label="New script" title="Write a new script">${svg('plus', 14)}</button><button data-command="scripts.install" aria-label="Install script from file" title="Install a script from a .js file">${svg('upload', 14)}</button><button data-command="file.script-events" aria-label="Script events" title="Run scripts or actions on events (Script Events Manager)">${svg('zap', 14)}</button><button data-command="scripts.delete" aria-label="Delete script" title="Delete the selected script" ${scriptSelection.id ? '' : 'disabled'}>${svg('trash-2', 14)}</button></div>`;
-  renderLog(el);
+  renderLog(el, true);
 }

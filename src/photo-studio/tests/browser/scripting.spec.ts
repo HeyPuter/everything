@@ -231,3 +231,20 @@ test('runs a script from its row in the Scripts panel even when it is not listed
   await row.getByRole('button', { name: 'Run Unlisted Script' }).click();
   await expect.poll(() => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toContain('From unlisted');
 });
+
+test('the Scripts panel shows output written while its drawer was closed, and keeps showing new output', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.dock.show('scripts'));
+  const lines = page.locator('.scripts-log-lines');
+  await expect(lines).toBeVisible();
+  // Closed: the panel is out of the page while the script writes.
+  await page.evaluate(() => window.photoStudio.dock.show('scripts', true));
+  await expect(lines).toHaveCount(0);
+  await runSource(page, `console.log('while closed')`, 'Closed');
+  await page.evaluate(() => window.photoStudio.dock.show('scripts'));
+  await expect(lines).toContainText('while closed');
+  await page.evaluate(async () => {
+    const { runScript } = await import('/src/features/scripting/run.ts');
+    await window.photoStudio.run(async () => void (await runScript(window.photoStudio, { name: 'Open', source: `console.log('while open')`, trusted: true })));
+  });
+  await expect(lines).toContainText('while open');
+});
