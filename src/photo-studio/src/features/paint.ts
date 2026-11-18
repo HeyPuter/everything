@@ -114,7 +114,7 @@ const brushControlTable: Record<string, BrushControls> = {
   'smudge-tool': { ...focusControls, numberKey: pct('smudgeStrength') },
   dodge: { modes: false, opacity: false, flow: false, numberKey: pct('toneExposure') },
   burn: { modes: false, opacity: false, flow: false, numberKey: pct('toneExposure') },
-  sponge: { modes: false, opacity: false, flow: false, numberKey: pct('toneExposure') },
+  sponge: { modes: false, opacity: false, flow: false, numberKey: pct('spongeFlow') },
 };
 export type EraserMode = 'brush' | 'pencil' | 'block';
 export const eraserMode = (e: Editor): EraserMode => (e.settings.eraserMode === 'pencil' || e.settings.eraserMode === 'block' ? e.settings.eraserMode : 'brush');

@@ -18,6 +18,7 @@ const tips: Record<string, string> = {
   'tool-strength': 'Strength of the effect per stroke',
   'tone-range': 'Tones the tool changes most',
   'tone-exposure': 'Strength of the effect per stroke',
+  'sponge-flow': 'How much the saturation changes per stroke',
   'protect-tones': 'Keeps hues from shifting and clipping while dodging or burning',
   'sponge-mode': 'Remove or add color saturation',
   'pattern-scale': 'Size of the pattern relative to its definition',

@@ -244,7 +244,9 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
       return;
     }
     const range = (e.settings.toneRange as string) ?? 'midtones';
-    const exposure = Number(e.settings.toneExposure ?? 50) / 100;
+    // The Sponge's Flow is its own setting, apart from Dodge and Burn Exposure.
+    const key = kind === 'sponge' ? 'spongeFlow' : 'toneExposure';
+    const exposure = Number(e.settings[key] ?? 50) / 100;
     const saturate = e.settings.spongeMode !== 'desaturate';
     const vibrance = e.settings.spongeVibrance !== false;
     const protect = e.settings.protectTones !== false;
@@ -308,12 +310,18 @@ const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
   bindNumberField(el, '#tool-strength', () => Number(e.settings[key] ?? 50), (v) => (e.settings[key] = Math.max(1, Math.min(100, v))));
 const toneFields = (sponge: boolean) => (e: Editor) =>
   sponge
-    ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label><label class="transform-setting" title="Saturating raises muted colors most and never clips a channel"><input type="checkbox" id="sponge-vibrance" ${e.settings.spongeVibrance !== false ? 'checked' : ''}>Vibrance</label>`
+    ? `<label>Mode <select id="sponge-mode"><option value="desaturate">Desaturate</option><option value="saturate" ${e.settings.spongeMode === 'saturate' ? 'selected' : ''}>Saturate</option></select></label><label>Flow <input id="sponge-flow" type="number" min="1" max="100" value="${Number(e.settings.spongeFlow ?? 50)}">%</label><label class="transform-setting" title="Saturating raises muted colors most and never clips a channel"><input type="checkbox" id="sponge-vibrance" ${e.settings.spongeVibrance !== false ? 'checked' : ''}>Vibrance</label>`
     : `<label>Range <select id="tone-range">${['shadows', 'midtones', 'highlights'].map((r) => `<option value="${r}" ${(e.settings.toneRange ?? 'midtones') === r ? 'selected' : ''}>${r[0].toUpperCase() + r.slice(1)}</option>`).join('')}</select></label><label>Exposure <input id="tone-exposure" type="number" min="1" max="100" value="${Number(e.settings.toneExposure ?? 50)}">%</label><label class="transform-setting"><input type="checkbox" id="protect-tones" ${e.settings.protectTones !== false ? 'checked' : ''}>Protect Tones</label>`;
 const bindTone = (e: Editor, el: HTMLElement) => {
   el.querySelector<HTMLSelectElement>('#tone-range')?.addEventListener('change', (ev) => (e.settings.toneRange = (ev.target as HTMLSelectElement).value));
   el.querySelector<HTMLSelectElement>('#sponge-mode')?.addEventListener('change', (ev) => (e.settings.spongeMode = (ev.target as HTMLSelectElement).value));
   bindNumberField(el, '#tone-exposure', () => Number(e.settings.toneExposure ?? 50), (v) => (e.settings.toneExposure = Math.max(1, Math.min(100, v))));
+  bindNumberField(
+    el,
+    '#sponge-flow',
+    () => Number(e.settings.spongeFlow ?? 50),
+    (v) => (e.settings.spongeFlow = Math.max(1, Math.min(100, v))),
+  );
   el.querySelector<HTMLInputElement>('#protect-tones')?.addEventListener('change', (ev) => (e.settings.protectTones = (ev.target as HTMLInputElement).checked));
   el.querySelector<HTMLInputElement>('#sponge-vibrance')?.addEventListener('change', (ev) => (e.settings.spongeVibrance = (ev.target as HTMLInputElement).checked));
 };

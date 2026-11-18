@@ -370,3 +370,20 @@ test('Alt-click loads the Mixer Brush with the paint under it, kept for the next
     /background:\s*#ff0000/,
   );
 });
+
+test('the Sponge keeps its own Flow apart from the Dodge and Burn Exposure', async ({ page }) => {
+  await setTool(page, 'dodge');
+  await page.locator('#tone-exposure').fill('10');
+  await page.locator('#tone-exposure').press('Enter');
+  await setTool(page, 'sponge');
+  const flow = page.locator('#tool-options').getByRole('spinbutton', { name: /Flow/ });
+  await expect(flow).toHaveValue('50');
+  await flow.fill('80');
+  await flow.press('Enter');
+  await flow.blur();
+  await page.locator('#viewport').hover();
+  await page.keyboard.press('7');
+  await expect(flow).toHaveValue('70');
+  await setTool(page, 'burn');
+  await expect(page.locator('#tone-exposure')).toHaveValue('10');
+});
