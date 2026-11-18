@@ -143,6 +143,19 @@ test.describe('in a short window', () => {
   });
 });
 
+test('panel tabs follow Home and End as well as the arrows', async ({ page }) => {
+  const tabs = page.locator('.panel-group[data-location="dock-top"] [data-panel-tab]');
+  const ids = await tabs.evaluateAll((t) => t.map((x) => (x as HTMLElement).dataset.panelTab!));
+  expect(ids.length).toBeGreaterThan(2);
+  await page.locator(`[data-panel-tab="${ids[0]}"]`).focus();
+  await page.keyboard.press('End');
+  await expect(page.locator(`[data-panel-tab="${ids.at(-1)}"]`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`[data-panel-tab="${ids.at(-1)}"]`)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(page.locator(`[data-panel-tab="${ids[0]}"]`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`[data-panel-tab="${ids[0]}"]`)).toBeFocused();
+});
+
 test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on its slot', async ({ page }) => {
   const slot = page.locator('[data-slot="marquee"]');
   await slot.focus();

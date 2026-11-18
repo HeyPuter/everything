@@ -151,9 +151,9 @@ export class Dock {
         return;
       }
       const tab = (ev.target as HTMLElement).closest<HTMLElement>('[data-panel-tab]');
-      if (!tab || !['ArrowLeft', 'ArrowRight'].includes(ev.key)) return;
+      if (!tab || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
       const tabs = [...tab.parentElement!.querySelectorAll<HTMLElement>('[data-panel-tab]')];
-      const next = tabs[(tabs.indexOf(tab) + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+      const next = ev.key === 'Home' ? tabs[0] : ev.key === 'End' ? tabs.at(-1)! : tabs[(tabs.indexOf(tab) + (ev.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       this.activate(next.dataset.panelTab!);
       this.el.querySelector<HTMLElement>(`[data-panel-tab="${next.dataset.panelTab}"]`)?.focus();
       ev.preventDefault();
