@@ -241,6 +241,9 @@ export class Editor {
   // Called after a document is saved, with the native project that was
   // written (absent when the file written was a PSD).
   saveHooks: ((s: DocumentSession, project?: Blob) => void)[] = [];
+  // Called when a save of the document is given up by the user (a question
+  // before writing was cancelled), so a pending close can stop waiting.
+  saveCancelHooks: ((s: DocumentSession) => void)[] = [];
   /** Edits still held by the active tool, outside the session's history. */
   hasPendingChanges(s = this.session) {
     return s === this.session && (this.transform.changed || !!this.modal?.pendingChanges);
@@ -305,7 +308,9 @@ export class Editor {
     const answer = new Promise<boolean>((resolve) => (saved = resolve));
     const hook = (x: DocumentSession) => x === s && saved(true);
     const other = () => saved(false);
+    const cancelled = (x: DocumentSession) => x === s && saved(false);
     this.saveHooks.push(hook);
+    this.saveCancelHooks.push(cancelled);
     try {
       if (this.busy) await task().catch((error) => this.message(error instanceof Error ? error.message : String(error)));
       else await this.run(task);
@@ -316,6 +321,7 @@ export class Editor {
       return (await answer) && !s.dirty;
     } finally {
       this.saveHooks.splice(this.saveHooks.indexOf(hook), 1);
+      this.saveCancelHooks.splice(this.saveCancelHooks.indexOf(cancelled), 1);
       document.removeEventListener('pointerdown', other, true);
       document.removeEventListener('keydown', other, true);
     }

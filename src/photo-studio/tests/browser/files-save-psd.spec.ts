@@ -183,3 +183,27 @@ test('an edited preview of a PSD that cannot be rewritten offers a project inste
   expect(await magic(page, '/me/preview.photo')).toBe('PHOTO001');
   expect(await session(page)).toEqual({ file: 'preview.photo', path: '/me/preview.photo', dirty: false });
 });
+
+test('cancelling the PSD question of Save while closing keeps the tab open at once', async ({ page }) => {
+  await boot(page, 'default', sdk);
+  await openPsdFromDrive(page);
+  await page.evaluate(() =>
+    window.photoStudio.command('Slice', (d) => {
+      d.slices = [{ id: crypto.randomUUID(), rect: { x: 0, y: 0, width: 8, height: 8 } }];
+    }),
+  );
+  // The close request answers by itself once the question is cancelled,
+  // without waiting for another click or key press.
+  await page.evaluate(() => {
+    const w = window as unknown as { closeResult?: boolean };
+    void window.photoStudio.closeSession(window.photoStudio.session).then((closed) => (w.closeResult = closed));
+  });
+  const dialog = page.locator('#dialog[open]');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toContainText('A PSD leaves out slices.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { closeResult?: boolean }).closeResult)).toBe(false);
+  expect(await stub(page)).toEqual({ written: [], picked: [] });
+  expect((await session(page)).dirty).toBe(true);
+  expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(2);
+});
