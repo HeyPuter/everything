@@ -165,10 +165,14 @@ ${rows}</table>
 `;
 }
 
+/** Most slices a document holds, and the longest slice name (what saved
+ * projects accept when they reopen). */
+export const MAX_SLICES = 2000;
+export const MAX_SLICE_NAME = 256;
 export function validateSlices(slices: unknown) {
   if (slices === undefined) return;
   const bad = () => new Error('Invalid slices.');
-  if (!Array.isArray(slices) || slices.length > 2000) throw bad();
+  if (!Array.isArray(slices) || slices.length > MAX_SLICES) throw bad();
   const ids = new Set<string>();
   for (const s of slices as Slice[]) {
     const r = s?.rect;
@@ -176,7 +180,7 @@ export function validateSlices(slices: unknown) {
       !s ||
       !isDocumentId(s.id) ||
       ids.has(s.id) ||
-      (s.name !== undefined && (typeof s.name !== 'string' || s.name.length > 256)) ||
+      (s.name !== undefined && (typeof s.name !== 'string' || s.name.length > MAX_SLICE_NAME)) ||
       !r ||
       ![r.x, r.y, r.width, r.height].every(Number.isFinite) ||
       r.width < 0 ||
