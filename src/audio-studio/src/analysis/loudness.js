@@ -344,7 +344,12 @@ export function loudnessPanel(app) {
     const refocus = holdFocus();
     running = true;
     try {
-      for (const e of entries) if (e.state !== e.doc.state || !e.measure) await scanOne(e);
+      // Closing/removing a row during an await must not shift the next file
+      // past the iterator. Still skip rows removed before their turn.
+      for (const e of entries.slice()) {
+        if (!entries.includes(e)) continue;
+        if (e.state !== e.doc.state || !e.measure) await scanOne(e);
+      }
       status.textContent = 'Scan complete.';
       announce('Loudness scan complete');
     } catch (err) {
@@ -365,8 +370,8 @@ export function loudnessPanel(app) {
     let changed = 0;
     let short = 0;
     try {
-      for (const e of entries) {
-        if (!app.documents.includes(e.doc)) continue;
+      for (const e of entries.slice()) {
+        if (!entries.includes(e) || !app.documents.includes(e.doc)) continue;
         const m = e.state === e.doc.state && e.measure ? e.measure : await scanOne(e);
         const plan = planMatch(m, s);
         if (plan.action === 'skip') {
@@ -415,8 +420,8 @@ export function loudnessPanel(app) {
     try {
       const out = await outputWriter(app, x);
       if (!out) return;
-      for (const e of entries) {
-        if (!app.documents.includes(e.doc)) continue;
+      for (const e of entries.slice()) {
+        if (!entries.includes(e) || !app.documents.includes(e.doc)) continue;
         const m = e.state === e.doc.state && e.measure ? e.measure : await scanOne(e);
         const plan = planMatch(m, s);
         e.status = 'Exporting...';
