@@ -14,6 +14,7 @@ import { History } from '../lib/history.js';
 import { createSessionState, sessionLength, findClip, findTrack, expandGroups, uid, frontOrder, bringToFront, clipEnd } from './session-edits.js';
 import { markerOptions, markersOnlyChange } from './markers.js';
 import { videoEnd } from './session-video.js';
+import { captureSessionState, savedAudioMatches, savedVideoMatches, savedSessionSnapshot } from './session-snapshot.js';
 
 let nextId = 1;
 
@@ -25,6 +26,9 @@ function hiddenClipIds(state) {
 }
 
 export class Session extends Emitter {
+  #savedMedia = null;
+  #checkedPoolVersion = -1;
+  #audioMatches = true;
   /**
    * @param {object} o
    * @param {string} o.name
@@ -96,7 +100,15 @@ export class Session extends Emitter {
   }
 
   get dirty() {
-    return this.state !== this.savedState;
+    if (this.state !== this.savedState) return true;
+    if (!this.#savedMedia) return false;
+    // Linked waveform edits can change audio without changing the timeline.
+    // Recheck sources only when the pool changes, not on every UI refresh.
+    if (this.#checkedPoolVersion !== this.poolVersion) {
+      this.#audioMatches = savedAudioMatches(this, this.#savedMedia);
+      this.#checkedPoolVersion = this.poolVersion;
+    }
+    return !this.#audioMatches || !savedVideoMatches(this, this.#savedMedia);
   }
 
   get hasSelection() {
@@ -108,9 +120,24 @@ export class Session extends Emitter {
   }
 
   /** Marks `state` (by default the current one) as what the file holds. */
-  markSaved(state = this.state) {
+  markSaved(state = this.state, media = state ? captureSessionState(this, state) : null) {
     this.savedState = state;
+    this.#savedMedia = media;
+    this.#checkedPoolVersion = -1;
     this.emit('change', { kind: 'saved' });
+  }
+
+  /** Revert also restores saved media without changing linked waveform history. */
+  revertToSaved() {
+    let state = this.savedState;
+    if (!state) { this.history.goTo(0); return; }
+    if (this.#savedMedia && (!savedAudioMatches(this, this.#savedMedia) || !savedVideoMatches(this, this.#savedMedia))) {
+      state = savedSessionSnapshot(this, { ...this.#savedMedia, state }).state;
+    }
+    const index = this.history.entries.findIndex((e) => e.state === state);
+    if (index >= 0) this.history.goTo(index);
+    else this.apply('Revert', state);
+    this.markSaved(state);
   }
 
   /**
@@ -299,6 +326,7 @@ export class Session extends Emitter {
   updateSource(id, patch) {
     const src = this.pool.get(id);
     if (!src) return;
+    if (!this.#savedMedia) this.#savedMedia = captureSessionState(this, this.savedState || this.state);
     this.pool.set(id, { ...src, ...patch });
     this.poolVersion++;
     this.emit('change', { kind: 'graph' });

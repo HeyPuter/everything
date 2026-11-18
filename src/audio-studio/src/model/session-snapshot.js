@@ -1,7 +1,7 @@
 // A session's media pool is outside Undo. A file replaced by another session
 // needs independent source ids so Revert never changes media used by history.
-import { uid } from '../model/session-edits.js';
-import { addVideoSource, videoPool } from '../model/session-video.js';
+import { uid } from './session-edits.js';
+import { addVideoSource, videoPool } from './session-video.js';
 
 const imports = new WeakMap();
 const videoKey = (src) => JSON.stringify([src.name, src.mime, src.width, src.height, src.duration, src.fps, src.offline, src.path]);
@@ -19,10 +19,33 @@ export function captureSavedSession(doc, state, media, video, dir) {
     state,
     media: media.map((m) => {
       const source = doc.pool.get(m.id);
-      return { ...m, name: source.name, offline: source.offline, frames: source.frames, channelCount: source.channelCount, path: `${dir}/${m.file}` };
+      return { ...m, name: source.name, offline: source.offline, frames: source.frames, channelCount: source.channelCount, path: dir === undefined ? source.path : `${dir}/${m.file}` };
     }),
-    video: src ? { ...src, path: video ? `${dir}/${video.file}` : src.path } : null,
+    video: src ? { ...src, path: video && dir !== undefined ? `${dir}/${video.file}` : src.path } : null,
   };
+}
+
+/** Snapshot the media referenced by a state, including loaded and offline sources. */
+export function captureSessionState(doc, state = doc.state) {
+  const used = new Set(state.clips.flatMap((c) => [c.sourceId, c.stretch?.sourceId, c.remix?.sourceId, c.soundAssistant?.duration?.orig?.sourceId].filter(Boolean)));
+  const media = [...doc.pool].filter(([id]) => used.has(id)).map(([id, src]) => ({ id, channels: src.channels, sampleRate: state.sampleRate }));
+  return captureSavedSession(doc, state, media, null);
+}
+
+export function savedAudioMatches(doc, snapshot) {
+  return snapshot.media.every((saved) => {
+    const src = doc.pool.get(saved.id);
+    return src && src.name === saved.name && src.offline === saved.offline && src.frames === saved.frames && src.channelCount === saved.channelCount &&
+      (src.channels?.length || 0) === (saved.channels?.length || 0) && (saved.channels || []).every((channel, i) => src.channels[i] === channel);
+  });
+}
+
+export function savedVideoMatches(doc, snapshot) {
+  const saved = snapshot.video;
+  const src = snapshot.state.video && videoPool(doc).get(snapshot.state.video.sourceId);
+  if (!saved || !src) return !saved && !src;
+  return src.blob === saved.blob && src.name === saved.name && src.mime === saved.mime && src.width === saved.width && src.height === saved.height &&
+    src.duration === saved.duration && src.fps === saved.fps && src.offline === saved.offline && (Boolean(src.blob) || src.path === saved.path);
 }
 
 /** Import only saved media, preserving every source used by the target's history. */

@@ -12,7 +12,7 @@ import { zipStore, unzipStore } from '../lib/zip.js';
 import * as puter from '../storage/puter.js';
 import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
 import { sessionSaveDialog } from './save-dialog.js';
-import { captureSavedSession, savedSessionSnapshot } from './saved-snapshot.js';
+import { captureSavedSession, savedSessionSnapshot } from '../model/session-snapshot.js';
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
@@ -82,9 +82,9 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
     });
   }
   await prepareSessionMedia(doc);
-  const { blob, fileName, state } = await prepareSessionZip(doc);
+  const { blob, fileName, state, snapshot } = await prepareSessionZip(doc);
   downloadBlob(blob, fileName);
-  if (!copy) doc.markSaved(state);
+  if (!copy) doc.markSaved(state, snapshot);
   app.setStatus(`Downloaded ${fileName}`);
   return true;
 }
@@ -121,12 +121,12 @@ async function writeCloudSession(app, doc, { path, name, copy }) {
   if (!copy) {
     doc.source = { type: 'puter', path };
     if (doc.name !== name) doc.rename(name);
-    doc.markSaved(saved);
+    doc.markSaved(saved, snapshot);
     rememberRecent(app, { name, path });
   } else if (doc.source?.type === 'puter' && doc.source.path === path) {
     // Replacing the associated file changes what Undo must compare against,
     // even when the user chose Save a Copy rather than Save.
-    doc.markSaved(saved);
+    doc.markSaved(saved, snapshot);
   }
   for (const other of app.documents || []) {
     if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || other.source.path !== path) continue;
@@ -146,7 +146,9 @@ export function sessionZip(doc, { videoBytes } = {}) {
 
 function sessionZipData(doc) {
   const name = withExt(doc.name);
-  return { name, state: doc.state, ...serializeSession(doc, { name, embedVideo: true }) };
+  const state = doc.state;
+  const data = serializeSession(doc, { name, embedVideo: true });
+  return { name, state, ...data, snapshot: captureSavedSession(doc, state, data.media, data.video) };
 }
 
 /** Captures one session version, reads its video, and returns its ZIP and saved state. */
@@ -155,7 +157,7 @@ export async function prepareSessionZip(doc) {
   const videoBytes = new WeakMap();
   const videoBlob = data.video?.blob;
   if (videoBlob) videoBytes.set(videoBlob, new Uint8Array(await videoBlob.arrayBuffer()));
-  return { blob: packSessionZip(data, videoBytes), fileName: `${sessionBaseName(data.name)}.zip`, state: data.state };
+  return { blob: packSessionZip(data, videoBytes), fileName: `${sessionBaseName(data.name)}.zip`, state: data.state, snapshot: data.snapshot };
 }
 
 function packSessionZip({ name, text, media, video }, videoBytes) {
@@ -239,6 +241,7 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
   }
   if (parsed.video && !(await loadSessionVideo(session, parsed.video, { source, loadMedia }))) missing.push(parsed.video.name || 'Video');
   if (missing.length) app.notify(`${missing.length} media file${missing.length > 1 ? 's' : ''} could not be found: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '...' : ''}. Those clips are offline.`, { error: true });
+  session.markSaved();
   return session;
 }
 
