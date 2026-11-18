@@ -183,3 +183,19 @@ test('an action and its steps can be chosen and played from the keyboard', async
   await idle(page);
   expect(await page.evaluate(() => window.photoStudio.history.labels.filter((l) => /Flip/.test(l)).length)).toBe(1);
 });
+
+test('Record and Stop used from the keyboard hand the focus to each other as they turn disabled', async ({ page }) => {
+  await openImage(page, 40, 30);
+  await page.evaluate(() => window.photoStudio.dock.show('actions'));
+  await page.getByRole('button', { name: 'Mirror Canvas', exact: true }).click();
+  const record = page.getByRole('button', { name: 'Begin recording' });
+  const stop = page.getByRole('button', { name: 'Stop recording' });
+  await record.focus();
+  await page.keyboard.press('Enter');
+  await expect(record).toBeDisabled();
+  await expect(stop).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(stop).toBeDisabled();
+  await expect(record).toBeFocused();
+  expect(await page.evaluate(() => !!window.photoStudio.recorder)).toBe(false);
+});

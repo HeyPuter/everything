@@ -295,12 +295,13 @@ export function openPresetManager(e: Editor, initial = 'brushes') {
   // Buttons redraw the dialog: one used from the keyboard keeps the focus, or
   // (when it turned disabled: Move Up at the top, Delete) the focus goes to
   // the selected preset, or the list's first.
-  d.addEventListener('click', (ev) => {
-    keepFocus(d, () => managerClick(ev));
-    const now = document.activeElement;
-    if (d.open && (ev.target as HTMLElement).closest('button') && (!now || now === document.body))
-      (d.querySelector<HTMLElement>('.pm-row.selected') ?? d.querySelector<HTMLElement>('.pm-row[data-index]') ?? d.querySelector<HTMLElement>('.pm-filter'))?.focus();
-  });
+  d.addEventListener('click', (ev) =>
+    keepFocus(
+      d,
+      () => managerClick(ev),
+      () => d.querySelector<HTMLElement>('.pm-row.selected') ?? d.querySelector<HTMLElement>('.pm-row[data-index]'),
+    ),
+  );
   const managerClick = (ev: MouseEvent) => {
     const t = ev.target as HTMLElement;
     const k = t.closest<HTMLElement>('[data-kind]');
