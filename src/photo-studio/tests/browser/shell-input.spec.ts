@@ -229,6 +229,31 @@ test.describe('on a phone', () => {
   });
 });
 
+test.describe('in a window narrower than the menu bar', () => {
+  test.use({ viewport: { width: 600, height: 700 } });
+  test('the mouse wheel scrolls the menu bar to its last menus, but scrolls an open menu itself', async ({ page }) => {
+    const bar = page.getByRole('menubar');
+    const strip = page.locator('.menubar');
+    await expect(strip).toHaveClass(/more-right/);
+    const b = (await bar.boundingBox())!;
+    await page.mouse.move(b.x + 40, b.y + b.height / 2);
+    await page.mouse.wheel(0, 400);
+    const help = (await bar.getByRole('menuitem', { name: 'Help', exact: true }).boundingBox())!;
+    expect(help.x + help.width).toBeLessThanOrEqual(b.x + b.width + 1);
+    await expect(strip).toHaveClass(/more-left/);
+    // With a menu open, the wheel scrolls the menu and leaves the bar where it is.
+    await bar.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    const pop = page.locator('.menubar-entry.open > .menu-pop');
+    const at = await strip.evaluate((el) => el.scrollLeft);
+    const p = (await pop.boundingBox())!;
+    await page.mouse.move(p.x + 50, p.y + 100);
+    await page.mouse.wheel(0, 300);
+    await expect.poll(() => pop.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    expect(await strip.evaluate((el) => el.scrollLeft)).toBe(at);
+    await expect(pop).toBeVisible();
+  });
+});
+
 test.describe('in a narrow window', () => {
   test.use({ viewport: { width: 1024, height: 640 } });
   test('options that do not fit can be reached with the mouse wheel, and the bar shows there are more', async ({ page }) => {

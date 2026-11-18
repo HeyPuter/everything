@@ -2,8 +2,9 @@
 /** A row that scrolls sideways when its contents do not fit the window
  * (the options bar, the document tabs; their scrollbars are hidden): a mouse
  * wheel scrolls it, and an edge fades where more is (style.css). */
-export function scrollableRow(root: HTMLElement) {
-  root.classList.add('scroll-row');
+export function scrollableRow(root: HTMLElement, opts: { fade?: boolean; ignore?: (ev: WheelEvent) => boolean } = {}) {
+  // The fade masks the row; a row with popups inside (the menu bar) draws its own.
+  if (opts.fade !== false) root.classList.add('scroll-row');
   let frame = 0;
   const edges = () => {
     frame = 0;
@@ -15,7 +16,7 @@ export function scrollableRow(root: HTMLElement) {
   root.addEventListener(
     'wheel',
     (ev) => {
-      if (root.scrollWidth <= root.clientWidth || ev.ctrlKey || Math.abs(ev.deltaX) >= Math.abs(ev.deltaY)) return;
+      if (root.scrollWidth <= root.clientWidth || ev.ctrlKey || Math.abs(ev.deltaX) >= Math.abs(ev.deltaY) || opts.ignore?.(ev)) return;
       // A focused field or list keeps the wheel for itself.
       const t = ev.target as HTMLElement;
       if (t === document.activeElement && t.matches('input,select,textarea')) return;

@@ -176,6 +176,10 @@ svg.icon { flex: none; display: block; }
   .topbar { min-width: 0; }
   .menubar { flex: 0 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .menubar::-webkit-scrollbar { display: none; }
+  /* More menus past the right edge: the bar fades there (app/scroll-row.ts). */
+  .menubar.more-left::before, .menubar.more-right::after { content: ''; position: sticky; flex: none; align-self: stretch; width: 24px; pointer-events: none; z-index: 1; }
+  .menubar.more-left::before { left: 0; margin-right: -24px; background: linear-gradient(to left, transparent, var(--chrome)); }
+  .menubar.more-right::after { right: 0; margin-left: -24px; background: linear-gradient(to right, transparent, var(--chrome)); }
   .menubar-entry > .menu-pop { position: fixed; top: 28px; left: 4px; right: 4px; min-width: 0; max-height: calc(100dvh - 36px); overflow-y: auto; }
   .submenu { top: calc(100% - 2px); left: 14px; right: 4px; min-width: 0; z-index: 51; }
   .top-actions { flex: none; }

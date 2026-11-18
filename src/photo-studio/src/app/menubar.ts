@@ -3,6 +3,7 @@ import { escapeXML } from '../model/assets';
 import { commands, findCommand, menuContributions, type MenuItem } from './registry';
 import { menuSkeleton } from './menus';
 import { formatShortcut } from './shortcuts';
+import { scrollableRow } from './scroll-row';
 import { isHiddenInMenus, menuCustomization, menuTag, type MenuCustomization, type MenuTag } from './menu-custom';
 
 export type Resolved =
@@ -184,6 +185,9 @@ export class MenuBar {
     });
     el.addEventListener('keydown', (ev) => this.key(ev));
     followScrolledSubmenus(el);
+    // Narrow windows: the menu bar scrolls sideways, also with a mouse wheel
+    // (not while a menu is open: the wheel then scrolls the menu).
+    scrollableRow(el, { fade: false, ignore: (ev) => this.open >= 0 || !!(ev.target as HTMLElement).closest('.menu-pop') });
     el.addEventListener('focusin', (ev) => {
       const from = ev.relatedTarget;
       if (from instanceof HTMLElement && !el.contains(from)) this.returnFocus = from;
