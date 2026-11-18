@@ -26,6 +26,7 @@ import { frameLumas, fillGaps, flickerCorrections, flickerKeys, frameGrid, wobbl
 import { extractClipAudio } from '../media/extract-audio.js';
 import { DEFAULT_ADJUST } from '../model/project.js';
 import { adjustProp } from '../model/color.js';
+import { pictureSizeFor } from '../model/picture-size.js';
 
 /**
  * Timeline times (µs) to split a clip at for shot changes at source times
@@ -81,7 +82,8 @@ export async function reframePlan(c, asset, blob, { dstAR, follow = 0.35, zoom =
   const crop = c.crop || { l: 0, t: 0, r: 0, b: 0 };
   const cw = 1 - crop.l - crop.r;
   const ch = 1 - crop.t - crop.b;
-  const srcAR = (asset.width * cw) / (asset.height * ch);
+  const size = pictureSizeFor(c, asset) || asset;
+  const srcAR = (size.width * cw) / (size.height * ch);
   const scale = coverScale(srcAR, dstAR, zoom);
   const toCrop = (pt) => ({ ...pt, x: (pt.x - crop.l) / cw, y: (pt.y - crop.t) / ch });
   let path;
