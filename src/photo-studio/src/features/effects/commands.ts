@@ -9,7 +9,7 @@ import { canvasRect, selectionBounds, selectionGrid } from '../../model/selectio
 import { readMask, writeRect } from '../../model/tiles';
 import { renderPattern } from '../../imaging/pattern/pattern';
 import { compositeRGBA8 } from '../../imaging/blend/composite';
-import type { LayerFill } from '../../model/fill-layer';
+import type { DocumentPattern, LayerFill } from '../../model/fill-layer';
 import type { LayerStyle } from '../../imaging/effects/types';
 import type { AdvancedBlending } from '../../model/blending';
 import { stylePreset } from '../../imaging/effects/presets';
@@ -35,12 +35,22 @@ import { allStyles } from './style-thumbs';
 // Layer style, fill layer and pattern definition commands.
 // Effects with a direct entry in Layer → Layer Style, in dialog order.
 const effectEntries = Object.entries(effectLabels).filter(([k]) => k !== 'blending');
-let clipboard: { style: LayerStyle; fillOpacity?: number; blending?: AdvancedBlending } | undefined;
+// Document patterns the style uses travel with it (as pixels: each document
+// keeps its own tiles), so pasting into another document keeps them.
+type CopiedPattern = Omit<DocumentPattern, 'grid'> & { image: RGBA8 };
+let clipboard: { style: LayerStyle; fillOpacity?: number; blending?: AdvancedBlending; patterns: CopiedPattern[] } | undefined;
+/** Pattern IDs a layer style refers to (pattern overlay, pattern strokes). */
+function stylePatternIds(style: LayerStyle): Set<string> {
+  const ids = new Set<string>();
+  if (style.patternOverlay?.patternId) ids.add(style.patternOverlay.patternId);
+  for (const s of Array.isArray(style.stroke) ? style.stroke : []) if (s?.fill?.type === 'pattern' && s.fill.patternId) ids.add(s.fill.patternId);
+  return ids;
+}
 const styleable = (l: Layer | undefined) => !!l && l.kind !== 'adjustment';
 const hasStyle = (l: Layer | undefined) => !!l?.style && Object.keys(l.style).some((k) => !['enabled', 'scale', 'globalAngle', 'globalAltitude'].includes(k));
 
 /** Applies `edit` to every selected, editable layer that can carry a style. */
-function editStyles(e: Editor, label: string, edit: (l: Layer) => void) {
+function editStyles(e: Editor, label: string, edit: (l: Layer) => void, also?: (d: PhotoDocument) => void) {
   const ids = selectedRoots(e.doc.layers, e.selectedIds).filter((l) => styleable(l) && !layerLock(e.doc.layers, l.id, 'all')).map((l) => l.id);
   if (!ids.length) {
     e.message('Select an unlocked layer first.');
@@ -51,6 +61,7 @@ function editStyles(e: Editor, label: string, edit: (l: Layer) => void) {
       const l = findLayer(d.layers, id);
       if (l) edit(l);
     }
+    also?.(d);
   });
 }
 /** Give the selected layers a copy of `style` as one step (Libraries). */
@@ -131,7 +142,12 @@ export function installEffectCommands() {
       run: (e) => {
         const l = e.layer;
         if (!l?.style) return;
-        clipboard = { style: structuredClone(l.style) as LayerStyle, fillOpacity: l.fillOpacity, blending: l.blending && structuredClone(l.blending) };
+        const style = structuredClone(l.style) as LayerStyle;
+        const used = stylePatternIds(style);
+        const patterns = (e.doc.patterns ?? [])
+          .filter((p) => used.has(p.id))
+          .map(({ grid, ...p }) => ({ ...p, image: readRGBA(e.assets.tiles, grid, { x: 0, y: 0, width: p.width, height: p.height }) }));
+        clipboard = { style, fillOpacity: l.fillOpacity, blending: l.blending && structuredClone(l.blending), patterns };
         e.message('Layer style copied.');
       },
     },
@@ -142,6 +158,9 @@ export function installEffectCommands() {
       run: (e) => {
         const c = clipboard;
         if (!c) return;
+        const missing = c.patterns
+          .filter((p) => !e.doc.patterns?.some((x) => x.id === p.id))
+          .map(({ image, ...p }) => ({ ...p, grid: gridFromImage(e.assets.tiles, image) }));
         editStyles(e, 'Paste Layer Style', (l) => {
           l.style = structuredClone(c.style) as Record<string, unknown>;
           if (c.fillOpacity !== undefined && c.fillOpacity !== 1) l.fillOpacity = c.fillOpacity;
@@ -149,6 +168,8 @@ export function installEffectCommands() {
           // Blending options travel with the style.
           if (c.blending) l.blending = structuredClone(c.blending);
           else delete l.blending;
+        }, (d) => {
+          if (missing.length) d.patterns = [...(d.patterns ?? []), ...missing];
         });
       },
     },
