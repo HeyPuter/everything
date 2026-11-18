@@ -13,6 +13,7 @@ import * as puter from '../storage/puter.js';
 import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
 import { sessionSaveDialog } from './save-dialog.js';
 import { captureSavedSession, savedSessionSnapshot } from '../model/session-snapshot.js';
+import { normalizePath, relativePath } from '../lib/paths.js';
 
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
@@ -97,6 +98,7 @@ async function writeCloudSession(app, doc, { path, name, copy }) {
   const { text, media, video } = serializeSession(doc, {
     name,
     mediaPath: (id, src, file) => {
+      if (src.offline && src.path) return relativePath(dir, src.path);
       const prior = onDisk.get(id);
       if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
       return src.channels?.length ? mediaRevision(file) : file;
@@ -215,6 +217,13 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
   const missing = [];
   for (const src of parsed.sources) {
     const fileName = src.file.split('/').pop();
+    const mediaSource = source.type === 'puter' ? { type: 'puter', path: normalizePath(`${dirOf(source.path)}/${src.file}`) } : { type: 'local' };
+    const addOffline = () => session.addSource({
+      id: src.id, name: src.name, channels: [], offline: true,
+      file: src.file, path: mediaSource.path || null,
+      frames: Number.isFinite(src.frames) ? Math.max(0, Math.round(src.frames)) : 0,
+      channelCount: Number.isFinite(src.channels) ? Math.max(1, Math.round(src.channels)) : 2,
+    });
     let blob = null;
     try {
       blob = await loadMedia(src, fileName);
@@ -222,12 +231,11 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       blob = null;
     }
     if (!blob) {
-      session.addSource({ id: src.id, name: src.name, channels: [], offline: true });
+      addOffline();
       missing.push(src.name);
       continue;
     }
     try {
-      const mediaSource = source.type === 'puter' ? { type: 'puter', path: `${dirOf(source.path)}/${src.file}` } : { type: 'local' };
       const doc = await audioFileFromBlob(blob, src.name || fileName, mediaSource);
       app.addDocument(doc, { activate: false });
       const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
@@ -235,7 +243,7 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       session.pool.get(src.id).stateRef = doc.state;
       if (mediaSource.path) savedMediaOf(session, source.path).set(src.id, { file: src.file, channels, sampleRate: doc.sampleRate });
     } catch {
-      session.addSource({ id: src.id, name: src.name, channels: [], offline: true });
+      addOffline();
       missing.push(src.name);
     }
   }
@@ -248,7 +256,7 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
 async function openSessionFile(app, blob, name, source, context) {
   const text = await blob.text();
   return sessionFromText(app, text, name, source, async (src, fileName) => {
-    if (source.type === 'puter' && source.path) return puter.readFile(`${dirOf(source.path)}/${src.file}`);
+    if (source.type === 'puter' && source.path) return puter.readFile(normalizePath(`${dirOf(source.path)}/${src.file}`));
     // Local: media picked together with the session, matched by file name.
     const item = context.items.find((it) => it.name === fileName);
     if (item) {

@@ -2,6 +2,7 @@
 // needs independent source ids so Revert never changes media used by history.
 import { uid, remapClipSources } from './session-edits.js';
 import { addVideoSource, videoPool } from './session-video.js';
+import { normalizePath } from '../lib/paths.js';
 
 const imports = new WeakMap();
 const videoKey = (src) => JSON.stringify([src.name, src.mime, src.width, src.height, src.duration, src.fps, src.offline, src.path]);
@@ -19,7 +20,7 @@ export function captureSavedSession(doc, state, media, video, dir) {
     state,
     media: media.map((m) => {
       const source = doc.pool.get(m.id);
-      return { ...m, name: source.name, offline: source.offline, frames: source.frames, channelCount: source.channelCount, path: dir === undefined ? source.path : `${dir}/${m.file}` };
+      return { ...m, file: m.file ?? source.file, name: source.name, offline: source.offline, frames: source.frames, channelCount: source.channelCount, path: dir === undefined ? source.path : normalizePath(`${dir}/${m.file}`) };
     }),
     video: src ? { ...src, path: video && dir !== undefined ? `${dir}/${video.file}` : src.path } : null,
   };

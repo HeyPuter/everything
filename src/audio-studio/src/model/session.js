@@ -317,8 +317,8 @@ export class Session extends Emitter {
   // ---------------------------------------------------------------- pool
 
   /** Adds media to the pool; returns the source id. */
-  addSource({ id = uid('src'), name, channels, sampleRate = this.sampleRate, channelRate = this.sampleRate, docId = null, path = null, offline = false }) {
-    this.pool.set(id, { id, name, channels, sampleRate, channelRate, docId, path, offline });
+  addSource({ id = uid('src'), name, channels, sampleRate = this.sampleRate, channelRate = this.sampleRate, docId = null, path = null, offline = false, file, frames, channelCount }) {
+    this.pool.set(id, { id, name, channels, sampleRate, channelRate, docId, path, offline, file, frames, channelCount });
     this.poolVersion++;
     return id;
   }
@@ -335,7 +335,7 @@ export class Session extends Emitter {
 
   sourceLength(id) {
     const src = this.pool.get(id);
-    return src?.channels?.[0]?.length ?? 0;
+    return src?.channels?.[0]?.length ?? src?.frames ?? 0;
   }
 
   /** Source ids referenced by any clip in any history step (what a save must keep). */
