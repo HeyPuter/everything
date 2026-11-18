@@ -499,10 +499,33 @@ function importClipboardSources(doc, clip) {
 
 async function pasteClips(app, doc, clip) {
   const at = doc.cursor;
+  const rate = doc.sampleRate;
+  const selected = S.findTrack(doc.state, doc.selectedTrack);
+  const target = selected?.type === 'audio' && !selected.hidden ? selected.id : null;
+  let prepared;
+  if (clip.type === 'audio') {
+    const canPaste = () => {
+      if (!isOpen(app, doc)) return false;
+      if (doc.sampleRate === rate) return true;
+      app.notify('Paste stopped because the session sample rate changed. Review the session and paste again.', { error: true });
+      return false;
+    };
+    // Keep the clipboard and frame units chosen when Paste began. Revert can
+    // replace the destination while its audio is being converted.
+    const channels = clip.sampleRate === rate ? clip.channels : await channelsAtRate(clip.channels, clip.sampleRate, rate);
+    if (!canPaste()) return;
+    const file = new AudioFile({ name: app.uniqueName('Pasted Audio', '.wav'), sampleRate: rate, channels });
+    app.addDocument(file, { activate: false });
+    const sourceId = await linkSource(doc, file);
+    if (!canPaste()) return;
+    prepared = { channels, file, sourceId };
+  }
+  // Resolve tracks and overlap against the current timeline after preparation.
+  // A moved target stays the target; a removed/hidden target gets a new track.
   let state = doc.state;
   const audio = () => shownAudioTracks(state);
-  let base = audio().findIndex((t) => t.id === doc.selectedTrack);
-  if (base < 0) base = 0;
+  let base = audio().findIndex((t) => t.id === target);
+  if (base < 0) base = prepared && target !== null ? audio().length : 0;
   const ids = [];
   // Preferences > Multitrack: move pasted clips down to tracks where they do not overlap others.
   if (placementOptions.avoidOverlap) {
@@ -511,12 +534,7 @@ async function pasteClips(app, doc, clip) {
   }
   if (clip.type === 'audio') {
     // Waveform audio becomes a new file in the Files panel and a clip.
-    const channels = clip.sampleRate === doc.sampleRate ? clip.channels : await channelsAtRate(clip.channels, clip.sampleRate, doc.sampleRate);
-    if (!isOpen(app, doc)) return;
-    const file = new AudioFile({ name: app.uniqueName('Pasted Audio', '.wav'), sampleRate: doc.sampleRate, channels });
-    app.addDocument(file, { activate: false });
-    app.activate(doc);
-    const sourceId = await linkSource(doc, file);
+    const { channels, file, sourceId } = prepared;
     let track = audio()[base];
     while (!track) {
       const made = newTrack(state, { channels: trackChannelsFor(state, channels.length) });
