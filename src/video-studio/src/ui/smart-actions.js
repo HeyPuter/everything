@@ -337,6 +337,12 @@ export function createSmartActions(ctx) {
         return;
       }
       if (f.track.locked) return;
+      const clip = f.clip;
+      const assetId = clip.assetId;
+      const isCurrentSource = () => T.findClip(store.project, clip.id)?.clip === clip
+        && clip.assetId === assetId && clip.type === 'video' && !clip.freeze;
+      const changedMessage = 'The clip changed. Reopen Stabilize to analyze its current video.';
+      const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage); };
       const strength = h('select.select', h('option', { value: '6' }, 'Light'), h('option', { value: '15' }, 'Medium'), h('option', { value: '30' }, 'Strong'));
       strength.value = String(prefs().stabilizeStrength || '15');
       const go = h('button.btn.primary', { type: 'button' }, icon('focus', 16), 'Stabilize');
@@ -351,8 +357,15 @@ export function createSmartActions(ctx) {
       go.addEventListener('click', async () => {
         dlg.close();
         setPref('stabilizeStrength', strength.value);
-        const clip = f.clip;
-        const asset = store.project.assets[clip.assetId];
+        if (!isCurrentSource()) {
+          toast(changedMessage, { kind: 'error' });
+          return;
+        }
+        if (T.findClip(store.project, clip.id)?.track.locked) {
+          toast('Unlock the track to stabilize this clip.', { kind: 'info' });
+          return;
+        }
+        const asset = store.project.assets[assetId];
         const W = 192;
         const H = Math.max(36, Math.round((W * (asset.height || 9)) / (asset.width || 16)));
         const fps = 15;
@@ -361,6 +374,7 @@ export function createSmartActions(ctx) {
         const p = progressDialog('Stabilizing', 'Following the camera movement...');
         try {
           const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
+          requireSource();
           const shifts = [];
           const sampleTimes = [];
           const sourceTimes = times.map((t) => T.sourceTimeAt(clip, clip.start + t));
@@ -375,6 +389,7 @@ export function createSmartActions(ctx) {
             p.set(++i / times.length);
           }
           p.signal.throwIfAborted();
+          requireSource();
           if (sampleTimes.length < 2) throw new Error('Could not read enough frames to stabilize this clip. Try again or use another video.');
           const path = cameraPath(shifts);
           const smooth = smoothCamera(path, Number(strength.value));
@@ -389,16 +404,18 @@ export function createSmartActions(ctx) {
           const sc = scale0 * zoom;
           const xs = offsets.map((o, k) => ({ t: Math.min(clip.duration, sampleTimes[k]), v: clip.transform.x + (o.x / W) * fitW * sc, ease: 'linear' }));
           const ys = offsets.map((o, k) => ({ t: Math.min(clip.duration, sampleTimes[k]), v: clip.transform.y + (o.y / H) * fitH * sc, ease: 'linear' }));
-          ctx.actions.editClip(clip.id, 'Stabilize', (c) => {
+          const saved = ctx.actions.editClip(clip.id, 'Stabilize', (c) => {
+            if (!isCurrentSource()) return false;
             c.keyframes ||= {};
             delete c.keyframes.scale;
             c.transform.scale = sc;
             c.keyframes.x = thinKeys(xs, 0.0008);
             c.keyframes.y = thinKeys(ys, 0.0008);
           });
+          if (saved === false) throw new Error(isCurrentSource() ? 'Stabilization could not be saved. The clip may be locked or no longer available.' : changedMessage);
           toast(`Stabilized, zoomed in ${Math.round((zoom - 1) * 100)}%.`, { kind: 'success' });
         } catch (err) {
-          if (!p.signal.aborted && err?.name !== 'AbortError') toast(err?.message || 'Could not stabilize this clip.', { kind: 'error' });
+          if (!p.signal.aborted && err?.name !== 'AbortError') toast(isCurrentSource() ? err?.message || 'Could not stabilize this clip.' : changedMessage, { kind: 'error' });
         } finally {
           p.close();
         }
