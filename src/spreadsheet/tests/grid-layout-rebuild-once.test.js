@@ -25,6 +25,7 @@ async function mount() {
   const id = wb.sheets[0].id;
   wb.ensureSize(id, 2100, 26);
   wb.setInput(id, 0, 0, 'top');
+  wb.setInput(id, 2099, 0, 'bottom'); // keeps the sheet 2,100 rows long: an empty end is given back once it is shown
   const grid = createGrid({ wb, sheetId: id, announce() {} });
   document.body.replaceChildren(grid.el);
   await flush();

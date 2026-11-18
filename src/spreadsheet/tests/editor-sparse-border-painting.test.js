@@ -70,6 +70,7 @@ it('distinguishes whole columns from a finite range with the same allocated boun
 });
 it('excludes filtered-out rows from a column border gesture', async () => {
   const { wb, id } = await setup('C:E');
+  wb.setInput(id, 999, 0, 'last'); // the list's last row: an empty end of the sheet is given back, and filtered columns are bordered as far as the sheet goes
   wb.activeSheet.filterHidden.add(500);
   await border('All borders');
   expect(wb.styleAt(id, 499, 3)?.br).toBe(true);

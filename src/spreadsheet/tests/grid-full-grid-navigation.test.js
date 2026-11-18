@@ -108,7 +108,8 @@ describe('the full grid', () => {
     }
     expect(grid.selectByName('XFE1')).toBe(false);
     expect(grid.selectByName('A1048577')).toBe(false);
-    expect(wb.sheet(id).rows).toBe(LAST_ROW + 1);
+    // As far as the cell gone to last, and the rows a move to the edge adds: the empty rows past it, reached on the way, were given back.
+    expect(wb.sheet(id).rows).toBe(900000 + 100);
     grid.destroy();
   });
 
@@ -168,7 +169,8 @@ describe('the full grid', () => {
 
   it('moves the canvas window with the user\'s scroll, keeping what is on screen in place', async () => {
     const extent = 20000; // a small window, so a sheet of a thousand rows needs one
-    const { wb, id, grid, pos, canvas } = await mount((wb, id) => wb.ensureSize(id, 5000, 26), { maxCanvasExtent: extent });
+    // A value in its last row keeps the sheet that long: an empty end would be given back once the sheet is shown.
+    const { wb, id, grid, pos, canvas } = await mount((wb, id) => { wb.ensureSize(id, 5000, 26); wb.setInput(id, 4999, 0, 'last'); }, { maxCanvasExtent: extent });
     const h = wb.sheet(id).defaultRowHeight;
     expect(parseFloat(canvas.style.height)).toBe(extent);
     // Scroll down by hand, a screen at a time, well past the first window.
@@ -207,7 +209,8 @@ describe('the work a full-size sheet costs', () => {
     grid.selectByName('K250000');
     await flush();
     expect(grid.active).toEqual({ r: 249999, c: 10 });
-    expect(wb.sheet(id).rows).toBe(LAST_ROW + 1);
+    // The sheet reached its last row on the way; back above the data, it ends after it again (with the blank rows kept after a value).
+    expect(wb.sheet(id).rows).toBe(800001 + 20);
     // Thousands at most for a screenful of cells, never hundreds of thousands for the rows walked past.
     expect(getCell.mock.calls.length).toBeLessThan(5000);
     expect(spillAt.mock.calls.length).toBeLessThan(5000);

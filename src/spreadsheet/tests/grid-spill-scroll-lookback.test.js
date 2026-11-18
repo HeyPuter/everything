@@ -23,6 +23,7 @@ async function mount(chars, prepare) {
   const id = wb.sheets[0].id;
   wb.ensureSize(id, 100, 60);
   wb.setInput(id, 0, 0, 'x'.repeat(chars));
+  wb.setInput(id, 50, 59, 'far'); // keeps the sheet 60 columns wide (empty ones are given back once it is shown), out of the label's row
   prepare?.(wb, id);
   const grid = createGrid({ wb, sheetId: id, announce() {} });
   document.body.replaceChildren(grid.el);

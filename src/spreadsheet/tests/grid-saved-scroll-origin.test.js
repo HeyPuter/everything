@@ -35,8 +35,10 @@ it('restores only after mounting, independently of an offscreen active cell', as
   expect(grid.viewport.scrollLeft).toBe(5 * 100);
   expect(grid.active).toEqual({ r: 89, c: 10 });
   expect(wb.dirty).toBe(false); expect(wb.canUndo()).toBe(false);
+  // The empty rows the file kept past a new sheet's size were given back when it was shown; the restoring scroll adds none.
+  expect(wb.activeSheet.rows).toBe(100);
   grid.viewport.dispatchEvent(new Event('scroll'));
-  expect(wb.activeSheet.rows).toBe(120);
+  expect(wb.activeSheet.rows).toBe(100);
 });
 
 it('uses hidden-line geometry and preserves the saved origin at another zoom', async () => {

@@ -4,7 +4,7 @@ import { normalizeFillColor, fillColorCss, sameFillColor } from './fill-color.js
 import { normalizeNativeFill, nativeFillPatch, packNativeFillState, unpackNativeFillState } from './native-fill.js';
 import { tableConversionStyle } from './table-conversion-style.js';
 import { transposeFormula } from './transpose-formula.js';
-import { refreshCellDrawings, reanchorCellDrawing, mapCellDrawing, normalizeCellAnchor } from './drawing-cell-anchor.js';
+import { refreshCellDrawings, reanchorCellDrawing, mapCellDrawing, normalizeCellAnchor, drawingFarCell, drawingOffsets } from './drawing-cell-anchor.js';
 import { preserveCopiedChartText } from './chart-linked-text.js';
 import { externalProvenance, externalFormulaProvenance } from './external-provenance.js';
 import { externalLinksFromDependencies } from './external-formula-links.js';
@@ -128,8 +128,12 @@ const say = (source, key, values) => (source ? tSource(key, values) : t(key, val
 const SERIES_CHART_TYPES = new Set(['column', 'bar', 'line', 'area', 'pie', 'donut', 'scatter', 'bubble', 'combo', 'radar']);
 export const DEFAULT_ROWS = 100;
 export const DEFAULT_COLS = 26;
+// The blank rows and columns kept after a sheet's last value when its unused end is given back (see heldSize): as many as a file opens with.
+const HELD_ROWS_AFTER = 20;
+const HELD_COLS_AFTER = 5;
 // A sheet is the full .xlsx grid, A1:XFD1048576. The grid shows only as much as has been reached and
-// grows as the user goes further, but every command treats the sheet as this size.
+// grows as the user goes further, giving the unused end back when the view leaves it (see trimSize),
+// but every command treats the sheet as this size.
 export const MAX_ROWS = 1048576;
 export const MAX_COLS = 16384; // XFD
 export const DEFAULT_COL_WIDTH = 100;
@@ -1494,6 +1498,8 @@ export class Workbook extends EventTarget {
     this._priming = false; // while a column is being settled top down for a chain the formula text cannot be walked
     this._usedCache = new Map();
     this._cellBoundsCache = new Map(); // sheetId → last row/col with content, valid for the whole version
+    this._storedBoundsCache = new Map(); // sheetId → last row/col with a stored cell, be it only formatted (see _storedBounds)
+    this._heldCache = new Map(); // sheetId → last row/col anything but a cell lies on (see heldSize), until the next change
     this._statsCache = new Map();
     this._volatile = null; // whether any formula in the book is volatile, until the book next changes
     this._spills = new Map(); // sheetId → { anchors, cover, building }
@@ -2910,11 +2916,19 @@ export class Workbook extends EventTarget {
       // on that edge calls for the scan of every cell that finding them again would be.
       let bounds = this._cellBoundsCache.get(live.id);
       if (bounds) bounds = { ...bounds };
+      // So do the last row and column holding any cell at all, a format alone included (see _storedBounds).
+      let stored = this._storedBoundsCache.get(live.id);
+      if (stored) stored = { ...stored };
       for (const { key, cell } of list) {
         if (cell) live.cells.set(key, cloneCell(cell));
         else live.cells.delete(key);
-        if (!bounds) continue;
+        if (!bounds && !stored) continue;
         const { r, c } = parseKey(key);
+        if (stored) {
+          if (cell) { if (r > stored.r2) stored.r2 = r; if (c > stored.c2) stored.c2 = c; }
+          else if (r === stored.r2 || c === stored.c2) stored = null;
+        }
+        if (!bounds) continue;
         if (cell && (cell.v != null || cell.f != null)) { if (r > bounds.r2) bounds.r2 = r; if (c > bounds.c2) bounds.c2 = c; }
         else if (r === bounds.r2 || c === bounds.c2) bounds = null;
       }
@@ -2930,6 +2944,7 @@ export class Workbook extends EventTarget {
       }
       this._changed('cells', live.id, { box, formula });
       if (bounds) this._cellBoundsCache.set(live.id, bounds);
+      if (stored) this._storedBoundsCache.set(live.id, stored);
     };
     // Grouped sheets: the cells written on the active sheet are noted, to be written again on the rest of the group.
     if (this._groupRecorder?.sheetId === sheetId) for (let i = 0; i < before.length; i++) this._groupRecorder.writes.push({ key: before[i].key, prev: before[i].cell, next: after[i].cell });
@@ -12235,7 +12250,7 @@ export class Workbook extends EventTarget {
     return [...set].filter((i) => i >= from && i <= to).sort((a, b) => a - b);
   }
 
-  /** Grow the grid (never shrink). Not undoable: it changes no content. */
+  /** Grow the grid (never shrink: see trimSize). Not undoable: it changes no content. */
   ensureSize(sheetId, rows, cols, { restoreView = false } = {}) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
@@ -12246,6 +12261,88 @@ export class Workbook extends EventTarget {
     sheet.reachedRows = sheet.rows;
     sheet.reachedCols = sheet.cols;
     return true;
+  }
+
+  /**
+   * Give back the empty end of the grid: the rows and columns that scrolling or moving out added (see ensureSize)
+   * and nothing was put in. The sheet shrinks to `rows` by `cols`, the extent the view still needs (0 leaves an
+   * axis as it is), but never below what it holds (see heldSize), and it never grows. Given the steps the view
+   * grows the sheet by, it settles on the size growing from what it holds would have reached: an empty sheet goes
+   * back to the size it began with, not to wherever the view happens to end. Like the growth it takes back, this
+   * is no edit of the document and no step to undo: every cell, format and object stays as it is.
+   */
+  trimSize(sheetId, rows, cols, { rowStep = 1, colStep = 1 } = {}) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || sheet.kind === 'chart') return false;
+    rows = rows > 0 ? Math.ceil(rows) : 0;
+    cols = cols > 0 ? Math.ceil(cols) : 0;
+    // The sheet's values alone say no for a sheet no larger than they keep it, which is nearly every sheet at
+    // rest: this is asked each time the view settles, and all a large sheet holds is not gone over for it.
+    const content = this._contentSize(sheet);
+    if ((!rows || sheet.rows <= Math.max(content.rows, rows)) && (!cols || sheet.cols <= Math.max(content.cols, cols))) return false;
+    const held = this.heldSize(sheetId);
+    const fit = (base, need, step) => (need <= base ? base : base + Math.ceil((need - base) / step) * step);
+    const nr = rows ? Math.min(sheet.rows, fit(held.rows, rows, rowStep)) : sheet.rows;
+    const nc = cols ? Math.min(sheet.cols, fit(held.cols, cols, colStep)) : sheet.cols;
+    if (nr === sheet.rows && nc === sheet.cols) return false;
+    sheet.rows = nr;
+    sheet.cols = nc;
+    // The extent kept through undo and redo comes back with the sheet (see ensureSize).
+    sheet.reachedRows = nr;
+    sheet.reachedCols = nc;
+    this._resized(sheet);
+    return true;
+  }
+
+  /** A new sheet's size, or the sheet's values, formulas and what they spill with the blank lines a file opens with after them. */
+  _contentSize(sheet) {
+    const used = this.usedRange(sheet.id);
+    return { rows: Math.max(DEFAULT_ROWS, used ? used.r2 + 1 + HELD_ROWS_AFTER : 0), cols: Math.max(DEFAULT_COLS, used ? used.c2 + 1 + HELD_COLS_AFTER : 0) };
+  }
+
+  /**
+   * The fewest rows and columns a sheet is shown with: a new sheet's size, and room for all it holds. Values,
+   * formulas and what they spill keep the blank lines after them a file opens with; a cell that is only formatted,
+   * a note, a comment, a merged cell, a table, a group of the outline, a frozen pane and every chart, picture and
+   * shape (with the cells a chart plots) keep the lines they lie on. A line's own size, format or hiding keeps
+   * nothing, nor does a rule's or a validation's range: those hold for lines the sheet has not reached, as a
+   * range running to the grid's end does, so they wait there until the sheet reaches them again.
+   */
+  heldSize(sheetId) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return null;
+    if (sheet.kind === 'chart') return { rows: sheet.rows, cols: sheet.cols };
+    let { rows, cols } = this._contentSize(sheet);
+    const hold = (r, c) => { if (r >= rows) rows = r + 1; if (c >= cols) cols = c + 1; };
+    const stored = this._storedBounds(sheet);
+    hold(stored.r2, stored.c2);
+    // What lies on the sheet beside its cells, gone over once for every change of the book.
+    let placed = this._heldCache.get(sheet.id);
+    if (!placed) {
+      placed = { r2: -1, c2: -1 };
+      const keep = (r, c) => { if (r > placed.r2) placed.r2 = r; if (c > placed.c2) placed.c2 = c; };
+      // What runs to the grid's last line (a merged column, a group of every row below a list) is cut at the sheet's end, wherever that is.
+      const span = (r, c) => keep(r < MAX_ROW ? r : -1, c < MAX_COL ? c : -1);
+      for (const map of [sheet.notes, sheet.comments]) for (const key of map?.keys() || []) { const { r, c } = parseKey(key); keep(r, c); }
+      for (const m of sheet.merges) span(m.r2, m.c2);
+      for (const tbl of sheet.tables) span(tbl.range.r2, tbl.range.c2);
+      for (const g of sheet.groups?.rows || []) span(g.to, -1);
+      for (const g of sheet.groups?.cols || []) span(-1, g.to);
+      if (sheet.charts.length) {
+        const offsets = drawingOffsets(sheet);
+        for (const ch of sheet.charts) {
+          const far = drawingFarCell(sheet, ch, offsets);
+          keep(far.r, far.c);
+          if (ch.range && !PLACED_DRAWING_TYPES.has(ch.type)) span(ch.range.r2, ch.range.c2);
+        }
+      }
+      this._heldCache.set(sheet.id, placed);
+    }
+    hold(placed.r2, placed.c2);
+    // The frozen lines and the first line that scrolls under them, as a sheet is made with (see makeSheet).
+    if (sheet.frozenRows) hold((sheet.frozenOrigin?.r || 0) + sheet.frozenRows, -1);
+    if (sheet.frozenCols) hold(-1, (sheet.frozenOrigin?.c || 0) + sheet.frozenCols);
+    return { rows, cols };
   }
 
   /** Whether a requested size fits completely, including already-large imported sheets. */
@@ -12263,21 +12360,41 @@ export class Workbook extends EventTarget {
     if (nr === sheet.rows && nc === sheet.cols) return false;
     sheet.rows = nr;
     sheet.cols = nc;
-    if (emit) {
-      // Announced through the change path, so a growth inside a transaction is heard with the transaction's other changes,
-      // after them, and the version moves on with the layout. Reaching further down a sheet is no edit, though: no value
-      // depends on the size, so the calculated values stay, and the document is no dirtier for a scroll.
-      this.version++;
-      // Recorded as well as announced: a version that moves on without an entry leaves a hole in the log, and
-      // changesSince answers "anything may have changed" for every span across it. Growth is the most frequent
-      // version bump there is — a flick past the last row fires several — so that hole sent every chart, and
-      // anything else built from the book, back over its whole range after a scroll.
-      // `grow` tells it from a change of layout, for a reader that minds edits alone (the assistant's Solver).
-      this._changeLog.push({ version: this.version, type: 'layout', sheetId: sheet.id, box: null, formula: false, grow: true });
-      if (this._changeLog.length > CHANGE_LOG * 2) this._changeLog.splice(0, this._changeLog.length - CHANGE_LOG);
-      this._announce('layout', sheet.id);
-    }
+    if (emit) this._resized(sheet);
     return true;
+  }
+
+  /** The sheet's size changed and nothing else: grown to reach further (see _growTo), or its empty end given back (see trimSize). */
+  _resized(sheet) {
+    // Announced through the change path, so a growth inside a transaction is heard with the transaction's other changes,
+    // after them, and the version moves on with the layout. Reaching further down a sheet is no edit, though: no value
+    // depends on the size, so the calculated values stay, and the document is no dirtier for a scroll.
+    this.version++;
+    // Recorded as well as announced: a version that moves on without an entry leaves a hole in the log, and
+    // changesSince answers "anything may have changed" for every span across it. Growth is the most frequent
+    // version bump there is — a flick past the last row fires several — so that hole sent every chart, and
+    // anything else built from the book, back over its whole range after a scroll.
+    // `grow` tells it from a change of layout, for a reader that minds edits alone (the assistant's Solver);
+    // the empty end given back is marked the same way, being as little of an edit.
+    this._changeLog.push({ version: this.version, type: 'layout', sheetId: sheet.id, box: null, formula: false, grow: true });
+    if (this._changeLog.length > CHANGE_LOG * 2) this._changeLog.splice(0, this._changeLog.length - CHANGE_LOG);
+    this._announce('layout', sheet.id);
+  }
+
+  /** The last row and column holding a stored cell, one that is only formatted included (-1 when the sheet stores none). */
+  _storedBounds(sheet) {
+    let bounds = this._storedBoundsCache.get(sheet.id);
+    if (bounds) return bounds;
+    let r2 = -1;
+    let c2 = -1;
+    for (const key of sheet.cells.keys()) {
+      const { r, c } = parseKey(key);
+      if (r > r2) r2 = r;
+      if (c > c2) c2 = c;
+    }
+    bounds = { r2, c2 };
+    this._storedBoundsCache.set(sheet.id, bounds);
+    return bounds;
   }
 
   /** Bounding box of every non-empty cell (spilled results included), or null for an empty sheet. */
@@ -14329,7 +14446,7 @@ export class Workbook extends EventTarget {
         if (r >= box.r1 && r <= box.r2 && c >= box.c1 && c <= box.c2) this._cache.delete(key);
       }
     }
-    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._circleOf, this._provisional]) store.clear();
+    for (const store of [this._rangeCache, this._rangeRuns, this._usedCache, this._cellBoundsCache, this._storedBoundsCache, this._heldCache, this._statsCache, this._spills, this._evaluating, this._evalOrder, this._cyclic, this._circleOf, this._provisional]) store.clear();
     this._evalLast = null;
     this._hasDeferredSpills = false;
     this._spillComputed = [];
@@ -14554,6 +14671,8 @@ export class Workbook extends EventTarget {
     this._rangeRuns.clear();
     this._usedCache.clear();
     this._cellBoundsCache.clear();
+    this._storedBoundsCache.clear();
+    this._heldCache.clear();
     this._statsCache.clear();
     this._volatile = null;
     this._spills.clear();

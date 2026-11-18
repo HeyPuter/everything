@@ -39,7 +39,7 @@ import { t } from '../i18n/index.js';
  * caller's announce() callback.
  */
 import { measureRows } from '../core/row-height.js';
-import { MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, MAX_ROWS, MAX_COLS, safeLinkUrl, objectNoun } from '../core/workbook.js';
+import { MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, MAX_ROWS, MAX_COLS, DEFAULT_ROWS, DEFAULT_COLS, safeLinkUrl, objectNoun } from '../core/workbook.js';
 import { pictureNode } from './picture.js';
 import { pictureFrameCss, pictureStyled } from '../core/picture-format.js';
 import { linkedPictureTarget, rangePicture, svgDataUrl } from '../core/range-picture.js';
@@ -85,6 +85,11 @@ const LONG_PRESS_MS = 480;
 const TAP_SLOP = 8;
 const GROW_ROWS = 100;
 const GROW_COLS = 10;
+const GROW_EDGE = 120; // px: a view this near the sheet's last row or column grows the sheet when scrolled
+const WHEEL_SCROLL = 200; // ms after a turn of the wheel in which a scroll is taken to be the wheel's (see trimToView)
+const SCROLL_STOPPED = 250; // ms without a scroll event after which a scroll is taken to be over, where the browser does not say
+const SCROLL_HELD_MAX = 3000; // ms a scroll is taken to be still under way when the browser has not said that it ended
+const SCROLL_END = typeof window !== 'undefined' && 'onscrollend' in window; // the browser says when a scroll has ended
 const SPOKEN_MAX = 200; // characters of a cell's text read out when it is selected; the rest is summed up
 // Ctrl (⌘) chords that change the selected cells, held back while a drawing object is selected over them: always,
 // only with Shift (number formats, font size), or only without it (underline; Ctrl+Shift+U shows the formula bar).
@@ -206,6 +211,10 @@ export function createGrid(opts) {
   let knownWidths = null; // { sheetId, widths }: the column widths as last laid out, to notice a resize
   let offsetsStale = false; // a layout change is not laid out yet: the offsets are rebuilt on the first read, or in the next frame
   let growingByScroll = false; // scrolling near the edge is adding rows or columns right now
+  let trimDue = false; // the sheet's unused end is to be given back in the next frame (see trimToView)
+  let wheelTurned = -Infinity; // when the wheel last turned over the grid
+  let scrollOpen = 0; // when the last event came of a scroll that may be the scrollbar's thumb in a drag, until the scroll is over
+  let scrollStop = 0; // the timer that takes such a scroll to be over, where the browser does not say
   const colOffsets = new AxisOffsets();
   const rowOffsets = new AxisOffsets();
   // The line each axis's canvas window begins at, when the sheet is too long for one canvas (see AxisOffsets).
@@ -1935,6 +1944,72 @@ export function createGrid(opts) {
   }
 
   /**
+   * The rows and columns that scrolling or moving out added come off again as the view leaves them, if nothing
+   * was put in them: the endless page gives back what it lent, so a sheet does not keep every row its user ever
+   * scrolled past (they could only be deleted, and a saved file kept them). The view says how far it still
+   * reaches (the lines in view and the edge that grows the sheet, the selection, a cell being edited); the workbook
+   * keeps what the sheet holds (Workbook.trimSize). The sheet settles on the size that growing in the same steps
+   * would have left it at, so a view back at the top of an empty sheet finds the size the sheet began with, and a
+   * view resting near the end does not lose and regain the same rows.
+   *
+   * It is done in the frame after it is asked for, so the sheet shortens as the wheel, a key or the grid itself
+   * scrolls back over it. A scroll of any other making waits until it is over, for it may be the scrollbar's thumb
+   * in a drag: the thumb maps the pointer to the sheet's length, and a sheet shortened under it would jump,
+   * further with every move (see the scroll listener).
+   */
+  function scheduleTrim() {
+    const s = sheet();
+    if (destroyed || !s || s.kind === 'chart' || (s.rows <= DEFAULT_ROWS && s.cols <= DEFAULT_COLS)) return;
+    trimDue = true;
+    schedule();
+  }
+
+  function trimToView() {
+    trimDue = false;
+    const s = sheet();
+    if (destroyed || !s || s.kind === 'chart') return;
+    // A grid not laid out yet, or not back at its place, says nothing of the view: the frame that has both asks again.
+    if (!root.isConnected || pendingOrigin || !(viewport.clientWidth > 0) || !(viewport.clientHeight > 0)) { trimDue = true; return; }
+    // A drag stretches a selection, a fill or a moved chart past the edge, and its end asks again; so does a scroll's.
+    if (drag || tap || freezeDrag || splitDrag || pinch) return;
+    if (scrollOpen && performance.now() - scrollOpen < SCROLL_HELD_MAX) return;
+    ensureOffsets();
+    if (pageGeo) return; // Page Layout view lays out the printed pages, not the sheet's reach
+    const view = viewMetrics();
+    const b = bounds();
+    // The lines the selection and the cell being edited lie on stay; whole columns and rows run past any end.
+    let lastR = sel.active.r, lastC = sel.active.c;
+    for (const range of [S.selRange(sel, true), ...extras]) {
+      if (!['columns', 'sheet'].includes(range.scope) && range.r2 < b.rows - 1) lastR = Math.max(lastR, range.r2);
+      if (!['rows', 'sheet'].includes(range.scope) && range.c2 < b.cols - 1) lastC = Math.max(lastC, range.c2);
+    }
+    if (edit && edit.sheetId === sheetId) { lastR = Math.max(lastR, edit.r); lastC = Math.max(lastC, edit.c); }
+    // The fewest lines that leave the view clear of the edge that grows the sheet: through the line GROW_EDGE past
+    // the far side of the view (a split window's own panes scroll apart from it), and one more. A view already
+    // that near the end keeps every line (0, as ensureSize reads it).
+    const reach = (offsets, far) => {
+      const p = offsets.fromCanvas(Math.min(far, offsets.total())) + offsets.origin + GROW_EDGE;
+      return p >= offsets.endPos ? 0 : offsets.contentIndexAt(p) + 2;
+    };
+    const viewRows = reach(rowOffsets, Math.max(view.st + view.vh, frozen.split && frozen.top ? frozen.st + frozen.h : 0));
+    const viewCols = reach(colOffsets, Math.max(view.sl + view.vw, frozen.split && frozen.left ? frozen.sl + frozen.w : 0));
+    const rows = viewRows ? Math.max(viewRows, lastR + 1) : 0;
+    const cols = viewCols ? Math.max(viewCols, lastC + 1) : 0;
+    if ((!rows || rows >= s.rows) && (!cols || cols >= s.cols)) return;
+    // A sheet too long for one canvas is shown through a window of it, which a shorter sheet may place elsewhere
+    // or do without: what the scrolling pane shows at its top-left stays there.
+    const band = () => (frozen.split ? { x: 0, y: 0 } : { x: frozen.w, y: frozen.h });
+    const before = band();
+    const at = { x: colOffsets.fromCanvas(view.sl + before.x), y: rowOffsets.fromCanvas(view.st + before.y) };
+    // In the steps the sheet grows by, from what it holds: the size scrolling this far would have made it.
+    if (!wb.trimSize(sheetId, rows, cols, { rowStep: GROW_ROWS, colStep: GROW_COLS })) return;
+    rebuildOffsets();
+    const after = band();
+    const sl = Math.max(-shift.x, colOffsets.toCanvas(at.x) - after.x), st = Math.max(-shift.y, rowOffsets.toCanvas(at.y) - after.y);
+    if (Math.abs(sl - view.sl) >= 1 || Math.abs(st - view.st) >= 1) { rendered.key = null; scrollViewportTo(sl, st); }
+  }
+
+  /**
    * The sheet's background picture (Page Layout ▸ Background), tiled from A1 behind the cells at its own
    * size times the zoom; a cell's fill covers it. The frozen panes' tracks share the canvas coordinates,
    * so they tile it the same way. The picture's size is read once it has loaded.
@@ -2017,6 +2092,7 @@ export function createGrid(opts) {
     // dimensions could not. Resolve it before subtracting it from the origin.
     if (pendingOrigin) computeFrozen();
     restoreViewOrigin();
+    if (trimDue) trimToView();
     let view = viewMetrics();
     if (computeFrozen(view)) view = viewMetrics(); // a split made or removed moved the canvas
     rememberViewOrigin(view);
@@ -2404,9 +2480,13 @@ export function createGrid(opts) {
         const changes = box.sig == null ? null : wb.changesSince(box.version);
         box.version = wb.version;
         const range = normalizeRange(ch.range);
+        // The sheet's size alone changing (grown by a scroll, its unused end given back after one) reaches no chart
+        // that ends inside both the extent its last reading was taken at and the one the sheet has now, whatever
+        // else came with it: the end given back arrives when the view has settled, often beside an edit elsewhere.
+        const inside = !!box.read && range.r2 < Math.min(s.rows, box.read.rows) && range.c2 < Math.min(s.cols, box.read.cols);
         const reaches = (e) => (e.type === 'cells'
           ? e.sheetId === sheetId && (e.formula || !e.box || (e.box.r1 <= range.r2 && e.box.r2 >= range.r1 && e.box.c1 <= range.c2 && e.box.c2 >= range.c1))
-          : e.type !== 'layout' || e.sheetId == null || e.sheetId === sheetId);
+          : e.type !== 'layout' || e.sheetId == null || (e.sheetId === sheetId && !(e.grow && inside)));
         const hidden = [s.hiddenRows, s.hiddenCols, s.filterHidden];
         // Are the sheet's hidden lines as they were when this chart last read its range? Every
         // command that hides or shows lines either changes their count or hands the sheet a new set
@@ -2420,12 +2500,12 @@ export function createGrid(opts) {
         // freeze and a protected range change nothing a chart reads either. So a chart that ends
         // inside the extent its last reading was taken at, its own definition and its sheet's hidden
         // lines unchanged, keeps its picture with its range left untouched: scrolling down a sheet
-        // of forty charts no longer reads every one of their ranges again.
+        // of forty charts no longer reads every one of their ranges again. Nor does scrolling back up
+        // it: the unused end the sheet gives back (see trimToView) lies past every range a chart plots,
+        // so a chart that ends inside the extent the sheet has now is passed over in the same way.
         const untouched = lines && changes?.length > 0
           && changes.every((e) => e.type === 'layout' && e.sheetId === sheetId)
-          && s.rows >= box.read.rows && s.cols >= box.read.cols
-          && range.r2 < box.read.rows && range.c2 < box.read.cols
-          && chartDefinition(ch) === box.read.def;
+          && inside && chartDefinition(ch) === box.read.def;
         const reached = !untouched && (!changes || !lines || changes.some(reaches));
         if (reached || overdue) {
           const read = rangeFingerprint(ch.range);
@@ -2772,6 +2852,7 @@ export function createGrid(opts) {
       node.removeEventListener('pointercancel', cancel);
       const d = drag;
       drag = null;
+      scheduleTrim();
       return d;
     };
     const up = () => {
@@ -3380,6 +3461,7 @@ export function createGrid(opts) {
     const a = sel.active;
     if (a.r < rendered.r0 || a.r > rendered.r1 || a.c < rendered.c0 || a.c > rendered.c1 || rowHidden(s, a.r) || s.hiddenCols.has(a.c)) rendered.key = null;
     schedule();
+    scheduleTrim(); // the selection may have left lines that only it kept on the sheet
     rememberSheetSelection();
     opts.onSelection?.(sel);
     if (announce) speak();
@@ -4597,6 +4679,7 @@ export function createGrid(opts) {
     resizeFeedback.hidden = true;
     root.classList.remove('reordering', 'resizing-col', 'resizing-row');
     stopAutoScroll();
+    scheduleTrim();
     schedule();
   }
 
@@ -4922,6 +5005,7 @@ export function createGrid(opts) {
 
   function pointerUp(e) {
     stopAutoScroll();
+    scheduleTrim(); // a drag kept the lines it reached (see trimToView)
     if (headerPress) { clearTimeout(headerPress.timer); headerPress = null; }
     if (tap) {
       clearTimeout(tap.timer);
@@ -6277,6 +6361,18 @@ export function createGrid(opts) {
     // The function list or argument hint under a formula typed in the cell moves with the cell, rather than staying where it was.
     if (edit && hints.isOpen && editInput() === editor) updateHints();
     if (sheet()?.kind === 'chart') return;
+    // Whoever scrolled, the view may have left rows or columns that an earlier scroll added. They go at once when the
+    // scroll is the grid's own (a key, a cell brought into view) or the wheel's, whose events come with it and through
+    // a trackpad's momentum. Any other may be the scrollbar's thumb in a drag, which no event tells apart: that one
+    // waits until the browser says the scroll has ended, or no scroll event has come for a while (see trimToView).
+    clearTimeout(scrollStop);
+    const byGrid = !!scrollByCode && Math.abs(viewport.scrollLeft - scrollByCode.left) < 1 && Math.abs(viewport.scrollTop - scrollByCode.top) < 1;
+    if (byGrid || performance.now() - wheelTurned < WHEEL_SCROLL) scrollOpen = 0;
+    else {
+      scrollOpen = performance.now();
+      if (!SCROLL_END) scrollStop = setTimeout(() => { scrollOpen = 0; scheduleTrim(); }, SCROLL_STOPPED);
+    }
+    scheduleTrim();
     followWindows();
     rememberViewOrigin();
     // The grid's own scroll is not the user reaching for the edge: only their scrolling grows the sheet.
@@ -6288,14 +6384,18 @@ export function createGrid(opts) {
     // Approaching the bottom or right edge grows the sheet.
     ensureOffsets();
     const s = sheet();
-    const nearBottom = reachesEnd(rowOffsets) && viewport.scrollTop - shift.y + viewport.clientHeight > rowOffsets.total() - 120;
-    const nearRight = reachesEnd(colOffsets) && viewport.scrollLeft - shift.x + viewport.clientWidth > colOffsets.total() - 120;
+    const nearBottom = reachesEnd(rowOffsets) && viewport.scrollTop - shift.y + viewport.clientHeight > rowOffsets.total() - GROW_EDGE;
+    const nearRight = reachesEnd(colOffsets) && viewport.scrollLeft - shift.x + viewport.clientWidth > colOffsets.total() - GROW_EDGE;
     if (!nearBottom && !nearRight) return;
     growingByScroll = true;
     try {
       if (wb.ensureSize(sheetId, nearBottom ? s.rows + GROW_ROWS : 0, nearRight ? s.cols + GROW_COLS : 0)) rebuildOffsets();
     } finally { growingByScroll = false; }
   }, { passive: true });
+  // The scroll is over (the scrollbar's thumb is let go, a finger's flick has come to rest): what it left behind can be given back.
+  if (SCROLL_END) viewport.addEventListener('scrollend', () => { scrollOpen = 0; scheduleTrim(); }, { passive: true });
+  // The wheel over the cells or the headings (see the scroll listener): noted before any listener scrolls for it.
+  root.addEventListener('wheel', () => { wheelTurned = performance.now(); }, { passive: true, capture: true });
 
   // Ctrl+wheel zooms in 10% steps; a trackpad pinch arrives the same way but as dozens of tiny
   // events, so those add up and step once every 40px, while a mouse notch is one step. The spot under
@@ -6652,6 +6752,7 @@ export function createGrid(opts) {
     if (s) scrollViewportTo(Math.max(-shift.x, Math.round(colOffsets.at(leftCol) + col.part * colOffsets.size(leftCol)) - (px ?? frozen.w)), Math.max(-shift.y, Math.round(rowOffsets.at(topRow) + row.part * rowOffsets.size(topRow)) - (py ?? frozen.h)));
     rendered.key = null;
     schedule();
+    scheduleTrim(); // zoomed out, the sheet grew to fill the view (see fillViewport)
     opts.onZoom?.(userZoom);
   }
 
@@ -7344,6 +7445,7 @@ export function createGrid(opts) {
       validationPending = null;
       destroyed = true;
       cancelAnimationFrame(rafId);
+      clearTimeout(scrollStop);
       staleChartsIdle?.();
       ro?.disconnect();
       document.fonts?.removeEventListener('loadingdone', fontsLoaded);

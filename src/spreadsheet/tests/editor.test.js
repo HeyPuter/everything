@@ -499,7 +499,8 @@ describe('insert link dialog', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(view.goTo('AAA20001:AAB20002')).toBe(true); await vi.advanceTimersByTimeAsync(1);
     expect(view.el.querySelector('.name-box').value).toBe('AAA20001:AAB20002');
-    expect(wb.sheets[0].rows).toBe(21000); expect(wb.sheets[0].cols).toBe(800);
+    // The sheet reaches the range gone to; the empty rows and columns the file kept past it were given back when it was shown.
+    expect(wb.sheets[0].rows).toBe(20002); expect(wb.sheets[0].cols).toBe(704);
   });
 
   it.each(['XFE1', 'A1048577', 'A1:XFE2', 'B1048577:A1'])(

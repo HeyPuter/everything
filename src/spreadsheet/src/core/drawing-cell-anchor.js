@@ -75,6 +75,14 @@ function atPixel(offset, axis, value) {
   return [lo, value - offset(lo)];
 }
 
+/** The last row and column a drawing lies over: the cell under its far corner. */
+export function drawingFarCell(sheet, obj, offsets = metrics(sheet)) {
+  const far = (offset, axis, at, size) => atPixel(offset, axis, Math.max(0, offset(at) + size - 0.01))[0];
+  return { r: far(offsets.row, 'row', obj.anchor.r, obj.dy + obj.h), c: far(offsets.col, 'col', obj.anchor.c, obj.dx + obj.w) };
+}
+/** Both axes' offsets, for a pass over several drawings (see drawingAxisOffsets). */
+export const drawingOffsets = metrics;
+
 /** A drag/resize creates new markers at the edited object's actual corners. */
 export function reanchorCellDrawing(sheet, obj) {
   if (obj.cellAnchor?.editAs) return obj;
