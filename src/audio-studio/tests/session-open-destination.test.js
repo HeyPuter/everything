@@ -263,3 +263,87 @@ it('reverts to a replacement without video while Undo retains the original video
   expect(await videoBytes(target)).toEqual([1, 2, 3, 4]);
   expect(target.dirty).toBe(true);
 });
+
+it.each(['save', 'saveAs', 'saveCopy'].flatMap((command) => ['saved', 'failed'].map((outcome) => [command, outcome])))('orders %s from another tab after an older destination write is %s', async (command, outcome) => {
+  const { app, stored } = setup();
+  const first = session(app, 'Target', 0.25, [1, 2, 3, 4]);
+  await app.commands.run('file.save');
+  const second = session(app, 'Other', -0.5, [5, 6, 7, 8]);
+  if (command === 'save') {
+    const associating = app.commands.run('file.saveAs');
+    await confirmSessionSave('Target.asesx', { replace: true });
+    await associating;
+  }
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const write = window.puter.fs.write;
+  let attempts = 0;
+  window.puter.fs.write = async (path, blob) => {
+    if (path === '/u/Target.asesx' && ++attempts === 1) {
+      await wait;
+      if (outcome === 'failed') throw new Error('Older save failed');
+    }
+    return write(path, blob);
+  };
+  app.activate(first);
+  const older = app.commands.run('file.save');
+  await vi.waitFor(() => expect(attempts).toBe(1), { interval: 1 });
+  app.activate(second);
+  const newer = app.commands.run(`file.${command}`);
+  if (command !== 'save') await confirmSessionSave('Target.asesx', { replace: true });
+  // Another destination remains independent while the shared path is held.
+  const third = session(app, 'Third', 0.75, [9, 10, 11, 12]);
+  await app.commands.run('file.save');
+  expect(stored.has('/u/Third.asesx')).toBe(true);
+  expect(third.dirty).toBe(false);
+  expect.soft(attempts).toBe(1);
+  release();
+  await Promise.all([older, newer]);
+  expect(attempts).toBe(2);
+  const disk = JSON.parse(await stored.get('/u/Target.asesx').text());
+  expect.soft([...parseWav(await stored.get(`/u/${disk.sources[0].file}`).arrayBuffer()).channels[0]]).toEqual(Array(32).fill(-0.5));
+  const video = stored.get(disk.video.path || `/u/${disk.video.file}`);
+  expect.soft([...new Uint8Array(await video.arrayBuffer())]).toEqual([5, 6, 7, 8]);
+  expect.soft(second.dirty).toBe(command === 'saveCopy');
+  expect.soft(first.dirty).toBe(true);
+  expect.soft(pcm(first, first.savedState)).toEqual(Array(32).fill(-0.5));
+  expect(app.active).toBe(third);
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+});
+
+it.each(['stretcher', 'remixer'].flatMap((kind) => ['saved', 'failed'].map((outcome) => [kind, outcome])))('reserves the destination while an earlier %s is %s', async (kind, outcome) => {
+  const { app, stored } = setup();
+  const first = session(app, 'Target', 0.25, [1, 2, 3, 4]);
+  await app.commands.run('file.save');
+  const second = session(app, 'Other', -0.5, [5, 6, 7, 8]);
+  const associating = app.commands.run('file.saveAs');
+  await confirmSessionSave('Target.asesx', { replace: true });
+  await associating;
+  let release, fail;
+  const wait = new Promise((resolve, reject) => { release = resolve; fail = reject; });
+  first[kind] = { busy: true, whenIdle: vi.fn(() => wait) };
+  const write = window.puter.fs.write;
+  let attempts = 0;
+  window.puter.fs.write = async (path, blob) => {
+    if (path === '/u/Target.asesx') attempts++;
+    return write(path, blob);
+  };
+  app.activate(first);
+  const older = app.commands.run('file.save');
+  await vi.waitFor(() => expect(first[kind].whenIdle).toHaveBeenCalledOnce(), { interval: 1 });
+  app.activate(second);
+  const newer = app.commands.run('file.save');
+  session(app, 'Third', 0.75, [9, 10, 11, 12]);
+  await app.commands.run('file.save');
+  expect(stored.has('/u/Third.asesx')).toBe(true);
+  expect.soft(attempts).toBe(0);
+  first[kind].busy = false;
+  if (outcome === 'failed') fail(new Error('Media preparation failed'));
+  else release();
+  await Promise.all([older, newer]);
+  expect(attempts).toBe(outcome === 'failed' ? 1 : 2);
+  const disk = JSON.parse(await stored.get('/u/Target.asesx').text());
+  expect.soft([...parseWav(await stored.get(`/u/${disk.sources[0].file}`).arrayBuffer()).channels[0]]).toEqual(Array(32).fill(-0.5));
+  expect.soft(second.dirty).toBe(false);
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+});

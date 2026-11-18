@@ -28,6 +28,22 @@ const savedMediaOf = (session, path) => {
 };
 
 const cloudSaves = new WeakMap();
+const cloudDestinations = new Map();
+
+function orderedSave(queue, key, work) {
+  const previous = queue.get(key) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(work);
+  queue.set(key, pending);
+  return pending.finally(() => {
+    if (queue.get(key) === pending) queue.delete(key);
+  });
+}
+
+async function prepareSessionMedia(doc) {
+  // Stretched and remixed clips save their finished audio, not the preview.
+  if (doc.stretcher?.busy) await doc.stretcher.whenIdle();
+  if (doc.remixer?.busy) await doc.remixer.whenIdle();
+}
 
 function mediaRevision(file) {
   const id = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16).padStart(8, '0')).join('');
@@ -45,18 +61,10 @@ function mediaBlob(m) {
 export function saveSession(app, doc, options = {}) {
   if (!puter.sdk() || !puter.isSignedIn()) return saveSessionNow(app, doc, options);
   // Finish one save before the next updates its manifest or cached revisions.
-  const previous = cloudSaves.get(doc) || Promise.resolve();
-  const pending = previous.catch(() => {}).then(() => saveSessionNow(app, doc, options));
-  cloudSaves.set(doc, pending);
-  return pending.finally(() => {
-    if (cloudSaves.get(doc) === pending) cloudSaves.delete(doc);
-  });
+  return orderedSave(cloudSaves, doc, () => saveSessionNow(app, doc, options));
 }
 
 async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
-  // Stretched and remixed clips save their finished audio, not the preview.
-  if (doc.stretcher?.busy) await doc.stretcher.whenIdle();
-  if (doc.remixer?.busy) await doc.remixer.whenIdle();
   if (puter.sdk() && puter.isSignedIn()) {
     let path = !saveAs && !copy && doc.source?.type === 'puter' && /\.asesx$/i.test(doc.source.path || '') ? doc.source.path : null;
     let name = withExt(doc.name);
@@ -66,58 +74,68 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       path = item.path;
       name = item.name;
     }
-    const dir = dirOf(path);
-    // What the file holds: edits made while the media uploads stay unsaved.
-    const saved = doc.state;
-    const onDisk = savedMediaOf(doc, path);
-    const { text, media, video } = serializeSession(doc, {
-      name,
-      mediaPath: (id, src, file) => {
-        const prior = onDisk.get(id);
-        if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
-        return src.channels?.length ? mediaRevision(file) : file;
-      },
-      // A replacement may have the same name as a video still used by Undo or
-      // the saved manifest. Existing Puter paths remain references, not uploads.
-      videoPath: (_id, src, file) => src.blob ? mediaRevision(file) : file,
+    // Different tabs may target the same file after Save As. Reserve its
+    // complete preparation/upload sequence before waiting for any media work.
+    return orderedSave(cloudDestinations, path, async () => {
+      await prepareSessionMedia(doc);
+      return writeCloudSession(app, doc, { path, name, copy });
     });
-    const snapshot = captureSavedSession(doc, saved, media, video, dir);
-    await saveSessionVideo(app, doc, video, dir, { copy });
-    let written = 0;
-    for (const m of media) {
-      const target = `${dir}/${m.file}`;
-      if (!m.channels?.length) continue;
-      if (onDisk.get(m.id)?.file === m.file) continue;
-      app.setStatus(`Saving media ${++written}...`);
-      await puter.writeFile(target, mediaBlob(m));
-      // A completed upload is reusable even if the following manifest write fails.
-      onDisk.set(m.id, m);
-    }
-    await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
-    if (!copy) {
-      doc.source = { type: 'puter', path };
-      if (doc.name !== name) doc.rename(name);
-      doc.markSaved(saved);
-      rememberRecent(app, { name, path });
-    } else if (doc.source?.type === 'puter' && doc.source.path === path) {
-      // Replacing the associated file changes what Undo must compare against,
-      // even when the user chose Save a Copy rather than Save.
-      doc.markSaved(saved);
-    }
-    for (const other of app.documents || []) {
-      if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || other.source.path !== path) continue;
-      const imported = savedSessionSnapshot(other, snapshot);
-      const cache = savedMediaOf(other, path);
-      for (const m of imported.media) cache.set(m.id, m);
-      other.markSaved(imported.state);
-    }
-    app.setStatus(`Saved ${name}`);
-    return true;
   }
+  await prepareSessionMedia(doc);
   const { blob, fileName, state } = await prepareSessionZip(doc);
   downloadBlob(blob, fileName);
   if (!copy) doc.markSaved(state);
   app.setStatus(`Downloaded ${fileName}`);
+  return true;
+}
+
+async function writeCloudSession(app, doc, { path, name, copy }) {
+  const dir = dirOf(path);
+  // What the file holds: edits made while the media uploads stay unsaved.
+  const saved = doc.state;
+  const onDisk = savedMediaOf(doc, path);
+  const { text, media, video } = serializeSession(doc, {
+    name,
+    mediaPath: (id, src, file) => {
+      const prior = onDisk.get(id);
+      if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
+      return src.channels?.length ? mediaRevision(file) : file;
+    },
+    // A replacement may have the same name as a video still used by Undo or
+    // the saved manifest. Existing Puter paths remain references, not uploads.
+    videoPath: (_id, src, file) => src.blob ? mediaRevision(file) : file,
+  });
+  const snapshot = captureSavedSession(doc, saved, media, video, dir);
+  await saveSessionVideo(app, doc, video, dir, { copy });
+  let written = 0;
+  for (const m of media) {
+    const target = `${dir}/${m.file}`;
+    if (!m.channels?.length) continue;
+    if (onDisk.get(m.id)?.file === m.file) continue;
+    app.setStatus(`Saving media ${++written}...`);
+    await puter.writeFile(target, mediaBlob(m));
+    // A completed upload is reusable even if the following manifest write fails.
+    onDisk.set(m.id, m);
+  }
+  await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
+  if (!copy) {
+    doc.source = { type: 'puter', path };
+    if (doc.name !== name) doc.rename(name);
+    doc.markSaved(saved);
+    rememberRecent(app, { name, path });
+  } else if (doc.source?.type === 'puter' && doc.source.path === path) {
+    // Replacing the associated file changes what Undo must compare against,
+    // even when the user chose Save a Copy rather than Save.
+    doc.markSaved(saved);
+  }
+  for (const other of app.documents || []) {
+    if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || other.source.path !== path) continue;
+    const imported = savedSessionSnapshot(other, snapshot);
+    const cache = savedMediaOf(other, path);
+    for (const m of imported.media) cache.set(m.id, m);
+    other.markSaved(imported.state);
+  }
+  app.setStatus(`Saved ${name}`);
   return true;
 }
 
