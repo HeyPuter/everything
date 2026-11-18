@@ -282,3 +282,44 @@ test('Color Replacement in Luminosity mode keeps the hue and takes the foregroun
   expect(px[0]).toBeGreaterThan(px[1] + 20);
   expect(px[0]).toBeLessThan(120);
 });
+
+test('Erase to History and the History Brush restore transparency of the history source', async ({
+  page,
+}) => {
+  // The opened state: gray on the left half, transparent on the right.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newDocument } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    const doc = newDocument(200, 120, 'Half');
+    const data = new Uint8ClampedArray(100 * 120 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set([128, 128, 128, 255], i);
+    const grid = gridFromImage(e.assets.tiles, { width: 100, height: 120, data });
+    const layer = newPixelLayer('Half', doc, grid);
+    doc.layers = [layer];
+    e.history.reset(doc);
+    e.selected = layer.id;
+    e.update();
+  });
+  await idle(page);
+  for (const [tool, settings] of [
+    ['eraser', { eraserMode: 'brush', eraseToHistory: true }],
+    ['history-brush', {}],
+  ] as const) {
+    await setTool(page, 'brush', { size: 30, hardness: 1 });
+    await page.evaluate(() => window.photoStudio.setForeground('#ff00ff'));
+    await canvasDrag(page, [
+      [60, 60],
+      [140, 60],
+    ]);
+    expect(await layerPixel(page, 120, 60)).toEqual([255, 0, 255, 255]);
+    await setTool(page, tool, { size: 30, hardness: 1, opacity: 1, flow: 1 }, settings);
+    await canvasDrag(page, [
+      [60, 60],
+      [140, 60],
+    ]);
+    expect(await layerPixel(page, 80, 60), tool).toEqual([128, 128, 128, 255]);
+    expect((await layerPixel(page, 120, 60))[3], tool).toBe(0);
+  }
+});

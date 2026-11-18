@@ -58,6 +58,10 @@ export type PaintTarget =
       // Per-pixel source color (clone stamp, pattern stamp, history brush).
       // Writes straight RGBA into `out` and returns false where there is no source.
       source?: (x: number, y: number, out: Uint8ClampedArray) => boolean;
+      // With a source in Normal or Dissolve: move each pixel toward the
+      // source pixel, alpha included, instead of painting the source over it
+      // (the History Brush restores transparent areas too).
+      restore?: boolean;
     }
   | {
       // Per-pixel processing of existing pixels (dodge, burn, sponge, blur...).
@@ -414,6 +418,29 @@ export class StrokeSession {
             // Behind paints only transparent pixels and Clear removes alpha:
             // neither can change a layer whose transparency is locked.
             if (t.preserveAlpha && (t.mode === 'behind' || t.mode === 'clear')) continue;
+            if (t.restore && t.source && (t.mode === 'normal' || t.mode === 'dissolve')) {
+              const r = t.mode === 'dissolve' ? (hash01(x, y, this.seed) < k ? 1 : 0) : k;
+              if (!r) continue;
+              if (t.preserveAlpha) {
+                // Locked transparency: only the color of the source returns.
+                if (!sa) continue;
+                w.work[i] = br + (sr - br) * r;
+                w.work[i + 1] = bg + (sg - bg) * r;
+                w.work[i + 2] = bb + (sb - bb) * r;
+                w.work[i + 3] = ba;
+              } else {
+                const ba1 = ba / 255,
+                  oa = ba1 + (sa - ba1) * r;
+                if (oa > 0) {
+                  w.work[i] = (br * ba1 * (1 - r) + sr * sa * r) / oa;
+                  w.work[i + 1] = (bg * ba1 * (1 - r) + sg * sa * r) / oa;
+                  w.work[i + 2] = (bb * ba1 * (1 - r) + sb * sa * r) / oa;
+                }
+                w.work[i + 3] = oa * 255;
+              }
+              changed = true;
+              continue;
+            }
             let a = k * sa;
             // Dissolve turns partial coverage into a stable per-pixel choice.
             if (t.mode === 'dissolve') a = hash01(x, y, this.seed) < a ? 1 : 0;
