@@ -254,4 +254,18 @@ describe('color picker helpers', { timeout: 60000 }, () => {
     expect(harmonySwatches('#336699', 'triadic')).toHaveLength(3);
     expect(parseHex('#abc')).toEqual([170, 187, 204]);
   });
+
+  it('builds monochromatic harmonies of five distinct shades that include the color', () => {
+    // Bright, dark and middle colors used to repeat clipped shades (three
+    // #ff0000 for red) or leave the color out entirely (black).
+    for (const hex of ['#ff0000', '#000000', '#ffffff', '#808080', '#123456', '#2a6e3f']) {
+      const shades = harmonySwatches(hex, 'monochromatic').map((s) => s.hex);
+      expect(shades, hex).toHaveLength(5);
+      expect(new Set(shades).size, hex).toBe(5);
+      expect(shades, hex).toContain(hex);
+      const value = (h: string) => Math.max(...parseHex(h));
+      for (let i = 1; i < 5; i++)
+        expect(value(shades[i]), hex).toBeGreaterThan(value(shades[i - 1]));
+    }
+  });
 });
