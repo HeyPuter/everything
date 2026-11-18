@@ -3,9 +3,9 @@
  */
 import { uid } from '../lib/ids.js';
 import { makeClip } from './project.js';
-import { findClip, clipEnd, addClip, clipLabel, soundCopy } from './timeline.js';
+import { findClip, clipEnd, clipLabel, soundCopy } from './timeline.js';
 import { trimTo } from './slice.js';
-import { inheritFromCompound, restoreCompoundTracks } from './compound.js';
+import { inheritFromCompound, restoreCompoundTracks, placeCompound } from './compound.js';
 import { MIN_ANGLES, MAX_ANGLES, isMulticam, activeRanges } from './multicam.js';
 
 /** Number for the next "Multi-camera clip N" name. */
@@ -43,14 +43,14 @@ export function createMulticam(project, ids, { starts = {}, ...opts } = {}) {
   const pos = found.map((f) => Math.round(starts[f.clip.id] ?? f.clip.start));
   const a = Math.min(...pos);
   const b = Math.max(...found.map((f, i) => pos[i] + f.clip.duration));
-  const onMain = found.some((f) => f.track.main);
   const chosen = new Set(found.map((f) => f.clip.id));
+  const sources = project.tracks.filter(t => t.clips.some(c => chosen.has(c.id)));
   for (const t of project.tracks) t.clips = t.clips.filter((c) => !chosen.has(c.id));
   const tracks = found.map((f, i) => {
     const copy = structuredClone(f.clip);
     copy.start = pos[i] - a;
     delete copy.group;
-    return { id: uid('t'), kind: 'video', main: i === 0, locked: false, hidden: false, muted: false, angle: true, name: clipLabel(project, f.clip).slice(0, 60), clips: [copy] };
+    return { id: uid('t'), kind: 'video', main: i === 0, locked: false, hidden: Boolean(f.track.hidden), muted: Boolean(f.track.muted), ...(f.track.solo ? { solo: true } : {}), angle: true, name: clipLabel(project, f.clip).slice(0, 60), clips: [copy] };
   });
   const clip = makeClip('compound', {
     start: Math.max(0, a),
@@ -59,7 +59,7 @@ export function createMulticam(project, ids, { starts = {}, ...opts } = {}) {
     sequence: { tracks },
     multicam: { cuts: [{ t: 0, angle: 0 }], audio: 0 },
   });
-  addClip(project, clip, { ...opts, main: onMain });
+  placeCompound(project, clip, sources, opts);
   return clip;
 }
 

@@ -48,7 +48,6 @@ export function createCompound(project, ids, opts = {}) {
   const a = Math.min(...found.map((f) => f.clip.start));
   const b = Math.max(...found.map((f) => clipEnd(f.clip)));
   const chosen = new Set(found.map((f) => f.clip.id));
-  const onMain = found.some((f) => f.track.main);
   const nested = [];
   const sources = [];
   for (const track of project.tracks) {
@@ -81,13 +80,20 @@ export function createCompound(project, ids, opts = {}) {
   // A transition into a clip left outside has no partner in there.
   cleanupTransitions({ tracks: nested });
   const compound = makeClip('compound', { start: a, duration: b - a, name: `Compound clip ${nextNumber(project)}`, sequence: { tracks: nested } });
+  placeCompound(project, compound, sources, opts);
+  return compound;
+}
+
+/** Place a new nested timeline without changing source controls or unrelated timing. */
+export function placeCompound(project, compound, sources, opts = {}) {
+  const onMain = sources.some(t => t.main);
   const solo = sources.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
   const bottom = sources.findLast(t => VISUAL_KINDS.has(t.kind));
   const host = onMain ? mainTrack(project) : bottom?.kind === 'video' ? bottom : null;
   const acceptsControls = host && Boolean(host.solo) === solo
     && (!host.hidden || sources.every(t => !VISUAL_KINDS.has(t.kind) || t.hidden))
     && (!host.muted || sources.every(t => (t.kind !== 'audio' && t.kind !== 'video') || t.muted));
-  if (acceptsControls && trackFree(host, a, b)) {
+  if (acceptsControls && trackFree(host, compound.start, clipEnd(compound))) {
     // Nesting replaces a selection in place; it does not insert new timeline time.
     addClip(project, compound, { ...opts, main: Boolean(host.main), trackId: host.id, ripple: false, linkOverlays: false });
   } else {
@@ -98,7 +104,6 @@ export function createCompound(project, ids, opts = {}) {
     project.tracks.splice(Math.max(0, at), 0, track);
     pruneTracks(project);
   }
-  return compound;
 }
 
 /** Compose a parent's static transform onto a child's (both in frame fractions). */
