@@ -9,6 +9,7 @@
  * therefore move with the clip, and blend modes and transitions see the
  * finished clip.
  */
+import { poseMatrix, inverse, multiply, axes } from '../lib/geometry.js';
 import { FULL_VS, QUAD_VS, PLACE_FS, effectShader } from './shaders.js';
 import { effectIsOff, effectUniforms } from '../model/effect-params.js';
 import { isBodyEffect } from '../model/body-effects.js';
@@ -145,21 +146,16 @@ function innerExtras(layer, W, H, natW, natH) {
   void canvas;
   if (!Object.keys(ex).length) return null;
   if (!ex.motion) return ex;
-  const a = (-layer.rotation * Math.PI) / 180;
-  const cos = Math.cos(a);
-  const sin = Math.sin(a);
-  const lsx = layer.sx ?? 1;
-  const lsy = layer.sy ?? 1;
-  const motion = ex.motion.map((m) => {
+  const inv = inverse(poseMatrix(layer, false));
+  if (!inv) return { ...ex, motion: null };
+  const motion = ex.motion.map(m => {
     const dx = (m.x - layer.x) * W;
     const dy = (m.y - layer.y) * H;
     return {
-      x: (dx * cos - dy * sin) / (layer.scale * lsx) / natW,
-      y: (dx * sin + dy * cos) / (layer.scale * lsy) / natH,
-      scale: m.scale / layer.scale,
-      rotation: m.rotation - layer.rotation,
-      sx: (m.sx ?? 1) / lsx,
-      sy: (m.sy ?? 1) / lsy,
+      x: (inv[0] * dx + inv[2] * dy) / natW,
+      y: (inv[1] * dx + inv[3] * dy) / natH,
+      scale: 1,
+      ...axes(multiply(inv, poseMatrix(m, false))),
     };
   });
   return { ...ex, motion };
@@ -213,7 +209,7 @@ export function drawLayerWithEffects(comp, layer, time) {
   comp.resolve = () => info;
   let ok;
   try {
-    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, sx: 1, sy: 1, rotation: 0, opacity: 1, blur: 0, extras: innerExtras(layer, saved.projW, saved.projH, natW, natH) }, time);
+    ok = comp._drawLayer({ ...layer, x: 0, y: 0, scale: 1, sx: 1, sy: 1, skew: 0, rotation: 0, opacity: 1, blur: 0, extras: innerExtras(layer, saved.projW, saved.projH, natW, natH) }, time);
   } finally {
     comp.projW = saved.projW;
     comp.projH = saved.projH;
@@ -236,7 +232,7 @@ export function drawLayerWithEffects(comp, layer, time) {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   const p = comp._use(comp._program('clipfx-place', QUAD_VS, PLACE_FS));
-  comp._set(p, 'u_matrix', comp._matrix(box.cx, box.cy, box.w, box.h, layer.rotation));
+  comp._set(p, 'u_matrix', comp._matrix(box.cx, box.cy, box.w, box.h, layer.rotation, box.skew));
   comp._set(p, 'u_uvRect', [0, 0, 1, 1]);
   comp._set(p, 'u_flip', 0, 0);
   comp._set(p, 'u_opacity', layer.opacity);

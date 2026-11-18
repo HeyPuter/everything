@@ -263,3 +263,36 @@ describe('thumbnail memory', () => {
   });
 });
 
+
+describe('image thumbnail notifications', () => {
+  it('notifies thumbnail consumers when an image first finishes decoding', async () => {
+    const image = { ...video, kind: 'image' }, bitmap = { close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+    const service = new MediaService({ mediaBlob: async () => new Blob(['image']) });
+    const painted = [];
+    service.on('thumb', ({ hash }) => { if (hash === image.hash) painted.push(service.thumb(image, 0, 1)); });
+    try {
+      expect(service.thumb(image, 0, 1)).toBeNull();
+      await flush();
+      expect(painted).toEqual([bitmap]);
+      expect(service.thumb(image, 0, 1)).toBe(bitmap);
+      expect(painted).toHaveLength(1);
+    } finally { service.dispose(); }
+  });
+
+  it('restarts and redraws an image after a failed read without a poster consumer', async () => {
+    vi.useFakeTimers();
+    const image = { ...video, kind: 'image' }, bitmap = { close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+    const mediaBlob = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(new Blob(['image']));
+    const service = new MediaService({ mediaBlob }), painted = [];
+    service.on('thumb', () => painted.push(service.thumb(image, 0, 1)));
+    try {
+      service.thumb(image, 0, 1);await flush();
+      await vi.advanceTimersByTimeAsync(3000);await flush();
+      expect(mediaBlob).toHaveBeenCalledTimes(2);
+      expect(painted.at(-1)).toBe(bitmap);
+      expect(service.thumb(image, 0, 1)).toBe(bitmap);
+    } finally { service.dispose(); }
+  });
+});

@@ -4,11 +4,12 @@
  * other clips), zoom and pan, rulers with draggable guides, safe zones, and
  * the playback bar (timecode, play, ratio, zoom, full screen).
  */
+import { boxHalf, boxLocal } from '../lib/geometry.js';
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { timecode, US } from '../lib/time.js';
 import { RATIOS } from '../model/project.js';
-import { evaluate, keyedTransform } from '../engine/scene.js';
+import { evaluate, keyedTransform, inheritedDelta, motionStateAt } from '../engine/scene.js';
 import { rootClip } from '../engine/compound.js';
 import { findClip } from '../model/timeline.js';
 import { menuButton } from './menu.js';
@@ -495,7 +496,7 @@ export function createPlayerView(ctx) {
   function toCss(b) {
     const s = store.project.settings;
     const k = cssW / s.width;
-    return { cx: b.cx * k, cy: b.cy * k, w: b.w * k, h: b.h * k };
+    return { cx: b.cx * k, cy: b.cy * k, w: b.w * k, h: b.h * k, skew: (b.skew || 0) * k };
   }
 
   function drawOverlay() {
@@ -533,7 +534,9 @@ export function createPlayerView(ctx) {
     if (!overlay.contains(box)) overlay.replaceChildren(box);
     box.style.width = `${Math.max(4, Math.abs(c.w))}px`;
     box.style.height = `${Math.max(4, Math.abs(c.h))}px`;
-    box.style.transform = `translate(${c.cx - Math.abs(c.w) / 2}px, ${c.cy - Math.abs(c.h) / 2}px) rotate(${layer.rotation}deg)`;
+    const skew = Math.atan2(c.skew, c.h || 1) * 180 / Math.PI;
+    box.style.transform = `translate(${c.cx - Math.abs(c.w) / 2}px, ${c.cy - Math.abs(c.h) / 2}px) rotate(${layer.rotation}deg) skewX(${skew}deg)`;
+    box.style.setProperty('--tf-unskew', `${-skew}deg`);
     box.classList.toggle('text', layer.kind === 'text');
   }
 
@@ -553,9 +556,7 @@ export function createPlayerView(ctx) {
         if (!['media', 'text', 'sticker', 'avatar'].includes(l.kind) || l.clip.id === movingId) continue;
         const b = player.boxFor(l);
         if (!b) continue;
-        const a = (l.rotation * Math.PI) / 180;
-        const hw = (Math.abs(b.w * Math.cos(a)) + Math.abs(b.h * Math.sin(a))) / 2;
-        const hh = (Math.abs(b.w * Math.sin(a)) + Math.abs(b.h * Math.cos(a))) / 2;
+        const { w: hw, h: hh } = boxHalf(b, l.rotation);
         x.push(b.cx - hw, b.cx, b.cx + hw);
         y.push(b.cy - hh, b.cy, b.cy + hh);
       }
@@ -579,12 +580,8 @@ export function createPlayerView(ctx) {
       if (!['media', 'text', 'sticker', 'avatar'].includes(l.kind) || l.opacity <= 0.01) continue;
       const b = player.boxFor(l);
       if (!b) continue;
-      const a = (-l.rotation * Math.PI) / 180;
-      const dx = px - b.cx;
-      const dy = py - b.cy;
-      const rx = dx * Math.cos(a) - dy * Math.sin(a);
-      const ry = dx * Math.sin(a) + dy * Math.cos(a);
-      if (Math.abs(rx) <= Math.abs(b.w) / 2 && Math.abs(ry) <= Math.abs(b.h) / 2) {
+      const [u, v] = boxLocal(b, l.rotation, px, py);
+      if (Math.abs(u) <= 0.5 && Math.abs(v) <= 0.5) {
         // trackIndex counts the tracks compound clips add; find the clip's own track (a nested
         // clip: its compound's).
         if (findClip(store.project, rootClip(l.clip).id)?.track.locked) continue;
@@ -662,18 +659,20 @@ export function createPlayerView(ctx) {
     const b = player.boxFor(layer);
     const c = toCss(b);
     const center = { x: c.cx, y: c.cy };
-    const startDist = Math.hypot(x - center.x, y - center.y) || 1;
-    const startAngle = Math.atan2(y - center.y, x - center.x);
+    const local = store.time - store.selected.clip.start;
+    const own = motionStateAt(store.selected.clip, local);
+    const vector = (dx, dy) => {
+      const d = inheritedDelta(store.selected.clip, local, dx * k / s.width, dy * k / s.height, store.project);
+      return { x: d.x * s.width / k, y: d.y * s.height / k };
+    };
+    const v0 = vector(x - center.x, y - center.y);
+    const startDist = Math.hypot(v0.x, v0.y) || 1;
+    const startAngle = Math.atan2(v0.y, v0.x);
     // The values the player shows include animations (and a compound around the clip); edit relative to the keyed value.
     const base = editedTransform(store.selected.clip);
-    const off = { x: start.x - base.x, y: start.y - base.y, scaleK: start.scale / (base.scale || 1), rotation: start.rotation - base.rotation };
+    const off = { scaleK: start.scale / (base.scale || 1), rotation: own.rotation - base.rotation };
     const coalesce = `tf:${id}:${Date.now()}`;
     const targets = snapTargets(id);
-    // Half extents of the moving box in project px, from the css box.
-    const aabb = (w, hh, rot) => {
-      const a = (rot * Math.PI) / 180;
-      return { w: ((Math.abs(w * Math.cos(a)) + Math.abs(hh * Math.sin(a))) / 2) * k, h: ((Math.abs(w * Math.sin(a)) + Math.abs(hh * Math.cos(a))) / 2) * k };
-    };
     let pinched = false; // after a pinch the remaining finger does not move the clip
     const move = (ev) => {
       if (ev.pointerId !== e.pointerId || pinched || (pinched = pinch.active)) return;
@@ -685,7 +684,7 @@ export function createPlayerView(ctx) {
         // Snap the clip's edges and center to the frame, the guides and other clips.
         const lines = [];
         if (!ev.altKey) {
-          const half = aabb(c.w, c.h, start.rotation);
+          const half = boxHalf(b, start.rotation);
           const cx = s.width / 2 + nx * s.width;
           const cy = s.height / 2 + ny * s.height;
           const tol = SNAP_PX * k;
@@ -701,9 +700,11 @@ export function createPlayerView(ctx) {
           }
         }
         showSnapLines(lines);
-        actions.setTransform(id, { x: nx - off.x, y: ny - off.y }, { coalesce, label: 'Move' });
+        const delta = inheritedDelta(store.selected.clip, store.time - store.selected.clip.start, nx - start.x, ny - start.y, store.project);
+        actions.setTransform(id, { x: base.x + delta.x, y: base.y + delta.y }, { coalesce, label: 'Move' });
       } else if (handle === 'rotate') {
-        let ang = start.rotation + ((Math.atan2(my - center.y, mx - center.x) - startAngle) * 180) / Math.PI;
+        const v = vector(mx - center.x, my - center.y);
+        let ang = own.rotation + ((Math.atan2(v.y, v.x) - startAngle) * 180) / Math.PI;
         if (ev.shiftKey) ang = Math.round(ang / 15) * 15;
         else {
           const near = Math.round(ang / 90) * 90;
@@ -713,14 +714,16 @@ export function createPlayerView(ctx) {
       } else if (handle.length === 1) {
         // Edge handle: stretch along the box's own axis.
         const prop = handle === 'e' || handle === 'w' ? 'sx' : 'sy';
-        const a = (start.rotation * Math.PI) / 180;
+        const a = (own.rotation * Math.PI) / 180;
         const axis = prop === 'sx' ? [Math.cos(a), Math.sin(a)] : [-Math.sin(a), Math.cos(a)];
-        const proj0 = (x - center.x) * axis[0] + (y - center.y) * axis[1] || 1;
-        const proj = (mx - center.x) * axis[0] + (my - center.y) * axis[1];
-        const v = Math.max(0.02, (start[prop] * proj) / proj0);
+        const proj0 = v0.x * axis[0] + v0.y * axis[1] || 1;
+        const current = vector(mx - center.x, my - center.y);
+        const proj = current.x * axis[0] + current.y * axis[1];
+        const v = Math.max(0.02, (base[prop] * proj) / proj0);
         actions.setTransform(id, { [prop]: Math.round(v * 10000) / 10000 }, { coalesce, label: 'Stretch' });
       } else {
-        const d = Math.hypot(mx - center.x, my - center.y);
+        const v = vector(mx - center.x, my - center.y);
+        const d = Math.hypot(v.x, v.y);
         const sc = Math.max(0.02, (start.scale * d) / startDist);
         actions.setTransform(id, { scale: sc / off.scaleK }, { coalesce, label: 'Scale' });
       }
@@ -756,7 +759,8 @@ export function createPlayerView(ctx) {
     e.preventDefault();
     e.stopPropagation();
     const t = editedTransform(s.clip);
-    actions.setTransform(s.clip.id, { x: t.x + (d[0] * stepPx) / set.width, y: t.y + (d[1] * stepPx) / set.height }, { coalesce: `nudge:${s.clip.id}`, label: 'Move' });
+    const delta = inheritedDelta(s.clip, store.time - s.clip.start, (d[0] * stepPx) / set.width, (d[1] * stepPx) / set.height, store.project);
+    actions.setTransform(s.clip.id, { x: t.x + delta.x, y: t.y + delta.y }, { coalesce: `nudge:${s.clip.id}`, label: 'Move' });
   });
 
   // Drop assets from the panel onto the preview: add at the playhead.

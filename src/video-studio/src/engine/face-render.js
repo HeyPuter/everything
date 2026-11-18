@@ -17,6 +17,7 @@ import { steadyMatte } from '../model/cutout.js';
 import { makeupMasks } from './makeup-geometry.js';
 import { poseModelReady, onPoseModelChange } from '../media/pose-landmarks.js';
 import { faceShapeAmounts, skinFixAmounts, hairColorOn, faceModelsFor, makeupAmounts } from '../model/retouch.js';
+import { allClipsDeep } from '../model/compound.js';
 
 export const FACE_MASK_UNIT = 8;
 export const HAIR_UNIT = 9;
@@ -64,13 +65,11 @@ export function drawUpright(g, src, w, h, crop = null, srcH = 0) {
 /** Whether a project uses the face, hair or pose model, by model. */
 export function faceModelsIn(project) {
   const out = { face: false, hair: false, pose: false };
-  for (const t of project?.tracks || []) {
-    for (const c of t.clips) {
-      const n = faceModelsFor(c);
-      out.face ||= n.face;
-      out.hair ||= n.hair;
-      out.pose ||= n.pose;
-    }
+  for (const c of allClipsDeep({ tracks: project?.tracks || [] }, { includeDisabled: false })) {
+    const n = faceModelsFor(c);
+    out.face ||= n.face;
+    out.hair ||= n.hair;
+    out.pose ||= n.pose;
   }
   return out;
 }

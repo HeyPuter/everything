@@ -41,13 +41,17 @@ import { TEXT_STYLE_EXTRAS, normTextExtras } from './text-style.js';
 import { normalizeCurve, meanSpeed } from './speed-curve.js';
 import { normalizeSpeedRamp } from './speed-ramps.js';
 import { normalizeMasks } from './masks.js';
+import { normalizeMaskSpace } from './mask-space.js';
+import { normalizePictureSize } from './picture-size.js';
 import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
 import { normalizeRemoval } from './removal.js';
 import { normalizeRetouch, normalizeFaceShape, normalizeHairColor, normalizeBodyShape, normalizeMakeup } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
 import { normalizeProxyMode } from './proxy.js';
-import { isEase } from './keyframes.js';
+import { normalizeTransitionSlices } from './transition-slices.js';
+import { normalizeInherited, normalizeTiming } from './inherited-motion.js';
+import { normalizeKeyCurve, isEase } from './keyframes.js';
 import { normalizeSmoothSlow } from './slow-motion.js';
 import { effectDefaults, normalizeEffectParams } from './effect-params.js';
 import { normalizeClipEffects, canHaveEffects } from './clip-effects.js';
@@ -323,7 +327,10 @@ function normKeyframes(k) {
     const keys = list
       .filter((x) => x && Number.isFinite(Number(x.t)) && x.v !== undefined)
       // ramp: added by a velocity ramp's accent (model/speed-ramps.js).
-      .map((x) => ({ t: Math.max(0, int(x.t)), v: num(x.v), ease: isEase(x.ease) ? x.ease : 'linear', ...(x.ramp === true ? { ramp: true } : {}) }))
+      .map((x) => {
+        const curve = normalizeKeyCurve(x.curve);
+        return { t: Math.max(0, int(x.t)), v: num(x.v), ease: isEase(x.ease) ? x.ease : 'linear', ...(x.ramp === true ? { ramp: true } : {}), ...(curve ? { curve } : {}) };
+      })
       .sort((a, b) => a.t - b.t);
     if (keys.length) out[prop] = keys;
   }
@@ -386,19 +393,42 @@ export function normalizeClip(c) {
     out.animLoop = normAnim(c.animLoop ?? c.animCombo); // older projects saved this as animCombo
   }
   if ('keyframes' in base) out.keyframes = normKeyframes(c.keyframes);
+  const timing = normalizeTiming(c.timing);
+  if (timing) out.timing = timing;
+  if (c.motionOffset && Number.isFinite(c.motionOffset)) out.motionOffset = c.motionOffset;
+  if ('transform' in base || 'volume' in base) {
+    const inherited = normalizeInherited(c.inherited, p => ({
+      type: 'compound', start: 0, name: str(p.name).slice(0, 200), in: Math.max(0, int(p.in)), motionOffset: num(p.motionOffset),
+      ...(p.clockOnly === true ? { clockOnly: true, speed: clampN(p.speed, 0.1, 100, 1), speedCurve: normalizeCurve(p.speedCurve), freeze: p.freeze === true } : {}),
+      duration: Math.max(1000, int(p.duration)), transform: normTransform(p.transform),
+      opacity: clampN(p.opacity, 0, 1, 1), volume: clampN(p.volume, 0, 10, 1), muted: false, blend: 'normal',
+      fadeIn: Math.max(0, int(p.fadeIn)), fadeOut: Math.max(0, int(p.fadeOut)),
+      ...(normalizeTiming(p.timing) ? { timing: normalizeTiming(p.timing) } : {}),
+      animIn: normAnim(p.animIn), animOut: normAnim(p.animOut), animLoop: normAnim(p.animLoop), keyframes: normKeyframes(p.keyframes),
+    }));
+    if (inherited) out.inherited = inherited;
+  }
   if (c.type === 'video' || c.type === 'image') {
+    const pictureSize = c.type === 'image' ? normalizePictureSize(c.pictureSize) : null;
+    if (pictureSize) out.pictureSize = pictureSize;
     const cr = c.crop || {};
     out.crop = { l: clampN(cr.l, 0, 0.95, 0), t: clampN(cr.t, 0, 0.95, 0), r: clampN(cr.r, 0, 0.95, 0), b: clampN(cr.b, 0, 0.95, 0) };
     out.adjust = normAdjust(c.adjust);
     const grade = normalizeGrade(c.grade);
     if (grade) out.grade = grade;
     out.filter = c.filter && typeof c.filter.id === 'string' ? { id: c.filter.id, intensity: clampN(c.filter.intensity, 0, 100, 100) } : null;
+    const slices = normalizeTransitionSlices(c.transitionSlices, normalizeClip);
+    if (slices) out.transitionSlices = slices;
     out.transition = c.transition && typeof c.transition.id === 'string' ? { id: c.transition.id, duration: Math.max(100_000, int(c.transition.duration, 500_000)) } : null;
     out.freeze = bool(c.freeze);
     if (c.audioDetached) out.audioDetached = true;
     if (c.reversed) out.reversed = true;
     const masks = normalizeMasks(c);
-    if (masks.length) out.masks = masks;
+    if (masks.length) {
+      out.masks = masks;
+      const space = normalizeMaskSpace(c.maskSpace);
+      if (space) out.maskSpace = space;
+    }
     normalizeClipExtras(c, out);
     if (c.chroma && typeof c.chroma === 'object') out.chroma = { color: color(c.chroma.color, '#00ff00'), strength: clampN(c.chroma.strength, 0, 100, 40), spill: clampN(c.chroma.spill ?? c.chroma.shadow, 0, 100, 0) };
     if (c.cutout && typeof c.cutout === 'object') out.cutout = normalizeCutout(c.cutout);
@@ -479,9 +509,11 @@ export function normalizeClip(c) {
 
 export function normalizeAsset(a) {
   if (!a || typeof a !== 'object' || !['video', 'audio', 'image'].includes(a.kind)) return null;
+  const pictureSize = a.kind === 'image' ? normalizePictureSize(a.pictureSize) : null;
   return {
     id: str(a.id) || uid('a'),
     kind: a.kind,
+    ...(pictureSize ? { pictureSize } : {}),
     name: str(a.name, 'Media').slice(0, 300),
     // Used in file paths, so only the characters content hashes use.
     hash: str(a.hash).replace(/[^a-z0-9_-]/gi, '').slice(0, 128),
@@ -579,8 +611,10 @@ function normSequence(raw, assets, depth) {
       clips.push(n);
     }
     clips.sort((a, b) => a.start - b.start);
-    const track = { id: str(t.id) || uid('t'), kind: t.kind, main: Boolean(t.main) && t.kind === 'video', locked: false, hidden: bool(t.hidden), muted: bool(t.muted), clips };
+    const track = { id: str(t.id) || uid('t'), kind: t.kind, main: Boolean(t.main) && t.kind === 'video', locked: bool(t.locked), hidden: bool(t.hidden), muted: bool(t.muted), clips };
     if (str(t.name).trim()) track.name = str(t.name).trim().slice(0, 60);
+    if (t.solo) track.solo = true;
+    if (TRACK_SIZES.includes(t.size) && t.size !== 'medium') track.size = t.size;
     // A camera angle of a multi-camera clip.
     if (t.angle && t.kind === 'video') track.angle = true;
     tracks.push(track);

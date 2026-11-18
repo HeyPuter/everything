@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
+import { createMulticam, flattenMulticam } from '../src/model/multicam-edit.js';
 import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips, MIN_CLIP } from '../src/model/timeline.js';
 import { normalizeProject, makeClip, MAX_COMPOUND_DEPTH, compoundDepth } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
@@ -24,6 +25,32 @@ describe('compound clips', () => {
     expect(comp.sequence.tracks[1].main).toBe(true);
     expect(comp.sequence.tracks[0].clips[0].start).toBe(s(0.5));
     expect(sequenceLength(comp.sequence)).toBe(s(3));
+  });
+
+  it('keeps hidden and muted source tracks that are nested together', () => {
+    const p = fixture();
+    const [video] = onMain(p, clip('video', 0, 4));
+    const music = clip('audio', 0, 4);
+    const title = clip('text', 0, 4);
+    addClip(p, music, FREE);
+    addClip(p, title, FREE);
+    findClip(p, music.id).track.muted = true;
+    findClip(p, title.id).track.hidden = true;
+    const shown = evaluate(p, s(1)).map(l => l.kind);
+    const heard = audibleClips(p).map(x => x.clip.type);
+    const store = new EditorStore(p);
+    store.update('Create compound clip', q => { createCompound(q, [video.id, music.id, title.id], FREE); });
+    expect(evaluate(store.project, s(1)).map(l => l.kind)).toEqual(shown);
+    expect(audibleClips(store.project).map(x => x.clip.type)).toEqual(heard);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(evaluate(loaded, s(1)).map(l => l.kind)).toEqual(shown);
+    expect(audibleClips(loaded).map(x => x.clip.type)).toEqual(heard);
+    store.undo();
+    expect(findClip(store.project, music.id).track.muted).toBe(true);
+    expect(findClip(store.project, title.id).track.hidden).toBe(true);
+    store.redo();
+    expect(evaluate(store.project, s(1)).map(l => l.kind)).toEqual(shown);
+    expect(audibleClips(store.project).map(x => x.clip.type)).toEqual(heard);
   });
 
   it('drops a transition into a clip left outside, which could not be seen or removed', () => {
@@ -92,6 +119,19 @@ describe('compound clips', () => {
     expect(text.start).toBe(0);
     expect(text.duration).toBe(s(2));
     expect(restored.length).toBe(3);
+  });
+
+  it.each([[true, false], [false, true], [true, true]])('preserves the scene when breaking apart flips %s/%s', (flipH, flipV) => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    Object.assign(a.transform, { x: 0.2, y: -0.3, rotation: 17, scale: 0.7 });
+    const comp = createCompound(p, [a.id], FREE);
+    Object.assign(comp.transform, { x: -0.1, y: 0.1, scale: 0.5, rotation: 35, flipH, flipV });
+    const before = evaluate(p, s(1))[0];
+    breakApart(p, comp.id, FREE);
+    const after = evaluate(p, s(1))[0];
+    for (const key of ['x', 'y', 'scale', 'rotation']) expect(after[key]).toBeCloseTo(before[key]);
+    for (const key of ['flipH', 'flipV']) expect(after[key]).toBe(before[key]);
   });
 
   it('leaves out slivers shorter than the shortest clip when broken apart', () => {
@@ -471,3 +511,178 @@ describe('nesting depth', () => {
   });
 });
 
+
+describe('neighboring compounds with different track layouts', () => {
+  it('keeps a later video from inheriting an earlier effect track kind', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const fx = clip('effect', 0, 2);
+    addClip(p, fx, FREE);
+    createCompound(p, [a.id, fx.id], FREE);
+    createCompound(p, [b.id], FREE);
+    expect(evaluate(p, s(1)).map(l => l.kind)).toEqual(['media', 'effect']);
+    const second = evaluate(p, s(3));
+    expect(second.map(l => l.kind)).toEqual(['media']);
+    expect(second[0].clip.sourceId).toBe(b.id);
+    expect(audibleClips(p).map(({ clip: c }) => c.sourceId).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it.each([false, true])('preserves different hidden and mute states after a first compound with hidden=%s', (hidden) => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const first = createCompound(p, [a.id], FREE);
+    const second = createCompound(p, [b.id], FREE);
+    Object.assign(first.sequence.tracks[0], { hidden, muted: hidden });
+    Object.assign(second.sequence.tracks[0], { hidden: !hidden, muted: !hidden });
+    expect(evaluate(p, s(1))).toHaveLength(hidden ? 0 : 1);
+    expect(evaluate(p, s(3))).toHaveLength(hidden ? 1 : 0);
+    expect(audibleClips(p).map(({ clip: c }) => c.sourceId)).toEqual([hidden ? b.id : a.id]);
+    expect(evaluate(p, s(3), { includeHidden: true })).toHaveLength(1);
+  });
+  it('still shares compatible render tracks across many compounds', () => {
+    const p = fixture();
+    const child = clip('video', 0, 1);
+    const sequence = { tracks: [{ id: 'inner', kind: 'video', main: true, clips: [child] }] };
+    for (let i = 0; i < 1000; i++) onMain(p, clip('compound', i, 1, { sequence: structuredClone(sequence) }));
+    const expanded = expandProject(p);
+    expect(expanded.tracks.filter(t => t.virtual)).toHaveLength(1);
+    expect(expanded.tracks.find(t => t.virtual).clips).toHaveLength(1000);
+    expect(evaluate(p, s(999.5)).map(l => l.kind)).toEqual(['media']);
+    expect(expandProject(p)).toBe(expanded);
+  });
+
+});
+
+describe('nested track settings', () => {
+  it('keeps track locks, solo and size when the project is saved and reopened', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const comp = createCompound(p, [a.id], FREE);
+    const store = new EditorStore(p);
+    store.openCompound(comp.id);
+    store.update('Track settings', q => {
+      Object.assign(q.tracks[0], { locked: true, solo: true, size: 'large' });
+    }, { structural: false });
+    store.closeCompound();
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(mainTrack(loaded).clips[0].sequence.tracks[0]).toMatchObject({ locked: true, solo: true, size: 'large' });
+  });
+
+  it('keeps an inner solo local to its compound after closing it', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const inside = clip('audio', 0, 4);
+    const outside = clip('audio', 0, 4);
+    addClip(p, inside, FREE);
+    addClip(p, outside, FREE);
+    const comp = createCompound(p, [a.id, inside.id], FREE);
+    const store = new EditorStore(p);
+    store.openCompound(comp.id);
+    store.update('Solo inner music', q => { q.tracks.find(t => t.kind === 'audio').solo = true; }, { structural: false });
+    expect(audibleClips(store.project).map(x => x.clip.id)).toEqual([inside.id]);
+    store.closeCompound();
+    const heard = audibleClips(store.project).map(x => x.clip.sourceId || x.clip.id).sort();
+    expect(heard).toEqual([inside.id, outside.id].sort());
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(audibleClips(loaded).map(x => x.clip.sourceId || x.clip.id).sort()).toEqual(heard);
+    findClip(loaded, outside.id).track.solo = true;
+    loaded.modified++;
+    expect(audibleClips(loaded).map(x => x.clip.sourceId || x.clip.id)).toEqual([outside.id]);
+    findClip(loaded, outside.id).track.solo = false;
+    mainTrack(loaded).solo = true;
+    loaded.modified++;
+    expect(audibleClips(loaded).map(x => x.clip.sourceId || x.clip.id)).toEqual([inside.id]);
+    mainTrack(loaded).muted = true;
+    loaded.modified++;
+    expect(audibleClips(loaded)).toEqual([]);
+  });
+});
+
+
+describe('compound render cache invalidation', () => {
+  it('reflects consecutive edits made in the same millisecond', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const comp = createCompound(p, [a.id], FREE);
+    const store = new EditorStore(p);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(p.modified);
+    try {
+      expect(evaluate(store.project, s(1))).toHaveLength(1);
+      expect(audibleClips(store.project)).toHaveLength(1);
+      store.update('Hide and mute track', q => {
+        mainTrack(q).hidden = true;
+        mainTrack(q).muted = true;
+      }, { structural: false });
+      expect(evaluate(store.project, s(1))).toHaveLength(0);
+      expect(audibleClips(store.project)).toHaveLength(0);
+      store.update('Show and unmute track', q => {
+        mainTrack(q).hidden = false;
+        mainTrack(q).muted = false;
+      }, { structural: false });
+      expect(evaluate(store.project, s(1))).toHaveLength(1);
+      expect(audibleClips(store.project)).toHaveLength(1);
+      store.openCompound(comp.id);
+      store.update('Move nested video', q => { mainTrack(q).clips[0].transform.x = 0.3; }, { structural: false });
+      store.closeCompound();
+      expect(evaluate(store.project, s(1))[0].x).toBeCloseTo(0.3);
+      store.undo();
+      expect(evaluate(store.project, s(1))[0].x).toBeCloseTo(0);
+      store.redo();
+      expect(evaluate(store.project, s(1))[0].x).toBeCloseTo(0.3);
+      expect(expandProject(store.project)).toBe(expandProject(store.project));
+    } finally {
+      now.mockRestore();
+    }
+  });
+});
+
+
+describe('flattened compound appearance', () => {
+  it.each(['compound', 'multicam'])('preserves inherited blend modes when flattening a %s', type => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const b = clip('video', 0, 4);
+    addClip(p, b, FREE);
+    const c = type === 'compound' ? createCompound(p, [a.id, b.id], FREE) : createMulticam(p, [a.id, b.id], FREE);
+    c.blend = 'multiply';
+    const before = evaluate(p, s(1)).map(l => l.blend);
+    if (type === 'compound') breakApart(p, c.id, FREE);
+    else flattenMulticam(p, c.id);
+    expect(evaluate(p, s(1)).map(l => l.blend)).toEqual(before);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(p)));
+    expect(evaluate(loaded, s(1)).map(l => l.blend)).toEqual(before);
+  });
+
+  it('keeps a child blend override when breaking apart', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    a.blend = 'screen';
+    const c = createCompound(p, [a.id], FREE);
+    c.blend = 'multiply';
+    const before = evaluate(p, s(1))[0].blend;
+    breakApart(p, c.id, FREE);
+    expect(evaluate(p, s(1))[0].blend).toBe(before);
+  });
+});
+
+
+describe('disabled compounds', () => {
+  it.each(['compound', 'multicam'])('stays disabled when flattening a %s', type => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const b = clip('video', 0, 4);
+    addClip(p, b, FREE);
+    const c = type === 'compound' ? createCompound(p, [a.id, b.id], FREE) : createMulticam(p, [a.id, b.id], FREE);
+    c.disabled = true;
+    expect(evaluate(p, s(1))).toEqual([]);
+    expect(audibleClips(p)).toEqual([]);
+    if (type === 'compound') breakApart(p, c.id, FREE);
+    else flattenMulticam(p, c.id);
+    expect(evaluate(p, s(1))).toEqual([]);
+    expect(audibleClips(p)).toEqual([]);
+    expect(allClips(p).every(c => c.disabled)).toBe(true);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(p)));
+    expect(evaluate(loaded, s(1))).toEqual([]);
+    expect(audibleClips(loaded)).toEqual([]);
+  });
+});

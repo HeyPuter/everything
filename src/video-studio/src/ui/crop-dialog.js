@@ -6,9 +6,12 @@
  */
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
-import { openDialog, toast, oneAtATime } from './dialog.js';
+import { pictureSizeFor } from '../model/picture-size.js';
+import { toast } from './dialog.js';
+import { frameDialog, openFrameDialog } from './frame-dialog.js';
+import { abortable } from '../lib/abort.js';
 
 const MIN = 0.02; // smallest crop side as a fraction of the source
 
@@ -49,29 +52,46 @@ export const cropFromRect = (r) => ({ l: round(r.x), t: round(r.y), r: round(1 -
 const round = (v) => Math.max(0, Math.round(v * 10000) / 10000);
 
 /** The source frame of a clip at the playhead (or its first frame) as a canvas. */
-async function sourceFrame(ctx, clip) {
+async function sourceFrame(ctx, clip, signal) {
   const asset = ctx.store.project.assets[clip.assetId];
   if (!asset) throw new Error('This clip has no media.');
   const maxW = 1280;
   if (clip.type === 'image') {
     const img = new Image();
-    img.src = await ctx.library.mediaURL(asset);
-    await img.decode();
-    return draw(img, img.naturalWidth, img.naturalHeight, maxW);
+    img.src = await abortable(() => ctx.library.mediaURL(asset), signal);
+    try {
+      await abortable(() => img.decode(), signal);
+      signal.throwIfAborted();
+    } finally {
+      if (signal.aborted) img.src = '';
+    }
+    const canvas = draw(img, img.naturalWidth, img.naturalHeight, maxW);
+    const size = pictureSizeFor(clip, asset);
+    if (size) {
+      canvas.dataset.srcW = String(size.width);
+      canvas.dataset.srcH = String(size.height);
+      // Keep the bounded bitmap, but display and crop in the same logical
+      // frame as the player. Bound width by both dialog and viewport height.
+      canvas.style.aspectRatio = `${size.width} / ${size.height}`;
+      canvas.style.width = `min(${canvas.width}px, calc(min(60vh, 560px) * ${size.width / size.height}))`;
+    }
+    return canvas;
   }
   // Decode the exact frame with WebCodecs (works in background tabs too).
-  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
-  const input = new Input({ source: new BlobSource(await ctx.library.mediaBlob(asset)), formats: ALL_FORMATS });
+  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+  const blob = await abortable(() => ctx.library.mediaBlob(asset), signal);
+  signal.throwIfAborted();
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
   try {
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
+    const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
+    if (!track || !(await abortable(() => track.canDecode(), signal))) throw new Error('This video can not be decoded here.');
     const t = ctx.store.time;
     const local = clamp(t - clip.start, 0, clip.duration - 1);
     const sec = T.sourceTimeAt(clip, clip.start + local) / US;
     const w = asset.width || track.displayWidth;
     const hgt = asset.height || track.displayHeight;
     const sink = new CanvasSink(track, { width: Math.min(maxW, w), fit: 'contain', poolSize: 1 });
-    const wrapped = (await sink.getCanvas(sec)) || (await sink.getCanvas(0));
+    const wrapped = (await abortable(() => sink.getCanvas(sec + FRAME_SLACK), signal)) || (await abortable(() => sink.getCanvas(0), signal));
     if (!wrapped) throw new Error('Could not read a frame from this video.');
     return draw(wrapped.canvas, w, hgt, maxW);
   } finally {
@@ -91,7 +111,7 @@ function draw(src, w, hgt, maxW) {
   return c;
 }
 
-export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected?.clip.id) => {
+export const openCropDialog = frameDialog(async (ctx, clipId = ctx.store.selected?.clip.id, signal) => {
   const { store, actions } = ctx;
   const f = clipId && T.findClip(store.project, clipId);
   if (!f || (f.clip.type !== 'video' && f.clip.type !== 'image')) {
@@ -102,16 +122,21 @@ export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected
     toast('This clip is on a locked track.', { kind: 'info' });
     return;
   }
+  const assetId = f.clip.assetId;
+  const isCurrentSource = () => {
+    const now = T.findClip(store.project, clipId);
+    return !signal.aborted && now?.clip === f.clip && now.clip.assetId === assetId && !now.track.locked;
+  };
   let frameCanvas;
   try {
-    frameCanvas = await sourceFrame(ctx, f.clip);
+    frameCanvas = await sourceFrame(ctx, f.clip, signal);
   } catch (err) {
-    toast(err?.message || 'Could not load this clip.', { kind: 'error' });
+    if (isCurrentSource()) toast(err?.message || 'Could not load this clip.', { kind: 'error' });
     return;
   }
-  // The clip may have been deleted or locked while its frame was read.
-  const now = T.findClip(store.project, clipId);
-  if (now?.clip !== f.clip || now.track.locked) return;
+  // Replacement edits the clip in place, so identity alone does not prove
+  // that this frame still belongs to its current media.
+  if (!isCurrentSource()) return;
   const srcW = Number(frameCanvas.dataset.srcW) || frameCanvas.width;
   const srcH = Number(frameCanvas.dataset.srcH) || frameCanvas.height;
   let rect = rectFromCrop(f.clip.crop || { l: 0, t: 0, r: 0, b: 0 });
@@ -236,23 +261,28 @@ export const openCropDialog = oneAtATime(async (ctx, clipId = ctx.store.selected
     setRatio('free');
   });
 
-  const d = openDialog({
+  const d = openFrameDialog({
     title: 'Crop',
     body: h('div.crop-editor', stage, h('div.crop-bar', ratioBtns, h('span.spacer'), readout)),
     actions: [reset, h('span.spacer'), cancel, apply],
     wide: true,
     className: 'crop-dialog',
-  });
+  }, signal);
   const ro = new ResizeObserver(paint);
   ro.observe(frameCanvas);
   d.result.then(() => ro.disconnect());
   cancel.addEventListener('click', () => d.close());
   apply.addEventListener('click', () => {
     const crop = cropFromRect(rect);
+    let mediaChanged = false;
     const ok = actions.editClip(clipId, 'Crop', (c) => {
+      if (c.assetId !== assetId) {
+        mediaChanged = true;
+        return false;
+      }
       c.crop = crop;
     });
-    if (ok === false) toast('This clip can no longer be cropped.', { kind: 'info' });
+    if (ok === false) toast(mediaChanged ? "The clip's media changed. Reopen Crop to edit its new picture." : 'This clip can no longer be cropped.', { kind: 'info' });
     else announce('Crop applied');
     d.close();
   });

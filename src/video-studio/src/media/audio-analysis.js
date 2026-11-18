@@ -6,6 +6,7 @@
  * pulls a clip's source range through the mixdown decoder.
  */
 import { US } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 import { Biquad, FFT, sqrtHann } from './audio-fx.js';
 import { NOISE_BANDS, NOISE_BAND_EDGES, sourceRange } from '../model/audio.js';
 
@@ -348,7 +349,20 @@ export function downmix(channels) {
  * open: asset => source (audio-mix mediabunnyOpener(library) or a test stub).
  */
 export async function decodeClipSound(open, asset, clip, { maxSeconds = 1200, signal, onProgress } = {}) {
-  const src = await open(asset);
+  let src;
+  try {
+    await abortable(async () => {
+      const opened = await open(asset);
+      // Custom openers may finish after cancellation; release their source
+      // without starting another read for the abandoned analysis.
+      if (signal?.aborted) opened?.close?.();
+      else src = opened;
+    }, signal);
+    signal?.throwIfAborted();
+  } catch (err) {
+    src?.close?.();
+    throw err;
+  }
   if (!src) return null;
   const [from, to0] = sourceRange(clip);
   const to = Math.min(to0, from + maxSeconds);
@@ -356,8 +370,13 @@ export async function decodeClipSound(open, asset, clip, { maxSeconds = 1200, si
   let rate = src.sampleRate;
   let nch = 1;
   let have = 0;
+  let chunks;
   try {
-    for await (const chunk of src.read(from)) {
+    chunks = src.read(from)[Symbol.asyncIterator]();
+    while (true) {
+      const next = await abortable(() => chunks.next(), signal);
+      if (next.done) break;
+      const chunk = next.value;
       if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
       rate = chunk.sampleRate;
       nch = Math.max(nch, chunk.channels.length);
@@ -383,7 +402,11 @@ export async function decodeClipSound(open, asset, clip, { maxSeconds = 1200, si
     }
   } finally {
     src.close?.();
+    const closed = chunks?.return?.();
+    if (signal?.aborted) Promise.resolve(closed).catch(() => {});
+    else await closed;
   }
+  signal?.throwIfAborted();
   const total = parts.reduce((s, p) => s + p[0].length, 0);
   const channels = [];
   for (let c = 0; c < Math.min(2, nch); c++) {

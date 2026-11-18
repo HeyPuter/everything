@@ -223,7 +223,7 @@ export async function lyricsFromClip(project, clipId, {
   step('decode');
   const read = decode || (async (a, c, o) => {
     const { mediabunnyOpener } = await import('../engine/audio-mix.js');
-    return decodeClipSound(mediabunnyOpener(library), a, c, o);
+    return decodeClipSound(mediabunnyOpener(library, { signal: o.signal }), a, c, o);
   });
   const snd = await read(asset, clip, { maxSeconds: MAX_SONG_SECONDS, signal, onProgress: (f) => step('decode', f) });
   if (signal?.aborted) throw abortError();

@@ -16,6 +16,7 @@ import {
 } from '../model/removal.js';
 import { maskHalf, maskToSource, sourceToMask, sourceToProject, projectToSource } from '../engine/mask-shapes.js';
 import { removeEdit } from './remove-edit-state.js';
+import { brushCursor, mappedTransform } from './brush-preview.js';
 import { toast } from './dialog.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -33,7 +34,7 @@ const q4 = (v) => Math.round(v * 10000) / 10000;
 export function createRemovalOverlay({ store, actions, stage }) {
   const root = svg('svg', { class: 'mask-svg removal-svg', 'aria-hidden': 'true' });
   const uidBase = `rmv${++maskSeq}`;
-  let cur = null; // { layer, box, k, SW, SH, regions, srcToCss, cssToSrc, cssPerSrc }
+  let cur = null; // { layer, box, k, SW, SH, regions, srcToCss, cssToSrc }
   let drag = null;
 
   const local = () => {
@@ -45,14 +46,12 @@ export function createRemovalOverlay({ store, actions, stage }) {
   function geometry(layer, box, k) {
     const SW = layer.width || 1;
     const SH = layer.height || 1;
-    const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
     const srcToCss = (sx, sy) => {
       const [px, py] = sourceToProject(layer, box, SW, SH, sx, sy);
       return [px * k, py * k];
     };
     const cssToSrc = (cx, cy) => projectToSource(layer, box, SW, SH, cx / k, cy / k);
-    const cssPerSrc = (Math.abs(box.w) * k) / Math.max(1e-6, SW * (1 - crop.l - crop.r));
-    return { SW, SH, srcToCss, cssToSrc, cssPerSrc };
+    return { SW, SH, srcToCss, cssToSrc };
   }
 
   /** Css points of a region-local point (pixels from its center). */
@@ -61,16 +60,17 @@ export function createRemovalOverlay({ store, actions, stage }) {
     return cur.srcToCss(sx, sy);
   };
 
-  /** Path data of a painted region's strokes: { paint: [{ d, w }], erase: [{ d, w }] }. */
+  /** Local stroke geometry in paint/erase order, as the source mask composites it. */
   function strokePaths(r) {
     const { a, b } = maskHalf(r, cur.SW, cur.SH);
     const unit = Math.min(2 * a, 2 * b);
-    const out = { paint: [], erase: [] };
+    const out = [];
     for (const s of r.strokes || []) {
       const pts = [];
-      for (let i = 0; i < s.pts.length; i += 2) pts.push(L(r, s.pts[i] * 2 * a, s.pts[i + 1] * 2 * b));
-      if (pts.length === 1) pts.push([pts[0][0] + 0.01, pts[0][1]]);
-      (s.erase ? out.erase : out.paint).push({ d: pathD(pts, false), w: Math.max(1, s.size * unit * cur.cssPerSrc) });
+      for (let i = 0; i < s.pts.length; i += 2) pts.push([s.pts[i] * 2 * a, s.pts[i + 1] * 2 * b]);
+      // Keep local coordinates and width together so SVG transforms the whole
+      // stroke, including its round caps, through unequal axes and shear.
+      out.push({ erase: s.erase, d: pts.length ? `M${pts.map(p => p.join(',')).join('L')}` : '', point: pts.length === 1 ? pts[0] : null, w: Math.max(0.5, s.size * unit) });
     }
     return out;
   }
@@ -95,20 +95,31 @@ export function createRemovalOverlay({ store, actions, stage }) {
     const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
     const clipPoly = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => srcToCss((crop.l + x * (1 - crop.l - crop.r)) * SW, (crop.t + y * (1 - crop.t - crop.b)) * SH));
     kids.push(svg('path', { class: `mask-clip-bounds catch-${tool === 'box' ? 'place' : 'paint'}`, d: pathD(clipPoly), 'data-rh': tool === 'box' ? 'box' : 'paint' }));
+    // Removal affects the source before crop. Tint only its visible picture;
+    // outlines and handles stay available even when a region crosses the edge.
+    const visibleId = `${uidBase}-visible`;
+    const visible = svg('clipPath', { id: visibleId, clipPathUnits: 'userSpaceOnUse' });
+    visible.append(svg('path', { d: `M${clipPoly.map(p => p.join(',')).join('L')}Z` }));
+    defs.append(visible);
+    const tintClip = `url(#${visibleId})`;
     const tintClass = `removal-tint${off ? ' off' : ''}`;
     regions.forEach((r, i) => {
       if (r.hidden) return;
       const selected = i === sel;
       if (r.type === 'brush') {
-        const { paint, erase } = strokePaths(r);
-        if (!paint.length) return;
+        const paths = strokePaths(r);
+        if (!paths.some(p => !p.erase)) return;
         if (removeEdit.show) {
           const id = `${uidBase}-m${i}`;
           const m = svg('mask', { id, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: cssW, height: cssH });
-          for (const p of paint) m.append(svg('path', { d: p.d, fill: 'none', stroke: '#fff', 'stroke-width': p.w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-          for (const p of erase) m.append(svg('path', { d: p.d, fill: 'none', stroke: '#000', 'stroke-width': p.w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+          const strokes = svg('g', { transform: mappedTransform((x, y) => L(r, x, y)) });
+          const addStroke = (p, color) => strokes.append(p.point
+            ? svg('circle', { cx: p.point[0], cy: p.point[1], r: p.w / 2, fill: color })
+            : svg('path', { d: p.d, fill: 'none', stroke: color, 'stroke-width': p.w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+          paths.forEach(p => addStroke(p, p.erase ? '#000' : '#fff'));
+          m.append(strokes);
           defs.append(m);
-          kids.push(svg('rect', { class: `${tintClass}${selected ? ' selected' : ''}`, x: 0, y: 0, width: cssW, height: cssH, mask: `url(#${id})` }));
+          kids.push(svg('rect', { class: `${tintClass}${selected ? ' selected' : ''}`, x: 0, y: 0, width: cssW, height: cssH, mask: `url(#${id})`, 'clip-path': tintClip }));
         }
         if (selected) {
           const bnd = regionBounds(r, SW / SH);
@@ -124,7 +135,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
       const { a, b } = maskHalf(r, SW, SH);
       const corners = { nw: [-a, -b], ne: [a, -b], se: [a, b], sw: [-a, b] };
       const poly = Object.values(corners).map(([x, y]) => L(r, x, y));
-      if (removeEdit.show) kids.push(svg('path', { class: `${tintClass}${selected ? ' selected' : ''}`, d: pathD(poly) }));
+      if (removeEdit.show) kids.push(svg('path', { class: `${tintClass}${selected ? ' selected' : ''}`, d: pathD(poly), 'clip-path': tintClip }));
       kids.push(svg('path', { class: `mask-outline${selected ? '' : ' other'}`, d: pathD(poly) }));
       // In box mode a box body picks and moves that region.
       if (tool === 'box') kids.push(svg('path', { class: 'removal-hit', d: pathD(poly), 'data-rh': 'move', 'data-i': i }));
@@ -138,8 +149,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
       }
     });
     if (tool !== 'box' && removeEdit.cursor) {
-      const [cx, cy, r] = removeEdit.cursor;
-      kids.push(svg('circle', { class: `mask-brush-cursor${tool === 'erase' ? ' erase' : ''}`, cx, cy, r }));
+      kids.push(cursorShape());
     }
     root.replaceChildren(...kids);
   }
@@ -164,6 +174,13 @@ export function createRemovalOverlay({ store, actions, stage }) {
       return -1;
     }
     return list.length >= MAX_REGIONS ? -2 : list.length;
+  }
+
+  function cursorShape(node = null) {
+    const erase = removeEdit.tool === 'erase' || removeEdit.cursor[2];
+    const region = cur.regions[paintTarget(erase)];
+    const { a, b } = maskHalf(region || { w: 1, h: 1 }, cur.SW, cur.SH);
+    return brushCursor(cur.srcToCss, removeEdit.cursor, removeEdit.size * Math.min(2 * a, 2 * b), erase, node);
   }
 
   root.addEventListener('pointerdown', (e) => {
@@ -202,7 +219,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
         reg.strokes = [...(reg.strokes || []), stroke];
       }, coalesce);
       if (removeEdit.index !== index) removeEdit.set({ index });
-      drag = { kind, index, region: r, a, b, coalesce, pts: stroke.pts.slice(), erase };
+      drag = { kind, index, region: r, a, b, coalesce, pts: stroke.pts.slice(), erase, lastCss: p0 };
     } else if (kind === 'box') {
       if (cur.regions.length >= MAX_REGIONS) {
         toast(`A clip can have up to ${MAX_REGIONS} regions.`, { kind: 'info' });
@@ -228,15 +245,10 @@ export function createRemovalOverlay({ store, actions, stage }) {
   root.addEventListener('pointermove', (e) => {
     if (cur && removeEdit.tool !== 'box') {
       const p = pointer(e);
-      const r = (removeEdit.size * Math.min(cur.SW, cur.SH) * cur.cssPerSrc) / 2;
-      removeEdit.cursor = [p[0], p[1], r];
+      removeEdit.cursor = [p[0], p[1], e.altKey];
       const c = root.querySelector('.mask-brush-cursor');
-      if (c) {
-        c.setAttribute('cx', p[0]);
-        c.setAttribute('cy', p[1]);
-        c.setAttribute('r', r);
-        c.classList.toggle('erase', removeEdit.tool === 'erase' || e.altKey);
-      } else root.append(svg('circle', { class: `mask-brush-cursor${removeEdit.tool === 'erase' ? ' erase' : ''}`, cx: p[0], cy: p[1], r }));
+      const cursor = cursorShape(c);
+      if (!c) root.append(cursor);
     }
     if (!drag || e.pointerId !== drag.pointerId) return;
     onDrag(pointer(e), e);
@@ -264,12 +276,14 @@ export function createRemovalOverlay({ store, actions, stage }) {
     switch (drag.kind) {
       case 'paint': {
         const { region: r, a, b, index } = drag;
+        // Sample in screen pixels so spacing stays consistent through crop,
+        // unequal axes, rotated regions, and nested group transforms.
+        if (Math.hypot(p[0] - drag.lastCss[0], p[1] - drag.lastCss[1]) < 1.5) return;
         const l = sourceToMask(r, SW, SH, s[0], s[1]);
         const lp = [q4(l[0] / (2 * a)), q4(l[1] / (2 * b))];
         const pts = drag.pts;
-        // Skip points closer than about a css pixel.
-        const step = 1.5 / Math.max(1e-6, 2 * a * cur.cssPerSrc);
-        if (Math.hypot(lp[0] - pts[pts.length - 2], lp[1] - pts[pts.length - 1]) < step) return;
+        if (lp[0] === pts[pts.length - 2] && lp[1] === pts[pts.length - 1]) return;
+        drag.lastCss = p;
         pts.push(lp[0], lp[1]);
         const copy = pts.slice();
         edit(drag.erase ? 'Erase removal region' : 'Paint removal region', (c) => {

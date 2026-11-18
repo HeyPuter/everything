@@ -26,10 +26,11 @@ import { stickerTab } from './sticker.js';
 import { effectTab } from './effect.js';
 import { clipEffectsTab } from './clip-effects.js';
 import { filterClipTab } from './filter-clip.js';
-import { transitionView } from './transition.js';
+import { transitionView, transitionFragmentsTab } from './transition.js';
 import { projectView } from './project.js';
 import { multiView } from './multi.js';
 import { compoundTab } from './compound.js';
+import { groupMotionTab, inheritedPaths } from './group-motion.js';
 import { multicamTab } from './multicam.js';
 import { avatarTab } from './avatar.js';
 import { stylizeTab } from './stylize.js';
@@ -37,6 +38,8 @@ import { angleTracks } from '../../model/multicam.js';
 import { maskEdit } from '../mask-edit-state.js';
 
 const TABS = {
+  transitionFragments: { label: 'Transitions', make: transitionFragmentsTab },
+  groupMotion: { label: 'Group motion', make: groupMotionTab },
   video: { label: 'Video', make: videoTab },
   audio: { label: 'Audio', make: audioTab },
   voice: { label: 'Voice', make: voiceTab },
@@ -66,6 +69,12 @@ const TYPE_ICONS = { video: 'film', image: 'image', audio: 'music', text: 'text'
 
 /** Top tabs for a clip: its own properties first, then timing, motion and color. */
 export function tabsFor(project, clip) {
+  const tabs = baseTabsFor(project, clip);
+  if (clip.transitionSlices?.length) tabs.push('transitionFragments');
+  return inheritedPaths(clip).length ? [...tabs, 'groupMotion'] : tabs;
+}
+
+function baseTabsFor(project, clip) {
   switch (clip.type) {
     case 'video': {
       const a = project.assets[clip.assetId];
@@ -114,7 +123,7 @@ export function createInspector(ctx) {
     if (!s) return 'project';
     // A multi-camera clip's cards follow its angles.
     const angles = s.clip.multicam ? `:${angleTracks(s.clip).length}` : '';
-    return `clip:${s.clip.id}:${s.clip.type}:${tabsFor(store.project, s.clip).join(',')}${angles}`;
+    return `clip:${s.clip.id}:${s.clip.type}:${tabsFor(store.project, s.clip).join(',')}${angles}:${inheritedPaths(s.clip).map(p => p.join('.')).join('|')}:${s.clip.transitionSlices?.length || 0}`;
   }
 
   function setTitle(text, { hidden = false } = {}) {
@@ -164,6 +173,10 @@ export function createInspector(ctx) {
       },
     });
     const lockNote = note('This track is locked. Unlock it on the timeline to edit the clip.', 'lock');
+    const timingLabel = h('span');
+    const resetTiming = h('button.btn.small', { type: 'button', title: 'Anchor retained timing to this clip’s current boundaries' }, 'Restart timing');
+    resetTiming.addEventListener('click', () => view.edit('Restart clip timing', c => { delete c.timing; }));
+    const timingNote = h('div.insp-note', timingLabel, resetTiming);
     const show = (id) => {
       view.resetScope();
       ts.panel.replaceChildren(TABS[id].make(view, state));
@@ -174,12 +187,17 @@ export function createInspector(ctx) {
     headTabs.replaceChildren(head, ts.el);
     ts.fit();
     setTitle(clipLabel(store.project, clip), { hidden: true });
-    body.replaceChildren(lockNote, ts.panel);
+    body.replaceChildren(lockNote, timingNote, ts.panel);
     show(ts.current);
     const update = () => {
       const f = view.found;
       if (!f) return;
       lockNote.hidden = !f.track.locked;
+      const names = { animIn: 'in animation', animOut: 'out animation', animLoop: 'loop', fadeIn: 'fade in', fadeOut: 'fade out', effects: 'effects', intrinsic: 'animation', trackEffect: 'effect' };
+      const fields = Object.keys(f.clip.timing || {});
+      timingNote.hidden = !fields.length;
+      timingLabel.textContent = fields.length ? `Original timing preserved: ${fields.map(key => names[key] || key).join(', ')}. ` : '';
+      resetTiming.disabled = Boolean(f.track.locked);
       title.textContent = clipLabel(store.project, f.clip);
       view.scope.update();
     };

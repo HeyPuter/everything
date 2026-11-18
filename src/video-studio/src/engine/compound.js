@@ -9,11 +9,14 @@
  * is the active one: its clips are cut into the pieces that show. The
  * angle the sound comes from stays one whole clip that is heard
  * throughout but drawn only inside its `show` ranges (timeline time), so
- * its sound plays on without a break at the cuts.
+ * its sound plays on without a break at the cuts. Scheduled pieces retain
+ * `renderSource` when clipped so animation and gain use the original clock.
+ * Virtual track transitions retain both partners and an explicit visible window.
  */
 import { trimTo } from '../model/slice.js';
 import { clipEnd } from '../model/timeline.js';
 import { activeRanges } from '../model/multicam.js';
+import { projectRevision } from '../model/revision.js';
 
 const cache = new WeakMap(); // project -> { key, expanded }
 
@@ -21,59 +24,71 @@ const hasCompound = (tracks) => tracks.some((t) => t.clips.some((c) => c.type ==
 
 /** Cheap fingerprint of the parts of a project expansion depends on. */
 function keyOf(project) {
-  let k = `${project.modified}|${project.tracks.length}`;
+  let k = `${projectRevision(project)}|${project.modified}|${project.tracks.length}`;
   for (const t of project.tracks) for (const c of t.clips) if (c.type === 'compound') k += `|${c.id}:${c.start}:${c.duration}:${c.in}:${c.disabled ? 1 : 0}${c.multicam ? JSON.stringify(c.multicam) : ''}`;
   return k;
 }
 
-const copyOf = (c) => ({ ...c, keyframes: c.keyframes ? structuredClone(c.keyframes) : c.keyframes });
+const copyOf = c => ({ ...c, keyframes: c.keyframes ? structuredClone(c.keyframes) : c.keyframes });
 
-/**
- * What one clip of a camera angle contributes: v is the clip already placed
- * on the outer timeline, ranges the inner times where the angle shows.
- */
-function anglePieces(v, comp, ranges, withSound) {
-  const outer = ranges.map(([a, b]) => [comp.start + a - comp.in, comp.start + b - comp.in]);
-  if (withSound) {
-    v.show = outer;
-    return [v];
-  }
-  const out = [];
-  outer.forEach(([a, b], i) => {
-    const piece = trimTo(copyOf(v), a, b);
-    if (!piece) return;
-    // Named after where the run starts so a piece keeps its id (and its media element) while later cuts change.
-    piece.id = `${v.id}@${ranges[i][0]}`;
-    if (clipEnd(piece) < clipEnd(v)) piece.transition = null;
-    if (withSound === false) piece.muted = true;
-    out.push(piece);
-  });
-  return out;
+/** The visible/scheduled piece keeps its original content clock for rendering and gain. */
+function windowPiece(source, start, end, id = source.id) {
+  if (source.start >= end || clipEnd(source) <= start) return null;
+  if (source.start >= start && clipEnd(source) <= end) return { ...source, id };
+  const piece = trimTo(copyOf(source), start, end);
+  if (!piece) return null;
+  piece.id = id;
+  piece.renderSource = source.id === id ? source : { ...source, id };
+  return piece;
 }
 
 /** Virtual clips (and their tracks) a compound clip shows on the outer timeline. */
-function expandOne(comp, outerTrack) {
+function expandOne(window, outerTrack) {
+  const comp = window.renderSource || window;
+  const lo = comp.in + window.start - comp.start;
+  const hi = lo + window.duration;
+  const offset = comp.start - comp.in;
   const tracks = [];
   const mc = comp.multicam;
+  const solo = comp.sequence.tracks.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
   let angle = -1;
   for (const nt of comp.sequence.tracks) {
-    const clips = [];
+    const clips = [], transitions = [];
     if (mc && nt.angle) angle++;
-    const ranges = mc && nt.angle ? activeRanges(mc, angle, comp.in, comp.in + comp.duration) : null;
-    // true: this angle gives the sound; false: silent; null: follows the picture.
+    const ranges = mc && nt.angle ? activeRanges(mc, angle, lo, hi) : [[lo, hi]];
     const withSound = mc && nt.angle ? (mc.audio === 'follow' ? null : mc.audio === angle) : null;
-    for (const child of nt.clips) {
-      const v = trimTo(copyOf(child), comp.in, comp.in + comp.duration);
-      if (!v) continue;
-      v.start = comp.start + v.start - comp.in;
-      v.id = `${comp.id}~${child.id}`;
-      v.parent = comp;
-      v.sourceId = child.id;
-      if (comp.disabled) v.disabled = true;
-      if (ranges) clips.push(...anglePieces(v, comp, ranges, withSound));
-      else clips.push(v);
+    const source = child => ({ ...child, start: child.start + offset, id: `${comp.id}~${child.id}`, parent: comp, sourceId: child.id, disabled: child.disabled || comp.disabled });
+    const originals = nt.clips.map(source);
+    const pictureId = (v, a) => mc && nt.angle && !withSound ? `${v.id}@${a}` : v.id;
+    for (const v of originals) {
+      if (withSound) {
+        const piece = windowPiece(v, lo + offset, hi + offset);
+        if (piece) { piece.show = ranges.map(([a, b]) => [a + offset, b + offset]); clips.push(piece); }
+      } else for (const [a, b] of ranges) {
+        const piece = windowPiece(v, a + offset, b + offset, pictureId(v, a));
+        if (piece) {
+          if (withSound === false) piece.muted = true;
+          clips.push(piece);
+        }
+      }
     }
-    tracks.push({ id: `${outerTrack.id}~${nt.id}`, kind: nt.kind, main: false, locked: true, hidden: outerTrack.hidden || nt.hidden, muted: outerTrack.muted || nt.muted, solo: outerTrack.solo, clips, virtual: true });
+    // Transition partners keep their full source clocks even if the visible window
+    // contains only one side of the cut. Each window explicitly bounds the picture.
+    for (let i = 0; i < originals.length - 1; i++) {
+      const a = originals[i], b = originals[i + 1];
+      if (!a.transition || Math.abs(b.start - clipEnd(a)) > 2000) continue;
+      const cut = clipEnd(a), half = a.transition.duration / 2;
+      for (const [from, to] of ranges) {
+        const start = Math.max(from + offset, cut - half);
+        const end = Math.min(to + offset, cut + half);
+        if (start >= end) continue;
+        const fromClip = { ...a, id: pictureId(a, from) };
+        const toClip = { ...b, id: pictureId(b, from) };
+        if (withSound === false) { fromClip.muted = true; toClip.muted = true; }
+        transitions.push({ from: fromClip, to: toClip, cut, start, end });
+      }
+    }
+    tracks.push({ id: `${outerTrack.id}~${nt.id}`, kind: nt.kind, main: false, locked: true, hidden: outerTrack.hidden || nt.hidden, muted: outerTrack.muted || nt.muted || (solo && !nt.solo), solo: outerTrack.solo, clips, transitions, virtual: true });
   }
   return tracks;
 }
@@ -86,18 +101,23 @@ function expandTracks(tracks) {
       out.push(t);
       continue;
     }
-    // Nested track i of every compound on this track shares one virtual track.
+    // Share a virtual track only when its stack position, kind and visibility agree.
+    // Neighboring compounds may have completely different inner track layouts.
     const merged = [];
     for (const comp of comps) {
       let inner = expandOne(comp, t);
       if (hasCompound(inner)) inner = expandTracks(inner);
       inner.forEach((vt, i) => {
-        if (!merged[i]) merged[i] = { ...vt, id: `${t.id}~${i}`, clips: [] };
-        merged[i].clips.push(...vt.clips);
+        const key = `${vt.kind}:${Number(Boolean(vt.hidden))}${Number(Boolean(vt.muted))}${Number(Boolean(vt.solo))}`;
+        const slot = (merged[i] ||= new Map());
+        if (!slot.has(key)) slot.set(key, { ...vt, id: `${t.id}~${i}~${key}`, clips: [], transitions: [] });
+        slot.get(key).clips.push(...vt.clips);
+        slot.get(key).transitions.push(...(vt.transitions || []));
       });
     }
-    for (const m of merged) m.clips.sort((a, b) => a.start - b.start);
-    out.push(...merged, { ...t, clips: t.clips.filter((c) => c.type !== 'compound') });
+    const virtual = merged.flatMap((slot) => [...slot.values()]);
+    for (const m of virtual) m.clips.sort((a, b) => a.start - b.start);
+    out.push(...virtual, { ...t, clips: t.clips.filter((c) => c.type !== 'compound') });
   }
   return out;
 }

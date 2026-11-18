@@ -293,8 +293,8 @@ export function createAiToolRunner(ctx, services = {}) {
   }
 
   /** Import a made file into the media library (no undo step yet): the asset. */
-  async function importMade(file, origin) {
-    const asset = await ctx.library.importFile(file, { origin });
+  async function importMade(file, origin, pictureSize) {
+    const asset = await ctx.library.importFile(file, { origin, ...(pictureSize ? { pictureSize } : {}) });
     if (!asset) throw new Error(`Couldn't add ${file.name} to the media`);
     return asset;
   }
@@ -373,9 +373,9 @@ export function createAiToolRunner(ctx, services = {}) {
   }
 
   // Made after a Stop: imported and kept in the media library, said so.
-  async function keepFile(file, origin, what, control) {
+  async function keepFile(file, origin, what, control, pictureSize) {
     try {
-      keepMade(await importMade(file, origin), what, control);
+      keepMade(await importMade(file, origin, pictureSize), what, control);
     } catch {
       /* nothing to keep */
     }
@@ -532,18 +532,20 @@ export function createAiToolRunner(ctx, services = {}) {
       }
       const base = got.clip ? got.clip.name || store.project.assets[got.clip.assetId]?.name : 'Picture';
       const edited = (r) => new File([r.blob], imageFileName(`${String(base || 'Picture').replace(/\.[a-z0-9]{2,5}$/i, '')} edited`), { type: r.blob.type || 'image/png' });
-      const made = await generating(control, 'Editing the picture', () => svc.editPicture(got.picture, instruction, { model: svc.imageModel(), testMode: svc.testMode() }), (r) => keepFile(edited(r), 'ai-image', 'picture', control));
+      const made = await generating(control, 'Editing the picture', () => svc.editPicture(got.picture, instruction, { model: svc.imageModel(), testMode: svc.testMode() }), (r) => keepFile(edited(r), 'ai-image', 'picture', control, got.picture.baked?.pictureSize));
       if (!made) return { skipped: true };
-      const asset = await importMade(edited(made), 'ai-image');
+      const asset = await importMade(edited(made), 'ai-image', got.picture.baked?.pictureSize);
       if (control?.stopped?.()) return keepMade(asset, 'picture', control);
       const inPlace = got.clip?.type === 'image' && a.replace !== false;
       const sourceClip = got.clip;
       const { entry, value } = oneStep('Edit picture', asset, () => {
-        if (inPlace && replacePicture(ctx, sourceClip.id, asset)) {
+        if (inPlace && replacePicture(ctx, sourceClip.id, asset, got.picture.baked)) {
           const clip = T.findClip(store.project, sourceClip.id)?.clip;
           return { clip, words: `in place of the picture of clip ${sourceClip.id}` };
         }
-        return place(asset, { place: a.place || 'overlay', start: a.start ?? (sourceClip ? sourceClip.start / US : store.time / US) });
+        const placed = place(asset, { place: a.place || 'overlay', start: a.start ?? (sourceClip ? sourceClip.start / US : store.time / US) });
+        if (placed.clip && got.picture.baked?.pictureSize) actions.editClip(placed.clip.id, 'Keep picture framing', c => { c.pictureSize = { ...got.picture.baked.pictureSize }; });
+        return placed;
       }, at);
       if (value.clip) store.select(value.clip.id);
       return ok(`changed the picture from ${got.from} (new media ${asset.id}) and put it ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });

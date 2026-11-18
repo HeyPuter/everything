@@ -110,4 +110,14 @@ describe('exportSpan', () => {
     expect(exportSpan(p, 'selection', [])).toEqual({ start: 0, end: s(8) });
     void a;
   });
+  it('covers selected clips across tracks and ignores duplicate or deleted ids', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 4), clip('video', 4, 4));
+    const title = clip('text', 2, 10);
+    addClip(p, title, FREE);
+    expect(exportSpan(p, 'selection', [b.id, title.id, b.id, 'deleted'])).toEqual({ start: s(2), end: s(12) });
+    expect(exportSpan(p, 'selection', ['deleted'])).toEqual({ start: 0, end: s(12) });
+    expect(exportSpan(p, 'selection', [a.id])).toEqual({ start: 0, end: s(4) });
+  });
+
 });

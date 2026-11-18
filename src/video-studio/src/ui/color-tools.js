@@ -3,6 +3,7 @@
  * Color assets tab: LUT import, saved color presets, auto adjust, color
  * match and the player eyedropper.
  */
+import { boxHalf } from '../lib/geometry.js';
 import { h, announce } from '../lib/dom.js';
 import { US } from '../lib/time.js';
 import { DEFAULT_ADJUST } from '../model/project.js';
@@ -170,7 +171,10 @@ function sourceFrame(ctx, clipId, strip) {
   if (target) {
     const b = player.boxFor(target);
     const k = px.width / store.project.settings.width;
-    if (b) rect = { x: (b.cx - b.w / 2) * k, y: (b.cy - b.h / 2) * k, w: b.w * k, h: b.h * k };
+    if (b) {
+      const half = boxHalf(b, target.rotation);
+      rect = { x: (b.cx - half.w) * k, y: (b.cy - half.h) * k, w: half.w * 2 * k, h: half.h * 2 * k };
+    }
   }
   return { px, rect, t, clip };
 }

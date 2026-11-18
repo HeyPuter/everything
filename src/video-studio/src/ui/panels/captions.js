@@ -350,11 +350,24 @@ function lyricsPanel(ctx, opts, save) {
   let job = null;
   let disposed = false;
   const current = (task) => !disposed && job === task && !task.controller.signal.aborted;
+  const songSource = (id) => {
+    const c = T.findClip(store.project, id)?.clip;
+    if (!c) return null;
+    const a = store.project.assets[c.assetId];
+    return JSON.stringify([c.type, c.assetId, c.start, c.in, c.duration, c.speed, c.speedCurve, c.freeze,
+      c.type === 'video' && c.audioDetached, a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration, a?.hasAudio]);
+  };
   const atSource = (task) => {
     const nest = store.nest || [];
-    if (store.project.id !== task.projectId || (store.project.timelineId ?? null) !== task.timelineId || nest.length !== task.compounds.length) return false;
+    if (store.project !== task.project || store.project.id !== task.projectId || (store.project.timelineId ?? null) !== task.timelineId || nest.length !== task.compounds.length) return false;
     for (let i = 0; i < nest.length; i++) if (nest[i].id !== task.compounds[i]) return false;
     return true;
+  };
+  const validate = (task) => {
+    if (!current(task)) return false;
+    if (!atSource(task)) cancelJob('Lyrics cancelled because the open timeline changed.');
+    else if (songSource(task.song) !== task.songSource) cancelJob('Lyrics cancelled because the song changed. Create lyrics again to use its current audio and timing.');
+    return current(task);
   };
   function finish(task) {
     if (job !== task) return;
@@ -396,14 +409,14 @@ function lyricsPanel(ctx, opts, save) {
   async function run() {
     if (job || disposed || !song.value) return;
     const task = {
-      controller: new AbortController(), projectId: store.project.id, timelineId: store.project.timelineId ?? null,
-      compounds: (store.nest || []).map((f) => f.id), song: song.value, started: false,
+      controller: new AbortController(), project: store.project, projectId: store.project.id, timelineId: store.project.timelineId ?? null,
+      compounds: (store.nest || []).map((f) => f.id), song: song.value, songSource: songSource(song.value), started: false,
     };
     job = task;
     const { signal } = task.controller;
     try {
       const mode = await askReplace(store, { signal });
-      if (!mode || !current(task)) return;
+      if (!mode || !validate(task)) return;
       task.started = true;
       syncButton();
       progress.hidden = false;
@@ -422,7 +435,7 @@ function lyricsPanel(ctx, opts, save) {
         },
         ...(ctx.lyricsDeps || {}),
       });
-      if (!current(task)) return;
+      if (!validate(task)) return;
       if (!res.cues.length) {
         toast('No singing was found in this clip.', { kind: 'info' });
         return;
@@ -431,7 +444,7 @@ function lyricsPanel(ctx, opts, save) {
       const n = applyCaptions(ctx, res.cues, { mode, preset: style.preset, position: opts.lyricsPosition, label: 'Lyrics from music', captionStyle: style.id });
       toast(`Added ${n} lyric line${n === 1 ? '' : 's'}.`, { kind: 'success' });
     } catch (err) {
-      if (!current(task)) return;
+      if (!validate(task)) return;
       if (err?.name === 'AbortError') toast('Lyrics cancelled.', { kind: 'info' });
       else {
         console.error(err);
@@ -455,7 +468,7 @@ function lyricsPanel(ctx, opts, save) {
   );
   pos.el.setAttribute('aria-labelledby', 'lyr-pos');
   const refresh = () => {
-    if (job && !atSource(job)) cancelJob('Lyrics cancelled because the open timeline changed.');
+    if (job) validate(job);
     if (el.isConnected && !job) sync();
   };
   const offs = [store.on('change', refresh), store.on('select', refresh)];

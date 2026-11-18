@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createCompound } from '../src/model/compound.js';
 import { US } from '../src/lib/time.js';
 import { createProject, makeTrack, makeClip } from '../src/model/project.js';
 import { loadDsp, dspReady } from '../src/media/dsp.js';
@@ -138,6 +139,24 @@ describe('audio mix', () => {
     const ac = new AbortController();
     ac.abort();
     await expect(renderAudio(p, null, { sampleRate: SR, openSource, signal: ac.signal })).rejects.toThrow(/cancel/i);
+  });
+
+  it('does not turn a canceled source read into a successful silent mix', async () => {
+    const { p } = project([makeClip('audio', { assetId: 'a', duration: US })], {});
+    const controller = new AbortController();
+    let finishRead;
+    const library = { mediaBlob: vi.fn(() => new Promise((resolve) => { finishRead = resolve; })) };
+    let outcome;
+    const pending = renderAudio(p, library, { sampleRate: SR, signal: controller.signal })
+      .then(() => { outcome = 'completed'; }, (err) => { outcome = err.name; });
+    try {
+      await vi.waitFor(() => expect(library.mediaBlob).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await vi.waitFor(() => expect(outcome).toBe('AbortError'), { timeout: 200, interval: 5 });
+    } finally {
+      finishRead?.(new Blob(['late file']));
+      await pending;
+    }
   });
 
   it('mixClipInto leaves samples outside the clip untouched', () => {
@@ -286,3 +305,19 @@ describe('surround sound', () => {
   });
 });
 
+
+
+it('exports a compound window with the original child fades and silence outside it', async () => {
+  const clip = makeClip('audio', { assetId: 'a', duration: 4 * US, fadeIn: 2 * US, fadeOut: 2 * US });
+  const { p, openSource } = project([clip], { a: synth(SR, 5, () => 0.25) });
+  const c = createCompound(p, [clip.id], { ripple: false });
+  c.in = US; c.duration = 2 * US; c.start = US / 2;
+  const { channels: [ch] } = await renderAudio(p, null, { sampleRate: SR, channels: 1, openSource, end: 3 * US });
+  expect(ch[SR / 4]).toBe(0);
+  expect(ch[Math.round(2.75 * SR)]).toBe(0);
+  for (const time of [0.75, 1, 1.25, 1.75, 2, 2.25]) {
+    const original = time + 0.5;
+    const gain = original < 2 ? original / 2 : (4 - original) / 2;
+    expect(ch[Math.round(time * SR)]).toBeCloseTo(0.25 * gain, 3);
+  }
+});

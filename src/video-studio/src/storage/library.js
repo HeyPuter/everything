@@ -42,6 +42,7 @@ export class Library extends Emitter {
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
     this.reads = new Map(); // hash -> Promise<Blob>: files being read, shared by everyone asking
+    this.coverWrites = new Map(); // project id -> last cover write, ordered per project
     this.stored = null; // { at, files: Promise<Map(name -> size)> }: recent listing of the media folder
     this.uploads = new Map(); // hash -> Promise
     this.failed = new Map(); // hash -> { asset, blob, tries, timer }: uploads that failed, tried again later
@@ -337,8 +338,17 @@ export class Library extends Emitter {
   }
 
   async saveCover(id, blob) {
-    await this.backend.writeBlob(`covers/${id}.jpg`, blob);
-    this.emit('cover', { id });
+    const previous = this.coverWrites.get(id);
+    const write = (previous || Promise.resolve()).catch(() => {}).then(async () => {
+      await this.backend.writeBlob(`covers/${id}.jpg`, blob);
+      this.emit('cover', { id });
+    });
+    this.coverWrites.set(id, write);
+    try {
+      await write;
+    } finally {
+      if (this.coverWrites.get(id) === write) this.coverWrites.delete(id);
+    }
   }
 
   async coverBlob(id) {
@@ -423,7 +433,7 @@ export class Library extends Emitter {
    * Import a local File: probe it, start storing it, and return the asset at
    * once so it can be used while the upload continues.
    */
-  async importFile(file, { origin = 'import', onNote } = {}) {
+  async importFile(file, { origin = 'import', onNote, pictureSize } = {}) {
     // Mediabunny is loaded on first import so the home screen starts faster.
     const { probe, extOf, storableFile, mediaMime } = await import('../media/probe.js');
     // SVG pictures are stored drawn as PNG (the name stays the one the user knows).
@@ -434,6 +444,7 @@ export class Library extends Emitter {
     const asset = normalizeAsset({
       id: uid('a'),
       kind: info.kind,
+      pictureSize,
       name: source.name || `${info.kind} ${new Date().toLocaleString()}`,
       hash,
       ext: extOf(file.name, file.type),
@@ -451,6 +462,7 @@ export class Library extends Emitter {
     if (info.soundUnsupported) onNote?.(`${source.name || 'This video'}: its sound can't be played in this browser, so it was added without sound.`);
     this.blobs.set(hash, file);
     this._store(asset, file);
+    this.emit('media-available', { hash });
     return asset;
   }
 
@@ -465,6 +477,7 @@ export class Library extends Emitter {
     if (!asset) throw new Error(`Unsupported media: ${fields?.name || 'file'}`);
     const typed = asset.mime && blob.type !== asset.mime ? new Blob([blob], { type: asset.mime }) : blob;
     this.blobs.set(hash, typed);
+    this.emit('media-available', { hash });
     await this._store(asset, typed);
     return asset;
   }

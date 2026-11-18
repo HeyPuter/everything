@@ -8,6 +8,7 @@
  */
 import { Input, BlobSource, ALL_FORMATS, AudioBufferSink } from 'mediabunny';
 import { US } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 import { makeClip, DEFAULT_TEXT_STYLE } from '../model/project.js';
 import { TEXT_PRESETS } from '../model/catalog.js';
 import { MIN_CLIP, clipEnd } from '../model/timeline.js';
@@ -408,6 +409,7 @@ export function clipsForScope(project, scope) {
  * Float32Array covering 0..end of the last clip, peak normalized.
  */
 export async function mixdown(project, library, { scope = 'all', sampleRate = STT_RATE, onProgress, signal } = {}) {
+  signal?.throwIfAborted();
   const items = clipsForScope(project, scope);
   if (!items.length) throw new Error(scope === 'main' ? 'The base track has no sound. Choose All audio, or add clips with sound.' : 'There is no audio in this project to caption.');
   const end = Math.max(...items.map(({ clip }) => clipEnd(clip)));
@@ -417,11 +419,12 @@ export async function mixdown(project, library, { scope = 'all', sampleRate = ST
   for (const { clip } of items) {
     if (signal?.aborted) throw abortError();
     const asset = project.assets[clip.assetId];
-    const blob = await library.mediaBlob(asset);
+    const blob = await abortable(() => library.mediaBlob(asset), signal);
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+    let frames;
     try {
-      const track = await input.getPrimaryAudioTrack();
-      if (!track || !(await track.canDecode())) continue;
+      const track = await abortable(() => input.getPrimaryAudioTrack(), signal);
+      if (!track || !(await abortable(() => track.canDecode(), signal))) continue;
       // Source <-> timeline through the clip's speed (constant or a curve).
       const map = sourceMapper(clip);
       const toLocal = (srcSec) => localAtSource(clip, srcSec * US) / US;
@@ -430,17 +433,25 @@ export async function mixdown(project, library, { scope = 'all', sampleRate = ST
       const tStart = clip.start / US;
       const tEnd = clipEnd(clip) / US;
       const sink = new AudioBufferSink(track);
-      for await (const { buffer, timestamp } of sink.buffers(srcStart, srcEnd)) {
+      frames = sink.buffers(srcStart, srcEnd)[Symbol.asyncIterator]();
+      while (true) {
+        const next = await abortable(() => frames.next(), signal);
+        if (next.done) break;
+        const { buffer, timestamp } = next.value;
         if (signal?.aborted) throw abortError();
         mixChunk(out, sampleRate, buffer, timestamp, clip, { srcStart, map, toLocal, tStart, tEnd });
         onProgress?.(Math.min(1, (done + Math.min(clip.duration, toLocal(timestamp - srcStart) * US)) / total));
       }
     } finally {
       input.dispose();
+      const closed = frames?.return?.();
+      if (signal?.aborted) Promise.resolve(closed).catch(() => {});
+      else await closed;
     }
     done += clip.duration;
     onProgress?.(Math.min(1, done / total));
   }
+  signal?.throwIfAborted();
   let peak = 0;
   for (let i = 0; i < out.length; i++) {
     const a = Math.abs(out[i]);

@@ -4,7 +4,8 @@ import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { Editor } from '../src/ui/editor.js';
 import { fixture, clip, onMain } from './helpers.js';
-import { createCompound } from '../src/model/compound.js';
+import { createCompound, breakApart } from '../src/model/compound.js';
+import { evaluate } from '../src/engine/scene.js';
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
@@ -62,6 +63,25 @@ describe('arrow keys on the preview', () => {
     const keys = store.selected.clip.keyframes.x;
     expect(keys[1].v).toBeCloseTo(0.3 + 1 / store.project.settings.width, 9);
     expect(store.selected.clip.transform.x).toBe(0);
+  });
+
+  it('nudges through the retained group rotation, unequal axes, and flips by one screen pixel', () => {
+    const { store } = editor.ctx;
+    let childId;
+    store.update('Flatten', p => {
+      const c = createCompound(p, [v.id], { ripple: false });
+      Object.assign(c.transform, { scale: 0.5, sx: 1.8, sy: 0.6, rotation: 45, flipH: true });
+      c.keyframes.opacity = [{ t: 0, v: 1, ease: 'linear' }];
+      childId = breakApart(p, c.id, { ripple: false })[0].id;
+    });
+    store.select(childId);
+    const before = evaluate(store.project, store.time)[0];
+    press('ArrowRight');
+    const after = evaluate(store.project, store.time)[0];
+    expect((after.x - before.x) * store.project.settings.width).toBeCloseTo(1, 8);
+    expect(after.y).toBeCloseTo(before.y, 8);
+    store.undo();
+    expect(evaluate(store.project, store.time)[0].x).toBe(before.x);
   });
 
   it('do not pick a clip on a locked base track that also holds a compound clip', () => {

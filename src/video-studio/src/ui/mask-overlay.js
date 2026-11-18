@@ -9,6 +9,7 @@
  * drawing and brush painting. Edits go through the undoable store; a drag is
  * one undo step and keyed values get a key at the playhead.
  */
+import { maskLayer } from '../model/mask-space.js';
 import '../styles/masks.css';
 import { US } from '../lib/time.js';
 import { announce } from '../lib/dom.js';
@@ -19,6 +20,7 @@ import {
 } from '../engine/mask-shapes.js';
 import { featherSigma } from '../engine/mask-raster.js';
 import { maskEdit } from './mask-edit-state.js';
+import { brushCursor } from './brush-preview.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const ROTATE_GAP = 26;
@@ -52,6 +54,7 @@ export function createMaskOverlay({ store, actions, stage }) {
 
   /** Mapping helpers for the current draw. */
   function geometry(layer, box, k) {
+    layer = maskLayer(layer);
     const SW = layer.width || 1;
     const SH = layer.height || 1;
     const srcToCss = (sx, sy) => {
@@ -59,7 +62,7 @@ export function createMaskOverlay({ store, actions, stage }) {
       return [px * k, py * k];
     };
     const cssToSrc = (cx, cy) => projectToSource(layer, box, SW, SH, cx / k, cy / k);
-    return { SW, SH, srcToCss, cssToSrc };
+    return { SW, SH, srcToCss, cssToSrc, crop: layer.crop };
   }
 
   function edit(label, patch, coalesce) {
@@ -105,7 +108,7 @@ export function createMaskOverlay({ store, actions, stage }) {
     const kids = [];
     // Clip bounds; dragging inside moves the mask (or paints / places points).
     const clipPoly = [[0, 0], [SW, 0], [SW, SH], [0, SH]].map(([x, y]) => {
-      const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
+      const crop = g.crop || { l: 0, t: 0, r: 0, b: 0 };
       return srcToCss(crop.l * SW + (x / SW) * (1 - crop.l - crop.r) * SW, crop.t * SH + (y / SH) * (1 - crop.t - crop.b) * SH);
     });
     const catchMode = m.type === 'brush' ? 'paint' : m.type === 'pen' && maskEdit.drawing ? 'place' : 'move';
@@ -192,8 +195,7 @@ export function createMaskOverlay({ store, actions, stage }) {
     }
     if (m.type === 'pen') penHandles(m, L, a, b, kids, handle);
     if (m.type === 'brush' && maskEdit.cursor) {
-      const [cx, cy, r] = maskEdit.cursor;
-      kids.push(svg('circle', { class: `mask-brush-cursor${maskEdit.brush.erase ? ' erase' : ''}`, cx, cy, r }));
+      kids.push(brushCursor(srcToCss, maskEdit.cursor, maskEdit.brush.size * Math.min(SW, SH), maskEdit.brush.erase));
     }
     root.replaceChildren(...kids);
   }
@@ -351,25 +353,19 @@ export function createMaskOverlay({ store, actions, stage }) {
       const lp = [l0[0] / (2 * a), l0[1] / (2 * b)];
       const strokes = [...(raw.strokes || []), { size, erase: maskEdit.brush.erase, pts: lp }];
       edit(maskEdit.brush.erase ? 'Erase mask' : 'Paint mask', { strokes }, coalesce);
-      drag = { ...drag, raw: { ...raw, strokes } };
+      drag = { ...drag, raw: { ...raw, strokes }, lastCss: p0 };
     }
     root.setPointerCapture?.(e.pointerId);
     drag.pointerId = e.pointerId;
   });
 
   root.addEventListener('pointermove', (e) => {
-    if (cur?.m?.type === 'brush' && !drag) {
+    if (cur?.m?.type === 'brush' && (!drag || drag.kind === 'paint')) {
       const p = pointer(e);
-      const unitCss = cur.box.w ? Math.abs(cur.box.w) * cur.k / (cur.SW * (1 - (cur.layer.crop?.l || 0) - (cur.layer.crop?.r || 0))) : 1;
-      maskEdit.cursor = [p[0], p[1], (maskEdit.brush.size * Math.min(cur.SW, cur.SH) * unitCss) / 2];
+      maskEdit.cursor = p;
       const c = root.querySelector('.mask-brush-cursor');
-      if (c) {
-        c.setAttribute('cx', p[0]);
-        c.setAttribute('cy', p[1]);
-        c.setAttribute('r', maskEdit.cursor[2]);
-      } else {
-        root.append(svg('circle', { class: `mask-brush-cursor${maskEdit.brush.erase ? ' erase' : ''}`, cx: p[0], cy: p[1], r: maskEdit.cursor[2] }));
-      }
+      const cursor = brushCursor(cur.srcToCss, p, maskEdit.brush.size * Math.min(cur.SW, cur.SH), maskEdit.brush.erase, c);
+      if (!c) root.append(cursor);
     }
     if (!drag || e.pointerId !== drag.pointerId) return;
     const p = pointer(e);
@@ -404,10 +400,13 @@ export function createMaskOverlay({ store, actions, stage }) {
         let x = m.x + (s1[0] - s0[0]) / SW;
         let y = m.y + (s1[1] - s0[1]) / SH;
         if (!e.altKey) {
-          // Snap the center to the middle of the picture.
-          const pxPerSrc = Math.abs(cur.box.w) * cur.k / SW;
-          if (Math.abs(x) * SW * pxPerSrc < 6) x = 0;
-          if (Math.abs(y) * SH * pxPerSrc < 6) y = 0;
+          // Snap by the visible displacement along each source axis, including
+          // crop, unequal scales, and inherited rotation or shear.
+          const center = cur.srcToCss(SW / 2, SH / 2);
+          const ax = cur.srcToCss(SW * 1.5, SH / 2);
+          const ay = cur.srcToCss(SW / 2, SH * 1.5);
+          if (Math.abs(x) * Math.hypot(ax[0] - center[0], ax[1] - center[1]) < 6) x = 0;
+          if (Math.abs(y) * Math.hypot(ay[0] - center[0], ay[1] - center[1]) < 6) y = 0;
         }
         edit('Move mask', { x, y }, coalesce);
         break;
@@ -500,16 +499,18 @@ export function createMaskOverlay({ store, actions, stage }) {
         break;
       }
       case 'paint': {
+        // Keep spacing in screen pixels, independent of source axes and the
+        // mask's size or rotation. Avoid copying a stroke for redundant moves.
+        if (Math.hypot(p[0] - drag.lastCss[0], p[1] - drag.lastCss[1]) < 1.5) break;
         const strokes = raw.strokes.map((s) => s);
         const last = { ...strokes[strokes.length - 1] };
-        const lp = [l[0] / (2 * a), l[1] / (2 * b)];
+        const lp = [Math.round(l[0] / (2 * a) * 10000) / 10000, Math.round(l[1] / (2 * b) * 10000) / 10000];
         const pts = last.pts;
         const px = pts[pts.length - 2];
         const py = pts[pts.length - 1];
-        // Skip points closer than about a css pixel.
-        const step = 1.5 / Math.max(1e-6, Math.abs(cur.box.w) * cur.k);
-        if (Math.hypot(lp[0] - px, lp[1] - py) < step) break;
-        last.pts = [...pts, Math.round(lp[0] * 10000) / 10000, Math.round(lp[1] * 10000) / 10000];
+        if (lp[0] === px && lp[1] === py) break;
+        drag.lastCss = p;
+        last.pts = [...pts, ...lp];
         strokes[strokes.length - 1] = last;
         drag.raw = { ...raw, strokes };
         edit(maskEdit.brush.erase ? 'Erase mask' : 'Paint mask', { strokes }, coalesce);

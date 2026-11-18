@@ -5,20 +5,22 @@
  * multi-camera clips, highlights).
  */
 import { clipEnd, MIN_CLIP, windowSource } from './timeline.js';
+import { retainContentTiming } from './inherited-motion.js';
 import { shiftKeyframes } from './keyframes.js';
 
 /** Trim a clip copy to [start, end) of the timeline. Returns null if nothing is left. */
-export function trimTo(clip, start, end) {
+export function trimTo(clip, start, end, { preserveTiming = false } = {}) {
   const s = Math.max(clip.start, start);
   const e = Math.min(clipEnd(clip), end);
   if (e - s < MIN_CLIP / 2) return null;
   const head = s - clip.start;
+  if (preserveTiming && (head > 0 || e < clipEnd(clip))) retainContentTiming(clip);
   // Speed curves are sliced to the kept part (no-op for constant speed at the tail).
   if (head > 0 || e < clipEnd(clip)) windowSource(clip, head, e - clip.start);
   if (head > 0) {
     if (clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, -head, clip.duration - head);
-    if (clip.fadeIn) clip.fadeIn = Math.max(0, clip.fadeIn - head);
-    if (clip.animIn) clip.animIn = null;
+    if (!preserveTiming && clip.fadeIn) clip.fadeIn = Math.max(0, clip.fadeIn - head);
+    if (!preserveTiming && clip.animIn) clip.animIn = null;
   }
   // Cut at the end too: keep only the keys that still fall inside.
   if (clipEnd(clip) > e && clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, 0, e - s);
@@ -89,8 +91,15 @@ export function exportSpan(project, scope, selectedIds = []) {
   const total = all.reduce((m, c) => Math.max(m, clipEnd(c)), 0);
   if (scope === 'range' && project.range) return { start: project.range.in, end: Math.min(project.range.out, total) };
   if (scope === 'selection') {
-    const sel = all.filter((c) => selectedIds.includes(c.id));
-    if (sel.length) return { start: Math.min(...sel.map((c) => c.start)), end: Math.max(...sel.map(clipEnd)) };
+    const selected = new Set(selectedIds);
+    let start = Infinity;
+    let end = -Infinity;
+    for (const c of all) {
+      if (!selected.has(c.id)) continue;
+      start = Math.min(start, c.start);
+      end = Math.max(end, clipEnd(c));
+    }
+    if (start !== Infinity) return { start, end };
   }
   return { start: 0, end: total };
 }

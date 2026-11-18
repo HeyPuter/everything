@@ -247,14 +247,16 @@ export class ProxyManager extends Emitter {
           }
         },
       });
+      if (!ctrl.signal.aborted) {
+        if (!isCurrentProxy(res?.name)) throw new Error('The proxy encoder returned an unexpected file.');
+        if (res.blob) await this.cache.writeBlob(`${PROXY_DIR}/${res.name}`, res.blob);
+      }
       if (ctrl.signal.aborted) {
-        // Stopped just as the encoder finished: its file is already in place and must not stay,
+        // Stopped during encoding or the cache write: the file must not stay,
         // or the proxy the user deleted would be back the next time the app opens.
         if (res?.name) await this.cache.remove(`${PROXY_DIR}/${res.name}`).catch(() => {});
         throw Object.assign(new Error('Canceled'), { code: 'canceled' });
       }
-      if (!isCurrentProxy(res?.name)) throw new Error('The proxy encoder returned an unexpected file.');
-      if (res.blob) await this.cache.writeBlob(`${PROXY_DIR}/${res.name}`, res.blob);
       Object.assign(entry, { state: 'ready', progress: 1, name: res.name, size: res.size || res.blob?.size || 0, ctrl: null });
     } catch (err) {
       if (ctrl.signal.aborted || err?.code === 'canceled') {

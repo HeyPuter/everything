@@ -12,6 +12,7 @@ import { isMultiColorSticker } from '../engine/stickers.js';
 import { findTextLook } from '../model/text-presets.js';
 import * as T from '../model/timeline.js';
 import { mirrorCurve } from '../model/speed-curve.js';
+import { preserveMotionClock, resetContentTiming } from '../model/inherited-motion.js';
 import { toast, openDialog } from './dialog.js';
 import { createOrganizeActions } from './organize-actions.js';
 import { createSmartActions } from './smart-actions.js';
@@ -63,14 +64,14 @@ export function createActions(ctx) {
   }
 
   /** The import itself (see actions.importFiles). */
-  async function importFilesNow(files, { addToTimeline = false, folder = null, origin, signal } = {}) {
+  async function importFilesNow(files, { addToTimeline = false, folder = null, origin, signal, pictureSize } = {}) {
     checkImportSignal(signal);
     const list = [...files];
     const assets = [];
     for (const file of list) {
       checkImportSignal(signal);
       try {
-        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), onNote: (text) => { if (!signal?.aborted) toast(text, { kind: 'info', duration: 8000 }); } });
+        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), ...(pictureSize ? { pictureSize } : {}), onNote: (text) => { if (!signal?.aborted) toast(text, { kind: 'info', duration: 8000 }); } });
         checkImportSignal(signal);
         // Into the media bin folder being viewed (see model/bins.js).
         if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
@@ -173,10 +174,11 @@ export function createActions(ctx) {
     adoptMediaShape(asset) {
       const s = store.project.settings;
       const patch = {};
-      if (s.ratio === 'original' && asset.width && asset.height) {
-        const k = Math.min(1, 3840 / Math.max(asset.width, asset.height));
-        patch.width = Math.max(16, Math.round((asset.width * k) / 2) * 2);
-        patch.height = Math.max(16, Math.round((asset.height * k) / 2) * 2);
+      const size = asset.pictureSize || asset;
+      if (s.ratio === 'original' && size.width && size.height) {
+        const k = Math.min(1, 3840 / Math.max(size.width, size.height));
+        patch.width = Math.max(16, Math.round((size.width * k) / 2) * 2);
+        patch.height = Math.max(16, Math.round((size.height * k) / 2) * 2);
       }
       if (asset.fps) {
         const rounded = [24, 25, 30, 50, 60].reduce((a, b) => (Math.abs(b - asset.fps) < Math.abs(a - asset.fps) ? b : a));
@@ -320,6 +322,7 @@ export function createActions(ctx) {
         const found = T.findClip(p, s.clip.id);
         if (!found || found.track.locked) return false;
         const c = found.clip;
+        resetContentTiming(c, key);
         if (!animId) c[key] = null;
         else {
           c[key] = { id: animId, duration: Math.min(duration ?? c[key]?.duration ?? def, c.duration) };
@@ -327,7 +330,8 @@ export function createActions(ctx) {
           if (kind === 'loop') {
             c.animIn = null;
             c.animOut = null;
-          } else c.animLoop = null;
+            resetContentTiming(c, 'animIn'); resetContentTiming(c, 'animOut');
+          } else { c.animLoop = null; resetContentTiming(c, 'animLoop'); }
         }
       });
     },
@@ -575,12 +579,12 @@ export function createActions(ctx) {
       // Undo by pointing back at the original file.
       if (asset.reversedOf && store.project.assets[asset.reversedOf]) {
         const orig = store.project.assets[asset.reversedOf];
-        actions.editClip(id, 'Reverse', (c) => {
+        actions.editClip(id, 'Reverse', (c) => preserveMotionClock(c, () => {
           c.in = mirrorIn(asset, orig);
           c.assetId = orig.id;
           c.reversed = false;
           if (c.speedCurve) c.speedCurve = mirrorCurve(c.speedCurve);
-        });
+        }));
         return;
       }
       let target = Object.values(store.project.assets).find((a) => a.reversedOf === asset.id);
@@ -614,13 +618,13 @@ export function createActions(ctx) {
           d.close();
         }
       }
-      const ok = actions.editClip(id, 'Reverse', (c) => {
+      const ok = actions.editClip(id, 'Reverse', (c) => preserveMotionClock(c, () => {
         c.in = mirrorIn(asset, target);
         c.assetId = target.id;
         c.reversed = true;
         // A speed curve plays backwards too, so the reversed clip mirrors the original's timing.
         if (c.speedCurve) c.speedCurve = mirrorCurve(c.speedCurve);
-      });
+      }));
       if (mark) store.endBatch(mark, 'Reverse');
       if (ok) announce('Clip reversed');
     },
@@ -637,14 +641,15 @@ export function createActions(ctx) {
         toast('The new media is shorter than this clip. Trim the clip first or pick a longer file.', { kind: 'info' });
         return false;
       }
-      return actions.editClip(id, 'Replace clip', (clip) => {
+      return actions.editClip(id, 'Replace clip', (clip) => preserveMotionClock(clip, () => {
         clip.assetId = asset.id;
         clip.name = asset.name;
+        delete clip.pictureSize;
         clip.in = 0;
         clip.freeze = false;
         clip.reversed = false;
         if (visual) clip.type = asset.kind === 'image' ? 'image' : 'video';
-      });
+      }));
     },
 
     mirror() {

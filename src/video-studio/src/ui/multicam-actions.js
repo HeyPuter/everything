@@ -14,6 +14,7 @@ import { decodeClipSound, downmix } from '../media/audio-analysis.js';
 import { mediabunnyOpener } from '../engine/audio-mix.js';
 import { progressDialog } from './smart-actions.js';
 import { toast } from './dialog.js';
+import { frameDialogSignal } from './frame-dialog.js';
 
 const HOP = 0.01;
 // Below this normalized correlation two recordings are not taken to share their sound.
@@ -55,6 +56,7 @@ export function createMulticamActions(ctx) {
    * unmatched lists the clips that keep their place.
    */
   async function lineUp(found, p) {
+    p.signal.throwIfAborted();
     const project = store.project;
     const usable = (c) => project.assets[c.assetId]?.hasAudio && !c.audioDetached && !c.freeze && (c.speed || 1) === 1 && !c.speedCurve;
     const withSound = found.filter((f) => usable(f.clip));
@@ -62,9 +64,10 @@ export function createMulticamActions(ctx) {
     const unmatched = found.filter((f) => !usable(f.clip));
     if (withSound.length < 2) return { starts, unmatched: found.filter((f) => f !== withSound[0]) };
     const ref = withSound.reduce((a, b) => (b.clip.duration > a.clip.duration ? b : a));
-    const open = mediabunnyOpener(ctx.library);
+    const open = mediabunnyOpener(ctx.library, { signal: p.signal });
     const envelope = async (clip) => {
       const snd = await decodeClipSound(open, project.assets[clip.assetId], clip, { maxSeconds: MAX_SECONDS, signal: p.signal });
+      p.signal.throwIfAborted();
       return snd && snd.channels.length ? syncEnvelope(downmix(snd.channels), snd.sampleRate, HOP) : null;
     };
     const steps = withSound.length;
@@ -87,6 +90,7 @@ export function createMulticamActions(ctx) {
       else starts[f.clip.id] = Math.round(ref.clip.start + lag * HOP * US);
       // Let the dialog repaint between long comparisons.
       await new Promise((r) => setTimeout(r, 0));
+      p.signal.throwIfAborted();
     }
     return { starts, unmatched };
   }
@@ -94,6 +98,8 @@ export function createMulticamActions(ctx) {
   return {
     /** Nest 2 to 9 selected video clips as the angles of a multi-camera clip, synced by sound. */
     async createMulticam(ids = store.selectedIds) {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return null;
       const all = T.expandGroups(store.project, ids);
       const found = all.map((id) => T.findClip(store.project, id)).filter((f) => f && f.clip.type === 'video' && !f.track.locked);
       if (found.length < MIN_ANGLES || found.length > MAX_ANGLES) {
@@ -101,12 +107,13 @@ export function createMulticamActions(ctx) {
         return null;
       }
       const revision = store.revision;
-      const p = progressDialog('Multi-camera clip', 'Lining up the angles by their sound...');
+      const p = progressDialog('Multi-camera clip', 'Lining up the angles by their sound...', lifetime);
       let sync;
       try {
         sync = await lineUp(found, p);
+        p.signal.throwIfAborted();
       } catch (err) {
-        if (err?.name === 'AbortError') {
+        if (p.signal.aborted || err?.name === 'AbortError') {
           p.close();
           return null;
         }
@@ -114,6 +121,7 @@ export function createMulticamActions(ctx) {
         sync = { starts: {}, unmatched: found };
       }
       p.close();
+      if (lifetime.aborted) return null;
       if (store.revision !== revision) {
         toast('The timeline changed while the sound was compared. Try again.', { kind: 'info' });
         return null;

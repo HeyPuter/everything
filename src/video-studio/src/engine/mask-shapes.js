@@ -6,6 +6,8 @@
  * transform.
  */
 
+import { boxPoint, boxLocal } from '../lib/geometry.js';
+
 const TAU = Math.PI * 2;
 
 /** Regular star with n points and inner radius ratio, unit outer radius, first point up. */
@@ -241,26 +243,14 @@ export function sourceToProject(layer, box, SW, SH, sx, sy) {
   let qy = (sy / SH - crop.t) / Math.max(1e-6, 1 - crop.t - crop.b);
   if (layer.flipH) qx = 1 - qx;
   if (layer.flipV) qy = 1 - qy;
-  const dx = (qx - 0.5) * box.w;
-  const dy = (qy - 0.5) * box.h;
-  const r = ((layer.rotation || 0) * Math.PI) / 180;
-  const c = Math.cos(r);
-  const s = Math.sin(r);
-  return [box.cx + dx * c - dy * s, box.cy + dx * s + dy * c];
+  return boxPoint(box, layer.rotation || 0, qx - 0.5, qy - 0.5);
 }
 
 /** Project pixels to source pixels (inverse of sourceToProject). */
 export function projectToSource(layer, box, SW, SH, px, py) {
   const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
-  const r = ((layer.rotation || 0) * Math.PI) / 180;
-  const c = Math.cos(r);
-  const s = Math.sin(r);
-  const ex = px - box.cx;
-  const ey = py - box.cy;
-  const dx = ex * c + ey * s;
-  const dy = -ex * s + ey * c;
-  let qx = dx / (box.w || 1) + 0.5;
-  let qy = dy / (box.h || 1) + 0.5;
+  const [u, v] = boxLocal(box, layer.rotation || 0, px, py);
+  let qx = u + 0.5, qy = v + 0.5;
   if (layer.flipH) qx = 1 - qx;
   if (layer.flipV) qy = 1 - qy;
   return [(crop.l + qx * (1 - crop.l - crop.r)) * SW, (crop.t + qy * (1 - crop.t - crop.b)) * SH];

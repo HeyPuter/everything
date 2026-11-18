@@ -3,9 +3,12 @@
  * tracks. It moves, trims, transforms and animates as one clip; "break
  * apart" puts the clips back on the timeline.
  */
+import { retainClippedTransitions } from './transition-slices.js';
+import { placePose } from '../lib/geometry.js';
 import { uid } from '../lib/ids.js';
-import { makeClip, DEFAULT_TRANSFORM } from './project.js';
-import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, MIN_CLIP } from './timeline.js';
+import { retainMotion } from './inherited-motion.js';
+import { makeClip, makeTrack, DEFAULT_TRANSFORM, VISUAL_KINDS } from './project.js';
+import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, trackFree, pruneTracks, MIN_CLIP } from './timeline.js';
 import { trimTo } from './slice.js';
 import { storedTimelineTracks } from './timelines.js';
 
@@ -37,7 +40,7 @@ export function skipsBaseClips(project, ids) {
 
 /**
  * Nest the given clips into a new compound clip placed where they were
- * (on the base track when any of them was there). Returns the compound, or
+ * (on the base track when it can preserve their playback controls). Returns the compound, or
  * null when there is nothing to nest or the base track clips are not next
  * to each other.
  */
@@ -47,18 +50,20 @@ export function createCompound(project, ids, opts = {}) {
   const a = Math.min(...found.map((f) => f.clip.start));
   const b = Math.max(...found.map((f) => clipEnd(f.clip)));
   const chosen = new Set(found.map((f) => f.clip.id));
-  const onMain = found.some((f) => f.track.main);
   const nested = [];
+  const sources = [];
   for (const track of project.tracks) {
     const picked = track.clips.filter((c) => chosen.has(c.id));
     if (!picked.length) continue;
+    sources.push(track);
     nested.push({
       id: uid('t'),
       kind: track.kind,
       main: Boolean(track.main),
       locked: false,
-      hidden: false,
-      muted: false,
+      hidden: Boolean(track.hidden),
+      muted: Boolean(track.muted),
+      ...(track.solo ? { solo: true } : {}),
       clips: picked.map((c) => {
         const copy = structuredClone(c);
         copy.start = c.start - a;
@@ -77,36 +82,67 @@ export function createCompound(project, ids, opts = {}) {
   // A transition into a clip left outside has no partner in there.
   cleanupTransitions({ tracks: nested });
   const compound = makeClip('compound', { start: a, duration: b - a, name: `Compound clip ${nextNumber(project)}`, sequence: { tracks: nested } });
-  addClip(project, compound, { ...opts, main: onMain });
+  placeCompound(project, compound, sources, opts);
   return compound;
+}
+
+/** Place a new nested timeline without changing source controls or unrelated timing. */
+export function placeCompound(project, compound, sources, opts = {}) {
+  const onMain = sources.some(t => t.main);
+  const solo = sources.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
+  const bottom = sources.findLast(t => VISUAL_KINDS.has(t.kind));
+  const host = onMain ? mainTrack(project) : bottom?.kind === 'video' ? bottom : null;
+  const acceptsControls = host && Boolean(host.solo) === solo
+    && (!host.hidden || sources.every(t => !VISUAL_KINDS.has(t.kind) || t.hidden))
+    && (!host.muted || sources.every(t => (t.kind !== 'audio' && t.kind !== 'video') || t.muted));
+  if (acceptsControls && trackFree(host, compound.start, clipEnd(compound))) {
+    // Nesting replaces a selection in place; it does not insert new timeline time.
+    addClip(project, compound, { ...opts, main: Boolean(host.main), trackId: host.id, ripple: false, linkOverlays: false });
+  } else {
+    // A group cannot inherit a destination's mute/hide/solo when its source tracks
+    // disagree. Keep the other tracks' controls and the original timing intact.
+    const track = makeTrack('video', { ...(solo ? { solo: true } : {}), clips: [compound] });
+    const at = project.tracks.indexOf(bottom || mainTrack(project));
+    project.tracks.splice(Math.max(0, at), 0, track);
+    pruneTracks(project);
+  }
 }
 
 /** Compose a parent's static transform onto a child's (both in frame fractions). */
 export function composeTransform(parent, child, W, H) {
-  const r = (parent.rotation * Math.PI) / 180;
-  const X = child.x * W;
-  const Y = child.y * H;
-  return {
-    ...child,
-    x: parent.x + ((X * Math.cos(r) - Y * Math.sin(r)) * parent.scale) / W,
-    y: parent.y + ((X * Math.sin(r) + Y * Math.cos(r)) * parent.scale) / H,
-    scale: child.scale * parent.scale,
-    rotation: child.rotation + parent.rotation,
-    flipH: child.flipH !== parent.flipH,
-    flipV: child.flipV !== parent.flipV,
-  };
+  return placePose({ ...child }, parent, W, H);
 }
 
 /**
  * Fold a compound clip's transform, opacity, volume and mute into a clip
- * taken out of it (W x H is the frame size).
+ * taken out of it (W x H is the frame size). Animated parents retain their
+ * own clock and controls: baking endpoints cannot preserve easing, procedural
+ * motion, or the order in which opacity is clamped. Separate parent axes also
+ * stay editable: a rotated child can shear, which its basic transform cannot store.
  */
 export function inheritFromCompound(copy, c, W, H) {
+  // Existing fragments also pass through the newly removed outer group. Their
+  // partner's original transform stays separate from the visible clip's edits.
+  for (const slice of copy.transitionSlices || []) {
+    const holder = { ...copy, inherited: slice.inherited };
+    retainMotion(holder, c);
+    slice.inherited = holder.inherited;
+  }
   const plain = JSON.stringify(c.transform) === JSON.stringify(DEFAULT_TRANSFORM);
-  if (copy.transform && !plain) copy.transform = composeTransform(c.transform, copy.transform, W, H);
-  if ('opacity' in copy) copy.opacity *= c.opacity;
-  if ('volume' in copy) copy.volume *= c.volume;
+  const animated = x => x.inherited?.length || x.animIn || x.animOut || x.animLoop || Object.values(x.keyframes || {}).some(keys => keys.length);
+  const affects = !plain || c.opacity !== 1 || c.volume !== 1 || c.fadeIn || c.fadeOut || animated(c);
+  const transform = copy.transform && !plain ? composeTransform(c.transform, copy.transform, W, H) : copy.transform;
+  const outsideLimits = (transform && (transform.scale < 0.01 || transform.scale > 50)) || copy.volume * c.volume > 10;
+  if (affects && ('transform' in copy || 'volume' in copy) && ((c.transform.sx ?? 1) !== 1 || (c.transform.sy ?? 1) !== 1 || animated(copy) || animated(c) || c.fadeIn || c.fadeOut || outsideLimits)) {
+    retainMotion(copy, c);
+  } else {
+    if (copy.transform) copy.transform = transform;
+    if ('opacity' in copy) copy.opacity *= c.opacity;
+    if ('volume' in copy) copy.volume *= c.volume;
+  }
+  if ('blend' in copy && (!copy.blend || copy.blend === 'normal') && c.blend) copy.blend = c.blend;
   if (c.muted && 'muted' in copy) copy.muted = true;
+  if (c.disabled) copy.disabled = true;
   return copy;
 }
 
@@ -118,35 +154,71 @@ export function breakApart(project, id, opts = {}) {
   const f = findClip(project, id);
   if (!f || f.clip.type !== 'compound' || f.track.locked) return [];
   const c = f.clip;
-  const onMain = Boolean(f.track.main);
   f.track.clips.splice(f.track.clips.indexOf(c), 1);
   const restored = [];
   const W = project.settings.width;
   const H = project.settings.height;
-  for (const t of [...c.sequence.tracks].reverse()) {
+  const groups = [];
+  for (const t of c.sequence.tracks) {
+    const copies = [], entries = [];
     for (const child of t.clips) {
-      const copy = trimTo(structuredClone(child), c.in, c.in + c.duration);
+      const copy = trimTo(structuredClone(child), c.in, c.in + c.duration, { preserveTiming: true });
       // A sliver shorter than the shortest clip the editor allows (under a frame at 60 fps)
       // would be a clip too thin to see or select.
       if (!copy || copy.duration < MIN_CLIP) continue;
+      entries.push({ clip: copy, source: child, start: copy.start, end: clipEnd(copy) });
       copy.id = uid('c');
       copy.start = c.start + copy.start - c.in;
       inheritFromCompound(copy, c, W, H);
-      const toMain = onMain && t.main && (copy.type === 'video' || copy.type === 'image');
-      addClip(project, copy, { ...opts, main: toMain });
-      restored.push(copy);
+      copies.push(copy);
     }
+    retainClippedTransitions(t, entries, partner => {
+      partner.id = uid('c'); partner.start = c.start + partner.start - c.in;
+      inheritFromCompound(partner, c, W, H);
+    });
+    groups.push({ track: t, clips: copies, main: Boolean(t.main) });
+    restored.push(...copies);
   }
-  for (const t of project.tracks) sortTrack(t);
+  restoreCompoundTracks(project, c, f.track, groups);
   return restored;
 }
 
-/** Every clip in the project, including the ones inside compound clips and on the other timelines. */
-export function allClipsDeep(project) {
+/** Restore placed clips at a compound's stack position with its track controls. */
+export function restoreCompoundTracks(project, compound, outer, groups) {
+  const solo = compound.sequence.tracks.some(t => t.solo && (t.kind === 'audio' || t.kind === 'video'));
+  let insertAt = project.tracks.indexOf(outer);
+  for (const { track: t, clips: copies, main = false } of groups) {
+    if (!copies.length) continue;
+    const hidden = Boolean(outer.hidden || t.hidden);
+    const muted = Boolean(outer.muted || t.muted || (solo && !t.solo));
+    const compatible = hidden === Boolean(outer.hidden) && muted === Boolean(outer.muted) && !t.locked;
+    const original = main && t.kind === outer.kind && compatible;
+    if (original) {
+      // Reuse the original slot only when its controls match. A separate track keeps
+      // an inner hide/mute editable without altering other clips or their keyframes.
+      for (const copy of copies) outer.clips.push(copy);
+      insertAt = Math.max(insertAt, project.tracks.indexOf(outer) + 1);
+    } else {
+      // Restore each inner track at the compound's stack position. Choosing any free
+      // track can put a title above unrelated footage or give it different controls.
+      const track = makeTrack(t.kind, {
+        hidden, muted, solo: Boolean(outer.solo), locked: Boolean(t.locked), clips: copies,
+        ...(t.name ? { name: t.name } : {}), ...(t.size ? { size: t.size } : {}),
+      });
+      project.tracks.splice(insertAt++, 0, track);
+    }
+  }
+  for (const t of project.tracks) sortTrack(t);
+}
+
+/** Every clip, including compound contents and other timelines; optionally skip disabled subtrees. */
+export function allClipsDeep(project, { includeDisabled = true } = {}) {
   const out = [];
   const walk = (tracks) => {
     for (const t of tracks) for (const c of t.clips) {
+      if (!includeDisabled && c.disabled) continue;
       out.push(c);
+      for (const slice of c.transitionSlices || []) if (includeDisabled || !slice.partner.disabled) out.push(slice.partner);
       if (c.type === 'compound') walk(c.sequence.tracks);
     }
   };
@@ -161,7 +233,13 @@ export function removeAssetClips(project, assetIds) {
   const strip = (tracks) => {
     for (const t of tracks) {
       t.clips = t.clips.filter((c) => !ids.has(c.assetId));
-      for (const c of t.clips) if (c.type === 'compound') strip(c.sequence.tracks);
+      for (const c of t.clips) {
+        if (c.type === 'compound') strip(c.sequence.tracks);
+        if (c.transitionSlices) {
+          c.transitionSlices = c.transitionSlices.filter(s => !ids.has(s.partner.assetId));
+          if (!c.transitionSlices.length) delete c.transitionSlices;
+        }
+      }
     }
   };
   strip(project.tracks);

@@ -159,10 +159,11 @@ export class Editor {
     ctx.timeline = createTimeline(ctx);
 
     const p = prefs();
+    const heading = h('h1.sr-only', `${project.name} - Video Studio editor`);
     // The workspace and, beside it, the AI sidebar (added once the mobile chrome knows the layout).
     const body = h('div.editor-body',
       h('main#main.workspace', { tabindex: '-1' },
-        h('h1.sr-only', `${project.name} - Video Studio editor`),
+        heading,
         h('div.upper',
           ctx.assets.el,
           this._resizer('v', 'left'),
@@ -213,7 +214,7 @@ export class Editor {
     document.addEventListener('keydown', this._onFieldKey, true);
     this._onUnload = (e) => {
       // pageLeaving: the user already chose to leave (signing out, closing the window).
-      if (!this.pageLeaving && (store.dirty || library.unsavedMedia)) {
+      if (!this.pageLeaving && (store.dirty || library.unsavedMedia || ctx.imports?.size)) {
         this.saver.save();
         e.preventDefault();
         e.returnValue = '';
@@ -223,7 +224,11 @@ export class Editor {
     ctx.playerView.mounted?.();
     ctx.timeline.mounted?.();
     document.title = `${project.name} - Video Studio`;
-    store.on('change', () => (document.title = `${store.project.name} - Video Studio`));
+    store.on('change', () => {
+      document.title = `${store.project.name} - Video Studio`;
+      const title = `${store.project.name} - Video Studio editor`;
+      if (heading.textContent !== title) heading.textContent = title;
+    });
     // The store refuses edits that would lose work when saved, and says which.
     store.on('limit', ({ kind, max }) => {
       if (kind === 'compound-depth') toast(`Compound clips can sit inside each other ${max} deep at most.`, { kind: 'info' });
@@ -423,6 +428,7 @@ export class Editor {
    * for a quiet moment and then for the browser to be idle.
    */
   _scheduleCover() {
+    if (this._disposed) return;
     this._cancelCover();
     this._coverDue = true;
     this._coverTimer = setTimeout(() => {
@@ -435,6 +441,8 @@ export class Editor {
   }
 
   _cancelCover() {
+    this._coverController?.abort();
+    this._coverController = null;
     clearTimeout(this._coverTimer);
     this._coverTimer = null;
     this._coverIdle?.cancel();
@@ -448,26 +456,36 @@ export class Editor {
    */
   async saveCover() {
     const { store, player } = this.ctx;
-    if (!player?.supported || store.duration <= 0) return;
+    if (this._disposed || !player?.supported || store.duration <= 0) return;
     if (player.playing) {
       this._scheduleCover();
       return;
     }
     this._cancelCover();
     this._coverDue = false;
+    const controller = new AbortController();
+    this._coverController = controller;
+    const project = store.project;
     try {
-      const t = store.project.cover?.time ?? Math.min(store.duration - 1, 1_000_000);
+      const t = project.cover?.time ?? Math.min(store.duration - 1, 1_000_000);
       const { renderStill } = await import('../engine/exporter.js');
-      const bmp = await renderStill(store.project, this.library, t, { maxWidth: 480 });
+      if (controller.signal.aborted) return;
+      const bmp = await renderStill(project, this.library, t, { maxWidth: 480, signal: controller.signal });
       const c = document.createElement('canvas');
-      c.width = bmp.width;
-      c.height = bmp.height;
-      c.getContext('2d').drawImage(bmp, 0, 0);
-      bmp.close?.();
+      try {
+        if (controller.signal.aborted) return;
+        c.width = bmp.width;
+        c.height = bmp.height;
+        c.getContext('2d').drawImage(bmp, 0, 0);
+      } finally {
+        bmp.close?.();
+      }
       const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
-      if (blob) await this.library.saveCover(store.project.id, blob);
+      if (blob && !controller.signal.aborted) await this.library.saveCover(project.id, blob);
     } catch {
       /* covers are cosmetic */
+    } finally {
+      if (this._coverController === controller) this._coverController = null;
     }
   }
 
@@ -498,23 +516,43 @@ export class Editor {
    * waitForUploads: also wait for media uploads (the page is going away).
    */
   prepareToLeave({ waitForUploads = false } = {}) {
+    // Leaving for Home keeps uploads alive, but closing the page does not. A page-close
+    // request arriving during an editor-only save must still check the media afterwards.
+    // Share that follow-up too, so repeated close requests ask only once.
+    if (this._leavingPage) return this._leavingPage;
+    if (waitForUploads && this._leaving && !this._leavingWaitForUploads) {
+      this._leavingPage = this._leaving.then(async (ok) => {
+        if (!ok) return false;
+        return this._saveBeforeLeaving(true);
+      }).finally(() => (this._leavingPage = null));
+      return this._leavingPage;
+    }
+    if (!this._leaving) this._leavingWaitForUploads = waitForUploads;
     // Asked twice (a double click, the window closing while asking): one question.
     this._leaving ||= (async () => {
       this.ctx.player?.pause();
-      // Files being imported join the project when they are read: wait, so they are saved too.
-      if (this.ctx.imports?.size) await Promise.allSettled([...this.ctx.imports]);
-      let saved = true;
+      return this._saveBeforeLeaving(waitForUploads);
+    })().finally(() => (this._leaving = null));
+    return this._leaving;
+  }
+
+  /** Reads and edits can begin during any await; leave only after their latest state is saved. */
+  async _saveBeforeLeaving(waitForUploads) {
+    let saved, media;
+    do {
+      // Drain new reads too, rather than only the set present when leaving began.
+      while (this.ctx.imports?.size) await Promise.allSettled([...this.ctx.imports]);
+      saved = true;
       try {
         await this.saver.flush();
       } catch {
         saved = false;
       }
       // Media still uploading keeps going after the editor closes, but not after the page does.
-      const media = waitForUploads ? await finishUploads(this.library) : 0;
-      if (saved && !media) return true;
-      return confirmLeave(this.library, { edits: !saved, media });
-    })().finally(() => (this._leaving = null));
-    return this._leaving;
+      media = waitForUploads ? await finishUploads(this.library) : 0;
+    } while (this.ctx.imports?.size || (saved && this.store.dirty));
+    if (saved && !media) return true;
+    return confirmLeave(this.library, { edits: !saved, media });
   }
 
   /** Leave for the home screen (or another project). Resolves false when the user chose to stay. */
@@ -527,7 +565,7 @@ export class Editor {
       await this.saveCover();
       // Saving the cover takes a moment on a slow connection, and the editor still works
       // meanwhile: an edit made then is saved as well (or asked about) before leaving.
-      if (this.store.dirty && (!(await this.prepareToLeave()) || this._disposed)) return false;
+      if ((this.store.dirty || this.ctx.imports?.size) && (!(await this.prepareToLeave()) || this._disposed)) return false;
       this.dispose();
     } finally {
       this._exiting = false;
@@ -623,6 +661,7 @@ export class Editor {
     this._disposed = true;
     this._scriptLifetime?.abort();
     this._highlightsLifetime?.abort();
+    this._frameDialogLifetime?.abort();
     this._fitObserver?.disconnect();
     this._offTheme?.();
     this._offTipKeys?.();

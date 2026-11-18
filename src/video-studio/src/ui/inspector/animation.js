@@ -1,3 +1,4 @@
+import { resetContentTiming } from '../../model/inherited-motion.js';
 /**
  * Animation tab: In, Out and Loop sub-tabs, each a grid of tiles (with a
  * None tile) that preview their motion on hover, plus a duration slider for
@@ -115,6 +116,7 @@ function kindPanel(view, kind, state) {
     get: (c) => Math.round(((c[key]?.duration || 500_000) / US) * 10) / 10,
     set: (v, final) => view.edit('Animation duration', (c) => {
       if (!c[key]) return false;
+      resetContentTiming(c, key);
       c[key].duration = Math.round(Math.min(v * US, maxAnimDuration(c, kind)));
     }, { key: `anim-${kind}`, final }),
   });

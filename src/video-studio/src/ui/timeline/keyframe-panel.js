@@ -58,6 +58,7 @@ export function setEase(clip, prop, t, easeName, tol = 0) {
   const k = clip.keyframes?.[prop]?.find((x) => Math.abs(x.t - t) <= tol);
   if (!k) return false;
   k.ease = easeName;
+  delete k.curve;
   return true;
 }
 

@@ -91,6 +91,7 @@ export function sourceTimeAt(clip, t) {
  * duration and keyframes afterwards.
  */
 export function windowSource(clip, from, to) {
+  if (clip.inherited?.some(r => !r.source.media) || Object.values(clip.timing || {}).some(t => t.clock?.[0]?.source.media === false) || clip.transitionSlices?.some(t => t.clock?.[0]?.source.media === false)) clip.motionOffset = (clip.motionOffset || 0) + from;
   if (clip.type === 'compound') {
     // A nested timeline always plays at its own pace.
     clip.in = Math.max(0, Math.round(clip.in + from));
@@ -493,13 +494,13 @@ export function splitClip(project, id, t) {
   if (clip.keyframes) [clip.keyframes, right.keyframes] = splitKeyframes(clip.keyframes, local);
   // Fades and animations stay on the outer ends; transitions on the right piece.
   if ('fadeOut' in clip) {
-    right.fadeIn = 0;
-    clip.fadeOut = 0;
+    if (!right.timing?.fadeIn) right.fadeIn = 0;
+    if (!clip.timing?.fadeOut) clip.fadeOut = 0;
   }
   if ('animIn' in clip) {
-    right.animIn = null;
-    clip.animOut = null;
-    if (clip.animLoop) right.animLoop = null;
+    if (!right.timing?.animIn) right.animIn = null;
+    if (!clip.timing?.animOut) clip.animOut = null;
+    if (clip.animLoop && !right.timing?.animLoop) right.animLoop = null;
   }
   if ('transition' in clip) clip.transition = null;
   track.clips.splice(track.clips.indexOf(clip) + 1, 0, right);
@@ -783,6 +784,8 @@ export function freezeFrame(project, id, t, length = 3 * US, opts = {}) {
   if (still.speedRamp) stripRampAccents(still);
   Object.assign(still, { id: uid('c'), start: at, duration: length, in: Math.round(sourceT), freeze: true, speed: 1, keyframes: {}, fadeIn: 0, fadeOut: 0, animIn: null, animOut: null, animLoop: null, transition: null, muted: true });
   delete still.speedCurve;
+  delete still.timing;
+  delete still.transitionSlices;
   return withRipple(project, opts, () => {
     if (track.main && opts.ripple) {
       const i = track.clips.indexOf(clip);
@@ -819,6 +822,8 @@ export function soundCopy(project, clip) {
     fadeIn: clip.fadeIn,
     fadeOut: clip.fadeOut,
     keyframes: clip.keyframes?.volume ? { volume: structuredClone(clip.keyframes.volume) } : {},
+    ...(clip.inherited ? { inherited: structuredClone(clip.inherited), ...(clip.motionOffset ? { motionOffset: clip.motionOffset } : {}) } : {}),
+    ...(clip.timing ? { timing: Object.fromEntries(Object.entries(clip.timing).filter(([key]) => key === 'fadeIn' || key === 'fadeOut').map(([key, value]) => [key, structuredClone(value)])) } : {}),
     // Sound settings travel with the sound.
     ...(clip.audioFx ? { audioFx: structuredClone(clip.audioFx) } : {}),
     ...(clip.keepPitch === false ? { keepPitch: false } : {}),
@@ -1270,6 +1275,7 @@ export function setKeyEaseAt(clip, t, easeName, tol = 0) {
     for (const k of keys) {
       if (Math.abs(k.t - t) <= tol) {
         k.ease = easeName;
+        delete k.curve;
         n++;
       }
     }
@@ -1345,22 +1351,24 @@ function shave(clip, edge, cut) {
  * Remove [a, b) from every unlocked track: clips crossing an edge are split,
  * the pieces inside go, and (with close = true) everything after b moves left
  * by b - a so the gap closes. Markers, the in/out range and the transcript
- * follow. Returns the number of clips removed or shortened.
+ * follow. Returns the number of clips removed or shortened. onChange also
+ * reports edits that only split clips, close gaps, or move timeline metadata.
  */
-export function removeRange(project, a, b, { close = true } = {}) {
+export function removeRange(project, a, b, { close = true, onChange } = {}) {
   const lo = snapToMainEdge(project, Math.max(0, Math.round(Math.min(a, b))));
   const hi = snapToMainEdge(project, Math.round(Math.max(a, b)));
   const span = hi - lo;
   if (span < 1000) return 0;
   let changed = 0;
+  let edited = false;
   for (const track of project.tracks) {
     if (track.locked) continue;
     sortTrack(track);
     for (const c of [...track.clips]) {
-      if (c.start < lo && clipEnd(c) > lo && clipEnd(c) - lo >= MIN_CLIP && lo - c.start >= MIN_CLIP) splitClip(project, c.id, lo);
+      if (c.start < lo && clipEnd(c) > lo && clipEnd(c) - lo >= MIN_CLIP && lo - c.start >= MIN_CLIP && splitClip(project, c.id, lo)) edited = true;
     }
     for (const c of [...track.clips]) {
-      if (c.start < hi && clipEnd(c) > hi && clipEnd(c) - hi >= MIN_CLIP && hi - c.start >= MIN_CLIP) splitClip(project, c.id, hi);
+      if (c.start < hi && clipEnd(c) > hi && clipEnd(c) - hi >= MIN_CLIP && hi - c.start >= MIN_CLIP && splitClip(project, c.id, hi)) edited = true;
     }
     // A clip that pokes into the range by less than MIN_CLIP could not be split:
     // shave that sliver off. One that pokes out by less than that goes with the range.
@@ -1374,24 +1382,54 @@ export function removeRange(project, a, b, { close = true } = {}) {
     track.clips = track.clips.filter((c) => !(c.start > lo - MIN_CLIP && clipEnd(c) < hi + MIN_CLIP));
     changed += before - track.clips.length;
     if (close) {
-      for (const c of track.clips) if (c.start >= hi - 1) c.start = Math.max(0, c.start - span);
+      for (const c of track.clips) if (c.start >= hi - 1) {
+        const start = Math.max(0, c.start - span);
+        if (start !== c.start) edited = true;
+        c.start = start;
+      }
     }
     sortTrack(track);
   }
   if (close) {
-    project.markers = (project.markers || []).filter((m) => m.time < lo || m.time >= hi).map((m) => (m.time >= hi ? { ...m, time: m.time - span } : m));
+    project.markers = (project.markers || []).filter((m) => {
+      const keep = m.time < lo || m.time >= hi;
+      if (!keep) edited = true;
+      return keep;
+    }).map((m) => {
+      if (m.time >= hi) {
+        edited = true;
+        return { ...m, time: m.time - span };
+      }
+      return m;
+    });
     if (project.range) {
       const shift = (t) => (t >= hi ? t - span : t > lo ? lo : t);
       const r = { in: shift(project.range.in), out: shift(project.range.out) };
-      if (r.out - r.in >= MIN_CLIP) project.range = r;
-      else delete project.range;
+      if (r.out - r.in >= MIN_CLIP) {
+        if (r.in !== project.range.in || r.out !== project.range.out) edited = true;
+        project.range = r;
+      } else {
+        delete project.range;
+        edited = true;
+      }
     }
     if (project.transcript?.words) {
       // Words anchored to their media (a) follow it on their own (media/transcript.js).
       project.transcript.words = project.transcript.words
-        .filter((w) => w.a || w.end <= lo || w.start >= hi)
-        .map((w) => (!w.a && w.start >= hi ? { ...w, start: w.start - span, end: w.end - span } : w));
+        .filter((w) => {
+          const keep = w.a || w.end <= lo || w.start >= hi;
+          if (!keep) edited = true;
+          return keep;
+        })
+        .map((w) => {
+          if (!w.a && w.start >= hi) {
+            edited = true;
+            return { ...w, start: w.start - span, end: w.end - span };
+          }
+          return w;
+        });
     }
   }
+  if (edited || changed > 0) onChange?.();
   return changed;
 }

@@ -17,6 +17,7 @@ import { hasCurve, sourceMapper } from '../../model/speed-curve.js';
 import { keyTimes } from '../../model/keyframes.js';
 import { TRANSITIONS } from '../../model/catalog.js';
 import { MediaService } from '../../media/media-service.js';
+import { pictureSizeFor } from '../../model/picture-size.js';
 import { drawRuler } from './ruler.js';
 import { showMenu } from '../menu.js';
 import { prefs, setPref } from '../prefs.js';
@@ -759,7 +760,9 @@ export function createTimeline(ctx) {
   }
 
   function drawFilm(g, clip, asset, s0, cw, ch) {
-    const aspect = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
+    const pictureSize = pictureSizeFor(clip, asset);
+    const size = pictureSize || asset;
+    const aspect = size.width && size.height ? size.width / size.height : 16 / 9;
     const tw = Math.max(16, ch * aspect);
     const first = Math.floor(s0 / tw);
     const speed = clip.freeze ? 0 : clip.speed || 1;
@@ -772,9 +775,10 @@ export function createTimeline(ctx) {
       const sec = (clip.in + map(local)) / US;
       const bmp = media.thumb(asset, Math.max(0, Math.min(sec, asset.duration / US - 0.05)), step);
       if (!bmp) continue;
-      const k = Math.max(tw / bmp.width, ch / bmp.height);
-      const dw = bmp.width * k;
-      const dh = bmp.height * k;
+      const dimensions = pictureSize || bmp;
+      const k = Math.max(tw / dimensions.width, ch / dimensions.height);
+      const dw = dimensions.width * k;
+      const dh = dimensions.height * k;
       g.save();
       g.beginPath();
       g.rect(lx - s0, 0, tw, ch);
@@ -1635,11 +1639,11 @@ export function createTimeline(ctx) {
       hasAudio ? { label: 'Detach audio', icon: 'detachAudio', shortcut: k('detachAudio'), onSelect: () => actions.detachAudio() } : null,
       c.type === 'video' && store.project.assets[c.assetId]?.hasAudio ? { label: 'Extract audio', icon: 'fileAudio', onSelect: () => actions.extractAudio(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Split at scene changes', icon: 'scissors', onSelect: () => actions.splitScenes(id) } : null,
-      c.type === 'video' || c.type === 'image' ? { label: c.cutout ? 'Keep background' : 'Remove background', icon: 'cutout', onSelect: () => actions.removeBackground(id) } : null,
+      c.type === 'video' || c.type === 'image' ? { label: c.cutout ? 'Keep background' : 'Remove background', icon: 'cutout', disabled: f.track.locked, onSelect: () => actions.removeBackground(id) } : null,
       c.type === 'video' || c.type === 'image' ? { label: 'Remove object...', icon: 'eraser', onSelect: () => ctx.inspector?.showVideoSub?.('remove') } : null,
       c.type === 'video' && !c.freeze ? { label: 'Stabilize...', icon: 'focus', onSelect: () => actions.stabilize(id) } : null,
       c.type === 'video' && !c.freeze ? { label: 'Remove flicker...', icon: 'brightness', onSelect: () => actions.removeFlicker(id) } : null,
-      visual && !f.track.main ? { label: 'Track motion...', icon: 'crosshair', onSelect: () => ctx.openTracking?.(id) } : null,
+      visual && !f.track.main ? { label: 'Track motion...', icon: 'crosshair', disabled: f.track.locked, onSelect: () => ctx.openTracking?.(id) } : null,
       store.selection.size === 2 ? { label: 'Sync the two clips by sound', icon: 'waveform', onSelect: () => actions.syncBySound() } : null,
     ].filter(Boolean);
     showMenu(anchor, [

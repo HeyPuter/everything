@@ -83,6 +83,7 @@ export function cutoutTab(view) {
     params.querySelectorAll('input, button').forEach((el) => {
       el.disabled = !on;
     });
+    refine.disabled = !on || Boolean(view.found?.track.locked);
     const n = c.cutout?.strokes?.length || 0;
     fixes.textContent = n ? `${n} fix${n === 1 ? '' : 'es'}` : '';
     clearFixes.hidden = !n;

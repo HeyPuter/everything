@@ -5,6 +5,7 @@
  * decoders use Mediabunny and run in the browser.
  */
 import { US, FRAME_SLACK } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 
 // ---- Silences -----------------------------------------------------------------
 
@@ -100,11 +101,13 @@ export function sceneCuts(distances, { sensitivity = 0.5, minGap = 4, window = 1
  * fps frames per second.
  */
 export async function detectScenes(blob, from, to, { fps = 5, sensitivity = 0.5, signal, onProgress } = {}) {
-  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
+  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+  signal?.throwIfAborted();
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+  let frames;
   try {
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
+    const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
+    if (!track || !(await abortable(() => track.canDecode(), signal))) throw new Error('This video can not be decoded here.');
     const sink = new CanvasSink(track, { width: SIG_W, height: SIG_H, fit: 'fill', poolSize: 1 });
     const scratch = new OffscreenCanvas(SIG_W, SIG_H);
     const g = scratch.getContext('2d', { willReadFrequently: true });
@@ -114,8 +117,10 @@ export async function detectScenes(blob, from, to, { fps = 5, sensitivity = 0.5,
     for (let t = a; t < b; t += 1 / fps) times.push(t);
     const sigs = [];
     let i = 0;
-    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t + FRAME_SLACK))) {
-      if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+    frames = sink.canvasesAtTimestamps(times.map((t) => t + FRAME_SLACK))[Symbol.asyncIterator]();
+    for (;;) {
+      const { value: wrapped, done } = await abortable(() => frames.next(), signal);
+      if (done) break;
       if (wrapped) {
         g.drawImage(wrapped.canvas, 0, 0, SIG_W, SIG_H);
         sigs.push({ t: times[i], sig: frameSignature(g.getImageData(0, 0, SIG_W, SIG_H).data) });
@@ -132,8 +137,10 @@ export async function detectScenes(blob, from, to, { fps = 5, sensitivity = 0.5,
       let best = -1;
       let at = sigs[j].t;
       let prev = null;
-      for await (const wrapped of sink.canvases(sigs[j - 1].t, sigs[j].t + 1e-3)) {
-        if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+      frames = sink.canvases(sigs[j - 1].t, sigs[j].t + 1e-3)[Symbol.asyncIterator]();
+      for (;;) {
+        const { value: wrapped, done } = await abortable(() => frames.next(), signal);
+        if (done) break;
         g.drawImage(wrapped.canvas, 0, 0, SIG_W, SIG_H);
         const sig = frameSignature(g.getImageData(0, 0, SIG_W, SIG_H).data);
         if (prev) {
@@ -147,9 +154,15 @@ export async function detectScenes(blob, from, to, { fps = 5, sensitivity = 0.5,
       }
       out.push(Math.round(at * US));
     }
+    signal?.throwIfAborted();
     return out;
   } finally {
     input.dispose();
+    // Close the active coarse or refinement iterator without waiting for a
+    // canceled read that may still be pending. Handle its eventual rejection.
+    const closed = frames?.return?.();
+    if (signal?.aborted) Promise.resolve(closed).catch(() => {});
+    else await closed;
   }
 }
 

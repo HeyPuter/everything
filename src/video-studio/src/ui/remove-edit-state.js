@@ -26,7 +26,7 @@ class RemoveEditState extends Emitter {
     this.tool = 'brush';
     this.size = 0.05; // brush diameter, fraction of the picture's short side
     this.show = true; // tint the regions on the preview
-    this.cursor = null; // [x, y, r] in css px while over the picture
+    this.cursor = null; // [x, y, altErase], position in css px while over the picture
   }
 
   /** The Remove panel for clipId is now shown in el. */

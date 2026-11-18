@@ -146,6 +146,30 @@ describe('encoded audio storage selection', () => {
 });
 
 describe('late export cancellation', () => {
+  it.each([{ kind: 'audio', audioFormat: 'wav' }, ...modes])('cancels a pending media read without waiting for the file ($kind / $audioFormat)', async ({ kind, ...settings }) => {
+    const controller = new AbortController();
+    let finishRead;
+    const library = { mediaBlob: vi.fn(() => new Promise((resolve) => { finishRead = resolve; })) };
+    let outcome;
+    const pending = exportProject(projectWithAudio(), library, settings, { kind, signal: controller.signal })
+      .then(() => { outcome = 'completed'; }, (err) => { outcome = err.name; });
+    try {
+      await vi.waitFor(() => expect(library.mediaBlob).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await vi.waitFor(() => expect(outcome).toBe('AbortError'), { timeout: 200, interval: 5 });
+      finishRead(new Blob(['late file']));
+      await pending;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(runtime.audioTrack).not.toHaveBeenCalled();
+      expect(runtime.addAudio).not.toHaveBeenCalled();
+      expect(runtime.finalize).not.toHaveBeenCalled();
+      for (const output of runtime.outputs) expect(output.state).toBe('canceled');
+    } finally {
+      finishRead?.(new Blob(['late file']));
+      await pending;
+    }
+  });
+
   it.each(modes)('rejects cancellation while encoding the last audio chunk ($kind / $audioFormat)', async ({ kind, ...settings }) => {
     const controller = new AbortController();
     runtime.addAudio.mockImplementation(async () => { controller.abort(); });

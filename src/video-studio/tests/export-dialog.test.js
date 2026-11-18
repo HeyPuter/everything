@@ -15,7 +15,7 @@ vi.mock('../src/engine/exporter.js', async (orig) => {
 });
 
 const { openExportDialog } = await import('../src/ui/export-dialog.js');
-const { exportProject, detectCapabilities, renderFrames } = await import('../src/engine/exporter.js');
+const { exportProject, detectCapabilities, renderFrames, renderStill } = await import('../src/engine/exporter.js');
 
 function ctxWith(project) {
   return { store: { project, time: 0 }, library: { backend: { kind: 'opfs' } }, account: { user: null } };
@@ -29,6 +29,95 @@ beforeEach(() => {
 });
 
 describe('export dialog', () => {
+  it('cancels the settings preview when closed and discards a late bitmap', async () => {
+    let finish;
+    renderStill.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage });
+    const p = createProject();
+    p.tracks[0].clips.push(makeClip('text', { text: 'Preview', duration: US }));
+    const d = openExportDialog(ctxWith(p));
+    const bitmap = { width: 64, height: 36, close: vi.fn() };
+    try {
+      const options = renderStill.mock.lastCall[3];
+      d.close();
+      expect(options.signal?.aborted).toBe(true);
+      finish(bitmap);
+      await flush();
+      expect(drawImage).not.toHaveBeenCalled();
+      expect(bitmap.close).toHaveBeenCalledTimes(1);
+    } finally {
+      finish?.(bitmap);
+      await flush();
+      d.close();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('rechecks codecs after changing frame rate before allowing video export', async () => {
+    const p = createProject();
+    p.settings.fps = 30;
+    p.tracks[0].clips.push(makeClip('text', { text: 'Frame rate check', duration: US }));
+    const d = openExportDialog(ctxWith(p));
+    try {
+      await flush();
+      const btn = [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export');
+      const fps = [...d.el.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent === '60 fps'));
+      let answer;
+      detectCapabilities.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      fps.value = '60';
+      fps.dispatchEvent(new Event('change'));
+      expect(detectCapabilities).toHaveBeenLastCalledWith(expect.objectContaining({ fps: 60 }));
+      expect(btn.disabled).toBe(true);
+      expect(d.el.querySelector('.export-codec-note').textContent).toMatch(/checking/i);
+      answer({ video: ['vp9'], audio: ['opus'], audioFormats: ['wav', 'ogg'] });
+      await flush();
+      const codec = [...d.el.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'vp9'));
+      expect([...codec.options].map((o) => o.value)).toEqual(['vp9']);
+      expect(codec.value).toBe('vp9');
+      expect(btn.disabled).toBe(false);
+    } finally {
+      detectCapabilities.mockImplementation(async () => ({ video: ['avc', 'vp9'], audio: ['aac', 'opus'], audioFormats: ['wav', 'm4a', 'ogg'] }));
+      d.close();
+    }
+  });
+
+  it('waits for the latest resolution check while allowing outputs that need no video encoder', async () => {
+    const answers = [];
+    detectCapabilities.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const p = createProject();
+    p.tracks[0].clips.push(makeClip('text', { text: 'Resolution check', duration: US }));
+    const d = openExportDialog(ctxWith(p));
+    try {
+      const btn = [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export');
+      expect(btn.disabled).toBe(true);
+      const resolution = [...d.el.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.textContent === '720p'));
+      resolution.value = '720';
+      resolution.dispatchEvent(new Event('change'));
+      answers[0]({ video: ['avc'], audio: ['aac'], audioFormats: ['wav'] });
+      await flush();
+      expect(btn.disabled).toBe(true);
+      const check = (title) => [...d.el.querySelectorAll('.export-section')].find((s) => s.querySelector('.export-section-title').textContent === title).querySelector('.export-check');
+      check('Video file').click();
+      check('Animated GIF').click();
+      expect(btn.disabled).toBe(false);
+      check('Video file').click();
+      expect(btn.disabled).toBe(true);
+      answers[1]({ video: [], audio: ['aac'], audioFormats: ['wav'] });
+      await flush();
+      expect(btn.disabled).toBe(true);
+      expect(d.el.querySelector('.export-codec-note').textContent).toMatch(/cannot encode video/);
+      resolution.value = '480';
+      resolution.dispatchEvent(new Event('change'));
+      answers[2]({ video: ['avc'], audio: ['aac'], audioFormats: ['wav'] });
+      await flush();
+      expect(btn.disabled).toBe(false);
+    } finally {
+      detectCapabilities.mockImplementation(async () => ({ video: ['avc', 'vp9'], audio: ['aac', 'opus'], audioFormats: ['wav', 'm4a', 'ogg'] }));
+      d.close();
+    }
+  });
+
   it('warns and holds Export when the format cannot carry sound in this browser', async () => {
     detectCapabilities.mockResolvedValueOnce({ video: ['avc', 'vp9'], audio: ['opus'], audioFormats: ['wav', 'ogg'] });
     const p = createProject({ name: 'Trip' });

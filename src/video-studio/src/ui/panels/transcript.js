@@ -28,9 +28,10 @@ export function removeRanges(store, ranges, label) {
   const list = removalOrder(ranges);
   if (!list.length) return false;
   return store.update(label, (p) => {
-    let n = 0;
-    for (const r of list) n += T.removeRange(p, r.start, r.end);
-    return n > 0 || list.length > 0;
+    let changed = false;
+    const onChange = () => { changed = true; };
+    for (const r of list) T.removeRange(p, r.start, r.end, { onChange });
+    return changed;
   });
 }
 
@@ -45,6 +46,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   let abort = null;
   let sourceContext = null;
   let disposed = false;
+  const cutLifetime = new AbortController();
   const editingContext = () => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
   let wordEls = [];
   let current = -1;
@@ -160,27 +162,56 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     h('div.tr-selbar', selInfo, deleteBtn),
   );
 
+  function applyCuts(ranges, label) {
+    if (disposed) return false;
+    if (removeRanges(store, ranges, label) !== false) return true;
+    toast('No cuts were applied. Check whether the affected tracks are locked.', { kind: 'error' });
+    return false;
+  }
+
+  // A confirmation describes these words and this timeline, not later edits.
+  const cutSourceStamp = () => {
+    const p = store.project;
+    const assets = [...new Set((p.transcript?.words || []).map((w) => w.a).filter(Boolean))].map((id) => {
+      const a = p.assets[id];
+      return [id, a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration];
+    });
+    return JSON.stringify([editingContext(), p.tracks, p.transcript, assets]);
+  };
+  async function confirmCuts(options, ranges, label) {
+    if (disposed) return false;
+    const project = store.project;
+    const stamp = cutSourceStamp();
+    if (!(await confirmDialog({ ...options, signal: cutLifetime.signal })) || disposed) return false;
+    if (project !== store.project || stamp !== cutSourceStamp()) {
+      toast('Timeline or transcript changed. Review the words and try again.', { kind: 'error' });
+      return false;
+    }
+    // Validate and commit in the same turn, before another queued edit can run.
+    return applyCuts(ranges, label);
+  }
+
   fillerBtn.addEventListener('click', async () => {
+    if (disposed) return;
     const idx = findFillers(words(), { language: store.project.transcript?.language, soft });
     if (!idx.length) {
       toast('No filler words found.', { kind: 'info' });
       return;
     }
-    const ok = await confirmDialog({ title: 'Remove filler words?', message: `${idx.length} filler word${idx.length === 1 ? '' : 's'} will be cut from the video.`, confirm: 'Remove' });
-    if (!ok) return;
-    removeRanges(store, rangesForWords(words(), idx), 'Remove filler words');
+    const ranges = rangesForWords(words(), idx);
+    const ok = await confirmCuts({ title: 'Remove filler words?', message: `${idx.length} filler word${idx.length === 1 ? '' : 's'} will be cut from the video.`, confirm: 'Remove' }, ranges, 'Remove filler words');
+    if (!ok || disposed) return;
     toast(`Removed ${idx.length} filler word${idx.length === 1 ? '' : 's'}.`, { kind: 'success' });
   });
   pauseBtn.addEventListener('click', async () => {
+    if (disposed) return;
     const pauses = findPauses(words(), { minGap: pauseMin * US });
     if (!pauses.length) {
       toast('No long pauses found.', { kind: 'info' });
       return;
     }
     const total = pauses.reduce((s, r) => s + r.end - r.start, 0);
-    const ok = await confirmDialog({ title: 'Shorten pauses?', message: `${pauses.length} pause${pauses.length === 1 ? '' : 's'} (${(total / US).toFixed(1)} s in all) will be cut from the video.`, confirm: 'Shorten' });
-    if (!ok) return;
-    removeRanges(store, pauses, 'Shorten pauses');
+    await confirmCuts({ title: 'Shorten pauses?', message: `${pauses.length} pause${pauses.length === 1 ? '' : 's'} (${(total / US).toFixed(1)} s in all) will be cut from the video.`, confirm: 'Shorten' }, pauses, 'Shorten pauses');
   });
   moreBtn.addEventListener('click', () => showMenu(moreBtn, [
     { label: 'Highlight filler words', checked: showFillers, onSelect: () => { showFillers = !showFillers; render(); } },
@@ -206,9 +237,10 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     if (!r) return;
     const idx = [];
     for (let i = r[0]; i <= r[1]; i++) idx.push(i);
-    removeRanges(store, rangesForWords(words(), idx), idx.length === 1 ? 'Cut word' : `Cut ${idx.length} words`);
+    if (!applyCuts(rangesForWords(words(), idx), idx.length === 1 ? 'Cut word' : `Cut ${idx.length} words`)) return;
     focus = Math.min(r[0], words().length - 1);
     anchor = -1;
+    paintSelection();
     announce(`${idx.length} word${idx.length === 1 ? '' : 's'} cut`);
   }
 
@@ -373,6 +405,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     sync,
     dispose() {
       disposed = true;
+      cutLifetime.abort();
       offs.forEach((f) => f?.());
       cancelTranscription();
     },

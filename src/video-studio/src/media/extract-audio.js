@@ -4,6 +4,7 @@
  */
 import { sourceRange } from '../model/audio.js';
 import { wavHeader, writePcm16 } from './wav.js';
+import { abortable } from '../lib/abort.js';
 
 /** Samples per piece of the file being written (2 MB). */
 const PIECE = 1 << 20;
@@ -28,7 +29,20 @@ const GAP_MIN = 0.005;
  * open: asset => source (audio-mix mediabunnyOpener(library) or a test stub).
  */
 export async function extractClipAudio(open, asset, clip, { name, signal, onProgress, maxSeconds = 3 * 3600 } = {}) {
-  const src = await open(asset);
+  let src;
+  try {
+    await abortable(async () => {
+      const opened = await open(asset);
+      // A custom opener may finish after cancellation. It still owns a decoder
+      // that must be closed, but must never start reading for this extraction.
+      if (signal?.aborted) opened?.close?.();
+      else src = opened;
+    }, signal);
+    signal?.throwIfAborted();
+  } catch (err) {
+    src?.close?.();
+    throw err;
+  }
   if (!src) return null;
   const [from, to0] = sourceRange(clip);
   const to = Math.min(to0, from + maxSeconds);
@@ -52,8 +66,13 @@ export async function extractClipAudio(open, asset, clip, { name, signal, onProg
       }
     }
   };
+  let chunks;
   try {
-    for await (const chunk of src.read(from)) {
+    chunks = src.read(from)[Symbol.asyncIterator]();
+    while (true) {
+      const next = await abortable(() => chunks.next(), signal);
+      if (next.done) break;
+      const chunk = next.value;
       if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
       const n = chunk.channels[0]?.length || 0;
       if (!n) continue;
@@ -83,7 +102,11 @@ export async function extractClipAudio(open, asset, clip, { name, signal, onProg
     }
   } finally {
     src.close?.();
+    const closed = chunks?.return?.();
+    if (signal?.aborted) Promise.resolve(closed).catch(() => {});
+    else await closed;
   }
+  signal?.throwIfAborted();
   if (!frames) return null;
   if (used) parts.push(piece.subarray(0, used));
   const file = new File([wavHeader(frames, numCh, rate), ...parts], extractedName(name ?? clip.name ?? asset.name), { type: 'audio/wav' });

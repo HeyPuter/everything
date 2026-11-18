@@ -90,6 +90,8 @@ export function mediaTab(ctx) {
   let visible = []; // assets in display order
   let gen = null;
   let layout = null;
+  let disposed = false;
+  const posterViews = new Map(); // hash -> canvases in the current bin view
 
   const currentFolder = () => (folder && findBin(store.project, folder) ? folder : null);
 
@@ -355,19 +357,38 @@ export function mediaTab(ctx) {
   }
 
   /* Items ---------------------------------------------------------------------- */
+  function loadPoster(view) {
+    const request = ++view.request;
+    media.poster(view.asset).then(bmp => {
+      if (disposed || request !== view.request || !posterViews.get(view.asset.hash)?.has(view)) return;
+      view.draw(bmp);
+    }, () => {});
+  }
+
+  function repaintPosters({ hash } = {}) {
+    for (const view of posterViews.get(hash) || []) loadPoster(view);
+  }
+
   function posterCanvas(a, w, hgt) {
     const cv = h('canvas.tile-canvas', { width: w, height: hgt, 'aria-hidden': 'true' });
+    let drawn;
     const draw = (bmp) => {
+      if (drawn === bmp) return;
       const c2 = cv.getContext('2d');
       if (!c2) return;
+      drawn = bmp;
       c2.fillStyle = '#111';
       c2.fillRect(0, 0, w, hgt);
       if (!bmp) return;
-      const k = Math.max(w / bmp.width, hgt / bmp.height);
-      c2.drawImage(bmp, (w - bmp.width * k) / 2, (hgt - bmp.height * k) / 2, bmp.width * k, bmp.height * k);
+      const size = a.pictureSize || bmp;
+      const k = Math.max(w / size.width, hgt / size.height);
+      c2.drawImage(bmp, (w - size.width * k) / 2, (hgt - size.height * k) / 2, size.width * k, size.height * k);
     };
     draw(null);
-    media.poster(a).then(draw, () => {});
+    const view = { asset: a, draw, request: 0 };
+    if (!posterViews.has(a.hash)) posterViews.set(a.hash, new Set());
+    posterViews.get(a.hash).add(view);
+    loadPoster(view);
     return cv;
   }
 
@@ -712,6 +733,7 @@ export function mediaTab(ctx) {
     menuLabel: 'Sort and filter',
     menuActive: () => typesPref().length > 0 || sortPref().key !== 'added' || sortPref().dir !== 'desc',
     render(cat, q) {
+      posterViews.clear();
       const binView = cat === 'project' || TYPE_CATS.has(cat);
       viewBtn.hidden = !binView;
       layout?.el.querySelector('.asset-menu-btn')?.toggleAttribute('hidden', !binView);
@@ -780,15 +802,20 @@ export function mediaTab(ctx) {
 
   const offProxies = proxies?.on('change', ({ hash } = {}) => repaintProxies(hash));
   const offMissing = media?.on?.('missing', refreshSoon);
+  const offPosters = media?.on?.('poster', repaintPosters);
 
   return {
     el: layout.el,
     openImport: () => fileInput.click(),
     openRecord,
     dispose() {
+      disposed = true;
+      cancelAnimationFrame(pendingRefresh);
+      posterViews.clear();
       off();
       offProxies?.();
       offMissing?.();
+      offPosters?.();
       gen?.dispose?.();
       layout.dispose();
     },

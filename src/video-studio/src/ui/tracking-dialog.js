@@ -4,6 +4,7 @@
  * playhead; it is followed forward and backward through the part where both
  * clips overlap, and the pinned clip gets position keyframes that move with it.
  */
+import { boxPoint, inverse } from '../lib/geometry.js';
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US, FRAME_SLACK, timecode } from '../lib/time.js';
@@ -12,7 +13,9 @@ import { valueAt } from '../model/keyframes.js';
 import { clipLayer } from '../engine/scene.js';
 import { Tracker, grayFrames } from '../media/tracker.js';
 import { thinKeys } from '../media/reframe.js';
-import { openDialog, toast, oneAtATime } from './dialog.js';
+import { toast } from './dialog.js';
+import { frameDialog, openFrameDialog } from './frame-dialog.js';
+import { abortable } from '../lib/abort.js';
 
 const TW = 256;
 const TH = 144;
@@ -22,12 +25,12 @@ const FPS = 15;
 export function mediaBox(project, layer) {
   const W = project.settings.width;
   const H = project.settings.height;
-  const a = layer.asset || {};
+  const a = layer.pictureSize || layer.asset || {};
   const crop = layer.crop || { l: 0, t: 0, r: 0, b: 0 };
   const sw = (a.width || W) * (1 - crop.l - crop.r);
   const sh = (a.height || H) * (1 - crop.t - crop.b);
   const fit = Math.min(W / sw, H / sh);
-  return { cx: W / 2 + layer.x * W, cy: H / 2 + layer.y * H, w: sw * fit * layer.scale, h: sh * fit * layer.scale, rotation: layer.rotation, crop, flipH: layer.flipH, flipV: layer.flipV };
+  return { cx: W / 2 + layer.x * W, cy: H / 2 + layer.y * H, w: sw * fit * layer.scale * (layer.sx ?? 1), h: sh * fit * layer.scale * (layer.sy ?? 1), skew: sh * fit * layer.scale * (layer.skew || 0), rotation: layer.rotation, crop, flipH: layer.flipH, flipV: layer.flipV };
 }
 
 /** Project-pixel position of a point (u, v in 0..1 of the full source frame) inside a media box. */
@@ -37,10 +40,8 @@ export function sourcePointToFrame(box, u, v) {
   let y = (v - crop.t) / Math.max(1e-6, 1 - crop.t - crop.b) - 0.5;
   if (box.flipH) x = -x;
   if (box.flipV) y = -y;
-  const px = x * box.w;
-  const py = y * box.h;
-  const r = (box.rotation * Math.PI) / 180;
-  return { x: box.cx + px * Math.cos(r) - py * Math.sin(r), y: box.cy + px * Math.sin(r) + py * Math.cos(r) };
+  const [px, py] = boxPoint(box, box.rotation, x, y);
+  return { x: px, y: py };
 }
 
 /**
@@ -49,18 +50,47 @@ export function sourcePointToFrame(box, u, v) {
  * at time t0.
  */
 export function pinKeys(project, target, points, t0) {
+  if (!points.length) return { x: [], y: [] };
   const W = project.settings.width;
   const H = project.settings.height;
   const ref = points.reduce((best, p) => (Math.abs(p.t - t0) < Math.abs(best.t - t0) ? p : best), points[0]);
   const local0 = clamp(t0 - target.start, 0, target.duration);
   const x0 = valueAt(target.keyframes, 'x', local0, target.transform.x);
   const y0 = valueAt(target.keyframes, 'y', local0, target.transform.y);
+  const transformed = target.inherited?.length || target.parent || target.animIn || target.animOut || target.animLoop;
+  const anchor = transformed ? clipLayer(project, target, target.start + local0, 0) : { x: x0, y: y0 };
+  const probe = transformed ? { ...target, transform: { ...target.transform, x: 0, y: 0 }, keyframes: { ...target.keyframes } } : null;
+  if (probe) { delete probe.keyframes.x; delete probe.keyframes.y; }
+  let gainX = 1, gainY = 1;
   const keys = points
-    .map((p) => ({ t: Math.round(clamp(p.t - target.start, 0, target.duration)), x: x0 + (p.x - ref.x) / W, y: y0 + (p.y - ref.y) / H }))
+    .map((p) => {
+      const t = Math.round(clamp(p.t - target.start, 0, target.duration));
+      if (!probe) return { t, x: x0 + (p.x - ref.x) / W, y: y0 + (p.y - ref.y) / H };
+      const at = target.start + t;
+      // Evaluate the displayed position basis at this time. Animated parents and
+      // the clip's own procedural motion can change both its origin and its axes.
+      const origin = clipLayer(project, probe, at, 0);
+      probe.transform.x = 1;
+      const px = clipLayer(project, probe, at, 0);
+      probe.transform.x = 0; probe.transform.y = 1;
+      const py = clipLayer(project, probe, at, 0);
+      probe.transform.y = 0;
+      const matrix = [px.x - origin.x, px.y - origin.y, py.x - origin.x, py.y - origin.y];
+      gainX = Math.max(gainX, Math.abs(matrix[0]), Math.abs(matrix[1]));
+      gainY = Math.max(gainY, Math.abs(matrix[2]), Math.abs(matrix[3]));
+      const det = matrix[0] * matrix[3] - matrix[1] * matrix[2];
+      const area = Math.hypot(matrix[0], matrix[1]) * Math.hypot(matrix[2], matrix[3]);
+      const inv = Math.abs(det) <= area * 1e-12 ? null : inverse(matrix);
+      if (!inv) return { t, x: x0, y: y0 }; // A collapsed group has no unique position inverse.
+      const dx = anchor.x + (p.x - ref.x) / W - origin.x;
+      const dy = anchor.y + (p.y - ref.y) / H - origin.y;
+      return { t, x: inv[0] * dx + inv[2] * dy, y: inv[1] * dx + inv[3] * dy };
+    })
     .sort((a, b) => a.t - b.t);
   return {
-    x: thinKeys(keys.map((k) => ({ t: k.t, v: k.x, ease: 'linear' })), 0.0015),
-    y: thinKeys(keys.map((k) => ({ t: k.t, v: k.y, ease: 'linear' })), 0.0015),
+    // Budget both local axes together in displayed frame coordinates.
+    x: thinKeys(keys.map((k) => ({ t: k.t, v: k.x, ease: 'linear' })), 0.0015 / (2 * gainX)),
+    y: thinKeys(keys.map((k) => ({ t: k.t, v: k.y, ease: 'linear' })), 0.0015 / (2 * gainY)),
   };
 }
 
@@ -77,11 +107,15 @@ export function trackingSource(project, target, t) {
   return cands[0] || null;
 }
 
-export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.selected?.clip.id) => {
+export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.selected?.clip.id, signal) => {
   const { store } = ctx;
   const f = targetId && T.findClip(store.project, targetId);
   if (!f || !('transform' in f.clip)) {
     toast('Select a text, graphic or overlay clip to pin to a moving object.', { kind: 'info' });
+    return;
+  }
+  if (f.track.locked) {
+    toast('Unlock the track to track motion.', { kind: 'info' });
     return;
   }
   const target = f.clip;
@@ -91,27 +125,34 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
     toast('Move the playhead to where the clip overlaps a video, then try again.', { kind: 'info' });
     return;
   }
-  const asset = store.project.assets[src.clip.assetId];
+  const sourceAssetId = src.clip.assetId;
+  const targetAssetId = target.assetId;
+  const isCurrentMedia = () => !signal.aborted
+    && T.findClip(store.project, target.id)?.clip === target && target.assetId === targetAssetId
+    && T.findClip(store.project, src.clip.id)?.clip === src.clip && src.clip.assetId === sourceAssetId;
+  const changedMessage = 'The tracking clips or their media changed. Reopen Track motion to choose the object again.';
+  const asset = store.project.assets[sourceAssetId];
   let blob;
   const canvas = h('canvas.track-frame', { width: TW * 3, height: TH * 3 });
   try {
-    blob = await ctx.library.mediaBlob(asset);
-    const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
+    blob = await abortable(() => ctx.library.mediaBlob(asset), signal);
+    const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+    signal.throwIfAborted();
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
     try {
-      const track = await input.getPrimaryVideoTrack();
+      const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
       const sink = new CanvasSink(track, { width: TW * 3, height: TH * 3, fit: 'fill', poolSize: 1 });
-      const w = await sink.getCanvas(T.sourceTimeAt(src.clip, t0) / US + FRAME_SLACK);
+      const w = await abortable(() => sink.getCanvas(T.sourceTimeAt(src.clip, t0) / US + FRAME_SLACK), signal);
       if (w) canvas.getContext('2d')?.drawImage(w.canvas, 0, 0, canvas.width, canvas.height);
     } finally {
       input.dispose();
     }
   } catch (err) {
-    toast(err?.message || 'Could not read the video.', { kind: 'error' });
+    if (isCurrentMedia()) toast(err?.message || 'Could not read the video.', { kind: 'error' });
     return;
   }
-  // Either clip may have been deleted while the frame was read.
-  if (T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
+  // A replacement mutates the clip in place, so identity alone is not enough.
+  if (!isCurrentMedia() || T.findClip(store.project, target.id)?.track.locked) return;
   let box = null; // in 0..1 of the frame
   const boxEl = h('div.track-box', { hidden: true });
   const stage = h('div.track-stage', canvas, boxEl);
@@ -121,8 +162,8 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
   const progress = h('div.progress', { hidden: true }, bar);
   const go = h('button.btn.primary', { type: 'button', disabled: true }, icon('crosshair', 16), 'Track');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const d = openDialog({ title: 'Track motion', body: h('div.track-editor', hint, stage, progress, status), actions: [cancel, go], wide: true, className: 'track-dialog', closeOnBackdrop: false, onClose: () => ac?.abort() });
   let ac = null;
+  const d = openFrameDialog({ title: 'Track motion', body: h('div.track-editor', hint, stage, progress, status), actions: [cancel, go], wide: true, className: 'track-dialog', closeOnBackdrop: false, onClose: () => ac?.abort() }, signal);
   cancel.addEventListener('click', () => d.close());
 
   const paintBox = () => {
@@ -155,6 +196,14 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
 
   go.addEventListener('click', async () => {
     if (!box || ac) return;
+    if (!isCurrentMedia()) {
+      status.textContent = changedMessage;
+      return;
+    }
+    if (T.findClip(store.project, target.id)?.track.locked) {
+      status.textContent = 'Unlock the track to track motion.';
+      return;
+    }
     ac = new AbortController();
     go.disabled = true;
     progress.hidden = false;
@@ -174,7 +223,10 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
       let tracker = null;
       const srcTimes = times.map((t) => T.sourceTimeAt(src.clip, t));
       let i = 0;
-      for await (const { frame } of grayFrames(blob, srcTimes, { tw: TW, th: TH, signal: ac.signal })) {
+      for await (const { t: sourceTime, frame } of grayFrames(blob, srcTimes, { tw: TW, th: TH, signal: ac.signal })) {
+        // The decoder omits unreadable frames. Keep each remaining sample at
+        // its requested time, including reversed playback and the backward pass.
+        while (sourceTime !== undefined && i < srcTimes.length - 1 && srcTimes[i] !== sourceTime) i++;
         const t = times[i++];
         let c;
         if (!tracker) {
@@ -192,14 +244,30 @@ export const openTrackingDialog = oneAtATime(async (ctx, targetId = ctx.store.se
     try {
       status.textContent = 'Following the object...';
       await run(fwd);
+      ac.signal.throwIfAborted();
       // Backward pass starts again from the box at the playhead.
       if (back.length) await run([t0, ...back], true);
+      ac.signal.throwIfAborted();
+      if (!isCurrentMedia()) {
+        status.textContent = changedMessage;
+        return;
+      }
+      if (!points.length) {
+        status.textContent = 'Could not read any tracking frames. Try tracking again.';
+        return;
+      }
       const keys = pinKeys(store.project, target, points, t0);
-      ctx.actions.editClip(target.id, 'Track motion', (c) => {
+      const saved = ctx.actions.editClip(target.id, 'Track motion', (c) => {
         c.keyframes ||= {};
         c.keyframes.x = keys.x;
         c.keyframes.y = keys.y;
       });
+      if (saved === false) {
+        status.textContent = T.findClip(store.project, target.id)?.track.locked
+          ? 'Unlock the track, then try tracking again.'
+          : 'Motion tracking could not be saved. The clip may no longer be available.';
+        return;
+      }
       announce('Motion tracked');
       toast(`${T.clipLabel(store.project, target)} now follows the object.`, { kind: 'success' });
       d.close();

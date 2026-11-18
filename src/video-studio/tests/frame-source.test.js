@@ -74,6 +74,75 @@ describe('preview frames from a file that could not be read', () => {
 });
 
 describe('closing the frame source', () => {
+  it.each(['forget', 'dispose'])('ignores an in-flight frame after %s', async action => {
+    const onFrame = vi.fn();
+    const fs = new FrameSource({ onFrame, blobFor: async () => new Blob(['x']) });
+    const asset = { id: 'a' };
+    fs.request(asset, 0);
+    await flush();
+    onFrame.mockClear();
+    let release;
+    fs.entries.get(asset.id).sink.getCanvas = () => new Promise(resolve => { release = resolve; });
+    fs.request(asset, 1);
+    await flush();
+    fs[action](asset.id);
+    release({ canvas: {}, timestamp: 1 });
+    await flush();
+    expect(onFrame).not.toHaveBeenCalled();
+    expect(fs.any(asset)).toBeNull();
+    fs.dispose();
+  });
+
+  it.each(['forget', 'dispose'])('closes an in-flight frame pair after %s', async action => {
+    const onFrame = vi.fn();
+    const fs = new FrameSource({ onFrame, blobFor: async () => new Blob(['x']) });
+    const asset = { id: 'a' };
+    fs.request(asset, 0);
+    await flush();
+    onFrame.mockClear();
+    let release;
+    const iterator = {
+      next: vi.fn(() => new Promise(resolve => { release = resolve; })),
+      return: vi.fn(async () => ({ done: true })),
+    };
+    fs.entries.get(asset.id).pairSink.canvases = () => iterator;
+    fs.pair(asset, 1);
+    await flush();
+    fs[action](asset.id);
+    release({ done: false, value: { canvas: {}, timestamp: 1 } });
+    await flush();
+    expect(iterator.next).toHaveBeenCalledTimes(1);
+    expect(iterator.return).toHaveBeenCalledTimes(1);
+    expect(onFrame).not.toHaveBeenCalled();
+    fs.dispose();
+  });
+
+  it('ignores frame requests after disposal', async () => {
+    const blobFor = vi.fn(async () => new Blob(['x']));
+    const fs = new FrameSource({ blobFor });
+    fs.dispose();
+    fs.request({ id: 'a' }, 0);
+    expect(fs.pair({ id: 'b' }, 0)).toBeNull();
+    await flush();
+    expect(blobFor).not.toHaveBeenCalled();
+    expect(fs.entries.size).toBe(0);
+  });
+
+  it('does not retry a forgotten file whose pending read failed', async () => {
+    vi.useFakeTimers();
+    let rejectRead;
+    const onFrame = vi.fn();
+    const fs = new FrameSource({ onFrame, blobFor: () => new Promise((_, reject) => { rejectRead = reject; }) });
+    fs.request({ id: 'a' }, 0);
+    fs.forget('a');
+    rejectRead(new Error('network'));
+    await flush();
+    vi.advanceTimersByTime(2000);
+    expect(onFrame).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    fs.dispose();
+  });
+
   it('closes a decoder that was still opening', async () => {
     let release;
     const fs = new FrameSource({ blobFor: () => new Promise((r) => (release = r)) });

@@ -12,7 +12,11 @@
  */
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
-import { DEFAULT_TRANSFORM, makeClip, makeTrack } from '../../model/project.js';
+import { DEFAULT_TRANSFORM, makeClip, makeTrack, normalizeClip } from '../../model/project.js';
+import { inheritFromCompound } from '../../model/compound.js';
+import { parseMaskProp } from '../../model/masks.js';
+import { retainMaskSpace } from '../../model/mask-space.js';
+import { pictureSizeFor } from '../../model/picture-size.js';
 import * as T from '../../model/timeline.js';
 import { STYLE_LOOKS, STYLE_AMOUNT_DEFAULT, styleEffect, normalizeStylize } from '../../model/stylize.js';
 import { aiAvailable } from '../../media/tts.js';
@@ -23,22 +27,79 @@ import { defaultLength } from '../preferences-dialog.js';
 import { choiceGrid, slider, propSection, note } from './common.js';
 import '../../styles/avatar.css';
 
+// These controls are rendered into the source picture. Placement, masks and
+// live effects stay on the timeline and must not be consumed by replacement.
+const PICTURE_FIELDS = ['crop', 'adjust', 'grade', 'filter', 'chroma', 'cutout', 'removal', 'retouch', 'faceShape', 'hairColor', 'bodyShape', 'makeup', 'denoise', 'relight', 'enhance'];
+const pictureField = prop => /^remove\d+\./.test(prop) ? 'removal' : prop.split('.')[0];
+
+function pictureSettings(clip) {
+  const normalized = normalizeClip(clip);
+  return structuredClone({
+    settings: Object.fromEntries(PICTURE_FIELDS.map(field => [field, normalized[field]])),
+    keyframes: Object.fromEntries(Object.entries(normalized.keyframes).filter(([prop]) => PICTURE_FIELDS.includes(pictureField(prop)))),
+  });
+}
+
+function consumePictureSettings(clip, baked) {
+  if (!baked) return;
+  const current = pictureSettings(clip), defaults = makeClip('image');
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  for (const field of PICTURE_FIELDS) {
+    // Adjustments have independent controls; editing exposure while a job runs
+    // must not keep an unchanged contrast adjustment that is already baked in.
+    if (field === 'adjust') {
+      for (const key of Object.keys(defaults.adjust)) {
+        const prop = `adjust.${key}`;
+        if (same(current.settings.adjust[key], baked.settings.adjust[key]) && same(current.keyframes[prop], baked.keyframes[prop])) {
+          clip.adjust[key] = defaults.adjust[key];
+          delete clip.keyframes[prop];
+        }
+      }
+      continue;
+    }
+    if (baked.settings[field]?.on === false) continue;
+    const keys = [...new Set([...Object.keys(current.keyframes), ...Object.keys(baked.keyframes)])].filter(prop => pictureField(prop) === field);
+    if (!same(current.settings[field], baked.settings[field]) || keys.some(prop => !same(current.keyframes[prop], baked.keyframes[prop]))) continue;
+    if (field in defaults) clip[field] = structuredClone(defaults[field]);
+    else delete clip[field];
+    for (const prop of keys) delete clip.keyframes[prop];
+  }
+}
+
 /** The clip's picture at timeline time (its own pixels and color, untransformed): { blob, width, height }. */
 export async function clipPicture(ctx, clip, time) {
   const p = ctx.store.project;
   const asset = p.assets[clip.assetId];
   if (!asset) throw new Error('This clip has no media.');
-  const size = fitSize(asset.width || p.settings.width, asset.height || p.settings.height);
+  // Cropping is baked into the pixels. Match their visible aspect ratio so
+  // fitting the result back into any project frame preserves its footprint.
+  const source = pictureSizeFor(clip, asset) || asset;
+  const crop = clip.crop || {};
+  const sourceW = Math.max(1e-6, (source.width || p.settings.width) * (1 - (crop.l || 0) - (crop.r || 0)));
+  const sourceH = Math.max(1e-6, (source.height || p.settings.height) * (1 - (crop.t || 0) - (crop.b || 0)));
+  const size = fitSize(sourceW, sourceH);
   const w = Math.max(16, Math.round(size.w / 2) * 2);
   const hh = Math.max(16, Math.round(size.h / 2) * 2);
   const one = structuredClone(clip);
-  Object.assign(one, { start: 0, transform: { ...DEFAULT_TRANSFORM }, opacity: 1, blend: 'normal', animIn: null, animOut: null, animLoop: null, keyframes: {}, transition: null });
-  for (const k of ['stylize', 'effects', 'masks', 'group', 'disabled', 'parent', 'canvas', 'motionBlur']) delete one[k];
+  const baked = pictureSettings(one);
+  baked.source = { width: source.width || p.settings.width, height: source.height || p.settings.height, maskSpace: structuredClone(clip.maskSpace) };
+  baked.pictureSize = { width: sourceW, height: sourceH };
+  Object.assign(one, { start: 0, transform: { ...DEFAULT_TRANSFORM }, opacity: 1, blend: 'normal', animIn: null, animOut: null, animLoop: null, keyframes: structuredClone(baked.keyframes), transition: null });
+  // Retained group placement and transition partners belong to the timeline,
+  // not the isolated source picture sent for restyling. Keep source timing.
+  for (const k of ['stylize', 'effects', 'group', 'disabled', 'parent', 'canvas', 'motionBlur', 'inherited', 'transitionSlices']) delete one[k];
+  // Color masks define which pixels receive the captured grade. Alpha masks
+  // stay editable on the timeline, without cutting holes into the AI source.
+  if (one.maskUse === 'color') {
+    for (const [prop, keys] of Object.entries(clip.keyframes || {})) {
+      if (parseMaskProp(prop)) one.keyframes[prop] = structuredClone(keys);
+    }
+  } else delete one.masks;
   const local = Math.min(Math.max(0, time - clip.start), Math.max(0, clip.duration - 1000));
-  const project = { ...p, settings: { ...p.settings, width: w, height: hh, background: { type: 'color', color: '#000000', blur: 0 } }, tracks: [makeTrack('video', { main: true, clips: [one] })], markers: [] };
+  const project = { ...p, settings: { ...p.settings, width: sourceW, height: sourceH, background: { type: 'color', color: '#000000', blur: 0 } }, tracks: [makeTrack('video', { main: true, clips: [one] })], markers: [] };
   delete project.range;
   const { renderStill } = await import('../../engine/exporter.js');
-  const bmp = await renderStill(project, ctx.library, local, { maxWidth: w });
+  const bmp = await renderStill(project, ctx.library, local, { pixelSize: { width: w, height: hh } });
   const c = document.createElement('canvas');
   c.width = bmp.width;
   c.height = bmp.height;
@@ -46,7 +107,7 @@ export async function clipPicture(ctx, clip, time) {
   bmp.close?.();
   const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
   if (!blob) throw new Error('Could not capture the picture.');
-  return { blob, width: c.width, height: c.height };
+  return { blob, width: c.width, height: c.height, baked };
 }
 
 function services(ctx) {
@@ -58,7 +119,7 @@ function services(ctx) {
 }
 
 /** Put a restyled picture on an overlay track over the clip it came from (or at the playhead for a video frame). */
-export function addRestyledClip(ctx, sourceId, asset) {
+export function addRestyledClip(ctx, sourceId, asset, baked) {
   const { store } = ctx;
   const src = T.findClip(store.project, sourceId)?.clip;
   const still = src?.type === 'image';
@@ -68,7 +129,12 @@ export function addRestyledClip(ctx, sourceId, asset) {
     start: still ? src.start : store.time,
     duration: still ? src.duration : Math.max(T.MIN_CLIP, defaultLength.image()),
   });
-  if (src) clip.transform = { ...src.transform };
+  if (baked?.pictureSize) clip.pictureSize = { ...baked.pictureSize };
+  if (src) {
+    // The new source pixels have no placement. Retain the source clip's full
+    // motion, including former group axes, at this clip's timeline position.
+    inheritFromCompound(clip, { ...src, disabled: false, muted: false }, store.project.settings.width, store.project.settings.height);
+  }
   const ok = store.update('Add restyled picture', (p) => {
     T.addClip(p, clip, { ...store.opts, main: false });
   });
@@ -78,11 +144,15 @@ export function addRestyledClip(ctx, sourceId, asset) {
 }
 
 /** Show the restyled picture in an image clip instead of its own (one undo step). */
-export function replacePicture(ctx, clipId, asset) {
+export function replacePicture(ctx, clipId, asset, baked) {
   return ctx.actions.editClip(clipId, 'Replace with restyled picture', (c) => {
     if (c.type !== 'image') return false;
+    retainMaskSpace(c, baked?.source, baked?.settings.crop);
+    consumePictureSettings(c, baked);
     c.assetId = asset.id;
     c.name = asset.name;
+    if (baked?.pictureSize) c.pictureSize = { ...baked.pictureSize };
+    else delete c.pictureSize;
     // The new picture brings its own look; a live look on top would double it.
     delete c.stylize;
   });
@@ -191,7 +261,7 @@ function restyleSection(view) {
     r.pending ||= (async () => {
       const c = view.clip;
       const file = new File([r.blob], restyleFileName(c?.name || store.project.assets[c?.assetId]?.name, r.styleId, r.blob.type || 'image/png'), { type: r.blob.type || 'image/png' });
-      const [asset] = await ctx.actions.importFiles([file], { origin: 'restyle' });
+      const [asset] = await ctx.actions.importFiles([file], { origin: 'restyle', pictureSize: r.baked?.pictureSize });
       if (!asset) throw new Error("Couldn't add the picture to your media.");
       r.assetId = asset.id;
       return asset;
@@ -211,6 +281,7 @@ function restyleSection(view) {
     const save = h('button.btn', { type: 'button' }, icon('import', 14), 'Save to media');
     const drop = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Discard result', 'data-tip': 'Discard' }, icon('close', 14));
     const id = view.id;
+    const baked = result.baked;
     const act = (fn, done) => async () => {
       // A second click while the picture is still being imported would use it twice.
       if (acting) return;
@@ -225,8 +296,8 @@ function restyleSection(view) {
         acting = false;
       }
     };
-    add.addEventListener('click', act((asset) => addRestyledClip(ctx, id, asset), 'Restyled picture added'));
-    replace?.addEventListener('click', act((asset) => replacePicture(ctx, id, asset), 'Picture replaced'));
+    add.addEventListener('click', act((asset) => addRestyledClip(ctx, id, asset, baked), 'Restyled picture added'));
+    replace?.addEventListener('click', act((asset) => replacePicture(ctx, id, asset, baked), 'Picture replaced'));
     save.addEventListener('click', act(() => save.replaceChildren(icon('check', 14), 'In media'), 'Saved to media'));
     drop.addEventListener('click', clearResult);
     out.replaceChildren(h('img', { src: result.url, alt: 'Restyled picture' }), h('div.restyle-actions', add, replace, save, drop));
@@ -259,7 +330,7 @@ function restyleSection(view) {
       const picture = await svc.picture(c, store.time);
       status.replaceChildren(h('span.spinner'), 'Restyling... this can take a little while.');
       const { blob } = await svc.restyle(picture, { prompt: words, style: styleId });
-      keepResult(clipId, { blob, url: URL.createObjectURL(blob), styleId, assetId: null, pending: null });
+      keepResult(clipId, { blob, baked: picture.baked, url: URL.createObjectURL(blob), styleId, assetId: null, pending: null });
       announce('Restyled picture ready');
     })();
     restyleJobs.set(clipId, job);

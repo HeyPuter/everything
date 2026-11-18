@@ -15,6 +15,7 @@ import {
   VideoSampleSink, canEncodeVideo, canEncodeAudio,
 } from 'mediabunny';
 import { US, FRAME_SLACK } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 import { projectDuration } from '../model/timeline.js';
 import { Compositor } from './compositor.js';
 import { ensureLuts } from './luts.js';
@@ -378,9 +379,10 @@ const IMAGES_KEPT = 6;
 
 /** Decoded media shared by the frame loop: one Input per video file, clip streams, images. */
 export class MediaFrames {
-  constructor(project, library) {
+  constructor(project, library, { signal } = {}) {
     this.project = project;
     this.library = library;
+    this.signal = signal;
     this.inputs = new Map(); // assetId -> Promise<{ input, track }>
     this.clips = new Map(); // clipId -> ClipFrames
     this.images = new Map(); // assetId -> ImageBitmap
@@ -394,7 +396,7 @@ export class MediaFrames {
     let p = this.inputs.get(asset.id);
     if (!p) {
       p = (async () => {
-        const blob = await this.library.mediaBlob(asset);
+        const blob = await abortable(() => this.library.mediaBlob(asset), this.signal);
         const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
         try {
           const track = await input.getPrimaryVideoTrack();
@@ -414,7 +416,7 @@ export class MediaFrames {
   async _image(asset) {
     let bmp = this.images.get(asset.id);
     if (!bmp) {
-      const blob = await this.library.mediaBlob(asset);
+      const blob = await abortable(() => this.library.mediaBlob(asset), this.signal);
       // WebGL ignores UNPACK_FLIP_Y for ImageBitmap sources, so flip while decoding (EXIF orientation still applies).
       bmp = await createImageBitmap(blob, { imageOrientation: 'flipY' });
       this.images.set(asset.id, bmp);
@@ -490,13 +492,13 @@ export class MediaFrames {
 
 /** Frame renderer around a private compositor (export and stills). */
 class FrameRenderer {
-  constructor(project, library, width, height) {
+  constructor(project, library, width, height, { signal } = {}) {
     this.project = project;
     this.width = width;
     this.height = height;
     const { width: pw, height: ph } = project.settings;
     this.canvas = makeCanvas(width, height);
-    this.media = new MediaFrames(project, library);
+    this.media = new MediaFrames(project, library, { signal });
     this.text = new TextCache();
     this.scale = width / pw;
     this.compositor = new Compositor(this.canvas, { resolve: (l) => this._resolve(l), preserveDrawingBuffer: true });
@@ -534,19 +536,37 @@ async function thumbnail(canvas, maxW = 360) {
 const PEOPLE_TOOLS_FAILED = "The people tools this video uses (background removal, retouch or body effects) couldn't load. Check your connection and try again.";
 
 /** Render one frame of the project at time t to an ImageBitmap (previews and thumbnails). */
-export async function renderStill(project, library, t = 0, { maxWidth = 640 } = {}) {
+export async function renderStill(project, library, t = 0, { maxWidth = 640, pixelSize, signal } = {}) {
+  checkAbort(signal);
   const snap = structuredClone(project);
   const { width: pw, height: ph } = snap.settings;
   const k = Math.min(1, maxWidth / pw);
-  const r = new FrameRenderer(snap, library, even(pw * k), even(ph * k));
+  // A source capture may have fractional logical dimensions. Keep layout
+  // exact while rasterizing into its separately bounded bitmap dimensions.
+  const explicit = pixelSize && Number.isFinite(pixelSize.width) && Number.isFinite(pixelSize.height) && pixelSize.width > 0 && pixelSize.height > 0;
+  const r = new FrameRenderer(snap, library, even(explicit ? pixelSize.width : pw * k), even(explicit ? pixelSize.height : ph * k), { signal });
+  let bitmap = null;
   try {
-    await preloadFonts(snap);
-    await ensureLuts(snap, library).catch(() => {});
-    if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
-    await r.render(Math.max(0, t));
-    return await createImageBitmap(r.canvas);
-  } finally {
-    await r.dispose();
+    try {
+      await abortable(() => preloadFonts(snap), signal);
+      await abortable(() => ensureLuts(snap, library).catch(() => {}), signal);
+      if (!(await abortable(() => ensureCutout(snap, { retry: true }), signal))) throw new Error(PEOPLE_TOOLS_FAILED);
+      await r.render(Math.max(0, t));
+      await abortable(async () => {
+        const made = await createImageBitmap(r.canvas);
+        // Snapshot creation cannot be interrupted, but its late result can be
+        // closed after the canceled renderer has already been released.
+        if (signal?.aborted) made.close();
+        else bitmap = made;
+      }, signal);
+    } finally {
+      await r.dispose();
+    }
+    checkAbort(signal);
+    return bitmap;
+  } catch (err) {
+    bitmap?.close();
+    throw err;
   }
 }
 
@@ -800,7 +820,7 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
   const started = performance.now();
   try {
     checkAbort(signal);
-    renderer = new FrameRenderer(project, library, width, height);
+    renderer = new FrameRenderer(project, library, width, height, { signal });
     const videoSource = new CanvasSource(renderer.canvas, {
       codec: s.codec,
       quality: new Quality({ bitrate, bitrateMode: 'variable' }),
@@ -817,9 +837,9 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
     }
     output.setMetadataTags({ title: s.name || project.name, date: new Date() });
     await output.start();
-    await preloadFonts(project);
-    await ensureLuts(project, library).catch(() => {});
-    if (!(await ensureCutout(project, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
+    await abortable(() => preloadFonts(project), signal);
+    await abortable(() => ensureLuts(project, library).catch(() => {}), signal);
+    if (!(await abortable(() => ensureCutout(project, { retry: true }), signal))) throw new Error(PEOPLE_TOOLS_FAILED);
 
     let audioAt = 0; // seconds of sound handed to the encoder
     let audioDone = !audioSource;
@@ -988,12 +1008,12 @@ export async function* renderFrames(project, library, { width, height, fps, star
   const stop = end ?? projectDuration(snap);
   const total = Math.max(1, frameCount(stop - start, fps));
   // Imported .cube LUTs, as the video export and stills load them.
-  await ensureLuts(snap, library).catch(() => {});
+  await abortable(() => ensureLuts(snap, library).catch(() => {}), signal);
   checkAbort(signal);
-  const r = new FrameRenderer(snap, library, even(width), even(height));
+  const r = new FrameRenderer(snap, library, even(width), even(height), { signal });
   try {
-    await preloadFonts(snap);
-    if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
+    await abortable(() => preloadFonts(snap), signal);
+    if (!(await abortable(() => ensureCutout(snap, { retry: true }), signal))) throw new Error(PEOPLE_TOOLS_FAILED);
     let lastYield = performance.now();
     for (let i = 0; i < total; i++) {
       checkAbort(signal);

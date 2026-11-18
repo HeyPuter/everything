@@ -9,6 +9,7 @@
  */
 import { Input, BlobSource, ALL_FORMATS, AudioBufferSink } from 'mediabunny';
 import { US } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 import { projectDuration } from '../model/timeline.js';
 import { loadDsp, mixRamp, resample, softClip, PeakLimiter } from '../media/dsp.js';
 import { audibleClips, gainAt } from './scene.js';
@@ -81,13 +82,13 @@ export function stereoDown(channels) {
   return [L, R];
 }
 
-export function mediabunnyOpener(library) {
+export function mediabunnyOpener(library, { signal } = {}) {
   return async (asset) => {
-    const blob = await library.mediaBlob(asset);
+    const blob = await abortable(() => library.mediaBlob(asset), signal);
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
     try {
-      const track = await input.getPrimaryAudioTrack();
-      if (!track || !(await track.canDecode())) {
+      const track = await abortable(() => input.getPrimaryAudioTrack(), signal);
+      if (!track || !(await abortable(() => track.canDecode(), signal))) {
         input.dispose();
         return null;
       }
@@ -270,6 +271,30 @@ export function clipNeedsProcessing(clip) {
   return Boolean(chainSettings(clip)) || needsStretch(clip);
 }
 
+/** Audio inputs heard in a time range, excluding unrelated picture and display metadata. */
+export function audioMixSignature(project, { start, end }) {
+  // Flat references avoid repeatedly serializing shared parents or recursing through retained clocks.
+  const states = new WeakMap(), nodes = [], data = [];
+  const sound = c => {
+    if (!c) return null;
+    if (!states.has(c)) { states.set(c, nodes.length); nodes.push(c); }
+    return states.get(c);
+  };
+  const clocks = records => records?.map(r => [r.offset, r.source, sound(r.parent)]);
+  const timing = saved => saved && [saved.duration, clocks(saved.clock)];
+  const clips = audibleClips(project).map(({ clip }) => clip)
+    .filter(c => c.start < end && c.start + c.duration > start && project.assets[c.assetId])
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const inputs = clips.map(c => {
+    const a = project.assets[c.assetId];
+    return [c.id, sound(c), [a.id, a.kind, a.hash, a.ext, a.mime, a.size, a.duration, a.hasAudio]];
+  });
+  for (const c of nodes) data.push([c.type, c.assetId, c.start, c.in, c.duration, c.speed, c.speedCurve, c.keepPitch,
+    c.freeze, c.muted, c.disabled, c.volume, c.keyframes?.volume, c.fadeIn, c.fadeOut, c.audioFx,
+    c.motionOffset, c.clockOnly, clocks(c.inherited), timing(c.timing?.fadeIn), timing(c.timing?.fadeOut), sound(c.parent), sound(c.renderSource)]);
+  return JSON.stringify([inputs, data]);
+}
+
 /**
  * Sequential processed sound of one clip at the output rate: source read
  * through the time-stretcher (pitch kept) or the resampler (pitch follows
@@ -407,7 +432,7 @@ export async function* mixChunks(project, library, { start = 0, end, sampleRate 
   const stop = end ?? projectDuration(project);
   const total = Math.max(0, Math.round(((stop - start) * sampleRate) / US));
   const chunk = Math.max(GAIN_BLOCK, Math.round(chunkSeconds * sampleRate));
-  const open = openSource || mediabunnyOpener(library);
+  const open = openSource || mediabunnyOpener(library, { signal });
   const clips = audibleClips(project)
     .map(({ clip }) => clip)
     .filter((c) => c.start < stop && c.start + c.duration > start && project.assets[c.assetId])
@@ -419,6 +444,7 @@ export async function* mixChunks(project, library, { start = 0, end, sampleRate 
     let s = sources.get(asset.id);
     if (!s) {
       s = open(asset).catch((err) => {
+        if (signal?.aborted) throw abortError();
         onSkip?.(null, err);
         return null;
       });

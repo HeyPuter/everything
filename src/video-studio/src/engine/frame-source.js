@@ -51,7 +51,8 @@ export class FrameSource {
    * is tried again after a pause growing from 2 s to a minute (with a redraw
    * then); one that cannot be decoded is given up on.
    */
-  _failed(e, err) {
+  _failed(asset, e, err) {
+    if (!this._current(asset, e)) return;
     if (e.sink || !err?.retry || this.disposed) {
       e.failed = true;
       return;
@@ -62,8 +63,12 @@ export class FrameSource {
     e.retryAt = Date.now() + wait;
     clearTimeout(e.timer);
     e.timer = setTimeout(() => {
-      if (!this.disposed) this.onFrame?.();
+      if (this._current(asset, e)) this.onFrame?.();
     }, wait);
+  }
+
+  _current(asset, e) {
+    return !this.disposed && this.entries.get(asset.id) === e;
   }
 
   /** Whether the decoder of an entry may be asked for frames now. */
@@ -85,7 +90,7 @@ export class FrameSource {
       e.opening ||= this._open(asset);
       const { input, sink, pairSink } = await e.opening;
       // Forgotten (or the source disposed) while it opened: close what it opened.
-      if (this.disposed || this.entries.get(asset.id) !== e) {
+      if (!this._current(asset, e)) {
         input.dispose();
         throw new Error('gone');
       }
@@ -109,6 +114,7 @@ export class FrameSource {
   }
 
   request(asset, sec) {
+    if (this.disposed) return;
     const e = this._entry(asset, sec);
     if (!this._usable(e)) return;
     e.want = sec;
@@ -119,12 +125,13 @@ export class FrameSource {
     e.busy = true;
     try {
       await this._ready(asset, e);
-      while (e.want !== null) {
+      while (this._current(asset, e) && e.want !== null) {
         const sec = e.want;
         e.want = null;
         if (e.frame && Math.abs(e.frame.sec - sec) < 1e-4) continue;
         // A frame stamped a hair after sec (millisecond timestamps) is the one meant, as in exports.
         const wrapped = await e.sink.getCanvas(sec + FRAME_SLACK);
+        if (!this._current(asset, e)) return;
         if (wrapped) {
           // Remember the time asked for so tolerance checks match the request.
           e.frame = { sec, canvas: wrapped.canvas, ts: wrapped.timestamp, version: (e.frame?.version || 0) + 1 };
@@ -132,7 +139,7 @@ export class FrameSource {
         }
       }
     } catch (err) {
-      this._failed(e, err);
+      this._failed(asset, e, err);
     } finally {
       e.busy = false;
     }
@@ -144,6 +151,7 @@ export class FrameSource {
    * pair when it covers sec, else null and decodes it (onFrame follows).
    */
   pair(asset, sec) {
+    if (this.disposed) return null;
     const e = this._entry(asset, sec);
     if (covers(e.pair, sec)) return e.pair;
     if (!this._usable(e)) return null;
@@ -156,24 +164,27 @@ export class FrameSource {
     e.pairBusy = true;
     try {
       await this._ready(asset, e);
-      while (e.pairWant !== null) {
+      while (this._current(asset, e) && e.pairWant !== null) {
         const sec = e.pairWant;
         e.pairWant = null;
         if (covers(e.pair, sec)) continue;
         const it = e.pairSink.canvases(sec + FRAME_SLACK);
         try {
           const first = await it.next();
+          if (!this._current(asset, e)) return;
           if (first.done) continue;
           const second = await it.next();
+          if (!this._current(asset, e)) return;
           const b = second.done ? null : { canvas: second.value.canvas, ts: second.value.timestamp };
           e.pair = { a: { canvas: first.value.canvas, ts: first.value.timestamp }, b, version: (e.pair?.version || 0) + 1 };
         } finally {
           await it.return?.();
         }
+        if (!this._current(asset, e)) return;
         this.onFrame?.();
       }
     } catch (err) {
-      this._failed(e, err);
+      this._failed(asset, e, err);
     } finally {
       e.pairBusy = false;
     }

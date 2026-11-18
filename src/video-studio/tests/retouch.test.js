@@ -56,6 +56,69 @@ import { createActions } from '../src/ui/actions.js';
 import { createInspector } from '../src/ui/inspector/index.js';
 import * as T from '../src/model/timeline.js';
 import { US } from '../src/lib/time.js';
+import { ready as personReady } from '../src/media/segmenter.js';
+import { faceModelsIn } from '../src/engine/face-render.js';
+import { createCompound, allClipsDeep } from '../src/model/compound.js';
+import { createMulticam } from '../src/model/multicam-edit.js';
+import { normalizeProject } from '../src/model/project.js';
+import { fixture, clip, onMain } from './helpers.js';
+
+describe('people models in nested sources', () => {
+  const models = [personReady, faceModelReady, hairModelReady, poseModelReady];
+  const effects = [
+    { label: 'cutout', fields: { cutout: { feather: 25 } }, needed: [1, 0, 0, 0] },
+    { label: 'retouch', fields: { retouch: { smooth: 40 } }, needed: [1, 0, 0, 0] },
+    { label: 'body effect', fields: { effects: [{ id: 'body-outline' }] }, needed: [1, 0, 0, 0] },
+    { label: 'targeted color', fields: { colorTarget: 'person' }, needed: [1, 0, 0, 0] },
+    { label: 'face shape', fields: { faceShape: { slim: 20 } }, needed: [0, 1, 0, 0] },
+    { label: 'hair color', fields: { hairColor: { color: '#112233', strength: 50 } }, needed: [0, 1, 1, 0] },
+    { label: 'body shape', fields: { bodyShape: { waist: 20 } }, needed: [0, 0, 0, 1] },
+  ];
+  beforeEach(() => models.forEach((m) => m.mockClear()));
+
+  it.each(effects.flatMap((e) => ['compound', 'multicam'].map((kind) => ({ ...e, kind }))))('preloads $label after reopening a nested $kind', async ({ fields, needed, kind }) => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 1, fields), clip('video', 1, 1, fields));
+    const group = kind === 'multicam' ? createMulticam(p, [a.id, b.id]) : createCompound(p, [a.id, b.id]);
+    createCompound(p, [group.id]);
+    const reopened = normalizeProject(JSON.parse(JSON.stringify(p)));
+    expect(usesCutout(reopened)).toBe(true);
+    expect(faceModelsIn(reopened)).toEqual({ face: Boolean(needed[1]), hair: Boolean(needed[2]), pose: Boolean(needed[3]) });
+    expect(await ensureCutout(reopened, { retry: true })).toBe(false);
+    models.forEach((m, i) => {
+      expect(m).toHaveBeenCalledTimes(needed[i]);
+      if (needed[i]) expect(m).toHaveBeenCalledWith({ retry: true });
+    });
+  });
+
+  it('includes retained transition partners but skips disabled ancestors and other timelines', async () => {
+    const p = fixture();
+    const [c] = onMain(p, clip('image', 0, 1));
+    c.transitionSlices = [{ partner: clip('image', 0, 1, { cutout: { feather: 25 }, hairColor: { color: '#112233', strength: 50 } }) }];
+    const group = createCompound(p, [c.id]);
+    expect(usesCutout(p)).toBe(true);
+    expect(await ensureCutout(p)).toBe(false);
+    expect(personReady).toHaveBeenCalledTimes(1);
+    expect(faceModelReady).toHaveBeenCalledTimes(1);
+    expect(hairModelReady).toHaveBeenCalledTimes(1);
+    group.disabled = true;
+    // Asset discovery must still retain disabled contents by default.
+    expect(allClipsDeep(p).filter((c) => c.assetId)).toHaveLength(2);
+    p.timelineId = 'active';
+    p.timelines = [{ id: 'inactive', tracks: [{ clips: [clip('image', 0, 1, { bodyShape: { waist: 20 } })] }] }];
+    models.forEach((m) => m.mockClear());
+    expect(usesCutout(p)).toBe(false);
+    expect(await ensureCutout(p)).toBe(true);
+    models.forEach((m) => expect(m).not.toHaveBeenCalled());
+    group.disabled = false;
+    const child = group.sequence.tracks[0].clips[0];
+    child.transitionSlices[0].partner.disabled = true;
+    expect(usesCutout(p)).toBe(false);
+    child.transitionSlices[0].partner.disabled = false;
+    child.disabled = true;
+    expect(usesCutout(p)).toBe(false);
+  });
+});
 
 describe('retouch model', () => {
   it('normalizes values to 0..100', () => {

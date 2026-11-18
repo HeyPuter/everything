@@ -238,3 +238,25 @@ describe('Show on timeline', () => {
     expect(lastToast()).toContain('Vertical cut');
   });
 });
+
+describe('replacement import lifetime', () => {
+  it.each(['cancel', 'failed read', 'wrong kind'])('clears pending replacement work after %s', async outcome => {
+    const ctx = { store: new EditorStore(fixture()), library: { importFile: async () => {
+      if (outcome === 'failed read') throw new Error('Unreadable file');
+      return { id: 'wrong-kind', kind: 'audio', name: 'Audio.wav' };
+    } } };
+    const actions = createMediaActions(ctx);
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const replacing = actions.replaceAssetFile('vid');
+    expect(ctx.imports.has(replacing)).toBe(true);
+    const input = document.querySelector('input[type=file]');
+    if (outcome === 'cancel') input.dispatchEvent(new Event('cancel'));
+    else {
+      Object.defineProperty(input, 'files', { value: [new File(['data'], 'Replacement.mp4', { type: 'video/mp4' })] });
+      input.dispatchEvent(new Event('change'));
+    }
+    expect(await replacing).toBeNull();
+    expect(ctx.imports.size).toBe(0);
+    expect(ctx.store.project.assets.vid).toBeTruthy();
+  });
+});

@@ -4,6 +4,7 @@
  * and extract audio. Video clips get Basic and Voice sub-tabs here; audio
  * clips show Voice as a top tab (index.js).
  */
+import { resetContentTiming } from '../../model/inherited-motion.js';
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { US } from '../../lib/time.js';
@@ -48,6 +49,7 @@ function fadeSlider(view, which) {
     unit: 's',
     get: (c) => Math.round((c[key] / US) * 10) / 10,
     set: (v, final) => view.edit(which === 'in' ? 'Fade in' : 'Fade out', (c) => {
+      resetContentTiming(c, key);
       const other = which === 'in' ? c.fadeOut : c.fadeIn;
       c[key] = Math.max(0, Math.min(Math.round(v * US), c.duration - other));
     }, { key, final }),
@@ -110,6 +112,7 @@ export function basicAudioTab(view, state = {}) {
       x.volume = 1;
       x.fadeIn = 0;
       x.fadeOut = 0;
+      resetContentTiming(x, 'fadeIn'); resetContentTiming(x, 'fadeOut');
       delete x.keyframes?.volume;
     }),
   });

@@ -14,6 +14,7 @@
  */
 import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
+import { bumpProjectRevision } from './revision.js';
 import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize, makeRoom } from './timeline.js';
 import { switchTimeline } from './timelines.js';
 import { angleTracks, fitMulticam } from './multicam.js';
@@ -175,6 +176,7 @@ export class EditorStore extends Emitter {
     this.selection.clear();
     this.transition = null;
     this.revision++;
+    bumpProjectRevision(this.project);
     this.emit('change', { label, structural: true, restore: true });
     this.emit('select', { ids: [] });
     this.emit('nest', { depth: this.nest.length });
@@ -260,6 +262,7 @@ export class EditorStore extends Emitter {
     if (this._coalesce) this._coalesce.movedOthers = movedOthers;
     this.project.modified = Date.now();
     this.revision++;
+    bumpProjectRevision(this.project);
     // Drop selected ids that no longer exist.
     this._dropStaleSelection();
     this.emit('change', { label, structural: opts.structural !== false });
@@ -314,6 +317,7 @@ export class EditorStore extends Emitter {
   _afterRestore(label) {
     this._coalesce = null;
     this.revision++;
+    bumpProjectRevision(this.project);
     this.project.modified = Date.now();
     this._dropStaleSelection();
     this.emit('change', { label, structural: true, restore: true });
@@ -339,6 +343,7 @@ export class EditorStore extends Emitter {
     this.transition = null;
     this.time = 0;
     this.revision++;
+    bumpProjectRevision(this.project);
     this.savedRevision = this.revision;
     this.emit('change', { label: 'Open', structural: true, restore: true });
     this.emit('select', { ids: [] });

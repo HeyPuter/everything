@@ -186,6 +186,7 @@ uniform vec3 u_keyColor;
 uniform float u_keyStrength, u_keySpill;
 uniform int u_maskOn;        // clip masks, rasterized to a coverage texture (engine/mask-raster.js)
 uniform sampler2D u_maskTex;
+uniform vec4 u_maskRect;
 uniform int u_matteOn;       // person matte (engine/cutout.js): 1 = bound, 2 = not ready yet
 uniform int u_cutOn;         // background removal keeps only the person
 uniform sampler2D u_matteTex;
@@ -235,7 +236,7 @@ vec2 rgb2uv(vec3 c) { return vec2(-0.169 * c.r - 0.331 * c.g + 0.5 * c.b, 0.5 * 
 // Masks are drawn on the picture, so they are sampled at the source uv (crop and flip included).
 float maskAlpha(vec2 uv) {
   if (u_maskOn == 0) return 1.0;
-  return texture(u_maskTex, uv).a;
+  return texture(u_maskTex, u_maskRect.xy + uv * u_maskRect.zw).a;
 }
 // The matte is coarse, so each pixel takes it from nearby matte samples that
 // look like it in the full picture (joint bilateral upsampling): edges snap

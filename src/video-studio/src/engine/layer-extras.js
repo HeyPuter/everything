@@ -8,8 +8,10 @@
  *    reduction and relight passes, composited into the target the caller
  *    bound. Exports run the same code, so they match the preview.
  */
+import { boxHalf } from '../lib/geometry.js';
 import { FULL_VS } from './shaders.js';
 import { MaskRaster } from './mask-raster.js';
+import { maskLayer } from '../model/mask-space.js';
 
 /** Texture unit of the mask coverage (layers use 0, curves 4, LUT 5). */
 export const MASK_UNIT = 6;
@@ -115,12 +117,15 @@ export function bindLayerMask(comp, p, layer, box) {
   let on = 0;
   const masks = layer.kind === 'media' ? layer.masks : null;
   if (masks?.length && layer.clip) {
-    const crop = layer.crop || ZERO_CROP;
+    const window = layer.maskSpace?.crop || ZERO_CROP;
+    comp._set(p, 'u_maskRect', [window.l, window.b, 1 - window.l - window.r, 1 - window.t - window.b]);
+    const frame = maskLayer(layer);
+    const crop = frame.crop || ZERO_CROP;
     const outScale = comp.width / (comp.projW || 1);
     const shownW = (Math.abs(box.w) / Math.max(0.05, 1 - crop.l - crop.r)) * outScale;
     const shownH = (Math.abs(box.h) / Math.max(0.05, 1 - crop.t - crop.b)) * outScale;
     comp._maskRaster ||= new MaskRaster();
-    const r = comp._maskRaster.get(layer.clip.id, masks, layer.width, layer.height, Math.max(shownW, shownH));
+    const r = comp._maskRaster.get(layer.clip.id, masks, frame.width, frame.height, Math.max(shownW, shownH));
     if (r) {
       gl.activeTexture(gl.TEXTURE0 + MASK_UNIT);
       const e = comp._texture({ key: `mask:${layer.clip.id}`, source: r.canvas, width: r.width, height: r.height, version: r.key });
@@ -139,11 +144,11 @@ export function drawClipCanvas(comp, layer, cv, time, dst) {
     if (!info?.source) return;
     const W = comp.projW;
     const H = comp.projH;
-    const iw = info.width || layer.width;
-    const ih = info.height || layer.height;
+    const iw = layer.pictureSize?.width || info.width || layer.width;
+    const ih = layer.pictureSize?.height || info.height || layer.height;
     const cover = Math.max(W / iw, H / ih);
     const fit = Math.min(W / iw, H / ih);
-    const fake = { ...layer, inner: true, extras: null, enhance: null, masks: null, cutout: null, retouch: null, faceShape: null, hairColor: null, bodyShape: null, makeup: null, effects: null, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, sx: 1, sy: 1, scale: cover / fit, crop: ZERO_CROP, flipH: false, flipV: false };
+    const fake = { ...layer, inner: true, extras: null, enhance: null, masks: null, cutout: null, retouch: null, faceShape: null, hairColor: null, bodyShape: null, makeup: null, effects: null, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, sx: 1, sy: 1, skew: 0, scale: cover / fit, crop: ZERO_CROP, flipH: false, flipV: false };
     // A small buffer and a modest radius per pass keep the blur smooth (large taps alias into blocks).
     const small = comp._target('clipBgS', 0.125);
     comp._into(small);
@@ -205,7 +210,7 @@ export function drawLayerWithExtras(comp, layer, time) {
     gl.blendFunc(gl.ONE, gl.ONE);
     const n = ex.motion.length;
     for (const s of ex.motion) {
-      drawn = comp._drawLayer({ ...inner, x: s.x, y: s.y, scale: s.scale, rotation: s.rotation, sx: s.sx ?? 1, sy: s.sy ?? 1, opacity: layer.opacity / n }, time) || drawn;
+      drawn = comp._drawLayer({ ...inner, x: s.x, y: s.y, scale: s.scale, rotation: s.rotation, sx: s.sx ?? 1, sy: s.sy ?? 1, skew: s.skew || 0, opacity: layer.opacity / n }, time) || drawn;
     }
   } else {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -233,9 +238,7 @@ export function drawLayerWithExtras(comp, layer, time) {
   if (ex.relight) {
     const info = comp.resolve(layer);
     const box = comp.layerBox(layer, info);
-    const a = (layer.rotation * Math.PI) / 180;
-    const hw = (Math.abs(box.w * Math.cos(a)) + Math.abs(box.h * Math.sin(a))) / 2;
-    const hh = (Math.abs(box.w * Math.sin(a)) + Math.abs(box.h * Math.cos(a))) / 2;
+    const { w: hw, h: hh } = boxHalf(box, layer.rotation);
     const out = other();
     comp._into(out);
     const p = comp._use(comp._program('clipRelight', FULL_VS, RELIGHT_FS));

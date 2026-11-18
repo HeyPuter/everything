@@ -1,0 +1,28 @@
+import { it, expect, vi, afterEach } from 'vitest';
+import { createSmartActions } from '../src/ui/smart-actions.js';
+import { EditorStore } from '../src/model/store.js';
+import { fixture, clip, onMain } from './helpers.js';
+const button = text => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+afterEach(() => { button('Cancel')?.click(); document.body.replaceChildren(); vi.unstubAllGlobals(); });
+it.each(['media', 'decode', 'failure'])('does not change the project after canceling pending reframe %s', async stage => {
+  let finish; const bitmap = { close: vi.fn() };
+  vi.stubGlobal('createImageBitmap', vi.fn(() => stage === 'decode' ? new Promise(r => { finish = () => r(bitmap); }) : Promise.resolve(bitmap)));
+  vi.stubGlobal('OffscreenCanvas', class { constructor(w, h) { this.width = w; this.height = h; } getContext() { return { drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(this.width * this.height * 4).fill(128) }) }; } });
+  const p = fixture(); const [c] = onMain(p, clip('image', 0, 4)); const store = new EditorStore(p); store.select(c.id);
+  const library = { mediaBlob: vi.fn(() => stage === 'decode' ? Promise.resolve(new Blob(['picture'])) : new Promise((resolve, reject) => { finish = () => stage === 'failure' ? reject(new Error('Late read failed')) : resolve(new Blob(['picture'])); })) };
+  await createSmartActions({store, library}).autoReframe();
+  const select = [...document.querySelectorAll('label')].find(l => l.textContent.startsWith('Frame shape')).querySelector('select'); select.value = '9:16';
+  const before = JSON.stringify(store.projectForSave()), history = store.history.undoStack.length;
+  button('Reframe').click(); await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+  button('Cancel').click(); finish(); await flush();
+  expect(JSON.stringify(store.projectForSave())).toBe(before);
+  expect(store.history.undoStack).toHaveLength(history);
+  expect(document.body.textContent).not.toContain('Late read failed');
+  if (stage === 'decode') expect(bitmap.close).toHaveBeenCalledOnce();
+  else expect(createImageBitmap).not.toHaveBeenCalled();
+  library.mediaBlob.mockResolvedValue(new Blob(['picture'])); createImageBitmap.mockResolvedValue(bitmap);
+  await createSmartActions({store, library}).autoReframe(); button('Reframe').click(); await flush();
+  expect(store.project.settings.ratio).toBe('9:16');
+  expect(store.history.undoStack).toHaveLength(history + 1);
+});
