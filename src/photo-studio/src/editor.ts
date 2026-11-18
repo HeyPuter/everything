@@ -1033,6 +1033,10 @@ export class Editor {
     }
     const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
+    // A modal dialog makes the workspace behind it inert: keys that reach the
+    // page (the focus fell off a control the dialog rebuilt, or Tab left its
+    // last control) stay out of the workspace, and Tab goes back into the dialog.
+    if (modalDialogOpen()) return;
     // Tab navigates focused controls (and the start screen, where the focus
     // starts on the page); the canvas keeps its hide-panels shortcut.
     if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey && (target.closest('button,a[href],[tabindex]:not(#viewport)') || !this.hasDocument)) return;
@@ -1134,6 +1138,14 @@ function setMarkup(el: Element, html: string) {
 }
 
 /** Stored preferences, upgraded from older storage keys. */
+function modalDialogOpen() {
+  try {
+    return !!document.querySelector('dialog:modal');
+  } catch {
+    // Without :modal support, any open dialog counts.
+    return !!document.querySelector('dialog[open]');
+  }
+}
 function readPreferences(): Preferences {
   const get = (key: string) => {
     try {
