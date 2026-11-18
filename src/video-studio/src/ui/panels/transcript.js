@@ -28,9 +28,10 @@ export function removeRanges(store, ranges, label) {
   const list = removalOrder(ranges);
   if (!list.length) return false;
   return store.update(label, (p) => {
-    let n = 0;
-    for (const r of list) n += T.removeRange(p, r.start, r.end);
-    return n > 0 || list.length > 0;
+    let changed = false;
+    const onChange = () => { changed = true; };
+    for (const r of list) T.removeRange(p, r.start, r.end, { onChange });
+    return changed;
   });
 }
 

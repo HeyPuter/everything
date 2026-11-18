@@ -1351,22 +1351,24 @@ function shave(clip, edge, cut) {
  * Remove [a, b) from every unlocked track: clips crossing an edge are split,
  * the pieces inside go, and (with close = true) everything after b moves left
  * by b - a so the gap closes. Markers, the in/out range and the transcript
- * follow. Returns the number of clips removed or shortened.
+ * follow. Returns the number of clips removed or shortened. onChange also
+ * reports edits that only split clips, close gaps, or move timeline metadata.
  */
-export function removeRange(project, a, b, { close = true } = {}) {
+export function removeRange(project, a, b, { close = true, onChange } = {}) {
   const lo = snapToMainEdge(project, Math.max(0, Math.round(Math.min(a, b))));
   const hi = snapToMainEdge(project, Math.round(Math.max(a, b)));
   const span = hi - lo;
   if (span < 1000) return 0;
   let changed = 0;
+  let edited = false;
   for (const track of project.tracks) {
     if (track.locked) continue;
     sortTrack(track);
     for (const c of [...track.clips]) {
-      if (c.start < lo && clipEnd(c) > lo && clipEnd(c) - lo >= MIN_CLIP && lo - c.start >= MIN_CLIP) splitClip(project, c.id, lo);
+      if (c.start < lo && clipEnd(c) > lo && clipEnd(c) - lo >= MIN_CLIP && lo - c.start >= MIN_CLIP && splitClip(project, c.id, lo)) edited = true;
     }
     for (const c of [...track.clips]) {
-      if (c.start < hi && clipEnd(c) > hi && clipEnd(c) - hi >= MIN_CLIP && hi - c.start >= MIN_CLIP) splitClip(project, c.id, hi);
+      if (c.start < hi && clipEnd(c) > hi && clipEnd(c) - hi >= MIN_CLIP && hi - c.start >= MIN_CLIP && splitClip(project, c.id, hi)) edited = true;
     }
     // A clip that pokes into the range by less than MIN_CLIP could not be split:
     // shave that sliver off. One that pokes out by less than that goes with the range.
@@ -1380,24 +1382,54 @@ export function removeRange(project, a, b, { close = true } = {}) {
     track.clips = track.clips.filter((c) => !(c.start > lo - MIN_CLIP && clipEnd(c) < hi + MIN_CLIP));
     changed += before - track.clips.length;
     if (close) {
-      for (const c of track.clips) if (c.start >= hi - 1) c.start = Math.max(0, c.start - span);
+      for (const c of track.clips) if (c.start >= hi - 1) {
+        const start = Math.max(0, c.start - span);
+        if (start !== c.start) edited = true;
+        c.start = start;
+      }
     }
     sortTrack(track);
   }
   if (close) {
-    project.markers = (project.markers || []).filter((m) => m.time < lo || m.time >= hi).map((m) => (m.time >= hi ? { ...m, time: m.time - span } : m));
+    project.markers = (project.markers || []).filter((m) => {
+      const keep = m.time < lo || m.time >= hi;
+      if (!keep) edited = true;
+      return keep;
+    }).map((m) => {
+      if (m.time >= hi) {
+        edited = true;
+        return { ...m, time: m.time - span };
+      }
+      return m;
+    });
     if (project.range) {
       const shift = (t) => (t >= hi ? t - span : t > lo ? lo : t);
       const r = { in: shift(project.range.in), out: shift(project.range.out) };
-      if (r.out - r.in >= MIN_CLIP) project.range = r;
-      else delete project.range;
+      if (r.out - r.in >= MIN_CLIP) {
+        if (r.in !== project.range.in || r.out !== project.range.out) edited = true;
+        project.range = r;
+      } else {
+        delete project.range;
+        edited = true;
+      }
     }
     if (project.transcript?.words) {
       // Words anchored to their media (a) follow it on their own (media/transcript.js).
       project.transcript.words = project.transcript.words
-        .filter((w) => w.a || w.end <= lo || w.start >= hi)
-        .map((w) => (!w.a && w.start >= hi ? { ...w, start: w.start - span, end: w.end - span } : w));
+        .filter((w) => {
+          const keep = w.a || w.end <= lo || w.start >= hi;
+          if (!keep) edited = true;
+          return keep;
+        })
+        .map((w) => {
+          if (!w.a && w.start >= hi) {
+            edited = true;
+            return { ...w, start: w.start - span, end: w.end - span };
+          }
+          return w;
+        });
     }
   }
+  if (edited || changed > 0) onChange?.();
   return changed;
 }

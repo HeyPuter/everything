@@ -329,7 +329,12 @@ export function createSmartActions(ctx) {
       cut.addEventListener('click', () => {
         if (closed || !found.length) return;
         if (!currentSource()) { sourceChanged(); return; }
-        removeRanges(store, found, 'Remove silences');
+        if (removeRanges(store, found, 'Remove silences') === false) {
+          found = [];
+          cut.disabled = true;
+          status.textContent = 'No silence cuts were applied. Check track locks and find silences again.';
+          return;
+        }
         toast(`Removed ${found.length} silent part${found.length === 1 ? '' : 's'}.`, { kind: 'success' });
         d.close();
       });
