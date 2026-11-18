@@ -555,6 +555,8 @@ export function createSmartActions(ctx) {
 
     /** Save a video clip's sound as a WAV file in the media library (the timeline does not change). */
     async extractAudio(clipId = store.selected?.clip.id) {
+      const lifetime = frameDialogSignal(ctx);
+      if (lifetime.aborted) return null;
       const f = clipId && T.findClip(store.project, clipId);
       const asset = f && store.project.assets[f.clip.assetId];
       if (!f || f.clip.type !== 'video' || !asset?.hasAudio) {
@@ -562,7 +564,7 @@ export function createSmartActions(ctx) {
         return null;
       }
       const name = T.clipLabel(store.project, f.clip);
-      const p = progressDialog('Extracting audio', `Reading the sound of ${name}...`);
+      const p = progressDialog('Extracting audio', `Reading the sound of ${name}...`, lifetime);
       try {
         const out = await extractClipAudio(mediabunnyOpener(ctx.library, { signal: p.signal }), asset, f.clip, { name, signal: p.signal, onProgress: (x) => p.set(x) });
         p.signal.throwIfAborted();
@@ -571,12 +573,14 @@ export function createSmartActions(ctx) {
           toast('This clip has no sound to extract.', { kind: 'info' });
           return null;
         }
-        const [made] = await ctx.actions.importFiles([out.file], { folder: asset.folder || null, origin: 'extract' });
+        // The progress dialog is closed now; the import still belongs to this editor.
+        const [made] = await ctx.actions.importFiles([out.file], { folder: asset.folder || null, origin: 'extract', signal: lifetime });
+        lifetime.throwIfAborted();
         if (made) toast(`Added ${made.name} to your media.`, { kind: 'success' });
         return made || null;
       } catch (err) {
         p.close();
-        if (err?.name !== 'AbortError') {
+        if (!lifetime.aborted && err?.name !== 'AbortError') {
           console.error(err);
           toast(err?.message || 'Could not extract the audio.', { kind: 'error' });
         }
