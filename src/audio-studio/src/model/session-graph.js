@@ -299,13 +299,15 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
               offset: seg.offset + cut,
               length: seg.length - cut,
               gain: dbToGain(c.gain),
-              fadeIn: p.fadeIn.length,
+              fadeIn: p.fadeIn.duration ?? p.fadeIn.length,
               fadeInCurve: p.fadeIn.curve,
-              fadeOut: p.fadeOut.length,
+              fadeOut: p.fadeOut.duration ?? p.fadeOut.length,
               fadeOutCurve: p.fadeOut.curve,
               base: seg.start - c.start + cut,
               full: c.length,
             };
+            if (p.fadeIn.offset) gc.fadeInOffset = p.fadeIn.offset;
+            if (p.fadeOut.offset) gc.fadeOutOffset = p.fadeOut.offset;
             if (t.channels === 1 && src.channels.length > 1) gc.mono = true;
             if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(c.volumeEnv);
             if (c.panEnv.length) gc.panEnv = panEnvelope(c.panEnv);

@@ -788,7 +788,7 @@ export class MultitrackView {
       const fadeOut = c.fadeOut.length;
       const effIn = eff.fadeIn;
       const effOut = eff.fadeOut;
-      const drawFade = (dir, len, curve) => {
+      const drawFade = (dir, { length: len, curve, duration = len, offset = 0 }) => {
         if (len <= 0) return;
         const fx0 = dir === 'in' ? x0 : x1 - len / this.fpp;
         const fx1 = dir === 'in' ? x0 + len / this.fpp : x1;
@@ -799,7 +799,7 @@ export class MultitrackView {
         const steps = 32;
         for (let i = 0; i <= steps; i++) {
           const t = i / steps;
-          const g = fadeShape(dir === 'in' ? t : 1 - t, curve);
+          const g = fadeShape((offset + (dir === 'in' ? t : 1 - t) * len) / duration, curve);
           const x = fx0 + (fx1 - fx0) * t;
           const y = bot - g * (bot - top);
           if (i === 0) ctx.moveTo(x, y);
@@ -817,8 +817,8 @@ export class MultitrackView {
         ctx.globalAlpha = 1;
       };
       if (r.wh > 6) {
-        drawFade('in', effIn.length, effIn.curve);
-        drawFade('out', effOut.length, effOut.curve);
+        drawFade('in', effIn);
+        drawFade('out', effOut);
       }
       if (r.wh > 12 && isRemixed(c) && !c.remixPreview) this.#drawSeams(ctx, r, remixSeams(c), accent, textColor);
       // Header: name, state glyphs, gain readout, fade handles.

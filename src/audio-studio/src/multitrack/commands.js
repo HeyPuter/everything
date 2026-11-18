@@ -7,6 +7,7 @@ import { openDialog, promptDialog, confirmDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { Session } from '../model/session.js';
 import { mergeWithLayout, relocateMergeLayouts } from '../model/merge-layout.js';
+import { restartFade } from '../model/clip-fades.js';
 import { clipPlan } from '../model/session-graph.js';
 import * as S from '../model/session-edits.js';
 import { markersInRange } from '../model/edits.js';
@@ -691,7 +692,7 @@ export function installMultitrackCommands(app) {
         const f = c[key];
         // A crossfading end keeps its overlap length; the curve shapes the crossfade.
         const length = f.length || (crossfading.has(c.id) ? 0 : S.defaultFadeLength(c, doc.sampleRate));
-        return { [key]: { ...f, curve: S.FADE_CURVES[kind.toLowerCase()], length: Math.max(0, Math.min(c.length, Math.round(length))) } };
+        return { [key]: { ...restartFade(f), curve: S.FADE_CURVES[kind.toLowerCase()], length: Math.max(0, Math.min(c.length, Math.round(length))) } };
       });
       doc.apply(dir === 'in' ? 'Fade In' : 'Fade Out', state);
     },
@@ -1195,7 +1196,8 @@ export function installMultitrackCommands(app) {
             const before = renderedPlan.get(id), after = currentPlan.get(id);
             return before === after || (before && after &&
               before.parts.length === after.parts.length && before.parts.every(([a, b], i) => a === after.parts[i][0] && b === after.parts[i][1]) &&
-              ['fadeIn', 'fadeOut'].every((key) => before[key].length === after[key].length && before[key].curve === after[key].curve));
+              ['fadeIn', 'fadeOut'].every((key) => before[key].length === after[key].length && before[key].curve === after[key].curve &&
+                (before[key].duration ?? before[key].length) === (after[key].duration ?? after[key].length) && (before[key].offset || 0) === (after[key].offset || 0)));
           });
           const sameMedia = [...media].every(([id, { channels: before, linked }]) => {
             const src = doc.pool.get(id);

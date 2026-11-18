@@ -15,7 +15,7 @@
 //   automation: { volume: [{t, v dB}], pan: [{t, v}] }, showAutomation,
 //   autoParam, height, minimized, hidden }
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
-//   fadeIn: { length, curve, xf? }, fadeOut: { length, curve, xf? }, crossfade
+//   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
 //   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}],
 //   mute, locked, loop, groupId, z, fx: clip effect slots { id, effect, values,
 //   enabled } (Sound Assistant chains), soundAssistant: Sound Assistant settings or null,
@@ -28,6 +28,7 @@
 // overlapCrossfades).
 
 import { copyMergeLayout, mergeScene, relocateMergeLayouts, splitMergeLayout, retargetSplitLayouts } from './merge-layout.js';
+import { sliceFade, restartFade } from './clip-fades.js';
 import { shiftMarkersForDelete } from './markers.js';
 
 let counter = 0;
@@ -447,15 +448,15 @@ export function splitClip(c, at) {
   const cut = at - c.start;
   const [lv, rv] = splitEnvelope(c.volumeEnv, cut, 0);
   const [lp, rp] = splitEnvelope(c.panEnv, cut, 0);
-  const left = { ...c, length: cut, fadeOut: { length: 0, curve: c.fadeOut.curve }, fadeIn: { ...c.fadeIn, length: Math.min(c.fadeIn.length, cut) }, volumeEnv: lv, panEnv: lp };
+  const left = { ...c, length: cut, fadeOut: sliceFade(c.fadeOut, c.length - cut, c.length), fadeIn: sliceFade(c.fadeIn, 0, cut), volumeEnv: lv, panEnv: lp };
   const right = {
     ...c,
     id: uid('c'),
     start: at,
     offset: c.offset + cut,
     length: c.length - cut,
-    fadeIn: { length: 0, curve: c.fadeIn.curve },
-    fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, c.length - cut) },
+    fadeIn: sliceFade(c.fadeIn, cut, c.length),
+    fadeOut: sliceFade(c.fadeOut, 0, c.length - cut),
     volumeEnv: rv,
     panEnv: rp,
   };
@@ -729,7 +730,7 @@ export function rippleDeleteGap(state, trackId, at) {
 export function setFade(state, ids, dir, patch) {
   const key = dir === 'in' ? 'fadeIn' : 'fadeOut';
   return updateClips(state, ids, (c) => {
-    const f = { ...c[key], ...patch };
+    const f = { ...restartFade(c[key]), ...patch };
     f.length = Math.max(0, Math.min(c.length, Math.round(f.length)));
     return { [key]: f };
   });
@@ -859,14 +860,14 @@ export function setFadeMode(state, ids, dir, mode) {
     const c = byId.get(id);
     if (!c) continue;
     const mine = overlaps.get(id) || [];
-    const f = { ...c[key] };
+    const f = restartFade(c[key]);
     if (mode === 'crossfade') {
       if (!mine.length) continue;
       f.xf = true;
       patch(id, key, f);
       for (const x of mine) {
         const n = dir === 'in' ? x.out : x.in;
-        patch(n, other, { ...(patches.get(n)?.[other] || byId.get(n)[other]), xf: true });
+        patch(n, other, { ...restartFade(patches.get(n)?.[other] || byId.get(n)[other]), xf: true });
       }
       continue;
     }
