@@ -52,3 +52,33 @@ test('Group Layers keeps how a blend-mode layer mixes with the layers below', as
   );
   expect(await compositePixel(page, 10, 10)).toEqual([128, 0, 0, 255]);
 });
+
+test('Alt-clicking an eye shows only that group or nested layer, and again shows all', async ({
+  page,
+}) => {
+  for (let i = 0; i < 3; i++) await run(page, 'layer.new-quick');
+  // Background, Layer 1, Group { Layer 2, Layer 3 }
+  const [, , a, b] = await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.id));
+  await page.evaluate((ids) => window.photoStudio.selectLayers(ids), [a, b]);
+  await run(page, 'layer.group');
+  const visibility = () =>
+    page.evaluate(() =>
+      window.photoStudio.doc.layers.map((l) => [l.visible, ...l.children.map((c) => c.visible)]),
+    );
+  const group = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.id);
+  const eye = (id: string) => page.locator(`#layers [data-visibility="${id}"]`);
+  // The group shows with its layers; everything else hides.
+  await eye(group).click({ modifiers: ['Alt'] });
+  await idle(page);
+  expect(await visibility()).toEqual([[false], [false], [true, true, true]]);
+  await eye(group).click({ modifiers: ['Alt'] });
+  await idle(page);
+  expect(await visibility()).toEqual([[true], [true], [true, true, true]]);
+  // A layer inside the group shows with its group; a second Alt-click shows all.
+  await eye(b).click({ modifiers: ['Alt'] });
+  await idle(page);
+  expect(await visibility()).toEqual([[false], [false], [true, false, true]]);
+  await eye(b).click({ modifiers: ['Alt'] });
+  await idle(page);
+  expect(await visibility()).toEqual([[true], [true], [true, true, true]]);
+});

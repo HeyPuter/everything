@@ -141,11 +141,17 @@ export const layersPanel: Panel = {
       }
       const vis = target.closest<HTMLElement>('[data-visibility]')?.dataset.visibility;
       if (vis) {
-        // Alt-click shows only this layer; a second Alt-click shows all layers again.
+        // Alt-click shows only this layer (with the groups around it, and a
+        // group's own layers as they are); a second Alt-click shows all
+        // layers again.
         if (ev.altKey) {
-          const only = allLayers(e.doc.layers).every((l) => l.id === vis || !l.visible);
+          const target = findLayer(e.doc.layers, vis);
+          if (!target) return;
+          const inside = new Set(allLayers(target.children).map((l) => l.id));
+          const shown = (l: Layer) => l.id === vis || !!findLayer(l.children, vis);
+          const only = allLayers(e.doc.layers).every((l) => inside.has(l.id) || (shown(l) ? l.visible : !l.visible));
           e.command('Show/Hide Layers', (d) => {
-            for (const l of allLayers(d.layers)) l.visible = only ? true : l.id === vis || !!findLayer(l.children, vis);
+            for (const l of allLayers(d.layers)) if (only || !inside.has(l.id)) l.visible = only || shown(l);
           });
         } else
           e.command('Toggle visibility', (d) => {
