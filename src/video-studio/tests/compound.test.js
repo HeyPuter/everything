@@ -664,3 +664,25 @@ describe('flattened compound appearance', () => {
     expect(evaluate(p, s(1))[0].blend).toBe(before);
   });
 });
+
+
+describe('disabled compounds', () => {
+  it.each(['compound', 'multicam'])('stays disabled when flattening a %s', type => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const b = clip('video', 0, 4);
+    addClip(p, b, FREE);
+    const c = type === 'compound' ? createCompound(p, [a.id, b.id], FREE) : createMulticam(p, [a.id, b.id], FREE);
+    c.disabled = true;
+    expect(evaluate(p, s(1))).toEqual([]);
+    expect(audibleClips(p)).toEqual([]);
+    if (type === 'compound') breakApart(p, c.id, FREE);
+    else flattenMulticam(p, c.id);
+    expect(evaluate(p, s(1))).toEqual([]);
+    expect(audibleClips(p)).toEqual([]);
+    expect(allClips(p).every(c => c.disabled)).toBe(true);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(p)));
+    expect(evaluate(loaded, s(1))).toEqual([]);
+    expect(audibleClips(loaded)).toEqual([]);
+  });
+});

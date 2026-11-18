@@ -108,6 +108,7 @@ export function inheritFromCompound(copy, c, W, H) {
   if ('blend' in copy && (!copy.blend || copy.blend === 'normal') && c.blend) copy.blend = c.blend;
   if ('volume' in copy) copy.volume *= c.volume;
   if (c.muted && 'muted' in copy) copy.muted = true;
+  if (c.disabled) copy.disabled = true;
   return copy;
 }
 
