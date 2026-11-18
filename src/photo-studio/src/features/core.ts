@@ -57,8 +57,16 @@ export function installCore(e: Editor) {
   }, { shortcut: 'Mod+Alt+P', enabled: (e) => e.sessions.length > 1, recordable: false });
   cmd('file.revert', 'Revert', () => {
     if (!e.saved) return;
-    const saved = e.saved;
+    const s = e.session,
+      saved = e.saved,
+      before = s.doc;
     e.command('Revert', (d) => replaceDocument(d, saved));
+    // The reverted document is the saved one, so it has no unsaved changes;
+    // Undo brings them back (and marks them unsaved again).
+    if (s.doc !== before) {
+      s.saved = s.doc;
+      e.update();
+    }
   }, { shortcut: 'F12', enabled: (e) => !!e.saved && e.doc !== e.saved });
   cmd('file.export-original-psd', 'Download Original PSD', () => performAction(e, 'save-original-psd'), { enabled: (e) => !!e.doc.psdOriginal, recordable: false });
   cmd('app.account', 'Puter Account', () => performAction(e, 'account'), { hidden: true, recordable: false });
