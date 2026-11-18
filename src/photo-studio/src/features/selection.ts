@@ -442,10 +442,13 @@ const polygonTool: Tool = {
   bindOptions: ({ e, el }) => bindSelectionOptions(e, el),
   deactivate: () => {
     polygon = undefined;
+    hoverPoint = undefined;
   },
   pointerDown: (e, p) => {
     if (!polygon) {
       polygon = { points: [[p.x, p.y]], op: selectionOp(e, p) };
+      // The rubber band starts at the new point, not where the last shape was left.
+      hoverPoint = undefined;
       return;
     }
     const [fx, fy] = polygon.points[0];

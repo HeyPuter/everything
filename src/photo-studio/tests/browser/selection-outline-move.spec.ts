@@ -111,3 +111,24 @@ test('marquee options: fixed fields enable with the style, swap exchanges them, 
   await tool(page, 'Elliptical Marquee Tool');
   await expect(bar.locator('#sel-aa')).toBeEnabled();
 });
+
+test('a Polygonal Lasso started after Escape shows no segment to where the last one was left', async ({
+  page,
+}) => {
+  await tool(page, 'Polygonal Lasso Tool');
+  await canvasClick(page, 20, 20);
+  await page.mouse.move(...(await client(page, 150, 120)));
+  await page.keyboard.press('Escape');
+  await idle(page);
+  // A new shape starts elsewhere without moving the pointer in between.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { canvasPoint } = await import('/src/app/pointer.ts');
+    const [cx, cy] = e.clientPoint(40, 100);
+    const down = new PointerEvent('pointerdown', { clientX: cx, clientY: cy });
+    await e.activeTool!.pointerDown!(e, canvasPoint(e, down));
+    e.overlay();
+  });
+  const d = await page.locator('#overlay .marching path').first().getAttribute('d');
+  expect(d).toBe('M40 100');
+});
