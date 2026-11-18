@@ -34,6 +34,8 @@ import { migrateGuides } from './guides';
 // Tile grids are stored as one packed asset each; the saved JSON names the pack
 // in place of the live tile map.
 type PackedRef = { pack: string };
+// Pixel layer content as large as one RGBA buffer the browser can hold.
+const maxPixelLayerArea = 2 ** 28;
 // Projects the app can make must reopen: Duplicate Layer, Paste and opening
 // long animations as layers are not capped, so this only bounds damaged files.
 const maxLayers = 10000;
@@ -293,7 +295,12 @@ export function validateDocument(value: unknown): PhotoDocument {
         throw new Error('Invalid generated layer information.');
       if (l.assetColorSpace !== undefined && !['document', 'srgb'].includes(l.assetColorSpace))
         throw new Error('Invalid source color space.');
-      assertSize(l.sourceWidth, l.sourceHeight);
+      // A pixel layer's size is the bounds of its content, which a transform
+      // can take past the canvas and past the document size limits.
+      if (l.kind === 'pixel') {
+        if (![l.sourceWidth, l.sourceHeight].every((n) => Number.isInteger(n) && n >= 1) || l.sourceWidth * l.sourceHeight > maxPixelLayerArea)
+          throw new Error('Invalid pixel layer size.');
+      } else assertSize(l.sourceWidth, l.sourceHeight);
       if (
         !l.transform ||
         !l.filters ||

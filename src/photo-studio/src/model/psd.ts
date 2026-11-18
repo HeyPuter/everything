@@ -882,7 +882,10 @@ export async function savePsd(
         Number.isInteger(t.x) &&
         Number.isInteger(t.y) &&
         t.width === l.sourceWidth &&
-        t.height === l.sourceHeight;
+        t.height === l.sourceHeight &&
+        // Pixel content transformed past the document size limits is written
+        // as it shows on the canvas, a layer every reader (this one too) opens.
+        withinDocumentLimits(l.sourceWidth, l.sourceHeight);
       if (plainRaster) {
         // Layer rectangles are signed 32-bit coordinates in PSD and PSB.
         if (
@@ -997,6 +1000,15 @@ export async function savePsd(
   if (options.channels?.length)
     buffer = appendPsdChannels(new Uint8Array(buffer), options.channels).buffer as ArrayBuffer;
   return new Blob([buffer], { type: "image/vnd.adobe.photoshop" });
+}
+
+function withinDocumentLimits(width: number, height: number) {
+  try {
+    assertSize(width, height);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function narrowComposite(buffer: ArrayBuffer, pixels: PixelData): ArrayBuffer {
