@@ -217,3 +217,22 @@ describe('sampled brush tips', () => {
     expect(s.commit().bounds).toEqual({ x: 30, y: 40, width: 40, height: 20 });
   });
 });
+
+describe('pressure-controlled opacity', () => {
+  it('a lighter dab never lightens paint an earlier dab of the stroke laid down', () => {
+    const store = new TileStore();
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip: { size: 20, hardness: 1, spacing: 0.1, roundness: 1, angle: 0 },
+      dynamics: { pressureOpacity: true },
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+    });
+    s.addPoint(30, 30, 1);
+    // The pen eases off while moving on: the light dabs overlap the first one.
+    s.addPoint(36, 30, 0.1);
+    const alpha = (x: number) => readRGBA(store, s.grid, { x, y: 30, width: 1, height: 1 }).data[3];
+    expect(alpha(30)).toBe(255);
+    expect(alpha(44)).toBeLessThan(80);
+  });
+});

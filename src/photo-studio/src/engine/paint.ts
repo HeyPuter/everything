@@ -101,6 +101,8 @@ type Working = {
   base: TileData | null;
   work: TileData;
   cov: Float32Array;
+  // Strongest opacity each pixel has received, when dabs differ in opacity.
+  amount?: Float32Array;
 };
 
 export class StrokeSession {
@@ -116,6 +118,8 @@ export class StrokeSession {
   private scratch2 = new Uint8ClampedArray(4);
   private blendScratch = { b: [0, 0, 0], s: [0, 0, 0], out: [0, 0, 0] };
   private seed: number;
+  // Pressure or jitter gives dabs of one stroke different opacities.
+  private varyingOpacity: boolean;
   dabs = 0;
   constructor(
     private store: TileStore,
@@ -127,6 +131,7 @@ export class StrokeSession {
       throw new Error('The paint target does not match the tile format.');
     this.preview = { ...original, tiles: { ...original.tiles } };
     this.seed = options.seed ?? 1;
+    this.varyingOpacity = !!(options.dynamics?.pressureOpacity || options.dynamics?.opacityJitter);
     let state = (options.seed ?? 1) >>> 0 || 1;
     this.random = () => {
       // xorshift32: cheap and deterministic for replayable jitter.
@@ -243,6 +248,7 @@ export class StrokeSession {
       const work = base ? new Uint8ClampedArray(base) : new Uint8ClampedArray(tileBytes(this.channels));
       if (!base && this.channels === 1 && this.original.fill) work.fill(this.original.fill);
       w = { id: this.store.add(work), base, work, cov: new Float32Array(TILE * TILE) };
+      if (this.varyingOpacity) w.amount = new Float32Array(TILE * TILE);
       this.working.set(key, w);
       this.preview.tiles[key] = w.id;
       // Live reads must see the new working copy.
@@ -368,6 +374,11 @@ export class StrokeSession {
             const cov = before + alpha * flow * (1 - before);
             w.cov[li] = cov;
             const k = Math.min(1, cov) * cap;
+            // A lighter dab never takes back paint a stronger one laid down.
+            if (w.amount) {
+              if (k <= w.amount[li]) continue;
+              w.amount[li] = k;
+            }
             if (c === 1) {
               const b = w.base ? w.base[li] : (this.original.fill ?? 0);
               w.work[li] = b + ((target as { value: number }).value - b) * k;
