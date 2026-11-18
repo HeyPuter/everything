@@ -479,3 +479,25 @@ test('Invert in Quick Mask inverts the whole mask, not only the selection it sta
   });
   expect(values).toEqual([0, 255]);
 });
+
+test('Quick Mask hides the selection outline it was made from until it is left', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { filledMask } = await import('/src/model/tiles.ts');
+    const { commitSelectionMask } = await import('/src/features/selection.ts');
+    const rect = { x: 0, y: 0, width: 50, height: 120 };
+    commitSelectionMask(e, filledMask(e.assets.tiles, rect), 'replace', 'Select');
+  });
+  await idle(page);
+  const ants = page.locator('#overlay .marching.committed');
+  await expect(ants).toHaveCount(1);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  // The red film shows the selection; outlines of the old selection would go stale.
+  await expect(ants).toHaveCount(0);
+  await page.evaluate(() => window.photoStudio.runCommand('select.quick-mask'));
+  await idle(page);
+  await expect(ants).toHaveCount(1);
+});

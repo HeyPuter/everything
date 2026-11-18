@@ -717,7 +717,8 @@ export function installSelection(_e: Editor) {
   let cache: { grid: TileGrid; zoom: number; d: string } | undefined;
   registerOverlay('selection', (e) => {
     const grid = e.doc.selectionMask ?? (e.doc.selection ? selectionGrid(e.doc, e.assets.tiles) : null);
-    if (!grid || e.settings.hideSelectionEdges) return '';
+    // In Quick Mask mode the mask shows the selection being edited.
+    if (!grid || e.settings.hideSelectionEdges || e.settings.quickMask) return '';
     if (!cache || cache.grid !== grid) cache = { grid, zoom: e.zoom, d: selectionOutline(e.doc, e.assets.tiles, grid) };
     const z = e.zoom;
     const off = outlineOffset();
