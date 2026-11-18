@@ -1,7 +1,7 @@
 // Puter.js calls the file features need beyond src/persistence/puter.ts
 // (multiple selection, directory picker, folder writes).
 // https://docs.puter.com/UI/showOpenFilePicker/ · /UI/showDirectoryPicker/ · /FS/write/
-import { puter } from '../../persistence/puter';
+import { preferredFileName, puter } from '../../persistence/puter';
 
 export interface CloudItem {
   path: string;
@@ -54,9 +54,10 @@ export async function pickCloudFolder(): Promise<CloudItem> {
   const r = await api().ui.showDirectoryPicker({ multiple: false }).catch(rethrow);
   return Array.isArray(r) ? r[0] : r;
 }
-/** Save picker; the promise never settles when the user cancels (Puter behavior). */
+/** Save picker; the promise never settles when the user cancels (Puter behavior).
+ * The suggested name's extension follows Preferences → File Handling, as downloads do. */
 export function cloudSaveAs(blob: Blob, name: string) {
-  return api().ui.showSaveFilePicker(blob, name).catch(rethrow);
+  return api().ui.showSaveFilePicker(blob, preferredFileName(name)).catch(rethrow);
 }
 export function cloudWrite(path: string, blob: Blob, opts: { dedupeName?: boolean } = {}) {
   return api().fs.write(path, blob, { overwrite: !opts.dedupeName, dedupeName: !!opts.dedupeName, createMissingParents: true }).catch(rethrow);

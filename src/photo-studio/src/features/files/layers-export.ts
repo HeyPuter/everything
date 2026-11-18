@@ -2,7 +2,7 @@
 // layered SVG.
 import type { Editor } from '../../editor';
 import type { Layer } from '../../model/document';
-import { download } from '../../persistence/puter';
+import { download, preferredFileName } from '../../persistence/puter';
 import { formatInfo, prepareExport, type ExportFormat, type SourceImage } from './encode';
 import { encodeGifOffThread, encodeOffThread, bytesBlob, documentSource, effectiveSettings, exportContext, formatBytes, layerSource, loadSettings } from './pipeline';
 import { exportSvg } from './svg-export';
@@ -142,7 +142,7 @@ export function saveToCloudFolder(e: Editor, files: { name: string; blob: Blob }
         let n = 0;
         for (const f of files) {
           e.message(`Saving ${++n} of ${files.length} to ${folder.path}…`);
-          await cloudWrite(joinPath(folder.path, f.name), f.blob, { dedupeName: true });
+          await cloudWrite(joinPath(folder.path, preferredFileName(f.name)), f.blob, { dedupeName: true });
         }
         e.message(`Saved ${files.length} files to ${folder.path}`);
       }),
