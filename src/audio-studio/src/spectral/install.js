@@ -203,7 +203,6 @@ export function installSpectral(app) {
       repeatable: true,
       run: async () => {
         const doc = audio();
-        const d = dspSync || (await loadDsp());
         let sel = spectralSelection(app, doc);
         // Healing works on the whole selection at once (memory grows with its length), so a
         // spectral selection has the same limit as a time selection.
@@ -216,6 +215,7 @@ export function installSpectral(app) {
           return false;
         }
         if (!sel) sel = timeSelection(start, end, doc.sampleRate / 2, doc.selection.channels.slice());
+        const d = dspSync || (await loadDsp());
         commit(doc, 'Auto Heal', healSpectral(doc.state, sel, d));
       },
     },
