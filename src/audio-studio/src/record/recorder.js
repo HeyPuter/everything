@@ -17,10 +17,13 @@
 //                        take.peak, take.toChannels()
 //   await app.recorder.stop()                -> { channels: Channel[], sampleRate,
 //                                                 frames, latencyFrames, doc } | null
+// A failed conversion keeps a separate unsaved file at the capture rate and
+// returns that file with recovered: true.
 // While recording app.recording is true and 'transport' is emitted.
 
 import { Take, placeTake } from './take.js';
 import { Channel } from '../audio/channel.js';
+import { AudioFile } from '../model/audio-file.js';
 import { dsp } from '../audio/dsp.js';
 import { UserError } from '../lib/errors.js';
 import { announce } from '../lib/dom.js';
@@ -157,7 +160,13 @@ export function createRecorder(app) {
         // Stop during the asynchronous DSP load still belongs to this take.
         try {
           let channels = s.take.toChannels();
-          if (s.rate !== s.sampleRate && s.take.length) channels = await resampleChannels(channels, s.rate, s.sampleRate);
+          if (s.rate !== s.sampleRate && s.take.length) {
+            try {
+              channels = await resampleChannels(channels, s.rate, s.sampleRate);
+            } catch (err) {
+              return recover(s, channels, err);
+            }
+          }
           const frames = channels[0]?.length ?? 0;
           if (s.doc) commit(s, channels);
           const secs = frames / s.sampleRate;
@@ -173,6 +182,19 @@ export function createRecorder(app) {
       return s.stopping;
     },
   };
+
+  function recover(s, channels, err) {
+    const doc = new AudioFile({ name: app.uniqueName('Recovered Recording', '.wav'), sampleRate: s.rate, channels });
+    doc.savedState = null;
+    app.addDocument(doc, { activate: false });
+    // Remove only our unchanged live preview. Edits made over it belong to
+    // the user; the separate file keeps the complete take either way.
+    if (s.pushed && s.doc.state === s.last) s.doc.history.amend(s.base);
+    app.setStatus('Recording recovered');
+    app.notify(`Sample-rate conversion failed: ${err?.message || 'Unknown error'}. The original recording is available as "${doc.name}" in the Files panel.`, { error: true });
+    announce('Recording recovered in the Files panel');
+    return { channels, sampleRate: s.rate, frames: s.take.length, latencyFrames: s.latencyFrames, doc, recovered: true };
+  }
 
   /** Shows the growing take in the document as one "Record" history step. */
   function update(s) {

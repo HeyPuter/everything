@@ -19,6 +19,10 @@ function setup() {
   app.prefs = { get: () => null };
   app.setStatus = vi.fn();
   app.meterInput = vi.fn();
+  app.documents = [];
+  app.addDocument = (doc) => app.documents.push(doc);
+  app.uniqueName = (base, ext = '') => base + ext;
+  app.notify = vi.fn();
   const doc = AudioFile.blank({ sampleRate: 24000, channels: 1 });
   return { app, doc, rec: createRecorder(app) };
 }
@@ -56,9 +60,9 @@ it('releases finalization state if sample-rate conversion fails', async () => {
   const { app, doc, rec } = setup();
   await rec.start({ doc });
   app.engine.emit('record-data', [new Float32Array(480).fill(0.5)]);
-  const result = expect(rec.stop()).rejects.toThrow('DSP unavailable');
+  const result = rec.stop();
   await vi.advanceTimersByTimeAsync(120);
-  await result;
+  expect(await result).toMatchObject({ recovered: true, sampleRate: 48000, frames: 480 });
   expect(rec.active).toBe(false);
   expect(app.recording).toBe(false);
   await rec.start({ doc });
@@ -66,4 +70,44 @@ it('releases finalization state if sample-rate conversion fails', async () => {
   const next = rec.stop();
   await vi.advanceTimersByTimeAsync(120);
   await next;
+});
+
+it.each([false, true])('preserves captured audio at its native rate when conversion fails (later edit: %s)', async (edited) => {
+  mock.dsp.mockRejectedValue(new Error('DSP unavailable'));
+  const { app, doc, rec } = setup();
+  const original = doc.state;
+  await rec.start({ doc });
+  const samples = Float32Array.from({ length: 480 }, (_, i) => Math.sin(i / 10) * 0.5);
+  app.engine.emit('record-data', [samples]);
+  await vi.advanceTimersByTimeAsync(120); // A live preview has already reached the document.
+  if (edited) doc.apply('Rename marker', { ...doc.state, markers: [{ id: 'm', start: 0, name: 'Keep me', duration: 0 }] });
+  const beforeStop = doc.state;
+  const stopping = rec.stop();
+  await vi.advanceTimersByTimeAsync(120);
+  await stopping;
+  expect(app.documents).toHaveLength(1);
+  const recovered = app.documents[0];
+  expect(recovered.sampleRate).toBe(48000);
+  expect(recovered.length).toBe(480);
+  expect(recovered.dirty).toBe(true);
+  expect(recovered.state.channels[0].toArray()).toEqual(samples);
+  expect(doc.state).toBe(edited ? beforeStop : original);
+  expect(app.notify).toHaveBeenCalledWith(expect.stringContaining('Files panel'), { error: true });
+  expect(rec.active).toBe(false);
+});
+
+it.each(['punch', 'external'])('recovers conversion failures for %s recording without an unhandled rejection', async (mode) => {
+  mock.dsp.mockRejectedValue(new Error('DSP unavailable'));
+  const { app, doc, rec } = setup();
+  await rec.start(mode === 'punch' ? { doc, replace: [0, 240] } : { channels: 1, sampleRate: 24000 });
+  const samples = new Float32Array(480).fill(0.5);
+  app.engine.emit('record-data', [samples]);
+  // Punch-out calls stop internally; external clients consume its result.
+  const stopping = mode === 'external' ? rec.stop() : null;
+  await vi.advanceTimersByTimeAsync(240);
+  if (stopping) expect(await stopping).toMatchObject({ recovered: true, sampleRate: 48000 });
+  expect(app.documents).toHaveLength(1);
+  expect(app.documents[0].state.channels[0].toArray()).toEqual(samples);
+  expect(app.documents[0].dirty).toBe(true);
+  expect(rec.active).toBe(false);
 });
