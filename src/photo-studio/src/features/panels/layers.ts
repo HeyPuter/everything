@@ -238,6 +238,33 @@ export const layersPanel: Panel = {
         if (!(only && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey)) e.selectLayer(id, ev.metaKey || ev.ctrlKey, ev.shiftKey);
       }
     });
+    // Keyboard: with a layer focused, Up and Down (Home, End) select the
+    // layer above or below and move focus with it (Shift extends the
+    // selection); Left and Right collapse and expand a group. The keys stay in
+    // the list instead of nudging the layer on the canvas.
+    el.addEventListener('keydown', (ev) => {
+      const t = ev.target as HTMLElement;
+      if (!t.matches('#layers .layer-select') || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End', 'ArrowLeft', 'ArrowRight'].includes(ev.key)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const focus = (id: string) => el.querySelector<HTMLElement>(`#layers .layer-select[data-layer="${CSS.escape(id)}"]`)?.focus();
+      const own = t.dataset.layer!;
+      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+        if (findLayer(e.doc.layers, own)?.kind !== 'group') return;
+        if (ev.key === 'ArrowLeft') e.collapsedGroups.add(own);
+        else e.collapsedGroups.delete(own);
+        e.update();
+        return focus(own);
+      }
+      const shown = [...el.querySelectorAll<HTMLElement>('#layers .layer-select')];
+      const at = shown.indexOf(t);
+      const next = ev.key === 'Home' ? shown[0] : ev.key === 'End' ? shown.at(-1) : shown[at + (ev.key === 'ArrowUp' ? -1 : 1)];
+      if (!next) return;
+      const id = next.dataset.layer!;
+      if (!(ev.shiftKey && selectShownRange(e, el, id, false))) e.selectLayer(id);
+      focus(id);
+    });
     el.addEventListener('dblclick', async (ev) => {
       const name = (ev.target as HTMLElement).closest<HTMLElement>('.layer-name');
       const thumb = (ev.target as HTMLElement).closest<HTMLElement>('.layer-thumbnail,.fx-badge');

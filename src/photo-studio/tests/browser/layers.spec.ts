@@ -161,6 +161,42 @@ test('Shift-click and layer stepping use only the rows the list shows when layer
   expect(await selected()).toEqual(['A', 'B', 'C']);
 });
 
+test('arrow keys in the Layers list move the selection instead of nudging the layer', async ({
+  page,
+}) => {
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const selected = () =>
+    page.evaluate(() =>
+      [...window.photoStudio.selectedIds]
+        .map((id) => window.photoStudio.doc.layers.find((l) => l.id === id)!.name)
+        .sort(),
+    );
+  const positions = () =>
+    page.evaluate(() => window.photoStudio.doc.layers.map((l) => [l.transform.x, l.transform.y]));
+  const before = await positions();
+  // Rows: C, B, A.
+  await row(page, 'C').focus();
+  await page.keyboard.press('ArrowDown');
+  expect(await selected()).toEqual(['B']);
+  await expect(row(page, 'B')).toBeFocused();
+  await page.keyboard.press('Shift+ArrowDown');
+  expect(await selected()).toEqual(['A', 'B']);
+  await expect(row(page, 'A')).toBeFocused();
+  await page.keyboard.press('Home');
+  expect(await selected()).toEqual(['C']);
+  await expect(row(page, 'C')).toBeFocused();
+  expect(await positions()).toEqual(before);
+  // Left and Right collapse and expand a focused group.
+  await group(page);
+  const groupName = await page.evaluate(() => window.photoStudio.layer!.name);
+  await row(page, groupName).focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(3);
+  await expect(row(page, groupName)).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(4);
+});
+
 test('shared resize and nudge commit once and preserve selected layers through undo', async ({
   page,
 }) => {
