@@ -4,6 +4,7 @@
  * playhead; it is followed forward and backward through the part where both
  * clips overlap, and the pinned clip gets position keyframes that move with it.
  */
+import { boxPoint } from '../lib/geometry.js';
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US, FRAME_SLACK, timecode } from '../lib/time.js';
@@ -27,7 +28,7 @@ export function mediaBox(project, layer) {
   const sw = (a.width || W) * (1 - crop.l - crop.r);
   const sh = (a.height || H) * (1 - crop.t - crop.b);
   const fit = Math.min(W / sw, H / sh);
-  return { cx: W / 2 + layer.x * W, cy: H / 2 + layer.y * H, w: sw * fit * layer.scale, h: sh * fit * layer.scale, rotation: layer.rotation, crop, flipH: layer.flipH, flipV: layer.flipV };
+  return { cx: W / 2 + layer.x * W, cy: H / 2 + layer.y * H, w: sw * fit * layer.scale * (layer.sx ?? 1), h: sh * fit * layer.scale * (layer.sy ?? 1), skew: sh * fit * layer.scale * (layer.skew || 0), rotation: layer.rotation, crop, flipH: layer.flipH, flipV: layer.flipV };
 }
 
 /** Project-pixel position of a point (u, v in 0..1 of the full source frame) inside a media box. */
@@ -37,10 +38,8 @@ export function sourcePointToFrame(box, u, v) {
   let y = (v - crop.t) / Math.max(1e-6, 1 - crop.t - crop.b) - 0.5;
   if (box.flipH) x = -x;
   if (box.flipV) y = -y;
-  const px = x * box.w;
-  const py = y * box.h;
-  const r = (box.rotation * Math.PI) / 180;
-  return { x: box.cx + px * Math.cos(r) - py * Math.sin(r), y: box.cy + px * Math.sin(r) + py * Math.cos(r) };
+  const [px, py] = boxPoint(box, box.rotation, x, y);
+  return { x: px, y: py };
 }
 
 /**

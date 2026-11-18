@@ -7,7 +7,8 @@
 import '../../styles/masks.css';
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
-import { evaluate } from '../../engine/scene.js';
+import { evaluate, inheritedDelta } from '../../engine/scene.js';
+import { boxHalf } from '../../lib/geometry.js';
 import { EXTRA_DEFAULTS, CANVAS_TYPES, ALIGN_EDGES, alignPosition, fitBox, upscaleFactor } from '../../model/clip-extras.js';
 import { segmented } from '../controls.js';
 import { slider, propSection, toggle, color, uidFor, row, note } from './common.js';
@@ -75,6 +76,20 @@ export function alignRow(view) {
       const c = view.clip;
       if (!c) return;
       const { width: W, height: H } = view.project.settings;
+      if (c.inherited?.length && view.ctx.player?.boxFor) {
+        if (view.store.time < c.start || view.store.time > c.start + c.duration) { view.actions.playheadHint(); return; }
+        const layer = layerFromPlayer(view);
+        const box = layer && view.ctx.player.boxFor(layer);
+        if (box) {
+          const half = boxHalf(box, layer.rotation);
+          const patch = alignPosition(e.id, half.w * 2, half.h * 2, 0, W, H);
+          const delta = inheritedDelta(c, view.store.time - c.start, (patch.x ?? layer.x) - layer.x, (patch.y ?? layer.y) - layer.y, view.project);
+          view.actions.setTransform(c.id, { x: view.valueOf('x') + delta.x, y: view.valueOf('y') + delta.y }, { label: e.label });
+          view.store.seal();
+          announce(e.label);
+          return;
+        }
+      }
       const box = boxFromPlayer(view) || clipBoxSize(view);
       const patch = alignPosition(e.id, box.w, box.h, view.valueOf('rotation'), W, H);
       const [prop, value] = Object.entries(patch)[0];
@@ -87,14 +102,18 @@ export function alignRow(view) {
   return row('Align', group);
 }
 
+function layerFromPlayer(view) {
+  const c = view.clip;
+  const t = Math.min(c.start + c.duration - 1, Math.max(c.start, view.store.time));
+  const layers = evaluate(view.project, t, { includeHidden: true }).flatMap((l) => (l.kind === 'transition' ? [l.from, l.to] : [l]));
+  return layers.find((l) => l.clip?.id === c.id);
+}
+
 /** The clip's box as the player measures it (text sizes come from the renderer), at keyed values. */
 function boxFromPlayer(view) {
   const player = view.ctx.player;
   if (!player?.boxFor) return null;
-  const c = view.clip;
-  const t = Math.min(c.start + c.duration - 1, Math.max(c.start, view.store.time));
-  const layers = evaluate(view.project, t, { includeHidden: true }).flatMap((l) => (l.kind === 'transition' ? [l.from, l.to] : [l]));
-  const layer = layers.find((l) => l.clip?.id === c.id);
+  const layer = layerFromPlayer(view);
   if (!layer) return null;
   // Measure at the keyed (not animated) scale so align ignores in/out animations.
   const b = player.boxFor({ ...layer, scale: view.valueOf('scale'), sx: view.valueOf('sx'), sy: view.valueOf('sy') });

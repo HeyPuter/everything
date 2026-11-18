@@ -384,7 +384,7 @@ export class Compositor {
   }
 
   /** mat3 (column major) placing a unit quad at the layer's box in clip space. */
-  _matrix(cx, cy, w, h, rotationDeg) {
+  _matrix(cx, cy, w, h, rotationDeg, skew = 0) {
     const W = this.projW;
     const H = this.projH;
     const a = (rotationDeg * Math.PI) / 180;
@@ -392,7 +392,7 @@ export class Compositor {
     const s = Math.sin(a);
     return new Float32Array([
       (2 * w * c) / W, (-2 * w * s) / H, 0,
-      (2 * h * s) / W, (2 * h * c) / H, 0,
+      (2 * (h * s - skew * c)) / W, (2 * (h * c + skew * s)) / H, 0,
       (2 * cx) / W - 1, 1 - (2 * cy) / H, 1,
     ]);
   }
@@ -414,7 +414,7 @@ export class Compositor {
       bw = info?.projW || 100;
       bh = info?.projH || 100;
     }
-    return { cx: W / 2 + layer.x * W, cy: H / 2 + layer.y * H, w: bw * layer.scale * (layer.sx ?? 1), h: bh * layer.scale * (layer.sy ?? 1) };
+    return { cx: W / 2 + layer.x * W, cy: H / 2 + layer.y * H, w: bw * layer.scale * (layer.sx ?? 1), h: bh * layer.scale * (layer.sy ?? 1), ...(layer.skew ? { skew: bh * layer.scale * layer.skew } : {}) };
   }
 
   _setGrade(p, g, time) {
@@ -468,7 +468,7 @@ export class Compositor {
     const gl = this.gl;
     const p = this._use(this._program('layer', QUAD_VS, LAYER_FS));
     const box = this.layerBox(layer, info);
-    this._set(p, 'u_matrix', this._matrix(box.cx, box.cy, box.w, box.h, layer.rotation));
+    this._set(p, 'u_matrix', this._matrix(box.cx, box.cy, box.w, box.h, layer.rotation, box.skew));
     const crop = layer.kind === 'media' && layer.crop ? layer.crop : { l: 0, t: 0, r: 0, b: 0 };
     this._set(p, 'u_uvRect', [crop.l, crop.b, 1 - crop.l - crop.r, 1 - crop.t - crop.b]);
     this._set(p, 'u_flip', layer.flipH ? 1 : 0, layer.flipV ? 1 : 0);
@@ -576,7 +576,7 @@ export class Compositor {
     const cover = Math.max(W / info.width, H / info.height);
     // No enhance either: sharpening a picture that is then blurred shows nothing, and at this
     // size it kept evicting the clip's own enhanced frame, which was then redone every frame.
-    const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, masks: null, extras: null, enhance: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
+    const fake = { ...first, x: 0, y: 0, rotation: 0, opacity: 1, blur: 0, scale: 1, sx: 1, sy: 1, skew: 0, masks: null, extras: null, enhance: null, crop: { l: 0, t: 0, r: 0, b: 0 } };
     const fit = Math.min(W / info.width, H / info.height);
     fake.scale = cover / fit;
     this._drawLayer(fake, time);

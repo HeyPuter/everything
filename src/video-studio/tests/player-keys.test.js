@@ -65,12 +65,12 @@ describe('arrow keys on the preview', () => {
     expect(store.selected.clip.transform.x).toBe(0);
   });
 
-  it('nudges through the retained group rotation, scale, and flips by one screen pixel', () => {
+  it('nudges through the retained group rotation, unequal axes, and flips by one screen pixel', () => {
     const { store } = editor.ctx;
     let childId;
     store.update('Flatten', p => {
       const c = createCompound(p, [v.id], { ripple: false });
-      Object.assign(c.transform, { scale: 0.5, rotation: 45, flipH: true });
+      Object.assign(c.transform, { scale: 0.5, sx: 1.8, sy: 0.6, rotation: 45, flipH: true });
       c.keyframes.opacity = [{ t: 0, v: 1, ease: 'linear' }];
       childId = breakApart(p, c.id, { ripple: false })[0].id;
     });

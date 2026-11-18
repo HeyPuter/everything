@@ -3,6 +3,7 @@
  * tracks. It moves, trims, transforms and animates as one clip; "break
  * apart" puts the clips back on the timeline.
  */
+import { placePose } from '../lib/geometry.js';
 import { uid } from '../lib/ids.js';
 import { retainMotion } from './inherited-motion.js';
 import { makeClip, makeTrack, DEFAULT_TRANSFORM, VISUAL_KINDS } from './project.js';
@@ -108,25 +109,15 @@ export function placeCompound(project, compound, sources, opts = {}) {
 
 /** Compose a parent's static transform onto a child's (both in frame fractions). */
 export function composeTransform(parent, child, W, H) {
-  const r = (parent.rotation * Math.PI) / 180;
-  const X = child.x * W * (parent.flipH ? -1 : 1);
-  const Y = child.y * H * (parent.flipV ? -1 : 1);
-  return {
-    ...child,
-    x: parent.x + ((X * Math.cos(r) - Y * Math.sin(r)) * parent.scale) / W,
-    y: parent.y + ((X * Math.sin(r) + Y * Math.cos(r)) * parent.scale) / H,
-    scale: child.scale * parent.scale,
-    rotation: child.rotation + parent.rotation,
-    flipH: child.flipH !== parent.flipH,
-    flipV: child.flipV !== parent.flipV,
-  };
+  return placePose({ ...child }, parent, W, H);
 }
 
 /**
  * Fold a compound clip's transform, opacity, volume and mute into a clip
  * taken out of it (W x H is the frame size). Animated parents retain their
  * own clock and controls: baking endpoints cannot preserve easing, procedural
- * motion, or the order in which opacity is clamped.
+ * motion, or the order in which opacity is clamped. Separate parent axes also
+ * stay editable: a rotated child can shear, which its basic transform cannot store.
  */
 export function inheritFromCompound(copy, c, W, H) {
   const plain = JSON.stringify(c.transform) === JSON.stringify(DEFAULT_TRANSFORM);
@@ -134,7 +125,7 @@ export function inheritFromCompound(copy, c, W, H) {
   const affects = !plain || c.opacity !== 1 || c.volume !== 1 || c.fadeIn || c.fadeOut || animated(c);
   const transform = copy.transform && !plain ? composeTransform(c.transform, copy.transform, W, H) : copy.transform;
   const outsideLimits = (transform && (transform.scale < 0.01 || transform.scale > 50)) || copy.volume * c.volume > 10;
-  if (affects && ('transform' in copy || 'volume' in copy) && (animated(copy) || animated(c) || c.fadeIn || c.fadeOut || outsideLimits)) {
+  if (affects && ('transform' in copy || 'volume' in copy) && ((c.transform.sx ?? 1) !== 1 || (c.transform.sy ?? 1) !== 1 || animated(copy) || animated(c) || c.fadeIn || c.fadeOut || outsideLimits)) {
     retainMotion(copy, c);
   } else {
     if (copy.transform) copy.transform = transform;

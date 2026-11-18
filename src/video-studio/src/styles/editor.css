@@ -675,6 +675,7 @@ puter-user-menu::part(apps-panel) {
 }
 
 .tf-handle {
+  transform: skewX(var(--tf-unskew, 0deg));
   position: absolute;
   width: 10px;
   height: 10px;
@@ -689,6 +690,7 @@ puter-user-menu::part(apps-panel) {
 .tf-handle.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
 
 .tf-rotate {
+  transform: skewX(var(--tf-unskew, 0deg));
   position: absolute;
   left: 50%;
   bottom: -30px;

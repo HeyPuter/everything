@@ -5,6 +5,8 @@ import { mainTrack, setSpeed } from '../src/model/timeline.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { createInspector } from '../src/ui/inspector/index.js';
+import { Compositor } from '../src/engine/compositor.js';
+import { boxHalf } from '../src/lib/geometry.js';
 import { evaluate } from '../src/engine/scene.js';
 
 HTMLCanvasElement.prototype.getContext = () => null;
@@ -139,6 +141,49 @@ describe('retained group motion controls', () => {
       mainTrack(p).clips[0].inherited[0].parent.clockOnly = true;
     });
     expect([...el.querySelectorAll('[role=tab]')].some(t => t.textContent === 'Group motion')).toBe(false);
+  });
+
+  it('edits, keys and resets the retained group axes with undo', () => {
+    const { store, el } = setup();
+    const uniform = () => field('Uniform scale').querySelector('[role=switch]');
+    uniform().click();
+    expect(parent().transform.uniform).toBe(false);
+    expect(field('Scale X').hidden).toBe(false);
+    change('Scale X', 170); change('Scale Y', 60);
+    expect(parent().transform.sx).toBe(1.7);
+    expect(parent().transform.sy).toBe(0.6);
+    field('Scale X').querySelector('.kf-btn').click();
+    store.seek(s(0.5)); change('Scale X', 230);
+    expect(parent().keyframes.sx.map(k => k.t)).toEqual([0, s(1)]);
+    uniform().click();
+    expect(parent().keyframes.sx).toBeUndefined();
+    expect(parent().transform.sx).toBeUndefined();
+    store.undo();
+    expect(parent().keyframes.sx).toHaveLength(2);
+    expect(field('Scale X').hidden).toBe(false);
+  });
+
+  it('aligns the rendered sheared bounds and undoes both local position changes together', () => {
+    const { ctx, store, inspector, el } = setup();
+    store.update('Group axes', () => {
+      Object.assign(parent().transform, { uniform: false, sx: 1.7, sy: 0.6, rotation: 35, flipH: true });
+      store.selected.clip.transform.rotation = 23;
+      store.selected.clip.transform.scale = 0.4;
+    });
+    const { width: W, height: H } = store.project.settings;
+    const comp = Object.assign(Object.create(Compositor.prototype), { projW: W, projH: H });
+    ctx.player = { boxFor: l => comp.layerBox(l, { width: W, height: H }) };
+    inspector.showTab('video'); store.seek(s(0.5));
+    const before = structuredClone(store.selected.clip.transform);
+    for (const edge of ['left', 'right', 'top', 'bottom', 'hcenter', 'vcenter']) {
+      el.querySelector(`[data-align=${edge}]`).click();
+      const layer = evaluate(store.project, store.time)[0];
+      const b = ctx.player.boxFor(layer), half = boxHalf(b, layer.rotation);
+      const value = { left: b.cx - half.w, right: b.cx + half.w, top: b.cy - half.h, bottom: b.cy + half.h, hcenter: b.cx, vcenter: b.cy }[edge];
+      expect(value).toBeCloseTo({ left: 0, right: W, top: 0, bottom: H, hcenter: W / 2, vcenter: H / 2 }[edge], 7);
+      store.undo();
+      expect(store.selected.clip.transform).toEqual(before);
+    }
   });
 
 });

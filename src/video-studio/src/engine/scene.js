@@ -6,6 +6,7 @@
  * of canvas width and height; scale 1 fits the media inside the canvas;
  * rotation is in degrees, clockwise.
  */
+import { placePose } from '../lib/geometry.js';
 import { valueAt } from '../model/keyframes.js';
 import { inheritedParents } from '../model/inherited-motion.js';
 import { loudnessGain } from '../model/audio.js';
@@ -245,19 +246,11 @@ function applyInherited(layer, clip, local, project) {
 
 function applyParent(layer, parent, local, project) {
   if (parent.clockOnly) return;
-  const tr = keyedTransform(parent, local);
-  const p = applyAnimations(parent, local, { x: tr.x, y: tr.y, scale: tr.scale, rotation: tr.rotation, opacity: valueAt(parent.keyframes, 'opacity', local, parent.opacity), blur: 0, reveal: 1 });
-  const W = project.settings.width;
-  const H = project.settings.height;
-  const r = (p.rotation * Math.PI) / 180;
-  const X = layer.x * W * (tr.flipH ? -1 : 1);
-  const Y = layer.y * H * (tr.flipV ? -1 : 1);
-  layer.x = p.x + ((X * Math.cos(r) - Y * Math.sin(r)) * p.scale) / W;
-  layer.y = p.y + ((X * Math.sin(r) + Y * Math.cos(r)) * p.scale) / H;
-  layer.scale *= p.scale;
-  layer.rotation += p.rotation;
-  if (tr.flipH) layer.flipH = !layer.flipH;
-  if (tr.flipV) layer.flipV = !layer.flipV;
+  const p = keyedTransform(parent, local);
+  p.opacity = valueAt(parent.keyframes, 'opacity', local, parent.opacity);
+  p.blur = 0; p.reveal = 1;
+  applyAnimations(parent, local, p);
+  placePose(layer, p, project.settings.width, project.settings.height);
   layer.opacity = clamp01(layer.opacity * p.opacity);
   layer.blur = Math.max(layer.blur, p.blur);
   if (layer.blend === 'normal' && parent.blend && parent.blend !== 'normal') layer.blend = parent.blend;
@@ -269,24 +262,23 @@ function placeInParents(state, parent, t, project) {
   const H = project.settings.height;
   for (let c = parent; c; c = c.parent) {
     const local = t - c.start;
-    const tr = keyedTransform(c, local);
-    const p = applyAnimations(c, local, { x: tr.x, y: tr.y, scale: tr.scale, rotation: tr.rotation, opacity: 1, blur: 0, reveal: 1 });
-    const r = (p.rotation * Math.PI) / 180;
-    const X = state.x * W * (tr.flipH ? -1 : 1);
-    const Y = state.y * H * (tr.flipV ? -1 : 1);
-    state.x = p.x + ((X * Math.cos(r) - Y * Math.sin(r)) * p.scale) / W;
-    state.y = p.y + ((X * Math.sin(r) + Y * Math.cos(r)) * p.scale) / H;
-    state.scale *= p.scale;
-    state.rotation += p.rotation;
+    const p = keyedTransform(c, local);
+    p.opacity = 1; p.blur = 0; p.reveal = 1;
+    applyAnimations(c, local, p);
+    placePose(state, p, W, H);
     placeInherited(state, c, local, project);
   }
+  delete state.flipH; delete state.flipV;
 }
 
 function placeInherited(state, clip, local, project) {
   if (!clip.inherited?.length) return;
   const layer = { ...state, opacity: 1, blur: 0 };
   applyInherited(layer, clip, local, project);
-  for (const prop of ['x', 'y', 'scale', 'rotation']) state[prop] = layer[prop];
+  for (const prop of ['x', 'y', 'scale', 'rotation', 'sx', 'sy', 'skew']) {
+    if (layer[prop] !== undefined) state[prop] = layer[prop];
+    else delete state[prop];
+  }
 }
 
 /** Map a preview-space move back through inherited scale, rotation and flips. */

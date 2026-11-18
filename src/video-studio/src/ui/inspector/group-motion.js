@@ -4,6 +4,7 @@ import { inheritedTime, inheritedLocal } from '../../model/inherited-motion.js';
 import { valueAt, baseValue, setBaseValue, setKey, keyIndexAt, removeKey } from '../../model/keyframes.js';
 import { ANIMATIONS } from '../../model/catalog.js';
 import { selectField } from '../controls.js';
+import { scaleFields } from './video-extras.js';
 import { volumeSlider } from './audio.js';
 import { slider, toggle, propSection, note } from './common.js';
 
@@ -111,6 +112,7 @@ export function groupMotionTab(view) {
         const limits = prop === 'scale' ? { hardMax: 5000 } : prop === 'rotation' ? { hardMin: -3600, hardMax: 3600 } : prop === 'x' || prop === 'y' ? { hardMin: -20000, hardMax: 20000 } : {};
         fields.push(slider(group, { label, prop, min, max, ...limits, step: prop === 'rotation' ? 0.1 : 1, unit, get: () => group.valueOf(prop) * factor, set: (v, final) => group.animate(prop, v / factor, { label: `Group ${label.toLowerCase()}`, final }) }).el);
       }
+      fields.push(...scaleFields(group));
       for (const [key, label] of [['flipH', 'Flip horizontal'], ['flipV', 'Flip vertical']]) fields.push(toggle(group, { label, get: c => c.transform[key], set: value => group.edit(label, c => { c.transform[key] = value; }) }).el);
     }
     if ('volume' in view.clip) {
