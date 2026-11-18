@@ -159,29 +159,34 @@ export class SessionRecorder {
       return await this.stopping;
     } finally {
       this.stopping = null;
+      this.app.emit('transport', this.app.engine.state || 'stopped');
     }
   }
 
   async #finish(take) {
     const app = this.app;
     const engine = app.engine;
+    // A new playback may change the context while the last capture block is
+    // being delivered. These settings belong to the take that just stopped.
+    const rate = engine.rate;
+    // Both the playback delay and the input delay come off the recorded take.
+    const latency = engine.outputLatencyFrames + (engine.inputLatencyFrames || 0);
+    const inputRequest = engine.inputRequest;
     take.controller.abort();
     engine.setRecording(false);
+    engine.stop();
+    app.recording = false;
+    app.playStart = null;
+    app.setStatus?.('Recording stopped');
+    app.emit('transport', 'stopped');
     // Let the capture worklet flush its last block.
     await new Promise((r) => setTimeout(r, 150));
     take.off();
     take.offClose();
     take.offActive();
-    engine.stop();
-    const rate = engine.rate;
-    // What the player heard left the speakers output latency late, and their
-    // performance reached the capture input latency late: both come off the take.
-    const latency = engine.outputLatencyFrames + (engine.inputLatencyFrames || 0);
-    engine.closeInput();
-    app.recording = false;
-    app.playStart = null;
-    app.setStatus?.('Recording stopped');
-    app.emit('transport', 'stopped');
+    // Context migration keeps this request id; an explicitly newer input
+    // request owns its own cleanup and must not be closed by the old take.
+    if (engine.inputRequest === inputRequest) engine.closeInput();
     const doc = take.doc;
     const n = take.chunks.reduce((s, c) => s + c[0].length, 0);
     if (n <= latency + 16) {
@@ -248,7 +253,6 @@ export class SessionRecorder {
       app.notify(`${doc.name} was closed while recording. The recording is in the Files panel.`);
       return;
     }
-    if (app.active !== doc) app.activate(doc);
     doc.apply(pieces.length > 1 ? 'Record Takes' : 'Record', state, { clips: ids, cursor: pieces[0].at });
     announce(pieces.length > 1 ? `Recorded ${pieces.length} takes` : `Recorded ${ids.length} take${ids.length > 1 ? 's' : ''}`);
   }
