@@ -536,19 +536,34 @@ async function thumbnail(canvas, maxW = 360) {
 const PEOPLE_TOOLS_FAILED = "The people tools this video uses (background removal, retouch or body effects) couldn't load. Check your connection and try again.";
 
 /** Render one frame of the project at time t to an ImageBitmap (previews and thumbnails). */
-export async function renderStill(project, library, t = 0, { maxWidth = 640 } = {}) {
+export async function renderStill(project, library, t = 0, { maxWidth = 640, signal } = {}) {
+  checkAbort(signal);
   const snap = structuredClone(project);
   const { width: pw, height: ph } = snap.settings;
   const k = Math.min(1, maxWidth / pw);
-  const r = new FrameRenderer(snap, library, even(pw * k), even(ph * k));
+  const r = new FrameRenderer(snap, library, even(pw * k), even(ph * k), { signal });
+  let bitmap = null;
   try {
-    await preloadFonts(snap);
-    await ensureLuts(snap, library).catch(() => {});
-    if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
-    await r.render(Math.max(0, t));
-    return await createImageBitmap(r.canvas);
-  } finally {
-    await r.dispose();
+    try {
+      await abortable(() => preloadFonts(snap), signal);
+      await abortable(() => ensureLuts(snap, library).catch(() => {}), signal);
+      if (!(await abortable(() => ensureCutout(snap, { retry: true }), signal))) throw new Error(PEOPLE_TOOLS_FAILED);
+      await r.render(Math.max(0, t));
+      await abortable(async () => {
+        const made = await createImageBitmap(r.canvas);
+        // Snapshot creation cannot be interrupted, but its late result can be
+        // closed after the canceled renderer has already been released.
+        if (signal?.aborted) made.close();
+        else bitmap = made;
+      }, signal);
+    } finally {
+      await r.dispose();
+    }
+    checkAbort(signal);
+    return bitmap;
+  } catch (err) {
+    bitmap?.close();
+    throw err;
   }
 }
 

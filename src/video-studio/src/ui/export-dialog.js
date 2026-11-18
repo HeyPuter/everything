@@ -157,20 +157,27 @@ export function openExportDialog(ctx) {
   const urls = [];
 
   /* Still frame ---------------------------------------------------------- */
+  const stillController = new AbortController();
   const stillCanvas = h('canvas.export-still-canvas', { 'aria-hidden': 'true' });
   const stillWrap = h('div.export-still', { style: { aspectRatio: `${projW} / ${projH}` } }, stillCanvas, h('div.spinner.export-still-spinner', { 'aria-hidden': 'true' }));
   const stillMeta = h('p.export-still-meta');
   const drawBitmap = (bmp) => {
     if (!bmp) return;
-    stillCanvas.width = bmp.width;
-    stillCanvas.height = bmp.height;
-    stillCanvas.getContext('2d').drawImage(bmp, 0, 0);
-    bmp.close?.();
-    stillWrap.classList.add('ready');
+    try {
+      if (stillController.signal.aborted) return;
+      stillCanvas.width = bmp.width;
+      stillCanvas.height = bmp.height;
+      stillCanvas.getContext('2d').drawImage(bmp, 0, 0);
+      stillWrap.classList.add('ready');
+    } finally {
+      bmp.close?.();
+    }
   };
   const stillTime = Math.max(0, Math.min(store.time, projectDuration(full) - 1));
   if (duration > 0) {
-    renderStill(full, library, stillTime, { maxWidth: 640 }).then(drawBitmap).catch(() => stillWrap.classList.add('ready'));
+    renderStill(full, library, stillTime, { maxWidth: 640, signal: stillController.signal }).then(drawBitmap).catch(() => {
+      if (!stillController.signal.aborted) stillWrap.classList.add('ready');
+    });
   } else stillWrap.classList.add('ready');
   const aside = h('div.export-aside', stillWrap, stillMeta);
 
@@ -331,6 +338,7 @@ export function openExportDialog(ctx) {
     className: 'export-dialog',
     closeOnBackdrop: false,
     onClose: () => {
+      stillController.abort();
       controller?.abort();
       setTimeout(() => {
         for (const u of urls) URL.revokeObjectURL(u);

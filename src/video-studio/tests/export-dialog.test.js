@@ -15,7 +15,7 @@ vi.mock('../src/engine/exporter.js', async (orig) => {
 });
 
 const { openExportDialog } = await import('../src/ui/export-dialog.js');
-const { exportProject, detectCapabilities, renderFrames } = await import('../src/engine/exporter.js');
+const { exportProject, detectCapabilities, renderFrames, renderStill } = await import('../src/engine/exporter.js');
 
 function ctxWith(project) {
   return { store: { project, time: 0 }, library: { backend: { kind: 'opfs' } }, account: { user: null } };
@@ -29,6 +29,31 @@ beforeEach(() => {
 });
 
 describe('export dialog', () => {
+  it('cancels the settings preview when closed and discards a late bitmap', async () => {
+    let finish;
+    renderStill.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage });
+    const p = createProject();
+    p.tracks[0].clips.push(makeClip('text', { text: 'Preview', duration: US }));
+    const d = openExportDialog(ctxWith(p));
+    const bitmap = { width: 64, height: 36, close: vi.fn() };
+    try {
+      const options = renderStill.mock.lastCall[3];
+      d.close();
+      expect(options.signal?.aborted).toBe(true);
+      finish(bitmap);
+      await flush();
+      expect(drawImage).not.toHaveBeenCalled();
+      expect(bitmap.close).toHaveBeenCalledTimes(1);
+    } finally {
+      finish?.(bitmap);
+      await flush();
+      d.close();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('rechecks codecs after changing frame rate before allowing video export', async () => {
     const p = createProject();
     p.settings.fps = 30;

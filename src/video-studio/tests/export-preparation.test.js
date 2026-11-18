@@ -26,7 +26,7 @@ vi.mock('mediabunny', async (orig) => ({
   CanvasSource: class { async add() { runtime.add(); } close() {} },
 }));
 
-import { exportProject, renderFrames } from '../src/engine/exporter.js';
+import { exportProject, renderFrames, renderStill } from '../src/engine/exporter.js';
 import { dropLut, getLut } from '../src/engine/luts.js';
 
 beforeEach(() => {
@@ -39,7 +39,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const CUBE = 'LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n';
-const cases = ['video', 'frames'].flatMap((kind) => ['fonts', 'LUT', 'people models'].map((stage) => ({ kind, stage })));
+const cases = ['video', 'frames', 'still'].flatMap((kind) => ['fonts', 'LUT', 'people models'].map((stage) => ({ kind, stage })));
 
 describe('canceling export preparation', () => {
   it.each(cases)('stops $kind while $stage are still loading', async ({ kind, stage }) => {
@@ -60,7 +60,7 @@ describe('canceling export preparation', () => {
     const controller = new AbortController();
     const frames = kind === 'frames' ? renderFrames(p, library, { width: 64, height: 36, fps: 30, signal: controller.signal }) : null;
     let outcome;
-    const pending = (frames ? frames.next() : exportProject(p, library, { includeAudio: false }, { signal: controller.signal }))
+    const pending = (frames ? frames.next() : kind === 'still' ? renderStill(p, library, 0, { signal: controller.signal }) : exportProject(p, library, { includeAudio: false }, { signal: controller.signal }))
       .then(() => { outcome = 'rendered'; }, (err) => { outcome = err.name; });
     try {
       await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
@@ -83,6 +83,31 @@ describe('canceling export preparation', () => {
       if (fonts) Object.defineProperty(document, 'fonts', fonts);
       else delete document.fonts;
       dropLut(id);
+    }
+  });
+
+  it('releases a canceled still renderer before its bitmap finishes and closes the late bitmap', async () => {
+    const p = createProject();
+    p.tracks[0].clips.push(makeClip('text', { text: 'Preview', duration: 10000 }));
+    const controller = new AbortController();
+    let finish;
+    const makeBitmap = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const bitmap = { close: vi.fn() };
+    vi.stubGlobal('createImageBitmap', makeBitmap);
+    let outcome;
+    const pending = renderStill(p, {}, 0, { signal: controller.signal }).then(() => { outcome = 'rendered'; }, (err) => { outcome = err.name; });
+    try {
+      await vi.waitFor(() => expect(makeBitmap).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await vi.waitFor(() => expect(outcome).toBe('AbortError'), { timeout: 200, interval: 5 });
+      expect(runtime.dispose).toHaveBeenCalledTimes(1);
+      finish(bitmap);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(bitmap.close).toHaveBeenCalledTimes(1);
+    } finally {
+      finish?.(bitmap);
+      await pending;
+      vi.unstubAllGlobals();
     }
   });
 });

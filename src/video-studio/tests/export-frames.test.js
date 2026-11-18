@@ -50,7 +50,7 @@ vi.mock('mediabunny', async (orig) => {
   };
 });
 
-import { renderFrames } from '../src/engine/exporter.js';
+import { renderFrames, renderStill } from '../src/engine/exporter.js';
 import { addClip, setSpeed } from '../src/model/timeline.js';
 import { fixture, clip, onMain } from './helpers.js';
 
@@ -69,7 +69,7 @@ describe('renderFrames', () => {
 });
 
 describe('frame rendering responsiveness', () => {
-  it.each(['image', 'video'])('cancels a pending %s read without decoding the late file', async (type) => {
+  it.each(['image', 'video'].flatMap((type) => ['frames', 'still'].map((kind) => ({ type, kind }))))('cancels a pending $type read in $kind without decoding the late file', async ({ type, kind }) => {
     const p = fixture();
     onMain(p, clip(type, 0, 0.01));
     const controller = new AbortController();
@@ -77,9 +77,9 @@ describe('frame rendering responsiveness', () => {
     const library = { mediaBlob: vi.fn(() => new Promise((resolve) => { finishRead = resolve; })) };
     const bitmap = vi.fn(async () => ({ width: 64, height: 36, close() {} }));
     vi.stubGlobal('createImageBitmap', bitmap);
-    const frames = renderFrames(p, library, { width: 64, height: 36, fps: 30, signal: controller.signal });
+    const frames = kind === 'frames' ? renderFrames(p, library, { width: 64, height: 36, fps: 30, signal: controller.signal }) : null;
     let outcome;
-    const pending = frames.next().then(() => { outcome = 'frame'; }, (err) => { outcome = err.name; });
+    const pending = (frames ? frames.next() : renderStill(p, library, 0, { signal: controller.signal })).then(() => { outcome = 'frame'; }, (err) => { outcome = err.name; });
     try {
       await vi.waitFor(() => expect(library.mediaBlob).toHaveBeenCalledTimes(1));
       controller.abort();
@@ -92,7 +92,7 @@ describe('frame rendering responsiveness', () => {
     } finally {
       finishRead?.(new Blob(['late file']));
       await pending;
-      await frames.return();
+      await frames?.return();
       vi.unstubAllGlobals();
     }
   });
