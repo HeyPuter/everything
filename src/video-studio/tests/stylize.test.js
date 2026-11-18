@@ -184,6 +184,25 @@ describe('style tab', () => {
     insp.dispose();
   });
 
+  it('keeps result framing when saving to media and adding it later', async () => {
+    const { insp, ctx, store } = env();
+    const size = { width: 72, height: 40.5 };
+    ctx.restyleServices.picture.mockResolvedValue({ blob: new Blob(['p']), width: 72, height: 42, baked: { pictureSize: size } });
+    ctx.library.importFile = vi.fn(async (file, opts) => normalizeAsset({ kind: 'image', name: file.name, width: 72, height: 42, pictureSize: opts.pictureSize }));
+    [...insp.el.querySelectorAll('.restyle-chip')].find(b => b.textContent === 'Graphite').click();
+    button(insp.el, 'Restyle').click();
+    await vi.waitFor(() => expect(insp.el.querySelector('.restyle-result img')).toBeTruthy());
+    button(insp.el, 'Save to media').click();
+    await vi.waitFor(() => expect(button(insp.el, 'In media')).toBeTruthy());
+    const asset = Object.values(store.project.assets).find(a => a.name.includes('Graphite'));
+    expect(asset.pictureSize).toEqual(size);
+    const reopened = new EditorStore(normalizeProject(store.projectForSave()));
+    const actions = createActions({ store: reopened, library: ctx.library, player: { pause() {} } });
+    const added = actions.addAsset(reopened.project.assets[asset.id], { main: false });
+    expect(evaluate(reopened.project, s(1)).find(l => l.clip.id === added.id)).toMatchObject(size);
+    insp.dispose();
+  });
+
   it('keeps a running restyle and its picture across tab changes, and imports the picture once', async () => {
     const { insp, ctx, store } = env();
     let finish;

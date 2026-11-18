@@ -1,3 +1,4 @@
+import { evaluate } from '../src/engine/scene.js';
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { normalizeAsset } from '../src/model/project.js';
@@ -20,9 +21,9 @@ let seq = 0;
 const fakeLibrary = () => ({
   backend: { kind: 'puter' },
   imported: [],
-  async importFile(file, { origin } = {}) {
+  async importFile(file, { origin, pictureSize } = {}) {
     const kind = file.type.startsWith('video/') ? 'video' : file.type.startsWith('image/') ? 'image' : 'audio';
-    const a = normalizeAsset({ id: `gen${++seq}`, kind, name: file.name, duration: kind === 'image' ? 0 : s(5), width: kind === 'audio' ? 0 : 1280, height: kind === 'audio' ? 0 : 720, hasAudio: kind !== 'image', origin });
+    const a = normalizeAsset({ id: `gen${++seq}`, kind, name: file.name, duration: kind === 'image' ? 0 : s(5), width: kind === 'audio' ? 0 : 1280, height: kind === 'audio' ? 0 : 720, hasAudio: kind !== 'image', origin, pictureSize });
     this.imported.push({ file, origin, asset: a });
     return a;
   },
@@ -594,6 +595,24 @@ describe('AI sidebar tools', () => {
     expect(store.history.undoStack).toHaveLength(1);
     store.undo(); expect(findClip(store.project, id)).toBeNull();
     store.redo(); expect(findClip(store.project, id).clip.pictureSize).toEqual(size);
+  });
+
+  it.each(['media', 'stopped'])('keeps edited picture framing for later use when %s', async mode => {
+    const { ctx, store, main } = setup(clip('image', 0, 3));
+    const size = { width: 72, height: 40.5 };
+    let finish, stopped = false;
+    const { runner } = runnerFor(ctx, {
+      picture: vi.fn(async () => ({ ...picture(), baked: { pictureSize: size } })),
+      editPicture: vi.fn(() => new Promise(resolve => { finish = () => resolve({ blob: new Blob(['png'], { type: 'image/png' }) }); })),
+    });
+    const pending = runner.run('edit_image', { source: main().clips[0].id, instruction: 'night', replace: false, place: 'media' }, { note() {}, stopped: () => stopped });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    stopped = mode === 'stopped'; finish(); await pending;
+    const asset = Object.values(store.project.assets).find(a => a.id.startsWith('gen'));
+    expect(asset.pictureSize).toEqual(size);
+    expect(main().clips).toHaveLength(1);
+    const made = ctx.actions.addAsset(asset, { main: false });
+    expect(evaluate(store.project, s(1)).find(l => l.clip.id === made.id)).toMatchObject(size);
   });
 
   it('makes and edits pictures, and speaks a voiceover', async () => {

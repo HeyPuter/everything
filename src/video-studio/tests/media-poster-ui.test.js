@@ -18,9 +18,10 @@ beforeEach(() => {
   });
 });
 afterEach(() => { tab?.dispose();tab=null;vi.restoreAllMocks();setPref('mediaView','grid'); });
-function mount(poster = async () => null) {
+function mount(poster = async () => null, pictureSize) {
   const p=fixture(), image=p.assets.img;
   p.assets={a:{...image,id:'a',name:'A',hash:'same'},b:{...image,id:'b',name:'B',hash:'same'},other:{...image,id:'other',name:'Other',hash:'different'}};
+  if (pictureSize) p.assets.a.pictureSize = pictureSize;
   const store=new EditorStore(p), media=Object.assign(new Emitter(), {poster:vi.fn(poster),missing:new Set()});
   const ctx={store,media,library:{backend:{kind:'memory'}}};ctx.actions=createActions(ctx);
   tab=mediaTab(ctx);document.body.append(tab.el);return media;
@@ -71,4 +72,15 @@ it('unsubscribes and ignores pending poster answers after disposal', async () =>
   media.emit('poster',{hash:'same'});finish(bitmap());await flush();
   expect(contexts.get(a).drawImage).not.toHaveBeenCalled();
   expect(media.poster).not.toHaveBeenCalled();
+});
+
+
+it.each(['grid', 'list'])('fits %s posters using each asset’s framing even when bytes are shared', async view => {
+  setPref('mediaView', view);
+  const fresh = { width: 320, height: 200 };
+  mount(async () => fresh, { width: 72, height: 40.5 });
+  await flush();
+  const a = canvas('a'), b = canvas('b');
+  expect(contexts.get(a).drawImage).toHaveBeenCalledWith(fresh, 0, 0, a.width, a.height);
+  expect(contexts.get(b).drawImage.mock.lastCall).toEqual([fresh, 0, (b.height - b.width * 200 / 320) / 2, b.width, b.width * 200 / 320]);
 });

@@ -5,6 +5,7 @@
  * checkbox in its header. Values live in model/clip-extras.js.
  */
 import '../../styles/masks.css';
+import { pictureSizeFor } from '../../model/picture-size.js';
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { evaluate, inheritedDelta } from '../../engine/scene.js';
@@ -19,7 +20,8 @@ export function clipBoxSize(view) {
   const { width: W, height: H } = view.project.settings;
   let base;
   if (c.type === 'video' || c.type === 'image') {
-    const a = c.pictureSize || view.project.assets[c.assetId];
+    const asset = view.project.assets[c.assetId];
+    const a = pictureSizeFor(c, asset) || asset;
     base = fitBox(a?.width || W, a?.height || H, c.crop, W, H);
   } else {
     const m = view.ctx.player?.text?.measure?.(c);

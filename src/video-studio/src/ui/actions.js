@@ -64,14 +64,14 @@ export function createActions(ctx) {
   }
 
   /** The import itself (see actions.importFiles). */
-  async function importFilesNow(files, { addToTimeline = false, folder = null, origin, signal } = {}) {
+  async function importFilesNow(files, { addToTimeline = false, folder = null, origin, signal, pictureSize } = {}) {
     checkImportSignal(signal);
     const list = [...files];
     const assets = [];
     for (const file of list) {
       checkImportSignal(signal);
       try {
-        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), onNote: (text) => { if (!signal?.aborted) toast(text, { kind: 'info', duration: 8000 }); } });
+        const asset = await ctx.library.importFile(file, { ...(origin ? { origin } : {}), ...(pictureSize ? { pictureSize } : {}), onNote: (text) => { if (!signal?.aborted) toast(text, { kind: 'info', duration: 8000 }); } });
         checkImportSignal(signal);
         // Into the media bin folder being viewed (see model/bins.js).
         if (folder && store.project.bins?.some((b) => b.id === folder)) asset.folder = folder;
@@ -174,10 +174,11 @@ export function createActions(ctx) {
     adoptMediaShape(asset) {
       const s = store.project.settings;
       const patch = {};
-      if (s.ratio === 'original' && asset.width && asset.height) {
-        const k = Math.min(1, 3840 / Math.max(asset.width, asset.height));
-        patch.width = Math.max(16, Math.round((asset.width * k) / 2) * 2);
-        patch.height = Math.max(16, Math.round((asset.height * k) / 2) * 2);
+      const size = asset.pictureSize || asset;
+      if (s.ratio === 'original' && size.width && size.height) {
+        const k = Math.min(1, 3840 / Math.max(size.width, size.height));
+        patch.width = Math.max(16, Math.round((size.width * k) / 2) * 2);
+        patch.height = Math.max(16, Math.round((size.height * k) / 2) * 2);
       }
       if (asset.fps) {
         const rounded = [24, 25, 30, 50, 60].reduce((a, b) => (Math.abs(b - asset.fps) < Math.abs(a - asset.fps) ? b : a));

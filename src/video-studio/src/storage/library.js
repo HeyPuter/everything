@@ -433,7 +433,7 @@ export class Library extends Emitter {
    * Import a local File: probe it, start storing it, and return the asset at
    * once so it can be used while the upload continues.
    */
-  async importFile(file, { origin = 'import', onNote } = {}) {
+  async importFile(file, { origin = 'import', onNote, pictureSize } = {}) {
     // Mediabunny is loaded on first import so the home screen starts faster.
     const { probe, extOf, storableFile, mediaMime } = await import('../media/probe.js');
     // SVG pictures are stored drawn as PNG (the name stays the one the user knows).
@@ -444,6 +444,7 @@ export class Library extends Emitter {
     const asset = normalizeAsset({
       id: uid('a'),
       kind: info.kind,
+      pictureSize,
       name: source.name || `${info.kind} ${new Date().toLocaleString()}`,
       hash,
       ext: extOf(file.name, file.type),

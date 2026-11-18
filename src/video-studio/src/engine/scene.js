@@ -18,6 +18,7 @@ import { applyMotion, WHOLE_LOOPS } from './motion-anims.js';
 import { expandProject } from './compound.js';
 import { isGlyphAnim, isWholeClipAnim } from './text-anim.js';
 import { evaluateMasks } from '../model/masks.js';
+import { pictureSizeFor } from '../model/picture-size.js';
 import { layerExtras, enhanceAt } from '../model/clip-extras.js';
 import { removalAt } from '../model/removal.js';
 import { activeClipEffects } from '../model/clip-effects.js';
@@ -187,10 +188,11 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.asset = asset;
     layer.width = asset?.width || project.settings.width;
     layer.height = asset?.height || project.settings.height;
-    if (clip.pictureSize) {
-      layer.pictureSize = clip.pictureSize;
-      layer.width = clip.pictureSize.width;
-      layer.height = clip.pictureSize.height;
+    const pictureSize = pictureSizeFor(clip, asset);
+    if (pictureSize) {
+      layer.pictureSize = pictureSize;
+      layer.width = pictureSize.width;
+      layer.height = pictureSize.height;
     }
     layer.sourceTime = 0;
     if (clip.type === 'video') {

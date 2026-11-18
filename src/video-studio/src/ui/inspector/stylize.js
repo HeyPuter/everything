@@ -16,6 +16,7 @@ import { DEFAULT_TRANSFORM, makeClip, makeTrack, normalizeClip } from '../../mod
 import { inheritFromCompound } from '../../model/compound.js';
 import { parseMaskProp } from '../../model/masks.js';
 import { retainMaskSpace } from '../../model/mask-space.js';
+import { pictureSizeFor } from '../../model/picture-size.js';
 import * as T from '../../model/timeline.js';
 import { STYLE_LOOKS, STYLE_AMOUNT_DEFAULT, styleEffect, normalizeStylize } from '../../model/stylize.js';
 import { aiAvailable } from '../../media/tts.js';
@@ -72,7 +73,7 @@ export async function clipPicture(ctx, clip, time) {
   if (!asset) throw new Error('This clip has no media.');
   // Cropping is baked into the pixels. Match their visible aspect ratio so
   // fitting the result back into any project frame preserves its footprint.
-  const source = clip.pictureSize || asset;
+  const source = pictureSizeFor(clip, asset) || asset;
   const crop = clip.crop || {};
   const sourceW = Math.max(1e-6, (source.width || p.settings.width) * (1 - (crop.l || 0) - (crop.r || 0)));
   const sourceH = Math.max(1e-6, (source.height || p.settings.height) * (1 - (crop.t || 0) - (crop.b || 0)));
@@ -260,7 +261,7 @@ function restyleSection(view) {
     r.pending ||= (async () => {
       const c = view.clip;
       const file = new File([r.blob], restyleFileName(c?.name || store.project.assets[c?.assetId]?.name, r.styleId, r.blob.type || 'image/png'), { type: r.blob.type || 'image/png' });
-      const [asset] = await ctx.actions.importFiles([file], { origin: 'restyle' });
+      const [asset] = await ctx.actions.importFiles([file], { origin: 'restyle', pictureSize: r.baked?.pictureSize });
       if (!asset) throw new Error("Couldn't add the picture to your media.");
       r.assetId = asset.id;
       return asset;

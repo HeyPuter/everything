@@ -3,6 +3,8 @@ import { Library, AutoSaver, STALL_MS } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { EditorStore } from '../src/model/store.js';
 import { createProject } from '../src/model/project.js';
+import { createActions } from '../src/ui/actions.js';
+import { evaluate } from '../src/engine/scene.js';
 
 // Media probing needs real decoders; these tests only need its answers.
 vi.mock('../src/media/probe.js', async (importOriginal) => ({
@@ -25,6 +27,27 @@ describe('Library projects', () => {
   beforeEach(() => {
     backend = memoryBackend();
     lib = new Library(backend);
+  });
+
+  it('retains generated picture framing through import, reopen, and later placement', async () => {
+    const size = { width: 72, height: 40.5 };
+    const file = new File([new Uint8Array([1, 2, 3])], 'Generated.png', { type: 'image/png' });
+    const asset = await lib.importFile(file, { origin: 'restyle', pictureSize: size });
+    expect(asset.pictureSize).toEqual(size);
+    expect([asset.width, asset.height]).toEqual([640, 360]);
+    const p = await lib.createProject();
+    p.assets[asset.id] = asset;
+    await lib.saveProject(p);
+    const store = new EditorStore(await lib.openProject(p.id));
+    const actions = createActions({ store, library: lib, player: { pause() {} } });
+    const added = actions.addAsset(store.project.assets[asset.id], { adoptRatio: false });
+    const layer = evaluate(store.project, 0).find(l => l.clip.id === added.id);
+    expect([layer.width, layer.height]).toEqual([72, 40.5]);
+    const ordinary = await lib.importFile(file);
+    expect(ordinary.hash).toBe(asset.hash);
+    expect(ordinary.id).not.toBe(asset.id);
+    expect(ordinary.pictureSize).toBeUndefined();
+    expect(store.project.assets[asset.id].pictureSize).toEqual(size);
   });
 
   it('creates projects and lists them newest first', async () => {

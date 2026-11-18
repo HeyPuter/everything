@@ -42,6 +42,7 @@ import { normalizeCurve, meanSpeed } from './speed-curve.js';
 import { normalizeSpeedRamp } from './speed-ramps.js';
 import { normalizeMasks } from './masks.js';
 import { normalizeMaskSpace } from './mask-space.js';
+import { normalizePictureSize } from './picture-size.js';
 import { normalizeClipExtras } from './clip-extras.js';
 import { normalizeCutout } from './cutout.js';
 import { normalizeRemoval } from './removal.js';
@@ -408,9 +409,8 @@ export function normalizeClip(c) {
     if (inherited) out.inherited = inherited;
   }
   if (c.type === 'video' || c.type === 'image') {
-    if (c.type === 'image' && Number.isFinite(c.pictureSize?.width) && Number.isFinite(c.pictureSize?.height) && c.pictureSize.width > 0 && c.pictureSize.height > 0) {
-      out.pictureSize = { width: c.pictureSize.width, height: c.pictureSize.height };
-    }
+    const pictureSize = c.type === 'image' ? normalizePictureSize(c.pictureSize) : null;
+    if (pictureSize) out.pictureSize = pictureSize;
     const cr = c.crop || {};
     out.crop = { l: clampN(cr.l, 0, 0.95, 0), t: clampN(cr.t, 0, 0.95, 0), r: clampN(cr.r, 0, 0.95, 0), b: clampN(cr.b, 0, 0.95, 0) };
     out.adjust = normAdjust(c.adjust);
@@ -509,9 +509,11 @@ export function normalizeClip(c) {
 
 export function normalizeAsset(a) {
   if (!a || typeof a !== 'object' || !['video', 'audio', 'image'].includes(a.kind)) return null;
+  const pictureSize = a.kind === 'image' ? normalizePictureSize(a.pictureSize) : null;
   return {
     id: str(a.id) || uid('a'),
     kind: a.kind,
+    ...(pictureSize ? { pictureSize } : {}),
     name: str(a.name, 'Media').slice(0, 300),
     // Used in file paths, so only the characters content hashes use.
     hash: str(a.hash).replace(/[^a-z0-9_-]/gi, '').slice(0, 128),

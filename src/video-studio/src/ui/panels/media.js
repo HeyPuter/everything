@@ -380,8 +380,9 @@ export function mediaTab(ctx) {
       c2.fillStyle = '#111';
       c2.fillRect(0, 0, w, hgt);
       if (!bmp) return;
-      const k = Math.max(w / bmp.width, hgt / bmp.height);
-      c2.drawImage(bmp, (w - bmp.width * k) / 2, (hgt - bmp.height * k) / 2, bmp.width * k, bmp.height * k);
+      const size = a.pictureSize || bmp;
+      const k = Math.max(w / size.width, hgt / size.height);
+      c2.drawImage(bmp, (w - size.width * k) / 2, (hgt - size.height * k) / 2, size.width * k, size.height * k);
     };
     draw(null);
     const view = { asset: a, draw, request: 0 };
