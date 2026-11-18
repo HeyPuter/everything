@@ -135,7 +135,7 @@ test('deleting a layer selects the layer below it, or above it at the bottom', a
   expect(await selected()).toBe('A');
 });
 
-test('Shift-click selects only the rows the list shows when layers are filtered', async ({ page }) => {
+test('Shift-click and layer stepping use only the rows the list shows when layers are filtered', async ({ page }) => {
   const selected = () =>
     page.evaluate(() =>
       [...window.photoStudio.selectedIds].map((id) => window.photoStudio.doc.layers.find((l) => l.id === id)!.name).sort(),
@@ -148,6 +148,12 @@ test('Shift-click selects only the rows the list shows when layers are filtered'
   await pick(page, 'C').click();
   await pick(page, 'A').click({ modifiers: ['Shift'] });
   expect(await selected()).toEqual(['A', 'C']);
+  // Stepping through the layers by keyboard skips B too.
+  await pick(page, 'C').click();
+  await run(page, 'layer.select-backward');
+  expect(await selected()).toEqual(['A']);
+  await run(page, 'layer.select-forward');
+  expect(await selected()).toEqual(['C']);
   // With every row shown again, the same clicks take in B.
   await run(page, 'select.isolate-layers');
   await pick(page, 'C').click();

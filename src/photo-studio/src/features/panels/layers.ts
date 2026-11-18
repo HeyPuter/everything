@@ -61,6 +61,12 @@ function visibleInFilter(l: Layer): boolean {
   const own = matches(l) && (!filterEditor || layerRowFilters.every((f) => f(filterEditor!, l)));
   return own || l.children.some(visibleInFilter);
 }
+/** Whether the Layers list shows `l` under its filter and isolation (its
+ * groups being expanded). */
+export function shownInLayerList(e: Editor, l: Layer) {
+  filterEditor = e;
+  return visibleInFilter(l);
+}
 // Features add sub-rows under a layer (Live Filters) without editing this file.
 export const layerRowExtras: ((e: Editor, l: Layer, depth: number) => string)[] = [];
 // Features add badges over a layer's thumbnail and a note under its name

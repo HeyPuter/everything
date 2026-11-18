@@ -5,10 +5,12 @@ import { registerCommand } from '../../app/registry';
 import { blendLabel, blends, findLayer } from '../../model/document';
 import { visibleRows } from '../../model/layers';
 import { layerLock } from '../../model/locks';
+import { shownInLayerList } from '../panels/layers';
 
 /** Select the layer above (-1) or below (+1) the current one, or the top/bottom one; `add` extends the selection. */
 function step(e: Editor, to: -1 | 1 | 'top' | 'bottom', add = false) {
-  const rows = visibleRows(e.doc.layers, e.collapsedGroups);
+  // The rows of the Layers list: layers its filter hides are skipped.
+  const rows = visibleRows(e.doc.layers, e.collapsedGroups).filter((l) => shownInLayerList(e, l));
   if (!rows.length) return;
   const at = rows.findIndex((l) => l.id === e.selected);
   const i = to === 'top' ? 0 : to === 'bottom' ? rows.length - 1 : at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + to));
