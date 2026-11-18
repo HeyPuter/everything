@@ -6,6 +6,7 @@ import { h, announce } from '../lib/dom.js';
 import { openDialog, promptDialog, confirmDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { Session } from '../model/session.js';
+import { clipPlan } from '../model/session-graph.js';
 import * as S from '../model/session-edits.js';
 import { markersInRange } from '../model/edits.js';
 import { AudioFile } from '../model/audio-file.js';
@@ -1164,6 +1165,7 @@ export function installMultitrackCommands(app) {
         // merged clip still plays through the track's EQ, polarity and pan, so they stay out.
         const dry = { volume: 0, pan: 0, fx: [], mode: 'off', mute: false, solo: false, output: 'master', invert: false, eq: { on: false, values: {} }, sends: [] };
         const tmp = { ...doc.state, tracks: doc.state.tracks.map((t) => (t.id === trackId ? { ...t, ...dry } : t)) };
+        const renderedPlan = clipPlan(tmp);
         const media = new Map();
         const linkedDocs = new Map(app.documents.map((d) => [d.id, d]));
         const data = await renderSession(app, doc, {
@@ -1185,6 +1187,15 @@ export function installMultitrackCommands(app) {
         const canCommit = () => {
           if (!isOpen(app, doc)) return false;
           const current = new Set(doc.state.clips);
+          // Unselected clips can hide these clips or supply their crossfades.
+          // Compare what was heard, allowing unrelated edits and restored Undo.
+          const currentPlan = clipPlan(doc.state);
+          const samePlan = clips.every(({ id }) => {
+            const before = renderedPlan.get(id), after = currentPlan.get(id);
+            return before === after || (before && after &&
+              before.parts.length === after.parts.length && before.parts.every(([a, b], i) => a === after.parts[i][0] && b === after.parts[i][1]) &&
+              ['fadeIn', 'fadeOut'].every((key) => before[key].length === after[key].length && before[key].curve === after[key].curve));
+          });
           const sameMedia = [...media].every(([id, { channels: before, linked }]) => {
             const src = doc.pool.get(id);
             // Converted linked audio updates after a debounce. Its waveform may
@@ -1193,7 +1204,7 @@ export function installMultitrackCommands(app) {
             const channels = src?.channels;
             return channels === before || (channels?.length === before?.length && before?.every((c, i) => c === channels[i]));
           });
-          if (doc.sampleRate === tmp.sampleRate && S.findTrack(doc.state, trackId)?.type === 'audio' && clips.every((c) => current.has(c)) && sameMedia) return true;
+          if (doc.sampleRate === tmp.sampleRate && S.findTrack(doc.state, trackId)?.type === 'audio' && clips.every((c) => current.has(c)) && sameMedia && samePlan) return true;
           app.notify('Merge stopped because its clips, audio, or session changed. Rendered audio remains in the Files panel; review the session and merge again.', { error: true });
           return false;
         };
