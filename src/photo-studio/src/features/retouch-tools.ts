@@ -453,9 +453,12 @@ export function installRetouchTools(_e: Editor) {
         const x = Math.floor(p.x),
           y = Math.floor(p.y);
         if (x < 0 || y < 0 || x >= e.doc.width || y >= e.doc.height) return;
+        const session = e.session;
         const target = await pixelTarget(e, { allowMask: false, create: false });
         if (!target || target.kind !== 'pixels') return;
         const region = await wandMask(e, x, y);
+        // Another document was shown meanwhile: do not erase in it.
+        if (e.session !== session) return;
         const area = canvasRect(e.doc);
         const sel = selectionGrid(e.doc, e.assets.tiles);
         const cover = sel ? readMask(e.assets.tiles, sel, area).data : undefined;

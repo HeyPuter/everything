@@ -555,9 +555,13 @@ function bucketTool(): Tool {
       const x = Math.floor(p.x),
         y = Math.floor(p.y);
       if (x < 0 || y < 0 || x >= e.doc.width || y >= e.doc.height) return;
+      const session = e.session;
       const target = await pixelTarget(e);
       if (!target) return;
       const region = await wandMask(e, x, y);
+      // Another document was shown while the pixels were read: the fill
+      // would land there, so it is dropped (as a stroke still starting is).
+      if (e.session !== session) return;
       // In Quick Mask mode the mask is the selection being edited.
       const sel = target.kind === 'quick-mask' ? null : selectionGrid(e.doc, e.assets.tiles);
       const area = canvasRect(e.doc);

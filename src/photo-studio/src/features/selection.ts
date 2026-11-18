@@ -299,9 +299,15 @@ export function marqueePixels(r: { x: number; y: number; width: number; height: 
   return { x, y, width: Math.round(r.x + r.width) - x, height: Math.round(r.y + r.height) - y };
 }
 const marqueeStyle = (e: Editor): MarqueeStyle => ({ style: e.settings.marqueeStyle, width: e.settings.marqueeW, height: e.settings.marqueeH });
-export function finishShape(e: Editor, op: SelectionOp, mask: Mask8 | null, label: string) {
+export function finishShape(
+  e: Editor,
+  op: SelectionOp,
+  mask: Mask8 | null,
+  label: string,
+  session = e.session,
+) {
   const feather = Number(e.settings.selectionFeather ?? 0);
-  commitSelectionMask(e, mask && feather ? featherMask(mask, feather) : mask, op, label);
+  commitSelectionMask(e, mask && feather ? featherMask(mask, feather) : mask, op, label, session);
 }
 /** Options for the marquee tools: the shared selection options, then Style
  * with its width and height (swappable, only editable for a fixed style).
@@ -542,9 +548,12 @@ const wandTool: Tool = {
       y = Math.floor(p.y);
     if (x < 0 || y < 0 || x >= e.doc.width || y >= e.doc.height) return;
     const op = selectionOp(e, p);
+    // The selection belongs to the document clicked, even if another is shown
+    // by the time its pixels are read.
+    const session = e.session;
     e.message('Selecting similar pixels…');
     const mask = await wandMask(e, x, y);
-    finishShape(e, op, mask, 'Magic Wand');
+    if (e.sessions.includes(session)) finishShape(e, op, mask, 'Magic Wand', session);
     e.message('Ready');
   },
 };
@@ -691,8 +700,10 @@ export function installSelection(_e: Editor) {
       description: 'Add adjacent pixels within the Magic Wand tolerance of the selected colors.',
       enabled: has,
       run: async (e) => {
+        const session = e.session;
         const m = readMask(e.assets.tiles, selectionGrid(e.doc, e.assets.tiles)!, canvasRect(e.doc));
-        commitSelectionMask(e, grow(await wandRGBA(e), m, e.tolerance), 'replace', 'Grow');
+        const grown = grow(await wandRGBA(e), m, e.tolerance);
+        if (e.sessions.includes(session)) commitSelectionMask(e, grown, 'replace', 'Grow', session);
       },
     },
     {
@@ -701,8 +712,11 @@ export function installSelection(_e: Editor) {
       description: 'Add pixels anywhere in the image within the Magic Wand tolerance of the selected colors.',
       enabled: has,
       run: async (e) => {
+        const session = e.session;
         const m = readMask(e.assets.tiles, selectionGrid(e.doc, e.assets.tiles)!, canvasRect(e.doc));
-        commitSelectionMask(e, similar(await wandRGBA(e), m, e.tolerance), 'replace', 'Similar');
+        const found = similar(await wandRGBA(e), m, e.tolerance);
+        if (e.sessions.includes(session))
+          commitSelectionMask(e, found, 'replace', 'Similar', session);
       },
     },
     {

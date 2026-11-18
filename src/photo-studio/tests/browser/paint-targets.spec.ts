@@ -620,3 +620,92 @@ test('a stroke started while another is unfinished stores the first and stops it
   });
   expect(state).toEqual({ strokes: 2, first: 255, second: 255, timers: 0 });
 });
+
+test('Magic Wand, Grow and the Paint Bucket finish in the document they started in', async ({
+  page,
+}) => {
+  // beforeEach opened gray.png (200 × 120); a second, larger document is opened later.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    e.settings.sampleAllLayers = true;
+    // Hold the merged-image readback until the test lets it go.
+    const r = e.renderer as unknown as { documentPixels: (...a: unknown[]) => Promise<unknown> };
+    const original = r.documentPixels.bind(r);
+    const w = window as unknown as { hold?: boolean; release?: () => void };
+    r.documentPixels = async (...a: unknown[]) => {
+      const result = await original(...a);
+      if (w.hold) await new Promise<void>((done) => (w.release = done));
+      return result;
+    };
+  });
+  const gray = await page.evaluate(() => window.photoStudio.session.id);
+  const second = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newDocument } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    // Its layer has the same id as gray.png's (as a duplicated image's would).
+    const doc = newDocument(320, 240, 'Second');
+    const layer = newPixelLayer('Copy', doc);
+    layer.id = e.doc.layers[0].id;
+    doc.layers = [layer];
+    const s = e.newSession(doc);
+    return s.id;
+  });
+  const show = (id: string) =>
+    page.evaluate(async (id) => {
+      const e = window.photoStudio;
+      await e.switchSession(e.sessions.find((s) => s.id === id)!);
+    }, id);
+  const state = () =>
+    page.evaluate(() =>
+      window.photoStudio.sessions.map((s) => ({
+        name: s.doc.name,
+        steps: s.history.labels,
+        sel: s.doc.selection,
+      })),
+    );
+  const during = async (start: () => Promise<unknown>) => {
+    await show(gray);
+    await idle(page);
+    await page.evaluate(() => ((window as unknown as { hold?: boolean }).hold = true));
+    await start();
+    await page.waitForFunction(() => !!(window as unknown as { release?: () => void }).release);
+    await show(second);
+    await page.evaluate(() => {
+      const w = window as unknown as { hold?: boolean; release?: () => void };
+      const go = w.release!;
+      w.hold = false;
+      w.release = undefined;
+      go();
+    });
+    await page.waitForFunction(() => !window.photoStudio.toolBusy && !window.photoStudio.busy);
+    await idle(page);
+  };
+  // The wand click lands on gray.png while its merged image is read.
+  await page.evaluate(() => window.photoStudio.setTool('magic-wand'));
+  await during(async () => {
+    const [cx, cy] = await client(page, 100, 60);
+    await page.mouse.click(cx, cy);
+  });
+  let s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  expect(s.find((d) => d.name === 'gray')!.sel).toEqual({ x: 0, y: 0, width: 200, height: 120 });
+  await during(() => page.evaluate(() => void window.photoStudio.runCommand('select.grow')));
+  s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  expect(s.find((d) => d.name === 'gray')!.steps.at(-1)).toBe('Grow');
+  // The Paint Bucket does not fill the document shown when the fill is ready.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('bucket');
+    e.setForeground('#ff0000');
+  });
+  await during(async () => {
+    const [cx, cy] = await client(page, 100, 60);
+    await page.mouse.click(cx, cy);
+  });
+  s = await state();
+  expect(s.find((d) => d.name === 'Second')!.steps).toEqual([]);
+  // Its fill computed for gray.png never reaches the same-id layer of the other image.
+  expect(await page.locator('#status').textContent()).not.toMatch(/Missing pixel tile/);
+});
