@@ -164,3 +164,70 @@ it.each(['saved', 'failed'])('only cleans the current destination when a concurr
   await app.commands.run('edit.redo');
   expect(doc.state === latest).toBe(true);
 });
+
+it.each(['saved', 'failed', 'cancelled'])('tracks the state written by a delayed Save As that is %s after Save completes', async (outcome) => {
+  const { app, doc, saved, writes } = setup();
+  const original = doc.state;
+  const savingAs = (await saveAs(app, 'New.wav')).pending;
+  await ready(0);
+  await app.commands.run('fx.invert');
+  const latest = doc.state;
+  await app.commands.run('file.save');
+  expect(doc.dirty).toBe(false);
+  expect(await samples(saved, '/u/Source.wav')).toEqual(Array(32).fill(-0.25));
+  if (outcome === 'cancelled') {
+    await vi.advanceTimersByTimeAsync(250);
+    document.querySelector('.io-progress-dialog .dialog-foot button[data-value="cancel"]').click();
+  } else {
+    if (outcome === 'failed') encoding.fail = 0;
+    encoding.jobs[0].finish();
+  }
+  await savingAs;
+  const current = outcome === 'saved' ? 'New.wav' : 'Source.wav';
+  expect(doc.source.path).toBe(`/u/${current}`);
+  if (outcome === 'saved') expect(await samples(saved, '/u/New.wav')).toEqual(Array(32).fill(0.25));
+  else expect(saved.has('/u/New.wav')).toBe(false);
+  expect.soft(doc.dirty).toBe(outcome === 'saved');
+  expect.soft(doc.savedState === (outcome === 'saved' ? original : latest)).toBe(true);
+  expect(doc.state === latest).toBe(true);
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+  await app.commands.run('edit.undo');
+  expect(doc.state === original).toBe(true);
+  expect.soft(doc.dirty).toBe(outcome !== 'saved');
+  await app.commands.run('edit.redo');
+  expect(doc.state === latest).toBe(true);
+  expect.soft(doc.dirty).toBe(outcome === 'saved');
+  await app.commands.run('file.save');
+  expect(writes.at(-1)).toBe(`/u/${current}`);
+  expect(await samples(saved, `/u/${current}`)).toEqual(Array(32).fill(-0.25));
+  expect(doc.dirty).toBe(false);
+});
+
+it.each(['save', 'saveAs'])('tracks the encoded state when Undo returns to previously saved audio during %s', async (command) => {
+  const { app, doc, saved } = setup();
+  const original = doc.state;
+  await app.commands.run('fx.invert');
+  const encoded = doc.state;
+  const pending = command === 'save' ? app.commands.run('file.save') : (await saveAs(app, 'New.wav')).pending;
+  await ready(0);
+  await app.commands.run('edit.undo');
+  expect(doc.state === original).toBe(true);
+  expect(doc.dirty).toBe(false);
+  encoding.jobs[0].finish();
+  await pending;
+  const path = command === 'save' ? '/u/Source.wav' : '/u/New.wav';
+  expect(doc.source.path).toBe(path);
+  expect(await samples(saved, path)).toEqual(Array(32).fill(-0.25));
+  expect.soft(doc.savedState === encoded).toBe(true);
+  expect.soft(doc.dirty).toBe(true);
+  await app.commands.run('edit.redo');
+  expect(doc.state === encoded).toBe(true);
+  expect.soft(doc.dirty).toBe(false);
+  await app.commands.run('edit.undo');
+  expect(doc.state === original).toBe(true);
+  expect.soft(doc.dirty).toBe(true);
+  await app.commands.run('file.save');
+  expect(await samples(saved, path)).toEqual(Array(32).fill(0.25));
+  expect(doc.dirty).toBe(false);
+  expect(app.notify).not.toHaveBeenCalled();
+});

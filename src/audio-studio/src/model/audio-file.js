@@ -97,8 +97,9 @@ export class AudioFile extends Emitter {
     return m.every(Boolean) ? null : m;
   }
 
-  markSaved() {
-    this.savedState = this.state;
+  /** Marks `state` (by default the current one) as what the file holds. */
+  markSaved(state = this.state) {
+    this.savedState = state;
     this.emit('change', { kind: 'saved' });
   }
 

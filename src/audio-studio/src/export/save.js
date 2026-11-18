@@ -120,7 +120,7 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
       if (!blob) return false;
       await write(`Saving ${name}`, blob);
       // Save As may have moved this document while the old write was pending.
-      if (doc.state === state && doc.source?.type === 'puter' && doc.source.path === path) doc.markSaved();
+      if (doc.source?.type === 'puter' && doc.source.path === path) doc.markSaved(state);
       app.setStatus(`Saved ${name}`);
       return true;
     });
@@ -203,8 +203,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         const exportOptions = { ...r.options, from };
         doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
         if (doc.name !== r.fileName) doc.rename(r.fileName);
-        if (doc.state === state) doc.markSaved();
-        else doc.emit('change', { kind: 'saved' });
+        doc.markSaved(state);
       }
       app.setStatus(path ? `Saved ${r.fileName} to ${dir}` : `Downloaded ${r.fileName}`);
       app.emit('exported', { doc, path, fileName: r.fileName, options: r.options, mode });
