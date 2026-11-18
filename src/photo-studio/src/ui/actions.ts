@@ -1,6 +1,7 @@
 import { isVectorGradient } from "../model/vector-gradient";
 import { gradientStop } from "../model/gradient-edit";
 import { hasMask } from '../model/masks';
+import { activeLayerStyle } from '../model/layer-style';
 import type { Editor } from '../editor';
 import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRoots, visibleRows } from '../model/layers';
 import { placeDuplicateArtboards } from '../model/artboard';
@@ -472,18 +473,27 @@ export async function performAction(e: Editor, action: string): Promise<void> {
             // children as if they were not grouped.
             (l.blend !== 'normal' && l.blend !== 'pass through') ||
             hasMask(l) ||
+            !!l.maskGrid ||
+            !!l.vectorMask ||
+            !!activeLayerStyle(l) ||
             Object.values(l.filters).some(Boolean),
         )
       )
         throw new Error(
-          'Reset group adjustments, masks, opacity and blend mode before ungrouping.',
+          'Clear the group’s mask, layer style, adjustments, opacity and blend mode before ungrouping.',
         );
+      // A clipped group's layers join its clipping group in its place, which
+      // shows them as before unless some of them clip to each other inside it.
+      if (groups.some((l) => l.clipped && l.children.some((c) => c.clipped)))
+        throw new Error('Release the clipping masks inside the clipped group before ungrouping it.');
       const ids = groups.flatMap((l) => l.children.map((c) => c.id));
       e.command('Ungroup layers', (d) => {
         for (const group of groups) {
           const list = containerOf(d.layers, group.id)!;
           const index = list.findIndex((l) => l.id === group.id);
-          list.splice(index, 1, ...list[index].children);
+          const g = list[index];
+          if (g.clipped) for (const c of g.children) c.clipped = true;
+          list.splice(index, 1, ...g.children);
         }
       });
       if (groups.length) e.selectLayers(ids);

@@ -82,3 +82,60 @@ test('Alt-clicking an eye shows only that group or nested layer, and again shows
   await idle(page);
   expect(await visibility()).toEqual([[true], [true], [true, true, true]]);
 });
+
+test('ungrouping keeps the picture: a clipped group clips its layers, a masked group refuses', async ({
+  page,
+}) => {
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { layer } = await import('/src/model/document.ts');
+    const base = layer('solid', 'Base', 40, 40);
+    base.color = '#ff0000';
+    base.transform = { x: 10, y: 10, width: 40, height: 40, rotation: 0 };
+    const blue = layer('solid', 'Blue', 300, 200);
+    blue.color = '#0000ff';
+    const green = layer('solid', 'Green', 20, 20);
+    green.color = '#00ff00';
+    green.transform = { x: 30, y: 30, width: 20, height: 20, rotation: 0 };
+    const g = layer('group', 'Group', 300, 200);
+    g.blend = 'pass through';
+    g.clipped = true;
+    g.children = [blue, green];
+    e.command('Add layers', (d) => d.layers.push(base, g));
+    e.selectLayers([g.id]);
+  });
+  await idle(page);
+  const pixels = async () => [
+    await compositePixel(page, 5, 5),
+    await compositePixel(page, 15, 15),
+    await compositePixel(page, 40, 40),
+  ];
+  const before = await pixels();
+  expect(before).toEqual([
+    [128, 128, 128, 255],
+    [0, 0, 255, 255],
+    [0, 255, 0, 255],
+  ]);
+  await run(page, 'layer.ungroup');
+  expect(
+    await page.evaluate(() => window.photoStudio.doc.layers.map((l) => [l.name, !!l.clipped])),
+  ).toEqual([
+    ['Background', false],
+    ['Base', false],
+    ['Blue', true],
+    ['Green', true],
+  ]);
+  expect(await pixels()).toEqual(before);
+  // A group's layer mask would be lost: Ungroup refuses and changes nothing.
+  await page.evaluate(() =>
+    window.photoStudio.selectLayers(window.photoStudio.doc.layers.slice(1).map((l) => l.id)),
+  );
+  await run(page, 'layer.group');
+  await run(page, 'layer.mask-hide-all');
+  const masked = await pixels();
+  const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+  await run(page, 'layer.ungroup');
+  await expect(page.locator('#status')).toContainText('before ungrouping');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
+  expect(await pixels()).toEqual(masked);
+});
