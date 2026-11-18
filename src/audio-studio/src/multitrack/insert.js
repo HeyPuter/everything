@@ -19,18 +19,26 @@ export async function channelsAtRate(channels, from, to) {
 
 /** Pool source id for an AudioFile, adding or refreshing the pool entry. */
 export async function linkSource(session, doc) {
-  for (const src of session.pool.values()) {
-    if (src.docId === doc.id && src.stateRef === doc.state) return src.id;
+  for (;;) {
+    const state = doc.state;
+    const sourceRate = doc.sampleRate;
+    const rate = session.sampleRate;
+    for (const src of session.pool.values()) {
+      if (src.docId === doc.id && src.stateRef === state) return src.id;
+    }
+    const channels = await channelsAtRate(state.channels, sourceRate, rate);
+    // Edits can arrive while DSP loads. Never cache old samples under a newer
+    // document version, or overwrite a source refreshed by a later request.
+    if (doc.state !== state || doc.sampleRate !== sourceRate || session.sampleRate !== rate) continue;
+    const existing = [...session.pool.values()].find((s) => s.docId === doc.id);
+    if (existing) {
+      session.updateSource(existing.id, { channels, stateRef: state, name: doc.name });
+      return existing.id;
+    }
+    const id = session.addSource({ name: doc.name, channels, sampleRate: sourceRate, docId: doc.id, path: doc.source?.path || null });
+    session.pool.get(id).stateRef = state;
+    return id;
   }
-  const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
-  const existing = [...session.pool.values()].find((s) => s.docId === doc.id);
-  if (existing) {
-    session.updateSource(existing.id, { channels, stateRef: doc.state, name: doc.name });
-    return existing.id;
-  }
-  const id = session.addSource({ name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: doc.source?.path || null });
-  session.pool.get(id).stateRef = doc.state;
-  return id;
 }
 
 /** Next free "Track N" name. */
@@ -192,10 +200,17 @@ export function syncLinkedSources(app, doc) {
     for (const s of sessions) {
       for (const src of s.pool.values()) {
         if (src.docId !== doc.id || src.stateRef === doc.state) continue;
-        const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, s.sampleRate);
-        s.updateSource(src.id, { channels, stateRef: doc.state, name: doc.name });
-        const fitted = S.fitClipsToSource(s.state, src.id, channels[0]?.length ?? 0);
-        if (fitted !== s.state) s.apply('Fit Clips to Source', fitted);
+        for (;;) {
+          const state = doc.state;
+          const sourceRate = doc.sampleRate;
+          const rate = s.sampleRate;
+          const channels = await channelsAtRate(state.channels, sourceRate, rate);
+          if (doc.state !== state || doc.sampleRate !== sourceRate || s.sampleRate !== rate) continue;
+          s.updateSource(src.id, { channels, stateRef: state, name: doc.name });
+          const fitted = S.fitClipsToSource(s.state, src.id, channels[0]?.length ?? 0);
+          if (fitted !== s.state) s.apply('Fit Clips to Source', fitted);
+          break;
+        }
       }
     }
     app.syncGraph();
