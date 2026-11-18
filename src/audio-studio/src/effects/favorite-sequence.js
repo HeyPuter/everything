@@ -159,9 +159,13 @@ export async function runEffectRepeatable(app, def, values) {
 
 /** Replays steps on the active audio file, one undo step each. Resolves false when a step could not run. */
 export async function runSteps(app, steps) {
+  const doc = app.active?.kind === 'audio' ? app.active : null;
+  if (!doc) return false;
   for (const step of steps) {
-    const doc = app.active?.kind === 'audio' ? app.active : null;
-    if (!doc) return false;
+    if (app.active !== doc) {
+      app.notify('The favorite stopped because the active file changed. Completed steps were kept.', { error: true });
+      return false;
+    }
     const range = placeSelection(step.select, doc.length, doc.sampleRate);
     if (range) {
       if (range[0] === range[1]) {
