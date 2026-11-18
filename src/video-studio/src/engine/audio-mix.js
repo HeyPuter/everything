@@ -9,6 +9,7 @@
  */
 import { Input, BlobSource, ALL_FORMATS, AudioBufferSink } from 'mediabunny';
 import { US } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 import { projectDuration } from '../model/timeline.js';
 import { loadDsp, mixRamp, resample, softClip, PeakLimiter } from '../media/dsp.js';
 import { audibleClips, gainAt } from './scene.js';
@@ -81,9 +82,9 @@ export function stereoDown(channels) {
   return [L, R];
 }
 
-export function mediabunnyOpener(library) {
+export function mediabunnyOpener(library, { signal } = {}) {
   return async (asset) => {
-    const blob = await library.mediaBlob(asset);
+    const blob = await abortable(() => library.mediaBlob(asset), signal);
     const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
@@ -407,7 +408,7 @@ export async function* mixChunks(project, library, { start = 0, end, sampleRate 
   const stop = end ?? projectDuration(project);
   const total = Math.max(0, Math.round(((stop - start) * sampleRate) / US));
   const chunk = Math.max(GAIN_BLOCK, Math.round(chunkSeconds * sampleRate));
-  const open = openSource || mediabunnyOpener(library);
+  const open = openSource || mediabunnyOpener(library, { signal });
   const clips = audibleClips(project)
     .map(({ clip }) => clip)
     .filter((c) => c.start < stop && c.start + c.duration > start && project.assets[c.assetId])
@@ -419,6 +420,7 @@ export async function* mixChunks(project, library, { start = 0, end, sampleRate 
     let s = sources.get(asset.id);
     if (!s) {
       s = open(asset).catch((err) => {
+        if (signal?.aborted) throw abortError();
         onSkip?.(null, err);
         return null;
       });

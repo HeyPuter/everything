@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createCompound } from '../src/model/compound.js';
@@ -139,6 +139,24 @@ describe('audio mix', () => {
     const ac = new AbortController();
     ac.abort();
     await expect(renderAudio(p, null, { sampleRate: SR, openSource, signal: ac.signal })).rejects.toThrow(/cancel/i);
+  });
+
+  it('does not turn a canceled source read into a successful silent mix', async () => {
+    const { p } = project([makeClip('audio', { assetId: 'a', duration: US })], {});
+    const controller = new AbortController();
+    let finishRead;
+    const library = { mediaBlob: vi.fn(() => new Promise((resolve) => { finishRead = resolve; })) };
+    let outcome;
+    const pending = renderAudio(p, library, { sampleRate: SR, signal: controller.signal })
+      .then(() => { outcome = 'completed'; }, (err) => { outcome = err.name; });
+    try {
+      await vi.waitFor(() => expect(library.mediaBlob).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await vi.waitFor(() => expect(outcome).toBe('AbortError'), { timeout: 200, interval: 5 });
+    } finally {
+      finishRead?.(new Blob(['late file']));
+      await pending;
+    }
   });
 
   it('mixClipInto leaves samples outside the clip untouched', () => {

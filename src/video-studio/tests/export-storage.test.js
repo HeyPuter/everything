@@ -108,4 +108,27 @@ describe('WAV temporary storage', () => {
     await expect(exportProject(silentProject(), {}, { audioFormat: 'wav' }, { kind: 'audio', target: 'file' })).rejects.toThrow('Disk is full');
     expect(storage.dir.removeEntry).toHaveBeenCalledWith(storage.name());
   });
+
+  it.each(['resolve', 'reject'])('removes the temporary file while a canceled source read is still pending (%s later)', async (late) => {
+    const storage = temporaryStorage();
+    const p = fixture();
+    onMain(p, clip('video', 0, 0.01));
+    const controller = new AbortController();
+    let complete;
+    const library = { mediaBlob: vi.fn(() => new Promise((resolve, reject) => { complete = late === 'resolve' ? resolve : reject; })) };
+    let outcome;
+    const pending = exportProject(p, library, { audioFormat: 'wav' }, { kind: 'audio', target: 'file', signal: controller.signal })
+      .then(() => { outcome = 'completed'; }, (err) => { outcome = err.name; });
+    try {
+      await vi.waitFor(() => expect(library.mediaBlob).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await vi.waitFor(() => expect(outcome).toBe('AbortError'), { timeout: 200, interval: 5 });
+      expect(storage.dir.removeEntry).toHaveBeenCalledWith(storage.name());
+      expect(storage.chunks).toHaveLength(1); // Only the header, no source decoded.
+    } finally {
+      complete?.(late === 'resolve' ? new Blob(['late file']) : new Error('Late read failure'));
+      await pending;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  });
 });

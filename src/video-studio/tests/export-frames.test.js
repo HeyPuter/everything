@@ -69,6 +69,34 @@ describe('renderFrames', () => {
 });
 
 describe('frame rendering responsiveness', () => {
+  it.each(['image', 'video'])('cancels a pending %s read without decoding the late file', async (type) => {
+    const p = fixture();
+    onMain(p, clip(type, 0, 0.01));
+    const controller = new AbortController();
+    let finishRead;
+    const library = { mediaBlob: vi.fn(() => new Promise((resolve) => { finishRead = resolve; })) };
+    const bitmap = vi.fn(async () => ({ width: 64, height: 36, close() {} }));
+    vi.stubGlobal('createImageBitmap', bitmap);
+    const frames = renderFrames(p, library, { width: 64, height: 36, fps: 30, signal: controller.signal });
+    let outcome;
+    const pending = frames.next().then(() => { outcome = 'frame'; }, (err) => { outcome = err.name; });
+    try {
+      await vi.waitFor(() => expect(library.mediaBlob).toHaveBeenCalledTimes(1));
+      controller.abort();
+      await vi.waitFor(() => expect(outcome).toBe('AbortError'), { timeout: 200, interval: 5 });
+      finishRead(new Blob(['late file']));
+      await pending;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(bitmap).not.toHaveBeenCalled();
+      expect(inputLifecycle.track).not.toHaveBeenCalled();
+    } finally {
+      finishRead?.(new Blob(['late file']));
+      await pending;
+      await frames.return();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not yield a frame when cancellation happens during media loading', async () => {
     const p = fixture();
     onMain(p, clip('video', 0, 0.01));
@@ -77,7 +105,9 @@ describe('frame rendering responsiveness', () => {
     const frames = renderFrames(p, library, { width: 64, height: 36, fps: 30, signal: controller.signal });
     try {
       await expect(frames.next()).rejects.toMatchObject({ name: 'AbortError' });
-      expect(inputLifecycle.dispose).toHaveBeenCalledTimes(1);
+      // Cancellation during the read now prevents opening a decoder at all.
+      expect(inputLifecycle.track).not.toHaveBeenCalled();
+      expect(inputLifecycle.dispose).not.toHaveBeenCalled();
     } finally {
       await frames.return();
     }
