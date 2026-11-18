@@ -1193,6 +1193,8 @@ dialog:has(> .shortcut-editor) { width: min(720px, calc(100vw - 32px)); max-widt
 .action-row small { margin-left: auto; color: var(--muted); }
 .action-row.recording { color: #ff6b6b; }
 .step-check, .step-dialog { width: 18px; min-height: 18px; padding: 0; border: 1px solid var(--line-soft); font-size: 10px; }
+.action-name { display: block; flex: 1; min-width: 0; min-height: 18px; padding: 0 2px; color: inherit; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.action-name:hover:not(:disabled), .action-name:active:not(:disabled) { background: transparent; }
 .layer-footer .recording { color: #ff4d4d; }
 .history-snapshots { border-bottom: 2px solid var(--line); }
 .history-snapshot { display: flex; align-items: stretch; }
