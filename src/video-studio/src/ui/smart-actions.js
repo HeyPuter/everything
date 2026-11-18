@@ -173,10 +173,10 @@ export function createSmartActions(ctx) {
       const sensitivity = prefs().sceneSensitivity ?? 0.5;
       const p = progressDialog('Finding scene changes', `Looking through ${asset?.name || 'the clip'}...`);
       try {
-        const blob = await ctx.library.mediaBlob(asset);
+        const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
         const fps = to - from > 600 * US ? 2 : 5;
         const cuts = await detectScenes(blob, from, to, { fps, sensitivity, signal: p.signal, onProgress: (x) => p.set(x) });
-        p.close();
+        p.signal.throwIfAborted();
         const times = sceneSplitTimes(clip, cuts, store.fps || store.project.settings.fps || 30);
         if (!times.length) {
           toast('No scene changes were found in this clip.', { kind: 'info' });
@@ -191,11 +191,12 @@ export function createSmartActions(ctx) {
         toast(`Split into ${made + 1} scenes.`, { kind: 'success' });
         announce(`Split into ${made + 1} scenes`);
       } catch (err) {
-        p.close();
-        if (err?.name !== 'AbortError') {
+        if (!p.signal.aborted && err?.name !== 'AbortError') {
           console.error(err);
           toast(err?.message || 'Could not analyze this clip.', { kind: 'error' });
         }
+      } finally {
+        p.close();
       }
     },
 
