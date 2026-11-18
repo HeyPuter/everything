@@ -143,3 +143,11 @@ it('keeps the mask cursor at the pointer throughout a paint drag and redraw', ()
   close(mapped(env.overlay.el.querySelector('.mask-brush-cursor'), [0, 0]), end);
   fire(env.overlay.el, 'pointerup', end);
 });
+
+it.each([[false, true, false], [true, false], [false, true, false, true, false]])('composites overlapping removal strokes in their paint/erase order (%j)', (...erase) => {
+  const env = setup('removal', true);
+  env.shape.strokes = erase.map((erase, i) => ({ erase, size: 0.2 - i * 0.02, pts: i % 2 ? [0, 0, 0.05, 0] : [0, 0] }));
+  env.draw();
+  const colors = [...env.overlay.el.querySelectorAll('mask path, mask circle')].map(el => el.getAttribute('stroke') || el.getAttribute('fill'));
+  expect(colors).toEqual(erase.map(value => value ? '#000' : '#fff'));
+});

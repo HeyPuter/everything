@@ -60,17 +60,17 @@ export function createRemovalOverlay({ store, actions, stage }) {
     return cur.srcToCss(sx, sy);
   };
 
-  /** Path data of a painted region's strokes: { paint: [{ d, w }], erase: [{ d, w }] }. */
+  /** Local stroke geometry in paint/erase order, as the source mask composites it. */
   function strokePaths(r) {
     const { a, b } = maskHalf(r, cur.SW, cur.SH);
     const unit = Math.min(2 * a, 2 * b);
-    const out = { paint: [], erase: [] };
+    const out = [];
     for (const s of r.strokes || []) {
       const pts = [];
       for (let i = 0; i < s.pts.length; i += 2) pts.push([s.pts[i] * 2 * a, s.pts[i + 1] * 2 * b]);
       // Keep local coordinates and width together so SVG transforms the whole
       // stroke, including its round caps, through unequal axes and shear.
-      (s.erase ? out.erase : out.paint).push({ d: pts.length ? `M${pts.map(p => p.join(',')).join('L')}` : '', point: pts.length === 1 ? pts[0] : null, w: Math.max(0.5, s.size * unit) });
+      out.push({ erase: s.erase, d: pts.length ? `M${pts.map(p => p.join(',')).join('L')}` : '', point: pts.length === 1 ? pts[0] : null, w: Math.max(0.5, s.size * unit) });
     }
     return out;
   }
@@ -100,8 +100,8 @@ export function createRemovalOverlay({ store, actions, stage }) {
       if (r.hidden) return;
       const selected = i === sel;
       if (r.type === 'brush') {
-        const { paint, erase } = strokePaths(r);
-        if (!paint.length) return;
+        const paths = strokePaths(r);
+        if (!paths.some(p => !p.erase)) return;
         if (removeEdit.show) {
           const id = `${uidBase}-m${i}`;
           const m = svg('mask', { id, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: cssW, height: cssH });
@@ -109,8 +109,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
           const addStroke = (p, color) => strokes.append(p.point
             ? svg('circle', { cx: p.point[0], cy: p.point[1], r: p.w / 2, fill: color })
             : svg('path', { d: p.d, fill: 'none', stroke: color, 'stroke-width': p.w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-          paint.forEach(p => addStroke(p, '#fff'));
-          erase.forEach(p => addStroke(p, '#000'));
+          paths.forEach(p => addStroke(p, p.erase ? '#000' : '#fff'));
           m.append(strokes);
           defs.append(m);
           kids.push(svg('rect', { class: `${tintClass}${selected ? ' selected' : ''}`, x: 0, y: 0, width: cssW, height: cssH, mask: `url(#${id})` }));
