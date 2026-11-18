@@ -439,6 +439,7 @@ export async function startPerspectiveWarp(e: Editor) {
   const l = target.layer;
   if (target.kind === 'pixel') {
     const s = new PerspectiveWarpSession(e, l.id, 'pixel', translate(target.rect.x, target.rect.y), target.rect);
+    s.rasterized = target.rasterized;
     s.begin();
     s.setSource(target.source);
     return;

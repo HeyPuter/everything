@@ -578,6 +578,7 @@ export async function startPinWarp(e: Editor) {
   const l = target.layer;
   if (target.kind === 'pixel') {
     const s = new PinWarpSession(e, l.id, translate(target.rect.x, target.rect.y));
+    s.rasterized = target.rasterized;
     s.begin();
     s.setSource(target.source);
     return;

@@ -15,13 +15,29 @@ import { resize } from '../../imaging/filters/resample';
 import { replaceLayer } from '../transform/replace';
 import { rasterizeLayer } from '../pixels';
 import { refocusAfterChoice } from '../transform/focus';
+import type { History, HistoryMark } from '../../history/history';
 
 let active: WarpSession | undefined;
 export const currentWarp = () => active;
 
+/** A type, shape or other layer rasterized for a warp: the step belongs to
+ * the warp, so committing joins it to the warp's step and cancelling takes
+ * it back. `after` is the document the rasterization produced. */
+export type Rasterized = { history: History; mark: HistoryMark; after: PhotoDocument };
 /** Pixels a session edits: a pixel layer's content in document space, or an
  * embedded image layer's source (placed by its layer transform). */
-export type WarpTarget = { layer: Layer; kind: 'pixel'; rect: IRect; source: RGBA8 } | { layer: Layer; kind: 'image' };
+export type WarpTarget = { layer: Layer; kind: 'pixel'; rect: IRect; source: RGBA8; rasterized?: Rasterized } | { layer: Layer; kind: 'image' };
+/** Take back a rasterization made for a warp that did not commit. */
+export function revertRasterized(e: Editor, r: Rasterized) {
+  const h = r.history;
+  if (h.document === r.after) {
+    h.undo();
+    // Drop the undone step instead of leaving it to redo.
+    h.squash(r.mark, '');
+    e.update();
+  } else if (h.document === r.mark.state.doc) h.squash(r.mark, '');
+  else h.release(r.mark);
+}
 
 /** Resolve the single selected layer for a warp. Type, shapes and fill
  * layers (and embedded images unless `allowImage`) are rasterized after the
@@ -45,22 +61,35 @@ export async function warpTarget(e: Editor, feature: string, allowImage: boolean
     return;
   }
   if (l.kind === 'image' && allowImage) return { layer: l, kind: 'image' };
+  let rasterized: Rasterized | undefined;
   if (l.kind !== 'pixel') {
     const what = l.kind === 'text' ? 'type layer' : l.kind === 'vector' ? 'shape layer' : l.kind === 'image' ? 'embedded image' : 'layer';
     const { formDialog } = await import('../../ui/dialog');
-    const ok = await formDialog(`Rasterize “${l.name}”?`, [], 'Rasterize', `${feature} edits pixels. The ${what} will be converted to a pixel layer and its content will no longer be editable as before.`);
+    const ok = await formDialog(`Rasterize “${l.name}”?`, [], 'Rasterize', `${feature} edits pixels. The ${what} will be converted to a pixel layer when the warp is committed; cancelling keeps it as it is.`);
     if (!ok) return;
-    await rasterizeLayer(e, l.id);
+    const history = e.history;
+    const mark = history.mark();
+    try {
+      await rasterizeLayer(e, l.id);
+    } catch (error) {
+      history.release(mark);
+      throw error;
+    }
+    rasterized = { history, mark, after: e.doc };
     l = e.layer;
-    if (!l || l.kind !== 'pixel') return;
+    if (!l || l.kind !== 'pixel') {
+      revertRasterized(e, rasterized);
+      return;
+    }
   }
   const b = l.pixels ? gridDocBounds(l.pixels) : null;
   if (!b) {
+    if (rasterized) revertRasterized(e, rasterized);
     e.message('The layer is empty.');
     return;
   }
   if (l.liveFilters) e.message('Warping pixels rasterizes this layer’s Live Filters (undo restores them).');
-  return { layer: l, kind: 'pixel', rect: b, source: readRGBA(e.assets.tiles, l.pixels!, b) };
+  return { layer: l, kind: 'pixel', rect: b, source: readRGBA(e.assets.tiles, l.pixels!, b), rasterized };
 }
 
 /** Reduced copy for interactive previews (`factor` = small / full). */
@@ -84,6 +113,9 @@ export abstract class WarpSession<S = unknown> {
   private redoStack: S[] = [];
   // Whether anything was changed during the session.
   protected edited = false;
+  // The layer was rasterized for this session (see warpTarget).
+  rasterized?: Rasterized;
+  private cancelling = false;
 
   constructor(
     protected e: Editor,
@@ -127,10 +159,27 @@ export abstract class WarpSession<S = unknown> {
     this.retire();
     this.dispose();
     if (restoreTool && this.e.tool === this.tool) this.e.setTool(this.previousTool);
+    const r = this.rasterized;
+    if (r) {
+      this.rasterized = undefined;
+      if (this.cancelling) revertRasterized(this.e, r);
+      // Commits record their step right after ending the session: the
+      // rasterization joins it as one undo step.
+      else
+        queueMicrotask(() => {
+          const h = r.history;
+          if (h.document === r.after) revertRasterized(this.e, r);
+          else {
+            h.squash(r.mark, h.labels.at(-1) ?? 'Rasterize Layer');
+            this.e.update();
+          }
+        });
+    }
   }
   /** Release workers and other resources when the session ends. */
   protected dispose() {}
   cancel(restoreTool = true) {
+    this.cancelling = true;
     this.end(restoreTool);
     this.e.update();
   }

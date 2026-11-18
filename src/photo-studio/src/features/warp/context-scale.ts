@@ -15,7 +15,7 @@ import { resize } from '../../imaging/filters/resample';
 import { contextScale, protectionMap, seamOrder, seamSize, widthPass, type ContextScaleOrders, type SeamAxis } from '../../imaging/warp/seam-carve';
 import { handleUV, type Handle } from '../transform/math';
 import { progressHud } from '../filters/hud';
-import { previewCopy, WarpSession, warpTarget } from './session';
+import { previewCopy, revertRasterized, WarpSession, warpTarget } from './session';
 import { seamOrderJob } from './client';
 
 export { CONTEXT_SCALE_TOOL } from './ids';
@@ -440,9 +440,11 @@ export async function startContextScale(e: Editor) {
   const target = await warpTarget(e, 'Context Scale', false);
   if (!target || target.kind !== 'pixel') return;
   if (target.rect.width < 3 || target.rect.height < 3) {
+    if (target.rasterized) revertRasterized(e, target.rasterized);
     e.message('The layer is too small to scale by content.');
     return;
   }
   const s = new ContextScaleSession(e, target.layer.id, target.rect, target.source);
+  s.rasterized = target.rasterized;
   s.begin();
 }

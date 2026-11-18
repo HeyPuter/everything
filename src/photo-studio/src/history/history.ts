@@ -104,6 +104,13 @@ export class History {
     this.holds++;
     return { state: this.states[this.index - 1], existing: new Set(this.states.filter((s) => s !== top)), open: true };
   }
+  /** Close a mark without combining anything (its states stay as they are). */
+  release(mark: HistoryMark) {
+    if (!mark.open) return;
+    mark.open = false;
+    this.holds--;
+    this.trim();
+  }
   /** Replace the states recorded since `mark` with one step showing the
    * current document. Returns whether the edits left a step behind. */
   squash(mark: HistoryMark, label: string) {
