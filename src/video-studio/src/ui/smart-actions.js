@@ -79,6 +79,7 @@ export function reframeSize(settings, r) {
  * Returns { id, scale, keys: [{ t, x, y }] }.
  */
 export async function reframePlan(c, asset, blob, { dstAR, follow = 0.35, zoom = 1, signal, onProgress } = {}) {
+  signal?.throwIfAborted();
   const crop = c.crop || { l: 0, t: 0, r: 0, b: 0 };
   const cw = 1 - crop.l - crop.r;
   const ch = 1 - crop.t - crop.b;
@@ -89,12 +90,16 @@ export async function reframePlan(c, asset, blob, { dstAR, follow = 0.35, zoom =
   let path;
   if (c.type === 'image') {
     const bmp = await createImageBitmap(blob);
-    const cv = new OffscreenCanvas(RF_W, RF_H);
-    const g = cv.getContext('2d', { willReadFrequently: true });
-    g.drawImage(bmp, 0, 0, RF_W, RF_H);
-    bmp.close?.();
-    const a = attentionCenter(g.getImageData(0, 0, RF_W, RF_H).data, RF_W, RF_H);
-    path = [{ t: 0, x: a.x, y: a.y }];
+    try {
+      signal?.throwIfAborted();
+      const cv = new OffscreenCanvas(RF_W, RF_H);
+      const g = cv.getContext('2d', { willReadFrequently: true });
+      g.drawImage(bmp, 0, 0, RF_W, RF_H);
+      const a = attentionCenter(g.getImageData(0, 0, RF_W, RF_H).data, RF_W, RF_H);
+      path = [{ t: 0, x: a.x, y: a.y }];
+    } finally {
+      bmp.close?.();
+    }
   } else if (c.freeze) {
     // A held frame still belongs to a video file. Decode that source instant
     // once, then keep its framing stationary for the whole freeze clip.
@@ -521,19 +526,23 @@ export function createSmartActions(ctx) {
         const plans = [];
         try {
           for (let i = 0; i < targets.length; i++) {
+            p.signal.throwIfAborted();
             const c = targets[i];
             const f = T.findClip(store.project, c.id);
             if (!f || f.track.locked) continue;
             const asset = store.project.assets[c.assetId];
             if (!asset?.width || !asset?.height) continue;
             const blob = await ctx.library.mediaBlob(asset);
+            p.signal.throwIfAborted();
             plans.push(await reframePlan(c, asset, blob, { dstAR, follow: Number(follow.value), zoom: Number(zoom.value), signal: p.signal, onProgress: (x) => p.set((i + x) / targets.length) }));
+            p.signal.throwIfAborted();
             p.set((i + 1) / targets.length);
           }
           p.close();
         } catch (err) {
+          const canceled = p.signal.aborted;
           p.close();
-          if (err?.name !== 'AbortError') toast(err?.message || 'Could not reframe these clips.', { kind: 'error' });
+          if (!canceled && err?.name !== 'AbortError') toast(err?.message || 'Could not reframe these clips.', { kind: 'error' });
           return;
         }
         store.update('Auto reframe', (proj) => {
