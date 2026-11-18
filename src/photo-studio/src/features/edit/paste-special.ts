@@ -9,22 +9,12 @@ import { pasteMask } from '../../model/housekeeping';
 import type { RGBA8 } from '../../imaging/types';
 import { insertAboveSelection } from '../layers/insert';
 import { nextLayerName } from '../pixels';
-import { internalClipboard, purgeClipboard } from '../core';
+import { clipboardContent, internalClipboard, purgeClipboard } from '../core';
 
-/** The clipboard image: the editor's own copy, else an image on the system clipboard. */
+/** The clipboard image: the editor's own copy, or the system clipboard's
+ * image when something else was copied since. */
 async function clipboardImage(): Promise<{ image: RGBA8; x: number; y: number } | undefined> {
-  const own = internalClipboard();
-  if (own) return own;
-  try {
-    for (const item of await navigator.clipboard.read()) {
-      const type = item.types.find((t) => t.startsWith('image/'));
-      if (!type) continue;
-      const { decodeBrowserImage } = await import('../files/open');
-      return { image: await decodeBrowserImage(await item.getType(type)), x: 0, y: 0 };
-    }
-  } catch {
-    /* Reading the system clipboard needs permission. */
-  }
+  return clipboardContent();
 }
 
 /** Paste into a new layer masked by the selection (or its inverse). The mask
