@@ -36,6 +36,7 @@ export class SessionRecorder {
   constructor(app) {
     this.app = app;
     this.take = null;
+    this.stopping = null;
     // Stopping the transport any other way (Space, switching documents)
     // ends the take instead of leaving the input capturing.
     app.on('transport', (state) => {
@@ -44,15 +45,16 @@ export class SessionRecorder {
   }
 
   get active() {
-    return Boolean(this.take);
+    return Boolean(this.take || this.stopping);
   }
 
   async toggle(doc) {
-    if (this.take) return this.stop();
+    if (this.active) return this.stop();
     return this.start(doc);
   }
 
   async start(doc) {
+    if (this.active) return;
     const app = this.app;
     const armed = doc.state.tracks.filter((t) => t.type === 'audio' && t.arm);
     if (!armed.length) {
@@ -115,9 +117,22 @@ export class SessionRecorder {
   }
 
   async stop() {
-    const app = this.app;
+    if (this.stopping) return this.stopping;
     const take = this.take;
+    if (!take) return;
     this.take = null;
+    // Flushing and committing still own the input. A second Record click
+    // must not open another capture that this stop would then close.
+    this.stopping = this.#finish(take);
+    try {
+      return await this.stopping;
+    } finally {
+      this.stopping = null;
+    }
+  }
+
+  async #finish(take) {
+    const app = this.app;
     const engine = app.engine;
     engine.setRecording(false);
     // Let the capture worklet flush its last block.
