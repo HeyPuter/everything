@@ -3,7 +3,9 @@ export function normalizePath(path) {
   const parts = [];
   for (const part of path.split('/')) {
     if (!part || part === '.') continue;
-    if (part === '..' && parts.length && parts.at(-1) !== '..') parts.pop();
+    // The parent of ~ depends on the account's home. Leave that step for
+    // Puter to resolve instead of turning it into an app-relative path.
+    if (part === '..' && parts.length && parts.at(-1) !== '..' && !(parts.length === 1 && parts[0] === '~')) parts.pop();
     else if (part !== '..' || !path.startsWith('/')) parts.push(part);
   }
   return (path.startsWith('/') ? '/' : '') + parts.join('/');

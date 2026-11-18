@@ -92,13 +92,28 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
 
 async function writeCloudSession(app, doc, { path, name, copy }) {
   const dir = dirOf(path);
+  const homeRelative = (p) => p === '~' || p.startsWith('~/');
+  let home;
+  // Resolve unlike roots only when a used offline source needs it. Ordinary
+  // saves and references using the same root require no account lookup.
+  sources: for (const c of doc.state.clips) {
+    for (const id of [c.sourceId, c.stretch?.sourceId, c.remix?.sourceId, c.soundAssistant?.duration?.orig?.sourceId]) {
+      const src = doc.pool.get(id);
+      if (src?.offline && src.path && homeRelative(src.path) !== homeRelative(dir)) {
+        home = await puter.homeDir();
+        if (!home.startsWith('/')) throw new Error('Could not resolve the Puter home folder. Try saving this session again.');
+        break sources;
+      }
+    }
+  }
+  const resolved = (p) => home && homeRelative(p) ? `${home}${p.slice(1)}` : p;
   // What the file holds: edits made while the media uploads stay unsaved.
   const saved = doc.state;
   const onDisk = savedMediaOf(doc, path);
   const { text, media, video } = serializeSession(doc, {
     name,
     mediaPath: (id, src, file) => {
-      if (src.offline && src.path) return relativePath(dir, src.path);
+      if (src.offline && src.path) return relativePath(resolved(dir), resolved(src.path));
       const prior = onDisk.get(id);
       if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
       return src.channels?.length ? mediaRevision(file) : file;
