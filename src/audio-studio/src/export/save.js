@@ -54,6 +54,8 @@ function encodeWithProgress(doc, options, range, label) {
 
 /** Puter path -> completion of the last reserved encode/upload operation. */
 const uploads = new Map();
+let nextSaveAs = 0;
+const appliedSaveAs = new WeakMap();
 
 /** Reserve write order before encoding, while allowing encodes to run in parallel. */
 async function withUploadOrder(path, work) {
@@ -130,6 +132,7 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
  * `range` = [start, end) for 'selection'.
  */
 export async function saveFlow(app, doc, { mode = 'export', range = null } = {}) {
+  const saveAsId = mode === 'saveAs' ? ++nextSaveAs : 0;
   // A selection's coordinates belong to the audio shown when the command ran.
   // Keep its source stable through the dialog, sign-in and destination checks.
   const sourceDoc = mode === 'selection' ? {
@@ -190,7 +193,10 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         item = await write(label, blob);
         rememberRecent(app, { name: r.fileName, path });
       } else downloadBlob(blob, r.fileName);
-      if (mode === 'saveAs') {
+      // Independent destinations can finish out of order. Keep the newest
+      // successful Save As association; failed/cancelled attempts don't win.
+      if (mode === 'saveAs' && saveAsId > (appliedSaveAs.get(doc) || 0)) {
+        appliedSaveAs.set(doc, saveAsId);
         doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
         const from = { sampleRate: state.sampleRate, channels: state.channels.length };
         const exportOptions = { ...r.options, from };
