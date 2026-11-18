@@ -105,6 +105,7 @@ export function inheritFromCompound(copy, c, W, H) {
   const plain = JSON.stringify(c.transform) === JSON.stringify(DEFAULT_TRANSFORM);
   if (copy.transform && !plain) copy.transform = composeTransform(c.transform, copy.transform, W, H);
   if ('opacity' in copy) copy.opacity *= c.opacity;
+  if ('blend' in copy && (!copy.blend || copy.blend === 'normal') && c.blend) copy.blend = c.blend;
   if ('volume' in copy) copy.volume *= c.volume;
   if (c.muted && 'muted' in copy) copy.muted = true;
   return copy;

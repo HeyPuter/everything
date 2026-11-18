@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
+import { createMulticam, flattenMulticam } from '../src/model/multicam-edit.js';
 import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength, setTransition, deleteClips, MIN_CLIP } from '../src/model/timeline.js';
 import { normalizeProject, makeClip, MAX_COMPOUND_DEPTH, compoundDepth } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
@@ -632,5 +633,34 @@ describe('compound render cache invalidation', () => {
     } finally {
       now.mockRestore();
     }
+  });
+});
+
+
+describe('flattened compound appearance', () => {
+  it.each(['compound', 'multicam'])('preserves inherited blend modes when flattening a %s', type => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const b = clip('video', 0, 4);
+    addClip(p, b, FREE);
+    const c = type === 'compound' ? createCompound(p, [a.id, b.id], FREE) : createMulticam(p, [a.id, b.id], FREE);
+    c.blend = 'multiply';
+    const before = evaluate(p, s(1)).map(l => l.blend);
+    if (type === 'compound') breakApart(p, c.id, FREE);
+    else flattenMulticam(p, c.id);
+    expect(evaluate(p, s(1)).map(l => l.blend)).toEqual(before);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(p)));
+    expect(evaluate(loaded, s(1)).map(l => l.blend)).toEqual(before);
+  });
+
+  it('keeps a child blend override when breaking apart', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    a.blend = 'screen';
+    const c = createCompound(p, [a.id], FREE);
+    c.blend = 'multiply';
+    const before = evaluate(p, s(1))[0].blend;
+    breakApart(p, c.id, FREE);
+    expect(evaluate(p, s(1))[0].blend).toBe(before);
   });
 });
