@@ -45,14 +45,16 @@ export function dspModule() {
  * The module's bytes. The playback worklet compiles its own copy: browsers
  * (Chrome) refuse a compiled WebAssembly.Module posted to an AudioWorklet.
  */
-export function dspBytes() {
+export function dspBytes({ refresh = false } = {}) {
+  if (refresh) bytesPromise = null;
   if (!bytesPromise) {
     bytesPromise = fetch(wasmUrl).then((res) => {
       if (!res.ok) throw new Error(`DSP module: HTTP ${res.status}`);
       return res.arrayBuffer();
     });
-    bytesPromise.catch(() => {
-      bytesPromise = null;
+    const pending = bytesPromise;
+    pending.catch(() => {
+      if (bytesPromise === pending) bytesPromise = null;
     });
   }
   return bytesPromise;

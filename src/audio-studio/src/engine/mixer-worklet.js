@@ -52,8 +52,9 @@ class MixerProcessor extends AudioWorkletProcessor {
           .then((r) => {
             this.host = new FxHost(r.instance || r, sampleRate);
             this.resolveFx();
+            this.port.postMessage({ type: 'dsp-ready', request: m.request });
           })
-          .catch((err) => this.port.postMessage({ type: 'error', message: `Effects are unavailable: ${err}` }));
+          .catch((err) => this.port.postMessage({ type: 'error', request: m.request, message: `Effects are unavailable: ${err}` }));
         break;
       }
       case 'graph':

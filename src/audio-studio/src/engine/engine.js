@@ -39,6 +39,10 @@ export function cleanMap(map) {
 
 const wholeFrame = (f) => Math.max(0, Math.round(Number(f) || 0));
 const wholeLoop = (loop) => (loop ? { ...loop, start: wholeFrame(loop.start), end: wholeFrame(loop.end) } : null);
+const needsEffects = (graph) => {
+  const active = (chain) => chain?.some((slot) => slot.enabled !== false || slot.shadow);
+  return active(graph.master?.fx) || graph.tracks.some((track) => active(track.fx) || track.clips?.some((clip) => active(clip.fx)));
+};
 
 export class Engine extends Emitter {
   constructor() {
@@ -62,6 +66,8 @@ export class Engine extends Emitter {
     this.input = null;
     this.inputRequest = 0;
     this.contextPromise = null;
+    this.dspInit = null;
+    this.dspRequest = 0;
     // Preferences > Audio Hardware and Audio Channel Mapping.
     this.latencyHint = 'interactive';
     this.sinkId = '';
@@ -97,6 +103,7 @@ export class Engine extends Emitter {
   }
 
   async #create(rate) {
+    if (this.dspInit && !this.dspInit.ready) this.dspInit.reject(new DOMException('Audio context replaced', 'AbortError'));
     this.stop();
     // An open input (input metering) moves to the new context.
     const input = this.input ? { deviceId: this.input.deviceId } : null;
@@ -129,21 +136,22 @@ export class Engine extends Emitter {
       numberOfOutputs: 1,
       outputChannelCount: [2],
     });
-    node.port.onmessage = (e) => this.#onMessage(e.data);
-    node.onprocessorerror = (e) => console.warn('[engine] processor error', e);
+    node.port.onmessage = (e) => { if (this.node === node) this.#onMessage(e.data); };
+    node.onprocessorerror = (e) => {
+      if (this.node !== node) return;
+      console.warn('[engine] processor error', e);
+      this.dspInit?.reject(new Error('Audio processor failed'));
+      this.stop();
+      this.node = null; // A failed worklet is permanently silent; recreate it on retry.
+      this.emit('engine-error', 'The audio processor failed. Try Play again to retry.');
+    };
     this.node = node;
     this.outputRoute = null;
     this.#routeOutput();
     if (this.sinkId) await this.#applySink();
     // The worklet compiles the DSP from its bytes (a compiled module posted to
     // an AudioWorklet fails to arrive in Chrome, which left every effect out).
-    let bytes = null;
-    try {
-      bytes = await dspBytes();
-    } catch {
-      // Effects are unavailable without DSP; plain playback still works.
-    }
-    node.port.postMessage({ type: 'init', bytes });
+    this.#prepareDsp(node);
     this.sent.clear();
     node.port.postMessage({ type: 'graph', graph: this.graph });
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
@@ -160,6 +168,26 @@ export class Engine extends Emitter {
       }
     }
     return ctx;
+  }
+
+  /** Download and compile effects once per worklet; failed attempts can retry. */
+  #prepareDsp(node) {
+    if (this.dspInit?.node === node && !this.dspInit.error) return this.dspInit;
+    const refresh = Boolean(this.dspInit?.error && this.dspInit.error.name !== 'AbortError');
+    const init = { node, id: ++this.dspRequest, ready: false, error: null };
+    init.promise = new Promise((resolve, reject) => {
+      init.resolve = resolve;
+      init.reject = (err) => { init.error = err; init.ready = false; reject(err); };
+    });
+    // Plain playback and input metering do not need DSP, but still start the
+    // download. Effect playback explicitly awaits this same promise.
+    init.promise.catch(() => {});
+    this.dspInit = init;
+    dspBytes({ refresh }).then((bytes) => {
+      if (this.node !== node || this.dspInit !== init) throw new DOMException('Audio context replaced', 'AbortError');
+      node.port.postMessage({ type: 'init', bytes, request: init.id });
+    }).catch(init.reject);
+    return init;
   }
 
   /** Chooses the device that plays output ('' = system default). Needs AudioContext.setSinkId. */
@@ -228,6 +256,15 @@ export class Engine extends Emitter {
   }
 
   #onMessage(m) {
+    const init = this.dspInit;
+    if (init && m.request === init.id) {
+      if (m.type === 'dsp-ready') {
+        init.ready = true;
+        init.resolve();
+        return;
+      }
+      if (m.type === 'error') init.reject(new Error(m.message));
+    }
     if (m.seq !== undefined && m.seq !== this.seq) {
       // Sent before the latest play, seek or loop jump: out of date.
       if (m.type === 'pos' || m.type === 'meters' || m.type === 'ended') return;
@@ -321,6 +358,10 @@ export class Engine extends Emitter {
    * Channel[]; chunks already sent for unchanged keys are reused.
    */
   setGraph(graph, sources) {
+    if (this.playing && needsEffects(graph) && !this.dspInit?.ready) {
+      this.stop();
+      this.emit('engine-error', 'Playback stopped because effects are not ready. Try Play again to load them.');
+    }
     // The context runs at one rate and the mixer does not convert: audio at
     // another rate (Convert Sample Type during playback, or undoing it) would
     // play at the wrong speed and pitch, so playback stops.
@@ -361,9 +402,20 @@ export class Engine extends Emitter {
     if (to != null) to = wholeFrame(to);
     loop = wholeLoop(loop);
     const rate = this.graph.rate || this.rate;
+    const previousNode = this.node;
     await this.ensure(rate);
     if (signal?.aborted) return;
     if (this.ctx.sampleRate !== rate) throw new UserError(`This browser can't play ${rate} Hz audio. Convert its sample rate (Edit > Convert Sample Type) to play it.`);
+    if (needsEffects(this.graph)) {
+      const init = this.node !== previousNode ? this.dspInit : this.#prepareDsp(this.node);
+      try {
+        await init.promise;
+      } catch {
+        if (signal?.aborted) return;
+        throw new UserError('Effects could not be loaded. Try Play again to retry.');
+      }
+      if (signal?.aborted) return;
+    }
     this.range = { from, to, loop };
     this.toEnd = to != null && to === graphLength(this.graph);
     this.#jumped(from);

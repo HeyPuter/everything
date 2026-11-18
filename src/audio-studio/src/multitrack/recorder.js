@@ -104,7 +104,6 @@ export class SessionRecorder {
     take.offClose = doc.on('close', () => { take.closed = true; this.stop(); });
     take.offActive = app.on('active', (active) => { if (active !== doc) this.stop(); });
     this.take = take;
-    engine.setRecording(true);
     app.playStart = from;
     try {
       await engine.play({ from, to: punch && !loop ? punch.end : null, loop: loop ? { start: punch.start, end: punch.end } : null, signal: take.controller.signal });
@@ -132,6 +131,9 @@ export class SessionRecorder {
       throw err;
     }
     if (this.take !== take) return;
+    // Context/DSP preparation may wait on I/O. Capturing during that wait
+    // would prepend unrelated input before playback actually starts.
+    engine.setRecording(true);
     app.setStatus?.('Recording...');
     app.recording = true;
     app.emit('transport', 'recording');
