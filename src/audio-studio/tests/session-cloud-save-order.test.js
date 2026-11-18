@@ -311,3 +311,52 @@ it.each([['saveAs', 'media'], ['saveAs', 'manifest'], ['saveCopy', 'media'], ['s
   await app.commands.run('file.save');
   expect(doc.dirty).toBe(false);
 });
+
+it.each(['saved', 'failed', 'undo during upload'])('tracks the on-disk state when Save a Copy replaces its own file: %s', async (outcome) => {
+  const app = setup();
+  const { doc, clips } = session(app);
+  const cloud = storage();
+  cloud.release();
+  await app.commands.run('file.save');
+  const original = doc.state;
+  const originalSource = doc.source;
+  const originalName = doc.name;
+  doc.selectClips([clips[0].id]);
+  await app.commands.run('edit.delete');
+  const changed = doc.state;
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const write = window.puter.fs.write;
+  let uploading = false;
+  window.puter.fs.write = async (path, blob) => {
+    if (path === '/u/Song.asesx') {
+      uploading = true;
+      await wait;
+      if (outcome === 'failed') throw new Error('Upload failed');
+    }
+    return write(path, blob);
+  };
+  const copying = app.commands.run('file.saveCopy');
+  await confirmSessionSave('Song.asesx', { replace: true });
+  await vi.waitFor(() => expect(uploading).toBe(true), { interval: 1 });
+  if (outcome === 'undo during upload') await app.commands.run('edit.undo');
+  release();
+  await copying;
+  const manifest = JSON.parse(await cloud.stored.get('/u/Song.asesx').text());
+  expect(manifest.session.clips.map((clip) => clip.id)).toEqual(outcome === 'failed' ? clips.map((clip) => clip.id) : [clips[1].id]);
+  for (const src of manifest.sources) expect(cloud.stored.has(`/u/${src.file}`)).toBe(true);
+  expect(doc.source).toBe(originalSource);
+  expect(doc.name).toBe(originalName);
+  expect.soft(doc.savedState === (outcome === 'failed' ? original : changed)).toBe(true);
+  expect.soft(doc.dirty).toBe(outcome !== 'saved');
+  if (outcome !== 'undo during upload') await app.commands.run('edit.undo');
+  expect(doc.state === original).toBe(true);
+  expect.soft(doc.dirty).toBe(outcome !== 'failed');
+  await app.commands.run('edit.redo');
+  expect(doc.state === changed).toBe(true);
+  expect.soft(doc.dirty).toBe(outcome === 'failed');
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+  window.puter.fs.write = write;
+  await app.commands.run('file.save');
+  expect(doc.dirty).toBe(false);
+});

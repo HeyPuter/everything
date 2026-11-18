@@ -97,6 +97,10 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       if (doc.name !== name) doc.rename(name);
       doc.markSaved(saved);
       rememberRecent(app, { name, path });
+    } else if (doc.source?.type === 'puter' && doc.source.path === path) {
+      // Replacing the associated file changes what Undo must compare against,
+      // even when the user chose Save a Copy rather than Save.
+      doc.markSaved(saved);
     }
     app.setStatus(`Saved ${name}`);
     return true;
