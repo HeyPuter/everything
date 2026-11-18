@@ -6,6 +6,8 @@
 // Entries are removed when a document is saved, reverted or closed, and the
 // total size is capped.
 
+import { wavChunksOf } from '../audio/wav.js';
+
 export const DIR_NAME = 'audio-studio-autosave';
 export const LOCK_PREFIX = 'audio-studio-session-';
 const VERSION = 1;
@@ -29,7 +31,7 @@ export function buildManifest(doc, { session, key, now = Date.now() }) {
     bitDepth: doc.info?.bitDepth ?? 32,
     format: doc.info?.format || 'wav',
     exportOptions: doc.info?.exportOptions || null,
-    wavChunks: packChunks(doc.info?.wavChunks),
+    wavChunks: packChunks(wavChunksOf(doc)),
     source: doc.source?.type === 'puter' ? { type: 'puter', path: doc.source.path, uid: doc.source.uid } : { type: doc.source?.type || 'new' },
     markers: doc.state.markers.map(({ id, ...m }) => m),
     meta: doc.state.meta || {},

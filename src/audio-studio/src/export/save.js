@@ -20,12 +20,13 @@ import { confirmDialog } from '../ui/dialog.js';
 import * as puter from '../storage/puter.js';
 import { downloadBlob, rememberRecent } from '../storage/files.js';
 import { VIDEO_EXTENSIONS, extensionOf } from '../audio/decode.js';
+import { wavChunksOf } from '../audio/wav.js';
 
 /** Encodes frames [start, end) of a document with export options. */
 export function encodeDoc(doc, options, { start = 0, end = doc.length, onProgress, signal } = {}) {
   const { channels, markers, meta } = doc.state;
   // WAV chunks kept from the opened file (iXML...); the pipeline keeps those still true.
-  const chunks = doc.info?.wavChunks || null;
+  const chunks = wavChunksOf(doc) || null;
   const source = { channels, sampleRate: doc.sampleRate, start, end, markers, chunks };
   source.meta = meta || {};
   return exportAudio(source, options, { onProgress, signal });
@@ -57,6 +58,32 @@ function encodeWithProgress(doc, options, range, label) {
 const uploads = new Map();
 let nextSaveAs = 0;
 const appliedSaveAs = new WeakMap();
+const writtenChunks = new WeakMap();
+const writtenRanges = new WeakMap();
+
+function stateInRange(state, range) {
+  if (!range || (range.start === 0 && range.end === (state.channels[0]?.length || 0))) return state;
+  const prior = writtenRanges.get(state);
+  if (prior?.start === range.start && prior.end === range.end) return prior.state;
+  const snapshot = {
+    ...state,
+    channels: state.channels.map((channel) => channel.slice(range.start, range.end)),
+    markers: exportMarkers(state.markers || [], range.start, range.end, state.sampleRate, state.sampleRate),
+  };
+  writtenRanges.set(state, { ...range, state: snapshot });
+  return snapshot;
+}
+
+function stateWithChunks(state, chunks) {
+  chunks = chunks || null;
+  if (state.wavChunks === chunks) return state;
+  const prior = writtenChunks.get(state);
+  if (prior?.chunks === chunks) return prior.state;
+  const snapshot = { ...state, wavChunks: chunks };
+  // Repeated writes of the same state must not dirty a tab that reverted to it.
+  writtenChunks.set(state, { chunks, state: snapshot });
+  return snapshot;
+}
 
 /** Reserve write order before encoding, while allowing encodes to run in parallel. */
 async function withUploadOrder(path, work) {
@@ -100,6 +127,23 @@ async function upload(label, path, blob, before) {
   return item;
 }
 
+/** Keep every open view of a written audio file consistent with its disk state. */
+function markWritten(app, doc, { path, state, options, size, chunks, range = null, associate = false }) {
+  const targets = new Set([doc, ...(app.documents || [])].filter((d) =>
+    (d === doc && associate) || (d.kind === 'audio' && path && d.source?.type === 'puter' && d.source.path === path)));
+  if (!targets.size) return;
+  // Partial exports retain a shared-block snapshot for Revert, while keeping
+  // each tab's editable audio and history untouched.
+  const saved = stateInRange(state, range);
+  const from = { sampleRate: state.sampleRate, channels: state.channels.length };
+  for (const target of targets) {
+    target.info = { ...target.info, format: options.format, exportOptions: { ...options, from }, size };
+    // Keep the open audio's chunks until Revert selects the written snapshot;
+    // Undo and crash recovery then follow the metadata of their own audio.
+    target.markSaved(target !== doc && target.info.wavChunks !== chunks ? stateWithChunks(saved, chunks) : saved);
+  }
+}
+
 /**
  * File > Save: in place when the document has a Puter file in a writable format, else Save As.
  * A video file (an .mp4 opened for its sound) is never overwritten with audio alone, nor a
@@ -116,12 +160,13 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
     return withUploadOrder(path, async (write) => {
       const options = optionsForSave(doc, format);
       const state = doc.state;
+      const chunks = wavChunksOf(doc);
       const name = doc.name;
       const blob = await encodeWithProgress(doc, options, {}, `Saving ${name}`);
       if (!blob) return false;
       await write(`Saving ${name}`, blob);
       // Save As may have moved this document while the old write was pending.
-      if (doc.source?.type === 'puter' && doc.source.path === path) doc.markSaved(state);
+      markWritten(app, doc, { path, state, options, size: blob.size, chunks });
       app.setStatus(`Saved ${name}`);
       return true;
     });
@@ -184,6 +229,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
     }
     return withUploadOrder(path, async (write) => {
       const state = sourceDoc.state;
+      const chunks = wavChunksOf(sourceDoc);
       const label = `${mode === 'export' || mode === 'download' ? 'Exporting' : 'Saving'} ${r.fileName}`;
       const blob = await encodeWithProgress(sourceDoc, r.options, bounds, label);
       if (!blob) {
@@ -203,21 +249,7 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
         if (doc.name !== r.fileName) doc.rename(r.fileName);
       }
-      if (associate || (path && doc.source?.type === 'puter' && doc.source.path === path)) {
-        const from = { sampleRate: state.sampleRate, channels: state.channels.length };
-        const exportOptions = { ...r.options, from };
-        doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
-        // Copy/Export can replace the associated file too. A partial export
-        // needs its own snapshot so Undo stays dirty and Revert restores the
-        // written selection, without changing the current editable audio.
-        const partial = range && (bounds.start !== 0 || bounds.end !== (state.channels[0]?.length || 0));
-        const saved = partial ? {
-          ...state,
-          channels: state.channels.map((channel) => channel.slice(bounds.start, bounds.end)),
-          markers: exportMarkers(state.markers || [], bounds.start, bounds.end, state.sampleRate, state.sampleRate),
-        } : state;
-        doc.markSaved(saved);
-      }
+      markWritten(app, doc, { path, state, options: r.options, size: blob.size, chunks, range: range ? bounds : null, associate });
       app.setStatus(path ? `Saved ${r.fileName} to ${dir}` : `Downloaded ${r.fileName}`);
       app.emit('exported', { doc, path, fileName: r.fileName, options: r.options, mode });
       return true;

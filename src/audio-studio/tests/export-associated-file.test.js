@@ -9,17 +9,20 @@ import { installCoreCommands } from '../src/commands/core.js';
 import { installIo } from '../src/features/io.js';
 import { dsp, setDspBytes } from '../src/audio/dsp.js';
 import { parseWav } from '../src/audio/wav.js';
+import { buildManifest, unpackChunks } from '../src/storage/autosave.js';
 
 // Exercise the real export source reads and WAV encoding with a 32-frame fixture.
 vi.mock('../src/export/export-worker.js?worker', async () => {
   const { WavWriter } = await import('../src/export/pcm.js');
+  const { keptChunks } = await import('../src/audio/wav.js');
   return { default: class {
     postMessage(message) {
       if (message.type === 'start') {
         this.job = message.job;
         queueMicrotask(() => this.onmessage({ data: { type: 'need', at: 0, n: this.job.frames } }));
       } else if (message.type === 'chunk') {
-        const writer = new WavWriter({ ...this.job.options, frames: this.job.frames, markers: this.job.markers, meta: this.job.meta });
+        const chunks = this.job.options.meta === false ? [] : keptChunks(this.job.chunks, { ...this.job.options, frames: this.job.frames });
+        const writer = new WavWriter({ ...this.job.options, frames: this.job.frames, markers: this.job.markers, meta: this.job.meta, chunks });
         writer.write(message.channels, this.job.frames);
         this.onmessage({ data: { type: 'done', blob: writer.finish() } });
       }
@@ -211,4 +214,138 @@ it('does not change saved state when Save As moves the document during a pending
   expect(doc.dirty).toBe(false);
   expect([...parseWav(await stored.get('/u/Source.wav').arrayBuffer()).channels[0]]).toEqual(pcm(copied));
   expect([...parseWav(await stored.get('/u/New.wav').arrayBuffer()).channels[0]]).toEqual(pcm(latest));
+});
+
+it.each(['saveAs', 'saveCopy', 'exportFile', 'saveSelectionAs'].flatMap((command) => ['saved', 'failed'].map((outcome) => [command, outcome])))('%s replacing another open file keeps its saved snapshot current when %s', async (command, outcome) => {
+  const { app, doc: target, stored } = await setup();
+  const original = target.state;
+  const targetSource = target.source;
+  const targetInfo = target.info;
+  const other = app.addDocument(new AudioFile({ name: 'Other.wav', sampleRate: 8000, channels: [Channel.fromSamples(new Float32Array(32).fill(0.75))], meta: { title: 'Other title' }, source: { type: 'puter', path: '/u/Other.wav' } }));
+  await app.commands.run('file.save');
+  await app.commands.run('fx.invert');
+  other.setSelection(4, 16);
+  const edited = other.state;
+  const write = window.puter.fs.write;
+  if (outcome === 'failed') window.puter.fs.write = async () => { throw new Error('Upload failed'); };
+  const { pending } = await exporting(app, command);
+  await pending;
+  window.puter.fs.write = write;
+  const output = outcome === 'failed' ? pcm(original) : Array(command === 'saveSelectionAs' ? 12 : 32).fill(-0.75);
+  expect([...parseWav(await stored.get('/u/Source.wav').arrayBuffer()).channels[0]]).toEqual(output);
+  expect(target.state).toBe(original);
+  expect(target.source).toBe(targetSource);
+  expect(target.name).toBe('Source.wav');
+  expect.soft(pcm(target.savedState)).toEqual(output);
+  expect.soft(target.dirty).toBe(outcome === 'saved');
+  expect(other.state).toBe(edited);
+  expect(app.active).toBe(other);
+  expect(app.notify).toHaveBeenCalledTimes(outcome === 'failed' ? 1 : 0);
+  if (outcome === 'failed') {
+    expect(target.info).toBe(targetInfo);
+    return;
+  }
+  // Revert must restore what the other tab wrote, while Undo keeps our audio.
+  app.activate(target);
+  // A failing baseline still allows the actual Revert command to run.
+  target.apply('Metadata edit', { ...target.state, meta: { title: 'Temporary edit' } });
+  const beforeRevert = target.state;
+  const reverting = app.commands.run('file.revert');
+  await vi.waitFor(() => expect([...document.querySelectorAll('.dialog-foot button')].some((b) => b.textContent === 'Revert')).toBe(true), { interval: 1 });
+  [...document.querySelectorAll('.dialog-foot button')].find((b) => b.textContent === 'Revert').click();
+  await reverting;
+  expect.soft(pcm(target.state)).toEqual(output);
+  expect.soft(target.state.meta.title).toBe('Other title');
+  expect(target.dirty).toBe(false);
+  await app.commands.run('edit.undo');
+  expect.soft(target.state === beforeRevert).toBe(true);
+  expect.soft(target.dirty).toBe(true);
+  await app.commands.run('file.save');
+  expect(target.dirty).toBe(false);
+  if (command === 'saveAs') {
+    expect(other.source.path).toBe('/u/Source.wav');
+    expect.soft(pcm(other.savedState)).toEqual(pcm(target.state));
+    expect.soft(other.dirty).toBe(true);
+  }
+});
+
+it.each(['edited', 'moved', 'closed'])('preserves a destination tab that is %s during another tab’s upload', async (action) => {
+  const { app, doc: target } = await setup();
+  const original = target.state;
+  const other = app.addDocument(new AudioFile({ name: 'Other.wav', sampleRate: 8000, channels: [Channel.fromSamples(new Float32Array(32).fill(-0.75))], source: { type: 'puter', path: '/u/Other.wav' } }));
+  let release;
+  let uploading = false;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const write = window.puter.fs.write;
+  window.puter.fs.write = async (path, blob) => {
+    if (path === '/u/Source.wav') { uploading = true; await wait; }
+    return write(path, blob);
+  };
+  const { pending } = await exporting(app, 'saveCopy');
+  await vi.waitFor(() => expect(uploading).toBe(true), { interval: 1 });
+  app.activate(target);
+  if (action === 'edited') await app.commands.run('fx.invert');
+  else if (action === 'moved') await (await exporting(app, 'saveAs', 'New.wav')).pending;
+  else await app.closeDocument(target);
+  const current = target.state;
+  const info = target.info;
+  const active = app.active;
+  release();
+  await pending;
+  expect(target.state).toBe(current);
+  expect(app.active).toBe(active);
+  expect(target.savedState).toBe(action === 'edited' ? other.state : original);
+  expect(target.dirty).toBe(action === 'edited');
+  if (action === 'edited') {
+    await app.commands.run('edit.undo');
+    expect(target.state).toBe(original);
+    expect(target.dirty).toBe(true);
+  } else expect(target.info).toBe(info);
+  expect(target.source.path).toBe(action === 'moved' ? '/u/New.wav' : '/u/Source.wav');
+  expect(app.documents.includes(target)).toBe(action !== 'closed');
+  expect(app.notify).not.toHaveBeenCalled();
+});
+
+it.each([['save current', 'saveCopy', true], ['revert', 'saveCopy', true], ['revert', 'saveSelectionAs', true], ['revert', 'saveCopy', false]])('keeps metadata through %s after %s (incoming chunks: %s)', async (action, command, hasChunks) => {
+  const { app, doc: target, stored } = await setup();
+  const chunks = (text) => ({ sampleRate: 8000, channels: 1, frames: 32, list: [{ id: 'iXML', bytes: new TextEncoder().encode(text) }] });
+  target.info.wavChunks = chunks('<BWFXML><TAKE>Old</TAKE></BWFXML>');
+  const original = target.state;
+  await app.commands.run('file.save');
+  const incoming = hasChunks ? chunks('<BWFXML><TAKE>New</TAKE></BWFXML>') : undefined;
+  const other = app.addDocument(new AudioFile({ name: 'Other.wav', sampleRate: 8000, channels: [Channel.fromSamples(new Float32Array(32).fill(-0.75))], info: { wavChunks: incoming }, source: { type: 'puter', path: '/u/Other.wav' } }));
+  other.setSelection(4, 16);
+  const { pending } = await exporting(app, command);
+  await pending;
+  const readChunk = async () => new TextDecoder().decode(parseWav(await stored.get('/u/Source.wav').arrayBuffer()).chunks.find((c) => c.id === 'iXML')?.bytes || new Uint8Array());
+  const recoveredChunk = () => new TextDecoder().decode(unpackChunks(buildManifest(target, { session: 'test', key: 'test' }).wavChunks)?.list[0].bytes || new Uint8Array());
+  expect(await readChunk()).toBe(hasChunks ? '<BWFXML><TAKE>New</TAKE></BWFXML>' : '');
+  expect.soft(recoveredChunk()).toContain('<TAKE>Old</TAKE>');
+  app.activate(target);
+  if (action === 'save current') {
+    await app.commands.run('file.save');
+    expect.soft(await readChunk()).toContain('<TAKE>Old</TAKE>');
+    expect(target.state).toBe(original);
+    return;
+  }
+  const reverting = app.commands.run('file.revert');
+  await vi.waitFor(() => expect([...document.querySelectorAll('.dialog-foot button')].some((b) => b.textContent === 'Revert')).toBe(true), { interval: 1 });
+  [...document.querySelectorAll('.dialog-foot button')].find((b) => b.textContent === 'Revert').click();
+  await reverting;
+  const reverted = target.state;
+  app.activate(other);
+  await (await exporting(app, command)).pending;
+  expect.soft(target.savedState).toBe(reverted);
+  expect.soft(target.dirty).toBe(false);
+  app.activate(target);
+  expect(recoveredChunk()).toBe(hasChunks ? '<BWFXML><TAKE>New</TAKE></BWFXML>' : '');
+  await app.commands.run('edit.undo');
+  expect(target.state).toBe(original);
+  expect.soft(recoveredChunk()).toContain('<TAKE>Old</TAKE>');
+  await app.commands.run('edit.redo');
+  expect(recoveredChunk()).toBe(hasChunks ? '<BWFXML><TAKE>New</TAKE></BWFXML>' : '');
+  await app.commands.run('file.save');
+  expect(await readChunk()).toBe(hasChunks ? '<BWFXML><TAKE>New</TAKE></BWFXML>' : '');
+  expect(pcm(target.state)).toEqual(Array(command === 'saveSelectionAs' ? 12 : 32).fill(-0.75));
+  expect(target.dirty).toBe(false);
 });
