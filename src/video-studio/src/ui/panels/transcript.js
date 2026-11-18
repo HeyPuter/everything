@@ -216,6 +216,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     if (!applyCuts(rangesForWords(words(), idx), idx.length === 1 ? 'Cut word' : `Cut ${idx.length} words`)) return;
     focus = Math.min(r[0], words().length - 1);
     anchor = -1;
+    paintSelection();
     announce(`${idx.length} word${idx.length === 1 ? '' : 's'} cut`);
   }
 

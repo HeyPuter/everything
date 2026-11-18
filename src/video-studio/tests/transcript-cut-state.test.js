@@ -9,9 +9,9 @@ import { fixture, clip, onMain, s } from './helpers.js';
 vi.mock('../src/lib/dom.js', async original => ({ ...await original(), announce: vi.fn() }));
 const panels = [];
 afterEach(() => { panels.splice(0).forEach(p => p.dispose()); document.querySelectorAll('.dialog-close').forEach(b => b.click()); document.querySelector('.toasts')?.replaceChildren(); document.body.replaceChildren(); vi.restoreAllMocks(); announce.mockClear(); });
-function setup(locked) {
+function setup(locked, extra = false) {
   const p = fixture(); onMain(p, clip('video', 0, 4)); mainTrack(p).locked = locked;
-  p.transcript = { language: 'en', words: anchorWords(p, [{ text: 'um', start: s(.5), end: s(.8) }, { text: 'hello', start: s(1), end: s(1.3) }, { text: 'later', start: s(3), end: s(3.3) }]) };
+  p.transcript = { language: 'en', words: anchorWords(p, [{ text: 'um', start: s(.5), end: s(.8) }, { text: 'hello', start: s(1), end: s(1.3) }, { text: 'later', start: s(3), end: s(3.3) }, ...(extra ? [{ text: 'again', start: s(3.5), end: s(3.8) }] : [])]) };
   const store = new EditorStore(p), panel = transcriptPanel({ store, player: null, library: {} }, { scope: 'all', language: 'en' }, () => {}); panels.push(panel); document.body.append(panel.el);
   const body = panel.el.querySelector('.tr-words'); body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })); body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true })); announce.mockClear();
   return { store, panel };
@@ -39,4 +39,14 @@ it.each(['selection', 'fillers', 'pauses'])('keeps successful %s edits undoable 
   const { store, panel } = setup(false); await run(panel, kind); expect(document.querySelector('.toast.error')).toBeNull(); expect(store.history.undoStack).toHaveLength(1);
   expect(transcriptWords(store.project)).toHaveLength(kind === 'selection' ? 1 : kind === 'fillers' ? 2 : 3);
   const result = transcriptWords(store.project); store.undo(); expect(transcriptWords(store.project)).toHaveLength(3); store.redo(); expect(transcriptWords(normalizeProject(store.projectForSave()))).toEqual(result);
+});
+
+it.each(['button', 'Delete', 'Backspace'])('clears selection and places the cursor on the next word after a successful %s cut', how => {
+  const { store, panel } = setup(false, true), body = panel.el.querySelector('.tr-words'), remove = [...panel.el.querySelectorAll('button')].find(b => b.textContent === 'Delete selection');
+  if (how === 'button') remove.click(); else body.dispatchEvent(new KeyboardEvent('keydown', { key: how, bubbles: true }));
+  expect(transcriptWords(store.project).map(w => w.text)).toEqual(['later', 'again']);
+  expect(remove.disabled).toBe(true); expect(panel.el.querySelectorAll('.tr-word.sel')).toHaveLength(0); expect(panel.el.querySelector('.tr-sel-info').textContent).toBe(''); expect(panel.el.querySelector('.tr-word.cursor').textContent).toBe('later');
+  body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })); expect(store.history.undoStack).toHaveLength(1);
+  store.undo(); expect(transcriptWords(store.project)).toHaveLength(4); store.redo(); expect(transcriptWords(normalizeProject(store.projectForSave()))).toHaveLength(2); expect(remove.disabled).toBe(true);
+  body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true })); expect(remove.disabled).toBe(false); expect(panel.el.querySelectorAll('.tr-word.sel')).toHaveLength(2);
 });
