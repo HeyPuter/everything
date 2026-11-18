@@ -9,8 +9,8 @@ import type { ParamValues, RGBA8, RGBAF } from '../../imaging/types';
 import type { PhotoDocument } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
-import { applyToLayer, hexRgb, pixelTarget, previewTarget } from '../pixels';
-import { latest, openShell, previewTiles, readTarget, resultGrid } from '../adjust/dialog';
+import { applyToLayer, hexRgb, pixelTarget, previewTarget, previewTiles } from '../pixels';
+import { latest, openShell, readTarget, resultGrid } from '../adjust/dialog';
 import { operationInWorker } from '../adjust/worker-client';
 import { h, select, slider } from '../adjust/ui';
 import { previewJob, runJob, withTask } from './client';
@@ -189,7 +189,7 @@ export async function hdrToningDialog(e: Editor, arg?: unknown) {
   const context = () => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
   if (!given) {
     const shell = openShell(e, 'HDR Toning', { wide: true });
-    const tiles = previewTiles(e, target);
+    const tiles = previewTiles(e, target.grid);
     shell.body.classList.add('comp-form');
     const schedule = latest();
     const refresh = () => {

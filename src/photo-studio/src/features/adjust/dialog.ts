@@ -16,7 +16,7 @@ import { activeLayerStyle } from '../../model/layer-style';
 import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles';
 import { canvasRect, selectionGrid } from '../../model/selection';
 import { escapeXML } from '../../model/assets';
-import { applyToLayer, hexRgb, layerRGBA, pixelTarget, previewTarget, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
+import { applyToLayer, hexRgb, layerRGBA, pixelTarget, previewTarget, previewTiles, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
 import { DEFAULT_MATCH, labStats, matchColorLut, type LabStats, type MatchOptions } from './match-color';
 import type { AdjustHost } from './host';
 import { adjustmentSpec, specAdjustment } from './compile';
@@ -54,37 +54,6 @@ export function readTarget(e: Editor, t: PixelTarget): TargetPixels | null {
 }
 
 /** Grid for a computed result, blended by selection coverage like applyToLayer. */
-/** The tiles of a dialog's canvas previews (results made with `resultGrid`):
- * a preview replaced by the next one, and the last one when the dialog
- * closes (OK computes its own result), are freed once no render still reads
- * them, instead of staying in memory until a later edit's cleanup. */
-export function previewTiles(e: Editor, t: PixelTarget) {
-  const base = new Set(Object.values(t.grid.tiles));
-  let shown: string[] = [];
-  const retire = (ids: string[]) => {
-    if (!ids.length) return;
-    const store = e.assets.tiles;
-    const done = () => {
-      for (const id of ids) store.delete(id);
-    };
-    const r = e.renderer;
-    if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
-    else done();
-  };
-  return {
-    /** Note `grid` as the preview now shown; returns it. */
-    show(grid: TileGrid) {
-      const old = shown;
-      shown = Object.values(grid.tiles).filter((id) => !base.has(id));
-      retire(old);
-      return grid;
-    },
-    release() {
-      retire(shown);
-      shown = [];
-    },
-  };
-}
 export function resultGrid(e: Editor, t: PixelTarget, src: TargetPixels, out: RGBA8): TileGrid {
   const { cover, image } = src;
   if (t.kind !== 'pixels') {
@@ -276,7 +245,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   if (!src) return e.message('The layer is empty.');
   const label = ADJUSTMENT_LABELS[kind];
   const shell = openShell(e, label, { wide: kind === 'curves' || kind === 'levels' || kind === 'hue-saturation' || kind === 'gradient-map' });
-  const tiles = previewTiles(e, target);
+  const tiles = previewTiles(e, target.grid);
   // Clarity & Dehaze and Grain read neighboring pixels: clipped to a masked
   // layer, the GPU would see the hidden part as transparent while OK adjusts
   // the pixels under the mask too, so those preview the CPU result.
@@ -393,7 +362,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, op.label.replace(/…$/, ''));
-  const tiles = previewTiles(e, target);
+  const tiles = previewTiles(e, target.grid);
   const values: ParamValues = initial ? operationValues(op.params, initial) : Object.fromEntries(op.params.map((p) => [p.key, p.default]));
   const schedule = latest();
   const refresh = () => {
@@ -472,7 +441,7 @@ export async function matchColorDialog(e: Editor) {
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, 'Match Color');
-  const tiles = previewTiles(e, target);
+  const tiles = previewTiles(e, target.grid);
   const own = labStats(src.image, src.cover);
   const options: [string, string][] = [['', 'None']];
   for (const l of allLayers(e.doc.layers))

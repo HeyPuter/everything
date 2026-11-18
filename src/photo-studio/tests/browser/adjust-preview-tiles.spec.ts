@@ -53,3 +53,37 @@ test('Shadows/Highlights previews free their pixels when replaced and closed', a
   expect(await historyLabels(page)).toEqual(['Shadows/Highlights']);
   await expect.poll(() => tiles(page)).toBe(initial + 6);
 });
+
+test('Fade previews free their pixels when replaced and closed', async ({ page }) => {
+  await openImage(page, 600, 400, '#406080');
+  await start(page, 'filter.apply.gaussian-blur');
+  const filter = page.locator('dialog.filter-dialog[open]');
+  await filter.locator('input[type=number][data-key="radius"]').fill('6');
+  await filter.locator('.fd-ok').click();
+  await expect(filter).toHaveCount(0);
+  await idle(page);
+  await expect.poll(() => historyLabels(page)).toEqual(['Gaussian Blur']);
+  const initial = await tiles(page);
+  const dialog = page.locator('dialog.fade-dialog[open]');
+  const preview = async (value: string) => {
+    const before = await shown(page);
+    await dialog.locator('#fade-opacity').fill(value);
+    await expect.poll(() => shown(page)).not.toBe(before);
+  };
+  await start(page, 'edit.fade');
+  await expect(dialog).toBeVisible();
+  for (const v of ['70', '40', '20']) await preview(v);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  await expect.poll(() => tiles(page)).toBe(initial);
+  await start(page, 'edit.fade');
+  await expect(dialog).toBeVisible();
+  for (const v of ['60', '30']) await preview(v);
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  expect(await historyLabels(page)).toEqual(['Gaussian Blur', 'Fade Gaussian Blur']);
+  // The applied result (six tiles for 600 x 400) is all that is added.
+  await expect.poll(() => tiles(page)).toBe(initial + 6);
+});

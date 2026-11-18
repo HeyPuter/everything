@@ -83,6 +83,44 @@ export type PixelTarget =
   | { kind: 'mask'; layer: Layer; grid: TileGrid }
   | { kind: 'quick-mask'; grid: TileGrid };
 
+/** The tiles of a dialog's canvas previews (grids made from `base`, such as
+ * `resultGrid` results): a preview replaced by the next one, and the last one
+ * when the dialog closes, are freed once no render still reads them, instead
+ * of staying in memory until a later edit's cleanup. */
+export function previewTiles(e: Editor, base?: TileGrid) {
+  const kept = new Set(base ? Object.values(base.tiles) : []);
+  let shown: string[] = [];
+  const retire = (ids: string[]) => {
+    if (!ids.length) return;
+    const store = e.assets.tiles;
+    const done = () => {
+      for (const id of ids) store.delete(id);
+    };
+    const r = e.renderer;
+    if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
+    else done();
+  };
+  return {
+    /** Note the grids of the preview now shown; returns the first. */
+    show(...grids: TileGrid[]) {
+      const old = shown;
+      shown = grids.flatMap((g) => Object.values(g.tiles)).filter((id) => !kept.has(id));
+      retire(old);
+      return grids[0];
+    },
+    /** Free a result that is not the preview shown (one never shown). */
+    discard(grid: TileGrid) {
+      const now = new Set(shown);
+      retire(Object.values(grid.tiles).filter((id) => !kept.has(id) && !now.has(id)));
+    },
+    /** Free the last preview, except tiles of `applied` (a result OK commits). */
+    release(applied?: TileGrid) {
+      const keep = new Set(applied ? Object.values(applied.tiles) : []);
+      retire(shown.filter((id) => !keep.has(id)));
+      shown = [];
+    },
+  };
+}
 /** The editable raster for painting tools, rasterizing or creating as needed.
  * Painting an empty document adds a layer, a
  * selected mask receives mask paint, and embedded objects are rasterized. */
