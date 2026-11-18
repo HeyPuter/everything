@@ -7,6 +7,7 @@ import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import * as T from '../model/timeline.js';
 import { allClipsDeep } from '../model/compound.js';
+import { preserveMotionClock } from '../model/inherited-motion.js';
 import { storedTimelineTracks } from '../model/timelines.js';
 import { openDialog, confirmDialog, toast } from './dialog.js';
 import { ACCEPT_FOR } from '../media/media-types.js';
@@ -67,10 +68,12 @@ export function swapAsset(project, oldId, asset) {
       c.assetId = asset.id;
       if (c.name === old?.name) c.name = asset.name;
       if (toImage && c.type === 'video') {
-        c.type = 'image';
-        c.in = 0;
-        c.freeze = false;
-        c.reversed = false;
+        preserveMotionClock(c, () => {
+          c.type = 'image';
+          c.in = 0;
+          c.freeze = false;
+          c.reversed = false;
+        });
       }
       n++;
     }
@@ -146,7 +149,7 @@ export function createMediaActions(ctx) {
     /** Select every clip using an asset and jump to the first. */
     revealAsset(assetId) {
       const top = T.allClips(store.project);
-      let clips = top.filter((c) => c.assetId === assetId);
+      let clips = top.filter((c) => c.assetId === assetId || c.transitionSlices?.some(s => s.partner.assetId === assetId));
       // Only inside compound clips: those are what shows on the timeline.
       if (!clips.length) clips = top.filter((c) => c.type === 'compound' && allClipsDeep({ tracks: c.sequence.tracks }).some((x) => x.assetId === assetId));
       clips.sort((x, y) => x.start - y.start);

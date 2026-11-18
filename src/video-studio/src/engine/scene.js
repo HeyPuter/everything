@@ -8,7 +8,7 @@
  */
 import { placePose } from '../lib/geometry.js';
 import { valueAt } from '../model/keyframes.js';
-import { inheritedParents } from '../model/inherited-motion.js';
+import { inheritedParents, contentTime, clockTime, clockLocal } from '../model/inherited-motion.js';
 import { loudnessGain } from '../model/audio.js';
 import { clipEnd, nextAdjacent, sourceTimeAt } from '../model/timeline.js';
 import { sourceOffset } from '../model/speed-curve.js';
@@ -73,10 +73,12 @@ export function motionStateAt(clip, local) {
  * state.textAnim for the text renderer.
  */
 export function applyAnimations(clip, local, s) {
-  const dur = clip.duration;
+  const inTime = clip.animIn ? contentTime(clip, local, 'animIn') : null;
+  const outTime = clip.animOut ? contentTime(clip, local, 'animOut') : null;
+  const loopTime = clip.animLoop ? contentTime(clip, local, 'animLoop') : null;
   const a = clip.animIn;
-  if (a && a.duration > 0 && local < a.duration) {
-    const p = clamp01(local / a.duration);
+  if (a && a.duration > 0 && inTime.local < a.duration) {
+    const p = clamp01(inTime.local / a.duration);
     const e = easeOut(p);
     switch (a.id) {
       case 'fade-in': s.opacity *= p; break;
@@ -96,8 +98,8 @@ export function applyAnimations(clip, local, s) {
     if (isGlyphAnim(a.id)) (s.textAnim ||= []).push({ id: a.id, phase: 'in', p });
   }
   const o = clip.animOut;
-  if (o && o.duration > 0 && local > dur - o.duration) {
-    const p = clamp01((local - (dur - o.duration)) / o.duration);
+  if (o && o.duration > 0 && outTime.local > outTime.duration - o.duration) {
+    const p = clamp01((outTime.local - (outTime.duration - o.duration)) / o.duration);
     const e = easeIn(p);
     switch (o.id) {
       case 'fade-out': s.opacity *= 1 - p; break;
@@ -116,7 +118,7 @@ export function applyAnimations(clip, local, s) {
   }
   const c = clip.animLoop;
   if (c && c.duration > 0) {
-    const phase = WHOLE_LOOPS.has(c.id) ? clamp01(local / dur) : (local % c.duration) / c.duration;
+    const phase = WHOLE_LOOPS.has(c.id) ? clamp01(loopTime.local / loopTime.duration) : (loopTime.local % c.duration) / c.duration;
     const w = Math.sin(phase * Math.PI * 2);
     switch (c.id) {
       case 'sway': s.rotation += w * 8; break;
@@ -127,13 +129,15 @@ export function applyAnimations(clip, local, s) {
       case 'zoom-loop': s.scale *= 1 + 0.05 * (1 - Math.cos(phase * Math.PI * 2)); break;
       default: applyMotion('loop', c.id, phase, s); break;
     }
-    if (isGlyphAnim(c.id)) (s.textAnim ||= []).push({ id: c.id, phase: 'loop', p: isWholeClipAnim(c.id) ? clamp01(local / dur) : phase });
+    if (isGlyphAnim(c.id)) (s.textAnim ||= []).push({ id: c.id, phase: 'loop', p: isWholeClipAnim(c.id) ? clamp01(loopTime.local / loopTime.duration) : phase });
   }
   return s;
 }
 
 /** Evaluate a visual clip at timeline time t into a layer. */
 export function clipLayer(project, clip, t, trackIndex) {
+  const visible = clip;
+  clip = clip.renderSource || clip;
   const local = t - clip.start;
   const tr = keyedTransform(clip, local);
   const state = applyAnimations(clip, local, {
@@ -147,7 +151,7 @@ export function clipLayer(project, clip, t, trackIndex) {
   });
   const layer = {
     kind: clip.type === 'video' || clip.type === 'image' ? 'media' : clip.type,
-    clip,
+    clip: visible,
     trackIndex,
     x: state.x,
     y: state.y,
@@ -163,18 +167,18 @@ export function clipLayer(project, clip, t, trackIndex) {
     blend: clip.blend || 'normal',
   };
   // Animated graphics are drawn at clip-local time (microseconds).
-  if (clip.type === 'sticker') layer.local = local;
+  if (clip.type === 'sticker') layer.local = contentTime(clip, local, 'intrinsic').local;
   if (clip.type === 'text') {
     layer.textAnim = state.textAnim || null;
     layer.textColor = textColorAt(clip, local);
   }
   if (clip.type === 'avatar') {
     // A talking presenter: drawn over the whole frame in a pose for this moment (engine/avatars.js).
-    layer.local = local;
+    layer.local = contentTime(clip, local, 'intrinsic').local;
     layer.frameW = project.settings.width;
     layer.frameH = project.settings.height;
     const a = clip.avatar;
-    layer.pose = avatarPose({ seed: a.seed, t: local / 1e6, voiceSec: voiceTimeAt(project, a, t), lips: a.lips, framing: a.framing });
+    layer.pose = avatarPose({ seed: a.seed, t: layer.local / 1e6, voiceSec: voiceTimeAt(project, a, t), lips: a.lips, framing: a.framing });
   }
   applyInherited(layer, clip, local, project);
   if (clip.parent) withParent(layer, clip.parent, t, project);
@@ -222,8 +226,9 @@ export function clipLayer(project, clip, t, trackIndex) {
   const fx = look ? [look, ...activeClipEffects(clip)] : activeClipEffects(clip);
   if (fx.length) {
     layer.effects = fx;
-    layer.fxTime = local;
-    layer.fxDur = clip.duration;
+    const timing = contentTime(clip, local, 'effects');
+    layer.fxTime = timing.local;
+    layer.fxDur = timing.duration;
   }
   return layer;
 }
@@ -307,6 +312,30 @@ function sourceTimeForTransition(clip, t, asset) {
   return { time, held: time !== raw };
 }
 
+/** The off-window source of a saved transition, evaluated on its original clock. */
+function fragmentPartner(project, visible, slice, index, t, trackIndex) {
+  const owner = visible.renderSource || visible;
+  const local = t - owner.start;
+  const partnerTime = at => clockTime(owner, at, slice.clock) + slice.partnerOffset;
+  const partner = slice.partner;
+  const layer = clipLayer(project, partner, partnerTime(local), trackIndex);
+  if (slice.inherited?.length) {
+    const wrapper = { ...owner, inherited: slice.inherited };
+    applyInherited(layer, wrapper, local, project);
+    if (layer.extras?.motion) for (const sample of layer.extras.motion) placeInherited(sample, wrapper, local, project);
+  }
+  if (owner.parent) {
+    withParent(layer, owner.parent, t, project);
+    if (layer.extras?.motion) for (const sample of layer.extras.motion) placeInParents(sample, owner.parent, t, project);
+  }
+  // Each fragment claims its own decoder. Its source rate also follows later edits
+  // to the visible clip's speed; it must not become the player's steady clock.
+  layer.clip = { ...partner, id: `${visible.id}~transition:${index}`, parent: visible };
+  if (partner.type === 'video') layer.playbackRate = partner.freeze ? 0 :
+    (sourceOffset(partner, partnerTime(local + 100)) - sourceOffset(partner, partnerTime(local - 100))) / 200;
+  return layer;
+}
+
 /**
  * Layers visible at time t, bottom to top. Transition pairs are emitted as a
  * single { kind: 'transition', id, progress, from, to } entry.
@@ -322,40 +351,52 @@ export function evaluate(project, t, { includeHidden = false } = {}) {
     const clips = track.clips;
     // Transitions first: a window around a cut where both clips are drawn.
     let handled = false;
-    for (let i = 0; i < clips.length; i++) {
-      const a = clips[i];
+    const transitions = track.transitions;
+    for (let i = 0; i < (transitions ? transitions.length : clips.length); i++) {
+      const context = transitions?.[i];
+      const a = context ? context.from : clips[i];
       if (!a.transition) continue;
-      const cut = clipEnd(a);
+      const cut = context ? context.cut : clipEnd(a);
       const half = a.transition.duration / 2;
-      if (t < cut - half || t >= cut + half) continue;
-      const b = clips[i + 1];
+      if (t < (context ? context.start : cut - half) || t >= (context ? context.end : cut + half)) continue;
+      const b = context ? context.to : clips[i + 1];
       if (!b || Math.abs(b.start - cut) > 2000) continue;
-      // The fixed audio camera can keep whole clips outside its picture ranges.
-      // Its transitions must follow the camera cuts just like ordinary frames.
       if (a.disabled || b.disabled || !showsAt(a, t) || !showsAt(b, t)) continue;
       layers.push({
-        kind: 'transition',
-        id: a.transition.id,
+        kind: 'transition', id: a.transition.id,
         progress: clamp01((t - (cut - half)) / a.transition.duration),
-        from: clipLayer(project, a, Math.min(t, cut + half), ti),
-        to: clipLayer(project, b, Math.max(t, cut - half), ti),
-        trackIndex: ti,
+        from: clipLayer(project, a, t, ti), to: clipLayer(project, b, t, ti), trackIndex: ti,
       });
-      // Animations near the cut use the clip-local time, which can be out of range; clamp it.
       handled = true;
       break;
     }
     if (handled) continue;
-    const clip = binaryClipAt(clips, t);
-    if (!clip || clip.disabled || !showsAt(clip, t)) continue;
+    const visible = binaryClipAt(clips, t);
+    if (!visible || visible.disabled || !showsAt(visible, t)) continue;
+    const clip = visible.renderSource || visible;
+    if (clip.transitionSlices?.length) {
+      for (const [index, slice] of clip.transitionSlices.entries()) {
+        const local = clockTime(clip, t - clip.start, slice.clock);
+        if (slice.partner.disabled || local < slice.start || local >= slice.end) continue;
+        const self = clipLayer(project, visible, t, ti);
+        const partner = fragmentPartner(project, visible, slice, index, t, ti);
+        layers.push({ kind: 'transition', id: slice.id,
+          progress: clamp01((local - slice.cut + slice.duration / 2) / slice.duration),
+          from: slice.incoming ? partner : self, to: slice.incoming ? self : partner, trackIndex: ti });
+        handled = true;
+        break;
+      }
+      if (handled) continue;
+    }
     if (track.kind === 'effect') {
-      layers.push({ kind: 'effect', clip, effect: clip.effect, params: clip.params, local: t - clip.start, duration: clip.duration, trackIndex: ti });
+      const timing = contentTime(clip, t - clip.start, 'trackEffect');
+      layers.push({ kind: 'effect', clip, effect: clip.effect, params: clip.params, local: timing.local, duration: timing.duration, trackIndex: ti });
     } else if (track.kind === 'filter') {
       layers.push({ kind: 'filter', clip, filter: clip.filter, intensity: clip.intensity, trackIndex: ti });
     } else if (track.kind === 'adjust') {
       layers.push({ kind: 'adjust', clip, adjust: keyedAdjust(clip, t - clip.start), grade: clip.grade || null, trackIndex: ti });
     } else {
-      layers.push(clipLayer(project, clip, t, ti));
+      layers.push(clipLayer(project, visible, t, ti));
     }
   }
   return layers;
@@ -417,9 +458,30 @@ export function upcomingVideoStarts(project, t, ahead) {
   for (const track of project.tracks) {
     if (track.kind !== 'video' || track.hidden) continue;
     const clips = track.clips;
+    const pending = track.transitions ? new Map() : null;
+    for (const tr of track.transitions || []) {
+      if (tr.start > t + ahead || tr.end <= t) continue;
+      for (const c of [tr.from, tr.to]) if (c.type === 'video' && !c.disabled) {
+        const entry = { clip: c, prev: c === tr.to ? tr.from : null, from: tr.start, sourceTime: sourceTimeForTransition(c, tr.start, project.assets[c.assetId]).time };
+        if (!pending.has(c.id) || pending.get(c.id).from > entry.from) pending.set(c.id, entry);
+      }
+    }
     for (let i = 0; i < clips.length; i++) {
       const c = clips[i];
+      const owner = c.renderSource || c;
+      for (const [index, slice] of (owner.transitionSlices || []).entries()) {
+        if (c.disabled || slice.partner.disabled || slice.partner.type !== 'video') continue;
+        const from = Math.max(c.start, owner.start + clockLocal(owner, slice.start, slice.clock));
+        const end = Math.min(clipEnd(c), owner.start + clockLocal(owner, slice.end, slice.clock));
+        if (end <= from || from > t + ahead || end <= t) continue;
+        const layer = fragmentPartner(project, c, slice, index, from, 0);
+        out.push({ clip: layer.clip, prev: null, from, sourceTime: layer.sourceTime });
+      }
       if (c.type !== 'video') continue;
+      if (track.transitions) {
+        if (c.start <= t + ahead && clipEnd(c) > t && (!pending.has(c.id) || c.start < pending.get(c.id).from)) pending.set(c.id, { clip: c, prev: clips[i - 1] || null, from: c.start, sourceTime: sourceTimeAt(c, c.start) });
+        continue;
+      }
       const pad = c.transition ? c.transition.duration : 0;
       const prev = clips[i - 1] || null;
       const lead = prev?.transition ? prev.transition.duration : 0;
@@ -429,12 +491,15 @@ export function upcomingVideoStarts(project, t, ahead) {
         out.push({ clip: c, prev, from: into, sourceTime: sourceTimeForTransition(c, into, project.assets[c.assetId]).time });
       }
     }
+    if (pending) out.push(...pending.values());
   }
   return out;
 }
 
 /** Gain of an audio-bearing clip at timeline time t (keyframes, fades, mute). */
 export function gainAt(clip, t) {
+  if (clip.muted || clip.disabled) return 0;
+  clip = clip.renderSource || clip;
   let g = ownGain(clip, t);
   // Clips inside compound clips also follow the compound's volume and fades.
   for (let c = clip; c && g > 0; c = c.parent) {
@@ -449,8 +514,14 @@ function ownGain(clip, t) {
   const local = t - clip.start;
   // Loudness normalization is an extra gain on top of the volume the user sets.
   let g = Math.max(0, valueAt(clip.keyframes, 'volume', local, clip.volume)) * loudnessGain(clip);
-  if (clip.fadeIn > 0 && local < clip.fadeIn) g *= Math.max(0, local / clip.fadeIn);
-  if (clip.fadeOut > 0 && local > clip.duration - clip.fadeOut) g *= Math.max(0, (clip.duration - local) / clip.fadeOut);
+  if (clip.fadeIn > 0) {
+    const timing = contentTime(clip, local, 'fadeIn');
+    if (timing.local < clip.fadeIn) g *= Math.max(0, timing.local / clip.fadeIn);
+  }
+  if (clip.fadeOut > 0) {
+    const timing = contentTime(clip, local, 'fadeOut');
+    if (timing.local > timing.duration - clip.fadeOut) g *= Math.max(0, (timing.duration - timing.local) / clip.fadeOut);
+  }
   return Math.max(0, g);
 }
 

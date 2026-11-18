@@ -47,7 +47,8 @@ import { normalizeRemoval } from './removal.js';
 import { normalizeRetouch, normalizeFaceShape, normalizeHairColor, normalizeBodyShape, normalizeMakeup } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
 import { normalizeProxyMode } from './proxy.js';
-import { normalizeInherited } from './inherited-motion.js';
+import { normalizeTransitionSlices } from './transition-slices.js';
+import { normalizeInherited, normalizeTiming } from './inherited-motion.js';
 import { normalizeKeyCurve, isEase } from './keyframes.js';
 import { normalizeSmoothSlow } from './slow-motion.js';
 import { effectDefaults, normalizeEffectParams } from './effect-params.js';
@@ -390,6 +391,8 @@ export function normalizeClip(c) {
     out.animLoop = normAnim(c.animLoop ?? c.animCombo); // older projects saved this as animCombo
   }
   if ('keyframes' in base) out.keyframes = normKeyframes(c.keyframes);
+  const timing = normalizeTiming(c.timing);
+  if (timing) out.timing = timing;
   if (c.motionOffset && Number.isFinite(c.motionOffset)) out.motionOffset = c.motionOffset;
   if ('transform' in base || 'volume' in base) {
     const inherited = normalizeInherited(c.inherited, p => ({
@@ -398,6 +401,7 @@ export function normalizeClip(c) {
       duration: Math.max(1000, int(p.duration)), transform: normTransform(p.transform),
       opacity: clampN(p.opacity, 0, 1, 1), volume: clampN(p.volume, 0, 10, 1), muted: false, blend: 'normal',
       fadeIn: Math.max(0, int(p.fadeIn)), fadeOut: Math.max(0, int(p.fadeOut)),
+      ...(normalizeTiming(p.timing) ? { timing: normalizeTiming(p.timing) } : {}),
       animIn: normAnim(p.animIn), animOut: normAnim(p.animOut), animLoop: normAnim(p.animLoop), keyframes: normKeyframes(p.keyframes),
     }));
     if (inherited) out.inherited = inherited;
@@ -409,6 +413,8 @@ export function normalizeClip(c) {
     const grade = normalizeGrade(c.grade);
     if (grade) out.grade = grade;
     out.filter = c.filter && typeof c.filter.id === 'string' ? { id: c.filter.id, intensity: clampN(c.filter.intensity, 0, 100, 100) } : null;
+    const slices = normalizeTransitionSlices(c.transitionSlices, normalizeClip);
+    if (slices) out.transitionSlices = slices;
     out.transition = c.transition && typeof c.transition.id === 'string' ? { id: c.transition.id, duration: Math.max(100_000, int(c.transition.duration, 500_000)) } : null;
     out.freeze = bool(c.freeze);
     if (c.audioDetached) out.audioDetached = true;

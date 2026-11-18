@@ -12,7 +12,7 @@ import { isMultiColorSticker } from '../engine/stickers.js';
 import { findTextLook } from '../model/text-presets.js';
 import * as T from '../model/timeline.js';
 import { mirrorCurve } from '../model/speed-curve.js';
-import { preserveMotionClock } from '../model/inherited-motion.js';
+import { preserveMotionClock, resetContentTiming } from '../model/inherited-motion.js';
 import { toast, openDialog } from './dialog.js';
 import { createOrganizeActions } from './organize-actions.js';
 import { createSmartActions } from './smart-actions.js';
@@ -321,6 +321,7 @@ export function createActions(ctx) {
         const found = T.findClip(p, s.clip.id);
         if (!found || found.track.locked) return false;
         const c = found.clip;
+        resetContentTiming(c, key);
         if (!animId) c[key] = null;
         else {
           c[key] = { id: animId, duration: Math.min(duration ?? c[key]?.duration ?? def, c.duration) };
@@ -328,7 +329,8 @@ export function createActions(ctx) {
           if (kind === 'loop') {
             c.animIn = null;
             c.animOut = null;
-          } else c.animLoop = null;
+            resetContentTiming(c, 'animIn'); resetContentTiming(c, 'animOut');
+          } else { c.animLoop = null; resetContentTiming(c, 'animLoop'); }
         }
       });
     },

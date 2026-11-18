@@ -4,7 +4,8 @@ import { EditorStore } from '../src/model/store.js';
 import { Player } from '../src/engine/player.js';
 import { MediaPool } from '../src/engine/media-pool.js';
 import { evaluate } from '../src/engine/scene.js';
-import { addClip } from '../src/model/timeline.js';
+import { addClip, setTransition, setSpeed } from '../src/model/timeline.js';
+import { createCompound, breakApart } from '../src/model/compound.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 const players = [];
@@ -43,6 +44,23 @@ function setup(project) {
 }
 
 describe('preview playback through transitions', () => {
+  it('drives a retained partner at the retimed source rate and keeps its sound silent', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2, { in: s(3) }));
+    setTransition(p, a.id, 'mix', s(1));
+    const c = createCompound(p, [a.id, b.id], { ripple: false });
+    c.in = s(1.6); c.duration = s(0.3);
+    const [child] = breakApart(p, c.id);
+    setSpeed(p, child.id, 2, { ripple: false });
+    const { player, entries, frame } = setup(p);
+    player._startWait = { ref: null };
+    frame(s(0.1));
+    const partner = entries.get(`${child.id}~transition:0`);
+    expect(partner.el.currentTime).toBeCloseTo(2.8);
+    expect(partner.el.playbackRate).toBeCloseTo(2);
+    expect(partner.gain.gain.value).toBe(0);
+    expect(player._startWait.ref.entry).toBe(entries.get(child.id));
+  });
   it('silences the outgoing clip once its cut has passed, as the export does', () => {
     const p = fixture();
     const [a, b] = onMain(p, clip('video', 0, 5, { transition: { id: 'mix', duration: s(2) } }), clip('video', 5, 5, { in: s(2) }));

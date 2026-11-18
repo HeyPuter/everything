@@ -4,6 +4,7 @@
  * track management, copying attributes between clips and keyframe easing.
  * Mixed into the main actions object (see actions.js).
  */
+import { resetContentTiming } from '../model/inherited-motion.js';
 import { US, timecode } from '../lib/time.js';
 import { uid } from '../lib/ids.js';
 import { announce, h } from '../lib/dom.js';
@@ -91,6 +92,7 @@ export function applyAttributes(clip, captured, groupIds, sourceDuration) {
       if (!(k in clip) && !OPTIONAL_KEYS.includes(k)) continue;
       if (VIDEO_ONLY_KEYS.includes(k) && clip.type !== 'video') continue;
       clip[k] = structuredClone(v);
+      resetContentTiming(clip, k);
     }
     if (g.speed && entry.speed) speed = entry.speed;
     if (clip.keyframes) {

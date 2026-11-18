@@ -1,6 +1,7 @@
 /**
  * Making and flattening multi-camera clips (see multicam.js for the model).
  */
+import { retainClippedTransitions } from './transition-slices.js';
 import { uid } from '../lib/ids.js';
 import { makeClip } from './project.js';
 import { findClip, clipEnd, clipLabel, soundCopy, cleanupTransitions } from './timeline.js';
@@ -101,31 +102,34 @@ export function flattenMulticam(project, id) {
   let angle = -1;
   for (const t of c.sequence.tracks) {
     if (!t.angle) {
-      const clips = [];
+      const clips = [], entries = [];
       for (const child of t.clips) {
-        const copy = trimTo(structuredClone(child), lo, hi);
-        if (copy) { place(copy); clips.push(copy); extras.push(copy); }
+        const copy = trimTo(structuredClone(child), lo, hi, { preserveTiming: true });
+        if (copy) { entries.push({ clip: copy, source: child, start: copy.start, end: clipEnd(copy) }); place(copy); clips.push(copy); extras.push(copy); }
       }
+      retainClippedTransitions(t, entries, place);
       groups.push({ track: t, clips });
       continue;
     }
     angle++;
-    const clips = [];
+    const clips = [], entries = [];
     const sounds = [];
     for (const child of t.clips) {
       for (const [a, b] of activeRanges(mc, angle, lo, hi)) {
-        const copy = trimTo(structuredClone(child), a, b);
+        const copy = trimTo(structuredClone(child), a, b, { preserveTiming: true });
         if (!copy) continue;
+        entries.push({ clip: copy, source: child, start: copy.start, end: clipEnd(copy) });
         if (b < clipEnd(child)) copy.transition = null;
         if (mc.audio !== 'follow') copy.muted = true;
         place(copy); clips.push(copy); pictures.push(copy);
       }
       if (mc.audio === angle) {
-        const whole = trimTo(structuredClone(child), lo, hi);
+        const whole = trimTo(structuredClone(child), lo, hi, { preserveTiming: true });
         const sound = whole && soundCopy(project, whole);
         if (sound) { place(sound); sounds.push(sound); extras.push(sound); }
       }
     }
+    retainClippedTransitions(t, entries, place);
     // Resolve transitions within this camera before different angles share a track.
     cleanupTransitions({ tracks: [{ clips }] });
     groups.push({ track: t, clips, main: mergePictures || t === tracks[firstAngle] });

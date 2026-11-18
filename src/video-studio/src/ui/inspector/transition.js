@@ -6,9 +6,42 @@ import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { US } from '../../lib/time.js';
 import { TRANSITIONS, TRANSITION_CATEGORIES } from '../../model/catalog.js';
-import { maxTransition } from '../../model/timeline.js';
+import { maxTransition, clipLabel } from '../../model/timeline.js';
+import { clockLocal } from '../../model/inherited-motion.js';
 import { lookPreview, hoverAnimate } from '../panels/previews.js';
+import { selectField } from '../controls.js';
 import { slider, propSection, choiceGrid } from './common.js';
+
+/** A flattened window may show only part of a transition, without an adjacent cut. */
+export function transitionFragmentsTab(view) {
+  const rows = (view.clip.transitionSlices || []).map((_, index) => {
+    const style = selectField({ label: 'Style', options: TRANSITIONS.map(t => ({ value: t.id, label: t.label })),
+      value: view.clip.transitionSlices[index].id,
+      onChange: id => view.edit('Change retained transition', c => {
+        if (c.transitionSlices?.[index]) c.transitionSlices[index].id = id;
+      }) });
+    const select = style.select;
+    select.setAttribute('aria-label', `Transition ${index + 1} style`);
+    const summary = h('p.insp-note');
+    const remove = h('button.btn.small', { type: 'button' }, 'Remove transition');
+    remove.addEventListener('click', () => view.edit('Remove retained transition', c => {
+      c.transitionSlices?.splice(index, 1);
+      if (!c.transitionSlices?.length) delete c.transitionSlices;
+    }));
+    const update = () => {
+      const c = view.clip, slice = c?.transitionSlices?.[index];
+      if (!slice) return;
+      const start = Math.max(0, clockLocal(c, slice.start, slice.clock)) / US;
+      const end = Math.min(c.duration, clockLocal(c, slice.end, slice.clock)) / US;
+      summary.textContent = `With ${clipLabel(view.project, slice.partner)} · ${start.toFixed(2)}–${end.toFixed(2)}s into this clip. Original transition progress preserved.`;
+      select.value = slice.id;
+      select.disabled = remove.disabled = Boolean(view.found?.track.locked);
+    };
+    update(); view.bind(update);
+    return propSection(`Transition ${index + 1}`, [summary, style.el, h('div.insp-actions', remove)]);
+  });
+  return h('div.transition-view', h('p.insp-note', 'These transition fragments were kept when the group was flattened. Changing this clip’s picture affects its side of each transition.'), ...rows);
+}
 
 const MIN = 100_000;
 export const transitionLabel = (id) => TRANSITIONS.find((t) => t.id === id)?.label || 'Transition';

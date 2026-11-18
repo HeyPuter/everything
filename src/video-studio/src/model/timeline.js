@@ -91,7 +91,7 @@ export function sourceTimeAt(clip, t) {
  * duration and keyframes afterwards.
  */
 export function windowSource(clip, from, to) {
-  if (clip.inherited?.some(r => !r.source.media)) clip.motionOffset = (clip.motionOffset || 0) + from;
+  if (clip.inherited?.some(r => !r.source.media) || Object.values(clip.timing || {}).some(t => t.clock?.[0]?.source.media === false) || clip.transitionSlices?.some(t => t.clock?.[0]?.source.media === false)) clip.motionOffset = (clip.motionOffset || 0) + from;
   if (clip.type === 'compound') {
     // A nested timeline always plays at its own pace.
     clip.in = Math.max(0, Math.round(clip.in + from));
@@ -494,13 +494,13 @@ export function splitClip(project, id, t) {
   if (clip.keyframes) [clip.keyframes, right.keyframes] = splitKeyframes(clip.keyframes, local);
   // Fades and animations stay on the outer ends; transitions on the right piece.
   if ('fadeOut' in clip) {
-    right.fadeIn = 0;
-    clip.fadeOut = 0;
+    if (!right.timing?.fadeIn) right.fadeIn = 0;
+    if (!clip.timing?.fadeOut) clip.fadeOut = 0;
   }
   if ('animIn' in clip) {
-    right.animIn = null;
-    clip.animOut = null;
-    if (clip.animLoop) right.animLoop = null;
+    if (!right.timing?.animIn) right.animIn = null;
+    if (!clip.timing?.animOut) clip.animOut = null;
+    if (clip.animLoop && !right.timing?.animLoop) right.animLoop = null;
   }
   if ('transition' in clip) clip.transition = null;
   track.clips.splice(track.clips.indexOf(clip) + 1, 0, right);
@@ -784,6 +784,8 @@ export function freezeFrame(project, id, t, length = 3 * US, opts = {}) {
   if (still.speedRamp) stripRampAccents(still);
   Object.assign(still, { id: uid('c'), start: at, duration: length, in: Math.round(sourceT), freeze: true, speed: 1, keyframes: {}, fadeIn: 0, fadeOut: 0, animIn: null, animOut: null, animLoop: null, transition: null, muted: true });
   delete still.speedCurve;
+  delete still.timing;
+  delete still.transitionSlices;
   return withRipple(project, opts, () => {
     if (track.main && opts.ripple) {
       const i = track.clips.indexOf(clip);
@@ -821,6 +823,7 @@ export function soundCopy(project, clip) {
     fadeOut: clip.fadeOut,
     keyframes: clip.keyframes?.volume ? { volume: structuredClone(clip.keyframes.volume) } : {},
     ...(clip.inherited ? { inherited: structuredClone(clip.inherited), ...(clip.motionOffset ? { motionOffset: clip.motionOffset } : {}) } : {}),
+    ...(clip.timing ? { timing: Object.fromEntries(Object.entries(clip.timing).filter(([key]) => key === 'fadeIn' || key === 'fadeOut').map(([key, value]) => [key, structuredClone(value)])) } : {}),
     // Sound settings travel with the sound.
     ...(clip.audioFx ? { audioFx: structuredClone(clip.audioFx) } : {}),
     ...(clip.keepPitch === false ? { keepPitch: false } : {}),

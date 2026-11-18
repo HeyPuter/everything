@@ -3,6 +3,7 @@
  * tracks. It moves, trims, transforms and animates as one clip; "break
  * apart" puts the clips back on the timeline.
  */
+import { retainClippedTransitions } from './transition-slices.js';
 import { placePose } from '../lib/geometry.js';
 import { uid } from '../lib/ids.js';
 import { retainMotion } from './inherited-motion.js';
@@ -120,6 +121,13 @@ export function composeTransform(parent, child, W, H) {
  * stay editable: a rotated child can shear, which its basic transform cannot store.
  */
 export function inheritFromCompound(copy, c, W, H) {
+  // Existing fragments also pass through the newly removed outer group. Their
+  // partner's original transform stays separate from the visible clip's edits.
+  for (const slice of copy.transitionSlices || []) {
+    const holder = { ...copy, inherited: slice.inherited };
+    retainMotion(holder, c);
+    slice.inherited = holder.inherited;
+  }
   const plain = JSON.stringify(c.transform) === JSON.stringify(DEFAULT_TRANSFORM);
   const animated = x => x.inherited?.length || x.animIn || x.animOut || x.animLoop || Object.values(x.keyframes || {}).some(keys => keys.length);
   const affects = !plain || c.opacity !== 1 || c.volume !== 1 || c.fadeIn || c.fadeOut || animated(c);
@@ -152,17 +160,22 @@ export function breakApart(project, id, opts = {}) {
   const H = project.settings.height;
   const groups = [];
   for (const t of c.sequence.tracks) {
-    const copies = [];
+    const copies = [], entries = [];
     for (const child of t.clips) {
-      const copy = trimTo(structuredClone(child), c.in, c.in + c.duration);
+      const copy = trimTo(structuredClone(child), c.in, c.in + c.duration, { preserveTiming: true });
       // A sliver shorter than the shortest clip the editor allows (under a frame at 60 fps)
       // would be a clip too thin to see or select.
       if (!copy || copy.duration < MIN_CLIP) continue;
+      entries.push({ clip: copy, source: child, start: copy.start, end: clipEnd(copy) });
       copy.id = uid('c');
       copy.start = c.start + copy.start - c.in;
       inheritFromCompound(copy, c, W, H);
       copies.push(copy);
     }
+    retainClippedTransitions(t, entries, partner => {
+      partner.id = uid('c'); partner.start = c.start + partner.start - c.in;
+      inheritFromCompound(partner, c, W, H);
+    });
     groups.push({ track: t, clips: copies, main: Boolean(t.main) });
     restored.push(...copies);
   }
@@ -204,6 +217,7 @@ export function allClipsDeep(project) {
   const walk = (tracks) => {
     for (const t of tracks) for (const c of t.clips) {
       out.push(c);
+      for (const slice of c.transitionSlices || []) out.push(slice.partner);
       if (c.type === 'compound') walk(c.sequence.tracks);
     }
   };
@@ -218,7 +232,13 @@ export function removeAssetClips(project, assetIds) {
   const strip = (tracks) => {
     for (const t of tracks) {
       t.clips = t.clips.filter((c) => !ids.has(c.assetId));
-      for (const c of t.clips) if (c.type === 'compound') strip(c.sequence.tracks);
+      for (const c of t.clips) {
+        if (c.type === 'compound') strip(c.sequence.tracks);
+        if (c.transitionSlices) {
+          c.transitionSlices = c.transitionSlices.filter(s => !ids.has(s.partner.assetId));
+          if (!c.transitionSlices.length) delete c.transitionSlices;
+        }
+      }
     }
   };
   strip(project.tracks);

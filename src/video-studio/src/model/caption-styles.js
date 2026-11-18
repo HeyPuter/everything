@@ -3,6 +3,7 @@
  * that suit captions (words popping in, a karaoke sweep), applied to every
  * caption at once. Highlighted words are in model/text-marks.js.
  */
+import { resetContentTiming } from './inherited-motion.js';
 import { TEXT_PRESETS } from './text-presets.js';
 
 const PRESET = Object.fromEntries(TEXT_PRESETS.map((p) => [p.id, p.style]));
@@ -39,5 +40,6 @@ export function applyCaptionStyle(clip, def, defaultStyle, frameWidth = 0) {
   clip.animIn = def.in ? { id: def.in, duration: Math.min(600_000, Math.round(clip.duration * 0.5)) } : null;
   clip.animOut = null;
   clip.animLoop = def.loop ? { id: def.loop, duration: clip.duration } : null;
+  for (const field of ['animIn', 'animOut', 'animLoop']) resetContentTiming(clip, field);
   clip.captionStyle = def.id;
 }

@@ -400,10 +400,10 @@ export class Player extends Emitter {
       const sec = layer.sourceTime / US;
       const entry = pool.claim(layer.clip, this.previewAsset(layer.asset), 'video', sec);
       map.set(layer.clip.id, entry);
-      this._drive(entry, layer.clip, sec, fps, true, t, layer.held);
+      this._drive(entry, layer.clip, sec, fps, true, t, layer.held, layer.playbackRate);
       // The clock starts with the first element that plays at a steady speed.
       const w = this._startWait;
-      if (w && !w.ref && this.playing && !entry.el.paused && !layer.held && !layer.clip.freeze && !hasCurve(layer.clip)) w.ref = { entry, sec, t, speed: Math.min(16, Math.max(0.0625, layer.clip.speed || 1)) };
+      if (w && !w.ref && this.playing && !entry.el.paused && !layer.held && !layer.clip.freeze && layer.playbackRate == null && !hasCurve(layer.clip)) w.ref = { entry, sec, t, speed: Math.min(16, Math.max(0.0625, layer.clip.speed || 1)) };
     };
     for (const l of layers) want(l);
     // Sound: audio clips (and video clips whose picture is hidden) still play.
@@ -450,15 +450,15 @@ export class Player extends Emitter {
   }
 
   /** held: the picture stays on one frame (a transition past the media's start or end), like a freeze frame. */
-  _drive(entry, clip, sec, fps, visual, t = this.time, held = false) {
+  _drive(entry, clip, sec, fps, visual, t = this.time, held = false, playbackRate) {
     const el = entry.el;
     // Sound of a clip longer than what is left of its file: hold at the end in silence, as the
     // export does (play() would start an ended element over from its beginning).
     const pastEnd = Number.isFinite(el.duration) && el.duration > 0 && sec >= el.duration - 0.002;
     if (pastEnd) sec = Math.max(0, el.duration - 0.001);
-    const still = clip.freeze || held || pastEnd;
-    if (this.playing && !still && hasCurve(clip)) {
-      this._driveCurve(entry, clip, sec, t);
+    const still = clip.freeze || held || pastEnd || playbackRate === 0;
+    if (this.playing && !still && (playbackRate != null || hasCurve(clip))) {
+      this._driveCurve(entry, clip, sec, t, playbackRate);
       return;
     }
     if (this.playing && !still) {
@@ -494,9 +494,9 @@ export class Player extends Emitter {
    * Play a clip with a speed curve: the element's rate follows the curve
    * every frame, nudged to cancel drift; a large drift seeks.
    */
-  _driveCurve(entry, clip, sec, t) {
+  _driveCurve(entry, clip, sec, t, playbackRate) {
     const el = entry.el;
-    const v = speedAt(clip, t - clip.start);
+    const v = playbackRate ?? speedAt(clip, t - clip.start);
     const keep = clip.keepPitch !== false;
     if ('preservesPitch' in el && el.preservesPitch !== keep) el.preservesPitch = keep;
     else if ('webkitPreservesPitch' in el && el.webkitPreservesPitch !== keep) el.webkitPreservesPitch = keep;
