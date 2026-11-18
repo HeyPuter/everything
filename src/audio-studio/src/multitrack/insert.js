@@ -217,9 +217,15 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
 
 /** Opens local files or Puter items (without activating them) and inserts them. */
 export async function insertFiles(app, session, items, opts = {}) {
+  const rate = session.sampleRate;
   const docs = await openFiles(app, items, { activate: false });
   // The session was closed while the files opened: they stay in the Files panel.
   if (!app.documents.includes(session)) return [];
+  // Drop/picker positions were captured before file I/O, in the old frame units.
+  if (session.sampleRate !== rate && docs.some((d) => d.kind === 'audio' && d.length > 0)) {
+    app.notify('Insertion stopped because the session sample rate changed. Review the session and insert the files again.', { error: true });
+    return [];
+  }
   if (app.active !== session) app.activate(session);
   return insertDocs(app, session, docs, opts);
 }
