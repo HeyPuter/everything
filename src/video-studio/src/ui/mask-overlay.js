@@ -19,6 +19,7 @@ import {
 } from '../engine/mask-shapes.js';
 import { featherSigma } from '../engine/mask-raster.js';
 import { maskEdit } from './mask-edit-state.js';
+import { brushCursor } from './brush-preview.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const ROTATE_GAP = 26;
@@ -192,8 +193,7 @@ export function createMaskOverlay({ store, actions, stage }) {
     }
     if (m.type === 'pen') penHandles(m, L, a, b, kids, handle);
     if (m.type === 'brush' && maskEdit.cursor) {
-      const [cx, cy, r] = maskEdit.cursor;
-      kids.push(svg('circle', { class: `mask-brush-cursor${maskEdit.brush.erase ? ' erase' : ''}`, cx, cy, r }));
+      kids.push(brushCursor(srcToCss, maskEdit.cursor, maskEdit.brush.size * Math.min(SW, SH), maskEdit.brush.erase));
     }
     root.replaceChildren(...kids);
   }
@@ -360,16 +360,10 @@ export function createMaskOverlay({ store, actions, stage }) {
   root.addEventListener('pointermove', (e) => {
     if (cur?.m?.type === 'brush' && !drag) {
       const p = pointer(e);
-      const unitCss = cur.box.w ? Math.abs(cur.box.w) * cur.k / (cur.SW * (1 - (cur.layer.crop?.l || 0) - (cur.layer.crop?.r || 0))) : 1;
-      maskEdit.cursor = [p[0], p[1], (maskEdit.brush.size * Math.min(cur.SW, cur.SH) * unitCss) / 2];
+      maskEdit.cursor = p;
       const c = root.querySelector('.mask-brush-cursor');
-      if (c) {
-        c.setAttribute('cx', p[0]);
-        c.setAttribute('cy', p[1]);
-        c.setAttribute('r', maskEdit.cursor[2]);
-      } else {
-        root.append(svg('circle', { class: `mask-brush-cursor${maskEdit.brush.erase ? ' erase' : ''}`, cx: p[0], cy: p[1], r: maskEdit.cursor[2] }));
-      }
+      const cursor = brushCursor(cur.srcToCss, p, maskEdit.brush.size * Math.min(cur.SW, cur.SH), maskEdit.brush.erase, c);
+      if (!c) root.append(cursor);
     }
     if (!drag || e.pointerId !== drag.pointerId) return;
     const p = pointer(e);
