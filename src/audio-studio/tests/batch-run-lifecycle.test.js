@@ -147,3 +147,32 @@ it('keeps a document closed during destination setup out of the batch', async ()
   expect(run.hidden).toBe(false);
   expect(cancel.hidden).toBe(true);
 });
+
+it.each(['saved', 'failed'])('reports a %s upload accurately when cancelled during writing', async (outcome) => {
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const saved = [];
+  const write = vi.fn(async (path, blob) => {
+    await wait;
+    if (outcome === 'failed') throw new Error('Upload failed');
+    saved.push({ path, blob });
+    return {};
+  });
+  window.puter = { auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) }, fs: { write } };
+  const { panel, run, cancel } = setup('puter', 2);
+  const pending = panel.api.run();
+  await vi.waitFor(() => expect(write).toHaveBeenCalledOnce(), { interval: 1 });
+  cancel.click();
+  release();
+  await pending;
+  expect(write).toHaveBeenCalledOnce();
+  expect(saved).toHaveLength(outcome === 'saved' ? 1 : 0);
+  if (saved.length) {
+    const wav = parseWav(await saved[0].blob.arrayBuffer());
+    expect([...wav.channels[0]]).toEqual(Array(32).fill(0.25));
+  }
+  expect(panel.api.items.map((item) => item.status)).toEqual([outcome === 'saved' ? 'done' : 'cancelled', 'cancelled']);
+  expect(panel.el.querySelector('.batch-summary').textContent).toBe(outcome === 'saved' ? '1 of 2 files processed, 1 cancelled.' : '0 of 2 files processed, 2 cancelled.');
+  expect(run.disabled).toBe(false);
+  expect(cancel.hidden).toBe(true);
+});

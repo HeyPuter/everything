@@ -174,7 +174,9 @@ export function describeBatch(settings) {
 /**
  * Runs `process(item, { signal, onProgress })` for each item in order.
  * `onUpdate(items)` receives a new array after every change. Cancelling the
- * signal stops the current item and marks the rest Cancelled. Resolves
+ * signal asks the current item to stop and marks the rest Cancelled. The
+ * process callback rejects if cancelled, or resolves if its output was saved.
+ * A completed write remains Done even if cancellation arrived during it. Resolves
  * { items, done, failed, cancelled }.
  */
 export async function runQueue(items, { process, onUpdate, signal, names }) {
@@ -193,10 +195,6 @@ export async function runQueue(items, { process, onUpdate, signal, names }) {
         signal,
         onProgress: (f) => set(item.id, { progress: Math.max(0, Math.min(1, Number(f) || 0)) }),
       });
-      if (signal?.aborted) {
-        set(item.id, { status: 'cancelled', message: 'Cancelled', progress: 0 });
-        break;
-      }
       set(item.id, { status: result?.skipped ? 'skipped' : 'done', progress: 1, message: result?.message || '', output: result?.output || current.output });
     } catch (err) {
       const cancelled = signal?.aborted || err?.name === 'AbortError' || err?.message === 'Cancelled';
