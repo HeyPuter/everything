@@ -102,7 +102,10 @@ export class App extends Emitter {
       if (answer === null) return false;
       if (answer === 'save') {
         const ok = await this.commands.run('file.save');
-        if (!ok && doc.dirty) return false;
+        if (doc.dirty) {
+          if (ok) this.notify(`"${doc.name}" changed while saving and was left open. Save again to keep the latest changes.`);
+          return false;
+        }
       }
     }
     if (this.active === doc && engine.playing) this.stop();

@@ -58,6 +58,37 @@ describe('saving to Puter', () => {
     expect(doc.dirty).toBe(true);
   });
 
+  it.each([false, true])('closes after saving only if no newer edits remain (edit during upload: %s)', async (editDuringUpload) => {
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    let finish;
+    window.puter = {
+      auth: { isSignedIn: () => true },
+      fs: { write: () => new Promise((resolve) => { finish = resolve; }) },
+    };
+    localStorage.clear();
+    const app = new App();
+    installCore(app);
+    app.syncGraph = () => {};
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 8000, channels: 1, seconds: 0.1 });
+    doc.source = { type: 'puter', path: '/u/Song.wav' };
+    doc.apply('First edit', { ...doc.state, meta: { title: 'First' } });
+    app.addDocument(doc);
+    app.notify = vi.fn();
+    const closing = app.closeDocument(doc);
+    document.querySelector('.dialog-foot button[data-value="save"]').click();
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    if (editDuringUpload) doc.apply('New edit', { ...doc.state, meta: { title: 'New' } });
+    finish({});
+    expect(await closing).toBe(!editDuringUpload);
+    expect(app.documents.includes(doc)).toBe(editDuringUpload);
+    expect(doc.dirty).toBe(editDuringUpload);
+    if (editDuringUpload) {
+      expect(doc.state.meta.title).toBe('New');
+      expect(app.notify).toHaveBeenCalledWith(expect.stringContaining('was left open'));
+    } else expect(app.notify).not.toHaveBeenCalled();
+  });
+
   it('says why a save failed when Puter rejects with a plain object', async () => {
     window.puter = {
       auth: { isSignedIn: () => true },
