@@ -271,6 +271,30 @@ export function clipNeedsProcessing(clip) {
   return Boolean(chainSettings(clip)) || needsStretch(clip);
 }
 
+/** Audio inputs heard in a time range, excluding unrelated picture and display metadata. */
+export function audioMixSignature(project, { start, end }) {
+  // Flat references avoid repeatedly serializing shared parents or recursing through retained clocks.
+  const states = new WeakMap(), nodes = [], data = [];
+  const sound = c => {
+    if (!c) return null;
+    if (!states.has(c)) { states.set(c, nodes.length); nodes.push(c); }
+    return states.get(c);
+  };
+  const clocks = records => records?.map(r => [r.offset, r.source, sound(r.parent)]);
+  const timing = saved => saved && [saved.duration, clocks(saved.clock)];
+  const clips = audibleClips(project).map(({ clip }) => clip)
+    .filter(c => c.start < end && c.start + c.duration > start && project.assets[c.assetId])
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const inputs = clips.map(c => {
+    const a = project.assets[c.assetId];
+    return [c.id, sound(c), [a.id, a.kind, a.hash, a.ext, a.mime, a.size, a.duration, a.hasAudio]];
+  });
+  for (const c of nodes) data.push([c.type, c.assetId, c.start, c.in, c.duration, c.speed, c.speedCurve, c.keepPitch,
+    c.freeze, c.muted, c.disabled, c.volume, c.keyframes?.volume, c.fadeIn, c.fadeOut, c.audioFx,
+    c.motionOffset, c.clockOnly, clocks(c.inherited), timing(c.timing?.fadeIn), timing(c.timing?.fadeOut), sound(c.parent), sound(c.renderSource)]);
+  return JSON.stringify([inputs, data]);
+}
+
 /**
  * Sequential processed sound of one clip at the output rate: source read
  * through the time-stretcher (pitch kept) or the resampler (pitch follows

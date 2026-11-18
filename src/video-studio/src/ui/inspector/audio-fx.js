@@ -57,9 +57,9 @@ function analysisError(signal, requireSource, err) {
 /** Lazy analysis helpers (decoder and DSP load only when used). */
 async function analysisKit(view, signal) {
   signal.throwIfAborted();
-  const [{ mediabunnyOpener, renderAudio }, an] = await Promise.all([import('../../engine/audio-mix.js'), import('../../media/audio-analysis.js')]);
+  const [{ mediabunnyOpener, renderAudio, audioMixSignature }, an] = await Promise.all([import('../../engine/audio-mix.js'), import('../../media/audio-analysis.js')]);
   signal.throwIfAborted();
-  return { open: mediabunnyOpener(view.ctx.library, { signal }), renderAudio, ...an };
+  return { open: mediabunnyOpener(view.ctx.library, { signal }), renderAudio, audioMixSignature, ...an };
 }
 
 /** Decode the selected clip's source range. */
@@ -460,6 +460,38 @@ function curveGain(pts, t) {
   return pts[pts.length - 1].g;
 }
 
+const duckContext = view => JSON.stringify([view.project.id, view.project.timelineId, (view.store.nest || []).map(f => f.id)]);
+const duckChanged = () => new Error('The clip or surrounding sound changed. Run auto ducking again to use the current mix.');
+
+/** A mix can span many decoder waits: once changed, even a reverted edit invalidates it. */
+function watchDucking(view, lifetime, signature, request) {
+  const { project, clip, start, duration, context } = request;
+  const currentTarget = () => view.project === project && view.clip === clip && clip.start === start
+    && clip.duration === duration && duckContext(view) === context;
+  lifetime.throwIfAborted();
+  if (!currentTarget()) throw duckChanged();
+  const others = () => ({ ...view.project, tracks: view.project.tracks.map(t => ({ ...t, clips: t.clips.filter(c => c.id !== clip.id) })) });
+  const range = { start, end: start + duration }, input = others(), stamp = signature(input, range);
+  const controller = new AbortController();
+  let changed = false;
+  const current = () => currentTarget() && signature(others(), range) === stamp;
+  let off = () => {};
+  const dispose = () => { off(); off = () => {}; lifetime.removeEventListener('abort', abort); };
+  const abort = () => { controller.abort(); dispose(); };
+  lifetime.addEventListener('abort', abort, { once: true });
+  off = view.store.on('change', () => {
+    if (!changed && !current()) { changed = true; abort(); }
+  });
+  return {
+    input, signal: controller.signal,
+    check() {
+      lifetime.throwIfAborted();
+      if (changed || !current()) throw duckChanged();
+    },
+    dispose,
+  };
+}
+
 export function duckSection(view, state = {}) {
   state.duckDb ??= 12;
   const status = h('p.fx-status', { role: 'status', hidden: true });
@@ -477,23 +509,31 @@ export function duckSection(view, state = {}) {
   run.addEventListener('click', runBusy(view, run, status, 'Listening to the other clips…', async (signal) => {
     const c = view.clip;
     if (!c) return;
+    const request = { project: view.project, clip: c, start: c.start, duration: c.duration, context: duckContext(view) };
     const kit = await analysisKit(view, signal);
-    signal.throwIfAborted();
-    // Everything that plays except this clip, over this clip's time span.
-    const project = view.project;
-    const others = { ...project, tracks: project.tracks.map((t) => ({ ...t, clips: t.clips.filter((x) => x.id !== c.id) })) };
-    const sr = 8000;
-    const { channels } = await kit.renderAudio(others, view.ctx.library, { start: c.start, end: c.start + c.duration, sampleRate: sr, channels: 1, signal });
-    signal.throwIfAborted();
-    const hop = 0.05;
-    const regions = kit.activeRegions(kit.levelEnvelope(channels[0], sr, hop), hop);
-    if (!regions.length) throw new Error('No speech or other sound plays under this clip.');
-    const curve = kit.duckCurve(regions, c.duration / US, 10 ** (-state.duckDb / 20));
-    const ok = view.edit('Lower under speech', (x) => {
-      x.keyframes ||= {};
-      x.keyframes.volume = duckKeys(x, curve);
-    });
-    if (ok !== false) announce(`Lowered in ${regions.length} ${regions.length === 1 ? 'place' : 'places'}`);
+    const job = watchDucking(view, signal, kit.audioMixSignature, request);
+    try {
+      const sr = 8000;
+      const { channels } = await kit.renderAudio(job.input, view.ctx.library, {
+        start: request.start, end: request.start + request.duration, sampleRate: sr, channels: 1, signal: job.signal,
+      });
+      job.check();
+      const hop = 0.05;
+      const regions = kit.activeRegions(kit.levelEnvelope(channels[0], sr, hop), hop);
+      if (!regions.length) throw new Error('No speech or other sound plays under this clip.');
+      const curve = kit.duckCurve(regions, request.duration / US, 10 ** (-state.duckDb / 20));
+      const ok = view.edit('Lower under speech', (x) => {
+        job.check();
+        x.keyframes ||= {};
+        x.keyframes.volume = duckKeys(x, curve);
+      });
+      if (ok !== false) announce(`Lowered in ${regions.length} ${regions.length === 1 ? 'place' : 'places'}`);
+    } catch (err) {
+      job.check();
+      throw err;
+    } finally {
+      job.dispose();
+    }
   }, { source: false }));
   return propSection('Auto ducking', [h('div.fx-body', h('p.fx-desc', 'Turn this clip down wherever other clips have speech or sound, with smooth fades. Adds volume keyframes you can adjust.'), depth.el, status, run)], { open: false });
 }
