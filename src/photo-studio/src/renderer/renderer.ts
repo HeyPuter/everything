@@ -21,6 +21,7 @@ import {
   linearSrgbProfile,
 } from "../color/profile";
 import { decodeIccProfile } from "../model/psd-resources";
+import { adjustmentKey } from "./adjustment-key";
 import { floatRaster } from "../model/raster";
 import { vectorBounds, vectorMatrix, vectorUnbounded } from "../model/vector";
 import { vectorDocumentRgb, vectorColorRgb } from "../color/vector";
@@ -973,7 +974,7 @@ export class Renderer {
     return mask?.texture;
   }
   private lutTexture(l: Layer) {
-    const id = `lut:${l.id}`, key = JSON.stringify(l.adjustment);
+    const id = `lut:${l.id}`, key = adjustmentKey(l.adjustment);
     const old = this.sources.get(id);
     if (old?.key === key) return old.lut ? { texture: old.texture, uniforms: old.lut } : undefined;
     if (old) {
