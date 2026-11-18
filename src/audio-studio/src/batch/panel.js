@@ -172,33 +172,43 @@ export function batchPanel(app) {
     const fav = favorites().find((f) => f.id === s.favorite) || null;
     const problem = batchFavoriteProblem(fav);
     if (problem) return app.notify(`${fav.name}: ${problem}`, { error: true });
-    const out = await outputWriter(app, s);
-    if (!out) return;
-    const dir = out.dir;
+    // Own startup and final output as well as per-file processing, so another
+    // Run or an early Cancel cannot escape the batch's controller.
     running = new AbortController();
     const signal = running.signal;
-    items = resetItems(items);
     refresh();
-    const names = plannedNames(items, s, { dir });
-    const write = (name, blob) => out.write(name, blob);
-    announce('Batch processing started');
-    const result = await runQueue(items, {
-      names,
-      signal,
-      onUpdate: (list) => {
-        items = list;
-        renderRows();
-      },
-      process: (item, o) => processItem(item, { favorite: fav, settings: s, write, ...o }),
-    });
-    items = result.items;
-    running = null;
-    await out.finish('Batch Process.zip');
-    const msg = `${result.done} of ${items.length} file${items.length === 1 ? '' : 's'} processed${result.failed ? `, ${result.failed} failed` : ''}${result.cancelled ? `, ${result.cancelled} cancelled` : ''}.`;
-    summary.textContent = msg;
-    announce(msg);
-    if (result.done && dir) app.setStatus(`Batch output saved to ${dir}`);
-    refresh();
+    try {
+      const out = await outputWriter(app, s);
+      // Document-close events are held while busy; reconcile before starting
+      // work so files closed during destination setup still leave the queue.
+      const open = new Set(app.documents);
+      items = items.filter((i) => i.source.type !== 'doc' || open.has(i.source.doc));
+      if (!out || signal.aborted || !items.length) return;
+      const dir = out.dir;
+      items = resetItems(items);
+      refresh();
+      const names = plannedNames(items, s, { dir });
+      const write = (name, blob) => out.write(name, blob);
+      announce('Batch processing started');
+      const result = await runQueue(items, {
+        names,
+        signal,
+        onUpdate: (list) => {
+          items = list;
+          renderRows();
+        },
+        process: (item, o) => processItem(item, { favorite: fav, settings: s, write, ...o }),
+      });
+      items = result.items;
+      await out.finish('Batch Process.zip');
+      const msg = `${result.done} of ${items.length} file${items.length === 1 ? '' : 's'} processed${result.failed ? `, ${result.failed} failed` : ''}${result.cancelled ? `, ${result.cancelled} cancelled` : ''}.`;
+      summary.textContent = msg;
+      announce(msg);
+      if (result.done && dir) app.setStatus(`Batch output saved to ${dir}`);
+    } finally {
+      running = null;
+      refresh();
+    }
   }
 
   // -------------------------------------------------------------- render
