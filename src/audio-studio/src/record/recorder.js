@@ -150,7 +150,7 @@ export function createRecorder(app) {
     s.onData?.(s.take);
     if (!s.doc || !s.take.length) return;
     // Undo or another edit while recording: end the take rather than overwrite it.
-    if (s.pushed && s.doc.history.state !== s.last) {
+    if (s.doc.history.state !== (s.pushed ? s.last : s.base)) {
       recorder.stop();
       return;
     }
@@ -174,9 +174,9 @@ export function createRecorder(app) {
     }
     const state = placeTake(s.base, channels, { at: s.at, replace: s.replace });
     if (s.pushed && doc.history.state === s.last) doc.history.amend(state);
-    else if (!s.pushed) doc.apply('Record', state);
+    else if (!s.pushed && doc.state === s.base) doc.apply('Record', state);
     else {
-      // The live step was undone or edited over: keep the take as a new step on top.
+      // The base or live step was undone or edited over: keep the take as a new step on top.
       doc.apply('Record', placeTake(doc.state, channels, { at: Math.min(s.at, doc.length), replace: null }));
     }
     const end = s.at + channels[0].length;
