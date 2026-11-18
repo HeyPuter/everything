@@ -198,7 +198,9 @@ export class Dock {
     };
     return [...panels.values()]
       .map((p, i) => ({ p, i }))
-      .filter(({ p }) => this.locationOf(p) === loc && this.inDock(p.id))
+      // Panels registered under the canvas stay there, even where a layout
+      // saved by an earlier version placed them in the side dock.
+      .filter(({ p }) => p.location !== 'bottom' && this.locationOf(p) === loc && this.inDock(p.id))
       .sort((a, b) => rank(a.p.id) - rank(b.p.id) || (loc === 'strip' ? stripSection(a.p.id) - stripSection(b.p.id) : 0) || a.i - b.i)
       .map(({ p }) => p);
   }
@@ -361,7 +363,7 @@ export class Dock {
   /** Place a panel in a group or the strip, before another panel when given. */
   move(id: string, loc: PanelLocation, before?: string) {
     const p = panels.get(id);
-    if (!p || this.locked || before === id) return;
+    if (!p || p.location === 'bottom' || this.locked || before === id) return;
     const placement = { ...(this.layout.placement ?? {}) };
     if (loc === p.location) delete placement[id];
     else placement[id] = loc;

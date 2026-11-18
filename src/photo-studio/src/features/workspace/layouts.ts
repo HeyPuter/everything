@@ -14,6 +14,8 @@ export type WorkspaceSnapshot = {
   shortcuts?: Record<string, string>;
   toolbar?: ToolbarLayout;
   menus?: MenuCustomization;
+  // A panel to open under the canvas (the Timeline for motion work).
+  bottom?: string;
 };
 export type SavedWorkspace = { id: string; name: string; snapshot: WorkspaceSnapshot };
 export type WorkspaceState = {
@@ -36,6 +38,9 @@ export type WorkspacePreset = {
   strip?: string[];
   collapsed?: GroupLocation[];
   sizes?: Partial<Record<GroupLocation, number>>;
+  // A panel opened in the area under the canvas (panels registered there
+  // never go into the side dock).
+  bottom?: string;
 };
 // Original arrangements tuned for common kinds of work.
 export const workspacePresets: WorkspacePreset[] = [
@@ -77,10 +82,11 @@ export const workspacePresets: WorkspacePreset[] = [
     groups: {
       'dock-top': ['properties', 'navigator'],
       'dock-middle': ['adjustments', 'styles', 'actions'],
-      'dock-bottom': ['timeline', 'layers', 'history'],
+      'dock-bottom': ['layers', 'history'],
     },
     strip: ['color', 'swatches', 'info', 'histogram'],
     sizes: { 'dock-middle': 200, 'dock-bottom': 420 },
+    bottom: 'timeline',
   },
 ];
 export const defaultWorkspace = 'essentials';
@@ -94,13 +100,13 @@ export function presetDockLayout(preset: WorkspacePreset, registered: [string, P
   const placement: Record<string, PanelLocation> = {};
   const order: string[] = [];
   const place = (id: string, loc: PanelLocation) => {
-    if (!known.has(id) || order.includes(id)) return;
+    if (!known.has(id) || known.get(id) === 'bottom' || order.includes(id)) return;
     order.push(id);
     if (known.get(id) !== loc) placement[id] = loc;
   };
   for (const [loc, ids] of Object.entries(preset.groups) as [GroupLocation, string[]][]) {
     for (const id of ids) place(id, loc);
-    const first = ids.find((id) => known.has(id));
+    const first = ids.find((id) => known.has(id) && known.get(id) !== 'bottom');
     if (first) layout.active[loc] = first;
   }
   for (const id of preset.strip ?? []) place(id, 'strip');
@@ -112,7 +118,9 @@ export function presetDockLayout(preset: WorkspacePreset, registered: [string, P
   return layout;
 }
 export function presetSnapshot(preset: WorkspacePreset, registered: [string, PanelLocation][]): WorkspaceSnapshot {
-  return { dock: presetDockLayout(preset, registered), optionsBar: true, toolsPanel: true };
+  const out: WorkspaceSnapshot = { dock: presetDockLayout(preset, registered), optionsBar: true, toolsPanel: true };
+  if (preset.bottom && registered.some(([id, loc]) => id === preset.bottom && loc === 'bottom')) out.bottom = preset.bottom;
+  return out;
 }
 
 export function sanitizeSnapshot(v: unknown): WorkspaceSnapshot | undefined {
@@ -123,6 +131,7 @@ export function sanitizeSnapshot(v: unknown): WorkspaceSnapshot | undefined {
     out.shortcuts = Object.fromEntries(Object.entries(o.shortcuts).filter(([, s]) => typeof s === 'string')) as Record<string, string>;
   if (o.toolbar !== undefined) out.toolbar = sanitizeToolbarLayout(o.toolbar);
   if (o.menus !== undefined) out.menus = sanitizeMenuCustomization(o.menus);
+  if (typeof o.bottom === 'string') out.bottom = o.bottom;
   return out;
 }
 export function sanitizeWorkspaceState(v: unknown): WorkspaceState {

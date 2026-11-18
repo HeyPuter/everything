@@ -70,6 +70,7 @@ export function installWorkspace(e: Editor) {
     if (s.shortcuts) setCustomShortcuts(s.shortcuts);
     if (s.toolbar) setToolbarLayout(s.toolbar);
     if (s.menus) setMenuCustomization(s.menus);
+    if (s.bottom && !e.dock.isVisible(s.bottom)) e.dock.show(s.bottom);
     e.toolbar.render();
     e.update();
   };

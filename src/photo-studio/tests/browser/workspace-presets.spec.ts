@@ -29,6 +29,23 @@ test('workspaces rearrange the dock, remember changes and reset', async ({ page 
   await expect(page.locator('[data-panel-tab="histogram"]')).toHaveAttribute('draggable', 'true');
 });
 
+test('the Motion workspace opens the Timeline under the canvas, never as an empty side-dock tab', async ({ page }) => {
+  await menu(page, 'Window', 'Workspace', 'Motion');
+  await expect(page.locator('.bottom-dock [data-bottom-tab="timeline"]')).toBeVisible();
+  await expect(page.locator('.bottom-dock .timeline-empty')).toBeVisible();
+  await expect(tabsIn(page, 'dock-bottom')).toHaveText(['Layers', 'History']);
+  // No other workspace puts it in the icon strip either.
+  await menu(page, 'Window', 'Workspace', 'Photography');
+  await expect(page.locator('[data-strip-panel="timeline"], [data-panel-tab="timeline"]')).toHaveCount(0);
+  // A layout stored by an earlier version that docked it at the side.
+  await page.evaluate(() => {
+    const d = window.photoStudio.dock;
+    d.setLayout({ ...d.getLayout(), placement: { timeline: 'dock-bottom' }, active: { 'dock-bottom': 'timeline' } });
+  });
+  await expect(page.locator('[data-panel-tab="timeline"]')).toHaveCount(0);
+  await expect(page.locator('.dock-column [data-panel="timeline"]')).toHaveCount(0);
+});
+
 test('saved workspaces appear in the menu and can be deleted', async ({ page }) => {
   await menu(page, 'Window', 'Workspace', 'Painting');
   await menu(page, 'Window', 'Workspace', 'New Workspace…');
