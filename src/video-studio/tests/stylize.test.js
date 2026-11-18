@@ -13,6 +13,7 @@ import { createInspector } from '../src/ui/inspector/index.js';
 import { addRestyledClip, replacePicture } from '../src/ui/inspector/stylize.js';
 import { ATTRIBUTE_GROUPS } from '../src/ui/organize-actions.js';
 import { fixture, onMain, clip, s } from './helpers.js';
+import { createCompound, breakApart } from '../src/model/compound.js';
 
 describe('style looks', () => {
   it('run on effects that exist, the new ones listed under Stylize', () => {
@@ -222,5 +223,40 @@ describe('style tab', () => {
     expect(f.clip).toMatchObject({ type: 'image', assetId: asset.id, start: img.start, duration: img.duration });
     expect(replacePicture(ctx, c.id, asset)).toBeTruthy();
     document.querySelector('.inspector')?.remove();
+  });
+
+  it.each(['image', 'video'])('keeps a restyled %s aligned through animated inherited motion and reopening', (type) => {
+    const p = fixture();
+    const [, source] = onMain(p, clip('image', 0, 1), clip(type, 1, 4));
+    source.transform.rotation = -20;
+    source.keyframes.x = [{ t: 0, v: -0.1, ease: 'easeIn' }, { t: s(4), v: 0.2 }];
+    source.opacity = 0.7;
+    const group = createCompound(p, [source.id]);
+    Object.assign(group.transform, { x: 0.3, y: -0.1, sx: 0.6, sy: 1.4, rotation: 35, flipH: true });
+    group.animLoop = { id: 'float', duration: s(2) };
+    const [flat] = breakApart(p, group.id);
+    const store = new EditorStore(p);
+    store.seek(s(2));
+    const asset = normalizeAsset({ ...p.assets[flat.assetId], id: 'restyled', kind: 'image', name: 'New picture' });
+    p.assets[asset.id] = asset;
+    const before = structuredClone(flat);
+    const added = addRestyledClip({ store }, flat.id, asset);
+    const compare = (project) => {
+      for (const time of [2.1, 2.7, 3.2].map(s)) {
+        const layers = evaluate(project, time);
+        const original = layers.find((l) => l.clip.id === flat.id), result = layers.find((l) => l.clip.id === added.id);
+        expect(result).toBeTruthy();
+        for (const field of ['x', 'y', 'scale', 'rotation', 'sx', 'sy', 'skew', 'opacity', 'blur']) expect(result[field] ?? 0, field).toBeCloseTo(original[field] ?? 0, 8);
+        expect(result.flipH).toBe(original.flipH);
+        expect(result.flipV).toBe(original.flipV);
+      }
+    };
+    expect(flat).toEqual(before);
+    compare(store.project);
+    compare(normalizeProject(JSON.parse(JSON.stringify(store.projectForSave()))));
+    store.undo();
+    expect(findClip(store.project, added.id)).toBeNull();
+    store.redo();
+    compare(store.project);
   });
 });

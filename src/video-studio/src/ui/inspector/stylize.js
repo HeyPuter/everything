@@ -13,6 +13,7 @@
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { DEFAULT_TRANSFORM, makeClip, makeTrack } from '../../model/project.js';
+import { inheritFromCompound } from '../../model/compound.js';
 import * as T from '../../model/timeline.js';
 import { STYLE_LOOKS, STYLE_AMOUNT_DEFAULT, styleEffect, normalizeStylize } from '../../model/stylize.js';
 import { aiAvailable } from '../../media/tts.js';
@@ -70,7 +71,11 @@ export function addRestyledClip(ctx, sourceId, asset) {
     start: still ? src.start : store.time,
     duration: still ? src.duration : Math.max(T.MIN_CLIP, defaultLength.image()),
   });
-  if (src) clip.transform = { ...src.transform };
+  if (src) {
+    // The new source pixels have no placement. Retain the source clip's full
+    // motion, including former group axes, at this clip's timeline position.
+    inheritFromCompound(clip, { ...src, disabled: false, muted: false }, store.project.settings.width, store.project.settings.height);
+  }
   const ok = store.update('Add restyled picture', (p) => {
     T.addClip(p, clip, { ...store.opts, main: false });
   });
