@@ -109,3 +109,16 @@ test('Cascade and Float All in Windows leave the tiled layout, also for the next
     expect(await stored(), id).toBe('tabs');
   }
 });
+
+test('Window › Documents lists the open windows, checks the active one and switches to another', async ({ page }) => {
+  await openImage(page, 200, 300, '#3060c0', 'second.png');
+  await page.getByRole('menubar').getByRole('menuitem', { name: 'Window', exact: true }).click();
+  const docs = page.locator('.menubar-entry.open > .menu-pop > .has-submenu').filter({ has: page.locator(':scope > .menu-label', { hasText: /^Documents$/ }) });
+  await expect(docs).toHaveCount(1);
+  const items = docs.locator('.submenu > .menu-item');
+  await expect(items.locator('.menu-label')).toHaveText(['first', 'second']);
+  await expect(items.nth(1)).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await menu(page, 'Window', 'Documents', 'first');
+  await expect.poll(() => page.evaluate(() => window.photoStudio.doc.name)).toBe('first');
+});

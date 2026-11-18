@@ -36,7 +36,38 @@ export function matchViews(e: Editor, what: { zoom?: boolean; location?: boolean
   refreshViews(e);
 }
 
+// Window › Documents lists this many windows (more are reached by their tabs;
+// a longer submenu would be hard to use).
+const documentItems = 30;
+/** Window › Documents: an item per open window, the active one checked. The
+ * items exist once; each names the window at its place in the tab order. */
+function registerDocumentItems(e: Editor) {
+  for (let i = 0; i < documentItems; i++)
+    registerCommand({
+      id: `window.document-${i}`,
+      get label() {
+        const v = e.views[i];
+        if (!v) return 'Document';
+        const siblings = e.views.filter((o) => o.session === v.session);
+        return siblings.length > 1 ? `${v.session.doc.name} : ${siblings.indexOf(v) + 1}` : v.session.doc.name;
+      },
+      get hidden() {
+        return !e.views[i];
+      },
+      menu: 'window.documents',
+      order: i,
+      recordable: false,
+      enabled: (e) => !!e.views[i],
+      checked: (e) => !!e.views[i] && e.views[i] === e.activeView,
+      run: async (e) => {
+        const v = e.views[i];
+        if (v) await e.showView(v);
+      },
+    });
+}
+
 export function installWindows(e: Editor) {
+  registerDocumentItems(e);
   const many = (e: Editor) => e.views.length > 1;
   const layout = (id: string, label: string, kind: LayoutKind, description?: string): Command => ({
     id,

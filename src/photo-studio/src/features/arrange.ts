@@ -117,7 +117,7 @@ function openSearch(e: Editor) {
     list = pop.querySelector<HTMLElement>('.search-results')!;
   type Item = { kind: string; label: string; detail: string; run: () => void; icon: string };
   const items: Item[] = [
-    ...[...commands.values()].filter((c) => !c.hidden && !c.id.startsWith('window.panel.')).map((c) => ({ kind: 'Command', label: c.label.replace('…', ''), detail: formatShortcut(c.shortcut), run: () => void e.runCommand(c.id), icon: 'chevron-right' })),
+    ...[...commands.values()].filter((c) => !c.hidden && !c.id.startsWith('window.panel.') && !c.id.startsWith('window.document-')).map((c) => ({ kind: 'Command', label: c.label.replace('…', ''), detail: formatShortcut(c.shortcut), run: () => void e.runCommand(c.id), icon: 'chevron-right' })),
     ...[...tools.values()].map((t) => ({ kind: 'Tool', label: t.label, detail: t.key ?? '', run: () => e.setTool(t.id), icon: t.icon })),
     ...[...panels.values()].map((p) => ({ kind: 'Panel', label: p.title, detail: '', run: () => e.dock.show(p.id), icon: p.icon })),
   ];
@@ -231,7 +231,7 @@ function shortcutEditor(e: Editor) {
   const custom = customShortcuts();
   // Panel toggles (window.panel.<id>) take shortcuts; the panel menu's own
   // items act on the panel whose menu is open, so a shortcut has no panel.
-  const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.menu-')).sort((a, b) => a.id.localeCompare(b.id));
+  const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.menu-') && !c.id.startsWith('window.document-')).sort((a, b) => a.id.localeCompare(b.id));
   d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
     .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? (c.shortcut.find((x) => platformShortcut(x)) ?? c.shortcut[0]) : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
     .join('')}</div><div class="dialog-actions"><button type="button" data-reset-shortcuts>Reset to Defaults</button><button type="button" id="cancel-dialog">Cancel</button><button class="primary">OK</button></div></form>`;

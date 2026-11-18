@@ -38,6 +38,7 @@ export function blockedCommand(id: string) {
   return (
     /^(script|scripts|assistant|generations)\./.test(id) ||
     id.startsWith('window.panel.menu-') ||
+    id.startsWith('window.document-') ||
     ['file.scripts-browse', 'file.scripts-browse-cloud', 'file.script-events', 'file.batch-link', 'file.close', 'file.close-all', 'file.close-others', 'file.revert', 'edit.purge-history', 'edit.purge-all', 'edit.purge-clipboard', 'edit.purge-video-cache'].includes(id)
   );
 }
