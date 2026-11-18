@@ -174,6 +174,8 @@ export function timelinePanel(menu: (e?: Editor) => MenuItem[]): Panel {
       strip.addEventListener('keydown', (ev) => {
         const anim = animationOf(e);
         if (!anim || e.busy) return;
+        // The New Frame button in the strip keeps Space and Enter for itself.
+        if ((ev.key === ' ' || ev.key === 'Enter') && (ev.target as HTMLElement).closest('button')) return;
         const go = (i: number) => {
           if (isPlaying()) stop(e, false);
           if (ev.shiftKey) {
