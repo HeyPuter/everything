@@ -69,10 +69,11 @@ float sepBlend(int m,float b,float s){
  if(m==22)return s<=0.?(b<=0.?0.:1.):min(b/s,1.);
  return s;
 }
-// Mode indices follow the blends array in model/document.ts.
+// Mode indices follow the blends array in model/document.ts. Darker and
+// Lighter Color ties keep the source, as in imaging/blend/modes.ts.
 vec3 blendMode(int m,vec3 b,vec3 s){
  if(m<=1)return s;
- if(m==6)return blendLum(s)<blendLum(b)?s:b;if(m==11)return blendLum(s)>blendLum(b)?s:b;
+ if(m==6)return blendLum(b)<blendLum(s)?b:s;if(m==11)return blendLum(b)>blendLum(s)?b:s;
  if(m==23)return setLum(setSat(s,blendSat(b)),blendLum(b));if(m==24)return setLum(setSat(b,blendSat(s)),blendLum(b));
  if(m==25)return setLum(s,blendLum(b));if(m==26)return setLum(b,blendLum(s));
  return vec3(sepBlend(m,b.r,s.r),sepBlend(m,b.g,s.g),sepBlend(m,b.b,s.b));
@@ -204,7 +205,7 @@ fn sepBlend(m:i32,b:f32,s:f32)->f32{
 }
 fn blendMode(m:i32,b:vec3f,s:vec3f)->vec3f{
  if(m<=1){return s;}
- if(m==6){return select(b,s,blendLum(s)<blendLum(b));}if(m==11){return select(b,s,blendLum(s)>blendLum(b));}
+ if(m==6){return select(s,b,blendLum(b)<blendLum(s));}if(m==11){return select(s,b,blendLum(b)>blendLum(s));}
  if(m==23){return setLum(setSat(s,blendSat(b)),blendLum(b));}if(m==24){return setLum(setSat(b,blendSat(s)),blendLum(b));}
  if(m==25){return setLum(s,blendLum(b));}if(m==26){return setLum(b,blendLum(s));}
  return vec3f(sepBlend(m,b.r,s.r),sepBlend(m,b.g,s.g),sepBlend(m,b.b,s.b));
