@@ -157,6 +157,16 @@ export async function runEffectRepeatable(app, def, values) {
   return ok;
 }
 
+/** Commands may succeed without returning a value; false and errors stop a favorite. */
+export async function runFavoriteCommand(app, command, args) {
+  try {
+    return (await app.commands.run(command, args, { throwOnError: true })) !== false;
+  } catch {
+    // The command registry has already reported the error.
+    return false;
+  }
+}
+
 /** Replays steps on the active audio file, one undo step each. Resolves false when a step could not run. */
 export async function runSteps(app, steps) {
   const doc = app.active?.kind === 'audio' ? app.active : null;
@@ -185,7 +195,7 @@ export async function runSteps(app, steps) {
         app.notify(`${app.commands.label(step.command).replace(/\.\.\.$/, '')} is not available for the selection at that step.`, { error: true });
         return false;
       }
-      await app.commands.run(step.command, step.args);
+      if (!(await runFavoriteCommand(app, step.command, step.args))) return false;
     }
   }
   return true;

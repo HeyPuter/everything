@@ -213,7 +213,7 @@ export function installSpectral(app) {
           : [doc.selection.start, doc.selection.end];
         if ((end - start) / doc.sampleRate > MAX_AUTO_HEAL_SECONDS) {
           app.notify(`Auto Heal works on selections up to ${MAX_AUTO_HEAL_SECONDS} seconds. Select a shorter range around the problem.`, { error: true });
-          return;
+          return false;
         }
         if (!sel) sel = timeSelection(start, end, doc.sampleRate / 2, doc.selection.channels.slice());
         commit(doc, 'Auto Heal', healSpectral(doc.state, sel, d));

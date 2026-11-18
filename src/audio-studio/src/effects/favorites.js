@@ -20,7 +20,7 @@ import { lastValues } from './presets.js';
 import { openEffectDialog } from './dialog.js';
 import { groupedEffects } from './rack.js';
 import { showNotice } from '../ui/notices.js';
-import { createRecorder, actionFromSteps, runSteps, runEffectRepeatable, stepProblem, placeSelection } from './favorite-sequence.js';
+import { createRecorder, actionFromSteps, runSteps, runEffectRepeatable, runFavoriteCommand, stepProblem, placeSelection } from './favorite-sequence.js';
 
 let nextFav = 1;
 const favId = () => `fav${Date.now().toString(36)}${nextFav++}`;
@@ -180,8 +180,7 @@ export async function applyFavorite(app, fav) {
   const a = fav.action;
   if (a.type === 'sequence') return runSteps(app, a.steps);
   if (a.type === 'effect') return runEffectRepeatable(app, getEffect(a.effect), a.values);
-  await app.commands.run(a.command, a.args);
-  return true;
+  return runFavoriteCommand(app, a.command, a.args);
 }
 
 /** Name of one step (or plain action): the effect or command, with its main argument. */
