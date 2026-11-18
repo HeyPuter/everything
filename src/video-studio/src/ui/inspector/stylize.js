@@ -14,6 +14,7 @@ import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { DEFAULT_TRANSFORM, makeClip, makeTrack, normalizeClip } from '../../model/project.js';
 import { inheritFromCompound } from '../../model/compound.js';
+import { parseMaskProp } from '../../model/masks.js';
 import * as T from '../../model/timeline.js';
 import { STYLE_LOOKS, STYLE_AMOUNT_DEFAULT, styleEffect, normalizeStylize } from '../../model/stylize.js';
 import { aiAvailable } from '../../media/tts.js';
@@ -81,7 +82,14 @@ export async function clipPicture(ctx, clip, time) {
   Object.assign(one, { start: 0, transform: { ...DEFAULT_TRANSFORM }, opacity: 1, blend: 'normal', animIn: null, animOut: null, animLoop: null, keyframes: structuredClone(baked.keyframes), transition: null });
   // Retained group placement and transition partners belong to the timeline,
   // not the isolated source picture sent for restyling. Keep source timing.
-  for (const k of ['stylize', 'effects', 'masks', 'group', 'disabled', 'parent', 'canvas', 'motionBlur', 'inherited', 'transitionSlices']) delete one[k];
+  for (const k of ['stylize', 'effects', 'group', 'disabled', 'parent', 'canvas', 'motionBlur', 'inherited', 'transitionSlices']) delete one[k];
+  // Color masks define which pixels receive the captured grade. Alpha masks
+  // stay editable on the timeline, without cutting holes into the AI source.
+  if (one.maskUse === 'color') {
+    for (const [prop, keys] of Object.entries(clip.keyframes || {})) {
+      if (parseMaskProp(prop)) one.keyframes[prop] = structuredClone(keys);
+    }
+  } else delete one.masks;
   const local = Math.min(Math.max(0, time - clip.start), Math.max(0, clip.duration - 1000));
   const project = { ...p, settings: { ...p.settings, width: w, height: hh, background: { type: 'color', color: '#000000', blur: 0 } }, tracks: [makeTrack('video', { main: true, clips: [one] })], markers: [] };
   delete project.range;

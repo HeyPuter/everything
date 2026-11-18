@@ -11,6 +11,7 @@ import { fixture, clip, onMain, s } from './helpers.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { findClip } from '../src/model/timeline.js';
+import { defaultMask } from '../src/model/masks.js';
 
 beforeEach(() => {
   renderStill.mockClear();
@@ -29,6 +30,28 @@ async function capture(p, c, time) {
 }
 
 describe('isolated pictures for AI restyling', () => {
+  it.each(['image', 'video'])('retains animated color masks in a %s source capture', async (type) => {
+    const p = fixture();
+    const mask = { ...defaultMask('rectangle'), x: -0.25, w: 0.5, h: 1 };
+    const [c] = onMain(p, clip(type, 1, 4, { masks: [mask], maskUse: 'color', adjust: { exposure: 20 } }));
+    c.keyframes['mask0.x'] = [{ t: 0, v: -0.25 }, { t: s(4), v: 0.25 }];
+    const [layer] = await capture(p, c, s(2));
+    expect(layer.maskUse).toBe('color');
+    expect(layer.masks).toHaveLength(1);
+    expect(layer.masks[0].x).toBe(-0.125);
+    expect(layer.adjust.exposure).toBe(20);
+    expect(layer.opacity).toBe(1);
+  });
+
+  it('keeps alpha masks on the timeline rather than clipping the source capture', async () => {
+    const p = fixture();
+    const [c] = onMain(p, clip('image', 0, 4, { masks: [defaultMask('ellipse')] }));
+    c.keyframes['mask0.x'] = [{ t: 0, v: 0.2 }];
+    const [layer] = await capture(p, c, s(1));
+    expect(layer.masks).toHaveLength(0);
+    expect(layer.clip.keyframes['mask0.x']).toBeUndefined();
+  });
+
   it.each(['image', 'video'])('fits a cropped %s capture to the visible source aspect ratio', async (type) => {
     const p = fixture();
     Object.assign(p.settings, { width: 72, height: 128 });
