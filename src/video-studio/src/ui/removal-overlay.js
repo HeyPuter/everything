@@ -219,7 +219,7 @@ export function createRemovalOverlay({ store, actions, stage }) {
         reg.strokes = [...(reg.strokes || []), stroke];
       }, coalesce);
       if (removeEdit.index !== index) removeEdit.set({ index });
-      drag = { kind, index, region: r, a, b, coalesce, pts: stroke.pts.slice(), erase };
+      drag = { kind, index, region: r, a, b, coalesce, pts: stroke.pts.slice(), erase, lastCss: p0 };
     } else if (kind === 'box') {
       if (cur.regions.length >= MAX_REGIONS) {
         toast(`A clip can have up to ${MAX_REGIONS} regions.`, { kind: 'info' });
@@ -276,12 +276,14 @@ export function createRemovalOverlay({ store, actions, stage }) {
     switch (drag.kind) {
       case 'paint': {
         const { region: r, a, b, index } = drag;
+        // Sample in screen pixels so spacing stays consistent through crop,
+        // unequal axes, rotated regions, and nested group transforms.
+        if (Math.hypot(p[0] - drag.lastCss[0], p[1] - drag.lastCss[1]) < 1.5) return;
         const l = sourceToMask(r, SW, SH, s[0], s[1]);
         const lp = [q4(l[0] / (2 * a)), q4(l[1] / (2 * b))];
         const pts = drag.pts;
-        // Skip points closer than about a css pixel.
-        const step = 1.5 / Math.max(1e-6, 2 * a * cur.cssPerSrc);
-        if (Math.hypot(lp[0] - pts[pts.length - 2], lp[1] - pts[pts.length - 1]) < step) return;
+        if (lp[0] === pts[pts.length - 2] && lp[1] === pts[pts.length - 1]) return;
+        drag.lastCss = p;
         pts.push(lp[0], lp[1]);
         const copy = pts.slice();
         edit(drag.erase ? 'Erase removal region' : 'Paint removal region', (c) => {

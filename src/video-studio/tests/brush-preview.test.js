@@ -174,3 +174,19 @@ it.each([
   // Cropping the tint must not strand a region's editing handles outside it.
   expect(env.overlay.el.querySelector('.mask-handle').closest('[clip-path]')).toBeNull();
 });
+
+it.each([[false, 1, 0], [false, 0, 1], [true, 1, 0], [true, 0, 1]])('samples removal strokes in screen pixels (nested %s, direction %s/%s)', (nested, dx, dy) => {
+  const env = setup('removal', nested), at = env.project(1100, 600);
+  Object.assign(env.shape, { w: 0.5, h: 0.8 }); env.draw();
+  const fire = (el, type, distance) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, clientX: at[0] + dx * distance, clientY: at[1] + dy * distance }));
+  fire(env.overlay.el.querySelector('[data-rh=paint]'), 'pointerdown', 0);
+  for (let i = 0; i <= 10; i++) fire(env.overlay.el, 'pointermove', i * 0.09);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(2);
+  fire(env.overlay.el, 'pointermove', 2);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(4);
+  fire(env.overlay.el, 'pointermove', 2.8);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(4);
+  fire(env.overlay.el, 'pointermove', 4);
+  expect(env.shape.strokes.at(-1).pts).toHaveLength(6);
+  fire(env.overlay.el, 'pointerup', 4);
+});
