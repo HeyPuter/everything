@@ -28,6 +28,7 @@ import {
   rectQuad,
   rgbaFromMask,
   rotateM,
+  quarterTurns,
   rotatedCanvasSize,
   samplerInterp,
   scaleM,
@@ -351,6 +352,8 @@ export function trimGrid(store: TileStore, grid: TileGrid, r: IRect): TileGrid {
   return gridFromImage(store, readRGBA(store, grid, r), r.x, r.y);
 }
 export const rotateCanvas = (e: Editor, deg: number) => {
+  // A whole turn changes nothing: no empty Rotate Canvas step.
+  if (quarterTurns(deg) === 0) return;
   const size = rotatedCanvasSize(e.doc.width, e.doc.height, deg);
   const label = deg === 180 ? 'Rotate Canvas 180°' : deg === 90 ? 'Rotate Canvas 90° Clockwise' : deg === -90 ? 'Rotate Canvas 90° Counter Clockwise' : 'Rotate Canvas';
   if (size.width > 8192 || size.height > 8192 || size.width * size.height > 24_000_000) {

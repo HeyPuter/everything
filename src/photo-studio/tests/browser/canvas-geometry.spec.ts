@@ -372,3 +372,10 @@ test('Rotate Canvas turns imported pixel masks with their layers', async ({ page
   const after = await composite(page);
   expect(differing(turned(before), after)).toBe(0);
 });
+
+test('Rotate Canvas by 0° adds no history step', async ({ page }) => {
+  await openImage(page, 300, 200, '#ff0000');
+  for (const direction of ['cw', 'ccw']) await run(page, 'image.rotate-arbitrary', { params: { angle: 0, direction } });
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
+  expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([300, 200]);
+});
