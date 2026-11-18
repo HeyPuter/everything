@@ -156,6 +156,20 @@ test('panel tabs follow Home and End as well as the arrows', async ({ page }) =>
   await expect(page.locator(`[data-panel-tab="${ids[0]}"]`)).toBeFocused();
 });
 
+test('the icon strip keeps the Tab stop on the icon used last', async ({ page }) => {
+  const icons = page.locator('.dock-strip [data-strip-panel]');
+  await icons.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  const third = await icons.nth(2).getAttribute('data-strip-panel');
+  await expect(icons.nth(2)).toBeFocused();
+  const stops = () => icons.evaluateAll((b) => b.filter((x) => (x as HTMLElement).tabIndex === 0).map((x) => (x as HTMLElement).dataset.stripPanel));
+  expect(await stops()).toEqual([third]);
+  // Still so after the dock redraws (another tab chosen).
+  await page.locator('[data-panel-tab][aria-selected="false"]').first().click();
+  expect(await stops()).toEqual([third]);
+});
+
 test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on its slot', async ({ page }) => {
   const slot = page.locator('[data-slot="marquee"]');
   await slot.focus();

@@ -158,9 +158,18 @@ export class Dock {
       this.el.querySelector<HTMLElement>(`[data-panel-tab="${next.dataset.panelTab}"]`)?.focus();
       ev.preventDefault();
     });
+    // The icon strip is one tab stop: the icon used last (roving tabindex).
+    el.addEventListener('focusin', (ev) => {
+      const icon = (ev.target as HTMLElement).closest<HTMLElement>('[data-strip-panel]');
+      if (!icon) return;
+      this.stripStop = icon.dataset.stripPanel;
+      for (const b of this.el.querySelectorAll<HTMLElement>('[data-strip-panel]')) b.tabIndex = b === icon ? 0 : -1;
+    });
     this.bindResize();
     this.bindDrag();
   }
+  // The strip icon that takes the Tab stop.
+  private stripStop?: string;
   private save() {
     try {
       localStorage.setItem(storageKey, JSON.stringify(this.layout));
@@ -464,6 +473,7 @@ export class Dock {
     }
     const strip = this.el.querySelector<HTMLElement>('.dock-strip')!;
     const stripPanels = this.group('strip');
+    const stop = stripPanels.find((p) => p.id === this.stripStop)?.id ?? stripPanels[0]?.id;
     strip.dataset.dropLocation = 'strip';
     strip.innerHTML = stripPanels
       .map((p, i) => {
@@ -471,7 +481,7 @@ export class Dock {
         const start = i === 0 || stripSection(stripPanels[i - 1].id) !== section;
         const end = i === stripPanels.length - 1 || stripSection(stripPanels[i + 1].id) !== section;
         const label = stripSections[section]?.[0] ?? 'More panels';
-        return `${start ? `<div class="strip-section" role="group" aria-label="${label}">` : ''}<button data-strip-panel="${p.id}" draggable="${draggable}" aria-label="${escapeXML(p.title)}" title="${escapeXML(p.title)}" aria-pressed="${this.drawer === p.id}" tabindex="${i === 0 ? 0 : -1}">${svg(p.icon)}</button>${end ? '</div>' : ''}`;
+        return `${start ? `<div class="strip-section" role="group" aria-label="${label}">` : ''}<button data-strip-panel="${p.id}" draggable="${draggable}" aria-label="${escapeXML(p.title)}" title="${escapeXML(p.title)}" aria-pressed="${this.drawer === p.id}" tabindex="${p.id === stop ? 0 : -1}">${svg(p.icon)}</button>${end ? '</div>' : ''}`;
       })
       .join('');
     strip.classList.toggle('empty', !stripPanels.length);
