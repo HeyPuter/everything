@@ -11,6 +11,7 @@
 // sessions (a 5.1 master makes a surround graph: 5.1 tracks and buses carry
 // six channels and the others are placed by their surround panner).
 
+import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
 import { activeCrossfades, clipEnd, SILENT_DB } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
@@ -138,12 +139,14 @@ function computeClipPlan(state) {
 }
 
 /** The plan entries ([clipId, { parts, fadeIn, fadeOut }]) of the unmuted clips of one track, in state order. */
-function planTrack(list, auto) {
-  const xf = activeCrossfades({ clips: list, autoCrossfade: auto });
+function planTrack(real, auto) {
+  const scene = real.some((c) => c.mergeLayout) ? mergeScene(real) : null;
+  const list = scene?.list || real;
+  const byId = new Map(list.map((c) => [c.id, c]));
+  const xf = activeCrossfades({ clips: real, autoCrossfade: auto }, scene);
   const pairs = new Map(); // "a|b" -> [start, end) shared by a crossfading pair
   const fades = new Map();
   for (const c of list) fades.set(c.id, { fadeIn: { ...c.fadeIn }, fadeOut: { ...c.fadeOut } });
-  const byId = new Map(list.map((c) => [c.id, c]));
   for (const x of xf) {
     const a = byId.get(x.out);
     const b = byId.get(x.in);
@@ -175,15 +178,17 @@ function planTrack(list, auto) {
     }
     for (let j = lo; j < clips.length && clips[j].start < end; j++) {
       const o = clips[j];
-      if (j === i || z[j] < z[i] || clipEnd(o) <= c.start) continue;
+      if (j === i || clipEnd(o) <= c.start) continue;
+      if (scene ? !scene.interacts(c, o) || !scene.inFront(o, c) : z[j] < z[i]) continue;
       // A crossfade overlap stays audible on both clips; otherwise the front clip hides this one.
       const zone = pairs.get(`${c.id}|${o.id}`);
-      if (zone) cuts.push(...subtract(o.start, clipEnd(o), [zone]));
-      else cuts.push([o.start, clipEnd(o)]);
+      const [start, end] = scene?.ghosts.has(o.id) ? o.bounds : [o.start, clipEnd(o)];
+      if (zone) cuts.push(...subtract(start, end, [zone]));
+      else cuts.push([start, end]);
     }
     out.set(c.id, { parts: subtract(c.start, end, cuts), ...fades.get(c.id) });
   }
-  return list.map((c) => [c.id, out.get(c.id)]);
+  return real.map((c) => [c.id, out.get(c.id)]);
 }
 
 /** Splits a (possibly looped) clip interval into contiguous source reads. */

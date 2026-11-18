@@ -6,6 +6,7 @@ import { h, announce } from '../lib/dom.js';
 import { openDialog, promptDialog, confirmDialog } from '../ui/dialog.js';
 import { icon } from '../ui/icons.js';
 import { Session } from '../model/session.js';
+import { mergeWithLayout, relocateMergeLayouts } from '../model/merge-layout.js';
 import { clipPlan } from '../model/session-graph.js';
 import * as S from '../model/session-edits.js';
 import { markersInRange } from '../model/edits.js';
@@ -443,7 +444,7 @@ function clipboardFrom(doc, clips, range) {
     type: 'clips',
     sessionId: doc.id,
     sampleRate: doc.sampleRate,
-    clips: parts.map((c) => ({ ...c, start: c.start - t0, trackOffset: (idx.get(c.trackId) ?? 0) - firstTrack, groupId: null })),
+    clips: relocateMergeLayouts(parts, parts.map((c) => ({ ...c, start: c.start - t0, trackOffset: (idx.get(c.trackId) ?? 0) - firstTrack, groupId: null }))),
     pool,
   };
 }
@@ -562,7 +563,7 @@ async function pasteClips(app, doc, clip) {
       ids.push(n.id);
     }
     // Pasted clips come to the front, like clips placed by a move.
-    state = S.addClipsOnTop(state, pasted);
+    state = S.addClipsOnTop(state, relocateMergeLayouts(clip.clips, pasted));
   }
   doc.apply('Paste', state, { clips: ids });
 }
@@ -1213,13 +1214,8 @@ export function installMultitrackCommands(app) {
         if (!canCommit()) return;
         const sourceId = await linkSource(doc, file);
         if (!canCommit()) return;
-        // The merged clip takes the place of the frontmost merged clip, so the clips it overlapped
-        // stay in front of it or behind it as they were (the render already left out the parts
-        // that clips in front hid).
-        const order = S.frontOrder(doc.state);
-        const front = doc.state.clips.filter((c) => graphClips.has(c.id)).reduce((p, c) => (!p || order.get(c.id) > order.get(p.id) ? c : p), null);
-        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length, z: front?.z || 0 });
-        const state = front ? { ...doc.state, clips: doc.state.clips.flatMap((c) => (c === front ? [merged] : graphClips.has(c.id) ? [] : [c])) } : S.addClips(S.removeClips(doc.state, [...graphClips]), [merged]);
+        const merged = S.createClip({ trackId, sourceId, name: baseName(file.name), start: a, length: data[0].length });
+        const state = mergeWithLayout(doc.state, graphClips, merged);
         doc.apply('Merge Clips', state, { clips: [merged.id] });
       },
     },
