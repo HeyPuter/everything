@@ -90,3 +90,28 @@ test('a negative linked height flips only vertically', async ({ page }) => {
   expect([q.sx, q.sy]).toEqual([0.5, -0.5]);
   await page.keyboard.press('Escape');
 });
+
+test('clearing a transform field keeps the value in use instead of entering 0', async ({
+  page,
+}) => {
+  await openImage(page, 300, 200, '#808080');
+  await run(page, 'edit.free-transform');
+  await page.locator('#ts-angle').fill('30');
+  await page.locator('#ts-angle').press('Enter');
+  const quad = () =>
+    page.evaluate(
+      () => (window.photoStudio.modal as unknown as { quad: { x: number; y: number }[] }).quad,
+    );
+  const start = await quad();
+  for (const [id, value] of [
+    ['#ts-x', '150'],
+    ['#ts-angle', '30'],
+    ['#ts-w', '100'],
+  ]) {
+    await page.locator(id).fill('');
+    await page.locator(id).press('Enter');
+    await expect(page.locator(id)).toHaveValue(value);
+  }
+  expect(await quad()).toEqual(start);
+  await page.keyboard.press('Escape');
+});
