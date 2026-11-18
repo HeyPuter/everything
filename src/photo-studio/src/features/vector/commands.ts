@@ -122,7 +122,7 @@ export function makeShapeFromPath(e: Editor) {
  * one, keeping each layer's outline as an editable component. The layers in
  * front take the chosen path operation (unite, subtract, intersect, exclude);
  * the result keeps the backmost layer's fill, stroke and name. */
-export function combineShapes(e: Editor, op: PathOp = 'combine') {
+export async function combineShapes(e: Editor, op: PathOp = 'combine') {
   const ids = new Set(e.selectedLayers.filter((l) => l.kind === 'vector').map((l) => l.id));
   const ordered = allLayers(e.doc.layers).filter((l) => ids.has(l.id));
   if (ordered.length < 2) return;
@@ -131,17 +131,32 @@ export function combineShapes(e: Editor, op: PathOp = 'combine') {
     return;
   }
   const back = ordered[0];
-  const paths = ordered.flatMap((l, i) => {
-    const m = shapeDocMask(l).paths;
-    if (i === 0) return m;
-    // Each front layer's components take the operation; a component that
-    // cuts into its own layer (a hole) keeps cutting.
-    for (const g of componentGroups({ paths: m })) {
-      const first = m[g[0]];
-      if (g[0] === 0 || !first.operation || first.operation === 'combine') first.operation = op;
-    }
-    return m;
-  });
+  const doc = e.doc;
+  const masks = await Promise.all(
+    ordered.map(async (l, i) => {
+      const m = shapeDocMask(l).paths;
+      if (i === 0 || !m.length) return m;
+      // Path operations apply one component after another, so a front layer
+      // made of several components only keeps its own area when they all
+      // add up and the operation adds or cuts them one by one. Otherwise the
+      // layer is first resolved into one outline: intersecting with two
+      // separate shapes must keep the overlap with either of them.
+      const groups = componentGroups({ paths: m });
+      const plain = groups.every((g, k) => !k || !m[g[0]].operation || m[g[0]].operation === 'combine');
+      if (groups.length > 1 && !(plain && (op === 'combine' || op === 'subtract'))) {
+        const sub: VectorMask = { paths: m };
+        sub.paths[0].operation = 'combine';
+        const r = await e.engine.vectorMask(sub, canvasRect(doc));
+        const merged = commandsToPaths(parseSvgPath(r.path), r.fillRule === 'evenodd' ? 'even-odd' : 'non-zero', op, true);
+        if (merged[0]) merged[0].operation = op;
+        return merged;
+      }
+      for (const g of groups) m[g[0]].operation = op;
+      return m;
+    }),
+  );
+  if (e.doc !== doc) return;
+  const paths = masks.flat();
   const label = COMBINE_OPS.find(([o]) => o === op)?.[1] ?? 'Combine Shapes';
   e.command(label, (d) => {
     const keep = findLayer(d.layers, back.id)!;
