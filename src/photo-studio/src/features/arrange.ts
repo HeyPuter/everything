@@ -5,7 +5,7 @@ import { linkedPartners } from '../model/links';
 import { moveGroupMasks, transformBounds } from '../model/transform';
 import { assertEditable } from '../model/layers';
 import { escapeXML } from '../model/assets';
-import { eventShortcut, formatShortcut, normalizeShortcut } from '../app/shortcuts';
+import { eventShortcut, formatShortcut, normalizeShortcut, platformShortcut } from '../app/shortcuts';
 import { svg } from '../app/icons';
 
 type Box = { x: number; y: number; width: number; height: number };
@@ -233,14 +233,15 @@ function shortcutEditor(e: Editor) {
   // items act on the panel whose menu is open, so a shortcut has no panel.
   const list = [...commands.values()].filter((c) => !c.id.startsWith('window.panel.menu-')).sort((a, b) => a.id.localeCompare(b.id));
   d.innerHTML = `<form method="dialog" class="shortcut-editor"><h2>Keyboard Shortcuts</h2><p class="muted">Click a shortcut field (or press Enter on it) and press the new key combination; Escape stops recording. Backspace clears it. Conflicts are shown in red.</p><input type="search" class="shortcut-filter" placeholder="Filter" aria-label="Filter commands"><div class="shortcut-table">${list
-    .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? c.shortcut[0] : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
+    .map((c) => `<label class="shortcut-entry" data-id="${c.id}"><span>${escapeXML(c.label)} <small class="muted">${escapeXML(c.id)}</small></span><input readonly data-shortcut="${c.id}" value="${escapeXML(Array.isArray(c.shortcut) ? (c.shortcut.find((x) => platformShortcut(x)) ?? c.shortcut[0]) : (c.shortcut ?? ''))}" aria-label="Shortcut for ${escapeXML(c.label)}"></label>`)
     .join('')}</div><div class="dialog-actions"><button type="button" data-reset-shortcuts>Reset to Defaults</button><button type="button" id="cancel-dialog">Cancel</button><button class="primary">OK</button></div></form>`;
   const conflicts = () => {
     const seen = new Map<string, HTMLInputElement[]>();
     d.querySelectorAll<HTMLInputElement>('[data-shortcut]').forEach((i) => {
       i.classList.remove('conflict');
       if (!i.value) return;
-      const k = normalizeShortcut(i.value);
+      // Compared as typed on this platform: away from macOS, Ctrl+X and Mod+X are one key.
+      const k = platformShortcut(i.value) ?? normalizeShortcut(i.value);
       seen.set(k, [...(seen.get(k) ?? []), i]);
     });
     for (const group of seen.values()) if (group.length > 1) group.forEach((i) => i.classList.add('conflict'));

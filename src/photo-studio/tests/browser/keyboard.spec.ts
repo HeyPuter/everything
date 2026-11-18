@@ -170,3 +170,19 @@ test('tooltips name the modifier key of the platform, not a placeholder or the M
   expect(win.swatch).toContain('Ctrl-click');
   expect(win.swatch).not.toContain('⌘');
 });
+
+test('on Windows the shortcut editor shows the alternative that can be typed and finds Ctrl and Mod conflicts', async ({ page }) => {
+  // A shortcut recorded on a Mac with the Control key, now used on Windows.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+    localStorage.setItem('photo-studio-shortcuts', JSON.stringify({ 'image.trim': 'Ctrl+J' }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  await page.evaluate(() => void window.photoStudio.runCommand('edit.keyboard-shortcuts'));
+  const d = page.locator('dialog[open]');
+  await expect(d.locator('[data-shortcut="image.trim"]')).toHaveClass(/conflict/);
+  await expect(d.locator('[data-shortcut="layer.via-copy"]')).toHaveClass(/conflict/);
+  // Last Filter's Mac-only Mod+Ctrl+F cannot be typed here: its other shortcut is shown.
+  await expect(d.locator('[data-shortcut="filter.last"]')).toHaveValue('Mod+Alt+F');
+});
