@@ -4,7 +4,7 @@
  * playhead; it is followed forward and backward through the part where both
  * clips overlap, and the pinned clip gets position keyframes that move with it.
  */
-import { boxPoint } from '../lib/geometry.js';
+import { boxPoint, inverse } from '../lib/geometry.js';
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { US, FRAME_SLACK, timecode } from '../lib/time.js';
@@ -48,18 +48,47 @@ export function sourcePointToFrame(box, u, v) {
  * at time t0.
  */
 export function pinKeys(project, target, points, t0) {
+  if (!points.length) return { x: [], y: [] };
   const W = project.settings.width;
   const H = project.settings.height;
   const ref = points.reduce((best, p) => (Math.abs(p.t - t0) < Math.abs(best.t - t0) ? p : best), points[0]);
   const local0 = clamp(t0 - target.start, 0, target.duration);
   const x0 = valueAt(target.keyframes, 'x', local0, target.transform.x);
   const y0 = valueAt(target.keyframes, 'y', local0, target.transform.y);
+  const transformed = target.inherited?.length || target.parent || target.animIn || target.animOut || target.animLoop;
+  const anchor = transformed ? clipLayer(project, target, target.start + local0, 0) : { x: x0, y: y0 };
+  const probe = transformed ? { ...target, transform: { ...target.transform, x: 0, y: 0 }, keyframes: { ...target.keyframes } } : null;
+  if (probe) { delete probe.keyframes.x; delete probe.keyframes.y; }
+  let gainX = 1, gainY = 1;
   const keys = points
-    .map((p) => ({ t: Math.round(clamp(p.t - target.start, 0, target.duration)), x: x0 + (p.x - ref.x) / W, y: y0 + (p.y - ref.y) / H }))
+    .map((p) => {
+      const t = Math.round(clamp(p.t - target.start, 0, target.duration));
+      if (!probe) return { t, x: x0 + (p.x - ref.x) / W, y: y0 + (p.y - ref.y) / H };
+      const at = target.start + t;
+      // Evaluate the displayed position basis at this time. Animated parents and
+      // the clip's own procedural motion can change both its origin and its axes.
+      const origin = clipLayer(project, probe, at, 0);
+      probe.transform.x = 1;
+      const px = clipLayer(project, probe, at, 0);
+      probe.transform.x = 0; probe.transform.y = 1;
+      const py = clipLayer(project, probe, at, 0);
+      probe.transform.y = 0;
+      const matrix = [px.x - origin.x, px.y - origin.y, py.x - origin.x, py.y - origin.y];
+      gainX = Math.max(gainX, Math.abs(matrix[0]), Math.abs(matrix[1]));
+      gainY = Math.max(gainY, Math.abs(matrix[2]), Math.abs(matrix[3]));
+      const det = matrix[0] * matrix[3] - matrix[1] * matrix[2];
+      const area = Math.hypot(matrix[0], matrix[1]) * Math.hypot(matrix[2], matrix[3]);
+      const inv = Math.abs(det) <= area * 1e-12 ? null : inverse(matrix);
+      if (!inv) return { t, x: x0, y: y0 }; // A collapsed group has no unique position inverse.
+      const dx = anchor.x + (p.x - ref.x) / W - origin.x;
+      const dy = anchor.y + (p.y - ref.y) / H - origin.y;
+      return { t, x: inv[0] * dx + inv[2] * dy, y: inv[1] * dx + inv[3] * dy };
+    })
     .sort((a, b) => a.t - b.t);
   return {
-    x: thinKeys(keys.map((k) => ({ t: k.t, v: k.x, ease: 'linear' })), 0.0015),
-    y: thinKeys(keys.map((k) => ({ t: k.t, v: k.y, ease: 'linear' })), 0.0015),
+    // Budget both local axes together in displayed frame coordinates.
+    x: thinKeys(keys.map((k) => ({ t: k.t, v: k.x, ease: 'linear' })), 0.0015 / (2 * gainX)),
+    y: thinKeys(keys.map((k) => ({ t: k.t, v: k.y, ease: 'linear' })), 0.0015 / (2 * gainY)),
   };
 }
 
