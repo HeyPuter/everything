@@ -245,6 +245,26 @@ test.describe('in a narrow window', () => {
     expect(await right()).toBeLessThanOrEqual(1024);
     await expect(bar).toHaveClass(/more-left/);
   });
+  test('the document tab strip keeps the shown document’s tab in view and scrolls with the wheel', async ({ page }) => {
+    for (let i = 0; i < 7; i++) await openImage(page, 60, 40, '#888888', `a-long-document-name-number-${i}.png`);
+    const strip = page.locator('.document-tabs');
+    const inView = async () => {
+      const s = (await strip.boundingBox())!;
+      const t = (await page.locator('.document-tab.focused').boundingBox())!;
+      return t.x >= s.x - 1 && t.x + t.width <= s.x + s.width + 1;
+    };
+    // The newest document's tab was off the right end of the strip.
+    expect(await inView()).toBe(true);
+    await page.evaluate(() => window.photoStudio.showView(window.photoStudio.views[0]));
+    await idle(page);
+    expect(await inView()).toBe(true);
+    await expect(strip).toHaveClass(/more-right/);
+    // A mouse wheel scrolls the strip to the other tabs.
+    const s = (await strip.boundingBox())!;
+    await page.mouse.move(s.x + 40, s.y + s.height / 2);
+    await page.mouse.wheel(0, 400);
+    await expect.poll(() => strip.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  });
 });
 
 test.describe('in a short window', () => {

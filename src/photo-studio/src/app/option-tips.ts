@@ -215,32 +215,3 @@ export function applyOptionTips(root: HTMLElement) {
     if (tip) (label ?? c).title = tip;
   }
 }
-/** The options bar scrolls sideways when its controls do not fit the window
- * (its scrollbar is hidden): a mouse wheel scrolls it, and an edge fades
- * where more controls are. */
-export function scrollableOptions(root: HTMLElement) {
-  let frame = 0;
-  const edges = () => {
-    frame = 0;
-    const more = root.scrollWidth - root.clientWidth;
-    root.classList.toggle('more-left', more > 1 && root.scrollLeft > 1);
-    root.classList.toggle('more-right', more > 1 && root.scrollLeft < more - 1);
-  };
-  const queue = () => (frame ||= requestAnimationFrame(edges));
-  root.addEventListener(
-    'wheel',
-    (ev) => {
-      if (root.scrollWidth <= root.clientWidth || ev.ctrlKey || Math.abs(ev.deltaX) >= Math.abs(ev.deltaY)) return;
-      // A focused field or list keeps the wheel for itself.
-      const t = ev.target as HTMLElement;
-      if (t === document.activeElement && t.matches('input,select,textarea')) return;
-      root.scrollLeft += ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY;
-      ev.preventDefault();
-    },
-    { passive: false },
-  );
-  root.addEventListener('scroll', queue, { passive: true });
-  new ResizeObserver(queue).observe(root);
-  new MutationObserver(queue).observe(root, { childList: true, subtree: true });
-  queue();
-}

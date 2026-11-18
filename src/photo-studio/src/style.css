@@ -205,10 +205,10 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .optionsbar { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
 .active-tool-icon { display: grid; place-items: center; width: 28px; height: 26px; border-right: 1px solid var(--line-soft); padding-right: 6px; }
 #tool-options { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; flex: 1; }
-/* More controls past an edge (narrow windows): that edge fades (app/option-tips.ts). */
-#tool-options.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
-#tool-options.more-left { mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
-#tool-options.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+/* More controls or tabs past an edge (narrow windows): that edge fades (app/scroll-row.ts). */
+.scroll-row.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+.scroll-row.more-left { mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent); }
+.scroll-row.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
 #tool-options label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px; }
 #tool-options input[type='number'] { width: 50px; }
 .options-end { display: flex; align-items: center; gap: 6px; }
