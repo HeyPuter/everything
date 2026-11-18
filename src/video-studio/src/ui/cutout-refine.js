@@ -6,7 +6,7 @@
  */
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { CUTOUT_DEFAULT, MAX_STROKES, normalizeStrokes, strokeOverride, applyOverride, matteWindow } from '../model/cutout.js';
 import { SEG_SIZE, ready, segment, segmenterError } from '../media/segmenter.js';
@@ -35,7 +35,7 @@ async function sourceFrame(ctx, clip, t) {
     const track = await input.getPrimaryVideoTrack();
     if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
     const sink = new CanvasSink(track, { width: w, height: hh, fit: 'fill', poolSize: 1 });
-    const frame = await sink.getCanvas(T.sourceTimeAt(clip, t) / US);
+    const frame = await sink.getCanvas(T.sourceTimeAt(clip, t) / US + FRAME_SLACK);
     if (frame) g.drawImage(frame.canvas, 0, 0, w, hh);
   } finally {
     input.dispose();

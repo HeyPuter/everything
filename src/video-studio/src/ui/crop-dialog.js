@@ -6,7 +6,7 @@
  */
 import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { US } from '../lib/time.js';
+import { US, FRAME_SLACK } from '../lib/time.js';
 import * as T from '../model/timeline.js';
 import { pictureSizeFor } from '../model/picture-size.js';
 import { openDialog, toast, oneAtATime } from './dialog.js';
@@ -82,7 +82,7 @@ async function sourceFrame(ctx, clip) {
     const w = asset.width || track.displayWidth;
     const hgt = asset.height || track.displayHeight;
     const sink = new CanvasSink(track, { width: Math.min(maxW, w), fit: 'contain', poolSize: 1 });
-    const wrapped = (await sink.getCanvas(sec)) || (await sink.getCanvas(0));
+    const wrapped = (await sink.getCanvas(sec + FRAME_SLACK)) || (await sink.getCanvas(0));
     if (!wrapped) throw new Error('Could not read a frame from this video.');
     return draw(wrapped.canvas, w, hgt, maxW);
   } finally {
