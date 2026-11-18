@@ -6,6 +6,7 @@
  * frame is rendered; a LUT that is not loaded yet simply renders as off.
  */
 import { lutVolume, parseCube, CubeError } from '../model/cube.js';
+import { allClipsDeep } from '../model/compound.js';
 
 const loaded = new Map(); // id -> { id, name, size, data, domainMin, domainMax, version }
 const pending = new Map(); // id -> Promise
@@ -40,10 +41,10 @@ export function onLutLoaded(fn) {
   return () => listeners.delete(fn);
 }
 
-/** Ids of every LUT the project's clips use. */
+/** LUTs used by the active timeline, including nested clips and transition partners. */
 export function lutIdsIn(project) {
   const ids = new Set();
-  for (const t of project?.tracks || []) for (const c of t.clips) if (c.grade?.lut?.id) ids.add(c.grade.lut.id);
+  for (const c of allClipsDeep({ tracks: project?.tracks || [] })) if (c.grade?.lut?.id) ids.add(c.grade.lut.id);
   return ids;
 }
 
