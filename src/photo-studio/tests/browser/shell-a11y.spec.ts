@@ -93,6 +93,29 @@ test('dragging a divider between panel groups resizes only those two groups, als
   expect(await page.locator('[data-resize="dock-top"]').evaluate((el) => getComputedStyle(el).touchAction)).toBe('none');
 });
 
+test('a minimized panel group keeps its size for when it is restored, and the divider above it moves the next open group', async ({ page }) => {
+  const heights = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>('.dock-column .panel-group:not(.empty)')].map((g) => [g.dataset.location, Math.round(g.getBoundingClientRect().height)])));
+  const before = await heights();
+  const tabs = page.locator('[data-location="dock-middle"] .panel-tabs');
+  const box = (await tabs.boundingBox())!;
+  await tabs.dblclick({ position: { x: box.width - 60, y: 10 } });
+  expect((await heights())['dock-middle']).toBeLessThan(40);
+  // The minimized group's own edge cannot be dragged (it used to store the
+  // tab bar's height as the group's size).
+  await expect(page.locator('[data-resize="dock-middle"]')).toBeHidden();
+  const collapsed = await heights();
+  const b = (await page.locator('[data-resize="dock-top"]').boundingBox())!;
+  await page.mouse.move(b.x + 40, b.y + 3);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 40, b.y + 3 - 30, { steps: 4 });
+  await page.mouse.up();
+  const now = await heights();
+  expect(Math.abs(now['dock-top'] - (collapsed['dock-top'] - 30))).toBeLessThanOrEqual(2);
+  expect(Math.abs(now['dock-bottom'] - (collapsed['dock-bottom'] + 30))).toBeLessThanOrEqual(2);
+  await tabs.dblclick({ position: { x: box.width - 60, y: 10 } });
+  expect((await heights())['dock-middle']).toBeGreaterThan(before['dock-middle'] / 2);
+});
+
 test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on its slot', async ({ page }) => {
   const slot = page.locator('[data-slot="marquee"]');
   await slot.focus();

@@ -424,6 +424,11 @@ export class Dock {
     const draggable = this.locked ? 'false' : 'true';
     // Detach mounted bodies before rebuilding the chrome so their state survives.
     for (const body of this.mounted.values()) body.remove();
+    // Sizes are flex weights in pixels once a divider was dragged. A group
+    // without one of its own (minimized or empty back then) takes the others'
+    // average: its default weight (1) would leave it a bare tab bar.
+    const sized = groupLocations.map((l) => this.layout.sizes[l]).filter((n): n is number => !!n);
+    const fallback = sized.length ? sized.reduce((a, b) => a + b, 0) / sized.length : undefined;
     // Empty groups stay in the markup as drop zones, shown only while dragging.
     column.innerHTML = groupLocations
       .map((loc) => {
@@ -431,7 +436,7 @@ export class Dock {
         if (!list.length) return `<section class="panel-group empty" data-location="${loc}"><div class="panel-tabs" data-drop-location="${loc}"><span class="drop-hint">Drop a panel here</span></div></section>`;
         const active = this.activeIn(loc)!;
         const collapsed = this.layout.collapsed.includes(loc);
-        const size = this.layout.sizes[loc];
+        const size = this.layout.sizes[loc] ?? fallback;
         return `<section class="panel-group ${collapsed ? 'collapsed' : ''}" data-location="${loc}" ${size && !collapsed ? `style="flex:${size} 1 0"` : ''}><div class="panel-tabs" role="tablist" aria-label="Panels" data-drop-location="${loc}">${list
           .map((p) => `<button role="tab" data-panel-tab="${p.id}" draggable="${draggable}" aria-selected="${p.id === active.id}" tabindex="${p.id === active.id ? 0 : -1}" aria-controls="panel-${p.id}">${escapeXML(p.title)}</button>`)
           .join('')}<span class="panel-tabs-spacer"></span>${menuButton(active, 'data-panel-menu')}</div><div class="panel-slot"></div><div class="group-resizer" data-resize="${loc}" aria-hidden="true"></div></section>`;
@@ -536,9 +541,13 @@ export class Dock {
     this.el.addEventListener('pointerdown', (ev) => {
       const handle = (ev.target as HTMLElement).closest<HTMLElement>('[data-resize]');
       if (!handle || this.locked) return;
+      // A minimized group keeps its tab-bar height: its divider does nothing
+      // (a size taken from it would leave the group a tab bar when restored),
+      // and the divider above it moves the next open group's edge.
       const a = handle.parentElement as HTMLElement;
+      if (a.classList.contains('collapsed')) return;
       let b = a.nextElementSibling as HTMLElement | null;
-      while (b && b.classList.contains('empty')) b = b.nextElementSibling as HTMLElement | null;
+      while (b && (b.classList.contains('empty') || b.classList.contains('collapsed'))) b = b.nextElementSibling as HTMLElement | null;
       if (!b) return;
       // Sizes are flex weights: give every open group its current height as
       // its weight, or groups still on their default weight (1) would collapse.

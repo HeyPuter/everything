@@ -287,6 +287,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .panel-group[data-location='dock-middle'] { flex: 1 1 0; }
 .panel-group[data-location='dock-bottom'] { flex: 1.4 1 0; }
 .panel-group.collapsed { flex: 0 0 26px !important; }
+.panel-group.collapsed .group-resizer { display: none; }
 .panel-tabs { display: flex; align-items: stretch; height: 26px; background: var(--panel-tab); border-bottom: 1px solid var(--line); flex: none; }
 .panel-tabs [role='tab'] { border-radius: 0; padding: 0 10px; font-size: 11px; color: var(--muted); border-right: 1px solid var(--line); min-height: 0; }
 .panel-tabs [role='tab'][aria-selected='true'] { background: var(--surface); color: var(--text); font-weight: 600; }
