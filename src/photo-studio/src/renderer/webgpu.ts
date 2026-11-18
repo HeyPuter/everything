@@ -115,6 +115,9 @@ export class WebGPUBackend implements Backend {
     const device = await adapter.requestDevice({
       requiredLimits: {
         maxTextureDimension2D: Math.min(8192, adapter.limits.maxTextureDimension2D),
+        // Uploads and readbacks of large float images (16 bytes a pixel) need
+        // more than the default 256 MB; larger ones go in bands of rows.
+        maxBufferSize: Math.min(adapter.limits.maxBufferSize, 8192 * 8192 * 16),
       },
     });
     const context = canvas.getContext('webgpu');
@@ -156,13 +159,7 @@ export class WebGPUBackend implements Backend {
         GPUTextureUsage.COPY_SRC |
         GPUTextureUsage.COPY_DST,
     });
-    if (source instanceof Uint8Array)
-      this.device.queue.writeTexture(
-        { texture: handle },
-        source as Uint8Array<ArrayBuffer>,
-        { bytesPerRow: width * 4 },
-        [width, height],
-      );
+    if (source instanceof Uint8Array) this.upload(handle, 0, 0, width, height, source, 4);
     else if (source)
       this.device.queue.copyExternalImageToTexture(
         { source },
@@ -182,13 +179,7 @@ export class WebGPUBackend implements Backend {
         GPUTextureUsage.COPY_SRC |
         GPUTextureUsage.COPY_DST,
     });
-    if (source)
-      this.device.queue.writeTexture(
-        { texture: handle },
-        source as Float32Array<ArrayBuffer>,
-        { bytesPerRow: width * 16 },
-        [width, height],
-      );
+    if (source) this.upload(handle, 0, 0, width, height, source, 16);
     return { width, height, handle, format: 'rgba32float' };
   }
   private view(t: Texture) {
@@ -206,7 +197,7 @@ export class WebGPUBackend implements Backend {
   coverageTexture(width:number,height:number,source:Float32Array):Texture {
     this.ensureFloatPipeline();
     const handle=this.device.createTexture({size:[width,height],format:'r32float',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});
-    this.device.queue.writeTexture({texture:handle},source as Float32Array<ArrayBuffer>,{bytesPerRow:width*4},[width,height]);
+    this.upload(handle,0,0,width,height,source,4);
     return {width,height,handle,format:'r32float'};
   }
   clear(t: Texture) {
@@ -298,12 +289,34 @@ export class WebGPUBackend implements Backend {
   }
   write(t: Texture, x: number, y: number, width: number, height: number, data: Uint8Array | Float32Array) {
     const bytes = t.format === 'r32float' ? 4 : t.format === 'rgba32float' ? 16 : 4;
-    this.device.queue.writeTexture(
-      { texture: t.handle as GPUTexture, origin: [x, y] },
-      data as Uint8Array<ArrayBuffer>,
-      { bytesPerRow: width * bytes },
-      [width, height],
-    );
+    this.upload(t.handle as GPUTexture, x, y, width, height, data, bytes);
+  }
+  /** Bands of rows within the device's buffer limit (`row` bytes each). */
+  private bands(row: number, height: number) {
+    return Math.max(1, Math.min(height, Math.floor(this.device.limits.maxBufferSize / row)));
+  }
+  // Uploads above the buffer limit would lose the device: they go in bands.
+  private upload(
+    texture: GPUTexture,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    data: Uint8Array | Float32Array,
+    pixelBytes: number,
+  ) {
+    const row = width * pixelBytes,
+      band = this.bands(row, height),
+      bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    for (let y0 = 0; y0 < height; y0 += band) {
+      const rows = Math.min(band, height - y0);
+      this.device.queue.writeTexture(
+        { texture, origin: [x, y + y0] },
+        bytes.subarray(y0 * row, (y0 + rows) * row) as Uint8Array<ArrayBuffer>,
+        { bytesPerRow: row },
+        [width, rows],
+      );
+    }
   }
   lutPass(source: Texture, lut: Texture, uniforms: Float32Array, target: Texture) {
     if (!this.lutPipelines) {
@@ -408,33 +421,40 @@ export class WebGPUBackend implements Backend {
   private async readPixels(t: Texture, floating: boolean) {
     const pixelBytes = floating ? 16 : 4;
     const row = Math.ceil((t.width * pixelBytes) / 256) * 256;
-    const buffer = this.device.createBuffer({
-      size: row * t.height,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
-    const e = this.device.createCommandEncoder();
-    e.copyTextureToBuffer({ texture: t.handle as GPUTexture }, { buffer, bytesPerRow: row }, [
-      t.width,
-      t.height,
-    ]);
-    this.device.queue.submit([e.finish()]);
-    try {
-      await buffer.mapAsync(GPUMapMode.READ);
-      const mapped = new Uint8Array(buffer.getMappedRange());
-      const data = floating
-        ? new Float32Array(t.width * t.height * 4)
-        : new Uint8Array(t.width * t.height * 4);
-      const bytes = new Uint8Array(data.buffer);
-      for (let y = 0; y < t.height; y++)
-        bytes.set(
-          mapped.subarray(y * row, y * row + t.width * pixelBytes),
-          y * t.width * pixelBytes,
-        );
-      buffer.unmap();
-      return data;
-    } finally {
-      buffer.destroy();
+    const data = floating
+      ? new Float32Array(t.width * t.height * 4)
+      : new Uint8Array(t.width * t.height * 4);
+    const bytes = new Uint8Array(data.buffer);
+    // Large textures (a 16.7-megapixel float image needs 256 MB) are read in
+    // bands of rows: a buffer above the device's limit loses the device.
+    const band = this.bands(row, t.height);
+    for (let y0 = 0; y0 < t.height; y0 += band) {
+      const rows = Math.min(band, t.height - y0);
+      const buffer = this.device.createBuffer({
+        size: row * rows,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      const e = this.device.createCommandEncoder();
+      e.copyTextureToBuffer(
+        { texture: t.handle as GPUTexture, origin: { x: 0, y: y0 } },
+        { buffer, bytesPerRow: row },
+        [t.width, rows],
+      );
+      this.device.queue.submit([e.finish()]);
+      try {
+        await buffer.mapAsync(GPUMapMode.READ);
+        const mapped = new Uint8Array(buffer.getMappedRange());
+        for (let y = 0; y < rows; y++)
+          bytes.set(
+            mapped.subarray(y * row, y * row + t.width * pixelBytes),
+            (y0 + y) * t.width * pixelBytes,
+          );
+        buffer.unmap();
+      } finally {
+        buffer.destroy();
+      }
     }
+    return data;
   }
   readonly lost: Promise<void>;
   private disposed = false;
