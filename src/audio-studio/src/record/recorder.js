@@ -72,6 +72,7 @@ export function createRecorder(app) {
       try {
         await openInput(deviceId);
       } catch (err) {
+        if (err.name === 'AbortError') return;
         throw new UserError(inputErrorMessage(err));
       }
       const rate = engine.rate;

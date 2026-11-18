@@ -26,6 +26,62 @@ function setup(failure) {
 }
 
 describe('microphone setup cleanup', () => {
+  it.each(['context', 'permission', 'processor'])('does not reopen an input closed while awaiting %s', async (stage) => {
+    const { engine, track } = setup();
+    let release;
+    let entered;
+    const reached = new Promise((resolve) => { entered = resolve; });
+    const gate = new Promise((resolve) => { release = resolve; });
+    const target = stage === 'context' ? engine : stage === 'permission' ? navigator.mediaDevices : engine.ctx.audioWorklet;
+    const key = stage === 'context' ? 'ensure' : stage === 'permission' ? 'getUserMedia' : 'addModule';
+    const original = target[key].bind(target);
+    target[key] = async (...args) => { entered(); await gate; return original(...args); };
+    const opening = engine.openInput();
+    await reached;
+    engine.closeInput();
+    release();
+    await expect(opening).rejects.toMatchObject({ name: 'AbortError' });
+    expect(engine.input).toBeNull();
+    expect(track.stop).toHaveBeenCalledTimes(stage === 'context' ? 0 : 1);
+  });
+
+  it('keeps the latest selected device when an earlier permission request finishes last', async () => {
+    const { engine } = setup();
+    const requests = new Map();
+    navigator.mediaDevices.getUserMedia = vi.fn(({ audio }) => new Promise((resolve) => requests.set(audio.deviceId.exact, resolve)));
+    const stream = () => {
+      const track = { stop: vi.fn(), getSettings: () => ({ channelCount: 2 }) };
+      return { track, getTracks: () => [track], getAudioTracks: () => [track] };
+    };
+    const older = stream();
+    const newer = stream();
+    const first = engine.openInput({ deviceId: 'old' });
+    await Promise.resolve();
+    const second = engine.openInput({ deviceId: 'new' });
+    await Promise.resolve();
+    requests.get('new')(newer);
+    const input = await second;
+    requests.get('old')(older);
+    await expect(first).rejects.toMatchObject({ name: 'AbortError' });
+    expect(engine.input).toBe(input);
+    expect(engine.input.deviceId).toBe('new');
+    expect(older.track.stop).toHaveBeenCalledOnce();
+    expect(newer.track.stop).not.toHaveBeenCalled();
+    engine.closeInput();
+    expect(newer.track.stop).toHaveBeenCalledOnce();
+  });
+
+  it('treats a late failure from a cancelled request as cancellation, not a device failure to retry', async () => {
+    const { engine } = setup();
+    let reject;
+    navigator.mediaDevices.getUserMedia = () => new Promise((_, no) => { reject = no; });
+    const pending = engine.openInput();
+    await Promise.resolve();
+    engine.closeInput();
+    reject(new DOMException('Device removed', 'NotFoundError'));
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
   it.each(['module', 'node', 'connect'])('releases the microphone when capture setup fails at %s', async (failure) => {
     const { engine, track, source, port, error } = setup(failure);
     await expect(engine.openInput()).rejects.toBe(error);

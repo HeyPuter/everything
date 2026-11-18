@@ -60,6 +60,7 @@ export class Engine extends Emitter {
     this.timer = 0;
     this.meters = { master: [0, 0], tracks: new Map() };
     this.input = null;
+    this.inputRequest = 0;
     this.contextPromise = null;
     // Preferences > Audio Hardware and Audio Channel Mapping.
     this.latencyHint = 'interactive';
@@ -99,8 +100,9 @@ export class Engine extends Emitter {
     this.stop();
     // An open input (input metering) moves to the new context.
     const input = this.input ? { deviceId: this.input.deviceId } : null;
+    const inputRequest = this.inputRequest;
     if (this.ctx) {
-      this.closeInput();
+      this.#releaseInput();
       try {
         await this.ctx.close();
       } catch {
@@ -147,12 +149,14 @@ export class Engine extends Emitter {
     if (this.tapUsers) node.port.postMessage({ type: 'tap', on: true });
     if (ctx.state === 'suspended') await ctx.resume();
     this.emit('context', ctx);
-    if (input) {
+    if (input && inputRequest === this.inputRequest) {
       try {
-        await this.#openInput(input);
+        await this.#openInput(input, inputRequest);
       } catch (err) {
-        console.warn('[engine] input', err);
-        this.emit('engine-error', 'The input stopped and could not be reopened.');
+        if (err.name !== 'AbortError') {
+          console.warn('[engine] input', err);
+          this.emit('engine-error', 'The input stopped and could not be reopened.');
+        }
       }
     }
     return ctx;
@@ -475,12 +479,18 @@ export class Engine extends Emitter {
 
   /** Opens an input device for metering and recording. */
   async openInput({ deviceId } = {}) {
+    const request = ++this.inputRequest;
     await this.ensure(this.graph.rate || this.rate);
-    return this.#openInput({ deviceId });
+    if (request !== this.inputRequest) throw new DOMException('Input request cancelled', 'AbortError');
+    return this.#openInput({ deviceId }, request);
   }
 
-  async #openInput({ deviceId }) {
-    this.closeInput();
+  async #openInput({ deviceId }, request) {
+    this.#releaseInput();
+    const ctx = this.ctx;
+    const checkCurrent = () => {
+      if (request !== this.inputRequest || ctx !== this.ctx || ctx.state === 'closed') throw new DOMException('Input request cancelled', 'AbortError');
+    };
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -489,22 +499,27 @@ export class Engine extends Emitter {
         autoGainControl: false,
         channelCount: { ideal: 2 },
       },
+    }).catch((err) => {
+      checkCurrent();
+      throw err;
     });
     let src;
     let node;
     const route = [];
     try {
-      await this.ctx.audioWorklet.addModule(captureUrl);
-      src = this.ctx.createMediaStreamSource(stream);
-      node = new AudioWorkletNode(this.ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
+      checkCurrent();
+      await ctx.audioWorklet.addModule(captureUrl);
+      checkCurrent();
+      src = ctx.createMediaStreamSource(stream);
+      node = new AudioWorkletNode(ctx, 'audio-studio-capture', { numberOfOutputs: 0 });
       const deviceChannels = stream.getAudioTracks()[0]?.getSettings().channelCount || 1;
       const map = this.inputMap;
       if (!(map[0] === 0 && map[1] === 1)) {
         // Pick device channels for the recorded left and right channels.
         const n = Math.max(deviceChannels, ...map.map((c) => c + 1));
-        const split = this.ctx.createChannelSplitter(n);
+        const split = ctx.createChannelSplitter(n);
         route.push(split);
-        const merge = this.ctx.createChannelMerger(2);
+        const merge = ctx.createChannelMerger(2);
         route.push(merge);
         src.connect(split);
         map.forEach((dev, ch) => {
@@ -527,6 +542,7 @@ export class Engine extends Emitter {
         try { n?.disconnect(); } catch { /* Already disconnected. */ }
       }
       for (const t of stream.getTracks()) t.stop();
+      checkCurrent();
       throw err;
     }
   }
@@ -536,6 +552,12 @@ export class Engine extends Emitter {
   }
 
   closeInput() {
+    // Invalidate requests that are still waiting for permission or setup.
+    this.inputRequest++;
+    this.#releaseInput();
+  }
+
+  #releaseInput() {
     if (!this.input) return;
     // The processor sends what it still holds, then stops: one left running
     // would cost render time for good (and a mapped one kept posting silent meters).

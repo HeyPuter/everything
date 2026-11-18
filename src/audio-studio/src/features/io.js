@@ -325,7 +325,7 @@ async function toggleInputMeter(app) {
       try {
         await engine.openInput({ deviceId: app.prefs.get('inputDevice') || undefined });
       } catch (err) {
-        app.notify(inputErrorMessage(err), { error: true });
+        if (err.name !== 'AbortError') app.notify(inputErrorMessage(err), { error: true });
         return;
       }
     }
@@ -369,7 +369,7 @@ function audioHardwarePrefs(app) {
       try {
         await app.engine.openInput({ deviceId: input.value || undefined });
       } catch (err) {
-        app.notify(inputErrorMessage(err), { error: true });
+        if (err.name !== 'AbortError') app.notify(inputErrorMessage(err), { error: true });
       }
     }
   });

@@ -64,8 +64,8 @@ export class SessionRecorder {
     const engine = app.engine;
     try {
       await engine.openInput();
-    } catch {
-      app.notify('The microphone could not be opened. Check the browser permission.', { error: true });
+    } catch (err) {
+      if (err.name !== 'AbortError') app.notify('The microphone could not be opened. Check the browser permission.', { error: true });
       return;
     }
     const chunks = [];
