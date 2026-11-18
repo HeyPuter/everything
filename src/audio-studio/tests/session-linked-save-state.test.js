@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from '../src/app.js';
 import { Session } from '../src/model/session.js';
 import { Channel } from '../src/audio/channel.js';
-import { addClips, createClip } from '../src/model/session-edits.js';
+import { addClips, createClip, updateTrack } from '../src/model/session-edits.js';
 import { serializeSession } from '../src/model/session-io.js';
 import { installCoreCommands } from '../src/commands/core.js';
 import { installMultitrack } from '../src/features/multitrack.js';
@@ -13,6 +13,8 @@ import { encodeWav, parseWav } from '../src/audio/wav.js';
 import { dsp, setDspBytes } from '../src/audio/dsp.js';
 import { addVideoSource, setVideoClip } from '../src/model/session-video.js';
 import { unzipStore } from '../src/lib/zip.js';
+import { MemDir } from './helpers/mem-opfs.js';
+import { SessionBackupStore, installSessionBackup } from '../src/storage/session-backup.js';
 
 beforeEach(async () => {
   setDspBytes(fs.readFileSync('src/audio/dsp.wasm'));
@@ -173,4 +175,59 @@ it.each(['save', 'saveCopy'])('local %s tracks the audio captured before asynchr
   expect(doc.dirty).toBe(command === 'save');
   expect(wave.dirty).toBe(false);
   expect(app.notify).not.toHaveBeenCalled();
+});
+
+it.each(['between backups', 'during backup', 'failed backup'])('recovers linked audio changed %s without a timeline edit', async (timing) => {
+  const { app, doc, wave } = await setup();
+  const root = new MemDir();
+  const store = new SessionBackupStore(async () => root);
+  let time = Date.now();
+  const ctl = installSessionBackup(app, { store, tab: 'before', now: () => time++ });
+  let next;
+  const write = store.writeMedia.bind(store);
+  let release;
+  let writing = false;
+  const gate = new Promise((resolve) => { release = resolve; });
+  try {
+    doc.apply('Volume', updateTrack(doc.state, doc.state.tracks[0].id, { volume: -3 }));
+    const state = doc.state;
+    if (timing === 'during backup') store.writeMedia = async (...args) => { writing = true; await gate; return write(...args); };
+    const first = ctl.run();
+    if (timing === 'during backup') await vi.waitFor(() => expect(writing).toBe(true), { interval: 1 });
+    else await first;
+    app.activate(wave);
+    await app.commands.run('fx.invert');
+    await vi.waitFor(() => expect(pcm(doc)).toEqual(Array(32).fill(-0.25)), { interval: 1 });
+    expect(doc.state).toBe(state);
+    release();
+    await first;
+    store.writeMedia = write;
+    const initial = (await store.list())[0];
+    expect([...parseWav(await (await store.readMedia(initial.media[0].key)).arrayBuffer()).channels[0]]).toEqual(Array(32).fill(0.25));
+    if (timing === 'failed backup') {
+      store.writeMedia = async () => { throw new Error('No space'); };
+      await ctl.run();
+      expect(await store.list()).toHaveLength(1);
+      expect(app.notify).toHaveBeenCalledTimes(1);
+      store.writeMedia = write;
+    }
+    await ctl.run();
+    expect(await store.list()).toHaveLength(2);
+    await ctl.run();
+    expect(await store.list()).toHaveLength(2);
+    ctl.destroy();
+    next = installSessionBackup(app, { store, tab: 'after' });
+    const offered = await next.check();
+    expect(offered).toHaveLength(1);
+    const restored = await next.restore(offered[0]);
+    expect(pcm(restored)).toEqual(Array(32).fill(-0.25));
+    expect(restored.dirty).toBe(true);
+    expect(doc.state).toBe(state);
+    expect(pcm(doc)).toEqual(Array(32).fill(-0.25));
+    expect(app.notify).toHaveBeenCalledTimes(timing === 'failed backup' ? 1 : 0);
+  } finally {
+    release();
+    ctl.destroy();
+    next?.destroy();
+  }
 });

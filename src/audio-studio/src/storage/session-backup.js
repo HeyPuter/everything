@@ -1,5 +1,5 @@
 // Multitrack session backups (Preferences > Auto Save). Every few minutes each
-// open session whose state changed since its last backup is written to the
+// open session whose state or media changed since its last backup is written to the
 // origin private file system: the session file text (the same .asesx JSON a
 // save writes) plus its media as 32-bit float WAV. Media are stored once per
 // source revision and shared by every backup that uses them, so a backup of a
@@ -186,7 +186,7 @@ export class SessionBackupStore {
  */
 export function installSessionBackup(app, { store, tab, now = () => Date.now() } = {}) {
   if (!store) return null;
-  const written = new Map(); // session doc id -> state last backed up
+  const written = new Map(); // session doc id -> { state, poolVersion } last backed up
   const latest = new Map(); // session doc id -> newest manifest this tab wrote
   const mediaKeys = new WeakMap(); // channels array -> media key
   let seq = 0;
@@ -244,14 +244,18 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
     if (running) return running;
     running = (async () => {
       for (const doc of app.documents) {
-        if (doc.kind !== 'session' || written.get(doc.id) === doc.state) continue;
+        if (doc.kind !== 'session') continue;
+        const previous = written.get(doc.id);
+        if (previous?.state === doc.state && previous.poolVersion === doc.poolVersion) continue;
         // A session that was never edited has nothing worth keeping.
         if (!written.has(doc.id) && !doc.dirty) continue;
         if (doc.stretcher?.busy || doc.remixer?.busy) continue;
-        const state = doc.state;
+        // Linked waveform edits replace source audio without changing the timeline.
+        // Capture both before awaiting writes so pending edits get another backup.
+        const revision = { state: doc.state, poolVersion: doc.poolVersion };
         try {
           latest.set(doc.id, await backup(doc));
-          written.set(doc.id, state);
+          written.set(doc.id, revision);
           await settle(doc);
         } catch (err) {
           if (!warned) {
