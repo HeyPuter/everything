@@ -220,17 +220,25 @@ function shapeOptions(e: Editor, kind: ShapeKind) {
   }
   return `${modeSel}${paint}${wh}${ops}${extra}<label class="transform-setting" title="Snap shape edges to the pixel grid"><input id="vec-align-edges" type="checkbox" ${o.alignEdges ? 'checked' : ''}>Align Edges</label>`;
 }
+/** Change listener for a number field; a cleared field is not zero: it goes
+ * back to the value in use (`restore` redraws the options). */
+function numberField(el: HTMLElement, id: string, restore: () => void, f: (v: number) => void) {
+  el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener('change', (event) => {
+    const t = event.target as HTMLInputElement;
+    if (t.value.trim() === '' || !Number.isFinite(t.valueAsNumber)) restore();
+    else f(t.valueAsNumber);
+  });
+}
 export function bindShapePaint(e: Editor, el: HTMLElement, rerender = () => e.options()) {
   const o = shapeOpts;
   const on = (id: string, f: (t: HTMLInputElement) => void, ev = 'change') => el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener(ev, (event) => f(event.target as HTMLInputElement));
-  const n = (t: HTMLInputElement, min = 0) => Math.max(min, Number.isFinite(t.valueAsNumber) ? t.valueAsNumber : min);
   const applyStrokeToLayer = () => {
     const l = singleSelected(e);
     if (l?.kind !== 'vector') return;
     e.editLayer('Change Shape Stroke', (x) => applyStroke(x.vector!, o.stroke));
   };
-  on('vec-stroke-width', (t) => {
-    o.stroke.width = n(t);
+  numberField(el, 'vec-stroke-width', rerender, (v) => {
+    o.stroke.width = Math.max(0, v);
     if (o.stroke.width > 0 && o.stroke.type === 'none') o.stroke.type = 'color';
     applyStrokeToLayer();
     rerender();
@@ -270,8 +278,8 @@ export function bindShapePaint(e: Editor, el: HTMLElement, rerender = () => e.op
 function bindShapeOptions(e: Editor, el: HTMLElement) {
   const o = shapeOpts;
   const on = (id: string, f: (t: HTMLInputElement) => void, ev = 'change') => el.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener(ev, (event) => f(event.target as HTMLInputElement));
-  const n = (t: HTMLInputElement, min = 0) => Math.max(min, Number.isFinite(t.valueAsNumber) ? t.valueAsNumber : min);
   const rerender = () => e.options();
+  const field = (id: string, f: (v: number) => void) => numberField(el, id, rerender, f);
   on('vec-mode', (t) => {
     o.mode = t.value as ShapeMode;
     rerender();
@@ -279,27 +287,27 @@ function bindShapeOptions(e: Editor, el: HTMLElement) {
   on('vec-op', (t) => (o.op = t.value as typeof o.op));
   on('vec-align-edges', (t) => (o.alignEdges = t.checked));
   bindShapePaint(e, el, rerender);
-  const resize = (key: 'width' | 'height') => (t: HTMLInputElement) => {
+  const resize = (key: 'width' | 'height') => (v: number) => {
     const l = singleSelected(e);
-    if (l?.kind !== 'vector' || !Number.isFinite(t.valueAsNumber)) return;
-    e.editLayer('Resize Shape', (x) => reshape(x, { [key]: Math.max(0, t.valueAsNumber) }));
+    if (l?.kind !== 'vector') return;
+    e.editLayer('Resize Shape', (x) => reshape(x, { [key]: Math.max(0, v) }));
   };
-  on('vec-w', resize('width'));
-  on('vec-h', resize('height'));
-  on('vec-radius', (t) => (o.radius = n(t)));
-  for (let i = 0; i < 4; i++) on(`vec-r${i}`, (t) => (o.radii[i] = n(t)));
+  field('vec-w', resize('width'));
+  field('vec-h', resize('height'));
+  field('vec-radius', (v) => (o.radius = Math.max(0, v)));
+  for (let i = 0; i < 4; i++) field(`vec-r${i}`, (v) => (o.radii[i] = Math.max(0, v)));
   el.querySelector('#vec-per-corner')?.addEventListener('click', () => {
     o.perCorner = !o.perCorner;
     if (o.perCorner) o.radii = [o.radius, o.radius, o.radius, o.radius];
     else o.radius = o.radii[0];
     rerender();
   });
-  on('vec-tri-radius', (t) => (o.triRadius = n(t)));
-  on('vec-sides', (t) => (o.sides = Math.round(Math.max(3, Math.min(100, n(t, 3))))));
-  on('vec-star', (t) => (o.star = Math.min(99, n(t))));
-  on('vec-poly-radius', (t) => (o.polyRadius = n(t)));
+  field('vec-tri-radius', (v) => (o.triRadius = Math.max(0, v)));
+  field('vec-sides', (v) => (o.sides = Math.round(Math.max(3, Math.min(100, v)))));
+  field('vec-star', (v) => (o.star = Math.max(0, Math.min(99, v))));
+  field('vec-poly-radius', (v) => (o.polyRadius = Math.max(0, v)));
   on('vec-smooth-indents', (t) => (o.smoothIndents = t.checked));
-  on('vec-weight', (t) => (o.weight = n(t, 0.1)));
+  field('vec-weight', (v) => (o.weight = Math.max(0.1, v)));
   on('vec-arrow-start', (t) => {
     o.arrowStart = t.checked;
     rerender();
@@ -308,9 +316,9 @@ function bindShapeOptions(e: Editor, el: HTMLElement) {
     o.arrowEnd = t.checked;
     rerender();
   });
-  on('vec-arrow-width', (t) => (o.arrowWidth = n(t, 100) / 100));
-  on('vec-arrow-length', (t) => (o.arrowLength = n(t, 10) / 100));
-  on('vec-concavity', (t) => (o.concavity = Math.max(-50, Math.min(50, Number(t.value) || 0))));
+  field('vec-arrow-width', (v) => (o.arrowWidth = Math.max(100, v) / 100));
+  field('vec-arrow-length', (v) => (o.arrowLength = Math.max(10, v) / 100));
+  field('vec-concavity', (v) => (o.concavity = Math.max(-50, Math.min(50, v))));
   el.querySelector<HTMLElement>('#vec-custom')?.addEventListener('click', (ev) => openShapePicker(e, ev.currentTarget as HTMLElement));
 }
 export function openShapePicker(e: Editor, anchor: HTMLElement) {
