@@ -132,7 +132,7 @@ export class AutosaveStore {
     try {
       const nch = channels.length;
       const frames = manifest.frames;
-      await out.write(floatWavHeader(doc.sampleRate, nch, frames));
+      await out.write(floatWavHeader(manifest.sampleRate, nch, frames));
       const tmp = Array.from({ length: nch }, () => new Float32Array(BLOCK));
       let blocks = 0;
       for (let at = 0; at < frames; at += BLOCK) {

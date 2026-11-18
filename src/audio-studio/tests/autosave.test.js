@@ -134,11 +134,13 @@ describe('autosave planning', () => {
     const doc = docWith('Song.wav', 1000);
     const manifest = buildManifest(doc, { session: 's1', key: 's1-f1' });
     const silence = () => doc.state.channels.map(() => Channel.silence(3000));
-    edit = () => doc.apply('Silence', { ...doc.state, channels: silence() });
+    edit = () => doc.apply('Convert', { ...doc.state, sampleRate: 96000, channels: silence() });
     await store.write(doc, manifest);
     expect(doc.length).toBe(3000);
+    expect(doc.sampleRate).toBe(96000);
     const wav = new Uint8Array(await (await store.readAudio('s1-f1')).arrayBuffer());
     expect(wav.length).toBe(44 + 1000 * 2 * 4);
+    expect(new DataView(wav.buffer).getUint32(24, true)).toBe(manifest.sampleRate);
     const f = new Float32Array(wav.buffer.slice(44));
     expect([f[0], f[1], f[1999]]).toEqual([0.5, -0.5, -0.5]);
   });
