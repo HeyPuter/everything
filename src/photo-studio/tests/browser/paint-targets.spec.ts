@@ -501,3 +501,35 @@ test('Quick Mask hides the selection outline it was made from until it is left',
   await idle(page);
   await expect(ants).toHaveCount(1);
 });
+
+test('Shift-click draws a line only from a stroke in the same document', async ({ page }) => {
+  // beforeEach opened gray.png: paint a dot near its top-left corner.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.setTool('brush');
+    e.activeTool!.brush?.set(e, { size: 10, hardness: 1, smoothing: 0 });
+    e.setForeground('#ffffff');
+  });
+  await idle(page);
+  await canvasDrag(page, [[20, 20], [21, 20]]);
+  await openImage(page, 200, 120, '#404040', 'second.png');
+  // Shift-click in the second document has no earlier stroke to continue.
+  const [cx, cy] = await client(page, 180, 100);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(cx, cy);
+  await page.keyboard.up('Shift');
+  await idle(page);
+  const pixel = (x: number, y: number) =>
+    page.evaluate(
+      async ([x, y]) => {
+        const e = window.photoStudio;
+        const { readRGBA } = await import('/src/model/tiles.ts');
+        const g = e.doc.layers[0].pixels!;
+        return Array.from(readRGBA(e.assets.tiles, g, { x, y, width: 1, height: 1 }).data);
+      },
+      [x, y] as const,
+    );
+  expect(await pixel(180, 100)).toEqual([255, 255, 255, 255]);
+  // Halfway along a line from the first document's dot stays unpainted.
+  expect(await pixel(100, 60)).toEqual([64, 64, 64, 255]);
+});

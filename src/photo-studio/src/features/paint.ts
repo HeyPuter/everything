@@ -1,6 +1,7 @@
 import type { Editor } from '../editor';
 import { registerTool, registerCommand, type Tool } from '../app/registry';
 import type { CanvasPointer } from '../app/pointer';
+import type { DocumentSession } from '../app/session';
 import { brushSizeStep } from '../app/shortcuts';
 import { StrokeSession, type BrushTip, type PaintMode, type PaintTarget, type BrushDynamics } from '../engine/paint';
 import { smudgeSpacing } from '../engine/smudge';
@@ -77,7 +78,13 @@ function samplingRing(e: Editor, p: CanvasPointer) {
   e.screenOverlayContent = `<g class="sampling-ring"><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="#000" stroke-opacity=".5" stroke-width="16"/>${arc(1, e.color)}${arc(0, eyedrop?.previous ?? e.color)}<circle cx="${x}" cy="${y}" r="${r + 7}" fill="none" stroke="#fff" stroke-opacity=".7"/><circle cx="${x}" cy="${y}" r="${r - 7}" fill="none" stroke="#fff" stroke-opacity=".7"/></g>`;
   e.screenOverlay();
 }
-const lastPoint = new Map<string, [number, number]>();
+// Where each tool's last stroke ended, per document (Shift-click continues it).
+const lastPoints = new WeakMap<DocumentSession, Map<string, [number, number]>>();
+function lastPoint(e: Editor) {
+  let points = lastPoints.get(e.session);
+  if (!points) lastPoints.set(e.session, (points = new Map()));
+  return points;
+}
 
 // Which brush controls a tool's options bar shows: only those that change
 // what the tool does (Dodge and Burn have Exposure instead of Opacity and
@@ -346,7 +353,7 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         ...(patternPreviewOn(e) ? { wrap: { width: e.doc.width, height: e.doc.height } } : {}),
       });
       // Shift-click continues with a straight line from the previous stroke.
-      const prev = lastPoint.get(id);
+      const prev = lastPoint(e).get(id);
       if (p.shift && prev) a.session.addPoint(prev[0], prev[1], p.pressure);
       const queue = a.queue;
       a.queue = [];
@@ -443,7 +450,7 @@ function finish(e: Editor, a: Active, id: string) {
   if (a.last) {
     const p = e.pointerInfo;
     if (p && brushFor(id).smoothing > 0) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
-    lastPoint.set(id, a.last);
+    lastPoint(e).set(id, a.last);
   }
   const grid = a.session!.commit();
   delete e.settings.quickMaskPreview;
