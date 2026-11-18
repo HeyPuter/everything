@@ -595,8 +595,24 @@ export function createSmartActions(ctx) {
     async autoReframe() {
       const lifetime = frameDialogSignal(ctx);
       if (lifetime.aborted) return;
+      const sourceProject = store.project;
+      const contextStamp = () => JSON.stringify([store.project.id, store.project.timelineId, (store.nest || []).map((f) => f.id),
+        store.project.settings.width, store.project.settings.height, store.project.settings.ratio]);
+      const context = contextStamp();
+      const currentContext = () => sourceProject === store.project && context === contextStamp();
+      const changedMessage = 'The project or clips changed. Run Auto reframe again to use their current framing.';
+      let indexedProject, indexedRevision, index;
+      const currentIndex = (refresh = false) => {
+        if (refresh || indexedProject !== store.project || indexedRevision !== store.revision) {
+          index = new Map();
+          for (const track of store.project.tracks) for (const clip of track.clips) index.set(clip.id, { track, clip });
+          indexedProject = store.project;
+          indexedRevision = store.revision;
+        }
+        return index;
+      };
       const st = store.project.settings;
-      const sel = store.selectedIds.map((id) => T.findClip(store.project, id)?.clip).filter((c) => c && (c.type === 'video' || c.type === 'image'));
+      const sel = store.selectedIds.map((id) => currentIndex().get(id)?.clip).filter((c) => c && (c.type === 'video' || c.type === 'image'));
       const ratio = h('select.select', h('option', { value: 'keep' }, `Keep ${st.width} x ${st.height}`), RATIOS.map((r) => h('option', { value: r.id }, `${r.label}  ${r.hint}`)));
       ratio.value = prefs().reframeRatio && prefs().reframeRatio !== st.ratio ? prefs().reframeRatio : '9:16';
       const which = h('select.select', h('option', { value: 'selected', disabled: !sel.length }, `Selected clips (${sel.length})`), h('option', { value: 'all' }, 'All video and photo clips'));
@@ -621,6 +637,11 @@ export function createSmartActions(ctx) {
         if (closed || lifetime.aborted) return;
         d.close();
         if (lifetime.aborted) return;
+        currentIndex(true);
+        if (!currentContext() || (which.value === 'selected' && sel.some((c) => currentIndex().get(c.id)?.clip !== c))) {
+          toast(changedMessage, { kind: 'error' });
+          return;
+        }
         setPref('reframeRatio', ratio.value);
         setPref('reframeFollow', follow.value);
         const project = store.project;
@@ -628,32 +649,63 @@ export function createSmartActions(ctx) {
         const { width: W, height: H, ratio: ratioId } = reframeSize(st, r);
         const dstAR = W / H;
         const targets = which.value === 'selected' ? sel : T.allClips(project).filter((c) => c.type === 'video' || c.type === 'image');
+        const targetIds = JSON.stringify(targets.map((c) => c.id));
+        const inputs = targets.filter((c) => {
+          const f = currentIndex().get(c.id), a = project.assets[c.assetId];
+          return f && !f.track.locked && a?.width && a?.height;
+        });
+        // Capture only media/framing inputs and the position keys this action replaces.
+        // Names, unused imports, selection and playback do not invalidate a plan.
+        const inputStamp = (c) => {
+          const a = store.project.assets[c.assetId];
+          return JSON.stringify([c.type, c.assetId, c.start, c.in, c.duration, c.speed, c.speedCurve, c.freeze, c.reverse,
+            c.crop, c.pictureSize, c.transform?.x, c.transform?.y, c.transform?.scale,
+            c.keyframes?.x, c.keyframes?.y, c.keyframes?.scale,
+            a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration, a?.width, a?.height, a?.fps, a?.pictureSize]);
+        };
+        const stamps = new Map(inputs.map((c) => [c, inputStamp(c)]));
+        const currentInput = (c) => currentIndex().get(c.id)?.clip === c && stamps.get(c) === inputStamp(c);
+        const currentSource = () => {
+          // Refresh membership for every complete validation, including inside the transaction.
+          currentIndex(true);
+          return currentContext() && inputs.every(currentInput)
+            && (which.value !== 'all' || targetIds === JSON.stringify(T.allClips(store.project).filter((c) => c.type === 'video' || c.type === 'image').map((c) => c.id)));
+        };
+        const requireInput = (c) => { if (!currentContext() || !currentInput(c)) throw new Error(changedMessage); };
         const p = progressDialog('Auto reframe', 'Finding the subject in each clip...', lifetime);
         const plans = [];
         try {
-          for (let i = 0; i < targets.length; i++) {
+          for (let i = 0; i < inputs.length; i++) {
             p.signal.throwIfAborted();
-            const c = targets[i];
-            const f = T.findClip(store.project, c.id);
+            const c = inputs[i];
+            requireInput(c);
+            const f = currentIndex().get(c.id);
             if (!f || f.track.locked) continue;
             const asset = store.project.assets[c.assetId];
             if (!asset?.width || !asset?.height) continue;
             const blob = await ctx.library.mediaBlob(asset);
             p.signal.throwIfAborted();
-            plans.push(await reframePlan(c, asset, blob, { dstAR, follow: Number(follow.value), zoom: Number(zoom.value), signal: p.signal, onProgress: (x) => p.set((i + x) / targets.length) }));
+            requireInput(c);
+            plans.push(await reframePlan(c, asset, blob, { dstAR, follow: Number(follow.value), zoom: Number(zoom.value), signal: p.signal, onProgress: (x) => p.set((i + x) / inputs.length) }));
             p.signal.throwIfAborted();
-            p.set((i + 1) / targets.length);
+            requireInput(c);
+            p.set((i + 1) / inputs.length);
           }
           p.close();
         } catch (err) {
           const canceled = p.signal.aborted;
           p.close();
-          if (!canceled && err?.name !== 'AbortError') toast(err?.message || 'Could not reframe these clips.', { kind: 'error' });
+          if (!canceled && err?.name !== 'AbortError') toast(currentSource() ? err?.message || 'Could not reframe these clips.' : changedMessage, { kind: 'error' });
           return;
         }
         if (lifetime.aborted) return;
+        if (!currentSource()) {
+          toast(changedMessage, { kind: 'error' });
+          return;
+        }
         const saved = store.update('Auto reframe', (proj) => {
-          const edits = plans.map((plan) => ({ plan, found: T.findClip(proj, plan.id) }));
+          if (!currentSource()) return false;
+          const edits = plans.map((plan) => ({ plan, found: currentIndex().get(plan.id) }));
           // A track may have been locked while another clip was being analyzed.
           // Refuse the whole edit before changing either clips or frame shape.
           if (edits.some(({ found }) => found?.track.locked)) return false;
@@ -663,7 +715,7 @@ export function createSmartActions(ctx) {
           }
         });
         if (saved === false) {
-          if (!lifetime.aborted) toast('Reframing could not be saved. Check track locks and try again.', { kind: 'error' });
+          if (!lifetime.aborted) toast(currentSource() ? 'Reframing could not be saved. Check track locks and try again.' : changedMessage, { kind: 'error' });
           return;
         }
         if (!lifetime.aborted) toast(`Reframed ${plans.length} clip${plans.length === 1 ? '' : 's'}${r ? ` for ${r.label}` : ''}.`, { kind: 'success' });
