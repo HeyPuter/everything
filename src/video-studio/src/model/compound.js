@@ -84,8 +84,8 @@ export function createCompound(project, ids, opts = {}) {
 /** Compose a parent's static transform onto a child's (both in frame fractions). */
 export function composeTransform(parent, child, W, H) {
   const r = (parent.rotation * Math.PI) / 180;
-  const X = child.x * W;
-  const Y = child.y * H;
+  const X = child.x * W * (parent.flipH ? -1 : 1);
+  const Y = child.y * H * (parent.flipV ? -1 : 1);
   return {
     ...child,
     x: parent.x + ((X * Math.cos(r) - Y * Math.sin(r)) * parent.scale) / W,

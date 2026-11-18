@@ -94,6 +94,19 @@ describe('compound clips', () => {
     expect(restored.length).toBe(3);
   });
 
+  it.each([[true, false], [false, true], [true, true]])('preserves the scene when breaking apart flips %s/%s', (flipH, flipV) => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    Object.assign(a.transform, { x: 0.2, y: -0.3, rotation: 17, scale: 0.7 });
+    const comp = createCompound(p, [a.id], FREE);
+    Object.assign(comp.transform, { x: -0.1, y: 0.1, scale: 0.5, rotation: 35, flipH, flipV });
+    const before = evaluate(p, s(1))[0];
+    breakApart(p, comp.id, FREE);
+    const after = evaluate(p, s(1))[0];
+    for (const key of ['x', 'y', 'scale', 'rotation']) expect(after[key]).toBeCloseTo(before[key]);
+    for (const key of ['flipH', 'flipV']) expect(after[key]).toBe(before[key]);
+  });
+
   it('leaves out slivers shorter than the shortest clip when broken apart', () => {
     const p = fixture();
     const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
