@@ -66,7 +66,7 @@ export function installIo(app) {
     },
     {
       id: 'transport.record',
-      label: (a) => (a.recording ? 'Stop Recording' : 'Record'),
+      label: (a) => (a.recording || a.recorder?.active ? 'Stop Recording' : 'Record'),
       shortcut: 'Shift+Space',
       // Base command for every kind: the multitrack session overrides run()
       // through its document kind to record into armed tracks.
@@ -77,7 +77,7 @@ export function installIo(app) {
       id: 'transport.punchRoll',
       label: 'Punch and Roll',
       // Waveform editor: rolls in from before the playhead (or selection) and records over what follows.
-      enabled: (a) => Boolean(audio(a)) && !a.recording,
+      enabled: (a) => Boolean(audio(a)) && !a.recording && !a.recorder?.active,
       run: () => punchAndRoll(app),
     },
     {

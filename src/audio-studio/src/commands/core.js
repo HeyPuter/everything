@@ -740,7 +740,7 @@ export function installCoreCommands(app) {
     // ------------------------------------------------------------ Transport
     { id: 'transport.play', label: 'Play', enabled: anyDoc, run: () => (app.engine.playing ? null : app.play()) },
     { id: 'transport.toggle', label: 'Play/Stop', shortcut: 'Space', enabled: anyDoc, run: () => app.togglePlay() },
-    { id: 'transport.stop', label: 'Stop', enabled: (a) => a.engine.playing || Boolean(a.recording) || Boolean(a.canReturn), run: () => (app.recording ? C.run('transport.record') : app.stop()) },
+    { id: 'transport.stop', label: 'Stop', enabled: (a) => a.engine.playing || Boolean(a.recording) || Boolean(a.recorder?.active) || Boolean(a.canReturn), run: () => (app.recorder?.active ? app.recorder.stop() : app.recording ? C.run('transport.record') : app.stop()) },
     {
       id: 'transport.pause',
       label: 'Pause',

@@ -3,7 +3,7 @@
 // app.recorder (the multitrack editor records armed tracks with it).
 //
 // app.recorder API:
-//   app.recorder.active                      true while recording
+//   app.recorder.active                      true while opening input or recording
 //   await app.recorder.start(opts)           opens the input and starts capturing
 //     opts.doc        AudioFile to record into (Waveform mode); omit for external
 //     opts.at         frame to insert at (default doc.cursor)
@@ -41,11 +41,13 @@ export function inputErrorMessage(err) {
 export function createRecorder(app) {
   const engine = app.engine;
   let session = null;
+  let starting = null;
 
-  async function openInput(deviceId) {
+  async function openInput(deviceId, pending) {
     try {
       return await engine.openInput({ deviceId: deviceId || undefined });
     } catch (err) {
+      if (starting !== pending) return;
       // A remembered device that was unplugged: fall back to the default input.
       if (deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError')) {
         app.notify('The selected input device was not found. Using the default input.');
@@ -57,7 +59,7 @@ export function createRecorder(app) {
 
   const recorder = {
     get active() {
-      return Boolean(session);
+      return Boolean(starting || session);
     },
 
     get take() {
@@ -65,16 +67,30 @@ export function createRecorder(app) {
     },
 
     async start(opts = {}) {
-      if (session) return;
+      if (starting || session) return;
       const doc = opts.doc || null;
       if (engine.playing && doc && !opts.keepPlaying) app.stop();
       const deviceId = opts.deviceId ?? app.prefs.get('inputDevice');
+      const pending = starting = {};
+      const offClose = doc?.on('close', () => recorder.stop());
+      const offActive = doc && app.on('active', (active) => { if (active !== doc) recorder.stop(); });
+      pending.off = () => { offClose?.(); offActive?.(); };
+      app.setStatus('Opening audio input...');
+      app.emit('transport', 'recording-pending');
       try {
-        await openInput(deviceId);
+        await openInput(deviceId, pending);
       } catch (err) {
+        if (starting !== pending) return;
+        starting = null;
+        pending.off();
+        app.setStatus('');
+        app.emit('transport', engine.state || 'stopped');
         if (err.name === 'AbortError') return;
         throw new UserError(inputErrorMessage(err));
       }
+      if (starting !== pending) return;
+      starting = null;
+      pending.off();
       const rate = engine.rate;
       const sampleRate = opts.sampleRate || doc?.sampleRate || rate;
       const channels = opts.channels || doc?.channelCount || Math.min(2, engine.input?.channels || 2);
@@ -115,6 +131,15 @@ export function createRecorder(app) {
     },
 
     async stop() {
+      if (starting) {
+        const pending = starting;
+        starting = null;
+        pending.off();
+        if (!app.inputMetering) engine.closeInput();
+        app.setStatus('Recording cancelled');
+        app.emit('transport', engine.state || 'stopped');
+        return null;
+      }
       const s = session;
       if (!s) return null;
       if (s.stopping) return s.stopping;
