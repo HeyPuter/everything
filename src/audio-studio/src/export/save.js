@@ -52,28 +52,37 @@ function encodeWithProgress(doc, options, range, label) {
   return withProgress(label, (onProgress, signal) => encodeDoc(doc, options, { ...range, onProgress, signal }), { detail: label });
 }
 
-/** Puter path -> a promise settled when the last upload started to it has finished. */
+/** Puter path -> completion of the last reserved encode/upload operation. */
 const uploads = new Map();
+
+/** Reserve write order before encoding, while allowing encodes to run in parallel. */
+async function withUploadOrder(path, work) {
+  if (!path) return work(null);
+  const before = uploads.get(path);
+  let release;
+  const done = new Promise((resolve) => { release = resolve; });
+  // A failed/cancelled middle encode must still keep later writes behind its
+  // predecessor. Only release the whole chain once both have settled.
+  const settled = Promise.resolve(before).then(() => done);
+  uploads.set(path, settled);
+  settled.then(() => uploads.get(path) === settled && uploads.delete(path));
+  try {
+    return await work((label, blob) => upload(label, path, blob, before));
+  } finally {
+    release();
+  }
+}
 
 /**
  * Uploads to Puter behind a progress dialog. An upload cannot be stopped, so
  * Cancel only hides the dialog: a failure is still thrown (withProgress would
  * report it as a cancel), and the caller never marks an unsaved file saved.
  */
-async function upload(label, path, blob) {
-  // Uploads to one file run in turn: a save made while an earlier upload is still going
-  // (its dialog cancelled) would otherwise be overwritten by it if that one landed last.
-  const before = uploads.get(path);
+async function upload(label, path, blob, before) {
   const write = (async () => {
     await before;
     return puter.writeFile(path, blob);
   })();
-  const settled = write.then(
-    () => {},
-    () => {},
-  );
-  uploads.set(path, settled);
-  settled.then(() => uploads.get(path) === settled && uploads.delete(path));
   let failure = null;
   const item = await withProgress(
     label,
@@ -101,15 +110,17 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
   const format = inPlace ? formatForName(path) : null;
   if (!saveAs && !copy && path && format && getFormat(format)) {
     if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return false;
-    const options = optionsForSave(doc, format);
-    const state = doc.state;
-    const blob = await encodeWithProgress(doc, options, {}, `Saving ${doc.name}`);
-    if (!blob) return false;
-    await upload(`Saving ${doc.name}`, path, blob);
-    // Only mark saved if nothing changed while encoding.
-    if (doc.state === state) doc.markSaved();
-    app.setStatus(`Saved ${doc.name}`);
-    return true;
+    return withUploadOrder(path, async (write) => {
+      const options = optionsForSave(doc, format);
+      const state = doc.state;
+      const blob = await encodeWithProgress(doc, options, {}, `Saving ${doc.name}`);
+      if (!blob) return false;
+      await write(`Saving ${doc.name}`, blob);
+      // Only mark saved if nothing changed while encoding.
+      if (doc.state === state) doc.markSaved();
+      app.setStatus(`Saved ${doc.name}`);
+      return true;
+    });
   }
   return saveFlow(app, doc, { mode: copy ? 'copy' : 'saveAs' });
 }
@@ -166,29 +177,31 @@ export async function saveFlow(app, doc, { mode = 'export', range = null } = {})
         }
       }
     }
-    const state = sourceDoc.state;
-    const label = `${mode === 'export' || mode === 'download' ? 'Exporting' : 'Saving'} ${r.fileName}`;
-    const blob = await encodeWithProgress(sourceDoc, r.options, bounds, label);
-    if (!blob) {
-      app.setStatus('Cancelled');
-      return false;
-    }
-    let item = null;
-    if (path) {
-      item = await upload(label, path, blob);
-      rememberRecent(app, { name: r.fileName, path });
-    } else downloadBlob(blob, r.fileName);
-    if (mode === 'saveAs') {
-      doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
-      const from = { sampleRate: state.sampleRate, channels: state.channels.length };
-      const exportOptions = { ...r.options, from };
-      doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
-      if (doc.name !== r.fileName) doc.rename(r.fileName);
-      if (doc.state === state) doc.markSaved();
-      else doc.emit('change', { kind: 'saved' });
-    }
-    app.setStatus(path ? `Saved ${r.fileName} to ${dir}` : `Downloaded ${r.fileName}`);
-    app.emit('exported', { doc, path, fileName: r.fileName, options: r.options, mode });
-    return true;
+    return withUploadOrder(path, async (write) => {
+      const state = sourceDoc.state;
+      const label = `${mode === 'export' || mode === 'download' ? 'Exporting' : 'Saving'} ${r.fileName}`;
+      const blob = await encodeWithProgress(sourceDoc, r.options, bounds, label);
+      if (!blob) {
+        app.setStatus('Cancelled');
+        return false;
+      }
+      let item = null;
+      if (path) {
+        item = await write(label, blob);
+        rememberRecent(app, { name: r.fileName, path });
+      } else downloadBlob(blob, r.fileName);
+      if (mode === 'saveAs') {
+        doc.source = path ? { type: 'puter', path, uid: item?.uid } : { type: 'download' };
+        const from = { sampleRate: state.sampleRate, channels: state.channels.length };
+        const exportOptions = { ...r.options, from };
+        doc.info = { ...doc.info, format: r.options.format, exportOptions, size: blob.size };
+        if (doc.name !== r.fileName) doc.rename(r.fileName);
+        if (doc.state === state) doc.markSaved();
+        else doc.emit('change', { kind: 'saved' });
+      }
+      app.setStatus(path ? `Saved ${r.fileName} to ${dir}` : `Downloaded ${r.fileName}`);
+      app.emit('exported', { doc, path, fileName: r.fileName, options: r.options, mode });
+      return true;
+    });
   }
 }
