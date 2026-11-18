@@ -46,6 +46,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   let abort = null;
   let sourceContext = null;
   let disposed = false;
+  const cutLifetime = new AbortController();
   const editingContext = () => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
   let wordEls = [];
   let current = -1;
@@ -162,6 +163,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   );
 
   function applyCuts(ranges, label) {
+    if (disposed) return false;
     if (removeRanges(store, ranges, label) !== false) return true;
     toast('No cuts were applied. Check whether the affected tracks are locked.', { kind: 'error' });
     return false;
@@ -177,9 +179,10 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     return JSON.stringify([editingContext(), p.tracks, p.transcript, assets]);
   };
   async function confirmCuts(options, ranges, label) {
+    if (disposed) return false;
     const project = store.project;
     const stamp = cutSourceStamp();
-    if (!(await confirmDialog(options))) return false;
+    if (!(await confirmDialog({ ...options, signal: cutLifetime.signal })) || disposed) return false;
     if (project !== store.project || stamp !== cutSourceStamp()) {
       toast('Timeline or transcript changed. Review the words and try again.', { kind: 'error' });
       return false;
@@ -189,6 +192,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   }
 
   fillerBtn.addEventListener('click', async () => {
+    if (disposed) return;
     const idx = findFillers(words(), { language: store.project.transcript?.language, soft });
     if (!idx.length) {
       toast('No filler words found.', { kind: 'info' });
@@ -196,10 +200,11 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     }
     const ranges = rangesForWords(words(), idx);
     const ok = await confirmCuts({ title: 'Remove filler words?', message: `${idx.length} filler word${idx.length === 1 ? '' : 's'} will be cut from the video.`, confirm: 'Remove' }, ranges, 'Remove filler words');
-    if (!ok) return;
+    if (!ok || disposed) return;
     toast(`Removed ${idx.length} filler word${idx.length === 1 ? '' : 's'}.`, { kind: 'success' });
   });
   pauseBtn.addEventListener('click', async () => {
+    if (disposed) return;
     const pauses = findPauses(words(), { minGap: pauseMin * US });
     if (!pauses.length) {
       toast('No long pauses found.', { kind: 'info' });
@@ -400,6 +405,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
     sync,
     dispose() {
       disposed = true;
+      cutLifetime.abort();
       offs.forEach((f) => f?.());
       cancelTranscription();
     },

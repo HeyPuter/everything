@@ -90,15 +90,22 @@ export function oneAtATime(open, keyFor = () => null) {
   };
 }
 
-export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false }) {
+export function confirmDialog({ title, message, confirm = 'OK', cancel = 'Cancel', danger = false, signal }) {
+  if (signal?.aborted) return Promise.resolve(false);
   const ok = h(`button.btn${danger ? '.danger' : '.primary'}`, { type: 'button' }, confirm);
   const no = h('button.btn', { type: 'button' }, cancel);
   const d = openDialog({ title, body: h('p.dialog-text', message), actions: [no, ok], labelledBody: true, className: 'small' });
+  const abort = () => d.close(false);
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
   ok.addEventListener('click', () => d.close(true));
   no.addEventListener('click', () => d.close(false));
   // Enter takes the safe choice when the action destroys something (delete forever, leave unsaved).
   (danger ? no : ok).focus();
-  return d.result.then((v) => v === true);
+  return d.result.then((v) => {
+    signal?.removeEventListener('abort', abort);
+    return v === true && !signal?.aborted;
+  });
 }
 
 let promptCount = 0;

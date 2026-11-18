@@ -146,3 +146,24 @@ it('keeps the busy cursor until all independent dialog openers settle', async ()
   expect(document.documentElement.classList.contains('opening-dialog')).toBe(true);
   finishB(); await pb; expect(document.documentElement.classList.contains('opening-dialog')).toBe(false);
 });
+
+describe('confirmation cancellation', () => {
+  it('does not open a confirmation whose owner already closed', async () => {
+    const ac = new AbortController(); ac.abort();
+    expect(await confirmDialog({ title: 'Old question', message: 'Old message', signal: ac.signal })).toBe(false);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+  });
+  it('closes and settles a pending confirmation when its owner closes', async () => {
+    const ac = new AbortController(), answer = confirmDialog({ title: 'Question', message: 'Message', signal: ac.signal });
+    const yes = document.querySelector('dialog[open] .primary'); ac.abort(); expect(document.querySelector('dialog[open]')).toBeNull(); yes.click(); expect(await answer).toBe(false);
+  });
+  it('rejects acceptance if the owner closes before the result is consumed', async () => {
+    const ac = new AbortController(), answer = confirmDialog({ title: 'Question', message: 'Message', signal: ac.signal });
+    document.querySelector('dialog[open] .primary').click(); ac.abort(); expect(await answer).toBe(false);
+  });
+  it('releases its abort listener after normal acceptance', async () => {
+    const ac = new AbortController(), remove = vi.spyOn(ac.signal, 'removeEventListener');
+    const answer = confirmDialog({ title: 'Question', message: 'Message', signal: ac.signal }); document.querySelector('dialog[open] .primary').click(); expect(await answer).toBe(true);
+    expect(remove).toHaveBeenCalledWith('abort', expect.any(Function)); ac.abort(); expect(document.querySelector('dialog[open]')).toBeNull(); remove.mockRestore();
+  });
+});
