@@ -133,12 +133,18 @@ export const INSERT_HOOKS = [];
 export async function insertDocs(app, session, docs, { trackId, at, range } = {}) {
   docs = docs.filter((d) => d && d.kind === 'audio' && d.length > 0);
   if (!docs.length) return [];
-  const targetOpen = () => {
-    if (app.documents.includes(session)) return true;
-    app.notify('Insertion stopped because the destination session was closed. Imported files remain open.', { error: true });
+  // All prepared sources and frame positions must use the same session rate.
+  // Revert/Undo can replace it while conversion or a hook's dialog is pending.
+  const rate = session.sampleRate;
+  const canInsert = () => {
+    if (!app.documents.includes(session)) {
+      app.notify('Insertion stopped because the destination session was closed. Imported files remain open.', { error: true });
+    } else if (session.sampleRate !== rate) {
+      app.notify('Insertion stopped because the session sample rate changed. Review the session and insert the files again.', { error: true });
+    } else return true;
     return false;
   };
-  if (!targetOpen()) return [];
+  if (!canInsert()) return [];
   at = Math.max(0, Math.round(at ?? session.cursor));
   // trackId null means "a new track"; undefined means the selected track.
   const target = trackId === undefined ? session.selectedTrack : trackId;
@@ -149,7 +155,7 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   let t = at;
   for (const [i, doc] of docs.entries()) {
     const sourceId = await linkSource(session, doc);
-    if (!targetOpen()) return [];
+    if (!canInsert()) return [];
     const srcLen = session.sourceLength(sourceId);
     let offset = 0;
     let length = srcLen;
@@ -190,7 +196,7 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   const edits = [];
   for (const hook of INSERT_HOOKS) {
     const edit = await hook(app, session, state, parts.map((p) => ({ doc: p.doc, clip: p.clip })));
-    if (!targetOpen()) return [];
+    if (!canInsert()) return [];
     if (edit) {
       edits.push(edit);
       state = edit(state);
