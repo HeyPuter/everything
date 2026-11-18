@@ -15,20 +15,25 @@ import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/sess
 const dirOf = (path) => path.slice(0, path.lastIndexOf('/'));
 const withExt = (name) => (/\.asesx$/i.test(name) ? name : `${sessionBaseName(name)}.${SESSION_EXT}`);
 
-// What each media file a session saved to Puter holds: path -> the channels written there. Media
-// names follow the sources in use, so a file can come to hold another source's audio (a source that
-// stops being used gives its name to the next one); a source is skipped only while its file still
-// holds its audio.
+// Per session destination, source id -> the immutable media revision uploaded there.
+// Keep old files intact: a failed save must not change audio used by its previous manifest.
 const savedMedia = new WeakMap();
-const savedMediaOf = (session) => {
+const savedMediaOf = (session, path) => {
   if (!savedMedia.has(session)) savedMedia.set(session, new Map());
-  return savedMedia.get(session);
+  const destinations = savedMedia.get(session);
+  if (!destinations.has(path)) destinations.set(path, new Map());
+  return destinations.get(path);
 };
 
 const cloudSaves = new WeakMap();
 
-function mediaBlob(session, m) {
-  return encodeWav({ sampleRate: session.sampleRate, channels: m.channels, bitDepth: 32, float: true });
+function mediaRevision(file) {
+  const id = Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16).padStart(8, '0')).join('');
+  return file.replace(/\.wav$/i, `-${id}.wav`);
+}
+
+function mediaBlob(m) {
+  return encodeWav({ sampleRate: m.sampleRate, channels: m.channels, bitDepth: 32, float: true });
 }
 
 /**
@@ -37,8 +42,7 @@ function mediaBlob(session, m) {
  */
 export function saveSession(app, doc, options = {}) {
   if (!puter.sdk() || !puter.isSignedIn()) return saveSessionNow(app, doc, options);
-  // Media names and their cache are shared by a session's cloud saves. Finish
-  // one write sequence before the next can replace its media or manifest.
+  // Finish one save before the next updates its manifest or cached revisions.
   const previous = cloudSaves.get(doc) || Promise.resolve();
   const pending = previous.catch(() => {}).then(() => saveSessionNow(app, doc, options));
   cloudSaves.set(doc, pending);
@@ -64,21 +68,25 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
     const dir = dirOf(path);
     // What the file holds: edits made while the media uploads stay unsaved.
     const saved = doc.state;
-    const { text, media, video } = serializeSession(doc, { name });
+    const onDisk = savedMediaOf(doc, path);
+    const { text, media, video } = serializeSession(doc, {
+      name,
+      mediaPath: (id, src, file) => {
+        const prior = onDisk.get(id);
+        if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
+        return src.channels?.length ? mediaRevision(file) : file;
+      },
+    });
     await saveSessionVideo(app, doc, video, dir, { copy });
-    const onDisk = savedMediaOf(doc);
     let written = 0;
     for (const m of media) {
-      const src = doc.pool.get(m.id);
       const target = `${dir}/${m.file}`;
-      if (!src?.channels?.length) continue;
-      if (onDisk.get(target) === m.channels) continue;
+      if (!m.channels?.length) continue;
+      if (onDisk.get(m.id)?.file === m.file) continue;
       app.setStatus(`Saving media ${++written}...`);
-      // Unknown while it uploads (a failed write may leave it partly written).
-      onDisk.delete(target);
-      await puter.writeFile(target, mediaBlob(doc, m));
-      // The audio written (the source may change during the upload: then the next save writes it again).
-      if (!copy) onDisk.set(target, m.channels);
+      await puter.writeFile(target, mediaBlob(m));
+      // A completed upload is reusable even if the following manifest write fails.
+      onDisk.set(m.id, m);
     }
     await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
     if (!copy) {
@@ -189,7 +197,7 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
       session.addSource({ id: src.id, name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: mediaSource.path || null });
       session.pool.get(src.id).stateRef = doc.state;
-      if (mediaSource.path) savedMediaOf(session).set(mediaSource.path, channels);
+      if (mediaSource.path) savedMediaOf(session, source.path).set(src.id, { file: src.file, channels, sampleRate: doc.sampleRate });
     } catch {
       session.addSource({ id: src.id, name: src.name, channels: [], offline: true });
       missing.push(src.name);
