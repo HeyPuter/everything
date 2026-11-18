@@ -81,3 +81,22 @@ test('Space and Enter on the New Frame button in the frame strip add a frame ins
   await page.keyboard.press('Space');
   await expect(page.locator('.timeline-play')).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('Space on a video timeline track button uses the button instead of starting playback', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 48, 32);
+  await run(page, 'timeline.create');
+  await page.evaluate(() => window.photoStudio.dock.show('timeline'));
+  const disclosure = page.locator('.vt-disclosure').first();
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await disclosure.focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.vt-disclosure').first()).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.vt-controls [data-command="animation.play"]')).toHaveAttribute('aria-pressed', 'false');
+  // Space on the timeline itself still plays.
+  await page.locator('.vt-body').focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.vt-controls [data-command="animation.play"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Space');
+  await expect(page.locator('.vt-controls [data-command="animation.play"]')).toHaveAttribute('aria-pressed', 'false');
+});
