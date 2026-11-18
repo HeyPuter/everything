@@ -112,3 +112,14 @@ test('deleting the action being recorded stops the recording', async ({ page }) 
   await expect(page.getByRole('button', { name: 'Stop recording' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Begin recording' })).toBeDisabled();
 });
+
+test('Reset Actions stops a recording into an action it removes', async ({ page }) => {
+  await openImage(page, 64, 48, '#204080', 'rec.png');
+  await page.evaluate(() => window.photoStudio.dock.show('actions'));
+  await page.locator('.actions-list .action-row.action', { hasText: 'Mirror Canvas' }).click();
+  await page.evaluate(() => window.photoStudio.runCommand('actions.record'));
+  await expect(page.locator('.actions-list .action-row.recording')).toHaveCount(1);
+  await page.evaluate(() => window.photoStudio.runCommand('actions.reset'));
+  expect(await page.evaluate(() => !!window.photoStudio.recorder)).toBe(false);
+  await expect(page.getByRole('button', { name: 'Stop recording' })).toBeDisabled();
+});

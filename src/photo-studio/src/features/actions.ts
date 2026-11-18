@@ -475,6 +475,8 @@ export function installActions(e: Editor) {
       label: 'Reset Actions',
       recordable: false,
       run: (e) => {
+        // The action being recorded goes with the old sets.
+        if (recording) stopRecording(e);
         sets = defaults();
         selected = { set: sets[0].id };
         save();
