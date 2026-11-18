@@ -67,3 +67,12 @@ test('W x H x Resolution crops and resamples in one undo step', async ({ page })
   expect(await docSize(page)).toEqual([400, 300]);
   expect(await historyLabels(page)).toEqual([]);
 });
+
+test('clearing the W x H x Resolution resolution keeps the one in use', async ({ page }) => {
+  await page.evaluate(() => (window.photoStudio.settings.crop = { preset: 'whr', tw: 100, th: 75, tunit: 'px', res: 200, resUnit: 'PPI' }));
+  await tool(page, 'Crop Tool');
+  await page.locator('#crop-res').fill('');
+  await page.locator('#crop-res').press('Enter');
+  await expect(page.locator('#crop-res')).toHaveValue('200');
+  expect(await page.evaluate(() => (window.photoStudio.settings.crop as { res: number }).res)).toBe(200);
+});

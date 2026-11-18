@@ -366,7 +366,8 @@ export const cropTool: Tool = {
     });
     num('crop-tw', (v) => (s.tw = v));
     num('crop-th', (v) => (s.th = v));
-    num('crop-res', (v) => (s.res = v || 72));
+    // A cleared resolution is not reset to 72: the field shows the one in use.
+    num('crop-res', (v) => (s.res = v || s.res));
     el.querySelector<HTMLSelectElement>('#crop-tunit')?.addEventListener('change', (ev) => (s.tunit = (ev.target as HTMLSelectElement).value as LengthUnit));
     el.querySelector<HTMLSelectElement>('#crop-resunit')?.addEventListener('change', (ev) => (s.resUnit = (ev.target as HTMLSelectElement).value as 'PPI' | 'PPCM'));
     el.querySelector<HTMLSelectElement>('#crop-overlay')?.addEventListener('change', (ev) => {
