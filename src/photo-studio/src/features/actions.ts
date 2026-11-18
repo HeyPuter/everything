@@ -3,7 +3,7 @@ import { commands, findCommand, interactiveOnly, registerCommand, registerPanel,
 import { escapeXML } from '../model/assets';
 import { svg } from '../app/icons';
 import { formDialog } from '../ui/dialog';
-import { registerBatchStep } from './files/automate-steps';
+import { batchSteps, registerBatchStep } from './files/automate-steps';
 import { takeDialogCancelled } from './action-settings';
 import { modal } from './files/ui';
 
@@ -81,8 +81,11 @@ const save = () => {
   }
   syncBatchSteps();
 };
-// Every action is offered as a step in File > Automate > Batch.
+// Every action is offered as a step in File > Automate > Batch, and only
+// while it exists: Batch checks every step, so a deleted one would fail each file.
 function syncBatchSteps() {
+  const live = new Set(allActions().map(({ action }) => `action:${action.id}`));
+  for (const id of batchSteps.keys()) if (id.startsWith('action:') && !live.has(id)) batchSteps.delete(id);
   for (const { action } of allActions())
     registerBatchStep({
       id: `action:${action.id}`,
