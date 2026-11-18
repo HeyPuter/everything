@@ -229,6 +229,24 @@ test.describe('on a phone', () => {
   });
 });
 
+test.describe('in a narrow window', () => {
+  test.use({ viewport: { width: 1024, height: 640 } });
+  test('options that do not fit can be reached with the mouse wheel, and the bar shows there are more', async ({ page }) => {
+    await page.evaluate(() => window.photoStudio.setTool('clone-stamp'));
+    await idle(page);
+    const bar = page.locator('#tool-options');
+    const sample = page.locator('#clone-sample');
+    const right = async () => (await sample.boundingBox())!.x + (await sample.boundingBox())!.width;
+    expect(await right()).toBeGreaterThan(1024);
+    await expect(bar).toHaveClass(/more-right/);
+    const box = (await page.locator('#brush-size').boundingBox())!;
+    await page.mouse.move(box.x - 30, box.y + box.height / 2);
+    for (let i = 0; i < 5 && (await right()) > 1024; i++) await page.mouse.wheel(0, 200);
+    expect(await right()).toBeLessThanOrEqual(1024);
+    await expect(bar).toHaveClass(/more-left/);
+  });
+});
+
 test.describe('in a short window', () => {
   test.use({ viewport: { width: 1280, height: 600 } });
   test('menus taller than the window scroll, and their submenus open beside them on screen', async ({ page }) => {

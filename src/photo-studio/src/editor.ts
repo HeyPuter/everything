@@ -13,7 +13,7 @@ import { Dock } from './app/dock';
 import { bindCanvas, type CanvasPointer } from './app/pointer';
 import { commands, findCommand, overlays, tools, type Tool } from './app/registry';
 import { brushSizeStep, eventShortcut, platformShortcut } from './app/shortcuts';
-import { watchOptionTips } from './app/option-tips';
+import { scrollableOptions, watchOptionTips } from './app/option-tips';
 import { svg } from './app/icons';
 import { loadError, startIdleWork } from './app/lazy';
 import { emitActivity } from './app/activity';
@@ -872,6 +872,7 @@ export class Editor {
   // ----- Input -----
   private bind() {
     watchOptionTips(this.el('#tool-options'));
+    scrollableOptions(this.el('#tool-options'));
     this.el('#tool-options').addEventListener(
       'keydown',
       (e) => {
