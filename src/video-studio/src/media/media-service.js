@@ -288,6 +288,7 @@ export class MediaService extends Emitter {
             if (this.posters.get(asset.hash) !== entry) return;
             this.posters.delete(asset.hash);
             this.emit('poster', { hash: asset.hash });
+            if (asset.kind === 'image') this.emit('thumb', { hash: asset.hash });
           });
           return null;
         })
@@ -298,6 +299,9 @@ export class MediaService extends Emitter {
           }
           entry.value = v;
           this.emit('poster', { hash: asset.hash });
+          // Image thumbnails use the poster cache; timeline consumers listen
+          // for thumbnail changes, including retries that need a fresh read.
+          if (asset.kind === 'image') this.emit('thumb', { hash: asset.hash });
           return v;
         });
       this.posters.set(asset.hash, entry);
