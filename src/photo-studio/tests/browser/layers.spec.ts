@@ -104,6 +104,25 @@ test('native layer dragging moves inside groups, out to the root, and changes or
   await expect(firstRowName(page)).toHaveAccessibleName('B');
 });
 
+test('a drop just under an expanded group\'s row lands at the top of the group', async ({ page }) => {
+  await pick(page, 'A').click();
+  await pick(page, 'B').click({ modifiers: ['ControlOrMeta'] });
+  await group(page);
+  const groupName = await page.evaluate(() => window.photoStudio.layer!.name);
+  // Rows: C, Group, B, A. The bottom edge of the group's row is right above B.
+  const target = rowEl(page, groupName);
+  const bounds = (await target.boundingBox())!;
+  await row(page, 'C').dragTo(target, {
+    targetPosition: { x: bounds.width / 2, y: bounds.height - 2 },
+  });
+  await idle(page);
+  const names = await page.evaluate(() =>
+    window.photoStudio.doc.layers.map((l) => [l.name, l.children.map((c) => c.name)]),
+  );
+  expect(names).toEqual([[groupName, ['A', 'B', 'C']]]);
+  await expect(page.locator('#layers .layer-select').nth(1)).toHaveAccessibleName('C');
+});
+
 test('shared resize and nudge commit once and preserve selected layers through undo', async ({
   page,
 }) => {
