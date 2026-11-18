@@ -135,6 +135,26 @@ test('deleting a layer selects the layer below it, or above it at the bottom', a
   expect(await selected()).toBe('A');
 });
 
+test('Shift-click selects only the rows the list shows when layers are filtered', async ({ page }) => {
+  const selected = () =>
+    page.evaluate(() =>
+      [...window.photoStudio.selectedIds].map((id) => window.photoStudio.doc.layers.find((l) => l.id === id)!.name).sort(),
+    );
+  // Isolate A and C: B leaves the list.
+  await pick(page, 'A').click();
+  await pick(page, 'C').click({ modifiers: ['ControlOrMeta'] });
+  await run(page, 'select.isolate-layers');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(2);
+  await pick(page, 'C').click();
+  await pick(page, 'A').click({ modifiers: ['Shift'] });
+  expect(await selected()).toEqual(['A', 'C']);
+  // With every row shown again, the same clicks take in B.
+  await run(page, 'select.isolate-layers');
+  await pick(page, 'C').click();
+  await pick(page, 'A').click({ modifiers: ['Shift'] });
+  expect(await selected()).toEqual(['A', 'B', 'C']);
+});
+
 test('shared resize and nudge commit once and preserve selected layers through undo', async ({
   page,
 }) => {

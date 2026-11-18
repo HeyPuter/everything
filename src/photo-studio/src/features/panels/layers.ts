@@ -102,6 +102,19 @@ ${fxBadge(l)}${l.linkGroup ? `<span class="link-badge ${linkActive ? 'active' : 
     });
   return out;
 }
+/** Shift-click: select the rows from the anchor to `id` as the list shows
+ * them, so layers hidden by filtering or isolation are left out. */
+function selectShownRange(e: Editor, el: HTMLElement, id: string, add: boolean) {
+  const shown = [...el.querySelectorAll<HTMLElement>('#layers .layer-row')].map((r) => r.dataset.row!);
+  const a = shown.indexOf(e.session.selectionAnchor),
+    b = shown.indexOf(id);
+  if (a < 0 || b < 0) return false;
+  e.transform.apply();
+  const range = shown.slice(Math.min(a, b), Math.max(a, b) + 1);
+  e.selectLayers(add ? [...e.selectedIds, ...range] : range);
+  e.update();
+  return true;
+}
 function blendSelect(l?: Layer, disabled = false) {
   const options = (l?.kind === 'group' && !l.artboard && !l.frame ? (['pass through', ...blends] as Layer['blend'][]) : blends)
     .map((b) => `${blendGroupStarts.includes(b) ? '<option disabled>──────────</option>' : ''}<option value="${b}" ${l?.blend === b ? 'selected' : ''}>${blendLabel(b)}</option>`)
@@ -197,6 +210,7 @@ export const layersPanel: Panel = {
         // Re-selecting the only selected layer keeps the rows in place, so the
         // second click of a double-click lands on the same element.
         const only = e.selectedIds.size === 1 && e.selectedIds.has(id) && !e.maskTarget;
+        if (ev.shiftKey && selectShownRange(e, el, id, ev.metaKey || ev.ctrlKey)) return;
         if (!(only && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey)) e.selectLayer(id, ev.metaKey || ev.ctrlKey, ev.shiftKey);
       }
     });
