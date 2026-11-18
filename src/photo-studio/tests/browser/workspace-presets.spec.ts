@@ -205,3 +205,25 @@ test('the Window menu offers each panel once (Scripts and Timeline are not repea
   // Panels that only the Type menu also lists stay under Window › Panels.
   expect(ids).toContain('window.panel.character');
 });
+
+test('the Preset Manager keeps the keyboard focus when its buttons redraw it', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.setTool('brush'));
+  for (const name of ['A', 'B']) {
+    await start(page, 'tool.preset-new');
+    await page.locator('dialog[open] input[name="name"]').fill(name);
+    await page.locator('dialog[open] button.primary').click();
+  }
+  await start(page, 'edit.preset-manager');
+  const d = page.locator('dialog[open]');
+  await d.locator('[data-kind="tool-presets"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(d.locator('[data-kind="tool-presets"]')).toBeFocused();
+  await expect(d.locator('.pm-row[data-index]')).toHaveCount(2);
+  await d.locator('.pm-row[data-index="1"]').click();
+  // Move Up moves B to the top and then has nothing more to do (disabled): the
+  // focus goes to the moved preset rather than to the page.
+  await d.locator('[data-pm="up"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(d.locator('.pm-row[data-index]').first()).toContainText('B');
+  await expect(d.locator('.pm-row.selected')).toBeFocused();
+});
