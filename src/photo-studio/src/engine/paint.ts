@@ -22,7 +22,8 @@ export type BrushTip = {
   // Ellipse minor/major ratio and rotation of the major axis, in degrees.
   roundness: number;
   angle: number;
-  // Optional sampled tip; coverage is scaled to the dab size and rotated.
+  // Optional sampled tip; coverage is scaled so its longer side spans the
+  // dab size (keeping its proportions) and rotated.
   sample?: Mask8;
   // Pencil: pixels inside the tip are painted fully and the rest not at all
   // (no anti-aliasing); the pixel under the center is always painted.
@@ -281,6 +282,8 @@ export class StrokeSession {
     const inner = radius * hard,
       soft = Math.max(1, radius - inner);
     const sample = tip.sample;
+    // Sample pixels per document pixel along both axes.
+    const sampleScale = sample ? Math.max(sample.width, sample.height) / size : 0;
     const c = this.channels;
     const px = this.scratch,
       src = this.scratch2;
@@ -315,8 +318,8 @@ export class StrokeSession {
               if (tip.square ? Math.abs(u) > radius || Math.abs(v) > radius : u * u + v * v > radius * radius && (x !== Math.floor(cx) || y !== Math.floor(cy))) continue;
               alpha = 1;
             } else if (sample) {
-              const sxp = Math.floor((u / size + 0.5) * sample.width),
-                syp = Math.floor((v / size + 0.5) * sample.height);
+              const sxp = Math.floor(u * sampleScale + sample.width / 2),
+                syp = Math.floor(v * sampleScale + sample.height / 2);
               if (sxp < 0 || syp < 0 || sxp >= sample.width || syp >= sample.height) continue;
               alpha = sample.data[syp * sample.width + sxp] / 255;
             } else {

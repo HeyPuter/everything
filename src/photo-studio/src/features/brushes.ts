@@ -104,8 +104,12 @@ function strokePreview(p: StoredPreset, w = 120, h = 28) {
     g.translate(x, y);
     g.rotate((tip.angle * Math.PI) / 180);
     g.scale(1, tip.roundness);
-    if (stamp) g.drawImage(stamp, -size / 2, -size / 2, size, size);
-    else {
+    if (stamp) {
+      // The longer side spans the size, as when painting.
+      const sw = (stamp.width * size) / Math.max(stamp.width, stamp.height),
+        sh = (stamp.height * size) / Math.max(stamp.width, stamp.height);
+      g.drawImage(stamp, -sw / 2, -sh / 2, sw, sh);
+    } else {
       const grad = g.createRadialGradient(0, 0, 0, 0, 0, size / 2);
       grad.addColorStop(0, 'rgba(210,210,210,0.35)');
       grad.addColorStop(Math.min(0.99, tip.hardness), 'rgba(210,210,210,0.35)');

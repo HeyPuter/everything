@@ -201,3 +201,19 @@ describe('stroke sessions limited by a soft selection', () => {
       }
   });
 });
+
+describe('sampled brush tips', () => {
+  it('keep the proportions of a tip sampled from a wide area', () => {
+    const store = new TileStore();
+    // A 4 × 2 tip, fully opaque: at 40 px it paints a 40 × 20 rectangle.
+    const sample = { width: 4, height: 2, data: new Uint8Array(8).fill(255) };
+    const s = new StrokeSession(store, emptyGrid(4), {
+      tip: { size: 40, hardness: 1, spacing: 1, roundness: 1, angle: 0, sample },
+      opacity: 1,
+      flow: 1,
+      target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+    });
+    s.addPoint(50, 50);
+    expect(s.commit().bounds).toEqual({ x: 30, y: 40, width: 40, height: 20 });
+  });
+});
