@@ -227,3 +227,14 @@ test('the Preset Manager keeps the keyboard focus when its buttons redraw it', a
   await expect(d.locator('.pm-row[data-index]').first()).toContainText('B');
   await expect(d.locator('.pm-row.selected')).toBeFocused();
 });
+
+test('a locked workspace keeps a panel group open when its panel is chosen again in Window › Panels', async ({ page }) => {
+  await run(page, 'window.workspace-lock');
+  await run(page, 'window.panel.layers');
+  await expect(page.locator('.panel-group[data-location="dock-bottom"]')).not.toHaveClass(/collapsed/);
+  await expect(page.locator('[data-panel="layers"]')).toBeVisible();
+  // Unlocked, choosing the visible panel minimizes its group, as before.
+  await run(page, 'window.workspace-lock');
+  await run(page, 'window.panel.layers');
+  await expect(page.locator('.panel-group[data-location="dock-bottom"]')).toHaveClass(/collapsed/);
+});

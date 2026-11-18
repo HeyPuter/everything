@@ -342,6 +342,9 @@ export class Dock {
     const loc = this.locationOf(p);
     if (toggle && this.isVisible(id)) {
       if (loc === 'strip') this.toggleDrawer(undefined);
+      // A locked workspace keeps its groups as they are (minimizing one is
+      // an arrangement change, as with a double-click on its tabs).
+      else if (this.locked) return;
       else {
         this.layout.collapsed.push(loc);
         this.save();
