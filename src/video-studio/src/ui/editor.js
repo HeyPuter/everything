@@ -214,7 +214,7 @@ export class Editor {
     document.addEventListener('keydown', this._onFieldKey, true);
     this._onUnload = (e) => {
       // pageLeaving: the user already chose to leave (signing out, closing the window).
-      if (!this.pageLeaving && (store.dirty || library.unsavedMedia)) {
+      if (!this.pageLeaving && (store.dirty || library.unsavedMedia || ctx.imports?.size)) {
         this.saver.save();
         e.preventDefault();
         e.returnValue = '';

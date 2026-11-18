@@ -355,4 +355,32 @@ describe('pending replacement and file reads', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 
+  it('warns on page closing while an import is reading before any edit or upload exists', async () => {
+    const { library, p } = await open();
+    let finish;
+    const reading = new Promise(resolve => { finish = resolve; });
+    vi.spyOn(library, 'importFile').mockImplementation(async () => {
+      await reading;
+      return { ...p.assets.img, id: 'new-image', hash: 'new-image-hash' };
+    });
+    const importing = editor.ctx.actions.importFiles([new File(['image'], 'Photo.png', { type: 'image/png' })]);
+    expect(editor.store.dirty).toBe(false);
+    expect(library.unsavedMedia).toBe(0);
+    const unload = () => {
+      const e = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    try {
+      expect(unload()).toBe(true);
+      editor.pageLeaving = true;
+      expect(unload()).toBe(false);
+      editor.pageLeaving = false;
+    } finally {
+      finish();
+      await importing;
+    }
+    await editor.saver.flush();
+    expect(unload()).toBe(false);
+  });
 });
