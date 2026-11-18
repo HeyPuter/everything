@@ -87,3 +87,32 @@ test('Sources are kept per slot and the overlay follows the pointer', async ({ p
   await expect(page.locator('#overlay .clone-overlay image')).toHaveCount(1);
   await idle(page);
 });
+
+test('A source set while its document was the only one open clones into another document', async ({
+  page,
+}) => {
+  await boot(page);
+  await setup(page);
+  expect(await page.evaluate(() => window.photoStudio.sessions.length)).toBe(1);
+  await canvasClick(page, 30, 30, ['Alt']);
+  // Open a second, white document and clone the red square into it.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { newDocument } = await import('/src/model/document.ts');
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    const { gridFromImage } = await import('/src/model/tiles.ts');
+    await e.switchSession(e.newSession(newDocument(300, 200, 'Target')));
+    const data = new Uint8ClampedArray(300 * 200 * 4).fill(255);
+    const grid = gridFromImage(e.assets.tiles, { width: 300, height: 200, data });
+    const layer = newPixelLayer('White', e.doc, grid);
+    e.command('Add White', (d) => d.layers.push(layer));
+    e.selected = layer.id;
+    e.zoom = 2;
+    e.pan = { x: 0, y: 0 };
+    e.update();
+  });
+  await idle(page);
+  await canvasClick(page, 150, 100);
+  expect(await layerPixel(page, 150, 100)).toEqual([220, 20, 30, 255]);
+  expect(await page.evaluate(() => window.photoStudio.history.labels)).toContain('Clone Stamp');
+});
