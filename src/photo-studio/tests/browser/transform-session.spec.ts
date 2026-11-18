@@ -115,3 +115,32 @@ test('clearing a transform field keeps the value in use instead of entering 0', 
   expect(await quad()).toEqual(start);
   await page.keyboard.press('Escape');
 });
+
+test('Enter in a transform field applies it and the next Enter commits; Escape there keeps the value', async ({
+  page,
+}) => {
+  await openImage(page, 300, 200, '#808080');
+  await run(page, 'edit.free-transform');
+  const scale = () =>
+    page.evaluate(
+      () =>
+        (window.photoStudio.modal as unknown as { params: { sx: number } } | undefined)?.params.sx,
+    );
+  await page.locator('#ts-w').fill('50');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#ts-w')).toHaveValue('100');
+  await expect(page.locator('#viewport')).toBeFocused();
+  expect(await scale()).toBe(1);
+  await page.locator('#ts-w').fill('50');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#viewport')).toBeFocused();
+  expect(await scale()).toBe(0.5);
+  await page.keyboard.press('Enter');
+  await idle(page);
+  expect(
+    await page.evaluate(() => [
+      !!window.photoStudio.modal,
+      window.photoStudio.history.labels.at(-1),
+    ]),
+  ).toEqual([false, 'Transform']);
+});

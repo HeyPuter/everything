@@ -893,6 +893,17 @@ export class TransformSession {
   }
   bindOptions(el: HTMLElement) {
     refocusAfterChoice(this.e, el);
+    // Enter applies a number field and Escape leaves it as it was; both hand
+    // the keys back to the canvas, where the next Enter commits the transform
+    // and Escape cancels it.
+    el.querySelectorAll<HTMLInputElement>('input[type="number"][id^="ts-"]').forEach((f) =>
+      f.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== 'Escape') return;
+        ev.preventDefault();
+        if (ev.key === 'Escape') this.syncFields(f);
+        this.e.el('#viewport').focus({ preventScroll: true });
+      }),
+    );
     el.querySelectorAll<HTMLButtonElement>('[data-ts-ref]').forEach((b) =>
       b.addEventListener('click', () => {
         const [x, y] = b.dataset.tsRef!.split(',').map(Number);
