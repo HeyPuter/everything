@@ -428,6 +428,7 @@ export class Editor {
    * for a quiet moment and then for the browser to be idle.
    */
   _scheduleCover() {
+    if (this._disposed) return;
     this._cancelCover();
     this._coverDue = true;
     this._coverTimer = setTimeout(() => {
@@ -440,6 +441,8 @@ export class Editor {
   }
 
   _cancelCover() {
+    this._coverController?.abort();
+    this._coverController = null;
     clearTimeout(this._coverTimer);
     this._coverTimer = null;
     this._coverIdle?.cancel();
@@ -453,26 +456,36 @@ export class Editor {
    */
   async saveCover() {
     const { store, player } = this.ctx;
-    if (!player?.supported || store.duration <= 0) return;
+    if (this._disposed || !player?.supported || store.duration <= 0) return;
     if (player.playing) {
       this._scheduleCover();
       return;
     }
     this._cancelCover();
     this._coverDue = false;
+    const controller = new AbortController();
+    this._coverController = controller;
+    const project = store.project;
     try {
-      const t = store.project.cover?.time ?? Math.min(store.duration - 1, 1_000_000);
+      const t = project.cover?.time ?? Math.min(store.duration - 1, 1_000_000);
       const { renderStill } = await import('../engine/exporter.js');
-      const bmp = await renderStill(store.project, this.library, t, { maxWidth: 480 });
+      if (controller.signal.aborted) return;
+      const bmp = await renderStill(project, this.library, t, { maxWidth: 480, signal: controller.signal });
       const c = document.createElement('canvas');
-      c.width = bmp.width;
-      c.height = bmp.height;
-      c.getContext('2d').drawImage(bmp, 0, 0);
-      bmp.close?.();
+      try {
+        if (controller.signal.aborted) return;
+        c.width = bmp.width;
+        c.height = bmp.height;
+        c.getContext('2d').drawImage(bmp, 0, 0);
+      } finally {
+        bmp.close?.();
+      }
       const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
-      if (blob) await this.library.saveCover(store.project.id, blob);
+      if (blob && !controller.signal.aborted) await this.library.saveCover(project.id, blob);
     } catch {
       /* covers are cosmetic */
+    } finally {
+      if (this._coverController === controller) this._coverController = null;
     }
   }
 

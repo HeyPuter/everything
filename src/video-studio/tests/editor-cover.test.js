@@ -52,7 +52,7 @@ describe('project cover', () => {
     expect(project).toBe(store.project);
     expect(library).toBe(lib);
     expect(t).toBe(1_000_000);
-    expect(opts).toEqual({ maxWidth: 480 });
+    expect(opts).toEqual({ maxWidth: 480, signal: expect.any(AbortSignal) });
     expect(player.previewTime).toBe(3_000_000);
     expect(render).not.toHaveBeenCalled();
     expect(saved).toHaveBeenCalledWith(store.project.id, expect.any(Blob));
@@ -64,6 +64,47 @@ describe('project cover', () => {
     });
     await editor.saveCover();
     expect(renderStill.mock.calls[0][2]).toBe(4_500_000);
+  });
+
+  it('discards an older cover render that finishes after the newer cover', async () => {
+    let finish;
+    const oldBitmap = { width: 480, height: 270, close: vi.fn() };
+    renderStill.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const saved = vi.spyOn(lib, 'saveCover');
+    const older = editor.saveCover();
+    try {
+      await vi.waitFor(() => expect(renderStill).toHaveBeenCalledTimes(1));
+      await editor.saveCover();
+      finish(oldBitmap);
+      await older;
+      expect(saved).toHaveBeenCalledTimes(1);
+      expect(oldBitmap.close).toHaveBeenCalledTimes(1);
+      expect(renderStill.mock.calls[0][3].signal.aborted).toBe(true);
+    } finally {
+      finish?.(oldBitmap);
+      await older;
+    }
+  });
+
+  it.each(['edit', 'dispose'])('does not save a cover encoded after an %s invalidates it', async (action) => {
+    let finish;
+    HTMLCanvasElement.prototype.toBlob.mockImplementationOnce((cb) => { finish = cb; });
+    const saved = vi.spyOn(lib, 'saveCover');
+    const pending = editor.saveCover();
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    if (action === 'edit') editor.store.update('Choose new cover', (p) => { p.cover = { time: 3_000_000 }; });
+    else editor.dispose();
+    finish(new Blob(['obsolete jpeg']));
+    await pending;
+    expect(saved).not.toHaveBeenCalled();
+  });
+
+  it('does not start or schedule new covers after disposal', async () => {
+    editor.dispose();
+    await editor.saveCover();
+    editor.store.update('Late update', (p) => { p.name = 'After leaving'; });
+    expect(renderStill).not.toHaveBeenCalled();
+    expect(editor._coverTimer).toBeNull();
   });
 
   it('waits until playback stops', async () => {
