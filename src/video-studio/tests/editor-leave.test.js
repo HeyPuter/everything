@@ -139,6 +139,56 @@ describe('leaving the editor', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 
+  it('still checks uploads when closing the page overlaps leaving for Home', async () => {
+    const { library } = await open();
+    let finish;
+    vi.spyOn(editor.saver, 'flush').mockImplementationOnce(() => new Promise((r) => (finish = r)));
+    vi.spyOn(library, 'unsavedMedia', 'get').mockReturnValue(1);
+    const uploads = vi.spyOn(library, 'flushUploads').mockResolvedValue(false);
+    const home = editor.prepareToLeave();
+    const page = editor.prepareToLeave({ waitForUploads: true });
+    const anotherClose = editor.prepareToLeave({ waitForUploads: true });
+    finish();
+    await vi.waitFor(() => expect(dialog()?.textContent).toContain("1 media file couldn't be saved"));
+    button('Stay').click();
+    expect(await page).toBe(false);
+    expect(await anotherClose).toBe(false);
+    await home;
+    expect(uploads).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for a successful upload after an overlapping editor-only save', async () => {
+    const { library } = await open();
+    let saved, uploaded;
+    vi.spyOn(editor.saver, 'flush').mockImplementationOnce(() => new Promise((r) => (saved = r)));
+    vi.spyOn(library, 'unsavedMedia', 'get').mockReturnValue(1);
+    const uploads = vi.spyOn(library, 'flushUploads').mockImplementation(() => new Promise((r) => (uploaded = r)));
+    const home = editor.prepareToLeave();
+    let closed = false;
+    const page = editor.prepareToLeave({ waitForUploads: true }).then((ok) => { closed = ok; return ok; });
+    saved();
+    await home;
+    await vi.waitFor(() => expect(uploads).toHaveBeenCalledTimes(1));
+    expect(closed).toBe(false);
+    uploaded(true);
+    expect(await page).toBe(true);
+    expect(dialog()).toBeNull();
+  });
+
+  it('honors Stay from an editor save when a page close is also waiting', async () => {
+    const { library, backend } = await open();
+    rename('Unsaved');
+    backend.failNext = 1;
+    const uploads = vi.spyOn(library, 'flushUploads');
+    const home = editor.prepareToLeave();
+    const page = editor.prepareToLeave({ waitForUploads: true });
+    await vi.waitFor(() => expect(button('Stay')).toBeTruthy());
+    button('Stay').click();
+    expect(await home).toBe(false);
+    expect(await page).toBe(false);
+    expect(uploads).not.toHaveBeenCalled();
+  });
+
   it('asks before the page closes with a media file that could not be uploaded, and shows it in the title bar', async () => {
     const { library } = await open();
     library.backend.failNext = 2; // the media listing and the write

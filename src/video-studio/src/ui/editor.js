@@ -498,6 +498,19 @@ export class Editor {
    * waitForUploads: also wait for media uploads (the page is going away).
    */
   prepareToLeave({ waitForUploads = false } = {}) {
+    // Leaving for Home keeps uploads alive, but closing the page does not. A page-close
+    // request arriving during an editor-only save must still check the media afterwards.
+    // Share that follow-up too, so repeated close requests ask only once.
+    if (this._leavingPage) return this._leavingPage;
+    if (waitForUploads && this._leaving && !this._leavingWaitForUploads) {
+      this._leavingPage = this._leaving.then(async (ok) => {
+        if (!ok) return false;
+        const media = await finishUploads(this.library);
+        return !media || confirmLeave(this.library, { media });
+      }).finally(() => (this._leavingPage = null));
+      return this._leavingPage;
+    }
+    if (!this._leaving) this._leavingWaitForUploads = waitForUploads;
     // Asked twice (a double click, the window closing while asking): one question.
     this._leaving ||= (async () => {
       this.ctx.player?.pause();
