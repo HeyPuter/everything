@@ -4,6 +4,7 @@ import { allLayers, type DocumentInfo } from '../../model/document';
 import { escapeXML } from '../../model/assets';
 import { modal, fieldValue } from './ui';
 import { documentSource, exportContext } from './pipeline';
+import type { ExportContext, SourceImage } from './encode';
 import { convertToSrgb } from './color';
 import { encodePng, rgba16To8 } from './png';
 
@@ -59,13 +60,21 @@ export async function fileInfo(e: Editor) {
   });
 }
 
+/** The composite as 8-bit sRGB for printing. Colors are converted before the
+ * samples are reduced to 8 bits: reducing linear (32-bit) samples first bands
+ * the shadows. */
+export function printPixels(src: SourceImage, ctx: ExportContext): Uint8ClampedArray {
+  const data = src.data.slice();
+  if (ctx.profile) convertToSrgb(data, ctx.profile);
+  return data instanceof Uint16Array ? rgba16To8(data) : data;
+}
+
 /** Print the flattened image at its document resolution. */
 export async function printImage(e: Editor) {
   const doc = e.doc;
   const src = await documentSource(e, doc);
   const ctx = exportContext(doc);
-  let data = src.data instanceof Uint16Array ? rgba16To8(src.data) : src.data.slice();
-  if (ctx.profile) data = convertToSrgb(data, ctx.profile);
+  const data = printPixels(src, ctx);
   const png = encodePng({ width: src.width, height: src.height, data, channels: 4 }, { level: 1 });
   const url = URL.createObjectURL(new Blob([png as Uint8Array<ArrayBuffer>], { type: 'image/png' }));
   const ppi = ctx.dpi && ctx.dpi > 0 ? ctx.dpi : 72;
