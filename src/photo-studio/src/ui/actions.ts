@@ -451,7 +451,9 @@ export async function performAction(e: Editor, action: string): Promise<void> {
         groups.some(
           (l) =>
             l.opacity !== 1 ||
-            l.blend !== 'normal' ||
+            // Pass Through (the default of new groups) composites the
+            // children as if they were not grouped.
+            (l.blend !== 'normal' && l.blend !== 'pass through') ||
             hasMask(l) ||
             Object.values(l.filters).some(Boolean),
         )
