@@ -1385,7 +1385,12 @@ export class Renderer {
     // render in progress. Without the chain, two callers would both spin on
     // an already-settled `idle` promise.
     const run = this.exclusiveChain.then(() => this.runExclusive(task));
-    this.exclusiveChain = run.catch(() => {});
+    // The chain keeps no result: a readback's pixels (hundreds of megabytes
+    // for a large float image) would stay alive until the next readback.
+    this.exclusiveChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
   private async runExclusive<T>(task: () => Promise<T>): Promise<T> {
