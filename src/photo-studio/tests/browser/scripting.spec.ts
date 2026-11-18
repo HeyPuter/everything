@@ -248,3 +248,29 @@ test('the Scripts panel shows output written while its drawer was closed, and ke
   });
   await expect(lines).toContainText('while open');
 });
+
+test('the script editor indents with Tab but lets the keyboard leave after Escape', async ({ page }) => {
+  await page.evaluate(async () => {
+    const { openScriptEditor } = await import('/src/features/scripting/code-editor.ts');
+    openScriptEditor(window.photoStudio);
+  });
+  const code = page.getByRole('textbox', { name: 'Script source' });
+  await expect(code).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(code).toBeFocused();
+  expect(await code.inputValue()).toMatch(/^ {2}\/\/ @name/);
+  // Escape, then Tab, moves on; the editor stays open.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('dialog.script-editor')).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(code).not.toBeFocused();
+  expect(await page.evaluate(() => !!document.activeElement?.closest('dialog.script-editor'))).toBe(true);
+  // Back in the text, Tab indents again, and Escape twice closes (asking about the change).
+  await code.focus();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Tab');
+  await expect(code).toBeFocused();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Discard Changes?' })).toBeVisible();
+});

@@ -43,7 +43,7 @@ export function openScriptEditor(e: Editor, id?: string) {
     <div class="script-editor-head"><h2>${record ? 'Edit Script' : 'New Script'}</h2><label class="script-name">Name<input name="name" value="${escapeXML(record?.name ?? scriptMetadata(source).name)}" autocomplete="off" title="Shown in File → Scripts and the Scripts panel"></label></div>
     <div class="code-editor" title="">
       <pre class="code-gutter" aria-hidden="true"></pre>
-      <div class="code-area"><pre class="code-highlight" aria-hidden="true"></pre><textarea class="code-input" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Script source"></textarea></div>
+      <div class="code-area"><pre class="code-highlight" aria-hidden="true"></pre><textarea class="code-input" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="Script source" aria-describedby="script-tab-hint"></textarea><span id="script-tab-hint" class="sr-only">Tab indents. Press Escape, then Tab, to move on to the next control.</span></div>
     </div>
     ${cheatSheet}
     <div class="script-output" aria-live="polite" aria-label="Script output"></div>
@@ -86,6 +86,11 @@ export function openScriptEditor(e: Editor, id?: string) {
   render();
   showLog();
   input.addEventListener('input', render);
+  input.addEventListener('blur', () => {
+    if (!tabLeaves) return;
+    tabLeaves = false;
+    status.textContent = source === saved ? '' : 'Unsaved changes';
+  });
   input.addEventListener('scroll', sync);
 
   // Indentation: Tab and Shift+Tab indent lines, Enter keeps the indent.
@@ -94,9 +99,23 @@ export function openScriptEditor(e: Editor, id?: string) {
     input.setSelectionRange(...select);
     render();
   };
+  // Tab indents, so Escape first lets the next Tab (or Shift+Tab) leave the
+  // text, as keyboard users expect; Escape again closes the editor.
+  let tabLeaves = false;
   input.addEventListener('keydown', (ev) => {
     const { selectionStart: a, selectionEnd: b, value } = input;
     const lineStart = value.lastIndexOf('\n', a - 1) + 1;
+    if (ev.key === 'Escape' && !tabLeaves) {
+      ev.preventDefault();
+      tabLeaves = true;
+      status.textContent = 'Tab moves to the next control; Escape again closes the editor.';
+      return;
+    }
+    if (tabLeaves && !['Shift', 'Control', 'Alt', 'Meta'].includes(ev.key)) {
+      tabLeaves = false;
+      status.textContent = source === saved ? '' : 'Unsaved changes';
+      if (ev.key === 'Tab') return;
+    }
     if (ev.key === 'Tab') {
       ev.preventDefault();
       if (a === b && !ev.shiftKey) return replace(a, b, '  ', [a + 2, a + 2]);
