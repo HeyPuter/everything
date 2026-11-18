@@ -161,6 +161,22 @@ test('Shift-click and layer stepping use only the rows the list shows when layer
   expect(await selected()).toEqual(['A', 'B', 'C']);
 });
 
+test('deleting in a filtered Layers list selects a row the list shows', async ({ page }) => {
+  const selected = () => page.evaluate(() => window.photoStudio.layer?.name);
+  // Isolate A and C: B, between them, leaves the list.
+  await pick(page, 'A').click();
+  await pick(page, 'C').click({ modifiers: ['ControlOrMeta'] });
+  await run(page, 'select.isolate-layers');
+  await expect(page.locator('#layers .layer-row')).toHaveCount(2);
+  await pick(page, 'C').click();
+  await run(page, 'layer.delete');
+  expect(await selected()).toBe('A');
+  // Deleting again takes A, not the hidden B.
+  await run(page, 'layer.delete');
+  const names = () => page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name));
+  expect(await names()).toEqual(['B']);
+});
+
 test('arrow keys in the Layers list move the selection instead of nudging the layer', async ({
   page,
 }) => {

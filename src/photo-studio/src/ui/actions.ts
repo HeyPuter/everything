@@ -7,6 +7,7 @@ import { assertEditable, groupLayers, placeDuplicates, reorderLayers, selectedRo
 import { placeDuplicateArtboards } from '../model/artboard';
 import { releaseBackground } from '../model/housekeeping';
 import { Renderer } from '../renderer/renderer';
+import { shownInLayerList } from '../features/panels/layers';
 import {
   allLayers,
   containerOf,
@@ -422,9 +423,13 @@ export async function performAction(e: Editor, action: string): Promise<void> {
     case 'delete': {
       assertEditable(e.doc, e.selectedLayers);
       // The layer below the deleted ones (or else above them) becomes the
-      // selection, so deleting can continue down the stack.
+      // selection, so deleting can continue down the stack. A filtered or
+      // isolated Layers list offers only its own rows: a layer it hides is
+      // never selected (and deleted next) unseen.
       const gone = new Set(allLayers(e.selectedLayers).map((l) => l.id));
-      const rows = visibleRows(e.doc.layers, e.collapsedGroups);
+      const rows = visibleRows(e.doc.layers, e.collapsedGroups).filter(
+        (l) => gone.has(l.id) || shownInLayerList(e, l),
+      );
       const first = rows.findIndex((l) => gone.has(l.id));
       const last = rows.length - 1 - [...rows].reverse().findIndex((l) => gone.has(l.id));
       const next =
