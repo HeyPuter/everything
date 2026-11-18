@@ -293,6 +293,8 @@ export const fileAccept = () => document.querySelector<HTMLInputElement>('#file-
 export async function replaceContents(e: Editor, file?: File) {
   const l = selectedObject(e);
   if (!l) return;
+  // As Convert to Layers and Rasterize: a locked layer keeps its content.
+  assertEditable(e.doc, [l]);
   file ??= (await pickLocalFiles(fileAccept()))[0];
   if (!file) return;
   const doc = e.doc;

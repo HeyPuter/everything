@@ -70,3 +70,33 @@ test('contents of a parent that refuses edits (view-only sharing) stay unsaved',
   expect(result.parentChanged).toBe(false);
   expect(result.status).toContain('stay unsaved');
 });
+
+test('Replace Contents leaves a locked embedded object as it is', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 24, 24, '#ffffff', 'parent.png');
+  await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(16, 16);
+    canvas.getContext('2d')!.fillRect(0, 0, 16, 16);
+    const { openFile } = await import('/src/features/files/open.ts');
+    await openFile(window.photoStudio, await canvas.convertToBlob(), 'child.png', true);
+  });
+  const result = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const id = e.layer!.id;
+    e.command('Lock', (d) => (d.layers.find((l) => l.id === id)!.locked = true));
+    const before = JSON.stringify(e.doc.layers.find((l) => l.id === id));
+    const canvas = new OffscreenCanvas(30, 10);
+    canvas.getContext('2d')!.fillRect(0, 0, 30, 10);
+    const file = new File([await canvas.convertToBlob()], 'other.png', { type: 'image/png' });
+    const { replaceContents } = await import('/src/features/embedded/convert.ts');
+    let error = '';
+    try {
+      await replaceContents(e, file);
+    } catch (x) {
+      error = String(x);
+    }
+    return { error, same: JSON.stringify(e.doc.layers.find((l) => l.id === id)) === before };
+  });
+  expect(result.error).toContain('Unlock');
+  expect(result.same).toBe(true);
+});
