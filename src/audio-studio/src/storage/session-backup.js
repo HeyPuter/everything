@@ -394,21 +394,20 @@ export async function sessionRestoreDialog(app, controller, manifests) {
       { label: 'Restore', value: 'restore', primary: true },
     ],
   });
-  if (r !== 'restore') {
-    await controller.markOffered(manifests);
-    return [];
-  }
+  if (r !== 'restore') return [];
   const out = [];
+  const restored = [];
   for (const [i, m] of manifests.entries()) {
     if (!checks[i].checked) continue;
     try {
       out.push(await controller.restore(m));
+      restored.push(m);
     } catch (err) {
       console.warn('[session backup] restore failed', err);
       app.notify(`"${m.name}" could not be restored.`, { error: true });
     }
   }
-  await controller.markOffered(manifests);
+  await controller.markOffered(restored);
   if (out.length) app.notify(`Restored ${out.length} session${out.length > 1 ? 's' : ''}. Save to keep ${out.length > 1 ? 'them' : 'it'}.`);
   return out;
 }
