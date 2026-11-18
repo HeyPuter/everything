@@ -562,6 +562,26 @@ describe('AI sidebar tools', () => {
     expect(main().clips.map((c) => c.id)).toEqual([img]);
   });
 
+  it('consumes captured image settings without erasing edits made during generation', async () => {
+    const { store, ctx, main } = setup(clip('image', 0, 3));
+    const img = main().clips[0];
+    Object.assign(img.adjust, { exposure: 20, contrast: 15 });
+    const baked = { settings: { adjust: { ...img.adjust } }, keyframes: {} };
+    let finish;
+    const { runner } = runnerFor(ctx, {
+      picture: vi.fn(async () => ({ ...picture(), baked })),
+      editPicture: vi.fn(() => new Promise(resolve => { finish = () => resolve({ blob: new Blob(['png'], { type: 'image/png' }) }); })),
+    });
+    const pending = runner.run('edit_image', { source: img.id, instruction: 'make it night' });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    ctx.actions.editClip(img.id, 'Change exposure', c => { c.adjust.exposure = 35; });
+    finish();
+    expect((await pending).ok).toBe(true);
+    expect(findClip(store.project, img.id).clip.adjust).toMatchObject({ exposure: 35, contrast: 0 });
+    store.undo();
+    expect(findClip(store.project, img.id).clip.adjust).toMatchObject({ exposure: 35, contrast: 15 });
+  });
+
   it('makes and edits pictures, and speaks a voiceover', async () => {
     const { store, ctx, main } = setup(clip('image', 0, 3));
     const { runner, services } = runnerFor(ctx);

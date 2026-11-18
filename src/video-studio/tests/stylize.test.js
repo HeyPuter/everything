@@ -163,6 +163,8 @@ describe('style tab', () => {
 
   it('restyles the picture and replaces it in one undoable step', async () => {
     const { insp, ctx, live, store } = env();
+    live().adjust.exposure = 20;
+    ctx.restyleServices.picture.mockResolvedValue({ blob: new Blob(['p']), width: 640, height: 360, baked: { settings: { adjust: { ...live().adjust } }, keyframes: {} } });
     const go = button(insp.el, 'Restyle');
     expect(go.disabled).toBe(true);
     [...insp.el.querySelectorAll('.restyle-chip')].find((b) => b.textContent === 'Graphite').click();
@@ -174,8 +176,10 @@ describe('style tab', () => {
     button(insp.el, 'Replace picture').click();
     await vi.waitFor(() => expect(live().assetId).not.toBe(before));
     expect(store.project.assets[live().assetId].name).toMatch(/Graphite/);
+    expect(live().adjust.exposure).toBe(0);
     store.undo();
     expect(live().assetId).toBe(before);
+    expect(live().adjust.exposure).toBe(20);
     insp.dispose();
   });
 

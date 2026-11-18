@@ -539,7 +539,7 @@ export function createAiToolRunner(ctx, services = {}) {
       const inPlace = got.clip?.type === 'image' && a.replace !== false;
       const sourceClip = got.clip;
       const { entry, value } = oneStep('Edit picture', asset, () => {
-        if (inPlace && replacePicture(ctx, sourceClip.id, asset)) {
+        if (inPlace && replacePicture(ctx, sourceClip.id, asset, got.picture.baked)) {
           const clip = T.findClip(store.project, sourceClip.id)?.clip;
           return { clip, words: `in place of the picture of clip ${sourceClip.id}` };
         }
