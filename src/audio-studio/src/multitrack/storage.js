@@ -25,6 +25,8 @@ const savedMediaOf = (session) => {
   return savedMedia.get(session);
 };
 
+const cloudSaves = new WeakMap();
+
 function mediaBlob(session, m) {
   return encodeWav({ sampleRate: session.sampleRate, channels: m.channels, bitDepth: 32, float: true });
 }
@@ -33,7 +35,19 @@ function mediaBlob(session, m) {
  * Saves a session: to its Puter path, or after asking where (Save As / first
  * save). Without Puter it downloads a ZIP. Returns true when saved.
  */
-export async function saveSession(app, doc, { saveAs = false, copy = false } = {}) {
+export function saveSession(app, doc, options = {}) {
+  if (!puter.sdk() || !puter.isSignedIn()) return saveSessionNow(app, doc, options);
+  // Media names and their cache are shared by a session's cloud saves. Finish
+  // one write sequence before the next can replace its media or manifest.
+  const previous = cloudSaves.get(doc) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(() => saveSessionNow(app, doc, options));
+  cloudSaves.set(doc, pending);
+  return pending.finally(() => {
+    if (cloudSaves.get(doc) === pending) cloudSaves.delete(doc);
+  });
+}
+
+async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
   // Stretched and remixed clips save their finished audio, not the preview.
   if (doc.stretcher?.busy) await doc.stretcher.whenIdle();
   if (doc.remixer?.busy) await doc.remixer.whenIdle();
