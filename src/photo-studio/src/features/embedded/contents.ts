@@ -6,7 +6,7 @@ import type { Editor } from '../../editor';
 import { containerOf, insertLayerAt, layer, newDocument, type Layer, type PhotoDocument, type Transform } from '../../model/document';
 import { Assets } from '../../model/assets';
 import { deserialize, serialize } from '../../model/serialization';
-import { instancesOf, projectMimeType, sourceMimeType, type EmbeddedContents, type StackMode } from '../../model/embedded';
+import { instancesOf, maxContentsName, projectMimeType, sourceMimeType, type EmbeddedContents, type StackMode } from '../../model/embedded';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { readRgbProfile } from '../../color/profile';
@@ -55,7 +55,8 @@ export async function contentsFromDocument(e: Editor, parent: PhotoDocument, int
   const stored = await storeComposite(parent, into, doc, samples);
   return {
     id: o.id ?? crypto.randomUUID(),
-    name: o.name,
+    // Named after a layer, whose name can be longer than contents keep.
+    name: o.name.slice(0, maxContentsName),
     width: doc.width,
     height: doc.height,
     project: projectId,
@@ -127,7 +128,7 @@ export function plainContents(l: Layer, assets: Assets): EmbeddedContents {
   const isFile = !assets.raster(l.asset!) && l.assetColorSpace === 'srgb';
   return {
     id: crypto.randomUUID(),
-    name: l.name,
+    name: l.name.slice(0, maxContentsName),
     width: Math.round(l.sourceWidth),
     height: Math.round(l.sourceHeight),
     composite: l.asset!,
