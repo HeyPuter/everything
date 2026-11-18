@@ -55,6 +55,14 @@ function pickFiles(accept) {
   });
 }
 
+const PROJECT_FILE = /\.(circuits|json)$/i;
+const KICAD_FILE = /\.kicad_(sch|pcb|pro)$/i;
+const OPENS = 'a Circuits project (.circuits) or KiCad files (.kicad_sch, .kicad_pcb, .kicad_pro)';
+const isDriveFolder = (it) => !!(it.is_dir || it.isDir || it.isDirectory || it.fsentry_is_dir);
+const baseName = (path) => path.replace(/\/+$/, '').split('/').pop() || path;
+/** A dialog is waiting for an answer: drops are not taken behind it. */
+const dialogOpen = () => !!document.querySelector('[role="dialog"][aria-modal="true"]');
+
 /** A project file error in words: JSON syntax errors mean a damaged or foreign file. */
 const fileError = (err) =>
   err instanceof SyntaxError ? 'This file is not a Circuits project, or it is damaged.' : err?.message || String(err);
@@ -122,13 +130,15 @@ export class App extends Emitter {
     if (!sdk) P.onPuterArrived((late) => this._sdkArrived(late));
 
     let opened = false;
+    // Started from the Puter desktop with files: those open instead of the last project or the start page.
+    const launched = !!sdk?.ui?.wasLaunchedWithItems?.();
     const last = (() => { try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch { return null; } })();
     // The menus work while a slow puter.js is awaited above: a project opened
     // or created meanwhile stays.
-    if (last && !this.project && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
+    if (!launched && last && !this.project && this.settings.get('openOnStart') === 'last' && (last.type === 'local' || P.cloudAvailable())) {
       opened = await this.openLocation(last, { quiet: true });
     }
-    if (!opened && !this.project) this.showStart();
+    if (!launched && !opened && !this.project) this.showStart();
     this.showAlphaNotice();
   }
 
@@ -145,14 +155,16 @@ export class App extends Emitter {
     if (sdk && (this.env === 'app' || P.isSignedIn())) await this._loadUser();
     this.renderAccount();
     this.userLibrary.load();
-    // Launched from the Puter desktop with a file.
+    // Double click or "Open with" on the Puter desktop, in a desktop window or a browser tab it opened.
+    // (Drops from desktop folder windows arrive as drop events, see _bindDrop.)
     if (sdk?.ui?.onLaunchedWithItems) {
       try {
         sdk.ui.onLaunchedWithItems(async (items) => {
-          const item = items?.find((i) => /\.(circuits|json)$/i.test(i.name));
-          if (item) await this.openLocation({ type: 'cloud', path: item.path });
+          const opened = await this.openDriveItems(items);
+          // Nothing could be opened, and the start page was left out for it.
+          if (!opened && !this.project && !this.start) this.showStart();
         });
-      } catch { /* not launched with items */ }
+      } catch { /* an SDK without launch items */ }
     }
   }
 
@@ -197,6 +209,132 @@ export class App extends Emitter {
       this.closeDrawers({ restoreFocus: true });
     });
     window.addEventListener('resize', () => this._clampDocks());
+    this._bindDrop();
+  }
+
+  /**
+   * Files dropped on the app open as File > Open a file does. Files dragged in
+   * from a Puter folder window arrive as a drop event the SDK dispatches, with
+   * the drive entries in its detail and no dataTransfer.
+   */
+  _bindDrop() {
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dialogOpen() ? 'none' : 'copy';
+    });
+    window.addEventListener('drop', (e) => {
+      const items = e.detail?.items;
+      if (!e.dataTransfer && Array.isArray(items)) {
+        e.preventDefault();
+        if (!dialogOpen()) this.openDriveItems(items);
+        return;
+      }
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      // Not behind a dialog that is waiting for an answer.
+      if (!dialogOpen()) this.openDeviceFiles([...e.dataTransfer.files]);
+    });
+  }
+
+  /**
+   * The files Circuits opens, after saying which ones it leaves out: KiCad
+   * files are imported together; otherwise the first project opens (one is
+   * open at a time).
+   */
+  _sortOpenable(named) {
+    const other = named.filter((f) => !PROJECT_FILE.test(f.name) && !KICAD_FILE.test(f.name));
+    const kicad = named.filter((f) => KICAD_FILE.test(f.name));
+    const projects = named.filter((f) => PROJECT_FILE.test(f.name));
+    if (other.length) {
+      const what = other.length === 1 ? `${other[0].name} is not a file Circuits opens.` : `${other.length} of these files are not files Circuits opens.`;
+      toast(`${what} Choose ${OPENS}.`, { kind: kicad.length || projects.length ? 'warning' : 'error' });
+    }
+    if (kicad.length) {
+      if (projects.length) toast(`KiCad files are imported as a new project, so ${projects.map((f) => f.name).join(', ')} ${projects.length === 1 ? 'is' : 'are'} not opened.`, { timeout: 8000 });
+      return { kicad };
+    }
+    if (projects.length > 1) toast(`Circuits opens one project at a time, so only ${projects[0].name} is opened.`, { timeout: 8000 });
+    return { project: projects[0] || null };
+  }
+
+  /**
+   * Opens entries of the Puter drive: launch items (double click or Open with
+   * on the desktop) and files dragged in from a desktop folder window. A
+   * project opens where it lives, so saving writes back to the same file.
+   * Folders and files Circuits does not open are not read. True when
+   * something opened.
+   */
+  async openDriveItems(given) {
+    const all = (Array.isArray(given) ? given : [given]).filter((it) => it && typeof it === 'object');
+    const files = all.filter((it) => typeof it.path === 'string' && it.path && !isDriveFolder(it));
+    if (!files.length) {
+      if (all.some(isDriveFolder)) toast('Folders cannot be opened. Open a project inside the folder instead.');
+      return false;
+    }
+    const { kicad, project } = this._sortOpenable(files.map((it) => ({ it, name: it.name || baseName(it.path) })));
+    const opening = (this._openingDrive ??= new Set());
+    // Launch items can read themselves; dropped entries are plain records.
+    const read = (it) => (typeof it.read === 'function' ? it.read() : P.puter().fs.read(it.path));
+    if (kicad) {
+      const key = kicad.map((f) => f.it.path).sort().join('\n');
+      if (opening.has(key)) return false;
+      opening.add(key);
+      try {
+        const blobs = await Promise.all(kicad.map(async (f) => new File([await read(f.it)], f.name)));
+        return await this.importKicad(blobs);
+      } catch (err) {
+        toast(`Could not open the files: ${P.isMissing(err) ? 'a file no longer exists.' : err?.message || String(err)}`, { kind: 'error' });
+        return false;
+      } finally {
+        opening.delete(key);
+      }
+    }
+    if (!project) return false;
+    const location = { type: 'cloud', path: project.it.path };
+    if (this.project && storage.sameLocation(location, this.location)) {
+      toast(`${this.project.name} is already open.`);
+      return true;
+    }
+    // A launch and a drop of the same file open it once.
+    if (opening.has(location.path)) return false;
+    opening.add(location.path);
+    try {
+      return await this.openLocation(location);
+    } finally {
+      opening.delete(location.path);
+    }
+  }
+
+  /** Files from this device (dropped, or chosen with Open a file). */
+  async openDeviceFiles(fileList) {
+    const { kicad, project } = this._sortOpenable(fileList.map((it) => ({ it, name: it.name })));
+    if (kicad) return this.importKicad(kicad.map((f) => f.it));
+    if (!project) return false;
+    const file = project.it;
+    const f = { text: await file.text(), name: file.name.replace(PROJECT_FILE, '') };
+    let parsed;
+    try {
+      parsed = parseProject(f.text);
+    } catch (err) {
+      toast(fileError(err), { kind: 'error', title: 'Could not open the file' });
+      return false;
+    }
+    if (!(await this._confirmLeave())) return false;
+    try {
+      // Imported projects get a fresh identity and a new storage location, so
+      // opening a downloaded copy never overwrites the project it came from.
+      parsed.id = uid('p');
+      const location = await storage.newLocation(parsed.name, parsed.id).catch(() => null);
+      this.setProject(parsed, location);
+      if (location) await this.save({ quiet: true });
+      toast(`Opened ${f.name}.`, { kind: 'success' });
+      return true;
+    } catch (err) {
+      toast(err.message, { kind: 'error', title: 'Could not open the file' });
+      return false;
+    }
   }
 
   showAlphaNotice() {
@@ -729,33 +867,14 @@ export class App extends Emitter {
 
   async importFromDevice() {
     const files = await pickFiles('.circuits,.json,.kicad_sch,.kicad_pcb,.kicad_pro');
-    if (!files.length) return;
-    if (files.some((f) => /\.kicad_(sch|pcb|pro)$/i.test(f.name))) { await this.importKicad(files); return; }
-    const f = { text: await files[0].text(), name: files[0].name.replace(/\.(circuits|json)$/i, '') };
-    let project;
-    try {
-      project = parseProject(f.text);
-    } catch (err) {
-      toast(fileError(err), { kind: 'error', title: 'Could not open the file' });
-      return;
-    }
-    if (!(await this._confirmLeave())) return;
-    try {
-      // Imported projects get a fresh identity and a new storage location, so
-      // opening a downloaded copy never overwrites the project it came from.
-      project.id = uid('p');
-      const location = await storage.newLocation(project.name, project.id).catch(() => null);
-      this.setProject(project, location);
-      if (location) await this.save({ quiet: true });
-      toast(`Opened ${f.name}.`, { kind: 'success' });
-    } catch (err) { toast(err.message, { kind: 'error', title: 'Could not open the file' }); }
+    if (files.length) await this.openDeviceFiles(files);
   }
 
   /** Imports KiCad schematics and boards as a new project. */
   async importKicad(fileList) {
     const files = fileList || await pickFiles('.kicad_sch,.kicad_pcb,.kicad_pro');
-    if (!files.length) return;
-    if (!(await this._confirmLeave())) return;
+    if (!files.length) return false;
+    if (!(await this._confirmLeave())) return false;
     const t = toast('Importing...', { timeout: 0 });
     try {
       const { importKicad } = await import('../io/kicad/index.js');
@@ -770,8 +889,10 @@ export class App extends Emitter {
         this.setBottomDock(true);
       }
       toast(`Imported ${files.length} file${files.length === 1 ? '' : 's'}${warnings.length ? ` with ${warnings.length} note${warnings.length === 1 ? '' : 's'} (see Messages)` : ''}. Run Compile and a design rule check to review the result.`, { kind: 'success', title: 'Import finished', timeout: 8000 });
+      return true;
     } catch (err) {
       toast(err.message || String(err), { kind: 'error', title: 'Import failed' });
+      return false;
     } finally { t.close(); }
   }
 

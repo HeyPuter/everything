@@ -45,7 +45,7 @@ The WebAssembly kernel is committed prebuilt at `src/kernel/kernel.wasm`, so bui
 
 ## Storage
 
-Signed-in users' projects are `.circuits` files (JSON) in the app's folder of their Puter storage, and can be opened from or saved anywhere in it. Signed out, projects stay in the browser's private file storage. Preferences are a single small key-value entry. Projects can always be downloaded and opened from the device.
+Signed-in users' projects are `.circuits` files (JSON) in the app's folder of their Puter storage, and can be opened from or saved anywhere in it. Signed out, projects stay in the browser's private file storage. Preferences are a single small key-value entry. Projects can always be downloaded and opened from the device. On the Puter desktop, double-click a `.circuits` or KiCad file (or use Open with) to open it in Circuits, or drag files onto the app from a Puter folder window or your computer.
 
 ## License
 
