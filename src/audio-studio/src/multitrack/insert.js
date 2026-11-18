@@ -152,30 +152,54 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   // Several files go one per track, or end to end on one track (Preferences > Multitrack Clips).
   const sameTrack = placementOptions.sameTrack && docs.length > 1;
   const parts = [];
-  let t = at;
   for (const [i, doc] of docs.entries()) {
+    const ratio = rate / doc.sampleRate;
+    const requested = range && i === 0 ? {
+      offset: Math.max(0, Math.round(range[0] * ratio)),
+      length: Math.max(1, Math.round((range[1] - range[0]) * ratio)),
+    } : null;
     const sourceId = await linkSource(session, doc);
     if (!canInsert()) return [];
-    const srcLen = session.sourceLength(sourceId);
-    let offset = 0;
-    let length = srcLen;
-    if (range && i === 0) {
-      const ratio = session.sampleRate / doc.sampleRate;
-      offset = Math.round(range[0] * ratio);
-      length = Math.max(1, Math.min(srcLen - offset, Math.round((range[1] - range[0]) * ratio)));
-    }
-    parts.push({ doc, sourceId, offset, length, start: sameTrack ? t : at, trackOffset: sameTrack ? 0 : i });
-    t += length;
+    parts.push({ doc, sourceId, requested });
   }
+  // Earlier sources can change while later ones convert. Refresh linked
+  // audio before deriving any bounds, including after a hook's dialog.
+  const ready = (p) => {
+    const src = session.pool.get(p.sourceId);
+    return src?.stateRef === p.doc.state && src.channelRate === rate;
+  };
+  const refreshSources = async () => {
+    for (const p of parts) {
+      if (ready(p)) continue;
+      p.sourceId = await linkSource(session, p.doc);
+      if (!canInsert()) return false;
+    }
+    return true;
+  };
+  while (!parts.every(ready)) if (!(await refreshSources())) return [];
+  let activeParts;
   const place = (base) => {
     let state = base;
+    let end = at;
+    activeParts = [];
+    for (const p of parts) {
+      p.prepared = session.pool.get(p.sourceId);
+      const length = session.sourceLength(p.sourceId);
+      if (!length) continue;
+      p.offset = p.requested ? Math.min(p.requested.offset, length - 1) : 0;
+      p.length = p.requested ? Math.min(p.requested.length, length - p.offset) : length;
+      p.start = sameTrack ? end : at;
+      p.trackOffset = sameTrack ? 0 : activeParts.length;
+      end += p.length;
+      activeParts.push(p);
+    }
     // Re-resolve the original target after preparation; it may have been
     // hidden, moved or deleted. Never restore tracks from an older snapshot.
     const audio = () => shownAudioTracks(state);
     let index = target === null ? -1 : audio().findIndex((t) => t.id === target);
     ids.length = 0;
-    if (placementOptions.avoidOverlap && index >= 0) index += freeTrackShift(state, index, parts.map((p) => ({ trackOffset: p.trackOffset, start: p.start, end: p.start + p.length })));
-    for (const p of parts) {
+    if (placementOptions.avoidOverlap && index >= 0) index += freeTrackShift(state, index, activeParts.map((p) => ({ trackOffset: p.trackOffset, start: p.start, end: p.start + p.length })));
+    for (const p of activeParts) {
       let track = index >= 0 ? audio()[index + p.trackOffset] : null;
       if (!track) {
         const last = state.tracks.filter((x) => x.type === 'audio').pop();
@@ -191,23 +215,27 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
     }
     return state;
   };
-  const base = session.state;
+  let base = session.state;
   let state = place(base);
+  if (!ids.length) return [];
   const edits = [];
   for (const hook of INSERT_HOOKS) {
-    const edit = await hook(app, session, state, parts.map((p) => ({ doc: p.doc, clip: p.clip })));
+    const edit = await hook(app, session, state, activeParts.map((p) => ({ doc: p.doc, clip: p.clip })));
     if (!canInsert()) return [];
+    while (!parts.every(ready)) if (!(await refreshSources())) return [];
+    // Rebuild placement for source edits as well as timeline edits. Keep
+    // clip ids stable so hook edits can locate their current audio bounds.
+    if (session.state !== base || parts.some((p) => p.prepared !== session.pool.get(p.sourceId))) {
+      base = session.state;
+      state = place(base);
+      for (const prior of edits) state = prior(state);
+    }
     if (edit) {
       edits.push(edit);
       state = edit(state);
     }
   }
-  // Hooks may open a dialog. Reapply this insertion to any edits committed
-  // during that wait, preserving one undo step for its audio and video.
-  if (session.state !== base) {
-    state = place(session.state);
-    for (const edit of edits) state = edit(state);
-  }
+  if (!canInsert() || !ids.length) return [];
   session.apply(docs.length > 1 ? 'Insert Files' : 'Insert File', state, { clips: ids });
   const first = S.findClip(session.state, ids[0]);
   if (first) session.selectTrack(first.trackId);

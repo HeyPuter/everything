@@ -67,15 +67,19 @@ export async function insertVideoHook(app, session, state, inserted) {
     });
     if (!ok) return null;
   }
-  if (!app.documents.includes(session) || session.sampleRate !== state.sampleRate) return null;
+  if (!app.documents.includes(session) || session.sampleRate !== state.sampleRate || !hit.doc.length) return null;
   const sourceId = linkVideo(session, info);
-  const c = hit.clip;
-  // A whole file shows the whole picture; a range of it shows the same range.
+  const audioId = hit.clip.id;
   const full = videoSourceFrames(videoPool(session).get(sourceId), session.sampleRate);
-  const length = c.offset === 0 && Number.isFinite(full) && Math.abs(full - c.length) < session.sampleRate ? full : c.length;
   announce(`Video ${baseName(info.name)} added to the video track`);
-  const clip = createVideoClip({ sourceId, name: baseName(info.name), start: c.start, offset: c.offset, length });
-  return (latest) => setVideoClip(latest, clip);
+  return (latest) => {
+    // Source edits during the dialog can resize earlier sequential clips.
+    // Follow the rebuilt audio placement instead of its pre-dialog bounds.
+    const c = latest.clips.find((clip) => clip.id === audioId);
+    if (!c) return latest;
+    const length = c.offset === 0 && Number.isFinite(full) && Math.abs(full - c.length) < session.sampleRate ? full : c.length;
+    return setVideoClip(latest, createVideoClip({ sourceId, name: baseName(info.name), start: c.start, offset: c.offset, length }));
+  };
 }
 
 const urls = new WeakMap();
