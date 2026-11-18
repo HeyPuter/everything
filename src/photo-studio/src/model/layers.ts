@@ -107,6 +107,9 @@ export function groupLayers(doc: PhotoDocument, ids: ReadonlySet<string>): strin
   const topIndex = list.indexOf(roots.at(-1)!);
   const insertion = list.slice(0, topIndex).filter((l) => !roots.includes(l)).length;
   const group = layer('group', 'Group', doc.width, doc.height);
+  // Pass Through, as for New Group: grouping keeps how the layers blend with
+  // the layers below the group (a Normal group would composite them alone).
+  group.blend = 'pass through';
   group.children = roots;
   // Layers clipped to a base outside the selection: the group takes their
   // place in the clipping group, so they still show only inside the base.
