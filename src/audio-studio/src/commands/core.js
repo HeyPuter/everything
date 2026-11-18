@@ -159,6 +159,11 @@ function aboutDialog() {
 
 export function installCoreCommands(app) {
   const C = app.commands;
+  const appendDestinationOpen = (doc) => {
+    if (app.documents.includes(doc)) return true;
+    app.notify('Append stopped because the destination file was closed. Imported files remain open.', { error: true });
+    return false;
+  };
   const markersOf = (args) => {
     const doc = audio(app);
     // The Markers panel's selection; without that panel (it is created when first shown),
@@ -193,7 +198,9 @@ export function installCoreCommands(app) {
         for (const f of files) {
           const [opened] = await openFiles(app, [f], { activate: false });
           if (!opened) continue;
+          if (!appendDestinationOpen(doc)) return false;
           const clip = await conformRate({ sampleRate: opened.sampleRate, channels: opened.state.channels }, doc);
+          if (!appendDestinationOpen(doc)) return false;
           // The source is visible while preparation runs; keep any new edits
           // or capture that has not reached its first waveform update yet.
           if (!opened.dirty && app.recorder?.document !== opened) app.closeDocument(opened);
@@ -209,8 +216,10 @@ export function installCoreCommands(app) {
         const docs = await openFiles(app, files, { activate: false });
         if (!docs.length) return;
         const first = docs[0];
+        if (!appendDestinationOpen(first)) return false;
         for (const d of docs.slice(1)) {
           const clip = await conformRate({ sampleRate: d.sampleRate, channels: d.state.channels }, first);
+          if (!appendDestinationOpen(first)) return false;
           first.apply('Append', E.insertClip(first.state, first.length, clip));
           if (!d.dirty && app.recorder?.document !== d) app.closeDocument(d);
         }
