@@ -3,9 +3,9 @@
 // frame has an fcTL control chunk, the first frame's pixels are the IDAT
 // default image and later frames are fdAT chunks (a sequence number followed
 // by zlib data, exactly like IDAT).
-import { deflate } from 'pako';
+import { deflate, inflate } from 'pako';
 import { inflateLimited } from './inflate';
-import { checkCancelled, type Progress, type RGBA8 } from '../types';
+import { checkCancelled, rgba8, type Progress, type RGBA8 } from '../types';
 import { CodecError, frameBudgetBytes, rethrowAsCodecError } from './bytes';
 import { buildPng, readPngChunks, type NewChunk } from './png-chunks';
 
@@ -26,42 +26,116 @@ const u16 = (v: number) => [(v >>> 8) & 255, v & 255];
 
 export function encodeApng(frames: ApngEncodeFrame[], opts: ApngEncodeOptions = {}): Uint8Array {
   if (!frames.length) throw new CodecError('No frames to encode.');
-  const { width, height } = frames[0].rgba;
-  if (!width || !height) throw new CodecError('APNG frames need a size.');
-  for (const f of frames) if (f.rgba.width !== width || f.rgba.height !== height) throw new CodecError('All APNG frames must have the same size.');
-  // Opaque animations are stored as RGB, saving a quarter of the samples.
-  const opaque = frames.every((f) => {
-    const d = f.rgba.data;
-    for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return false;
-    return true;
-  });
-  const channels = opaque ? 3 : 4;
-  const level = Math.max(0, Math.min(9, opts.level ?? 6)) as 0;
-  const ihdr = new Uint8Array([...u32(width), ...u32(height), 8, opaque ? 2 : 6, 0, 0, 0]);
-  const chunks: NewChunk[] = [{ type: 'IHDR', data: ihdr }, { type: 'acTL', data: new Uint8Array([...u32(frames.length), ...u32(Math.max(0, Math.min(0x7fffffff, opts.plays ?? 0)))]) }];
-  let seq = 0;
+  const writer = new ApngWriter(opts);
   for (let i = 0; i < frames.length; i++) {
     if (opts.progress) {
       checkCancelled(opts.progress);
       opts.progress.report?.(i / frames.length);
     }
-    const cur = frames[i].rgba;
-    const rect = i && opts.optimize !== false ? changedRect(frames[i - 1].rgba, cur) : { x: 0, y: 0, width, height };
-    const [num, den] = apngDelay(frames[i].delayMs);
-    // Frames replace their rectangle (blend SOURCE) and stay for the next one
-    // (dispose NONE), so a rectangle covering every change is exact.
-    chunks.push({ type: 'fcTL', data: new Uint8Array([...u32(seq++), ...u32(rect.width), ...u32(rect.height), ...u32(rect.x), ...u32(rect.y), ...u16(num), ...u16(den), 0, 0]) });
-    const z = deflate(filterRows(cur, rect, channels), { level });
-    if (i === 0) chunks.push({ type: 'IDAT', data: z });
-    else {
-      const data = new Uint8Array(4 + z.length);
-      data.set(u32(seq++));
-      data.set(z, 4);
-      chunks.push({ type: 'fdAT', data });
-    }
+    writer.add(frames[i]);
   }
-  chunks.push({ type: 'IEND', data: new Uint8Array() });
-  return buildPng(chunks);
+  return writer.finish();
+}
+
+/** An APNG encoded one frame at a time, so a long animation never needs all
+ * its frames in memory: only the previous frame and the compressed data are
+ * kept. The file is the same as `encodeApng` writes. */
+export class ApngWriter {
+  private width = 0;
+  private height = 0;
+  private previous?: RGBA8;
+  // Opaque animations are stored as RGB, saving a quarter of the samples.
+  private opaque = true;
+  private frames: { rect: Rect; delayMs: number; z: Uint8Array }[] = [];
+  private level: 0;
+  constructor(private opts: Omit<ApngEncodeOptions, 'progress'> = {}) {
+    this.level = Math.max(0, Math.min(9, opts.level ?? 6)) as 0;
+  }
+  add({ rgba: cur, delayMs }: ApngEncodeFrame) {
+    if (!this.previous) {
+      if (!cur.width || !cur.height) throw new CodecError('APNG frames need a size.');
+      this.width = cur.width;
+      this.height = cur.height;
+    } else if (cur.width !== this.width || cur.height !== this.height)
+      throw new CodecError('All APNG frames must have the same size.');
+    if (this.opaque && !isOpaque(cur)) {
+      // Frames stored as RGB so far are stored again with alpha.
+      this.opaque = false;
+      for (const f of this.frames) {
+        const stride = f.rect.width * 3;
+        const raw = inflate(f.z);
+        unfilter(raw, stride, f.rect.height, 3);
+        const img = rgba8(f.rect.width, f.rect.height);
+        for (let y = 0, q = 0; y < f.rect.height; y++)
+          for (let x = 0, o = y * (stride + 1) + 1; x < f.rect.width; x++, o += 3, q += 4) {
+            img.data[q] = raw[o];
+            img.data[q + 1] = raw[o + 1];
+            img.data[q + 2] = raw[o + 2];
+            img.data[q + 3] = 255;
+          }
+        f.z = deflate(filterRows(img, { x: 0, y: 0, width: img.width, height: img.height }, 4), {
+          level: this.level,
+        });
+      }
+    }
+    const full = { x: 0, y: 0, width: this.width, height: this.height };
+    const rect =
+      this.previous && this.opts.optimize !== false ? changedRect(this.previous, cur) : full;
+    const z = deflate(filterRows(cur, rect, this.opaque ? 3 : 4), { level: this.level });
+    this.frames.push({ rect, delayMs, z });
+    this.previous = cur;
+  }
+  finish(): Uint8Array {
+    if (!this.frames.length) throw new CodecError('No frames to encode.');
+    const ihdr = new Uint8Array([
+      ...u32(this.width),
+      ...u32(this.height),
+      8,
+      this.opaque ? 2 : 6,
+      0,
+      0,
+      0,
+    ]);
+    const plays = Math.max(0, Math.min(0x7fffffff, this.opts.plays ?? 0));
+    const chunks: NewChunk[] = [
+      { type: 'IHDR', data: ihdr },
+      { type: 'acTL', data: new Uint8Array([...u32(this.frames.length), ...u32(plays)]) },
+    ];
+    let seq = 0;
+    for (const [i, { rect, delayMs, z }] of this.frames.entries()) {
+      const [num, den] = apngDelay(delayMs);
+      // Frames replace their rectangle (blend SOURCE) and stay for the next one
+      // (dispose NONE), so a rectangle covering every change is exact.
+      chunks.push({
+        type: 'fcTL',
+        data: new Uint8Array([
+          ...u32(seq++),
+          ...u32(rect.width),
+          ...u32(rect.height),
+          ...u32(rect.x),
+          ...u32(rect.y),
+          ...u16(num),
+          ...u16(den),
+          0,
+          0,
+        ]),
+      });
+      if (i === 0) chunks.push({ type: 'IDAT', data: z });
+      else {
+        const data = new Uint8Array(4 + z.length);
+        data.set(u32(seq++));
+        data.set(z, 4);
+        chunks.push({ type: 'fdAT', data });
+      }
+    }
+    chunks.push({ type: 'IEND', data: new Uint8Array() });
+    return buildPng(chunks);
+  }
+}
+function isOpaque(img: RGBA8) {
+  const d = img.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] !== 255) return false;
+  return true;
 }
 
 /** Delay as a fraction: milliseconds when they fit 16 bits, else hundredths. */
@@ -70,10 +144,15 @@ function apngDelay(ms: number): [number, number] {
   return v <= 0xffff ? [v, 1000] : [Math.min(0xffff, Math.round(v / 10)), 100];
 }
 
+// Pixels as 32-bit words, without a copy when the bytes are aligned.
+const words = (d: RGBA8['data']) =>
+  d.byteOffset % 4
+    ? new Uint32Array(d.slice().buffer)
+    : new Uint32Array(d.buffer, d.byteOffset, d.length >> 2);
 function changedRect(a: RGBA8, b: RGBA8): Rect {
   const { width, height } = b;
-  const ua = new Uint32Array(a.data.slice().buffer),
-    ub = new Uint32Array(b.data.slice().buffer);
+  const ua = words(a.data),
+    ub = words(b.data);
   let x0 = width,
     y0 = height,
     x1 = -1,

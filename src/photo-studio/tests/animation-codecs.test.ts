@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeApng, encodeApng, isApng } from '../src/imaging/codecs/apng';
+import { ApngWriter, decodeApng, encodeApng, isApng } from '../src/imaging/codecs/apng';
 import { decodeGif, encodeGif } from '../src/imaging/codecs/gif';
 import { readPngChunks, verifyPngCrcs } from '../src/imaging/codecs/png-chunks';
 import { muxAnimatedWebp, readAnimatedWebp, stillBitstream } from '../src/imaging/codecs/webp-anim';
@@ -56,6 +56,29 @@ describe('APNG', () => {
     expect(d.plays).toBe(0);
     expect(d.frames[0].delayMs).toBe(70_000);
     d.frames.forEach((f, i) => expect(Array.from(f.rgba.data)).toEqual(Array.from(clear[i].data)));
+  });
+  it('encodes one frame at a time, switching to alpha when a later frame is transparent', () => {
+    // Exports add frames as they render; frames stored as RGB before the
+    // first transparent one are stored again with alpha, exactly as if the
+    // whole animation had been seen first.
+    const late = [...frames, frame(32, 24, 5, 5, [10, 200, 10, 90])];
+    const writer = new ApngWriter({ plays: 1 });
+    for (const rgba of late) writer.add({ rgba, delayMs: 40 });
+    const bytes = writer.finish();
+    expect(verifyPngCrcs(bytes)).toBe(true);
+    expect(readPngChunks(bytes)[0].data[9]).toBe(6);
+    const d = decodeApng(bytes);
+    expect(d.frames).toHaveLength(4);
+    d.frames.forEach((f, i) => expect(Array.from(f.rgba.data)).toEqual(Array.from(late[i].data)));
+    expect(d.frames[1].rect).toEqual({ x: 2, y: 2, width: 16, height: 12 });
+    // Opaque frames alone stay RGB, and the writer matches encodeApng.
+    const opaque = new ApngWriter({ plays: 2 });
+    frames.forEach((rgba, i) => opaque.add({ rgba, delayMs: (i + 1) * 100 }));
+    const whole = encodeApng(
+      frames.map((rgba, i) => ({ rgba, delayMs: (i + 1) * 100 })),
+      { plays: 2 },
+    );
+    expect(Array.from(opaque.finish())).toEqual(Array.from(whole));
   });
   it('is not mistaken for a still PNG and rejects bad input', () => {
     expect(isApng(new Uint8Array([1, 2, 3]))).toBe(false);
