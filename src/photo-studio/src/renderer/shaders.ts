@@ -112,6 +112,9 @@ void main(){
  vec4 s=associated?sampleColorAt(imageTex,texel):(highPrecision||painting)?sampleAt(imageTex,texel):source(p);if(u[7].y==1.)s.a=s.r;
  if(u[3].w>0.){vec2 r=u[3].w/u[6].xy; s=vec4(0);for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++){vec4 tap=associated?sampleColorAt(imageTex,texel+vec2(x,y)*u[3].w):highPrecision?sampleAt(imageTex,texel+vec2(x,y)*u[3].w):source(p+vec2(x,y)*r);if(u[7].y==1.)tap.a=tap.r;s+=vec4(tap.rgb*tap.a,tap.a)/9.;}s.rgb/=highPrecision?(s.a>0.?s.a:1.):max(s.a,.000001);}
  if(u[7].y==1.)s.rgb=vec3(u[0].zw,u[7].x);
+ // Adjustment results (5) recolor the backdrop at full strength; only opacity,
+ // masks and Blend If weaken them, and the backdrop keeps its alpha.
+ if(u[7].y==5.)s.a=1.;
  if(!highPrecision){s.rgb+=u[3].x;s.rgb=(s.rgb-.5)*(1.+u[3].y)+.5;s.rgb=mix(vec3(dot(s.rgb,vec3(.2126,.7152,.0722))),s.rgb,1.+u[3].z);s.rgb=clamp(s.rgb,0.,1.);}
  else{if(u[3].x!=0.)s.rgb+=u[3].x;if(u[3].y!=0.)s.rgb=(s.rgb-.5)*(1.+u[3].y)+.5;if(u[3].z!=0.)s.rgb=mix(vec3(dot(s.rgb,vec3(.2126,.7152,.0722))),s.rgb,1.+u[3].z);}
  if(highPrecision&&u[5].w>.5)s.rgb=clamp(s.rgb,0.,1.);
@@ -124,12 +127,12 @@ void main(){
  if(u[20].x>.5)s.a*=blendIf(s.rgb,b.rgb);
  int mode=int(u[2].w);if(mode==1){s.a=dissolveNoise(world)<s.a?1.:0.;mode=0;}
  vec3 c=blendMode(mode,b.rgb,s.rgb);
- // Painting modes preserve stored alpha (2) or source-over it (3). An
+ // Painting modes preserve stored alpha (2, and 5 for adjustments) or source-over it (3). An
  // untouched source texel retains its straight RGB even when alpha is zero.
  if(u[7].y>=2.&&s.a==0.){outColor=b;return;}
  // Excluded channels (u[20].yzw) keep the underlying values.
  vec3 keep=step(.5,u[20].yzw);
- if(u[7].y==2.){outColor=(floatBitsToUint(b.a)&0x7fffffffu)==0u?b:vec4(mix(mix(b.rgb,c,s.a),b.rgb,keep),b.a);return;}
+ if(u[7].y==2.||u[7].y==5.){outColor=(floatBitsToUint(b.a)&0x7fffffffu)==0u?b:vec4(mix(mix(b.rgb,c,s.a),b.rgb,keep),b.a);return;}
  float a=s.a+b.a*(1.-s.a);vec3 rgb;
  // Normalize coverage before applying it to RGB: premultiplying a tiny color
  // by tiny alpha can underflow even though its straight output is representable.
@@ -232,6 +235,7 @@ fn blendIf(s:vec3f,b:vec3f)->f32{
  if(any(p<vec2f(0))||any(p>vec2f(1))){return b;}
  var s=source(p);if(associated){s=sampleColorAt(imageTex,texel);}else if(highPrecision||painting){s=sampleAt(imageTex,texel);}if(u.v[7].y==1.){s=vec4f(s.rgb,s.r);}if(u.v[3].w>0.){let r=u.v[3].w/u.v[6].xy;s=vec4f(0);for(var x:i32=-1;x<=1;x++){for(var y:i32=-1;y<=1;y++){var tap=source(p+vec2f(f32(x),f32(y))*r);if(associated){tap=sampleColorAt(imageTex,texel+vec2f(f32(x),f32(y))*u.v[3].w);}else if(highPrecision){tap=sampleAt(imageTex,texel+vec2f(f32(x),f32(y))*u.v[3].w);}if(u.v[7].y==1.){tap=vec4f(tap.rgb,tap.r);}s+=vec4f(tap.rgb*tap.a,tap.a)/9.;}}s=vec4f(s.rgb/alphaDivisor(s.a),s.a);}
  if(u.v[7].y==1.){s=vec4f(u.v[0].zw,u.v[7].x,s.a);}
+ if(u.v[7].y==5.){s.a=1.;}
  var rgb=s.rgb;
  if(!highPrecision){rgb+=vec3f(u.v[3].x);rgb=(rgb-.5)*(1.+u.v[3].y)+.5;rgb=mix(vec3f(dot(rgb,vec3f(.2126,.7152,.0722))),rgb,1.+u.v[3].z);rgb=clamp(rgb,vec3f(0),vec3f(1));}
  else{if(u.v[3].x!=0.){rgb+=vec3f(u.v[3].x);}if(u.v[3].y!=0.){rgb=(rgb-.5)*(1.+u.v[3].y)+.5;}if(u.v[3].z!=0.){rgb=mix(vec3f(dot(rgb,vec3f(.2126,.7152,.0722))),rgb,1.+u.v[3].z);}}
@@ -246,7 +250,7 @@ fn blendIf(s:vec3f,b:vec3f)->f32{
  let c=blendMode(mode,b.rgb,s.rgb);
  if(u.v[7].y>=2.&&s.a==0.){return b;}
  let keep=step(vec3f(.5),u.v[20].yzw);
- if(u.v[7].y==2.){if((bitcast<u32>(b.a)&0x7fffffffu)==0u){return b;}return vec4f(mix(mix(b.rgb,c,s.a),b.rgb,keep),b.a);}
+ if(u.v[7].y==2.||u.v[7].y==5.){if((bitcast<u32>(b.a)&0x7fffffffu)==0u){return b;}return vec4f(mix(mix(b.rgb,c,s.a),b.rgb,keep),b.a);}
  let a=s.a+b.a*(1.-s.a);var result:vec3f;
  if(highPrecision){let total=alphaDivisor(a);var front=s.rgb;if(mode!=0){front=s.rgb*(1.-b.a)+c*b.a;}result=(s.a/total)*front+((b.a/total)*(1.-s.a))*b.rgb;}
  else{result=(s.a*(1.-b.a)*s.rgb+s.a*b.a*c+(1.-s.a)*b.a*b.rgb)/alphaDivisor(a);}

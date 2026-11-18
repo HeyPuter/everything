@@ -1248,7 +1248,9 @@ export class Renderer {
         const actual = this.documentLayer(l, doc);
         const u = uniforms(actual, doc.width, doc.height, doc.width, doc.height);
         u[23] = this.boundedRgb ? 1 : 0;
-        if (clipped) u[29] = 2;
+        // The adjusted colors replace the backdrop's (by opacity and masks);
+        // its coverage stays, partly transparent pixels included.
+        u[29] = 5;
         blendingUniforms(l, u);
         const gridMask = this.gridMaskUniforms(l, u, assets);
         pixelMaskUniforms(l, u);
