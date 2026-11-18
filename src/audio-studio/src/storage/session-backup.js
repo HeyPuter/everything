@@ -213,7 +213,7 @@ export function installSessionBackup(app, { store, tab, now = () => Date.now() }
       if (!m.channels?.length) continue;
       const key = mediaKeyFor(doc, m.id, m.channels);
       fresh.add(key);
-      if (!(await store.hasMedia(key))) await store.writeMedia(key, doc.sampleRate, m.channels);
+      if (!(await store.hasMedia(key))) await store.writeMedia(key, m.sampleRate, m.channels);
       entries.push({ file: m.file, key, frames: m.channels[0].length, channels: m.channels.length });
     }
     const at = now();
