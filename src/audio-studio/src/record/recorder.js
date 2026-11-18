@@ -4,6 +4,7 @@
 //
 // app.recorder API:
 //   app.recorder.active                      true while opening, recording, or finalizing
+//   app.recorder.document                    target AudioFile, or null for external capture
 //   await app.recorder.start(opts)           opens the input and starts capturing
 //     opts.doc        AudioFile to record into (Waveform mode); omit for external
 //     opts.at         frame to insert at (default doc.cursor)
@@ -69,12 +70,16 @@ export function createRecorder(app) {
       return session?.take || null;
     },
 
+    get document() {
+      return session?.doc || starting?.doc || null;
+    },
+
     async start(opts = {}) {
       if (starting || session) return;
       const doc = opts.doc || null;
       if (engine.playing && doc && !opts.keepPlaying) app.stop();
       const deviceId = opts.deviceId ?? app.prefs.get('inputDevice');
-      const pending = starting = {};
+      const pending = starting = { doc };
       const offClose = doc?.on('close', () => recorder.stop());
       const offActive = doc && app.on('active', (active) => { if (active !== doc) recorder.stop(); });
       pending.off = () => { offClose?.(); offActive?.(); };
@@ -121,8 +126,10 @@ export function createRecorder(app) {
         recorder.stop();
       };
       track?.addEventListener?.('ended', onEnded);
+      const offSessionActive = doc && app.on('active', (active) => { if (active !== doc) recorder.stop(); });
       s.off = () => {
         offData();
+        offSessionActive?.();
         track?.removeEventListener?.('ended', onEnded);
       };
       engine.setRecording(true);

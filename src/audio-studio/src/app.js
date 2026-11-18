@@ -97,6 +97,9 @@ export class App extends Emitter {
 
   async closeDocument(doc, { force = false } = {}) {
     if (!doc) return true;
+    // Include the final capture block in both the save prompt and the saved
+    // file; closing a not-yet-previewed take must not remove its destination.
+    if (this.recorder?.document === doc) await this.recorder.stop();
     if (!force && doc.dirty) {
       this.activate(doc);
       const answer = await saveChangesDialog(doc.name);
