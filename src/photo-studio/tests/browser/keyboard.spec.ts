@@ -186,3 +186,27 @@ test('on Windows the shortcut editor shows the alternative that can be typed and
   // Last Filter's Mac-only Mod+Ctrl+F cannot be typed here: its other shortcut is shown.
   await expect(d.locator('[data-shortcut="filter.last"]')).toHaveValue('Mod+Alt+F');
 });
+
+test('the Measurement Log names Record Measurements by its own shortcut on each platform', async ({ page }) => {
+  const texts = () =>
+    page.evaluate(async () => {
+      window.photoStudio.dock.show('measurement-log');
+      await new Promise((r) => requestAnimationFrame(r));
+      const body = document.querySelector('[data-panel="measurement-log"]')!;
+      return { title: body.querySelector('[data-command="analysis.record"]')?.getAttribute('title') ?? '', empty: body.querySelector('.log-empty')?.textContent ?? '' };
+    });
+  const mac = await texts();
+  expect(mac.title).toBe('Record Measurements (⇧⌘M)');
+  expect(mac.empty).toContain('(⇧⌘M)');
+  // On Windows, with the shortcut changed in the shortcut editor.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+    localStorage.setItem('photo-studio-shortcuts', JSON.stringify({ 'analysis.record': 'Mod+Alt+R' }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  const win = await texts();
+  expect(win.title).toBe('Record Measurements (Ctrl+Alt+R)');
+  expect(win.empty).toContain('(Ctrl+Alt+R)');
+  expect(win.empty).not.toContain('⌘');
+});
