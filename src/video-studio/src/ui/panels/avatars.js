@@ -212,7 +212,9 @@ export function avatarsTab(ctx) {
         await playing.play().catch(() => stopAudio(playing));
       } else {
         const opts = { ...look, seed: undefined, position, start: task.start, ...(source === 'clip' ? { voiceClipId: clipSel.value } : { script: script.value, voice }) };
-        const clip = await createAvatar(ctx, opts, { signal, onStep: (label) => {
+        const clip = await createAvatar(ctx, opts, { signal, onCancel: () => {
+          if (current(task)) cancelJob('Cancelled because the source audio changed.');
+        }, onStep: (label) => {
           if (current(task)) status.replaceChildren(h('span.spinner'), label);
         } });
         if (!current(task)) return;

@@ -24,6 +24,14 @@ function checkAvatar(signal) {
 }
 const editingContext = (store) => JSON.stringify([store.project.id, store.project.timelineId, ...(store.nest || []).map((f) => f.id)]);
 
+/** Capture the file being analyzed; placement, trimming and labels do not change full-file lip data. */
+function voiceMediaGuard(store, asset) {
+  const id = asset.id;
+  const stamp = a => JSON.stringify([a?.kind, a?.hash, a?.ext, a?.mime, a?.size, a?.duration, a?.hasAudio]);
+  const before = stamp(asset);
+  return () => Boolean(store.project.assets[id]) && stamp(store.project.assets[id]) === before;
+}
+
 /** Lip data for an audio asset: decoded and analyzed on the device. */
 export async function analyzeVoiceAsset(library, asset, { signal } = {}) {
   checkAvatar(signal);
@@ -70,7 +78,7 @@ const avatarName = (character) => `${avatarCharacter(character).label} avatar`;
  * audio clip on the timeline (the avatar starts and ends with it).
  * onStep(label) reports progress. Returns the avatar clip or null.
  */
-export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal } = {}) {
+export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal, onCancel } = {}) {
   checkAvatar(signal);
   const { store } = ctx;
   const services = avatarServices(ctx);
@@ -81,29 +89,39 @@ export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal }
   let voiceClip = voiceId ? T.findClip(store.project, voiceId)?.clip : null;
   let asset = voiceClip && store.project.assets[voiceClip.assetId];
   if (voiceId && !asset) throw new Error('That audio clip is no longer on the timeline.');
-  const source = editingContext(store), sourceAsset = asset?.id, controller = new AbortController();
+  const project = store.project, source = editingContext(store), sourceAsset = asset?.id, controller = new AbortController();
+  let currentMedia = asset ? voiceMediaGuard(store, asset) : () => true;
   let off;
   const abort = () => {
+    if (controller.signal.aborted) return;
     controller.abort();
     off?.();
     off = null;
     signal?.removeEventListener('abort', abort);
+    onCancel?.();
   };
-  off = store.on('change', () => {
+  const valid = () => {
     const voice = voiceId && T.findClip(store.project, voiceId)?.clip;
-    if (editingContext(store) !== source || (voiceId && (!voice || voice.assetId !== sourceAsset))) abort();
-  });
+    return store.project === project && editingContext(store) === source && currentMedia()
+      && (!voiceId || (voice && voice.assetId === sourceAsset));
+  };
+  const check = () => {
+    if (!valid()) abort();
+    checkAvatar(controller.signal);
+  };
+  off = store.on('change', () => { if (!valid()) abort(); });
   signal?.addEventListener('abort', abort, { once: true });
   try {
     if (!voiceId) {
       onStep('Creating the voice...');
       asset = await speechAsset(ctx, services, look.script, look.voice, controller.signal);
+      currentMedia = voiceMediaGuard(store, asset);
     }
-    checkAvatar(controller.signal);
+    check();
     onStep('Matching the lips to the voice...');
-    checkAvatar(controller.signal);
+    check();
     const lips = await services.analyze(asset, { signal: controller.signal });
-    checkAvatar(controller.signal);
+    check();
     // A voice clip may have moved while analysis ran; keep the avatar beside it.
     if (voiceId) voiceClip = T.findClip(store.project, voiceId).clip;
     const start = voiceClip ? voiceClip.start : requestedStart;
@@ -111,6 +129,7 @@ export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal }
     const clip = makeClip('avatar', { start, duration, name: avatarName(look.character), avatar: { ...look, voiceAsset: asset.id, lips } });
     Object.assign(clip.transform, pos.transform);
     const ok = store.update('Add avatar', (p) => {
+      check();
       T.addClip(p, clip, { ...store.opts, main: false });
       let voice = voiceId;
       if (!voiceClip) {
@@ -127,7 +146,7 @@ export async function createAvatar(ctx, opts = {}, { onStep = () => {}, signal }
     announce(`${avatarName(look.character)} added`);
     return clip;
   } catch (err) {
-    checkAvatar(controller.signal);
+    check();
     throw err;
   } finally {
     off?.();
@@ -161,7 +180,8 @@ async function editAvatarVoice(ctx, id, { signal, onCancel, audioId, replaceVoic
   const found = T.findClip(store.project, id);
   if (!found || found.clip.type !== 'avatar' || found.track.locked) return false;
   const a = found.clip.avatar;
-  const source = editingContext(store), script = a.script, voice = a.voice, voiceAsset = a.voiceAsset, lipData = a.lips?.data;
+  const project = store.project, source = editingContext(store), script = a.script, voice = a.voice, voiceAsset = a.voiceAsset, lipData = a.lips?.data;
+  let currentMedia = () => true;
   const oldVoices = replaceVoice ? voiceClipsOf(store.project, found.clip) : [];
   if (oldVoices.some((v) => v.track.locked)) throw new Error("Unlock the avatar's voice track before changing its voice.");
   const oldIds = new Set(oldVoices.map((v) => v.clip.id));
@@ -183,7 +203,7 @@ async function editAvatarVoice(ctx, id, { signal, onCancel, audioId, replaceVoic
     onCancel?.();
   };
   const valid = () => {
-    if (editingContext(store) !== source) return false;
+    if (store.project !== project || editingContext(store) !== source || !currentMedia()) return false;
     const f = T.findClip(store.project, id), current = f?.clip.avatar;
     if (!current || f.clip.type !== 'avatar' || f.track.locked || current.script !== script || current.voice !== voice || current.voiceAsset !== voiceAsset || current.lips?.data !== lipData) return false;
     if (audioId && T.findClip(store.project, audioId)?.clip.assetId !== audioAsset) return false;
@@ -203,7 +223,10 @@ async function editAvatarVoice(ctx, id, { signal, onCancel, audioId, replaceVoic
   signal?.addEventListener('abort', abort, { once: true });
   try {
     check();
-    return await run({ signal: controller.signal, check, commit(fn) {
+    return await run({ signal: controller.signal, check, watchMedia(asset) {
+      currentMedia = voiceMediaGuard(store, asset);
+      check();
+    }, commit(fn) {
       check();
       // The synchronous edit changes the captured voice itself; stop observing first.
       close();
@@ -227,6 +250,7 @@ export async function revoiceAvatar(ctx, id, { script, voice } = {}, { onStep = 
     task.check();
     onStep('Matching the lips to the voice...');
     task.check();
+    task.watchMedia(asset);
     const lips = await services.analyze(asset, { signal: task.signal });
     return task.commit(() => store.update('Change avatar voice', (p) => {
       const c = T.findClip(p, id).clip;
@@ -252,6 +276,7 @@ export async function syncAvatarTo(ctx, id, audioClipId, { onStep = () => {}, si
   return editAvatarVoice(ctx, id, { signal, onCancel, audioId: audioClipId }, async (task) => {
     onStep('Matching the lips to the voice...');
     task.check();
+    task.watchMedia(asset);
     const lips = await avatarServices(ctx).analyze(asset, { signal: task.signal });
     return task.commit(() => store.update('Lip-sync avatar', (p) => {
       const c = T.findClip(p, id).clip;
@@ -270,6 +295,7 @@ export async function relipAvatar(ctx, id, { onStep = () => {}, signal, onCancel
   return editAvatarVoice(ctx, id, { signal, onCancel }, async (task) => {
     onStep('Matching the lips to the voice...');
     task.check();
+    task.watchMedia(asset);
     const lips = await avatarServices(ctx).analyze(asset, { signal: task.signal });
     return task.commit(() => store.update('Lip-sync avatar', (p) => {
       const c = T.findClip(p, id).clip;
