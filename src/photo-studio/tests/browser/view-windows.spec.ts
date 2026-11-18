@@ -95,3 +95,17 @@ test('2-up and tiled layouts show every document; clicking a window activates it
   await expect(page.locator('.view-frame')).toHaveCount(0);
   await expect(page.locator('.document-tabs .document-tab')).toHaveCount(3);
 });
+
+test('Cascade and Float All in Windows leave the tiled layout, also for the next session', async ({ page }) => {
+  await openImage(page, 200, 300, '#3060c0', 'second.png');
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('photo-studio-preferences') ?? '{}').windowLayout);
+  for (const id of ['window.cascade', 'window.float-all']) {
+    await page.evaluate(() => window.photoStudio.runCommand('window.tile-vertical'));
+    await idle(page);
+    expect(await stored()).toBe('tile-vertical');
+    await page.evaluate((id) => window.photoStudio.runCommand(id), id);
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.views.every((v) => !!v.floating))).toBe(true);
+    expect(await stored(), id).toBe('tabs');
+  }
+});

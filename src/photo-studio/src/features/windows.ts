@@ -77,8 +77,8 @@ export function installWindows(e: Editor) {
         // Float every window and restack them diagonally, active on top.
         const area = e.windows.areaSize();
         e.views.forEach((v: DocumentView, i: number) => (v.floating = cascade(i, area)));
-        e.windows.kind = 'tabs';
-        e.windows.refresh();
+        // The docked layout behind the windows goes back to tabs, also after a reload.
+        e.windows.setKind('tabs');
         e.update();
       },
     },
@@ -98,7 +98,7 @@ export function installWindows(e: Editor) {
       recordable: false,
       enabled: (e) => e.hasDocument && e.views.some((v) => !v.floating),
       run: (e) => {
-        e.windows.kind = 'tabs';
+        e.windows.setKind('tabs');
         e.windows.float([...e.views].sort((a, b) => a.used - b.used));
         e.update();
       },
