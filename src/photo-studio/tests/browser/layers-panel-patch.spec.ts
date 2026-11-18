@@ -105,3 +105,27 @@ test('an inline rename survives another edit redrawing its row', async ({ page }
     'Rename Layer',
   ]);
 });
+
+test('Enter and Escape end an inline rename with the focus on the renamed layer', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  await run(page, 'layer.new-quick');
+  const id = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.id);
+  const row = page.locator(`#layers .layer-select[data-layer="${id}"]`);
+  const input = page.locator('#layers input.layer-rename');
+  await page.locator(`#layers .layer-row[data-row="${id}"] .layer-name`).dblclick();
+  await input.fill('Kept');
+  await input.press('Enter');
+  await idle(page);
+  await expect(row).toBeFocused();
+  await page.locator(`#layers .layer-row[data-row="${id}"] .layer-name`).dblclick();
+  await input.fill('Dropped');
+  await input.press('Escape');
+  await idle(page);
+  await expect(row).toBeFocused();
+  await expect(input).toHaveCount(0);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.name)).toBe('Kept');
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Rename Layer');
+});

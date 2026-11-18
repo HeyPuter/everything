@@ -318,8 +318,14 @@ export const layersPanel: Panel = {
         renaming?.done(true);
         renaming = { id, input, done };
         input.addEventListener('keydown', (k) => {
-          if (k.key === 'Enter') done(true);
-          if (k.key === 'Escape') done(false);
+          if (k.key === 'Enter' || k.key === 'Escape') {
+            // The key only ends the rename: it does not also press whatever
+            // control the redraw would hand the focus to. The focus goes back
+            // to the renamed layer's row.
+            k.preventDefault();
+            done(k.key === 'Enter');
+            el.querySelector<HTMLElement>(`#layers .layer-select[data-layer="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+          }
           k.stopPropagation();
         });
         // Leaving the field commits; the list being redrawn under it (another

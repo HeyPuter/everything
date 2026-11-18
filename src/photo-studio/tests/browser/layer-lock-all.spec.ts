@@ -49,6 +49,9 @@ test('a locked layer can still be renamed in place', async ({ page }) => {
   await idle(page);
   const l = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!);
   expect([l.name, l.locked]).toEqual(['Locked title', true]);
+  // The Enter that commits the name does not also press the Lock button.
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Rename Layer');
+  await expect(page.locator(`#layers .layer-select[data-layer="${id}"]`)).toBeFocused();
   await expect(page.locator(`#layers .layer-row[data-row="${id}"] .name-text`)).toHaveText(
     'Locked title',
   );
