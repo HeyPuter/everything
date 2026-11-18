@@ -167,33 +167,42 @@ export function createSmartActions(ctx) {
       }
       if (f.track.locked) return;
       const clip = f.clip;
-      const asset = store.project.assets[clip.assetId];
+      const assetId = clip.assetId;
+      const isCurrentSource = () => T.findClip(store.project, clip.id)?.clip === clip
+        && clip.assetId === assetId && clip.type === 'video' && !clip.freeze;
+      const changedMessage = 'The clip changed. Run scene detection again to analyze its current video.';
+      const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage); };
+      const asset = store.project.assets[assetId];
       const from = clip.in;
       const to = clip.in + sourceSpan(clip);
       const sensitivity = prefs().sceneSensitivity ?? 0.5;
       const p = progressDialog('Finding scene changes', `Looking through ${asset?.name || 'the clip'}...`);
       try {
         const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
+        requireSource();
         const fps = to - from > 600 * US ? 2 : 5;
         const cuts = await detectScenes(blob, from, to, { fps, sensitivity, signal: p.signal, onProgress: (x) => p.set(x) });
         p.signal.throwIfAborted();
+        requireSource();
         const times = sceneSplitTimes(clip, cuts, store.fps || store.project.settings.fps || 30);
         if (!times.length) {
           toast('No scene changes were found in this clip.', { kind: 'info' });
           return;
         }
         let made = 0;
-        store.update('Split scenes', (proj) => {
+        const saved = store.update('Split scenes', (proj) => {
+          if (!isCurrentSource()) return false;
           // Split from the end so earlier times still point into the same clip.
           for (const t of [...times].sort((a, b) => b - a)) if (T.splitClip(proj, clipId, t)) made++;
           return made > 0;
         });
+        if (saved === false) throw new Error(isCurrentSource() ? 'Scene splits could not be saved. The clip may be locked or no longer available.' : changedMessage);
         toast(`Split into ${made + 1} scenes.`, { kind: 'success' });
         announce(`Split into ${made + 1} scenes`);
       } catch (err) {
         if (!p.signal.aborted && err?.name !== 'AbortError') {
           console.error(err);
-          toast(err?.message || 'Could not analyze this clip.', { kind: 'error' });
+          toast(isCurrentSource() ? err?.message || 'Could not analyze this clip.' : changedMessage, { kind: 'error' });
         }
       } finally {
         p.close();
