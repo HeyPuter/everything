@@ -57,8 +57,8 @@ export function createCompound(project, ids, opts = {}) {
       kind: track.kind,
       main: Boolean(track.main),
       locked: false,
-      hidden: false,
-      muted: false,
+      hidden: Boolean(track.hidden),
+      muted: Boolean(track.muted),
       clips: picked.map((c) => {
         const copy = structuredClone(c);
         copy.start = c.start - a;

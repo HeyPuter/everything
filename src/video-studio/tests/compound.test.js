@@ -26,6 +26,32 @@ describe('compound clips', () => {
     expect(sequenceLength(comp.sequence)).toBe(s(3));
   });
 
+  it('keeps hidden and muted source tracks that are nested together', () => {
+    const p = fixture();
+    const [video] = onMain(p, clip('video', 0, 4));
+    const music = clip('audio', 0, 4);
+    const title = clip('text', 0, 4);
+    addClip(p, music, FREE);
+    addClip(p, title, FREE);
+    findClip(p, music.id).track.muted = true;
+    findClip(p, title.id).track.hidden = true;
+    const shown = evaluate(p, s(1)).map(l => l.kind);
+    const heard = audibleClips(p).map(x => x.clip.type);
+    const store = new EditorStore(p);
+    store.update('Create compound clip', q => { createCompound(q, [video.id, music.id, title.id], FREE); });
+    expect(evaluate(store.project, s(1)).map(l => l.kind)).toEqual(shown);
+    expect(audibleClips(store.project).map(x => x.clip.type)).toEqual(heard);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(evaluate(loaded, s(1)).map(l => l.kind)).toEqual(shown);
+    expect(audibleClips(loaded).map(x => x.clip.type)).toEqual(heard);
+    store.undo();
+    expect(findClip(store.project, music.id).track.muted).toBe(true);
+    expect(findClip(store.project, title.id).track.hidden).toBe(true);
+    store.redo();
+    expect(evaluate(store.project, s(1)).map(l => l.kind)).toEqual(shown);
+    expect(audibleClips(store.project).map(x => x.clip.type)).toEqual(heard);
+  });
+
   it('drops a transition into a clip left outside, which could not be seen or removed', () => {
     const p = fixture();
     const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
