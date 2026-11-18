@@ -337,3 +337,22 @@ test('the brush outline follows a zoom made while the pointer rests', async ({ p
   });
   expect(Number(await radius())).toBeCloseTo(40 * zoom, 3);
 });
+
+test('Dodge with Protect Tones brightens highlights without clipping or shifting their hue', async ({
+  page,
+}) => {
+  await filledLayer(page, [230, 200, 180, 255]);
+  await setTool(
+    page,
+    'dodge',
+    { size: 30, hardness: 1 },
+    { toneRange: 'highlights', toneExposure: 50, protectTones: true },
+  );
+  await canvasClick(page, 100, 60);
+  const [r, g, b] = await layerPixel(page, 100, 60);
+  // Brighter, but no channel blown out and the color ratios kept.
+  expect(g).toBeGreaterThan(205);
+  expect(r).toBeLessThan(255);
+  expect(Math.abs(r / g - 230 / 200)).toBeLessThan(0.02);
+  expect(Math.abs(b / g - 180 / 200)).toBeLessThan(0.02);
+});

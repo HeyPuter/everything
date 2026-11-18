@@ -275,11 +275,17 @@ function toneTarget(kind: 'dodge' | 'burn' | 'sponge') {
         // Weight by tonal range so shadows, midtones or highlights change most.
         const w = range === 'shadows' ? (1 - l) ** 2 : range === 'highlights' ? l ** 2 : 1 - Math.abs(l - 0.5) * 2;
         const amount = exposure * Math.max(0, w) * 0.5;
+        // Protecting tones scales the channels together toward the dodged
+        // lightness, stopping before any channel clips, so hues do not shift.
+        let gain = 0;
+        if (protect && kind === 'dodge' && l > 0) {
+          gain = (l + (1 - l) * amount) / l;
+          const top = Math.max(r, g, b) / 255;
+          if (top * gain > 1) gain = Math.max(1, 1 / top);
+        }
         for (let c = 0; c < 3; c++) {
           const v = base[c] / 255;
-          let n = kind === 'dodge' ? v + (1 - v) * amount : v * (1 - amount);
-          // Protecting tones keeps hues from shifting by scaling channels together.
-          if (protect && kind === 'dodge') n = Math.min(1, v * (1 + amount * 1.2) + amount * 0.05);
+          const n = gain ? v * gain : kind === 'dodge' ? v + (1 - v) * amount : v * (1 - amount);
           out[c] = n * 255;
         }
         out[3] = base[3];
