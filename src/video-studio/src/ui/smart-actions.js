@@ -787,7 +787,12 @@ export function createSmartActions(ctx) {
           return;
         }
         // mov's source start lines up with ref's source at lag steps in.
-        const target = Math.max(0, Math.round(ref.clip.start + lag * hop * US));
+        const match = Math.round(ref.clip.start + lag * hop * US);
+        if (match === mov.clip.start) {
+          toast('These clips are already aligned.', { kind: 'info' });
+          return;
+        }
+        const target = Math.max(0, match);
         const delta = target - mov.clip.start;
         const name = T.clipLabel(store.project, mov.clip);
         const ok = store.update('Sync by sound', (proj) => isCurrentSource()
