@@ -660,7 +660,15 @@ function bucketTool(): Tool {
   };
 }
 
-export function installPaint(_e: Editor) {
+export function installPaint(editor: Editor) {
+  // A zoom or rotation made while the pointer rests (a pinch, Ctrl+wheel, a
+  // shortcut) resizes the brush outline at once, not on the next move.
+  editor.viewHooks.push((e) => {
+    const p = e.pointerInfo;
+    const shown = e.screenOverlayContent;
+    if (p && /brush-cursor-(outer|cross)/.test(shown) && !shown.includes('brush-adjust'))
+      cursor(e, e.tool, p);
+  });
   registerTool(
     strokeTool('brush', 'Brush Tool', 'paintbrush', 'brush', 'B', 'Brush Tool'),
     strokeTool('pencil', 'Pencil Tool', 'pencil', 'brush', 'B', 'Pencil'),

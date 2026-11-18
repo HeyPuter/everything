@@ -323,3 +323,17 @@ test('Erase to History and the History Brush restore transparency of the history
     expect((await layerPixel(page, 120, 60))[3], tool).toBe(0);
   }
 });
+
+test('the brush outline follows a zoom made while the pointer rests', async ({ page }) => {
+  await setTool(page, 'brush', { size: 40, hardness: 1 });
+  await page.mouse.move(...(await page.evaluate(() => window.photoStudio.clientPoint(100, 60))));
+  const radius = () => page.locator('#screen-overlay ellipse.brush-cursor').getAttribute('rx');
+  const zoom = await page.evaluate(() => window.photoStudio.zoom);
+  expect(Number(await radius())).toBeCloseTo(20 * zoom, 3);
+  // A pinch or Ctrl+wheel zooms without moving the pointer.
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    e.zoomAt(e.zoom * 2, 300, 300);
+  });
+  expect(Number(await radius())).toBeCloseTo(40 * zoom, 3);
+});
