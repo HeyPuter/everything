@@ -125,6 +125,7 @@ export function openExportDialog(ctx) {
   const selection = store.selectedIds || [];
   const saved = prefs().exportSettings || {};
   let caps = null;
+  let capsPending = true;
   // With several timelines the file is named after the project and the timeline.
   const multi = (ctx.timelines?.list().length || 0) > 1;
   let s = { ...DEFAULT_SETTINGS, ...EXTRA_DEFAULTS, ...saved, scope: 'all', name: multi ? `${full.name} - ${ctx.timelines.active().name}` : full.name };
@@ -263,7 +264,7 @@ export function openExportDialog(ctx) {
     s.fps = Number(v);
     if (s.fps === ownFps) pickedFps.delete(fpsKey);
     else pickedFps.set(fpsKey, s.fps);
-    update();
+    refreshCaps();
   });
   const audioSwitchId = `exp-${++seq}`;
   const audioSwitch = h('button.switch', { type: 'button', role: 'switch', id: audioSwitchId, 'aria-checked': String(s.includeAudio), 'aria-labelledby': `${audioSwitchId}-l` });
@@ -371,7 +372,8 @@ export function openExportDialog(ctx) {
     // The container's sound codecs may not be encodable here (MOV needs AAC).
     const sound = hasSound();
     const noSound = Boolean(s.video && s.includeAudio && sound && caps && !audioCodecFor(s.format, caps.audio));
-    if (caps && !caps.video.length) codecNote.textContent = 'This browser cannot encode video. Audio export still works.';
+    if (capsPending) codecNote.textContent = 'Checking video support for this resolution and frame rate...';
+    else if (caps && !caps.video.length) codecNote.textContent = 'This browser cannot encode video. Audio export still works.';
     else if (noSound) codecNote.replaceChildren(icon('alert', 14), `This browser cannot encode sound for ${CONTAINERS[s.format].label}. Choose another format, or turn off Export audio.`);
     else codecNote.textContent = `${size.width} x ${size.height}, ${codecLabel}, about ${(bps / 1e6).toFixed(1)} Mbps`;
     audioSwitch.disabled = !sound;
@@ -390,7 +392,7 @@ export function openExportDialog(ctx) {
     const bytes = (s.video || s.audio ? estimateSize(s, duration, { projW, projH }) : 0) + gifBytes;
     const nothing = !s.video && !s.audio && !s.gif && !(s.captions && hasCaptions);
     const noVideo = s.video && caps && !caps.video.length;
-    exportBtn.disabled = duration <= 0 || nothing || noVideo || noSound || wavTooLong;
+    exportBtn.disabled = duration <= 0 || nothing || (s.video && capsPending) || noVideo || noSound || wavTooLong;
     scope.set(s.scope);
     footerInfo.replaceChildren(
       h('span', icon('clock', 14), `Length ${clock(duration)}`),
@@ -402,11 +404,13 @@ export function openExportDialog(ctx) {
   let capsReq = 0;
   async function refreshCaps() {
     const id = ++capsReq;
+    capsPending = true;
     update();
     const size = outputSize(projW, projH, s.resolution);
     const c = await detectCapabilities({ ...size, fps: s.fps }).catch(() => null);
     if (id !== capsReq) return;
     caps = c || { video: ['avc'], audio: ['aac'], audioFormats: ['wav'] };
+    capsPending = false;
     update();
   }
 
