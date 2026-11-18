@@ -125,7 +125,13 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
     toast('Move the playhead to where the clip overlaps a video, then try again.', { kind: 'info' });
     return;
   }
-  const asset = store.project.assets[src.clip.assetId];
+  const sourceAssetId = src.clip.assetId;
+  const targetAssetId = target.assetId;
+  const isCurrentMedia = () => !signal.aborted
+    && T.findClip(store.project, target.id)?.clip === target && target.assetId === targetAssetId
+    && T.findClip(store.project, src.clip.id)?.clip === src.clip && src.clip.assetId === sourceAssetId;
+  const changedMessage = 'The tracking clips or their media changed. Reopen Track motion to choose the object again.';
+  const asset = store.project.assets[sourceAssetId];
   let blob;
   const canvas = h('canvas.track-frame', { width: TW * 3, height: TH * 3 });
   try {
@@ -142,11 +148,11 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
       input.dispose();
     }
   } catch (err) {
-    if (!signal.aborted) toast(err?.message || 'Could not read the video.', { kind: 'error' });
+    if (isCurrentMedia()) toast(err?.message || 'Could not read the video.', { kind: 'error' });
     return;
   }
-  // Either clip may have been deleted while the frame was read.
-  if (signal.aborted || T.findClip(store.project, target.id)?.track.locked || T.findClip(store.project, target.id)?.clip !== target || T.findClip(store.project, src.clip.id)?.clip !== src.clip) return;
+  // A replacement mutates the clip in place, so identity alone is not enough.
+  if (!isCurrentMedia() || T.findClip(store.project, target.id)?.track.locked) return;
   let box = null; // in 0..1 of the frame
   const boxEl = h('div.track-box', { hidden: true });
   const stage = h('div.track-stage', canvas, boxEl);
@@ -190,6 +196,10 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
 
   go.addEventListener('click', async () => {
     if (!box || ac) return;
+    if (!isCurrentMedia()) {
+      status.textContent = changedMessage;
+      return;
+    }
     if (T.findClip(store.project, target.id)?.track.locked) {
       status.textContent = 'Unlock the track to track motion.';
       return;
@@ -235,6 +245,10 @@ export const openTrackingDialog = frameDialog(async (ctx, targetId = ctx.store.s
       // Backward pass starts again from the box at the playhead.
       if (back.length) await run([t0, ...back], true);
       ac.signal.throwIfAborted();
+      if (!isCurrentMedia()) {
+        status.textContent = changedMessage;
+        return;
+      }
       const keys = pinKeys(store.project, target, points, t0);
       const saved = ctx.actions.editClip(target.id, 'Track motion', (c) => {
         c.keyframes ||= {};

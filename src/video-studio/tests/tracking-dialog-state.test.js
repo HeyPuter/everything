@@ -13,10 +13,10 @@ vi.mock('../src/media/tracker.js', async original => ({ ...await original(), gra
   for (const time of times) yield { frame, time };
 } }));
 afterEach(() => { document.querySelectorAll('.dialog-close').forEach(b => b.click()); document.body.replaceChildren(); vi.restoreAllMocks(); work.wait = null; work.started.mockClear(); });
-function setup(mediaBlob = async () => new Blob()) {
+function setup(mediaBlob = async () => new Blob(), targetType = 'text') {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage() {} });
   const p = fixture(); const [source] = onMain(p, clip('video', 0, .2));
-  const target = clip('text', 0, .2); addClip(p, target, { main: false });
+  const target = clip(targetType, 0, .2); addClip(p, target, { main: false });
   target.keyframes.x = [{ t: 0, v: .1 }];
   const store = new EditorStore(p); store.select(target.id);
   const ctx = { store, library: { mediaBlob: vi.fn(mediaBlob) } }; ctx.actions = createActions(ctx);
@@ -77,4 +77,60 @@ it('does not start analysis when the target locks after choosing the box', async
   const { ctx, track } = setup(); await openTrackingDialog(ctx); const go = selectBox(); track.locked = true; go.click(); await flush();
   expect(work.started).not.toHaveBeenCalled(); expect(document.querySelector('dialog[open]')).toBeTruthy();
   expect(document.querySelector('[role=status]').textContent).toContain('Unlock');
+});
+
+it('does not open an obsolete tracking preview after source replacement during loading', async () => {
+  let finish; const { ctx, source, store } = setup(() => new Promise(r => { finish = r; }));
+  const pending = openTrackingDialog(ctx); await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+  ctx.actions.replaceClip(source.id, store.project.assets.silent); finish(new Blob()); await pending;
+  expect(document.querySelector('dialog[open]')).toBeNull();
+  await openTrackingDialog({ ...ctx, library: { mediaBlob: async () => new Blob() } });
+  expect(document.querySelector('.track-editor').textContent).toContain('silent');
+});
+it('ignores a failed obsolete tracking read after source replacement', async () => {
+  let fail; const { ctx, source, store } = setup(() => new Promise((_, reject) => { fail = reject; }));
+  const pending = openTrackingDialog(ctx); await vi.waitFor(() => expect(fail).toBeTypeOf('function'));
+  ctx.actions.replaceClip(source.id, store.project.assets.silent); fail(new Error('Old tracking file failed')); await pending;
+  expect(document.body.textContent).not.toContain('Old tracking file failed');
+});
+it('requires a fresh preview when the source is replaced after drawing a tracking box', async () => {
+  const { ctx, source, store } = setup(); await openTrackingDialog(ctx); const go = selectBox();
+  ctx.actions.replaceClip(source.id, store.project.assets.silent); const before = JSON.stringify(store.projectForSave()), history = store.history.undoStack.length;
+  go.click(); await flush();
+  expect(work.started).not.toHaveBeenCalled(); expect(JSON.stringify(store.projectForSave())).toBe(before);
+  expect(store.history.undoStack).toHaveLength(history); expect(document.querySelector('.track-dialog [role=status]').textContent).toContain('Reopen');
+});
+it.each(['replace', 'delete'])('does not save old tracking results when the source changes during analysis: %s', async change => {
+  let finish; work.wait = new Promise(r => { finish = r; });
+  const { ctx, source, store } = setup(); await openTrackingDialog(ctx); selectBox().click();
+  await vi.waitFor(() => expect(work.started).toHaveBeenCalledOnce());
+  if (change === 'replace') ctx.actions.replaceClip(source.id, store.project.assets.silent);
+  else store.update('Delete source', p => { const f = findClip(p, source.id); f.track.clips.splice(f.track.clips.indexOf(f.clip), 1); });
+  const before = JSON.stringify(store.projectForSave()), history = store.history.undoStack.length;
+  finish(); await flush();
+  expect(JSON.stringify(store.projectForSave())).toBe(before); expect(store.history.undoStack).toHaveLength(history);
+  expect(document.querySelector('.track-dialog [role=status]').textContent).toContain('Reopen');
+});
+it('does not apply results to replacement target media', async () => {
+  let finish; work.wait = new Promise(r => { finish = r; });
+  const { ctx, target, store } = setup(undefined, 'image'); await openTrackingDialog(ctx); selectBox().click();
+  await vi.waitFor(() => expect(work.started).toHaveBeenCalledOnce());
+  ctx.actions.replaceClip(target.id, store.project.assets.silent);
+  const before = JSON.stringify(store.projectForSave()), history = store.history.undoStack.length;
+  finish(); await flush();
+  expect(JSON.stringify(store.projectForSave())).toBe(before); expect(store.history.undoStack).toHaveLength(history);
+  expect(document.querySelector('.track-dialog [role=status]').textContent).toContain('Reopen');
+});
+it('still reports a read failure for the current tracking source', async () => {
+  const { ctx } = setup(async () => { throw new Error('Current tracking file failed'); });
+  await openTrackingDialog(ctx); expect(document.body.textContent).toContain('Current tracking file failed');
+});
+it('allows unrelated project edits during tracking', async () => {
+  let finish; work.wait = new Promise(r => { finish = r; });
+  const { ctx, store, target } = setup(); await openTrackingDialog(ctx); selectBox().click();
+  await vi.waitFor(() => expect(work.started).toHaveBeenCalledOnce());
+  store.update('Rename project', p => { p.name = 'Renamed'; }); const history = store.history.undoStack.length;
+  finish(); await flush();
+  expect(document.querySelector('dialog[open]')).toBeNull(); expect(target.keyframes.x.length).toBeGreaterThan(1);
+  expect(store.project.name).toBe('Renamed'); expect(store.history.undoStack).toHaveLength(history + 1);
 });
