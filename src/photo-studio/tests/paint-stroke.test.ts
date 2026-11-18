@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { TileStore, emptyGrid, filledMask, gridFromImage, readRGBA } from '../src/model/tiles';
+import {
+  TileStore,
+  emptyGrid,
+  filledMask,
+  gridFromImage,
+  readRGBA,
+  writeRect,
+} from '../src/model/tiles';
 import { StrokeSession } from '../src/engine/paint';
 import { SmudgeFinger, smudgeSpacing } from '../src/engine/smudge';
 
@@ -157,5 +164,40 @@ describe('stroke sessions limited by a moved selection', () => {
       readRGBA(store, g, { x, y, width: 1, height: 1 }).data[3];
     expect(alpha(70, 320)).toBe(255);
     expect(alpha(20, 20)).toBe(0);
+  });
+});
+
+describe('stroke sessions limited by a soft selection', () => {
+  it('scale each pixel by its selection coverage across selection tile edges', () => {
+    const store = new TileStore();
+    // Coverage varies per pixel; the grid is offset so its tiles straddle the document's.
+    const W = 300,
+      H = 300;
+    const cover = new Uint8Array(W * H);
+    for (let i = 0; i < cover.length; i++) cover[i] = (i * 37) % 256;
+    const mask = { width: W, height: H, data: cover };
+    const sel = { ...writeRect(store, emptyGrid(1), 0, 0, mask), x: 120, y: 10 };
+    const stroke = (selection: typeof sel | null) => {
+      const s = new StrokeSession(store, emptyGrid(4), {
+        tip: { size: 40, hardness: 0.3, spacing: 10, roundness: 1, angle: 0 },
+        opacity: 1,
+        flow: 1,
+        target: { kind: 'color', rgb: [0, 0, 0], mode: 'normal' },
+        selection,
+      });
+      // One dab across the document's tile edges (256) and the selection's (376, 266).
+      s.addPoint(376, 261);
+      return readRGBA(store, s.commit(), { x: 340, y: 225, width: 72, height: 72 }).data;
+    };
+    const full = stroke(null),
+      limited = stroke(sel);
+    for (let y = 0; y < 72; y++)
+      for (let x = 0; x < 72; x++) {
+        const dx = 340 + x - 120,
+          dy = 225 + y - 10;
+        const c = dx >= 0 && dy >= 0 && dx < W && dy < H ? cover[dy * W + dx] : 0;
+        const expected = Math.round((full[(y * 72 + x) * 4 + 3] * c) / 255);
+        expect(Math.abs(limited[(y * 72 + x) * 4 + 3] - expected)).toBeLessThanOrEqual(1);
+      }
   });
 });

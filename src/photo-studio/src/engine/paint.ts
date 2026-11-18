@@ -285,6 +285,14 @@ export class StrokeSession {
     const px = this.scratch,
       src = this.scratch2;
     if (target.kind === 'custom') target.dab?.(cx, cy, size, this.readLive);
+    // The selection tile row under the last pixel, valid for document x in
+    // [selX0, selX1) on row selY (neighbouring pixels share it).
+    let selY = NaN,
+      selX0 = 0,
+      selX1 = 0,
+      selRow: TileData | null = null,
+      selOffset = 0,
+      selValue = 0;
     for (let ty = Math.floor((y0 - gy) / TILE); ty <= Math.floor((y1 - 1 - gy) / TILE); ty++)
       for (let tx = Math.floor((x0 - gx) / TILE); tx <= Math.floor((x1 - 1 - gx) / TILE); tx++) {
         const w = this.workingTile(tx, ty);
@@ -324,13 +332,19 @@ export class StrokeSession {
             }
             if (alpha <= 0) continue;
             if (selection) {
-              const lx = x - selection.x,
-                ly = y - selection.y;
-              const sel = this.selectionAt(Math.floor(lx / TILE), Math.floor(ly / TILE));
-              const sv =
-                typeof sel === 'number'
-                  ? sel
-                  : sel[(((ly % TILE) + TILE) % TILE) * TILE + (((lx % TILE) + TILE) % TILE)];
+              if (y !== selY || x < selX0 || x >= selX1) {
+                const stx = Math.floor((x - selection.x) / TILE),
+                  ly = y - selection.y,
+                  sty = Math.floor(ly / TILE);
+                const entry = this.selectionAt(stx, sty);
+                selRow = typeof entry === 'number' ? null : entry;
+                selValue = typeof entry === 'number' ? entry : 0;
+                selY = y;
+                selX0 = selection.x + stx * TILE;
+                selX1 = selX0 + TILE;
+                selOffset = (ly - sty * TILE) * TILE - selX0;
+              }
+              const sv = selRow ? selRow[selOffset + x] : selValue;
               if (!sv) continue;
               alpha *= sv / 255;
             }
