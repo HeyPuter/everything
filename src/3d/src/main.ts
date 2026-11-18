@@ -41,6 +41,7 @@ import './ops/data';
 import './io/files';
 import { onFileStatus, scheduleAutosave, autosave, projectUiState } from './io/files';
 import { claimRecovery, decodeDocument } from './io/native';
+import { installPuterFiles } from './io/puterfiles';
 import { setMode } from './ops/object';
 import { loadFonts } from './io/fonts';
 import { registerModules } from './modules';
@@ -145,6 +146,8 @@ const recovered = claimRecovery(!factoryStartup, untouched)
   })
   .catch(() => {});
 (window as unknown as { appReady: Promise<void> }).appReady = recovered;
+// files the Puter desktop launched the app with open once the recovered session (if any) is in
+installPuterFiles(recovered);
 
 addEventListener('visibilitychange', () => {
   if (document.hidden) void autosave();

@@ -8,6 +8,7 @@ import { app, registerOperators, operators, operatorListeners } from '../app/app
 import { addKeys } from '../app/keymap';
 import { prefs, savePrefs, formatDate } from '../app/prefs';
 import { importMenu, exportMenu } from '../io/files';
+import { canOpenFromPuter, opensFromPuter } from '../io/puterfiles';
 import { recentFiles, clearRecent, recentBytes, loadProjectBytes, listSnapshots, openSnapshot, saveStartupFile, freshStart, type Snapshot } from '../io/session';
 import { APP_VERSION } from '../scripting/wmops';
 import { openDialog, closeDialog } from '../scripting/dialog';
@@ -46,10 +47,18 @@ export function openRecentMenu(): MenuItem[] {
   ];
 }
 
+/** File ▸ Open's other source: this device inside the Puter desktop (where Open shows Puter's dialog), else Puter. */
+export function openFromMenu(): MenuItem[] {
+  if (opensFromPuter()) return [{ label: 'Open from This Device…', icon: 'file_folder', description: 'Open a file from this device', op: 'wm.open_mainfile', props: { source: 'DEVICE' } }];
+  if (canOpenFromPuter()) return [{ label: 'Open from Puter…', icon: 'file_folder', description: 'Open a file from your Puter drive', op: 'wm.open_mainfile', props: { source: 'PUTER' } }];
+  return [];
+}
+
 export function fileMenu(): MenuItem[] {
   return [
     { label: 'New', icon: 'file_blank', shortcut: 'Ctrl N', submenu: fileNewMenu },
     { label: 'Open…', icon: 'file_folder', shortcut: 'Ctrl O', op: 'wm.open_mainfile' },
+    ...openFromMenu(),
     { label: 'Open Recent', shortcut: 'Shift Ctrl O', submenu: openRecentMenu },
     { label: 'Revert', op: 'wm.revert_mainfile' },
     {
@@ -93,6 +102,7 @@ export function fileContextMenu(): MenuItem[] {
   return [
     { label: 'New', icon: 'file_blank', submenu: fileNewMenu },
     { label: 'Open…', icon: 'file_folder', shortcut: 'Ctrl O', op: 'wm.open_mainfile' },
+    ...openFromMenu(),
     { label: 'Open Recent', submenu: openRecentMenu },
     { separator: true },
     { label: 'Link…', icon: 'link', op: 'wm.link' },

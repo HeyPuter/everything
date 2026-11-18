@@ -6,6 +6,7 @@ import { encodeDocument, decodeDocument, isNativeFile, saveRecovery, download, p
 import { importLegacyScene } from './legacy';
 import type { MenuItem } from '../ui/menu';
 import { openMenu } from '../ui/menu';
+import { canOpenFromPuter, opensFromPuter, pickFromPuter, saveToPuter, savesToPuter } from './puterfiles';
 
 export interface FormatHandler {
   id: string;
@@ -145,13 +146,16 @@ function stripFileExtension(name: string): string {
   return ext ? name.slice(0, name.length - ext.length) : name;
 }
 
-/** Save the project (download). A copy leaves the current file name and modified state alone. */
-export function saveFile(name = app.filename, copy = false) {
+/**
+ * Save the project (download, or Puter's Save dialog inside the Puter desktop). A copy leaves the
+ * current file name and modified state alone. `ask` (Save As) never updates the file in place.
+ */
+export function saveFile(name = app.filename, copy = false, ask = false) {
   for (const f of fileEvents.beforeSave) f();
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
   if (!name.toLowerCase().endsWith('.p3d')) name = `${stripFileExtension(name)}.p3d`;
   const target = fileEvents.saveTarget;
-  if (target && !copy && target.name === name) {
+  if (target && !copy && !ask && target.name === name) {
     // the file came from a writable folder: update it in place
     // saved as of now: edits made while the file is being written mark it modified again
     app.dirty = false;
@@ -167,6 +171,7 @@ export function saveFile(name = app.filename, copy = false) {
     );
     return;
   }
+  if (saveToPuter(bytes, name, copy)) return;
   download(bytes, name);
   if (!copy) {
     app.filename = name;
@@ -204,10 +209,18 @@ registerOperators([
     label: 'Open…',
     description: 'Open a project file (.p3d), a legacy scene (.3d.json) or a supported 3D model',
     undo: false,
-    props: [{ id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true }],
+    props: [
+      { id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true },
+      // '' : Puter's Open dialog inside the Puter desktop, else this device
+      { id: 'source', label: 'Source', type: 'string', default: '', hidden: true },
+    ],
     invoke: (_ctx, p) => {
       if (p.filepath) {
         void fileEvents.openRecent?.(String(p.filepath));
+        return 'CANCELLED';
+      }
+      if (p.source === 'PUTER' ? canOpenFromPuter() : !p.source && opensFromPuter()) {
+        void pickFromPuter('open');
         return 'CANCELLED';
       }
       void pickFile(['.p3d', '.json', ...formats.flatMap((f) => (f.import ? f.extensions : []))].join(',')).then((f) => f && openFile(f));
@@ -241,6 +254,11 @@ registerOperators([
     invoke: (_ctx, p) => {
       const copy = !!p.copy;
       const suggest = copy ? app.filename.replace(/(\.p3d)?$/i, '_copy.p3d') : app.filename;
+      // inside the Puter desktop Puter's Save dialog asks for the name and the folder
+      if (savesToPuter()) {
+        saveFile(suggest, copy, true);
+        return 'CANCELLED';
+      }
       import('../ui/menu').then(({ promptText }) => promptText(copy ? 'Save Copy' : 'Save As', suggest, (n) => n && saveFile(n, copy)));
       return 'CANCELLED';
     },
@@ -253,7 +271,12 @@ registerOperators([
     idname: 'wm.import',
     label: 'Import',
     description: 'Import a file with the format that reads it (or the given format)',
-    props: [{ id: 'format', label: 'Format', type: 'string', default: '' }, { id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true }],
+    props: [
+      { id: 'format', label: 'Format', type: 'string', default: '' },
+      { id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true },
+      // '' : Puter's Open dialog inside the Puter desktop, else this device
+      { id: 'source', label: 'Source', type: 'string', default: '', hidden: true },
+    ],
     undo: false,
     exec: (_ctx, p) => {
       // with a path: the format's own import operator reads it from the session files
@@ -271,6 +294,10 @@ registerOperators([
       if (p.filepath) return operators.get('wm.import')!.exec!(_ctx, p);
       if (f?.importOp) return app.run(f.importOp, {}, { invoke: true });
       const accept = f ? f.extensions.join(',') : formats.flatMap((x) => (x.import ? x.extensions : [])).join(',');
+      if (p.source === 'PUTER' ? canOpenFromPuter() : !p.source && opensFromPuter()) {
+        void pickFromPuter('import', accept.split(','));
+        return 'CANCELLED';
+      }
       void pickFile(accept).then((file) => file && openFile(file, 'import'));
       return 'CANCELLED';
     },
@@ -310,7 +337,13 @@ const ordered = () => {
 };
 
 export function importMenu(): MenuItem[] {
-  return ordered().filter((f) => f.import || f.importOp).map((f) => (f.importOp ? { label: f.label, description: f.description, op: f.importOp } : { label: f.label, description: f.description, op: 'wm.import', props: { format: f.id } }));
+  // the other place files come from: this device inside the Puter desktop, else Puter (when it is there)
+  const other: MenuItem[] = opensFromPuter()
+    ? [{ label: 'From This Device…', icon: 'file_folder', description: 'Import a file from this device with the format that reads it', op: 'wm.import', props: { source: 'DEVICE' } }, { separator: true }]
+    : canOpenFromPuter()
+      ? [{ label: 'From Puter…', icon: 'file_folder', description: 'Import a file from your Puter drive with the format that reads it', op: 'wm.import', props: { source: 'PUTER' } }, { separator: true }]
+      : [];
+  return [...other, ...ordered().filter((f) => f.import || f.importOp).map((f) => (f.importOp ? { label: f.label, description: f.description, op: f.importOp } : { label: f.label, description: f.description, op: 'wm.import', props: { format: f.id } }))];
 }
 
 export function exportMenu(): MenuItem[] {

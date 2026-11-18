@@ -6,6 +6,7 @@ import type { DocumentData, ID } from '../data/types';
 import { activeCollection } from '../ops/object';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { isReadableFile, openFile } from '../io/files';
+import { openDroppedFile, readDroppedDriveItems } from '../io/puterfiles';
 import { openLibraryBrowser, typeLabel, type BrowseResult, type FileRef } from './browser';
 import {
   appendFromDoc,
@@ -546,7 +547,8 @@ let pendingDrop: File | null = null;
 function dropMenu(f: File): MenuItem[] {
   const ref: FileRef = { name: f.name, path: f.name, file: f };
   return [
-    { label: 'Open', icon: 'file_folder', action: () => void openFile(f) },
+    // a file dragged in from a Puter folder stays tied to it: Save writes back there
+    { label: 'Open', icon: 'file_folder', action: () => void openDroppedFile(f) },
     { separator: true },
     { label: 'Link…', icon: 'link', disabled: !app.poll('wm.link'), action: () => browseFile(true, ref) },
     { label: 'Append…', icon: 'append_blend', disabled: !app.poll('wm.append'), action: () => browseFile(false, ref) },
@@ -566,17 +568,32 @@ if (typeof window !== 'undefined') {
     const files = [...(e.dataTransfer?.files ?? [])];
     if (!files.length) return;
     e.preventDefault();
-    app.pointer = { x: e.clientX, y: e.clientY };
-    const project = files.find((f) => isLibraryFile(f.name));
-    if (project) {
-      pendingDrop = project;
-      app.run('wm.drop_blend_file', { filepath: project.name }, { invoke: false });
-      return;
-    }
-    // other files: import the ones a format reads
-    pendingImports.push(...files);
-    app.run('wm.drop_import_file', {}, { invoke: false });
+    dropFiles(files, e.clientX, e.clientY);
   });
+  // Files dragged in from a Puter desktop folder window: the SDK dispatches a drop event of its own
+  // on the element under the pointer, with the drive entries in its detail and no dataTransfer.
+  addEventListener('drop', (e) => {
+    const detail = (e as unknown as CustomEvent<{ clientX?: number; clientY?: number; items?: unknown }>).detail;
+    if ((e as DragEvent).dataTransfer || !Array.isArray(detail?.items) || e.defaultPrevented) return;
+    e.preventDefault();
+    const x = detail.clientX ?? app.pointer.x;
+    const y = detail.clientY ?? app.pointer.y;
+    void readDroppedDriveItems(detail.items).then((files) => files.length && dropFiles(files, x, y));
+  });
+}
+
+/** Files dropped onto the window: a project file asks what to do with it, other files are imported. */
+export function dropFiles(files: File[], x: number, y: number) {
+  app.pointer = { x, y };
+  const project = files.find((f) => isLibraryFile(f.name));
+  if (project) {
+    pendingDrop = project;
+    app.run('wm.drop_blend_file', { filepath: project.name }, { invoke: false });
+    return;
+  }
+  // other files: import the ones a format reads
+  pendingImports.push(...files);
+  app.run('wm.drop_import_file', {}, { invoke: false });
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@
 import { app, registerOperators, type PropDef, type OpResult } from '../../app/app';
 import type { DocumentData } from '../../data/types';
 import { registerFormat } from '../files';
+import { opensFromPuter, pickFilesFromPuter } from '../puterfiles';
 import { download } from '../native';
 import { scriptState, ensureEvaluated } from '../../scripting/rna';
 import { imageCanvas, imageReady } from '../../render/images';
@@ -164,6 +165,8 @@ const TEMP_DIRS = /^\/(tmp|var\/tmp|private\/tmp|temp)\//i;
 export const isTempPath = (p: string) => TEMP_DIRS.test(normPath(p)) || /\/temp\//i.test(normPath(p));
 
 function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
+  // inside the Puter desktop the files come from Puter's Open dialog (File ▸ Import ▸ From This Device for others)
+  if (opensFromPuter()) return pickFilesFromPuter(accept, multiple);
   return new Promise((res) => {
     const input = document.createElement('input');
     input.type = 'file';
