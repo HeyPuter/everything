@@ -442,6 +442,32 @@ describe('proxy manager', () => {
     expect([...cache.files.keys()].filter((k) => k.startsWith('proxies/'))).toEqual([]);
   });
 
+  it.each(['remove', 'removeAll', 'dispose'])('discards a proxy canceled during its cache write by %s', async (action) => {
+    const { proxies, generate, cache } = managerSetup();
+    await proxies.init();
+    let finishWrite;
+    const write = cache.writeBlob.bind(cache);
+    cache.writeBlob = (path, blob) => new Promise(resolve => {
+      finishWrite = async () => { await write(path, blob); resolve(); };
+    });
+    const a = vid('a');
+    proxies.sync(projectWith(a));
+    await flush();
+    generate.jobs[0].done();
+    await flush();
+    expect(finishWrite).toBeTypeOf('function');
+    await proxies[action](a);
+    await finishWrite();
+    await flush();
+    expect(proxies.status(a).state).toBe('none');
+    expect([...cache.files.keys()].filter(k => k.startsWith('proxies/'))).toEqual([]);
+    const reopened = new ProxyManager({ cache, generate });
+    await reopened.init();
+    expect(reopened.isReady(a)).toBe(false);
+    reopened.dispose();
+    proxies.dispose();
+  });
+
   it('keys proxies by content: a replaced file gets its own proxy', async () => {
     const { proxies, generate } = managerSetup();
     await proxies.init();
