@@ -791,6 +791,79 @@ test('a part launched from the desktop asks before replacing unsaved work', asyn
   expect(errors).toEqual([]);
 });
 
+test('files from the Puter desktop: folders and other files are not read, one part opens at a time', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    type Launch = (items: { name: string; path: string; is_dir?: boolean }[]) => Promise<void>;
+    const w = window as unknown as Mock & { puter: { fs: { read(path: string): Promise<Blob> }; ui: { onLaunchedWithItems(fn: Launch): void } }; launchPart: Launch; __reads: string[] };
+    w.puter.ui.onLaunchedWithItems = (fn) => { w.launchPart = fn; };
+    w.__reads = [];
+    const read = w.puter.fs.read;
+    w.puter.fs.read = (path) => { w.__reads.push(path); return read(path); };
+    for (const name of ['Opened', 'Second']) w.__files.set(`/tester/Documents/${name}.parametric`, { text: JSON.stringify({ format: 'parametric-part', version: 1, name, features: [] }) });
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  const launch = (items: { name: string; path: string; is_dir?: boolean }[]) => page.evaluate((items) => (window as unknown as { launchPart(items: unknown[]): Promise<void> }).launchPart(items), items);
+  const reads = () => page.evaluate(() => (window as unknown as { __reads: string[] }).__reads);
+  const notes = page.getByRole('region', { name: 'Notifications' });
+
+  await launch([{ name: 'Documents', path: '/tester/Documents', is_dir: true }]);
+  await expect(notes.getByText('Folders cannot be opened.')).toBeVisible();
+  await launch([{ name: 'photo.png', path: '/tester/Desktop/photo.png' }]);
+  await expect(notes.getByText(/photo\.png is not a file Parametric opens/)).toBeVisible();
+  expect(await reads()).toEqual([]);
+  await expect(page).toHaveTitle('Part1 - Parametric');
+
+  await launch([{ name: 'Opened.parametric', path: '/tester/Documents/Opened.parametric' }, { name: 'Second.parametric', path: '/tester/Documents/Second.parametric' }]);
+  await expect(page).toHaveTitle('Opened - Parametric');
+  await expect(notes.getByText('only Opened.parametric is opened')).toBeVisible();
+  expect(await reads()).toEqual(['/tester/Documents/Opened.parametric']);
+
+  // The open part is not read again.
+  await launch([{ name: 'Opened.parametric', path: '/tester/Documents/Opened.parametric' }]);
+  await expect(notes.getByText('"Opened" is already open.')).toBeVisible();
+  expect(await reads()).toEqual(['/tester/Documents/Opened.parametric']);
+  expect(errors).toEqual([]);
+});
+
+test('files dropped from a Puter folder window or this device open as parts, and are attached on the assistant', async ({ page }) => {
+  await mockPuter(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as Mock;
+    w.__files.set('/tester/Documents/Dragged.parametric', { text: JSON.stringify({ format: 'parametric-part', version: 1, name: 'Dragged', features: [] }) });
+    w.__files.set('/tester/Documents/holes.csv', { text: 'hole,x,y\nA,10,10\n' });
+  });
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await app(page);
+  // The SDK turns a drop from a desktop folder into a drop event of its own: drive entries in its detail, no dataTransfer.
+  const driveDrop = (selector: string, items: { name: string; path: string }[]) => page.locator(selector).first().evaluate((el, items) => {
+    const e = new CustomEvent('drop', { bubbles: true, cancelable: true, detail: { items } });
+    el.dispatchEvent(e);
+    return e.defaultPrevented;
+  }, items);
+
+  expect(await driveDrop('canvas', [{ name: 'Dragged.parametric', path: '/tester/Documents/Dragged.parametric' }])).toBe(true);
+  await expect(page).toHaveTitle('Dragged - Parametric');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: import('../../src/app/app').App }).__parametric.location)).toEqual({ type: 'cloud', path: '/tester/Documents/Dragged.parametric' });
+
+  // On the assistant, a drive file goes with the next message instead.
+  expect(await driveDrop('.assistant', [{ name: 'holes.csv', path: '/tester/Documents/holes.csv' }])).toBe(true);
+  await expect(page.locator('.as-tray').getByRole('listitem')).toHaveCount(1);
+  await expect(page).toHaveTitle('Dragged - Parametric');
+
+  // From this device: opened as From device does, so it is not saved anywhere yet.
+  await page.locator('canvas').first().evaluate((el, text) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([text], 'Device.parametric', { type: '' }));
+    el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, JSON.stringify({ format: 'parametric-part', version: 1, name: 'Device', features: [] }));
+  await expect(page).toHaveTitle('* Device - Parametric');
+  expect(errors).toEqual([]);
+});
+
 for (const change of ['edits', 'a new part'] as const) test(`saving before New keeps ${change} made while that save was pending`, async ({ page }) => {
   await mockPuter(page);
   const errors = await openApp(page);

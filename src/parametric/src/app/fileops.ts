@@ -9,10 +9,10 @@ import {
   pickCloudFile, pickCloudSave, pickDeviceFile, orphanRecoveries, removeRecovery, saveText, safeName, writeRecovery, type FileEntry, deletePart, renameCloud, forgetRecent, rememberRecent,
   onRenamedElsewhere, onSavedElsewhere, sameLocation,
 } from '../platform/files';
-import { cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
+import { type PuterFSItem, cloudAvailable, env, isMissing, puter, signIn, storageError } from '../platform/puter';
 import { h } from '../ui/dom';
 import { icon } from '../ui/icons';
-import { confirmDialog, promptDialog, showDialog, toast } from '../ui/overlay';
+import { confirmDialog, dialogOpen, promptDialog, showDialog, toast } from '../ui/overlay';
 import type { App } from './app';
 import { sharedWithMe } from './share';
 
@@ -31,6 +31,8 @@ export class FileOps {
   private openRequest: AbortController | null = null;
   /** The open part's file, when another tab saved it after this tab opened or saved it. */
   private savedElsewhere: Location | null = null;
+  /** The Puter drive file being opened (a launch and a drop of the same file open it once). */
+  private openingDrivePath: string | null = null;
 
   constructor(private app: App) {
     app.onDocumentChanged = (reason) => {
@@ -70,6 +72,94 @@ export class FileOps {
         e.returnValue = '';
       }
     });
+    this.bindDrop();
+  }
+
+  /**
+   * Files dropped on the app open as a part. Files dragged in from a Puter
+   * folder window arrive as a drop event the SDK dispatches, with the drive
+   * entries in its detail and no dataTransfer. (The assistant panel takes its
+   * own drops as attachments.)
+   */
+  private bindDrop() {
+    const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+    window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = dialogOpen() ? 'none' : 'copy';
+    });
+    window.addEventListener('drop', (e) => {
+      const items = (e as unknown as CustomEvent<{ items?: unknown }>).detail?.items;
+      if (!e.dataTransfer && Array.isArray(items)) {
+        e.preventDefault();
+        if (!dialogOpen()) void this.openDriveItems(items);
+        return;
+      }
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      // Not behind a dialog that is waiting for an answer.
+      if (!dialogOpen()) void this.openDroppedFiles([...e.dataTransfer!.files]);
+    });
+  }
+
+  /** Files dropped from this device: the first one Parametric opens, as From device does. */
+  async openDroppedFiles(files: File[]) {
+    const file = this.pickOne(files.map((f) => ({ item: f, name: f.name })))?.item;
+    if (!file) return;
+    const signal = this.beginOpen();
+    if (await this.openBlob(file, file.name, null, signal)) this.app.store.dirty = true;
+  }
+
+  /**
+   * Opens entries of the Puter drive: launch items (double click or Open with
+   * on the desktop) and files dragged in from a desktop folder window. A part
+   * opens where it lives, so Save writes back to the same file. Folders and
+   * files Parametric does not open are not read.
+   */
+  async openDriveItems(given: unknown) {
+    const all = (Array.isArray(given) ? given : [given]).filter((it): it is PuterFSItem => !!it && typeof it === 'object');
+    const files = all.filter((it) => typeof it.path === 'string' && !!it.path && !isDriveFolder(it));
+    if (!files.length) {
+      if (all.some(isDriveFolder)) toast({ message: 'Folders cannot be opened. Open a part inside the folder instead.' });
+      return;
+    }
+    const picked = this.pickOne(files.map((f) => ({ item: f, name: f.name || f.path.replace(/\/+$/, '').split('/').pop() || f.path })));
+    if (!picked) return;
+    const { item: it, name } = picked;
+    const loc: Location = { type: 'cloud', path: it.path };
+    if (sameLocation(loc, this.app.location)) {
+      toast({ message: `"${this.app.store.doc.name}" is already open.` });
+      return;
+    }
+    if (this.openingDrivePath === it.path) return;
+    if (typeof it.size === 'number' && tooLarge(it.size, name)) return;
+    const signal = this.beginOpen();
+    this.openingDrivePath = it.path;
+    try {
+      // Launch items can read themselves; dropped entries are plain records.
+      const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
+      if (!signal.aborted) await this.openBlob(blob, name, loc, signal);
+    } catch (e) {
+      toast({ kind: 'error', title: 'Could not open the file', message: isMissing(e) ? `"${name}" no longer exists. It may have been moved or deleted.` : storageError(e) });
+    } finally {
+      if (this.openingDrivePath === it.path) this.openingDrivePath = null;
+    }
+  }
+
+  /**
+   * The first file Parametric can open, after saying which files it leaves out:
+   * ones it does not open, and the rest when several are given (one part is open at a time).
+   */
+  private pickOne<T>(files: { item: T; name: string }[]): { item: T; name: string } | null {
+    const openable = files.filter((f) => canOpen(f.name));
+    const other = files.filter((f) => !canOpen(f.name));
+    if (other.length) {
+      const what = other.length === 1 ? `${other[0].name} is not a file Parametric opens.` : `${other.length} of these files are not files Parametric opens.`;
+      toast({ kind: openable.length ? 'warning' : 'error', message: `${what} Choose a part (${EXT}), a STEP file (.step, .stp) or a SolidWorks part (.sldprt).`, timeout: 8000 });
+    }
+    if (!openable.length) return null;
+    if (openable.length > 1) toast({ message: `Parametric opens one part at a time, so only ${openable[0].name} is opened.`, timeout: 8000 });
+    return openable[0];
   }
 
   /** A later file operation must not be overwritten by an earlier completion. */
@@ -630,21 +720,15 @@ export class FileOps {
     });
   }
 
-  /** Files opened from the Puter desktop (double-click / Open With). */
+  /** Files opened from the Puter desktop (double click or Open with), in a desktop window or a browser tab it opened. */
   handleLaunchItems() {
     const ui = puter()?.ui;
     if (!ui?.onLaunchedWithItems) return;
-    ui.onLaunchedWithItems(async (items) => {
-      const it = items?.[0];
-      if (!it) return;
-      const signal = this.beginOpen();
-      try {
-        const blob = it.read ? await it.read() : await puter()!.fs.read(it.path);
-        await this.openBlob(blob, it.name, { type: 'cloud', path: it.path }, signal);
-      } catch (e) {
-        toast({ kind: 'error', title: 'Could not open the file', message: storageError(e) });
-      }
-    });
+    try {
+      ui.onLaunchedWithItems((items) => this.openDriveItems(items));
+    } catch {
+      /* an SDK without launch items */
+    }
   }
 }
 
@@ -675,6 +759,14 @@ function tooLarge(size: number, fileName: string): boolean {
   toast({ kind: 'error', message: step ? 'This STEP file is too large to import (60 MB limit).' : solidWorks ? 'This SolidWorks file is too large to open (200 MB limit).' : 'This file is too large to open as a part (200 MB limit).' });
   return true;
 }
+
+const OPENS = [EXT, '.json', ...IMPORT_EXTS];
+/** A file Parametric opens: a part, or a STEP or SolidWorks model. */
+const canOpen = (name: string) => OPENS.some((ext) => name.toLowerCase().endsWith(ext));
+const isDriveFolder = (it: PuterFSItem) => {
+  const d = it as PuterFSItem & { isDirectory?: boolean; fsentry_is_dir?: boolean };
+  return !!(d.is_dir || d.isDir || d.isDirectory || d.fsentry_is_dir);
+};
 
 /** The part in a file's text, or null after reporting why it is not one. */
 function parsePart(text: string): PartDocument | null {

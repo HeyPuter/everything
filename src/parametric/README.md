@@ -51,6 +51,7 @@ It runs entirely in the browser. The geometry kernel is OpenCascade compiled to 
 - Material and appearance, mass properties (mass, volume, area, center of mass, inertia), measure, section view.
 - Display styles (shaded with edges, shaded, hidden lines removed or visible, wireframe), standard views, perspective.
 - Save to your Puter cloud or this browser, crash recovery of unsaved work, export STEP and STL, download the part file.
+- Open parts, STEP and SolidWorks files from the Puter desktop (double-click or Open with), or drag them onto the app from a Puter folder window or your computer. Files dragged onto the assistant go with your next message.
 - Share parts saved in your Puter cloud with other Puter users, with view or edit access. Parts shared with you appear under **Shared with me** in the Open dialog.
 - Undo and redo for everything, including sketch edits.
 - Light, dark and system themes. Works with mouse, trackpad, touch and keyboard, from phones to large desktop screens.
