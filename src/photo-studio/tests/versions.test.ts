@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryStore } from '../src/persistence/local-store';
-import { liveInstances, RecoveryStore, relativeTime, VersionStore, type RecoveryRecord } from '../src/persistence/versions';
+import { liveInstances, RecoveryStore, relativeTime, VersionStore, versionFileKey, type RecoveryRecord } from '../src/persistence/versions';
 
 const meta = (docId: string, name: string, kind: 'auto' | 'save' | 'named', time: number) => ({ docId, docName: 'Doc', name, kind, width: 10, height: 10, time });
 
@@ -42,6 +42,27 @@ describe('version store', () => {
       expect(await store.keys('blobs')).toEqual([]);
       expect(await s.list('d')).toEqual([]);
     }
+  });
+  it('finds the versions of a file again when it reopens as a new document, and bounds them per file', async () => {
+    const s = new VersionStore(new MemoryStore());
+    const at = (docId: string, name: string, time: number) => ({ ...meta(docId, name, 'auto', time), file: 'puter:/me/art.psd' });
+    // Each opening of the PSD is a new document ID.
+    await s.add(at('open-1', 'Monday', 1), new Blob(['1']), 2);
+    await s.add(at('open-2', 'Tuesday', 2), new Blob(['2']), 2);
+    await s.add(meta('other', 'Elsewhere', 'auto', 3), new Blob(['3']), 2);
+    expect((await s.list('open-3', 'puter:/me/art.psd')).map((v) => v.name)).toEqual(['Tuesday', 'Monday']);
+    expect((await s.list('open-3')).map((v) => v.name)).toEqual([]);
+    // The limit applies to the file's versions together, not to each opening.
+    await s.add(at('open-3', 'Wednesday', 4), new Blob(['4']), 2);
+    expect((await s.list('open-3', 'puter:/me/art.psd')).map((v) => v.name)).toEqual(['Wednesday', 'Tuesday']);
+    expect((await s.list('other')).map((v) => v.name)).toEqual(['Elsewhere']);
+  });
+  it('names a file by its Puter path, or by name, size and date on this device', () => {
+    const file = new File(['abc'], 'photo.jpg', { lastModified: 42 });
+    expect(versionFileKey('/me/a.psd', { blob: file, name: 'photo.jpg' })).toBe('puter:/me/a.psd');
+    expect(versionFileKey(undefined, { blob: new Blob(['x']), name: 'b.png', path: '/me/b.png' })).toBe('puter:/me/b.png');
+    expect(versionFileKey(undefined, { blob: file, name: 'photo.jpg' })).toBe('local:photo.jpg:3:42');
+    expect(versionFileKey(undefined, undefined)).toBeUndefined();
   });
   it('renames (making a version named) and removes versions with their projects', async () => {
     const store = new MemoryStore();

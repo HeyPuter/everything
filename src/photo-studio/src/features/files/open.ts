@@ -374,7 +374,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     noteRecent(e, name, source);
     e.message(isPsd ? 'PSD opened' : 'Project opened');
     if ('notice' in loaded && loaded.notice) information('PSD import', `<p>${escapeXML(String(loaded.notice))}</p>`);
-    openedFiles.set(s, { blob, name });
+    openedFiles.set(s, { blob, name, path: source.kind === 'puter' ? source.path : undefined });
     void emitAppEvent('open-document', s);
     return true;
   }
@@ -421,7 +421,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   e.update();
   noteRecent(e, name, source);
   e.message(decoded.notice ?? (doc.animation ? `Opened ${name} as a ${doc.animation.frames.length}-frame animation` : `Opened ${name}`));
-  openedFiles.set(s, { blob, name });
+  openedFiles.set(s, { blob, name, path: source.kind === 'puter' ? source.path : undefined });
   void emitAppEvent('open-document', s);
   return true;
 }
