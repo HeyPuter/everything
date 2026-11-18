@@ -78,35 +78,10 @@ export function ellipsePoints(x: number, y: number, w: number, h: number): [numb
   }
   return pts;
 }
-/** Gaussian-like feather of a canvas mask: three box blurs (Wells 1986). */
+/** Feather a canvas mask by a radius in pixels: the same Gaussian as Select >
+ * Modify > Feather and Select and Mask, so one radius softens alike everywhere. */
 export function featherMask(m: Mask8, radius: number): Mask8 {
-  if (radius <= 0) return m;
-  const { width: w, height: h } = m;
-  let a = Float32Array.from(m.data);
-  let b = new Float32Array(a.length);
-  const r = Math.max(1, Math.round(radius / Math.sqrt(3)));
-  for (let pass = 0; pass < 3; pass++) {
-    for (let y = 0; y < h; y++) {
-      let sum = 0;
-      for (let x = -r; x <= r; x++) sum += a[y * w + Math.min(w - 1, Math.max(0, x))];
-      for (let x = 0; x < w; x++) {
-        b[y * w + x] = sum / (2 * r + 1);
-        sum += a[y * w + Math.min(w - 1, x + r + 1)] - a[y * w + Math.max(0, x - r)];
-      }
-    }
-    for (let x = 0; x < w; x++) {
-      let sum = 0;
-      for (let y = -r; y <= r; y++) sum += b[Math.min(h - 1, Math.max(0, y)) * w + x];
-      for (let y = 0; y < h; y++) {
-        a[y * w + x] = sum / (2 * r + 1);
-        sum += b[Math.min(h - 1, y + r + 1) * w + x] - b[Math.max(0, y - r) * w + x];
-      }
-    }
-    [a, b] = [a, b];
-  }
-  const out = new Uint8Array(a.length);
-  for (let i = 0; i < a.length; i++) out[i] = Math.round(a[i]);
-  return { width: w, height: h, data: out };
+  return radius > 0 ? feather(m, radius) : m;
 }
 
 // ----- Selection state helpers -----

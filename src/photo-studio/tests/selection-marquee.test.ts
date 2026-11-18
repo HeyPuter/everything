@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { constrainOffset, marqueePixels, marqueeRect } from '../src/features/selection';
+import {
+  constrainOffset,
+  featherMask,
+  marqueePixels,
+  marqueeRect,
+} from '../src/features/selection';
+import { feather } from '../src/imaging/segment/mask-ops';
 
 const at = (x: number, y: number, mods: { shift?: boolean; alt?: boolean } = {}) => ({ x, y, shift: !!mods.shift, alt: !!mods.alt });
 
@@ -45,5 +51,16 @@ describe('moving a selection outline', () => {
     expect(constrainOffset(30, 3, true)).toEqual([30, 0]);
     expect(constrainOffset(-2, 25, true)).toEqual([0, 25]);
     expect(constrainOffset(20, 22, true)).toEqual([21, 21]);
+  });
+});
+
+describe('feather radius', () => {
+  it('softens a shape by the options-bar Feather exactly as Select > Modify > Feather does', () => {
+    const W = 120,
+      H = 40;
+    const m = { width: W, height: H, data: new Uint8Array(W * H) };
+    for (let y = 0; y < H; y++) for (let x = 0; x < 60; x++) m.data[y * W + x] = 255;
+    for (const r of [1, 4, 10])
+      expect(Array.from(featherMask(m, r).data)).toEqual(Array.from(feather(m, r).data));
   });
 });
