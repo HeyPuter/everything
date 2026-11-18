@@ -54,6 +54,37 @@ export function readTarget(e: Editor, t: PixelTarget): TargetPixels | null {
 }
 
 /** Grid for a computed result, blended by selection coverage like applyToLayer. */
+/** The tiles of a dialog's canvas previews (results made with `resultGrid`):
+ * a preview replaced by the next one, and the last one when the dialog
+ * closes (OK computes its own result), are freed once no render still reads
+ * them, instead of staying in memory until a later edit's cleanup. */
+export function previewTiles(e: Editor, t: PixelTarget) {
+  const base = new Set(Object.values(t.grid.tiles));
+  let shown: string[] = [];
+  const retire = (ids: string[]) => {
+    if (!ids.length) return;
+    const store = e.assets.tiles;
+    const done = () => {
+      for (const id of ids) store.delete(id);
+    };
+    const r = e.renderer;
+    if (r) void r.settle().then(() => requestAnimationFrame(() => void r.settle().then(done)));
+    else done();
+  };
+  return {
+    /** Note `grid` as the preview now shown; returns it. */
+    show(grid: TileGrid) {
+      const old = shown;
+      shown = Object.values(grid.tiles).filter((id) => !base.has(id));
+      retire(old);
+      return grid;
+    },
+    release() {
+      retire(shown);
+      shown = [];
+    },
+  };
+}
 export function resultGrid(e: Editor, t: PixelTarget, src: TargetPixels, out: RGBA8): TileGrid {
   const { cover, image } = src;
   if (t.kind !== 'pixels') {
@@ -245,6 +276,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   if (!src) return e.message('The layer is empty.');
   const label = ADJUSTMENT_LABELS[kind];
   const shell = openShell(e, label, { wide: kind === 'curves' || kind === 'levels' || kind === 'hue-saturation' || kind === 'gradient-map' });
+  const tiles = previewTiles(e, target);
   // Clarity & Dehaze and Grain read neighboring pixels: clipped to a masked
   // layer, the GPU would see the hidden part as transparent while OK adjusts
   // the pixels under the mask too, so those preview the CPU result.
@@ -298,7 +330,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
       if (!shell.dialog.isConnected) return;
       shell.status.textContent = '';
       if (!shell.preview.checked) return;
-      const doc = previewTarget(e, target, resultGrid(e, target, src, out));
+      const doc = previewTarget(e, target, tiles.show(resultGrid(e, target, src, out)));
       e.overlay();
       e.preview(doc);
     });
@@ -316,6 +348,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
   refresh();
   const ok = await shell.result;
   restore(e);
+  tiles.release();
   if (!ok) return noteDialogCancelled();
   rememberLast(kind, host.params);
   const adj = structuredClone(adjustment());
@@ -360,6 +393,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, op.label.replace(/…$/, ''));
+  const tiles = previewTiles(e, target);
   const values: ParamValues = initial ? operationValues(op.params, initial) : Object.fromEntries(op.params.map((p) => [p.key, p.default]));
   const schedule = latest();
   const refresh = () => {
@@ -371,7 +405,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
       if (!shell.dialog.isConnected) return;
       shell.status.textContent = '';
       if (!shell.preview.checked) return;
-      const doc = previewTarget(e, target, resultGrid(e, target, src, out));
+      const doc = previewTarget(e, target, tiles.show(resultGrid(e, target, src, out)));
       e.overlay();
       e.preview(doc);
     });
@@ -398,6 +432,7 @@ export async function operationDialog(e: Editor, op: { id: string; label: string
   refresh();
   const ok = await shell.result;
   restore(e);
+  tiles.release();
   if (!ok) return noteDialogCancelled();
   const v = { ...values };
   await applyToLayer(e, op.label.replace(/…$/, ''), (image) => operationInWorker(image, op.id, v, context()));
@@ -437,6 +472,7 @@ export async function matchColorDialog(e: Editor) {
   const src = readTarget(e, target);
   if (!src) return e.message('The layer is empty.');
   const shell = openShell(e, 'Match Color');
+  const tiles = previewTiles(e, target);
   const own = labStats(src.image, src.cover);
   const options: [string, string][] = [['', 'None']];
   for (const l of allLayers(e.doc.layers))
@@ -474,7 +510,7 @@ export async function matchColorDialog(e: Editor) {
       if (!shell.dialog.isConnected) return;
       shell.status.textContent = '';
       if (!shell.preview.checked) return;
-      e.preview(previewTarget(e, target, resultGrid(e, target, src, out)));
+      e.preview(previewTarget(e, target, tiles.show(resultGrid(e, target, src, out))));
       e.overlay();
     });
   };
@@ -507,6 +543,7 @@ export async function matchColorDialog(e: Editor) {
   refresh();
   const ok = await shell.result;
   restore(e);
+  tiles.release();
   if (!ok) return;
   // OK while the chosen source is still being measured applies that source.
   await measuring;

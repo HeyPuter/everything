@@ -10,7 +10,7 @@ import type { PhotoDocument } from '../../model/document';
 import { newPixelLayer } from '../../model/pixel-layer';
 import { gridFromImage } from '../../model/tiles';
 import { applyToLayer, hexRgb, pixelTarget, previewTarget } from '../pixels';
-import { latest, openShell, readTarget, resultGrid } from '../adjust/dialog';
+import { latest, openShell, previewTiles, readTarget, resultGrid } from '../adjust/dialog';
 import { operationInWorker } from '../adjust/worker-client';
 import { h, select, slider } from '../adjust/ui';
 import { previewJob, runJob, withTask } from './client';
@@ -189,6 +189,7 @@ export async function hdrToningDialog(e: Editor, arg?: unknown) {
   const context = () => ({ foreground: hexRgb(e.color), background: hexRgb(e.background), scale: 1 });
   if (!given) {
     const shell = openShell(e, 'HDR Toning', { wide: true });
+    const tiles = previewTiles(e, target);
     shell.body.classList.add('comp-form');
     const schedule = latest();
     const refresh = () => {
@@ -200,7 +201,7 @@ export async function hdrToningDialog(e: Editor, arg?: unknown) {
         if (!shell.dialog.isConnected) return;
         shell.status.textContent = '';
         if (!shell.preview.checked) return;
-        e.preview(previewTarget(e, target, resultGrid(e, target, src, out)));
+        e.preview(previewTarget(e, target, tiles.show(resultGrid(e, target, src, out))));
       });
     };
     toningControls(shell.body, p, (commit) => commit && refresh());
@@ -209,6 +210,7 @@ export async function hdrToningDialog(e: Editor, arg?: unknown) {
     const ok = await shell.result;
     delete e.settings.quickMaskPreview;
     e.update();
+    tiles.release();
     if (!ok) return;
     remembered = { ...p };
   }
