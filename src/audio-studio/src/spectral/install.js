@@ -52,11 +52,17 @@ export function installSpectral(app) {
 
   const services = {
     async heal(doc, selection) {
-      const before = doc.state;
-      const d = dspSync || (await loadDsp());
-      if (!unchanged(doc, before, 'Spot Healing Brush')) return false;
-      const next = healSpectral(before, selection, d);
-      if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
+      // Pointer gestures do not run through the command registry's error handler.
+      try {
+        const before = doc.state;
+        const d = dspSync || (await loadDsp());
+        if (!unchanged(doc, before, 'Spot Healing Brush')) return false;
+        const next = healSpectral(before, selection, d);
+        if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
+      } catch (err) {
+        app.notify(`Spot healing could not be applied: ${err?.message || 'Unknown error'}`, { error: true });
+        return false;
+      }
     },
     zoomFrequency(doc, factor, centre) {
       const nyq = doc.sampleRate / 2;
