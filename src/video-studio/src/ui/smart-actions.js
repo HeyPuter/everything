@@ -438,6 +438,12 @@ export function createSmartActions(ctx) {
         return;
       }
       if (f.track.locked) return;
+      const clip = f.clip;
+      const assetId = clip.assetId;
+      const isCurrentSource = () => T.findClip(store.project, clip.id)?.clip === clip
+        && clip.assetId === assetId && clip.type === 'video' && !clip.freeze;
+      const changedMessage = 'The clip changed. Reopen Remove flicker to analyze its current video.';
+      const requireSource = () => { if (!isCurrentSource()) throw new Error(changedMessage); };
       const span = h('select.select', h('option', { value: '0.15' }, 'Quick flicker only'), h('option', { value: '0.4' }, 'Balanced'), h('option', { value: '1' }, 'Slow pulsing too'));
       span.value = String(prefs().flickerSpan || '0.4');
       const go = h('button.btn.primary', { type: 'button' }, icon('brightness', 16), 'Remove flicker');
@@ -452,16 +458,25 @@ export function createSmartActions(ctx) {
       go.addEventListener('click', async () => {
         dlg.close();
         setPref('flickerSpan', span.value);
-        const clip = f.clip;
-        const asset = store.project.assets[clip.assetId];
+        if (!isCurrentSource()) {
+          toast(changedMessage, { kind: 'error' });
+          return;
+        }
+        if (T.findClip(store.project, clip.id)?.track.locked) {
+          toast('Unlock the track to remove flicker from this clip.', { kind: 'info' });
+          return;
+        }
+        const asset = store.project.assets[assetId];
         // Every source frame (an even grid for fast, long or curved clips).
         const { local, source } = frameGrid(clip, asset?.fps || store.project.settings.fps || 30);
         const fps = local.length / Math.max(1e-3, clip.duration / US);
         const p = progressDialog('Removing flicker', 'Measuring the brightness of each frame...');
         try {
           const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
+          requireSource();
           const lumas = fillGaps(await frameLumas(blob, source, { signal: p.signal, onProgress: (x) => p.set(x) }));
           p.signal.throwIfAborted();
+          requireSource();
           if (!lumas) throw new Error('Could not read the frames of this clip.');
           const units = flickerCorrections(lumas, { radius: Math.max(1, Math.round(Number(span.value) * fps)) });
           if (units.every((u) => Math.abs(u) < 1)) {
@@ -470,7 +485,8 @@ export function createSmartActions(ctx) {
           }
           const before = wobble(lumas);
           const after = wobble(corrected(lumas, units));
-          ctx.actions.editClip(clip.id, 'Remove flicker', (c) => {
+          const saved = ctx.actions.editClip(clip.id, 'Remove flicker', (c) => {
+            if (!isCurrentSource()) return false;
             c.adjust ||= { ...DEFAULT_ADJUST };
             c.keyframes ||= {};
             const keys = flickerKeys(local, units, c.adjust.exposure || 0);
@@ -478,11 +494,12 @@ export function createSmartActions(ctx) {
             else delete c.keyframes[adjustProp('exposure')];
             if (c.grade?.off) delete c.grade.off.light;
           });
+          if (saved === false) throw new Error(isCurrentSource() ? 'Flicker removal could not be saved. The clip may be locked or no longer available.' : changedMessage);
           const pct = before > 0 ? Math.round((1 - after / before) * 100) : 0;
           toast(`Flicker reduced by ${pct}%.`, { kind: 'success' });
           announce('Flicker removed');
         } catch (err) {
-          if (!p.signal.aborted && err?.name !== 'AbortError') toast(err?.message || 'Could not remove the flicker.', { kind: 'error' });
+          if (!p.signal.aborted && err?.name !== 'AbortError') toast(isCurrentSource() ? err?.message || 'Could not remove the flicker.' : changedMessage, { kind: 'error' });
         } finally {
           p.close();
         }
