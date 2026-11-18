@@ -379,3 +379,27 @@ test('Rotate Canvas by 0° adds no history step', async ({ page }) => {
   expect(await page.evaluate(() => window.photoStudio.history.labels)).toEqual([]);
   expect(await page.evaluate(() => [window.photoStudio.doc.width, window.photoStudio.doc.height])).toEqual([300, 200]);
 });
+
+test('Rotate Canvas by an angle fills the background layer’s new corners with the background color', async ({ page }) => {
+  await openImage(page, 300, 200, '#ff0000');
+  await page.evaluate(() => (window.photoStudio.background = '#00ff00'));
+  // A second layer keeps transparent corners.
+  await run(page, 'layer.duplicate');
+  await run(page, 'image.rotate-arbitrary', { params: { angle: 30, direction: 'cw' } });
+  const corner = (index: number) =>
+    page.evaluate(async (index) => {
+      const e = window.photoStudio;
+      const { readRGBA } = await import('/src/model/tiles.ts');
+      const l = e.doc.layers[index];
+      return Array.from(readRGBA(e.assets.tiles, l.pixels!, { x: 1, y: 1, width: 1, height: 1 }).data);
+    }, index);
+  expect(await corner(0)).toEqual([0, 255, 0, 255]);
+  expect((await corner(1))[3]).toBe(0);
+  // The middle keeps the image.
+  const mid = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    return Array.from(readRGBA(e.assets.tiles, e.doc.layers[0].pixels!, { x: Math.floor(e.doc.width / 2), y: Math.floor(e.doc.height / 2), width: 1, height: 1 }).data);
+  });
+  expect(mid).toEqual([255, 0, 0, 255]);
+});
