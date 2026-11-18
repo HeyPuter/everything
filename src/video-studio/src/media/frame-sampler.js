@@ -4,6 +4,7 @@
  * photos are drawn once. Frames are { t, data, width, height }.
  */
 import { US, FRAME_SLACK } from '../lib/time.js';
+import { abortable } from '../lib/abort.js';
 import { sourceTimeAt } from '../model/timeline.js';
 
 /** Analysis frame size: `width` pixels across, height from the asset's shape. */
@@ -21,18 +22,22 @@ export function spreadTimes(clip, n) {
 
 /** RGBA frames of a video blob at source times (µs, ascending), one at a time; i is the index into times. */
 export async function* rgbaFrames(blob, times, { width = 96, height = 54, signal } = {}) {
-  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await import('mediabunny');
+  const { Input, BlobSource, ALL_FORMATS, CanvasSink } = await abortable(() => import('mediabunny'), signal);
+  signal?.throwIfAborted();
   const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS });
+  let frames;
   try {
-    const track = await input.getPrimaryVideoTrack();
-    if (!track || !(await track.canDecode())) throw new Error('This video can not be decoded here.');
+    const track = await abortable(() => input.getPrimaryVideoTrack(), signal);
+    if (!track || !(await abortable(() => track.canDecode(), signal))) throw new Error('This video can not be decoded here.');
     const sink = new CanvasSink(track, { width, height, fit: 'fill', poolSize: 1 });
     const cv = new OffscreenCanvas(width, height);
     const g = cv.getContext('2d', { willReadFrequently: true });
     let i = 0;
     // The frame shown at each time, as the preview and export pick it (see FRAME_SLACK).
-    for await (const wrapped of sink.canvasesAtTimestamps(times.map((t) => t / US + FRAME_SLACK))) {
-      if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+    frames = sink.canvasesAtTimestamps(times.map((t) => t / US + FRAME_SLACK))[Symbol.asyncIterator]();
+    for (;;) {
+      const { value: wrapped, done } = await abortable(() => frames.next(), signal);
+      if (done) break;
       if (wrapped) {
         g.drawImage(wrapped.canvas, 0, 0, width, height);
         yield { i, t: times[i], data: g.getImageData(0, 0, width, height).data, width, height };
@@ -41,6 +46,11 @@ export async function* rgbaFrames(blob, times, { width = 96, height = 54, signal
     }
   } finally {
     input.dispose();
+    // A pending next() can outlive cancellation. Queue iterator cleanup without
+    // retaining the caller or leaving a late rejection unhandled.
+    const closed = frames?.return?.();
+    if (signal?.aborted) Promise.resolve(closed).catch(() => {});
+    else await closed;
   }
 }
 

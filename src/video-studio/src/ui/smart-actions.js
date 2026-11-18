@@ -459,9 +459,9 @@ export function createSmartActions(ctx) {
         const fps = local.length / Math.max(1e-3, clip.duration / US);
         const p = progressDialog('Removing flicker', 'Measuring the brightness of each frame...');
         try {
-          const blob = await ctx.library.mediaBlob(asset);
+          const blob = await abortable(() => ctx.library.mediaBlob(asset), p.signal);
           const lumas = fillGaps(await frameLumas(blob, source, { signal: p.signal, onProgress: (x) => p.set(x) }));
-          p.close();
+          p.signal.throwIfAborted();
           if (!lumas) throw new Error('Could not read the frames of this clip.');
           const units = flickerCorrections(lumas, { radius: Math.max(1, Math.round(Number(span.value) * fps)) });
           if (units.every((u) => Math.abs(u) < 1)) {
@@ -482,8 +482,9 @@ export function createSmartActions(ctx) {
           toast(`Flicker reduced by ${pct}%.`, { kind: 'success' });
           announce('Flicker removed');
         } catch (err) {
+          if (!p.signal.aborted && err?.name !== 'AbortError') toast(err?.message || 'Could not remove the flicker.', { kind: 'error' });
+        } finally {
           p.close();
-          if (err?.name !== 'AbortError') toast(err?.message || 'Could not remove the flicker.', { kind: 'error' });
         }
       });
     },
