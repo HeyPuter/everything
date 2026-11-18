@@ -229,6 +229,58 @@ test.describe('on a phone', () => {
   });
 });
 
+test.describe('in a short window', () => {
+  test.use({ viewport: { width: 1280, height: 600 } });
+  test('menus taller than the window scroll, and their submenus open beside them on screen', async ({ page }) => {
+    const bar = page.getByRole('menubar');
+    // Edit is much taller than 600 px: its last items used to be below the window.
+    await bar.getByRole('menuitem', { name: 'Edit', exact: true }).focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('End');
+    const last = page.locator('.menubar-entry.open > .menu-pop > .menu-item').last();
+    await expect(last).toBeFocused();
+    const box = (await last.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(600);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    // A submenu low in a scrolled menu is not cut off by the menu's scrolling.
+    await page.keyboard.press('Escape');
+    await bar.getByRole('menuitem', { name: 'Layer', exact: true }).click();
+    const subs = page.locator('.menubar-entry.open > .menu-pop > .has-submenu');
+    const owner = subs.last();
+    await owner.scrollIntoViewIfNeeded();
+    await owner.hover();
+    const sub = owner.locator(':scope > .submenu');
+    await expect(sub).toBeVisible();
+    const r = (await sub.boundingBox())!;
+    const o = (await owner.boundingBox())!;
+    expect(r.x).toBeGreaterThanOrEqual(o.x + o.width - 2);
+    expect(r.y).toBeGreaterThanOrEqual(0);
+    expect(r.y + r.height).toBeLessThanOrEqual(600);
+    // The submenu's first item is really there to click (not clipped away).
+    const first = sub.locator(':scope > .menu-item').first();
+    const f = (await first.boundingBox())!;
+    expect(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.submenu'), { x: f.x + f.width / 2, y: f.y + f.height / 2 })).toBe(true);
+    // With the interface scaled up, menus and submenus still fit beside each other.
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+      const e = window.photoStudio;
+      e.preferences.uiScale = 150;
+      e.preferencesChanged();
+    });
+    await bar.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    const edit = (await page.locator('.menubar-entry.open > .menu-pop').boundingBox())!;
+    expect(edit.y + edit.height).toBeLessThanOrEqual(601);
+    await page.keyboard.press('Escape');
+    await bar.getByRole('menuitem', { name: 'Layer', exact: true }).click();
+    const scaled = page.locator('.menubar-entry.open > .menu-pop > .has-submenu').nth(1);
+    await scaled.hover();
+    const sb = (await scaled.locator(':scope > .submenu').boundingBox())!;
+    const ob = (await scaled.boundingBox())!;
+    expect(Math.abs(sb.x - (ob.x + ob.width))).toBeLessThanOrEqual(2);
+    expect(sb.y + sb.height).toBeLessThanOrEqual(601);
+  });
+});
+
 test('Select All in an options field selects its text, not the document', async ({ page }) => {
   await page.evaluate(() => window.photoStudio.setTool('brush'));
   await idle(page);

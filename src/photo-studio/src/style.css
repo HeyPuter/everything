@@ -153,6 +153,9 @@ svg.icon { flex: none; display: block; }
 .menu-pop { display: none; position: absolute; top: calc(100% - 2px); left: 0; min-width: 230px; padding: 4px 0; background: var(--menu); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 24px #0008; z-index: 50; }
 .menubar-entry.open > .menu-pop { display: block; }
 .context-menu { display: block; position: fixed; }
+/* Menus longer than the window scroll (submenus are placed on the window, menubar.ts). */
+.menubar-entry > .menu-pop { max-height: calc(100dvh - 34px); overflow-y: auto; overscroll-behavior: contain; }
+.context-menu { max-height: calc(100dvh - 8px); overflow-y: auto; overscroll-behavior: contain; }
 .menu-item { position: relative; display: grid; grid-template-columns: 18px 1fr auto 14px; align-items: center; gap: 4px; height: 23px; padding: 0 8px 0 4px; cursor: default; outline: none; }
 .menu-item:focus, .menu-item:hover { background: var(--accent-fill); color: var(--accent-text); }
 .menu-item:focus kbd, .menu-item:hover kbd { color: var(--accent-text); }

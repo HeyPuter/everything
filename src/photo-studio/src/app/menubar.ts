@@ -67,18 +67,64 @@ function toggleSubmenus(item: HTMLElement) {
     const expanded = sibling === item;
     sibling.setAttribute('aria-expanded', String(expanded));
     sibling.classList.toggle('open', expanded);
-    // Keep a long submenu inside the window: shift it up when it would overflow.
-    // Narrow windows drop submenus below their item inside the scrolling menu
-    // instead; shifted up, one would cover its item and start off the screen.
     const sub = expanded ? sibling.querySelector<HTMLElement>(':scope > .submenu') : null;
-    if (sub) {
-      sub.style.top = '';
-      const r = sub.getBoundingClientRect();
-      const beside = r.left >= sibling.getBoundingClientRect().right - 1 || r.right <= sibling.getBoundingClientRect().left + 1;
-      const over = r.bottom - (window.innerHeight - 4);
-      if (over > 0 && beside) sub.style.top = `${-5 - Math.min(over, r.top - 4)}px`;
-    }
+    if (sub) placeSubmenu(sibling, sub);
   }
+}
+/** Put an open submenu beside its item, inside the window. Menus taller than
+ * the window scroll, which would clip a submenu placed inside them, so it is
+ * placed on the window (fixed). Narrow windows drop submenus below their
+ * item inside the scrolling menu instead (style.css). */
+function placeSubmenu(item: HTMLElement, sub: HTMLElement) {
+  Object.assign(sub.style, { position: '', left: '', top: '', maxHeight: '', overflowY: '' });
+  const at = item.getBoundingClientRect();
+  const r = sub.getBoundingClientRect();
+  const beside = r.left >= at.right - 1 || r.right <= at.left + 1;
+  if (!beside) return;
+  const room = window.innerHeight - 8;
+  const height = Math.min(r.height, room);
+  const left = at.right + r.width <= window.innerWidth - 4 ? at.right : Math.max(4, at.left - r.width);
+  const top = Math.max(4, Math.min(at.top - 5, window.innerHeight - 4 - height));
+  // Lengths set here are scaled by the menu bar's zoom (Preferences › UI scaling).
+  const z = cssZoom(sub);
+  Object.assign(sub.style, { position: 'fixed', left: `${left / z}px`, top: `${top / z}px`, maxHeight: `${room / z}px`, overflowY: 'auto' });
+}
+/** The CSS zoom that applies to an element's own lengths. */
+const cssZoom = (el: Element) => (el as Element & { currentCSSZoom?: number }).currentCSSZoom || 1;
+/** Let an open menu scroll when it is taller than the room below its top. */
+function fitMenu(pop: HTMLElement) {
+  pop.style.maxHeight = '';
+  const r = pop.getBoundingClientRect();
+  if (!r.height) return;
+  pop.style.maxHeight = `${Math.max(60, window.innerHeight - r.top - 6) / cssZoom(pop)}px`;
+}
+/** Submenus placed on the window follow their item as its menu scrolls;
+ * one whose item scrolled out of sight closes. */
+function followScrolledSubmenus(root: HTMLElement) {
+  root.addEventListener(
+    'scroll',
+    (ev) => {
+      const menu = ev.target as HTMLElement;
+      if (!menu.classList?.contains('menu-pop')) return;
+      // Outer submenus first, so nested ones follow their moved items.
+      for (const open of menu.querySelectorAll<HTMLElement>('.has-submenu.open')) {
+        // Submenus dropped below their item (narrow windows) scroll along.
+        const sub = open.querySelector<HTMLElement>(':scope > .submenu');
+        if (!open.classList.contains('open') || sub?.style.position !== 'fixed') continue;
+        const view = open.parentElement!.getBoundingClientRect();
+        const at = open.getBoundingClientRect();
+        if (at.bottom > view.top && at.top < view.bottom) {
+          placeSubmenu(open, sub);
+          continue;
+        }
+        for (const o of [open, ...open.querySelectorAll<HTMLElement>('.has-submenu.open')]) {
+          o.classList.remove('open');
+          o.setAttribute('aria-expanded', 'false');
+        }
+      }
+    },
+    true,
+  );
 }
 function safe<T>(f: () => T, fallback: T) {
   try {
@@ -137,6 +183,7 @@ export class MenuBar {
       this.activate(item);
     });
     el.addEventListener('keydown', (ev) => this.key(ev));
+    followScrolledSubmenus(el);
     el.addEventListener('focusin', (ev) => {
       const from = ev.relatedTarget;
       if (from instanceof HTMLElement && !el.contains(from)) this.returnFocus = from;
@@ -179,7 +226,9 @@ export class MenuBar {
       entry.querySelector('.menubar-button')!.setAttribute('aria-expanded', String(k === i));
     });
     const m = menuSkeleton[i];
-    entries[i].querySelector('.menu-pop')!.innerHTML = renderItems(resolveMenu(this.e, withContributions(m.id, m.items), m.id, menuCustomization()));
+    const pop = entries[i].querySelector<HTMLElement>('.menu-pop')!;
+    pop.innerHTML = renderItems(resolveMenu(this.e, withContributions(m.id, m.items), m.id, menuCustomization()));
+    fitMenu(pop);
     this.open = i;
   }
   /** Open the menus leading to a command and highlight it (the Assistant's
@@ -294,9 +343,10 @@ export function showContextMenu(e: Editor, x: number, y: number, items: MenuItem
   pop.setAttribute('role', 'menu');
   pop.innerHTML = renderItems(resolved);
   document.body.append(pop);
+  followScrolledSubmenus(pop);
   const r = pop.getBoundingClientRect();
   pop.style.left = `${Math.max(4, Math.min(alignRight ? x - r.width : x, innerWidth - r.width - 4))}px`;
-  pop.style.top = `${Math.min(y, innerHeight - r.height - 4)}px`;
+  pop.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
   const close = () => {
     pop.remove();
     document.removeEventListener('pointerdown', outside, true);
