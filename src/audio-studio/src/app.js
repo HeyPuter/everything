@@ -85,7 +85,7 @@ export class App extends Emitter {
 
   activate(doc) {
     if (this.active === doc) return;
-    if (engine.playing || this.playbackPending) this.stop();
+    if (engine.playing || this.playbackPending || this.scrubbing) this.stop();
     this.active = doc;
     this.previewFx = null;
     this.pendingReturn = null;
@@ -109,7 +109,7 @@ export class App extends Emitter {
         }
       }
     }
-    if (this.active === doc && (engine.playing || this.playbackPending)) this.stop();
+    if (this.active === doc && (engine.playing || this.playbackPending || this.scrubbing)) this.stop();
     const i = this.documents.indexOf(doc);
     if (i >= 0) this.documents.splice(i, 1);
     doc.emit('close');
@@ -223,6 +223,7 @@ export class App extends Emitter {
   }
 
   stop() {
+    this.endScrub();
     this.playbackRequest?.abort();
     this.playbackRequest = null;
     if (!engine.playing && this.pendingReturn != null) {
@@ -258,28 +259,36 @@ export class App extends Emitter {
    * scrubbing). Does nothing during normal playback.
    */
   async scrub(frame) {
-    if (!this.prefs.get('scrubAudio') || !this.active || (engine.playing && !this.scrubbing)) return;
+    if (!this.prefs.get('scrubAudio') || !this.active || this.playbackPending || (engine.playing && !this.scrubbing)) return;
     const now = performance.now();
     if (now - (this.lastScrub || 0) < 45) return;
     this.lastScrub = now;
     this.scrubbing = true;
     clearTimeout(this.scrubTimer);
+    this.scrubRequest?.abort();
+    const request = this.scrubRequest = new AbortController();
+    this.emit('transport', 'scrubbing');
     const len = Math.round(this.active.sampleRate * 0.07);
     try {
-      await engine.play({ from: Math.max(0, Math.round(frame)), to: Math.round(frame) + len, loop: null });
+      await engine.play({ from: Math.max(0, Math.round(frame)), to: Math.round(frame) + len, loop: null, signal: request.signal });
     } catch {
       // No audio output: scrubbing stays silent.
     }
+    if (request.signal.aborted) return;
     const token = (this.scrubToken = (this.scrubToken || 0) + 1);
     this.scrubTimer = setTimeout(() => {
       if (!this.scrubbing || token !== this.scrubToken) return;
+      this.scrubRequest = null;
       this.scrubbing = false;
       if (engine.playing) engine.stop();
+      else this.emit('transport', engine.state);
     }, 160);
   }
 
   /** Forgets any scrub in progress (its snippet and its delayed stop). */
   endScrub() {
+    this.scrubRequest?.abort();
+    this.scrubRequest = null;
     clearTimeout(this.scrubTimer);
     this.scrubToken = (this.scrubToken || 0) + 1;
     this.scrubbing = false;

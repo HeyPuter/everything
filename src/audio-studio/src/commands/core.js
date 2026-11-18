@@ -742,7 +742,7 @@ export function installCoreCommands(app) {
     { id: 'transport.toggle', label: 'Play/Stop', shortcut: 'Space', enabled: anyDoc, run: () => app.togglePlay() },
     {
       id: 'transport.stop', label: 'Stop',
-      enabled: (a) => a.engine.playing || Boolean(a.playbackPending) || Boolean(a.recording) || Boolean(a.recorder?.active) || Boolean(a.multitrack?.recorder?.active) || Boolean(a.canReturn),
+      enabled: (a) => a.engine.playing || Boolean(a.playbackPending) || Boolean(a.scrubbing) || Boolean(a.recording) || Boolean(a.recorder?.active) || Boolean(a.multitrack?.recorder?.active) || Boolean(a.canReturn),
       run: () => {
         if (app.recorder?.active) return app.recorder.stop();
         if (app.multitrack?.recorder?.active) return app.multitrack.recorder.stop();

@@ -4,9 +4,12 @@ import { engine } from '../src/engine/engine.js';
 import { AudioFile } from '../src/model/audio-file.js';
 import { installCoreCommands } from '../src/commands/core.js';
 
+const apps = [];
 afterEach(() => {
+  for (const app of apps.splice(0)) app.endScrub();
   engine.stop();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   Object.assign(engine, { ctx: null, node: null, requestedRate: null });
 });
 
@@ -22,6 +25,7 @@ function setup() {
     lastPos: { frame: 0, time: 0 },
   });
   const app = new App();
+  apps.push(app);
   app.syncGraph = () => {};
   app.notify = vi.fn();
   installCoreCommands(app);
@@ -100,5 +104,66 @@ describe('playback startup', () => {
     fail();
     await pending;
     expect(app.notify).not.toHaveBeenCalled();
+  });
+});
+
+describe('scrub startup', () => {
+  it('keeps the latest scrub position and stops after the final snippet', async () => {
+    vi.useFakeTimers();
+    const { app, sent, ready } = setup();
+    app.prefs.set('scrubAudio', true);
+    app.lastScrub = -1000;
+    const first = app.scrub(200);
+    expect(app.commands.isEnabled('transport.stop')).toBe(true);
+    await vi.advanceTimersByTimeAsync(50);
+    await app.scrub(500);
+    ready();
+    await first;
+    expect(sent.filter((m) => m.type === 'play').map((m) => m.from)).toEqual([500]);
+    expect(engine.playing).toBe(true);
+    await vi.advanceTimersByTimeAsync(160);
+    expect(engine.playing).toBe(false);
+    expect(app.scrubbing).toBe(false);
+    expect(app.commands.isEnabled('transport.stop')).toBe(false);
+  });
+
+  it('clears the old scrub stop timer when normal playback begins', async () => {
+    vi.useFakeTimers();
+    const { app, ready } = setup();
+    app.prefs.set('scrubAudio', true);
+    app.lastScrub = -1000;
+    const scrub = app.scrub(200);
+    ready();
+    await scrub;
+    await app.play({ from: 1000 });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(engine.playing).toBe(true);
+    expect(app.scrubbing).toBe(false);
+  });
+
+  it('cannot replace normal playback when an earlier scrub finishes initializing', async () => {
+    const { app, sent, ready } = setup();
+    app.prefs.set('scrubAudio', true);
+    app.lastScrub = -1000;
+    const scrub = app.scrub(200);
+    await app.play({ from: 1000 });
+    ready();
+    await scrub;
+    expect(sent.filter((m) => m.type === 'play').map((m) => m.from)).toEqual([1000]);
+    expect(app.scrubbing).toBe(false);
+  });
+
+  it.each(['stop', 'switch', 'close'])('does not begin a delayed scrub after %s', async (action) => {
+    const { app, doc, sent, ready } = setup();
+    app.prefs.set('scrubAudio', true);
+    app.lastScrub = -1000;
+    const scrub = app.scrub(200);
+    if (action === 'stop') app.stop();
+    if (action === 'switch') app.addDocument(AudioFile.blank({ name: 'Other.wav', seconds: 2 }));
+    if (action === 'close') await app.closeDocument(doc, { force: true });
+    ready();
+    await scrub;
+    expect(sent.filter((m) => m.type === 'play')).toHaveLength(0);
+    expect(app.scrubbing).toBe(false);
   });
 });
