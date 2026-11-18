@@ -150,11 +150,21 @@ export function convertsToSrgb(s: Pick<ExportSettings, 'format' | 'convertSrgb'>
   return s.convertSrgb || !formatInfo[s.format].icc;
 }
 
-/** Resample, place, convert and matte the source for the given settings. */
-export function prepareExport(src: SourceImage, s: ExportSettings, ctx: ExportContext): SourceImage {
+/** Resample, place, convert and matte the source for the given settings.
+ * The source's pixels are left alone (it may be cached) unless the caller
+ * hands it over (`owned`): then they are converted in place, not in a copy. */
+export function prepareExport(
+  src: SourceImage,
+  s: ExportSettings,
+  ctx: ExportContext,
+  owned = false,
+): SourceImage {
   const info = formatInfo[s.format];
   const [nw, nh] = outputSize(src.width, src.height, s);
-  let data = resampleRGBA(src.data, src.width, src.height, nw, nh, s.resample);
+  // Resampling to the same size copies; an owned source is used as it is.
+  const same = nw === src.width && nh === src.height;
+  let data =
+    owned && same ? src.data : resampleRGBA(src.data, src.width, src.height, nw, nh, s.resample);
   let img: SourceImage = { width: nw, height: nh, data };
   const cw = s.canvasWidth > 0 ? Math.min(8192, Math.round(s.canvasWidth)) : nw,
     ch = s.canvasHeight > 0 ? Math.min(8192, Math.round(s.canvasHeight)) : nh;
@@ -162,7 +172,7 @@ export function prepareExport(src: SourceImage, s: ExportSettings, ctx: ExportCo
   data = img.data;
   const deep = s.depth === 16 && info.deep && data instanceof Uint16Array;
   if (!deep && data instanceof Uint16Array) data = rgba16To8(data);
-  else if (deep && data === src.data) data = data.slice();
+  else if (deep && data === src.data && !owned) data = data.slice();
   if (ctx.profile && convertsToSrgb(s)) convertToSrgb(data, ctx.profile);
   if (!info.alpha || !s.transparency) applyMatte(data, hexColor(s.matte));
   return { width: img.width, height: img.height, data };

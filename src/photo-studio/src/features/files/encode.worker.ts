@@ -4,7 +4,7 @@ import { encodeGif, type GifEncodeFrame, type GifEncodeOptions } from '../../ima
 import { encodeExport, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from './encode';
 
 type Job =
-  | { id: number; src: SourceImage; settings: ExportSettings; ctx: ExportContext; keepPrepared: boolean; gif?: undefined }
+  | { id: number; src: SourceImage; settings: ExportSettings; ctx: ExportContext; keepPrepared: boolean; owned?: boolean; gif?: undefined }
   | { id: number; gif: { frames: GifEncodeFrame[]; options: GifEncodeOptions } };
 self.onmessage = async (event: MessageEvent<Job>) => {
   const job = event.data;
@@ -15,8 +15,8 @@ self.onmessage = async (event: MessageEvent<Job>) => {
       (self as unknown as Worker).postMessage({ id, bytes }, [bytes.buffer as ArrayBuffer]);
       return;
     }
-    const { src, settings, ctx, keepPrepared } = job;
-    const prepared = prepareExport(src, settings, ctx);
+    const { src, settings, ctx, keepPrepared, owned } = job;
+    const prepared = prepareExport(src, settings, ctx, owned);
     const bytes = await encodeExport(prepared, settings, ctx);
     const transfer: Transferable[] = [bytes.buffer as ArrayBuffer];
     if (keepPrepared) transfer.push(prepared.data.buffer as ArrayBuffer);
