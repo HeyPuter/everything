@@ -15,3 +15,15 @@ for (const [source, target] of [[200, 1], [16, 320]]) {
     expect([file.bytes.readUInt32BE(16), file.bytes.readUInt32BE(20)]).toEqual([target, target]);
   });
 }
+
+test('Export As names the image and canvas size fields apart', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 40, 30, '#336699');
+  await start(page, 'file.export-as');
+  const dialog = page.getByRole('dialog', { name: 'Export As' });
+  const field = (name: string) => dialog.getByRole('spinbutton', { name, exact: true });
+  await expect(field('Image width')).toHaveValue('40');
+  await expect(field('Image height')).toHaveValue('30');
+  await expect(field('Canvas width')).toHaveValue('40');
+  await expect(field('Canvas height')).toHaveValue('30');
+});

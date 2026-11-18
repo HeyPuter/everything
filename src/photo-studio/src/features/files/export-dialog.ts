@@ -54,16 +54,16 @@ export async function exportAsDialog(e: Editor, initial: Partial<ExportSettings>
       `)}
       ${sectionHtml('Image Size', `
         <div class="export-size-grid">
-          ${row('Width', `<input type="number" name="outWidth" min="1" max="8192" step="1">`)}
-          ${row('Height', `<input type="number" name="outHeight" min="1" max="8192" step="1">`)}
+          ${row('Width', `<input type="number" name="outWidth" aria-label="Image width" min="1" max="8192" step="1">`)}
+          ${row('Height', `<input type="number" name="outHeight" aria-label="Image height" min="1" max="8192" step="1">`)}
           ${row('Scale %', `<input type="number" name="scale" min="0.01" max="819200" step="any">`)}
         </div>
         ${row('Resample', `<select name="resample"><option value="bicubic">Bicubic</option><option value="lanczos">Lanczos (sharper)</option><option value="bilinear">Bilinear</option><option value="nearest">Nearest neighbor (hard edges)</option></select>`)}
       `)}
       <div data-show="raster">${sectionHtml('Canvas Size', `
         <div class="export-size-grid">
-          ${row('Width', `<input type="number" name="canvasWidth" min="1" max="8192" step="1">`)}
-          ${row('Height', `<input type="number" name="canvasHeight" min="1" max="8192" step="1">`)}
+          ${row('Width', `<input type="number" name="canvasWidth" aria-label="Canvas width" min="1" max="8192" step="1">`)}
+          ${row('Height', `<input type="number" name="canvasHeight" aria-label="Canvas height" min="1" max="8192" step="1">`)}
           <button type="button" class="export-reset-canvas">Reset</button>
         </div>
       `)}</div>
