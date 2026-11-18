@@ -47,6 +47,7 @@ import { normalizeRemoval } from './removal.js';
 import { normalizeRetouch, normalizeFaceShape, normalizeHairColor, normalizeBodyShape, normalizeMakeup } from './retouch.js';
 import { normalizeMarks } from './text-marks.js';
 import { normalizeProxyMode } from './proxy.js';
+import { normalizeInherited } from './inherited-motion.js';
 import { normalizeKeyCurve, isEase } from './keyframes.js';
 import { normalizeSmoothSlow } from './slow-motion.js';
 import { effectDefaults, normalizeEffectParams } from './effect-params.js';
@@ -389,6 +390,18 @@ export function normalizeClip(c) {
     out.animLoop = normAnim(c.animLoop ?? c.animCombo); // older projects saved this as animCombo
   }
   if ('keyframes' in base) out.keyframes = normKeyframes(c.keyframes);
+  if (c.motionOffset && Number.isFinite(c.motionOffset)) out.motionOffset = c.motionOffset;
+  if ('transform' in base || 'volume' in base) {
+    const inherited = normalizeInherited(c.inherited, p => ({
+      type: 'compound', start: 0, name: str(p.name).slice(0, 200), in: Math.max(0, int(p.in)), motionOffset: num(p.motionOffset),
+      ...(p.clockOnly === true ? { clockOnly: true, speed: clampN(p.speed, 0.1, 100, 1), speedCurve: normalizeCurve(p.speedCurve), freeze: p.freeze === true } : {}),
+      duration: Math.max(1000, int(p.duration)), transform: normTransform(p.transform),
+      opacity: clampN(p.opacity, 0, 1, 1), volume: clampN(p.volume, 0, 10, 1), muted: false, blend: 'normal',
+      fadeIn: Math.max(0, int(p.fadeIn)), fadeOut: Math.max(0, int(p.fadeOut)),
+      animIn: normAnim(p.animIn), animOut: normAnim(p.animOut), animLoop: normAnim(p.animLoop), keyframes: normKeyframes(p.keyframes),
+    }));
+    if (inherited) out.inherited = inherited;
+  }
   if (c.type === 'video' || c.type === 'image') {
     const cr = c.crop || {};
     out.crop = { l: clampN(cr.l, 0, 0.95, 0), t: clampN(cr.t, 0, 0.95, 0), r: clampN(cr.r, 0, 0.95, 0), b: clampN(cr.b, 0, 0.95, 0) };

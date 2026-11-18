@@ -7,6 +7,7 @@
  * rotation is in degrees, clockwise.
  */
 import { valueAt } from '../model/keyframes.js';
+import { inheritedParents } from '../model/inherited-motion.js';
 import { loudnessGain } from '../model/audio.js';
 import { clipEnd, nextAdjacent, sourceTimeAt } from '../model/timeline.js';
 import { sourceOffset } from '../model/speed-curve.js';
@@ -174,6 +175,7 @@ export function clipLayer(project, clip, t, trackIndex) {
     const a = clip.avatar;
     layer.pose = avatarPose({ seed: a.seed, t: local / 1e6, voiceSec: voiceTimeAt(project, a, t), lips: a.lips, framing: a.framing });
   }
+  applyInherited(layer, clip, local, project);
   if (clip.parent) withParent(layer, clip.parent, t, project);
   if (layer.kind === 'media') {
     const asset = project.assets[clip.assetId];
@@ -206,6 +208,7 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.maskUse = clip.maskUse || null;
     layer.masks = evaluateMasks(clip, local);
     layer.extras = layerExtras(clip, local, project.settings.fps, (l) => motionStateAt(clip, l));
+    if (clip.inherited?.length && layer.extras?.motion) for (const sample of layer.extras.motion) placeInherited(sample, clip, local, project);
     // Motion blur samples are places of the clip too: inside a compound clip they go where it puts them.
     if (clip.parent && layer.extras?.motion) for (const sample of layer.extras.motion) placeInParents(sample, clip.parent, t, project);
     // Passes on the source picture itself: object removal, then enhance (engine/source-fx.js).
@@ -230,6 +233,18 @@ export function clipLayer(project, clip, t, trackIndex) {
  */
 function withParent(layer, parent, t, project) {
   const local = t - parent.start;
+  applyParent(layer, parent, local, project);
+  applyInherited(layer, parent, local, project);
+  if (parent.parent) withParent(layer, parent.parent, t, project);
+}
+
+function applyInherited(layer, clip, local, project) {
+  if (!clip.inherited?.length) return;
+  for (const entry of inheritedParents(clip, local)) applyParent(layer, entry.parent, entry.local, project);
+}
+
+function applyParent(layer, parent, local, project) {
+  if (parent.clockOnly) return;
   const tr = keyedTransform(parent, local);
   const p = applyAnimations(parent, local, { x: tr.x, y: tr.y, scale: tr.scale, rotation: tr.rotation, opacity: valueAt(parent.keyframes, 'opacity', local, parent.opacity), blur: 0, reveal: 1 });
   const W = project.settings.width;
@@ -246,8 +261,6 @@ function withParent(layer, parent, t, project) {
   layer.opacity = clamp01(layer.opacity * p.opacity);
   layer.blur = Math.max(layer.blur, p.blur);
   if (layer.blend === 'normal' && parent.blend && parent.blend !== 'normal') layer.blend = parent.blend;
-  // Inner compound first, then the one holding it.
-  if (parent.parent) withParent(layer, parent.parent, t, project);
 }
 
 /** Place { x, y, scale, rotation } inside the compound clips holding its clip (innermost first), as withParent does for a layer. */
@@ -265,7 +278,28 @@ function placeInParents(state, parent, t, project) {
     state.y = p.y + ((X * Math.sin(r) + Y * Math.cos(r)) * p.scale) / H;
     state.scale *= p.scale;
     state.rotation += p.rotation;
+    placeInherited(state, c, local, project);
   }
+}
+
+function placeInherited(state, clip, local, project) {
+  if (!clip.inherited?.length) return;
+  const layer = { ...state, opacity: 1, blur: 0 };
+  applyInherited(layer, clip, local, project);
+  for (const prop of ['x', 'y', 'scale', 'rotation']) state[prop] = layer[prop];
+}
+
+/** Map a preview-space move back through inherited scale, rotation and flips. */
+export function inheritedDelta(clip, local, dx, dy, project) {
+  if (!clip.inherited?.length) return { x: dx, y: dy };
+  const points = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }].map(p => ({ ...p, scale: 1, rotation: 0 }));
+  for (const p of points) placeInherited(p, clip, local, project);
+  const a = points[1].x - points[0].x;
+  const b = points[2].x - points[0].x;
+  const c = points[1].y - points[0].y;
+  const d = points[2].y - points[0].y;
+  const det = a * d - b * c;
+  return det && Number.isFinite(det) ? { x: (d * dx - b * dy) / det, y: (a * dy - c * dx) / det } : { x: 0, y: 0 };
 }
 
 /**
@@ -410,7 +444,10 @@ export function upcomingVideoStarts(project, t, ahead) {
 export function gainAt(clip, t) {
   let g = ownGain(clip, t);
   // Clips inside compound clips also follow the compound's volume and fades.
-  for (let p = clip.parent; p && g > 0; p = p.parent) g *= ownGain(p, t);
+  for (let c = clip; c && g > 0; c = c.parent) {
+    if (c !== clip) g *= ownGain(c, t);
+    if (c.inherited?.length) for (const entry of inheritedParents(c, t - c.start)) if (!entry.parent.clockOnly) g *= ownGain(entry.parent, entry.local);
+  }
   return g;
 }
 

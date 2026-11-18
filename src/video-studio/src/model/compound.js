@@ -4,6 +4,7 @@
  * apart" puts the clips back on the timeline.
  */
 import { uid } from '../lib/ids.js';
+import { retainMotion } from './inherited-motion.js';
 import { makeClip, makeTrack, DEFAULT_TRANSFORM } from './project.js';
 import { findClip, clipEnd, addClip, mainTrack, sortTrack, sequenceLength, allClips, cleanupTransitions, MIN_CLIP } from './timeline.js';
 import { trimTo } from './slice.js';
@@ -99,14 +100,24 @@ export function composeTransform(parent, child, W, H) {
 
 /**
  * Fold a compound clip's transform, opacity, volume and mute into a clip
- * taken out of it (W x H is the frame size).
+ * taken out of it (W x H is the frame size). Animated parents retain their
+ * own clock and controls: baking endpoints cannot preserve easing, procedural
+ * motion, or the order in which opacity is clamped.
  */
 export function inheritFromCompound(copy, c, W, H) {
   const plain = JSON.stringify(c.transform) === JSON.stringify(DEFAULT_TRANSFORM);
-  if (copy.transform && !plain) copy.transform = composeTransform(c.transform, copy.transform, W, H);
-  if ('opacity' in copy) copy.opacity *= c.opacity;
+  const animated = x => x.inherited?.length || x.animIn || x.animOut || x.animLoop || Object.values(x.keyframes || {}).some(keys => keys.length);
+  const affects = !plain || c.opacity !== 1 || c.volume !== 1 || c.fadeIn || c.fadeOut || animated(c);
+  const transform = copy.transform && !plain ? composeTransform(c.transform, copy.transform, W, H) : copy.transform;
+  const outsideLimits = (transform && (transform.scale < 0.01 || transform.scale > 50)) || copy.volume * c.volume > 10;
+  if (affects && ('transform' in copy || 'volume' in copy) && (animated(copy) || animated(c) || c.fadeIn || c.fadeOut || outsideLimits)) {
+    retainMotion(copy, c);
+  } else {
+    if (copy.transform) copy.transform = transform;
+    if ('opacity' in copy) copy.opacity *= c.opacity;
+    if ('volume' in copy) copy.volume *= c.volume;
+  }
   if ('blend' in copy && (!copy.blend || copy.blend === 'normal') && c.blend) copy.blend = c.blend;
-  if ('volume' in copy) copy.volume *= c.volume;
   if (c.muted && 'muted' in copy) copy.muted = true;
   if (c.disabled) copy.disabled = true;
   return copy;

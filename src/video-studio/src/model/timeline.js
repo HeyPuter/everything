@@ -91,6 +91,7 @@ export function sourceTimeAt(clip, t) {
  * duration and keyframes afterwards.
  */
 export function windowSource(clip, from, to) {
+  if (clip.inherited?.some(r => !r.source.media)) clip.motionOffset = (clip.motionOffset || 0) + from;
   if (clip.type === 'compound') {
     // A nested timeline always plays at its own pace.
     clip.in = Math.max(0, Math.round(clip.in + from));
@@ -819,6 +820,7 @@ export function soundCopy(project, clip) {
     fadeIn: clip.fadeIn,
     fadeOut: clip.fadeOut,
     keyframes: clip.keyframes?.volume ? { volume: structuredClone(clip.keyframes.volume) } : {},
+    ...(clip.inherited ? { inherited: structuredClone(clip.inherited), ...(clip.motionOffset ? { motionOffset: clip.motionOffset } : {}) } : {}),
     // Sound settings travel with the sound.
     ...(clip.audioFx ? { audioFx: structuredClone(clip.audioFx) } : {}),
     ...(clip.keepPitch === false ? { keepPitch: false } : {}),

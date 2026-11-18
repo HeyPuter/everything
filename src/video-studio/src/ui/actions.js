@@ -12,6 +12,7 @@ import { isMultiColorSticker } from '../engine/stickers.js';
 import { findTextLook } from '../model/text-presets.js';
 import * as T from '../model/timeline.js';
 import { mirrorCurve } from '../model/speed-curve.js';
+import { preserveMotionClock } from '../model/inherited-motion.js';
 import { toast, openDialog } from './dialog.js';
 import { createOrganizeActions } from './organize-actions.js';
 import { createSmartActions } from './smart-actions.js';
@@ -575,12 +576,12 @@ export function createActions(ctx) {
       // Undo by pointing back at the original file.
       if (asset.reversedOf && store.project.assets[asset.reversedOf]) {
         const orig = store.project.assets[asset.reversedOf];
-        actions.editClip(id, 'Reverse', (c) => {
+        actions.editClip(id, 'Reverse', (c) => preserveMotionClock(c, () => {
           c.in = mirrorIn(asset, orig);
           c.assetId = orig.id;
           c.reversed = false;
           if (c.speedCurve) c.speedCurve = mirrorCurve(c.speedCurve);
-        });
+        }));
         return;
       }
       let target = Object.values(store.project.assets).find((a) => a.reversedOf === asset.id);
@@ -614,13 +615,13 @@ export function createActions(ctx) {
           d.close();
         }
       }
-      const ok = actions.editClip(id, 'Reverse', (c) => {
+      const ok = actions.editClip(id, 'Reverse', (c) => preserveMotionClock(c, () => {
         c.in = mirrorIn(asset, target);
         c.assetId = target.id;
         c.reversed = true;
         // A speed curve plays backwards too, so the reversed clip mirrors the original's timing.
         if (c.speedCurve) c.speedCurve = mirrorCurve(c.speedCurve);
-      });
+      }));
       if (mark) store.endBatch(mark, 'Reverse');
       if (ok) announce('Clip reversed');
     },
@@ -637,14 +638,14 @@ export function createActions(ctx) {
         toast('The new media is shorter than this clip. Trim the clip first or pick a longer file.', { kind: 'info' });
         return false;
       }
-      return actions.editClip(id, 'Replace clip', (clip) => {
+      return actions.editClip(id, 'Replace clip', (clip) => preserveMotionClock(clip, () => {
         clip.assetId = asset.id;
         clip.name = asset.name;
         clip.in = 0;
         clip.freeze = false;
         clip.reversed = false;
         if (visual) clip.type = asset.kind === 'image' ? 'image' : 'video';
-      });
+      }));
     },
 
     mirror() {

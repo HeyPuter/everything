@@ -30,6 +30,7 @@ import { transitionView } from './transition.js';
 import { projectView } from './project.js';
 import { multiView } from './multi.js';
 import { compoundTab } from './compound.js';
+import { groupMotionTab, inheritedPaths } from './group-motion.js';
 import { multicamTab } from './multicam.js';
 import { avatarTab } from './avatar.js';
 import { stylizeTab } from './stylize.js';
@@ -37,6 +38,7 @@ import { angleTracks } from '../../model/multicam.js';
 import { maskEdit } from '../mask-edit-state.js';
 
 const TABS = {
+  groupMotion: { label: 'Group motion', make: groupMotionTab },
   video: { label: 'Video', make: videoTab },
   audio: { label: 'Audio', make: audioTab },
   voice: { label: 'Voice', make: voiceTab },
@@ -66,6 +68,11 @@ const TYPE_ICONS = { video: 'film', image: 'image', audio: 'music', text: 'text'
 
 /** Top tabs for a clip: its own properties first, then timing, motion and color. */
 export function tabsFor(project, clip) {
+  const tabs = baseTabsFor(project, clip);
+  return inheritedPaths(clip).length ? [...tabs, 'groupMotion'] : tabs;
+}
+
+function baseTabsFor(project, clip) {
   switch (clip.type) {
     case 'video': {
       const a = project.assets[clip.assetId];
@@ -114,7 +121,7 @@ export function createInspector(ctx) {
     if (!s) return 'project';
     // A multi-camera clip's cards follow its angles.
     const angles = s.clip.multicam ? `:${angleTracks(s.clip).length}` : '';
-    return `clip:${s.clip.id}:${s.clip.type}:${tabsFor(store.project, s.clip).join(',')}${angles}`;
+    return `clip:${s.clip.id}:${s.clip.type}:${tabsFor(store.project, s.clip).join(',')}${angles}:${inheritedPaths(s.clip).map(p => p.join('.')).join('|')}`;
   }
 
   function setTitle(text, { hidden = false } = {}) {

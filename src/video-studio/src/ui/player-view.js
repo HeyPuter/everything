@@ -8,7 +8,7 @@ import { h, announce, clamp } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { timecode, US } from '../lib/time.js';
 import { RATIOS } from '../model/project.js';
-import { evaluate, keyedTransform } from '../engine/scene.js';
+import { evaluate, keyedTransform, inheritedDelta } from '../engine/scene.js';
 import { rootClip } from '../engine/compound.js';
 import { findClip } from '../model/timeline.js';
 import { menuButton } from './menu.js';
@@ -666,7 +666,7 @@ export function createPlayerView(ctx) {
     const startAngle = Math.atan2(y - center.y, x - center.x);
     // The values the player shows include animations (and a compound around the clip); edit relative to the keyed value.
     const base = editedTransform(store.selected.clip);
-    const off = { x: start.x - base.x, y: start.y - base.y, scaleK: start.scale / (base.scale || 1), rotation: start.rotation - base.rotation };
+    const off = { scaleK: start.scale / (base.scale || 1), rotation: start.rotation - base.rotation };
     const coalesce = `tf:${id}:${Date.now()}`;
     const targets = snapTargets(id);
     // Half extents of the moving box in project px, from the css box.
@@ -701,7 +701,8 @@ export function createPlayerView(ctx) {
           }
         }
         showSnapLines(lines);
-        actions.setTransform(id, { x: nx - off.x, y: ny - off.y }, { coalesce, label: 'Move' });
+        const delta = inheritedDelta(store.selected.clip, store.time - store.selected.clip.start, nx - start.x, ny - start.y, store.project);
+        actions.setTransform(id, { x: base.x + delta.x, y: base.y + delta.y }, { coalesce, label: 'Move' });
       } else if (handle === 'rotate') {
         let ang = start.rotation + ((Math.atan2(my - center.y, mx - center.x) - startAngle) * 180) / Math.PI;
         if (ev.shiftKey) ang = Math.round(ang / 15) * 15;
@@ -756,7 +757,8 @@ export function createPlayerView(ctx) {
     e.preventDefault();
     e.stopPropagation();
     const t = editedTransform(s.clip);
-    actions.setTransform(s.clip.id, { x: t.x + (d[0] * stepPx) / set.width, y: t.y + (d[1] * stepPx) / set.height }, { coalesce: `nudge:${s.clip.id}`, label: 'Move' });
+    const delta = inheritedDelta(s.clip, store.time - s.clip.start, (d[0] * stepPx) / set.width, (d[1] * stepPx) / set.height, store.project);
+    actions.setTransform(s.clip.id, { x: t.x + delta.x, y: t.y + delta.y }, { coalesce: `nudge:${s.clip.id}`, label: 'Move' });
   });
 
   // Drop assets from the panel onto the preview: add at the playhead.
