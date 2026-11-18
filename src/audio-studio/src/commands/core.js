@@ -280,7 +280,7 @@ export function installCoreCommands(app) {
     {
       id: 'file.revert',
       label: 'Revert',
-      enabled: (a) => Boolean(a.active?.dirty && a.active.history),
+      enabled: (a) => Boolean(a.active?.dirty && a.active.history && a.active.savedStateKnown !== false),
       run: async () => {
         const doc = app.active;
         if (!(await confirmDialog({ title: 'Revert', message: `Discard all changes to "${doc.name}" since it was last saved?`, confirm: 'Revert', danger: true }))) return;

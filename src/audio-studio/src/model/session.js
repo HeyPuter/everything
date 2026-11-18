@@ -27,6 +27,7 @@ function hiddenClipIds(state) {
 }
 
 export class Session extends Emitter {
+  savedStateKnown = true;
   #savedMedia = null;
   #checkedPoolVersion = -1;
   #audioMatches = true;
@@ -101,6 +102,7 @@ export class Session extends Emitter {
   }
 
   get dirty() {
+    if (!this.savedStateKnown) return true;
     if (this.state !== this.savedState) return true;
     if (!this.#savedMedia) return false;
     // Linked waveform edits can change audio without changing the timeline.
@@ -122,14 +124,22 @@ export class Session extends Emitter {
 
   /** Marks `state` (by default the current one) as what the file holds. */
   markSaved(state = this.state, media = state ? captureSessionState(this, state) : null) {
+    this.savedStateKnown = true;
     this.savedState = state;
     this.#savedMedia = media;
     this.#checkedPoolVersion = -1;
     this.emit('change', { kind: 'saved' });
   }
 
+  /** A completed write may have replaced this file, but its alias is unresolved. */
+  invalidateSaved() {
+    this.savedStateKnown = false;
+    this.emit('change', { kind: 'saved' });
+  }
+
   /** Revert also restores saved media without changing linked waveform history. */
   revertToSaved() {
+    if (!this.savedStateKnown) return;
     let state = this.savedState;
     if (!state) { this.history.goTo(0); return; }
     if (this.#savedMedia && (!savedAudioMatches(this, this.#savedMedia) || !savedVideoMatches(this, this.#savedMedia))) {

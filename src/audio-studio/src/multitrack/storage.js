@@ -183,26 +183,41 @@ async function writeCloudSession(app, doc, { path, name, copy, paths }) {
   }
   await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
   // A tab may have opened or moved to an alias during the upload.
-  const matching = paths.prepareMatches();
-  if (matching) await matching;
+  // Failure here cannot undo the committed write or invalidate known matches.
+  let unresolved = false;
+  try {
+    const matching = paths.prepareMatches();
+    if (matching) await matching;
+  } catch { unresolved = true; }
+  const matches = (p) => paths.resolve(p) === paths.resolve(path);
+  const uncertain = (p) => unresolved && couldAlias(normalizePath(p), normalizePath(path));
+  let invalidated = false;
+  const invalidate = (other) => { other.invalidateSaved(); invalidated = true; };
   if (!copy) {
     doc.source = { type: 'puter', path };
     if (doc.name !== name) doc.rename(name);
     doc.markSaved(saved, snapshot);
     rememberRecent(app, { name, path });
-  } else if (doc.source?.type === 'puter' && doc.source.path && paths.resolve(doc.source.path) === paths.resolve(path)) {
+  } else if (doc.source?.type === 'puter' && doc.source.path && matches(doc.source.path)) {
     // Replacing the associated file changes what Undo must compare against,
     // even when the user chose Save a Copy rather than Save.
     doc.markSaved(saved, snapshot);
+  } else if (doc.source?.type === 'puter' && doc.source.path && uncertain(doc.source.path)) {
+    invalidate(doc);
   }
   for (const other of app.documents || []) {
-    if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || !other.source.path || paths.resolve(other.source.path) !== paths.resolve(path)) continue;
+    if (other === doc || other.kind !== 'session' || other.source?.type !== 'puter' || !other.source.path) continue;
+    if (!matches(other.source.path)) {
+      if (uncertain(other.source.path)) invalidate(other);
+      continue;
+    }
     const imported = savedSessionSnapshot(other, snapshot);
     const cache = savedMediaOf(other, other.source.path, paths);
     for (const m of imported.media) cache.set(m.id, m);
     other.markSaved(imported.state);
   }
   app.setStatus(`Saved ${name}`);
+  if (invalidated) app.notify(`Saved ${name}, but could not verify which open tabs refer to this file. Affected tabs are marked unsaved. Reopen the file to see its saved version.`, { error: true });
   return true;
 }
 
