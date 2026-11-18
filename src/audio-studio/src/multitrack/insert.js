@@ -117,8 +117,9 @@ export function freeTrackShift(state, base, spans) {
 
 /**
  * Called before an insert is committed: async (app, session, state, inserted)
- * => state, where inserted lists { doc, clip } (e.g. to add a video's picture
- * to the video track in the same undo step).
+ * => (state => state) | null, where inserted lists { doc, clip }. Prepare any
+ * asynchronous decisions, then return a synchronous edit of the latest state
+ * (e.g. to add a video's picture in the same undo step as its audio).
  */
 export const INSERT_HOOKS = [];
 
@@ -132,11 +133,8 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   docs = docs.filter((d) => d && d.kind === 'audio' && d.length > 0);
   if (!docs.length) return [];
   at = Math.max(0, Math.round(at ?? session.cursor));
-  let state = session.state;
-  // Clips never land on hidden tracks, where they could not be seen.
-  const audio = () => shownAudioTracks(state);
   // trackId null means "a new track"; undefined means the selected track.
-  let index = trackId === null ? -1 : audio().findIndex((t) => t.id === (trackId ?? session.selectedTrack));
+  const target = trackId === undefined ? session.selectedTrack : trackId;
   const ids = [];
   // Several files go one per track, or end to end on one track (Preferences > Multitrack Clips).
   const sameTrack = placementOptions.sameTrack && docs.length > 1;
@@ -155,22 +153,46 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
     parts.push({ doc, sourceId, offset, length, start: sameTrack ? t : at, trackOffset: sameTrack ? 0 : i });
     t += length;
   }
-  if (placementOptions.avoidOverlap && index >= 0) index += freeTrackShift(state, index, parts.map((p) => ({ trackOffset: p.trackOffset, start: p.start, end: p.start + p.length })));
-  for (const p of parts) {
-    let track = index >= 0 ? audio()[index + p.trackOffset] : null;
-    if (!track) {
-      const last = state.tracks.filter((x) => x.type === 'audio').pop();
-      const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
-      state = made.state;
-      track = made.track;
-      if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
+  const place = (base) => {
+    let state = base;
+    // Re-resolve the original target after preparation; it may have been
+    // hidden, moved or deleted. Never restore tracks from an older snapshot.
+    const audio = () => shownAudioTracks(state);
+    let index = target === null ? -1 : audio().findIndex((t) => t.id === target);
+    ids.length = 0;
+    if (placementOptions.avoidOverlap && index >= 0) index += freeTrackShift(state, index, parts.map((p) => ({ trackOffset: p.trackOffset, start: p.start, end: p.start + p.length })));
+    for (const p of parts) {
+      let track = index >= 0 ? audio()[index + p.trackOffset] : null;
+      if (!track) {
+        const last = state.tracks.filter((x) => x.type === 'audio').pop();
+        const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
+        state = made.state;
+        track = made.track;
+        if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
+      }
+      const clip = S.createClip({ id: p.clip?.id, trackId: track.id, sourceId: p.sourceId, name: baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
+      state = S.addClipsOnTop(state, [clip]);
+      ids.push(clip.id);
+      p.clip = clip;
     }
-    const clip = S.createClip({ trackId: track.id, sourceId: p.sourceId, name: baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
-    state = S.addClipsOnTop(state, [clip]);
-    ids.push(clip.id);
-    p.clip = clip;
+    return state;
+  };
+  const base = session.state;
+  let state = place(base);
+  const edits = [];
+  for (const hook of INSERT_HOOKS) {
+    const edit = await hook(app, session, state, parts.map((p) => ({ doc: p.doc, clip: p.clip })));
+    if (edit) {
+      edits.push(edit);
+      state = edit(state);
+    }
   }
-  for (const hook of INSERT_HOOKS) state = (await hook(app, session, state, parts.map((p) => ({ doc: p.doc, clip: p.clip })))) || state;
+  // Hooks may open a dialog. Reapply this insertion to any edits committed
+  // during that wait, preserving one undo step for its audio and video.
+  if (session.state !== base) {
+    state = place(session.state);
+    for (const edit of edits) state = edit(state);
+  }
   session.apply(docs.length > 1 ? 'Insert Files' : 'Insert File', state, { clips: ids });
   const first = S.findClip(session.state, ids[0]);
   if (first) session.selectTrack(first.trackId);

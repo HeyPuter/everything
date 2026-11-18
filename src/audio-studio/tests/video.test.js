@@ -309,10 +309,10 @@ describe('video insert and commands', () => {
     expect(dialog?.textContent).toMatch(/Replace/);
     const cancel = [...dialog.querySelectorAll('button')].find((b) => /Cancel/.test(b.textContent));
     cancel.click();
-    expect(await pending).toBe(state);
+    expect(await pending).toBeNull();
     // The same file again leaves the video where it is.
     setVideoOfDoc(audio, first);
-    expect(await insertVideoHook(null, doc, state, [{ doc: audio, clip }])).toBe(state);
+    expect(await insertVideoHook(null, doc, state, [{ doc: audio, clip }])).toBeNull();
   });
 
   it('removes, moves and locks the video through commands, and shows it in Properties', () => {
