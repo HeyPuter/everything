@@ -510,8 +510,7 @@ export class Editor {
     if (waitForUploads && this._leaving && !this._leavingWaitForUploads) {
       this._leavingPage = this._leaving.then(async (ok) => {
         if (!ok) return false;
-        const media = await finishUploads(this.library);
-        return !media || confirmLeave(this.library, { media });
+        return this._saveBeforeLeaving(true);
       }).finally(() => (this._leavingPage = null));
       return this._leavingPage;
     }
@@ -519,20 +518,28 @@ export class Editor {
     // Asked twice (a double click, the window closing while asking): one question.
     this._leaving ||= (async () => {
       this.ctx.player?.pause();
-      // Files being imported join the project when they are read: wait, so they are saved too.
-      if (this.ctx.imports?.size) await Promise.allSettled([...this.ctx.imports]);
-      let saved = true;
+      return this._saveBeforeLeaving(waitForUploads);
+    })().finally(() => (this._leaving = null));
+    return this._leaving;
+  }
+
+  /** Reads and edits can begin during any await; leave only after their latest state is saved. */
+  async _saveBeforeLeaving(waitForUploads) {
+    let saved, media;
+    do {
+      // Drain new reads too, rather than only the set present when leaving began.
+      while (this.ctx.imports?.size) await Promise.allSettled([...this.ctx.imports]);
+      saved = true;
       try {
         await this.saver.flush();
       } catch {
         saved = false;
       }
       // Media still uploading keeps going after the editor closes, but not after the page does.
-      const media = waitForUploads ? await finishUploads(this.library) : 0;
-      if (saved && !media) return true;
-      return confirmLeave(this.library, { edits: !saved, media });
-    })().finally(() => (this._leaving = null));
-    return this._leaving;
+      media = waitForUploads ? await finishUploads(this.library) : 0;
+    } while (this.ctx.imports?.size || (saved && this.store.dirty));
+    if (saved && !media) return true;
+    return confirmLeave(this.library, { edits: !saved, media });
   }
 
   /** Leave for the home screen (or another project). Resolves false when the user chose to stay. */
@@ -545,7 +552,7 @@ export class Editor {
       await this.saveCover();
       // Saving the cover takes a moment on a slow connection, and the editor still works
       // meanwhile: an edit made then is saved as well (or asked about) before leaving.
-      if (this.store.dirty && (!(await this.prepareToLeave()) || this._disposed)) return false;
+      if ((this.store.dirty || this.ctx.imports?.size) && (!(await this.prepareToLeave()) || this._disposed)) return false;
       this.dispose();
     } finally {
       this._exiting = false;
