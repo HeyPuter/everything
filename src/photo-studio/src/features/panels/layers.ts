@@ -333,7 +333,7 @@ export const layersPanel: Panel = {
     const locked = !!l && !!layerLock(e.doc.layers, l.id, 'all', false);
     const options = el.querySelector('.layer-options')!;
     const focus = document.activeElement?.id;
-    patchList(options, [`${blendSelect(l, locked || l?.locked)}<label class="opacity-control">Opacity <input id="opacity" type="number" min="0" max="100" value="${Math.round((l?.opacity ?? 1) * 100)}" ${!l || locked ? 'disabled' : ''}>%</label>`]);
+    patchList(options, [`${blendSelect(l, locked || l?.locked)}<label class="opacity-control">Opacity <input id="opacity" type="number" min="0" max="100" value="${Math.round((l?.opacity ?? 1) * 100)}" ${!l || locked || l.locked ? 'disabled' : ''}>%</label>`]);
     const lockRow = el.querySelector('.lock-row')!;
     const own = (k: 'transparency' | 'pixels' | 'position') => !!l && ownLock(l, k);
     patchList(lockRow, [`<span class="lock-label-text">Lock:</span>
@@ -341,7 +341,7 @@ export const layersPanel: Panel = {
 <button class="icon-button toggle" data-lock-button="composite" aria-pressed="${own('pixels')}" title="Lock image pixels" aria-label="Lock image pixels" ${!l ? 'disabled' : ''}>${svg('paintbrush', 14)}</button>
 <button class="icon-button toggle" data-lock-button="position" aria-pressed="${own('position')}" title="Lock position" aria-label="Lock position" ${!l ? 'disabled' : ''}>${svg('move', 14)}</button>
 <button class="icon-button toggle" data-lock-button="all" aria-pressed="${!!l?.locked}" title="Lock all" aria-label="Lock layer" ${!l ? 'disabled' : ''}>${svg('lock', 14)}</button>
-<label class="opacity-control fill-control">Fill <input id="fill-opacity" type="number" min="0" max="100" value="${Math.round((l?.fillOpacity ?? 1) * 100)}" ${!l || locked ? 'disabled' : ''}>%</label>`]);
+<label class="opacity-control fill-control">Fill <input id="fill-opacity" type="number" min="0" max="100" value="${Math.round((l?.fillOpacity ?? 1) * 100)}" ${!l || locked || l.locked ? 'disabled' : ''}>%</label>`]);
     if (focus === 'blend' || focus === 'opacity' || focus === 'fill-opacity') el.querySelector<HTMLElement>(`#${focus}`)?.focus();
     const list = el.querySelector('#layers')!;
     const scroll = list.scrollTop;

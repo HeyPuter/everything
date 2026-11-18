@@ -4,6 +4,7 @@ import type { Editor } from '../../editor';
 import { registerCommand } from '../../app/registry';
 import { blendLabel, blends, findLayer } from '../../model/document';
 import { visibleRows } from '../../model/layers';
+import { layerLock } from '../../model/locks';
 
 /** Select the layer above (-1) or below (+1) the current one, or the top/bottom one; `add` extends the selection. */
 function step(e: Editor, to: -1 | 1 | 'top' | 'bottom', add = false) {
@@ -16,8 +17,15 @@ function step(e: Editor, to: -1 | 1 | 'top' | 'bottom', add = false) {
   e.selectLayers(add ? [...[...e.selectedIds].filter((x) => x !== id), id] : [id]);
   e.update();
 }
+/** The selected layers that Lock All (theirs or a group's) leaves editable;
+ * reports when every one is locked. */
+function unlocked<T extends { id: string }>(e: Editor, layers: T[]): T[] {
+  const free = layers.filter((l) => !layerLock(e.doc.layers, l.id, 'all'));
+  if (layers.length && !free.length) e.message('Unlock this layer to edit it.');
+  return free;
+}
 function cycleBlend(e: Editor, by: 1 | -1) {
-  const roots = e.selectedLayers.filter((l) => l.kind !== 'group' || l.blend !== 'pass through');
+  const roots = unlocked(e, e.selectedLayers).filter((l) => l.kind !== 'group' || l.blend !== 'pass through');
   if (!roots.length) return;
   const ids = roots.map((l) => l.id);
   const at = Math.max(0, blends.indexOf(roots[0].blend as (typeof blends)[number]));
@@ -52,7 +60,8 @@ export function installLayerKeys(_e: Editor) {
       run: (e, arg) => {
         const v = Math.max(0, Math.min(1, Number(arg)));
         if (!Number.isFinite(v)) return;
-        const ids = [...e.selectedIds];
+        const ids = unlocked(e, [...e.selectedIds].map((id) => ({ id }))).map((l) => l.id);
+        if (!ids.length) return;
         e.command('Layer Opacity', (d) => {
           for (const id of ids) {
             const l = findLayer(d.layers, id);
