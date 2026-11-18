@@ -512,3 +512,21 @@ describe('neighboring compounds with different track layouts', () => {
   });
 
 });
+
+describe('nested track settings', () => {
+  it('keeps track locks, solo and size when the project is saved and reopened', () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const comp = createCompound(p, [a.id], FREE);
+    const store = new EditorStore(p);
+    store.openCompound(comp.id);
+    store.update('Track settings', q => {
+      Object.assign(q.tracks[0], { locked: true, solo: true, size: 'large' });
+    }, { structural: false });
+    store.closeCompound();
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(mainTrack(loaded).clips[0].sequence.tracks[0]).toMatchObject({ locked: true, solo: true, size: 'large' });
+  });
+
+
+});

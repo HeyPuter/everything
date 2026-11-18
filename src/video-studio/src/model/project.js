@@ -579,8 +579,10 @@ function normSequence(raw, assets, depth) {
       clips.push(n);
     }
     clips.sort((a, b) => a.start - b.start);
-    const track = { id: str(t.id) || uid('t'), kind: t.kind, main: Boolean(t.main) && t.kind === 'video', locked: false, hidden: bool(t.hidden), muted: bool(t.muted), clips };
+    const track = { id: str(t.id) || uid('t'), kind: t.kind, main: Boolean(t.main) && t.kind === 'video', locked: bool(t.locked), hidden: bool(t.hidden), muted: bool(t.muted), clips };
     if (str(t.name).trim()) track.name = str(t.name).trim().slice(0, 60);
+    if (t.solo) track.solo = true;
+    if (TRACK_SIZES.includes(t.size) && t.size !== 'medium') track.size = t.size;
     // A camera angle of a multi-camera clip.
     if (t.angle && t.kind === 'video') track.angle = true;
     tracks.push(track);
