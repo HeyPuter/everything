@@ -29,7 +29,13 @@ const saveUser = () => {
     /* Quota or privacy mode; presets stay for this session. */
   }
 };
-const toB64 = (d: Uint8Array) => btoa(String.fromCharCode(...d));
+// In chunks: spreading a large tip into one call overflows the stack.
+const toB64 = (d: Uint8Array) => {
+  let binary = '';
+  for (let i = 0; i < d.length; i += 8192)
+    binary += String.fromCharCode(...d.subarray(i, i + 8192));
+  return btoa(binary);
+};
 const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 function sampleOf(p: StoredPreset): Mask8 | undefined {
   return p.sample ? { width: p.sample.width, height: p.sample.height, data: fromB64(p.sample.data) } : undefined;
