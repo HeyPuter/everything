@@ -7,6 +7,7 @@ import * as Y from 'yjs';
 import { layer, newDocument, findLayer, type PhotoDocument } from '../src/model/document';
 import { newPixelLayer } from '../src/model/pixel-layer';
 import { makeBackground } from '../src/model/housekeeping';
+import { linkLayers } from '../src/model/links';
 import { TileStore, readRGBA, writeRect, TILE } from '../src/model/tiles';
 import { Assets } from '../src/model/assets';
 import { validateDocument } from '../src/model/serialization';
@@ -344,5 +345,22 @@ describe('the Background layer after concurrent edits', () => {
       view(b).layers.map((l) => [l.id, !!l.background]),
     );
     void ids;
+  });
+  it('drops a link whose partner someone deleted at the same time', async () => {
+    const { a, doc, ids } = base();
+    await write(a, null, doc);
+    const b = participant();
+    exchange(a, b);
+    const da = view(a),
+      db = view(b);
+    // A links Top and Fill; B deletes Fill.
+    const ea = structuredClone(da);
+    linkLayers(ea.layers, [ids.top, ids.text], 'pair');
+    const eb = structuredClone(db);
+    eb.layers = eb.layers.filter((l) => l.id !== ids.text);
+    await write(a, da, ea);
+    await write(b, db, eb);
+    exchange(a, b);
+    for (const p of [a, b]) expect(findLayer(view(p).layers, ids.top)!.linkGroup).toBeUndefined();
   });
 });

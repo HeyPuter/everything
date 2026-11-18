@@ -28,6 +28,7 @@ import { hash } from './protocol';
 import { documentAssetIds } from '../model/serialization';
 import { fitLayerToKind, salvageDocument } from './repair';
 import { isDocumentId } from '../model/ids';
+import { cleanLinks } from '../model/links';
 
 export { documentAssetIds };
 
@@ -439,6 +440,8 @@ export class SharedProject {
     // others become ordinary layers, alike in every browser.
     const bottom = document.layers[0];
     for (const l of allLayers(document.layers)) if (l.background && l !== bottom) delete l.background;
+    // A link whose partners someone deleted meanwhile no longer links anything.
+    cleanLinks(document.layers);
     document.version = 1;
     const dropped = [...this.docDropped, ...unreadable, ...salvageDocument(document, this.shape)];
     this.shape = { name: document.name, width: document.width, height: document.height };
