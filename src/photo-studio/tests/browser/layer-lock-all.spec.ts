@@ -53,3 +53,21 @@ test('a locked layer can still be renamed in place', async ({ page }) => {
     'Locked title',
   );
 });
+
+test('inside a locked group, the lock buttons of a layer are disabled', async ({ page }) => {
+  await boot(page);
+  await openImage(page, 300, 200);
+  await run(page, 'layer.new-quick');
+  await run(page, 'layer.group');
+  await page.locator('.layers-panel [data-lock-button="all"]').click();
+  await idle(page);
+  const child = await page.evaluate(() => window.photoStudio.doc.layers.at(-1)!.children[0].id);
+  await page.evaluate((id) => window.photoStudio.selectLayer(id), child);
+  for (const key of ['transparency', 'composite', 'position', 'all'])
+    await expect(page.locator(`.layers-panel [data-lock-button="${key}"]`)).toBeDisabled();
+  // The group's own buttons stay available to unlock it.
+  await page.evaluate(() =>
+    window.photoStudio.selectLayer(window.photoStudio.doc.layers.at(-1)!.id),
+  );
+  await expect(page.locator('.layers-panel [data-lock-button="all"]')).toBeEnabled();
+});

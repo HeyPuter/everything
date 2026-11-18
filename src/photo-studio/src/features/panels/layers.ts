@@ -337,10 +337,10 @@ export const layersPanel: Panel = {
     const lockRow = el.querySelector('.lock-row')!;
     const own = (k: 'transparency' | 'pixels' | 'position') => !!l && ownLock(l, k);
     patchList(lockRow, [`<span class="lock-label-text">Lock:</span>
-<button class="icon-button toggle" data-lock-button="transparency" aria-pressed="${own('transparency')}" title="Lock transparent pixels" aria-label="Lock transparency" ${!l ? 'disabled' : ''}>${svg('grid-2x2', 14)}</button>
-<button class="icon-button toggle" data-lock-button="composite" aria-pressed="${own('pixels')}" title="Lock image pixels" aria-label="Lock image pixels" ${!l ? 'disabled' : ''}>${svg('paintbrush', 14)}</button>
-<button class="icon-button toggle" data-lock-button="position" aria-pressed="${own('position')}" title="Lock position" aria-label="Lock position" ${!l ? 'disabled' : ''}>${svg('move', 14)}</button>
-<button class="icon-button toggle" data-lock-button="all" aria-pressed="${!!l?.locked}" title="Lock all" aria-label="Lock layer" ${!l ? 'disabled' : ''}>${svg('lock', 14)}</button>
+<button class="icon-button toggle" data-lock-button="transparency" aria-pressed="${own('transparency')}" title="Lock transparent pixels" aria-label="Lock transparency" ${!l || locked ? 'disabled' : ''}>${svg('grid-2x2', 14)}</button>
+<button class="icon-button toggle" data-lock-button="composite" aria-pressed="${own('pixels')}" title="Lock image pixels" aria-label="Lock image pixels" ${!l || locked ? 'disabled' : ''}>${svg('paintbrush', 14)}</button>
+<button class="icon-button toggle" data-lock-button="position" aria-pressed="${own('position')}" title="Lock position" aria-label="Lock position" ${!l || locked ? 'disabled' : ''}>${svg('move', 14)}</button>
+<button class="icon-button toggle" data-lock-button="all" aria-pressed="${!!l?.locked}" title="Lock all" aria-label="Lock layer" ${!l || locked ? 'disabled' : ''}>${svg('lock', 14)}</button>
 <label class="opacity-control fill-control">Fill <input id="fill-opacity" type="number" min="0" max="100" value="${Math.round((l?.fillOpacity ?? 1) * 100)}" ${!l || locked || l.locked ? 'disabled' : ''}>%</label>`]);
     if (focus === 'blend' || focus === 'opacity' || focus === 'fill-opacity') el.querySelector<HTMLElement>(`#${focus}`)?.focus();
     const list = el.querySelector('#layers')!;
