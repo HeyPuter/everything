@@ -1033,8 +1033,9 @@ export class Editor {
     }
     const typing = !!target.closest('input,textarea,select,[contenteditable="true"],[role="slider"]');
     if (target.closest('dialog')) return;
-    // Tab navigates focused controls; the canvas keeps its hide-panels shortcut.
-    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey && target.closest('button,a[href],[tabindex]:not(#viewport)')) return;
+    // Tab navigates focused controls (and the start screen, where the focus
+    // starts on the page); the canvas keeps its hide-panels shortcut.
+    if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && !e.altKey && (target.closest('button,a[href],[tabindex]:not(#viewport)') || !this.hasDocument)) return;
     const shortcut = eventShortcut(e);
     // Modified shortcuts work while typing in numeric fields; bare keys never do,
     // and the field keeps the keys that edit its own text (select all, copy, cut, paste).

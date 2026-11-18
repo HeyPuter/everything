@@ -55,3 +55,13 @@ test('Tab from a document tab navigates to its close button', async ({ page }) =
   await page.keyboard.press('Shift+Tab');
   await expect(tab).toBeFocused();
 });
+
+test('on the start screen Tab moves the focus instead of hiding the panels', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  const hidden = () =>
+    page.evaluate(() => window.photoStudio.root.classList.contains('panels-hidden'));
+  expect(await hidden()).toBe(false);
+});
