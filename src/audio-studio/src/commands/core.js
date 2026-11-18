@@ -25,10 +25,12 @@ const hasAudio = (app) => Boolean(audio(app));
 const hasSel = (app) => Boolean(audio(app)?.hasSelection);
 const anyDoc = (app) => Boolean(app.active);
 
-/** Resamples clip channels to `rate` when needed (paste between files). */
-async function conformRate(clip, rate) {
-  if (!clip || clip.sampleRate === rate) return clip;
+/** Resamples to the destination's current rate, which may change while DSP loads. */
+async function conformRate(clip, doc) {
+  if (!clip || clip.sampleRate === doc.sampleRate) return clip;
   const d = await dsp();
+  const rate = doc.sampleRate;
+  if (clip.sampleRate === rate) return clip;
   return {
     sampleRate: rate,
     channels: clip.channels.map((c) => Channel.fromSamples(d.resample(c.toArray(), clip.sampleRate, rate))),
@@ -191,7 +193,7 @@ export function installCoreCommands(app) {
         for (const f of files) {
           const [opened] = await openFiles(app, [f], { activate: false });
           if (!opened) continue;
-          const clip = await conformRate({ sampleRate: opened.sampleRate, channels: opened.state.channels }, doc.sampleRate);
+          const clip = await conformRate({ sampleRate: opened.sampleRate, channels: opened.state.channels }, doc);
           app.closeDocument(opened, { force: true });
           doc.apply('Append', E.insertClip(doc.state, doc.length, clip));
         }
@@ -206,7 +208,7 @@ export function installCoreCommands(app) {
         if (!docs.length) return;
         const first = docs[0];
         for (const d of docs.slice(1)) {
-          const clip = await conformRate({ sampleRate: d.sampleRate, channels: d.state.channels }, first.sampleRate);
+          const clip = await conformRate({ sampleRate: d.sampleRate, channels: d.state.channels }, first);
           first.apply('Append', E.insertClip(first.state, first.length, clip));
           app.closeDocument(d, { force: true });
         }
@@ -354,7 +356,7 @@ export function installCoreCommands(app) {
         const doc = audio(app);
         // The clipboard as it was when Paste ran (another can be chosen while a clip is resampled).
         const source = app.clipboard;
-        const clip = await conformRate(source, doc.sampleRate);
+        const clip = await conformRate(source, doc);
         const n = clip.channels[0]?.length ?? 0;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         let state = doc.hasSelection ? E.replaceRange(doc.state, doc.selection.start, doc.selection.end, clip, doc.channelMask) : E.insertClip(doc.state, at, clip, doc.channelMask);

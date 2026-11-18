@@ -200,7 +200,7 @@ export async function mixPasteDialog(app, { doc, conformRate }) {
       return null;
     }
   } else clip = app.clipboards[Number(board.value)];
-  clip = await conformRate(clip, doc.sampleRate);
+  clip = await conformRate(clip, doc);
   if (!clip?.channels?.length) return null;
   const at = doc.hasSelection ? doc.selection.start : doc.cursor;
   const state = mixPasteState(doc.state, at, clip.channels.map((c) => c.toArray()), {
