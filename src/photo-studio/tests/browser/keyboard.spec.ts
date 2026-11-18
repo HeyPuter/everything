@@ -149,3 +149,24 @@ test('every toolbar tool and options-bar control has a tooltip, with its keys', 
   });
   expect(missing).toEqual([]);
 });
+
+test('tooltips name the modifier key of the platform, not a placeholder or the Mac key on Windows', async ({ page }) => {
+  const tips = () =>
+    page.evaluate(async () => {
+      window.photoStudio.setTool('move');
+      window.photoStudio.dock.show('swatches');
+      await new Promise((r) => requestAnimationFrame(r));
+      return { auto: document.querySelector('#auto-select')?.closest('label')?.title ?? document.querySelector('#auto-select')?.getAttribute('title') ?? '', swatch: document.querySelector('[data-swatch]')?.getAttribute('title') ?? '' };
+    });
+  const mac = await tips();
+  expect(mac.auto).toContain('⌘');
+  expect(mac.auto).not.toMatch(/\bMod\b/);
+  expect(mac.swatch).toContain('⌘-click');
+  await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'Win32' }));
+  await page.reload();
+  await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+  const win = await tips();
+  expect(win.auto).toContain('hold Ctrl');
+  expect(win.swatch).toContain('Ctrl-click');
+  expect(win.swatch).not.toContain('⌘');
+});

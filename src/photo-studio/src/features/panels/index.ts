@@ -1,5 +1,6 @@
 import type { Editor } from '../../editor';
 import { registerPanel, registerCommand, commands, type Panel } from '../../app/registry';
+import { isMac } from '../../app/shortcuts';
 import { layersPanel } from './layers';
 import { propertiesPanel } from './properties';
 import { ColorControls } from '../../ui/color';
@@ -182,7 +183,7 @@ const swatchesPanel: Panel = {
     });
   },
   update: (e, el) => {
-    const html = `<div class="swatch-grid" role="group" aria-label="Swatches">${swatches.map((c, i) => `<button data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${'⌘'}-click: background, Alt-click or Delete: remove" aria-label="Swatch ${c}" aria-keyshortcuts="Delete"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
+    const html = `<div class="swatch-grid" role="group" aria-label="Swatches">${swatches.map((c, i) => `<button data-swatch="${c}" data-index="${i}" style="--swatch:${c}" title="${c} — click: foreground, ${isMac ? '⌘' : 'Ctrl'}-click: background, Alt-click or Delete: remove" aria-label="Swatch ${c}" aria-keyshortcuts="Delete"></button>`).join('')}<button data-add-swatch title="Add foreground color" aria-label="Add swatch from foreground color">${svg('plus', 13)}</button></div>`;
     // Updates run after every edit; rebuilding unchanged buttons would cost
     // time and take the keyboard focus off the swatch just chosen.
     if (swatchMarkup.get(el) === html) return;
