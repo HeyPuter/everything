@@ -55,6 +55,7 @@ export function createMulticamActions(ctx) {
    * unmatched lists the clips that keep their place.
    */
   async function lineUp(found, p) {
+    p.signal.throwIfAborted();
     const project = store.project;
     const usable = (c) => project.assets[c.assetId]?.hasAudio && !c.audioDetached && !c.freeze && (c.speed || 1) === 1 && !c.speedCurve;
     const withSound = found.filter((f) => usable(f.clip));
@@ -62,9 +63,10 @@ export function createMulticamActions(ctx) {
     const unmatched = found.filter((f) => !usable(f.clip));
     if (withSound.length < 2) return { starts, unmatched: found.filter((f) => f !== withSound[0]) };
     const ref = withSound.reduce((a, b) => (b.clip.duration > a.clip.duration ? b : a));
-    const open = mediabunnyOpener(ctx.library);
+    const open = mediabunnyOpener(ctx.library, { signal: p.signal });
     const envelope = async (clip) => {
       const snd = await decodeClipSound(open, project.assets[clip.assetId], clip, { maxSeconds: MAX_SECONDS, signal: p.signal });
+      p.signal.throwIfAborted();
       return snd && snd.channels.length ? syncEnvelope(downmix(snd.channels), snd.sampleRate, HOP) : null;
     };
     const steps = withSound.length;
@@ -87,6 +89,7 @@ export function createMulticamActions(ctx) {
       else starts[f.clip.id] = Math.round(ref.clip.start + lag * HOP * US);
       // Let the dialog repaint between long comparisons.
       await new Promise((r) => setTimeout(r, 0));
+      p.signal.throwIfAborted();
     }
     return { starts, unmatched };
   }
@@ -105,8 +108,9 @@ export function createMulticamActions(ctx) {
       let sync;
       try {
         sync = await lineUp(found, p);
+        p.signal.throwIfAborted();
       } catch (err) {
-        if (err?.name === 'AbortError') {
+        if (p.signal.aborted || err?.name === 'AbortError') {
           p.close();
           return null;
         }
