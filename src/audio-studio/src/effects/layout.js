@@ -7,7 +7,7 @@
 import { h } from '../lib/dom.js';
 import { hotNumber } from '../ui/controls.js';
 import { paramControls } from './dialog.js';
-import { toPosition, fromPosition, formatValue, parseValue, editValueText } from './params.js';
+import { toPosition, fromPosition, formatValue, parseValue, editValueText, scaleTicks } from './params.js';
 
 const param = (ctx, id) => ctx.def.params.find((p) => p.id === id);
 
@@ -122,7 +122,16 @@ export function vSlider(ctx, id, { label } = {}) {
   };
   show(ctx.values);
   ctx.subscribe(show);
-  return h('div.fx-vfader', shown ? h('div.fx-vfader-label', shown) : null, slider, h('div.fx-vfader-value', hot));
+  // A scale beside the fader: labelled steps and minor ticks, bottom = minimum.
+  const { major, minor } = scaleTicks(p, { maxLabels: 5 });
+  const at = (x) => ({ bottom: `${(x * 100).toFixed(3)}%` });
+  const ruler = h(
+    'div.fx-vruler',
+    { 'aria-hidden': 'true' },
+    minor.map((x) => h('span.fx-vtick', { style: at(x) })),
+    major.map((t) => [h('span.fx-vtick.major', { style: at(t.x) }), h('span.fx-vtick-label', { style: at(t.x) }, t.label)]),
+  );
+  return h('div.fx-vfader', shown ? h('div.fx-vfader-label', shown) : null, h('div.fx-vscale', slider, ruler), h('div.fx-vfader-value', hot));
 }
 
 /**

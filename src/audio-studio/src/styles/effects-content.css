@@ -100,6 +100,44 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   height: 100%;
 }
 
+.fx-vscale {
+  display: flex;
+  gap: 1px;
+  /* Keeps the fader centred under its label with the scale hanging to its right. */
+  margin-right: -30px;
+}
+
+.fx-vruler {
+  position: relative;
+  width: 30px;
+  margin: 6px 0;
+  pointer-events: none;
+}
+
+.fx-vtick {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  height: 1px;
+  background: var(--text-faint);
+}
+
+.fx-vtick.major {
+  width: 5px;
+  background: var(--text-dim);
+}
+
+.fx-vtick-label {
+  position: absolute;
+  left: 7px;
+  transform: translateY(50%);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .fx-vfader-value .hot {
   min-width: 0;
 }
