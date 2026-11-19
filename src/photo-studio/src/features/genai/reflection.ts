@@ -24,7 +24,7 @@ import { mergedImage } from '../retouch/source';
 import { field, openWorkspace, options, range, bindRanges } from '../retouch/workspace';
 import { runJob } from '../assist/client';
 import { recordGeneration } from '../generations/record';
-import { keepAlpha, reflectionPrompt } from './math';
+import { reflectionPrompt } from './math';
 import {
   Generator,
   VariationPicker,
@@ -34,6 +34,7 @@ import {
   cropRGBA,
   notice,
   pixelLayer,
+  previewBitmap,
 } from './shared';
 import './genai.css';
 
@@ -142,17 +143,23 @@ export async function reflectionDialog(e: Editor) {
     apply = q<HTMLButtonElement>('#ga-apply'),
     noteBox = q<HTMLTextAreaElement>('#ga-note');
   noteBox.value = remembered.note;
-  const orig = canvasOf(full);
+  // Previews are drawn from small copies: the original scaled to the view
+  // once, and the results at the size the provider returned them.
+  let orig: OffscreenCanvas | undefined;
   let results: RGBA8[] = [];
   let shownCanvas: OffscreenCanvas | undefined;
   let split = 50;
-  // Detail-restored copies, made when first shown.
-  const restored = new Map<number, Promise<RGBA8>>();
+  // Full-size results, made in the worker when a variation is added.
+  const finals = new Map<string, Promise<RGBA8>>();
   const fit = () => {
     const r = host.getBoundingClientRect();
     const s = Math.min(1, (r.width - 16) / rect.width, (r.height - 16) / rect.height);
     cv.width = Math.max(1, Math.round(rect.width * s));
     cv.height = Math.max(1, Math.round(rect.height * s));
+    void previewBitmap(full, cv.width, cv.height).then((b) => {
+      orig = b;
+      draw();
+    });
   };
   const draw = () => {
     const g = cv.getContext('2d')!,
@@ -160,7 +167,7 @@ export async function reflectionDialog(e: Editor) {
       h = cv.height;
     g.clearRect(0, 0, w, h);
     g.imageSmoothingQuality = 'high';
-    g.drawImage(orig, 0, 0, w, h);
+    if (orig) g.drawImage(orig, 0, 0, w, h);
     if (shownCanvas) {
       const x = Math.round((split / 100) * w);
       g.save();
@@ -183,32 +190,31 @@ export async function reflectionDialog(e: Editor) {
     draw();
   };
   window.addEventListener('resize', onResize);
+  /** The chosen result at full size: enlarged, with the original's fine
+   * detail when asked, and the layer's transparency kept (worker). */
   const finalImage = (k: number): Promise<RGBA8> => {
-    const want = reduced && (q<HTMLInputElement>('#ga-detail')?.checked ?? false);
-    if (!want) return Promise.resolve(results[k]);
-    let p = restored.get(k);
+    const detail = reduced && (q<HTMLInputElement>('#ga-detail')?.checked ?? false);
+    const key = `${k}:${detail}`;
+    let p = finals.get(key);
     if (!p) {
       const copy = (i: RGBA8) => ({
         width: i.width,
         height: i.height,
         data: new Uint8ClampedArray(i.data),
       });
-      p = runJob<RGBA8>(undefined, 'detail-transfer', {
+      p = runJob<RGBA8>(undefined, 'reflection-final', {
         gen: copy(results[k]),
         orig: copy(full),
         sent: sentSize,
-        k: 1,
+        detail,
+        keep: !!target.layerId,
       });
-      restored.set(k, p);
+      finals.set(key, p);
     }
     return p;
   };
-  let showing = 0;
-  const show = async (k: number) => {
-    const n = ++showing;
-    const img = await finalImage(k);
-    if (n !== showing) return;
-    shownCanvas = canvasOf(img);
+  const show = (k: number) => {
+    shownCanvas = canvasOf(results[k]);
     draw();
   };
   const picker = new VariationPicker(
@@ -227,10 +233,10 @@ export async function reflectionDialog(e: Editor) {
     else if (id === 'ga-split') split = v;
     draw();
   });
-  q<HTMLInputElement>('#ga-detail')?.addEventListener('change', (ev) => {
-    remembered.detail = (ev.target as HTMLInputElement).checked;
-    if (picker.chosen >= 0) void show(picker.chosen);
-  });
+  q<HTMLInputElement>('#ga-detail')?.addEventListener(
+    'change',
+    (ev) => (remembered.detail = (ev.target as HTMLInputElement).checked),
+  );
   // Dragging the divider.
   const setSplit = (ev: PointerEvent) => {
     const r = cv.getBoundingClientRect();
@@ -273,12 +279,12 @@ export async function reflectionDialog(e: Editor) {
         say(
           `Generating ${count === 1 ? 'one variation' : `${count} variations`}… this can take a little while.`,
         );
+        // Results stay at the provider's size until one is added.
         const out = await instructedEdits(full, reflectionPrompt({ strength, extra: note }), {
           count,
           signal,
+          native: true,
         });
-        // A layer's transparent parts stay transparent.
-        if (target.layerId) for (const img of out) keepAlpha(img, full);
         return { out, count, note, strength };
       },
       (r) => {
@@ -293,7 +299,7 @@ export async function reflectionDialog(e: Editor) {
           r.out,
         );
         results = [...results, ...r.out].slice(-8);
-        restored.clear();
+        finals.clear();
         apply.disabled = false;
         picker.show(
           results.map((img, i) => ({
@@ -318,6 +324,7 @@ export async function reflectionDialog(e: Editor) {
     if (picker.chosen < 0) return;
     read();
     apply.disabled = true;
+    gen.say('Preparing the full-size result…', 'busy');
     const image = await finalImage(picker.chosen);
     chosen = {
       image,

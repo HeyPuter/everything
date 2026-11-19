@@ -7,7 +7,7 @@ import { enhancedUpscale, enhancedUpscaleMask, type UpscaleOptions } from '../..
 import { resize } from '../../imaging/filters/resample';
 import { detectObjects, type ObjectOptions } from '../../imaging/segment/objects';
 import { fitImage, type FitMode } from './place';
-import { detailTransfer, renderTransformed, type CutObject, type ObjectTransform } from '../genai/math';
+import { detailTransfer, keepAlpha, renderTransformed, type CutObject, type ObjectTransform } from '../genai/math';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 type Args = Record<string, unknown>;
@@ -26,11 +26,15 @@ const jobs: Record<string, (a: Args, p: Progress) => unknown> = {
   fit: (a) => fitImage(a.img as RGBA8, a.width as number, a.height as number, a.mode as FitMode),
   objects: (a, p) => detectObjects(a.img as RGBA8, { ...(a.opts as ObjectOptions), progress: p }),
   // AI Recompose: the object at its new place, at full resolution.
-  // Remove Reflections: the original's fine detail over an enlarged result.
-  'detail-transfer': (a) => {
-    const orig = a.orig as RGBA8, sent = a.sent as { width: number; height: number };
-    const low = resize(resize(orig, sent.width, sent.height, 'lanczos'), orig.width, orig.height, 'lanczos');
-    return detailTransfer(a.gen as RGBA8, orig, low, (a.k as number) ?? 1);
+  // Remove Reflections: the chosen result enlarged to the original's size,
+  // with its fine detail restored when asked and its transparency kept.
+  'reflection-final': (a) => {
+    const orig = a.orig as RGBA8,
+      sent = a.sent as { width: number; height: number },
+      gen = a.gen as RGBA8;
+    let out = gen.width === orig.width && gen.height === orig.height ? gen : resize(gen, orig.width, orig.height, 'lanczos');
+    if (a.detail) out = detailTransfer(out, orig, resize(resize(orig, sent.width, sent.height, 'lanczos'), orig.width, orig.height, 'lanczos'));
+    return a.keep ? keepAlpha(out, orig) : out;
   },
   'transform-object': (a) => renderTransformed(a.obj as CutObject, a.t as ObjectTransform, a.width as number, a.height as number),
 };

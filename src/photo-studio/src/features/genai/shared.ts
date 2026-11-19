@@ -176,6 +176,17 @@ export class VariationPicker {
   }
 }
 
+/** A small copy of a large picture for previews, made once so redraws
+ * (sliders, dragging) never scale the full picture again. Drawn through a
+ * canvas: building a resized bitmap from pixel data blocks the page far
+ * longer on large images. */
+export async function previewBitmap(img: RGBA8, w: number, h: number): Promise<OffscreenCanvas> {
+  const out = new OffscreenCanvas(Math.max(1, w), Math.max(1, h));
+  const g = out.getContext('2d')!;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(canvasOf(img), 0, 0, out.width, out.height);
+  return out;
+}
 /** An RGBA buffer as a canvas (drawn with `drawImage` into previews). */
 export function canvasOf(img: RGBA8): OffscreenCanvas {
   const c = new OffscreenCanvas(img.width, img.height);

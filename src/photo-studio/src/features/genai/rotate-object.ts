@@ -47,6 +47,7 @@ import {
   sourceFor,
   type ObjectMode,
   type Source,
+  previewBitmap,
 } from './shared';
 import './genai.css';
 
@@ -181,7 +182,14 @@ export async function rotateObjectDialog(e: Editor) {
   let src: Source | undefined;
   let obj: CutObject | undefined;
   let objMask: Mask8 | undefined;
+  // The visible picture, and a copy scaled to the view for drawing.
+  let visible: RGBA8 | undefined;
   let baseCanvas: OffscreenCanvas | undefined;
+  const rescale = async () => {
+    if (!visible) return;
+    baseCanvas = await previewBitmap(visible, view.canvas.width, view.canvas.height);
+    draw();
+  };
   let turned: Turned[] = [];
   let shown = -1;
   let prep: AbortController | undefined;
@@ -239,8 +247,8 @@ export async function rotateObjectDialog(e: Editor) {
         src = await sourceFor(e, mode, true);
         found.list = undefined;
         // The visible picture: with a cut-out layer, its background plus the layer.
-        const visible = mode === 'layer' ? await mergedImage(e) : src.base;
-        baseCanvas = canvasOf(visible);
+        visible = mode === 'layer' ? await mergedImage(e) : src.base;
+        await rescale();
       }
       if (ac.signal.aborted) return;
       draw();
@@ -307,7 +315,7 @@ export async function rotateObjectDialog(e: Editor) {
   noteBox.addEventListener('input', () => (remembered.note = noteBox.value));
   const onResize = () => {
     view.fit();
-    draw();
+    void rescale();
   };
   window.addEventListener('resize', onResize);
 
