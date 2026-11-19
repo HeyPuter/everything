@@ -395,7 +395,8 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
 
   const el = h('div.fx-controls', table);
   const placed = new Set();
-  const cols = (layout.columns || []).map((names) => names.filter((n) => built.has(n)));
+  // A column whose frames a custom view took over (all their params hidden) drops out.
+  const cols = (layout.columns || []).map((names) => names.filter((n) => built.has(n))).filter((c) => c.length);
   if (cols.some((c) => c.length)) {
     el.append(
       h(

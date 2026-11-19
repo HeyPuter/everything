@@ -1954,6 +1954,18 @@ input[type='range'].fx-slider:disabled {
   height: 170px;
 }
 
+/* The crossover graph with the Output fader and meter beside it. */
+.fx-mb-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.fx-mb-output .fx-vrange {
+  height: 118px;
+}
+
 .fx-handle.fx-xover {
   width: 8px;
   height: 100%;

@@ -129,6 +129,10 @@ describe('Amplitude and Compression dialogs', () => {
     expect(dlg.querySelector('[data-section="Low Band"]')).toBeNull(); // band settings live in the strips
     app.engine.emit('fx-readout', new Map([['preview:multibandCompressor', Float32Array.of(-10, -3, -20, 0, -30, 0, -40, 0, -1)]]));
     expect(strips[0].querySelectorAll('[role=meter]')[1].getAttribute('aria-valuenow')).toBe('-3');
+    // Output Gain is a fader with an output meter beside the graph, not a frame of its own.
+    expect(dlg.querySelector('.fx-mb-top .fx-mb-output .fx-vmeter')).not.toBeNull();
+    expect(dlg.querySelector('[data-section="Output"]')).toBeNull();
+    expect(dlg.querySelector('.fx-columns').style.getPropertyValue('--cols')).toBe('2');
     await close();
   });
 

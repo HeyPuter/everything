@@ -13,7 +13,7 @@ import { plot, labelText, freqGridLines, transferCurveEditor, draggable } from '
 import { formatValue, formatParts, parseValue, editValueText } from './params.js';
 import { splineOutput } from './defs/transfer-curve.js';
 import { levelMeter } from './meters-ui.js';
-import { glyph } from './layout.js';
+import { glyph, vSlider } from './layout.js';
 import { liveSpectrum, drawSpectrum } from './views/common.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -251,7 +251,7 @@ const BAND_COLOURS = ['#3f7d93', '#a8792e', '#6f8a3a', '#8e4f9c'];
 const BAND_NAMES = ['Low', 'Low Mid', 'High Mid', 'High'];
 
 export function multibandEditor() {
-  return (ctx) => {
+  const editor = (ctx) => {
     const v0 = () => ctx.values;
     const edges = (v) => [FREQ_MIN, v.xover1, v.xover2, v.xover3, FREQ_MAX];
     const levels = [-120, -120, -120, -120];
@@ -421,6 +421,11 @@ export function multibandEditor() {
       }
       view.redraw();
     });
-    return h('div.fx-mb-editor', view.el, xoverRow, h('div.fx-mb-strips', strips.map((s) => s.el)));
+    // Output Gain as a fader beside the graph, with the output level beside it.
+    const output = vSlider(ctx, 'outputGain', { label: 'Output', meter: 'out' });
+    output.classList.add('fx-mb-output');
+    return h('div.fx-mb-editor', h('div.fx-mb-top', view.el, output), xoverRow, h('div.fx-mb-strips', strips.map((s) => s.el)));
   };
+  editor.hides = ['outputGain'];
+  return editor;
 }
