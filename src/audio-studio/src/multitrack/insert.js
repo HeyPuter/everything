@@ -128,10 +128,16 @@ export const INSERT_HOOKS = [];
  * Inserts audio documents as clips: the first on `trackId` (undefined: the
  * selected audio track; null: a new track) at `at`, further documents on the following
  * tracks, creating tracks as needed. `range` = [a, b) inserts only part of
- * the first document (in its own frames). One undo step.
+ * the first document (in its own frames); `ranges` gives one range per
+ * document (the same document may be listed more than once, e.g. for range
+ * markers), `names` the clip names, and `sameTrack` places them end to end on
+ * one track whatever the preference says. One undo step.
  */
-export async function insertDocs(app, session, docs, { trackId, at, range } = {}) {
-  docs = docs.filter((d) => d && d.kind === 'audio' && d.length > 0);
+export async function insertDocs(app, session, docs, { trackId, at, range, ranges, names, sameTrack: sameTrackOpt } = {}) {
+  const kept = docs.map((d, i) => [d, i]).filter(([d]) => d && d.kind === 'audio' && d.length > 0);
+  docs = kept.map(([d]) => d);
+  ranges = ranges && kept.map(([, i]) => ranges[i] || null);
+  names = names && kept.map(([, i]) => names[i] || null);
   if (!docs.length) return [];
   // All prepared sources and frame positions must use the same session rate.
   // Revert/Undo can replace it while conversion or a hook's dialog is pending.
@@ -150,17 +156,18 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
   const target = trackId === undefined ? session.selectedTrack : trackId;
   const ids = [];
   // Several files go one per track, or end to end on one track (Preferences > Multitrack Clips).
-  const sameTrack = placementOptions.sameTrack && docs.length > 1;
+  const sameTrack = (sameTrackOpt ?? placementOptions.sameTrack) && docs.length > 1;
   const parts = [];
   for (const [i, doc] of docs.entries()) {
     const ratio = rate / doc.sampleRate;
-    const requested = range && i === 0 ? {
-      offset: Math.max(0, Math.round(range[0] * ratio)),
-      length: Math.max(1, Math.round((range[1] - range[0]) * ratio)),
+    const r = ranges?.[i] || (range && i === 0 ? range : null);
+    const requested = r ? {
+      offset: Math.max(0, Math.round(r[0] * ratio)),
+      length: Math.max(1, Math.round((r[1] - r[0]) * ratio)),
     } : null;
     const sourceId = await linkSource(session, doc);
     if (!canInsert()) return [];
-    parts.push({ doc, sourceId, requested });
+    parts.push({ doc, sourceId, requested, name: names?.[i] || null });
   }
   // Earlier sources can change while later ones convert. Refresh linked
   // audio before deriving any bounds, including after a hook's dialog.
@@ -208,7 +215,7 @@ export async function insertDocs(app, session, docs, { trackId, at, range } = {}
         track = made.track;
         if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
       }
-      const clip = S.createClip({ id: p.clip?.id, trackId: track.id, sourceId: p.sourceId, name: baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
+      const clip = S.createClip({ id: p.clip?.id, trackId: track.id, sourceId: p.sourceId, name: p.name || baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
       state = S.addClipsOnTop(state, [clip]);
       ids.push(clip.id);
       p.clip = clip;

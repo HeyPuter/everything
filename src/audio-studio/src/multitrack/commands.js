@@ -962,7 +962,7 @@ export function installMultitrackCommands(app) {
         if (args?.docs?.length) {
           const target = session(app) || (await targetSession(app, args.docs[0].sampleRate));
           app.activate(target);
-          return insertDocs(app, target, args.docs, { at: target.cursor });
+          return insertDocs(app, target, args.docs, { at: target.cursor, ranges: args.ranges, names: args.names, sameTrack: args.sameTrack });
         }
         const doc = session(app);
         if (!doc) {

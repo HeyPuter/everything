@@ -4,8 +4,9 @@
 // duration, type and description edit in place (double-click, or Enter/F2 on
 // a row for the name); column headers sort; the filter menu limits the list
 // to some marker types. Delete removes the selected markers. The toolbar also
-// merges markers, exports range audio, adds markers to the playlist and sends
-// range audio to Batch Process.
+// merges markers, exports range audio, inserts range audio into a multitrack
+// session (end to end on one track, one clip per range), adds markers to the
+// playlist and sends range audio to Batch Process. Rows drag into the Playlist.
 
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
@@ -66,6 +67,7 @@ export function markersPanel(app) {
   const tbtn = (cmd, ic, label) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: () => app.commands.run(cmd, ids()), dataset: { cmd } }, icon(ic, 15));
   const playlistBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Add to Playlist', title: 'Add Selected Markers to the Playlist', onclick: () => addToPlaylist() }, icon('list-plus', 15));
   const batchBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Send Ranges to Batch Process', title: 'Send the audio of the selected range markers (or of all of them) to Batch Process', onclick: () => sendToBatch() }, icon('layers', 15));
+  const sessionBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Insert Ranges into Multitrack', title: 'Insert the audio of the selected range markers (or of all of them) into a multitrack session', onclick: () => insertRanges() }, icon('mode-multitrack', 15));
   const filterBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Filter by type', title: 'Show Marker Types', 'aria-haspopup': 'menu', onclick: () => filterMenu() }, icon('list-filter', 15));
   const toolbar = h(
     'div.panel-toolbar',
@@ -73,6 +75,7 @@ export function markersPanel(app) {
     tbtn('marker.deleteSelected', 'trash-2', 'Delete Selected Markers'),
     tbtn('marker.merge', 'link', 'Merge Selected Markers'),
     tbtn('file.exportRanges', 'file-audio', 'Export Audio within Range Markers'),
+    sessionBtn,
     playlistBtn,
     batchBtn,
     tbtn('file.exportMarkers', 'upload', 'Export Markers'),
@@ -333,6 +336,20 @@ export function markersPanel(app) {
     for (const b of toolbar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd, ids());
     playlistBtn.disabled = !doc() || !selected.size || !app.panels.has('playlist');
     batchBtn.disabled = !app.panels.has('batch') || !batchRanges().length;
+    sessionBtn.disabled = !app.commands.commands.has('mt.insertFiles') || !batchRanges().length;
+  };
+
+  /** Range audio into a session: one clip per range, end to end, named after its marker. */
+  const insertRanges = () => {
+    const d = doc();
+    const ranges = batchRanges();
+    if (!d || !ranges.length || sessionBtn.disabled) return;
+    return app.commands.run('mt.insertFiles', {
+      docs: ranges.map(() => d),
+      ranges: ranges.map((m) => [m.start, m.start + m.duration]),
+      names: ranges.map((m, i) => m.name || `Range ${i + 1}`),
+      sameTrack: true,
+    });
   };
 
   const addToPlaylist = () => {
@@ -397,6 +414,7 @@ export function markersPanel(app) {
         item('marker.convertRange'),
         { type: 'sep' },
         { type: 'cmd', label: 'Add to Playlist', enabled: !playlistBtn.disabled, run: addToPlaylist },
+        { type: 'cmd', label: 'Insert Ranges into Multitrack Session', enabled: !sessionBtn.disabled, run: insertRanges },
         { type: 'cmd', label: 'Send Ranges to Batch Process', enabled: !batchBtn.disabled, run: sendToBatch },
         item('file.exportRanges'),
         { type: 'sep' },
