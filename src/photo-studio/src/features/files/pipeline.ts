@@ -9,6 +9,7 @@ import { documentProfile, floatTo16 } from './color';
 import { defaultSettings, encodeExport, exportBaseName, exportFileName, formatInfo, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from './encode';
 import { exportSvg } from './svg-export';
 import { encodeGif, type GifEncodeFrame, type GifEncodeOptions } from '../../imaging/codecs/gif';
+import { printPng } from './print-encode';
 
 const KEY = 'photo-studio-export';
 export function loadSettings(): ExportSettings {
@@ -175,5 +176,23 @@ export async function encodeGifOffThread(frames: GifEncodeFrame[], options: GifE
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve: (v) => resolve(v.bytes), reject });
     w.postMessage({ id, gif: { frames, options } });
+  });
+}
+/** File → Print's PNG (see print-encode.ts) in the export worker. The
+ * source's pixels move to the worker when it owns its buffer (`src` is then
+ * unusable). */
+export async function printPngOffThread(src: SourceImage, ctx: ExportContext): Promise<Uint8Array> {
+  let w: Worker;
+  try {
+    w = exportWorker();
+  } catch {
+    return printPng(src, ctx);
+  }
+  const id = ++jobId;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve: (v) => resolve(v.bytes), reject });
+    const { data } = src;
+    const owned = data.byteOffset === 0 && data.byteLength === data.buffer.byteLength;
+    w.postMessage({ id, print: { src, ctx, owned } }, owned ? [data.buffer as ArrayBuffer] : []);
   });
 }

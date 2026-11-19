@@ -2,16 +2,23 @@
 // previews and batch jobs keep the editor responsive.
 import { encodeGif, type GifEncodeFrame, type GifEncodeOptions } from '../../imaging/codecs/gif';
 import { encodeExport, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from './encode';
+import { printPng } from './print-encode';
 
 type Job =
-  | { id: number; src: SourceImage; settings: ExportSettings; ctx: ExportContext; keepPrepared: boolean; owned?: boolean; gif?: undefined }
-  | { id: number; gif: { frames: GifEncodeFrame[]; options: GifEncodeOptions } };
+  | { id: number; src: SourceImage; settings: ExportSettings; ctx: ExportContext; keepPrepared: boolean; owned?: boolean; gif?: undefined; print?: undefined }
+  | { id: number; gif: { frames: GifEncodeFrame[]; options: GifEncodeOptions }; print?: undefined }
+  | { id: number; print: { src: SourceImage; ctx: ExportContext; owned: boolean }; gif?: undefined };
 self.onmessage = async (event: MessageEvent<Job>) => {
   const job = event.data;
   const { id } = job;
   try {
     if (job.gif) {
       const bytes = encodeGif(job.gif.frames, job.gif.options);
+      (self as unknown as Worker).postMessage({ id, bytes }, [bytes.buffer as ArrayBuffer]);
+      return;
+    }
+    if (job.print) {
+      const bytes = printPng(job.print.src, job.print.ctx, job.print.owned);
       (self as unknown as Worker).postMessage({ id, bytes }, [bytes.buffer as ArrayBuffer]);
       return;
     }
