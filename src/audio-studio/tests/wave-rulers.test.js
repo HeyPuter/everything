@@ -407,3 +407,31 @@ describe('right-drag zoom', () => {
     expect(doc.view.amp).toBeCloseTo(4, 0);
   });
 });
+
+describe('range marker ends', () => {
+  it('drags the end of a range marker on the ruler as one undoable edit', async () => {
+    const { app, doc, view } = await makeView();
+    const { createMarker } = await import('../src/model/markers.js');
+    app.prefs.set('snapping', false);
+    doc.apply('Add Range Marker', { ...doc.state, markers: [createMarker({ start: 12000, duration: 12000, name: 'R' })] });
+    doc.setView(0, 48000);
+    const el = view.ruler.el;
+    el.setPointerCapture = () => {};
+    const ev = (type, x) => {
+      const e = new MouseEvent(type, { bubbles: true, button: 0 });
+      Object.defineProperties(e, { offsetX: { value: x }, offsetY: { value: 20 }, pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+      return e;
+    };
+    el.dispatchEvent(ev('pointerdown', 501));
+    el.dispatchEvent(ev('pointermove', 701));
+    // While dragging, the preview shows the new length and the document is unchanged.
+    expect(view.markers()[0].duration).toBe(21600);
+    expect(doc.state.markers[0].duration).toBe(12000);
+    el.dispatchEvent(ev('pointerup', 701));
+    expect(doc.state.markers[0]).toMatchObject({ start: 12000, duration: 21600 });
+    expect(doc.history.undoLabel).toBe('Resize Marker');
+    // Never shorter than one sample.
+    view.resizeMarker(doc.state.markers[0].id, 0, false);
+    expect(doc.state.markers[0].duration).toBe(1);
+  });
+});

@@ -228,6 +228,7 @@ export class WaveformView {
       setView: (a, b) => doc.setView(a, b),
       viewMax: () => Math.max(doc.length, doc.sampleRate),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
+      resizeMarker: (id, end, { preview }) => this.resizeMarker(id, end, preview),
       cancelMarkerMove: () => {
         this.markerPreview = null;
         this.invalidate('ruler');
@@ -1016,11 +1017,33 @@ export class WaveformView {
     this.doc.apply('Move Marker', { ...this.doc.state, markers: sortMarkers(markers) });
   }
 
+  /** Drags the end of a range marker: it keeps its start and stays at least one sample long. */
+  resizeMarker(id, end, preview) {
+    const m = this.doc.state.markers.find((x) => x.id === id);
+    if (!m) return;
+    const duration = Math.max(1, Math.min(Math.round(end), this.doc.length) - m.start);
+    this.#showSnap(preview ? this.lastSnapTarget : null);
+    if (preview) {
+      this.markerPreview = { id, start: m.start, duration };
+      this.invalidate('ruler');
+      this.invalidate('overlay');
+      return;
+    }
+    this.markerPreview = null;
+    if (duration === m.duration) {
+      this.invalidate('ruler');
+      this.invalidate('overlay');
+      return;
+    }
+    const markers = this.doc.state.markers.map((x) => (x.id === id ? { ...x, duration } : x));
+    this.doc.apply('Resize Marker', { ...this.doc.state, markers: sortMarkers(markers) });
+  }
+
   /** Markers as displayed, including a marker being dragged. */
   markers() {
     const p = this.markerPreview;
     if (!p) return this.doc.state.markers;
-    return this.doc.state.markers.map((m) => (m.id === p.id ? { ...m, start: p.start } : m));
+    return this.doc.state.markers.map((m) => (m.id === p.id ? { ...m, start: p.start, duration: p.duration ?? m.duration } : m));
   }
 
   #onDocChange(e) {
