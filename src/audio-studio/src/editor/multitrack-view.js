@@ -69,6 +69,54 @@ function keyText(param, v) {
 /** Points to draw and evaluate for a lane: mute always steps. */
 const lanePoints = (param, pts) => (param === 'mute' ? S.muteSteps(pts) : pts);
 
+/**
+ * Draws a small state glyph in a clip header at (x, cy) with the current stroke and fill
+ * styles; returns its width. 'lock' padlock, 'loop' circling arrow, 'fx' text tag, 'mute' crossed speaker.
+ */
+function clipGlyph(ctx, kind, x, cy) {
+  ctx.save();
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  let w = 9;
+  if (kind === 'lock') {
+    ctx.rect(x + 0.5, cy - 1, 8, 5.5);
+    ctx.moveTo(x + 2.5, cy - 1);
+    ctx.arc(x + 4.5, cy - 2.5, 2, Math.PI, 0);
+    ctx.lineTo(x + 6.5, cy - 1);
+    ctx.stroke();
+  } else if (kind === 'loop') {
+    ctx.arc(x + 4.5, cy, 3.6, -Math.PI * 0.35, Math.PI * 1.45);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 5.5, cy - 5.6);
+    ctx.lineTo(x + 8.6, cy - 3.6);
+    ctx.lineTo(x + 5.3, cy - 1.8);
+    ctx.fill();
+  } else if (kind === 'mute') {
+    ctx.moveTo(x + 0.5, cy - 1.5);
+    ctx.lineTo(x + 2.5, cy - 1.5);
+    ctx.lineTo(x + 5, cy - 4);
+    ctx.lineTo(x + 5, cy + 4);
+    ctx.lineTo(x + 2.5, cy + 1.5);
+    ctx.lineTo(x + 0.5, cy + 1.5);
+    ctx.closePath();
+    ctx.moveTo(x + 6.5, cy - 2);
+    ctx.lineTo(x + 9.5, cy + 2);
+    ctx.moveTo(x + 9.5, cy - 2);
+    ctx.lineTo(x + 6.5, cy + 2);
+    ctx.stroke();
+    w = 10;
+  } else {
+    w = ctx.measureText('fx').width + 4;
+    ctx.globalAlpha = 0.25;
+    ctx.fillRect(x, cy - 5.5, w, 11);
+    ctx.globalAlpha = 1;
+    ctx.fillText('fx', x + 2, cy + 0.5);
+  }
+  ctx.restore();
+  return w;
+}
+
 export class MultitrackView {
   constructor(app, doc) {
     this.app = app;
@@ -856,6 +904,7 @@ export class MultitrackView {
         drawFade('out', effOut);
       }
       if (r.wh > 12 && isRemixed(c) && !c.remixPreview) this.#drawSeams(ctx, r, remixSeams(c), accent, textColor);
+      if (c.loop && r.wh > 8) this.#drawLoopNotches(ctx, r, doc.sourceLength(c.sourceId), textColor);
       // Header: name, state glyphs, gain readout, fade handles.
       if (r.hb && w > 6) {
         ctx.save();
@@ -877,7 +926,11 @@ export class MultitrackView {
         const stretchText = c.stretchPreview ? `  (stretch ${Math.round((stretchActive(st) ? st.ratio : 1) * c.stretchPreview * 1000) / 10}%)` : stretchActive(st) ? `  (${pending ? 'stretching… ' : ''}${Math.round(st.ratio * 1000) / 10}%${st.semitones ? ` ${st.semitones > 0 ? '+' : ''}${st.semitones} st` : ''})` : '';
         // While the right edge of a remixed clip is dragged, the header shows the new target.
         const remixText = c.remixPreview ? `  (remix to ${this.app.formatTime(c.length, doc.sampleRate)})` : '';
-        const label = c.name + (c.loop ? '  (loop)' : '') + (c.locked ? '  (locked)' : '') + stretchText + remixText;
+        // State glyphs lead the name: locked in time, looped, clip effects, muted.
+        ctx.strokeStyle = textColor;
+        const glyphs = [c.locked && 'lock', c.loop && 'loop', c.fx?.some((x) => x && x.enabled !== false) && 'fx', c.mute && 'mute'].filter(Boolean);
+        for (const g of glyphs) tx += clipGlyph(ctx, g, tx, r.y + r.hb / 2) + 4;
+        const label = c.name + stretchText + remixText;
         ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
         const type = c.soundAssistant && ASSISTANT_TYPES[c.soundAssistant.type];
         // Keep the badges clear of the gain readout (shown on wider clips).
@@ -1088,6 +1141,46 @@ export class MultitrackView {
       ctx.fillRect(0, below, W, H - below);
       ctx.globalAlpha = 1;
     }
+  }
+
+  /**
+   * Where a looped clip starts over from the top of its source (`srcLen` frames): a dotted line
+   * through the waveform with a notch at its top and bottom. Repeats closer than 6 px are skipped.
+   */
+  #drawLoopNotches(ctx, r, srcLen, color) {
+    const c = r.clip;
+    if (!(srcLen > 0)) return;
+    const step = srcLen / this.fpp;
+    if (step < 6) return;
+    const W = this.width;
+    const top = r.wy;
+    const bot = r.wy + r.wh;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.6;
+    ctx.setLineDash([2, 3]);
+    // The first restart is where the source runs out after the clip's offset into it.
+    for (let f = c.start + (srcLen - (c.offset % srcLen)); f < S.clipEnd(c); f += srcLen) {
+      const x = Math.round(this.xOf(f)) + 0.5;
+      if (x < -6) continue;
+      if (x > W + 6) break;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bot);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 4, top);
+      ctx.lineTo(x + 4, top);
+      ctx.lineTo(x, top + 5);
+      ctx.closePath();
+      ctx.moveTo(x - 4, bot);
+      ctx.lineTo(x + 4, bot);
+      ctx.lineTo(x, bot - 5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /**
