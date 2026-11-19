@@ -244,6 +244,47 @@ test('Blur with Sample All Layers retouches onto an empty layer above the photo'
   expect((await read(null, 20, 50))[3]).toBe(0);
 });
 
+test('Blur with Sample All Layers keeps to its Mode, judged against the image shown', async ({
+  page,
+}) => {
+  // A hard red | blue edge at x = 100 on the photo, an empty layer above it.
+  await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA, writeRect } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Edge', (d) => {
+      const l = d.layers[0];
+      const img = readRGBA(e.assets.tiles, l.pixels!, { x: 0, y: 0, width: 200, height: 100 });
+      for (let y = 0; y < 100; y++)
+        for (let x = 100; x < 200; x++) img.data.set([0, 0, 255, 255], (y * 200 + x) * 4);
+      setLayerPixels(l, writeRect(e.assets.tiles, l.pixels!, 0, 0, img), d);
+    });
+    await e.runCommand('layer.new-quick');
+  });
+  await idle(page);
+  await tool(page, 'Blur Tool');
+  await page.locator('#tool-strength').fill('100');
+  await page.locator('#tool-strength').press('Enter');
+  await page.locator('#brush-mode').selectOption('lighten');
+  await page.locator('#focus-sample-all').check();
+  await canvasDrag(page, [
+    [100, 20],
+    [100, 80],
+  ]);
+  await idle(page);
+  const top = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA } = await import('/src/model/tiles.ts');
+    return Array.from(
+      readRGBA(e.assets.tiles, e.layer!.pixels!, { x: 100, y: 50, width: 1, height: 1 }).data,
+    );
+  });
+  // Lighten keeps the blue side's full blue and only adds the red blurred in.
+  expect(top[3]).toBeGreaterThan(200);
+  expect(top[0]).toBeGreaterThan(30);
+  expect(top[2]).toBeGreaterThan(245);
+});
+
 test('the Healing Brush in Replace mode copies the source; Spot Healing offers the blend modes', async ({
   page,
 }) => {
