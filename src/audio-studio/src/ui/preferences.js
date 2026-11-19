@@ -28,6 +28,7 @@ import { cssVar } from './theme.js';
 import { LOOKS, lookPicker } from './looks.js';
 import { formatBytesShort } from '../export/formats.js';
 import { userTemplates, saveTemplate, deleteTemplate, renameTemplate, templateFileText, parseTemplateFile } from '../multitrack/templates.js';
+import { downloadBlob, pickLocalFiles } from '../storage/files.js';
 
 const check = (key, label, o = {}) => ({ type: 'check', key, label, ...o });
 const select = (key, label, options, o = {}) => ({ type: 'select', key, label, options, ...o });
@@ -738,8 +739,7 @@ function templateManager({ app, row }) {
                 renameTemplate(app.prefs, t.id, label.trim());
                 render();
               }),
-              btn('Export', 'Export', async () => {
-                const { downloadBlob } = await import('../storage/files.js');
+              btn('Export', 'Export', () => {
                 downloadBlob(new Blob([templateFileText(t)], { type: 'application/json' }), `${t.label.replace(/[\\/:*?"<>|]/g, '_')}.astemplate.json`);
               }),
               btn('Delete', 'Delete', async () => {
@@ -753,7 +753,6 @@ function templateManager({ app, row }) {
     );
   };
   importBtn.addEventListener('click', async () => {
-    const { pickLocalFiles } = await import('../storage/files.js');
     const [file] = await pickLocalFiles({ accept: '.json,application/json', multiple: false });
     if (!file) return;
     try {
