@@ -9,6 +9,15 @@ import { markerOptions, markersOnlyChange } from './markers.js';
 
 let nextId = 1;
 
+/**
+ * Keeps an amplitude scroll offset inside full scale: the lane edges never pass +-1
+ * (no scrolling at all when zoomed out to full scale or beyond).
+ */
+export function clampAmpOffset(offset, amp) {
+  const max = Math.max(0, 1 - 1 / amp);
+  return Math.max(-max, Math.min(max, offset || 0)) || 0;
+}
+
 export class AudioFile extends Emitter {
   savedStateKnown = true;
   /**
@@ -225,8 +234,24 @@ export class AudioFile extends Emitter {
     if (!silent) this.emit('change', { kind: 'view' });
   }
 
-  setAmp(amp) {
-    this.view = { ...this.view, amp: Math.max(0.05, Math.min(1000, amp)) };
+  /**
+   * Amplitude zoom. With `anchor` (a sample value), that value stays at the same height
+   * on screen, as when zooming around the pointer; otherwise the centre value stays put.
+   */
+  setAmp(amp, { anchor } = {}) {
+    const prev = this.view.amp || 1;
+    const next = Math.max(0.05, Math.min(1000, amp));
+    const off = this.view.ampOffset || 0;
+    const at = anchor ?? off;
+    this.view = { ...this.view, amp: next, ampOffset: clampAmpOffset(at - ((at - off) * prev) / next, next) };
+    this.emit('change', { kind: 'view' });
+  }
+
+  /** Vertical scroll while zoomed in on amplitude: the sample value at the lane centre. */
+  setAmpOffset(offset) {
+    const ampOffset = clampAmpOffset(offset, this.view.amp || 1);
+    if (ampOffset === (this.view.ampOffset || 0)) return;
+    this.view = { ...this.view, ampOffset };
     this.emit('change', { kind: 'view' });
   }
 

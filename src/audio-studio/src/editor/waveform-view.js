@@ -70,9 +70,10 @@ const DB_LADDER = [0, -1, -3, -6, -9, -12, -18, -24, -30, -36, -42, -48, -54, -6
  * collide: [{ db, y, y2 }] with y above the centre line and y2 its mirror
  * below (null when too close to the lane edge). The grid uses the same ticks.
  */
-export function dbTicks(lane, amp) {
+export function dbTicks(lane, amp, off = 0) {
   const mid = (lane.top + lane.bottom) / 2;
   const half = (lane.bottom - lane.top) / 2;
+  if (off) return offsetDbTicks(lane, amp, off, mid, half);
   const out = [];
   let lastY = -Infinity;
   for (const db of DB_LADDER) {
@@ -88,11 +89,47 @@ export function dbTicks(lane, amp) {
   return out;
 }
 
+/**
+ * dB ticks of a lane scrolled vertically (zero line off centre): either side of a level
+ * can be out of view, so y or y2 may be null.
+ */
+function offsetDbTicks(lane, amp, off, mid, half) {
+  const yOf = (v) => mid - (v - off) * amp * half;
+  const yZero = yOf(0);
+  const ok = (y) => y >= lane.top + 15 && y <= lane.bottom - 6 && Math.abs(y - yZero) >= 12;
+  const out = [];
+  let lastG = Infinity;
+  for (const db of DB_LADDER) {
+    const g = dbToGain(db);
+    if ((lastG - g) * amp * half < 13) continue;
+    if (g * amp * half < 12) break;
+    const y = yOf(g);
+    const y2 = yOf(-g);
+    if (!ok(y) && !ok(y2)) continue;
+    out.push({ db, y: ok(y) ? y : null, y2: ok(y2) ? y2 : null });
+    lastG = g;
+  }
+  return out;
+}
+
 /** y positions of the amplitude ruler's unlabelled 1 dB ticks (both halves of the lane). */
-export function dbMinorTicks(lane, amp) {
+export function dbMinorTicks(lane, amp, off = 0) {
   const mid = (lane.top + lane.bottom) / 2;
   const half = (lane.bottom - lane.top) / 2;
   const out = [];
+  if (off) {
+    const yOf = (v) => mid - (v - off) * amp * half;
+    const yZero = yOf(0);
+    let lastG = Infinity;
+    for (let db = 0; db >= -96; db--) {
+      const g = dbToGain(db);
+      if (g * amp * half < 10) break;
+      if ((lastG - g) * amp * half < 4) continue;
+      for (const y of [yOf(g), yOf(-g)]) if (y >= lane.top && y <= lane.bottom && Math.abs(y - yZero) >= 10) out.push(y);
+      lastG = g;
+    }
+    return out;
+  }
   let last = -Infinity;
   for (let db = 0; db >= -96; db--) {
     const v = dbToGain(db) * amp;
@@ -132,7 +169,7 @@ function formatAmpValue(v, step, unit) {
  * [{ value, y, y2, label }] at round steps at least 24 px apart, up to full scale,
  * with y above the centre line and y2 the negative value's mirror below (null near the edge).
  */
-export function linearTicks(lane, amp, unit, bits = 16) {
+export function linearTicks(lane, amp, unit, bits = 16, off = 0) {
   const mid = (lane.top + lane.bottom) / 2;
   const half = (lane.bottom - lane.top) / 2;
   const full = ampFullScale(unit, bits);
@@ -142,6 +179,21 @@ export function linearTicks(lane, amp, unit, bits = 16) {
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw * 0.9999);
   const out = [];
+  if (off) {
+    // Scrolled: each visible value gets its own entry, negative ones labelled with a sign.
+    const offU = off * full;
+    const yZero = mid + offU * pxPer;
+    const lo = Math.max(-full, offU - full / amp);
+    const hi = Math.min(full, offU + full / amp);
+    for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi + 1e-9 && out.length < 200; k++) {
+      if (k === 0) continue;
+      const value = k * step;
+      const y = mid - (value - offU) * pxPer;
+      if (y < lane.top + 15 || y > lane.bottom - 6 || Math.abs(y - yZero) < 10) continue;
+      out.push({ value, y, y2: null, label: `${value < 0 ? '-' : ''}${formatAmpValue(Math.abs(value), step, unit)}` });
+    }
+    return out;
+  }
   for (let k = 1; k * step <= full * 1.0001 && out.length < 200; k++) {
     const value = k * step;
     const y = mid - value * pxPer;
@@ -152,18 +204,21 @@ export function linearTicks(lane, amp, unit, bits = 16) {
   return out;
 }
 
+/** Sample value at y (px) in a lane at amplitude zoom `amp` scrolled to `off`. */
+export const ampValueAt = (lane, y, amp, off = 0) => off + ((lane.top + lane.bottom) / 2 - y) / ((lane.bottom - lane.top) / 2) / amp;
+
 /**
- * Amplitude zoom that makes the range y0..y1 (px, dragged on the amplitude ruler) fill
- * the lane it starts in: the edge further from the centre line goes to the lane edge.
- * Null when the range is outside the lanes.
+ * Amplitude zoom and scroll that make the range y0..y1 (px, dragged on the amplitude
+ * ruler) fill the lane it starts in: { amp, offset }, or null outside the lanes.
  */
-export function ampForRange(lanes, y0, y1, amp) {
+export function ampForRange(lanes, y0, y1, amp, off = 0) {
   const lane = lanes.find((l) => y0 >= l.top && y0 <= l.bottom);
   if (!lane) return null;
-  const mid = (lane.top + lane.bottom) / 2;
-  const half = (lane.bottom - lane.top) / 2;
-  const d = Math.max(Math.abs(y0 - mid), Math.abs(Math.max(lane.top, Math.min(lane.bottom, y1)) - mid), 2);
-  return (amp * half) / d;
+  y1 = Math.max(lane.top, Math.min(lane.bottom, y1));
+  if (Math.abs(y1 - y0) < 2) return null;
+  const v0 = ampValueAt(lane, y0, amp, off);
+  const v1 = ampValueAt(lane, y1, amp, off);
+  return { amp: 2 / Math.abs(v0 - v1), offset: (v0 + v1) / 2 };
 }
 
 /** Amplitude zoom for a vertical drag of dy px on the amplitude ruler (up zooms in). */
@@ -694,7 +749,7 @@ export class WaveformView {
     const amp = doc.view.amp;
     this.waveMask = doc.selection.channels.join();
     const channels = this.sampleDrag ? doc.state.channels.map((c, i) => (i === this.sampleDrag.ch ? this.sampleDrag.channel : c)) : doc.state.channels;
-    this.renderer.draw({ channels, start: doc.view.start, fpp: this.fpp / dpr, amp, lanes, colors, defer: this.peakDefer });
+    this.renderer.draw({ channels, start: doc.view.start, fpp: this.fpp / dpr, amp, offset: doc.view.ampOffset || 0, lanes, colors, defer: this.peakDefer });
   }
 
   #drawOverlay() {
@@ -710,13 +765,15 @@ export class WaveformView {
     // Grid: centre line and dB lines.
     // Grid lines sit on the dB values labelled in the ruler beside the lanes.
     const unit = this.ampUnit();
+    const off = doc.view.ampOffset || 0;
     for (const lane of lanes) {
-      const mid = (lane.top + lane.bottom) / 2;
+      // The zero line (the centre unless scrolled vertically).
+      const zero = this.#zeroY(lane);
       ctx.fillStyle = cssVar('--grid-strong');
-      ctx.fillRect(0, Math.round(mid), W, 1);
+      if (zero >= lane.top && zero <= lane.bottom) ctx.fillRect(0, Math.round(zero), W, 1);
       ctx.fillStyle = cssVar('--grid');
-      for (const t of unit === 'db' ? dbTicks(lane, amp) : linearTicks(lane, amp, unit, this.#bits())) {
-        ctx.fillRect(0, Math.round(t.y), W, 1);
+      for (const t of unit === 'db' ? dbTicks(lane, amp, off) : linearTicks(lane, amp, unit, this.#bits(), off)) {
+        if (t.y !== null) ctx.fillRect(0, Math.round(t.y), W, 1);
         if (t.y2 !== null) ctx.fillRect(0, Math.round(t.y2), W, 1);
       }
     }
@@ -859,13 +916,26 @@ export class WaveformView {
     ctx.textBaseline = 'middle';
     ctx.fillStyle = cssVar('--text-dim');
     const amp = this.doc.view.amp;
+    const off = this.doc.view.ampOffset || 0;
     const faint = cssVar('--text-faint');
     const unit = this.ampUnit();
     const caption = AMP_UNITS.find((u) => u.id === unit)?.caption || 'dB';
     for (const lane of this.lanes()) {
-      const mid = (lane.top + lane.bottom) / 2;
+      const zero = this.#zeroY(lane);
+      const zeroShown = zero >= lane.top + 10 && zero <= lane.bottom - 4;
+      // Zoomed in, a thin bar at the right edge shows which part of full scale is in view.
+      if (amp > 1) {
+        const lh = lane.bottom - lane.top;
+        ctx.fillStyle = faint;
+        ctx.globalAlpha = 0.35;
+        ctx.fillRect(W - 3, lane.top + 1, 2, lh - 2);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = cssVar('--text-dim');
+        ctx.fillRect(W - 3, lane.top + ((1 - (off + 1 / amp)) / 2) * lh, 2, Math.max(4, lh / amp));
+      }
+      ctx.fillStyle = cssVar('--text-dim');
       if (unit !== 'db') {
-        for (const { y, y2, label } of linearTicks(lane, amp, unit, this.#bits())) {
+        for (const { y, y2, label } of linearTicks(lane, amp, unit, this.#bits(), off)) {
           ctx.fillRect(0, Math.round(y), 4, 1);
           ctx.fillText(label, 6, y);
           if (y2 !== null) {
@@ -873,31 +943,60 @@ export class WaveformView {
             ctx.fillText(`-${label}`, 6, y2);
           }
         }
-        ctx.fillText('0', 6, mid);
+        if (zeroShown) ctx.fillText('0', 6, zero);
         ctx.fillText(caption, 6, lane.top + 6);
         continue;
       }
       // Minor ticks every dB while they stay a few pixels apart.
       ctx.fillStyle = faint;
-      for (const y of dbMinorTicks(lane, amp)) ctx.fillRect(0, Math.round(y), 2, 1);
+      for (const y of dbMinorTicks(lane, amp, off)) ctx.fillRect(0, Math.round(y), 2, 1);
       ctx.fillStyle = cssVar('--text-dim');
-      for (const { db, y, y2 } of dbTicks(lane, amp)) {
+      for (const { db, y, y2 } of dbTicks(lane, amp, off)) {
         const text = db === 0 ? '0' : String(db);
-        ctx.fillRect(0, Math.round(y), 4, 1);
-        ctx.fillText(text, 6, y);
+        if (y !== null) {
+          ctx.fillRect(0, Math.round(y), 4, 1);
+          ctx.fillText(text, 6, y);
+        }
         if (y2 !== null) {
           ctx.fillRect(0, Math.round(y2), 4, 1);
           ctx.fillText(text, 6, y2);
         }
       }
-      ctx.fillText('-\u221e', 6, mid);
+      if (zeroShown) ctx.fillText('-\u221e', 6, zero);
       ctx.fillText('dB', 6, lane.top + 6);
     }
   }
 
+  /** y of the zero line in a lane (its centre unless scrolled vertically). */
+  #zeroY(lane) {
+    return this.#sampleY(lane, 0);
+  }
+
+  /** The lane under y px, or the nearest one. */
+  #laneNear(y) {
+    const lanes = this.lanes();
+    return lanes.find((l) => y >= l.top && y <= l.bottom) || lanes[y < (lanes[0]?.top ?? 0) ? 0 : lanes.length - 1];
+  }
+
+  /** Amplitude zoom by `factor` keeping the value under y (px) where it is. */
+  zoomAmpAt(factor, y) {
+    const lane = this.#laneNear(y);
+    const v = this.doc.view;
+    const anchor = lane ? ampValueAt(lane, y, v.amp, v.ampOffset || 0) : undefined;
+    this.doc.setAmp(v.amp * factor, { anchor });
+  }
+
+  /** Scrolls the amplitude view by dy px (positive moves the waveform down). */
+  scrollAmp(dy) {
+    const lane = this.lanes()[0];
+    if (!lane) return;
+    const v = this.doc.view;
+    this.doc.setAmpOffset((v.ampOffset || 0) + dy / ((lane.bottom - lane.top) / 2) / v.amp);
+  }
+
   #ampTitle() {
     const u = AMP_UNITS.find((x) => x.id === this.ampUnit());
-    return `Amplitude (${u.label}). Drag or scroll to zoom, right-drag over a range to zoom to it, double-click to reset, right-click for units.`;
+    return `Amplitude (${u.label}). Scroll to zoom, drag to scroll when zoomed in (Shift+drag zooms), right-drag over a range to zoom to it, double-click to reset, right-click for units.`;
   }
 
   /** Unit of the amplitude ruler and grid: 'db', 'percent', 'normalized' or 'samples'. */
@@ -943,8 +1042,11 @@ export class WaveformView {
       },
       done: (a, b) => {
         band.hidden = true;
-        const amp = ampForRange(this.lanes(), yOf(a), yOf(b), this.doc.view.amp);
-        if (amp) this.doc.setAmp(amp);
+        const r = ampForRange(this.lanes(), yOf(a), yOf(b), this.doc.view.amp, this.doc.view.ampOffset || 0);
+        if (r) {
+          this.doc.setAmp(r.amp);
+          this.doc.setAmpOffset(r.offset);
+        }
       },
       cancel: () => (band.hidden = true),
       menu: (x, y) => this.app.openMenu(this.ampMenuItems(), { x, y, label: 'Amplitude ruler' }),
@@ -954,7 +1056,9 @@ export class WaveformView {
       (e) => {
         if (!mine(e)) return;
         e.preventDefault();
-        this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -(e.deltaY || e.deltaX)));
+        // Shift scrolls (when zoomed in); otherwise zoom around the level under the pointer.
+        if (e.shiftKey) this.scrollAmp(-(e.deltaY || e.deltaX));
+        else this.zoomAmpAt(Math.pow(1.0015, -(e.deltaY || e.deltaX)), yOf(e));
       },
       { passive: false },
     );
@@ -964,7 +1068,14 @@ export class WaveformView {
       el.setPointerCapture(e.pointerId);
       const y0 = e.clientY;
       const amp0 = this.doc.view.amp;
-      const move = (ev) => this.doc.setAmp(ampDragZoom(amp0, ev.clientY - y0));
+      // Zoomed in, a drag scrolls through the levels; at full scale (or with Shift) it zooms.
+      const zoom = e.shiftKey || amp0 <= 1;
+      let last = y0;
+      const move = (ev) => {
+        if (zoom) this.doc.setAmp(ampDragZoom(amp0, ev.clientY - y0));
+        else this.scrollAmp(ev.clientY - last);
+        last = ev.clientY;
+      };
       const up = () => {
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', up);
@@ -1318,7 +1429,7 @@ export class WaveformView {
     const v = this.doc.view;
     const span = v.end - v.start;
     if (e.altKey) {
-      this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -e.deltaY));
+      this.zoomAmpAt(Math.pow(1.0015, -e.deltaY), e.clientY - this.surface.getBoundingClientRect().top);
       return;
     }
     // Horizontal trackpad motion (or Shift+wheel) scrolls; vertical zooms
@@ -1351,7 +1462,7 @@ export class WaveformView {
   /** y (CSS px) of a sample value in a lane at the current amplitude zoom. */
   #sampleY(lane, v) {
     const mid = (lane.top + lane.bottom) / 2;
-    return mid - Math.max(-1.05, Math.min(1.05, v * this.doc.view.amp)) * ((lane.bottom - lane.top) / 2);
+    return mid - Math.max(-1.05, Math.min(1.05, (v - (this.doc.view.ampOffset || 0)) * this.doc.view.amp)) * ((lane.bottom - lane.top) / 2);
   }
 
   /**
@@ -1400,8 +1511,7 @@ export class WaveformView {
   #setSampleAt(frame, x, y = this.sampleDrag.y) {
     const d = this.sampleDrag;
     const lane = this.lanes()[d.ch];
-    const half = (lane.bottom - lane.top) / 2;
-    const value = y === undefined ? null : Math.max(-1, Math.min(1, ((lane.top + lane.bottom) / 2 - y) / half / this.doc.view.amp));
+    const value = y === undefined ? null : Math.max(-1, Math.min(1, ampValueAt(lane, y, this.doc.view.amp, this.doc.view.ampOffset || 0)));
     const i = frame - d.a;
     if (value === null || i < 0 || i >= d.buf.length) {
       d.last = i >= 0 && i < d.buf.length ? { i, v: d.buf[i] } : d.last;

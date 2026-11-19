@@ -14,12 +14,13 @@ layout(location = 1) in vec2 minmax;      // per instance
 uniform float uCols;
 uniform vec2 uLane;                        // lane top/bottom in clip space
 uniform float uAmp;
+uniform float uOffset;                     // sample value at the lane centre
 uniform float uColOffset;
 void main() {
   float col = float(gl_InstanceID) + uColOffset;
   float x = (col + corner.x) / uCols * 2.0 - 1.0;
-  float lo = clamp(minmax.x * uAmp, -1.0, 1.0);
-  float hi = clamp(minmax.y * uAmp, -1.0, 1.0);
+  float lo = clamp((minmax.x - uOffset) * uAmp, -1.0, 1.0);
+  float hi = clamp((minmax.y - uOffset) * uAmp, -1.0, 1.0);
   // Keep at least one device pixel of height so silence still draws a line.
   float v = mix(lo, hi, corner.y);
   float mid = (uLane.x + uLane.y) * 0.5;
@@ -39,10 +40,11 @@ uniform float uFirstX;     // clip-space x of sample 0
 uniform float uStepX;      // clip-space distance between samples
 uniform vec2 uLane;
 uniform float uAmp;
+uniform float uOffset;
 uniform float uPoint;
 void main() {
   float x = uFirstX + float(gl_VertexID) * uStepX;
-  float v = clamp(sampleValue * uAmp, -1.05, 1.05);
+  float v = clamp((sampleValue - uOffset) * uAmp, -1.05, 1.05);
   float mid = (uLane.x + uLane.y) * 0.5;
   float halfH = (uLane.x - uLane.y) * 0.5;
   gl_Position = vec4(x, mid + v * halfH, 0.0, 1.0);
@@ -150,20 +152,21 @@ export class WaveformRenderer {
    * @param {number} p.start first frame at the left edge
    * @param {number} p.fpp frames per device pixel
    * @param {number} p.amp vertical zoom
+   * @param {number} [p.offset] sample value at the lane centre (vertical scroll)
    * @param {{top:number,bottom:number}[]} p.lanes lane rectangles in device pixels
    * @param {string[]} p.colors CSS colors per channel
    * @param {object} [p.defer] spreads first-time peak building over frames (see channelColumns)
    */
-  draw({ channels, start, fpp, amp, lanes, colors, defer = null }) {
+  draw({ channels, start, fpp, amp, offset = 0, lanes, colors, defer = null }) {
     if (this.gl && !readyContext(this)) return;
     if (this.lost) return;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    if (this.gl) this.#drawGL(channels, start, fpp, amp, lanes, colors, W, H, defer);
-    else this.#draw2d(channels, start, fpp, amp, lanes, colors, W, H, defer);
+    if (this.gl) this.#drawGL(channels, start, fpp, amp, offset, lanes, colors, W, H, defer);
+    else this.#draw2d(channels, start, fpp, amp, offset, lanes, colors, W, H, defer);
   }
 
-  #drawGL(channels, start, fpp, amp, lanes, colors, W, H, defer) {
+  #drawGL(channels, start, fpp, amp, offset, lanes, colors, W, H, defer) {
     const gl = this.gl;
     gl.viewport(0, 0, W, H);
     gl.clearColor(0, 0, 0, 0);
@@ -201,6 +204,7 @@ export class WaveformRenderer {
         gl.uniform1f(P.u.uColOffset, first);
         gl.uniform2f(P.u.uLane, laneClip[0], laneClip[1]);
         gl.uniform1f(P.u.uAmp, amp);
+        gl.uniform1f(P.u.uOffset, offset);
         gl.uniform4f(P.u.uColor, r * a, g * a, b * a, a);
         gl.bindVertexArray(this.columnVao);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
@@ -218,6 +222,7 @@ export class WaveformRenderer {
         gl.uniform1f(P.u.uStepX, (pxPerSample / W) * 2);
         gl.uniform2f(P.u.uLane, laneClip[0], laneClip[1]);
         gl.uniform1f(P.u.uAmp, amp);
+        gl.uniform1f(P.u.uOffset, offset);
         gl.uniform4f(P.u.uColor, r * a, g * a, b * a, a);
         gl.bindVertexArray(this.lineVao);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuf);
@@ -233,7 +238,7 @@ export class WaveformRenderer {
     gl.bindVertexArray(null);
   }
 
-  #draw2d(channels, start, fpp, amp, lanes, colors, W, H, defer) {
+  #draw2d(channels, start, fpp, amp, offset, lanes, colors, W, H, defer) {
     const ctx = this.ctx2d;
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
@@ -251,8 +256,8 @@ export class WaveformRenderer {
           const lo = data[2 * c];
           if (Number.isNaN(lo)) continue;
           const hi = data[2 * c + 1];
-          const y0 = mid - Math.max(-1, Math.min(1, hi * amp)) * half;
-          const y1 = mid - Math.max(-1, Math.min(1, lo * amp)) * half;
+          const y0 = mid - Math.max(-1, Math.min(1, (hi - offset) * amp)) * half;
+          const y1 = mid - Math.max(-1, Math.min(1, (lo - offset) * amp)) * half;
           ctx.fillRect(c, y0, 1, Math.max(1, y1 - y0));
         }
       } else {
@@ -262,7 +267,7 @@ export class WaveformRenderer {
         ctx.beginPath();
         for (let k = 0; k < samples.length; k++) {
           const x = (s0 + k - start) / fpp;
-          const y = mid - Math.max(-1.05, Math.min(1.05, samples[k] * amp)) * half;
+          const y = mid - Math.max(-1.05, Math.min(1.05, (samples[k] - offset) * amp)) * half;
           if (k === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }

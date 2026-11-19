@@ -393,18 +393,22 @@ describe('right-drag zoom', () => {
   it('zooms amplitude so a dragged range fills the lane', async () => {
     const { ampForRange } = await import('../src/editor/waveform-view.js');
     const lanes = [{ top: 0, bottom: 200 }];
-    expect(ampForRange(lanes, 50, 90, 1)).toBeCloseTo(2);
-    expect(ampForRange(lanes, 90, 150, 1)).toBeCloseTo(2);
+    // 50..90 px covers values 0.5..0.1: zoom 5x centred on 0.3.
+    expect(ampForRange(lanes, 50, 90, 1).amp).toBeCloseTo(5);
+    expect(ampForRange(lanes, 50, 90, 1).offset).toBeCloseTo(0.3);
+    expect(ampForRange(lanes, 0, 200, 1)).toEqual({ amp: 1, offset: 0 });
     expect(ampForRange(lanes, 300, 350, 1)).toBe(null);
+    expect(ampForRange(lanes, 50, 51, 1)).toBe(null);
     const { app, doc, view } = await makeView();
     view.amp.getBoundingClientRect = () => ({ left: 0, top: 0, width: 54, height: 400 });
     view.amp.setPointerCapture = () => {};
     app.openMenu = () => {};
-    // Left lane 0..199.5: a drag from 75 to 90 px (centre ~100) zooms to about 4x.
-    view.amp.dispatchEvent(pe('pointerdown', 10, 75));
+    // Left lane 0..199.5 (centre 99.75): 50..90 px is about 0.5..0.1.
+    view.amp.dispatchEvent(pe('pointerdown', 10, 50));
     view.amp.dispatchEvent(pe('pointermove', 10, 90));
     view.amp.dispatchEvent(pe('pointerup', 10, 90));
-    expect(doc.view.amp).toBeCloseTo(4, 0);
+    expect(doc.view.amp).toBeCloseTo(5, 0);
+    expect(doc.view.ampOffset).toBeCloseTo(0.3, 1);
   });
 });
 
@@ -433,5 +437,69 @@ describe('range marker ends', () => {
     // Never shorter than one sample.
     view.resizeMarker(doc.state.markers[0].id, 0, false);
     expect(doc.state.markers[0].duration).toBe(1);
+  });
+});
+
+describe('vertical amplitude scroll', () => {
+  it('keeps the scroll inside full scale and follows the zoom', async () => {
+    const { clampAmpOffset } = await import('../src/model/audio-file.js');
+    expect(clampAmpOffset(0.9, 2)).toBe(0.5);
+    expect(clampAmpOffset(-0.9, 4)).toBe(-0.75);
+    expect(clampAmpOffset(0.3, 1)).toBe(0);
+    const { doc } = await makeView();
+    doc.setAmp(4);
+    doc.setAmpOffset(0.6);
+    expect(doc.view.ampOffset).toBeCloseTo(0.6);
+    // Zooming out pulls the scroll back inside full scale; back to 1x clears it.
+    doc.setAmp(2);
+    expect(doc.view.ampOffset).toBeCloseTo(0.5);
+    doc.setAmp(1);
+    expect(doc.view.ampOffset).toBe(0);
+  });
+
+  it('zooms around an anchor value', async () => {
+    const { doc } = await makeView();
+    doc.setAmp(4, { anchor: 0.5 });
+    // 0.5 was 0.5 of the half-lane above the centre; it stays there: (0.5 - off) * 4 = 0.5.
+    expect(doc.view.ampOffset).toBeCloseTo(0.375);
+  });
+
+  it('labels the levels in view when scrolled', async () => {
+    const { dbTicks, linearTicks, dbMinorTicks } = await import('../src/editor/waveform-view.js');
+    const lane = { top: 0, bottom: 400 };
+    // 4x zoom scrolled to 0.5: values 0.25..0.75 in view, no negatives, no zero line.
+    const t = dbTicks(lane, 4, 0.5);
+    expect(t.length).toBeGreaterThan(0);
+    expect(t.every((x) => x.y2 === null)).toBe(true);
+    expect(t.map((x) => x.db)).toContain(-6);
+    const lin = linearTicks(lane, 4, 'normalized', 16, 0.5);
+    expect(lin.every((x) => x.value > 0.25 && x.value < 0.75)).toBe(true);
+    expect(lin.find((x) => x.label === '0.5').y).toBeCloseTo(200);
+    const neg = linearTicks(lane, 4, 'percent', 16, -0.5);
+    expect(neg.every((x) => x.label.startsWith('-'))).toBe(true);
+    expect(dbMinorTicks(lane, 4, 0.5).every((y) => y >= 0 && y <= 400)).toBe(true);
+  });
+
+  it('scrolls by dragging the ruler when zoomed in, and zooms with the wheel around the pointer', async () => {
+    const { doc, view } = await makeView();
+    view.amp.getBoundingClientRect = () => ({ left: 0, top: 0, width: 54, height: 400 });
+    view.amp.setPointerCapture = () => {};
+    doc.setAmp(4);
+    const ev = (type, y, extra = {}) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 10, clientY: y, ...extra });
+      Object.defineProperties(e, { pointerId: { value: 1 } });
+      return e;
+    };
+    view.amp.dispatchEvent(ev('pointerdown', 100));
+    view.amp.dispatchEvent(ev('pointermove', 150));
+    view.amp.dispatchEvent(ev('pointerup', 150));
+    expect(doc.view.amp).toBe(4);
+    // 50 px in a 99.75 px half-lane at 4x: about 0.125 of full scale.
+    expect(doc.view.ampOffset).toBeCloseTo(0.125, 2);
+    doc.setAmp(1);
+    // Over the top of the left lane, a zoom in keeps the level there in place.
+    view.amp.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, clientX: 10, clientY: 20, bubbles: true, cancelable: true }));
+    expect(doc.view.amp).toBeGreaterThan(1);
+    expect(doc.view.ampOffset).toBeGreaterThan(0);
   });
 });

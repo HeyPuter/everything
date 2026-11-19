@@ -204,7 +204,7 @@ export function installPreviewEditor(app, host) {
     const lh = (H * dpr - gap * (n - 1)) / n;
     const lanes = result.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
     const color = cssVar('--wave');
-    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: (current?.doc || idle).view.amp || 1, lanes, colors: result.channels.map(() => color) });
+    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: (current?.doc || idle).view.amp || 1, offset: (current?.doc || idle).view.ampOffset || 0, lanes, colors: result.channels.map(() => color) });
   }
 
   app.on('effect-values', (payload) => {
