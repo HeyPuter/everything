@@ -504,16 +504,58 @@ puter-user-menu::part(apps-panel) {
   border: 2px solid var(--accent);
   border-radius: var(--radius);
   background: var(--accent-soft);
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
   transition: left 80ms var(--ease), top 80ms var(--ease), width 80ms var(--ease), height 80ms var(--ease);
 }
 
+
+/* What letting go does, in words, in the middle of the highlighted area. */
+.dock-drop-label {
+  max-width: calc(100% - 12px);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-fill);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dock-drop-label:empty {
+  display: none;
+}
+
+/* A new floating window: its outline at the size it will open. */
+.dock-drop.zone-float {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  transition: none;
+}
+
 /* Between two tabs: an insertion bar. */
-.dock-drop.insert {
+.dock-drop.zone-tabs {
   border: 0;
   border-radius: 1px;
   background: var(--accent);
   transition: none;
+}
+
+.dock-drop.zone-tabs .dock-drop-label {
+  display: none;
+}
+
+/* The frame a split divides. */
+.dock-drop-frame {
+  position: fixed;
+  z-index: 1099;
+  display: none;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  pointer-events: none;
 }
 
 /* Floating frames: a panel frame in a window over the workspace, moved by its
@@ -532,13 +574,18 @@ puter-user-menu::part(apps-panel) {
   overflow: hidden;
 }
 
-.dock-float > .panel-group {
+.dock-float > * {
   flex: 1;
   min-width: 0;
-  border-color: var(--divider);
+  min-height: 0;
 }
 
-.dock-float > .panel-group.focused {
+.dock-float {
+  background: var(--bg-app);
+  border: 1px solid var(--divider);
+}
+
+.dock-float .panel-group.focused {
   border-color: var(--accent);
 }
 

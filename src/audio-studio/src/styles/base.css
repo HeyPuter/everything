@@ -695,7 +695,7 @@ input[type='range'].slider::-moz-range-thumb {
     background: Highlight;
   }
 
-  .dock-drop.insert {
+  .dock-drop.zone-tabs {
     forced-color-adjust: none;
     background: Highlight;
   }
