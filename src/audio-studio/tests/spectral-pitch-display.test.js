@@ -80,21 +80,41 @@ describe('display switching', () => {
 });
 
 describe('frequency zoom in the pitch display', () => {
-  it('is off while the pitch display fits the axis to the contour', async () => {
+  it('zooms the pitch band by hand and Zoom Out Full returns to the fitted band', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    HTMLCanvasElement.prototype.getContext = () => null;
     localStorage.clear();
     const { App } = await import('../src/app.js');
     const { installCore } = await import('../src/features/core.js');
     const { installSpectralAnalysis } = await import('../src/features/spectral-analysis.js');
     const { AudioFile } = await import('../src/model/audio-file.js');
     const { Channel } = await import('../src/audio/channel.js');
+    const { WaveformView } = await import('../src/editor/waveform-view.js');
+    const { docState } = await import('../src/spectral/state.js');
     const app = new App();
     installCore(app);
     installSpectralAnalysis(app);
-    app.addDocument(new AudioFile({ name: 't.wav', sampleRate: 48000, channels: [Channel.fromSamples(new Float32Array(4800))] }));
-    app.commands.run('view.spectral');
-    expect(app.commands.isEnabled('view.zoomInFreq')).toBe(true);
+    const doc = new AudioFile({ name: 't.wav', sampleRate: 48000, channels: [Channel.fromSamples(new Float32Array(4800))] });
+    app.addDocument(doc);
+    const view = new WaveformView(app, doc);
+    document.body.replaceChildren(view.el);
+    // Earlier tests installed the feature on other apps: take this app's layer.
+    const layer = view.layers.find((l) => l.id === 'spectral' && l.app === app);
     app.commands.run('view.spectralPitch');
-    expect(app.commands.isEnabled('view.zoomInFreq')).toBe(false);
-    expect(app.commands.isEnabled('view.zoomFullFreq')).toBe(false);
+    const before = layer.scale();
+    expect(app.commands.isEnabled('view.zoomInFreq')).toBe(true);
+    app.commands.run('view.zoomInFreq');
+    const zoomed = layer.scale();
+    expect(Math.log2(zoomed.hi / zoomed.lo)).toBeLessThan(Math.log2(before.hi / before.lo));
+    expect(docState(doc).pitchBand).toBeTruthy();
+    // The frequency display's own band is untouched.
+    expect(docState(doc).lo).toBe(0);
+    app.commands.run('view.zoomFullFreq');
+    expect(docState(doc).pitchBand).toBe(null);
+    expect(layer.scale().lo).toBeCloseTo(before.lo);
+    view.destroy();
   });
 });

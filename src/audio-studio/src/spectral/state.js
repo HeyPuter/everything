@@ -66,11 +66,14 @@ export function logScale(app) {
 
 const states = new WeakMap();
 
-/** Per-document spectral state: { lo, hi (null = Nyquist), selection, timeKey }. */
+/**
+ * Per-document spectral state: { lo, hi (null = Nyquist), pitchBand (the pitch display's
+ * hand-zoomed { lo, hi }, null = fitted to the contour), selection, timeKey }.
+ */
 export function docState(doc) {
   let s = states.get(doc);
   if (!s) {
-    s = { lo: 0, hi: null, selection: null, timeKey: '' };
+    s = { lo: 0, hi: null, pitchBand: null, selection: null, timeKey: '' };
     states.set(doc, s);
   }
   return s;

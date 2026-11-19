@@ -73,6 +73,14 @@ export function installSpectral(app) {
     },
     zoomFrequency(doc, factor, centre) {
       const nyq = doc.sampleRate / 2;
+      if (pitchOn(app)) {
+        const s = layerOf(doc)?.scale();
+        if (!s) return;
+        const r = zoomRange({ lo: s.lo, hi: s.hi }, factor, nyq, true, centre);
+        docState(doc).pitchBand = { lo: Math.max(20, r.lo), hi: r.hi };
+        invalidateDoc(doc);
+        return;
+      }
       const r = zoomRange(visibleBand(doc), factor, nyq, logScale(app), centre);
       const st = docState(doc);
       st.lo = r.lo;
@@ -81,6 +89,12 @@ export function installSpectral(app) {
     },
     resetFrequency(doc) {
       const st = docState(doc);
+      if (pitchOn(app)) {
+        // Back to the band fitted to the pitch contour.
+        st.pitchBand = null;
+        invalidateDoc(doc);
+        return;
+      }
       st.lo = 0;
       st.hi = null;
       invalidateDoc(doc);
@@ -164,8 +178,7 @@ export function installSpectral(app) {
 
   const C = app.commands;
   const specOn = () => displayOn(app) && Boolean(audio());
-  // The pitch display fits its axis to the pitch contour: no frequency zoom there.
-  const freqZoomOn = () => specOn() && !pitchOn(app);
+  const freqZoomOn = specOn;
   const brushTool = () => specOn() && (app.tool === 'brush' || app.tool === 'heal');
   const brushStep = (dSize, dOpacity) => {
     const s = settings(app);

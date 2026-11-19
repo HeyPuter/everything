@@ -149,7 +149,8 @@ export class SpectralLayer {
   scale() {
     // The pitch display: a logarithmic axis fitted to the pitch contour in view.
     if (pitchOn(this.app)) {
-      const band = this.pitch?.band || pitchSettings(this.app.prefs, this.doc.sampleRate);
+      // Zoomed by hand (ruler or Zoom In/Out (Frequency)), or else fitted to the contour.
+      const band = docState(this.doc).pitchBand || this.pitch?.band || pitchSettings(this.app.prefs, this.doc.sampleRate);
       return makeScale({ log: true, lo: band.lo ?? band.fmin, hi: band.hi ?? band.fmax });
     }
     const band = visibleBand(this.doc);
@@ -541,24 +542,34 @@ export class SpectralLayer {
 
   #drawPitch(ctx, lanes, scale) {
     const { f0s, start, hop, n } = this.pitch;
-    ctx.strokeStyle = cssVar('--envelope-vol');
-    ctx.lineWidth = 2;
-    for (const lane of lanes) {
-      const f0 = f0s[lane.channel] || f0s[0];
-      ctx.beginPath();
-      let pen = false;
-      for (let i = 0; i < f0.length; i++) {
-        const f = f0[i];
-        if (!(f > 0) || f < scale.lo || f > scale.hi) {
-          pen = false;
-          continue;
+    // A cool cyan (deep blue on light) stands apart from the warm spectrum colors; a dark
+    // halo under it keeps it readable over bright partials.
+    const light = resolvedTheme() === 'light';
+    const passes = [
+      { color: light ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.6)', width: 4 },
+      { color: light ? '#0b63c9' : '#5ee0ff', width: 2 },
+    ];
+    ctx.lineJoin = 'round';
+    for (const pass of passes) {
+      for (const lane of lanes) {
+        ctx.strokeStyle = pass.color;
+        ctx.lineWidth = pass.width;
+        const f0 = f0s[lane.channel] || f0s[0];
+        ctx.beginPath();
+        let pen = false;
+        for (let i = 0; i < f0.length; i++) {
+          const f = f0[i];
+          if (!(f > 0) || f < scale.lo || f > scale.hi) {
+            pen = false;
+            continue;
+          }
+          const [x, y] = this.#toXY(lane, scale, start + i * hop + n / 2, f);
+          if (pen) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+          pen = true;
         }
-        const [x, y] = this.#toXY(lane, scale, start + i * hop + n / 2, f);
-        if (pen) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-        pen = true;
+        ctx.stroke();
       }
-      ctx.stroke();
     }
     ctx.lineWidth = 1;
   }
@@ -811,8 +822,12 @@ export class SpectralLayer {
         }
         if (lo < (s0.log ? 20 : 0)) return;
         const st = docState(this.doc);
-        st.lo = lo;
-        st.hi = hi;
+        // The pitch display keeps its own band (null = fitted to the contour).
+        if (pitchOn(this.app)) st.pitchBand = { lo, hi };
+        else {
+          st.lo = lo;
+          st.hi = hi;
+        }
         this.invalidate();
       };
       const up = () => {
