@@ -1,12 +1,12 @@
 // Metadata templates: named sets of metadata fields (station, originator,
 // copyright, artist...) saved in the `metaTemplates` preference and applied
-// to a file in one undoable step. Fields that identify one recording (UMID,
-// time reference, the session link) are never part of a template.
+// to a file in one undoable step. Fields that identify one recording (title,
+// track number, UMID, time reference, the session link) are never part of a template.
 
 import { cleanMeta } from '../audio/meta.js';
 
 /** Fields a template leaves out: they belong to one file only. */
-export const PER_FILE_FIELDS = ['bextUmid', 'bextTimeRef', 'editOriginal'];
+export const PER_FILE_FIELDS = ['title', 'track', 'bextUmid', 'bextTimeRef', 'editOriginal'];
 
 export const metaTemplates = (prefs) => (Array.isArray(prefs.get('metaTemplates')) ? prefs.get('metaTemplates').filter((t) => t && typeof t.name === 'string' && t.meta) : []);
 

@@ -13,7 +13,7 @@ it('saves templates without per-file fields and applies them over a file', () =>
   expect(metaTemplates(prefs).map((t) => t.name)).toEqual(['station']);
   const t = { name: 'S', meta: { copyright: 'New', artist: 'Host' } };
   expect(applyMetaTemplate({ title: 'Show 12', copyright: 'Old', bextUmid: 'X' }, t)).toEqual({ title: 'Show 12', copyright: 'New', artist: 'Host', bextUmid: 'X' });
-  expect(applyMetaTemplate({ title: 'Show 12', bextUmid: 'X' }, t, { replace: true })).toEqual({ copyright: 'New', artist: 'Host', bextUmid: 'X' });
+  expect(applyMetaTemplate({ title: 'Show 12', bextUmid: 'X' }, t, { replace: true })).toEqual({ title: 'Show 12', copyright: 'New', artist: 'Host', bextUmid: 'X' });
   deleteMetaTemplate(prefs, 'station');
   expect(metaTemplates(prefs)).toEqual([]);
 });
@@ -35,7 +35,7 @@ it('saves and applies templates from the Metadata panel as one undo step', async
   document.querySelector('.dialog input').value = 'Mine';
   document.querySelector('.dialog-foot .btn.primary').click();
   await vi.waitFor(() => expect(metaTemplates(app.prefs).map((t) => t.name)).toEqual(['Mine']));
-  expect(metaTemplates(app.prefs)[0].meta).toEqual({ copyright: '2026 Me', title: 'A' });
+  expect(metaTemplates(app.prefs)[0].meta).toEqual({ copyright: '2026 Me' });
   const b = app.addDocument(AudioFile.blank({ name: 'B.wav', sampleRate: 8000, channels: 1, seconds: 1 }));
   app.activate(b);
   panel.show();
@@ -43,7 +43,7 @@ it('saves and applies templates from the Metadata panel as one undo step', async
   sel.value = 'Mine';
   sel.dispatchEvent(new Event('change'));
   [...bar.querySelectorAll('button')].find((x) => x.textContent === 'Apply').click();
-  expect(b.state.meta).toEqual({ copyright: '2026 Me', title: 'A' });
+  expect(b.state.meta).toEqual({ copyright: '2026 Me' });
   b.history.undo();
   expect(b.state.meta || {}).toEqual({});
 });
