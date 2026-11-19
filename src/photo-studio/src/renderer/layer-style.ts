@@ -88,6 +88,18 @@ function tileState(grid: TileGrid | undefined, assets: Assets) {
   for (const [k, id] of Object.entries(grid.tiles)) s += `${k}=${id}:${store.version(id)};`;
   return s;
 }
+// 53-bit string digest (cyrb53) for cache keys of very large layers.
+function digest(s: string) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
 const presentation = new Set(['style', 'opacity', 'blend', 'visible', 'name', 'fillOpacity', 'locked', 'protection', 'colorLabel', 'psdId', 'clipped', 'transparencyProtected']);
 
 export class StyleCache {
@@ -112,7 +124,10 @@ export class StyleCache {
       if (presentation.has(k) && k !== 'clipped') return undefined;
       return k === 'transform' ? { ...v, x: 0, y: 0 } : v;
     });
-    return JSON.stringify(['gen', fonts, stripped.length > 200000 ? stripped.length : stripped, versions, pin || hasMask(l) || !!l.maskGrid || l.kind === 'group' ? [t.x, t.y] : 0]);
+    // Huge layers (groups of full-size photos) are keyed by a digest; their
+    // length alone missed same-length edits such as a child's blend or move.
+    const content = stripped.length > 200000 ? `${stripped.length}:${digest(stripped)}` : stripped;
+    return JSON.stringify(['gen', fonts, content, versions, pin || hasMask(l) || !!l.maskGrid || l.kind === 'group' ? [t.x, t.y] : 0]);
   }
   /** Plain pixel layers are read straight from their tiles. */
   private fastPath(l: Layer) {
