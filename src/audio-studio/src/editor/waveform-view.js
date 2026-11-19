@@ -1121,7 +1121,9 @@ export class WaveformView {
         this.extendSelectionTo(this.frameAt(e.clientX - s.getBoundingClientRect().left));
         return;
       }
-      contextMenu(this.app, WAVEFORM_CONTEXT, e.clientX, e.clientY, 'Waveform context menu');
+      // Layers (the spectral display) add their own entries above the waveform ones.
+      const extra = this.layers.flatMap((l) => (l.visible?.() !== false && l.menuItems?.(e)) || []);
+      contextMenu(this.app, extra.length ? [...extra, '-', ...WAVEFORM_CONTEXT] : WAVEFORM_CONTEXT, e.clientX, e.clientY, 'Waveform context menu');
     });
 
     s.addEventListener('pointerdown', (e) => {

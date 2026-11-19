@@ -22,6 +22,7 @@ import { addBrushDot, dotOutline, shapeIntervals, selectionBounds } from './mask
 import { analysisPool } from '../analysis/pool.js';
 import { sourceKey } from '../engine/engine.js';
 import { spectralMenuItems } from './menu.js';
+import { invertSelection } from './tool-options.js';
 
 const CACHE_BYTES = 96 * 1024 * 1024;
 const MAX_INFLIGHT = 6;
@@ -576,6 +577,22 @@ export class SpectralLayer {
     const scale = this.scale();
     const frac = 1 - (y - lane.top) / (lane.bottom - lane.top);
     return { x, y, lane, scale, t: this.view.frameAt(x), f: scale.toHz(Math.max(0, Math.min(1, frac))) };
+  }
+
+  /**
+   * Right-click menu entries for the spectral area (shown above the waveform menu):
+   * the spectral selection's Invert and Clear, and the display settings.
+   */
+  menuItems(e) {
+    if (!this.#locate(e)) return null;
+    const app = this.app;
+    const sel = docState(this.doc).selection;
+    const has = Boolean(sel && selectionBounds(sel));
+    return [
+      { label: sel?.invert ? 'Uninvert Spectral Selection' : 'Invert Spectral Selection', enabled: has, run: () => setSpectralSelection(app, this.doc, invertSelection(sel)) },
+      { label: 'Clear Spectral Selection', enabled: has, run: () => setSpectralSelection(app, this.doc, null) },
+      { label: 'Spectral Display', items: () => spectralMenuItems(app) },
+    ];
   }
 
   cursor(e) {

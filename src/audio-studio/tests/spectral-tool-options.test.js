@@ -107,3 +107,39 @@ describe('tool options', () => {
     expect(el.hidden).toBe(true);
   });
 });
+
+describe('spectral right-click menu', () => {
+  it('adds Invert, Clear and the display settings over the spectral display only', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installSpectralAnalysis } = await import('../src/features/spectral-analysis.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { Channel } = await import('../src/audio/channel.js');
+    const app = new App();
+    installCore(app);
+    installSpectralAnalysis(app);
+    const doc = new AudioFile({ name: 't.wav', sampleRate: 48000, channels: [Channel.fromSamples(new Float32Array(48000))] });
+    app.addDocument(doc);
+    const { WaveformView } = await import('../src/editor/waveform-view.js');
+    const { setSpectralSelection, docState } = await import('../src/spectral/state.js');
+    app.prefs.set('spectralDisplay', true);
+    const view = new WaveformView(app, doc);
+    document.body.replaceChildren(view.el);
+    const layer = view.layers.find((l) => l.id === 'spectral');
+    layer.layout({ x: 0, y: 100, width: 600, height: 200, dpr: 1 });
+    view.surface.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 300 });
+    expect(layer.menuItems({ clientX: 50, clientY: 40 })).toBe(null);
+    const items = layer.menuItems({ clientX: 50, clientY: 200 });
+    expect(items.map((i) => i.label)).toEqual(['Invert Spectral Selection', 'Clear Spectral Selection', 'Spectral Display']);
+    expect(items[0].enabled).toBe(false);
+    setSpectralSelection(app, doc, { channels: [true], shapes: [rect] });
+    const [inv, clear] = layer.menuItems({ clientX: 50, clientY: 200 });
+    inv.run();
+    expect(docState(doc).selection.invert).toBe(true);
+    expect(layer.menuItems({ clientX: 50, clientY: 200 })[0].label).toBe('Uninvert Spectral Selection');
+    clear.run();
+    expect(docState(doc).selection).toBe(null);
+    view.destroy();
+  });
+});
