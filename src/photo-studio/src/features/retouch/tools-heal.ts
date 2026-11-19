@@ -102,6 +102,16 @@ function collectingTool(base: Omit<Tool, 'pointerDown' | 'pointerMove' | 'pointe
       }
       return base.deactivate?.(e, reason);
     },
+    // Escape drops the stroke being painted (as with the other brushes).
+    keyDown: (e, ev) => {
+      const s = current.s;
+      if (ev.key === 'Escape' && s && !s.done) {
+        current.s = undefined;
+        e.overlay();
+        return true;
+      }
+      return base.keyDown?.(e, ev) ?? false;
+    },
     pointerDown: async (e, p) => {
       const s: Collected = { points: [[p.x, p.y]], ready: false, done: false };
       current.s = s;

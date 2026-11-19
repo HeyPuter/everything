@@ -743,3 +743,21 @@ test('a filter in Quick Mask edits the whole mask, not only the selection it sta
   });
   expect(right).toBeGreaterThan(20);
 });
+
+test('Escape drops a Spot Healing or Remove stroke being painted', async ({ page }) => {
+  for (const id of ['spot-healing', 'remove-tool']) {
+    await page.evaluate((id) => window.photoStudio.setTool(id), id);
+    const steps = await page.evaluate(() => window.photoStudio.history.labels.length);
+    await page.mouse.move(...(await client(page, 40, 60)));
+    await page.mouse.down();
+    await page.mouse.move(...(await client(page, 100, 60)), { steps: 5 });
+    await expect(page.locator('.retouch-stroke')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.retouch-stroke')).toHaveCount(0);
+    await page.mouse.move(...(await client(page, 120, 60)), { steps: 2 });
+    await page.mouse.up();
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.history.labels.length)).toBe(steps);
+    await expect(page.locator('.retouch-stroke')).toHaveCount(0);
+  }
+});
