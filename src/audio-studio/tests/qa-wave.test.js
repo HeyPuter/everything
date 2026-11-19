@@ -224,7 +224,7 @@ describe('command labels with menu context', () => {
     const L = (id) => contextLabel(id, app.commands.label(id), paths);
     expect(L('file.import')).toBe('Import > File');
     expect(L('file.exportFile')).toBe('Export > File');
-    expect(L('file.exportMarkers')).toBe('Export > Markers');
+    expect(L('file.exportMarkers')).toBe('Export > Selected Markers to CSV');
     expect(L('file.newAudio')).toBe('New > Audio File');
     expect(L('gen.tones')).toBe('Generate > Tones');
     expect(L('theme.dark')).toBe('Theme > Dark');

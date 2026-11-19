@@ -78,7 +78,7 @@ export function markersPanel(app) {
     sessionBtn,
     playlistBtn,
     batchBtn,
-    tbtn('file.exportMarkers', 'upload', 'Export Markers'),
+    tbtn('file.exportMarkers', 'upload', 'Export Selected Markers to CSV'),
     search,
     filterBtn,
   );

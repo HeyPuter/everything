@@ -1,5 +1,5 @@
 // Marker list import: reads the tab- or comma-separated text written by
-// File > Export > Markers (Name, Start, Duration, Time Format, Type,
+// File > Export > Selected Markers to CSV (Name, Start, Duration, Time Format, Type,
 // Description), the same column layout pro editors exchange.
 
 import { parseTime, TIME_FORMATS } from '../lib/time.js';

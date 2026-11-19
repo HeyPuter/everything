@@ -306,15 +306,20 @@ export function installCoreCommands(app) {
     { id: 'file.properties', label: 'File Info', enabled: anyDoc, run: () => app.dock.openPanel('properties') },
     {
       id: 'file.exportMarkers',
-      label: 'Markers...',
-      enabled: (a) => Boolean(audio(a)?.state.markers.length),
-      run: () => {
-        const doc = audio(app);
+      label: 'Selected Markers to CSV...',
+      enabled: (a) => Boolean(a.active?.state?.markers?.length),
+      run: (a, args) => {
+        const doc = app.active;
+        // The markers selected in the Markers panel (or handed over by its toolbar), else all of them.
+        const ids = new Set(args?.ids || app.selectedMarkerIds?.() || []);
+        const chosen = doc.state.markers.filter((m) => ids.has(m.id));
+        const markers = chosen.length ? chosen : doc.state.markers;
         // Sample columns keep positions exact when the list is imported again.
         const rows = [['Name', 'Start', 'Duration', 'Time Format', 'Type', 'Description', 'Start Samples', 'Duration Samples', 'Sample Rate']];
-        for (const m of doc.state.markers) rows.push([m.name, app.formatTime(m.start, doc.sampleRate), app.formatTime(m.duration, doc.sampleRate), app.prefs.get('timeFormat'), m.type, m.description || '', m.start, m.duration, doc.sampleRate]);
+        for (const m of markers) rows.push([m.name, app.formatTime(m.start, doc.sampleRate), app.formatTime(m.duration, doc.sampleRate), app.prefs.get('timeFormat'), m.type, m.description || '', m.start, m.duration, doc.sampleRate]);
         const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join('\t')).join('\n');
         downloadBlob(new Blob([csv], { type: 'text/csv' }), `${baseName(doc.name)} Markers.csv`);
+        app.setStatus(`Exported ${markers.length} marker${markers.length === 1 ? '' : 's'}${chosen.length ? ' (the selection)' : ''}`);
       },
     },
 
