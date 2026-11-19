@@ -690,7 +690,11 @@ input[type='range'].slider::-moz-range-thumb {
     outline-offset: -2px;
   }
 
-  .panel-tab[aria-selected='true']::after,
+  .panel-tab[aria-selected='true']::after {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+
   .dock-drop.insert {
     forced-color-adjust: none;
     background: Highlight;
