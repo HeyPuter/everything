@@ -136,7 +136,7 @@ export async function imageProcessor(e: Editor, batch: boolean) {
           if (cancelled) return;
           close();
           if (!files.length) return;
-          if (opts.dest === 'puter') saveToCloudFolder(e, files);
+          if (opts.dest === 'puter') saveToCloudFolder(e, files, failedNote(files.failed));
           else {
             const zip = zipStore(files.map((f) => ({ name: f.name, data: f.bytes })));
             download(bytesBlob(zip, 'application/zip'), 'processed-images.zip');

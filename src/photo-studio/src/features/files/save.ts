@@ -6,7 +6,7 @@ import type { PhotoDocument } from '../../model/document';
 import { projectExtras, serialize } from '../../model/serialization';
 import { describePsdLosses, flatLosses, psdLosses, type PsdLoss } from '../../model/psd-losses';
 import { download } from '../../persistence/puter';
-import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, puterError, puterMissing, type CloudItem } from './cloud';
+import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, puterError, puterMissing, runAfterPicker, type CloudItem } from './cloud';
 import { leftOutOfFile, openFile } from './open';
 import { noteRecent, removeRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
 import { emitAppEvent } from '../../app/app-events';
@@ -245,7 +245,7 @@ export async function openCloudItems(e: Editor, items: CloudItem[]) {
 export function openFromCloud(e: Editor) {
   e.release();
   void pickCloudFiles(true)
-    .then((items) => e.run(() => openCloudItems(e, items)))
+    .then((items) => runAfterPicker(e, () => openCloudItems(e, items)))
     .catch((error) => e.message(errorText(error)));
 }
 

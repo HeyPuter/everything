@@ -9,7 +9,7 @@ import type { Assets } from '../../model/assets';
 import { deserialize, serialize } from '../../model/serialization';
 import { setDocumentResolution } from '../../model/text-layer';
 import { pickLocalFiles } from '../embedded/convert';
-import { pickCloudFiles } from './cloud';
+import { pickCloudFiles, runAfterPicker } from './cloud';
 import { inMemoryFile } from './open';
 import { renewLinkGroups } from '../../model/links';
 
@@ -82,7 +82,8 @@ export async function importLayers(e: Editor, from: 'local' | 'puter' = 'local')
     // busy while it is open; the import runs as its own task.
     e.release();
     const [item] = await pickCloudFiles(false, importAccept);
-    if (item) await e.run(async () => importLayersFrom(e, await item.read(), item.name));
+    if (item)
+      await runAfterPicker(e, async () => importLayersFrom(e, await item.read(), item.name));
     return;
   }
   const [file] = await pickLocalFiles(importAccept);

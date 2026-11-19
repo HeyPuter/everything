@@ -1,6 +1,7 @@
 // Puter.js calls the file features need beyond src/persistence/puter.ts
 // (multiple selection, directory picker, folder writes).
 // https://docs.puter.com/UI/showOpenFilePicker/ · /UI/showDirectoryPicker/ · /FS/write/
+import type { Editor } from '../../editor';
 import { preferredFileName, puter } from '../../persistence/puter';
 
 export interface CloudItem {
@@ -64,6 +65,14 @@ export function cloudWrite(path: string, blob: Blob, opts: { dedupeName?: boolea
 }
 export function cloudRead(path: string) {
   return api().fs.read(path).catch(rethrow);
+}
+/** Run what follows a Puter picker as a task of its own. The editor was
+ * released while the picker was open, so another task may be running: wait
+ * for it rather than drop the files that were picked (Editor.run does nothing
+ * while busy). */
+export async function runAfterPicker(e: Editor, task: () => Promise<void>) {
+  while (e.busy) await e.idle;
+  await e.run(task);
 }
 export function joinPath(dir: string, name: string) {
   return `${dir.replace(/\/+$/, '')}/${name}`;
