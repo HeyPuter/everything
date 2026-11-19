@@ -101,7 +101,7 @@ Status: `[ ]` planned, `[x]` done.
 - [x] Denoise (non-local means, automatic noise level) and Sharpen Details (Richardson–Lucy deconvolution) as filters, live filters and actions
 - [x] Mask All Objects (masked copies, masked groups or saved selections per object)
 - [x] Harmonize (Lab color transfer to the layers beneath, clipped Color Lookup layer or pixels)
-- [ ] Reflection removal: planned as a generative edit (see Round 6); no classical single-image method gave dependable results
+- [x] Remove Reflections: a generative edit with variations and an adjustable amount (no classical single-image method gave dependable results)
 
 ## Type on paths and data-driven graphics
 
@@ -194,16 +194,22 @@ Status: `[ ]` planned, `[x]` done.
 - [x] View: Actual Size, sRGB and legacy Mac RGB proof presets, separate canvas and artboard guides, New Guides From Shape, show mesh and pins, pattern tile bounds
 - [x] Type: Match Font, more OpenType features (ornaments, justification alternates, proportional/tabular figures), East Asian alignment options, Convert to Block text
 - [x] Layer: Convert to Linked, Refine Mask Edge
-- [ ] Rotate Object (turning a flat object in depth): planned as a generative edit (see Round 6)
+- [x] Rotate Object (turning a flat object in depth): a generative edit with a turntable, tilt and variations
 - [x] Help: What's New and hands-on tutorials (guided tours of real tasks)
 - [x] Audio tracks on the video timeline (import, mix, render with sound)
 
 ## Round 6: relighting, generative layout, comparison and depth
 
-- [ ] Relight layers: virtual lights (color temperature, position, distance, brightness, softness) over an estimated surface shape, dragged on the canvas, editable in Properties, saved in projects
-- [ ] Generative Recompose: move, scale or remove an object and let the gap and seams be filled
-- [ ] Reflection Removal and Rotate Object as generative edits with variations
-- [ ] View → Quick Compare: before/after split against the opened state, a snapshot or a history state
-- [ ] Layer Mask → Enhance Edge, Filter → Blur → Selective (edge-preserving) Blur
-- [ ] Type: dynamic fit (text that refits its shape), Paste Text Attributes, more language options
-- [ ] Properties panel depth for documents and pixel layers (editable canvas, rulers and grids, guides, quick actions)
+- [x] Relight layers: up to eight virtual lights (color temperature, position, depth, brightness, spread, softness) over an estimated surface, with ambient, relief and soft shadows; dragged on the canvas, editable in Properties, on the GPU in both backends, saved in projects, exported to PSD as pixels
+- [x] AI Recompose: move, scale, rotate, flip or delete an object; the gap is filled at once offline, with an optional generative pass for seams and lighting
+- [x] Remove Reflections and Rotate Object as generative edits with variations
+- [x] Assisted and Pro editor modes, with a switch in the top bar
+- [x] View → Quick Compare: split, side by side or press-and-hold against the opened state, last save, a snapshot or a history state
+- [x] Layer Mask → Enhance Edge (also in Properties); Edge-Preserving Blur quality applies to its edge modes
+- [x] File → Export → Export Preferences
+- [x] Type: dynamic text that refits its block or curve, Release Fit, Paste Text Attributes, kashidas, leading models, justification and hyphenation settings, composers, hanging punctuation, No Break, Fractional Widths, language feature sets
+- [x] Properties panel: editable canvas, rulers and grid, guides and quick actions for documents; transform, align and quick actions for layers, groups and shapes; Layers panel thumbnail options
+- [x] Tools: a Quick Actions Bar that follows what is selected, spring-loaded tool keys, Reset Tool, paint symmetry, brush smoothing, object highlighting, Quick Mask Options, crop shield settings, sample-all for blur, sharpen and smudge, healing modes and the usual modifier keys
+- [x] Develop Filter workspace: histogram, profiles, Auto, black and white, curves, color mixer, color grading, detail, optics, geometry, calibration, local masks, presets and before/after views
+- [x] Liquify: face-aware sliders and handles over editable face guides, Pin Edges, mesh save and load, backdrop and Freeze From
+- [x] Large images: dialogs, Print, Export for Web and new layers no longer stall the editor on 24-megapixel documents
