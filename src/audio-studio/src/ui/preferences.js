@@ -170,6 +170,10 @@ export const CATEGORIES = [
           check('srcFilter', 'Pre/post filter', { keywords: 'resample anti-alias aliasing imaging lowpass', help: 'Rolls off the top of the band just below the new Nyquist frequency so nothing folds back. Off keeps a little more treble but lets some of it alias.' }),
         ],
       },
+      {
+        title: 'Batch Process',
+        items: [number('batchConcurrency', 'Files processed at once', { min: 1, max: 8, step: 1, keywords: 'concurrent parallel simultaneous processes batch', help: 'More files at once finish a batch sooner on a fast computer but use more memory.' })],
+      },
     ],
   },
   {

@@ -31,6 +31,7 @@ export const DEFAULTS = {
   clipFadeHandles: true,
   favorites: null,
   defaultRate: 48000,
+  batchConcurrency: 2,
   defaultChannels: 2,
   returnToStart: true,
   skipSelection: false,

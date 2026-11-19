@@ -51,6 +51,8 @@ function setup(location, count = 1) {
   app.syncGraph = vi.fn();
   app.notify = vi.fn();
   app.prefs.set('batchExport', { format: 'wav', bitDepth: 32, dither: 'none', collision: 'overwrite', location });
+  // One file at a time, so a cancel lands while exactly one write is in flight.
+  app.prefs.set('batchConcurrency', 1);
   for (let i = 0; i < count; i++) app.addDocument(new AudioFile({ name: `File ${i + 1}.wav`, sampleRate: 8000, channels: [Channel.fromSamples(new Float32Array(32).fill(0.25))] }));
   const panel = batchPanel(app);
   document.body.append(panel.el);

@@ -315,7 +315,7 @@ describe('preferences dialog', () => {
     const ids = CATEGORIES.map((c) => c.id);
     expect(ids).toEqual(['general', 'appearance', 'channelMap', 'audioHardware', 'autoSave', 'controlSurface', 'data', 'effects', 'cache', 'memory', 'markers', 'multitrack', 'clips', 'playback', 'spectral', 'time', 'video']);
     const keys = pageKeys(CATEGORIES.find((c) => c.id === 'data'));
-    expect(keys).toEqual(['smoothDelete', 'smoothDeleteMs', 'smoothEdits', 'smoothEditsMs', 'srcQuality', 'srcFilter']);
+    expect(keys).toEqual(['smoothDelete', 'smoothDeleteMs', 'smoothEdits', 'smoothEditsMs', 'srcQuality', 'srcFilter', 'batchConcurrency']);
     // Every declared key has a default (no option without a stored setting).
     // (Spectral display settings share one stored object with their own defaults.)
     for (const c of CATEGORIES) for (const k of pageKeys(c)) if (k !== 'spectralSettings') expect(k in DEFAULTS, k).toBe(true);

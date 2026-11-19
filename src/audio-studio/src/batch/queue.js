@@ -174,22 +174,31 @@ export function describeBatch(settings) {
 // ------------------------------------------------------------------ runner
 
 /**
- * Runs `process(item, { signal, onProgress })` for each item in order.
+ * Runs `process(item, { signal, onProgress })` for each item in order, `concurrency` at a time
+ * (Preferences > Data).
  * `onUpdate(items)` receives a new array after every change. Cancelling the
  * signal asks the current item to stop and marks the rest Cancelled. The
  * process callback rejects if cancelled, or resolves if its output was saved.
  * A completed write remains Done even if cancellation arrived during it. Resolves
  * { items, done, failed, cancelled }.
  */
-export async function runQueue(items, { process, onUpdate, signal, names }) {
+export async function runQueue(items, { process, onUpdate, signal, names, concurrency = 1 }) {
   let list = items.map((i, k) => ({ ...i, status: 'waiting', progress: 0, message: '', output: names?.[k] || '' }));
   const set = (id, patch) => {
     list = list.map((i) => (i.id === id ? { ...i, ...patch } : i));
     onUpdate?.(list);
   };
   onUpdate?.(list);
-  for (const item of items) {
-    if (signal?.aborted) break;
+  let next = 0;
+  let stopped = false;
+  const lane = async () => {
+    while (!stopped && next < items.length && !signal?.aborted) {
+      const item = items[next++];
+      if (await runOne(item)) stopped = true;
+    }
+  };
+  /** Runs one item; true when it was cancelled (which stops the queue). */
+  const runOne = async (item) => {
     set(item.id, { status: 'running', progress: 0 });
     try {
       const current = list.find((i) => i.id === item.id);
@@ -201,9 +210,12 @@ export async function runQueue(items, { process, onUpdate, signal, names }) {
     } catch (err) {
       const cancelled = signal?.aborted || err?.name === 'AbortError' || err?.message === 'Cancelled';
       set(item.id, { status: cancelled ? 'cancelled' : 'error', message: cancelled ? 'Cancelled' : err?.message || 'Processing failed', progress: 0 });
-      if (cancelled) break;
+      return cancelled;
     }
-  }
+    return false;
+  };
+  const lanes = Math.max(1, Math.min(items.length, Math.round(Number(concurrency)) || 1));
+  await Promise.all(Array.from({ length: lanes }, lane));
   list = list.map((i) => (i.status === 'waiting' ? { ...i, status: 'cancelled', message: 'Cancelled' } : i));
   onUpdate?.(list);
   return {

@@ -208,6 +208,7 @@ export function batchPanel(app) {
           items = list;
           renderRows();
         },
+        concurrency: app.prefs.get('batchConcurrency'),
         process: (item, o) => processItem(item, { favorite: fav, settings: s, write, ...o }),
       });
       items = result.items;
