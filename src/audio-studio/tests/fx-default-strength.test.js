@@ -2,10 +2,10 @@
 // measured on synthesized voice-like speech, noise and music.
 import { describe, it, expect } from 'vitest';
 import './fx-wasm.js';
-import { speech, runFx, band, segRms, dbOf, gaussNoise, filter, biquad, rms, spectralPeakiness, sine, peak, RATE } from './helpers/fx-signals.js';
-import { getEffect, slotSpec } from '../src/effects/index.js';
+import { speech, runFx, band, segRms, dbOf, gaussNoise, filter, biquad, rms, spectralPeakiness, sine, peak, zcFrequency, RATE } from './helpers/fx-signals.js';
+import { getEffect, slotSpec, EFFECTS } from '../src/effects/index.js';
 import { Channel } from '../src/audio/channel.js';
-import { lastValues } from '../src/effects/presets.js';
+import { lastValues, rememberValues, matchPreset } from '../src/effects/presets.js';
 import { normalizeValues } from '../src/effects/params.js';
 import { memoryPrefs } from './fx-helpers.js';
 import { captureNoisePrint, detectHum } from '../src/effects/defs/restoration.js';
@@ -64,13 +64,167 @@ describe('Noise Reduction defaults', () => {
   }
 });
 
-describe('dialogs open with the defaults', () => {
-  for (const id of ['deesser', 'noiseReduction', 'normalize', 'dehummer', 'hardLimiter', 'deleteSilence']) {
-    it(id, () => {
+describe('dialogs open with the last-applied settings, else the defaults', () => {
+  it('every effect opens with its defaults, and its first preset is the defaults', () => {
+    for (const def of EFFECTS.values()) {
+      const d = normalizeValues(def, {});
+      expect(lastValues(memoryPrefs(), def), def.id).toEqual(d);
+      if (def.presets.length) expect(normalizeValues(def, def.presets[0].values), `${def.id} first preset`).toEqual(d);
+    }
+  });
+  it('effects whose presets are all variations list "Default" first', () => {
+    for (const id of ['hissReduction', 'denoise', 'dereverb', 'adaptiveNoiseReduction', 'autoClickRemover', 'declicker', 'notchFilter', 'scientificFilter', 'autoPhaseCorrection', 'automaticPitchCorrection', 'dopplerShifter', 'centerChannelExtractor']) {
       const def = getEffect(id);
-      expect(lastValues(memoryPrefs(), def)).toEqual(normalizeValues(def, {}));
+      expect(def.presets[0].name, id).toBe('Default');
+      expect(matchPreset(memoryPrefs(), def, lastValues(memoryPrefs(), def)), id).toBe('Default');
+    }
+  });
+  it('reopens with the settings last applied', () => {
+    const prefs = memoryPrefs();
+    const def = getEffect('denoise');
+    rememberValues(prefs, def, { amount: 70 });
+    expect(lastValues(prefs, def).amount).toBe(70);
+  });
+});
+
+/** Speech with a noise floor (`colour` white or hiss: above 3 kHz) at `ndb` dBFS, through effect `id` at its defaults. */
+async function denoised(id, colour = 'white', ndb = -50) {
+  const sp = speech({ seconds: 6, pause: 1.2 });
+  let nz = gaussNoise(sp.x.length, 1, 5);
+  if (colour === 'hiss') nz = filter(nz, biquad('hp', 3000, 0.7));
+  const g = 10 ** (ndb / 20) / rms(nz);
+  const x = sp.x.map((v, i) => v + nz[i] * g);
+  const [y] = await runFx(id, {}, [x, x.slice()]);
+  const quiet = sp.pauses.filter(([a, b]) => b - a > RATE).map(([a, b]) => [a + RATE / 2, b - 2400]);
+  const err = (s) => dbOf(segRms(s.map((v, i) => v - sp.x[i]), sp.vowels));
+  return {
+    removed: dbOf(segRms(x, quiet)) - dbOf(segRms(y, quiet)),
+    vowel: dbOf(segRms(y, sp.vowels)) - dbOf(segRms(sp.x, sp.vowels)),
+    cleaner: err(x) - err(y),
+  };
+}
+
+describe('restoration defaults do an audible, safe job', () => {
+  for (const [id, colour, lo, hi] of [
+    ['hissReduction', 'hiss', 12, 24],
+    ['denoise', 'white', 10, 22],
+    ['adaptiveNoiseReduction', 'white', 14, 24],
+  ]) {
+    it(`${id} takes a ${colour} floor down by ${lo}..${hi} dB and keeps the voice`, async () => {
+      const r = await denoised(id, colour);
+      expect(r.removed).toBeGreaterThan(lo);
+      expect(r.removed).toBeLessThan(hi);
+      expect(Math.abs(r.vowel)).toBeLessThan(0.5);
+      expect(r.cleaner).toBeGreaterThan(3);
     });
   }
+
+  it('DeReverb shortens a room tail and keeps the voice level (Auto Gain)', async () => {
+    const sp = speech({ seconds: 6, pause: 1.2 });
+    // An exponentially decaying noise room (RT60 0.8 s), sparsely convolved.
+    const ir = gaussNoise(Math.round(RATE * 1.2), 1, 7).map((v, i) => v * Math.exp((-6.9 * i) / (0.8 * RATE)) * 0.03);
+    const x = sp.x.slice();
+    for (let k = 7; k < ir.length; k += 7) for (let i = k; i < x.length; i++) x[i] += ir[k] * 7 * sp.x[i - k];
+    const [y] = await runFx('dereverb', {}, [x, x.slice()]);
+    const tails = sp.pauses.filter(([a, b]) => b - a > RATE).map(([a]) => [a + 2400, a + RATE / 2]);
+    expect(dbOf(segRms(x, tails)) - dbOf(segRms(y, tails))).toBeGreaterThan(2.5);
+    expect(Math.abs(dbOf(segRms(y, sp.vowels)) - dbOf(segRms(x, sp.vowels)))).toBeLessThan(0.6);
+  });
+
+  /** Speech over a faint floor with 1..4-sample clicks every 80..180 ms. */
+  const clicky = () => {
+    const sp = speech({ seconds: 4, pause: 0.4 });
+    const fl = gaussNoise(sp.x.length, 0.0003, 9);
+    const clean = sp.x.map((v, i) => v + fl[i]);
+    const x = clean.slice();
+    const at = [];
+    let s = 11;
+    const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    for (let i = 2000; i < x.length - 2000; i += Math.round(RATE * (0.08 + 0.1 * rnd()))) {
+      at.push(i);
+      const w = 1 + Math.floor(rnd() * 4);
+      const amp = (rnd() > 0.5 ? 1 : -1) * (0.2 + 0.4 * rnd());
+      for (let j = 0; j < w; j++) x[i + j] += amp;
+    }
+    return { clean, x, at };
+  };
+  for (const [id, minFixed, maxDamage] of [
+    ['autoClickRemover', 0.8, -40],
+    ['declicker', 0.9, -55],
+  ]) {
+    it(`${id} repairs most clicks without touching the audio between them`, async () => {
+      const { clean, x, at } = clicky();
+      const [y] = await runFx(id, {}, [x, x.slice()]);
+      const err = (s, i) => {
+        let e = 0;
+        for (let j = i - 2; j < i + 8; j++) e += (s[j] - clean[j]) ** 2;
+        return e;
+      };
+      const fixed = at.filter((i) => err(y, i) < err(x, i) * 0.05).length;
+      expect(fixed / at.length).toBeGreaterThan(minFixed);
+      const near = new Uint8Array(x.length);
+      for (const i of at) near.fill(1, i - 64, i + 64);
+      let e = 0;
+      let c = 0;
+      for (let i = 0; i < x.length; i++) {
+        if (near[i]) continue;
+        e += (y[i] - clean[i]) ** 2;
+        c++;
+      }
+      expect(dbOf(Math.sqrt(e / c))).toBeLessThan(maxDamage);
+    });
+  }
+
+  it('Notch Filter takes 60 Hz hum down and leaves speech alone', async () => {
+    const sp = speech({ seconds: 4 });
+    const hum = sine(sp.x.length, 60, RATE, 0.03);
+    const x = sp.x.map((v, i) => v + hum[i]);
+    const [y] = await runFx('notchFilter', {}, [x, x.slice()]);
+    const low = (s) => dbOf(rms(band(s, 50, 70)));
+    expect(low(x) - low(y)).toBeGreaterThan(15);
+    expect(Math.abs(dbOf(segRms(y, sp.vowels)) - dbOf(segRms(x, sp.vowels)))).toBeLessThan(0.3);
+  });
+
+  it('Automatic Pitch Correction pulls a sharp note into tune', async () => {
+    const x = sine(RATE * 2, 450, RATE, 0.3);
+    const [y] = await runFx('automaticPitchCorrection', {}, [x, x.slice()]);
+    expect(Math.abs(zcFrequency(y, RATE, RATE, 2 * RATE - 1000) - 440)).toBeLessThan(1.5);
+  });
+
+  it('Automatic Phase Correction lines up a late channel', async () => {
+    const l = filter(gaussNoise(RATE * 3, 0.1, 3), biquad('lp', 4000, 0.7));
+    const r = new Float32Array(l.length);
+    r.set(l.subarray(0, l.length - 12), 12);
+    const [yl, yr] = await runFx('autoPhaseCorrection', {}, [l, r]);
+    let ab = 0;
+    let aa = 0;
+    let bb = 0;
+    for (let i = RATE; i < l.length; i++) {
+      ab += yl[i] * yr[i];
+      aa += yl[i] ** 2;
+      bb += yr[i] ** 2;
+    }
+    expect(ab / Math.sqrt(aa * bb)).toBeGreaterThan(0.95);
+  });
+
+  it('Doppler Shifter sweeps the pitch down as the source passes', async () => {
+    const x = sine(RATE * 4, 1000, RATE, 0.3);
+    const [y] = await runFx('dopplerShifter', {}, [x, x.slice()]);
+    const f = (a) => zcFrequency(y, RATE, a, a + 4800);
+    expect(f(2400)).toBeGreaterThan(1030);
+    expect(f(RATE * 4 - 7200)).toBeLessThan(970);
+  });
+
+  it('Center Channel Extractor keeps the centre and pulls the sides well down', async () => {
+    const c = sine(RATE * 2, 440, RATE, 0.2);
+    const sd = sine(RATE * 2, 1000, RATE, 0.2);
+    const l = c.map((a, i) => a + sd[i]);
+    const r = c.map((a, i) => a - sd[i]);
+    const [yl] = await runFx('centerChannelExtractor', {}, [l, r]);
+    const level = (s, f) => dbOf(rms(band(s, f * 0.9, f * 1.1), RATE / 2));
+    expect(Math.abs(level(yl, 440) - level(l, 440))).toBeLessThan(1);
+    expect(level(l, 1000) - level(yl, 1000)).toBeGreaterThan(15);
+  });
 });
 
 describe('Normalize defaults', () => {

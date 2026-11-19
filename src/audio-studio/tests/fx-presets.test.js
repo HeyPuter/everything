@@ -37,7 +37,7 @@ describe('effect presets', () => {
     const raw = prefs.storage.getItem('audio-studio:prefs');
     expect(JSON.parse(raw).fxPresets.amplify[0].name).toBe('Kept');
   });
-  it('remembers the last applied values, defaulting to the first preset', () => {
+  it('remembers the last applied values, defaulting to the defaults', () => {
     const prefs = memoryPrefs();
     expect(lastValues(prefs, def)).toEqual({ left: 0, right: 0, linked: true });
     rememberValues(prefs, def, { left: -4, right: -4, linked: false, extra: 1 });

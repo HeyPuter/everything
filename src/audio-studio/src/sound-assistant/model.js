@@ -279,7 +279,7 @@ export function assistantChain(s, { loudness = true, volume = false } = {}) {
     }
     if (on('repair', 'reverb') && amt('repair', 'reverb') > 0) {
       const f = amt('repair', 'reverb');
-      add('dereverb', 'dereverb', { amount: Math.round(10 + f * 80), focus: 0, gain: r1(f * 2), decay: 800 });
+      add('dereverb', 'dereverb', { amount: Math.round(10 + f * 80), focus: 0, gain: r1(f * 2), decay: 800, autoGain: false });
     }
     if (on('repair', 'ess') && amt('repair', 'ess') > 0) {
       const f = amt('repair', 'ess');

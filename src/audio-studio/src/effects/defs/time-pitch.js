@@ -191,6 +191,7 @@ registerEffect({
     hz('calibration', 'A4 Calibration', 410, 470, 440, { scale: 'linear', step: 0.1 }),
   ],
   presets: [
+    preset('Default', {}),
     preset('Chromatic Gentle', { scale: 2, key: 0, attack: 4, sensitivity: 40 }),
     preset('Chromatic Hard Tune', { scale: 2, key: 0, attack: 10, sensitivity: 70 }),
     preset('C Major Natural', { scale: 0, key: 0, attack: 6, sensitivity: 50 }),

@@ -277,6 +277,7 @@ registerEffect({
     choice('quality', 'Quality', ['Low', 'Normal', 'High', 'Highest'], 2),
   ],
   presets: [
+    preset('Default', {}),
     preset('Passing Car', { path: 0, startDistance: 40, velocity: 25, comingFrom: -90, passFront: 6 }),
     preset('Fast Flyby', { path: 0, startDistance: 80, velocity: 90, comingFrom: -60, passFront: 15, passRight: 0 }),
     preset('Slow Walk Past', { path: 0, startDistance: 8, velocity: 1.5, comingFrom: 90, passFront: 1.5 }),

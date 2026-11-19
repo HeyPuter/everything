@@ -42,7 +42,7 @@ describe('center channel extractor', () => {
     const tone = (f, i) => 0.3 * Math.sin((2 * Math.PI * f * i) / 48000);
     const l = Float32Array.from({ length: n }, (_, i) => tone(1000, i) * Math.cos(a) + tone(3000, i));
     const r = Float32Array.from({ length: n }, (_, i) => tone(1000, i) * Math.sin(a) + tone(3000, i));
-    const v = normalizeValues(def, { target: 4, pan: 50, centerLevel: -48 });
+    const v = normalizeValues(def, { target: 4, pan: 50, centerLevel: -48, sideLevel: 0 });
     const [ol] = d.runEffect(def.kind, 48000, [l, r], paramArray(def, v));
     const tail = ol.subarray(24000);
     expect(level(tail, 1000)).toBeLessThan(0.02);

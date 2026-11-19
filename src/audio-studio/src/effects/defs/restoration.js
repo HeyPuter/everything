@@ -160,6 +160,7 @@ registerEffect({
     { id: 'floorRight', label: 'Right Noise Floor', type: 'curve', default: [], min: FLOOR_DB[0], max: FLOOR_DB[1], unit: 'dB', hidden: true },
   ],
   presets: [
+    preset('Default', {}),
     preset('Light Tape Hiss', { noiseFloor: 0, reduceBy: 12, decay: 60, precision: 7, transition: 6, fftSize: 2048, hissOnly: false }),
     preset('Heavy Tape Hiss', { noiseFloor: 4, reduceBy: 30, decay: 70, precision: 9, transition: 8, fftSize: 4096, hissOnly: false }),
     preset('Old Broadcast', { noiseFloor: 6, reduceBy: 24, decay: 75, precision: 7, transition: 10, fftSize: 4096, hissOnly: false }),
@@ -179,6 +180,7 @@ registerEffect({
   kind: 132,
   params: [pct('amount', 'Amount', 40), choice('focus', 'Processing Focus', FOCUS, 0), db('gain', 'Gain', -20, 20, 0), bool('noiseOnly', 'Output Noise Only', false)],
   presets: [
+    preset('Default', {}),
     preset('Gentle Cleanup', { amount: 25, focus: 0, gain: 0 }),
     preset('Voice Over Background Noise', { amount: 60, focus: 2, gain: 1 }),
     preset('Strong Broadband Removal', { amount: 85, focus: 0, gain: 2 }),
@@ -201,9 +203,10 @@ registerEffect({
     choice('focus', 'Processing Focus', FOCUS, 0),
     db('gain', 'Gain', -20, 20, 0),
     ms('decay', 'Room Decay (RT60)', 100, 5000, 800, { step: 10 }),
-    bool('autoGain', 'Auto Gain', false),
+    bool('autoGain', 'Auto Gain', true),
   ],
   presets: [
+    preset('Default', {}),
     preset('Small Room', { amount: 50, focus: 0, gain: 0, decay: 400 }),
     preset('Lecture Hall', { amount: 70, focus: 2, gain: 2, decay: 1500 }),
     preset('Echoey Kitchen', { amount: 65, focus: 0, gain: 1, decay: 700 }),
@@ -220,8 +223,8 @@ registerEffect({
   group: GROUP,
   kind: 134,
   params: [
-    db('reduceBy', 'Reduce Noise By', 0, 60, 12),
-    pct('noisiness', 'Noisiness', 20),
+    db('reduceBy', 'Reduce Noise By', 0, 60, 20),
+    pct('noisiness', 'Noisiness', 30),
     db('noiseFloor', 'Fine Tune Noise Floor', -20, 20, 0),
     db('threshold', 'Signal Threshold', -20, 30, 3),
     num('decay', 'Spectral Decay Rate', 0, 2000, 150, 'ms', { step: 10 }),
@@ -231,6 +234,7 @@ registerEffect({
   ],
   about: 'Learns the noise floor as it plays and keeps reducing whatever stays near it, so it needs no noise print. High Quality Mode overlaps more analysis frames and smooths the reduction, leaving less watery residue for about twice the processing.',
   presets: [
+    preset('Default', {}),
     preset('Light Background Noise', { reduceBy: 8, noisiness: 15, noiseFloor: 0, threshold: 3, decay: 150, broadband: 100, fftSize: 1024 }),
     preset('Heavy Background Noise', { reduceBy: 24, noisiness: 40, noiseFloor: 2, threshold: 2, decay: 250, broadband: 150, fftSize: 2048 }),
     preset('Dialogue in a Room', { reduceBy: 14, noisiness: 25, noiseFloor: 0, threshold: 4, decay: 120, broadband: 80, fftSize: 1024 }),
@@ -415,8 +419,9 @@ registerEffect({
   name: 'Automatic Click Remover',
   group: GROUP,
   kind: 136,
-  params: [num('threshold', 'Threshold', 1, 100, 30, '', { step: 1 }), num('complexity', 'Complexity', 1, 100, 30, '', { step: 1 })],
+  params: [num('threshold', 'Threshold', 1, 100, 45, '', { step: 1 }), num('complexity', 'Complexity', 1, 100, 30, '', { step: 1 })],
   presets: [
+    preset('Default', {}),
     preset('Light Crackle', { threshold: 45, complexity: 20 }),
     preset('Vinyl Clicks', { threshold: 30, complexity: 35 }),
     preset('Heavy Pops', { threshold: 20, complexity: 80 }),
@@ -443,6 +448,7 @@ registerEffect({
     bool('centerPan', 'Auto Center Panning', false),
   ],
   presets: [
+    preset('Default', {}),
     preset('Align Two Microphones', { globalShift: true, alignBands: false, channel: 2, resolution: 500, analysisSize: 4096 }),
     preset('Tape Azimuth Fix', { globalShift: true, alignBands: true, channel: 1, resolution: 300, analysisSize: 2048 }),
     preset('Fast Tracking', { globalShift: true, alignBands: false, channel: 2, resolution: 80, analysisSize: 1024 }),

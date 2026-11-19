@@ -229,7 +229,7 @@ describe('denoise and dereverb', () => {
     expect(err).toBeLessThan(1e-3);
     const dr = getEffect('dereverb');
     const rms = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
-    expect(rms(run(dr, { amount: 100, decay: 3000, autoGain: true }).subarray(12000))).toBeGreaterThan(rms(run(dr, { amount: 100, decay: 3000 }).subarray(12000)));
+    expect(rms(run(dr, { amount: 100, decay: 3000, autoGain: true }).subarray(12000))).toBeGreaterThan(rms(run(dr, { amount: 100, decay: 3000, autoGain: false }).subarray(12000)));
   });
 });
 

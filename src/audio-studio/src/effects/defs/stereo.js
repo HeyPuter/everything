@@ -40,7 +40,7 @@ registerEffect({
     hz('lowFreq', 'Custom Low', 20, 20000, 100),
     hz('highFreq', 'Custom High', 20, 20000, 8000),
     db('centerLevel', 'Center Channel Level', -48, 40, 0, { section: 'Levels' }),
-    db('sideLevel', 'Side Channel Levels', -48, 40, 0, { section: 'Levels' }),
+    db('sideLevel', 'Side Channel Levels', -48, 40, -30, { section: 'Levels' }),
     pct('bleed', 'Crossover Bleed', 20, { section: 'Discrimination' }),
     num('phaseDisc', 'Phase Discrimination', 0, 180, 10, 'deg', { step: 0.5, section: 'Discrimination' }),
     db('ampDisc', 'Amplitude Discrimination', 0, 20, 3, { section: 'Discrimination' }),
@@ -52,14 +52,15 @@ registerEffect({
   ],
   latency: (v) => fftSize(v.fftSize, 512, 16384),
   presets: [
-    preset('Remove Lead Vocal', { centerLevel: -48, range: 4, lowFreq: 120, highFreq: 9000 }),
+    preset('Default', {}),
+    preset('Remove Lead Vocal', { centerLevel: -48, sideLevel: 0, range: 4, lowFreq: 120, highFreq: 9000 }),
     preset('Isolate Lead Vocal', { sideLevel: -48, range: 4, lowFreq: 100, highFreq: 10000 }),
-    preset('Karaoke Male Voice', { centerLevel: -48, range: 1 }),
-    preset('Karaoke Female Voice', { centerLevel: -48, range: 2 }),
+    preset('Karaoke Male Voice', { centerLevel: -48, sideLevel: 0, range: 1 }),
+    preset('Karaoke Female Voice', { centerLevel: -48, sideLevel: 0, range: 2 }),
     preset('Lift the Center', { centerLevel: 4, sideLevel: -2 }),
     preset('Extract Out of Phase', { target: 3, sideLevel: -48, phaseDisc: 20 }),
     preset('Keep Bass Center Only', { range: 3, sideLevel: -48 }),
-    preset('Remove a Half-Right Source', { target: 4, pan: 50, centerLevel: -48 }),
+    preset('Remove a Half-Right Source', { target: 4, pan: 50, centerLevel: -48, sideLevel: 0 }),
   ],
 });
 

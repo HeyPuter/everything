@@ -191,6 +191,7 @@ registerEffect({
     return F.cascadeDb(secs, freqs, rate, v.gain);
   },
   presets: [
+    preset('Default', {}),
     preset('Mains Hum 60 Hz', notchSet([60, 120, 180, 240, 300, 360], -30)),
     preset('Mains Hum 50 Hz', notchSet([50, 100, 150, 200, 250, 300], -30)),
     preset('Single 60 Hz Cut', notchSet([60], -40, 0)),
@@ -277,6 +278,7 @@ registerEffect({
   layout: { wide: true },
   response: (v, freqs, rate) => F.cascadeDb(F.scientificSections(v, rate), freqs, rate, v.gain),
   presets: [
+    preset('Default', {}),
     preset('Smooth Low Pass 8 kHz', { type: 2, mode: 0, order: 4, cutoff: 8000 }),
     preset('Steep Rumble Cut', { type: 0, mode: 1, order: 8, cutoff: 45 }),
     preset('Voice Band Only', { type: 1, mode: 2, order: 4, cutoff: 300, highCutoff: 3400, ripple: 0.5 }),
