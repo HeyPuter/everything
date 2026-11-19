@@ -12,6 +12,7 @@ import { subTabs } from '../panels/subtabs.js';
 import { analysisPool } from './pool.js';
 import { fmtDb, gainToDb, fitCanvas } from './common.js';
 import { HIST_BINS, binDb, rmsBin } from './rms-histogram.js';
+import { beginBusy } from '../ui/busy.js';
 
 /** RMS settings: window width in ms and the 0 dB reference (full-scale square or sine wave). */
 export const RMS_DEFAULTS = { windowMs: 50, ref: 'square' };
@@ -325,6 +326,7 @@ export function amplitudePanel(app) {
     const s = settings();
     const state = doc.state;
     abort = new AbortController();
+    const endBusy = beginBusy();
     progress.hidden = false;
     const bar = progress.firstChild;
     bar.style.width = '0%';
@@ -358,6 +360,7 @@ export function amplitudePanel(app) {
     } catch (err) {
       caption.textContent = err.message === 'Cancelled' ? 'Scan cancelled.' : `Scan failed: ${err.message}`;
     } finally {
+      endBusy();
       abort = null;
       progress.hidden = true;
       refresh();

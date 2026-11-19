@@ -13,6 +13,7 @@ import { normalizeValues } from '../effects/params.js';
 import { allPresets, matchPreset } from '../effects/presets.js';
 import { paramControls } from '../effects/dialog.js';
 import { scanProblems, repairClicks, repairClips, deleteSilences, shiftProblems, markAudio, markProblems, createRunner } from './scan.js';
+import { beginBusy } from '../ui/busy.js';
 
 const PREFS = 'diagnostics';
 
@@ -187,6 +188,7 @@ export function diagnosticsPanel(app) {
     const range = selectionOnly && doc.hasSelection ? [doc.selection.start, doc.selection.end] : [0, doc.length];
     if (range[1] <= range[0]) return;
     abort = new AbortController();
+    const endBusy = beginBusy();
     const signal = abort.signal;
     progress.hidden = false;
     setProgress(0);
@@ -212,6 +214,7 @@ export function diagnosticsPanel(app) {
     } catch (err) {
       caption.textContent = signal.aborted || err?.name === 'AbortError' ? 'Scan cancelled.' : `Scan failed: ${err.message}`;
     } finally {
+      endBusy();
       abort = null;
       progress.hidden = true;
       refresh();
@@ -232,6 +235,7 @@ export function diagnosticsPanel(app) {
     const effect = result.effect;
     const label = `${getEffect(effect).name}: ${meta().action} ${list.length} ${meta().noun}${list.length === 1 ? '' : 's'}`;
     abort = new AbortController();
+    const endBusy = beginBusy();
     const signal = abort.signal;
     progress.hidden = false;
     setProgress(0);
@@ -279,6 +283,7 @@ export function diagnosticsPanel(app) {
       caption.textContent = signal.aborted || err?.message === 'Cancelled' ? 'Cancelled. Nothing was changed.' : `Failed: ${err.message}`;
     } finally {
       runner?.close();
+      endBusy();
       abort = null;
       progress.hidden = true;
       refresh();
