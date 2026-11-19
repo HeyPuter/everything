@@ -5,9 +5,14 @@
 // channel map). It follows the main editor's zoom and scroll and updates a
 // moment after settings change.
 //
-// View > Show Preview Editor turns it on; independently of that, it also
-// appears for effects that change the length of the audio (stretching,
-// deleting silence) when Preferences > Effects asks for it (`previewAuto`).
+// View > Show Preview Editor turns it on (with no effect dialog open it shows
+// the file as it is); independently of that, it also appears for effects that
+// change the length of the audio (stretching, deleting silence) when
+// Preferences > Effects asks for it (`previewAuto`).
+//
+// Zoom: Synchronized follows the main editor's view (the wheel over the preview
+// zooms both); Independent keeps its own view of the file, zoomed with the wheel
+// and reset with a double-click.
 
 import { h } from '../lib/dom.js';
 import { Channel } from '../audio/channel.js';
@@ -20,13 +25,26 @@ import { icon } from '../ui/icons.js';
 export const PREVIEW_MAX_SECONDS = 120;
 
 /**
+ * A view zoomed by `factor` (< 1 zooms in) around the frame at fraction `at` of its width,
+ * kept within [0, max] and at least 16 frames wide.
+ */
+export function zoomViewAt(view, factor, at, max) {
+  const span = view.end - view.start;
+  const next = Math.max(16, Math.min(Math.max(16, max), span * factor));
+  const anchor = view.start + at * span;
+  let start = anchor - at * next;
+  start = Math.max(0, Math.min(Math.max(0, max - next), start));
+  return { start, end: start + next };
+}
+
+/**
  * Range the preview processes: the selection clipped to the view, or the
  * view itself. Returns null when nothing of the file is in view or the range
  * is too long to preview.
  */
-export function previewRange(doc, maxSeconds = PREVIEW_MAX_SECONDS) {
-  const vs = Math.max(0, Math.floor(doc.view.start));
-  const ve = Math.min(doc.length, Math.ceil(doc.view.end));
+export function previewRange(doc, maxSeconds = PREVIEW_MAX_SECONDS, view = doc.view) {
+  const vs = Math.max(0, Math.floor(view.start));
+  const ve = Math.min(doc.length, Math.ceil(view.end));
   if (ve <= vs) return null;
   let [a, b] = doc.hasSelection ? [Math.max(vs, doc.selection.start), Math.min(ve, doc.selection.end)] : [vs, ve];
   if (b <= a) return { view: [vs, ve], range: null };
@@ -39,7 +57,13 @@ export function installPreviewEditor(app, host) {
   const label = h('span.preview-label');
   const status = h('span.preview-status.faint', { role: 'status' });
   const close = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Hide the Preview Editor', title: 'Hide Preview Editor', onclick: () => app.prefs.set('previewEditor', false) }, icon('x', 13));
-  const head = h('div.preview-head', h('span.preview-title', 'Preview'), label, h('div.spacer'), status, close);
+  const zoomSelect = h(
+    'select.select.sm.preview-zoom',
+    { 'aria-label': 'Preview Editor zoom', title: 'Synchronized follows the main editor; Independent keeps its own zoom (scroll to zoom, double-click to show the whole file)', onchange: () => app.prefs.set('previewZoom', zoomSelect.value) },
+    h('option', { value: 'sync' }, 'Synchronized'),
+    h('option', { value: 'independent' }, 'Independent'),
+  );
+  const head = h('div.preview-head', h('span.preview-title', 'Preview Editor:'), label, h('div.spacer'), status, h('label.preview-zoom-label', 'Zoom:', zoomSelect), close);
   const surface = h('div.preview-surface', canvas);
   const el = h('div.preview-editor', { hidden: true, role: 'region', 'aria-label': 'Preview Editor' }, head, surface);
   host.append(el);
@@ -49,18 +73,36 @@ export function installPreviewEditor(app, host) {
   let timer = 0;
   let controller = null;
   let changesLength = false;
+  // Independent zoom: the preview's own view of each file.
+  const ownViews = new WeakMap();
+  const independent = () => app.prefs.get('previewZoom') === 'independent';
+  const viewOf = (doc) => {
+    if (!independent()) return doc.view;
+    let v = ownViews.get(doc);
+    if (!v) ownViews.set(doc, (v = { start: 0, end: Math.max(1, doc.length) }));
+    return v;
+  };
+  // With no effect dialog open, View > Show Preview Editor shows the active file as it is.
+  const idleDoc = () => (app.prefs.get('previewEditor') && app.active?.kind === 'audio' && app.active.length ? app.active : null);
 
   // Automatic: for effects that change the length, or for any effect (Preferences > Effects).
-  const wanted = () => Boolean(current) && (app.prefs.get('previewEditor') || (app.prefs.get('previewAuto') !== false && (changesLength || app.prefs.get('previewAutoMode') === 'any')));
+  const wanted = () => (current ? Boolean(app.prefs.get('previewEditor') || (app.prefs.get('previewAuto') !== false && (changesLength || app.prefs.get('previewAutoMode') === 'any'))) : Boolean(idleDoc()));
   // While hidden for 'length', the preview still renders offline effects to find out
   // whether they change the length (realtime effects never do).
   const detecting = () => Boolean(current) && !changesLength && app.prefs.get('previewAuto') !== false && app.prefs.get('previewAutoMode') !== 'any' && !isRealtime(current.def);
 
   const sync = () => {
+    zoomSelect.value = independent() ? 'independent' : 'sync';
     const show = wanted();
+    if (!current) {
+      const doc = idleDoc();
+      label.textContent = doc ? doc.name : '';
+      status.textContent = doc ? 'Open an effect to preview its result here.' : '';
+    }
     if (el.hidden === !show) return show && draw();
     el.hidden = !show;
-    if (show) schedule(0);
+    if (show && current) schedule(0);
+    else if (show) draw();
   };
 
   const schedule = (delay = 250) => {
@@ -72,7 +114,7 @@ export function installPreviewEditor(app, host) {
     controller?.abort();
     if (!current || !(wanted() || detecting())) return;
     const { def, values, doc, route = null } = current;
-    const r = previewRange(doc);
+    const r = previewRange(doc, PREVIEW_MAX_SECONDS, viewOf(doc));
     label.textContent = `${def.name}`;
     if (!r?.range) {
       result = null;
@@ -96,7 +138,7 @@ export function installPreviewEditor(app, host) {
       // The processed state: show the view range, stretched or shrunk by the effect,
       // at the main editor's scale (a view running past the end of the file stays blank there).
       const [vs, ve] = r.view;
-      const v = doc.view;
+      const v = viewOf(doc);
       result = { channels: out.state.channels.map((c) => c.slice(vs, Math.max(vs + 1, ve + delta))), start: v.start - vs, span: v.end - v.start + delta };
       status.textContent = delta ? `Length ${delta > 0 ? '+' : '-'}${app.formatTime(Math.abs(delta), doc.sampleRate)}` : '';
       draw();
@@ -121,7 +163,13 @@ export function installPreviewEditor(app, host) {
     renderer.resize(W, H, dpr);
     canvas.style.width = `${W}px`;
     canvas.style.height = `${H}px`;
-    if (!result || !current) {
+    const idle = !current && idleDoc();
+    if (idle) {
+      // The file as it is, for the preview's view.
+      const v = viewOf(idle);
+      result = { channels: idle.state.channels, start: v.start, span: v.end - v.start, idle: true };
+    } else if (result?.idle) result = null;
+    if (!result || !(current || idle)) {
       renderer.draw({ channels: [], start: 0, fpp: 1, amp: 1, lanes: [], colors: [] });
       return;
     }
@@ -130,7 +178,7 @@ export function installPreviewEditor(app, host) {
     const lh = (H * dpr - gap * (n - 1)) / n;
     const lanes = result.channels.map((_, i) => ({ top: i * (lh + gap), bottom: i * (lh + gap) + lh }));
     const color = cssVar('--wave');
-    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: current.doc.view.amp || 1, lanes, colors: result.channels.map(() => color) });
+    renderer.draw({ channels: result.channels, start: result.start, fpp: Math.max(1e-3, result.span / (W * dpr)), amp: (current?.doc || idle).view.amp || 1, lanes, colors: result.channels.map(() => color) });
   }
 
   app.on('effect-values', (payload) => {
@@ -142,6 +190,7 @@ export function installPreviewEditor(app, host) {
       result = null;
       changesLength = false;
       el.hidden = true;
+      sync();
       return;
     }
     if (docChanged) changesLength = false;
@@ -149,10 +198,58 @@ export function installPreviewEditor(app, host) {
     if (!el.hidden || detecting()) schedule(docChanged ? 0 : 250);
   });
   app.on('doc-change', (doc, e) => {
+    if (!current && doc === idleDoc() && !el.hidden) {
+      if (e.kind !== 'cursor' && e.kind !== 'selection' && (e.kind !== 'view' || !independent())) draw();
+      return;
+    }
     if (!current || doc !== current.doc || (el.hidden && !detecting())) return;
     if (e.kind === 'view' || e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history') schedule(e.kind === 'view' ? 120 : 250);
   });
-  app.prefs.on('change', (key) => (key === 'previewEditor' || key === 'previewAuto' || key === 'previewAutoMode') && sync());
+  app.on?.('active', () => !current && sync());
+  app.prefs.on('change', (key) => {
+    if (key === 'previewEditor' || key === 'previewAuto' || key === 'previewAutoMode') sync();
+    else if (key === 'previewZoom') {
+      sync();
+      if (current) schedule(0);
+      else draw();
+    }
+  });
+
+  // Wheel: zoom around the pointer (Shift or horizontal motion scrolls); in Synchronized
+  // mode this moves the main editor too. Double-click shows the whole file.
+  const zoomTarget = () => current?.doc || idleDoc();
+  const setView = (doc, v) => {
+    if (independent()) {
+      ownViews.set(doc, v);
+      if (current) schedule(120);
+      else draw();
+    } else doc.setView?.(v.start, v.end);
+  };
+  surface.addEventListener(
+    'wheel',
+    (e) => {
+      const doc = zoomTarget();
+      if (!doc) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const v = viewOf(doc);
+      const span = v.end - v.start;
+      const max = Math.max(doc.length, 1);
+      const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+      if (Math.abs(dx) > Math.abs(e.deltaY) || e.shiftKey) {
+        const start = Math.max(0, Math.min(Math.max(0, max - span), v.start + (dx / Math.max(1, rect.width)) * span));
+        setView(doc, { start, end: start + span });
+        return;
+      }
+      const at = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+      setView(doc, zoomViewAt(v, Math.pow(1.0015, e.deltaY), at, max));
+    },
+    { passive: false },
+  );
+  surface.addEventListener('dblclick', () => {
+    const doc = zoomTarget();
+    if (doc) setView(doc, { start: 0, end: Math.max(1, doc.length) });
+  });
   new ResizeObserver(() => draw()).observe(surface);
 
   app.commands.register([

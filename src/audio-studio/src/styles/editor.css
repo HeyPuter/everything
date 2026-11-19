@@ -536,7 +536,7 @@
   display: none;
 }
 
-/* Preview Editor: the effect's result under the waveform while its dialog is open. */
+/* Preview Editor: the effect's result (or the file as it is) under the waveform. */
 .preview-host {
   display: contents;
 }
@@ -555,7 +555,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 22px;
+  height: 24px;
   padding: 0 4px 0 8px;
   border-bottom: 1px solid var(--border-soft);
   font-size: var(--fs-sm);
@@ -563,6 +563,16 @@
 .preview-title {
   color: var(--text-dim);
   font-weight: 600;
+}
+.preview-zoom-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+.preview-zoom {
+  height: 18px;
+  font-size: var(--fs-sm);
 }
 .preview-surface {
   position: relative;

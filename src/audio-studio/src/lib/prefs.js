@@ -40,6 +40,7 @@ export const DEFAULTS = {
   sessionTemplates: [],
   previewEditor: false,
   previewAuto: true,
+  previewZoom: 'sync', // Preview Editor zoom: 'sync' (follows the main editor) | 'independent'
   visibilityInMixer: true,
   controlSurface: { enabled: false, input: '', output: '', protocol: 'mcu', mappings: {} },
 
