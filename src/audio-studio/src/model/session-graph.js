@@ -312,12 +312,16 @@ export function freezeKey(state, t, pool) {
     return src?.channels?.length ? sourceKey(src.channels) : '';
   });
   const fxLanes = Object.entries(t.automation || {}).filter(([k]) => fxParamRef(k));
-  return JSON.stringify([clips, media, t.fx, t.fxPower, t.fxIn, t.fxOut, t.fxMix, t.eq, t.invert, t.channels, t.mode === 'off' ? [] : fxLanes, state.sampleRate, state.autoCrossfade]);
+  // Post-fader effects take the volume and pan into the render.
+  const fader = t.fxPost ? [t.volume, t.pan, t.mode === 'off' ? [] : [t.automation.volume, t.automation.pan]] : null;
+  return JSON.stringify([clips, media, t.fx, t.fxPower, t.fxIn, t.fxOut, t.fxMix, t.eq, t.invert, t.channels, t.mode === 'off' ? [] : fxLanes, state.sampleRate, state.autoCrossfade, fader]);
 }
 
 /** True when a track plays its pre-rendered audio: frozen, rendered for its current state, pre-fader. */
 export function frozenAudio(state, t, pool, frozen) {
-  if (!t.freeze || t.fxPost || t.type !== 'audio') return null;
+  if (!t.freeze || t.type !== 'audio') return null;
+  // Post-fader renders hold the volume and pan: pre-fader sends would lose their dry signal.
+  if (t.fxPost && (t.sends || []).some((x) => x.pre && x.on && x.target)) return null;
   const f = frozen?.get(t.id);
   return f && f.key === freezeKey(state, t, pool) ? f : null;
 }
@@ -397,6 +401,15 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
       delete gt.invert;
       delete gt.fxPost;
       gt.clips.push({ id: `frozen:${t.id}`, source: key, channels: ice.channels.length, start: 0, offset: 0, length: ice.length, gain: 1, fadeIn: 0, fadeOut: 0 });
+      if (t.fxPost) {
+        // Post-fader: the volume and pan are in the render; mute (automation) stays live.
+        gt.gain = 1;
+        gt.pan = 0;
+        delete gt.panEnv;
+        const mute = mutePts.length ? withMuteAutomation(null, 1, mutePts, state.sampleRate) : null;
+        if (mute) gt.volumeEnv = mute;
+        else delete gt.volumeEnv;
+      }
     } else if (t.type === 'audio') {
       for (const c of state.clips) {
         if (c.trackId !== t.id || c.mute) continue;

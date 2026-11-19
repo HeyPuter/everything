@@ -604,7 +604,8 @@ describe('frozen tracks', () => {
     st = S.addClips(st, [S.createClip({ trackId: a.id, sourceId: 'src', length: 1000 }), S.createClip({ trackId: b.id, sourceId: 'src', length: 1000 })]);
     st = S.updateTrack(st, a.id, { freeze: true, volume: -6, pan: 30, fx: [{ id: 'sA', effect: 'amplify', values: {}, enabled: true }], automation: { volume: [{ t: 0, v: -3 }], pan: [], mute: [], 'fx.sA.left': [{ t: 0, v: 2 }] } });
     expect(canFreeze(st, S.findTrack(st, a.id))).toBe(true);
-    expect(canFreeze(st, S.updateTrack(st, a.id, { fxPost: true }).tracks[0])).toBe(false);
+    // 5.1 sessions keep their tracks live.
+    expect(canFreeze({ ...st, master: { ...st.master, channels: 6 } }, S.findTrack(st, a.id))).toBe(false);
     const render = Channel.fromSamples(new Float32Array(5000));
     const frozen = new Map([[a.id, { key: freezeKey(st, S.findTrack(st, a.id), pool), channels: [render, render], length: 5000 }]]);
     const gt = buildSessionGraph(st, pool, { frozen }).graph.tracks[0];
@@ -738,5 +739,32 @@ describe('stacked takes', () => {
     expect(S.takeClips(st, 'tg').map((c) => c.mute)).toEqual([false, true, true]);
     const order = S.frontOrder(st);
     expect(order.get(takes[0].id)).toBeGreaterThan(order.get(takes[2].id));
+  });
+});
+
+describe('freezing post-fader tracks and clicking in lanes', () => {
+  it('renders the fader into a post-fader freeze and keeps mute live', async () => {
+    const { freezeKey } = await import('../src/model/session-graph.js');
+    const { freezeState, canFreeze } = await import('../src/multitrack/freeze.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    const ch = Channel.fromSamples(new Float32Array(1000));
+    const pool = new Map([['src', { channels: [ch, ch] }]]);
+    st = S.addClips(st, [S.createClip({ trackId: id, sourceId: 'src', length: 1000 })]);
+    st = S.updateTrack(st, id, { freeze: true, fxPost: true, volume: -6, pan: 20, fx: [{ id: 'sA', effect: 'amplify', values: {}, enabled: true }] });
+    st = S.setAutomation(st, id, 'mute', [{ t: 500, v: 1, hold: true }]);
+    const t = S.findTrack(st, id);
+    expect(canFreeze(st, t)).toBe(true);
+    expect(freezeState(st, id).tracks[0].volume).toBe(-6);
+    const render = Channel.fromSamples(new Float32Array(2000));
+    const frozen = new Map([[id, { key: freezeKey(st, t, pool), channels: [render, render], length: 2000 }]]);
+    const gt = buildSessionGraph(st, pool, { frozen }).graph.tracks[0];
+    expect(gt.clips[0].id).toBe(`frozen:${id}`);
+    expect([gt.gain, gt.pan]).toEqual([1, 0]);
+    expect(S.envelopeValue(gt.volumeEnv, 900)).toBe(0);
+    // A volume change makes a post-fader render stale.
+    expect(buildSessionGraph(S.updateTrack(st, id, { volume: 0 }), pool, { frozen }).graph.tracks[0].fx.length).toBe(1);
+    // A pre-fader send needs the dry signal.
+    expect(canFreeze(st, { ...t, sends: [S.createSend({ target: 'b', pre: true })] })).toBe(false);
   });
 });

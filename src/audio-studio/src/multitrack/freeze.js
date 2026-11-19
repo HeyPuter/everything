@@ -21,7 +21,10 @@ const DELAY_MS = 600;
 export function freezeState(state, trackId) {
   const t = S.findTrack(state, trackId);
   const automation = Object.fromEntries(Object.entries(t.automation).filter(([k]) => S.fxParamRef(k)));
-  const track = { ...t, volume: 0, pan: 0, mute: false, solo: false, sends: [], output: 'master', freeze: false, automation: { volume: [], pan: [], mute: [], ...automation } };
+  // Post-fader effects run after the volume and pan, so those go into the render too.
+  const fader = t.fxPost ? { volume: t.volume, pan: t.pan } : { volume: 0, pan: 0 };
+  const lanes = t.fxPost ? { volume: t.automation.volume, pan: t.automation.pan } : { volume: [], pan: [] };
+  const track = { ...t, ...fader, mute: false, solo: false, sends: [], output: 'master', freeze: false, automation: { ...lanes, mute: [], ...automation } };
   return {
     ...state,
     metronome: false,
@@ -31,9 +34,13 @@ export function freezeState(state, trackId) {
   };
 }
 
-/** Whether a track can be frozen: an audio track with pre-fader effects in a stereo session. */
+/**
+ * Whether a track can be frozen: an audio track in a stereo session. With post-fader effects its
+ * volume and pan are rendered too, so pre-fader sends (which need the dry signal) rule it out.
+ */
 export function canFreeze(state, t) {
-  return Boolean(t && t.type === 'audio' && !t.fxPost && state.master.channels !== 6);
+  if (!t || t.type !== 'audio' || state.master.channels === 6) return false;
+  return !(t.fxPost && (t.sends || []).some((x) => x.pre && x.on && x.target));
 }
 
 /** Keeps the frozen tracks of every open session rendered. */
