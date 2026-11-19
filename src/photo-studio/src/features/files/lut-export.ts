@@ -14,7 +14,7 @@ export type LutStack = { steps: LutStep[]; notes: string[] };
 
 // Kinds whose result depends on neighboring pixels or position cannot be a
 // color table.
-const SPATIAL = new Set(['clarity-dehaze', 'clarity', 'dehaze', 'grain', 'shadows-highlights', 'hdr-toning']);
+const SPATIAL = new Set(['clarity-dehaze', 'clarity', 'dehaze', 'grain', 'shadows-highlights', 'hdr-toning', 'relight']);
 
 /** Visible adjustment layers in compositing order (bottom first), with what
  * the table cannot represent reported in `notes`. */
