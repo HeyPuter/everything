@@ -88,13 +88,13 @@ function wavChunksInfo(r) {
   return { wavChunks: { sampleRate: r.sampleRate, channels, frames, list: r.chunks } };
 }
 
-/** Decodes a Blob/File into a new AudioFile document. */
 /** Edit > Edit Original for a file whose metadata names the session it was mixed down from. */
 export function originFromMeta(meta) {
   const path = String(meta?.editOriginal || '').trim();
   return path.startsWith('/') ? { sessionId: null, name: path.split('/').pop(), path } : null;
 }
 
+/** Decodes a Blob/File into a new AudioFile document. */
 export async function audioFileFromBlob(blob, name, source = { type: 'local' }) {
   const buffer = await blob.arrayBuffer();
   const r = await decodeAudio(buffer, name);
