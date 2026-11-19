@@ -2135,6 +2135,8 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .notes-meta { font-size: 11px; }
 .notes-panel textarea { min-height: 140px; resize: vertical; width: 100%; font: inherit; padding: 6px; }
 .notes-colors { display: flex; gap: 6px; }
+.note-tool-colors { align-items: center; gap: 4px; }
+.note-tool-colors button { width: 16px; height: 16px; }
 .notes-colors button { width: 18px; height: 18px; min-height: 0; padding: 0; border-radius: 3px; background: var(--swatch); border: 1px solid #0007; }
 .notes-colors button[aria-checked='true'] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .notes-empty p { margin: 0 0 8px; line-height: 1.5; }

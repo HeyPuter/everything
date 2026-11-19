@@ -150,3 +150,22 @@ test('Sharpen with Protect Detail adds no halo beyond the neighboring values', a
   const [lo2, hi2] = await range(false);
   expect(lo2 < 100 || hi2 > 160).toBe(true);
 });
+
+test('the Note tool gives new notes the color chosen in its options bar', async ({ page }) => {
+  await tool(page, 'Note Tool');
+  const colors = page.getByRole('radiogroup', { name: 'Color of new notes' });
+  await colors.getByRole('radio', { name: 'Note color 3' }).click();
+  await expect(colors.getByRole('radio', { name: 'Note color 3' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await page.keyboard.press('ArrowRight');
+  await expect(colors.getByRole('radio', { name: 'Note color 4' })).toBeFocused();
+  await canvasClick(page, 40, 40);
+  await idle(page);
+  const color = await page.evaluate(async () => {
+    const { notesOf } = await import('/src/features/measure/notes.ts');
+    return notesOf(window.photoStudio)[0]?.color;
+  });
+  expect(color).toBe('#64d2ff');
+});
