@@ -267,3 +267,33 @@ describe('half-channel hint', () => {
     expect(move(200)).toBe('text');
   });
 });
+
+describe('snap indicator', () => {
+  it('marks where a selection drag snapped and clears on release', async () => {
+    const { app, doc, view } = await makeView();
+    const { createMarker } = await import('../src/model/markers.js');
+    app.prefs.set('snapping', true);
+    app.prefs.set('snap', { ruler: false, rulerFine: false, markers: true, zero: false, frames: false });
+    doc.apply('Add Marker', { ...doc.state, markers: [createMarker({ start: 24000, duration: 0, name: 'M' })] });
+    doc.setView(0, 48000);
+    view.waveHeight = 400;
+    const s = view.surface;
+    s.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 400 });
+    s.setPointerCapture = () => {};
+    const pe = (type, x) => {
+      const e = new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: 200 });
+      Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+      return e;
+    };
+    s.dispatchEvent(pe('pointerdown', 100));
+    s.dispatchEvent(pe('pointermove', 300));
+    expect(view.snapLine).toBe(null);
+    // 503 px is 3 px from the marker at 500 px.
+    s.dispatchEvent(pe('pointermove', 503));
+    expect(doc.selection.end).toBe(24000);
+    expect(view.snapLine).toBe(24000);
+    s.dispatchEvent(pe('pointerup', 503));
+    window.dispatchEvent(new MouseEvent('pointerup'));
+    expect(view.snapLine).toBe(null);
+  });
+});

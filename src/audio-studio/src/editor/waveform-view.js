@@ -174,6 +174,7 @@ export class WaveformView {
     this.layers = [];
     this.hudGain = 0;
     this.fadeDrag = null;
+    this.snapLine = null;
     this.dirty = { wave: true, overlay: true, ruler: true, overview: true, amp: true };
     this.#build();
     this.offDoc = doc.on('change', (e) => this.#onDocChange(e));
@@ -186,6 +187,10 @@ export class WaveformView {
     });
     this.onTheme = () => this.invalidate();
     window.addEventListener('themechange', this.onTheme);
+    // A drag anywhere (lanes, ruler) ends with a release: the snap line goes with it.
+    this.onRelease = () => this.#showSnap(null);
+    window.addEventListener('pointerup', this.onRelease, true);
+    window.addEventListener('pointercancel', this.onRelease, true);
     for (const ext of WaveformView.extensions) ext.attach?.(this);
   }
 
@@ -217,6 +222,7 @@ export class WaveformView {
       selectMarker: (id) => this.selectMarker(id),
       overviewPeaks: (cols, total) => this.#overviewPeaks(cols, total),
       setSelection: (a, b) => {
+        this.#showSnap(this.lastSnapTarget);
         doc.setSelection(a, b, { channels: doc.selection.channels });
         if (!app.engine.playing) doc.setCursor(Math.min(a, b), { silent: true });
       },
@@ -524,6 +530,7 @@ export class WaveformView {
   /** Snaps a frame to markers, selection edges, playhead, ruler ticks or zero crossings. */
   snap(frame, { exclude, force } = {}) {
     const prefs = this.app.prefs;
+    this.lastSnapTarget = null;
     if (!prefs.get('snapping') && !force) return Math.round(frame);
     const snap = prefs.get('snap');
     const tol = this.fpp * 8;
@@ -587,10 +594,21 @@ export class WaveformView {
             }
           }
         }
-        if (zbest >= 0) return zbest;
+        if (zbest >= 0) {
+          this.lastSnapTarget = zbest;
+          return zbest;
+        }
       }
     }
+    if (bestD < tol) this.lastSnapTarget = best;
     return best;
+  }
+
+  /** Shows (or with null hides) the line marking where a drag snapped. */
+  #showSnap(frame) {
+    if (frame === (this.snapLine ?? null)) return;
+    this.snapLine = frame;
+    this.invalidate('overlay');
   }
 
   // ----------------------------------------------------------------- render
@@ -729,6 +747,21 @@ export class WaveformView {
         ctx.fillStyle = cssVar('--sel-edge');
         if (this.xOf(sel.start) >= 0) ctx.fillRect(Math.round(x0), 0, 1, this.waveHeight);
         if (this.xOf(sel.end) <= W) ctx.fillRect(Math.round(x1) - 1, 0, 1, this.waveHeight);
+      }
+    }
+    // Where a drag snapped (to a marker, selection edge, ruler tick or zero crossing).
+    if (this.snapLine !== null && this.snapLine !== undefined) {
+      const x = Math.round(this.xOf(this.snapLine)) + 0.5;
+      if (x >= 0 && x <= W) {
+        ctx.strokeStyle = cssVar('--text-strong');
+        ctx.globalAlpha = 0.85;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
       }
     }
     // Fade preview curve.
@@ -934,6 +967,7 @@ export class WaveformView {
     // Markers stay inside the file: a drag past the end stops with the marker (or range) at the end.
     const dur = this.doc.state.markers.find((m) => m.id === id)?.duration || 0;
     start = Math.max(0, Math.min(Math.round(start), this.doc.length - dur));
+    this.#showSnap(preview ? this.lastSnapTarget : null);
     if (preview) {
       this.markerPreview = { id, start };
       this.invalidate('ruler');
@@ -1347,6 +1381,7 @@ export class WaveformView {
 
   #dragTo(drag, x) {
     const f = this.snap(Math.max(0, Math.min(this.doc.length, this.frameAt(x))));
+    this.#showSnap(this.lastSnapTarget);
     this.doc.setSelection(drag.anchor, f, { channels: drag.channels || this.doc.selection.channels });
     if (!this.app.engine.playing) this.doc.setCursor(Math.min(drag.anchor, f), { silent: true });
   }
@@ -1475,6 +1510,8 @@ export class WaveformView {
     this.offPrefs();
     this.offActive();
     window.removeEventListener('themechange', this.onTheme);
+    window.removeEventListener('pointerup', this.onRelease, true);
+    window.removeEventListener('pointercancel', this.onRelease, true);
     this.resizeObserver.disconnect();
     this.renderer.dispose();
     for (const l of this.layers) l.destroy?.();
