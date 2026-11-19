@@ -4,7 +4,7 @@
 
 import { h } from '../lib/dom.js';
 import { cssVar } from '../ui/theme.js';
-import { plot, gridLines, labelText } from './editors.js';
+import { plot, gridLines, labelText, freqGridLines, freqLabels } from './editors.js';
 import { controlsFor, groupBox, tabPanels, vSlider, checkbox, numberField, readout, disclosure, enableWhen, showWhen } from './layout.js';
 import { wavePreview, noiseSpectrum, dbToGain } from './generate.js';
 import { fft } from '../multitrack/align.js';
@@ -115,8 +115,7 @@ function spectrumView(ctx) {
     const fMax = (ctx.rate || 48000) / 2;
     const xOf = (f) => (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
     const yOf = (d) => 4 + (-d / range) * (H - 18);
-    const fTicks = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter((f) => f < fMax);
-    gridLines(g, W, H, fTicks.map(xOf), [-20, -40, -60].map(yOf));
+    freqGridLines(g, W, H, xOf, { fMin, fMax, ys: [-20, -40, -60].map(yOf), labels: false });
     g.beginPath();
     g.moveTo(xOf(freqs[0]), H);
     for (let i = 0; i < freqs.length; i++) g.lineTo(xOf(freqs[i]), Math.min(H, yOf(db[i])));
@@ -133,7 +132,7 @@ function spectrumView(ctx) {
       else g.moveTo(xOf(freqs[i]), y);
     }
     g.stroke();
-    [100, 1000, 10000].forEach((f) => f < fMax && labelText(g, f >= 1000 ? `${f / 1000}k` : String(f), xOf(f) + 3, H - 14));
+    freqLabels(g, W, H, xOf, { fMin, fMax });
     [-20, -40, -60].forEach((d) => labelText(g, `${d} dB`, 3, yOf(d) + 2));
   });
   ctx.subscribe(() => view.redraw());

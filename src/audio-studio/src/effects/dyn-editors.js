@@ -9,7 +9,7 @@ import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { hotNumber } from '../ui/controls.js';
 import { cssVar } from '../ui/theme.js';
-import { plot, gridLines, labelText, transferCurveEditor } from './editors.js';
+import { plot, labelText, freqGridLines, transferCurveEditor } from './editors.js';
 import { formatValue, formatParts, parseValue, editValueText } from './params.js';
 import { splineOutput } from './defs/transfer-curve.js';
 import { levelMeter } from './meters-ui.js';
@@ -49,16 +49,13 @@ const FREQ_MIN = 20;
 const FREQ_MAX = 20000;
 const xOfF = (f, W) => (Math.log(clamp(f, FREQ_MIN, FREQ_MAX) / FREQ_MIN) / Math.log(FREQ_MAX / FREQ_MIN)) * W;
 const fOfX = (fx) => FREQ_MIN * Math.pow(FREQ_MAX / FREQ_MIN, clamp(fx, 0, 1));
-const F_TICKS = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
-const fLabel = (f) => (f >= 1000 ? `${f / 1000}k` : String(f));
 
 /** Frequency grid with labels along the bottom and dB lines from `top` to `bottom`. */
 function freqGrid(g, W, H, { top = 0, bottom = -80, step = 10 } = {}) {
   const yOf = (db) => ((top - db) / (top - bottom)) * H;
   const ys = [];
   for (let d = top - step; d > bottom; d -= step) ys.push(yOf(d));
-  gridLines(g, W, H, F_TICKS.map((f) => xOfF(f, W)), ys);
-  for (const f of [100, 1000, 10000]) labelText(g, fLabel(f), xOfF(f, W) + 3, H - 14);
+  freqGridLines(g, W, H, (f) => xOfF(f, W), { fMin: FREQ_MIN, fMax: FREQ_MAX, ys });
   for (let d = top - 2 * step; d > bottom; d -= 2 * step) labelText(g, String(d), W - 4, yOf(d) + 2, 'right');
   return yOf;
 }

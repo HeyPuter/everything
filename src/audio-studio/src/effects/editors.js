@@ -113,6 +113,50 @@ export function gridLines(ctx, W, H, xs, ys) {
   ctx.stroke();
 }
 
+const LABEL_ORDER = [[100, 1000, 10000], [50, 500, 5000], [20, 200, 2000, 20000], [30, 300, 3000], [40, 400, 4000]];
+const shortHz = (f) => (f >= 1000 ? `${f / 1000}k` : String(f));
+
+/**
+ * A log frequency grid: faint lines at every 2..9 step of each decade,
+ * stronger decade lines, horizontal lines at `ys` (pixels), and as many
+ * frequency labels along the bottom as fit without crowding (decades first,
+ * then 50/500/5k, 20/200/2k/20k...). xOf(f) gives the pixel of a frequency.
+ */
+export function freqGridLines(ctx, W, H, xOf, { fMin = 20, fMax = 20000, ys = [], labels = true } = {}) {
+  const minor = [];
+  const major = [];
+  for (let d = 10; d <= 10000; d *= 10) {
+    for (let k = 1; k <= 9; k++) {
+      const f = k * d;
+      if (f <= fMin || f >= fMax) continue;
+      (k === 1 ? major : minor).push(xOf(f));
+    }
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  gridLines(ctx, W, H, minor, []);
+  ctx.restore();
+  gridLines(ctx, W, H, major, ys);
+  if (labels) freqLabels(ctx, W, H, xOf, { fMin, fMax });
+}
+
+/** The frequency labels of freqGridLines alone (to draw them over a filled plot). */
+export function freqLabels(ctx, W, H, xOf, { fMin = 20, fMax = 20000 } = {}) {
+  ctx.font = CANVAS_FONT;
+  const taken = [];
+  for (const group of LABEL_ORDER) {
+    for (const f of group) {
+      if (f <= fMin || f >= fMax) continue;
+      const text = shortHz(f);
+      const x0 = xOf(f) + 3;
+      const x1 = x0 + ctx.measureText(text).width;
+      if (x1 > W - 2 || taken.some(([a, b]) => x0 < b + 8 && x1 > a - 8)) continue;
+      taken.push([x0, x1]);
+      labelText(ctx, text, x0, H - 14);
+    }
+  }
+}
+
 export function labelText(ctx, text, x, y, align = 'left') {
   ctx.fillStyle = cssVar('--text-faint');
   ctx.font = CANVAS_FONT;
@@ -242,17 +286,15 @@ export function eqEditor(opts = {}) {
 
     const view = plot('fx-eq', 'Equalizer curve', (g, W, H) => {
       range = rangeNow();
-      const xs = [50, 100, 200, 500, 1000, 2000, 5000, 10000].filter((f) => f < fMax).map((f) => xOf(f, W));
       const step = range > 24 ? 12 : range % 6 ? 5 : 6;
       const ys = [];
       for (let d = Math.ceil(-range / step) * step; d <= range; d += step) ys.push(yOf(d, H));
-      gridLines(g, W, H, xs, ys);
+      freqGridLines(g, W, H, (f) => xOf(f, W), { fMin, fMax, ys });
       g.strokeStyle = cssVar('--grid-strong');
       g.beginPath();
       g.moveTo(0, Math.round(yOf(0, H)) + 0.5);
       g.lineTo(W, Math.round(yOf(0, H)) + 0.5);
       g.stroke();
-      for (const f of [100, 1000, 10000]) if (f < fMax) labelText(g, f >= 1000 ? `${f / 1000}k` : String(f), xOf(f, W) + 3, H - 14);
       for (const d of range % 6 ? [range, 10, 5, -5, -10] : [range, range / 2, -range / 2]) labelText(g, `${d > 0 ? '+' : ''}${Math.round(d)}`, 3, yOf(d, H) + 2);
       const values = ctx.values;
       // A definition's own response (exact for its filter design) wins over the biquad model.
