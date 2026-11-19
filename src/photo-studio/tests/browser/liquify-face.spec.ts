@@ -294,3 +294,29 @@ test('Show Backdrop shows the other layers behind or in front, unwarped', async 
   expect(await canvasSum(page)).toBe(warped);
   await d.locator('.lq-cancel').click();
 });
+
+test('Freeze From combines the layer transparency with the freeze mask', async ({ page }) => {
+  await openFace(page);
+  await openLiquify(page);
+  const d = dialog(page);
+  const original = await canvasSum(page);
+  await expect(d.getByLabel('Freeze From')).toHaveValue('transparency');
+  // The image is opaque, so its transparency freezes everything.
+  await d.locator('[data-act="mask-replace"]').click();
+  const frozen = await canvasSum(page);
+  expect(frozen).not.toBe(original);
+  await d.getByLabel('Show Mask').uncheck();
+  expect(await canvasSum(page)).toBe(original);
+  await drag(page, [150, 150], [200, 160]);
+  expect(await canvasSum(page)).toBe(original);
+  await d.getByLabel('Show Mask').check();
+  await d.locator('[data-act="mask-subtract"]').click();
+  expect(await canvasSum(page)).toBe(original);
+  await drag(page, [150, 150], [200, 160]);
+  expect(await canvasSum(page)).not.toBe(original);
+  // Undo the stroke and the subtraction: frozen again.
+  await d.locator('[data-act="undo"]').click();
+  await d.locator('[data-act="undo"]').click();
+  expect(await canvasSum(page)).toBe(frozen);
+  await d.locator('.lq-cancel').click();
+});

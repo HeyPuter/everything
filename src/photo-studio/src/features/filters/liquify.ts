@@ -46,7 +46,7 @@ import {
 import { rgba8, type IRect, type Mask8, type RGBA8 } from '../../imaging/types';
 import { allLayers, type Layer } from '../../model/document';
 import { toRGBA8 } from '../pixels';
-import { readRect } from '../../model/tiles';
+import { readMask, readRect } from '../../model/tiles';
 import { svg } from '../../app/icons';
 import { escapeXML } from '../../model/assets';
 import { download } from '../../persistence/puter';
@@ -296,7 +296,7 @@ class LiquifyWorkspace {
       ${groups}
     </section>
     <section><h3>Load Mesh Options</h3><div class="lq-row"><button type="button" data-act="mesh-load">Load Mesh…</button><button type="button" data-act="mesh-last" ${lastMesh ? '' : 'disabled'}>Load Last Mesh</button><button type="button" data-act="mesh-save">Save Mesh…</button></div></section>
-    <section><h3>Mask Options</h3><div class="lq-row"><button type="button" data-act="mask-none">None</button><button type="button" data-act="mask-all">Mask All</button><button type="button" data-act="mask-invert">Invert All</button></div></section>
+    <section><h3>Mask Options</h3>${this.maskSourceRow()}<div class="lq-row"><button type="button" data-act="mask-none">None</button><button type="button" data-act="mask-all">Mask All</button><button type="button" data-act="mask-invert">Invert All</button></div></section>
     <section><h3>View Options</h3>
       <label class="lq-check"><input type="checkbox" data-opt="image" checked> Show Image</label>
       <label class="lq-check"><input type="checkbox" data-opt="faces" checked> Show Face Overlay</label>
@@ -1019,6 +1019,62 @@ class LiquifyWorkspace {
       this.addFound(list, 'ai');
     });
   }
+  /** Freeze-mask sources this session offers. */
+  private maskSources(): { id: 'selection' | 'transparency' | 'layer-mask'; label: string }[] {
+    const out: { id: 'selection' | 'transparency' | 'layer-mask'; label: string }[] = [];
+    if (this.s.selection) out.push({ id: 'selection', label: 'Selection' });
+    if (this.s.target.kind === 'pixels') {
+      out.push({ id: 'transparency', label: 'Layer Transparency' });
+      if (this.s.target.layer.maskGrid) out.push({ id: 'layer-mask', label: 'Layer Mask' });
+    }
+    return out;
+  }
+  private maskSourceRow() {
+    const list = this.maskSources();
+    if (!list.length) return '';
+    const ops = [
+      ['replace', 'Replace', 'Freeze exactly the source'],
+      ['add', 'Add', 'Add the source to the freeze mask'],
+      ['subtract', 'Subtract', 'Thaw where the source is'],
+      ['intersect', 'Intersect', 'Keep the freeze mask only where the source is'],
+    ];
+    return `<div class="fp-row"><label for="lq-mask-src">Freeze From</label><select id="lq-mask-src">${list.map((m) => `<option value="${m.id}">${m.label}</option>`).join('')}</select></div><div class="lq-row" role="group" aria-label="Combine with the freeze mask">${ops.map(([id, label, title]) => `<button type="button" data-act="mask-${id}" title="${title}">${label}</button>`).join('')}</div>`;
+  }
+  /** Coverage (0..255) of a freeze-mask source over the workspace image. */
+  private maskSource(id: string): Uint8Array | undefined {
+    const { src, s } = this;
+    const store = this.e.assets.tiles;
+    if (id === 'selection' && s.selection) return readMask(store, s.selection, s.rect).data;
+    if (id === 'transparency') {
+      const out = new Uint8Array(src.width * src.height);
+      for (let i = 0; i < out.length; i++) out[i] = src.data[i * 4 + 3];
+      return out;
+    }
+    if (id === 'layer-mask' && s.target.kind === 'pixels' && s.target.layer.maskGrid) {
+      const m = readMask(store, s.target.layer.maskGrid, s.rect).data;
+      if (s.target.layer.maskInverted) for (let i = 0; i < m.length; i++) m[i] = 255 - m[i];
+      return m;
+    }
+  }
+  private combineMask(op: string) {
+    const id = this.dialog.querySelector<HTMLSelectElement>('#lq-mask-src')?.value;
+    const m = id ? this.maskSource(id) : undefined;
+    if (!m) return;
+    this.snapshot();
+    const n = this.src.width * this.src.height;
+    const cur = this.freeze?.data ?? new Uint8Array(n);
+    for (let i = 0; i < n; i++)
+      cur[i] =
+        op === 'replace'
+          ? m[i]
+          : op === 'add'
+            ? Math.max(cur[i], m[i])
+            : op === 'subtract'
+              ? Math.max(0, cur[i] - m[i])
+              : Math.min(cur[i], m[i]);
+    this.freeze = { width: this.src.width, height: this.src.height, data: cur };
+    this.bake(null);
+  }
   /** Backdrop: other layers exist and the target is a layer's pixels. */
   private canBackdrop() {
     const doc = this.e.doc;
@@ -1732,6 +1788,12 @@ class LiquifyWorkspace {
         for (const f of this.faces) f.sliders = {};
         this.refreshFaces(true);
         this.syncFaceUI();
+        break;
+      case 'mask-replace':
+      case 'mask-add':
+      case 'mask-subtract':
+      case 'mask-intersect':
+        this.combineMask(act.slice(5));
         break;
       case 'mask-none':
         this.snapshot();
