@@ -185,9 +185,9 @@ export const toolTips: Record<string, string> = {
   'polygon-shape': 'Draw polygons and stars',
   'line-shape': 'Draw lines and arrows',
   'custom-shape': 'Draw shapes from the shape library',
-  hand: 'Pan the view (or hold Space with any tool)',
+  hand: 'Pan the view (or hold Space with any tool); double-click to fit the image on screen',
   'rotate-view': 'Rotate the view without changing the image',
-  zoom: 'Zoom in by clicking or dragging (Alt zooms out)',
+  zoom: 'Zoom in by clicking or dragging (Alt zooms out); double-click for 100%',
 };
 /** The toolbar tooltip of a tool: name, key and what it does. */
 export function toolTitle(t: { id: string; label: string; key?: string }) {
