@@ -9,7 +9,7 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { knob, hotNumber } from '../ui/controls.js';
-import { AUTOMATION_MODES, AUTOMATION_PARAMS, TRACK_COLORS, SILENT_DB, MAX_DB, wouldCycle, trackLanes, automationParams, updateTrack } from '../model/session-edits.js';
+import { AUTOMATION_MODES, AUTOMATION_PARAMS, TRACK_COLORS, SILENT_DB, MAX_DB, wouldCycle, trackLanes, automationParams, updateTrack, sendIndexOf } from '../model/session-edits.js';
 import { formatGainShort, formatPan, parseGain, parsePan, formatGain } from '../multitrack/levels.js';
 import { getEffect } from '../effects/registry.js';
 import { MeterBar } from '../multitrack/meter.js';
@@ -189,15 +189,21 @@ export class TrackHeader {
   /** Lane headers: rebuilt when the lanes, or whether each has keyframes, change. */
   #syncLanes(track) {
     const lanes = trackLanes(track);
-    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode]);
+    const state = this.doc.state;
+    const busName = (id) => state.tracks.find((b) => b.id === id)?.name || '';
+    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode, (track.sends || []).map((x) => (x?.target ? busName(x.target) : ''))]);
     if (this.lanesKey === key) return;
     this.lanesKey = key;
     const run = (cmd, args) => this.app.commands.run(cmd, { id: this.id, ...args });
-    const params = automationParams(track.type);
-    const label = (p) => AUTOMATION_PARAMS.find((x) => x.id === p)?.label || p;
+    const params = automationParams(track);
+    const label = (p) => {
+      const i = sendIndexOf(p);
+      if (i >= 0) return `Send ${i + 1}${track.sends?.[i]?.target ? ` (${busName(track.sends[i].target)})` : ''}`;
+      return AUTOMATION_PARAMS.find((x) => x.id === p)?.label || p;
+    };
     const rows = lanes.map((param, lane) => {
       const name = label(param);
-      const sel = h('select.select.mt-th-select.mt-lane-param', { 'aria-label': `Automation lane ${lane + 1} parameter`, title: 'Lane Parameter' }, params.map((p) => h('option', { value: p, selected: p === param }, label(p))));
+      const sel = h('select.select.mt-th-select.mt-lane-param', { 'aria-label': `Automation lane ${lane + 1} parameter`, title: 'Lane Parameter' }, [...new Set([...params, param])].map((p) => h('option', { value: p, selected: p === param }, label(p))));
       sel.addEventListener('change', () => run('mt.setAutomationParam', { param: sel.value, lane }));
       sel.addEventListener('keydown', (e) => e.stopPropagation());
       const btn = (ic, text, cmd, extra = {}) => h('button.icon-btn.sm.mt-lane-btn', { type: 'button', 'aria-label': `${text} (${name})`, title: text, onclick: () => run(cmd, { param, lane }), ...extra }, icon(ic, 13));

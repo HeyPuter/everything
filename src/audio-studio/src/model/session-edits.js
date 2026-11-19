@@ -69,20 +69,50 @@ export const AUTOMATION_PARAMS = [
 /** Default height of one automation lane (CSS px). */
 export const LANE_HEIGHT = 46;
 
-/** Parameters a track of `type` can automate (the master has no pan). */
-export function automationParams(type) {
-  return AUTOMATION_PARAMS.filter((p) => type !== 'master' || p.id !== 'pan').map((p) => p.id);
+function copyLanes(a) {
+  const out = {};
+  for (const [k, v] of Object.entries(a || {})) if (sendIndexOf(k) >= 0 && Array.isArray(v)) out[k] = v.slice();
+  return out;
+}
+
+/** Automation parameter of send `i` (0-based): its level, in dB. */
+export const sendParam = (i) => `send${i + 1}`;
+
+/** The send index (0-based) a parameter automates, or -1. */
+export function sendIndexOf(param) {
+  const m = /^send([1-8])$/.exec(param || '');
+  return m ? Number(m[1]) - 1 : -1;
+}
+
+/**
+ * Parameters a track can automate: volume, mute and pan (the master has no pan), and the level
+ * of each routed send. `t` is a track, or just its type (then without sends).
+ */
+export function automationParams(t) {
+  const type = typeof t === 'string' ? t : t.type;
+  const base = AUTOMATION_PARAMS.filter((p) => type !== 'master' || p.id !== 'pan').map((p) => p.id);
+  const sends = typeof t === 'string' ? [] : (t.sends || []).map((x, i) => (x?.target ? sendParam(i) : null)).filter(Boolean);
+  return [...base, ...sends];
+}
+
+/** A parameter's own (unautomated) value: the switch, knob or send level. */
+export function staticValue(t, param) {
+  const i = sendIndexOf(param);
+  if (i >= 0) return t.sends?.[i]?.level ?? 0;
+  return param === 'mute' ? Number(t.mute) : t[param];
 }
 
 function cleanLanes(type, lanes, first) {
-  const ok = automationParams(type);
-  const list = (Array.isArray(lanes) && lanes.length ? lanes : [first || 'volume']).filter((p, i, a) => ok.includes(p) && a.indexOf(p) === i);
+  const ok = (p) => automationParams(type).includes(p) || (type !== 'master' && sendIndexOf(p) >= 0);
+  const list = (Array.isArray(lanes) && lanes.length ? lanes : [first || 'volume']).filter((p, i, a) => ok(p) && a.indexOf(p) === i);
   return list.length ? list : ['volume'];
 }
 
-/** Automation lanes shown under a track (none while its lanes are closed). */
+/** Automation lanes shown under a track (none while its lanes are closed); lanes of removed sends drop out. */
 export function trackLanes(t) {
-  return t.showAutomation ? t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume'] : [];
+  if (!t.showAutomation) return [];
+  const list = (t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume']).filter((p) => sendIndexOf(p) < 0 || t.sends?.[sendIndexOf(p)]);
+  return list.length ? list : ['volume'];
 }
 
 /** Sets the parameters shown as lanes (first one also becomes autoParam). */
@@ -189,7 +219,8 @@ export function createTrack(o = {}) {
     fxMix: o.fxMix ?? 1,
     invert: Boolean(o.invert),
     mode: o.mode || 'read',
-    automation: { volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice(), mute: (o.automation?.mute || []).slice() },
+    // Send level lanes (send1..send8) are kept too.
+    automation: { ...copyLanes(o.automation), volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice(), mute: (o.automation?.mute || []).slice() },
     showAutomation: Boolean(o.showAutomation),
     autoParam: o.autoParam || 'volume',
     lanes: cleanLanes(type, o.lanes, o.autoParam),
@@ -380,7 +411,21 @@ export function setSend(state, trackId, index, patch) {
 }
 
 export function removeSend(state, trackId, index) {
-  return updateTrack(state, trackId, (t) => ({ sends: (t.sends || []).filter((_, i) => i !== index) }));
+  return updateTrack(state, trackId, (t) => {
+    // Later sends move up one place, and their automation lanes with them.
+    const automation = {};
+    for (const [k, v] of Object.entries(t.automation)) {
+      const i = sendIndexOf(k);
+      if (i < 0) automation[k] = v;
+      else if (i > index) automation[sendParam(i - 1)] = v;
+      else if (i < index) automation[k] = v;
+    }
+    const lanes = (t.lanes || []).flatMap((p) => {
+      const i = sendIndexOf(p);
+      return i < 0 || i < index ? [p] : i > index ? [sendParam(i - 1)] : [];
+    });
+    return { sends: (t.sends || []).filter((_, i) => i !== index), automation, lanes: lanes.length ? lanes : ['volume'] };
+  });
 }
 
 // ------------------------------------------------------------------ tracks

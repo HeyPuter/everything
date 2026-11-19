@@ -284,3 +284,66 @@ describe('spline clip envelopes', () => {
     expect(gc.gainEnv.length).toBeGreaterThan(linear.gainEnv.length);
   });
 });
+
+describe('send level automation', () => {
+  it('offers lanes for routed sends and plays their envelope', async () => {
+    const { app, doc } = await appWithSession();
+    let st = S.addTrack(doc.state, S.createTrack({ type: 'bus', name: 'Bus A' }));
+    const bus = st.tracks[st.tracks.length - 1].id;
+    const id = st.tracks[0].id;
+    st = S.setSend(st, id, 0, { target: bus, level: -6 });
+    doc.apply('Send', st);
+    const t = S.findTrack(doc.state, id);
+    expect(S.automationParams(t)).toContain('send1');
+    expect(S.automationParams('audio')).not.toContain('send1');
+    expect(S.staticValue(t, 'send1')).toBe(-6);
+    await app.commands.run('mt.setAutomationParam', { id, param: 'send1' });
+    expect(S.trackLanes(S.findTrack(doc.state, id))).toEqual(['send1']);
+    doc.apply('Send Automation', S.setAutomation(doc.state, id, 'send1', [{ t: 0, v: 0 }, { t: RATE, v: -20 }]));
+    const snd = buildSessionGraph(doc.state, new Map()).graph.tracks[0].sends[0];
+    expect(snd.gain).toBe(1);
+    expect(snd.gainEnv[0].v).toBe(1);
+    expect(snd.gainEnv[snd.gainEnv.length - 1].v).toBeCloseTo(0.1);
+    // The send knob sets a keyframe once the send is automated.
+    const c = new TrackControls(app, doc);
+    doc.setCursor(RATE / 2);
+    c.set(id, 'send1', -3, 'change');
+    expect(S.findTrack(doc.state, id).automation.send1.length).toBe(3);
+    expect(S.findTrack(doc.state, id).sends[0].level).toBe(-6);
+  });
+
+  it('applies a send envelope in the mix core', async () => {
+    const { renderBlock, ChunkStore, createScratch, CHUNK } = await import('../src/engine/mixcore.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    st = S.addTrack(st, S.createTrack({ type: 'bus', name: 'Bus' }));
+    const [track, bus] = st.tracks;
+    // The track itself is silent (its output muted); only the send reaches the mix.
+    st = S.updateTrack(st, track.id, { volume: S.SILENT_DB });
+    st = S.setSend(st, track.id, 0, { target: bus.id, pre: true, level: 0 });
+    st = S.setAutomation(st, track.id, 'send1', [{ t: 0, v: S.SILENT_DB }, { t: 1000, v: 0 }]);
+    const ch = Channel.fromSamples(new Float32Array(4000).fill(0.5));
+    st = S.addClips(st, [S.createClip({ trackId: track.id, sourceId: 'src', start: 0, length: 4000 })]);
+    const { graph, sources } = buildSessionGraph(st, new Map([['src', { channels: [ch, ch] }]]));
+    const store = new ChunkStore();
+    for (const [key, chs] of sources) store.put(key, 0, chs.map((c) => c.toArray(0, Math.min(CHUNK, c.length))));
+    const render = (pos) => {
+      const out = [new Float32Array(128), new Float32Array(128)];
+      renderBlock(graph, store, pos, 128, out, createScratch(128));
+      return Math.abs(out[0][64]);
+    };
+    // Rising from silence at 0 to full level at frame 1000.
+    expect(render(0)).toBeLessThan(0.01);
+    expect(render(2000)).toBeGreaterThan(0.2);
+  });
+
+  it('moves send lanes up when a send is removed', () => {
+    let st = S.createSessionState({ tracks: 1 });
+    const id = st.tracks[0].id;
+    st = S.updateTrack(st, id, { sends: [S.createSend({ target: 'a' }), S.createSend({ target: 'b' })], lanes: ['send2', 'volume'], automation: { volume: [], pan: [], mute: [], send2: [{ t: 0, v: -3 }] } });
+    st = S.removeSend(st, id, 0);
+    const t = S.findTrack(st, id);
+    expect(t.automation.send1).toEqual([{ t: 0, v: -3 }]);
+    expect(t.automation.send2).toBeUndefined();
+    expect(t.lanes).toEqual(['send1', 'volume']);
+  });
+});

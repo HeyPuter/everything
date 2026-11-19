@@ -59,10 +59,12 @@ function envValueAt(param, pos) {
 }
 
 const LANE_NAMES = { volume: 'Volume', pan: 'Pan', mute: 'Mute' };
+const laneName = (param) => LANE_NAMES[param] || (S.sendIndexOf(param) >= 0 ? `Send ${S.sendIndexOf(param) + 1}` : param);
 
 /** Status text for a keyframe value. */
 function keyText(param, v) {
   if (param === 'mute') return v >= 0.5 ? 'Muted' : 'Not muted';
+  if (S.sendIndexOf(param) >= 0) return `${laneName(param)} ${formatGain(v)}`;
   return param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`;
 }
 
@@ -1028,13 +1030,13 @@ export class MultitrackView {
         const pts = lanePoints(param, t.automation[param] || []);
         const color = param === 'pan' ? panColor : param === 'mute' ? cssVar('--text-dim') : volColor;
         ctx.fillStyle = cssVar('--text-dim');
-        ctx.fillText(`${LANE_NAMES[param] || param}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
+        ctx.fillText(`${laneName(param)}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
         ctx.globalAlpha = t.mode === 'off' ? 0.45 : 1;
         ctx.beginPath();
         if (!pts.length) {
-          const y = this.#autoY(row, param, param === 'mute' ? Number(t.mute) : t[param]);
+          const y = this.#autoY(row, param, S.staticValue(t, param));
           ctx.setLineDash([4, 3]);
           ctx.moveTo(0, y);
           ctx.lineTo(W, y);
@@ -1265,7 +1267,7 @@ export class MultitrackView {
       for (let i = pts.length - 1; i >= 0; i--) {
         if (Math.abs(this.xOf(pts[i].t) - x) <= near && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= near) return { part: 'autoKey', row, param, index: i, auto: true };
       }
-      const fallback = param === 'mute' ? Number(t.mute) : t[param];
+      const fallback = S.staticValue(t, param);
       const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), fallback) : fallback;
       if (Math.abs(this.#autoY(row, param, v) - y) <= (touch ? 10 : 4)) return { part: 'autoLine', row, param, auto: true };
       return { part: 'auto', row, param, auto: true };
@@ -1986,7 +1988,7 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${LANE_NAMES[d.param] || 'Volume'} Automation` };
+    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${laneName(d.param)} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
@@ -2126,7 +2128,7 @@ export class MultitrackView {
       items.push(
         { type: 'cmd', label: 'Clear Lane', enabled: pts.length > 0, run: () => run('mt.clearAutomation') },
         { type: 'sep' },
-        { type: 'cmd', label: 'Add Automation Lane', enabled: Boolean(t && S.automationParams(t.type).some((p) => !S.trackLanes(t).includes(p))), run: () => run('mt.addAutomationLane') },
+        { type: 'cmd', label: 'Add Automation Lane', enabled: Boolean(t && S.automationParams(t).some((p) => !S.trackLanes(t).includes(p))), run: () => run('mt.addAutomationLane') },
         { type: 'cmd', label: 'Close Lane', enabled: true, run: () => run('mt.removeAutomationLane', { lane: S.trackLanes(t).indexOf(param) }) },
       );
     } else {

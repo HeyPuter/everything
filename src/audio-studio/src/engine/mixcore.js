@@ -5,7 +5,7 @@
 // Graph shape (all times in frames at the graph rate):
 //   { rate, master: { gain, fx }, tracks: [
 //       { id, gain, pan, mute, solo, volumeEnv?, panEnv?, fx?: [slot],
-//         bus?, output?, sends?: [{ target, gain, pan, pre }], soloSafe?, mono?,
+//         bus?, output?, sends?: [{ target, gain, pan, pre, gainEnv? }], soloSafe?, mono?,
 //         clips: [{ id, source, channels, start, offset, length, gain,
 //                   fadeIn, fadeInCurve, fadeOut, fadeOutCurve, fadeInOffset?, fadeOutOffset?, mute, gainEnv?,
 //                   panEnv?, base?, full?, fx?: [slot], fxTail? }] } ] }
@@ -555,19 +555,35 @@ function busBuffer(scratch, id, frames, channels = 2) {
   return b;
 }
 
-/** Adds `src` (stereo planar) times a send's gain and balance into the bus it targets. */
-function feedSend(scratch, send, src, frames, law, pg, channels = 2) {
+/**
+ * Adds `src` (stereo planar) times a send's gain and balance into the bus it targets. A send
+ * `gainEnv` (linear breakpoints, automation) scales its gain, read at timeline frame `at` less
+ * the send's delay (the delayed copy is that much older), ramped across the block.
+ */
+function feedSend(scratch, send, src, frames, law, pg, channels = 2, at = 0) {
   const b = busBuffer(scratch, send.target, frames, channels);
   if (!b.used) {
     for (const c of b.buf) c.fill(0, 0, frames);
     b.used = true;
   }
   panGains(send.pan || 0, law, pg);
+  const [L, R] = src;
+  const [bl, br] = b.buf;
+  if (send.gainEnv) {
+    const t0 = at - (send.delay || 0);
+    const g0 = send.gain * envelopeAt(send.gainEnv, t0);
+    const g1 = send.gain * envelopeAt(send.gainEnv, t0 + frames);
+    if (!g0 && !g1) return;
+    for (let i = 0; i < frames; i++) {
+      const g = g0 + ((g1 - g0) * i) / frames;
+      bl[i] += L[i] * g * pg[0];
+      br[i] += R[i] * g * pg[1];
+    }
+    return;
+  }
   const gl = send.gain * pg[0];
   const gr = send.gain * pg[1];
   if (!gl && !gr) return;
-  const [L, R] = src;
-  const [bl, br] = b.buf;
   for (let i = 0; i < frames; i++) {
     bl[i] += L[i] * gl;
     br[i] += R[i] * gr;
@@ -703,13 +719,13 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       if (meters) meters.set(track.id, [0, 0]);
       continue;
     }
+    // The track's audio runs `envShift` frames ahead of the timeline (latency compensation).
+    const at = pos + (track.envShift || 0);
     const sends = audible && track.sends && track.sends.length ? track.sends : null;
-    if (sends) for (const snd of sends) if (snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target));
+    if (sends) for (const snd of sends) if (snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target), at);
     const to = plan.dest(track);
     // Feeding a 6-channel destination, the surround panner places the track instead of the stereo pan.
     const toSix = surround && (to ? plan.six.has(to) : true);
-    // The track's audio runs `envShift` frames ahead of the timeline (latency compensation).
-    const at = pos + (track.envShift || 0);
     const vol = envelopeFrames(track.volumeEnv, at, frames, scratch, 0, 1);
     const pan = toSix ? null : envelopeFrames(track.panEnv, at, frames, scratch, 1, 0);
     const v0 = track.gain * envelopeAt(track.volumeEnv, at);
@@ -741,7 +757,7 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       dropDelays(scratch, track);
       continue;
     }
-    if (sends) for (const snd of sends) if (!snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target));
+    if (sends) for (const snd of sends) if (!snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target), at);
     const outBuf = track.outDelay ? delayed(scratch, `${track.id}>`, tbuf, frames, track.outDelay) : tbuf;
     if (toSix) {
       addInto(track, outBuf, to ? usedBus(scratch, to, frames, 6).buf : master, frames);

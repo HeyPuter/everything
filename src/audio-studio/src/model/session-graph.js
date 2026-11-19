@@ -2,7 +2,8 @@
 // session state and its media pool. Pure apart from sourceKey, which assigns
 // stable ids to Channel objects.
 //
-// Handles: bus routing and sends, track EQ, solo/mute, track volume/pan automation (Off/Read and
+// Handles: bus routing and sends (with send level automation), track EQ, solo/mute, track
+// volume/pan/mute automation (Off/Read and
 // the recording modes), clip gain, fades, crossfades on overlaps (or the
 // front clip hiding the rear one when automatic crossfades are off), clip
 // volume/pan envelopes, looped clips, polarity inversion, effect chains
@@ -13,7 +14,7 @@
 
 import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope, sendParam } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
 import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
@@ -310,8 +311,16 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
     if (t.output && t.output !== 'master' && busIds.has(t.output) && t.output !== t.id) gt.output = t.output;
     // Track EQ runs after the effects chain, whatever the chain's power state.
     if (t.eq?.on) gt.fx = [...gt.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: t.eq.values, enabled: true }], `eq:${t.id}`, rateDoc)];
-    const sends = (t.sends || []).filter((x) => x.on && x.target !== t.id && busIds.has(x.target));
-    if (sends.length) gt.sends = sends.map((x) => ({ target: x.target, gain: dbToGain(x.level), pan: x.pan / 100, pre: x.pre }));
+    const sends = (t.sends || []).map((x, i) => [x, sendParam(i)]).filter(([x]) => x.on && x.target !== t.id && busIds.has(x.target));
+    if (sends.length) {
+      gt.sends = sends.map(([x, param]) => {
+        // Send level automation (or a live value while it is written).
+        const pts = auto && o[param] === undefined ? expandHolds(t.automation[param] || []) : [];
+        const snd = { target: x.target, gain: pts.length ? 1 : dbToGain(o[param] ?? x.level), pan: x.pan / 100, pre: x.pre };
+        if (pts.length) snd.gainEnv = dbEnvelopeToGain(pts);
+        return snd;
+      });
+    }
     if (t.type === 'audio') {
       for (const c of state.clips) {
         if (c.trackId !== t.id || c.mute) continue;

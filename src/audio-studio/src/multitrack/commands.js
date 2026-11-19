@@ -1096,12 +1096,12 @@ export function installMultitrackCommands(app) {
       label: 'Add Automation Lane',
       enabled: (a, args) => {
         const t = selTrack(a, args);
-        return Boolean(t) && S.automationParams(t.type).some((p) => !S.trackLanes(t).includes(p));
+        return Boolean(t) && S.automationParams(t).some((p) => !S.trackLanes(t).includes(p));
       },
       run: (a, args) => {
         const t = selTrack(app, args);
         const lanes = S.trackLanes(t);
-        const next = S.automationParams(t.type).find((p) => !lanes.includes(p));
+        const next = S.automationParams(t).find((p) => !lanes.includes(p));
         session(app).amendView((st) => S.updateTrack(S.setTrackLanes(st, t.id, [...lanes, next]), t.id, { showAutomation: true }));
       },
     },

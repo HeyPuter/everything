@@ -10,7 +10,7 @@ import { getEffect } from '../effects/registry.js';
 import { openEffectDialog } from '../effects/dialog.js';
 import { normalizeValues } from '../effects/params.js';
 import { cssVar } from '../ui/theme.js';
-import { setSend, updateTrack, findTrack, wouldCycle, MAX_SENDS, SILENT_DB } from '../model/session-edits.js';
+import { setSend, updateTrack, findTrack, wouldCycle, MAX_SENDS, SILENT_DB, sendParam } from '../model/session-edits.js';
 import { formatGainShort, formatPan, parseGain } from './levels.js';
 
 /** Switches one effect of a track's chain on or off as an undo step (Mixer strips, track headers). */
@@ -37,6 +37,8 @@ export class SendControls {
       if (phase === 'change') doc.endGesture();
     };
     const level = (v) => (v <= -60 ? SILENT_DB : v);
+    // Levels go through the track controls, so send automation behaves like the volume knob's.
+    const setLevel = (v, phase = 'change') => (doc.controls ? doc.controls.set(this.id, sendParam(this.index), v, phase) : edit({ level: v }, phase));
     this.sel = h('select.select.mx-select.mx-send-sel', { 'aria-label': 'Send', title: 'Choose a send to show' });
     this.sel.addEventListener('change', () => {
       this.index = Number(this.sel.value);
@@ -47,11 +49,11 @@ export class SendControls {
     this.target = h('select.select.mx-select.mx-send-target', { 'aria-label': 'Send destination', title: 'Send To' });
     this.target.addEventListener('change', () => edit({ target: this.target.value || null }));
     if (compact) {
-      this.level = hotNumber({ value: 0, min: SILENT_DB, max: 12, step: 0.1, defaultValue: 0, label: 'Send level (dB)', format: formatGainShort, parse: parseGain, onInput: (v) => edit({ level: v }, 'input'), onChange: (v) => edit({ level: v }) });
+      this.level = hotNumber({ value: 0, min: SILENT_DB, max: 12, step: 0.1, defaultValue: 0, label: 'Send level (dB)', format: formatGainShort, parse: parseGain, onInput: (v) => setLevel(v, 'input'), onChange: (v) => setLevel(v) });
       this.pan = null;
       this.el = h('div.mt-th-sends', this.sel, this.power, this.pre, this.level, h('span.mt-th-glyph', { 'aria-hidden': 'true' }, icon('corner-down-right', 12)), this.target);
     } else {
-      this.level = knob({ value: 0, min: -60, max: 12, step: 0.1, defaultValue: 0, label: 'Send level', format: (v) => formatGainShort(level(v)), size: 22, onInput: (v) => edit({ level: level(v) }, 'input'), onChange: (v) => edit({ level: level(v) }) });
+      this.level = knob({ value: 0, min: -60, max: 12, step: 0.1, defaultValue: 0, label: 'Send level', format: (v) => formatGainShort(level(v)), size: 22, onInput: (v) => setLevel(level(v), 'input'), onChange: (v) => setLevel(level(v)) });
       this.pan = knob({ value: 0, min: -100, max: 100, step: 1, defaultValue: 0, bipolar: true, label: 'Send pan', format: formatPan, size: 22, onInput: (v) => edit({ pan: v }, 'input'), onChange: (v) => edit({ pan: v }) });
       this.el = h(
         'div.mx-sends',
@@ -72,7 +74,7 @@ export class SendControls {
     const state = this.doc.state;
     // Bus outputs and sends decide which buses would make a loop (wouldCycle).
     const busKey = (b) => `${b.id}:${b.name}:${b.output}:${(b.sends || []).map((x) => x?.target || '').join('/')}`;
-    const key = `${this.index}|${JSON.stringify(track.sends || [])}|${state.tracks.map((b) => (b.type === 'bus' ? busKey(b) : '')).join(',')}`;
+    const key = `${this.index}|${JSON.stringify(track.sends || [])}|${track.mode}|${(track.automation[sendParam(this.index)] || []).length}|${state.tracks.map((b) => (b.type === 'bus' ? busKey(b) : '')).join(',')}`;
     if (key === this.key) return;
     this.key = key;
     this.sel.replaceChildren(
@@ -85,7 +87,9 @@ export class SendControls {
     const snd = this.send();
     this.power.setAttribute('aria-pressed', String(Boolean(snd?.on && snd.target)));
     this.pre.setAttribute('aria-pressed', String(Boolean(snd?.pre)));
-    this.level.setValue(this.pan ? Math.max(-60, snd?.level ?? 0) : snd?.level ?? 0);
+    const lv = this.doc.controls && snd ? this.doc.controls.value(track, sendParam(this.index)) : snd?.level ?? 0;
+    this.level.setValue(this.pan ? Math.max(-60, lv) : lv);
+    this.level.classList.toggle('automated', Boolean(snd && this.doc.controls?.automated(track, sendParam(this.index))));
     this.pan?.setValue(snd?.pan ?? 0);
     const opts = [h('option', { value: '' }, 'None')];
     for (const b of state.tracks) if (b.type === 'bus' && b.id !== track.id && (b.id === snd?.target || !wouldCycle(state, track.id, b.id))) opts.push(h('option', { value: b.id }, b.name));
