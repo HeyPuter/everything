@@ -114,8 +114,20 @@ export function decodeRaw(bytes, { encoding, channels, bigEndian = false, offset
   return out;
 }
 
-async function importRawDialog(app) {
+/** One file of any type, from Puter when signed in, else from this device. */
+async function pickAnyFile() {
+  if (puter.sdk() && puter.isSignedIn()) {
+    const [item] = await puter.pickFiles({ multiple: false });
+    if (!item) return null;
+    const blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);
+    return new File([blob], item.name || 'Raw data');
+  }
   const [file] = await pickLocalFiles({ accept: '*/*', multiple: false });
+  return file || null;
+}
+
+async function importRawDialog(app) {
+  const file = await pickAnyFile();
   if (!file) return;
   // The last settings used come back (raw files usually arrive in batches of one kind).
   const last = { rate: 44100, channels: 2, encoding: 's16', order: 'le', offset: 0, ...(app.prefs.get('importRaw') || {}) };
