@@ -299,6 +299,39 @@ puter-user-menu::part(apps-panel) {
   padding-left: 26px;
 }
 
+/* Wide windows: menu bar and toolbar share one row (shell.js decides when it fits). */
+.chrome-merged .appbar {
+  height: 38px;
+  gap: 2px;
+}
+
+.chrome-merged .app-name,
+.chrome-merged .doc-title,
+.chrome-merged .appbar-spacer,
+.chrome-merged .workspace-tab:not([aria-selected='true']) {
+  display: none;
+}
+
+.chrome-merged .app-title {
+  padding-right: 2px;
+}
+
+.chrome-merged .toolbar {
+  flex: 1;
+  height: 100%;
+  padding: 0 0 0 6px;
+  background: transparent;
+}
+
+.chrome-merged .toolbar::before {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin-right: 4px;
+  background: var(--divider);
+}
+
 /* ------------------------------------------------------------ workspace */
 
 .workspace {

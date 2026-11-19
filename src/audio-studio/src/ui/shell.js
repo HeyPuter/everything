@@ -40,7 +40,9 @@ export function createShell(app, root) {
   });
   const title = h('div.app-title', h('span.app-logo', appIcon(20)), h('span.app-name', 'Audio Studio'));
   const docTitle = h('div.doc-title');
-  const appbar = h('header.appbar', appMenuBtn, title, menubar, docTitle, h('div.spacer'), createAccount(app));
+  const account = createAccount(app);
+  const appbarSpacer = h('div.spacer.appbar-spacer');
+  const appbar = h('header.appbar', appMenuBtn, title, menubar, docTitle, appbarSpacer, account);
 
   // Toolbar ------------------------------------------------------------------
   const modeBtn = (kind, ic, label, cmd) =>
@@ -159,7 +161,34 @@ export function createShell(app, root) {
       pending = 0;
       refreshToolbar();
       refreshStatus();
+      fitChrome();
     });
+  };
+
+  // One row on wide desktop windows: the toolbar joins the menu bar when
+  // everything in both fits (the other workspace tabs move to the chevron and
+  // the document name to the window title and the editor tab), saving a row.
+  const fitChrome = () => {
+    const merged = root.classList.contains('chrome-merged');
+    // Without layout (tests, hidden tabs) nothing can be measured.
+    if (!menubar.offsetWidth) return;
+    let want = false;
+    if (app.layoutMode === 'desktop') {
+      const w = (el) => (el && !el.hidden ? el.offsetWidth : 0);
+      const current = workspaceTabs.querySelector('.workspace-tab[aria-selected=true]');
+      const bar = w(title.querySelector('.app-logo')) + menubar.scrollWidth + w(account);
+      const tools = [...toolbar.children].filter((c) => !c.classList.contains('spacer') && c !== workspaceTabs).reduce((a, c) => a + w(c), 0);
+      const tabs = w(current) + w(workspaceTabs.querySelector('.workspace-menu-btn'));
+      const gaps = 6 * (toolbar.children.length + 4) + 48;
+      const need = bar + tools + tabs + gaps;
+      // A little slack before joining, so a window at the edge does not flip back and forth.
+      want = window.innerWidth >= need + (merged ? 0 : 32);
+    }
+    if (want === merged) return;
+    root.classList.toggle('chrome-merged', want);
+    if (want) appbar.insertBefore(toolbar, appbarSpacer);
+    else appbar.after(toolbar);
+    dock.emit('resize');
   };
   for (const ev of ['active', 'documents', 'tool', 'prefs', 'transport', 'status', 'clipboard', 'workspace']) app.on(ev, refresh);
   app.on('doc-change', (doc, e) => doc === app.active && e.kind !== 'view' && e.kind !== 'cursor' && refresh());
@@ -179,6 +208,7 @@ export function createShell(app, root) {
   app.layoutMode = modeFor(window.innerWidth);
   document.documentElement.dataset.layout = app.layoutMode;
   window.addEventListener('resize', applyMode);
+  window.addEventListener('resize', () => fitChrome());
   dock.setLayout(app.currentLayout());
 
   // Keyboard -----------------------------------------------------------------
