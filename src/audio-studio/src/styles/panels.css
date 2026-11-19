@@ -1082,7 +1082,6 @@
 .prefs-range {
   flex: 0 1 220px;
   min-width: 100px;
-  accent-color: var(--accent);
 }
 
 .prefs-slider-row > .input.num {

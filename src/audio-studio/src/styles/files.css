@@ -452,7 +452,6 @@
 .media-seek {
   flex: 1;
   min-width: 60px;
-  accent-color: var(--accent);
 }
 
 .media-time {

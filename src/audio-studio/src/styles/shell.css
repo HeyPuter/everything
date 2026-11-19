@@ -429,6 +429,12 @@ puter-user-menu::part(apps-panel) {
   scrollbar-width: none;
 }
 
+/* A strip scrolled to show its current tab fades at the left, so the cut tab reads as more tabs. */
+.panel-tabs.scrolled {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px);
+}
+
 .panel-tabs::-webkit-scrollbar {
   display: none;
 }

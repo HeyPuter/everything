@@ -484,6 +484,12 @@ export class Dock extends Emitter {
       const overflow = tabs.scrollWidth > tabs.clientWidth + 1;
       more.hidden = !overflow;
       const active = tabs.querySelector('[role=tab][aria-selected=true]');
+      const mark = () => tabs.classList.toggle('scrolled', tabs.scrollLeft > 1);
+      if (!tabs._scrollWatch) {
+        tabs._scrollWatch = true;
+        tabs.addEventListener('scroll', mark, { passive: true });
+      }
+      requestAnimationFrame(mark);
       if (overflow && active) {
         // Positions within the strip's scrolled content (offsetLeft is relative to a positioned ancestor).
         const left = active.getBoundingClientRect().left - tabs.getBoundingClientRect().left + tabs.scrollLeft;

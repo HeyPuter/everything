@@ -387,7 +387,9 @@ input.hot-edit {
 }
 
 /* Range slider */
-input[type='range'].slider {
+input[type='range'].slider,
+input[type='range'].prefs-range,
+input[type='range'].media-seek {
   -webkit-appearance: none;
   appearance: none;
   height: 18px;
@@ -395,13 +397,17 @@ input[type='range'].slider {
   min-width: 60px;
 }
 
-input[type='range'].slider::-webkit-slider-runnable-track {
+input[type='range'].slider::-webkit-slider-runnable-track,
+input[type='range'].prefs-range::-webkit-slider-runnable-track,
+input[type='range'].media-seek::-webkit-slider-runnable-track {
   height: 3px;
   border-radius: 2px;
   background: var(--divider);
 }
 
-input[type='range'].slider::-webkit-slider-thumb {
+input[type='range'].slider::-webkit-slider-thumb,
+input[type='range'].prefs-range::-webkit-slider-thumb,
+input[type='range'].media-seek::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 12px;
   height: 12px;
@@ -411,18 +417,37 @@ input[type='range'].slider::-webkit-slider-thumb {
   background: var(--text);
 }
 
-input[type='range'].slider::-moz-range-track {
+input[type='range'].slider::-moz-range-track,
+input[type='range'].prefs-range::-moz-range-track,
+input[type='range'].media-seek::-moz-range-track {
   height: 3px;
   border-radius: 2px;
   background: var(--divider);
 }
 
-input[type='range'].slider::-moz-range-thumb {
+input[type='range'].slider::-moz-range-thumb,
+input[type='range'].prefs-range::-moz-range-thumb,
+input[type='range'].media-seek::-moz-range-thumb {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--text);
+}
+
+input[type='range'].slider:hover:not(:disabled)::-webkit-slider-thumb,
+input[type='range'].prefs-range:hover:not(:disabled)::-webkit-slider-thumb,
+input[type='range'].media-seek:hover:not(:disabled)::-webkit-slider-thumb {
+  background: var(--text-strong);
+}
+
+input[type='range']:disabled {
+  opacity: 0.45;
+}
+
+/* A number field with suggestions shows the suggestions arrow only, not spin buttons too. */
+input[type='number'][list]::-webkit-inner-spin-button {
+  display: none;
 }
 
 /* Knob control (canvas-free SVG) */
