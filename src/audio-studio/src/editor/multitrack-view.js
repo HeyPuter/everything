@@ -1175,6 +1175,21 @@ export class MultitrackView {
       }
       ctx.stroke();
     }
+    // The value of the keyframe being dragged, beside it.
+    if (this.keyReadout && (this.drag?.kind === 'key' || this.drag?.kind === 'autoKey')) {
+      const k = this.keyReadout;
+      const tw = ctx.measureText(k.text).width + 10;
+      const bx = Math.min(W - tw - 2, k.x + 8);
+      const by = Math.max(2, Math.min(H - 18, k.y - 22));
+      ctx.fillStyle = cssVar('--bg-panel');
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(bx, by, tw, 16);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = cssVar('--border');
+      ctx.strokeRect(Math.round(bx) + 0.5, Math.round(by) + 0.5, Math.round(tw) - 1, 15);
+      ctx.fillStyle = textColor;
+      ctx.fillText(k.text, bx + 5, by + 8.5);
+    } else this.keyReadout = null;
     // Past the content end of the last track.
     const below = this.contentHeight - this.scrollY;
     if (below < H) {
@@ -1904,8 +1919,9 @@ export class MultitrackView {
       while (j >= 0 && d.indices.has(j)) j--;
       let k = i + 1;
       while (k < pts.length && d.indices.has(k)) k++;
-      lo = Math.max(lo, (j >= 0 ? pts[j].t : 0) - pts[i].t);
-      hi = Math.min(hi, (k < pts.length ? pts[k].t : end) - pts[i].t);
+      // A keyframe stops a frame short of its neighbours, so it never lands on (and replaces) one.
+      lo = Math.max(lo, (j >= 0 ? pts[j].t + 1 : 0) - pts[i].t);
+      hi = Math.min(hi, (k < pts.length ? pts[k].t - 1 : end) - pts[i].t);
     }
     const dt = Math.max(lo, Math.min(hi, Math.round(t - lead.t)));
     const dpos = pos - pos0;
@@ -2020,6 +2036,7 @@ export class MultitrackView {
         const pts = this.#movedKeys(d, e, x, y, t, pos, c.length);
         doc.preview(S.setClipEnvelope(d.state0, d.id, d.param, pts));
         this.#status(keyText(d.param, pts[d.index].v));
+        this.keyReadout = { x: r.x0 + pts[d.index].t / this.fpp, y: this.#envY(r, d.param, pts[d.index].v), text: keyText(d.param, pts[d.index].v) };
         break;
       }
       case 'autoKey': {
@@ -2027,7 +2044,9 @@ export class MultitrackView {
         if (!row) break;
         const pts = this.#movedKeys(d, e, x, y, this.snap(this.frameAt(x), { off: fine }), this.#autoPos(row, d.param, y), Infinity);
         doc.preview(S.setAutomation(d.state0, d.trackId, d.param, pts));
-        this.#status(d.info ? d.info.format(pts[d.index].v) : keyText(d.param, pts[d.index].v));
+        const text = d.info ? d.info.format(pts[d.index].v) : keyText(d.param, pts[d.index].v);
+        this.#status(text);
+        this.keyReadout = { x: this.xOf(pts[d.index].t), y: this.#autoY(row, d.param, pts[d.index].v), text };
         break;
       }
       case 'keyBand': {
