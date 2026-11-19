@@ -12,6 +12,7 @@ import { normalizeValues } from '../effects/params.js';
 import { cssVar } from '../ui/theme.js';
 import { setSend, updateTrack, findTrack, wouldCycle, MAX_SENDS, SILENT_DB, sendParam } from '../model/session-edits.js';
 import { formatGainShort, formatPan, parseGain } from './levels.js';
+import { automatedChanges } from './fx-slots.js';
 
 /** Switches one effect of a track's chain on or off as an undo step (Mixer strips, track headers). */
 export function toggleTrackEffect(doc, trackId, index) {
@@ -123,7 +124,12 @@ export class EqControls {
         values: t.eq?.values,
         enabled: Boolean(t.eq?.on),
         doc: null,
-        onChange: (values) => setEq({ values }),
+        onChange: (values) => {
+          // Automated EQ settings (or any, while the track writes automation) go to their lanes.
+          const cur = findTrack(doc.state, this.id)?.eq?.values || {};
+          const sent = automatedChanges(doc, this.id, 'eq', cur, values);
+          setEq({ values: { ...cur, ...Object.fromEntries(Object.entries(values).filter(([k]) => !sent.has(k))) } });
+        },
         onPower: (on) => setEq({ on }),
       });
       doc.endGesture();
