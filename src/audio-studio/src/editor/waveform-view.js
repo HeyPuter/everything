@@ -768,6 +768,19 @@ export class WaveformView {
         if (this.xOf(sel.end) <= W) ctx.fillRect(Math.round(x1) - 1, 0, 1, this.waveHeight);
       }
     }
+    // The sample point under the pointer (or being dragged), ringed so it reads as grabbable.
+    const ring = this.sampleDrag ? { ch: this.sampleDrag.ch, frame: this.sampleDrag.a + (this.sampleDrag.last?.i ?? 0) } : this.hoverSample;
+    if (ring && this.samplesEditable() && lanes[ring.ch]) {
+      const one = new Float32Array(1);
+      const ch = this.sampleDrag ? this.sampleDrag.channel : doc.state.channels[ring.ch];
+      ch?.read(ring.frame, one);
+      ctx.strokeStyle = cssVar('--text-strong');
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(this.xOf(ring.frame), this.#sampleY(lanes[ring.ch], one[0]), 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
     // Where a drag snapped (to a marker, selection edge, ruler tick or zero crossing).
     if (this.snapLine !== null && this.snapLine !== undefined) {
       const x = Math.round(this.xOf(this.snapLine)) + 0.5;
@@ -1197,7 +1210,13 @@ export class WaveformView {
       menuTouch = false;
       if (e.cancelable) e.preventDefault();
     });
-    s.addEventListener('pointerleave', () => this.app.emit('cursor-data', null));
+    s.addEventListener('pointerleave', () => {
+      this.app.emit('cursor-data', null);
+      if (this.hoverSample) {
+        this.hoverSample = null;
+        this.invalidate('overlay');
+      }
+    });
     s.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pinch && pointers.size === 2) {
@@ -1395,7 +1414,10 @@ export class WaveformView {
     d.changed = true;
     d.channel = d.before.channels[d.ch].write(d.a, d.buf.slice());
     this.invalidate('wave');
-    this.#reportCursorData(frame, y);
+    this.invalidate('overlay');
+    // The status bar reads the value being drawn, not the one in the file.
+    const names = this.doc.channelCount === 1 ? ['M'] : CHANNEL_NAMES;
+    this.app.emit('cursor-data', { frame, rate: this.doc.sampleRate, channel: names[d.ch] || String(d.ch + 1), db: value ? 20 * Math.log10(Math.abs(value)) : -Infinity });
   }
 
   #endSampleDrag(cancelled) {
@@ -1425,7 +1447,12 @@ export class WaveformView {
     const tol = 6 * this.fpp;
     const onEdge = sel.end > sel.start && (Math.abs(f - sel.start) < tol || Math.abs(f - sel.end) < tol);
     const y = e.clientY - rect.top;
-    let cursor = onEdge ? 'ew-resize' : this.sampleAt(x, y) ? 'ns-resize' : 'text';
+    const sample = onEdge ? null : this.sampleAt(x, y);
+    if (sample?.frame !== this.hoverSample?.frame || sample?.ch !== this.hoverSample?.ch) {
+      this.hoverSample = sample;
+      this.invalidate('overlay');
+    }
+    let cursor = onEdge ? 'ew-resize' : sample ? 'ns-resize' : 'text';
     if (cursor === 'text') {
       // Near the top or bottom edge a drag selects one channel: the I-beam names it.
       const mask = this.#channelMaskAt(y);
