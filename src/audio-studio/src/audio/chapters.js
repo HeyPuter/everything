@@ -111,6 +111,88 @@ export function chaptersFromChpl(body) {
   return out;
 }
 
+/**
+ * ID3v2.3 chapter frames for markers whose starts are in frames at `rate`: a table of contents
+ * (CTOC) and one CHAP per marker with its name in a TIT2 subframe. Each chapter ends where the
+ * next starts (the last at `total` frames). Returns [{ id, body }].
+ */
+export function id3ChapterFrames(markers = [], rate, total) {
+  const list = sorted(markers, rate).slice(0, 255);
+  if (!list.length) return [];
+  const ms = (s) => Math.max(0, Math.min(0xfffffffe, Math.round(s * 1000)));
+  const end = Math.max(0, total / rate);
+  const join = (parts) => {
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) {
+      out.set(p, o);
+      o += p.length;
+    }
+    return out;
+  };
+  const u32 = (v) => {
+    const b = new Uint8Array(4);
+    new DataView(b.buffer).setUint32(0, v >>> 0);
+    return b;
+  };
+  const ids = list.map((_, i) => enc.encode(`chp${i}\0`));
+  const toc = { id: 'CTOC', body: join([enc.encode('toc\0'), Uint8Array.of(0x03, list.length), ...ids]) };
+  const chaps = list.map((c, i) => {
+    const title = join([Uint8Array.of(3), enc.encode(c.name)]); // UTF-8 text
+    const tit2 = join([enc.encode('TIT2'), u32(title.length), new Uint8Array(2), title]);
+    const stop = i + 1 < list.length ? list[i + 1].seconds : Math.max(c.seconds, end);
+    return { id: 'CHAP', body: join([ids[i], u32(ms(c.seconds)), u32(ms(stop)), u32(0xffffffff), u32(0xffffffff), tit2]) };
+  });
+  return [toc, ...chaps];
+}
+
+/** Chapters in an ID3v2 tag at the start of `b` (CHAP frames with their TIT2 names). */
+export function id3Chapters(b) {
+  if (b.length < 10 || latin1(b.subarray(0, 3)) !== 'ID3') return [];
+  const version = b[3];
+  const size = ((b[6] & 0x7f) << 21) | ((b[7] & 0x7f) << 14) | ((b[8] & 0x7f) << 7) | (b[9] & 0x7f);
+  const end = Math.min(b.length, 10 + size);
+  // Frame sizes: plain in ID3v2.3, syncsafe in 2.4.
+  const sizeIn = (x, o) => (version >= 4 ? ((x[o] & 0x7f) << 21) | ((x[o + 1] & 0x7f) << 14) | ((x[o + 2] & 0x7f) << 7) | (x[o + 3] & 0x7f) : new DataView(x.buffer, x.byteOffset + o, 4).getUint32(0));
+  const frameSize = (o) => sizeIn(b, o);
+  const text = (body) => {
+    const e = body[0];
+    const t = body.subarray(1);
+    if (e === 3) return utf8.decode(t).replace(/\0+$/, '');
+    if (e === 0) return latin1(t).replace(/\0+$/, '');
+    // UTF-16 with or without a byte order mark.
+    let le = e === 1;
+    let s = t;
+    if (s[0] === 0xff && s[1] === 0xfe) (le = true), (s = s.subarray(2));
+    else if (s[0] === 0xfe && s[1] === 0xff) (le = false), (s = s.subarray(2));
+    let out = '';
+    for (let i = 0; i + 1 < s.length; i += 2) out += String.fromCharCode(le ? s[i] | (s[i + 1] << 8) : (s[i] << 8) | s[i + 1]);
+    return out.replace(/\0+$/, '');
+  };
+  const out = [];
+  let o = 10 + (b[5] & 0x40 ? 4 + frameSize(10) : 0);
+  while (o + 10 <= end && b[o]) {
+    const id = latin1(b.subarray(o, o + 4));
+    const len = frameSize(o + 4);
+    const body = b.subarray(o + 10, o + 10 + len);
+    if (id === 'CHAP') {
+      const z = body.indexOf(0);
+      const dv = new DataView(body.buffer, body.byteOffset + z + 1, 16);
+      const start = dv.getUint32(0) / 1000;
+      let name = '';
+      for (let p = z + 17; p + 10 <= body.length; ) {
+        const sid = latin1(body.subarray(p, p + 4));
+        const slen = sizeIn(body, p + 4);
+        if (sid === 'TIT2') name = text(body.subarray(p + 10, p + 10 + slen));
+        p += 10 + slen;
+      }
+      out.push({ name: name || `Chapter ${out.length + 1}`, seconds: start });
+    }
+    o += 10 + len;
+  }
+  return out.sort((a, c) => a.seconds - c.seconds);
+}
+
 function flacComment(b) {
   let o = 4;
   while (o + 4 <= b.length) {
@@ -191,6 +273,7 @@ export function readChapters(buffer) {
       return c ? chaptersFromVorbis(c) : [];
     }
     if (latin1(b.subarray(4, 8)) === 'ftyp') return mp4Chapters(b);
+    if (head.startsWith('ID3')) return id3Chapters(b);
   } catch {
     // Unreadable chapters never block opening the audio.
   }

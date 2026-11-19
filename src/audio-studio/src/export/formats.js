@@ -59,7 +59,7 @@ export const FORMATS = [
     lossy: true,
     rates: MP3_RATES,
     maxChannels: 2,
-    markers: false,
+    markers: true,
     defaultDither: 'none',
     settings: [{ id: 'bitrate', label: 'Bitrate (CBR)', options: (o) => mp3Bitrates(o.sampleRate).map((b) => ({ value: b, label: `${b} kbps` })), default: 192, unit: 'kbps' }],
   },

@@ -431,10 +431,12 @@ function syncsafe(n) {
 }
 
 /** ID3v2.3 tag (header included), or null without metadata. `padding` bytes of zeros follow the frames. */
-export function id3v2Tag(meta, { padding = 0 } = {}) {
+export function id3v2Tag(meta, { padding = 0, extraFrames = [] } = {}) {
   const m = cleanMeta(meta);
   const frames = [];
   const frame = (id, body) => frames.push(concat([ascii4(id), u32be(body.length), new Uint8Array(2), body]));
+  // Ready-made frames (chapters, see chapters.js): { id, body }.
+  for (const f of extraFrames) frame(f.id, f.body);
   for (const [field, id] of Object.entries(ID3_FRAMES)) {
     if (!m[field]) continue;
     const t = id3Text(m[field]);

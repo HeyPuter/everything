@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { chapterTime, parseChapterTime, vorbisChapterEntries, readChapters, chplBox, chaptersFromChpl } from '../src/audio/chapters.js';
+import { chapterTime, parseChapterTime, vorbisChapterEntries, readChapters, chplBox, chaptersFromChpl, id3ChapterFrames } from '../src/audio/chapters.js';
 import { muxOggOpus } from '../src/export/ogg.js';
 import { muxM4a } from '../src/export/mp4.js';
 import { runExport } from '../src/export/pipeline.js';
-import { readTags } from '../src/audio/meta.js';
+import { readTags, id3v2Tag } from '../src/audio/meta.js';
 import { formatNote } from '../src/export/dialog.js';
 import { FORMATS } from '../src/export/formats.js';
 
@@ -57,6 +57,16 @@ describe('chapters', () => {
     const ch = [new Float32Array(48000 * 5)];
     const blob = await runExport({ options: { format: 'flac', sampleRate: 48000, channels: 1, bitDepth: 16, dither: 'none', settings: { level: 0 } }, sourceRate: 48000, frames: ch[0].length, read: (at, n) => ch.map((c) => c.subarray(at, at + n)), markers, dsp });
     expect(readChapters(await blob.arrayBuffer())).toEqual(expected);
+  });
+
+  it('round-trips through ID3 chapter frames, keeping the other tags', () => {
+    const tag = id3v2Tag({ title: 'Episode 3' }, { extraFrames: id3ChapterFrames(markers, 48000, 48000 * 6) });
+    const buf = tag.slice().buffer;
+    expect(readChapters(buf)).toEqual(expected);
+    expect(readTags(buf).title).toBe('Episode 3');
+    // The table of contents lists the chapters in order.
+    expect(new TextDecoder().decode(tag)).toContain('CTOC');
+    expect(id3ChapterFrames([], 48000, 100)).toEqual([]);
   });
 
   it('explains what MP3 cannot do and suggests a smaller format the browser has', () => {
