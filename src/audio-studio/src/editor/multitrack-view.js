@@ -30,6 +30,7 @@ import { stretcherFor } from '../multitrack/stretch.js';
 import { isRemixed, remixSeams, MIN_REMIX_SECONDS } from '../model/clip-remix.js';
 import { runRemix } from '../multitrack/remix-commands.js';
 import { VideoLane } from '../video/video-lane.js';
+import { newTrack } from '../multitrack/insert.js';
 import { PEAK_BLOCK } from '../multitrack/recorder.js';
 import { laneInfo, laneParams, fxAutomationParams } from '../multitrack/fx-automation.js';
 
@@ -516,6 +517,14 @@ export class MultitrackView {
     const secPerPx = this.fpp / rate;
     const steps = [0.001, 0.01, 0.1, 0.5, 1, 5, 10, 30, 60];
     return (steps.find((s) => s / secPerPx >= 12) || 60) * rate;
+  }
+
+  /** Top of the snap tag: below the header of the clip being dragged (or the top of the lanes). */
+  #snapTagY() {
+    const id = this.drag?.lead?.id || this.drag?.id;
+    const r = id ? this.clipRects().find((q) => q.clip.id === id) : null;
+    if (!r) return 2;
+    return Math.max(2, Math.min(this.height - 18, r.wy + 3));
   }
 
   /** What a snapped frame lines up with, for the snap tag. */
@@ -1279,12 +1288,14 @@ export class MultitrackView {
       const tag = `${this.#snapKind(this.snapLine)} ${this.app.formatTime(this.snapLine, doc.sampleRate)}`;
       const tw = ctx.measureText(tag).width + 10;
       const tx0 = Math.max(2, Math.min(W - tw - 2, x + 4));
+      // Over the waveform of the clip being edited, just under its header, so no clip name is covered.
+      const ty = this.#snapTagY();
       ctx.fillStyle = cssVar('--text-strong');
       ctx.globalAlpha = 0.9;
-      ctx.fillRect(tx0, 2, tw, 16);
+      ctx.fillRect(tx0, ty, tw, 16);
       ctx.globalAlpha = 1;
       ctx.fillStyle = cssVar('--bg-panel');
-      ctx.fillText(tag, tx0 + 5, 10.5);
+      ctx.fillText(tag, tx0 + 5, ty + 8.5);
       ctx.strokeStyle = cssVar('--text-strong');
       ctx.globalAlpha = 0.8;
       ctx.beginPath();
@@ -2149,11 +2160,24 @@ export class MultitrackView {
         const edges = moving.flatMap((c) => [c.start + df, S.clipEnd(c) + df]);
         const sn = this.snapDelta(edges, exclude, fine);
         const row = this.rowAt(y);
-        const target = row && row.track.type === 'audio' ? this.#audioIndex(row.id) : d.lastTrackIndex ?? d.rowIndex;
+        const shown = S.audioTracks(d.state0).filter((t) => !t.hidden);
+        // Below the last audio track (over the master or past the tracks): new tracks are made.
+        const below = (!row && y + this.scrollY >= this.contentHeight) || row?.track.type === 'master';
+        const target = row && row.track.type === 'audio' ? this.#audioIndex(row.id) : below ? shown.length : d.lastTrackIndex ?? d.rowIndex;
         d.lastTrackIndex = target;
         d.copy = e.altKey;
         const dt = Math.round(df + sn.delta);
-        doc.preview(S.moveClips(d.state0, d.ids, dt, target - d.rowIndex, { copy: d.copy }));
+        // Tracks the move needs past the last one, added in the same step as the move.
+        const index = new Map(shown.map((t, i) => [t.id, i]));
+        const lowest = Math.max(...moving.map((c) => index.get(c.trackId) ?? 0));
+        const extra = Math.max(0, lowest + (target - d.rowIndex) - (shown.length - 1));
+        let base = d.state0;
+        for (let i = 0; i < extra; i++) {
+          const last = base.tracks.filter((t) => t.type === 'audio').pop();
+          base = newTrack(base, { channels: S.findTrack(d.state0, d.lead.trackId)?.channels || 2, afterId: last?.id }).state;
+        }
+        d.newTracks = extra;
+        doc.preview(S.moveClips(base, d.ids, dt, target - d.rowIndex, { copy: d.copy }));
         this.snapLine = sn.at;
         d.dt = dt;
         // The Video panel shows the picture where the clip now starts (Preferences > Video).
@@ -2384,7 +2408,7 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', xfade: 'Crossfade Shape', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.info ? `${d.info.short} Envelope` : d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
+    const labels = { move: d.newTracks ? (d.copy ? 'Copy Clips to New Track' : 'Move Clips to New Track') : d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', xfade: 'Crossfade Shape', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.info ? `${d.info.short} Envelope` : d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
