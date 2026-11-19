@@ -882,7 +882,7 @@ export function installCoreCommands(app) {
     })),
 
     // ----------------------------------------------------------------- Help
-    { id: 'help.shortcuts', label: 'Keyboard Shortcuts', shortcut: 'Mod+/', run: () => shortcutsDialog(app) },
+    { id: 'help.shortcuts', label: 'Keyboard Shortcuts...', shortcut: 'Mod+/', run: () => shortcutsDialog(app) },
     { id: 'help.about', label: 'About Audio Studio', run: () => aboutDialog() },
   ]);
 
