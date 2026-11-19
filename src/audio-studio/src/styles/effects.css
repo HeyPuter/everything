@@ -1577,6 +1577,69 @@ input[type='range'].fx-slider:disabled {
   font-size: var(--fs-sm);
 }
 
+.rack-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rack-meter-row,
+.rack-meter-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rack-meter-label {
+  flex: 0 0 26px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.rack-meter-pair {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rack-meter-bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  background: var(--meter-bg);
+}
+
+.rack-meter-fill {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 100% 0 0);
+  background: linear-gradient(90deg, var(--meter-green) 0 75%, var(--meter-yellow) 75% 90%, var(--meter-red) 90%);
+}
+
+.rack-meter-bar.clip {
+  box-shadow: inset -3px 0 0 var(--meter-red);
+}
+
+.rack-meter-ticks {
+  position: relative;
+  flex: 1;
+  height: 11px;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.rack-meter-ticks span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+
+.rack-meter-ticks span:last-child {
+  transform: translateX(-100%);
+}
+
 .rack-process {
   display: flex;
   align-items: center;
