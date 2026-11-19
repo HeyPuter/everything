@@ -20,6 +20,8 @@ import { icon, registerIcons } from '../ui/icons.js';
 import { ALL_META_FIELDS, cleanMeta, newUmid, hasIxml, parseIxml, writeIxml } from '../audio/meta.js';
 import { wavChunksOf } from '../audio/wav.js';
 import { subTabs } from './subtabs.js';
+import { metaTemplates, saveMetaTemplate, deleteMetaTemplate, applyMetaTemplate, templateFields } from './metadata-templates.js';
+import { promptDialog, confirmDialog } from '../ui/dialog.js';
 
 /** New document state with one field changed (null when nothing changes). Pure. */
 export function withMetaField(state, field, value) {
@@ -205,14 +207,67 @@ export function metadataPanel(app) {
     }),
     { label: 'Metadata formats', value: app.prefs.get('metadataTab') || 'bwf', onChange: (id) => app.prefs.set('metadataTab', id) },
   );
+  // Templates: save the file's metadata under a name, apply it to other files.
+  const templateSel = h('select.select.meta-template-sel', { 'aria-label': 'Metadata template' });
+  const applyBtn = h('button.btn.sm', { type: 'button', title: 'Fill in the fields the template has' }, 'Apply');
+  const saveBtn = h('button.btn.sm', { type: 'button', title: 'Save this file\'s metadata as a template' }, 'Save...');
+  const delBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Delete template', title: 'Delete Template' }, icon('trash-2', 13));
+  const templateBar = h('div.meta-templates', h('label.muted', { for: 'meta-template-sel' }, 'Template:'), Object.assign(templateSel, { id: 'meta-template-sel' }), applyBtn, saveBtn, delBtn);
+  const fillTemplates = () => {
+    const list = metaTemplates(app.prefs);
+    const cur = templateSel.value;
+    templateSel.replaceChildren(h('option', { value: '' }, list.length ? 'Choose a template' : 'No templates saved'), ...list.map((t) => h('option', { value: t.name }, t.name)));
+    templateSel.value = list.some((t) => t.name === cur) ? cur : '';
+    const ok = app.active?.kind === 'audio';
+    applyBtn.disabled = !ok || !templateSel.value;
+    delBtn.disabled = !templateSel.value;
+    saveBtn.disabled = !ok || !Object.keys(templateFields(app.active?.state?.meta || {})).length;
+  };
+  const applyTemplate = (name) => {
+    const doc = app.active;
+    const t = metaTemplates(app.prefs).find((x) => x.name === name);
+    if (!doc || doc.kind !== 'audio' || !t) return;
+    const meta = applyMetaTemplate(doc.state.meta || {}, t);
+    if (JSON.stringify(meta) !== JSON.stringify(cleanMeta(doc.state.meta || {}))) doc.apply(`Apply Metadata Template "${t.name}"`, { ...doc.state, meta });
+  };
+  const saveTemplate = async () => {
+    const doc = app.active;
+    if (!doc || doc.kind !== 'audio') return;
+    const name = await promptDialog({
+      title: 'Save Metadata Template',
+      label: 'Template name:',
+      value: templateSel.value || '',
+      confirm: 'Save',
+      validate: (v) => (!v.trim() ? 'Enter a name.' : ''),
+    });
+    if (!name) return;
+    if (metaTemplates(app.prefs).some((t) => t.name.toLowerCase() === name.trim().toLowerCase() && t.name !== templateSel.value) && !(await confirmDialog({ title: 'Replace Template?', message: `A template named "${name.trim()}" exists. Replace it?`, confirm: 'Replace' }))) return;
+    saveMetaTemplate(app.prefs, name, doc.state.meta || {});
+    fillTemplates();
+    templateSel.value = name.trim();
+    fillTemplates();
+  };
+  templateSel.addEventListener('change', fillTemplates);
+  applyBtn.addEventListener('click', () => applyTemplate(templateSel.value));
+  saveBtn.addEventListener('click', saveTemplate);
+  delBtn.addEventListener('click', async () => {
+    const name = templateSel.value;
+    if (!name || !(await confirmDialog({ title: 'Delete Template', message: `Delete the metadata template "${name}"?`, confirm: 'Delete', danger: true }))) return;
+    deleteMetaTemplate(app.prefs, name);
+    fillTemplates();
+  });
+  app.on('prefs', (key) => key === 'metaTemplates' && fillTemplates());
+
   const empty = h('div.empty-state', 'Open an audio file to edit its metadata.');
-  const el = h('div.metadata-panel', tabs.el, empty);
+  const el = h('div.metadata-panel', templateBar, tabs.el, empty);
 
   const render = () => {
     const doc = app.active;
     const ok = doc?.kind === 'audio';
     tabs.el.hidden = !ok;
+    templateBar.hidden = !ok;
     empty.hidden = ok;
+    fillTemplates();
     if (!ok) return;
     const meta = doc.state.meta || {};
     for (const [id, list] of inputs) {
@@ -253,6 +308,9 @@ export function metadataPanel(app) {
       { type: 'sep' },
       { type: 'cmd', label: `Clear ${tab.label} Fields`, enabled: ok && tabHas, run: () => clearFields(tab) },
       { type: 'cmd', label: 'Clear All Metadata', enabled: ok && Object.keys(cleanMeta(meta)).length > 0, run: () => clearFields(null) },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Save as Template...', enabled: ok && Object.keys(templateFields(meta)).length > 0, run: saveTemplate },
+      ...metaTemplates(app.prefs).map((t) => ({ type: 'cmd', label: `Apply "${t.name}"`, enabled: ok, run: () => applyTemplate(t.name) })),
     ];
   };
   return { el, show: render, menu, focus: () => tabs.bar.querySelector('[aria-selected=true]')?.focus() };
