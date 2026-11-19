@@ -2,7 +2,11 @@
 // measured on synthesized voice-like speech, noise and music.
 import { describe, it, expect } from 'vitest';
 import './fx-wasm.js';
-import { speech, runFx, band, segRms, dbOf, gaussNoise, filter, biquad, rms, spectralPeakiness, RATE } from './helpers/fx-signals.js';
+import { speech, runFx, band, segRms, dbOf, gaussNoise, filter, biquad, rms, spectralPeakiness, sine, peak, RATE } from './helpers/fx-signals.js';
+import { getEffect } from '../src/effects/index.js';
+import { lastValues } from '../src/effects/presets.js';
+import { normalizeValues } from '../src/effects/params.js';
+import { memoryPrefs } from './fx-helpers.js';
 import { captureNoisePrint } from '../src/effects/defs/restoration.js';
 import { dsp } from '../src/audio/dsp.js';
 
@@ -57,4 +61,27 @@ describe('Noise Reduction defaults', () => {
       expect(err(y)).toBeLessThan(err(x));
     });
   }
+});
+
+describe('dialogs open with the defaults', () => {
+  for (const id of ['deesser', 'noiseReduction', 'normalize', 'dehummer', 'hardLimiter', 'deleteSilence']) {
+    it(id, () => {
+      const def = getEffect(id);
+      expect(lastValues(memoryPrefs(), def)).toEqual(normalizeValues(def, {}));
+    });
+  }
+});
+
+describe('Normalize defaults', () => {
+  it('bring the peak to -1 dBFS', async () => {
+    const x = sine(4800, 440, RATE, 0.1);
+    const [y] = await runFx('normalize', {}, [x]);
+    expect(dbOf(peak(y))).toBeCloseTo(-1, 3);
+  });
+
+  it('a saved full-scale preset still normalizes to 100 %', async () => {
+    const x = sine(4800, 440, RATE, 0.1);
+    const [y] = await runFx('normalize', { unit: 1, targetPercent: 100 }, [x]);
+    expect(peak(y)).toBeCloseTo(1, 4);
+  });
 });

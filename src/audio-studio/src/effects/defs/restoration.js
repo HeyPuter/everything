@@ -359,6 +359,8 @@ registerEffect({
     { id: 'curve', label: 'Threshold Adjustment', type: 'curve', default: FLAT_CURVE, min: -30, max: 30, unit: 'dB', hidden: true },
   ],
   presets: [
+    // The first preset is what the dialog opens with: the defaults.
+    preset('Default', {}),
     preset('Gentle Cleanup', { reduction: 50, reduceBy: 12, decay: 70, smoothing: 2, precision: 7, transition: 10, fftSize: 4096, noiseOnly: false }),
     preset('Steady Hum and Hiss', { reduction: 80, reduceBy: 30, decay: 65, smoothing: 1, precision: 9, transition: 8, fftSize: 8192, noiseOnly: false }),
     preset('Maximum Removal', { reduction: 100, reduceBy: 48, decay: 60, smoothing: 2, precision: 11, transition: 6, fftSize: 8192, noiseOnly: false }),
