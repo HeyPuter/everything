@@ -292,6 +292,51 @@ test('Remove Reflections compares variations and adds a layer at the chosen amou
   );
 });
 
+test('Remove Reflections reports a failed full-size result and lets Add Layer try again', async ({
+  page,
+}) => {
+  await boot(page, 'default', PUTER_FLAT);
+  await scene(page);
+  // The image worker fails while this flag is set (as it does when a very
+  // large result runs out of memory).
+  await page.evaluate(() => {
+    const Real = window.Worker;
+    const w = window as unknown as { failAssist?: boolean };
+    window.Worker = function (url: string | URL, opts?: WorkerOptions) {
+      if (opts?.name !== 'assist' || !w.failAssist) return new Real(url, opts);
+      const fake = {
+        onmessage: null,
+        onerror: null as ((ev: unknown) => void) | null,
+        postMessage() {
+          setTimeout(() => fake.onerror?.({ message: 'Out of memory', preventDefault() {} }), 0);
+        },
+        terminate() {},
+      };
+      return fake;
+    } as unknown as typeof Worker;
+    w.failAssist = true;
+  });
+  await start(page, 'edit.remove-reflections');
+  const dialog = page.locator('dialog.ga-reflection');
+  await dialog.locator('#ga-count').selectOption('1');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(dialog.getByRole('radio', { name: 'Variation 1' })).toBeVisible({
+    timeout: 30_000,
+  });
+  const add = dialog.getByRole('button', { name: 'Add Layer' });
+  await add.click();
+  await expect(dialog.locator('#ai-status')).toContainText('Out of memory');
+  await expect(add).toBeEnabled();
+  await page.evaluate(() => ((window as unknown as { failAssist?: boolean }).failAssist = false));
+  await add.click();
+  await expect(dialog).toHaveCount(0);
+  await idle(page);
+  expect((await layerInfo(page)).map((l) => l.name)).toEqual([
+    'Background',
+    'Background without reflections',
+  ]);
+});
+
 test('Rotate Object turns the selected object and places it where it stood', async ({ page }) => {
   await boot(page, 'default', PUTER_OBJECT);
   await scene(page);

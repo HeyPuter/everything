@@ -325,7 +325,21 @@ export async function reflectionDialog(e: Editor) {
     read();
     apply.disabled = true;
     gen.say('Preparing the full-size result…', 'busy');
-    const image = await finalImage(picker.chosen);
+    const k = picker.chosen;
+    let image: RGBA8;
+    try {
+      image = await finalImage(k);
+    } catch (error) {
+      // Not kept: Add Layer makes it again.
+      for (const key of [...finals.keys()]) if (key.startsWith(`${k}:`)) finals.delete(key);
+      if (!ws.dialog.isConnected) return;
+      apply.disabled = false;
+      gen.say(
+        `The full-size result could not be prepared: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      );
+      return;
+    }
     chosen = {
       image,
       amount: remembered.amount,
