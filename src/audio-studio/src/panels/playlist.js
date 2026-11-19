@@ -3,11 +3,17 @@
 // marker), reorder, set how many times each entry loops, and play the list
 // from the selected entry. Each open file keeps its own playlist for as long
 // as it is open (marker ids do not survive saving to audio formats).
+// Markers dragged from the Markers panel drop in where they land; entries
+// drag to a new place (Alt+Up/Down moves the selected ones from the keyboard).
 
 import { TIME_DISPLAY_KEYS } from '../lib/time.js';
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
-import { addMarkers, moveEntries, entryFrames, totalFrames, clampLoops, PlaylistPlayer } from '../model/playlist.js';
+import { addMarkers, moveEntries, insertMarkersAt, moveEntriesTo, entryFrames, totalFrames, clampLoops, PlaylistPlayer } from '../model/playlist.js';
+
+/** Drag data types: marker ids from the Markers panel, entry ids within the playlist. */
+export const MARKERS_DRAG_TYPE = 'application/x-audio-studio-markers';
+const ENTRIES_DRAG_TYPE = 'application/x-audio-studio-playlist';
 
 const lists = new WeakMap();
 
@@ -40,7 +46,8 @@ export function playlistPanel(app) {
     body,
   );
   const total = h('span.tabular');
-  const el = h('div.playlist-panel', toolbar, h('div.table-scroll', table), h('div.panel-footer', h('span.muted', 'Total Duration:'), total));
+  const scroller = h('div.table-scroll', table);
+  const el = h('div.playlist-panel', toolbar, scroller, h('div.panel-footer', h('span.muted', 'Total Duration:'), total));
 
   const doc = () => (app.active && app.active.state?.markers ? app.active : null);
   const entries = () => (doc() ? playlistOf(doc()) : []);
@@ -113,7 +120,7 @@ export function playlistPanel(app) {
     const current = player.current?.entryId;
     body.replaceChildren();
     if (!d) body.append(h('tr', h('td.empty-row', { colspan: '3' }, h('span.empty-text', 'No file open'))));
-    else if (!list.length) body.append(h('tr', h('td.empty-row', { colspan: '3' }, h('span.empty-text', markers.length ? 'Select markers in the Markers panel and add them here, or add all range markers.' : 'This file has no markers. Add range markers to build a playlist.'))));
+    else if (!list.length) body.append(h('tr', h('td.empty-row', { colspan: '3' }, h('span.empty-text', markers.length ? 'Drag markers here from the Markers panel, or select them there and add them, or add all range markers.' : 'This file has no markers. Add range markers to build a playlist.'))));
     for (const e of list) {
       const m = markers.find((x) => x.id === e.markerId);
       const loops = h('input.input.num.playlist-loops', {
@@ -137,7 +144,17 @@ export function playlistPanel(app) {
           {
             tabindex: isSel ? '0' : '-1',
             'aria-selected': String(isSel),
+            draggable: 'true',
             dataset: { id: e.id },
+            ondragstart: (ev) => {
+              if (!selected.has(e.id)) {
+                selected.clear();
+                selected.add(e.id);
+              }
+              const ids = entries().filter((x) => selected.has(x.id)).map((x) => x.id);
+              ev.dataTransfer.setData(ENTRIES_DRAG_TYPE, JSON.stringify(ids));
+              ev.dataTransfer.effectAllowed = 'move';
+            },
             onclick: (ev) => select(e.id, ev),
             ondblclick: () => {
               selected.clear();
@@ -176,7 +193,10 @@ export function playlistPanel(app) {
     const rows = [...body.querySelectorAll('tr[data-id]')];
     const i = rows.indexOf(document.activeElement);
     if (i < 0) return;
-    if (e.key === 'ArrowDown' && rows[i + 1]) select(rows[i + 1].dataset.id, e.shiftKey ? { shiftKey: true } : null);
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.altKey) {
+      move(e.key === 'ArrowDown' ? 1 : -1);
+      body.querySelector('tr[aria-selected=true]')?.focus();
+    } else if (e.key === 'ArrowDown' && rows[i + 1]) select(rows[i + 1].dataset.id, e.shiftKey ? { shiftKey: true } : null);
     else if (e.key === 'ArrowUp' && rows[i - 1]) select(rows[i - 1].dataset.id, e.shiftKey ? { shiftKey: true } : null);
     else if (e.key === 'Enter') togglePlay();
     else if (e.key === 'Delete' || e.key === 'Backspace') removeSelected();
@@ -184,6 +204,63 @@ export function playlistPanel(app) {
     e.preventDefault();
     e.stopPropagation();
   });
+  // ------------------------------------------------------- drag and drop
+  const dragKind = (e) => {
+    const types = [...(e.dataTransfer?.types || [])];
+    return types.includes(ENTRIES_DRAG_TYPE) ? 'entries' : types.includes(MARKERS_DRAG_TYPE) ? 'markers' : null;
+  };
+  /** Index the pointer drops before: the row under it (lower half: after it), else the end. */
+  const dropIndex = (e) => {
+    const rows = [...body.querySelectorAll('tr[data-id]')];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) return i;
+    }
+    return rows.length;
+  };
+  const showDrop = (at) => {
+    const rows = [...body.querySelectorAll('tr[data-id]')];
+    rows.forEach((r, i) => {
+      r.classList.toggle('drop-before', i === at);
+      r.classList.toggle('drop-after', at === rows.length && i === rows.length - 1);
+    });
+    scroller.classList.toggle('drop-target', at != null);
+  };
+  scroller.addEventListener('dragover', (e) => {
+    const kind = dragKind(e);
+    if (!kind || !doc()) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = kind === 'entries' ? 'move' : 'copy';
+    showDrop(dropIndex(e));
+  });
+  scroller.addEventListener('dragleave', (e) => {
+    if (!scroller.contains(e.relatedTarget)) showDrop(null);
+  });
+  scroller.addEventListener('drop', (e) => {
+    const kind = dragKind(e);
+    showDrop(null);
+    const d = doc();
+    if (!kind || !d) return;
+    e.preventDefault();
+    const at = dropIndex(e);
+    let data;
+    try {
+      data = JSON.parse(e.dataTransfer.getData(kind === 'entries' ? ENTRIES_DRAG_TYPE : MARKERS_DRAG_TYPE) || 'null');
+    } catch {
+      return;
+    }
+    if (kind === 'entries' && Array.isArray(data)) commit(moveEntriesTo(entries(), data, at));
+    else if (kind === 'markers' && data?.docId === d.id && Array.isArray(data.ids)) {
+      // In marker order, as the Add buttons do.
+      const order = d.state.markers.filter((m) => data.ids.includes(m.id)).map((m) => m.id);
+      const before = new Set(entries().map((x) => x.id));
+      commit(insertMarkersAt(entries(), order, at));
+      selected.clear();
+      for (const x of entries()) if (!before.has(x.id)) selected.add(x.id);
+      render();
+    }
+  });
+
   player.on('change', render);
   app.on('active', () => {
     selected.clear();
@@ -203,6 +280,8 @@ export function playlistPanel(app) {
       { type: 'cmd', label: 'Add Selected Markers', enabled: !addSel.disabled, run: () => add(app.selectedMarkerIds?.() || []) },
       { type: 'cmd', label: 'Add All Range Markers', enabled: !addRanges.disabled, run: () => add(doc().state.markers.filter((m) => m.duration > 0).map((m) => m.id)) },
       { type: 'sep' },
+      { type: 'cmd', label: 'Move Up', enabled: !up.disabled, run: () => move(-1) },
+      { type: 'cmd', label: 'Move Down', enabled: !down.disabled, run: () => move(1) },
       { type: 'cmd', label: 'Remove Selected Entries', enabled: !remove.disabled, run: removeSelected },
       { type: 'cmd', label: 'Clear Playlist', enabled: entries().length > 0, run: () => commit([]) },
     ],

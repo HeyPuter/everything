@@ -1195,3 +1195,15 @@ kbd {
 .files-panel .data-table tbody tr.is-active td {
   color: var(--accent-text);
 }
+
+/* Playlist: where dragged markers or entries will land. */
+.playlist-table tbody tr.drop-before td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.playlist-table tbody tr.drop-after td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.playlist-panel .table-scroll.drop-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+}

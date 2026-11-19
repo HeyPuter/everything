@@ -11,7 +11,7 @@ import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { MARKER_TYPES, sortMarkers } from '../model/markers.js';
 import { parseTime, TIME_DISPLAY_KEYS } from '../lib/time.js';
-import { playlistOf, setPlaylist } from './playlist.js';
+import { playlistOf, setPlaylist, MARKERS_DRAG_TYPE } from './playlist.js';
 import { addMarkers } from '../model/playlist.js';
 
 const COLUMNS = [
@@ -225,7 +225,15 @@ export function markersPanel(app) {
       'tr',
       {
         tabindex: '-1',
+        draggable: 'true',
         dataset: { id: m.id },
+        // Drag markers to the Playlist panel (a dragged unselected row goes alone).
+        ondragstart: (e) => {
+          if (e.target.closest?.('input, select')) return;
+          const ids = selected.has(m.id) ? visible.filter((x) => selected.has(x.id)).map((x) => x.id) : [m.id];
+          e.dataTransfer.setData(MARKERS_DRAG_TYPE, JSON.stringify({ docId: d.id, ids }));
+          e.dataTransfer.effectAllowed = 'copy';
+        },
         onclick: (e) => select(m, e, visible),
         oncontextmenu: (e) => {
           e.preventDefault();
