@@ -19,3 +19,37 @@ test('a corner radius larger than the rectangle allows is shown as the radius dr
   await idle(page);
   expect(await radii()).toEqual([0, 0, 0, 0]);
 });
+
+test('shape Transform fields resize with the link, move with units and undo one step each', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 400, 300, '#ffffff');
+  await tool(page, 'Rectangle Tool');
+  await canvasDrag(page, [
+    [220, 30],
+    [380, 120],
+  ]);
+  await idle(page);
+  const props = page.locator('#properties');
+  const spin = (name: string) => props.getByRole('spinbutton', { name, exact: true });
+  await expect(spin('W')).toHaveValue('160');
+  const before = (await page.evaluate(() => window.photoStudio.history.labels)).length;
+  await props.getByRole('button', { name: 'Link layer width and height' }).click();
+  await spin('W').fill('80');
+  await spin('W').press('Enter');
+  await idle(page);
+  await expect(spin('H')).toHaveValue('45');
+  await spin('X').fill('1in');
+  await spin('X').press('Tab');
+  await idle(page);
+  await expect(spin('X')).toHaveValue('72');
+  expect((await page.evaluate(() => window.photoStudio.history.labels)).slice(before)).toEqual([
+    'Resize Shape',
+    'Move Shape',
+  ]);
+  await page.keyboard.press('Meta+z');
+  await idle(page);
+  await expect(spin('X')).toHaveValue('220');
+  await expect(props.getByRole('region', { name: 'Appearance' })).toBeVisible();
+});

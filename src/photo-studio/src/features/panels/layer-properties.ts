@@ -55,9 +55,9 @@ export const layerTitle = (l: Layer, title = kindTitle(l)) =>
 
 export const layerUnit = (e: Editor): LengthUnit =>
   isLengthUnit(e.preferences.rulerUnits) ? e.preferences.rulerUnits : 'px';
-const linked = (e: Editor) => e.settings.propertiesLayerLinked === true;
-type Axis = 'x' | 'y' | 'width' | 'height';
-const lengthCtx = (e: Editor, key: Axis) => ({
+export const linked = (e: Editor) => e.settings.propertiesLayerLinked === true;
+export type Axis = 'x' | 'y' | 'width' | 'height';
+export const lengthCtx = (e: Editor, key: Axis) => ({
   unit: layerUnit(e),
   ppi: docPpi(e.doc),
   base: key === 'x' || key === 'width' ? e.doc.width : e.doc.height,

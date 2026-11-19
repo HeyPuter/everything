@@ -1,6 +1,8 @@
 import type { Editor } from '../../editor';
 import { findLayer, type Layer } from '../../model/document';
-import { layerProperties } from '../panels/layer-properties';
+import { layerProperties, layerUnit, lengthCtx, linked, type Axis } from '../panels/layer-properties';
+import { commandButton, field as pfField, fieldHandlers, section } from '../panels/property-fields';
+import { formatLength, formatNumber, linkedSize, parseLength, UNIT_SUFFIX } from '../panels/property-values';
 import { layerLocked } from '../../model/transform';
 import { layerLock } from '../../model/locks';
 import { svg } from '../../app/icons';
@@ -36,6 +38,36 @@ function liveSection(l: Layer, live: LiveShape | undefined) {
   void l;
   return '';
 }
+/** Shape bounds in document space with the shared fields (units, arithmetic,
+ * scrubbing, one commit), the angle and flips. */
+function shapeTransform(e: Editor, l: Layer, b: ReturnType<typeof shapeBounds>, disabled: boolean) {
+  const unit = layerUnit(e);
+  const step = unit === 'px' || unit === 'percent' ? 1 : 0.1;
+  const r = b ?? { x: 0, y: 0, width: 0, height: 0 };
+  const len = (key: Axis, label: string, title: string) =>
+    pfField({ key: `shape.${key}`, label, title, value: formatLength(r[key], lengthCtx(e, key)), suffix: UNIT_SUFFIX[unit], disabled, step });
+  const on = linked(e);
+  return section(
+    'layer-transform',
+    'Transform',
+    `<div class="pf-transform"><button type="button" class="icon-button toggle pf-link" data-pf-link="layer" aria-pressed="${on}" title="${on ? 'Width and height keep their proportions (click to unlink)' : 'Link width and height to keep proportions'}" aria-label="Link layer width and height" ${disabled ? 'disabled' : ''}>${svg(on ? 'link' : 'unlink', 14)}</button>
+${len('width', 'W', 'Width of the shape')}${len('x', 'X', 'Left edge of the shape')}${len('height', 'H', 'Height of the shape')}${len('y', 'Y', 'Top edge of the shape')}</div>
+<div class="pf-angle">${pfField({ key: 'layer.rotation', label: 'Angle', title: 'Rotation in degrees', value: formatNumber(l.transform.rotation, 2), suffix: '°', disabled, step: 1 })}<div class="pf-flips">${commandButton(e, 'edit.flip-horizontal', 'Flip horizontal', 'flip-horizontal-2', { iconOnly: true })}${commandButton(e, 'edit.flip-vertical', 'Flip vertical', 'flip-vertical-2', { iconOnly: true })}</div></div>`,
+  );
+}
+fieldHandlers.set('shape', {
+  commit: (e, key, text) => {
+    const k = key.slice(6) as Axis;
+    const l = e.layer;
+    if (!l?.vector || e.selectedIds.size !== 1) return;
+    const px = parseLength(text, lengthCtx(e, k));
+    if (px === undefined) return 'Enter a value such as 120, 2 in or 50%.';
+    const b = shapeBounds(l);
+    if (k === 'x' || k === 'y') return void e.editLayer('Move Shape', (x) => reshape(x, { [k]: px }), 'position');
+    const size = b ? linkedSize(b.width, b.height, k, Math.max(0, px), linked(e)) : { [k]: Math.max(0, px) };
+    e.editLayer('Resize Shape', (x) => reshape(x, size), 'position');
+  },
+});
 function render(e: Editor, el: HTMLElement, l: Layer) {
   const display = e.displayDoc;
   const live = docLive(l);
@@ -48,10 +80,10 @@ function render(e: Editor, el: HTMLElement, l: Layer) {
   const ops: [PathOp, string, string][] = [['combine', 'Combine Shapes', 'path-op-combine'], ['subtract', 'Subtract Front Shape', 'path-op-subtract'], ['intersect', 'Intersect Shape Areas', 'path-op-intersect'], ['exclude', 'Exclude Overlapping Shapes', 'path-op-exclude']];
   const generic = layerProperties(e, display, l, locked, { transform: false, color: false, header: false });
   el.innerHTML = `<div class="property-body vec-props"><span class="eyebrow">SHAPE LAYER</span><h3>${live ? `Live ${liveNames[live.kind]}` : 'Shape'}${l.vector!.live && !live ? ' <small class="muted">(transformed)</small>' : ''}</h3>
-<fieldset ${locked || posLocked ? 'disabled' : ''}><div class="transform-grid">${field('x', 'X', b?.x ?? 0)}${field('y', 'Y', b?.y ?? 0)}${field('width', 'W', b?.width ?? 0, 'min="0"')}${field('height', 'H', b?.height ?? 0, 'min="0"')}<label class="number-field"><span>Angle</span><input data-property="rotation" type="number" aria-label="Angle" value="${Math.round(l.transform.rotation * 100) / 100}" min="-360" max="360"></label></div></fieldset>
+<fieldset ${locked || posLocked ? 'disabled' : ''}>${shapeTransform(e, l, b, locked || posLocked)}</fieldset>
 <fieldset ${locked ? 'disabled' : ''}>${liveSection(l, live)}
-<h3>Appearance</h3><div class="vec-appearance"><span>Fill</span>${swatchButton('vec-prop-fill', 'Fill', fill, e.color)}<span>Stroke</span>${swatchButton('vec-prop-stroke', 'Stroke', stroke, e.color, true)}</div>
-<h3>Path operations</h3><p class="muted vec-hint">${groups.length} component${groups.length === 1 ? '' : 's'}${st.paths.size && e.tool === 'path-select' ? ', applies to the selected components' : ', applies to the last component'}</p><div class="vec-ops">${ops.map(([op, label, icon]) => `<button class="icon-button" data-vec-op="${op}" title="${label}" aria-label="${label}">${svg(icon, 16)}</button>`).join('')}<button data-command="path.merge-components" title="Merge overlapping components into one outline">Merge</button></div></fieldset></div>${generic.replace('<div class="property-body">', '<div class="property-body vec-generic">')}`;
+${section('shape-appearance', 'Appearance', `<div class="vec-appearance"><span>Fill</span>${swatchButton('vec-prop-fill', 'Fill', fill, e.color)}<span>Stroke</span>${swatchButton('vec-prop-stroke', 'Stroke', stroke, e.color, true)}</div>`)}
+${section('shape-paths', 'Path Operations', `<p class="muted vec-hint">${groups.length} component${groups.length === 1 ? '' : 's'}${st.paths.size && e.tool === 'path-select' ? ', applies to the selected components' : ', applies to the last component'}</p><div class="vec-ops">${ops.map(([op, label, icon]) => `<button class="icon-button" data-vec-op="${op}" title="${label}" aria-label="${label}">${svg(icon, 16)}</button>`).join('')}<button data-command="path.merge-components" title="Merge overlapping components into one outline">Merge</button></div>`)}</fieldset></div>${generic.replace('<div class="property-body">', '<div class="property-body vec-generic">')}`;
   bind(e, el, l.id, fill, stroke);
 }
 function bind(e: Editor, el: HTMLElement, id: string, fill: FillSpec, stroke: StrokeSpec) {
@@ -64,10 +96,6 @@ function bind(e: Editor, el: HTMLElement, id: string, fill: FillSpec, stroke: St
       const k = input.dataset.vec!;
       const v = input.type === 'checkbox' ? Number(input.checked) : input.valueAsNumber;
       if (!Number.isFinite(v)) return;
-      if (['x', 'y', 'width', 'height'].includes(k)) {
-        edit('Resize Shape', (l) => reshape(l, { [k]: k === 'width' || k === 'height' ? Math.max(0, v) : v }), 'position');
-        return;
-      }
       edit('Change Live Shape', (l) => {
         const live = docLive(l);
         if (!live) return;
