@@ -7,7 +7,7 @@ import { registerEditor } from '../editors.js';
 import { cssVar } from '../../ui/theme.js';
 import { select } from '../../ui/controls.js';
 import { icon } from '../../ui/icons.js';
-import { plot, gridLines, labelText, envelopeControl } from '../editors.js';
+import { labelText, envelopeControl } from '../editors.js';
 import { controlsFor, disclosure, radioChoice, vSlider, groupBox, glyph, enableWhen, checkbox, readout } from '../layout.js';
 import { responseEditor, spectrumMonitor, hzLabel } from './common.js';
 import { learnSoundModel, MAX_SOUND_SECONDS, captureNoisePrint, floorPoints, floorAt, FLOOR_DB } from '../defs/restoration.js';
@@ -58,11 +58,15 @@ const focusView = (extra, check) => {
 
 const HISS_CHANNELS = ['floorLeft', 'floorRight'];
 
+/** Where the graph draws the floor while it is tracked automatically (a flat line to start a manual one from). */
+export const AUTO_FLOOR_DB = -70;
+
 /**
  * The noise floor graph: the captured floor of the chosen channel as
  * editable points over a linear or log frequency axis, and dashed, the
  * threshold the Noise Floor slider sets above it. Without a capture the
- * floor is tracked from the audio, and the graph says so.
+ * floor is tracked from the audio: the graph draws a flat line with the
+ * same axes, and dragging that line sets a manual floor for every channel.
  */
 function hissFloorGraph(ctx, getChannel) {
   const rate = ctx.doc?.sampleRate || 48000;
@@ -72,31 +76,32 @@ function hissFloorGraph(ctx, getChannel) {
   let built = null;
   let last = '';
   const id = () => HISS_CHANNELS[getChannel()];
+  const captured = () => Boolean(ctx.values[id()]?.length);
   const build = () => {
     const log = ctx.values.floorScale === 1;
     const toT = (f) => (log ? Math.log(Math.max(20, f) / 20) / Math.log(nyq / 20) : Math.min(1, f / nyq));
     const toF = (t) => (log ? 20 * (nyq / 20) ** t : Math.max(1, t * nyq));
-    const pts = ctx.values[id()];
-    last = JSON.stringify(pts);
-    if (!pts?.length) {
-      const empty = plot('hr-floor.hr-auto', 'Noise floor', (g, W, H) => {
-        gridLines(g, W, H, [0.25, 0.5, 0.75].map((x) => x * W), [0.25, 0.5, 0.75].map((y) => y * H));
-        labelText(g, 'Automatic: the floor is tracked from the audio as it plays.', 8, 8);
-        labelText(g, 'Select hiss only and Capture Noise Floor to set and edit it.', 8, 26);
-      });
-      built = { el: empty.el, key: `auto${log}`, redraw: empty.redraw };
-      return;
-    }
+    const auto = !captured();
+    const pts = auto ? [{ f: 1, g: AUTO_FLOOR_DB }, { f: nyq, g: AUTO_FLOOR_DB }] : ctx.values[id()];
+    last = JSON.stringify(ctx.values[id()] || []);
     const ticks = log ? [100, 1000, 10000].filter((f) => f < nyq) : [0.25, 0.5, 0.75].map((x) => Math.round((x * nyq) / 1000) * 1000);
     const yTicks = [];
     for (let d = min + 20; d < max; d += 20) yTicks.push(d);
+    let shown = pts;
     const el = envelopeControl({
       param: { label: 'Noise floor', min, max, unit: 'dB', step: 0.1 },
       value: pts.map((q) => ({ t: toT(q.f), v: q.g })),
       onChange: (env) => {
         const next = env.map((q) => ({ f: Math.round(toF(q.t) * 10) / 10, g: Math.round(q.v * 10) / 10 }));
+        shown = next;
         last = JSON.stringify(next);
-        ctx.set(id(), next);
+        // Editing the automatic line starts a manual floor on every channel.
+        if (auto && !ctx.values.floorLeft?.length && !ctx.values.floorRight?.length) {
+          // The same graph carries on as the manual floor (rebuilding it would end the drag).
+          built.key = `${id()}${log}`;
+          el.classList.remove('hr-auto');
+          for (const c of HISS_CHANNELS) ctx.set(c, next);
+        } else ctx.set(id(), next);
       },
       xLabel: (t) => hzLabel(toF(t)),
       xTicks: ticks.map(toT),
@@ -108,8 +113,7 @@ function hissFloorGraph(ctx, getChannel) {
         return Float32Array.from({ length: n }, (_, i) => floorAt(fp, toF(i / (n - 1))));
       },
       overlay: (g, W, H, { yOf }) => {
-        const fp = ctx.values[id()];
-        if (!fp?.length) return;
+        const fp = captured() ? ctx.values[id()] : shown;
         // Audio this far above the floor passes; below it is reduced.
         g.strokeStyle = cssVar('--hot');
         g.setLineDash([4, 3]);
@@ -122,9 +126,14 @@ function hissFloorGraph(ctx, getChannel) {
         }
         g.stroke();
         g.setLineDash([]);
+        if (auto && !captured()) {
+          labelText(g, 'Automatic: the floor is tracked from the audio as it plays.', 64, 8);
+          labelText(g, 'Capture Noise Floor from a hiss-only selection, or drag the line to set one.', 64, 24);
+        }
       },
     });
-    built = { el, key: `${id()}${log}`, redraw: el.redraw, set: el.setPoints, toT };
+    el.classList.toggle('hr-auto', auto);
+    built = { el, key: `${auto ? 'auto' : id()}${log}`, redraw: el.redraw, set: el.setPoints, toT };
   };
   const show = () => {
     const pts = ctx.values[id()];
@@ -134,8 +143,8 @@ function hissFloorGraph(ctx, getChannel) {
       box.replaceChildren(built.el);
       return;
     }
-    const now = JSON.stringify(pts);
-    if (now !== last && built.set) {
+    const now = JSON.stringify(pts || []);
+    if (now !== last && built.set && pts?.length) {
       last = now;
       built.set(pts.map((q) => ({ t: built.toT(q.f), v: q.g })));
     } else built.redraw();

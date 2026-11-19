@@ -224,9 +224,11 @@ describe('hiss reduction noise floor', () => {
     const p = openEffectDialog(app, getEffect('hissReduction'), { doc });
     const dlg = document.querySelector('.fx-dialog');
     expect(dlg.querySelector('.nr-status').textContent).toMatch(/automatically/);
-    expect(dlg.querySelector('.hr-graph .fx-point')).toBeNull();
+    // Before a capture: the flat automatic line, its two ends draggable.
+    expect(dlg.querySelector('.hr-graph .hr-auto')).not.toBeNull();
+    expect(dlg.querySelectorAll('.hr-graph .fx-point').length).toBe(2);
     [...dlg.querySelectorAll('.btn')].find((b) => b.textContent === 'Capture Noise Floor').click();
-    for (let i = 0; i < 20 && !dlg.querySelector('.hr-graph .fx-point'); i++) await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 20 && dlg.querySelectorAll('.hr-graph .fx-point').length < 3; i++) await new Promise((r) => setTimeout(r, 10));
     expect(dlg.querySelector('.nr-status').textContent).toMatch(/captured/);
     const handle = dlg.querySelector('.hr-graph .fx-point');
     handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
@@ -241,5 +243,23 @@ describe('hiss reduction noise floor', () => {
     // The quieter right channel reads about 20 dB lower.
     expect(values.floorLeft[12].g - values.floorRight[12].g).toBeGreaterThan(15);
     expect(values.floorScale).toBe(1);
+  });
+  it('dragging the automatic floor line sets a manual floor on both channels', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: 48000, channels: [Channel.fromSamples(filled(4800, 0)), Channel.fromSamples(filled(4800, 0))] });
+    app.active = doc;
+    const p = openEffectDialog(app, getEffect('hissReduction'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    const graph = dlg.querySelector('.hr-graph .fx-envelope, .hr-graph .hr-floor');
+    dlg.querySelector('.hr-graph .fx-point').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(dlg.querySelector('.nr-status').textContent).toMatch(/captured/);
+    // The same graph stays (a drag in progress is not cut short).
+    expect(dlg.querySelector('.hr-graph .hr-floor')).toBe(graph);
+    expect(graph.classList.contains('hr-auto')).toBe(false);
+    dlg.querySelector('.btn.primary').click();
+    const values = await p;
+    expect(values.floorLeft.length).toBe(2);
+    expect(values.floorRight).toEqual(values.floorLeft);
+    expect(values.floorLeft[0].g).toBeGreaterThan(-70);
   });
 });
