@@ -237,7 +237,7 @@ const triple = (v: unknown, lo: number, hi: number) => Array.isArray(v) && v.len
 function validParagraphOptions(s: ParagraphStyle): boolean {
   const opt = (v: unknown, ok: (v: unknown) => boolean) => v === undefined || ok(v);
   return (
-    opt(s.kashida, bool) && opt(s.hanging, bool) && opt(s.hyphenSkipCapitalized, bool) &&
+    opt(s.kashida, bool) && opt(s.hanging, bool) && opt(s.hyphenCapitalized, bool) &&
     opt(s.leadingModel, (v) => v === '' || v === 'top' || v === 'bottom') && opt(s.composer, (v) => v === '' || v === 'every-line') &&
     opt(s.autoLeading, (v) => num(v, 0, 500)) &&
     opt(s.wordSpacing, (v) => triple(v, 0, 1000)) && opt(s.letterSpacing, (v) => triple(v, -100, 500)) && opt(s.glyphScaling, (v) => triple(v, 50, 200)) &&

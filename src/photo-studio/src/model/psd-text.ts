@@ -93,7 +93,35 @@ function charStyle(s: TextStyle, ppi: number): CharStyle {
     underline: !!s.underline,
     strikethrough: !!s.strikethrough,
     ligatures: s.ligatures !== false,
+    ...(s.noBreak ? { noBreak: true } : {}),
   };
+}
+const triple = (v: unknown, k: number, lo: number, hi: number): number[] | undefined => {
+  if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number' && Number.isFinite(x))) return;
+  const t = v.map((x: number) => clamp(r3(x * k), lo, hi));
+  return t[0] <= t[1] && t[1] <= t[2] ? t : undefined;
+};
+const intIn = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(Math.round(v), lo, hi) : undefined);
+// Paragraph options beyond the basics, kept only where the file sets them.
+function paragraphOptions(p: PsdParagraphStyle, ppi: number): Partial<ParagraphStyle> {
+  const out: Partial<ParagraphStyle> = {};
+  const word = triple(p.wordSpacing, 100, 0, 1000), letter = triple(p.letterSpacing, 100, -100, 500), glyph = triple(p.glyphSpacing, 100, 50, 200);
+  if (word && word.join() !== '100,100,133') out.wordSpacing = word;
+  if (letter && letter.some((v) => v !== 0)) out.letterSpacing = letter;
+  if (glyph && glyph.some((v) => v !== 100)) out.glyphScaling = glyph;
+  if (typeof p.autoLeading === 'number' && Number.isFinite(p.autoLeading) && Math.abs(p.autoLeading - 1.2) > 1e-6) out.autoLeading = clamp(r3(p.autoLeading * 100), 0, 500);
+  if (p.leadingType === 1) out.leadingModel = 'top';
+  if (p.hanging) out.hanging = true;
+  if (p.everyLineComposer) out.composer = 'every-line';
+  if (p.autoHyphenate) {
+    const minWord = intIn(p.hyphenatedWordSize, 2, 25), before = intIn(p.preHyphen, 1, 15), after = intIn(p.postHyphen, 1, 15), limit = intIn(p.consecutiveHyphens, 0, 25);
+    if (minWord !== undefined) out.hyphenMinWord = minWord;
+    if (before !== undefined) out.hyphenBefore = before;
+    if (after !== undefined) out.hyphenAfter = after;
+    if (limit !== undefined) out.hyphenLimit = limit;
+    if (typeof p.zone === 'number' && Number.isFinite(p.zone) && p.zone > 0) out.hyphenZone = clamp(r3(pxToPt(p.zone, ppi)), 0, 5000);
+  }
+  return out;
 }
 function paragraphStyle(p: PsdParagraphStyle, ppi: number): ParagraphStyle {
   const aligns: Align[] = ['left', 'center', 'right', 'justify-left', 'justify-center', 'justify-right', 'justify-all'];
@@ -106,6 +134,7 @@ function paragraphStyle(p: PsdParagraphStyle, ppi: number): ParagraphStyle {
     spaceBefore: r3(pxToPt(finite(p.spaceBefore, 0), ppi)),
     spaceAfter: r3(pxToPt(finite(p.spaceAfter, 0), ppi)),
     hyphenate: !!p.autoHyphenate,
+    ...paragraphOptions(p, ppi),
   };
 }
 
@@ -259,6 +288,7 @@ function psdStyle(s: CharStyle, ppi: number): TextStyle {
     strikethrough: s.strikethrough,
     ligatures: s.ligatures,
     fillColor: { r: s.color[0], g: s.color[1], b: s.color[2] },
+    ...(s.noBreak ? { noBreak: true } : {}),
   };
 }
 
@@ -286,6 +316,18 @@ export function exportPsdText(data: TextLayerData, matrix: Affine, ppi: number):
         spaceBefore: ptToPx(s.spaceBefore, ppi),
         spaceAfter: ptToPx(s.spaceAfter, ppi),
         autoHyphenate: s.hyphenate,
+        ...(s.wordSpacing ? { wordSpacing: s.wordSpacing.map((v) => v / 100) } : {}),
+        ...(s.letterSpacing ? { letterSpacing: s.letterSpacing.map((v) => v / 100) } : {}),
+        ...(s.glyphScaling ? { glyphSpacing: s.glyphScaling.map((v) => v / 100) } : {}),
+        ...(s.autoLeading !== undefined ? { autoLeading: s.autoLeading / 100 } : {}),
+        ...(s.leadingModel === 'top' ? { leadingType: 1 } : {}),
+        ...(s.hanging ? { hanging: true } : {}),
+        ...(s.composer === 'every-line' ? { everyLineComposer: true } : {}),
+        ...(s.hyphenMinWord !== undefined ? { hyphenatedWordSize: s.hyphenMinWord } : {}),
+        ...(s.hyphenBefore !== undefined ? { preHyphen: s.hyphenBefore } : {}),
+        ...(s.hyphenAfter !== undefined ? { postHyphen: s.hyphenAfter } : {}),
+        ...(s.hyphenLimit !== undefined ? { consecutiveHyphens: s.hyphenLimit } : {}),
+        ...(s.hyphenZone !== undefined ? { zone: ptToPx(s.hyphenZone, ppi) } : {}),
       },
     });
   });

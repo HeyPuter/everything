@@ -7,11 +7,11 @@
 // captured by measuring prefixes of same-style spans; tracking, scaling and
 // justification are applied on top as explicit advances.
 
-import { breakOpportunities, hyphenationPoints, isSpace } from './breaks';
+import { breakOpportunities, hyphenationPoints, isSpace, type HyphenOptions } from './breaks';
 import { bidiLevels, hasRtl, lineLevels, shapeDigits, visualRuns } from './bidi';
 import { featureFamily } from './fonts';
 import { featureOn } from './feature-list';
-import { graphemeBoundaries, ptToPx, type Align, type CharStyle, type TextLayerData } from './model';
+import { graphemeBoundaries, ptToPx, type Align, type CharStyle, type ParagraphStyle, type TextLayerData } from './model';
 import { layoutOnPath, pathGeometry, shapeSpans, type PathGeometry, type PathPlacement } from './path-text';
 import { applyBlock } from './block-text';
 import { resolveFit } from './fit';
@@ -27,6 +27,55 @@ export const SCRIPT_SIZE = 0.583;
 export const SUPERSCRIPT_RISE = 0.333;
 export const SUBSCRIPT_DROP = 0.333;
 export const AUTO_LEADING = 1.2;
+// Em box used by the top-to-top and bottom-to-bottom leading models, as
+// fractions of the type size above and below the baseline.
+export const EM_TOP = 0.88;
+export const EM_BOTTOM = 0.12;
+// Justification limits when a paragraph does not set them: word spacing in
+// percent of a space (spaces never close up unless a paragraph allows it, so
+// older documents wrap as they did), letter spacing in percent of a space,
+// glyph scaling.
+export const WORD_SPACING = [100, 100, 133];
+export const LETTER_SPACING = [0, 0, 0];
+export const GLYPH_SCALING = [100, 100, 100];
+
+/** Line spacing of one style in a paragraph (auto leading is a percentage
+ * of the type size, 120 unless the paragraph sets another). */
+export function leadingOf(e: Pick<EffectiveStyle, 'emPx' | 'style'>, ps: Pick<ParagraphStyle, 'autoLeading'>, ppi: number): number {
+  return e.style.leading === 'auto' ? (e.emPx * (ps.autoLeading ?? AUTO_LEADING * 100)) / 100 : ptToPx(e.style.leading, ppi);
+}
+/** Baseline distance from the previous line under a leading model: baseline
+ * to baseline (the line's own leading), em-box top to top (the leading of the
+ * line above), or em-box bottom to bottom (the line's own leading). */
+export function baselineStep(model: ParagraphStyle['leadingModel'], prev: { leading: number; em: number }, cur: { leading: number; em: number }): number {
+  if (model === 'top') return prev.leading + EM_TOP * (cur.em - prev.em);
+  if (model === 'bottom') return cur.leading - EM_BOTTOM * (cur.em - prev.em);
+  return cur.leading;
+}
+// Arabic-script letters, and those that join only to the letter before them
+// (no kashida can follow them).
+const ARABIC_LETTER = /[\u0620-\u064A\u066E-\u06D3\u06FA-\u06FF]/;
+const RIGHT_JOINING = /[\u0621-\u0625\u0627\u0629\u062F-\u0632\u0648\u0649\u0671-\u0673\u0675-\u0677\u0688-\u0699\u06C0-\u06CB\u06CD\u06CF\u06D2\u06D3]/;
+export const TATWEEL = '\u0640';
+/** Indices of clusters after which a kashida can stretch the join to the
+ * next letter, ordered by preference: the last join of each word first. */
+export function kashidaPoints(src: string[]): number[] {
+  const words: number[][] = [];
+  let cur: number[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const a = src[i][0] ?? '', b = src[i + 1]?.[0] ?? '';
+    if (!ARABIC_LETTER.test(a)) {
+      if (cur.length) words.push(cur);
+      cur = [];
+      continue;
+    }
+    if (ARABIC_LETTER.test(b) && !RIGHT_JOINING.test(a) && b !== '\u0621') cur.push(i);
+  }
+  if (cur.length) words.push(cur);
+  const out: number[] = [];
+  for (let r = 0; words.some((w) => w.length > r); r++) for (const w of words) if (w.length > r) out.push(w[w.length - 1 - r]);
+  return out;
+}
 
 // Resolved drawing parameters for one style variant.
 export type EffectiveStyle = {
@@ -246,8 +295,9 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
       pos += t.length;
     }
     const bo = breakOpportunities(cl.map((c) => c.src));
-    for (let i = 0; i < cl.length; i++) cl[i].breakAfter = bo[i];
-    measureClusters(cl, measure, vertical);
+    // No Break: no line break between two characters that carry it.
+    for (let i = 0; i < cl.length; i++) cl[i].breakAfter = bo[i] && !(cl[i].eff.style.noBreak && cl[i + 1]?.eff.style.noBreak);
+    measureClusters(cl, measure, vertical, para.style);
     paraClusters.push(cl);
     // Bidirectional text: embedding levels for the paragraph (UAX #9 basics).
     const ptext = para.runs.map((r) => r.text).join('');
@@ -280,7 +330,7 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
       while (n === 0 || i < cl.length || (trailing && i === cl.length && raw[raw.length - 1].to !== raw[raw.length - 1].from && raw[raw.length - 1].p === p)) {
         const e = effective(caretStyleOf(paras[p], cl, i), false);
         const asc = e.ascent + Math.max(0, e.shiftPx), desc = e.descent + Math.max(0, -e.shiftPx);
-        const lead = e.style.leading === 'auto' ? e.emPx * AUTO_LEADING : ptToPx(e.style.leading, ppi);
+        const lead = leadingOf(e, ps, ppi);
         const ind = indL + indR + (n === 0 ? indF : 0);
         let place: RawLine['place'] = null;
         if (!full) {
@@ -298,7 +348,7 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
           else full = true;
         }
         gap = 0;
-        const line = i < cl.length ? breakLine(cl, i, place ? place.width - ind : Infinity, ps.hyphenate, measure) : { to: i, hyphen: false };
+        const line = i < cl.length ? breakLine(cl, i, place ? place.width - ind : Infinity, ps.hyphenate ? hyphenContext(ps, ppi) : undefined, measure, spaceSqueeze(ps)) : { to: i, hyphen: false };
         raw.push({ p, from: i, ...line, place });
         n++;
         i = line.to;
@@ -310,7 +360,8 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
       const cl = paraClusters[p];
       const indL = ptToPx(ps.indentLeft, ppi), indR = ptToPx(ps.indentRight, ppi), indF = ptToPx(ps.indentFirst, ppi);
       const avail = (first: boolean) => boxAlong - indL - indR - (first ? indF : 0);
-      const lines = breakParagraph(cl, avail, ps.hyphenate && paragraphMode, measure);
+      const hy = ps.hyphenate && paragraphMode ? hyphenContext(ps, ppi) : undefined;
+      const lines = ps.composer === 'every-line' && paragraphMode ? breakEveryLine(cl, avail, spaceSqueeze(ps)) : breakParagraph(cl, avail, hy, measure, spaceSqueeze(ps));
       if (!lines.length) lines.push({ from: 0, to: 0, hyphen: false });
       for (const l of lines) raw.push({ p, ...l });
     }
@@ -325,6 +376,7 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
   let visibleEnd = length;
   let prevPara = -1;
   let firstLeading = 0;
+  let prevLine = { leading: 0, em: 0 };
 
   for (let li = 0; li < raw.length; li++) {
     const r = raw[li];
@@ -337,12 +389,12 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
     const forcedEnd = seg.length > 0 && seg[seg.length - 1].forced;
     // Metrics from the clusters, or from the caret style on an empty line.
     const metricsFrom = seg.length ? seg.map((c) => c.eff) : [effective(caretStyleOf(para, cl, r.from), false)];
-    let ascent = 0, descent = 0, leading = 0;
+    let ascent = 0, descent = 0, leading = 0, em = 0;
     for (const e of metricsFrom) {
       ascent = Math.max(ascent, e.ascent + e.shiftPx);
       descent = Math.max(descent, e.descent - e.shiftPx);
-      const lead = e.style.leading === 'auto' ? e.emPx * AUTO_LEADING : ptToPx(e.style.leading, ppi);
-      leading = Math.max(leading, lead);
+      leading = Math.max(leading, leadingOf(e, ps, ppi));
+      em = Math.max(em, e.emPx);
     }
     // Hanging trailing spaces and line-ending controls do not count toward width.
     let visEnd = seg.length;
@@ -357,9 +409,10 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
       blockPos = vertical ? leading / 2 : paragraphMode ? ascent : 0;
       cursor = blockPos;
     } else {
-      cursor += vertical ? (lines[lines.length - 1].leading + leading) / 2 : leading;
+      cursor += vertical ? (lines[lines.length - 1].leading + leading) / 2 : baselineStep(ps.leadingModel, prevLine, { leading, em });
       blockPos = cursor;
     }
+    prevLine = { leading, em };
 
     // Inline extent and alignment.
     const indL = ptToPx(ps.indentLeft, ppi), indR = ptToPx(ps.indentRight, ppi), indF = firstInPara ? ptToPx(ps.indentFirst, ppi) : 0;
@@ -370,7 +423,32 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
     const lineAlong = r.place ? r.place.width : boxAlong;
     const avail = paragraphMode ? lineAlong - indL - indR - indF : contentW;
     const advs = seg.map((c) => c.adv);
-    if (justify && visEnd > 0 && avail > contentW) {
+    // Roman hanging punctuation: punctuation at either end of a paragraph
+    // line sits outside the margins.
+    let hangLeft = 0, hangRight = 0;
+    if (ps.hanging && paragraphMode && !vertical && visEnd > 0) {
+      if (HANG_START.test(seg[0].src)) hangLeft = advs[0];
+      if (visEnd > (hangLeft ? 1 : 0) && HANG_END.test(seg[visEnd - 1].src) && !hyphenEff) hangRight = advs[visEnd - 1] - seg[visEnd - 1].eff.trackPx;
+      contentW -= hangLeft + hangRight;
+    }
+    let letterExtra = 0, glyphScale = 1;
+    const letterPct = vertical ? 0 : justifySpacing(ps).letter[1];
+    if (!vertical && visEnd > 0) {
+      const sp = justifySpacing(ps);
+      glyphScale = sp.glyph[1] / 100;
+      if (justify) {
+        const r = justifyLine(seg, advs, visEnd, avail - contentW, sp, !!ps.kashida && paragraphMode, measure);
+        letterExtra = r.letter;
+        glyphScale = r.glyph;
+        contentW = avail;
+      } else if (glyphScale !== 1) {
+        for (let i = 0; i < visEnd; i++) if (!seg[i].space) {
+          const d = (advs[i] - seg[i].eff.trackPx) * (glyphScale - 1);
+          advs[i] += d;
+          contentW += d;
+        }
+      }
+    } else if (justify && visEnd > 0 && avail > contentW) {
       const extra = avail - contentW;
       const gaps: number[] = [];
       for (let i = 0; i < visEnd; i++) if (seg[i].space) gaps.push(i);
@@ -382,7 +460,7 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
     let inlineStart: number; // offset along the line from the frame/origin start
     if (paragraphMode) {
       const slack = avail - contentW;
-      inlineStart = indL + indF + (justify ? 0 : baseAlign === 'center' ? slack / 2 : baseAlign === 'right' ? slack : 0);
+      inlineStart = indL + indF - hangLeft + (justify ? 0 : baseAlign === 'center' ? slack / 2 : baseAlign === 'right' ? slack : 0);
     } else if (opts.span !== undefined && Number.isFinite(opts.span)) {
       // Aligned between two points (path text between its markers).
       const slack = opts.span - indL - indR - indF - contentW;
@@ -432,7 +510,8 @@ function layoutFlow(data: TextLayerData, opts: LayoutOptions): TextLayout {
     const bidi = paraBidi[r.p] && seg.length ? reorderLine(line, seg, advs, paraBidi[r.p]!, paraStarts[r.p]) : undefined;
     lines.push(line);
     prevPara = r.p;
-    if (visible) emitRuns(line, seg, advs, visEnd, hyphenEff, hyphenAdv, justify, vertical, runs, decorations, measure, bidi);
+    if (hangLeft || hangRight) line.width = contentW + hangLeft + hangRight;
+    if (visible) emitRuns(line, seg, advs, visEnd, hyphenEff, hyphenAdv, justify, vertical, runs, decorations, measure, bidi, letterExtra, glyphScale, letterPct);
   }
 
   const visLines = lines.filter((l) => l.visible);
@@ -503,8 +582,21 @@ function verticalForms(cl: Cluster[]) {
 // w(ab) - w(a) - w(b). With the persistent measure cache this needs one
 // measurement per distinct character and pair, so re-layout while typing is
 // almost free, and it equals prefix measurement for pairwise (GPOS) kerning.
-function measureClusters(cl: Cluster[], measure: Measure, vertical: boolean) {
-  if (vertical) {
+function measureClusters(cl: Cluster[], measure: Measure, vertical: boolean, ps?: ParagraphStyle) {
+  if (!vertical) {
+    measureHorizontal(cl, measure);
+    // Desired word and letter spacing (Justification settings) apply to all
+    // lines; Fractional Widths off snaps advances to whole pixels.
+    const sp = ps ? justifySpacing(ps) : undefined;
+    for (const c of cl) {
+      if (c.forced || c.soft) continue;
+      if (sp && c.space && !c.tab && sp.word[1] !== 100) c.adv *= sp.word[1] / 100;
+      else if (sp && !c.space && sp.letter[1]) c.adv += (sp.letter[1] / 100) * spaceWidth(c.eff, measure);
+      if (c.eff.style.wholeWidths) c.adv = Math.round(c.adv);
+    }
+    return;
+  }
+  {
     // Upright stacked glyphs advance one em plus tracking; text rotated
     // sideways advances by its width; a short run set horizontally takes one cell.
     verticalForms(cl);
@@ -523,6 +615,8 @@ function measureClusters(cl: Cluster[], measure: Measure, vertical: boolean) {
     }
     return;
   }
+}
+function measureHorizontal(cl: Cluster[], measure: Measure) {
   let prev: Cluster | undefined;
   let prevW = 0;
   for (const c of cl) {
@@ -547,14 +641,129 @@ function measureClusters(cl: Cluster[], measure: Measure, vertical: boolean) {
 }
 
 type BrokenLine = { from: number; to: number; hyphen: boolean };
+// Hyphenation of a paragraph: word rules, the most consecutive hyphenated
+// lines (0: any) and the zone at the end of unjustified lines where a word
+// moves to the next line rather than being hyphenated.
+type HyphenContext = { opts: HyphenOptions; limit: number; zone: number };
+function hyphenContext(ps: ParagraphStyle, ppi: number): HyphenContext {
+  return {
+    opts: { minWord: ps.hyphenMinWord, minBefore: ps.hyphenBefore, minAfter: ps.hyphenAfter, capitalized: !!ps.hyphenCapitalized },
+    limit: ps.hyphenLimit ?? 0,
+    zone: ps.align.startsWith('justify') ? 0 : ptToPx(ps.hyphenZone ?? 0, ppi),
+  };
+}
+type Spacing = { word: number[]; letter: number[]; glyph: number[] };
+function justifySpacing(ps: ParagraphStyle): Spacing {
+  return { word: ps.wordSpacing ?? WORD_SPACING, letter: ps.letterSpacing ?? LETTER_SPACING, glyph: ps.glyphScaling ?? GLYPH_SCALING };
+}
+// Justified lines may close their spaces down to the minimum word spacing to
+// fit more on a line: the fraction of a (desired) space that remains.
+function spaceSqueeze(ps: ParagraphStyle): number {
+  if (!ps.align.startsWith('justify')) return 1;
+  const w = justifySpacing(ps).word;
+  return w[1] > 0 ? Math.min(1, w[0] / w[1]) : 1;
+}
+function spaceWidth(eff: EffectiveStyle, measure: Measure) {
+  return measure(' ', eff.font, eff.kerning).width * eff.scaleX;
+}
+// Punctuation that hangs outside the margins (Roman hanging punctuation).
+const HANG_START = /^["'\u2018\u201C\u201A\u201E\u00AB\u2039(\[-]$/;
+const HANG_END = /^[.,:;!?"'\u2019\u201D\u00BB\u203A)\]\-\u2013\u2014\u2026]$/;
+
+/** Spreads `extra` pixels (negative: tightens) over a justified line within
+ * the paragraph's limits: kashidas first in Arabic text when enabled, then
+ * word spacing to its maximum, letter spacing, glyph scaling, and whatever is
+ * left over the spaces (or the letters, when there are none). Changes `advs`
+ * (and kashida clusters' display text); returns the spacing added between
+ * letters and the glyph scale for drawing. */
+function justifyLine(seg: Cluster[], advs: number[], visEnd: number, extra: number, sp: Spacing, kashida: boolean, measure: Measure): { letter: number; glyph: number } {
+  const spaces: number[] = [], letters: number[] = [];
+  for (let i = 0; i < visEnd; i++) (seg[i].space ? spaces : letters).push(i);
+  const spaceW = spaces.map((i) => advs[i]);
+  const spaceBase = spaceW.reduce((a, w) => a + w, 0);
+  const gaps = Math.max(0, letters.length - 1);
+  const ref = visEnd ? spaceWidth(seg[0].eff, measure) : 0;
+  let letter = 0, glyph = sp.glyph[1] / 100;
+  const addSpaces = (amount: number) => {
+    if (!spaceBase) return;
+    spaces.forEach((i, k) => (advs[i] += (amount * spaceW[k]) / spaceBase));
+  };
+  const addLetters = (perGap: number) => {
+    for (const i of letters.slice(0, -1)) advs[i] += perGap;
+    letter += perGap;
+  };
+  const scaleGlyphs = (to: number) => {
+    for (const i of letters) advs[i] += ((advs[i] - seg[i].eff.trackPx - letter) * (to - glyph)) / glyph;
+    glyph = to;
+  };
+  const glyphWidth = () => letters.reduce((a, i) => a + advs[i] - seg[i].eff.trackPx - letter, 0);
+  if (extra > 0) {
+    if (kashida) {
+      // Kashidas lengthen joins between Arabic letters, a whole tatweel at a time.
+      const points = kashidaPoints(seg.slice(0, visEnd).map((c) => c.src));
+      if (points.length) {
+        const tw = measure(TATWEEL, seg[points[0]].eff.font, seg[points[0]].eff.kerning).width * seg[points[0]].eff.scaleX;
+        let n = tw > 0.01 ? Math.floor(extra / tw) : 0;
+        for (let k = 0; n > 0; k = (k + 1) % points.length, n--) {
+          const c = seg[points[k]];
+          c.text += TATWEEL;
+          advs[points[k]] += tw;
+          extra -= tw;
+        }
+      }
+    }
+    const wordRoom = spaces.length && sp.word[1] > 0 ? (spaceBase * Math.max(0, sp.word[2] - sp.word[1])) / sp.word[1] : 0;
+    const w = Math.min(extra, wordRoom);
+    addSpaces(w);
+    extra -= w;
+    const letterRoom = gaps * Math.max(0, ((sp.letter[2] - sp.letter[1]) / 100) * ref);
+    if (extra > 1e-9 && letterRoom > 0) {
+      const l = Math.min(extra, letterRoom);
+      addLetters(l / gaps);
+      extra -= l;
+    }
+    if (extra > 1e-9 && sp.glyph[2] > sp.glyph[1]) {
+      const gw = glyphWidth();
+      const to = Math.min(sp.glyph[2] / 100, glyph * (1 + extra / Math.max(1e-9, gw)));
+      const before = gw;
+      scaleGlyphs(to);
+      extra -= glyphWidth() - before;
+    }
+    if (extra > 1e-9) {
+      if (spaces.length) addSpaces(extra);
+      else if (gaps) addLetters(extra / gaps);
+    }
+  } else if (extra < 0) {
+    // Tighter than desired: spaces to their minimum, then letters, then glyphs.
+    const wordRoom = spaces.length && sp.word[1] > 0 ? (spaceBase * Math.max(0, sp.word[1] - sp.word[0])) / sp.word[1] : 0;
+    const w = Math.max(extra, -wordRoom);
+    addSpaces(w);
+    extra -= w;
+    const letterRoom = gaps * Math.max(0, ((sp.letter[1] - sp.letter[0]) / 100) * ref);
+    if (extra < -1e-9 && letterRoom > 0) {
+      const l = Math.max(extra, -letterRoom);
+      addLetters(l / gaps);
+      extra -= l;
+    }
+    if (extra < -1e-9 && sp.glyph[0] < sp.glyph[1]) {
+      const gw = glyphWidth();
+      scaleGlyphs(Math.max(sp.glyph[0] / 100, glyph * (1 + extra / Math.max(1e-9, gw))));
+    }
+  }
+  return { letter, glyph };
+}
+
 // Greedy line filling (first fit), with optional hyphenation of the word that
 // overflows and character breaks for words longer than the line.
-function breakParagraph(cl: Cluster[], avail: (first: boolean) => number, hyphenate: boolean, measure: Measure): BrokenLine[] {
+function breakParagraph(cl: Cluster[], avail: (first: boolean) => number, hy: HyphenContext | undefined, measure: Measure, squeeze = 1): BrokenLine[] {
   const out: BrokenLine[] = [];
   let i = 0;
+  let run = 0; // consecutive hyphenated lines
   while (i < cl.length) {
-    const { to, hyphen } = breakLine(cl, i, avail(out.length === 0), hyphenate, measure);
+    const allow = hy && !(hy.limit > 0 && run >= hy.limit) ? hy : undefined;
+    const { to, hyphen } = breakLine(cl, i, avail(out.length === 0), allow, measure, squeeze);
     out.push({ from: i, to, hyphen });
+    run = hyphen ? run + 1 : 0;
     i = to;
   }
   // A paragraph ending in a forced break gets an empty last line for the caret.
@@ -562,8 +771,68 @@ function breakParagraph(cl: Cluster[], avail: (first: boolean) => number, hyphen
   return out;
 }
 
-// One line starting at cluster `i` within `max` pixels.
-function breakLine(cl: Cluster[], i: number, max: number, hyphenate: boolean, measure: Measure): { to: number; hyphen: boolean } {
+/** Every-line composer: breaks the whole paragraph at once, choosing break
+ * points that keep the lines' free space even (least total squared slack;
+ * the last line of each forced-break segment is free). Words longer than a
+ * line are allowed to overflow rather than split. */
+function breakEveryLine(cl: Cluster[], avail: (first: boolean) => number, squeeze = 1): BrokenLine[] {
+  const out: BrokenLine[] = [];
+  const n = cl.length;
+  // Prefix sums of advances; spaces count at their squeezed width when fitting.
+  const sum = new Float64Array(n + 1), fit = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    sum[i + 1] = sum[i] + cl[i].adv;
+    fit[i + 1] = fit[i] + (cl[i].space ? cl[i].adv * squeeze : cl[i].adv);
+  }
+  // Visible width of [a, b): trailing spaces and forced breaks hang.
+  const width = (a: number, b: number) => {
+    let e = b;
+    while (e > a && (cl[e - 1].space || cl[e - 1].forced || cl[e - 1].soft)) e--;
+    return fit[e] - fit[a];
+  };
+  let start = 0;
+  while (start < n) {
+    // A segment ends at a forced break (inclusive) or at the paragraph end.
+    let end = start;
+    while (end < n && !cl[end].forced) end++;
+    if (end < n) end++;
+    const cands: number[] = [];
+    for (let k = start + 1; k < end; k++) if (cl[k - 1].breakAfter || cl[k - 1].soft) cands.push(k);
+    cands.push(end);
+    const best = new Map<number, { cost: number; from: number }>([[start, { cost: 0, from: -1 }]]);
+    const starts = [start];
+    for (const k of cands) {
+      let top: { cost: number; from: number } | undefined;
+      for (let s = starts.length - 1; s >= 0; s--) {
+        const j = starts[s];
+        const room = avail(j === 0);
+        const w = width(j, k);
+        if (w > room * 3 && s < starts.length - 1) break;
+        const last = k === end;
+        const slack = room - w;
+        const bad = slack < -1e-6 ? 1e6 + -slack * 1e3 : last ? 0 : (slack / Math.max(1, room)) ** 2 * 100;
+        const c = best.get(j)!.cost + bad;
+        if (!top || c < top.cost) top = { cost: c, from: j };
+      }
+      best.set(k, top!);
+      starts.push(k);
+    }
+    const ends: number[] = [];
+    for (let k = end; k > start; k = best.get(k)!.from) ends.push(k);
+    let from = start;
+    for (const to of ends.reverse()) {
+      out.push({ from, to, hyphen: cl[to - 1]?.soft ?? false });
+      from = to;
+    }
+    start = end;
+  }
+  if (n && cl[n - 1].forced) out.push({ from: n, to: n, hyphen: false });
+  return out;
+}
+
+// One line starting at cluster `i` within `max` pixels; spaces count at
+// `squeeze` of their width (justified text may close them up).
+function breakLine(cl: Cluster[], i: number, max: number, hy: HyphenContext | undefined, measure: Measure, squeeze = 1): { to: number; hyphen: boolean } {
   let width = 0;
   let lastBreak = -1;
   let j = i;
@@ -573,13 +842,16 @@ function breakLine(cl: Cluster[], i: number, max: number, hyphenate: boolean, me
     const c = cl[j];
     if (c.forced) { end = j + 1; break; }
     if (c.space) {
-      width += c.adv;
+      width += c.adv * squeeze;
       if (c.breakAfter) lastBreak = j;
       continue;
     }
     if (j > i && width + c.adv > max + 1e-6) {
-      if (hyphenate) {
-        const h = tryHyphenate(cl, i, lastBreak, j, width, max, measure);
+      // Inside the hyphenation zone the word moves to the next line whole.
+      let before = 0;
+      for (let k = i; k <= lastBreak; k++) before += cl[k].space ? cl[k].adv * squeeze : cl[k].adv;
+      if (hy && !(lastBreak >= i && max - before < hy.zone)) {
+        const h = tryHyphenate(cl, i, lastBreak, j, width, max, measure, hy.opts);
         if (h > 0) { end = h; hyphen = true; break; }
       }
       // Soft hyphen chosen as the break: show it.
@@ -594,13 +866,14 @@ function breakLine(cl: Cluster[], i: number, max: number, hyphenate: boolean, me
   return { to: end, hyphen };
 }
 
-function tryHyphenate(cl: Cluster[], lineStart: number, lastBreak: number, over: number, widthBefore: number, max: number, measure: Measure): number {
+function tryHyphenate(cl: Cluster[], lineStart: number, lastBreak: number, over: number, widthBefore: number, max: number, measure: Measure, opts: HyphenOptions = {}): number {
   const ws = Math.max(lineStart, lastBreak + 1);
   let we = over;
   while (we < cl.length && !cl[we].space && !cl[we - 1].breakAfter && !cl[we].forced) we++;
   const word = cl.slice(ws, we).map((c) => c.src).join('');
   if (word.length !== we - ws) return 0; // clusters must be single code units for offsets to line up
-  const pts = hyphenationPoints(word);
+  if (cl.slice(ws, we).some((c) => c.eff.style.noBreak)) return 0;
+  const pts = hyphenationPoints(word, opts);
   if (!pts.length) return 0;
   // Width of the line up to the word start.
   let base = widthBefore;
@@ -651,8 +924,11 @@ function reorderLine(line: LayoutLine, seg: Cluster[], advs: number[], bidi: { l
 function emitRuns(
   line: LayoutLine, seg: Cluster[], advs: number[], visEnd: number, hyphenEff: EffectiveStyle | undefined, hyphenAdv: number,
   justify: boolean, vertical: boolean, runs: GlyphRun[], decorations: Decoration[], measure: Measure, bidi?: LineBidi,
+  letterExtra = 0, glyphScale = 1, letterPct = 0,
 ) {
   const pos = line.stopPos;
+  // Letter spacing (desired, plus what justification added) and glyph scaling of this line.
+  const spacing = (e: EffectiveStyle) => (e.scaleX ? (e.trackPx + letterExtra + (letterPct ? (letterPct / 100) * spaceWidth(e, measure) : 0)) / (e.scaleX * glyphScale) : 0);
   if (bidi) {
     // Visual pieces: same style and level, adjacent in visual order.
     for (const vr of bidi.order) {
@@ -674,7 +950,7 @@ function emitRuns(
         }
         runs.push({
           x: x0, y: line.y - e.shiftPx, text: clusters.join(''), font: e.font, style: e.style, width, advances, clusters,
-          sizePx: e.sizePx, scaleX: e.scaleX, scaleY: e.scaleY, letterSpacing: e.scaleX ? e.trackPx / e.scaleX : 0,
+          sizePx: e.sizePx, scaleX: e.scaleX * glyphScale, scaleY: e.scaleY, letterSpacing: spacing(e),
           start: seg[i].start, end: seg[j - 1].end, ascent: e.ascent, descent: e.descent, vertical: false, kerning: e.kerning, rtl,
         });
         i = j;
@@ -757,7 +1033,7 @@ function emitRuns(
     }
     runs.push({
       x: pos[i], y: line.y - e.shiftPx, text: clusters.join(''), font: e.font, style: e.style, width, advances, clusters,
-      sizePx: e.sizePx, scaleX: e.scaleX, scaleY: e.scaleY, letterSpacing: e.scaleX ? e.trackPx / e.scaleX : 0,
+      sizePx: e.sizePx, scaleX: e.scaleX * glyphScale, scaleY: e.scaleY, letterSpacing: spacing(e),
       start: seg[i].start, end: seg[j - 1].end, ascent: e.ascent, descent: e.descent, vertical: false, kerning: e.kerning,
     });
     i = j;

@@ -68,7 +68,7 @@ export type ParagraphStyle = {
   // Auto leading in percent of the type size (undefined: 120).
   autoLeading?: number;
   // Justification limits, [minimum, desired, maximum]: word spacing in percent
-  // of a normal space (80/100/133), letter spacing in percent of a space
+  // of a normal space (100/100/133), letter spacing in percent of a space
   // added between letters (0/0/0), glyph scaling in percent (100/100/100).
   wordSpacing?: number[];
   letterSpacing?: number[];
@@ -79,7 +79,7 @@ export type ParagraphStyle = {
   hyphenAfter?: number; // letters kept after a hyphen
   hyphenLimit?: number; // most consecutive hyphenated lines (0: no limit)
   hyphenZone?: number; // points: lines this close to the right edge are not hyphenated (unjustified text)
-  hyphenSkipCapitalized?: boolean;
+  hyphenCapitalized?: boolean; // also hyphenate words that start with a capital
   // Line breaking: one line at a time ('' or undefined) or all lines of the
   // paragraph considered together for even spacing ('every-line').
   composer?: '' | 'every-line';
@@ -203,7 +203,7 @@ export function textLayer(text = '', style: Partial<CharStyle> = {}, opts: Parti
 export const optionalCharKeys = ['charStyle', 'features', 'digits', 'vertical', 'noBreak', 'wholeWidths'] as const;
 export const optionalParagraphKeys = [
   'paragraphStyle', 'direction', 'kashida', 'leadingModel', 'autoLeading', 'wordSpacing', 'letterSpacing', 'glyphScaling',
-  'hyphenMinWord', 'hyphenBefore', 'hyphenAfter', 'hyphenLimit', 'hyphenZone', 'hyphenSkipCapitalized', 'composer', 'hanging',
+  'hyphenMinWord', 'hyphenBefore', 'hyphenAfter', 'hyphenLimit', 'hyphenZone', 'hyphenCapitalized', 'composer', 'hanging',
 ] as const;
 const charKeys = [...Object.keys(defaultCharStyle()), ...optionalCharKeys] as (keyof CharStyle)[];
 const paraKeys = [...Object.keys(defaultParagraphStyle()), ...optionalParagraphKeys] as (keyof ParagraphStyle)[];
