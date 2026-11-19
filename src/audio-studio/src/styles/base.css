@@ -633,6 +633,12 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
   box-shadow: var(--shadow-dialog);
 }
 
+/* However wide its content asks to be, a floating window fits the screen (tablets in portrait). */
+.dialog-backdrop.modeless > .dialog.floating {
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+}
+
 /* The window you are working in has the accent edge, like the focused panel frame. */
 .dialog.floating:focus-within {
   border-color: var(--accent);

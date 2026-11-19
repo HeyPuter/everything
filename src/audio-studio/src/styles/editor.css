@@ -209,7 +209,8 @@
     display: none;
   }
 
-  .welcome-link {
+  .welcome-link,
+  .welcome-recent-item {
     min-height: 36px;
   }
 }

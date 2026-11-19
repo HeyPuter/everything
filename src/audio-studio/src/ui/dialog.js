@@ -243,9 +243,10 @@ export function openDialog({ title, body, buttons = [{ label: 'OK', value: true,
 function placeFloating(dialog, key) {
   const keep = (left, top) => {
     // The whole window stays on screen (its title bar at least, when it is taller than the window).
+    // Layout size, not the on-screen box: the opening animation scales the window down a little.
     const r = dialog.getBoundingClientRect();
-    const maxL = Math.max(0, window.innerWidth - r.width);
-    const maxT = Math.max(0, window.innerHeight - r.height);
+    const maxL = Math.max(0, window.innerWidth - (dialog.offsetWidth || r.width));
+    const maxT = Math.max(0, window.innerHeight - (dialog.offsetHeight || r.height));
     dialog.style.left = `${Math.round(Math.min(maxL, Math.max(0, left)))}px`;
     dialog.style.top = `${Math.round(Math.min(maxT, Math.max(0, top)))}px`;
   };
@@ -259,6 +260,16 @@ function placeFloating(dialog, key) {
     if (!dialog.contains(document.activeElement) && !e.target.closest('button, input, select, textarea, a, [tabindex]:not(.dialog)')) dialog.focus({ preventScroll: true });
   });
   keep(placed ? placed.left : r.left, placed ? placed.top : r.top);
+  // Content that lays out after opening (graphs, meters) or a smaller window can push the
+  // window past the edge: it steps back in whenever its size or the window's changes.
+  const refit = () => {
+    if (!dialog.isConnected) return removeEventListener('resize', refit);
+    const left = parseFloat(dialog.style.left) || 0;
+    const top = parseFloat(dialog.style.top) || 0;
+    if (left + dialog.offsetWidth > window.innerWidth || top + dialog.offsetHeight > window.innerHeight) keep(left, top);
+  };
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(refit).observe(dialog);
+  addEventListener('resize', refit);
   // Steps off `rect` (e.g. the Preview Editor) unless the user has placed this window.
   dialog.avoid = (rect) => {
     if (store.get(`float:${key}`)) return;

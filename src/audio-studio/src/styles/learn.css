@@ -88,6 +88,11 @@
   display: none;
 }
 
+/* Narrow frames: the step's buttons wrap instead of running past the edge. */
+.learn-run-buttons {
+  flex-wrap: wrap;
+}
+
 .learn-run-count {
   margin-left: auto;
   font-size: var(--fs-sm);

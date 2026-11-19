@@ -1171,6 +1171,20 @@
   min-width: 0;
 }
 
+/* Phones: an automation lane's header is narrower than its parameter and keyframe buttons,
+   so it scrolls sideways (a swipe) instead of cutting the buttons off. */
+[data-layout='phone'] .mt-lane-head {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+[data-layout='phone'] .mt-lane-param {
+  flex: none;
+  width: 92px;
+}
+
 /* The knobs are hidden on phones: keep the volume and pan glyphs so the two readouts are told apart. */
 [data-layout='phone'] .mt-th-r2 .mt-th-glyph {
   display: inline-flex;
