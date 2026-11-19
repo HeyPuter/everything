@@ -45,6 +45,25 @@
   container-type: inline-size;
 }
 
+/* Lists sit in an inset well: a slightly deeper surface with a hairline edge, so rows read
+   apart from the panel's toolbar and footer controls. */
+.table-scroll,
+.history-list {
+  margin: 0 4px 4px;
+  border: 1px solid var(--border-well);
+  border-radius: var(--radius-sm);
+  background: var(--bg-well);
+}
+
+/* The well's edge separates it from a toolbar above, so the toolbar drops its own line. */
+.panel-toolbar:has(+ .table-scroll, + .history-list) {
+  border-bottom-color: transparent;
+}
+
+.table-scroll > .data-table th {
+  background: var(--bg-well);
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -142,8 +161,7 @@
 /* History */
 .history-list {
   flex: 1;
-  margin: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   list-style: none;
   overflow: auto;
 }

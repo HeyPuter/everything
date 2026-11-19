@@ -56,7 +56,7 @@ export const TEXT_TOKENS = [
 const TEXT_SURFACES = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input'];
 
 /** Surface tokens that the brightness setting lightens or darkens. */
-export const BRIGHTNESS_TOKENS = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input', '--bg-hover', '--bg-active', '--bg-track', '--bg-track-alt', '--bg-ruler', '--border', '--border-soft', '--divider'];
+export const BRIGHTNESS_TOKENS = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input', '--bg-hover', '--bg-active', '--bg-track', '--bg-track-alt', '--bg-ruler', '--bg-well', '--border-well', '--border', '--border-soft', '--divider'];
 
 const hex2 = (n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
 

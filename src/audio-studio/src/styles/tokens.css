@@ -34,6 +34,8 @@
   --bg-track: #1c1c1c;
   --bg-track-alt: #202020;
   --bg-ruler: #1a1a1a;
+  --bg-well: #1c1c1c;
+  --border-well: #303030;
   --border: #111111;
   --border-soft: #2f2f2f;
   --divider: #383838;
@@ -95,6 +97,8 @@
   --bg-track: #f3f3f3;
   --bg-track-alt: #eeeeee;
   --bg-ruler: #e6e6e6;
+  --bg-well: #f6f6f6;
+  --border-well: #cdcdcd;
   --border: #c2c2c2;
   --border-soft: #d6d6d6;
   --divider: #c8c8c8;
