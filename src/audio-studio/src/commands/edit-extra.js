@@ -215,6 +215,10 @@ export function installEditExtraCommands(app) {
       enabled: (a) => (audio(a)?.channelCount || 0) > 1,
       run: () => {
         const doc = audio(app);
+        if (!doc.state.channels.some((_, i) => doc.selection.channels[i] !== false)) {
+          app.notify('Every channel is turned off for editing. Turn on the channels to extract with the channel buttons beside the waveform (or Edit > Enable Channels).');
+          return;
+        }
         const [a, b] = doc.hasSelection ? [doc.selection.start, doc.selection.end] : [0, doc.length];
         const base = baseName(doc.name);
         doc.state.channels.forEach((c, i) => {

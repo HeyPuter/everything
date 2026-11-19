@@ -248,6 +248,17 @@ describe('5.1 channel names', () => {
     const names = app.documents.filter((d) => d !== doc).map((d) => d.name);
     expect(names).toEqual(['r Right', 'r Center', 'r LFE', 'r Left Surround', 'r Right Surround']);
   });
+
+  it('Extract Channels says how to turn channels on when every one is off', async () => {
+    const { app, doc } = await makeView({ channels: 2, frames: 1000 });
+    const notes = [];
+    app.notify = (m) => notes.push(m);
+    // The channel buttons keep one channel on; a selection set by a script or favorite may not.
+    doc.selection = { ...doc.selection, channels: [false, false] };
+    await app.commands.run('edit.extractChannels');
+    expect(app.documents).toEqual([doc]);
+    expect(notes[0]).toMatch(/Turn on the channels/);
+  });
 });
 
 describe('zooming in at the deepest zoom', () => {

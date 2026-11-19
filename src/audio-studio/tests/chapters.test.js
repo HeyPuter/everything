@@ -50,6 +50,17 @@ describe('chapters', () => {
     expect(readChapters(buf).map((c) => [c.name, Math.round(c.seconds * 1000)])).toEqual(expected.map((c) => [c.name, c.seconds * 1000]));
     expect(readTags(buf).title).toBe('Song');
     expect(chplBox([], 48000)).toBe(null);
+    // With chapters the movie time scale is 1000, where readers that scale chapter times by it
+    // (time / 10000 / time scale) and readers that take 100 ns units agree.
+    const bytes = new Uint8Array(buf);
+    const at = String.fromCharCode(...bytes).indexOf('mvhd');
+    const dv = new DataView(buf);
+    expect(dv.getUint32(at + 16)).toBe(1000);
+    expect(dv.getUint32(at + 20)).toBe(Math.round((2048 * 1000) / 48000));
+    const chpl = chplBox(markers, 48000);
+    const verse = Number(new DataView(chpl.buffer).getBigUint64(17 + 9 + 'Intro'.length));
+    expect(verse / 10000 / 1000).toBe(2);
+    expect(verse / 1e7).toBe(2);
     expect(chaptersFromChpl(chplBox(markers, 48000).subarray(8))).toHaveLength(3);
   });
 
