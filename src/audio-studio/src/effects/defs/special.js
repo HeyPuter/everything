@@ -332,7 +332,11 @@ registerEffect({
   name: 'Delete Silence',
   group: DIAG,
   kind: null,
-  params: [...detectionParams({ silenceThreshold: -40, silenceMin: 500, audioThreshold: -36, audioMin: 20 }), num('keep', 'Shorten Silence To', 0, 5000, 200, 'ms', { step: 1 })],
+  params: [
+    ...detectionParams({ silenceThreshold: -40, silenceMin: 500, audioThreshold: -36, audioMin: 20 }),
+    // Each silence is shortened, not removed, so speech keeps natural gaps (0 removes it).
+    num('keep', 'Shorten Silences To', 0, 5000, 300, 'ms', { step: 1 }),
+  ],
   presets: [
     preset('Default', {}),
     preset('Trim Long Pauses', { silenceThreshold: -45, silenceMin: 1000, keep: 300 }),

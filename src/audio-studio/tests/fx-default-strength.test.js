@@ -85,3 +85,24 @@ describe('Normalize defaults', () => {
     expect(peak(y)).toBeCloseTo(1, 4);
   });
 });
+
+describe('Delete Silence defaults', () => {
+  it('shorten pauses in speech to about 0.3 s instead of removing them', async () => {
+    const sp = speech({ seconds: 8, pause: 1.2 });
+    const [y] = await runFx('deleteSilence', {}, [sp.x]);
+    // Quiet runs (under -50 dBFS) longer than 50 ms in the result.
+    const gaps = [];
+    let s = -1;
+    for (let i = 0; i <= y.length; i++) {
+      const q = i < y.length && Math.abs(y[i]) < 10 ** (-50 / 20);
+      if (q && s < 0) s = i;
+      if (!q && s >= 0) {
+        if (i - s > RATE * 0.05) gaps.push((i - s) / RATE);
+        s = -1;
+      }
+    }
+    const long = sp.pauses.filter(([a, b]) => b - a > RATE).length;
+    expect(gaps.filter((g) => g > 0.25 && g < 0.4)).toHaveLength(long);
+    expect(y.length).toBeLessThan(sp.x.length - long * 0.8 * RATE);
+  });
+});
