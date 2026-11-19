@@ -176,3 +176,25 @@ describe('preview editor navigator and amplitude ruler', () => {
     expect(active.view).toEqual({ start: 0, end: 48000, amp: 1 });
   });
 });
+
+describe('effect dialogs and the Preview Editor', () => {
+  it('a dialog the user has not moved steps off the preview', async () => {
+    const { openDialog } = await import('../src/ui/dialog.js');
+    document.body.replaceChildren();
+    const p = openDialog({ title: 'Effect - Test', body: document.createElement('div'), buttons: [{ label: 'Close', value: null }] });
+    const dlg = document.querySelector('.dialog');
+    let left = 300;
+    dlg.getBoundingClientRect = () => ({ left, right: left + 400, top: 100, bottom: 500, width: 400, height: 400 });
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+    // Preview at 100..900 x 400..600: the dialog moves right of it.
+    dlg.avoid({ left: 100, right: 900, top: 400, bottom: 600 });
+    expect(dlg.style.translate).toBe('600px 0px');
+    // Not overlapping: left alone.
+    const before = dlg.style.translate;
+    left = 1000;
+    dlg.avoid({ left: 100, right: 900, top: 400, bottom: 600 });
+    expect(dlg.style.translate).toBe(before);
+    dlg.querySelector('.dialog-foot .btn').click();
+    await p;
+  });
+});

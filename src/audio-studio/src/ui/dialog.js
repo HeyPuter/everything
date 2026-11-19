@@ -54,6 +54,22 @@ function makeMovable(dialog, head, key) {
     apply(0, 0);
     positions.delete(key);
   });
+  /**
+   * Moves a dialog the user has not placed off `rect` (client px), e.g. the Preview
+   * Editor it previews into: beside it if the window has room, else as far right as fits.
+   */
+  dialog.avoid = (rect) => {
+    if (sheetLayout() || offset.x || offset.y || positions.has(key)) return;
+    const r = dialog.getBoundingClientRect();
+    if (r.right <= rect.left || r.left >= rect.right || r.bottom <= rect.top || r.top >= rect.bottom) return;
+    const options = [
+      { x: rect.right - r.left, y: 0 },
+      { x: rect.left - r.right, y: 0 },
+      { x: 0, y: rect.top - r.bottom },
+    ].filter((o) => r.left + o.x >= 0 && r.right + o.x <= window.innerWidth && r.top + o.y >= 0);
+    const best = options[0] || { x: window.innerWidth - 8 - r.right, y: 0 };
+    apply(best.x, best.y);
+  };
   return {
     restore() {
       const p = positions.get(key);

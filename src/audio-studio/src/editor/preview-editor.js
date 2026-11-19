@@ -154,8 +154,21 @@ export function installPreviewEditor(app, host) {
     }
     if (el.hidden === !show) return show && draw();
     el.hidden = !show;
-    if (show && current) schedule(0);
-    else if (show) draw();
+    if (show && current) {
+      schedule(0);
+      moveDialogAside();
+    } else if (show) draw();
+  };
+
+  // The effect's dialog opens in the middle of the window, over the preview: move it aside.
+  // The settings arrive just before the dialog is on screen, so wait a few frames for it.
+  const moveDialogAside = (tries = 10) => {
+    requestAnimationFrame(() => {
+      if (el.hidden || !current) return;
+      const dlg = [...document.querySelectorAll('.dialog')].pop();
+      if (dlg?.avoid) dlg.avoid(surface.getBoundingClientRect());
+      else if (tries > 0) moveDialogAside(tries - 1);
+    });
   };
 
   const schedule = (delay = 250) => {
@@ -291,6 +304,7 @@ export function installPreviewEditor(app, host) {
     }
     if (docChanged) changesLength = false;
     sync();
+    if (docChanged && !el.hidden) moveDialogAside();
     if (!el.hidden || detecting()) schedule(docChanged ? 0 : 250);
   });
   app.on('doc-change', (doc, e) => {
