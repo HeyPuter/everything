@@ -214,7 +214,11 @@ export async function openFromPuter(app) {
   if (!puter.sdk()) return openFiles(app, await pickLocalFiles());
   if (!puter.isSignedIn()) {
     const ok = await puter.signIn().catch(() => false);
-    if (!ok) return [];
+    if (!ok) {
+      // Declined or blocked sign-in: say where else files can come from.
+      app.notify?.('Sign in to Puter to open files from it, or use File > Open from This Device.');
+      return [];
+    }
   }
   const items = await puter.pickFiles({ multiple: true, accept: openAccept() });
   return openFiles(app, items);
