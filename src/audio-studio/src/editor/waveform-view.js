@@ -1089,10 +1089,12 @@ export class WaveformView {
   }
 
   /** Channel mask for a selection drag that starts at y: the top quarter of the
-   *  first lane selects only it, the bottom quarter of the last lane only it. */
+   *  first lane selects only it, the bottom quarter of the last lane only it
+   *  (unless Preferences > General turns context-sensitive channel editing off). */
   #channelMaskAt(y) {
     const n = this.doc.channelCount;
     if (n < 2) return null;
+    if (this.app.prefs.get('channelZones') === false) return this.lanes().map(() => true);
     // Below the waveform (spectral display): every channel.
     if (y >= (this.waveHeight ?? this.height)) return this.lanes().map(() => true);
     const lanes = this.lanes();

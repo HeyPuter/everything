@@ -68,6 +68,7 @@ export const CATEGORIES = [
           select('defaultFadeCurve', 'Curve for new fades', opts([['linear', 'Linear'], ['log', 'Logarithmic'], ['cosine', 'Cosine (S-curve)']]), { help: 'Used when you drag a fade handle on a file or a clip without a fade.' }),
           check('hud', 'Show the amplitude HUD over the waveform'),
           check('hudSelectionOnly', 'Show the HUD only while part of the file is selected', { enabledIf: (p) => p.get('hud') }),
+          check('channelZones', 'Select a single channel by dragging near the top or bottom of a stereo waveform', { keywords: 'context-sensitive channel editing left right lane', help: 'Starting a drag in the top quarter of the waveform selects only the first channel, in the bottom quarter only the last. Off: every drag selects all channels.' }),
           check('syncFiles', 'Keep selection, zoom and playhead in step across open audio files', { help: 'Switching to another file shows the same range (as far as that file reaches).' }),
           select('historyLimit', 'Undo history steps', opts([[50, '50'], [100, '100'], [200, '200'], [500, '500']])),
           { type: 'custom', label: 'Warning dialogs', keys: ['dismissedNotices'], keywords: "reset warnings don't show again alerts notices", render: resetNotices },

@@ -33,6 +33,7 @@ export const DEFAULTS = {
   defaultRate: 48000,
   batchConcurrency: 2,
   embeddedTimecode: false,
+  channelZones: true,
   defaultChannels: 2,
   returnToStart: true,
   skipSelection: false,
