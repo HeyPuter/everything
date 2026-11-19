@@ -436,11 +436,15 @@ export function applyCharStyle(c: TextContent, start: number, end: number, patch
   return out;
 }
 
+// A paragraph patch value that removes an optional attribute (back to its default).
+export const CLEAR = null as never;
 export function applyParagraphStyle(c: TextContent, start: number, end: number, patch: Partial<ParagraphStyle>): TextContent {
   const out = cloneContent(c);
   for (const p of paragraphsInRange(c, start, end)) {
     const s = { ...out.paragraphs[p].style };
-    for (const k of paraKeys) if (patch[k] !== undefined) (s as Record<string, unknown>)[k] = patch[k];
+    for (const k of paraKeys)
+      if (patch[k] === null) delete (s as Record<string, unknown>)[k];
+      else if (patch[k] !== undefined) (s as Record<string, unknown>)[k] = patch[k];
     out.paragraphs[p].style = s;
   }
   return out;

@@ -5,6 +5,7 @@ import {
   SquareCode, Braces,
   CloudOff, House, GraduationCap,
 } from 'lucide';
+import { PilcrowLeft, PilcrowRight } from 'lucide';
 
 // Interface icons are inline SVG strings: Lucide (ISC) plus original glyphs
 // drawn for this project in the same 24-unit, stroke-based style. No icon is
@@ -104,6 +105,9 @@ const lucide: Record<string, IconNode> = {
   'arrow-up': ArrowUp as unknown as IconNode,
   'arrow-down': ArrowDown as unknown as IconNode,
   'arrow-left-right': ArrowLeftRight as unknown as IconNode,
+  // Paragraph direction (Paragraph panel, Middle Eastern features).
+  'text-ltr': PilcrowRight as unknown as IconNode,
+  'text-rtl': PilcrowLeft as unknown as IconNode,
   'flip-horizontal-2': FlipHorizontal2 as unknown as IconNode,
   'flip-vertical-2': FlipVertical2 as unknown as IconNode,
   'grid-3x3': Grid3x3 as unknown as IconNode,

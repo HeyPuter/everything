@@ -159,6 +159,7 @@ export type Preferences = {
   missingGlyphProtection: boolean;
   fontPreviewSize: 'none' | 'small' | 'medium' | 'large' | 'xlarge' | 'huge';
   textDirection: 'ltr' | 'rtl';
+  typeFeatures: 'default' | 'east-asian' | 'middle-eastern';
 };
 
 type Key = keyof Preferences & string;
@@ -322,6 +323,7 @@ export const SETTINGS: SettingDef[] = [
   { page: 'type', section: 'Typing', type: 'boolean', key: 'smartQuotes', label: 'Use smart quotes', default: true, help: 'Straight quotes become curly quotes as you type.', keywords: 'typographer apostrophe' },
   { page: 'type', section: 'Typing', type: 'boolean', key: 'missingGlyphProtection', label: 'Enable missing glyph protection', default: true, help: 'Characters the chosen font cannot draw use a bundled font that can.', keywords: 'fallback tofu' },
   { page: 'type', section: 'Typing', type: 'choice', key: 'textDirection', label: 'Default text direction', default: 'ltr', options: [['ltr', 'Left to right'], ['rtl', 'Right to left']], keywords: 'rtl language engine' },
+  { page: 'type', section: 'Typing', type: 'choice', key: 'typeFeatures', label: 'Type options shown', default: 'default', options: [['default', 'Default'], ['east-asian', 'East Asian'], ['middle-eastern', 'Middle Eastern']], help: 'Which language options the Character and Paragraph panels show (also in Type → Language Options).', keywords: 'composer language cjk arabic hebrew kashida leading' },
   { page: 'type', section: 'Font menu', type: 'boolean', key: 'fontNamesEnglish', label: 'Show font names in English', default: true, help: 'Off: local fonts show their names in your language when the font provides one.', keywords: 'localized' },
   { page: 'type', section: 'Font menu', type: 'choice', key: 'fontPreviewSize', label: 'Font preview size', default: 'medium', options: FONT_PREVIEW_SIZES },
 ];

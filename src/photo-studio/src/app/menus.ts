@@ -138,7 +138,7 @@ export const menuSkeleton: { id: string; label: string; items: MenuItem[] }[] = 
       '-', 'type.create-work-path', 'type.convert-to-shape', 'type.rasterize', '-',
       'type.convert-paragraph', { label: 'Convert to Dynamic Text', id: 'type.fit', items: [] }, 'type.release-fit', 'type.path-options', 'type.warp', 'type.match-font', '-',
       { label: 'Font Preview Size', id: 'type.font-preview-size', items: ['type.preview-none', 'type.preview-small', 'type.preview-medium', 'type.preview-large', 'type.preview-xlarge', 'type.preview-huge'] },
-      { label: 'Language Options', id: 'type.language-options', items: ['type.dir-ltr', 'type.dir-rtl', '-', 'type.vertical-upright', 'type.vertical-rotate', 'type.vertical-combine', '-', 'type.digits-western', 'type.digits-arabic', 'type.digits-persian'] },
+      { label: 'Language Options', id: 'type.language-options', items: ['type.features-default', 'type.features-east-asian', 'type.features-middle-eastern', '-', 'type.dir-ltr', 'type.dir-rtl', '-', 'type.vertical-upright', 'type.vertical-rotate', 'type.vertical-combine', '-', 'type.leading-top', 'type.leading-bottom', '-', 'type.digits-western', 'type.digits-arabic', 'type.digits-persian', '-', 'type.kashida'] },
       '-', 'type.update-all', 'type.replace-missing', '-', 'type.paste-lorem', '-', 'type.load-default-styles', 'type.save-default-styles',
     ],
   },

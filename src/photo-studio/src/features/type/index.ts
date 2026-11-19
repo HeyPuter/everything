@@ -12,6 +12,7 @@ import { installTypePanels } from './panels';
 import { installTypeCommands } from './commands';
 import { installTextStyles } from './styles-panel';
 import { installLanguageCommands } from './language';
+import { installParagraphOptions } from './paragraph-options';
 import { installPathType } from './path-type';
 import { installTypeProperties } from './properties';
 import './type-panels.css';
@@ -34,6 +35,7 @@ export function installType(e: Editor) {
   onSessionChange(() => glyphs.loaded?.followSession(e));
   installTextStyles(e);
   installLanguageCommands(e);
+  installParagraphOptions(e);
   const hasText = (e: Editor) => e.hasDocument && allLayers(e.doc.layers).some((l) => l.kind === 'text');
   registerCommand(
     {
