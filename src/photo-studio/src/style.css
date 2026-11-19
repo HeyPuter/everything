@@ -2056,7 +2056,13 @@ dialog.ai-workspace { width: min(480px, calc(100vw - 32px)); height: fit-content
 .contextual-taskbar[hidden] { display: none; }
 .contextual-taskbar button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: transparent; white-space: nowrap; }
 .contextual-taskbar button:hover:not(:disabled) { background: var(--hover); }
-.contextual-taskbar .taskbar-close { padding: 0 6px; color: var(--muted); }
+.contextual-taskbar .taskbar-grip { padding: 0 2px; cursor: grab; color: var(--muted); touch-action: none; }
+.contextual-taskbar.dragging .taskbar-grip { cursor: grabbing; }
+.contextual-taskbar.dragging { box-shadow: 0 8px 26px #0009; }
+.contextual-taskbar .taskbar-more { padding: 0 7px; color: var(--muted); }
+.contextual-taskbar button[aria-haspopup="menu"] svg:last-child:not(:first-child) { opacity: 0.7; margin-left: -2px; }
+.contextual-taskbar button:disabled { opacity: 0.45; }
+.contextual-taskbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (max-width: 760px) {
   .rw-body { flex-direction: column; }
   .rw-tools { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); }

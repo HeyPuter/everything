@@ -199,7 +199,7 @@ export function installWorkspace(e: Editor) {
     },
     { id: 'help.system-info', label: 'System Info…', recordable: false, description: 'Graphics, memory and browser capabilities', ...lazyRun(systemInfo, (m, e) => m.showSystemInfo(e)) },
   );
-  installToolPresets();
+  installToolPresets(e);
   installStatusBar(e);
   installEditorMode(e);
   refreshLabels();

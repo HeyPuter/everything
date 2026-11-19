@@ -56,3 +56,37 @@ describe('Grow and Similar', () => {
     for (const f of [grow, similar]) expect(f(gray, right, 32).data[0]).toBe(255);
   });
 });
+
+describe('Magic Wand sample size', () => {
+  // A 5 × 5 image: gray 100 with one white pixel in the middle.
+  const W = 5;
+  const data = new Uint8ClampedArray(W * W * 4);
+  for (let i = 0; i < W * W; i++) data.set(i === 12 ? [255, 255, 255, 255] : [100, 100, 100, 255], i * 4);
+  it('compares with the clicked pixel by default', async () => {
+    const { wandReference } = await import('../src/features/selection');
+    expect(wandReference(data, W, W, 2, 2, 1)).toEqual([255, 255, 255, 255]);
+  });
+  it('averages a square around the click, clipped at the edges', async () => {
+    const { wandReference } = await import('../src/features/selection');
+    const avg = wandReference(data, W, W, 2, 2, 3);
+    expect(avg[0]).toBeCloseTo((8 * 100 + 255) / 9);
+    expect(avg[3]).toBe(255);
+    // A corner sees only the 2 × 2 inside the image.
+    expect(wandReference(data, W, W, 0, 0, 3)).toEqual([100, 100, 100, 255]);
+  });
+  it('premultiplies by alpha', async () => {
+    const { wandReference } = await import('../src/features/selection');
+    const half = new Uint8ClampedArray([200, 100, 0, 128]);
+    const r = wandReference(half, 1, 1, 0, 0, 1);
+    expect(r[0]).toBeCloseTo((200 * 128) / 255);
+    expect(r[3]).toBe(128);
+  });
+  it('selects the area around a noisy click with an averaged sample', async () => {
+    const e = editor();
+    // Clicking the blue area: point and 5 × 5 samples agree.
+    e.settings.wandSampleSize = 5;
+    const m = await wandMask(e, 4, 5);
+    expect(m.data[5 * 40 + 2]).toBe(255);
+    expect(m.data[5 * 40 + 20]).toBe(0);
+  });
+});

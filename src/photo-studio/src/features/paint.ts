@@ -50,6 +50,10 @@ export function brushFor(id: string): BrushSettings {
   }
   return s;
 }
+/** Back to the tool's default brush (Reset Tool). */
+export function resetBrush(id: string) {
+  settings.delete(id);
+}
 
 type Active = {
   session?: StrokeSession;
@@ -69,13 +73,18 @@ const EYEDROP_TOOLS = new Set(['brush', 'pencil', 'color-replacement']);
 let eyedrop: { previous: string } | undefined;
 /** The ring shown while picking: the new color above, the previous below. */
 function samplingRing(e: Editor, p: CanvasPointer) {
+  drawSamplingRing(e, p, e.color, eyedrop?.previous ?? e.color);
+}
+/** The eyedropper's ring around the pointer: the picked color above, the
+ * color before the pick below. */
+export function drawSamplingRing(e: Editor, p: Pick<CanvasPointer, 'clientX' | 'clientY'>, current: string, previous: string) {
   const rect = e.el('#viewport').getBoundingClientRect();
   const x = p.clientX - rect.left,
     y = p.clientY - rect.top,
     r = 34;
   const arc = (from: number, color: string) =>
     `<path d="M${x - r} ${y}A${r} ${r} 0 0 ${from} ${x + r} ${y}" fill="none" stroke="${escapeXML(color)}" stroke-width="14"/>`;
-  e.screenOverlayContent = `<g class="sampling-ring"><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="#000" stroke-opacity=".5" stroke-width="16"/>${arc(1, e.color)}${arc(0, eyedrop?.previous ?? e.color)}<circle cx="${x}" cy="${y}" r="${r + 7}" fill="none" stroke="#fff" stroke-opacity=".7"/><circle cx="${x}" cy="${y}" r="${r - 7}" fill="none" stroke="#fff" stroke-opacity=".7"/></g>`;
+  e.screenOverlayContent = `<g class="sampling-ring"><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="#000" stroke-opacity=".5" stroke-width="16"/>${arc(1, current)}${arc(0, previous)}<circle cx="${x}" cy="${y}" r="${r + 7}" fill="none" stroke="#fff" stroke-opacity=".7"/><circle cx="${x}" cy="${y}" r="${r - 7}" fill="none" stroke="#fff" stroke-opacity=".7"/></g>`;
   e.screenOverlay();
 }
 // Where each tool's last stroke ended, per document (Shift-click continues it).

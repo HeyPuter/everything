@@ -6,7 +6,7 @@ import type { Tool } from '../../app/registry';
 import { svg } from '../../app/icons';
 import { brushFor, cursor } from '../paint';
 import { ants, bindCheck, bindSize, checkbox, sizeField, sizeKeys } from './ui';
-import { bindSelectionOptions, commitSelectionMask, finishShape, movableOutline, optionsFor, selectionOp } from '../selection';
+import { bindSelectionOptions, commitSelectionMask, finishShape, movableOutline, optionsFor, selectionOp, subjectButton } from '../selection';
 import { LiveWire, rasterizePolygon, expand } from '../../imaging/segment';
 import { mask8, type Mask8, type RGBA8 } from '../../imaging/types';
 import { channel, heavy, buffersOf } from './client';
@@ -82,7 +82,7 @@ const quickSelectionTool: Tool = {
       ['add', 'Add to selection (Shift)', 'plus'],
       ['subtract', 'Subtract from selection (Alt)', 'minus'],
     ];
-    return `<div class="segmented" role="group" aria-label="Quick Selection mode">${modes.map(([id, label, icon]) => `<button data-quick-mode="${id}" aria-pressed="${mode === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div>${sizeField(QS)}${checkbox('qs-all', 'Sample All Layers', !!e.settings.quickSampleAll)}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
+    return `<div class="segmented" role="group" aria-label="Quick Selection mode">${modes.map(([id, label, icon]) => `<button data-quick-mode="${id}" aria-pressed="${mode === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div>${sizeField(QS)}${checkbox('qs-all', 'Sample All Layers', !!e.settings.quickSampleAll)}${subjectButton(e)}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
   },
   bindOptions: ({ e, el }) => {
     el.querySelectorAll<HTMLButtonElement>('[data-quick-mode]').forEach((b) =>
@@ -171,6 +171,7 @@ const objectSelectionTool: Tool = {
     optionsFor(
       e,
       `<label>Mode <select id="object-mode"><option value="rect">Rectangle</option><option value="lasso" ${e.settings.objectMode === 'lasso' ? 'selected' : ''}>Lasso</option></select></label>${checkbox('object-all', 'Sample All Layers', e.settings.objectSampleAll !== false)}`,
+      { subject: true },
     ),
   bindOptions: ({ e, el }) => {
     bindSelectionOptions(e, el);

@@ -1,4 +1,5 @@
 import type { Editor } from '../editor';
+import { SAMPLE_SIZES } from '../imaging/measure/geometry';
 import { registerTool, registerCommand, registerOverlay, type Tool } from '../app/registry';
 import type { CanvasPointer } from '../app/pointer';
 import {
@@ -103,7 +104,7 @@ export function commitSelectionMask(e: Editor, mask: Mask8 | TileGrid | null, op
   session.lastSelection = current;
   e.command(label, (d) => applySelection(d, next), { session });
 }
-export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean } = {}) {
+export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean; subject?: boolean } = {}) {
   const op = (e.settings.selectionOp as SelectionOp) ?? 'replace';
   const ops: [SelectionOp, string, string][] = [
     ['replace', 'New selection', 'square'],
@@ -111,8 +112,11 @@ export function optionsFor(e: Editor, extra = '', opts: { antiAlias?: boolean } 
     ['subtract', 'Subtract from selection (Alt)', 'minus'],
     ['intersect', 'Intersect with selection (Shift+Alt)', 'x'],
   ];
-  return `<div class="segmented" role="group" aria-label="Selection mode">${ops.map(([id, label, icon]) => `<button data-selection-op="${id}" aria-pressed="${op === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div><label>Feather <input id="sel-feather" type="number" min="0" max="1000" value="${Number(e.settings.selectionFeather ?? 0)}"> px</label><label class="transform-setting" ${opts.antiAlias === false ? 'title="Rectangular selections always have hard pixel edges"' : ''}><input id="sel-aa" type="checkbox" ${opts.antiAlias === false ? 'disabled' : e.settings.antiAlias !== false ? 'checked' : ''}>Anti-alias</label>${extra}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
+  return `<div class="segmented" role="group" aria-label="Selection mode">${ops.map(([id, label, icon]) => `<button data-selection-op="${id}" aria-pressed="${op === id}" title="${label}" aria-label="${label}">${svg(icon, 14)}</button>`).join('')}</div><label>Feather <input id="sel-feather" type="number" min="0" max="1000" value="${Number(e.settings.selectionFeather ?? 0)}"> px</label><label class="transform-setting" ${opts.antiAlias === false ? 'title="Rectangular selections always have hard pixel edges"' : ''}><input id="sel-aa" type="checkbox" ${opts.antiAlias === false ? 'disabled' : e.settings.antiAlias !== false ? 'checked' : ''}>Anti-alias</label>${extra}${opts.subject ? subjectButton(e) : ''}<button data-command="select.mask-refine" ${e.doc.selection ? '' : 'disabled'}>Select and Mask…</button>`;
 }
+/** Select Subject from the options bar of the assisted selection tools. */
+export const subjectButton = (e: Editor) =>
+  `<button data-command="select.subject" title="Select the most prominent subject in the image" ${e.hasDocument ? '' : 'disabled'}>Select Subject</button>`;
 export function bindSelectionOptions(e: Editor, el: HTMLElement) {
   el.querySelectorAll<HTMLButtonElement>('[data-selection-op]').forEach((b) =>
     b.addEventListener('click', () => {
@@ -514,10 +518,11 @@ const wandTool: Tool = {
   group: 'select',
   cursor: () => 'crosshair',
   options: (e) =>
-    optionsFor(e, `<label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`),
+    optionsFor(e, `<label>Sample Size <select id="wand-sample-size">${SAMPLE_SIZES.map((n) => `<option value="${n}" ${wandSampleSize(e) === n ? 'selected' : ''}>${n === 1 ? 'Point Sample' : `${n} by ${n} Average`}</option>`).join('')}</select></label><label>Tolerance <input id="tolerance" type="number" value="${e.tolerance}" min="0" max="255"></label><label class="transform-setting"><input id="wand-contiguous" type="checkbox" ${e.settings.contiguous !== false ? 'checked' : ''}>Contiguous</label><label class="transform-setting"><input id="wand-all" type="checkbox" ${e.settings.sampleAllLayers ? 'checked' : ''}>Sample All Layers</label>`, { subject: true }),
   bindOptions: ({ e, el }) => {
     bindSelectionOptions(e, el);
     bindTolerance(e, el);
+    el.querySelector<HTMLSelectElement>('#wand-sample-size')?.addEventListener('change', (ev) => (e.settings.wandSampleSize = Number((ev.target as HTMLSelectElement).value)));
     el.querySelector<HTMLInputElement>('#wand-contiguous')?.addEventListener('change', (ev) => (e.settings.contiguous = (ev.target as HTMLInputElement).checked));
     el.querySelector<HTMLInputElement>('#wand-all')?.addEventListener('change', (ev) => (e.settings.sampleAllLayers = (ev.target as HTMLInputElement).checked));
   },
@@ -552,6 +557,29 @@ async function wandImage(e: Editor): Promise<{ width: number; height: number; da
   const img = e.settings.sampleAllLayers || !l ? await compositeRGBA(e) : await layerRGBA(e, l);
   return { ...img, unit: 1 };
 }
+const wandSampleSize = (e: Editor) => {
+  const n = Number(e.settings.wandSampleSize ?? 1);
+  return (SAMPLE_SIZES as readonly number[]).includes(n) ? n : 1;
+};
+/** The color the Magic Wand compares with, premultiplied by alpha: the
+ * clicked pixel, or the average of a size × size square around it (clipped
+ * to the image). */
+export function wandReference(d: ArrayLike<number>, W: number, H: number, x: number, y: number, size: number, full = 255): [number, number, number, number] {
+  const r = Math.floor(size / 2);
+  const out: [number, number, number, number] = [0, 0, 0, 0];
+  let n = 0;
+  for (let yy = Math.max(0, y - r); yy <= Math.min(H - 1, y + r); yy++)
+    for (let xx = Math.max(0, x - r); xx <= Math.min(W - 1, x + r); xx++) {
+      const i = (yy * W + xx) * 4;
+      const k = d[i + 3] / full;
+      out[0] += d[i] * k;
+      out[1] += d[i + 1] * k;
+      out[2] += d[i + 2] * k;
+      out[3] += d[i + 3];
+      n++;
+    }
+  return n ? (out.map((v) => v / n) as [number, number, number, number]) : out;
+}
 /** Pixels within tolerance of the clicked color, contiguous or global. */
 export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> {
   const img = await wandImage(e);
@@ -562,9 +590,7 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
   // Colors are compared premultiplied by alpha: transparent pixels are alike
   // whatever color was erased there.
   const full = 255 * img.unit;
-  const i0 = (y * W + x) * 4;
-  const k0 = d[i0 + 3] / full;
-  const ref = [d[i0] * k0, d[i0 + 1] * k0, d[i0 + 2] * k0, d[i0 + 3]];
+  let ref = wandReference(d, W, H, x, y, wandSampleSize(e), full);
   const within = (i: number) => {
     const a = d[i + 3];
     if (Math.abs(a - ref[3]) > t) return false;
@@ -575,6 +601,9 @@ export async function wandMask(e: Editor, x: number, y: number): Promise<Mask8> 
       Math.abs(d[i + 2] * k - ref[2]) <= t
     );
   };
+  // An average the clicked pixel itself is too far from (a thin line in a
+  // large sample) would select nothing: use the clicked color then.
+  if (!within((y * W + x) * 4)) ref = wandReference(d, W, H, x, y, 1, full);
   const out = new Uint8Array(W * H);
   if (e.settings.contiguous === false) {
     for (let p = 0; p < W * H; p++) if (within(p * 4)) out[p] = 255;

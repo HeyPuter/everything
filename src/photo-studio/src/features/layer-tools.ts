@@ -1,7 +1,9 @@
 import type { Editor } from '../editor';
 import { registerTool } from '../app/registry';
 import type { CanvasPointer } from '../app/pointer';
-import { findLayer } from '../model/document';
+import { findLayer, type PhotoDocument } from '../model/document';
+import { layersBelow, withoutAdjustments } from './clone-source/state';
+import { drawSamplingRing } from './paint';
 import { compositeRGBA, layerRGBA, rgbHex } from './pixels';
 import { readRGBA } from '../model/tiles';
 import type { RGBA8 } from '../imaging/types';
@@ -42,14 +44,30 @@ export function installLayerTools(e: Editor) {
     icon: 'pipette',
     group: 'eyedropper',
     cursor: () => 'crosshair',
-    options: (e) =>
-      `<label>Sample Size <select id="sample-size">${SAMPLE_SIZES.map((n) => `<option value="${n}" ${Number(e.settings.sampleSize ?? 1) === n ? 'selected' : ''}>${n === 1 ? 'Point Sample' : `${n} by ${n} Average`}</option>`).join('')}</select></label><label>Sample <select id="sample-layers"><option value="current" ${e.settings.sampleAll ? '' : 'selected'}>Current Layer</option><option value="all" ${e.settings.sampleAll ? 'selected' : ''}>All Layers</option></select></label>`,
+    options: (e) => {
+      const mode = sampleLayers(e);
+      return `<label>Sample Size <select id="sample-size">${SAMPLE_SIZES.map((n) => `<option value="${n}" ${Number(e.settings.sampleSize ?? 1) === n ? 'selected' : ''}>${n === 1 ? 'Point Sample' : `${n} by ${n} Average`}</option>`).join('')}</select></label><label>Sample <select id="sample-layers">${SAMPLE_LAYERS.map(([v, l]) => `<option value="${v}" ${mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label><label class="transform-setting" title="Show the picked color and the previous color around the pointer while sampling"><input id="sampling-ring" type="checkbox" ${e.settings.samplingRing !== false ? 'checked' : ''}>Show Sampling Ring</label>`;
+    },
     bindOptions: ({ e, el }) => {
       el.querySelector<HTMLSelectElement>('#sample-size')?.addEventListener('change', (ev) => (e.settings.sampleSize = Number((ev.target as HTMLSelectElement).value)));
-      el.querySelector<HTMLSelectElement>('#sample-layers')?.addEventListener('change', (ev) => (e.settings.sampleAll = (ev.target as HTMLSelectElement).value === 'all'));
+      el.querySelector<HTMLSelectElement>('#sample-layers')?.addEventListener('change', (ev) => {
+        e.settings.sampleLayers = (ev.target as HTMLSelectElement).value;
+        delete e.settings.sampleAll;
+      });
+      el.querySelector<HTMLInputElement>('#sampling-ring')?.addEventListener('change', (ev) => (e.settings.samplingRing = (ev.target as HTMLInputElement).checked));
     },
-    pointerDown: (e, p) => sampleColorAt(e, p, p.alt),
-    pointerMove: (e, p) => sampleColorAt(e, p, p.alt),
+    pointerDown: async (e, p) => {
+      ring = { previous: p.alt ? e.background : e.color };
+      await sampleColorAt(e, p, p.alt);
+      showRing(e, p);
+    },
+    pointerMove: (e, p) => void sampleColorAt(e, p, p.alt).then(() => showRing(e, p)),
+    pointerUp: (e) => {
+      ring = undefined;
+      if (!e.screenOverlayContent.includes('sampling-ring')) return;
+      e.screenOverlayContent = '';
+      e.screenOverlay();
+    },
   });
   void e;
 }
@@ -93,19 +111,49 @@ function alignIcon(a: string) {
     } as Record<string, string>
   )[a];
 }
-let sampleCache: { doc: unknown; layer?: string; all: boolean; image: Promise<RGBA8> } | undefined;
+/** What the Eyedropper samples (Alt-click in painting tools uses it too). */
+export const SAMPLE_LAYERS = [
+  ['current', 'Current Layer'],
+  ['below', 'Current & Below'],
+  ['all', 'All Layers'],
+  ['all-no-adj', 'All Layers No Adjustments'],
+  ['below-no-adj', 'Current & Below No Adjustments'],
+] as const;
+export type SampleLayers = (typeof SAMPLE_LAYERS)[number][0];
+export function sampleLayers(e: Editor): SampleLayers {
+  const v = e.settings.sampleLayers;
+  return SAMPLE_LAYERS.some(([k]) => k === v) ? (v as SampleLayers) : e.settings.sampleAll ? 'all' : 'current';
+}
+/** The document a sample mode composites, or undefined for the current layer alone. */
+export function sampledDocument(doc: PhotoDocument, mode: SampleLayers, layerId: string | undefined): PhotoDocument | undefined {
+  if (mode === 'current') return undefined;
+  const noAdj = mode.endsWith('no-adj');
+  if (mode.startsWith('below') && layerId) {
+    const layers = layersBelow(doc.layers, layerId, noAdj);
+    if (layers) return { ...doc, layers };
+  }
+  return noAdj ? { ...doc, layers: withoutAdjustments(doc.layers) } : doc;
+}
+let ring: { previous: string } | undefined;
+function showRing(e: Editor, p: CanvasPointer) {
+  if (!ring || e.settings.samplingRing === false) return;
+  drawSamplingRing(e, p, p.alt ? e.background : e.color, ring.previous);
+}
+let sampleCache: { doc: unknown; layer?: string; mode: SampleLayers; image: Promise<RGBA8> } | undefined;
 /** Eyedropper sampling with its Sample Size and Sample settings; painting
  * tools use it for Alt-click (Option-click) color picking. */
 export async function sampleColorAt(e: Editor, p: CanvasPointer, background = false) {
-  const all = !!e.settings.sampleAll;
+  const mode = sampleLayers(e);
   const l = e.layer;
-  if (!sampleCache || sampleCache.doc !== e.doc || sampleCache.all !== all || sampleCache.layer !== l?.id)
+  if (!sampleCache || sampleCache.doc !== e.doc || sampleCache.mode !== mode || sampleCache.layer !== l?.id) {
+    const doc = sampledDocument(e.doc, mode, l?.id);
     sampleCache = {
       doc: e.doc,
       layer: l?.id,
-      all,
-      image: all || !l ? compositeRGBA(e) : l.kind === 'pixel' && l.pixels ? Promise.resolve(readRGBA(e.assets.tiles, l.pixels, { x: 0, y: 0, width: e.doc.width, height: e.doc.height })) : layerRGBA(e, findLayer(e.doc.layers, l.id)!),
+      mode,
+      image: doc || !l ? compositeRGBA(e, doc ?? e.doc) : l.kind === 'pixel' && l.pixels ? Promise.resolve(readRGBA(e.assets.tiles, l.pixels, { x: 0, y: 0, width: e.doc.width, height: e.doc.height })) : layerRGBA(e, findLayer(e.doc.layers, l.id)!),
     };
+  }
   const img = await sampleCache.image;
   const c = sampleAverage(img, p.x, p.y, Number(e.settings.sampleSize ?? 1));
   if (!c) return;

@@ -13,6 +13,7 @@ import { Dock } from './app/dock';
 import { bindCanvas, type CanvasPointer } from './app/pointer';
 import { commands, findCommand, overlays, tools, type Tool } from './app/registry';
 import { brushSizeStep, eventShortcut, platformShortcut } from './app/shortcuts';
+import { SpringTools } from './app/spring-tools';
 import { watchOptionTips } from './app/option-tips';
 import { scrollableRow } from './app/scroll-row';
 import { svg } from './app/icons';
@@ -971,6 +972,10 @@ export class Editor {
       void import('./app/menubar').then(({ showContextMenu }) => showContextMenu(this, e.clientX, e.clientY, this.canvasContextMenu()));
     });
     document.addEventListener('keydown', (e) => this.keyDown(e));
+    // Spring-loaded tools: using the tool or holding its key returns to the previous tool on release.
+    viewport.addEventListener('pointerdown', () => this.springTools.use(), true);
+    document.addEventListener('keyup', (e) => this.springRelease(e.code));
+    window.addEventListener('blur', () => this.springTools.cancel());
     // Window resizes, panel changes and document window layouts all resize the viewport.
     new ResizeObserver(() => {
       this.view();
@@ -1084,9 +1089,19 @@ export class Editor {
       void this.runCommand(c.id);
       return;
     }
-    if (!e.metaKey && !e.ctrlKey && !e.altKey && /^[A-Z]$/.test(shortcut.replace('Shift+', '')) && this.toolbar.shortcut(shortcut.replace('Shift+', ''), e.shiftKey)) {
-      e.preventDefault();
-      return;
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && /^[A-Z]$/.test(shortcut.replace('Shift+', ''))) {
+      // Holding a tool key keeps the tool only while it is down: auto-repeat
+      // must neither cycle the group nor restart the hold.
+      if (e.repeat && this.springTools.repeat(e.code)) {
+        e.preventDefault();
+        return;
+      }
+      const previous = this.tool;
+      if (this.toolbar.shortcut(shortcut.replace('Shift+', ''), e.shiftKey)) {
+        e.preventDefault();
+        if (!e.repeat) this.springTools.press(e.code, previous, this.tool, performance.now());
+        return;
+      }
     }
     // [ and ] change the brush size of brush-like tools, with Shift the hardness.
     const brush = this.activeTool?.brush;
@@ -1117,6 +1132,17 @@ export class Editor {
   }
   // The last number key, for two-digit opacity values.
   private digit?: { n: number; at: number };
+  private springTools = new SpringTools();
+  private springRelease(code: string) {
+    const back = this.springTools.release(code, performance.now());
+    if (!back || !tools.has(back) || modalDialogOpen()) return;
+    // A stroke still in progress ends with the temporary tool first.
+    const restore = () => {
+      if (this.toolBusy) window.setTimeout(restore, 50);
+      else if (this.tool !== back) this.setTool(back);
+    };
+    restore();
+  }
 }
 
 /** A text field's caret position, or null where there is none (number fields, buttons). */
