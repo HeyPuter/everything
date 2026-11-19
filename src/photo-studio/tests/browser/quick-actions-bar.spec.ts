@@ -145,6 +145,9 @@ test('drives a selection edit end to end from the bar', async ({ page }) => {
   await bar(page).getByRole('button', { name: 'Copy to Layer' }).click();
   await idle(page);
   expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(2);
-  // The selection stays for the next step.
+  // The new layer is selected without a marquee, so the bar offers pixel actions;
+  // Reselect brings the selection and its actions back.
+  await expect(bar(page)).toHaveAttribute('data-state', 'pixel');
+  await run(page, 'select.reselect');
   await expect(bar(page)).toHaveAttribute('data-state', 'selection');
 });
