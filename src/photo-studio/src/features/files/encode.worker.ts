@@ -5,7 +5,7 @@ import { encodeExport, prepareExport, type ExportContext, type ExportSettings, t
 import { printPng } from './print-encode';
 
 type Job =
-  | { id: number; src: SourceImage; settings: ExportSettings; ctx: ExportContext; keepPrepared: boolean; owned?: boolean; gif?: undefined; print?: undefined }
+  | { id: number; src: SourceImage; settings: ExportSettings; ctx: ExportContext; keepPrepared: boolean; owned?: boolean; prepareOnly?: boolean; gif?: undefined; print?: undefined }
   | { id: number; gif: { frames: GifEncodeFrame[]; options: GifEncodeOptions }; print?: undefined }
   | { id: number; print: { src: SourceImage; ctx: ExportContext; owned: boolean }; gif?: undefined };
 self.onmessage = async (event: MessageEvent<Job>) => {
@@ -24,6 +24,10 @@ self.onmessage = async (event: MessageEvent<Job>) => {
     }
     const { src, settings, ctx, keepPrepared, owned } = job;
     const prepared = prepareExport(src, settings, ctx, owned);
+    if (job.prepareOnly) {
+      (self as unknown as Worker).postMessage({ id, bytes: new Uint8Array(0), prepared }, [prepared.data.buffer as ArrayBuffer]);
+      return;
+    }
     const bytes = await encodeExport(prepared, settings, ctx);
     const transfer: Transferable[] = [bytes.buffer as ArrayBuffer];
     if (keepPrepared) transfer.push(prepared.data.buffer as ArrayBuffer);

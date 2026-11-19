@@ -164,6 +164,23 @@ export async function encodeOffThread(
     w.postMessage({ id, src, settings: s, ctx, keepPrepared, owned }, moved);
   });
 }
+/** prepareExport (resample, convert) in the export worker. With `transfer`,
+ * the source's pixels move there (`src` is unusable after). */
+export async function prepareOffThread(src: SourceImage, s: ExportSettings, ctx: ExportContext, transfer = false): Promise<SourceImage> {
+  let w: Worker;
+  try {
+    w = exportWorker();
+  } catch {
+    return prepareExport(src, s, ctx);
+  }
+  const id = ++jobId;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve: (v) => resolve(v.prepared!), reject });
+    const { data } = src;
+    const owned = transfer && data.byteOffset === 0 && data.byteLength === data.buffer.byteLength;
+    w.postMessage({ id, src, settings: s, ctx, keepPrepared: true, owned, prepareOnly: true }, owned ? [data.buffer as ArrayBuffer] : []);
+  });
+}
 /** Animated GIF encoding in the export worker. */
 export async function encodeGifOffThread(frames: GifEncodeFrame[], options: GifEncodeOptions): Promise<Uint8Array> {
   let w: Worker;

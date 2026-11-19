@@ -6,8 +6,8 @@ import { download } from '../../persistence/puter';
 import { escapeXML } from '../../model/assets';
 import type { Rect } from '../../model/document';
 import { partitionSlices, pieceNames, sliceTableHtml, type Slice, type SliceFormat, type SlicePiece } from '../../model/slices';
-import { formatInfo, prepareExport, type ExportContext, type ExportSettings, type SourceImage } from '../files/encode';
-import { bytesBlob, documentSource, effectiveSettings, encodeOffThread, exportContext, formatBytes, loadSettings } from '../files/pipeline';
+import { formatInfo, type ExportContext, type ExportSettings, type SourceImage } from '../files/encode';
+import { bytesBlob, documentSource, effectiveSettings, encodeOffThread, exportContext, formatBytes, loadSettings, prepareOffThread } from '../files/pipeline';
 import { uniqueName, zipStore, type ZipEntry } from '../files/zip';
 
 export type WebSettings = { format: SliceFormat; quality: number; colors: number; dither: boolean; transparency: boolean; matte: string };
@@ -175,19 +175,33 @@ export async function exportForWeb(e: Editor) {
   let originalUrl = '';
   let pieces = allPieces;
   const ctx: ExportContext = { profile: null };
-  const prepare = async () => {
-    if (prepared && preparedScale === scale) return prepared;
-    const src = await documentSource(e, doc);
-    const s = effectiveSettings(doc, { ...loadSettings(), format: 'png', transparency: true, depth: 8, sizeMode: 'percent', scale, canvasWidth: 0, canvasHeight: 0, convertSrgb: true });
-    prepared = prepareExport(src, s, exportContext(doc));
-    preparedScale = scale;
-    pieces = scalePieces(allPieces, prepared.width / doc.width);
-    const c = new OffscreenCanvas(prepared.width, prepared.height);
-    c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(prepared.data as Uint8ClampedArray), prepared.width, prepared.height), 0, 0);
-    if (originalUrl) URL.revokeObjectURL(originalUrl);
-    originalUrl = URL.createObjectURL(await c.convertToBlob({ type: 'image/png' }));
-    for (const p of panes) clearPane(p);
-    return prepared;
+  let preparing: { scale: number; job: Promise<SourceImage> } | undefined;
+  const prepare = (): Promise<SourceImage> => {
+    if (prepared && preparedScale === scale) return Promise.resolve(prepared);
+    // Panes ask at the same time: they share one composite and conversion.
+    if (preparing?.scale === scale) return preparing.job;
+    const at = scale;
+    const job = (async () => {
+      const src = await documentSource(e, doc);
+      const s = effectiveSettings(doc, { ...loadSettings(), format: 'png', transparency: true, depth: 8, sizeMode: 'percent', scale: at, canvasWidth: 0, canvasHeight: 0, convertSrgb: true });
+      // Converting a large composite takes a while: the export worker does it.
+      const ready = await prepareOffThread(src, s, exportContext(doc), true);
+      prepared = ready;
+      preparedScale = at;
+      pieces = scalePieces(allPieces, ready.width / doc.width);
+      const c = new OffscreenCanvas(ready.width, ready.height);
+      c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(ready.data as Uint8ClampedArray), ready.width, ready.height), 0, 0);
+      if (originalUrl) URL.revokeObjectURL(originalUrl);
+      originalUrl = URL.createObjectURL(await c.convertToBlob({ type: 'image/png' }));
+      for (const p of panes) clearPane(p);
+      return ready;
+    })();
+    preparing = { scale: at, job };
+    const done = () => {
+      if (preparing?.job === job) preparing = undefined;
+    };
+    job.then(done, done);
+    return job;
   };
   const clearPane = (p: Pane) => {
     for (const x of p.encoded.values()) URL.revokeObjectURL(x.url);
