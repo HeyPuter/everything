@@ -56,6 +56,12 @@ export class Toolbar {
       if (slot?.dataset.slot === EXTRA_SLOT) this.openFlyout(EXTRA_SLOT, slot);
       else if (slot) e.setTool(slot.dataset.tool!);
     });
+    // Double-clicking the Hand tool fits the image on screen; the Zoom tool shows it at 100%.
+    el.addEventListener('dblclick', (ev) => {
+      const tool = (ev.target as HTMLElement).closest<HTMLElement>('[data-slot]')?.dataset.tool;
+      const command = tool === 'hand' ? 'view.fit' : tool === 'zoom' ? 'view.actual-pixels' : undefined;
+      if (command && e.hasDocument) void e.runCommand(command);
+    });
     el.addEventListener('contextmenu', (ev) => {
       const menu = buttonMenu(ev.target as HTMLElement);
       if (menu) {

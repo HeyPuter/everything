@@ -85,3 +85,15 @@ test('the toolbar always ends with Edit Toolbar', async ({ page }) => {
   await page.getByRole('menuitem', { name: 'Edit Toolbar…' }).click();
   await expect(page.locator('dialog.toolbar-editor')).toBeVisible();
 });
+
+test('double-clicking the Zoom tool shows 100%, the Hand tool fits the image', async ({ page }) => {
+  await openImage(page, 3000, 1500, '#808080', 'large.png');
+  const zoom = () => page.evaluate(() => window.photoStudio.zoom);
+  const slots = page.getByRole('toolbar', { name: 'Editing tools' });
+  const fit = await zoom();
+  expect(fit).toBeLessThan(1);
+  await slots.locator('[data-slot="zoom"]').dblclick();
+  await expect.poll(zoom).toBe(1);
+  await slots.locator('[data-slot="hand"]').dblclick();
+  await expect.poll(zoom).toBeCloseTo(fit, 3);
+});
