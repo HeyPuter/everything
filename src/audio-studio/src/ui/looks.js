@@ -3,7 +3,8 @@
 // those can still be changed on its own (the look then shows as "Custom").
 // Preferences > Appearance lists them as preview cards.
 
-import { h } from '../lib/dom.js';
+import { h, announce } from '../lib/dom.js';
+import { promptDialog } from './dialog.js';
 import { ACCENTS, WAVE_PRESETS, COLOR_FIELDS, cleanColor, brighten } from './appearance.js';
 
 const preset = (name) => {
@@ -33,18 +34,57 @@ export const LOOKS = [
 
 const sameColors = (a, b) => COLOR_FIELDS.every((k) => (cleanColor(a?.[k]) || null) === (cleanColor(b?.[k]) || null));
 
+/** Looks the user saved (preference `userLooks`), cleaned of damaged entries. */
+export function userLooks(prefs) {
+  const list = prefs.get('userLooks');
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((l) => l && typeof l === 'object' && typeof l.label === 'string' && ['system', 'dark', 'light'].includes(l.theme) && ACCENTS.some((a) => a.id === l.accent))
+    .map((l) => ({ ...l, id: String(l.id || `user-${l.label}`), brightness: Math.max(-100, Math.min(100, Number(l.brightness) || 0)), colors: l.colors && typeof l.colors === 'object' ? l.colors : null, user: true }));
+}
+
+/** Built-in looks, then the user's. */
+export function allLooks(prefs) {
+  return [...LOOKS, ...userLooks(prefs)];
+}
+
+/** The current settings as a look's fields. */
+function currentFields(prefs) {
+  const colors = prefs.get('waveColors');
+  const out = {};
+  for (const k of COLOR_FIELDS) if (cleanColor(colors?.[k])) out[k] = cleanColor(colors[k]);
+  return {
+    theme: prefs.get('theme') || 'system',
+    brightness: Number(prefs.get('uiBrightness')) || 0,
+    accent: prefs.get('accentColor') || 'blue',
+    colors: Object.keys(out).length ? out : null,
+  };
+}
+
 /** The look the current preferences match, or null (a custom mix). */
 export function lookOf(prefs) {
-  const theme = prefs.get('theme') || 'system';
-  const brightness = Number(prefs.get('uiBrightness')) || 0;
-  const accent = prefs.get('accentColor') || 'blue';
-  const colors = prefs.get('waveColors') || null;
-  return LOOKS.find((l) => l.theme === theme && l.brightness === brightness && l.accent === accent && sameColors(l.colors, colors)) || null;
+  const c = currentFields(prefs);
+  return allLooks(prefs).find((l) => l.theme === c.theme && l.brightness === c.brightness && l.accent === c.accent && sameColors(l.colors, c.colors)) || null;
+}
+
+/** Saves the current settings as a look named `label` (replacing one of the user's with that name). */
+export function saveLook(prefs, label) {
+  const name = String(label || '').trim();
+  if (!name) return null;
+  const look = { id: `user-${Date.now().toString(36)}`, label: name, note: 'One of your looks', ...currentFields(prefs) };
+  const kept = userLooks(prefs).filter((l) => l.label.toLowerCase() !== name.toLowerCase()).map(({ user, ...l }) => l);
+  prefs.set('userLooks', [...kept, look]);
+  return look;
+}
+
+/** Deletes one of the user's looks. */
+export function deleteLook(prefs, id) {
+  prefs.set('userLooks', userLooks(prefs).filter((l) => l.id !== id).map(({ user, ...l }) => l));
 }
 
 /** Applies a look: theme, brightness, accent and editor colors in one go. */
 export function applyLook(prefs, look) {
-  const l = typeof look === 'string' ? LOOKS.find((x) => x.id === look) : look;
+  const l = typeof look === 'string' ? allLooks(prefs).find((x) => x.id === look) : look;
   if (!l) return;
   prefs.set('theme', l.theme);
   prefs.set('uiBrightness', l.brightness);
@@ -82,9 +122,10 @@ export function lookPicker({ app, row }) {
   const system = () => (typeof matchMedia === 'function' && !matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark');
   const render = () => {
     const current = lookOf(app.prefs);
+    const looks = allLooks(app.prefs);
     const focused = group.contains(document.activeElement);
     group.replaceChildren(
-      ...LOOKS.map((l, i) => {
+      ...looks.map((l, i) => {
         const on = current === l;
         const c = lookSwatch(l, system());
         const NS = 'http://www.w3.org/2000/svg';
@@ -118,7 +159,7 @@ export function lookPicker({ app, row }) {
           const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
           if (!d) return;
           e.preventDefault();
-          const n = LOOKS[(i + d + LOOKS.length) % LOOKS.length];
+          const n = looks[(i + d + looks.length) % looks.length];
           applyLook(app.prefs, n);
           render();
           group.querySelector(`[data-look="${n.id}"]`)?.focus();
@@ -127,10 +168,29 @@ export function lookPicker({ app, row }) {
       }),
     );
     if (focused && !group.contains(document.activeElement)) group.querySelector('[tabindex="0"]')?.focus();
-    status.textContent = current ? current.note : 'Custom: your own mix of the settings below.';
+    status.textContent = current ? current.note || '' : 'Custom: your own mix of the settings below.';
+    save.disabled = Boolean(current);
+    del.hidden = !current?.user;
   };
   const status = h('p.look-note');
+  const save = h('button.btn', { type: 'button' }, 'Save as Look...');
+  const del = h('button.btn', { type: 'button' }, 'Delete Look');
+  save.addEventListener('click', async () => {
+    const taken = LOOKS.map((l) => l.label.toLowerCase());
+    const name = await promptDialog({ title: 'Save Look', label: 'Look name:', value: 'My Look', confirm: 'Save', validate: (v) => (!v.trim() ? 'Enter a name.' : taken.includes(v.trim().toLowerCase()) ? 'A built-in look has that name.' : '') });
+    if (!name) return;
+    const look = saveLook(app.prefs, name);
+    render();
+    if (look) announce(`Saved look ${look.label}`);
+  });
+  del.addEventListener('click', () => {
+    const current = lookOf(app.prefs);
+    if (!current?.user) return;
+    deleteLook(app.prefs, current.id);
+    render();
+    announce(`Deleted look ${current.label}`);
+  });
   render();
   row.refresh = render;
-  return h('div.look-picker', group, status);
+  return h('div.look-picker', group, h('div.look-actions', status, h('div.spacer'), save, del));
 }

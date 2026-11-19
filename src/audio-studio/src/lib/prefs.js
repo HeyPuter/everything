@@ -67,6 +67,7 @@ export const DEFAULTS = {
   waveColors: null, // { wave, selection, background } or null for the theme colors
   waveColorPresets: [], // [{ name, wave, selection, background, playhead, cue, subclip, cart, cd }]
   uiBrightness: 0, // -100 (darker) .. 100 (lighter) for panels and backgrounds
+  userLooks: [], // Looks saved in Preferences > Appearance: [{ id, label, theme, brightness, accent, colors }]
   // Audio Channel Mapping and Audio Hardware
   inputMap: [0, 1], // device input channel recorded as file channel 1 and 2 (-1 = none)
   outputMap: [0, 1], // device output channel that plays mix channel 1 and 2 (-1 = none)

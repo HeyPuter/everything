@@ -1021,6 +1021,16 @@
   height: 100%;
 }
 
+.look-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.look-actions .btn[hidden] {
+  display: none;
+}
+
 .look-note {
   margin: 0;
   color: var(--text-faint);

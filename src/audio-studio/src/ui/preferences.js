@@ -91,7 +91,7 @@ export const CATEGORIES = [
     sections: [
       {
         title: 'Look',
-        items: [{ type: 'custom', bare: true, label: 'Look: theme, brightness, accent and editor colors together', keys: ['theme', 'uiBrightness', 'accentColor', 'waveColors'], keywords: 'look preset scheme bundle ' + LOOKS.map((l) => l.label).join(' '), render: lookPicker }],
+        items: [{ type: 'custom', bare: true, label: 'Look: theme, brightness, accent and editor colors together', keys: ['theme', 'uiBrightness', 'accentColor', 'waveColors', 'userLooks'], keywords: 'look preset scheme bundle save ' + LOOKS.map((l) => l.label).join(' '), render: lookPicker }],
       },
       {
         title: 'Editor Colors',

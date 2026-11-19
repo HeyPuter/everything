@@ -46,3 +46,27 @@ describe('looks', () => {
     expect(lookSwatch(LOOKS[0], 'light').panel).toBe('#ececec');
   });
 });
+
+describe('saved looks', () => {
+  it('saves the current mix, matches it, replaces by name and deletes', async () => {
+    const { saveLook, deleteLook, userLooks, allLooks } = await import('../src/ui/looks.js');
+    const p = prefsOf({ theme: 'dark', uiBrightness: -30, accentColor: 'rose', waveColors: { wave: '#ABCDEF' } });
+    expect(lookOf(p)).toBe(null);
+    const mine = saveLook(p, ' Night Edit ');
+    expect(mine).toMatchObject({ label: 'Night Edit', theme: 'dark', brightness: -30, accent: 'rose', colors: { wave: '#abcdef' } });
+    expect(lookOf(p)?.label).toBe('Night Edit');
+    expect(allLooks(p)).toHaveLength(LOOKS.length + 1);
+    // Same name again replaces it.
+    p.set('uiBrightness', -10);
+    saveLook(p, 'night edit');
+    expect(userLooks(p).map((l) => [l.label, l.brightness])).toEqual([['night edit', -10]]);
+    applyLook(p, 'studio');
+    applyLook(p, userLooks(p)[0].id);
+    expect(p.values.uiBrightness).toBe(-10);
+    deleteLook(p, userLooks(p)[0].id);
+    expect(userLooks(p)).toEqual([]);
+    // Damaged stored entries are ignored.
+    p.set('userLooks', [null, { label: 'x', theme: 'neon', accent: 'blue' }, 'nope']);
+    expect(userLooks(p)).toEqual([]);
+  });
+});
