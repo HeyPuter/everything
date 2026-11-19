@@ -2149,3 +2149,28 @@ input[type='range'].fx-slider:disabled {
   width: auto;
   max-width: 100%;
 }
+
+/* A panel an Effects menu command opened (Match Loudness, Diagnostics): its frame
+   glows for a moment so it is found wherever it docks. */
+.panel-group.panel-attention {
+  animation: panel-attention 1.5s ease-out;
+}
+
+@keyframes panel-attention {
+  0%,
+  40% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 0 18px var(--accent-soft);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-group.panel-attention {
+    animation: none;
+    border-color: var(--accent);
+  }
+}

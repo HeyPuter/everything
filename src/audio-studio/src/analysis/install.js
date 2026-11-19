@@ -23,7 +23,7 @@ export function installAnalysis(app) {
     id: 'fx.matchLoudness',
     label: 'Match Loudness...',
     run: () => {
-      app.dock.openPanel('loudness');
+      app.dock.openPanel('loudness', { attention: true });
       if (app.active?.kind === 'audio') app.matchLoudnessAdd?.(app.active);
     },
   });

@@ -34,6 +34,9 @@ describe('dock layout', () => {
     expect(dock.isOpen('history')).toBe(false);
     dock.openPanel('history', { focus: false });
     expect(dock.isVisible('history')).toBe(true);
+    // A panel opened from a menu command outlines its frame for a moment.
+    dock.openPanel('loudness', { focus: false, attention: true });
+    expect(dock.instances.get('loudness').el.closest('.panel-group').classList.contains('panel-attention')).toBe(true);
     const g = dock.groupOf('editor');
     dock.toggleMaximize(g);
     expect(root.querySelectorAll('.panel-group').length).toBe(1);

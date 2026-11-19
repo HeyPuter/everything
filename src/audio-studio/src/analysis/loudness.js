@@ -8,6 +8,7 @@
 
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
+import { beginBusy } from '../ui/busy.js';
 import { hotNumber, select } from '../ui/controls.js';
 import { Channel } from '../audio/channel.js';
 import { dsp } from '../audio/dsp.js';
@@ -357,6 +358,8 @@ export function loudnessPanel(app) {
     if (running) return;
     const refocus = holdFocus();
     running = true;
+    // The app-wide busy line shows the work even when this panel is out of view.
+    const endBusy = beginBusy();
     try {
       // Closing/removing a row during an await must not shift the next file
       // past the iterator. Still skip rows removed before their turn.
@@ -370,6 +373,7 @@ export function loudnessPanel(app) {
       status.textContent = `Scan failed: ${err.message}`;
     } finally {
       running = false;
+      endBusy();
       renderRows();
       refocus();
     }
@@ -394,6 +398,7 @@ export function loudnessPanel(app) {
     if (prefs().export) return exportAll();
     const refocus = holdFocus();
     running = true;
+    const endBusy = beginBusy();
     lastRun = [];
     const s = prefs();
     let changed = 0;
@@ -435,6 +440,7 @@ export function loudnessPanel(app) {
       status.textContent = `Matching failed: ${err.message}`;
     } finally {
       running = false;
+      endBusy();
       renderRows();
       refocus();
     }
@@ -445,6 +451,7 @@ export function loudnessPanel(app) {
     const s = prefs();
     const x = exportSettings();
     running = true;
+    const endBusy = beginBusy();
     renderRows();
     let written = 0;
     try {
@@ -477,6 +484,7 @@ export function loudnessPanel(app) {
       status.textContent = `Export failed: ${err.message}`;
     } finally {
       running = false;
+      endBusy();
       renderRows();
       refocus();
     }

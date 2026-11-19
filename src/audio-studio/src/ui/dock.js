@@ -197,8 +197,12 @@ export class Dock extends Emitter {
     return inst;
   }
 
-  /** Shows a panel: activates its tab, or opens it in a sensible frame. */
-  openPanel(panelId, { focus = true } = {}) {
+  /**
+   * Shows a panel: activates its tab, or opens it in a sensible frame.
+   * `attention` (a menu command that works in a panel) also outlines its frame
+   * for a moment, so the panel is found at once wherever it docks.
+   */
+  openPanel(panelId, { focus = true, attention = false } = {}) {
     if (!this.registry.has(panelId)) return;
     let g = this.groupOf(panelId);
     if (!g) {
@@ -217,6 +221,17 @@ export class Dock extends Emitter {
     if (focus) {
       const inst = this.instances.get(panelId);
       requestAnimationFrame(() => (inst?.focus ? inst.focus() : inst?.el.closest('.panel-group')?.querySelector('[role=tab][aria-selected=true]')?.focus()));
+    }
+    if (attention) {
+      const frame = this.instances.get(panelId)?.el.closest('.panel-group');
+      if (frame) {
+        frame.classList.remove('panel-attention');
+        void frame.offsetWidth; // restart the outline when it is still showing
+        frame.classList.add('panel-attention');
+        frame.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+        clearTimeout(frame._attention);
+        frame._attention = setTimeout(() => frame.classList.remove('panel-attention'), 1600);
+      }
     }
   }
 
