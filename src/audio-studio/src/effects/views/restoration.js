@@ -24,6 +24,7 @@ const dehummer = responseEditor({
   span: [-80, 6],
   step: 10,
   handles: (v) => [{ label: 'Base notch', freq: v.frequency, gain: v.gain, q: v.q, ids: { freq: 'frequency', gain: 'gain', q: 'q' } }],
+  centers: (v) => Array.from({ length: Math.max(1, Math.round(v.harmonics)) }, (_, k) => v.frequency * (k + 1)),
 });
 
 // ------------------------------------------------------- DeNoise, DeReverb

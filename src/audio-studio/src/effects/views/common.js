@@ -21,16 +21,22 @@ export function freqTicks(fMax) {
  *  response(values, freqs, rate) -> dB per frequency (default: the definition's response)
  *  handles(values) -> [{ freq, gain, enabled, ids: { freq, gain, q }, label }]
  *  span: [lo, hi] dB shown; step: grid step in dB
+ *  centers(values) -> frequencies sampled exactly (narrow notches, which a
+ *    per-pixel sweep could step over; default: the handles' frequencies)
  * Drag a handle to move its frequency (and gain when it has a gain id);
  * arrows nudge, Alt+Up/Down or the wheel change Q.
  */
-export function responseEditor({ label = 'Frequency response', span = [-24, 24], step = 6, response, handles = () => [], className = '' }) {
+export function responseEditor({ label = 'Frequency response', span = [-24, 24], step = 6, response, handles = () => [], centers = null, className = '' }) {
   return (ctx) => {
     const rate = ctx.doc?.sampleRate || 48000;
     const fMin = 20;
     const fMax = Math.min(20000, rate / 2);
-    const freqs = logFrequencies(320, fMin, fMax);
     const [lo, hi] = span;
+    // Two points per pixel, plus the exact centre of every notch or peak, so narrow ones draw to full depth.
+    const sweep = (W, values) => {
+      const extra = (centers ? centers(values) : handles(values).map((b) => b.freq)).filter((f) => f > fMin && f < fMax);
+      return Float64Array.from([...logFrequencies(Math.max(320, Math.ceil(W * 2)), fMin, fMax), ...extra]).sort();
+    };
     const xOf = (f, W) => (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
     const yOf = (d, H) => 6 + ((hi - d) / (hi - lo)) * (H - 12);
     const view = plot(`fx-response${className ? `.${className}` : ''}`, label, (g, W, H) => {
@@ -45,6 +51,7 @@ export function responseEditor({ label = 'Frequency response', span = [-24, 24],
         g.lineTo(W, Math.round(yOf(0, H)) + 0.5);
         g.stroke();
       }
+      const freqs = sweep(W, ctx.values);
       const resp = (response || ctx.def.response)(ctx.values, freqs, rate);
       g.strokeStyle = cssVar('--wave');
       g.lineWidth = 2;
