@@ -104,6 +104,7 @@ export function propertiesPanel(app) {
         row('Uncompressed Size', formatBytes(bytes)),
         row('Markers', String(doc.state.markers.length)),
       ),
+      tempoSection(app),
     );
     makeCollapsible(el, collapsed, remember);
   };
@@ -112,6 +113,33 @@ export function propertiesPanel(app) {
   app.on('properties', render);
   render();
   return { el, show: render };
+}
+
+/** Tempo and meter for the Bars and Beats time display of audio files (app settings). */
+function tempoSection(app) {
+  const field = (key, label, aria, { min, max, step }) => {
+    const id = `prop-${key}`;
+    const input = h('input.input', { type: 'text', id, value: String(app.prefs.get(key)), 'aria-label': aria, inputmode: 'decimal' });
+    input.addEventListener('keydown', (e) => e.stopPropagation());
+    input.addEventListener('change', () => {
+      const n = Number(input.value);
+      if (!Number.isFinite(n) || n <= 0) {
+        input.value = String(app.prefs.get(key));
+        return;
+      }
+      const v = Math.max(min, Math.min(max, Math.round(n / step) * step));
+      input.value = String(v);
+      app.prefs.set(key, v);
+    });
+    return h('div.prop-row', h('label.prop-label', { for: id }, label), input);
+  };
+  return h(
+    'section.prop-section',
+    h('h3.prop-heading', 'Tempo'),
+    field('tempo', 'Tempo (BPM)', 'Tempo in beats per minute', { min: 20, max: 400, step: 0.01 }),
+    field('beatsPerBar', 'Beats per Bar', 'Beats per bar', { min: 1, max: 16, step: 1 }),
+    h('p.prop-note', 'Used by the Bars and Beats time format and grid.'),
+  );
 }
 
 export function formatBytes(n) {

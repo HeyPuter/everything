@@ -175,3 +175,30 @@ describe('mute automation', () => {
     expect(S.findTrack(doc.state, other).mute).toBe(true);
   });
 });
+
+describe('properties panel edits', () => {
+  it('moves and trims a clip and sets tempo from the session properties', async () => {
+    const { sessionPropertySection } = await import('../src/multitrack/properties.js');
+    const { app, doc } = await appWithSession();
+    const src = doc.addSource({ name: 'a.wav', channels: [Channel.fromSamples(new Float32Array(RATE * 4))] });
+    const clip = S.createClip({ trackId: doc.state.tracks[0].id, sourceId: src, start: RATE, length: RATE * 2 });
+    doc.apply('Insert File', S.addClips(doc.state, [clip]));
+    doc.selectClips([clip.id]);
+    const set = (label, value) => {
+      const el = sessionPropertySection(app, doc).querySelector(`[aria-label="${label}"]`);
+      el.value = value;
+      el.dispatchEvent(new Event('change'));
+    };
+    set('Clip start', '0:02.000');
+    expect(S.findClip(doc.state, clip.id).start).toBe(RATE * 2);
+    set('Clip duration', '0:01.000');
+    expect(S.findClip(doc.state, clip.id).length).toBe(RATE);
+    set('Clip end', '0:04.000');
+    expect(S.findClip(doc.state, clip.id).length).toBe(RATE * 2);
+    set('Session tempo in beats per minute', '96');
+    expect(doc.state.tempo).toBe(96);
+    expect(doc.history.undoLabel).toBe('Session Tempo');
+    set('Beats per bar', '3');
+    expect(doc.state.beatsPerBar).toBe(3);
+  });
+});

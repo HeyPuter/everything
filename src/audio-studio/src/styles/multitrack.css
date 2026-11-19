@@ -957,6 +957,16 @@
   margin-top: 4px;
 }
 
+.prop-note {
+  margin: 4px 0 0;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+
+.prop-row > .input:disabled {
+  opacity: 0.55;
+}
+
 /* ----------------------------------------------------- touch and phone */
 
 @media (pointer: coarse) {

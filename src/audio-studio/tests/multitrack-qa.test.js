@@ -359,7 +359,8 @@ describe('properties panel', () => {
     doc.selectTrack(id);
     const el = sessionPropertySection(app, doc);
     const row = [...el.querySelectorAll('.prop-row')].find((r) => r.textContent.startsWith('Pan'));
-    expect(row.querySelector('.prop-value').textContent).toBe('-40');
+    // The pan field is editable and shows the value heard at the playhead.
+    expect(row.querySelector('input').value).toBe('-40');
   });
 });
 

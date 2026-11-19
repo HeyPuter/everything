@@ -5,7 +5,7 @@
 import { h } from '../lib/dom.js';
 import * as S from '../model/session-edits.js';
 import { parseTime } from '../lib/time.js';
-import { formatGain, parseGain } from './levels.js';
+import { formatGain, parseGain, parsePan } from './levels.js';
 import { METRONOME_SOUNDS, DEFAULT_METRONOME_SOUND } from './metronome-sounds.js';
 import { TIME_FORMATS } from '../lib/time.js';
 import { stretchOf, stretchActive } from '../model/clip-stretch.js';
@@ -86,6 +86,21 @@ export function sessionPropertySection(app, doc) {
     const [foutCurve, foutCurveId] = select([...CURVES, ...(curveValue(c.fadeOut.curve) === 'custom' ? [{ value: 'custom', label: 'Custom' }] : [])], curveValue(c.fadeOut.curve), (v) => v !== 'custom' && fade('out', 'Fade Out', { curve: Number(v), length: c.fadeOut.length || S.defaultFadeLength(c, doc.sampleRate) }));
     const [xf, xfId] = select([{ value: 'symmetric', label: 'Symmetrical' }, { value: 'asymmetric', label: 'Asymmetrical' }], c.crossfade, (v) => set('Crossfade Shape', { crossfade: v }));
     const src = doc.pool.get(c.sourceId);
+    // Start moves the clip; End and Duration trim its out point (a looped clip may run past its source).
+    const srcLen = () => doc.sourceLength(c.sourceId) || Infinity;
+    const [start, startId] = input(fmt(c.start), (v) => {
+      const f = parse(v);
+      if (Number.isFinite(f)) doc.apply('Move Clip', S.moveClips(doc.state, [c.id], Math.max(0, Math.round(f)) - c.start, 0));
+    }, { 'aria-label': 'Clip start', disabled: c.locked, title: c.locked ? 'The clip is locked in time' : '' });
+    const trimTo = (end) => {
+      if (!Number.isFinite(end) || end <= c.start) return;
+      doc.apply('Trim Clip', S.trimClip(doc.state, c.id, 'out', Math.round(end), srcLen()));
+    };
+    const [end, endId] = input(fmt(S.clipEnd(c)), (v) => trimTo(parse(v)), { 'aria-label': 'Clip end', disabled: c.locked });
+    const [dur, durId] = input(fmt(c.length), (v) => trimTo(c.start + parse(v)), { 'aria-label': 'Clip duration', disabled: c.locked });
+    const srcChannels = src?.channels?.length || src?.channelCount || 0;
+    const channelText = srcChannels === 1 ? 'Mono' : srcChannels === 2 ? 'Stereo' : srcChannels ? `${srcChannels} channels` : '';
+    const srcInfo = src && !src.offline ? [channelText, src.sampleRate ? `${src.sampleRate} Hz` : ''].filter(Boolean).join(', ') : '';
     sections.push(
       h(
         'section.prop-section',
@@ -93,8 +108,15 @@ export function sessionPropertySection(app, doc) {
         row('Name', name, nameId),
         row('Color', color, colorId),
         text('Source', src ? `${src.name}${src.offline ? ' (offline)' : ''}` : 'Missing'),
-        text('Start', fmt(c.start)),
-        text('Duration', fmt(c.length)),
+        srcInfo ? text('Source Format', srcInfo) : null,
+        src?.path ? h('div.prop-row', h('span.prop-label', 'Source Path'), h('span.prop-value', { title: src.path }, src.path)) : null,
+        row('Start', start, startId),
+        row('End', end, endId),
+        row('Duration', dur, durId),
+      ),
+      h(
+        'section.prop-section',
+        h('h3.prop-heading', 'Clip Settings'),
         row('Gain (dB)', gain, gainId),
         row('Fade In', fin, finId),
         row('Fade In Shape', finCurve, finCurveId),
@@ -118,6 +140,22 @@ export function sessionPropertySection(app, doc) {
     const outs = [{ value: 'master', label: t.type === 'master' ? 'Default Output' : 'Mix' }, ...state.tracks.filter((b) => b.type === 'bus' && b.id !== t.id && !S.wouldCycle(state, t.id, b.id)).map((b) => ({ value: b.id, label: b.name }))];
     const [out, outId] = select(outs, t.output || 'master', (v) => app.commands.run('mt.setTrackOutput', { id: t.id, output: v }));
     if (t.type === 'master') out.disabled = true;
+    // Volume and pan go through the track controls, so automation behaves as in the header.
+    const controls = doc.controls;
+    const level = (param) => (controls ? controls.value(t, param) : t[param]);
+    const setLevel = (param, v) => {
+      if (controls) controls.set(t.id, param, v, 'change');
+      else set(param === 'pan' ? 'Track Pan' : 'Track Volume', { [param]: v });
+    };
+    const [vol, volId] = input(formatGain(level('volume')), (v) => {
+      const g = parseGain(v);
+      if (Number.isFinite(g)) setLevel('volume', Math.max(S.SILENT_DB, Math.min(S.MAX_DB, g)));
+    }, { 'aria-label': 'Track volume in dB', inputmode: 'decimal' });
+    const [pan, panId] = t.type === 'master' ? [null, null] : input(String(Math.round(level('pan'))), (v) => {
+      const n = parsePan(v);
+      if (Number.isFinite(n)) setLevel('pan', Math.max(-100, Math.min(100, Math.round(n))));
+    }, { 'aria-label': 'Track pan, -100 left to 100 right', inputmode: 'decimal' });
+    const toggle = (key, label) => check(label, key === 'mute' && controls ? controls.muted(t) : Boolean(t[key]), (v) => (controls ? controls.toggle(t.id, key, v) : set(label, { [key]: v })));
     sections.push(
       h(
         'section.prop-section',
@@ -125,14 +163,28 @@ export function sessionPropertySection(app, doc) {
         row('Name', name, nameId),
         row('Color', color, colorId),
         text('Channels', t.channels === 1 ? 'Mono' : t.channels === 6 ? '5.1' : 'Stereo'),
-        text('Volume', formatGain(doc.controls ? doc.controls.value(t, 'volume') : t.volume)),
-        t.type !== 'master' ? text('Pan', String(Math.round(doc.controls ? doc.controls.value(t, 'pan') : t.pan))) : null,
+        row('Volume (dB)', vol, volId),
+        pan ? row('Pan', pan, panId) : null,
+        h('div.prop-checks', toggle('mute', 'Mute'), t.type !== 'master' ? toggle('solo', 'Solo') : null, t.type === 'audio' ? toggle('arm', 'Arm for Record') : null),
         row('Output', out, outId),
         row('Automation', mode, modeId),
         text('Effects', t.fx.some(Boolean) ? `${t.fx.filter(Boolean).length}${t.fxPower ? '' : ' (bypassed)'}` : 'None'),
       ),
     );
   }
+  // Tempo and meter: one undo step each; bars-and-beats displays follow them.
+  const setMusic = (label, patch) => {
+    doc.apply(label, { ...doc.state, ...patch });
+    for (const [k, v] of Object.entries(patch)) app.prefs.set(k, v);
+  };
+  const [tempo, tempoId] = input(String(state.tempo), (v) => {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) setMusic('Session Tempo', { tempo: Math.round(Math.max(20, Math.min(400, n)) * 100) / 100 });
+  }, { 'aria-label': 'Session tempo in beats per minute', inputmode: 'decimal' });
+  const [beats, beatsId] = input(String(state.beatsPerBar), (v) => {
+    const n = Math.round(Number(v));
+    if (Number.isFinite(n) && n > 0) setMusic('Time Signature', { beatsPerBar: Math.max(1, Math.min(16, n)) });
+  }, { 'aria-label': 'Beats per bar', inputmode: 'numeric' });
   sections.push(
     h(
       'section.prop-section',
@@ -142,7 +194,9 @@ export function sessionPropertySection(app, doc) {
       text('Duration', fmt(doc.length)),
       text('Sample Rate', `${doc.sampleRate} Hz`),
       text('Bit Depth', state.bitDepth === 32 ? '32 (float)' : String(state.bitDepth)),
-      text('Tempo', `${state.tempo} BPM, ${state.beatsPerBar}/4`),
+      row('Tempo (BPM)', tempo, tempoId),
+      row('Beats per Bar', beats, beatsId),
+      h('div.prop-checks', check('Crossfade overlapping clips', state.autoCrossfade !== false, (v) => doc.apply(v ? 'Automatic Crossfades On' : 'Automatic Crossfades Off', { ...doc.state, autoCrossfade: v }))),
       text('Tracks', String(state.tracks.length)),
       text('Clips', String(state.clips.length)),
     ),
