@@ -33,6 +33,22 @@ import { VideoLane } from '../video/video-lane.js';
 import { PEAK_BLOCK } from '../multitrack/recorder.js';
 import { laneInfo, laneParams, fxAutomationParams } from '../multitrack/fx-automation.js';
 
+/**
+ * Edge trim cursors: a bracket for the clip edge with an arrow both ways (white with a dark
+ * outline so they read on any clip). The fallback is the plain resize cursor.
+ */
+const svgCursor = (paths, hx, hy, fallback) => {
+  const draw = (stroke, width) => paths.map((d) => `<path d='${d}' fill='none' stroke='${stroke}' stroke-width='${width}' stroke-linecap='round' stroke-linejoin='round'/>`).join('');
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>${draw('black', 4)}${draw('white', 1.6)}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hx} ${hy}, ${fallback}`;
+};
+const TRIM_IN_CURSOR = svgCursor(['M10 4h-3v16h3', 'M13 12h8', 'M18 9l3 3-3 3', 'M3 12h4'], 7, 12, 'ew-resize');
+const TRIM_OUT_CURSOR = svgCursor(['M14 4h3v16h-3', 'M11 12H3', 'M6 9l-3 3 3 3', 'M21 12h-4'], 17, 12, 'ew-resize');
+const FADE_CURSOR = svgCursor(['M4 19C9 18 13 12 15 5', 'M15 5h5', 'M4 19h16'], 15, 5, 'pointer');
+
+/** Crossfade ends per clip list (see #fadeEnds). */
+const fadeEndCache = new WeakMap();
+
 /** Lane parameter descriptions per track state (tracks are immutable: a changed track is a new key). */
 const laneInfos = new WeakMap();
 import { TrackNav } from './track-nav.js';
@@ -502,6 +518,19 @@ export class MultitrackView {
     return (steps.find((s) => s / secPerPx >= 12) || 60) * rate;
   }
 
+  /** What a snapped frame lines up with, for the snap tag. */
+  #snapKind(frame) {
+    const doc = this.doc;
+    const near = (f) => Math.abs(f - frame) <= 1;
+    if (near(doc.cursor)) return 'Playhead';
+    if (frame === 0) return 'Start';
+    if (doc.hasSelection && (near(doc.selection.start) || near(doc.selection.end))) return 'Selection';
+    if (doc.state.markers.some((m) => near(m.start) || near(m.start + m.duration))) return 'Marker';
+    const moving = new Set(this.drag?.ids || (this.drag?.id ? [this.drag.id] : []));
+    if (doc.state.clips.some((c) => !moving.has(c.id) && (near(c.start) || near(S.clipEnd(c))))) return 'Clip';
+    return 'Grid';
+  }
+
   /** Snaps a frame; returns the frame (and records the snap line for display). */
   snap(frame, { exclude, force, off } = {}) {
     if (off || (!this.app.prefs.get('snapping') && !force)) return Math.round(frame);
@@ -786,6 +815,29 @@ export class MultitrackView {
     }
   }
 
+  /**
+   * A clip's fade ends as heard: { in, out } lengths (an overlap's for a crossfade), whether each
+   * end crossfades, the clip a crossfading fade-out pairs with, and whether that pair is symmetric.
+   */
+  #fadeEnds(c) {
+    const state = this.doc.viewState;
+    let cache = fadeEndCache.get(state.clips);
+    if (!cache || cache.auto !== state.autoCrossfade) {
+      cache = { auto: state.autoCrossfade, map: new Map() };
+      const byId = new Map(state.clips.map((x) => [x.id, x]));
+      for (const x of S.activeCrossfades(state)) {
+        const len = x.end - x.start;
+        const a = cache.map.get(x.out) || {};
+        const b = cache.map.get(x.in) || {};
+        cache.map.set(x.out, { ...a, xfOut: true, out: len, partnerIn: x.in, symOut: byId.get(x.in)?.crossfade !== 'asymmetric' });
+        cache.map.set(x.in, { ...b, xfIn: true, in: len });
+      }
+      fadeEndCache.set(state.clips, cache);
+    }
+    const e = cache.map.get(c.id) || {};
+    return { ...e, in: e.xfIn ? e.in : c.fadeIn.length, out: e.xfOut ? e.out : c.fadeOut.length };
+  }
+
   /** What a clip effect envelope's setting is (its clip's chain stands in for a track rack). */
   #clipInfo(c, param) {
     let byParam = laneInfos.get(c);
@@ -986,8 +1038,10 @@ export class MultitrackView {
         // handles show), and past a fade handle that sits further in.
         const pad = 10 + this.fadeInset;
         const handles = showFades && w > 18;
-        const hIn = x0 + Math.max(this.fadeInset, fadeIn / this.fpp);
-        const hOut = x1 - Math.max(this.fadeInset, fadeOut / this.fpp);
+        // Handles sit where the fades are heard: at the overlap's edges for a crossfade.
+        const ends = this.#fadeEnds(c);
+        const hIn = x0 + Math.max(this.fadeInset, ends.in / this.fpp);
+        const hOut = x1 - Math.max(this.fadeInset, ends.out / this.fpp);
         let tx = Math.max(0, x0) + pad;
         if (handles && hIn + 7 > tx - 4) tx = Math.max(tx, Math.min(hIn + 8, x0 + w * 0.5));
         const textEnd = handles && hOut - 7 < Math.min(W, x1) - pad ? Math.max(hOut - 8, x0 + w * 0.5) : Math.min(W, x1) - pad;
@@ -1064,6 +1118,13 @@ export class MultitrackView {
           // Clip gain readout; drag it up or down to change the gain.
           const g = formatGain(c.gain);
           const gw = ctx.measureText(g).width;
+          // Hovered or dragged, the readout shows it is a control (drag up or down, double-click for 0 dB).
+          if (this.hoverGain === c.id || (this.drag?.kind === 'gain' && this.drag.id === c.id)) {
+            ctx.strokeStyle = textColor;
+            ctx.globalAlpha = 0.8;
+            ctx.strokeRect(Math.round(textEnd - gw - 4) + 0.5, r.y + 1.5, Math.round(gw + 8), r.hb - 3);
+            ctx.fillStyle = textColor;
+          }
           ctx.globalAlpha = Math.abs(c.gain) >= 0.05 ? 1 : 0.55;
           ctx.fillText(g, textEnd - gw, r.y + r.hb / 2 + 0.5);
           ctx.globalAlpha = 1;
@@ -1071,8 +1132,22 @@ export class MultitrackView {
         ctx.restore();
         if (handles) {
           ctx.fillStyle = textColor;
-          ctx.fillRect(Math.round(hIn - 3), r.y + 4, 7, 7);
-          ctx.fillRect(Math.round(hOut - 4), r.y + 4, 7, 7);
+          // A crossfade's handle is a diamond: dragging it up or down shapes the crossfade.
+          const handle = (hx, xf) => {
+            if (!xf) {
+              ctx.fillRect(Math.round(hx - 3.5), r.y + 4, 7, 7);
+              return;
+            }
+            ctx.beginPath();
+            ctx.moveTo(hx, r.y + 3);
+            ctx.lineTo(hx + 4.5, r.y + 7.5);
+            ctx.lineTo(hx, r.y + 12);
+            ctx.lineTo(hx - 4.5, r.y + 7.5);
+            ctx.closePath();
+            ctx.fill();
+          };
+          handle(hIn, ends.xfIn);
+          handle(hOut, ends.xfOut);
         }
       }
       // Stretch handles: triangles in the top corners.
@@ -1200,6 +1275,16 @@ export class MultitrackView {
     }
     if (this.snapLine !== null && this.snapLine !== undefined) {
       const x = Math.round(this.xOf(this.snapLine)) + 0.5;
+      // What it snapped to, and when: a tag at the top of the line.
+      const tag = `${this.#snapKind(this.snapLine)} ${this.app.formatTime(this.snapLine, doc.sampleRate)}`;
+      const tw = ctx.measureText(tag).width + 10;
+      const tx0 = Math.max(2, Math.min(W - tw - 2, x + 4));
+      ctx.fillStyle = cssVar('--text-strong');
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(tx0, 2, tw, 16);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = cssVar('--bg-panel');
+      ctx.fillText(tag, tx0 + 5, 10.5);
       ctx.strokeStyle = cssVar('--text-strong');
       ctx.globalAlpha = 0.8;
       ctx.beginPath();
@@ -1468,9 +1553,10 @@ export class MultitrackView {
       }
       if (r.hb && y <= r.y + r.hb) {
         const handles = prefs.get('clipFadeHandles') !== false;
-        const hx1 = r.x1 - Math.max(this.fadeInset, c.fadeOut.length / this.fpp);
+        const ends = this.#fadeEnds(c);
+        const hx1 = r.x1 - Math.max(this.fadeInset, ends.out / this.fpp);
         if (handles) {
-          const hx0 = r.x0 + Math.max(this.fadeInset, c.fadeIn.length / this.fpp);
+          const hx0 = r.x0 + Math.max(this.fadeInset, ends.in / this.fpp);
           if (Math.abs(x - hx0) <= (touch ? 12 : 6)) return { ...hit, part: 'fadeIn' };
           if (Math.abs(x - hx1) <= (touch ? 12 : 6)) return { ...hit, part: 'fadeOut' };
         }
@@ -1516,14 +1602,16 @@ export class MultitrackView {
     if (tool === 'razor' && hit.clip) return 'crosshair';
     switch (hit.part) {
       case 'edgeIn':
+        return hit.clip?.locked ? 'not-allowed' : TRIM_IN_CURSOR;
       case 'edgeOut':
-        return 'ew-resize';
+        return hit.clip?.locked ? 'not-allowed' : TRIM_OUT_CURSOR;
       case 'stretchIn':
         return 'nw-resize';
       case 'stretchOut':
         return 'ne-resize';
       case 'fadeIn':
       case 'fadeOut':
+        return FADE_CURSOR;
       case 'key':
       case 'autoKey':
         return 'pointer';
@@ -1705,6 +1793,11 @@ export class MultitrackView {
       if (!this.drag) {
         const hit = this.hitTest(x, y);
         s.style.cursor = this.#cursorFor(hit, e);
+        const gainId = hit.part === 'gain' ? hit.clip.id : null;
+        if (gainId !== (this.hoverGain || null)) {
+          this.hoverGain = gainId;
+          this.invalidate('overlay');
+        }
         const razor = this.app.tool === 'razor' && hit.clip ? { razorX: this.xOf(this.snap(this.frameAt(x), { off: e.metaKey || e.ctrlKey })), row: hit.row, all: e.shiftKey } : null;
         if (razor || this.hover?.razorX != null) {
           this.hover = razor;
@@ -1735,7 +1828,19 @@ export class MultitrackView {
     s.addEventListener('lostpointercapture', (e) => {
       if (this.drag) finish(e, false);
     });
+    // Double-click on a clip's gain readout: back to 0 dB.
+    s.addEventListener('dblclick', (e) => {
+      const { x, y } = this.#local(e);
+      const hit = this.hitTest(x, y);
+      if (hit.part !== 'gain' || !hit.clip.gain) return;
+      this.doc.apply('Clip Gain', S.updateClips(this.doc.state, [hit.clip.id], { gain: 0 }));
+      announce('Clip gain 0 dB');
+    });
     s.addEventListener('pointerleave', () => {
+      if (this.hoverGain) {
+        this.hoverGain = null;
+        this.invalidate('overlay');
+      }
       if (this.hover) {
         this.hover = null;
         this.invalidate('overlay');
@@ -1894,13 +1999,25 @@ export class MultitrackView {
       case 'fadeIn':
       case 'fadeOut':
         {
-          const fc = hit.part === 'fadeIn' ? c.fadeIn : c.fadeOut;
+          const dir = hit.part === 'fadeIn' ? 'in' : 'out';
+          const ends = this.#fadeEnds(c);
+          if (dir === 'in' ? ends.xfIn : ends.xfOut) {
+            // A crossfade keeps the overlap as its length: its handle shapes it. A symmetric
+            // crossfade's shape is the incoming clip's fade-in.
+            const target = dir === 'in' || ends.symOut ? { id: dir === 'in' ? c.id : ends.partnerIn, dir: 'in' } : { id: c.id, dir: 'out' };
+            const tc = S.findClip(doc.state, target.id);
+            const curve0 = (target.dir === 'in' ? tc.fadeIn : tc.fadeOut).curve;
+            this.drag = { ...base, kind: 'xfade', id: target.id, dir: target.dir, curve0 };
+            return;
+          }
+          const fc = dir === 'in' ? c.fadeIn : c.fadeOut;
           // A new fade (from zero length) starts with the default curve from Preferences > General.
-          this.drag = { ...base, kind: 'fade', id: c.id, dir: hit.part === 'fadeIn' ? 'in' : 'out', curve0: fc.length > 0 ? fc.curve : defaultFadeCurve(this.app) };
+          this.drag = { ...base, kind: 'fade', id: c.id, dir, curve0: fc.length > 0 ? fc.curve : defaultFadeCurve(this.app) };
         }
         return;
       case 'gain':
-        this.drag = { ...base, kind: 'gain', id: c.id, gain0: c.gain };
+        // With several clips selected, they all change by the same amount.
+        this.drag = { ...base, kind: 'gain', id: c.id, gain0: c.gain, gains: new Map(doc.clipSelection.map((x) => [x.id, x.gain])) };
         return;
       case 'key':
       case 'line': {
@@ -1945,6 +2062,7 @@ export class MultitrackView {
     }
     const ids = [...doc.selectedClips];
     this.drag = { ...base, kind: 'move', ids, lead: c, rowIndex: this.#audioIndex(hit.row.id), copy: false };
+    this.surface.style.cursor = 'grabbing';
   }
 
   /**
@@ -2102,9 +2220,22 @@ export class MultitrackView {
         this.#status(`Fade ${d.dir === 'in' ? 'In' : 'Out'} ${this.app.formatTime(fc.length, doc.sampleRate)}`);
         break;
       }
+      case 'xfade': {
+        // Up bows the curves out (faster in), down bows them in; snaps to linear near the middle.
+        const base0 = d.curve0 === 2 ? 0 : d.curve0;
+        let curve = Math.max(-1, Math.min(1, base0 + (d.y0 - y) / 80));
+        if (Math.abs(curve) < 0.04) curve = 0;
+        doc.preview(S.setFade(d.state0, [d.id], d.dir, { curve: Math.round(curve * 100) / 100 }));
+        this.#status(`Crossfade shape ${curve === 0 ? 'linear' : curve > 0 ? `logarithmic ${Math.round(curve * 100)}%` : `exponential ${Math.round(-curve * 100)}%`}`);
+        break;
+      }
       case 'gain': {
-        const g = Math.max(-48, Math.min(24, Math.round((d.gain0 + (d.y0 - y) * 0.1) * 10) / 10));
-        doc.preview(S.updateClips(d.state0, [d.id], { gain: g }));
+        // 0.1 dB per pixel, ten times finer with Shift.
+        const delta = (d.y0 - y) * (e.shiftKey ? 0.01 : 0.1);
+        const clamp = (v) => Math.max(-48, Math.min(24, Math.round(v * 100) / 100));
+        const g = clamp(d.gain0 + delta);
+        const others = [...(d.gains || [])].filter(([id]) => id !== d.id);
+        doc.preview(S.updateClips(d.state0, [d.id, ...others.map(([id]) => id)], (x) => ({ gain: x.id === d.id ? g : clamp(d.gains.get(x.id) + delta) })));
         this.#status(`Clip Gain ${formatGain(g)}`);
         break;
       }
@@ -2253,7 +2384,7 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.info ? `${d.info.short} Envelope` : d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
+    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', xfade: 'Crossfade Shape', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.info ? `${d.info.short} Envelope` : d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
