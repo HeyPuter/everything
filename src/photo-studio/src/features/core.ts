@@ -444,6 +444,8 @@ async function shortcutsDialog(e: Editor) {
     row('Pan the view', 'Space drag'),
     row('Zoom the view', `${alt} scroll, ${mod} scroll`),
     row('Nudge with the Move tool (Shift: 10 px)', '← ↑ → ↓'),
+    row('Move a copy of the layers with the Move tool', `${alt} drag`),
+    row('Keep a move horizontal or vertical (press during the drag)', 'Shift'),
     row('Nudge the selected light of a relight layer (Shift: 10 px)', '← ↑ → ↓'),
     row('Show or hide the lights of the selected relight layer', 'N'),
     row('Commit / cancel a transform or edit', 'Enter / Esc'),

@@ -1,5 +1,7 @@
 import type { Editor } from '../editor';
-import { selectedRoots, assertEditable } from '../model/layers';
+import { selectedRoots, assertEditable, placeDuplicates } from '../model/layers';
+import { placeDuplicateArtboards } from '../model/artboard';
+import { cloneLayer } from './actions';
 import { hitLayer } from './hit-test';
 import { syncTransformFields } from '../features/panels/layer-properties';
 import { snapMove, smartGuidesSvg, snapOptions, type MoveGuides } from '../features/view-extras';
@@ -50,6 +52,8 @@ type Drag = {
   automatic: boolean;
   // The frame of the latest pointer position.
   next?: Transform;
+  // Alt-drag with the Move tool moves copies; the layers selected before.
+  duplicatedFrom?: string[];
 };
 // Dragging selected pixels with the Move tool: they float above the rest of
 // the layer and are put back, moved by whole pixels, when the button is released.
@@ -199,9 +203,13 @@ export class FreeTransform {
     this.guides = {};
     this.e.update();
   }
-  private stopDrag() {
+  private stopDrag(keepCopies = false) {
     hideReadout();
     const pointer = this.drag?.pointer;
+    // Copies made by an Alt-drag that are not committed (never moved, or
+    // cancelled): the originals stay selected.
+    const from = this.drag?.duplicatedFrom;
+    if (from && !keepCopies) this.e.selectLayers(from);
     this.drag = undefined;
     const viewport = this.e.el('#viewport');
     if (pointer !== undefined && viewport.hasPointerCapture(pointer))
@@ -426,6 +434,17 @@ export class FreeTransform {
       if (handle && !this.begin()) return;
       const before = structuredClone(this.document ?? this.e.doc);
       this.moving = undefined;
+      // Alt-drag with the Move tool moves a copy of the layers: the copies
+      // join the document only if the drag moves them (one undo step).
+      let duplicatedFrom: string[] | undefined;
+      if (!handle && !this.active && event.altKey && this.e.tool === 'move') {
+        const roots = selectedRoots(before.layers, this.e.selectedIds);
+        const copies = roots.map(cloneLayer);
+        placeDuplicates(before, roots, copies);
+        placeDuplicateArtboards(before, copies);
+        duplicatedFrom = [...this.e.selectedIds];
+        this.e.selectLayers(copies.map((l) => l.id));
+      }
       this.drag = {
         pointer: event.pointerId,
         start: p,
@@ -433,6 +452,7 @@ export class FreeTransform {
         handle: handle ?? 'move',
         before,
         automatic: !this.active,
+        duplicatedFrom,
       };
       if (!request.ended) viewport.setPointerCapture(event.pointerId);
       viewport.focus({ preventScroll: true });
@@ -463,6 +483,11 @@ export class FreeTransform {
       let next = { ...drag.transform };
       this.guides = {};
       if (drag.handle === 'move') {
+        // Shift keeps the move horizontal or vertical.
+        if (event.shiftKey) {
+          if (Math.abs(delta[0]) >= Math.abs(delta[1])) delta[1] = 0;
+          else delta[0] = 0;
+        }
         next.x += delta[0];
         next.y += delta[1];
         // Alignment guides and View > Snap To targets; Alt moves freely.
@@ -549,7 +574,7 @@ export class FreeTransform {
       }
       const drag = this.drag;
       if (!drag || drag.pointer !== event.pointerId) return;
-      this.stopDrag();
+      this.stopDrag(!cancel && drag.automatic && !!this.moving);
       this.guides = {};
       if (cancel) {
         if (this.session) {
@@ -570,7 +595,7 @@ export class FreeTransform {
       } else if (drag.automatic && this.moving) {
         const doc = this.moving;
         const ids = new Set(this.e.selectedIds);
-        this.e.command('Move layers', (d) => {
+        this.e.command(drag.duplicatedFrom ? 'Duplicate and Move' : 'Move layers', (d) => {
           Object.assign(d, doc);
           afterMove(d, ids);
         });
