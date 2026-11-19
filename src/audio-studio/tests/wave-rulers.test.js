@@ -320,3 +320,28 @@ describe('waveform context menu', () => {
     expect(zero.submenu).toContain('zero.outward');
   });
 });
+
+describe('overview wheel', () => {
+  it('zooms around the frame under the pointer', async () => {
+    const { overviewZoom } = await import('../src/editor/overview.js');
+    expect(overviewZoom({ start: 0, end: 1000 }, 0.5, 500, 1000)).toEqual({ start: 250, end: 750 });
+    expect(overviewZoom({ start: 0, end: 1000 }, 0.5, 0, 1000)).toEqual({ start: 0, end: 500 });
+    // A point past the view zooms around the nearer edge.
+    expect(overviewZoom({ start: 0, end: 500 }, 0.5, 900, 1000)).toEqual({ start: 250, end: 500 });
+    expect(overviewZoom({ start: 0, end: 500 }, 4, 0, 1000)).toEqual({ start: 0, end: 1000 });
+  });
+
+  it('zooms and scrolls the editor view from the navigator', async () => {
+    const { doc, view } = await makeView();
+    const ov = view.overview;
+    ov.width = 1000;
+    ov.el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 20 });
+    doc.setView(0, 48000);
+    ov.el.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: 500, bubbles: true, cancelable: true }));
+    const v = doc.view;
+    expect(v.end - v.start).toBeLessThan(48000);
+    expect((v.start + v.end) / 2).toBeCloseTo(24000, -2);
+    ov.el.dispatchEvent(new WheelEvent('wheel', { deltaX: 100, bubbles: true, cancelable: true }));
+    expect(doc.view.start).toBeGreaterThan(v.start);
+  });
+});
