@@ -1099,7 +1099,8 @@
   padding: 0 13px 0 3px;
   background-position: calc(100% - 2px) 50%;
 }
-.mx-send-pre {
+.mx-send-pre,
+.mx-fx-post {
   width: auto;
   padding: 0 3px;
   font-size: 9px;

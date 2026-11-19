@@ -231,6 +231,8 @@ export function createTrack(o = {}) {
     output: type === 'master' ? null : o.output || 'master',
     fx: o.fx ? o.fx.map((s) => (s ? { ...s, values: { ...(s.values || {}) } } : null)) : [],
     fxPower: o.fxPower ?? true,
+    // Effects after the track volume and pan (post-fader) instead of before.
+    fxPost: Boolean(o.fxPost),
     fxIn: o.fxIn ?? 0,
     fxOut: o.fxOut ?? 0,
     fxMix: o.fxMix ?? 1,

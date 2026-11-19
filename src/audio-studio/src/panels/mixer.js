@@ -110,6 +110,7 @@ class Strip {
     this.mode = h('select.select.mx-select.mx-mode', { 'aria-label': 'Automation mode', title: 'Automation Mode' }, AUTOMATION_MODES.map((m) => h('option', { value: m.id }, m.label)));
     this.mode.addEventListener('change', () => app.commands.run('mt.setAutomationMode', { id: this.id, mode: this.mode.value }));
     this.fxPower = h('button.mt-tb.mt-tb-fx', { type: 'button', 'aria-label': 'Effects power', title: 'Effects Power', 'aria-pressed': 'true', onclick: () => c().toggle(this.id, 'fxPower') }, icon('power', 12));
+    this.fxPost = isMaster ? null : h('button.mt-tb.mx-fx-post', { type: 'button', 'aria-label': 'Post-fader effects', title: 'Post-Fader (effects after the track volume and pan)', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'fxPost') }, 'Post');
     this.fxEdit = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Edit effects', title: 'Edit Effects', onclick: () => app.commands.run('mt.trackEffects', { id: this.id }) }, icon('fx', 13));
     this.pan = isMaster ? null : knob({ value: 0, min: -100, max: 100, step: 1, defaultValue: 0, bipolar: true, label: 'Pan', format: formatPan, size: 26, onInput: (v) => c().set(this.id, 'pan', v, 'input'), onChange: (v) => c().set(this.id, 'pan', v, 'change') });
     this.panText = h('span.mx-pan-text', 'C');
@@ -133,7 +134,7 @@ class Strip {
       // Sections the gutter can collapse (data-sec); the master keeps empty
       // ones so its controls line up with the tracks'.
       h('div.mx-sec', { dataset: { sec: 'io' } }, h('div.mx-io', h('div.mx-io-top', this.invert), this.input ? h('label.mx-io-row', icon('log-in', 12), this.input) : h('div.mx-io-row.placeholder', { 'aria-hidden': 'true' }), h('label.mx-io-row', icon('log-out', 12), this.output))),
-      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', h('span', 'Effects'), h('div.spacer'), this.fxPower, this.fxEdit), this.fxRows),
+      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', h('span', { title: 'Effects' }, 'FX'), h('div.spacer'), this.fxPower, this.fxPost, this.fxEdit), this.fxRows),
       h('div.mx-sec', { dataset: { sec: 'sends' } }, this.sends?.el),
       h('div.mx-sec', { dataset: { sec: 'eq' } }, this.eq.el),
       h('div.mx-panrow', this.pan, this.pan ? this.panText : null),
@@ -157,6 +158,7 @@ class Strip {
     for (const [b, k] of [[this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) b?.setAttribute('aria-pressed', String(Boolean(track[k])));
     this.mode.value = track.mode;
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
+    this.fxPost?.setAttribute('aria-pressed', String(Boolean(track.fxPost)));
     if (this.input) {
       this.input.replaceChildren(h('option', { value: 'none' }, 'None'), h('option', { value: 'default' }, track.channels === 1 ? 'Default Mono Input' : 'Default Stereo Input'));
       this.input.value = track.input;

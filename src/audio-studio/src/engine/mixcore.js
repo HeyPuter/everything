@@ -6,6 +6,7 @@
 //   { rate, master: { gain, fx }, tracks: [
 //       { id, gain, pan, mute, solo, volumeEnv?, panEnv?, fx?: [slot],
 //         bus?, output?, sends?: [{ target, gain, pan, pre, gainEnv? }], soloSafe?, mono?,
+//         fxPost? (effects after volume and pan; stereo tracks),
 //         clips: [{ id, source, channels, start, offset, length, gain,
 //                   fadeIn, fadeInCurve, fadeOut, fadeOutCurve, fadeInOffset?, fadeOutOffset?, mute, gainEnv?,
 //                   panEnv?, base?, full?, fx?: [slot], fxTail? }] } ] }
@@ -711,9 +712,11 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
         R[i] = -R[i];
       }
     }
+    // Post-fader effects run after the volume and pan (and before post-fader sends).
+    const postFx = Boolean(track.fxPost && track.fx && track.fx.length && runFx);
     if (track.fx && track.fx.length && runFx) {
       // Effect automation is read where the track's audio is (latency compensation runs it ahead).
-      runChain(track, tbuf, frames, scratch, runFx, pos + (track.envShift || 0));
+      if (!postFx) runChain(track, tbuf, frames, scratch, runFx, pos + (track.envShift || 0));
       active = true;
     }
     if (!active) {
@@ -752,6 +755,17 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       const ar = r < 0 ? -r : r;
       if (al > pkL) pkL = al;
       if (ar > pkR) pkR = ar;
+    }
+    if (postFx) {
+      runChain(track, tbuf, frames, scratch, runFx, at);
+      pkL = 0;
+      pkR = 0;
+      for (let i = 0; i < frames; i++) {
+        const al = L[i] < 0 ? -L[i] : L[i];
+        const ar = R[i] < 0 ? -R[i] : R[i];
+        if (al > pkL) pkL = al;
+        if (ar > pkR) pkR = ar;
+      }
     }
     if (meters) meters.set(track.id, [pkL, pkR]);
     if (!audible) {

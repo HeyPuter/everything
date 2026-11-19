@@ -113,7 +113,8 @@ export class TrackHeader {
       this.inputSel ? h('div.mt-th-io-row', h('span.mt-th-glyph', { title: 'Input' }, icon('log-in', 12)), this.inputSel, this.invert) : null,
       h('div.mt-th-io-row', h('span.mt-th-glyph', { title: 'Output' }, icon('log-out', 12)), this.outputSel, this.inputSel ? null : this.invert),
     );
-    this.rowFx = h('div.mt-th-row.mt-th-r3.mt-th-fx', this.fxList, this.fxEdit);
+    this.fxPost = isMaster ? null : h('button.mt-tb.mx-fx-post', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Post-fader effects', title: 'Post-Fader (effects after the track volume and pan)', onclick: () => controls().toggle(this.id, 'fxPost') }, 'Post');
+    this.rowFx = h('div.mt-th-row.mt-th-r3.mt-th-fx', this.fxList, this.fxPost, this.fxEdit);
     this.sendCtl = isMaster ? null : new SendControls(app, doc, track.id, { compact: true });
     this.eqCtl = new EqControls(app, doc, track.id, { compact: true });
     this.rowSends = h('div.mt-th-row.mt-th-r3.mt-th-sendrow', this.sendCtl ? this.sendCtl.el : h('span.faint', 'No sends on the master'));
@@ -277,6 +278,7 @@ export class TrackHeader {
       if (btn) btn.setAttribute('aria-pressed', String(Boolean(track[key])));
     }
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
+    this.fxPost?.setAttribute('aria-pressed', String(Boolean(track.fxPost)));
     const fx = track.fx.filter(Boolean);
     this.fxPower.hidden = !fx.length;
     this.updateValues();

@@ -491,3 +491,28 @@ describe('track EQ automation', () => {
     expect(eq.paramEnv).toEqual([{ index, points: [{ t: 0, v: first.min }, { t: 100, v: first.max }] }]);
   });
 });
+
+describe('post-fader effects', () => {
+  it('runs the chain after the track volume', async () => {
+    const { renderBlock, ChunkStore, createScratch, CHUNK } = await import('../src/engine/mixcore.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    st = S.updateTrack(st, id, { volume: -6, fx: [{ id: 'sA', effect: 'amplify', values: {}, enabled: true }] });
+    const ch = Channel.fromSamples(new Float32Array(2000).fill(0.5));
+    st = S.addClips(st, [S.createClip({ trackId: id, sourceId: 'src', start: 0, length: 2000 })]);
+    const order = [];
+    const run = (post) => {
+      const { graph, sources } = buildSessionGraph(S.updateTrack(st, id, { fxPost: post }), new Map([['src', { channels: [ch, ch] }]]));
+      expect(Boolean(graph.tracks[0].fxPost)).toBe(post);
+      const store = new ChunkStore();
+      for (const [key, chs] of sources) store.put(key, 0, chs.map((c) => c.toArray(0, Math.min(CHUNK, c.length))));
+      const out = [new Float32Array(128), new Float32Array(128)];
+      // A stand-in effect that records the level it sees.
+      renderBlock(graph, store, 0, 128, out, createScratch(128), { runFx: (chain, buf) => order.push(buf[0][10]) });
+      return order.pop();
+    };
+    // Pre-fader the effect gets the clip as it is; post-fader, after -6 dB.
+    expect(run(false)).toBeCloseTo(0.5, 3);
+    expect(run(true)).toBeLessThan(0.3);
+  });
+});

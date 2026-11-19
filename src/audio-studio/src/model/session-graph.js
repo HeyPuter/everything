@@ -351,6 +351,8 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
     if (t.output && t.output !== 'master' && busIds.has(t.output) && t.output !== t.id) gt.output = t.output;
     // Track EQ runs after the effects chain, whatever the chain's power state.
     if (t.eq?.on) gt.fx = [...gt.fx, ...eqSpecs(t, rateDoc)];
+    // Post-fader: the effects (and the EQ after them) follow the volume and pan.
+    if (t.fxPost && gt.fx.length && !gt.six) gt.fxPost = true;
     const sends = (t.sends || []).map((x, i) => [x, sendParam(i)]).filter(([x]) => x.on && x.target !== t.id && busIds.has(x.target));
     if (sends.length) {
       gt.sends = sends.map(([x, param]) => {
