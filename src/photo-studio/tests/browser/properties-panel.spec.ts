@@ -376,3 +376,24 @@ test('artboard fields commit one step after the editor remounts', async ({ page 
   await idle(page);
   expect((await historyLabels(page)).length).toBe(before + 1);
 });
+
+test('a pixel layer masked with Hide All shows the mask controls, not Add layer mask', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 200, 150, '#808080');
+  await panel(page, 'Properties');
+  await page.evaluate(() => window.photoStudio.runCommand('layer.mask-hide-all'));
+  await idle(page);
+  expect(await page.evaluate(() => !!window.photoStudio.layer?.maskGrid)).toBe(true);
+  const mask = props(page).getByRole('region', { name: 'Mask' });
+  await expect(mask.getByRole('button', { name: 'Add layer mask' })).toHaveCount(0);
+  await mask.getByRole('button', { name: 'Disable', exact: true }).click();
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.layer?.maskDisabled)).toBe(true);
+  await expect(mask.getByRole('button', { name: 'Enable', exact: true })).toBeVisible();
+  await mask.getByRole('button', { name: 'Remove mask', exact: true }).click();
+  await idle(page);
+  expect(await page.evaluate(() => !!window.photoStudio.layer?.maskGrid)).toBe(false);
+  await expect(mask.getByRole('button', { name: 'Add layer mask' })).toBeVisible();
+});
