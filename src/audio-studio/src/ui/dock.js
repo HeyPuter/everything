@@ -114,7 +114,12 @@ export class Dock extends Emitter {
     const w = Math.round(Math.max(260, Math.min(480, r?.width || 320)));
     const hgt = Math.round(Math.max(200, Math.min(420, r?.height || 260)));
     const n = this.floats.length;
-    this.floats.push({ group: { t: 'group', tabs, a: frame ? (tabs.includes(panelId) ? panelId : tabs[0]) : panelId }, x: Math.round((r?.left ?? 80) + 24 + n * 16), y: Math.round((r?.top ?? 80) + 24 + n * 16), w, h: hgt });
+    // Near the frame it left, whole inside the window.
+    const vw = window.innerWidth || 1024;
+    const vh = window.innerHeight || 768;
+    const x = Math.max(4, Math.min((r?.left ?? 80) + 24 + n * 16, vw - w - 4));
+    const y = Math.max(4, Math.min((r?.top ?? 80) + 24 + n * 16, vh - hgt - 4));
+    this.floats.push({ group: { t: 'group', tabs, a: frame ? (tabs.includes(panelId) ? panelId : tabs[0]) : panelId }, x: Math.round(x), y: Math.round(y), w, h: hgt });
     if (this.maximized === g) this.maximized = null;
     this.#tidy();
     this.render();
