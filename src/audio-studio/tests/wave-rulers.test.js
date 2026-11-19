@@ -588,3 +588,18 @@ describe('markers on the ruler', () => {
     expect(view.selectedMarkers.has(range.id)).toBe(true);
   });
 });
+
+describe('snap distances', () => {
+  it('ruler ticks pull from 4 px, markers from 8 px', async () => {
+    const { app, doc, view } = await makeView();
+    const { createMarker } = await import('../src/model/markers.js');
+    app.prefs.set('snapping', true);
+    app.prefs.set('snap', { ruler: true, rulerFine: false, markers: true, zero: false, frames: false });
+    doc.setView(0, 48000); // 48 frames per px
+    // 6 px from the 0.5 s tick: kept; 3 px: snapped.
+    expect(view.snap(24000 + 6 * 48)).toBe(24288);
+    expect(view.snap(24000 + 3 * 48)).toBe(24000);
+    doc.apply('Marker', { ...doc.state, markers: [createMarker({ start: 30000, name: 'M' })] });
+    expect(view.snap(30000 + 6 * 48)).toBe(30000);
+  });
+});

@@ -615,9 +615,12 @@ export class WaveformView {
     const tol = this.fpp * 8;
     let best = Math.round(frame);
     let bestD = tol;
-    const consider = (f) => {
+    // Ruler ticks and video frames sit everywhere, so they pull from half as far as
+    // markers and edges: a drag at a wide zoom keeps the time it was let go at.
+    const gridTol = this.fpp * 4;
+    const consider = (f, max = tol) => {
       const d = Math.abs(f - frame);
-      if (d < bestD) {
+      if (d < bestD && d < max) {
         bestD = d;
         best = f;
       }
@@ -635,19 +638,19 @@ export class WaveformView {
       const rate = this.doc.sampleRate;
       if (prefs.get('timeFormat') === 'bars') {
         const step = musicalStep(this.fpp, rate, this.app.timeOptions(), snap.rulerFine ? 3 : 12);
-        consider(firstSampleOf(Math.round(frame / step) * step));
+        consider(firstSampleOf(Math.round(frame / step) * step), gridTol);
       } else {
         const secPerPx = this.fpp / rate;
         const steps = [0.001, 0.01, 0.1, 0.5, 1, 5, 10, 30, 60];
         // Coarse snaps to labelled ticks; fine to ticks about 3 px apart.
         const step = steps.find((s) => s / secPerPx >= (snap.rulerFine ? 3 : 12)) || 60;
-        consider(Math.round(frame / rate / step) * step * rate);
+        consider(Math.round(frame / rate / step) * step * rate, gridTol);
       }
     }
     const fps = snap.frames ? framesPerSecond(this.app.prefs) : 0;
     if (fps) {
       const step = this.doc.sampleRate / fps;
-      consider(firstSampleOf(Math.round(frame / step) * step));
+      consider(firstSampleOf(Math.round(frame / step) * step), gridTol);
     }
     if (snap.zero && bestD === tol) {
       // The sum of the channels enabled for editing, as Adjust Selection to Zero Crossings uses.
