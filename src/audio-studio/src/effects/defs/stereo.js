@@ -14,8 +14,8 @@ registerEffect({
   group: GROUP,
   kind: 110,
   params: [
-    num('centerPan', 'Center Channel Pan', -100, 100, 0, '', { step: 1 }),
-    pct('width', 'Stereo Width', 100, { max: 300 }),
+    num('centerPan', 'Center Channel Pan', -100, 100, 0, '', { step: 1, ends: ['Left', 'Right'] }),
+    pct('width', 'Stereo Width', 100, { max: 300, ends: ['Narrow', 'Wide'] }),
     db('gain', 'Output Gain', -24, 12, 0),
   ],
   presets: [
