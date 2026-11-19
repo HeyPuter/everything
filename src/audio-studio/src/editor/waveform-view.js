@@ -895,20 +895,25 @@ export class WaveformView {
   /** Amplitude ruler: right-click for units, wheel or vertical drag to zoom, double-click to reset. */
   #bindAmpRuler() {
     const el = this.amp;
+    // Only the amplitude ruler itself: layers (the spectral display's frequency ruler)
+    // and the channel buttons share this column and handle their own events.
+    const mine = (e) => e.target === el || e.target === this.ampCanvas;
     el.addEventListener('contextmenu', (e) => {
+      if (!mine(e)) return;
       e.preventDefault();
       this.app.openMenu(this.ampMenuItems(), { x: e.clientX, y: e.clientY, label: 'Amplitude ruler' });
     });
     el.addEventListener(
       'wheel',
       (e) => {
+        if (!mine(e)) return;
         e.preventDefault();
         this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -(e.deltaY || e.deltaX)));
       },
       { passive: false },
     );
     el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || e.target.closest('.channel-btn')) return;
+      if (e.button !== 0 || !mine(e)) return;
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       const y0 = e.clientY;
@@ -924,7 +929,7 @@ export class WaveformView {
       el.addEventListener('pointercancel', up);
     });
     el.addEventListener('dblclick', (e) => {
-      if (!e.target.closest('.channel-btn')) this.doc.setAmp(1);
+      if (mine(e)) this.doc.setAmp(1);
     });
   }
 

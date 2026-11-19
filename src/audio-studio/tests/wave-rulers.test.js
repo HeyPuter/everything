@@ -105,6 +105,19 @@ describe('amplitude ruler', () => {
     expect(doc.view.amp).toBe(1);
   });
 
+  it('leaves events from other rulers in the same column (the spectral ruler) alone', async () => {
+    const { doc, view } = await makeView();
+    doc.setAmp(2);
+    const other = document.createElement('div');
+    view.amp.append(other);
+    other.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    other.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, bubbles: true, cancelable: true }));
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    other.dispatchEvent(menu);
+    expect(doc.view.amp).toBe(2);
+    expect(menu.defaultPrevented).toBe(false);
+  });
+
   it('does not zoom when a channel button is double-clicked', async () => {
     const { doc, view } = await makeView();
     doc.setAmp(2);

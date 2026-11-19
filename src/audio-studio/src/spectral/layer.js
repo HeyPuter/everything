@@ -767,6 +767,11 @@ export class SpectralLayer {
       { passive: false },
     );
     el.addEventListener('dblclick', () => this.svc.resetFrequency(this.doc));
+    // Right-click: the display settings (scale, resolution, range, zoom).
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.app.openMenu(spectralMenuItems(this.app), { x: e.clientX, y: e.clientY, label: 'Spectral display settings' });
+    });
     el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
