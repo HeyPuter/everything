@@ -77,6 +77,18 @@
   display: none;
 }
 
+/* Related buttons stay together when a narrow frame wraps the row. */
+.button-cluster {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.button-panel-row:has(> .button-cluster) {
+  column-gap: 10px;
+  row-gap: 4px;
+}
+
 .tool-panel-btn {
   width: 30px;
   height: 30px;
