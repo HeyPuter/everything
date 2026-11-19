@@ -503,3 +503,28 @@ describe('vertical amplitude scroll', () => {
     expect(doc.view.ampOffset).toBeGreaterThan(0);
   });
 });
+
+describe('Mix Paste dialog details', () => {
+  it('shows the crossfade as a time and reads it back, with a 0-200 % scale under the sliders', async () => {
+    const { app, doc } = await makeView();
+    const { Channel } = await import('../src/audio/channel.js');
+    const { mixPasteDialog } = await import('../src/commands/edit-dialogs.js');
+    app.clipboards = [{ type: 'audio', sampleRate: 48000, channels: [Channel.silence(4800), Channel.silence(4800)] }, null, null, null, null];
+    app.clipboardIndex = 0;
+    app.prefs.set('mixPasteSettings', { crossfade: true, crossfadeMs: 50 });
+    const p = mixPasteDialog(app, { doc, conformRate: async (c) => c });
+    const xf = document.querySelector('.dialog input[aria-label="Crossfade length"]');
+    expect(xf.value).toBe(app.formatTime(2400, 48000));
+    expect([...document.querySelectorAll('.dialog .mixpaste-scale')][0].textContent).toBe('050100150200');
+    const range = document.querySelector('.dialog input[aria-label="Copied Audio volume"]');
+    range.value = '40';
+    range.dispatchEvent(new MouseEvent('dblclick'));
+    expect(range.value).toBe('100');
+    xf.value = '0:00.120';
+    xf.dispatchEvent(new Event('change'));
+    [...document.querySelectorAll('.dialog button')].find((b) => b.textContent === 'Cancel').click();
+    await p;
+    // Cancel keeps the saved settings; the field itself normalised the typed time.
+    expect(xf.value).toBe(app.formatTime(5760, 48000));
+  });
+});

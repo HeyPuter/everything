@@ -11,6 +11,7 @@ import { decodeAudio, AUDIO_ACCEPT } from '../audio/decode.js';
 import { pickLocalFiles } from '../storage/files.js';
 import { DITHER_MODES, Quantizer } from '../audio/quantize.js';
 import { COMMON_RATES } from '../export/formats.js';
+import { parseTime } from '../lib/time.js';
 
 const clampNum = (v, lo, hi, d) => {
   const n = Number(v);
@@ -105,19 +106,31 @@ const fmtSeconds = (frames, rate) => `${(frames / rate).toFixed(3)} s`;
 /** Mix Paste from one of the clipboards or from an audio file on this device. */
 export async function mixPasteDialog(app, { doc, conformRate }) {
   const saved = { ...MIX_PASTE_DEFAULTS, ...(app.prefs.get('mixPasteSettings') || {}) };
+  // Volume sliders with a 0-200 % scale under them; double-click a slider for 100 %.
+  const ticks = h('datalist', { id: 'mixpaste-ticks' }, ...[0, 25, 50, 75, 100, 125, 150, 175, 200].map((v) => h('option', { value: v })));
   const slider = (label, value) => {
-    const range = h('input.slider', { type: 'range', min: 0, max: 200, step: 1, value, 'aria-label': `${label} volume` });
+    const range = h('input.slider', { type: 'range', min: 0, max: 200, step: 1, value, list: 'mixpaste-ticks', 'aria-label': `${label} volume`, title: 'Double-click for 100%' });
     const num = h('input.input.num', { type: 'number', min: 0, max: 200, step: 1, value, 'aria-label': `${label} volume (percent)` });
     range.addEventListener('input', () => (num.value = range.value));
+    range.addEventListener('dblclick', () => (range.value = num.value = 100));
     num.addEventListener('change', () => (range.value = num.value = clampNum(num.value, 0, 200, 100)));
-    return { range, num, row: [h('label', `${label}:`), h('div.row.mixpaste-slider', range, num, h('span.muted', '%'))] };
+    const scale = h('div.mixpaste-scale', { 'aria-hidden': 'true' }, ...[0, 50, 100, 150, 200].map((v) => h('span', { style: { left: `${v / 2}%` } }, String(v))));
+    return { range, num, row: [h('label', `${label}:`), h('div.row.mixpaste-slider', h('div.mixpaste-track', range, scale), num, h('span.muted', '%'))] };
   };
   const copied = slider('Copied Audio', saved.copied);
   const existing = slider('Existing Audio', saved.existing);
   const invert = h('input', { type: 'checkbox', checked: saved.invert });
   const xf = h('input', { type: 'checkbox', checked: saved.crossfade });
-  const xfMs = h('input.input.num', { type: 'number', min: 1, max: 5000, step: 1, value: saved.crossfadeMs, disabled: !saved.crossfade, 'aria-label': 'Crossfade length (milliseconds)' });
-  xf.addEventListener('change', () => (xfMs.disabled = !xf.checked));
+  // The crossfade length reads in the editor's time format, like other durations.
+  const rate = doc?.sampleRate || 48000;
+  const fmtLen = (ms) => (app.formatTime ? app.formatTime(Math.round((ms / 1000) * rate), rate) : `${ms} ms`);
+  const xfLen = h('input.input.mixpaste-xf', { type: 'text', value: fmtLen(saved.crossfadeMs), disabled: !saved.crossfade, 'aria-label': 'Crossfade length', spellcheck: false });
+  const readXfMs = () => {
+    const frames = parseTime(xfLen.value, rate, app.prefs.get('timeFormat'), app.timeOptions?.() || {});
+    return Number.isFinite(frames) && frames > 0 ? clampNum((frames / rate) * 1000, 1, 5000, 50) : null;
+  };
+  xfLen.addEventListener('change', () => (xfLen.value = fmtLen(readXfMs() ?? saved.crossfadeMs)));
+  xf.addEventListener('change', () => (xfLen.disabled = !xf.checked));
   const types = PASTE_TYPES.map((t) => h('input', { type: 'radio', name: 'mixpaste-type', value: t.id, checked: t.id === saved.type }));
   // Existing Audio has no effect on Insert.
   const syncType = () => {
@@ -156,7 +169,8 @@ export async function mixPasteDialog(app, { doc, conformRate }) {
     wide: true,
     body: h(
       'div.mixpaste',
-      group('Volume', h('div.form-grid', ...copied.row, ...existing.row), h('div.row.mixpaste-opts', h('label.check', invert, 'Invert Copied Audio'), h('div.spacer'), h('label.check', xf, 'Crossfade'), xfMs, h('span.muted', 'ms'))),
+      ticks,
+      group('Volume', h('div.form-grid', ...copied.row, ...existing.row), h('div.row.mixpaste-opts', h('label.check', invert, 'Invert Copied Audio'), h('div.spacer'), h('label.check', xf, 'Crossfade'), xfLen)),
       h(
         'div.mixpaste-cols',
         group('Paste Type', h('div.dlg-radios', ...PASTE_TYPES.map((t, i) => h('label.check', types[i], t.label)))),
@@ -185,7 +199,7 @@ export async function mixPasteDialog(app, { doc, conformRate }) {
     existing: clampNum(existing.num.value, 0, 200, 100),
     invert: invert.checked,
     crossfade: xf.checked,
-    crossfadeMs: clampNum(xfMs.value, 1, 5000, 50),
+    crossfadeMs: readXfMs() ?? saved.crossfadeMs,
     loop: loop.checked,
     loops: Math.round(clampNum(loops.value, 2, 1000, 3)),
   };

@@ -508,9 +508,35 @@
   flex-wrap: nowrap;
 }
 
-.mixpaste-slider > .slider {
+.mixpaste-track {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 120px;
+}
+
+.mixpaste-track > .slider {
+  width: 100%;
+}
+
+/* 0-200 % scale under a Mix Paste volume slider (labels sit on the thumb's travel). */
+.mixpaste-scale {
+  position: relative;
+  height: 12px;
+  /* The thumb's centre travels inside the track by about its radius. */
+  margin: 0 7px;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mixpaste-scale > span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.mixpaste .input.mixpaste-xf {
+  width: 96px;
 }
 
 .mixpaste .input.num {
