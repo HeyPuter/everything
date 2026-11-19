@@ -2,7 +2,8 @@
 // adjustment layer (histograms, eyedroppers) and on-canvas point picking.
 import type { Editor } from '../../editor';
 import type { Layer, PhotoDocument } from '../../model/document';
-import { histograms, type Histograms } from '../../imaging/adjust';
+import type { Histograms } from '../../imaging/adjust';
+import { histogramsInWorker } from './worker-client';
 import type { Mask8, RGBA8 } from '../../imaging/types';
 import { compositeRGBA } from '../pixels';
 
@@ -43,7 +44,7 @@ export function belowSource(e: Editor, id: string): Promise<SourceImage> {
   const key = `${e.session.id}:${below.width}x${below.height}:${JSON.stringify(below.layers, (k, v) => (k === '' || !v || typeof v !== 'object' || !('visible' in v) || v.visible ? v : v.id))}`;
   let p = cache.get(key);
   if (!p) {
-    p = compositeRGBA(e, below).then((image) => ({ image, hist: histograms(image) }));
+    p = compositeRGBA(e, below).then(async (image) => ({ image, hist: await histogramsInWorker(image) }));
     p.catch(() => cache.delete(key));
     // A handful of entries cover switching between a few adjustment layers.
     if (cache.size >= 4) cache.delete(cache.keys().next().value!);

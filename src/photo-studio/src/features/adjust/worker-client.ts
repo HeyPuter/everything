@@ -1,7 +1,7 @@
 // Main-thread side of the adjustment worker. Falls back to running on the
 // main thread when module workers are unavailable (e.g. some test setups).
-import { adjustmentOperations, applyAdjustment, type Adjustment, type SpatialContext } from '../../imaging/adjust';
-import type { OperationContext, ParamValues, RGBA8 } from '../../imaging/types';
+import { adjustmentOperations, applyAdjustment, histograms, type Adjustment, type Histograms, type SpatialContext } from '../../imaging/adjust';
+import type { Mask8, OperationContext, ParamValues, RGBA8 } from '../../imaging/types';
 import type { AdjustJob, AdjustReply } from './worker';
 
 
@@ -9,7 +9,7 @@ type Job = { type: 'adjust'; adjustment: Adjustment; ctx?: SpatialContext } | { 
 let worker: Worker | undefined;
 let failed = false;
 let next = 1;
-const waiting = new Map<number, { resolve: (img: RGBA8) => void; reject: (e: Error) => void }>();
+const waiting = new Map<number, { resolve: (img: RGBA8) => void; reject: (e: Error) => void; hist?: (h: Histograms) => void }>();
 export let lastWorkerMs = 0;
 
 function getWorker() {
@@ -21,7 +21,8 @@ function getWorker() {
       if (!w) return;
       waiting.delete(ev.data.id);
       if (ev.data.ms !== undefined) lastWorkerMs = ev.data.ms;
-      if (ev.data.image) w.resolve(ev.data.image);
+      if (ev.data.hist && w.hist) w.hist(ev.data.hist);
+      else if (ev.data.image) w.resolve(ev.data.image);
       else w.reject(new Error(ev.data.error ?? 'Adjustment failed.'));
     };
     worker.onerror = (ev) => {
@@ -51,6 +52,20 @@ function run(job: Job, image: RGBA8): Promise<RGBA8> {
   return new Promise((resolve, reject) => {
     waiting.set(id, { resolve, reject });
     w.postMessage({ ...job, id, image: copy } as AdjustJob, [copy.data.buffer]);
+  });
+}
+
+/** Histograms of an image (counting `selection` like `histograms`) in the
+ * worker: on a large image they take long enough to stall the dialog that
+ * shows them. The image is copied; the caller keeps it. */
+export function histogramsInWorker(image: RGBA8, selection?: Mask8): Promise<Histograms> {
+  const w = getWorker();
+  if (!w) return Promise.resolve(histograms(image, selection));
+  const id = next++;
+  const copy: RGBA8 = { width: image.width, height: image.height, data: new Uint8ClampedArray(image.data) };
+  return new Promise((resolve, reject) => {
+    waiting.set(id, { resolve: () => reject(new Error('Expected histograms.')), reject, hist: resolve });
+    w.postMessage({ type: 'histograms', id, image: copy, selection } as AdjustJob, [copy.data.buffer]);
   });
 }
 

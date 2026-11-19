@@ -9,7 +9,7 @@
 // layers already inside a clipping group, layers with a style and non-LUT
 // operations preview the exact CPU result instead.
 import type { Editor } from '../../editor';
-import { ADJUSTMENT_LABELS, defaultParams, histograms, isSpatialKind, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
+import { ADJUSTMENT_LABELS, defaultParams, isSpatialKind, type Adjustment, type AdjustmentKind, type AdjustmentParamsMap } from '../../imaging/adjust';
 import type { IRect, OperationContext, ParamSpec, ParamValues, RGBA8 } from '../../imaging/types';
 import { allLayers, findLayer, layer, type Layer, type PhotoDocument } from '../../model/document';
 import { activeLayerStyle } from '../../model/layer-style';
@@ -23,7 +23,7 @@ import { adjustmentSpec, specAdjustment } from './compile';
 import { recordStep } from '../filters/record';
 import { kindEditors } from './editors';
 import { cancelPick, picking, pickPoint, sampleAt, type SourceImage } from './source';
-import { adjustInWorker, operationInWorker } from './worker-client';
+import { adjustInWorker, histogramsInWorker, operationInWorker } from './worker-client';
 import { h, slider, checkbox, select } from './ui';
 import { svg } from '../../app/icons';
 import { noteDialogCancelled } from '../action-settings';
@@ -228,12 +228,15 @@ function restore(e: Editor) {
   e.update();
 }
 
-const sourceFor = (src: TargetPixels): SourceImage => {
+/** The editors' source, with its histograms counted in the worker the first
+ * time an editor asks (not every kind shows them). */
+const sourceFor = (src: TargetPixels): (() => Promise<SourceImage>) => {
   const { width, height } = src.image;
   // Analysis (histogram, Auto) counts only the selected pixels.
   const selection = src.cover ? { width, height, data: src.cover } : undefined;
-  const hist = histograms(src.image, selection);
-  return { image: src.image, x: src.area.x, y: src.area.y, selection, hist };
+  let source: Promise<SourceImage> | undefined;
+  return () =>
+    (source ??= histogramsInWorker(src.image, selection).then((hist) => ({ image: src.image, x: src.area.x, y: src.area.y, selection, hist })));
 };
 
 // ----- Adjustment kind dialogs -----
@@ -270,7 +273,7 @@ export async function adjustmentDialog<K extends AdjustmentKind>(e: Editor, kind
     change() {
       if (shell.preview.checked) refresh();
     },
-    source: async () => source,
+    source,
     async pick() {
       const pt = await pickPoint(e);
       return pt ? sampleAt(src.image, pt[0] - src.area.x, pt[1] - src.area.y) : null;
