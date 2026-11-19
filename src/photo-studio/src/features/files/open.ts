@@ -13,7 +13,13 @@ import { decodeIco, pickIcoEntry } from '../../imaging/codecs/ico';
 import { sniffImageFormat, type ImageFormat } from '../../imaging/codecs/sniff';
 import { applyOrientation } from '../../imaging/codecs/orientation';
 import { readPngDpi, readPngIcc } from '../../imaging/codecs/png-chunks';
-import { readJpegDensity, readJpegIcc, readJpegInfo } from '../../imaging/codecs/jpeg-markers';
+import {
+  readJpegDensity,
+  readJpegIcc,
+  readJpegInfo,
+  readJpegSegments,
+} from '../../imaging/codecs/jpeg-markers';
+import { listTiffTags } from '../../imaging/codecs/tiff';
 import { checkSize } from '../../imaging/codecs/bytes';
 import { heifImageSize } from '../../imaging/codecs/heif';
 import { decodePng16, rgba16To8 } from './png';
@@ -136,6 +142,7 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   else if (d.dataF32) out.deep = { data: orient(d.dataF32, d.width, d.height, d.orientation), depth: 32 };
   if (d.notes.some((n) => /^Layer data stored by another editor/.test(n)))
     leaveOut(out, 'the layers another editor stored in it');
+  if (d.notes.some((n) => /^CMYK image converted/.test(n))) leaveOut(out, 'the CMYK colors');
   if (d.tiffPages && d.tiffPages.length > 1) {
     const pick = await choosePages('page', d.tiffPages.length, opts.pages);
     if (!pick) throw new CancelOpen();
@@ -247,8 +254,20 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
   void name;
   // createImageBitmap applies EXIF orientation itself ('from-image'), so the
   // pixels are already upright; rotating again would double the rotation.
-  return { image: await decodeBrowserImage(blob, keep), icc: keep ? icc : undefined, dpi, notice };
+  const image = await decodeBrowserImage(blob, keep);
+  const out: DecodedFile = { image, icc: keep ? icc : undefined, dpi, notice };
+  // The browser turns CMYK JPEGs into RGB.
+  if (!png && jpegComponents(bytes) === 4) leaveOut(out, 'the CMYK colors');
+  return out;
 }
+
+const jpegComponents = (bytes: Uint8Array) => {
+  try {
+    return readJpegInfo(bytes).components;
+  } catch {
+    return undefined;
+  }
+};
 
 class CancelOpen extends Error {}
 
@@ -312,7 +331,14 @@ export async function decodeBrowserImage(blob: Blob, raw = false): Promise<RGBA8
 export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions = {}): Promise<DecodedFile> {
   const lower = name.toLowerCase();
   const head = new Uint8Array(await blob.slice(0, 4096).arrayBuffer());
-  for (const d of extraDecoders) if (d.test(lower, head)) return d.decode(new Uint8Array(await blob.arrayBuffer()), name, opts);
+  for (const d of extraDecoders)
+    if (d.test(lower, head)) {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const out = await d.decode(bytes, name, opts);
+      const metadata = fileMetadata(bytes);
+      if (metadata) leaveOut(out, metadata);
+      return out;
+    }
   const sniffed = formatMime[sniffImageFormat(head)];
   const ext = lower.split('.').pop() ?? '';
   if (sniffed && sniffed !== blob.type) blob = new Blob([blob], { type: sniffed });
@@ -326,15 +352,59 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
   await checkBrowserFile(blob);
   try {
     const image = await decodeBrowserImage(blob);
+    const out: DecodedFile = { image };
     // The browser decodes the first frame of an animated WebP.
-    if (blob.type === 'image/webp' && isAnimatedWebp(head))
-      return { image, notice: 'Animated WebP; the first frame was opened.', leftOut: ['the other frames'] };
-    return { image };
+    if (blob.type === 'image/webp' && isAnimatedWebp(head)) {
+      out.notice = 'Animated WebP; the first frame was opened.';
+      leaveOut(out, 'the other frames');
+    }
+    const metadata = fileMetadata(head);
+    if (metadata) leaveOut(out, metadata);
+    return out;
   } catch (error) {
     // Chromium and Firefox have no HEIC decoder.
     if (blob.type === 'image/heic' && error instanceof DOMException) throw new Error('This browser cannot decode HEIC images. Convert the file to JPEG or PNG and open that.');
     throw error;
   }
+}
+
+/** Which of EXIF (camera data, capture time, location) and XMP metadata an
+ * image file holds, as "the EXIF and XMP metadata"; Photo Studio does not
+ * read or write them. WebP is judged from its VP8X header alone. */
+export function fileMetadata(bytes: Uint8Array): string | undefined {
+  const kinds = new Set<string>();
+  const text = (b: Uint8Array, n: number) => String.fromCharCode(...b.subarray(0, n));
+  try {
+    const format = sniffImageFormat(bytes);
+    if (format === 'jpeg')
+      for (const seg of readJpegSegments(bytes).segments) {
+        if (seg.marker !== 0xe1) continue;
+        if (text(seg.data, 6) === 'Exif\0\0') kinds.add('EXIF');
+        else if (text(seg.data, 28) === 'http://ns.adobe.com/xap/1.0/') kinds.add('XMP');
+      }
+    else if (format === 'png') {
+      // Chunk headers only (no checksums: the file may be large).
+      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      for (let p = 8; p + 12 <= bytes.length; p += 12 + dv.getUint32(p)) {
+        const type = text(bytes.subarray(p + 4), 4);
+        if (type === 'eXIf') kinds.add('EXIF');
+        else if (type === 'iTXt' && text(bytes.subarray(p + 8), 18) === 'XML:com.adobe.xmp\0')
+          kinds.add('XMP');
+        else if (type === 'IEND') break;
+      }
+    }
+    else if (format === 'tiff' || format === 'bigtiff') {
+      const first = listTiffTags(bytes)[0] ?? {};
+      if (34665 in first || 34853 in first) kinds.add('EXIF');
+      if (700 in first) kinds.add('XMP');
+    } else if (format === 'webp' && bytes.length > 20 && text(bytes.subarray(12), 4) === 'VP8X') {
+      if (bytes[20] & 0x08) kinds.add('EXIF');
+      if (bytes[20] & 0x04) kinds.add('XMP');
+    }
+  } catch {
+    /* Damaged metadata is not worth keeping. */
+  }
+  return kinds.size ? `the ${[...kinds].join(' and ')} metadata` : undefined;
 }
 
 /** The animation flag of a WebP's VP8X header (WebP container specification). */
@@ -343,7 +413,10 @@ const isAnimatedWebp = (head: Uint8Array) =>
 
 /** What of the file a document was opened from was not opened, while the
  * document still saves back to that file (see DecodedFile.leftOut). */
-export const leftOutOfFile = new WeakMap<DocumentSession, { name: string; what: string[] }>();
+export const leftOutOfFile = new WeakMap<
+  DocumentSession,
+  { name: string; path?: string; what: string[] }
+>();
 
 const resolution = (dpi: number): PhotoDocument['resolution'] => ({
   horizontalResolution: dpi,
@@ -471,7 +544,8 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   if (savesBack && source.kind === 'puter') s.storage.path = source.path;
   s.saved = s.doc;
   s.fileName = name;
-  if (decoded.leftOut?.length) leftOutOfFile.set(s, { name, what: decoded.leftOut });
+  const path = source.kind === 'puter' ? source.path : undefined;
+  if (decoded.leftOut?.length) leftOutOfFile.set(s, { name, path, what: decoded.leftOut });
   else leftOutOfFile.delete(s);
   e.selected = doc.layers.at(decoded.animation ? 0 : -1)!.id;
   // Animations open with the Timeline showing.

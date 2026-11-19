@@ -133,3 +133,57 @@ test('an animated WebP opens as its first frame and Save asks before replacing i
   await expect.poll(async () => (await stub(page)).picked).toEqual(['anim.photo']);
   expect((await stub(page)).written).toEqual([]);
 });
+
+test('Save asks before writing a JPEG without the EXIF metadata of the file it replaces', async ({
+  page,
+}) => {
+  await boot(page, 'default', sdk);
+  await page.evaluate(async () => {
+    const w = window as unknown as Stub;
+    const c = new OffscreenCanvas(8, 6);
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#ff0000';
+    g.fillRect(0, 0, 8, 6);
+    const plain = new Uint8Array(
+      await (await c.convertToBlob({ type: 'image/jpeg' })).arrayBuffer(),
+    );
+    // An APP1 Exif segment holding an empty TIFF directory, after SOI.
+    const body = [...'Exif\0\0']
+      .map((ch) => ch.charCodeAt(0))
+      .concat([0x49, 0x49, 42, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const app1 = new Uint8Array([0xff, 0xe1, 0, body.length + 2, ...body]);
+    w.__drive['/me/IMG_1.jpg'] = new Blob([plain.subarray(0, 2), app1, plain.subarray(2)], {
+      type: 'image/jpeg',
+    });
+    window.dispatchEvent(
+      new CustomEvent('drop', { detail: { items: [w.__item('/me/IMG_1.jpg')] } }),
+    );
+  });
+  await expect.poll(() => page.evaluate(() => window.photoStudio.hasDocument)).toBe(true);
+  await idle(page);
+  await page.evaluate(() =>
+    window.photoStudio.command('Fill', (d) => (d.layers[0].name = 'Edited')),
+  );
+  await start(page, 'file.save');
+  const dialog = page.locator('#dialog[open]');
+  await expect(dialog).toContainText(
+    'A JPEG leaves out the EXIF metadata of IMG_1.jpg. A .photo project keeps everything else and leaves IMG_1.jpg as it is.',
+  );
+  await dialog.getByRole('button', { name: 'Save as JPEG', exact: true }).click();
+  await idle(page);
+  expect(await stub(page)).toEqual({ written: ['/me/IMG_1.jpg'], picked: [] });
+
+  // The same file opened from this device saves to a new Puter file: nothing to ask.
+  await page.evaluate(async () => {
+    const { openFile } = await import('/src/features/files/open.ts');
+    const blob = (window as unknown as Stub).__drive['/me/IMG_1.jpg'];
+    await openFile(window.photoStudio, blob, 'IMG_2.jpg');
+  });
+  await idle(page);
+  await page.evaluate(() =>
+    window.photoStudio.command('Fill', (d) => (d.layers[0].name = 'Edited')),
+  );
+  await run(page, 'file.save');
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(async () => (await stub(page)).picked).toEqual(['IMG_2.jpg']);
+});
