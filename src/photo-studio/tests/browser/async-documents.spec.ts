@@ -74,10 +74,14 @@ async function stubPuter(page: Page) {
   });
 }
 const names = (page: Page) => page.evaluate(() => window.photoStudio.sessions.map((s) => s.doc.name));
+/** The documents save as projects: an opened PNG would save back as a flattened
+ * PNG, and Save would first ask about the guides a PNG leaves out. */
+const asProjects = (page: Page) => page.evaluate(() => window.photoStudio.sessions.forEach((s) => (s.fileName = `${s.doc.name}.photo`)));
 
 test('closing an unsaved document offers Save, which saves before closing', async ({ page }) => {
   await twoDocuments(page);
   await stubPuter(page);
+  await asProjects(page);
   await page.evaluate(() => (window.photoStudio.session.storage.path = '/user/Documents/second.photo'));
   await page.locator('.document-tab.focused .tab-close').click();
   const dialog = page.getByRole('dialog');
@@ -88,9 +92,29 @@ test('closing an unsaved document offers Save, which saves before closing', asyn
   expect(await page.evaluate(() => (window as unknown as { written: string[] }).written)).toEqual(['/user/Documents/second.photo']);
 });
 
+test('closing an unsaved PNG asks what Save leaves out, and saving a project instead closes it', async ({ page }) => {
+  await twoDocuments(page);
+  await stubPuter(page);
+  await page.evaluate(() => (window.photoStudio.session.storage.path = '/user/Documents/second.png'));
+  await page.locator('.document-tab.focused .tab-close').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  // The guide is not kept by a PNG: the question offers a project instead.
+  await expect(dialog).toHaveAccessibleName('Save as PNG');
+  await dialog.getByRole('button', { name: 'Save as .photo' }).click();
+  // The project is not written over the PNG, so the picker asks where.
+  await expect.poll(() => page.evaluate(() => typeof (window as unknown as { answerPicker?: unknown }).answerPicker)).toBe('function');
+  expect(await names(page)).toEqual(['first', 'second']);
+  await page.evaluate(() => (window as unknown as { answerPicker: (p: string) => void }).answerPicker('/user/Documents/second.photo'));
+  await expect.poll(() => names(page)).toEqual(['first']);
+  expect(await page.evaluate(() => (window as unknown as { written: string[] }).written)).toEqual(['/user/Documents/second.photo']);
+});
+
 test('a first save before closing waits for the save picker, and a dismissed picker keeps the document', async ({ page }) => {
   await twoDocuments(page);
   await stubPuter(page);
+  await asProjects(page);
   const close = async () => {
     await page.locator('.document-tab.focused .tab-close').click();
     await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
