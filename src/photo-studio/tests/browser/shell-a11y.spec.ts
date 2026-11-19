@@ -194,6 +194,26 @@ test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on i
   await expect(page.locator('[data-slot="marquee"]')).toBeFocused();
 });
 
+test('the screen mode button cycles on Enter and opens its list with the arrow key, like a toolbar slot', async ({ page }) => {
+  const button = page.locator('[data-command="view.cycle-screen-mode"]');
+  // Activating it changes the mode, so it does not claim to open a menu.
+  await expect(button).not.toHaveAttribute('aria-haspopup', /.*/);
+  await button.focus();
+  await page.keyboard.press('ArrowRight');
+  const menu = page.locator('.context-menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('.menu-item')).toHaveCount(3);
+  await expect(menu.locator('.menu-item').first()).toBeFocused();
+  await expect(menu.locator('.menu-item').first()).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(button).toBeFocused();
+  expect(await page.evaluate(() => window.photoStudio.root.dataset.screenMode ?? '0')).toBe('0');
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => window.photoStudio.root.dataset.screenMode)).toBe('1');
+  await page.evaluate(() => window.photoStudio.runCommand('view.screen-standard'));
+});
+
 test('arrow keys used in the toolbar do not nudge the layer with the Move tool', async ({ page }) => {
   await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
   await idle(page);

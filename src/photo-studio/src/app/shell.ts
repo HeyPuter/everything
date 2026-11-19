@@ -43,8 +43,8 @@ export function appShell(root: HTMLElement) {
 Double-click or Alt-click for options" data-key-title="Edit in Quick Mask mode{key}
 Double-click or Alt-click for options" aria-label="Quick Mask mode">${svg('quick-mask')}</button>
     <button class="tool-slot" data-command="view.cycle-screen-mode" title="Change screen mode (F)
-Right-click or hold for the list" data-key-title="Change screen mode{key}
-Right-click or hold for the list" aria-label="Change screen mode" aria-haspopup="menu">${svg('screen-mode')}</button>
+Right-click, hold or press → for the list" data-key-title="Change screen mode{key}
+Right-click, hold or press → for the list" aria-label="Change screen mode">${svg('screen-mode')}</button>
   </aside>
   <main class="workspace">
     <div class="document-tabs" role="tablist" aria-label="Open documents"></div>

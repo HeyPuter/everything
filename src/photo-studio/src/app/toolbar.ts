@@ -110,8 +110,19 @@ export class Toolbar {
     // The keys a toolbar button handles stay out of the workspace, where the
     // arrows would nudge the layer with the Move tool.
     el.addEventListener('keydown', (ev) => {
+      const open = ev.key === 'ArrowRight' || (ev.key === 'Enter' && ev.altKey);
+      // Like a slot's flyout, a button's list (screen modes, Quick Mask) opens
+      // from the keyboard too; Enter alone runs the button.
+      const menu = open ? buttonMenu(ev.target as HTMLElement) : undefined;
+      if (menu) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const r = (ev.target as HTMLElement).closest('button')!.getBoundingClientRect();
+        showContextMenu(e, r.right + 4, r.top, menu);
+        return;
+      }
       const slot = (ev.target as HTMLElement).closest<HTMLElement>('[data-slot]');
-      if (slot && (ev.key === 'ArrowRight' || (ev.key === 'Enter' && ev.altKey))) {
+      if (slot && open) {
         ev.preventDefault();
         ev.stopPropagation();
         this.openFlyout(slot.dataset.slot!, slot);
