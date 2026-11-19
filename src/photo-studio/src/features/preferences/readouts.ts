@@ -4,9 +4,11 @@
 import type { Editor } from '../../editor';
 import { formatUnit, RULER_UNITS, type RulerUnit } from '../../imaging/measure/geometry';
 import { documentPpi } from '../../model/text-layer';
+import { marqueeRect } from '../selection';
 
 const RECT_TOOLS = new Set(['rect-marquee', 'ellipse-marquee', 'crop', 'rect-shape', 'ellipse-shape', 'triangle-shape', 'polygon-shape', 'custom-shape', 'artboard', 'frame', 'slice']);
 const LINE_TOOLS = new Set(['line-shape', 'gradient']);
+const MARQUEES = new Set(['rect-marquee', 'ellipse-marquee']);
 let el: HTMLDivElement | undefined;
 
 /** Lengths in the ruler units with their suffix. */
@@ -38,9 +40,9 @@ export function hideReadout() {
 
 export function installReadouts(e: Editor) {
   const viewport = e.el('#viewport');
-  let start: { x: number; y: number; tool: string } | undefined;
+  let start: { x: number; y: number; tool: string; shift: boolean; alt: boolean } | undefined;
   viewport.addEventListener('pointerdown', (ev) => {
-    start = ev.button === 0 && !viewport.classList.contains('space-pan') ? { ...pointOf(e, ev), tool: e.tool } : undefined;
+    start = ev.button === 0 && !viewport.classList.contains('space-pan') ? { ...pointOf(e, ev), tool: e.tool, shift: ev.shiftKey, alt: ev.altKey } : undefined;
   });
   viewport.addEventListener('pointermove', (ev) => {
     if (!start || !(ev.buttons & 1) || e.transform.dragging || !e.hasDocument) return;
@@ -49,7 +51,13 @@ export function installReadouts(e: Editor) {
       dy = p.y - start.y;
     if (Math.hypot(ev.movementX, ev.movementY) === 0 && Math.abs(dx) + Math.abs(dy) < 1) return;
     let lines: string[] = [];
-    if (RECT_TOOLS.has(start.tool)) lines = [`W: ${lengthText(e, Math.abs(dx), 'x')}`, `H: ${lengthText(e, Math.abs(dy), 'y')}`];
+    if (MARQUEES.has(start.tool)) {
+      // The size the marquee selects: square with Shift, from the center with
+      // Alt, or the fixed ratio or size of its Style.
+      const op = start.shift && start.alt ? 'intersect' : start.shift ? 'add' : start.alt ? 'subtract' : 'replace';
+      const r = marqueeRect([start.x, start.y], { ...p, shift: ev.shiftKey, alt: ev.altKey }, op, { style: e.settings.marqueeStyle, width: e.settings.marqueeW, height: e.settings.marqueeH });
+      lines = [`W: ${lengthText(e, r.width, 'x')}`, `H: ${lengthText(e, r.height, 'y')}`];
+    } else if (RECT_TOOLS.has(start.tool)) lines = [`W: ${lengthText(e, Math.abs(dx), 'x')}`, `H: ${lengthText(e, Math.abs(dy), 'y')}`];
     else if (LINE_TOOLS.has(start.tool)) lines = [`L: ${lengthText(e, Math.hypot(dx, dy))}`, `A: ${Math.round((Math.atan2(-dy, dx) * 1800) / Math.PI) / 10}°`];
     else if (start.tool === 'move') lines = [`ΔX: ${lengthText(e, dx, 'x')}`, `ΔY: ${lengthText(e, dy, 'y')}`];
     if (lines.length) showReadout(e, ev.clientX, ev.clientY, lines);

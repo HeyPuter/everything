@@ -169,3 +169,26 @@ test('the Note tool gives new notes the color chosen in its options bar', async 
   });
   expect(color).toBe('#64d2ff');
 });
+
+test('the marquee size readout shows the square that Shift makes', async ({ page }) => {
+  await page.evaluate(() => {
+    window.photoStudio.preferences.toolReadouts = true;
+    window.photoStudio.preferences.rulerUnits = 'px';
+  });
+  await tool(page, 'Rectangular Marquee Tool');
+  const [x0, y0] = await client(page, 20, 10);
+  const [x1, y1] = await client(page, 80, 40);
+  await page.mouse.move(x0, y0);
+  await page.mouse.down();
+  await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 3 });
+  await page.keyboard.down('Shift');
+  await page.mouse.move(x1, y1, { steps: 3 });
+  await expect(page.locator('.drag-readout')).toHaveText(/W: 60 px\s+H: 60 px/);
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.selection)).toMatchObject({
+    width: 60,
+    height: 60,
+  });
+});
