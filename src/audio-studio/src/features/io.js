@@ -91,14 +91,16 @@ export function installIo(app) {
   app.preferenceSections = app.preferenceSections || [];
   app.preferenceSections.push({ category: 'audioHardware', title: 'Devices', keywords: 'input microphone device latency output', build: audioHardwarePrefs });
 
-  // Open Recent: Puter files, reopened through their path.
+  // Open Recent: Puter files, reopened through their path. Sessions come first, then audio
+  // files; a name shared by files in different folders shows its folder.
   app.recentMenuItems = () => {
     const list = app.prefs.get('recent') || [];
     if (!list.length) return [{ type: 'cmd', label: 'No Recent Files', enabled: false }];
+    const groups = recentGroups(list);
     return [
-      ...list.map((r) => ({
+      ...groups.flatMap((g, i) => [...(i ? [null] : []), ...g]).map((r) => (!r ? { type: 'sep' } : {
         type: 'cmd',
-        label: r.name,
+        label: r.label,
         enabled: Boolean(r.path),
         run: async () => {
           if (puter.sdk() && !puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return;
@@ -447,6 +449,23 @@ export async function importMarkers(app) {
 }
 
 // ------------------------------------------------------------ window close
+
+/**
+ * Recent files for the Open Recent menu: [sessions, audio files] (empty groups left out),
+ * each { name, path, label }, the label naming the folder when two files share a name.
+ */
+export function recentGroups(list) {
+  const count = new Map();
+  for (const r of list) count.set(r.name, (count.get(r.name) || 0) + 1);
+  const label = (r) => {
+    if (count.get(r.name) < 2 || !r.path) return r.name;
+    const parts = r.path.split('/');
+    return `${r.name} (${parts[parts.length - 2] || '/'})`;
+  };
+  const item = (r) => ({ ...r, label: label(r) });
+  const session = (r) => /\.asesx$/i.test(r.name || '');
+  return [list.filter(session).map(item), list.filter((r) => !session(r)).map(item)].filter((g) => g.length);
+}
 
 function installWindowClose(app) {
   const p = puter.sdk();
