@@ -66,7 +66,7 @@ export const DEFAULTS = {
   // Audio Channel Mapping and Audio Hardware
   inputMap: [0, 1], // device input channel recorded as file channel 1 and 2 (-1 = none)
   outputMap: [0, 1], // device output channel that plays mix channel 1 and 2 (-1 = none)
-  latencyHint: 'interactive', // 'interactive' | 'balanced' | 'playback'
+  latencyHint: 'interactive', // 'interactive' | 'balanced' | 'playback' | buffer size in samples
   outputDevice: '', // sink id; '' = system default
   // Data
   smoothDelete: false,

@@ -44,6 +44,15 @@ const needsEffects = (graph) => {
   return active(graph.master?.fx) || graph.tracks.some((track) => active(track.fx) || track.clips?.some((clip) => active(clip.fx)));
 };
 
+/**
+ * The AudioContext latency hint for a preference: a named mode as it is, a buffer size in
+ * samples as seconds at the context's rate (48 kHz when the rate is the device's).
+ */
+export function latencySeconds(hint, rate) {
+  const n = Number(hint);
+  return typeof hint === 'number' || (typeof hint === 'string' && /^\d+$/.test(hint)) ? Math.max(32, n) / (rate || 48000) : hint;
+}
+
 export class Engine extends Emitter {
   constructor() {
     super();
@@ -118,13 +127,13 @@ export class Engine extends Emitter {
     }
     let ctx;
     try {
-      ctx = new AudioContext({ sampleRate: rate, latencyHint: this.latencyHint });
+      ctx = new AudioContext({ sampleRate: rate, latencyHint: latencySeconds(this.latencyHint, rate) });
     } catch {
       // Some browsers limit the rates a context can run at (Firefox: 8 to 192
       // kHz). Recording and metering still work at the device rate (takes are
       // resampled), but play() refuses: the mixer has no rate conversion, so
       // the audio would play at the wrong speed and pitch.
-      ctx = new AudioContext({ latencyHint: this.latencyHint });
+      ctx = new AudioContext({ latencyHint: latencySeconds(this.latencyHint, rate) });
     }
     this.ctx = ctx;
     this.requestedRate = rate;
@@ -206,7 +215,7 @@ export class Engine extends Emitter {
     }
   }
 
-  /** Latency mode for the next audio context: 'interactive' | 'balanced' | 'playback'. */
+  /** Latency for the next audio context: 'interactive' | 'balanced' | 'playback', or a buffer size in samples. */
   setLatencyHint(hint) {
     if (hint === this.latencyHint) return;
     this.latencyHint = hint;

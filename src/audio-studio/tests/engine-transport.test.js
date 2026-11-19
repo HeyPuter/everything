@@ -274,6 +274,10 @@ describe('engine transport', () => {
     expect(made).toEqual(['playback']);
     await e.ensure(48000);
     expect(made).toEqual(['playback']);
+    // A buffer size in samples is asked for as seconds at the context's rate.
+    e.setLatencyHint(1024);
+    await e.ensure(48000);
+    expect(made[1]).toBeCloseTo(1024 / 48000, 9);
     vi.unstubAllGlobals();
   });
 

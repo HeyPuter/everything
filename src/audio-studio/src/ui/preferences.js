@@ -121,7 +121,7 @@ export const CATEGORIES = [
     label: 'Audio Hardware',
     sections: [
       {
-        items: [select('latencyHint', 'Latency', opts([['interactive', 'Lowest (most responsive)'], ['balanced', 'Balanced'], ['playback', 'Highest (fewest dropouts)']]), { help: 'A larger buffer helps when playback crackles. Takes effect the next time playback starts from stopped.' })],
+        items: [select('latencyHint', 'Buffer size', opts([['interactive', 'Automatic: lowest latency'], ['balanced', 'Automatic: balanced'], ['playback', 'Automatic: fewest dropouts'], [128, '128 samples'], [256, '256 samples'], [512, '512 samples'], [1024, '1024 samples'], [2048, '2048 samples'], [4096, '4096 samples']]), { keywords: 'latency io buffer size samples crackle dropouts', help: 'A larger buffer helps when playback crackles; a smaller one makes playback and recording respond sooner. The browser treats a size as a request. Takes effect the next time playback starts from stopped.' })],
       },
     ],
     note: 'The browser runs playback at the sample rate of the file or session when the device allows it.',
