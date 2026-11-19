@@ -27,3 +27,17 @@ test('crop settings change the shield over the cropped area', async ({ page }) =
   // The crop itself is still in progress.
   expect(await page.evaluate(() => window.photoStudio.tool)).toBe('crop');
 });
+
+test('Perspective Crop takes the size of the image with Front Image, and Clear empties it', async ({
+  page,
+}) => {
+  await boot(page);
+  await openImage(page, 320, 240, '#808080');
+  await tool(page, 'Perspective Crop Tool');
+  await page.getByRole('button', { name: 'Front Image' }).click();
+  await expect(page.locator('#pc-w')).toHaveValue('320');
+  await expect(page.locator('#pc-h')).toHaveValue('240');
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(page.locator('#pc-w')).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Clear', exact: true })).toBeDisabled();
+});
