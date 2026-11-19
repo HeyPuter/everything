@@ -158,6 +158,31 @@
   color: var(--warning);
 }
 
+/* Files panel status: an icon and a word. */
+.file-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+.file-status.st-modified,
+.file-status.st-offline {
+  color: var(--warning);
+}
+.file-status.st-saving .icon {
+  animation: file-status-spin 1s linear infinite;
+}
+@keyframes file-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-status.st-saving .icon {
+    animation: none;
+  }
+}
+
 /* History */
 .history-list {
   flex: 1;

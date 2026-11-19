@@ -12,7 +12,10 @@
 // columns and the preview footer.
 
 import { h } from '../lib/dom.js';
-import { icon } from '../ui/icons.js';
+import { LoaderCircle, CircleDot } from 'lucide';
+import { icon, registerIcons } from '../ui/icons.js';
+
+registerIcons({ loader: LoaderCircle, 'circle-dot': CircleDot });
 import { resolveItems } from '../ui/menubar.js';
 
 const bitsOf = (doc) => (doc.kind === 'audio' ? doc.info.bitDepth ?? 0 : 32);
@@ -63,6 +66,28 @@ export function visibleFiles(docs, { query = '', sort = { col: 'name', dir: 1 } 
     });
   }
   return list.map((x) => x.d);
+}
+
+/**
+ * A document's state for the Status column, most pressing first:
+ *   saving   a save is writing it
+ *   offline  a session whose media is missing
+ *   modified unsaved changes
+ *   new      never saved anywhere
+ *   readonly opened from a file Save cannot write back (video, raw AAC)
+ * Returns { id, label, icon, title } or null. Pure.
+ */
+export function fileStatus(doc) {
+  if (doc.saving) return { id: 'saving', label: 'Saving', icon: 'loader', title: 'Saving this file' };
+  if (doc.kind === 'session') {
+    const offline = [...(doc.pool?.values?.() || [])].filter((s) => s.offline).length;
+    if (offline) return { id: 'offline', label: 'Media Offline', icon: 'triangle-alert', title: `${offline} media file${offline === 1 ? ' is' : 's are'} offline` };
+  }
+  if (doc.dirty) return { id: 'modified', label: 'Modified', icon: 'circle-dot', title: 'Unsaved changes' };
+  if (doc.kind === 'audio' && (!doc.source || doc.source.type === 'new')) return { id: 'new', label: 'New', icon: 'file-plus', title: 'This file has not been saved yet' };
+  const ext = String(doc.source?.path || '').split('.').pop().toLowerCase();
+  if (doc.kind === 'audio' && doc.source?.type === 'puter' && /^(mp4|mov|m4v|webm|mkv|avi|aac)$/.test(ext)) return { id: 'readonly', label: 'Save As', icon: 'lock', title: 'Save writes a new file: this one cannot be overwritten with audio' };
+  return null;
 }
 
 /**
@@ -407,11 +432,11 @@ export function filesPanel(app) {
     for (const b of toolbar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd);
   };
 
-  /** Status column: unsaved changes, and files that have not been saved anywhere yet. */
+  /** Status column: an icon and a word for the file's state (see fileStatus). */
   function statusCell(doc) {
-    if (doc.dirty) return h('span.status-dot', { title: 'Unsaved changes' }, 'Modified');
-    if (doc.kind === 'audio' && (!doc.source || doc.source.type === 'new')) return h('span.muted', { title: 'This file has not been saved yet' }, 'New');
-    return '';
+    const st = fileStatus(doc);
+    if (!st) return '';
+    return h(`span.file-status.st-${st.id}`, { title: st.title }, icon(st.icon, 12), h('span', st.label));
   }
 
   /** Moves keyboard focus to the next or previous row, file or marker under an expanded file. */

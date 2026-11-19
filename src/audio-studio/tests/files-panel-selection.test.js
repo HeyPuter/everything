@@ -201,3 +201,15 @@ describe('dropping files on the Waveform editor', () => {
     editor.remove();
   });
 });
+
+describe('Files status column', () => {
+  it('reports saving, offline media, modified, new and save-as-only files', async () => {
+    const { fileStatus } = await import('../src/panels/files.js');
+    expect(fileStatus({ kind: 'audio', saving: true, dirty: true }).id).toBe('saving');
+    expect(fileStatus({ kind: 'session', pool: new Map([['a', { offline: true }]]) }).label).toBe('Media Offline');
+    expect(fileStatus({ kind: 'audio', dirty: true, source: { type: 'local' } }).id).toBe('modified');
+    expect(fileStatus({ kind: 'audio', source: { type: 'new' } }).id).toBe('new');
+    expect(fileStatus({ kind: 'audio', source: { type: 'puter', path: '/u/clip.mp4' } }).id).toBe('readonly');
+    expect(fileStatus({ kind: 'audio', source: { type: 'puter', path: '/u/a.wav' } })).toBe(null);
+  });
+});
