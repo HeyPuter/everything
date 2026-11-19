@@ -427,7 +427,8 @@ const resolution = (dpi: number): PhotoDocument['resolution'] => ({
   heightUnit: 'Inches',
 });
 
-export type OpenOptions = DecodeOptions & { source?: RecentSource };
+// `recent: false`: a temporary tab (the Image Processor's), not one for Open Recent.
+export type OpenOptions = DecodeOptions & { source?: RecentSource; recent?: boolean };
 
 // Copies made by inMemoryFile, which need no second copy.
 const copies = new WeakSet<Blob>();
@@ -489,7 +490,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     if (s.doc.animation) e.dock?.show('timeline');
     e.fit();
     e.update();
-    noteRecent(e, name, source);
+    if (opts.recent !== false) noteRecent(e, name, source);
     e.message(isPsd ? 'PSD opened' : 'Project opened');
     if ('notice' in loaded && loaded.notice) information('PSD import', `<p>${escapeXML(String(loaded.notice))}</p>`);
     openedFiles.set(s, { blob, name, path: source.kind === 'puter' ? source.path : undefined });
@@ -552,7 +553,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   if (doc.animation) e.dock?.show('timeline');
   e.fit();
   e.update();
-  noteRecent(e, name, source);
+  if (opts.recent !== false) noteRecent(e, name, source);
   e.message(decoded.notice ?? (doc.animation ? `Opened ${name} as a ${doc.animation.frames.length}-frame animation` : `Opened ${name}`));
   openedFiles.set(s, { blob, name, path: source.kind === 'puter' ? source.path : undefined });
   void emitAppEvent('open-document', s);

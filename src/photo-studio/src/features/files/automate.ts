@@ -175,7 +175,7 @@ async function loadInput(e: Editor, input: Input, documentSteps: BatchStep[]): P
   // Layered files and document steps go through a temporary editor tab.
   const previous = e.session;
   const before = new Set(e.sessions);
-  if (!(await openFile(e, blob, input.name, false, { pages: 'first' }))) throw new Error(`${input.name} could not be opened.`);
+  if (!(await openFile(e, blob, input.name, false, { pages: 'first', recent: false }))) throw new Error(`${input.name} could not be opened.`);
   const s = e.sessions.find((x) => !before.has(x)) ?? e.session;
   try {
     for (const step of documentSteps) await step.document!(e);
