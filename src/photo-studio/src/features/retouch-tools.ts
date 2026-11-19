@@ -2,7 +2,7 @@ import type { Editor } from '../editor';
 import { registerTool, type Tool } from '../app/registry';
 import { strokeTool, brushOptions, bindBrushOptions, brushFor, FOCUS_MODES, COLOR_REPLACE_MODES } from './paint';
 import { blendColor, type BlendMode } from '../imaging/blend/modes';
-import { commitTarget, hexRgb, pixelTarget, type PixelTarget } from './pixels';
+import { commitTarget, compositeRGBA, hexRgb, pixelTarget, type PixelTarget } from './pixels';
 import type { CanvasPointer } from '../app/pointer';
 import { svg } from '../app/icons';
 import type { Sampler } from '../imaging/retouch/clone-transform';
@@ -162,11 +162,12 @@ function lum(r: number, g: number, b: number) {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
-  return (e: Editor, target: PixelTarget): PaintTarget | undefined => {
+  return (e: Editor, target: PixelTarget): PaintTarget | undefined | Promise<PaintTarget | undefined> => {
     if (target.kind !== 'pixels') {
       e.message('This tool works on pixel layers.');
       return;
     }
+    if (kind !== 'smudge' && e.settings[`${kind}SampleAll`]) return sampledFocusTarget(e, kind);
     const strength = Number(e.settings[`${kind}Strength`] ?? 50) / 100;
     const t = new Uint8ClampedArray(4);
     const b = brushFor(`${kind}-tool`);
@@ -232,6 +233,72 @@ function focusTarget(kind: 'blur' | 'sharpen' | 'smudge') {
       },
     };
   };
+}
+/** Blur or Sharpen with Sample All Layers: the visible image is read once
+ * when the stroke starts, and the result is painted onto the target layer
+ * (an empty layer above the photo keeps the retouching separate). */
+async function sampledFocusTarget(e: Editor, kind: 'blur' | 'sharpen'): Promise<PaintTarget> {
+  const img = await compositeRGBA(e);
+  const strength = Number(e.settings[`${kind}Strength`] ?? 50) / 100;
+  const b = brushFor(`${kind}-tool`);
+  const share = 1 - Math.pow(1 - Math.min(1, strength), Math.min(1, Math.max(0.01, b.spacing)));
+  const protect = kind === 'sharpen' && e.settings.sharpenProtectDetail !== false;
+  const value = new Uint8ClampedArray(4);
+  return {
+    kind: 'custom',
+    dab: () => undefined,
+    pixel: (x, y, alpha, cur, out) => {
+      out[0] = cur[0];
+      out[1] = cur[1];
+      out[2] = cur[2];
+      out[3] = cur[3];
+      if (!focusSample(img, x, y, kind, protect, value)) return;
+      paintOver(cur, value, Math.min(1, alpha * share), out);
+    },
+  };
+}
+/** The blurred or sharpened color of one pixel of an image from its 3×3
+ * neighborhood (false outside the image or where it is transparent). */
+export function focusSample(img: { width: number; height: number; data: ArrayLike<number> }, x: number, y: number, kind: 'blur' | 'sharpen', protect: boolean, out: Uint8ClampedArray) {
+  const { width: W, height: H, data: d } = img;
+  if (x < 0 || y < 0 || x >= W || y >= H) return false;
+  const c = (y * W + x) * 4;
+  if (!d[c + 3]) return false;
+  let r = 0, g = 0, bl = 0, a = 0;
+  const lo = [255, 255, 255],
+    hi = [0, 0, 0];
+  for (let j = -1; j <= 1; j++)
+    for (let i = -1; i <= 1; i++) {
+      const xx = x + i,
+        yy = y + j;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      const k = (yy * W + xx) * 4,
+        w = d[k + 3];
+      if (!w) continue;
+      r += d[k] * w;
+      g += d[k + 1] * w;
+      bl += d[k + 2] * w;
+      a += w;
+      for (let ch = 0; ch < 3; ch++) {
+        if (d[k + ch] < lo[ch]) lo[ch] = d[k + ch];
+        if (d[k + ch] > hi[ch]) hi[ch] = d[k + ch];
+      }
+    }
+  const f = kind === 'blur' ? 1 : -2;
+  out[0] = d[c] + (r / a - d[c]) * f;
+  out[1] = d[c + 1] + (g / a - d[c + 1]) * f;
+  out[2] = d[c + 2] + (bl / a - d[c + 2]) * f;
+  out[3] = 255;
+  if (protect) clampToRange(out, lo, hi);
+  return true;
+}
+/** Paint an opaque color over a pixel with the given amount (source-over). */
+function paintOver(cur: ArrayLike<number>, color: ArrayLike<number>, amount: number, out: Uint8ClampedArray) {
+  const ca = cur[3] / 255;
+  const oa = ca + (1 - ca) * amount;
+  if (oa <= 0) return;
+  for (let ch = 0; ch < 3; ch++) out[ch] = (cur[ch] * ca * (1 - amount) + color[ch] * amount) / oa;
+  out[3] = oa * 255;
 }
 /** Keep each color channel within [lo, hi] (Protect Detail). */
 export function clampToRange(out: Uint8ClampedArray, lo: ArrayLike<number>, hi: ArrayLike<number>) {
@@ -328,6 +395,10 @@ function withOptions(tool: Tool, extra: (e: Editor) => string, bind: (e: Editor,
     },
   };
 }
+const sampleAllField = (kind: 'blur' | 'sharpen') => (e: Editor) =>
+  `<label class="transform-setting" title="Use the image as shown (all visible layers), and paint the result onto this layer: an empty layer keeps the retouching separate"><input type="checkbox" id="focus-sample-all" ${e.settings[`${kind}SampleAll`] ? 'checked' : ''}>Sample All Layers</label>`;
+const bindSampleAll = (kind: 'blur' | 'sharpen') => (e: Editor, el: HTMLElement) =>
+  el.querySelector<HTMLInputElement>('#focus-sample-all')?.addEventListener('change', (ev) => (e.settings[`${kind}SampleAll`] = (ev.target as HTMLInputElement).checked));
 const strengthField = (key: string) => (e: Editor) => `<label>Strength <input id="tool-strength" type="number" min="1" max="100" value="${Number(e.settings[key] ?? 50)}">%</label>`;
 const bindStrength = (key: string) => (e: Editor, el: HTMLElement) =>
   bindNumberField(el, '#tool-strength', () => Number(e.settings[key] ?? 50), (v) => (e.settings[key] = Math.max(1, Math.min(100, v))));
@@ -441,12 +512,20 @@ const samplingSelect = (id: string, value: string) =>
 export function installRetouchTools(_e: Editor) {
   registerTool(
     cloneTool(),
-    withOptions(strokeTool('blur-tool', 'Blur Tool', 'blur-tool', 'focus', '', 'Blur Tool', {}, focusTarget('blur')), strengthField('blurStrength'), bindStrength('blurStrength')),
+    withOptions(
+      strokeTool('blur-tool', 'Blur Tool', 'blur-tool', 'focus', '', 'Blur Tool', {}, focusTarget('blur')),
+      (e) => `${strengthField('blurStrength')(e)}${sampleAllField('blur')(e)}`,
+      (e, el) => {
+        bindStrength('blurStrength')(e, el);
+        bindSampleAll('blur')(e, el);
+      },
+    ),
     withOptions(
       strokeTool('sharpen-tool', 'Sharpen Tool', 'sharpen-tool', 'focus', '', 'Sharpen Tool', {}, focusTarget('sharpen')),
-      (e) => `${strengthField('sharpenStrength')(e)}<label class="transform-setting" title="Sharpen edges without halos, noise or blocky artifacts"><input type="checkbox" id="sharpen-protect" ${e.settings.sharpenProtectDetail !== false ? 'checked' : ''}>Protect Detail</label>`,
+      (e) => `${strengthField('sharpenStrength')(e)}${sampleAllField('sharpen')(e)}<label class="transform-setting" title="Sharpen edges without halos, noise or blocky artifacts"><input type="checkbox" id="sharpen-protect" ${e.settings.sharpenProtectDetail !== false ? 'checked' : ''}>Protect Detail</label>`,
       (e, el) => {
         bindStrength('sharpenStrength')(e, el);
+        bindSampleAll('sharpen')(e, el);
         el.querySelector<HTMLInputElement>('#sharpen-protect')?.addEventListener('change', (ev) => (e.settings.sharpenProtectDetail = (ev.target as HTMLInputElement).checked));
       },
     ),

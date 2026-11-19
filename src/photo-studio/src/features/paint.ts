@@ -379,7 +379,7 @@ function startsOnForeground(e: Editor, target: PixelTarget, p: CanvasPointer) {
   return d[3] > 0 && Math.abs(d[0] - r) <= 1 && Math.abs(d[1] - g) <= 1 && Math.abs(d[2] - b) <= 1;
 }
 /** Shared stroke lifecycle for brush-like tools. */
-export function strokeTool(id: string, label: string, icon: string, group: string, key: string, history: string, extra: Partial<Tool> = {}, makeTarget?: (e: Editor, target: PixelTarget, p: CanvasPointer) => PaintTarget | undefined): Tool {
+export function strokeTool(id: string, label: string, icon: string, group: string, key: string, history: string, extra: Partial<Tool> = {}, makeTarget?: (e: Editor, target: PixelTarget, p: CanvasPointer) => PaintTarget | undefined | Promise<PaintTarget | undefined>): Tool {
   return {
     id,
     label,
@@ -438,7 +438,9 @@ export function strokeTool(id: string, label: string, icon: string, group: strin
         return;
       }
       const s = brushFor(id);
-      let paint = makeTarget ? makeTarget(e, target, p) : paintTargetFor(e, id, target, p);
+      // A target may need pixels read first (Sample All Layers); samples queue meanwhile.
+      let paint = makeTarget ? await makeTarget(e, target, p) : paintTargetFor(e, id, target, p);
+      if (active !== a) return;
       if (!paint) {
         active = undefined;
         return;

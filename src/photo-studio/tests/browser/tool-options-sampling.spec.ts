@@ -192,3 +192,54 @@ test('the marquee size readout shows the square that Shift makes', async ({ page
     height: 60,
   });
 });
+
+test('Blur with Sample All Layers retouches onto an empty layer above the photo', async ({
+  page,
+}) => {
+  // A hard red | blue edge at x = 100 on the photo, an empty layer above it.
+  const photo = await page.evaluate(async () => {
+    const e = window.photoStudio;
+    const { readRGBA, writeRect } = await import('/src/model/tiles.ts');
+    const { setLayerPixels } = await import('/src/model/pixel-layer.ts');
+    e.command('Edge', (d) => {
+      const l = d.layers[0];
+      const img = readRGBA(e.assets.tiles, l.pixels!, { x: 0, y: 0, width: 200, height: 100 });
+      for (let y = 0; y < 100; y++)
+        for (let x = 100; x < 200; x++) img.data.set([0, 0, 255, 255], (y * 200 + x) * 4);
+      setLayerPixels(l, writeRect(e.assets.tiles, l.pixels!, 0, 0, img), d);
+    });
+    const id = e.selected;
+    await e.runCommand('layer.new-quick');
+    return id;
+  });
+  await idle(page);
+  await tool(page, 'Blur Tool');
+  await page.locator('#tool-strength').fill('100');
+  await page.locator('#tool-strength').press('Enter');
+  await page.locator('#focus-sample-all').check();
+  for (let i = 0; i < 3; i++)
+    await canvasDrag(page, [
+      [100, 20],
+      [100, 80],
+    ]);
+  await idle(page);
+  const read = (id: string | null, x: number, y: number) =>
+    page.evaluate(
+      async ({ id, x, y }) => {
+        const e = window.photoStudio;
+        const { readRGBA } = await import('/src/model/tiles.ts');
+        const { findLayer } = await import('/src/model/document.ts');
+        const l = id ? findLayer(e.doc.layers, id)! : e.layer!;
+        return Array.from(readRGBA(e.assets.tiles, l.pixels!, { x, y, width: 1, height: 1 }).data);
+      },
+      { id, x, y },
+    );
+  const top = await read(null, 100, 50);
+  // The new layer now holds an opaque blend of red and blue at the edge.
+  expect(top[3]).toBeGreaterThan(200);
+  expect(top[0]).toBeGreaterThan(30);
+  expect(top[2]).toBeGreaterThan(30);
+  // The photo itself is untouched, and the layer stays empty away from the stroke.
+  expect(await read(photo, 100, 50)).toEqual([0, 0, 255, 255]);
+  expect((await read(null, 20, 50))[3]).toBe(0);
+});
