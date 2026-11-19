@@ -90,7 +90,7 @@ function makeMovable(dialog, head, key) {
    * Editor it previews into: beside it if the window has room, else as far right as fits.
    */
   dialog.avoid = (rect) => {
-    if (sheetLayout() || offset.x || offset.y || positions.has(key)) return;
+    if (sheetLayout() || offset.x || offset.y || store.get(key)) return;
     const r = dialog.getBoundingClientRect();
     if (r.right <= rect.left || r.left >= rect.right || r.bottom <= rect.top || r.top >= rect.bottom) return;
     const options = [
