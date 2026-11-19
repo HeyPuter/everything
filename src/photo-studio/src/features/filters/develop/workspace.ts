@@ -175,6 +175,7 @@ class DevelopWorkspace {
       zoomLabel: this.q('.dv-zoom-label'),
       proxyLimit: 1600,
       fullDelay: 600,
+      adaptive: true,
       overlay: (ctx, w, h, after) => this.overlay(ctx, w, h, after),
       onImage: (img) => this.onImage(img),
       tool: (ev, phase) => this.paneTool(ev, phase),

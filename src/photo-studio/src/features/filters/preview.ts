@@ -24,6 +24,9 @@ export type PreviewUI = {
   proxyLimit?: number;
   // Pause after the last change before the full-resolution render starts (ms).
   fullDelay?: number;
+  // Slow renders of a whole-image preview drop to half the size while
+  // settings keep changing, then refine once they pause.
+  adaptive?: boolean;
   // A pane tool: return true from 'down' to take the drag instead of panning.
   tool?: (ev: PointerEvent, phase: 'down' | 'move' | 'up' | 'hover') => boolean | void;
 };
@@ -143,6 +146,8 @@ export class FilterPreview {
   private fullTimer = 0;
   private paneBusy = false;
   private paneDirty = false;
+  private coarse = false;
+  private refineTimer = 0;
   private watchdog = 0;
   private disposed = false;
   private progressBusy = new Set<string>();
@@ -252,6 +257,14 @@ export class FilterPreview {
     }
     this.entries = entries;
     this.sig = JSON.stringify(entries);
+    if (this.ui.adaptive) {
+      clearTimeout(this.refineTimer);
+      this.refineTimer = window.setTimeout(() => {
+        if (!this.coarse) return;
+        this.coarse = false;
+        this.schedulePane(true);
+      }, 280);
+    }
     this.schedulePane();
     this.scheduleFull();
     this.draw();
@@ -322,8 +335,10 @@ export class FilterPreview {
       { passive: false },
     );
   }
-  private schedulePane() {
+  private schedulePane(refine = false) {
     if (this.disposed || (this.fullRes?.sig === this.sig && this.fullRes)) return;
+    // Refining: the latest settings were only rendered at the coarse size.
+    if (refine && this.paneImg?.sig === this.sig && this.paneImg.level <= this.proxyLevel()) return;
     if (this.paneBusy) {
       this.paneDirty = true;
       return;
@@ -348,6 +363,7 @@ export class FilterPreview {
       y1 = Math.min(d.h, Math.ceil((v.y + v.height) * f) + m);
     } else {
       k = this.proxyLevel();
+      if (this.coarse && Math.max(this.levelDims(k + 1).w, this.levelDims(k + 1).h) >= 256) k++;
       const d = this.levelDims(k);
       [x0, y0, x1, y1] = [0, 0, d.w, d.h];
     }
@@ -361,6 +377,7 @@ export class FilterPreview {
         this.showProgress(0);
       }
     }, 600);
+    const t0 = performance.now();
     try {
       const res = await this.paneLane.run(
         { type: 'run', job: 0, key: this.s.key, filters: entries, ctx: filterContext(this.s.e, this.s), ...runFlags(this.s), view, output: 'image' },
@@ -368,6 +385,8 @@ export class FilterPreview {
         (f) => this.progressBusy.has('pane') && this.showProgress(f),
       );
       if (this.disposed) return;
+      // Changes arrived during a slow render: keep up at the coarse size.
+      if (this.ui.adaptive && !this.local && this.paneDirty && performance.now() - t0 > 120) this.coarse = true;
       this.paneImg = { canvas: toCanvas(res.image!), img: res.image!, level: k, x: view.x, y: view.y, sig };
       if (sig === this.sig) this.ui.onImage?.(res.image!);
       this.draw();
@@ -547,6 +566,7 @@ export class FilterPreview {
     }
     this.disposed = true;
     clearTimeout(this.fullTimer);
+    clearTimeout(this.refineTimer);
     clearTimeout(this.watchdog);
     this.paneLane.dispose();
     this.fullLane.dispose();
