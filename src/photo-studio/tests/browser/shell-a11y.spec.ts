@@ -402,6 +402,60 @@ test('link-colored text (links, search tags) keeps 4.5:1 contrast on every surfa
   }
 });
 
+test('assistant step links, the running-step status and the batch link keep 4.5:1 contrast in every theme and highlight color, also on hover', async ({ page }) => {
+  await page.evaluate(async () => {
+    await import(/* @vite-ignore */ '/src/features/scripting/scripting.css');
+    const box = document.createElement('div');
+    box.className = 'contrast-probe';
+    box.style.cssText = 'position:fixed;left:400px;top:300px;z-index:9999;padding:8px;background:var(--surface)';
+    box.innerHTML = '<div class="ast-step status-running"><span class="ast-step-status">●</span><button type="button" class="ast-step-name">Blur</button></div><a class="button batch-link-open" href="#">Open Link</a>';
+    document.body.append(box);
+  });
+  await page.locator('.contrast-probe .ast-step-name').hover();
+  const worst = () =>
+    page.evaluate(() => {
+      const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+      const rgb = (c: string) => {
+        x.clearRect(0, 0, 1, 1);
+        x.fillStyle = c;
+        x.fillRect(0, 0, 1, 1);
+        return [...x.getImageData(0, 0, 1, 1).data];
+      };
+      const lum = (c: number[]) => {
+        const [r, g, b] = c.slice(0, 3).map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      // The first opaque background from the element up.
+      const background = (el: Element | null): number[] => {
+        for (; el; el = el.parentElement) {
+          const c = rgb(getComputedStyle(el).backgroundColor);
+          if (c[3] === 255) return c;
+        }
+        return rgb(getComputedStyle(document.body).backgroundColor);
+      };
+      let min = Infinity;
+      for (const el of document.querySelectorAll('.contrast-probe .ast-step-status, .contrast-probe .ast-step-name, .contrast-probe .batch-link-open')) {
+        const fg = lum(rgb(getComputedStyle(el).color)),
+          bg = lum(background(el));
+        min = Math.min(min, (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05));
+      }
+      return min;
+    });
+  // The hovered step name takes the link color.
+  expect(await page.locator('.contrast-probe .ast-step-name').evaluate((el) => getComputedStyle(el).color)).toBe(await page.locator('.contrast-probe .batch-link-open').evaluate((el) => getComputedStyle(el).color));
+  for (const theme of ['dark', 'medium', 'light']) {
+    await page.locator('#theme').selectOption(theme);
+    for (const highlight of ['blue', 'gray', 'teal', 'violet', 'orange']) {
+      await page.evaluate((h) => {
+        const e = window.photoStudio;
+        e.preferences.highlightColor = h as typeof e.preferences.highlightColor;
+        e.preferencesChanged();
+      }, highlight);
+      expect(await worst(), `${theme} ${highlight}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
 test('the keyboard focus ring of an accent-filled button stands out from its surroundings in every theme', async ({ page }) => {
   await page.evaluate(() => {
     const b = document.createElement('button');
