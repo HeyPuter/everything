@@ -251,3 +251,19 @@ describe('sample point editing', () => {
     expect(view.sampleDrag).toBe(null);
   });
 });
+
+describe('half-channel hint', () => {
+  it('labels the cursor with the channel a drag near the top or bottom edge selects', async () => {
+    const { view } = await makeView();
+    view.waveHeight = 400;
+    view.surface.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 400 });
+    const move = (y) => {
+      view.surface.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 300, clientY: y }));
+      return view.surface.style.cursor;
+    };
+    expect(move(10)).toContain('data:image/svg+xml');
+    expect(move(10)).toContain(encodeURIComponent('>L</text>'));
+    expect(move(390)).toContain(encodeURIComponent('>R</text>'));
+    expect(move(200)).toBe('text');
+  });
+});

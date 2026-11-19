@@ -35,6 +35,21 @@ const CHANNEL_TOKENS = ['--wave', '--wave-2', '--wave-3', '--wave-4'];
 /** Per-channel waveform color for View > Waveform Channels > Uniquely Colored. */
 const channelColor = (i) => cssVar(CHANNEL_TOKENS[i % CHANNEL_TOKENS.length]);
 
+const channelCursors = new Map();
+
+/** A text cursor labelled with a channel name, shown where a drag selects that channel alone. */
+export function channelCursor(name) {
+  if (!channelCursors.has(name)) {
+    const beam = 'M5 3h5M7.5 3v18M5 21h5';
+    const svg =
+      `<svg xmlns='http://www.w3.org/2000/svg' width='26' height='24'>` +
+      `<path d='${beam}' fill='none' stroke='black' stroke-width='3'/><path d='${beam}' fill='none' stroke='white' stroke-width='1'/>` +
+      `<text x='12' y='11' font-family='sans-serif' font-size='10' font-weight='700' fill='white' stroke='black' stroke-width='2.5' paint-order='stroke'>${name}</text></svg>`;
+    channelCursors.set(name, `url("data:image/svg+xml,${encodeURIComponent(svg)}") 7 12, text`);
+  }
+  return channelCursors.get(name);
+}
+
 function withAlpha(color, alpha) {
   const [r, g, b, a] = parseColor(color);
   return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a * alpha})`;
@@ -1315,7 +1330,14 @@ export class WaveformView {
     const sel = this.doc.selection;
     const tol = 6 * this.fpp;
     const onEdge = sel.end > sel.start && (Math.abs(f - sel.start) < tol || Math.abs(f - sel.end) < tol);
-    let cursor = onEdge ? 'ew-resize' : this.sampleAt(x, e.clientY - rect.top) ? 'ns-resize' : 'text';
+    const y = e.clientY - rect.top;
+    let cursor = onEdge ? 'ew-resize' : this.sampleAt(x, y) ? 'ns-resize' : 'text';
+    if (cursor === 'text') {
+      // Near the top or bottom edge a drag selects one channel: the I-beam names it.
+      const mask = this.#channelMaskAt(y);
+      const one = mask && mask.filter(Boolean).length === 1 ? mask.indexOf(true) : -1;
+      if (one >= 0) cursor = channelCursor(CHANNEL_NAMES[one] || String(one + 1));
+    }
     for (const l of this.layers) {
       const c = l.visible?.() !== false && l.cursor?.(e);
       if (c) cursor = c;
