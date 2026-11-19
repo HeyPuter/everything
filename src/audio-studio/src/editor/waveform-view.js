@@ -1,6 +1,7 @@
 // Waveform editor view for an AudioFile: overview navigator, time ruler,
 // channel lanes (WebGL2), dB ruler with channel enable buttons, selection,
-// markers, fade handles, the gain HUD and touch/pointer/keyboard interaction.
+// markers, fade handles, the gain HUD, sample point dragging at high zoom and
+// touch/pointer/keyboard interaction.
 //
 // Extensions (e.g. the spectral display) register through
 // WaveformView.extensions: each is { attach(view) } and may set
@@ -38,6 +39,9 @@ function withAlpha(color, alpha) {
   const [r, g, b, a] = parseColor(color);
   return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a * alpha})`;
 }
+
+/** Pixels between samples from which sample points can be dragged (the renderer draws them as dots). */
+export const SAMPLE_EDIT_PX = 6;
 
 /** Time each frame may spend building peak levels for blocks drawn for the first time. */
 const PEAK_FRAME_BUDGET_MS = 12;
@@ -637,7 +641,8 @@ export class WaveformView {
     });
     const amp = doc.view.amp;
     this.waveMask = doc.selection.channels.join();
-    this.renderer.draw({ channels: doc.state.channels, start: doc.view.start, fpp: this.fpp / dpr, amp, lanes, colors, defer: this.peakDefer });
+    const channels = this.sampleDrag ? doc.state.channels.map((c, i) => (i === this.sampleDrag.ch ? this.sampleDrag.channel : c)) : doc.state.channels;
+    this.renderer.draw({ channels, start: doc.view.start, fpp: this.fpp / dpr, amp, lanes, colors, defer: this.peakDefer });
   }
 
   #drawOverlay() {
@@ -1024,6 +1029,14 @@ export class WaveformView {
       const rect = s.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+      // Zoomed in to single samples: dragging a sample point redraws the waveform.
+      const hit = !e.shiftKey && e.pointerType !== 'touch' ? this.sampleAt(x, y) : null;
+      if (hit) {
+        s.setPointerCapture(e.pointerId);
+        this.#startSampleDrag(hit);
+        drag = { samples: true };
+        return;
+      }
       const now = performance.now();
       if (now - clicks.t < 400 && Math.abs(x - clicks.x) < 6) clicks.n++;
       else clicks.n = 1;
@@ -1098,6 +1111,11 @@ export class WaveformView {
         drag.layer.pointer(e, 'move');
         return;
       }
+      if (drag.samples) {
+        const r = s.getBoundingClientRect();
+        this.#moveSampleDrag(e.clientX - r.left, e.clientY - r.top);
+        return;
+      }
       const rect = s.getBoundingClientRect();
       const x = e.clientX - rect.left;
       if (!drag.started && Math.abs(x - drag.x0) < (drag.pointerType === 'touch' ? 8 : 3)) return;
@@ -1118,6 +1136,16 @@ export class WaveformView {
         drag = null;
         return;
       }
+      if (drag.samples) {
+        const start = this.sampleDrag?.start;
+        // A click on a sample point without dragging places the playhead, as anywhere else.
+        if (!this.#endSampleDrag(cancelled) && !cancelled && start !== undefined) {
+          this.doc.setSelection(start, start, { channels: this.doc.state.channels.map(() => true) });
+          this.seek(start);
+        }
+        drag = null;
+        return;
+      }
       if (cancelled) {
         this.doc.setSelection(drag.prev.start, drag.prev.end, { channels: drag.prev.channels });
       } else if (!drag.started) {
@@ -1132,6 +1160,15 @@ export class WaveformView {
     s.addEventListener('pointercancel', (e) => finish(e, true));
     s.addEventListener('lostpointercapture', (e) => {
       if (drag && !drag.layer) finish(e, false);
+    });
+    s.addEventListener('keydown', (e) => {
+      // Escape during a sample drag puts the samples back.
+      if (e.key === 'Escape' && drag?.samples) {
+        this.#endSampleDrag(true);
+        drag = null;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
     });
 
     s.addEventListener(
@@ -1174,6 +1211,92 @@ export class WaveformView {
     ];
   }
 
+  /** True when the view is zoomed in far enough for single samples to be dragged. */
+  samplesEditable() {
+    return this.doc.length > 0 && this.width > 0 && 1 / this.fpp >= SAMPLE_EDIT_PX;
+  }
+
+  /** y (CSS px) of a sample value in a lane at the current amplitude zoom. */
+  #sampleY(lane, v) {
+    const mid = (lane.top + lane.bottom) / 2;
+    return mid - Math.max(-1.05, Math.min(1.05, v * this.doc.view.amp)) * ((lane.bottom - lane.top) / 2);
+  }
+
+  /**
+   * The sample point under (x, y) when zoomed in to single samples: { ch, frame }, or
+   * null. Only channels enabled for editing respond; in a layered display the channel
+   * whose point is nearest wins.
+   */
+  sampleAt(x, y) {
+    if (!this.samplesEditable() || y >= (this.waveHeight ?? this.height)) return null;
+    const doc = this.doc;
+    const frame = Math.round(this.frameAt(x));
+    if (frame < 0 || frame >= doc.length || Math.abs(this.xOf(frame) - x) > 5) return null;
+    const one = new Float32Array(1);
+    let best = null;
+    let bestD = 6;
+    this.lanes().forEach((lane, ch) => {
+      if (doc.selection.channels[ch] === false || y < lane.top - 2 || y > lane.bottom + 2) return;
+      doc.state.channels[ch].read(frame, one);
+      const d = Math.abs(this.#sampleY(lane, one[0]) - y);
+      if (d <= bestD) {
+        bestD = d;
+        best = { ch, frame };
+      }
+    });
+    return best;
+  }
+
+  #startSampleDrag({ ch, frame }) {
+    const doc = this.doc;
+    const before = doc.state;
+    const a = Math.max(0, Math.floor(doc.view.start) - 1);
+    const b = Math.min(doc.length, Math.ceil(doc.view.end) + 2);
+    this.sampleDrag = { ch, start: frame, before, a, buf: before.channels[ch].toArray(a, b), last: null, channel: before.channels[ch], changed: false };
+    this.#setSampleAt(frame, this.xOf(frame));
+  }
+
+  /** Sets the sample under x to the value at y, filling in samples skipped since the last move. */
+  #moveSampleDrag(x, y) {
+    const d = this.sampleDrag;
+    if (!d) return;
+    d.y = y;
+    const frame = Math.round(this.frameAt(Math.max(0, Math.min(this.width, x))));
+    this.#setSampleAt(frame, x);
+  }
+
+  #setSampleAt(frame, x, y = this.sampleDrag.y) {
+    const d = this.sampleDrag;
+    const lane = this.lanes()[d.ch];
+    const half = (lane.bottom - lane.top) / 2;
+    const value = y === undefined ? null : Math.max(-1, Math.min(1, ((lane.top + lane.bottom) / 2 - y) / half / this.doc.view.amp));
+    const i = frame - d.a;
+    if (value === null || i < 0 || i >= d.buf.length) {
+      d.last = i >= 0 && i < d.buf.length ? { i, v: d.buf[i] } : d.last;
+      return;
+    }
+    const from = d.last ?? { i, v: value };
+    const lo = Math.min(from.i, i);
+    const hi = Math.max(from.i, i);
+    for (let k = lo; k <= hi; k++) {
+      const t = hi === lo ? 1 : (k - from.i) / (i - from.i);
+      d.buf[k] = from.v + (value - from.v) * t;
+    }
+    d.last = { i, v: value };
+    d.changed = true;
+    d.channel = d.before.channels[d.ch].write(d.a, d.buf.slice());
+    this.invalidate('wave');
+    this.#reportCursorData(frame, y);
+  }
+
+  #endSampleDrag(cancelled) {
+    const d = this.sampleDrag;
+    this.sampleDrag = null;
+    this.invalidate('wave');
+    if (!d || cancelled || !d.changed || this.doc.state !== d.before) return false;
+    return this.doc.apply('Edit Samples', { ...d.before, channels: d.before.channels.map((c, i) => (i === d.ch ? d.channel : c)) });
+  }
+
   /** Extends the time selection to `frame` from its far edge (or from the playhead). */
   extendSelectionTo(frame) {
     const doc = this.doc;
@@ -1192,7 +1315,7 @@ export class WaveformView {
     const sel = this.doc.selection;
     const tol = 6 * this.fpp;
     const onEdge = sel.end > sel.start && (Math.abs(f - sel.start) < tol || Math.abs(f - sel.end) < tol);
-    let cursor = onEdge ? 'ew-resize' : 'text';
+    let cursor = onEdge ? 'ew-resize' : this.sampleAt(x, e.clientY - rect.top) ? 'ns-resize' : 'text';
     for (const l of this.layers) {
       const c = l.visible?.() !== false && l.cursor?.(e);
       if (c) cursor = c;

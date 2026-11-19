@@ -1,5 +1,5 @@
 // Waveform editor rulers: amplitude ruler units, its menu, wheel and drag zoom;
-// the time ruler's right-click menu, wheel zoom and selection handles.
+// the time ruler's right-click menu, wheel zoom and selection handles; sample point editing.
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { linearTicks, ampFullScale, ampDragZoom, WaveformView } from '../src/editor/waveform-view.js';
 
@@ -166,5 +166,88 @@ describe('time ruler', () => {
     const before = doc.view.end - doc.view.start;
     view.ruler.el.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: 500, bubbles: true, cancelable: true }));
     expect(doc.view.end - doc.view.start).toBeLessThan(before);
+  });
+});
+
+describe('sample point editing', () => {
+  beforeEach(() => localStorage.clear());
+
+  async function zoomedView() {
+    const ctx = await makeView();
+    const { doc, view } = ctx;
+    // 10 px per sample: a ramp in the left channel, silence in the right.
+    const { Channel } = await import('../src/audio/channel.js');
+    const ramp = new Float32Array(48000);
+    for (let i = 0; i < 200; i++) ramp[i] = (i % 10) / 20;
+    doc.apply('Setup', { ...doc.state, channels: [Channel.fromSamples(ramp), doc.state.channels[1]] });
+    doc.setView(0, 100);
+    view.waveHeight = 400;
+    view.surface.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 400 });
+    view.surface.setPointerCapture = () => {};
+    return ctx;
+  }
+
+  const pe = (type, x, y, extra = {}) => {
+    const e = new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y, ...extra });
+    Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+    return e;
+  };
+  // Lanes: L 0..199.5, R 200.5..400 (1 px gap); y of value v in the left lane.
+  const yL = (v) => 99.75 - v * 99.75;
+
+  it('finds sample points only when zoomed in to single samples', async () => {
+    const { doc, view } = await zoomedView();
+    expect(view.samplesEditable()).toBe(true);
+    expect(view.sampleAt(40, yL(0.2))).toEqual({ ch: 0, frame: 4 });
+    expect(view.sampleAt(48, yL(0.25))).toEqual({ ch: 0, frame: 5 });
+    expect(view.sampleAt(40, yL(0.2) + 20)).toBe(null);
+    doc.setView(0, 48000);
+    expect(view.samplesEditable()).toBe(false);
+    expect(view.sampleAt(0, yL(0))).toBe(null);
+  });
+
+  it('ignores channels disabled for editing', async () => {
+    const { doc, view } = await zoomedView();
+    doc.setChannelEnabled(0, false);
+    expect(view.sampleAt(40, yL(0.2))).toBe(null);
+  });
+
+  it('drags a sample to a new value as one undoable edit', async () => {
+    const { doc, view } = await zoomedView();
+    const s = view.surface;
+    s.dispatchEvent(pe('pointerdown', 40, yL(0.2)));
+    s.dispatchEvent(pe('pointermove', 40, yL(0.8)));
+    // Moving across to sample 6 fills in sample 5 on the way.
+    s.dispatchEvent(pe('pointermove', 60, yL(0.4)));
+    s.dispatchEvent(pe('pointerup', 60, yL(0.4)));
+    const out = doc.state.channels[0].toArray(3, 8);
+    expect(out[0]).toBeCloseTo(0.15);
+    expect(out[1]).toBeCloseTo(0.8, 2);
+    expect(out[2]).toBeCloseTo(0.6, 2);
+    expect(out[3]).toBeCloseTo(0.4, 2);
+    expect(out[4]).toBeCloseTo(0.35);
+    expect(doc.history.undoLabel).toBe('Edit Samples');
+    expect(doc.state.channels[1].toArray(0, 10).every((v) => v === 0)).toBe(true);
+  });
+
+  it('a click on a sample point without dragging places the playhead', async () => {
+    const { doc, view } = await zoomedView();
+    const before = doc.state;
+    view.surface.dispatchEvent(pe('pointerdown', 40, yL(0.2)));
+    view.surface.dispatchEvent(pe('pointerup', 40, yL(0.2)));
+    expect(doc.state).toBe(before);
+    expect(doc.cursor).toBe(4);
+  });
+
+  it('Escape during the drag puts the samples back', async () => {
+    const { doc, view } = await zoomedView();
+    const before = doc.state;
+    const s = view.surface;
+    s.dispatchEvent(pe('pointerdown', 40, yL(0.2)));
+    s.dispatchEvent(pe('pointermove', 40, yL(0.9)));
+    s.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    s.dispatchEvent(pe('pointerup', 40, yL(0.9)));
+    expect(doc.state).toBe(before);
+    expect(view.sampleDrag).toBe(null);
   });
 });
