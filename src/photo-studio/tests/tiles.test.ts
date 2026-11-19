@@ -3,6 +3,7 @@ import {
   TILE,
   TileStore,
   allMask,
+  anyVisible,
   computeBounds,
   emptyGrid,
   gridFromImage,
@@ -200,5 +201,44 @@ describe('pixel layers', () => {
     commitPixelResample(l, store, doc);
     expect(l.transform).toMatchObject({ x: 8, y: 5, width: 20, height: 20 });
     expect([...readRGBA(store, l.pixels!, { x: 18, y: 15, width: 1, height: 1 }).data]).toEqual([200, 0, 0, 255]);
+  });
+});
+
+describe('anyVisible', () => {
+  it('agrees with reading the rectangle, across tiles, edges and grid offsets', () => {
+    const store = new TileStore();
+    const w = 600,
+      h = 300;
+    const data = new Uint8ClampedArray(w * h * 4);
+    // Three visible pixels: inside a tile, on a tile edge, in the last tile.
+    for (const [x, y] of [
+      [40, 30],
+      [TILE - 1, TILE],
+      [w - 1, h - 1],
+    ]) {
+      const i = (y * w + x) * 4;
+      data.set([10, 20, 30, 1], i);
+    }
+    // Color without alpha is not visible.
+    data.set([255, 255, 255, 0], (100 * w + 300) * 4);
+    for (const [ox, oy] of [
+      [0, 0],
+      [-37, 91],
+    ]) {
+      const grid = gridFromImage(store, { width: w, height: h, data }, ox, oy);
+      const rects = [
+        { x: ox, y: oy, width: w, height: h },
+        { x: ox + 41, y: oy, width: 200, height: 300 },
+        { x: ox + TILE - 1, y: oy + TILE, width: 1, height: 1 },
+        { x: ox + TILE, y: oy + TILE, width: 50, height: 40 },
+        { x: ox + 290, y: oy + 90, width: 20, height: 20 },
+        { x: ox + w - 1, y: oy + h - 1, width: 5, height: 5 },
+        { x: ox - 500, y: oy - 500, width: 100, height: 100 },
+      ];
+      for (const r of rects) {
+        const read = readRGBA(store, grid, r).data.some((v, i) => (i & 3) === 3 && v > 0);
+        expect(anyVisible(store, grid, r), JSON.stringify([ox, oy, r])).toBe(read);
+      }
+    }
   });
 });
