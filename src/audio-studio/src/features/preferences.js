@@ -26,6 +26,7 @@ export function applyModulePrefs(prefs) {
   placementOptions.randomColor = Boolean(prefs.get('randomTrackColor'));
   placementOptions.avoidOverlap = Boolean(prefs.get('avoidOverlap'));
   placementOptions.sameTrack = prefs.get('insertMultiple') === 'same';
+  placementOptions.embeddedTimecode = Boolean(prefs.get('embeddedTimecode'));
   rackOptions.processBypassed = Boolean(prefs.get('fxProcessBypassed'));
   rackOptions.sort = prefs.get('fxMenuSort') === 'name' ? 'name' : 'category';
   const caution = Number(prefs.get('meterCaution'));

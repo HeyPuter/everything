@@ -260,6 +260,7 @@ export const CATEGORIES = [
         items: [
           check('autoCrossfade', 'Crossfade overlapping clips automatically in new sessions'),
           check('clipsToFront', 'Bring clips to the front when selecting them'),
+          check('embeddedTimecode', 'Place inserted files at their embedded timecode', { keywords: 'bwf bext time reference timestamp field recorder sync', help: 'A broadcast WAV with a time reference (from a field recorder or another editor) lands at that time instead of at the playhead.' }),
           check('clipGainWaveform', 'Scale the clip waveform with the clip gain'),
           check('clipFadeHandles', 'Show fade handles'),
           check('clipVolumeEnvelopes', 'Show clip volume envelopes'),

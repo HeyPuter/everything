@@ -64,7 +64,16 @@ export function nextBusName(state) {
  * the next track where they fit, `sameTrack` places several inserted files
  * one after another on one track.
  */
-export const placementOptions = { randomColor: false, avoidOverlap: false, sameTrack: false, random: Math.random };
+export const placementOptions = { randomColor: false, avoidOverlap: false, sameTrack: false, embeddedTimecode: false, random: Math.random };
+
+/**
+ * Where a file's embedded timecode (the broadcast WAV time reference, in its own samples) puts it
+ * on a timeline at `rate`, or null when it has none.
+ */
+export function embeddedStart(doc, rate) {
+  const ref = Math.floor(Number(doc?.state?.meta?.bextTimeRef) || 0);
+  return ref > 0 && doc.sampleRate > 0 ? Math.round((ref * rate) / doc.sampleRate) : null;
+}
 
 function colorFor(state) {
   const n = S.TRACK_COLORS.length;
@@ -195,7 +204,9 @@ export async function insertDocs(app, session, docs, { trackId, at, range, range
       if (!length) continue;
       p.offset = p.requested ? Math.min(p.requested.offset, length - 1) : 0;
       p.length = p.requested ? Math.min(p.requested.length, length - p.offset) : length;
-      p.start = sameTrack ? end : at;
+      // Preferences > Multitrack Clips: a whole file with a time reference goes where it was recorded.
+      const stamped = placementOptions.embeddedTimecode && !sameTrack && !p.requested ? embeddedStart(p.doc, rate) : null;
+      p.start = sameTrack ? end : stamped ?? at;
       p.trackOffset = sameTrack ? 0 : activeParts.length;
       end += p.length;
       activeParts.push(p);
