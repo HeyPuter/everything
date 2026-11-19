@@ -11,6 +11,11 @@
 //         | { edit: 'Label' }           ...when the active file's last edit has this label
 //         | { check(app, ctx) }         ...when this returns true (checked on app events)
 //         | { manual: true }            ...when the user presses Next
+//     enter?(app, ctx)                  runs as the step begins (e.g. measures the audio)
+//     verify?(app, ctx) -> message | null | Promise   checks the result once `done` is met:
+//                                       a message keeps the step open and says what to adjust
+//     drag?: { from: [fx, fy], to: [fx, fy] } | { from, by: [dx, dy] }   a drag to show,
+//                                       in fractions of the target's box (by: in pixels)
 //   }
 //
 // The runner follows one tutorial at a time, advances when a step's condition is met,
@@ -86,6 +91,7 @@ export class TutorialRunner extends Emitter {
     const tutorial = this.get(id);
     if (!tutorial) return false;
     this.stop();
+    this.lastFinished = null;
     const ctx = {};
     const prog = this.progress(id);
     const index = restart || prog.done ? 0 : prog.step;
@@ -131,6 +137,15 @@ export class TutorialRunner extends Emitter {
     if (!r) return;
     // Remembered so an edit step needs a new edit, not one made before it began.
     r.ctx.stepHistory = { index: this.app.active?.history?.index };
+    r.ctx.problem = null;
+    r.ctx.checking = false;
+    r.ctx.verified = undefined;
+    this.verifyToken = (this.verifyToken || 0) + 1;
+    try {
+      r.tutorial.steps[r.index]?.enter?.(this.app, r.ctx);
+    } catch {
+      // A failed measurement only means the result is not checked.
+    }
     this.emit('change', this.current);
     // A condition that already holds (e.g. the display is already on) completes at once.
     queueMicrotask(() => this.#check());
@@ -144,6 +159,8 @@ export class TutorialRunner extends Emitter {
     this.#save(r.tutorial.id, { step: Math.min(r.index, r.tutorial.steps.length), done });
     if (done) {
       const t = r.tutorial;
+      // Kept for the panel's closing card (Keep a Copy of the practice file).
+      this.lastFinished = { tutorial: t, ctx: r.ctx };
       this.stop();
       this.emit('finished', t);
       return;
@@ -154,7 +171,33 @@ export class TutorialRunner extends Emitter {
   #check(ranCommand = null) {
     const cur = this.current;
     if (!cur?.step || cur.step.done?.manual) return;
-    if (stepSatisfied(cur.step, this.app, cur.ctx, ranCommand)) this.#advance();
+    if (!stepSatisfied(cur.step, this.app, cur.ctx, ranCommand)) return;
+    if (cur.step.verify) this.#verify(cur);
+    else this.#advance();
+  }
+
+  /** Checks the step's result; advances when it is good, else explains what to change. */
+  async #verify(cur) {
+    const ctx = cur.ctx;
+    // Once per state of the audio: other events do not measure the same result again.
+    const state = this.app.active?.state ?? null;
+    if (ctx.checking || ctx.verified === state) return;
+    ctx.verified = state;
+    const token = (this.verifyToken = (this.verifyToken || 0) + 1);
+    ctx.checking = true;
+    this.emit('change', this.current);
+    let problem = null;
+    try {
+      problem = await cur.step.verify(this.app, ctx);
+    } catch {
+      problem = null; // a measurement that fails does not hold the tutorial up
+    }
+    if (token !== this.verifyToken || this.run?.ctx !== ctx) return;
+    ctx.checking = false;
+    if (problem) {
+      ctx.problem = String(problem);
+      this.emit('change', this.current);
+    } else this.#advance();
   }
 
   #listen() {

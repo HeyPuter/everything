@@ -104,6 +104,20 @@
   line-height: 1.45;
 }
 
+.learn-problem {
+  margin: 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  line-height: 1.45;
+}
+
+.learn-checking {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
 .learn-step-key kbd {
   padding: 0 4px;
   border: 1px solid var(--divider);
@@ -135,13 +149,64 @@
   pointer-events: none;
 }
 
+.learn-trail {
+  position: fixed;
+  z-index: 1250;
+  height: 0;
+  border-top: 2px dashed var(--accent-strong);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.learn-ghost {
+  position: fixed;
+  z-index: 1251;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 50%));
+  animation: learn-drag 2s ease-in-out infinite;
+}
+
+/* The pointer appears, presses, travels the drag and lets go. */
+@keyframes learn-drag {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(1);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  20% {
+    transform: translate(0, 0) scale(0.85);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(var(--dx), var(--dy)) scale(0.85);
+  }
+  85%,
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(1);
+  }
+}
+
 .learn-ring[hidden],
-.learn-callout[hidden] {
+.learn-callout[hidden],
+.learn-trail[hidden],
+.learn-ghost[hidden] {
   display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .learn-ring {
     transition: none;
+  }
+
+  /* No movement: the pointer waits at the end of the dashed trail. */
+  .learn-ghost {
+    animation: none;
+    transform: translate(var(--dx), var(--dy));
   }
 }

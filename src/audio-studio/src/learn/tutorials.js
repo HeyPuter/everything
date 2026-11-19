@@ -3,11 +3,16 @@
 
 import { practiceFile, voiceSamples, clicksSamples, musicSamples, FIRST_CLICK } from './media.js';
 import { displayOn } from '../spectral/state.js';
+import { rmsDb, roughness, peakDb, integratedLoudness } from './measure.js';
+import { MATCH_DEFAULTS } from '../analysis/loudness.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
 const session = (app) => (app.active?.kind === 'session' ? app.active : null);
 const seconds = (doc, frames) => frames / (doc?.sampleRate || 48000);
 const panelOpen = (app, id) => Boolean(app.dock?.isVisible?.(id) ?? app.dock?.isOpen?.(id));
+// The tutorial's own file while it is open, else the active one.
+const fileOf = (app, ctx) => (ctx.doc && app.documents?.includes(ctx.doc) ? ctx.doc : audio(app));
+const db = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} dB` : 'silence');
 const rangeCount = (doc) => (doc?.state.markers || []).filter((m) => m.duration > 0).length;
 
 const voiceFile = (app) => practiceFile(app, 'Practice Voice.wav', () => ({ rate: 48000, channels: [voiceSamples(48000, 16)] }));
@@ -40,6 +45,7 @@ export const TUTORIALS = [
         title: 'Select some noise on its own',
         text: 'Drag across the quiet start of the file, before the voice begins (about the first second). That stretch tells the noise reducer what to remove.',
         target: () => lanes(),
+        drag: { from: [0.004, 0.5], to: [0.06, 0.5] },
         done: { check: (app) => { const d = audio(app); return Boolean(d) && d.hasSelection && seconds(d, d.selection.end) <= 1.6 && seconds(d, d.selection.end - d.selection.start) >= 0.4; } },
       },
       {
@@ -65,6 +71,17 @@ export const TUTORIALS = [
         command: 'fx.noiseReduction',
         menu: ['Effects', 'Noise Reduction / Restoration'],
         done: { edit: 'Noise Reduction' },
+        enter: (app, ctx) => {
+          const d = fileOf(app, ctx);
+          ctx.noiseBefore = d ? rmsDb(d, 0.2, 1.2) : null;
+        },
+        // The room tone before the voice should end up clearly quieter.
+        verify: (app, ctx) => {
+          const d = fileOf(app, ctx);
+          if (!d || ctx.noiseBefore == null) return null;
+          const drop = ctx.noiseBefore - rmsDb(d, 0.2, 1.2);
+          return drop >= 3 ? null : `The background noise only dropped ${Math.max(0, drop).toFixed(1)} dB. Undo, open Noise Reduction again, raise Noise Reduction and Reduce By, then apply.`;
+        },
       },
       {
         id: 'normalize',
@@ -73,12 +90,18 @@ export const TUTORIALS = [
         command: 'fx.normalize',
         menu: ['Effects', 'Amplitude and Compression'],
         done: { edit: 'Normalize' },
+        verify: (app, ctx) => {
+          const d = fileOf(app, ctx);
+          const peak = d ? peakDb(d) : 0;
+          return peak >= -3 ? null : `The loudest peak is at ${db(peak)}. Undo, set Normalize to -1 dB (or 0 dB) with the whole file selected, and apply again.`;
+        },
       },
       {
         id: 'fade',
         title: 'Fade in',
         text: 'Drag the small square at the top-left corner of the waveform to the right. It draws a fade-in; dragging up or down bends its curve.',
         target: '.editor-panel .fade-handle.in',
+        drag: { from: [0.5, 0.5], by: [90, 0] },
         done: { edit: 'Fade In' },
       },
       {
@@ -129,6 +152,17 @@ export const TUTORIALS = [
         text: 'Hold Shift and click on the vertical line: the dashed column shows what will be repaired. Without Shift you can paint over just part of it.',
         target: () => document.querySelector('.editor-panel .spec-overlay') || lanes(),
         done: { edit: 'Spot Healing' },
+        enter: (app, ctx) => {
+          const d = fileOf(app, ctx);
+          ctx.roughBefore = d ? roughness(d, FIRST_CLICK - 0.01, FIRST_CLICK + 0.01) : null;
+        },
+        // The click itself has to be gone, not just a nearby stretch repaired.
+        verify: (app, ctx) => {
+          const d = fileOf(app, ctx);
+          if (!d || !ctx.roughBefore) return null;
+          const left = roughness(d, FIRST_CLICK - 0.01, FIRST_CLICK + 0.01) / ctx.roughBefore;
+          return left <= 0.35 ? null : `The click at ${FIRST_CLICK.toFixed(1)} s is still ${Math.round(left * 100)}% as sharp. Hold Shift and click right on its line to heal the full height, or make the brush bigger with ].`;
+        },
       },
       {
         id: 'listen',
@@ -234,6 +268,15 @@ export const TUTORIALS = [
         text: 'Choose "Streaming (-14 LUFS)" under Match To and press Run. Scan shows the measured loudness first if you want to check it.',
         target: () => button('[data-panel="loudness"]', 'Run'),
         done: { edit: 'Match Loudness' },
+        // Within 1 LU of the target chosen in the panel.
+        verify: async (app, ctx) => {
+          const d = fileOf(app, ctx);
+          if (!d) return null;
+          const target = Number((app.prefs.get('matchLoudness') || {}).target ?? MATCH_DEFAULTS.target);
+          const lufs = await integratedLoudness(d, ctx.measureLoudness);
+          if (!Number.isFinite(lufs) || Math.abs(lufs - target) <= 1) return null;
+          return `The song measures ${lufs.toFixed(1)} LUFS, more than 1 LU from the ${target} LUFS target. Turn on Use Limiting (or raise Max True Peak) so the gain is not held back, then press Run again.`;
+        },
       },
     ],
   },
@@ -251,6 +294,7 @@ export const TUTORIALS = [
         title: 'Select the part to replace',
         text: 'Drag across the stretch you want to record again, for example one phrase in the middle.',
         target: () => lanes(),
+        drag: { from: [0.3, 0.5], to: [0.45, 0.5] },
         done: { check: (app) => { const d = audio(app); return Boolean(d) && d.hasSelection && seconds(d, d.selection.end - d.selection.start) >= 0.3; } },
       },
       {
@@ -299,6 +343,7 @@ export const TUTORIALS = [
         title: 'Mark two more',
         text: 'Do the same for two more phrases. Range markers count in their own sequence: Range 01, Range 02...',
         target: () => lanes(),
+        drag: { from: [0.45, 0.5], to: [0.6, 0.5] },
         done: { check: (app) => rangeCount(audio(app)) >= 3 },
       },
       {

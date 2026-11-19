@@ -49,6 +49,19 @@ export function resolveTarget(step, app, ctx, root = document) {
   return null;
 }
 
+/**
+ * The drag a step demonstrates, in client px: { x0, y0, x1, y1 } from the target's box r
+ * and drag = { from: [fx, fy], to: [fx, fy] } or { from, by: [dx, dy] }; null without one.
+ */
+export function dragPath(r, drag) {
+  if (!drag?.from) return null;
+  const x0 = r.left + drag.from[0] * r.width;
+  const y0 = r.top + drag.from[1] * r.height;
+  const x1 = drag.to ? r.left + drag.to[0] * r.width : x0 + (drag.by?.[0] || 0);
+  const y1 = drag.to ? r.top + drag.to[1] * r.height : y0 + (drag.by?.[1] || 0);
+  return { x0, y0, x1, y1 };
+}
+
 /** Where to put a callout of size w x h next to rect r inside a W x H window. */
 export function calloutPosition(r, w, hgt, W, H, gap = 10) {
   let top = r.bottom + gap;
@@ -62,6 +75,10 @@ export class Highlighter {
   constructor() {
     this.ring = h('div.learn-ring', { 'aria-hidden': 'true', hidden: true });
     this.callout = h('div.learn-callout', { 'aria-hidden': 'true', hidden: true });
+    // A drag step: a dashed trail and a pointer moving along it (still, with reduced motion).
+    this.trail = h('div.learn-trail', { 'aria-hidden': 'true', hidden: true });
+    this.ghost = h('div.learn-ghost', { 'aria-hidden': 'true', hidden: true });
+    this.ghost.innerHTML = '<svg viewBox="0 0 20 20" width="20" height="20"><path d="M3 2l12 7.5-5.2 1.1 3 5.6-2.3 1.2-3-5.6L3 15z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>';
     this.timer = 0;
     this.step = null;
   }
@@ -70,11 +87,11 @@ export class Highlighter {
   show(step, resolve) {
     this.step = step;
     this.resolve = resolve;
-    if (!this.ring.isConnected) document.body.append(this.ring, this.callout);
+    if (!this.ring.isConnected) document.body.append(this.ring, this.callout, this.trail, this.ghost);
     this.callout.textContent = step?.title || '';
     clearInterval(this.timer);
     if (!step) {
-      this.ring.hidden = this.callout.hidden = true;
+      this.ring.hidden = this.callout.hidden = this.trail.hidden = this.ghost.hidden = true;
       return;
     }
     this.place();
@@ -84,9 +101,10 @@ export class Highlighter {
   place() {
     const el = this.step ? this.resolve?.() : null;
     if (!el) {
-      this.ring.hidden = this.callout.hidden = true;
+      this.ring.hidden = this.callout.hidden = this.trail.hidden = this.ghost.hidden = true;
       return;
     }
+    this.#placeDrag(el.getBoundingClientRect());
     const r = el.getBoundingClientRect();
     const pad = 3;
     Object.assign(this.ring.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
@@ -102,9 +120,20 @@ export class Highlighter {
     Object.assign(this.callout.style, { left: `${p.left}px`, top: `${p.top}px` });
   }
 
+  #placeDrag(r) {
+    const p = dragPath(r, this.step?.drag);
+    this.trail.hidden = this.ghost.hidden = !p;
+    if (!p) return;
+    const dx = p.x1 - p.x0;
+    const dy = p.y1 - p.y0;
+    Object.assign(this.trail.style, { left: `${p.x0}px`, top: `${p.y0}px`, width: `${Math.hypot(dx, dy)}px`, transform: `rotate(${Math.atan2(dy, dx)}rad)` });
+    Object.assign(this.ghost.style, { left: `${p.x0 - 3}px`, top: `${p.y0 - 2}px` });
+    this.ghost.style.setProperty('--dx', `${dx}px`);
+    this.ghost.style.setProperty('--dy', `${dy}px`);
+  }
+
   dispose() {
     clearInterval(this.timer);
-    this.ring.remove();
-    this.callout.remove();
+    for (const el of [this.ring, this.callout, this.trail, this.ghost]) el.remove();
   }
 }
