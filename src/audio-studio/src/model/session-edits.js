@@ -20,7 +20,8 @@
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
 //   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
 //   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}], volumeSpline,
-//   panSpline (smooth curves through the envelope keyframes), channelMap ([l, r] source
+//   panSpline (smooth curves through the envelope keyframes), fxEnv (clip effect setting
+//   envelopes by fx.<slot>.<param>, clip-relative), channelMap ([l, r] source
 //   channel indices the clip plays, or null),
 //   mute, locked, loop, groupId, z, fx: clip effect slots { id, effect, values,
 //   enabled } (Sound Assistant chains), soundAssistant: Sound Assistant settings or null,
@@ -69,6 +70,18 @@ export const AUTOMATION_PARAMS = [
 
 /** Default height of one automation lane (CSS px). */
 export const LANE_HEIGHT = 46;
+
+function copyFxEnv(e) {
+  const out = {};
+  for (const [k, v] of Object.entries(e || {})) if (fxParamRef(k) && Array.isArray(v) && v.length) out[k] = v.slice();
+  return out;
+}
+
+/** A clip with `fn(points)` applied to each of its effect envelopes. */
+export function mapFxEnv(c, fn) {
+  if (!c.fxEnv || !Object.keys(c.fxEnv).length) return c.fxEnv || {};
+  return Object.fromEntries(Object.entries(c.fxEnv).map(([k, v]) => [k, fn(v)]));
+}
 
 function copyLanes(a) {
   const out = {};
@@ -282,6 +295,8 @@ export function createClip(o = {}) {
     crossfade: o.crossfade || 'symmetric',
     volumeEnv: (o.volumeEnv || []).slice(),
     panEnv: (o.panEnv || []).slice(),
+    // Clip effect envelopes: { 'fx.<slot id>.<param>': [{ t, v }] } for the clip's effect chain.
+    fxEnv: copyFxEnv(o.fxEnv),
     // Envelopes drawn as smooth curves through their keyframes (see splineEnvelope).
     volumeSpline: Boolean(o.volumeSpline),
     panSpline: Boolean(o.panSpline),
@@ -633,7 +648,9 @@ export function splitClip(c, at) {
   const cut = at - c.start;
   const [lv, rv] = splitEnvelope(c.volumeEnv, cut, 0);
   const [lp, rp] = splitEnvelope(c.panEnv, cut, 0);
-  const left = { ...c, length: cut, fadeOut: sliceFade(c.fadeOut, c.length - cut, c.length), fadeIn: sliceFade(c.fadeIn, 0, cut), volumeEnv: lv, panEnv: lp };
+  const fxParts = mapFxEnv(c, (pts) => splitEnvelope(pts, cut, pts[0]?.v ?? 0));
+  const fxSide = (i) => Object.fromEntries(Object.entries(fxParts).map(([k, v]) => [k, v[i]]));
+  const left = { ...c, length: cut, fadeOut: sliceFade(c.fadeOut, c.length - cut, c.length), fadeIn: sliceFade(c.fadeIn, 0, cut), volumeEnv: lv, panEnv: lp, fxEnv: fxSide(0) };
   const right = {
     ...c,
     id: uid('c'),
@@ -644,6 +661,7 @@ export function splitClip(c, at) {
     fadeOut: sliceFade(c.fadeOut, 0, c.length - cut),
     volumeEnv: rv,
     panEnv: rp,
+    fxEnv: fxSide(1),
   };
   return splitMergeLayout(c, [left, right]);
 }
@@ -709,6 +727,7 @@ export function trimmedClip(c, edge, frame, sourceLength = Infinity) {
       fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, length) },
       volumeEnv: d > 0 ? shiftEnvelope(c.volumeEnv, d, length, 0) : c.volumeEnv.map((p) => ({ ...p, t: p.t - d })),
       panEnv: d > 0 ? shiftEnvelope(c.panEnv, d, length, 0) : c.panEnv.map((p) => ({ ...p, t: p.t - d })),
+      fxEnv: mapFxEnv(c, (pts) => (d > 0 ? shiftEnvelope(pts, d, length, pts[0]?.v ?? 0) : pts.map((p) => ({ ...p, t: p.t - d })))),
     };
   } else {
     const maxEnd = c.loop ? Infinity : c.start + Math.max(1, sourceLength - c.offset);
@@ -722,6 +741,7 @@ export function trimmedClip(c, edge, frame, sourceLength = Infinity) {
       fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, length) },
       volumeEnv: length < c.length ? shiftEnvelope(c.volumeEnv, 0, length, 0) : c.volumeEnv,
       panEnv: length < c.length ? shiftEnvelope(c.panEnv, 0, length, 0) : c.panEnv,
+      fxEnv: length < c.length ? mapFxEnv(c, (pts) => shiftEnvelope(pts, 0, length, pts[0]?.v ?? 0)) : c.fxEnv,
     };
   }
   return next;
@@ -940,8 +960,24 @@ export function normalizeEnvelope(points, length) {
 }
 
 export function setClipEnvelope(state, id, param, points) {
+  if (fxParamRef(param)) {
+    // An emptied effect envelope goes away (the effect keeps its own setting).
+    return updateClips(state, [id], (c) => {
+      const fxEnv = { ...(c.fxEnv || {}) };
+      if (points.length) fxEnv[param] = normalizeEnvelope(points, c.length);
+      else delete fxEnv[param];
+      return { fxEnv };
+    });
+  }
   const key = param === 'pan' ? 'panEnv' : 'volumeEnv';
   return updateClips(state, [id], (c) => ({ [key]: normalizeEnvelope(points, c.length) }));
+}
+
+/** A clip envelope's points by parameter: volume, pan or an effect setting. */
+export function clipEnvPoints(c, param) {
+  if (param === 'pan') return c.panEnv;
+  if (param === 'volume') return c.volumeEnv;
+  return c.fxEnv?.[param] || [];
 }
 
 /**

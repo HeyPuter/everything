@@ -31,7 +31,7 @@ import { isRemixed, remixSeams, MIN_REMIX_SECONDS } from '../model/clip-remix.js
 import { runRemix } from '../multitrack/remix-commands.js';
 import { VideoLane } from '../video/video-lane.js';
 import { PEAK_BLOCK } from '../multitrack/recorder.js';
-import { laneInfo, laneParams } from '../multitrack/fx-automation.js';
+import { laneInfo, laneParams, fxAutomationParams } from '../multitrack/fx-automation.js';
 
 /** Lane parameter descriptions per track state (tracks are immutable: a changed track is a new key). */
 const laneInfos = new WeakMap();
@@ -782,13 +782,37 @@ export class MultitrackView {
     }
   }
 
+  /** What a clip effect envelope's setting is (its clip's chain stands in for a track rack). */
+  #clipInfo(c, param) {
+    let byParam = laneInfos.get(c);
+    if (!byParam) laneInfos.set(c, (byParam = new Map()));
+    let info = byParam.get(param);
+    if (!info) byParam.set(param, (info = laneInfo({ type: 'audio', fx: c.fx || [], automation: c.fxEnv || {}, sends: [] }, param)));
+    return info;
+  }
+
+  /** A clip envelope as it plays: spline volume/pan, stepped effect switches. */
+  #clipShape(c, param) {
+    if (!S.fxParamRef(param)) return S.clipEnvelope(c, param);
+    const pts = S.clipEnvPoints(c, param);
+    return this.#clipInfo(c, param).stepped ? S.muteSteps(pts) : pts;
+  }
+
+  /** Clip effect envelopes drawn (View > Show Clip Effect Envelopes): their parameters. */
+  #clipFxParams(c) {
+    if (this.app.prefs.get('clipEffectEnvelopes') === false || !c.fxEnv) return [];
+    return Object.keys(c.fxEnv).filter((p) => c.fx?.some((x) => x?.id === S.fxParamRef(p)?.slotId));
+  }
+
   #envY(r, param, v) {
+    if (S.fxParamRef(param)) return r.wy + 2 + (1 - this.#clipInfo(r.clip, param).toPos(v)) * Math.max(1, r.wh - 4);
     const pos = param === 'pan' ? panToEnvPos(v) : volumeToEnvPos(v);
     return r.wy + 2 + (1 - pos) * Math.max(1, r.wh - 4);
   }
 
   #envValue(r, param, y) {
     const pos = 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4);
+    if (S.fxParamRef(param)) return this.#clipInfo(r.clip, param).fromPos(Math.max(0, Math.min(1, pos)));
     return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
   }
 
@@ -1051,7 +1075,7 @@ export class MultitrackView {
             const y = this.#envY(r, param, fallback);
             ctx.moveTo(Math.max(0, x0), y);
             ctx.lineTo(Math.min(W, x1), y);
-          } else this.#traceEnvelope(ctx, S.clipEnvelope(c, param), (p) => x0 + p.t / this.fpp, (v) => this.#envY(r, param, v), x0, x1);
+          } else this.#traceEnvelope(ctx, this.#clipShape(c, param), (p) => x0 + p.t / this.fpp, (v) => this.#envY(r, param, v), x0, x1);
           ctx.stroke();
           const sk = doc.selectedKeys;
           for (const [i, p] of points.entries()) {
@@ -1062,6 +1086,7 @@ export class MultitrackView {
         };
         if (showVol) env('volume', volColor, c.volumeEnv, 0);
         if (showPan) env('pan', panColor, c.panEnv, 0);
+        for (const param of this.#clipFxParams(c)) env(param, accent, S.clipEnvPoints(c, param), this.#clipInfo(c, param).value);
       }
     }
     if (doc.liveTake) this.#drawLiveTake(ctx, doc.liveTake);
@@ -1439,7 +1464,8 @@ export class MultitrackView {
           }
           return null;
         };
-        const k = (showVol && keys('volume', c.volumeEnv)) || (showPan && keys('pan', c.panEnv));
+        let k = (showVol && keys('volume', c.volumeEnv)) || (showPan && keys('pan', c.panEnv));
+        for (const param of this.#clipFxParams(c)) k = k || keys(param, S.clipEnvPoints(c, param));
         if (k) return k;
       }
       if (Math.abs(x - r.x0) <= edge) return { ...hit, part: 'edgeIn' };
@@ -1449,6 +1475,9 @@ export class MultitrackView {
         const lineTol = touch ? 8 : 3;
         if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(S.clipEnvelope(c, 'volume'), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'volume' };
         if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(S.clipEnvelope(c, 'pan'), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'pan' };
+        for (const param of this.#clipFxParams(c)) {
+          if (Math.abs(this.#envY(r, param, S.envelopeValue(this.#clipShape(c, param), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param };
+        }
       }
       return { ...hit, part: 'body' };
     }
@@ -1736,7 +1765,10 @@ export class MultitrackView {
     }
     if (hit.clip) {
       if (!doc.selectedClips.has(hit.clip.id)) doc.selectClips([hit.clip.id]);
-      contextMenu(this.app, CLIP_CONTEXT, cx, cy, 'Clip context menu');
+      // The clip's effect envelopes follow the Envelopes submenu.
+      const at = CLIP_CONTEXT.findIndex((x) => x?.label === 'Envelopes') + 1;
+      const items = [...CLIP_CONTEXT.slice(0, at), { label: 'Effect Envelopes', items: () => this.#clipFxEnvelopeItems(hit.clip.id) }, ...CLIP_CONTEXT.slice(at)];
+      contextMenu(this.app, items, cx, cy, 'Clip context menu');
       return;
     }
     if (hit.row) {
@@ -1839,30 +1871,30 @@ export class MultitrackView {
         return;
       case 'key':
       case 'line': {
-        const key = hit.param === 'pan' ? 'panEnv' : 'volumeEnv';
-        let pts = c[key].slice();
+        const fxInfo = S.fxParamRef(hit.param) ? this.#clipInfo(c, hit.param) : undefined;
+        let pts = (fxInfo?.stepped ? S.muteSteps(S.clipEnvPoints(c, hit.param)) : S.clipEnvPoints(c, hit.param)).slice();
         const seg = hit.part === 'line' && (e.metaKey || e.ctrlKey) ? segmentKeys(pts, f - c.start) : null;
         if (seg) {
           // Cmd/Ctrl-drag on a line: move the segment up or down.
           const r = hit.rect;
           doc.selectedKeys = { owner: c.id, param: hit.param, indices: seg.indices };
-          this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4) };
+          this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4), info: fxInfo };
           this.invalidate('overlay');
           return;
         }
         let index = hit.index;
         if (hit.part === 'line') {
           const t = Math.round(this.snap(f, { off: fine }) - c.start);
-          const v = S.envelopeValue(S.clipEnvelope(c, hit.param), t, 0);
-          const ins = S.insertEnvelopePoint(pts, Math.max(0, Math.min(c.length, t)), v, c.length, 0);
+          const v = S.envelopeValue(this.#clipShape(c, hit.param), t, fxInfo ? fxInfo.value : 0);
+          const ins = S.insertEnvelopePoint(pts, Math.max(0, Math.min(c.length, t)), v, c.length, fxInfo ? fxInfo.value : 0);
           pts = ins.points;
           index = ins.index;
           // Inside a held step the new keyframe holds too.
-          if (pts[index - 1]?.hold) pts[index] = { ...pts[index], hold: true };
+          if (pts[index - 1]?.hold || fxInfo?.stepped) pts[index] = { ...pts[index], hold: true };
           doc.preview(S.setClipEnvelope(doc.state, c.id, hit.param, pts));
         }
         const pick = this.#pickKeys(e, c.id, hit.param, index, hit.part === 'line');
-        this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index, pts, added: hit.part === 'line', ...pick };
+        this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index, pts, added: hit.part === 'line', ...pick, info: fxInfo };
         this.invalidate('overlay');
         return;
       }
@@ -2051,8 +2083,9 @@ export class MultitrackView {
         const pos = 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4);
         const pts = this.#movedKeys(d, e, x, y, t, pos, c.length);
         doc.preview(S.setClipEnvelope(d.state0, d.id, d.param, pts));
-        this.#status(keyText(d.param, pts[d.index].v));
-        this.keyReadout = { x: r.x0 + pts[d.index].t / this.fpp, y: this.#envY(r, d.param, pts[d.index].v), text: keyText(d.param, pts[d.index].v) };
+        const text = d.info ? d.info.format(pts[d.index].v) : keyText(d.param, pts[d.index].v);
+        this.#status(text);
+        this.keyReadout = { x: r.x0 + pts[d.index].t / this.fpp, y: this.#envY(r, d.param, pts[d.index].v), text };
         break;
       }
       case 'autoKey': {
@@ -2085,7 +2118,11 @@ export class MultitrackView {
         const prefs = this.app.prefs;
         const vol = prefs.get('clipVolumeEnvelopes') !== false ? inside('volume', c.volumeEnv) : new Set();
         const pan = prefs.get('clipPanEnvelopes') ? inside('pan', c.panEnv) : new Set();
-        const [param, indices] = pan.size > vol.size ? ['pan', pan] : ['volume', vol];
+        let [param, indices] = pan.size > vol.size ? ['pan', pan] : ['volume', vol];
+        for (const p of this.#clipFxParams(c)) {
+          const got = inside(p, S.clipEnvPoints(c, p));
+          if (got.size > indices.size) [param, indices] = [p, got];
+        }
         doc.selectedKeys = indices.size ? { owner: c.id, param, indices } : null;
         this.invalidate('overlay');
         break;
@@ -2183,7 +2220,7 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
+    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.info ? `${d.info.short} Envelope` : d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
@@ -2276,11 +2313,48 @@ export class MultitrackView {
     if (text) this.app.setStatus(text);
   }
 
+  /**
+   * Clip context menu: the clip effects' settings, each toggling its envelope (a new one starts
+   * flat at the setting's value; showing them turns View > Show Clip Effect Envelopes on).
+   */
+  #clipFxEnvelopeItems(clipId) {
+    const doc = this.doc;
+    const c = S.findClip(doc.state, clipId);
+    if (!c?.fx?.length) return [{ type: 'cmd', label: 'Add effects to the clip first (Effects Rack, Clip)', enabled: false, run: () => {} }];
+    const items = fxAutomationParams({ fx: c.fx }).map((p) => {
+      const on = Boolean(c.fxEnv?.[p.id]?.length);
+      return {
+        effect: `${S.fxParamRef(p.id).slotId}\u0000${p.effect}`,
+        type: 'cmd',
+        label: p.label,
+        enabled: true,
+        checked: on,
+        run: () => {
+          if (on) {
+            doc.apply('Remove Effect Envelope', S.setClipEnvelope(doc.state, c.id, p.id, []));
+            return;
+          }
+          const v = this.#clipInfo(c, p.id).value;
+          const info = this.#clipInfo(c, p.id);
+          doc.apply('Add Effect Envelope', S.setClipEnvelope(doc.state, c.id, p.id, [{ t: 0, v, ...(info.stepped ? { hold: true } : {}) }, { t: c.length, v }]));
+          if (this.app.prefs.get('clipEffectEnvelopes') === false) this.app.prefs.set('clipEffectEnvelopes', true);
+        },
+      };
+    });
+    // One submenu per effect in the chain.
+    const groups = new Map();
+    for (const it of items) {
+      if (!groups.has(it.effect)) groups.set(it.effect, []);
+      groups.get(it.effect).push(it);
+    }
+    return [...groups].map(([key, list]) => ({ type: 'sub', label: key.split('\u0000')[1], items: list }));
+  }
+
   /** The points of a clip envelope or automation lane, and a function that commits new ones. */
   #envelopeOf(owner, param) {
     const doc = this.doc;
     const clip = S.findClip(doc.state, owner);
-    if (clip) return { points: param === 'pan' ? clip.panEnv : clip.volumeEnv, commit: (pts, label) => doc.apply(label, S.setClipEnvelope(doc.state, clip.id, param, pts)) };
+    if (clip) return { points: S.clipEnvPoints(clip, param), commit: (pts, label) => doc.apply(label, S.setClipEnvelope(doc.state, clip.id, param, pts)) };
     const t = S.findTrack(doc.state, owner);
     if (!t) return null;
     return { points: this.#laneKeys(t, param), commit: (pts, label) => doc.apply(label, S.setAutomation(doc.state, t.id, param, pts)) };
@@ -2296,7 +2370,8 @@ export class MultitrackView {
     const allHold = sel.size > 0 && [...sel].every((i) => pts[i]?.hold);
     const run = (cmd, args) => this.app.commands.run(cmd, { id: owner, param, ...args });
     const ownerTrack = auto ? S.findTrack(doc.state, owner) : null;
-    const stepped = Boolean(ownerTrack && this.#info(ownerTrack, param).stepped);
+    const ownerClip = auto ? null : S.findClip(doc.state, owner);
+    const stepped = Boolean(ownerTrack ? this.#info(ownerTrack, param).stepped : ownerClip && S.fxParamRef(param) && this.#clipInfo(ownerClip, param).stepped);
     const items = [];
     if (!lane) {
       items.push(
@@ -2336,8 +2411,9 @@ export class MultitrackView {
     } else {
       const c = S.findClip(doc.state, owner);
       const key = param === 'pan' ? 'panSpline' : 'volumeSpline';
-      if (c) items.push({ type: 'cmd', label: 'Spline Curves', enabled: true, checked: Boolean(c[key]), run: () => doc.apply(c[key] ? 'Linear Envelope' : 'Spline Envelope', S.updateClips(doc.state, [c.id], { [key]: !c[key] })) });
-      items.push({ type: 'cmd', label: 'Clear Envelope', enabled: pts.length > 0, run: () => env.commit([], param === 'pan' ? 'Clear Pan Envelope' : 'Clear Volume Envelope') });
+      const fx = S.fxParamRef(param);
+      if (c && !fx) items.push({ type: 'cmd', label: 'Spline Curves', enabled: true, checked: Boolean(c[key]), run: () => doc.apply(c[key] ? 'Linear Envelope' : 'Spline Envelope', S.updateClips(doc.state, [c.id], { [key]: !c[key] })) });
+      items.push({ type: 'cmd', label: fx ? 'Remove Envelope' : 'Clear Envelope', enabled: pts.length > 0, run: () => env.commit([], fx ? 'Remove Effect Envelope' : param === 'pan' ? 'Clear Pan Envelope' : 'Clear Volume Envelope') });
       if (!c) items.pop();
     }
     return items;
@@ -2350,8 +2426,7 @@ export class MultitrackView {
     const clip = S.findClip(doc.state, sk.owner);
     let state;
     if (clip) {
-      const key = sk.param === 'pan' ? 'panEnv' : 'volumeEnv';
-      state = S.setClipEnvelope(doc.state, clip.id, sk.param, clip[key].filter((_, i) => !sk.indices.has(i)));
+      state = S.setClipEnvelope(doc.state, clip.id, sk.param, S.clipEnvPoints(clip, sk.param).filter((_, i) => !sk.indices.has(i)));
     } else {
       const t = S.findTrack(doc.state, sk.owner);
       if (!t) return false;

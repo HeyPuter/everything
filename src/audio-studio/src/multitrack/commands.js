@@ -1792,6 +1792,7 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'view.clipVolumeEnvelopes', label: 'Show Clip Volume Envelopes', checked: (a) => a.prefs.get('clipVolumeEnvelopes') !== false, run: () => app.prefs.set('clipVolumeEnvelopes', app.prefs.get('clipVolumeEnvelopes') === false) },
+    { id: 'view.clipEffectEnvelopes', label: 'Show Clip Effect Envelopes', checked: (a) => a.prefs.get('clipEffectEnvelopes') !== false, run: () => app.prefs.set('clipEffectEnvelopes', app.prefs.get('clipEffectEnvelopes') === false) },
     { id: 'view.clipPanEnvelopes', label: 'Show Clip Pan Envelopes', checked: (a) => Boolean(a.prefs.get('clipPanEnvelopes')), run: () => app.prefs.toggle('clipPanEnvelopes') },
   ]);
 

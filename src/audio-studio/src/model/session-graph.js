@@ -52,9 +52,9 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
  * entry ({ index into the slot's params, points }) the effect host applies every block.
  * Lanes are read in every mode but Off.
  */
-function automateSlots(t, specs, prefix, slots = t.fx) {
-  if (t.mode === 'off' || !t.automation) return;
-  for (const [param, pts] of Object.entries(t.automation)) {
+function automateSlots(t, specs, prefix, slots = t.fx, lanes = t.automation, offset = 0) {
+  if (t.mode === 'off' || !lanes) return;
+  for (const [param, pts] of Object.entries(lanes)) {
     const ref = pts?.length ? fxParamRef(param) : null;
     if (!ref) continue;
     const spec = specs.find((sp) => sp.key === `${prefix}:${ref.slotId}`);
@@ -64,7 +64,7 @@ function automateSlots(t, specs, prefix, slots = t.fx) {
     // Switches and choices step between keyframes.
     const type = def.params[index].type;
     const keys = type === 'bool' || type === 'choice' ? muteSteps(pts) : pts;
-    (spec.paramEnv ||= []).push({ index, points: expandHolds(keys).map((p) => ({ t: p.t, v: p.v })) });
+    (spec.paramEnv ||= []).push({ index, points: expandHolds(keys).map((p) => ({ t: p.t + offset, v: p.v })) });
   }
 }
 
@@ -386,6 +386,8 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         // stereo tracks only), so they must not read ahead for the chain's latency either.
         const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
         const timing = clipFx?.length ? rackTiming({ slots: c.fx }, state.sampleRate) : null;
+        // Clip effect envelopes, on the timeline (the chain runs `latency` early, as the clip reads).
+        if (clipFx?.length && c.fxEnv && Object.keys(c.fxEnv).length) automateSlots({ mode: 'read' }, clipFx, `clip:${c.id}`, c.fx, c.fxEnv, c.start - (timing?.latency || 0));
         for (const [a, b] of p.parts) {
           for (const seg of sourceSegments(c, a, b, srcLen)) {
             // A clip chain with latency (spectral repair, lookahead) reads its

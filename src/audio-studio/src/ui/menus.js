@@ -292,6 +292,7 @@ export const MENUS = [
       '-',
       'view.clipVolumeEnvelopes',
       'view.clipPanEnvelopes',
+      'view.clipEffectEnvelopes',
       'view.clipFadeHandles',
       'view.clipGainControls',
       '-',

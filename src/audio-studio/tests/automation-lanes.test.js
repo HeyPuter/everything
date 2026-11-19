@@ -571,3 +571,24 @@ describe('switch and choice lanes', () => {
     expect(S.envelopeValue(env, 1000)).toBe(1);
   });
 });
+
+describe('clip effect envelopes', () => {
+  it('split, trim and play with the clip', () => {
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    const ch = Channel.fromSamples(new Float32Array(4000));
+    const clip = S.createClip({ trackId: id, sourceId: 'src', start: 1000, length: 2000, fx: [{ id: 'cA', effect: 'amplify', values: {}, enabled: true }], fxEnv: { 'fx.cA.left': [{ t: 0, v: -12 }, { t: 2000, v: 0 }], bogus: [{ t: 0, v: 1 }] } });
+    expect(Object.keys(clip.fxEnv)).toEqual(['fx.cA.left']);
+    st = S.addClips(st, [clip]);
+    const spec = buildSessionGraph(st, new Map([['src', { channels: [ch] }]])).graph.tracks[0].clips[0].fx[0];
+    // On the timeline: shifted by the clip start.
+    expect(spec.paramEnv).toEqual([{ index: 0, points: [{ t: 1000, v: -12 }, { t: 3000, v: 0 }] }]);
+    const [a, b] = S.splitClip(S.findClip(st, clip.id), 2000);
+    expect(a.fxEnv['fx.cA.left'].at(-1)).toEqual({ t: 1000, v: -6 });
+    expect(b.fxEnv['fx.cA.left'][0]).toEqual({ t: 0, v: -6 });
+    const trimmed = S.trimmedClip(S.findClip(st, clip.id), 'in', 1500);
+    expect(trimmed.fxEnv['fx.cA.left'][0].v).toBe(-9);
+    st = S.setClipEnvelope(st, clip.id, 'fx.cA.left', []);
+    expect(S.findClip(st, clip.id).fxEnv).toEqual({});
+  });
+});

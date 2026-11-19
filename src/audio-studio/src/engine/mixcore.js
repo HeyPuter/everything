@@ -691,7 +691,7 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
     }
     if (clipFx) {
       for (const { buf, fx } of clipFx.values()) {
-        runFx(fx, buf, frames);
+        runFx(fx, buf, frames, pos + (track.envShift || 0));
         const [cl, cr] = buf;
         for (let i = 0; i < frames; i++) {
           tbuf[0][i] += cl[i];
