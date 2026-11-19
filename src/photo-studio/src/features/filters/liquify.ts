@@ -274,8 +274,11 @@ class LiquifyWorkspace {
       this.dialog.addEventListener('cancel', (ev) => {
         ev.preventDefault();
         if (this.faceDrag) {
+          // Escape abandons the drag: handle and guide drags took an undo step.
+          const kind = this.faceDrag.kind;
           this.faceDrag = undefined;
-          this.drawOverlay();
+          if (kind !== 'new') this.undo();
+          else this.drawOverlay();
           return;
         }
         close();

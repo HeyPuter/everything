@@ -151,6 +151,16 @@ test('Face tool handles change the sliders they belong to', async ({ page }) => 
   const size = Number(await d.getByLabel('Left eye size value').inputValue());
   expect(size).toBeGreaterThan(20);
   await expect(d.getByLabel('Right eye size value')).toHaveValue(String(size));
+  // Escape during a handle drag puts the slider back.
+  const nose = await at(page, 200, 171.2);
+  await page.mouse.move(nose.x, nose.y);
+  await page.mouse.down();
+  await page.mouse.move(nose.x, nose.y - 4, { steps: 3 });
+  expect(Number(await d.locator('#lq-f-noseHeight').inputValue())).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+  await expect(d.locator('#lq-f-noseHeight')).toHaveValue('0');
+  await page.mouse.up();
+  await expect(dialog(page)).toBeVisible();
   // The chin handle: dragging down lengthens the chin.
   await drag(page, [200, 238.4], [200, 244.4]);
   expect(Number(await d.locator('#lq-f-chinHeight').inputValue())).toBeGreaterThan(30);
