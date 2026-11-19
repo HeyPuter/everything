@@ -48,3 +48,31 @@ export function saveTemplate(prefs, template) {
 export function deleteTemplate(prefs, id) {
   prefs.set('sessionTemplates', userTemplates(prefs).filter((t) => t.id !== id));
 }
+
+/** Renames a template; a template already using the name is replaced. */
+export function renameTemplate(prefs, id, label) {
+  const list = userTemplates(prefs);
+  const t = list.find((x) => x.id === id);
+  if (!t) return;
+  prefs.set('sessionTemplates', list.filter((x) => x.id === id || x.label.toLowerCase() !== label.toLowerCase()).map((x) => (x.id === id ? { ...x, label } : x)));
+}
+
+const FILE_TYPE = 'audio-studio-session-template';
+
+/** The text of a template file (File > Export in Preferences > Media & Disk Cache). */
+export function templateFileText(template) {
+  return JSON.stringify({ type: FILE_TYPE, version: 1, template }, null, 2);
+}
+
+/** A template read from a template file's text, with a fresh id. Throws an Error with a reason. */
+export function parseTemplateFile(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('This is not a session template file.');
+  }
+  const t = data?.type === FILE_TYPE ? data.template : null;
+  if (!t || typeof t.label !== 'string' || !t.label.trim() || !Array.isArray(t.tracks) || t.tracks.some((x) => !x || typeof x !== 'object')) throw new Error('This is not a session template file.');
+  return { ...t, label: t.label.trim().slice(0, 100), id: `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}` };
+}

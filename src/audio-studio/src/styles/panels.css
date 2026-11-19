@@ -1253,3 +1253,28 @@ kbd {
 .markers-table .marker-play:hover {
   color: var(--accent);
 }
+
+/* Preferences > Media & Disk Cache: saved session templates. */
+.prefs-templates-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prefs-templates {
+  display: flex;
+  flex-direction: column;
+}
+.prefs-template {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.prefs-template-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

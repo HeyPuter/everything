@@ -26,6 +26,7 @@ import { ACCENTS, WAVE_PRESETS, EDITOR_COLORS, COLOR_FIELDS, cleanColor, toHex }
 import { VIDEO_ZOOMS } from '../video/video-panel.js';
 import { cssVar } from './theme.js';
 import { formatBytesShort } from '../export/formats.js';
+import { userTemplates, saveTemplate, deleteTemplate, renameTemplate, templateFileText, parseTemplateFile } from '../multitrack/templates.js';
 
 const check = (key, label, o = {}) => ({ type: 'check', key, label, ...o });
 const select = (key, label, options, o = {}) => ({ type: 'select', key, label, options, ...o });
@@ -204,6 +205,10 @@ export const CATEGORIES = [
       {
         title: 'Browser Storage',
         items: [{ type: 'custom', bare: true, label: 'Storage used by Audio Studio in this browser', keys: [], keywords: 'disk cache quota space persistent storage recovery delete clear', render: storageInfo }],
+      },
+      {
+        title: 'Session Templates',
+        items: [{ type: 'custom', bare: true, label: 'Saved session templates', keys: ['sessionTemplates'], keywords: 'multitrack session templates rename delete import export share', render: templateManager }],
       },
     ],
   },
@@ -698,6 +703,59 @@ function resetNotices({ app, row }) {
   sync();
   row.refresh = sync;
   return b;
+}
+
+/** Saved session templates: rename, delete, export to a file and import from one. */
+function templateManager({ app, row }) {
+  const list = h('div.prefs-templates', { role: 'list', 'aria-label': 'Saved session templates' });
+  const importBtn = h('button.btn', { type: 'button' }, 'Import...');
+  const render = () => {
+    const items = userTemplates(app.prefs);
+    list.replaceChildren(
+      ...(items.length
+        ? items.map((t) => {
+            const btn = (text, label, onclick) => h('button.btn', { type: 'button', 'aria-label': `${label} ${t.label}`, onclick }, text);
+            return h(
+              'div.prefs-template',
+              { role: 'listitem' },
+              h('span.prefs-template-name', t.label),
+              h('span.muted', `${t.tracks.length} track${t.tracks.length === 1 ? '' : 's'}`),
+              btn('Rename...', 'Rename', async () => {
+                const label = await promptDialog({ title: 'Rename Template', label: 'Name:', value: t.label, confirm: 'Rename', validate: (v) => (v.trim() ? '' : 'Enter a name.') });
+                if (!label || label.trim() === t.label) return;
+                renameTemplate(app.prefs, t.id, label.trim());
+                render();
+              }),
+              btn('Export', 'Export', async () => {
+                const { downloadBlob } = await import('../storage/files.js');
+                downloadBlob(new Blob([templateFileText(t)], { type: 'application/json' }), `${t.label.replace(/[\\/:*?"<>|]/g, '_')}.astemplate.json`);
+              }),
+              btn('Delete', 'Delete', async () => {
+                if (!(await confirmDialog({ title: 'Delete Template', message: `Delete the session template "${t.label}"?`, confirm: 'Delete', danger: true }))) return;
+                deleteTemplate(app.prefs, t.id);
+                render();
+              }),
+            );
+          })
+        : [h('p.muted', 'No saved templates. Save one from a session with File > Export > Session as Template.')]),
+    );
+  };
+  importBtn.addEventListener('click', async () => {
+    const { pickLocalFiles } = await import('../storage/files.js');
+    const [file] = await pickLocalFiles({ accept: '.json,application/json', multiple: false });
+    if (!file) return;
+    try {
+      const t = parseTemplateFile(await file.text());
+      saveTemplate(app.prefs, t);
+      render();
+      announce(`Imported the template ${t.label}`);
+    } catch (err) {
+      app.notify(`"${file.name}": ${err.message}`, { error: true });
+    }
+  });
+  render();
+  row.refresh = render;
+  return h('div.prefs-templates-wrap', list, h('div.prefs-inline', importBtn, h('span.muted', 'Templates appear in File > New > Multitrack Session.')));
 }
 
 function recoverButton({ app }) {
