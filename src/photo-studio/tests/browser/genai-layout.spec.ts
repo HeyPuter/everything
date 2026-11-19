@@ -385,6 +385,37 @@ test('Rotate Object turns the selected object and places it where it stood', asy
   expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Rotate Object');
 });
 
+test('Rotate Object keeps each variation in Generation History with its own placement', async ({
+  page,
+}) => {
+  // Each call returns the object at another width (as turned results do).
+  const widths = `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{calls:[],txt2img:async(prompt,opts)=>{const n=window.puter.ai.calls.push({prompt,opts});const c=document.createElement('canvas');c.width=256;c.height=256;const g=c.getContext('2d');g.fillStyle='#e6e6e6';g.fillRect(0,0,256,256);g.fillStyle='#1f6fd1';const w=n===1?140:50;g.fillRect(128-w/2,48,w,160);return {src:c.toDataURL()};}}};`;
+  await boot(page, 'default', widths);
+  await scene(page);
+  await selectDisc(page);
+  await start(page, 'edit.rotate-object');
+  const dialog = page.locator('dialog.ga-rotate');
+  await expect(dialog.locator('#ai-status')).toContainText('Set the turn', { timeout: 60_000 });
+  await dialog.locator('#ga-count').selectOption('2');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await expect(dialog.getByRole('radio')).toHaveCount(2, { timeout: 60_000 });
+  const rotated = () =>
+    page.evaluate(async () =>
+      (await (await import('/src/features/generations/record.ts')).generationStore().list())
+        .filter((x) => x.kind === 'rotate')
+        .map((x) => ({ w: x.width, h: x.height, p: x.placement! })),
+    );
+  await expect.poll(async () => (await rotated()).length).toBe(2);
+  const entries = await rotated();
+  // Each placement has the size of its own image.
+  for (const x of entries) {
+    expect(x.p.width).toBe(x.w);
+    expect(x.p.height).toBe(x.h);
+  }
+  expect(entries[0].w).not.toBe(entries[1].w);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
 test('AI Recompose picks a clicked object, and Rotate Object replaces a cut-out layer', async ({
   page,
 }) => {

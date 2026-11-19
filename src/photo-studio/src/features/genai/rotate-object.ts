@@ -369,21 +369,27 @@ export async function rotateObjectDialog(e: Editor) {
         return { list, count, arrived: out.length };
       },
       (r) => {
-        void recordGeneration(
-          e,
-          {
-            kind: 'rotate',
-            prompt: r.list[0].note,
-            settings: {
-              dialog: 'rotate',
-              yaw: r.list[0].yaw,
-              tilt: r.list[0].tilt,
-              count: r.count,
-            },
-            placement: { ...r.list[0].rect },
-          },
-          r.list.map((t) => t.img),
-        );
+        // Each variation stands in its own box (its width follows the turn),
+        // so each is recorded with its own placement.
+        void (async () => {
+          for (const [i, t] of r.list.entries())
+            await recordGeneration(
+              e,
+              {
+                kind: 'rotate',
+                prompt: t.note,
+                settings: {
+                  dialog: 'rotate',
+                  yaw: t.yaw,
+                  tilt: t.tilt,
+                  count: r.count,
+                  ...(r.list.length > 1 ? { variation: i + 1 } : {}),
+                },
+                placement: { ...t.rect },
+              },
+              t.img,
+            );
+        })();
         turned = [...turned, ...r.list].slice(-8);
         picker.show(
           turned.map((t, i) => ({
