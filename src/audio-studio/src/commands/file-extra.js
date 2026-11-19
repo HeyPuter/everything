@@ -8,7 +8,8 @@ import { Channel } from '../audio/channel.js';
 import { baseName } from '../audio/decode.js';
 import { openDialog } from '../ui/dialog.js';
 import { pickLocalFiles, openFiles } from '../storage/files.js';
-import { FORMATS, getFormat, sanitizeFileName, withExtension } from '../export/formats.js';
+import { getFormat, sanitizeFileName, withExtension } from '../export/formats.js';
+import { availableFormats } from '../export/dialog.js';
 import { exportAudio } from '../export/export.js';
 import { withProgress } from '../export/progress.js';
 import { exportOptionsFor, batchSettings, uniqueName } from '../batch/queue.js';
@@ -203,7 +204,8 @@ async function exportRangesDialog(app) {
     ranges.map((m, i) => h('label.check', checks[i], h('span', m.name || `Range ${i + 1}`), h('span.faint', ` ${app.formatTime(m.start, doc.sampleRate)} – ${app.formatTime(m.start + m.duration, doc.sampleRate)}`))),
   );
   const saved = batchSettings(app.prefs.get('batchExport'));
-  const fmt = h('select.select', { 'aria-label': 'Format' }, FORMATS.map((f) => h('option', { value: f.id, selected: f.id === saved.format }, f.label)));
+  const formats = await availableFormats();
+  const fmt = h('select.select', { 'aria-label': 'Format' }, formats.map((f) => h('option', { value: f.id, selected: f.id === saved.format }, f.label)));
   const naming = h('select.select', { 'aria-label': 'File names' }, h('option', { value: 'name' }, 'Marker names'), h('option', { value: 'prefix' }, 'Prefix and number'), h('option', { value: 'prefixName' }, 'Prefix, number and marker name'));
   const prefix = h('input.input', { type: 'text', value: baseName(doc.name), 'aria-label': 'Name prefix', disabled: true });
   const startAt = h('input.input.num', { type: 'number', min: 0, max: 9999, step: 1, value: 1, 'aria-label': 'First number', disabled: true, style: { width: '72px' } });

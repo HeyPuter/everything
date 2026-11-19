@@ -32,8 +32,8 @@ describe('Export File dialog', () => {
     // Without Puter only "This device" can be chosen.
     expect($('select[aria-label=Location]').value).toBe('download');
     expect($('.io-export').textContent).toContain('48000 Hz Stereo, 24-bit');
-    // WebCodecs formats are listed but disabled in this environment.
-    expect($('select[aria-label=Format] option[value=opus]').disabled).toBe(true);
+    // Formats this browser cannot encode (WebCodecs ones in this environment) are left out.
+    expect($('select[aria-label=Format] option[value=opus]')).toBeNull();
     change($('select[aria-label=Format]'), 'mp3');
     expect(name.value).toBe('Podcast.mp3');
     expect($('select[aria-label="Bitrate (CBR)"]').value).toBe('192');

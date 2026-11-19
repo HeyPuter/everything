@@ -75,6 +75,20 @@
   color: var(--text-strong);
 }
 
+.io-grid > .io-top {
+  align-self: start;
+  padding-top: 5px;
+}
+
+.io-format-note {
+  margin: 0;
+  max-width: 440px;
+}
+
+.io-format-note[hidden] {
+  display: none;
+}
+
 .io-settings {
   display: flex;
   flex-wrap: wrap;

@@ -5,7 +5,8 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog } from '../ui/dialog.js';
-import { FORMATS, getFormat, COMMON_RATES, usesDither } from '../export/formats.js';
+import { getFormat, COMMON_RATES, usesDither } from '../export/formats.js';
+import { availableFormats } from '../export/dialog.js';
 import { DITHER_MODES } from '../audio/quantize.js';
 import { zipStore, zipProblem } from '../lib/zip.js';
 import { downloadBlob } from '../storage/files.js';
@@ -21,8 +22,9 @@ export function locationText(s) {
 /** Asks for export settings starting from `s`; resolves the new settings fields, or null. */
 export async function exportSettingsDialog(app, s, { title = 'Batch Export Settings', example: exampleName = 'Interview' } = {}) {
   const sdk = Boolean(puter.sdk());
-  const fmtSel = h('select.select', { 'aria-label': 'Format' }, FORMATS.map((f) => h('option', { value: f.id }, f.label)));
-  fmtSel.value = s.format;
+  const formats = await availableFormats();
+  const fmtSel = h('select.select', { 'aria-label': 'Format' }, formats.map((f) => h('option', { value: f.id }, f.label)));
+  fmtSel.value = formats.some((f) => f.id === s.format) ? s.format : 'wav';
   const rateSel = h('select.select', { 'aria-label': 'Sample rate' });
   const chSel = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: 'source' }, 'Same as source'), h('option', { value: '1' }, 'Mono'), h('option', { value: '2' }, 'Stereo'));
   chSel.value = String(s.channels);

@@ -38,6 +38,22 @@ export function webCodecsSupport() {
   return supportCache;
 }
 
+/** Formats this browser can write: the WebCodecs ones only where its encoder takes them. */
+export async function availableFormats() {
+  const can = await webCodecsSupport();
+  return FORMATS.filter((f) => !f.webcodecs || can[f.id]);
+}
+
+/**
+ * A note on the chosen format's limits: the MP3 encoder writes constant bitrate only, and
+ * no Vorbis encoder ships with browsers; Opus (or AAC) is the smaller-file choice.
+ */
+export function formatNote(formatId, formats) {
+  if (formatId !== 'mp3') return '';
+  const better = formats.some((f) => f.id === 'opus') ? 'Ogg Opus' : formats.some((f) => f.id === 'm4a') ? 'AAC' : '';
+  return `MP3 is written at a constant bitrate. Variable bitrate MP3 and Ogg Vorbis are not available: browsers include no encoder for them.${better ? ` For smaller files at the same quality, choose ${better}.` : ''}`;
+}
+
 /**
  * Initial dialog state for a document. Pure apart from reading prefs.
  * `remembered` holds the last used { format, settings, dither, includeMeta };
@@ -75,7 +91,12 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     state.options = conformOptions(initial.options.format, initial.options).options;
     state.name = withExtension(initial.fileName, state.options.format);
   }
-  const support = await webCodecsSupport();
+  const formats = await availableFormats();
+  // A remembered format this browser cannot write falls back to WAV.
+  if (!formats.some((f) => f.id === state.options.format)) {
+    state.options = conformOptions('wav', { ...state.options, format: 'wav', bitDepth: state.options.bitDepth ?? docBitDepth(doc) }).options;
+    state.name = withExtension(state.name, 'wav');
+  }
   const sdk = Boolean(puter.sdk());
   // Signed out, a file that did not come from Puter starts on This device (Puter would ask
   // to sign in first) until a Puter save makes that the remembered choice.
@@ -106,11 +127,9 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const formatSelect = h(
     'select.select',
     { 'aria-label': 'Format' },
-    FORMATS.map((f) => {
-      const unsupported = (f.id === 'opus' && !support.opus) || (f.id === 'm4a' && !support.m4a);
-      return h('option', { value: f.id, disabled: unsupported }, unsupported ? `${f.label} (not supported by this browser)` : f.label);
-    }),
+    formats.map((f) => h('option', { value: f.id }, f.label)),
   );
+  const formatHelp = h('p.muted.io-format-note');
   formatSelect.value = state.options.format;
   const sampleText = h('span.io-summary');
   const changeBtn = h('button.btn', { type: 'button', 'aria-label': 'Change sample type' }, 'Change...');
@@ -135,8 +154,8 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
       formatSelect,
       h('label', 'Sample Type:'),
       h('div.io-row', sampleText, changeBtn),
-      h('label', 'Format Settings:'),
-      h('div.io-col', settingsText, settingsHost),
+      h('label.io-top', 'Format Settings:'),
+      h('div.io-col', settingsText, settingsHost, formatHelp),
       ...(mix ? [h('label', 'Mixdown Options:'), h('div.io-row', mixText, mixBtn)] : []),
     ),
     h('label.check.io-check', metaCheck, 'Include markers and other metadata'),
@@ -244,6 +263,8 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     const files = mix ? (mix.master ? 1 : 0) + mix.tracks.size : 1;
     sizeText.textContent = formatBytesShort(estimateSize(state.options, frames, doc.sampleRate) * files) + (files > 1 ? ` in ${files} files` : '');
     if (mix) mixText.textContent = describeMixdown(mix);
+    formatHelp.textContent = formatNote(state.options.format, formats);
+    formatHelp.hidden = !formatHelp.textContent;
     noteText.textContent = notes.join(' ');
     noteText.hidden = !notes.length;
     renderSettings();
