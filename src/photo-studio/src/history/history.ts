@@ -188,6 +188,11 @@ export class History {
   get baseLabel() {
     return this.states[0].label;
   }
+  /** Every retained state, oldest first, with the label of the edit that
+   * made it (read-only; for views that show a stored state). */
+  get entries(): readonly { readonly label: string; readonly doc: PhotoDocument }[] {
+    return this.states.map(({ label, doc }) => ({ label, doc }));
+  }
   /** Labels of the edits up to the current state. */
   get labels() {
     return this.states.slice(1, this.index + 1).map((s) => s.label);

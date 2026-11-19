@@ -50,6 +50,7 @@ import { installLibraries } from './libraries';
 import { installProvenance } from './provenance';
 import { installCapture } from './capture';
 import { installRelight } from './relight';
+import { installQuickCompare } from './compare';
 
 // Each feature registers its commands, tools, panels and overlays. Keep one
 // line per feature so parallel work merges cleanly.
@@ -105,6 +106,7 @@ export function installFeatures(e: Editor) {
   installLibraries(e);
   installProvenance(e);
   installCapture(e);
+  installQuickCompare(e);
   // User shortcut overrides apply last, after every feature registered.
   applyCustomShortcuts();
 }

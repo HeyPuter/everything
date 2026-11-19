@@ -117,6 +117,22 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   draw a copy of their document's last frame, taken through
   `renderer.frameListeners` (also used by Pattern Preview).
 
+## Quick Compare (`src/features/compare/`)
+
+- View → Quick Compare (`\`: tap to toggle, hold to peek) shows a stored state of
+  the active document beside the current one: the opened state (`history.opened`),
+  the last save (`session.saved`), a History snapshot or a history state
+  (`History.entries`; a chosen state is kept through `session.retained`).
+- The stored state is composited once with `renderer.drawFrame` into a canvas of its
+  own (capped by `cacheSize`) and placed inside `#stage`, so zoom, scrolling,
+  rotation and mirroring apply without recompositing. A split clips that canvas with
+  a screen-space half plane mapped into document space (`splitClip`); side by side
+  narrows `#viewport` (CSS margins, so `viewportSize` and input stay correct) and
+  mirrors the stage transform in a pane; press and hold shows it while pressed.
+- Comparison state is per session and outside the document (`compare/state.ts`); it
+  never adds history. Elements in `#viewport` that take presses carry `canvas-ui`
+  so tools ignore them.
+
 ## Helpers for pixel features (`src/features/pixels.ts`)
 
 - `pixelTarget(e)` resolves what painting/filters should edit: the selected pixel

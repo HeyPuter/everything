@@ -1,0 +1,48 @@
+/* View → Quick Compare */
+.compare-bar { position: absolute; z-index: 13; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; max-width: calc(100% - 24px); padding: 4px 6px; background: var(--menu); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px #0007; font-size: 12px; color: var(--text); white-space: nowrap; }
+.compare-bar[hidden], .compare-divider[hidden], .compare-surface[hidden], .compare-label[hidden], .compare-pane[hidden], .compare-bar [hidden] { display: none; }
+.compare-ref { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.compare-ref span { color: var(--muted); }
+.compare-ref select { max-width: 220px; min-width: 0; text-overflow: ellipsis; }
+.compare-sep { width: 1px; align-self: stretch; margin: 2px 2px; background: var(--line); }
+.compare-modes { display: flex; gap: 2px; }
+.compare-bar .icon-button { width: 28px; height: 26px; display: inline-grid; place-items: center; }
+.compare-modes [aria-checked='true'], .compare-orient[aria-pressed='true'] { background: var(--selected); border-color: var(--input-line); }
+.compare-hold { display: inline-flex; align-items: center; gap: 4px; height: 26px; user-select: none; touch-action: none; }
+.compare-status { color: var(--muted); }
+.compare-status:empty { display: none; }
+.compare-done { height: 26px; margin-left: 2px; }
+@media (max-width: 760px) { .compare-ref span, .compare-hold span { display: none; } }
+
+/* The stored state, drawn above the live canvas inside the stage. */
+.compare-before { position: absolute; display: block; pointer-events: none; }
+.compare-before[hidden] { display: none; }
+#stage.pixelated .compare-before, .compare-stage.pixelated .compare-before { image-rendering: pixelated; }
+
+/* Split divider: a screen-space line with a grab knob. */
+.compare-divider { position: absolute; z-index: 12; top: 0; width: 24px; height: 100%; margin-left: -12px; cursor: ew-resize; touch-action: none; outline: none; }
+.compare-divider.horizontal { left: 0; width: 100%; height: 24px; margin-left: 0; margin-top: -12px; cursor: ns-resize; }
+.compare-line { position: absolute; left: 11px; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px #0008, 0 0 6px #0006; }
+.compare-divider.horizontal .compare-line { left: 0; right: 0; top: 11px; bottom: auto; width: auto; height: 2px; }
+.compare-knob { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; display: grid; place-items: center; border-radius: 50%; background: #fff; color: #1d1d1d; box-shadow: 0 0 0 1px #0008, 0 2px 8px #0008; }
+.compare-divider.horizontal .compare-knob svg { transform: rotate(90deg); }
+.compare-divider:focus-visible .compare-knob, .compare-divider.dragging .compare-knob { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px #0008; }
+
+/* Press and hold: the whole window takes the press. */
+.compare-surface { position: absolute; inset: 0; z-index: 11; cursor: pointer; touch-action: none; }
+
+.compare-label { position: absolute; z-index: 12; padding: 3px 8px; border-radius: 4px; background: color-mix(in srgb, var(--menu) 88%, transparent); border: 1px solid var(--line); color: var(--text); font-size: 11px; white-space: nowrap; pointer-events: none; max-width: calc(50% - 24px); overflow: hidden; text-overflow: ellipsis; }
+.compare-label b { font-weight: 600; margin-right: 4px; }
+.compare-hint { color: var(--muted); }
+
+/* Side by side: the live window takes one half of its cell, the pane the other. */
+.canvas-area > .compare-pane { grid-area: 2/2; position: relative; overflow: hidden; background: var(--canvas); min-height: 0; }
+.rulers-hidden .canvas-area > .compare-pane { grid-area: 1/1; }
+.canvas-area.compare-side-vertical > .compare-pane { margin-right: 50%; }
+.canvas-area.compare-side-vertical > #viewport, .canvas-area.compare-side-vertical > .ruler-x { margin-left: 50%; }
+.canvas-area.compare-side-horizontal > .compare-pane { margin-bottom: 50%; }
+.canvas-area.compare-side-horizontal > #viewport, .canvas-area.compare-side-horizontal > .ruler-y { margin-top: 50%; }
+.compare-pane::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.compare-side-horizontal > .compare-pane::after { top: auto; left: 0; width: auto; height: 1px; }
+.compare-stage { position: absolute; top: 50%; left: 50%; transform-origin: center; isolation: isolate; background: conic-gradient(var(--checker-a) 25%, var(--checker-b) 0 50%, var(--checker-a) 0 75%, var(--checker-b) 0) 0 0 / 20px 20px; box-shadow: 0 2px 14px #0007, 0 0 0 1px #0005; }
+.compare-pane .compare-label { z-index: 2; }

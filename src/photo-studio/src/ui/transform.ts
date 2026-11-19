@@ -641,7 +641,7 @@ export class FreeTransform {
         this.e.busy ||
         !this.e.renderer ||
         this.e.tool !== 'move' ||
-        (event.target as Element).closest('button')
+        (event.target as Element).closest('button,.canvas-ui')
       )
         return;
       const handle = (event.target as Element).closest<SVGElement>('[data-transform-handle]')
