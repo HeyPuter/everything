@@ -38,11 +38,16 @@ export function installMultitrack(app) {
   const overrides = installMultitrackCommands(app);
 
   let click = null;
+  // A new beat note changes the metronome's beat length.
+  app.on('prefs', (key) => {
+    if (key === 'beatNote' && app.active?.kind === 'session' && app.active.state.metronome) app.syncGraph?.();
+  });
   const clickFor = (state) => {
     // A session keeps the sound picked for it; otherwise the last one picked anywhere.
     const sound = state.metronomeSound || app.prefs.get('metronomeSound') || undefined;
-    const key = `${state.sampleRate}:${state.tempo}:${state.beatsPerBar}:${sound}:${(state.metronomePattern || []).join(',')}`;
-    if (!click || click.key !== key) click = { key, channels: metronomeBar(Channel, { ...state, sound }) };
+    const beatNote = Number(app.prefs.get('beatNote')) || 4;
+    const key = `${state.sampleRate}:${state.tempo}:${state.beatsPerBar}:${beatNote}:${sound}:${(state.metronomePattern || []).join(',')}`;
+    if (!click || click.key !== key) click = { key, channels: metronomeBar(Channel, { ...state, beatNote, sound }) };
     return click.channels;
   };
   app.registerDocumentKind('session', {

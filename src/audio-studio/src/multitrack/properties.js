@@ -208,6 +208,9 @@ export function sessionPropertySection(app, doc) {
     const n = Math.round(Number(v));
     if (Number.isFinite(n) && n > 0) setMusic('Time Signature', { beatsPerBar: Math.max(1, Math.min(16, n)) });
   }, { 'aria-label': 'Beats per bar', inputmode: 'numeric' });
+  // The beat note (the time signature's lower number) is shared with the time display settings.
+  const [note, noteId] = select([2, 4, 8, 16].map((n) => ({ value: String(n), label: n === 2 ? 'Half note (2)' : n === 4 ? 'Quarter note (4)' : n === 8 ? 'Eighth note (8)' : 'Sixteenth note (16)' })), String(app.prefs.get('beatNote') || 4), (v) => app.prefs.set('beatNote', Number(v)));
+  note.setAttribute('aria-label', 'Beat note');
   sections.push(
     h(
       'section.prop-section',
@@ -219,6 +222,7 @@ export function sessionPropertySection(app, doc) {
       text('Bit Depth', state.bitDepth === 32 ? '32 (float)' : String(state.bitDepth)),
       row('Tempo (BPM)', tempo, tempoId),
       row('Beats per Bar', beats, beatsId),
+      row('Beat Note', note, noteId),
       h('div.prop-checks', check('Crossfade overlapping clips', state.autoCrossfade !== false, (v) => doc.apply(v ? 'Automatic Crossfades On' : 'Automatic Crossfades Off', { ...doc.state, autoCrossfade: v }))),
       text('Tracks', String(state.tracks.length)),
       text('Clips', String(state.clips.length)),

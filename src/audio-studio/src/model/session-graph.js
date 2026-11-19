@@ -443,8 +443,9 @@ export function metronomePattern(pattern, beatsPerBar = 4) {
  * One bar of metronome clicks at the session tempo, in a sound set from metronome-sounds.js. Each beat
  * follows the accent pattern: 'down' accented, 'up' plain, 'sub' a softer plain click, 'none' silent.
  */
-export function metronomeBar(Channel, { sampleRate, tempo = 120, beatsPerBar = 4, sound = DEFAULT_METRONOME_SOUND, metronomePattern: pattern }) {
-  const beat = Math.round((60 / tempo) * sampleRate);
+export function metronomeBar(Channel, { sampleRate, tempo = 120, beatsPerBar = 4, beatNote = 4, sound = DEFAULT_METRONOME_SOUND, metronomePattern: pattern }) {
+  // Tempo counts quarter notes; the beat note sets the length of a beat (as the bars-and-beats grid does).
+  const beat = Math.round((60 / tempo) * (4 / (beatNote || 4)) * sampleRate);
   const n = beat * beatsPerBar;
   const out = new Float32Array(n);
   const accent = clickSound(sound, sampleRate, true);

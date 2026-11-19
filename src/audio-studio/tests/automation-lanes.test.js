@@ -386,3 +386,13 @@ describe('source channel routing', () => {
     expect(sources.get(graph.tracks[0].clips[0].source)).toEqual([L, L]);
   });
 });
+
+describe('beat note', () => {
+  it('shortens the metronome beat for eighth-note beats', async () => {
+    const { metronomeBar } = await import('../src/model/session-graph.js');
+    const q = metronomeBar(Channel, { sampleRate: RATE, tempo: 120, beatsPerBar: 4 })[0];
+    const e = metronomeBar(Channel, { sampleRate: RATE, tempo: 120, beatsPerBar: 4, beatNote: 8 })[0];
+    expect(q.length).toBe(RATE * 2);
+    expect(e.length).toBe(RATE);
+  });
+});
