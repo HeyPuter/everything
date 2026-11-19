@@ -39,6 +39,7 @@ import {
   cropMask,
   cropRGBA,
   fillHole,
+  followResize,
   notice,
   objectMask,
   objectModes,
@@ -314,11 +315,13 @@ export async function rotateObjectDialog(e: Editor) {
     (ev) => (remembered.count = Number((ev.target as HTMLSelectElement).value) || 1),
   );
   noteBox.addEventListener('input', () => (remembered.note = noteBox.value));
-  const onResize = () => {
-    view.fit();
-    void rescale();
-  };
-  window.addEventListener('resize', onResize);
+  const stopResize = followResize(
+    () => {
+      view.fit();
+      draw();
+    },
+    () => void rescale(),
+  );
 
   q('#ga-generate').addEventListener('click', () => {
     if (!gen.running && !obj) return gen.say('Pick an object first.', 'error');
@@ -423,7 +426,7 @@ export async function rotateObjectDialog(e: Editor) {
   });
   void prepare();
   await ws.closed;
-  window.removeEventListener('resize', onResize);
+  stopResize();
   prep?.abort();
   gen.stop(false);
   if (!chosen || !obj || !objMask || !src) return;

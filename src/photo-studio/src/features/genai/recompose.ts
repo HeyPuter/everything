@@ -41,6 +41,7 @@ import {
   cropMask,
   cropRGBA,
   fillHole,
+  followResize,
   notice,
   objectMask,
   objectModes,
@@ -459,12 +460,16 @@ export async function recomposeDialog(e: Editor) {
     ev.preventDefault();
     arranged();
   });
-  const onResize = () => {
-    view.fit();
-    if (filled ?? src?.base) basePreview = scaled(filled ?? src!.base);
-    draw();
-  };
-  window.addEventListener('resize', onResize);
+  const stopResize = followResize(
+    () => {
+      view.fit();
+      draw();
+    },
+    () => {
+      if (filled ?? src?.base) basePreview = scaled(filled ?? src!.base);
+      draw();
+    },
+  );
 
   // ----- Generate a blend -----
   q('#ga-generate').addEventListener('click', () => {
@@ -580,7 +585,7 @@ export async function recomposeDialog(e: Editor) {
   });
   void prepare();
   await ws.closed;
-  window.removeEventListener('resize', onResize);
+  stopResize();
   prep?.abort();
   gen.stop(false);
   if (!result || !obj || !src || !filled || !vacated) return;

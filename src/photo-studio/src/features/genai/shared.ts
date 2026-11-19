@@ -196,6 +196,23 @@ export async function previewBitmap(img: RGBA8, w: number, h: number): Promise<O
   g.drawImage(canvasOf(img), 0, 0, out.width, out.height);
   return out;
 }
+/** Follow window resizes in a dialog preview: `quick` redraws at once from
+ * the preview-sized copies, and `full` rebuilds those from the full-size
+ * image only once resizing pauses (a rebuild copies the whole image, far too
+ * slow for every frame of a window drag). Returns a function that stops. */
+export function followResize(quick: () => void, full: () => void, delay = 150): () => void {
+  let timer = 0;
+  const resized = () => {
+    quick();
+    clearTimeout(timer);
+    timer = window.setTimeout(full, delay);
+  };
+  window.addEventListener('resize', resized);
+  return () => {
+    window.removeEventListener('resize', resized);
+    clearTimeout(timer);
+  };
+}
 /** An RGBA buffer as a canvas (drawn with `drawImage` into previews). */
 export function canvasOf(img: RGBA8): OffscreenCanvas {
   const c = new OffscreenCanvas(img.width, img.height);
