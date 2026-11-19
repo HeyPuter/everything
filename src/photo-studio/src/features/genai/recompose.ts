@@ -540,12 +540,18 @@ export async function recomposeDialog(e: Editor) {
             canvas: canvasOf(patch),
           })),
         ].slice(-8);
-        shown = blends.length;
+        // Showing a blend puts back the arrangement it was made for, so a
+        // newer arrangement made while it was generating stays shown until
+        // the user picks a blend.
+        const moved = r.gone !== removed || JSON.stringify(r.arr) !== JSON.stringify(t);
+        if (!moved) shown = blends.length;
         refreshPicker();
+        const n = r.patches.length;
         gen.say(
-          r.patches.length < r.count
-            ? `${r.patches.length} of ${r.count} blends arrived; the others failed.`
-            : 'Pick a blend, or keep arranging (the instant fill follows your changes).',
+          (n < r.count ? `${n} of ${r.count} blends arrived; the others failed. ` : '') +
+            (moved
+              ? `${n === 1 ? 'The blend was' : 'The blends were'} made for the arrangement you generated from; picking one goes back to it.`
+              : 'Pick a blend, or keep arranging (the instant fill follows your changes).'),
         );
         updateApply();
       },

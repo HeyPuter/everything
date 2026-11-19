@@ -205,6 +205,42 @@ test('AI Recompose blends seams through the generative pass and keeps the result
     .toBe(2);
 });
 
+test('AI Recompose keeps an arrangement changed while a blend was generating', async ({ page }) => {
+  // The stubbed service answers only when the test releases it.
+  const held = `window.puter={env:"app",auth:{isSignedIn:()=>true},ai:{calls:[],txt2img:(prompt,opts)=>new Promise((r)=>{window.puter.ai.calls.push({prompt,opts});window.__answer=()=>{const c=document.createElement('canvas');c.width=256;c.height=192;const g=c.getContext('2d');g.fillStyle='#3a6';g.fillRect(0,0,256,192);r({src:c.toDataURL()});};})}};`;
+  await boot(page, 'default', held);
+  await scene(page);
+  await selectDisc(page);
+  await start(page, 'edit.ai-recompose');
+  const dialog = page.locator('dialog.ga-recompose');
+  await expect(dialog.locator('#ai-status')).toContainText('Move, scale, rotate', {
+    timeout: 60_000,
+  });
+  const scale = dialog.getByLabel('Scale (%) value');
+  await scale.fill('80');
+  await scale.press('Enter');
+  await dialog.locator('#ga-count').selectOption('1');
+  await dialog.getByRole('button', { name: 'Generate' }).click();
+  await page.waitForFunction(() => !!(window as unknown as { __answer?: () => void }).__answer);
+  // Keep arranging while the request runs.
+  await scale.fill('60');
+  await scale.press('Enter');
+  await page.evaluate(() => (window as unknown as { __answer: () => void }).__answer());
+  await expect(dialog.getByRole('radio', { name: 'Blend 1' })).toBeVisible({ timeout: 30_000 });
+  // The newer arrangement stays; the blend waits to be picked.
+  await expect(dialog.getByRole('radio', { name: 'Instant fill (offline)' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(scale).toHaveValue('60');
+  await expect(dialog.locator('#ai-status')).toContainText('picking one goes back to it');
+  // Picking the blend restores the arrangement it was made for.
+  await dialog.getByRole('radio', { name: 'Blend 1' }).click();
+  await expect(scale).toHaveValue('80');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test('Remove Reflections compares variations and adds a layer at the chosen amount', async ({
   page,
 }) => {
