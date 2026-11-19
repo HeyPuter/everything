@@ -70,6 +70,10 @@
   --playhead: #e8483c;
   --cti: #3d8ff0;
   --marker: #e3c24a;
+  /* Each marker type has its own color, so cue, subclip, cart and CD markers read apart. */
+  --marker-subclip: #62a8f5;
+  --marker-cart: #7ed492;
+  --marker-cd: #e58bd0;
   --marker-range: rgba(227, 194, 74, 0.18);
   --record: #e5484d;
   --danger: #ef5f5f;
@@ -138,6 +142,9 @@
   --playhead: #d93a2f;
   --cti: #1473e6;
   --marker: #b8900f;
+  --marker-subclip: #2468c9;
+  --marker-cart: #1d8a45;
+  --marker-cd: #a8379a;
   --marker-range: rgba(184, 144, 15, 0.16);
   --record: #d7373f;
   --danger: #c9252d;
