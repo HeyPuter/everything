@@ -279,9 +279,13 @@ export function eqEditor(opts = {}) {
     const rate = ctx.doc?.sampleRate || 48000;
     const fMin = 20;
     const fMax = Math.min(20000, rate / 2);
-    const freqs = logFrequencies(320, fMin, fMax);
     const xOf = (f, W) => (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
     const yOf = (db, H) => H / 2 - (db / range) * (H / 2 - 8);
+    // Two samples a pixel, plus every band's own centre: narrow notches draw to their full depth.
+    const sampleFreqs = (W, values) => {
+      const centres = getBands(values).filter((b) => b.enabled && b.freq > fMin && b.freq < fMax).map((b) => b.freq);
+      return Float64Array.from([...logFrequencies(Math.max(320, Math.ceil(W * 2)), fMin, fMax), ...centres]).sort();
+    };
     const param = (id) => def.params.find((p) => p.id === id);
 
     const view = plot('fx-eq', 'Equalizer curve', (g, W, H) => {
@@ -297,6 +301,7 @@ export function eqEditor(opts = {}) {
       g.stroke();
       for (const d of range % 6 ? [range, 10, 5, -5, -10] : [range, range / 2, -range / 2]) labelText(g, `${d > 0 ? '+' : ''}${Math.round(d)}`, 3, yOf(d, H) + 2);
       const values = ctx.values;
+      const freqs = sampleFreqs(W, values);
       // A definition's own response (exact for its filter design) wins over the biquad model.
       const resp = def.response && !opts.bands ? def.response(values, freqs, rate) : combinedResponse(getBands(values), freqs, rate, offset(values));
       g.strokeStyle = cssVar('--wave');
