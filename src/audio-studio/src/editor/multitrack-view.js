@@ -30,6 +30,7 @@ import { stretcherFor } from '../multitrack/stretch.js';
 import { isRemixed, remixSeams, MIN_REMIX_SECONDS } from '../model/clip-remix.js';
 import { runRemix } from '../multitrack/remix-commands.js';
 import { VideoLane } from '../video/video-lane.js';
+import { PEAK_BLOCK } from '../multitrack/recorder.js';
 import { TrackNav } from './track-nav.js';
 
 const HEADER_BAR = 16;
@@ -564,6 +565,8 @@ export class MultitrackView {
 
   #onMeters(m) {
     if (this.app.active !== this.doc) return;
+    // The live take grows with every block of input.
+    if (this.doc.liveTake) this.invalidate('overlay');
     for (const [id, hd] of this.headers) {
       if (hd.track.type === 'master') hd.meter.feed(m.master);
       else hd.meter.feed(m.tracks.get(id) || [0, 0]);
@@ -1018,6 +1021,7 @@ export class MultitrackView {
         if (showPan) env('pan', panColor, c.panEnv, 0);
       }
     }
+    if (doc.liveTake) this.#drawLiveTake(ctx, doc.liveTake);
     // Automation lanes.
     for (const row of this.rows) {
       if (!row.autoHeight) continue;
@@ -1142,6 +1146,71 @@ export class MultitrackView {
       ctx.globalAlpha = 0.5;
       ctx.fillRect(0, below, W, H - below);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  /**
+   * The take being recorded, growing on each armed track: a red block with a header and the
+   * input's peaks so far. With a punch range only the range shows; loop recording shows the
+   * current pass.
+   */
+  #drawLiveTake(ctx, take) {
+    const live = take.live;
+    const ratio = this.doc.sampleRate / (live.rate || this.doc.sampleRate);
+    const head = this.app.playhead;
+    let a = take.from;
+    let b = take.from + live.frames * ratio;
+    if (take.punch) {
+      a = take.punch.start;
+      b = take.loop ? Math.min(head, take.punch.end) : Math.min(b, take.punch.end);
+    }
+    if (b <= a) return;
+    const xa = Math.max(0, this.xOf(a));
+    const xb = Math.min(this.width, this.xOf(b));
+    if (xb <= xa) return;
+    const color = cssVar('--record');
+    // Recorded peak under timeline frame f.
+    const peakAt = (f) => {
+      const r = take.loop ? live.frames - (head - f) / ratio : (f - take.from) / ratio;
+      const i = Math.floor(r / PEAK_BLOCK);
+      return i >= 0 && i < live.count ? live.peaks[i] : 0;
+    };
+    for (const id of take.armed) {
+      const row = this.rowOf(id);
+      if (!row) continue;
+      const y = row.top - this.scrollY + 1;
+      const hgt = row.height - 2;
+      if (y > this.height || y + hgt < 0) continue;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.18;
+      ctx.fillRect(xa, y, xb - xa, hgt);
+      ctx.globalAlpha = 0.9;
+      const hb = hgt >= 36 ? HEADER_BAR : 0;
+      if (hb) {
+        ctx.fillRect(xa, y, xb - xa, hb);
+        ctx.fillStyle = '#fff';
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(xa, y, xb - xa, hb);
+        ctx.clip();
+        ctx.fillText('Recording', xa + 6, y + hb / 2 + 0.5);
+        ctx.restore();
+      }
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 1;
+      ctx.strokeRect(Math.round(xa) + 0.5, Math.round(y) + 0.5, Math.max(1, Math.round(xb - xa) - 1), Math.max(1, Math.round(hgt) - 1));
+      // Peaks, one column per pixel.
+      const wy = y + hb;
+      const mid = wy + (hgt - hb) / 2;
+      const half = (hgt - hb) / 2 - 2;
+      ctx.fillStyle = color;
+      for (let x = Math.floor(xa); x < xb; x++) {
+        const p = Math.min(1, peakAt(this.frameAt(x)));
+        const hh = Math.max(0.5, p * half);
+        ctx.fillRect(x, mid - hh, 1, hh * 2);
+      }
+      ctx.restore();
     }
   }
 
@@ -1437,6 +1506,8 @@ export class MultitrackView {
       for (const hd of this.headers.values()) hd.updateValues();
     } else if (k === 'automation') {
       for (const hd of this.headers.values()) hd.updateValues();
+    } else if (k === 'recording') {
+      this.invalidate('overlay');
     } else if (k === 'rename') this.surface.setAttribute('aria-label', `Multitrack session ${this.doc.name}`);
   }
 

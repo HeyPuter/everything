@@ -347,3 +347,18 @@ describe('send level automation', () => {
     expect(t.lanes).toEqual(['send1', 'volume']);
   });
 });
+
+describe('live take preview', () => {
+  it('keeps one peak per block of captured input across chunks', async () => {
+    const { livePeaks, PEAK_BLOCK } = await import('../src/multitrack/recorder.js');
+    const live = { peaks: new Float32Array(1), count: 0, frames: 0, rate: RATE, acc: 0, accN: 0 };
+    const a = new Float32Array(PEAK_BLOCK * 1.5).fill(0.1);
+    a[3] = -0.9;
+    const b = new Float32Array(PEAK_BLOCK * 1.5).fill(0.2);
+    livePeaks(live, [a, new Float32Array(a.length)]);
+    livePeaks(live, [b, b]);
+    expect(live.frames).toBe(PEAK_BLOCK * 3);
+    expect(live.count).toBe(3);
+    expect([...live.peaks.subarray(0, 3)].map((v) => Math.round(v * 10) / 10)).toEqual([0.9, 0.2, 0.2]);
+  });
+});
