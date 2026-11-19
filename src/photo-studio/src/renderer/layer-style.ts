@@ -102,6 +102,15 @@ function digest(s: string) {
 }
 const presentation = new Set(['style', 'opacity', 'blend', 'visible', 'name', 'fillOpacity', 'locked', 'protection', 'colorLabel', 'psdId', 'clipped', 'transparencyProtected']);
 
+// GPU memory kept for styled layers that are not being drawn, so turning a
+// style off and on again (or hiding a layer) does not render it again.
+const IDLE_STYLE_BUDGET = 256 * 1024 * 1024;
+const resultBytes = (r: Result) =>
+  [...r.below.map((p) => p.texture), r.layer, ...r.above.map((p) => p.texture)].reduce(
+    (n, t) => n + (t ? t.width * t.height * 4 : 0),
+    0,
+  );
+
 export class StyleCache {
   private entries = new Map<string, Entry>();
   private frame = 0;
@@ -134,12 +143,31 @@ export class StyleCache {
     return l.kind === 'pixel' && !!l.pixels?.bounds && !l.pixelMask && !l.mask && !l.maskAsset && !l.maskStrokes?.length &&
       !Object.values(l.filters).some(Boolean) && pixelTransformKind(l) !== 'resample';
   }
+  // `frame` when the last canvas frame began: entries drawn since were in it.
+  private pruned = 0;
+  /** Called as each canvas frame begins: drops entries of deleted layers, and
+   * of layers the last frame did not draw (style turned off, layer hidden)
+   * beyond a memory budget, least recently drawn first. */
   prune(ids: Set<string>) {
     for (const [id, e] of this.entries)
       if (!ids.has(id) && !e.inflight) {
         this.release(e.result);
         this.entries.delete(id);
       }
+    const idle = [...this.entries].filter(
+      ([, e]) => e.result && !e.inflight && e.seen <= this.pruned,
+    );
+    this.pruned = this.frame;
+    let total = 0;
+    for (const [, e] of idle) total += resultBytes(e.result!);
+    if (total <= IDLE_STYLE_BUDGET) return;
+    idle.sort(([, a], [, b]) => a.seen - b.seen);
+    for (const [id, e] of idle) {
+      if (total <= IDLE_STYLE_BUDGET) break;
+      total -= resultBytes(e.result!);
+      this.release(e.result);
+      this.entries.delete(id);
+    }
   }
   private release(r?: Result) {
     if (!r) return;
