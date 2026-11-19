@@ -14,6 +14,7 @@ vi.mock('../src/analysis/pool.js', async () => {
       },
       close: async () => {
         const loudness = meter.result();
+        if (kind === 'loudness') loudness.history = meter.series();
         meter.free();
         return { loudness, latency: 0 };
       },
@@ -63,11 +64,37 @@ describe('Loudness Meter scan', () => {
     expect(head[3]).toBeCloseTo(-20, 0);
     expect(dlg.querySelector('.lm-big.st .lm-big-label').textContent).toBe('Short-Term Max');
     expect(dlg.querySelector('.lm-hint').textContent).toMatch(/Scanned the selection/);
+    // Momentary shows the scan's last reading, and the history graph spans the scan.
+    const momentary = [...dlg.querySelectorAll('.lm-bars [aria-valuetext]')].find((e) => e.closest('[data-meter="momentary"]'));
+    expect(parseFloat(momentary.getAttribute('aria-valuetext'))).toBeCloseTo(-20, 0);
+    const graph = dlg.querySelector('.lm-history');
+    expect(Number(graph.dataset.points)).toBeGreaterThan(30);
+    expect(graph.getAttribute('aria-label')).toMatch(/across the selection \(0:04\)/);
     // Live readings take over from the scan.
     app.engine.emit('fx-readout', new Map([['preview:loudnessMeter', Float32Array.of(-18, -19.5, -21.25, 4.2, 1, 0.25, -12, -15, 75, 0.5, 0.25)]]));
     expect(dlg.querySelector('.lm-big.st .lm-big-label').textContent).toBe('Short-Term');
     expect(dlg.querySelector('.lm-offline-text').textContent).toBe('');
     dlg.querySelector('.dialog-head .icon-btn').click();
     await p;
+  });
+});
+
+describe('loudness series', () => {
+  it('gives momentary and short-term loudness through the audio', async () => {
+    const { loudnessMeter } = await import('../src/analysis/dsp-ext.js');
+    const m = loudnessMeter(testDsp(), RATE, 1);
+    // 3 s at -30 dBFS, then 3 s at -20 dBFS (mono: about 3 dB lower in LUFS than stereo).
+    m.push([sine(RATE * 3, 0.0316)]);
+    m.push([sine(RATE * 3, 0.1)]);
+    const s = m.series(30);
+    m.free();
+    expect(s.step).toBeCloseTo(0.2, 5);
+    expect(s.shortTerm).toHaveLength(30);
+    expect(s.momentary).toHaveLength(30);
+    // Short-term needs 3 s; momentary 400 ms.
+    expect(s.shortTerm[0]).toBe(-Infinity);
+    expect(s.momentary[0]).toBe(-Infinity);
+    expect(s.momentary[5] - s.momentary[29]).toBeCloseTo(-10, 0);
+    expect(s.shortTerm[29] - s.shortTerm[14]).toBeCloseTo(10, 0);
   });
 });

@@ -88,8 +88,12 @@ export function loudnessMeterEditor() {
   const editor = (ctx) => {
     let reading = null;
     let staleTimer = 0;
-    // Short-term and momentary history: [{ t (s), m, s }].
+    // Short-term and momentary history: [{ t (s), m, s }], over the last minute
+    // while playing, or across everything a scan measured (`span` seconds).
     const history = [];
+    let span = HISTORY_SECONDS;
+    // A scan's result: { label } of what it measured; cleared when live readings arrive.
+    let scanned = null;
 
     // ------------------------------------------------------ header numbers
     const big = (label, cls) => {
@@ -161,7 +165,11 @@ export function loudnessMeterEditor() {
       g.setLineDash([]);
       if (history.length < 2) return;
       const end = history[history.length - 1].t;
-      const xOf = (t) => W - ((end - t) / HISTORY_SECONDS) * W;
+      const xOf = (t) => W - ((end - t) / span) * W;
+      // A scan labels its time axis (start, middle, end).
+      if (scanned) {
+        for (const f of [0, 0.5, 1]) labelText(g, formatTime(end - span * (1 - f)), Math.min(W - 40, Math.max(2, f * W - 18)), H - 3);
+      }
       const line = (key, color, width) => {
         g.strokeStyle = color;
         g.lineWidth = width;
@@ -193,8 +201,6 @@ export function loudnessMeterEditor() {
     const offSel = ctx.doc?.on?.('change', (e) => e?.kind === 'selection' && syncScanLabel());
     if (offSel) ctx.onClose?.(offSel);
     syncScanLabel();
-    // A scan's result: { label } of what it measured; cleared when live readings arrive.
-    let scanned = null;
 
     const levels = h(
       'div.lm-view',
@@ -271,6 +277,8 @@ export function loudnessMeterEditor() {
         : reading
         ? `Measuring since playback started. Integrated loudness is ${Number.isFinite(r.integrated) ? `${fmt(Math.abs(r.integrated - values.target))} LU ${r.integrated > values.target ? 'above' : 'below'} the target` : 'not available yet'}.`
         : 'Play audio through the effect (Preview, the Effects Rack or a track) to measure it. Measurement restarts when playback starts.';
+      graph.el.dataset.points = String(history.length);
+      graph.el.setAttribute('aria-label', scanned && history.length ? `Short-term loudness across ${scanned.label} (${formatTime(span)})` : 'Loudness history');
       graph.redraw();
     }
 
@@ -279,6 +287,7 @@ export function loudnessMeterEditor() {
       scanned = null;
       offlineText.textContent = '';
       history.length = 0;
+      span = HISTORY_SECONDS;
       const engine = ctx.app?.engine;
       // Seeking in place restarts every meter on the playback path.
       if (engine?.playing) engine.seek(engine.position);
@@ -292,6 +301,8 @@ export function loudnessMeterEditor() {
       if (scanned) {
         scanned = null;
         offlineText.textContent = '';
+        history.length = 0;
+        span = HISTORY_SECONDS;
       }
       if (history.length && reading.seconds < history[history.length - 1].t) history.length = 0; // restarted
       history.push({ t: reading.seconds, m: reading.momentary, s: reading.shortTerm });
@@ -324,8 +335,14 @@ export function loudnessMeterEditor() {
         const state = { sampleRate: doc.sampleRate, channels: doc.state.channels.map((c) => c.slice(start, end)) };
         const m = await measureLoudness(state, (f) => (offlineText.textContent = `Scanning ${Math.round(f * 100)}%`));
         const seconds = (end - start) / doc.sampleRate;
-        reading = { momentary: -Infinity, shortTerm: m.maxShortTerm, integrated: m.integrated, range: m.range, truePeakDb: m.truePeakDb, maxMomentary: m.maxMomentary, maxShortTerm: m.maxShortTerm, seconds, inputDb: -Infinity };
+        // Momentary shows where the scan ended (its last 400 ms).
+        reading = { momentary: m.momentary, shortTerm: m.maxShortTerm, integrated: m.integrated, range: m.range, truePeakDb: m.truePeakDb, maxMomentary: m.maxMomentary, maxShortTerm: m.maxShortTerm, seconds, inputDb: -Infinity };
         history.length = 0;
+        const hs = m.history;
+        if (hs?.shortTerm?.length) {
+          hs.shortTerm.forEach((sv, i) => history.push({ t: (i + 1) * hs.step, m: hs.momentary[i] ?? -Infinity, s: sv }));
+          span = Math.max(hs.step, history[history.length - 1].t);
+        }
         scanned = { label: where };
         offlineText.textContent = `${where === 'the selection' ? 'Selection' : 'File'} scanned (${formatTime(seconds)}).`;
         render();

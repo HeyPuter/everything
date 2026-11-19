@@ -318,6 +318,25 @@ pub extern "C" fn lufs_result(h: u32, out: u32) {
     }
 }
 
+/// Writes the loudness (LUFS, -1000 for silence or before the window fills)
+/// of the `n` sub-block window (4 = momentary, 30 = short-term) ending after
+/// every `step` sub-blocks (100 ms each), up to `cap` values; returns the count.
+#[no_mangle]
+pub extern "C" fn lufs_series(h: u32, n: u32, step: u32, out: u32, cap: u32) -> u32 {
+    let m = unsafe { &*(h as *mut Meter) };
+    let o = unsafe { slice_mut(out, cap) };
+    let (n, step) = (n.max(1) as usize, step.max(1) as usize);
+    let mut k = 0;
+    let mut end = step;
+    while end <= m.subs.len() && k < o.len() {
+        let v = if end >= n { power_to_lufs(m.window(end, n)) } else { f64::NEG_INFINITY };
+        o[k] = if v.is_finite() { v as f32 } else { -1000.0 };
+        k += 1;
+        end += step;
+    }
+    k as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

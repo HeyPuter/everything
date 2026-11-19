@@ -94,6 +94,8 @@ function push(s, channels) {
 
 function close(s) {
   const loud = s.meter.result();
+  // A scan also returns its momentary and short-term loudness over time.
+  if (s.kind === 'loudness') loud.history = s.meter.series();
   s.meter.free();
   s.lim?.free();
   if (s.kind === 'stats') return { channels: s.chans, loudness: loud };
