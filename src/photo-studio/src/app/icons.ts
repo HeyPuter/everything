@@ -389,6 +389,9 @@ const custom: Record<string, Node[]> = {
   'audio-wave': [p('M3 11.5v1M6.5 9v6M10 5v14M13.5 8v8M17 10.5v3M20.5 11.5v1')],
   'audio-add': [p('M3 11v2M6.5 8.5v7M10 5.5v13M13.5 9v6'), p('M19 13.5v7M15.5 17h7')],
   'unlink': [p('M9.5 14.5 7 17a3.2 3.2 0 0 1-4.5-4.5L5 10'), p('M14.5 9.5 17 7a3.2 3.2 0 0 1 4.5 4.5L19 14'), p('M8 3v2.5M3 8h2.5M16 21v-2.5M21 16h-2.5')],
+  // Canvas orientation (original glyphs): an upright or a lying page with a horizon line.
+  'orientation-portrait': [['rect', { x: 6, y: 3, width: 12, height: 18, rx: 1.5 }], p('M9 15l2.5-3 2 2 1.5-1.5'), ['circle', { cx: 14.5, cy: 8, r: 1.2 }]],
+  'orientation-landscape': [['rect', { x: 3, y: 6, width: 18, height: 12, rx: 1.5 }], p('M7 15l3-3.5 2.5 2.5 2-2 2.5 3'), ['circle', { cx: 16.5, cy: 9.5, r: 1.2 }]],
   // Embedded object (original glyph): a frame holding a nested page.
   'embedded-object': [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 3 }], ['rect', { x: 9.5, y: 9.5, width: 8, height: 8, rx: 1.5, fill: 'currentColor', 'fill-opacity': 0.35 }]],
   'path-op-exclude': [['path', { d: 'M3 3h12v6H9v6H3Z', fill: 'currentColor', 'fill-opacity': 0.4 }], ['path', { d: 'M15 9h6v12H9v-6h6Z', fill: 'currentColor', 'fill-opacity': 0.4 }], ['rect', { x: 9, y: 9, width: 6, height: 6 }]],

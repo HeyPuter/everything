@@ -1,6 +1,6 @@
 import type { Editor } from '../../editor';
 import { findLayer, type Layer } from '../../model/document';
-import { properties } from '../../ui/panels';
+import { layerProperties } from '../panels/layer-properties';
 import { layerLocked } from '../../model/transform';
 import { layerLock } from '../../model/locks';
 import { svg } from '../../app/icons';
@@ -46,14 +46,12 @@ function render(e: Editor, el: HTMLElement, l: Layer) {
   const groups = componentGroups(shapeDocMask(l));
   const st = vstate(e);
   const ops: [PathOp, string, string][] = [['combine', 'Combine Shapes', 'path-op-combine'], ['subtract', 'Subtract Front Shape', 'path-op-subtract'], ['intersect', 'Intersect Shape Areas', 'path-op-intersect'], ['exclude', 'Exclude Overlapping Shapes', 'path-op-exclude']];
-  const generic = properties(display, l, 1, locked)
-    .replace(/<fieldset [^>]*><h3>Transform<\/h3>[\s\S]*?<\/div><\/fieldset>/, '')
-    .replace(/<label class="color-row">Color <input type="color" data-property="color"[^>]*><\/label>/, '');
+  const generic = layerProperties(e, display, l, locked, { transform: false, color: false, header: false });
   el.innerHTML = `<div class="property-body vec-props"><span class="eyebrow">SHAPE LAYER</span><h3>${live ? `Live ${liveNames[live.kind]}` : 'Shape'}${l.vector!.live && !live ? ' <small class="muted">(transformed)</small>' : ''}</h3>
 <fieldset ${locked || posLocked ? 'disabled' : ''}><div class="transform-grid">${field('x', 'X', b?.x ?? 0)}${field('y', 'Y', b?.y ?? 0)}${field('width', 'W', b?.width ?? 0, 'min="0"')}${field('height', 'H', b?.height ?? 0, 'min="0"')}<label class="number-field"><span>Angle</span><input data-property="rotation" type="number" aria-label="Angle" value="${Math.round(l.transform.rotation * 100) / 100}" min="-360" max="360"></label></div></fieldset>
 <fieldset ${locked ? 'disabled' : ''}>${liveSection(l, live)}
 <h3>Appearance</h3><div class="vec-appearance"><span>Fill</span>${swatchButton('vec-prop-fill', 'Fill', fill, e.color)}<span>Stroke</span>${swatchButton('vec-prop-stroke', 'Stroke', stroke, e.color, true)}</div>
-<h3>Path operations</h3><p class="muted vec-hint">${groups.length} component${groups.length === 1 ? '' : 's'}${st.paths.size && e.tool === 'path-select' ? ', applies to the selected components' : ', applies to the last component'}</p><div class="vec-ops">${ops.map(([op, label, icon]) => `<button class="icon-button" data-vec-op="${op}" title="${label}" aria-label="${label}">${svg(icon, 16)}</button>`).join('')}<button data-command="path.merge-components" title="Merge overlapping components into one outline">Merge</button></div></fieldset></div>${generic.replace('<div class="property-body">', '<div class="property-body vec-generic">').replace(/<span class="eyebrow">VECTOR LAYER<\/span>/, '')}`;
+<h3>Path operations</h3><p class="muted vec-hint">${groups.length} component${groups.length === 1 ? '' : 's'}${st.paths.size && e.tool === 'path-select' ? ', applies to the selected components' : ', applies to the last component'}</p><div class="vec-ops">${ops.map(([op, label, icon]) => `<button class="icon-button" data-vec-op="${op}" title="${label}" aria-label="${label}">${svg(icon, 16)}</button>`).join('')}<button data-command="path.merge-components" title="Merge overlapping components into one outline">Merge</button></div></fieldset></div>${generic.replace('<div class="property-body">', '<div class="property-body vec-generic">')}`;
   bind(e, el, l.id, fill, stroke);
 }
 function bind(e: Editor, el: HTMLElement, id: string, fill: FillSpec, stroke: StrokeSpec) {

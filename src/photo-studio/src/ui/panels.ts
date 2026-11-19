@@ -11,13 +11,11 @@ import {
 import { Assets, escapeXML } from "../model/assets";
 import { icon, button } from "./shell";
 import { cachedSourceThumbnail } from "./thumbnails";
-import { vectorDisplayHex, vectorColorHex } from "../color/vector";
-import { layerLock, ownLock } from "../model/locks";
+import { vectorColorHex } from "../color/vector";
 import { supportedStrokePaths } from "../model/vector-stroke";
 import { applyPixelMask, rawPixelMaskCoverage } from '../model/pixel-mask';
 import { worldPoint } from '../model/transform';
-import { isVectorPattern } from '../model/vector-pattern';
-const number = (
+export const number = (
   key: string,
   label: string,
   value: number,
@@ -29,37 +27,7 @@ function sourceImage(l: Layer, assets: Assets, doc?: PhotoDocument) {
   const url = cachedSourceThumbnail(l, assets, doc);
   return `<img ${url ? `src="${escapeXML(url)}"` : `data-source-thumbnail="${escapeXML(l.id)}"`} alt="" loading="lazy" draggable="false">`;
 }
-export function properties(
-  doc: PhotoDocument,
-  l?: Layer,
-  count = 1,
-  locked = l?.locked ?? false,
-) {
-  if (count > 1)
-    return `<div class="property-body"><span class="eyebrow">MULTIPLE LAYERS</span><h3>${count} layers selected</h3><p class="muted">Move, resize or rotate the selection together. Shared resizing keeps proportions.</p><button class="wide" data-action="transform">Free Transform</button><button class="wide" data-action="group">Group selected layers</button><p class="muted">Shift-click selects a range. Cmd/Ctrl-click toggles a layer.</p></div>`;
-  if (!l)
-    return `<div class="document-properties"><span class="eyebrow">DOCUMENT</span><h3>${escapeXML(doc.name)}</h3><div class="property-grid"><span>Width</span><strong>${doc.width} px</strong><span>Height</span><strong>${doc.height} px</strong><span>Color</span><strong>RGB · ${doc.bitsPerChannel ?? 8} bit</strong><span>Background</span><strong>Transparent</strong></div><button class="wide" data-action="resize">${icon("scaling")} Image size</button><p class="muted">Select a layer to adjust its appearance.</p></div>`;
-  const ancestorLocked = layerLock(doc.layers, l.id, "all", false);
-  const implicitPixels = ["text", "vector", "solid"].includes(l.kind);
-  const partial = (
-    key: "transparency" | "composite" | "position",
-    label: string,
-  ) => {
-    const implicit = implicitPixels && key !== "position";
-    const checked =
-      implicit || ownLock(l, key === "composite" ? "pixels" : key);
-    return `<label class="lock-label"><input type="checkbox" data-lock="${key}" ${checked ? "checked" : ""} ${ancestorLocked || implicit ? "disabled" : ""}> ${label}</label>`;
-  };
-  return `<div class="property-body"><span class="eyebrow">${l.kind === "image" ? "EMBEDDED OBJECT" : `${l.kind.toUpperCase()} LAYER`}</span><input class="layer-name-input" data-property="name" aria-label="Layer name" value="${escapeXML(l.name)}" ${locked ? "disabled" : ""}><label class="lock-label"><input type="checkbox" data-property="locked" ${l.locked ? "checked" : ""} ${ancestorLocked ? "disabled" : ""}> Lock layer</label><div class="partial-locks">${partial("transparency", "Lock transparency")}${partial("composite", "Lock image pixels")}${partial("position", "Lock position")}</div><fieldset ${locked ? "disabled" : ""}>
-  ${l.kind !== "group" ? `<fieldset ${layerLock(doc.layers, l.id, "position") ? "disabled" : ""}><h3>Transform</h3><div class="transform-grid">${number("x", "X", l.transform.x)}${number("y", "Y", l.transform.y)}${number("width", "W", l.transform.width, 1, 8192)}${number("height", "H", l.transform.height, 1, 8192)}${number("rotation", "Angle", l.transform.rotation, -360, 360)}</div></fieldset>` : ""}
-  ${l.kind === "text" ? `<button data-command="type.edit" class="wide">${icon("type")} Edit text</button><button data-command="type.toggle-panels" class="wide">${icon("case-upper")} Character and Paragraph</button><button data-command="type.warp" class="wide">${icon("waves")} Warp text</button>` : ""}
-  ${isVectorGradient(l.vector?.fill) ? gradientProperties(l,doc) : isVectorPattern(l.vector?.fill) ? `<h3>Pattern fill</h3>${number('patternPhaseX','Pattern offset X (px)',l.vector!.fill.phase?.x ?? 0)}${number('patternPhaseY','Pattern offset Y (px)',l.vector!.fill.phase?.y ?? 0)}<label class="lock-label"><input type="checkbox" data-property="patternLinked" ${l.vector!.fill.align === false ? '' : 'checked'}> Link pattern to layer</label>` : l.kind === "solid" || l.kind === "vector" ? `<label class="color-row">Color <input type="color" data-property="color" value="${l.kind === "vector" ? vectorDisplayHex(l, doc) : l.color}"></label>` : ""}
-  ${l.vector ? strokeProperties(l, doc) : ""}
-  <h3>Adjustments <button data-action="reset-filters" title="Reset adjustments" aria-label="Reset adjustments">${icon("rotate-ccw")}</button></h3>${(["brightness", "contrast", "saturation", "blur"] as const).map((k) => `<label class="slider-field"><span>${k[0].toUpperCase() + k.slice(1)}<output>${l.filters[k]}</output></span><input data-filter="${k}" aria-label="${k}" type="range" min="${k === "blur" ? 0 : -100}" max="${k === "blur" ? 30 : 100}" value="${l.filters[k]}"></label>`).join("")}
-  ${l.pixelMask ? `${number("maskDensity", "Mask density (%)", (l.pixelMask.userMaskDensity ?? 1)*100, 0, 100)}<label class="lock-label"><input type="checkbox" data-property="maskLinked" ${l.pixelMask.positionRelativeToLayer ? "" : "checked"}> Link mask to layer</label>` : ""}
-  ${hasMask(l) ? `<div class="mask-info">${icon("square-dashed")} ${l.maskDisabled ? "Mask disabled" : "Layer mask active"} <button data-action="invert-mask">Invert</button><button data-action="toggle-mask">${l.maskDisabled ? "Enable" : "Disable"}</button><button data-action="remove-mask" aria-label="Remove mask">${icon("x")}</button></div>` : '<button data-action="mask" class="wide">Add layer mask</button>'}</fieldset></div>`;
-}
-function gradientProperties(l: Layer, doc: PhotoDocument) {
+export function gradientProperties(l: Layer, doc: PhotoDocument) {
   const fill = l.vector!.fill;
   if (!isVectorGradient(fill)) return "";
   return `<h3>Gradient fill</h3><label class="number-field"><span>Style</span><select data-property="gradientStyle" aria-label="Gradient style">${["linear", "radial", "angle", "reflected", "diamond"].map((style) => `<option value="${style}" ${(fill.style ?? "linear") === style ? "selected" : ""}>${style[0].toUpperCase() + style.slice(1)}</option>`).join("")}</select></label>
@@ -71,7 +39,7 @@ function gradientProperties(l: Layer, doc: PhotoDocument) {
     <h3>Opacity stops</h3>${fill.opacityStops.map((stop, i) => `${number("gradientOpacity" + i + "OpacityPercent", "Opacity stop " + (i + 1) + " opacity (%)", stop.opacityPercent, 0, 100)}${number("gradientOpacity" + i + "Location", "Opacity stop " + (i + 1) + " position (%)", stop.location * 100, 0, 100)}${number("gradientOpacity" + i + "Midpoint", "Opacity stop " + (i + 1) + " midpoint (%)", (stop.midpoint ?? 0.5) * 100, 0, 100)}<button class="wide" data-action="gradient-remove-opacity-${i}">Remove opacity stop ${i + 1}</button>`).join("")}
     <button class="wide" data-action="gradient-add-opacity" ${fill.opacityStops.length >= 256 ? "disabled" : ""}>Add opacity stop</button>`;
 }
-function strokeProperties(l: Layer, doc: PhotoDocument) {
+export function strokeProperties(l: Layer, doc: PhotoDocument) {
   const s = l.vector!.stroke;
   const open = l.vector!.mask.paths.some((p) => p.open),
     available = supportedStrokePaths(l.vector!.mask, {
