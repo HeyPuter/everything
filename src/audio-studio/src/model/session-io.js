@@ -122,6 +122,7 @@ export function parseSession(text) {
     beatsPerBar: Number(s.beatsPerBar) || 4,
     metronome: Boolean(s.metronome),
     ...(typeof s.metronomeSound === 'string' ? { metronomeSound: s.metronomeSound } : {}),
+    ...(Array.isArray(s.metronomePattern) ? { metronomePattern: s.metronomePattern.filter((k) => typeof k === 'string').slice(0, 16) } : {}),
     autoCrossfade: s.autoCrossfade !== false,
     tracks,
     master: createTrack({ ...(s.master || {}), type: 'master' }),

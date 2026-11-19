@@ -41,7 +41,7 @@ export function installMultitrack(app) {
   const clickFor = (state) => {
     // A session keeps the sound picked for it; otherwise the last one picked anywhere.
     const sound = state.metronomeSound || app.prefs.get('metronomeSound') || undefined;
-    const key = `${state.sampleRate}:${state.tempo}:${state.beatsPerBar}:${sound}`;
+    const key = `${state.sampleRate}:${state.tempo}:${state.beatsPerBar}:${sound}:${(state.metronomePattern || []).join(',')}`;
     if (!click || click.key !== key) click = { key, channels: metronomeBar(Channel, { ...state, sound }) };
     return click.channels;
   };

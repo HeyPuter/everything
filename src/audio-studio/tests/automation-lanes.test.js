@@ -221,3 +221,33 @@ describe('track effect slots in place', () => {
     expect(S.findTrack(doc.state, id).fx.filter(Boolean)).toEqual([]);
   });
 });
+
+describe('metronome pattern and add tracks', () => {
+  it('fits a stored accent pattern to the bar and silences or softens beats', async () => {
+    const { metronomePattern, metronomeBar } = await import('../src/model/session-graph.js');
+    expect(metronomePattern(null, 3)).toEqual(['down', 'up', 'up']);
+    expect(metronomePattern(['up', 'none', 'bogus'], 4)).toEqual(['up', 'none', 'up', 'up']);
+    const plain = metronomeBar(Channel, { sampleRate: RATE, tempo: 120, beatsPerBar: 4 })[0];
+    const patterned = metronomeBar(Channel, { sampleRate: RATE, tempo: 120, beatsPerBar: 4, metronomePattern: ['down', 'none', 'sub', 'up'] })[0];
+    const peak = (ch, beat) => {
+      const data = ch.toArray();
+      let m = 0;
+      for (let i = beat * RATE / 2; i < (beat + 1) * RATE / 2; i++) m = Math.max(m, Math.abs(data[i]));
+      return m;
+    };
+    expect(peak(patterned, 1)).toBe(0);
+    expect(peak(patterned, 2)).toBeCloseTo(peak(plain, 2) * 0.45, 5);
+    expect(peak(patterned, 3)).toBeCloseTo(peak(plain, 3), 5);
+  });
+
+  it('adds audio and bus tracks with their channel counts', async () => {
+    const { app, doc } = await appWithSession();
+    const before = new Set(doc.state.tracks.map((t) => t.id));
+    await app.commands.run('mt.addTracks', { audio: { count: 2, channels: 1 }, bus: { count: 1, channels: 6 } });
+    // They follow the selected track, in order.
+    const added = doc.state.tracks.filter((t) => !before.has(t.id));
+    expect(doc.state.tracks.indexOf(added[0])).toBe(1);
+    expect(added.map((t) => [t.type, t.channels])).toEqual([['audio', 1], ['audio', 1], ['bus', 6]]);
+    expect(doc.history.undoLabel).toBe('Add Tracks');
+  });
+});

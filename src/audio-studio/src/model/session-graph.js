@@ -402,17 +402,33 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   return { graph, sources };
 }
 
-/** One bar of metronome clicks (accented downbeat) at the session tempo, in a sound set from metronome-sounds.js. */
-export function metronomeBar(Channel, { sampleRate, tempo = 120, beatsPerBar = 4, sound = DEFAULT_METRONOME_SOUND }) {
+/** Kinds of metronome beat: accented, plain, soft, silent. */
+export const BEAT_KINDS = ['down', 'up', 'sub', 'none'];
+
+/** The accent pattern for a bar of `beatsPerBar` beats: a stored one fitted to length, or an accented first beat. */
+export function metronomePattern(pattern, beatsPerBar = 4) {
+  return Array.from({ length: beatsPerBar }, (_, i) => (BEAT_KINDS.includes(pattern?.[i]) ? pattern[i] : i === 0 ? 'down' : 'up'));
+}
+
+/**
+ * One bar of metronome clicks at the session tempo, in a sound set from metronome-sounds.js. Each beat
+ * follows the accent pattern: 'down' accented, 'up' plain, 'sub' a softer plain click, 'none' silent.
+ */
+export function metronomeBar(Channel, { sampleRate, tempo = 120, beatsPerBar = 4, sound = DEFAULT_METRONOME_SOUND, metronomePattern: pattern }) {
   const beat = Math.round((60 / tempo) * sampleRate);
   const n = beat * beatsPerBar;
   const out = new Float32Array(n);
   const accent = clickSound(sound, sampleRate, true);
   const normal = clickSound(sound, sampleRate, false);
+  const kinds = metronomePattern(pattern, beatsPerBar);
   for (let b = 0; b < beatsPerBar; b++) {
-    const click = b === 0 ? accent : normal;
+    const kind = kinds[b];
+    if (kind === 'none') continue;
+    const click = kind === 'down' ? accent : normal;
     const at = b * beat;
-    out.set(click.subarray(0, Math.min(click.length, n - at)), at);
+    const part = click.subarray(0, Math.min(click.length, n - at));
+    if (kind === 'sub') for (let i = 0; i < part.length; i++) out[at + i] = part[i] * 0.45;
+    else out.set(part, at);
   }
   return [Channel.fromSamples(out)];
 }

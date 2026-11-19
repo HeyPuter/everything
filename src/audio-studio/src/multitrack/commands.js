@@ -8,7 +8,7 @@ import { icon } from '../ui/icons.js';
 import { Session } from '../model/session.js';
 import { mergeWithLayout, relocateMergeLayouts } from '../model/merge-layout.js';
 import { restartFade } from '../model/clip-fades.js';
-import { clipPlan } from '../model/session-graph.js';
+import { clipPlan, metronomePattern, BEAT_KINDS } from '../model/session-graph.js';
 import * as S from '../model/session-edits.js';
 import { markersInRange } from '../model/edits.js';
 import { AudioFile } from '../model/audio-file.js';
@@ -147,19 +147,50 @@ async function newSessionDialog(app) {
   return { name: `${name.value.trim() || 'Untitled Session'}.asesx`, template: chosen, sampleRate: rate.value(), bitDepth: Number(bits.value), masterChannels: Number(master.value) };
 }
 
-async function addTracksDialog(app) {
-  const count = h('input.input.num', { type: 'number', min: 1, max: 64, value: 1, 'aria-label': 'Number of tracks' });
-  const type = h('select.select', { 'aria-label': 'Track type' }, h('option', { value: 'stereo' }, 'Stereo Audio Track'), h('option', { value: 'mono' }, 'Mono Audio Track'), h('option', { value: 'bus' }, 'Stereo Bus Track'), h('option', { value: 'monoBus' }, 'Mono Bus Track'), h('option', { value: 'surround' }, '5.1 Audio Track'), h('option', { value: 'surroundBus' }, '5.1 Bus Track'));
+const CHANNEL_CHOICES = [
+  { value: '1', label: 'Mono' },
+  { value: '2', label: 'Stereo' },
+  { value: '6', label: '5.1' },
+];
+
+/** Add Tracks: a video track, audio tracks and bus tracks in one go. Resolves to the counts or null. */
+async function addTracksDialog(app, { videoAllowed = true } = {}) {
+  const group = (title, ...rows) => h('fieldset.dlg-group', h('legend', title), ...rows);
+  const counter = (label) => h('input.input.num', { type: 'number', min: 0, max: 64, value: 0, 'aria-label': label });
+  const channels = (label) => h('select.select', { 'aria-label': label }, CHANNEL_CHOICES.map((c) => h('option', { value: c.value, selected: c.value === '2' }, c.label)));
+  const video = h('input', { type: 'checkbox', disabled: !videoAllowed });
+  const audio = counter('Number of audio tracks');
+  audio.value = '1';
+  const audioCh = channels('Audio track channels');
+  const bus = counter('Number of bus tracks');
+  const busCh = channels('Bus track channels');
+  const count = (el) => Math.max(0, Math.min(64, Math.round(Number(el.value) || 0)));
+  const body = h(
+    'div.add-tracks',
+    group('Video Track', h('label.check', video, videoAllowed ? 'Add a video track (pick a video file next)' : 'Add a video track (the session has one)')),
+    group('Audio Tracks', h('div.form-grid', h('label', 'Add:'), h('div.row', audio, h('span.muted', 'audio tracks')), h('label', 'Channels:'), audioCh)),
+    group('Bus Tracks', h('div.form-grid', h('label', 'Add:'), h('div.row', bus, h('span.muted', 'bus tracks')), h('label', 'Channels:'), busCh)),
+  );
+  // Channels apply only while there is something to add.
+  const sync = () => {
+    audioCh.disabled = !count(audio);
+    busCh.disabled = !count(bus);
+    const ok = body.closest('.dialog')?.querySelector('.btn.primary');
+    if (ok) ok.disabled = !(count(audio) || count(bus) || video.checked);
+  };
+  for (const el of [audio, bus, video]) el.addEventListener('input', sync);
+  video.addEventListener('change', sync);
+  queueMicrotask(sync);
   const r = await openDialog({
     title: 'Add Tracks',
-    body: h('div.form-grid', h('label', 'Add:'), count, h('label', 'Type:'), type),
+    body,
     buttons: [
       { label: 'Cancel', value: null },
-      { label: 'OK', value: 'ok', primary: true },
+      { label: 'Add', value: 'ok', primary: true },
     ],
   });
   if (r !== 'ok') return null;
-  return { count: Math.max(1, Math.min(64, Math.round(Number(count.value) || 1))), type: type.value };
+  return { video: video.checked && videoAllowed, audio: { count: count(audio), channels: Number(audioCh.value) }, bus: { count: count(bus), channels: Number(busCh.value) } };
 }
 
 async function sessionPropertiesDialog(app, doc) {
@@ -263,14 +294,59 @@ function setMetronomeSound(app, doc, id) {
   app.syncGraph();
 }
 
+const BEAT_LABELS = { down: 'Accent', up: 'Beat', sub: 'Soft', none: 'Silent' };
+
 async function metronomeDialog(app, doc) {
   const tempo = h('input.input.num', { type: 'number', min: 20, max: 400, step: 0.1, value: doc.state.tempo, 'aria-label': 'Tempo' });
   const beats = h('input.input.num', { type: 'number', min: 1, max: 16, value: doc.state.beatsPerBar, 'aria-label': 'Beats per bar' });
   const current = metronomeSoundOf(app, doc);
   const sound = h('select.select', { 'aria-label': 'Metronome sound' }, METRONOME_SOUNDS.map((x) => h('option', { value: x.id, selected: x.id === current }, x.label)));
+  // The accent pattern: one button per beat; a click steps it Accent > Beat > Soft > Silent.
+  let pattern = metronomePattern(doc.state.metronomePattern, doc.state.beatsPerBar);
+  const beatRow = h('div.metro-beats', { role: 'group', 'aria-label': 'Accent pattern' });
+  const cycle = (i, dir) => {
+    const k = BEAT_KINDS.indexOf(pattern[i]);
+    pattern = pattern.map((x, j) => (j === i ? BEAT_KINDS[(k + dir + BEAT_KINDS.length) % BEAT_KINDS.length] : x));
+    drawBeats();
+    beatRow.children[i]?.focus();
+  };
+  const drawBeats = () => {
+    beatRow.replaceChildren(
+      ...pattern.map((kind, i) =>
+        h(
+          `button.metro-beat.${kind}`,
+          {
+            type: 'button',
+            'aria-label': `Beat ${i + 1}: ${BEAT_LABELS[kind]}`,
+            title: `Beat ${i + 1}: ${BEAT_LABELS[kind]} (click to change, right-click to go back)`,
+            onclick: () => cycle(i, 1),
+            oncontextmenu: (e) => {
+              e.preventDefault();
+              cycle(i, -1);
+            },
+          },
+          String(i + 1),
+        ),
+      ),
+    );
+  };
+  beats.addEventListener('input', () => {
+    const n = Math.max(1, Math.min(16, Math.round(Number(beats.value) || 0)));
+    if (n && n !== pattern.length) {
+      pattern = metronomePattern(pattern, n);
+      drawBeats();
+    }
+  });
+  drawBeats();
+  const legend = h('div.metro-legend', BEAT_KINDS.map((k) => h('span.metro-key', h(`span.metro-swatch.${k}`), BEAT_LABELS[k])));
+  const reset = h('button.btn.sm', { type: 'button', onclick: () => { pattern = metronomePattern(null, pattern.length); drawBeats(); } }, 'Reset Pattern');
   const r = await openDialog({
     title: 'Metronome Pattern',
-    body: h('div.form-grid', h('label', 'Tempo (BPM):'), tempo, h('label', 'Beats per Bar:'), beats, h('label', 'Sound:'), h('div.row', sound, h('span.muted', 'accented first beat'))),
+    body: h(
+      'div.metro-dialog',
+      h('div.form-grid', h('label', 'Tempo (BPM):'), tempo, h('label', 'Beats per Bar:'), beats, h('label', 'Sound:'), sound),
+      h('div.metro-pattern', legend, beatRow, h('div.row', reset)),
+    ),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
@@ -278,7 +354,13 @@ async function metronomeDialog(app, doc) {
   });
   if (r !== 'ok') return;
   setMetronomeSound(app, doc, sound.value);
-  doc.apply('Metronome Pattern', { ...doc.state, tempo: Math.max(20, Math.min(400, Number(tempo.value) || 120)), beatsPerBar: Math.max(1, Math.min(16, Math.round(Number(beats.value) || 4))) });
+  const beatsPerBar = Math.max(1, Math.min(16, Math.round(Number(beats.value) || 4)));
+  const fitted = metronomePattern(pattern, beatsPerBar);
+  const plain = fitted.every((k, i) => k === (i === 0 ? 'down' : 'up'));
+  const next = { ...doc.state, tempo: Math.max(20, Math.min(400, Number(tempo.value) || 120)), beatsPerBar };
+  if (plain) delete next.metronomePattern;
+  else next.metronomePattern = fitted;
+  doc.apply('Metronome Pattern', next);
   app.prefs.set('tempo', doc.state.tempo);
   app.prefs.set('beatsPerBar', doc.state.beatsPerBar);
 }
@@ -907,18 +989,27 @@ export function installMultitrackCommands(app) {
       id: 'mt.addTracks',
       label: 'Add Tracks...',
       enabled: hasSession,
-      run: async () => {
+      run: async (a, args) => {
         const doc = session(app);
-        const o = await addTracksDialog(app);
+        // Arguments skip the dialog (scripts, tests): { audio: { count, channels }, bus: {...}, video }.
+        const o = args?.audio || args?.bus || args?.video ? args : await addTracksDialog(app, { videoAllowed: !videoClip(doc.state) });
         if (!o) return;
         let state = doc.state;
         let after = S.findTrack(state, doc.selectedTrack)?.type === 'master' ? undefined : doc.selectedTrack;
-        for (let i = 0; i < o.count; i++) {
-          const made = newTrack(state, { type: /bus/i.test(o.type) ? 'bus' : 'audio', channels: o.type === 'mono' || o.type === 'monoBus' ? 1 : /surround/.test(o.type) ? 6 : 2, afterId: after });
-          state = made.state;
-          after = made.track.id;
+        let added = 0;
+        for (const [type, spec] of [['audio', o.audio], ['bus', o.bus]]) {
+          for (let i = 0; i < (spec?.count || 0); i++) {
+            const made = newTrack(state, { type, channels: [1, 2, 6].includes(spec.channels) ? spec.channels : 2, afterId: after });
+            state = made.state;
+            after = made.track.id;
+            added++;
+          }
         }
-        doc.apply(o.count > 1 ? 'Add Tracks' : 'Add Track', state);
+        if (added) {
+          doc.apply(added > 1 ? 'Add Tracks' : 'Add Track', state);
+          doc.selectTrack(after);
+        }
+        if (o.video) await app.commands.run('mt.addVideoTrack');
       },
     },
     { id: 'mt.duplicateTrack', label: 'Duplicate Selected Track', enabled: (a) => selTrack(a)?.type === 'audio' || selTrack(a)?.type === 'bus', run: () => session(app).apply('Duplicate Track', S.duplicateTrack(session(app).state, selTrack(app).id)) },

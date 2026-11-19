@@ -2,7 +2,8 @@
 // new state (or the input unchanged) and never mutates its arguments.
 //
 // State shape (times in frames at the session rate):
-//   { sampleRate, bitDepth, tempo, beatsPerBar, metronome, metronomeSound?, autoCrossfade,
+//   { sampleRate, bitDepth, tempo, beatsPerBar, metronome, metronomeSound?, metronomePattern?
+//     (per beat 'down'|'up'|'sub'|'none', see session-graph metronomeBar), autoCrossfade,
 //     tracks: Track[],          audio and bus tracks in display order
 //     master: Track,            the master (mix) track
 //     clips: Clip[],            flat list; clip.trackId says where it lives

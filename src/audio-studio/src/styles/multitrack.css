@@ -1153,3 +1153,93 @@
 [data-layout='phone'] .remix-dialog .form-grid {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* ------------------------------------------------- metronome pattern */
+
+.metro-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 300px;
+}
+
+.metro-pattern {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.metro-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.metro-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.metro-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+
+.metro-beats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.metro-beat {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-strong);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.metro-beat:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.metro-swatch.down,
+.metro-beat.down {
+  background: var(--accent);
+}
+
+.metro-swatch.up,
+.metro-beat.up {
+  background: color-mix(in srgb, var(--accent) 45%, var(--bg-input));
+}
+
+.metro-swatch.sub,
+.metro-beat.sub {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-input));
+}
+
+.metro-swatch.none,
+.metro-beat.none {
+  background: var(--bg-input);
+  color: var(--text-faint);
+}
+
+.add-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 300px;
+}
