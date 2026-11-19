@@ -29,6 +29,7 @@ export function applyModulePrefs(prefs) {
   placementOptions.avoidOverlap = Boolean(prefs.get('avoidOverlap'));
   placementOptions.sameTrack = prefs.get('insertMultiple') === 'same';
   placementOptions.embeddedTimecode = Boolean(prefs.get('embeddedTimecode'));
+  placementOptions.splitChannels = prefs.get('insertChannels') === 'split';
   rackOptions.processBypassed = Boolean(prefs.get('fxProcessBypassed'));
   rackOptions.sort = prefs.get('fxMenuSort') === 'name' ? 'name' : 'category';
   const caution = Number(prefs.get('meterCaution'));

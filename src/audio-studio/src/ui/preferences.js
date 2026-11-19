@@ -282,7 +282,10 @@ export const CATEGORIES = [
       },
       {
         title: 'Inserting Several Files',
-        items: [radio('insertMultiple', 'When inserting several files', opts([['tracks', 'Place each file on its own track'], ['same', 'Place them one after another on the same track']]))],
+        items: [
+          radio('insertMultiple', 'When inserting several files', opts([['tracks', 'Place each file on its own track'], ['same', 'Place them one after another on the same track']])),
+          radio('insertChannels', 'When inserting a file with several channels', opts([['clip', 'Keep its channels together in one clip'], ['split', 'Put each channel in its own clip, on its own mono track']]), { keywords: 'stereo split mono channels distribute dual mono interview' }),
+        ],
       },
       {
         title: 'Clip Stretching',

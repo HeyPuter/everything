@@ -113,6 +113,7 @@ export const DEFAULTS = {
   clipsToFront: false,
   clipGainWaveform: true,
   insertMultiple: 'tracks', // 'tracks' | 'same'
+  insertChannels: 'clip', // 'clip' | 'split' (one clip per channel, each on a mono track)
   clipStretchMode: 'realtime', // mode for newly stretched clips: 'realtime' | 'rendered'
   // Playback and Recording
   returnToStartOn: 'first', // 'first' | 'second' stop

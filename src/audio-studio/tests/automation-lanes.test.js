@@ -704,3 +704,25 @@ describe('exporting a session with converted media', () => {
     expect(await bits(24)).toBe(24);
   });
 });
+
+describe('inserting a file channel by channel', () => {
+  it('puts each channel in its own clip on its own mono track', async () => {
+    const { insertDocs, placementOptions } = await import('../src/multitrack/insert.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { app, doc } = await appWithSession();
+    const file = new AudioFile({ name: 'interview.wav', sampleRate: RATE, channels: [Channel.fromSamples(new Float32Array(480).fill(0.5)), Channel.fromSamples(new Float32Array(480).fill(-0.5))] });
+    app.addDocument(file, { activate: false });
+    app.activate(doc);
+    placementOptions.splitChannels = true;
+    try {
+      const ids = await insertDocs(app, doc, [file], { at: 0, trackId: null });
+      const clips = ids.map((id) => S.findClip(doc.state, id));
+      expect(clips.map((c) => [c.name, c.channelMap])).toEqual([['interview (L)', [0, 0]], ['interview (R)', [1, 1]]]);
+      expect(new Set(clips.map((c) => c.trackId)).size).toBe(2);
+      expect(clips.every((c) => S.findTrack(doc.state, c.trackId).channels === 1)).toBe(true);
+      expect(clips[0].sourceId).toBe(clips[1].sourceId);
+    } finally {
+      placementOptions.splitChannels = false;
+    }
+  });
+});

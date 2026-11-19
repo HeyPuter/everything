@@ -64,7 +64,10 @@ export function nextBusName(state) {
  * the next track where they fit, `sameTrack` places several inserted files
  * one after another on one track.
  */
-export const placementOptions = { randomColor: false, avoidOverlap: false, sameTrack: false, embeddedTimecode: false, random: Math.random };
+export const placementOptions = { randomColor: false, avoidOverlap: false, sameTrack: false, embeddedTimecode: false, splitChannels: false, random: Math.random };
+
+/** Names of a file's channels for the clips it is split into. */
+const channelName = (i, n) => (n === 2 ? (i ? 'R' : 'L') : `Ch ${i + 1}`);
 
 /**
  * Where a file's embedded timecode (the broadcast WAV time reference, in its own samples) puts it
@@ -166,6 +169,8 @@ export async function insertDocs(app, session, docs, { trackId, at, range, range
   const ids = [];
   // Several files go one per track, or end to end on one track (Preferences > Multitrack Clips).
   const sameTrack = (sameTrackOpt ?? placementOptions.sameTrack) && docs.length > 1;
+  // Files placed end to end on one track keep their channels together.
+  const splitChannels = placementOptions.splitChannels && !sameTrack;
   const parts = [];
   for (const [i, doc] of docs.entries()) {
     const ratio = rate / doc.sampleRate;
@@ -210,6 +215,15 @@ export async function insertDocs(app, session, docs, { trackId, at, range, range
       p.trackOffset = sameTrack ? 0 : activeParts.length;
       end += p.length;
       activeParts.push(p);
+      // Preferences > Multitrack Clips: a file's channels can go to clips of their own, one per
+      // (mono) track, each playing one channel of the same media.
+      const n = p.doc.channelCount || p.prepared?.channels?.length || 1;
+      p.channels = splitChannels && n > 1 ? n : 0;
+      if (p.channels) {
+        p.split = Array.from({ length: n - 1 }, (_, k) => ({ ...p, channel: k + 1, trackOffset: p.trackOffset + k + 1, clip: p.split?.[k]?.clip }));
+        p.channel = 0;
+        for (const q of p.split) activeParts.push(q);
+      }
     }
     // Re-resolve the original target after preparation; it may have been
     // hidden, moved or deleted. Never restore tracks from an older snapshot.
@@ -221,12 +235,13 @@ export async function insertDocs(app, session, docs, { trackId, at, range, range
       let track = index >= 0 ? audio()[index + p.trackOffset] : null;
       if (!track) {
         const last = state.tracks.filter((x) => x.type === 'audio').pop();
-        const made = newTrack(state, { channels: trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
+        const made = newTrack(state, { channels: p.channels ? 1 : trackChannelsFor(state, p.doc.channelCount), afterId: last?.id });
         state = made.state;
         track = made.track;
         if (index < 0 || !audio()[index + p.trackOffset] || audio()[index + p.trackOffset].id !== track.id) index = audio().findIndex((x) => x.id === track.id) - p.trackOffset;
       }
-      const clip = S.createClip({ id: p.clip?.id, trackId: track.id, sourceId: p.sourceId, name: p.name || baseName(p.doc.name), start: p.start, offset: p.offset, length: p.length });
+      const name = p.name || baseName(p.doc.name);
+      const clip = S.createClip({ id: p.clip?.id, trackId: track.id, sourceId: p.sourceId, name: p.channels ? `${name} (${channelName(p.channel, p.channels)})` : name, start: p.start, offset: p.offset, length: p.length, channelMap: p.channels ? [p.channel, p.channel] : null });
       state = S.addClipsOnTop(state, [clip]);
       ids.push(clip.id);
       p.clip = clip;
