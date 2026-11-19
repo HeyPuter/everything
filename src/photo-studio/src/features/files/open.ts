@@ -21,6 +21,7 @@ import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers, maxFrames } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
 import { flatSaveFormat } from './formats';
+import type { DocumentSession } from '../../app/session';
 import { emitAppEvent, openedFiles } from '../../app/app-events';
 
 const browserTypes: Record<string, string> = {
@@ -50,6 +51,9 @@ export type DecodedFile = {
   // Animated sources opened as a frame animation: one delay per frame
   // (including the first) and the number of plays (0 = forever).
   animation?: { delays: number[]; plays: number };
+  // What of the file was not opened (other pages or frames, another editor's
+  // layers): writing the document back over the file would lose it.
+  leftOut?: string[];
 };
 export type PageChoice = 'first' | 'layers' | 'animation' | 'ask';
 export type DecodeOptions = { pages?: PageChoice };
@@ -71,12 +75,17 @@ async function choosePages(kind: string, count: number, choice: PageChoice | und
   const v = await formDialog(`Open ${kind}s`, [{ name: 'pages', label: `This file has ${count} ${kind}s`, type: 'select', value: animated ? 'animation' : 'first', options }], 'Open');
   return v ? (v.pages as 'first' | 'layers' | 'animation') : null;
 }
+// The frames of an animation besides the first (`truncated`: more than were read).
+const otherFrames = (n: number, truncated?: boolean) =>
+  truncated ? 'the other frames' : `the other ${n - 1} frame${n > 2 ? 's' : ''}`;
 const framesLeftOut = (n: number) => `Only the first ${n} frames were opened: the rest need more memory than one file may use.`;
+const leaveOut = (out: DecodedFile, what: string) => (out.leftOut ??= []).push(what);
 /** Frames of an animated file as layers (and optionally an animation). */
-function animatedFrames(out: DecodedFile, all: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number): string | undefined {
+function animatedFrames(out: DecodedFile, all: { rgba: RGBA8; delayMs: number }[], pick: 'layers' | 'animation', plays: number, truncated?: boolean): string | undefined {
   // A project holds up to this many frames (or layers); more could be saved but not reopened.
   const most = pick === 'animation' ? maxFrames : MAX_LAYERS;
   const frames = all.slice(0, most);
+  if (all.length > most || truncated) leaveOut(out, `the frames after the first ${frames.length}`);
   out.layers = frames.slice(1).map((f, i) => ({ name: `Frame ${i + 2}`, image: f.rgba }));
   if (pick === 'animation') out.animation = { delays: frames.map((f) => f.delayMs), plays };
   else out.layers.forEach((l, i) => (l.name += ` (${frames[i + 1].delayMs} ms)`));
@@ -125,13 +134,21 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
   const out: DecodedFile = { image: applyOrientation(d.rgba8, d.orientation), icc, dpi: d.dpi?.x };
   if (d.data16) out.deep = { data: orient(d.data16, d.width, d.height, d.orientation), depth: 16 };
   else if (d.dataF32) out.deep = { data: orient(d.dataF32, d.width, d.height, d.orientation), depth: 32 };
+  if (d.notes.some((n) => /^Layer data stored by another editor/.test(n)))
+    leaveOut(out, 'the layers another editor stored in it');
   if (d.tiffPages && d.tiffPages.length > 1) {
     const pick = await choosePages('page', d.tiffPages.length, opts.pages);
     if (!pick) throw new CancelOpen();
     if (pick === 'layers') {
       out.layers = d.tiffPages.slice(1, MAX_LAYERS).map((p, i) => ({ name: `Page ${i + 2}`, image: applyOrientation(p.rgba8, p.orientation) }));
-      if (d.tiffPages.length > MAX_LAYERS) notes.push(`Only the first ${MAX_LAYERS} of ${d.tiffPages.length} pages were opened: a document holds up to ${MAX_LAYERS} layers.`);
-    } else notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
+      if (d.tiffPages.length > MAX_LAYERS) {
+        notes.push(`Only the first ${MAX_LAYERS} of ${d.tiffPages.length} pages were opened: a document holds up to ${MAX_LAYERS} layers.`);
+        leaveOut(out, `the pages after the first ${MAX_LAYERS}`);
+      }
+    } else {
+      notes.push(`The file has ${d.tiffPages.length} pages; the first was opened.`);
+      leaveOut(out, `the other ${d.tiffPages.length - 1} page${d.tiffPages.length > 2 ? 's' : ''}`);
+    }
   }
   if (d.gifFrames && d.gifFrames.length > 1) {
     const pick = await choosePages('frame', d.gifFrames.length, opts.pages, true);
@@ -139,10 +156,13 @@ async function decodeWithCodecs(bytes: Uint8Array, _name: string, opts: DecodeOp
     // GIF stores extra repeats; no looping extension means one play.
     const plays = d.gifLoopCount === undefined ? 1 : d.gifLoopCount === 0 ? 0 : Math.min(65535, d.gifLoopCount + 1);
     if (pick !== 'first') {
-      const capped = animatedFrames(out, d.gifFrames, pick, plays);
+      const capped = animatedFrames(out, d.gifFrames, pick, plays, d.gifTruncated);
       if (capped) notes.push(capped);
       else if (d.gifTruncated) notes.push(framesLeftOut(d.gifFrames.length));
-    } else notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
+    } else {
+      notes.push(`Animated GIF with ${d.gifFrames.length} frames; the first was opened.`);
+      leaveOut(out, otherFrames(d.gifFrames.length, d.gifTruncated));
+    }
   }
   if (notes.length) out.notice = notes.join(' ');
   return out;
@@ -191,8 +211,11 @@ async function decodeTagged(bytes: Uint8Array, name: string, opts: DecodeOptions
       if (!pick) throw new CancelOpen();
       const out: DecodedFile = { image: anim.frames[0].rgba };
       if (pick !== 'first') {
-        out.notice = animatedFrames(out, anim.frames, pick, anim.plays) ?? (anim.truncated ? framesLeftOut(anim.frames.length) : undefined);
-      } else out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
+        out.notice = animatedFrames(out, anim.frames, pick, anim.plays, anim.truncated) ?? (anim.truncated ? framesLeftOut(anim.frames.length) : undefined);
+      } else {
+        out.notice = `Animated PNG with ${anim.frames.length} frames; the first was opened.`;
+        leaveOut(out, otherFrames(anim.frames.length, anim.truncated));
+      }
       return out;
     }
   }
@@ -302,13 +325,25 @@ export async function decodeFile(blob: Blob, name: string, opts: DecodeOptions =
   if (blob.type === 'image/svg+xml') return { image: await rasterizeSvg(blob) };
   await checkBrowserFile(blob);
   try {
-    return { image: await decodeBrowserImage(blob) };
+    const image = await decodeBrowserImage(blob);
+    // The browser decodes the first frame of an animated WebP.
+    if (blob.type === 'image/webp' && isAnimatedWebp(head))
+      return { image, notice: 'Animated WebP; the first frame was opened.', leftOut: ['the other frames'] };
+    return { image };
   } catch (error) {
     // Chromium and Firefox have no HEIC decoder.
     if (blob.type === 'image/heic' && error instanceof DOMException) throw new Error('This browser cannot decode HEIC images. Convert the file to JPEG or PNG and open that.');
     throw error;
   }
 }
+
+/** The animation flag of a WebP's VP8X header (WebP container specification). */
+const isAnimatedWebp = (head: Uint8Array) =>
+  head.length > 20 && String.fromCharCode(...head.subarray(12, 16)) === 'VP8X' && (head[20] & 0x02) !== 0;
+
+/** What of the file a document was opened from was not opened, while the
+ * document still saves back to that file (see DecodedFile.leftOut). */
+export const leftOutOfFile = new WeakMap<DocumentSession, { name: string; what: string[] }>();
 
 const resolution = (dpi: number): PhotoDocument['resolution'] => ({
   horizontalResolution: dpi,
@@ -376,6 +411,7 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
     if (source.kind === 'puter' && ((isProject && lower.endsWith('.photo')) || (isPsd && /\.ps[db]$/.test(lower)))) s.storage.path = source.path;
     s.saved = s.doc;
     s.fileName = name;
+    leftOutOfFile.delete(s);
     e.selected = s.doc.layers.at(-1)?.id ?? '';
     if (s.doc.animation) e.dock?.show('timeline');
     e.fit();
@@ -435,6 +471,8 @@ export async function openFile(e: Editor, blob: Blob, name: string, place = fals
   if (savesBack && source.kind === 'puter') s.storage.path = source.path;
   s.saved = s.doc;
   s.fileName = name;
+  if (decoded.leftOut?.length) leftOutOfFile.set(s, { name, what: decoded.leftOut });
+  else leftOutOfFile.delete(s);
   e.selected = doc.layers.at(decoded.animation ? 0 : -1)!.id;
   // Animations open with the Timeline showing.
   if (doc.animation) e.dock?.show('timeline');

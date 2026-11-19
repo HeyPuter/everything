@@ -7,7 +7,7 @@ import { projectExtras, serialize } from '../../model/serialization';
 import { describePsdLosses, flatLosses, psdLosses, type PsdLoss } from '../../model/psd-losses';
 import { download } from '../../persistence/puter';
 import { cloudRead, cloudSaveAs, cloudWrite, pickCloudFiles, puterError, puterMissing, type CloudItem } from './cloud';
-import { openFile } from './open';
+import { leftOutOfFile, openFile } from './open';
 import { noteRecent, removeRecent, setRecentOpener, storedBlob, type RecentSource } from './recent';
 import { emitAppEvent } from '../../app/app-events';
 import { flatSaveFormat, formatInfo, type FlatSaveFormat } from './formats';
@@ -41,7 +41,14 @@ function lossesOf(s: DocumentSession, format: SaveFormat): PsdLoss[] {
   const comments = !!projectExtras.get(s.assets)?.(s.doc).comments;
   if (format === 'psd') return psdLosses(s.doc, { comments });
   if (!isFlat(format)) return [];
-  return flatLosses(s.doc, { comments, text: formatInfo[format].text, deep: formatInfo[format].deep });
+  const losses = flatLosses(s.doc, { comments, text: formatInfo[format].text, deep: formatInfo[format].deep });
+  // Pages or frames of the file it came from that were not opened: an image
+  // file written over it would hold only what was.
+  const source = leftOutOfFile.get(s);
+  if (source && source.name === s.fileName)
+    for (const [i, what] of source.what.entries())
+      losses.push({ id: `source-${i}`, label: `${what} of ${source.name}`, kind: 'omitted' });
+  return losses;
 }
 const acceptedLosses = new WeakMap<DocumentSession, Set<string>>();
 const lossKey = (format: SaveFormat, loss: PsdLoss) => `${format}:${loss.id}`;
