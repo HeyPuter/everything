@@ -84,7 +84,37 @@ export function clickSelection(selected, ids, id, anchor, { shift = false, toggl
   return new Set([id]);
 }
 
+export const FILE_DRAG_TYPE = 'application/x-audio-studio-file';
+
+/**
+ * Files dragged from this panel onto the Waveform editor open there (the
+ * first of them becomes the active file). Sessions handle their own drops
+ * (they insert clips), so only drops the editor left alone are taken.
+ */
+export function installFileDropOnEditor(app) {
+  if (app.fileDropInstalled) return;
+  app.fileDropInstalled = true;
+  const onEditor = (e) => e.target instanceof Element && e.target.closest('[data-panel="editor"]') && app.active?.kind !== 'session';
+  const carries = (e) => [...(e.dataTransfer?.types || [])].includes(FILE_DRAG_TYPE);
+  window.addEventListener('dragover', (e) => {
+    if (e.defaultPrevented || !carries(e) || !onEditor(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('drop', (e) => {
+    if (e.defaultPrevented || !carries(e) || !onEditor(e)) return;
+    const ids = e.dataTransfer.getData(FILE_DRAG_TYPE).split('\n').filter(Boolean);
+    const docs = ids.map((id) => app.documents.find((d) => d.id === id)).filter(Boolean);
+    if (!docs.length) return;
+    e.preventDefault();
+    app.activate(docs[0]);
+    app.dock?.openPanel('editor');
+    if (docs.length > 1) app.setStatus?.(`Opened ${docs[0].name}; the other files stay in the Files panel`);
+  });
+}
+
 export function filesPanel(app) {
+  installFileDropOnEditor(app);
   const search = h('input.input.panel-search', { type: 'search', placeholder: 'Search files', 'aria-label': 'Search files' });
   const tbtn = (cmd, ic, label, run) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: run || (() => app.commands.run(cmd)), dataset: { cmd } }, icon(ic, 15));
   const toolbar = h(
@@ -344,7 +374,7 @@ export function filesPanel(app) {
           ondragstart: (e) => {
             // Dragging a selected row takes the whole selection, in the listed order.
             const docs = selected.has(doc.id) ? selectedDocs() : [doc];
-            e.dataTransfer.setData('application/x-audio-studio-file', docs.map((d) => d.id).join('\n'));
+            e.dataTransfer.setData(FILE_DRAG_TYPE, docs.map((d) => d.id).join('\n'));
             e.dataTransfer.effectAllowed = 'copy';
           },
         },

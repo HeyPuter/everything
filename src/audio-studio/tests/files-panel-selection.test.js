@@ -177,3 +177,27 @@ describe('Insert into a chosen session', () => {
     expect(runs).toEqual([[s1, [docs[0]]]]);
   });
 });
+
+describe('dropping files on the Waveform editor', () => {
+  it('opens the first dropped file there', () => {
+    const { app, docs } = setup(3);
+    app.activate(docs[0]);
+    const editor = document.createElement('div');
+    editor.dataset.panel = 'editor';
+    const inner = document.createElement('div');
+    editor.append(inner);
+    document.body.append(editor);
+    const store = { 'application/x-audio-studio-file': `${docs[2].id}\n${docs[1].id}` };
+    const ev = (type) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      e.dataTransfer = { types: Object.keys(store), getData: (t) => store[t] || '', dropEffect: '' };
+      return e;
+    };
+    const over = ev('dragover');
+    inner.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+    inner.dispatchEvent(ev('drop'));
+    expect(app.active).toBe(docs[2]);
+    editor.remove();
+  });
+});
