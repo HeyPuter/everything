@@ -1,4 +1,5 @@
 import type { Editor } from '../editor';
+import { isRelightLayer } from './relight/state';
 import { registerCommand, commands, type Command } from '../app/registry';
 import { performAction } from '../ui/actions';
 import { formDialog, information } from '../ui/dialog';
@@ -221,8 +222,13 @@ export function installCore(e: Editor) {
   }, { enabled: hasDoc });
   cmd('layer.rasterize', 'Layer', async () => {
     const l = e.layer;
-    if (l) await rasterizeLayer(e, l.id);
-  }, { enabled: (e) => !!e.layer && !['pixel', 'group', 'adjustment'].includes(e.layer.kind) });
+    if (isRelightLayer(l)) {
+      // A relight layer becomes the relit pixels it shows.
+      const { prepareRelightRaster } = await import('./relight/raster');
+      const apply = await prepareRelightRaster(e, l.id);
+      if (apply) e.command('Rasterize Layer', apply);
+    } else if (l) await rasterizeLayer(e, l.id);
+  }, { enabled: (e) => !!e.layer && (!['pixel', 'group', 'adjustment'].includes(e.layer.kind) || isRelightLayer(e.layer)) });
   cmd('layer.rasterize-type', 'Type', async () => {
     if (e.layer?.kind === 'text') await rasterizeLayer(e, e.layer.id, 'Rasterize Type');
   }, { enabled: (e) => e.layer?.kind === 'text' });
@@ -573,7 +579,9 @@ async function copySelection(e: Editor, cut: boolean, merged: boolean) {
       e.message('Select a layer to copy from.');
       return;
     }
-    src = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, b) : cropImage(await layerRGBA(e, l), b);
+    // A relight layer copies the relit image it shows.
+    const relit = isRelightLayer(l) ? (await import('./relight/raster')).relightSnapshot(doc, l.id) : undefined;
+    src = l.kind === 'pixel' && l.pixels ? readRGBA(e.assets.tiles, l.pixels, b) : cropImage(relit ? await compositeRGBA(e, relit) : await layerRGBA(e, l), b);
   }
   if (sel) {
     const cover = readMask(e.assets.tiles, sel, b).data;

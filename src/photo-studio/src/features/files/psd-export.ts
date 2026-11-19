@@ -64,6 +64,8 @@ export async function buildPsd(e: Editor): Promise<{ blob: Blob; extension: 'psd
     if (!choice) return;
     composite = choice === 'yes';
   }
+  // Relight layers have no PSD record: they are written as their pixels.
+  await (await import('../relight/raster')).rasterizeRelightLayers(e, doc);
   const { savePsd } = await import('../../model/psd');
   const renderer = await createOffscreenRenderer(e.engine);
   const depth = doc.bitsPerChannel ?? 8;
@@ -110,5 +112,5 @@ export async function exportPsd(e: Editor) {
   const doc = out.live;
   download(out.blob, `${doc.name}.${out.extension}`);
   if (out.original) return e.message('Original PSD downloaded with its layers retained.');
-  e.message(`PSD downloaded with pixel layers, layer masks, clipping and blend modes. Text and adjustments are rasterized; save a .photo project to keep every control.${doc.mode === 'multichannel' ? ' Multichannel documents are written as their RGB composite; the ink channels stay in the .photo project.' : ''}${allLayers(doc.layers).some((l) => l.adjustment && isSpatialKind(l.adjustment.kind)) ? ' Clarity & Dehaze and Grain layers have no PSD equivalent: they are written as empty layers and only the merged image shows their effect.' : ''}`);
+  e.message(`PSD downloaded with pixel layers, layer masks, clipping and blend modes. Text and adjustments are rasterized; save a .photo project to keep every control.${doc.mode === 'multichannel' ? ' Multichannel documents are written as their RGB composite; the ink channels stay in the .photo project.' : ''}${allLayers(doc.layers).some((l) => l.adjustment && l.adjustment.kind !== 'relight' && isSpatialKind(l.adjustment.kind)) ? ' Clarity & Dehaze and Grain layers have no PSD equivalent: they are written as empty layers and only the merged image shows their effect.' : ''}`);
 }

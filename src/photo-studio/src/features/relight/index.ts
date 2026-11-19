@@ -19,7 +19,8 @@ export { relightUi } from './state';
 /** Listeners told when the selected light or the handle visibility changes
  * (the Properties editor highlights the selected light). */
 export const relightListeners = new Set<() => void>();
-export const notifyRelight = () => relightListeners.forEach((f) => f());
+// A snapshot: listeners re-register themselves when the editor re-renders.
+export const notifyRelight = () => [...relightListeners].forEach((f) => f());
 
 function replaceLayer(layers: Layer[], id: string, fn: (l: Layer) => Layer): Layer[] {
   return layers.map((l) =>

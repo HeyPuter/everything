@@ -123,9 +123,10 @@ export function relightEditor(body: HTMLElement, host: AdjustHost<'relight'>) {
       type: 'button',
       class: 'relight-pick',
       'aria-pressed': String(on),
+      'aria-label': `${light.name}${light.visible ? '' : ' (hidden)'}`,
       title: `Edit ${light.name}`,
     });
-    pick.innerHTML = `<span class="relight-swatch" style="background:${lightCss(light)}"></span><span class="relight-name">${escapeXML(light.name)}</span>`;
+    pick.innerHTML = `<span class="relight-swatch" style="background:${lightCss(light)}" aria-hidden="true"></span><span class="relight-name">${escapeXML(light.name)}</span>`;
     pick.addEventListener('click', () => choose(light.id));
     const vis = button(
       light.visible ? 'Hide' : 'Show',

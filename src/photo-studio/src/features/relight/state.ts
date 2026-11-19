@@ -18,7 +18,7 @@ export const relightUi = {
   draft: undefined as { layerId: string; params: RelightParams } | undefined,
 };
 
-export const isRelightLayer = (l: Layer | undefined): l is Layer =>
+export const isRelightLayer = (l: Layer | undefined): l is Layer & { kind: 'adjustment' } =>
   l?.kind === 'adjustment' && l.adjustment?.kind === 'relight';
 
 /** The relight layer whose lights can be edited: the only selected layer. */
