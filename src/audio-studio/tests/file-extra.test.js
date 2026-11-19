@@ -2,11 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 
 // Encoding runs in a worker in the app; here it resolves at once.
 vi.mock('../src/export/export.js', () => ({
-  exportAudio: async () => new Blob([new Uint8Array(64)]),
+  exportAudio: vi.fn(async () => new Blob([new Uint8Array(64)])),
   isCancelled: (err) => err?.name === 'AbortError' || err?.message === 'Cancelled',
   cancelledError: () => Object.assign(new Error('Cancelled'), { name: 'AbortError' }),
 }));
 import { decodeRaw, rangeExportNames, unusedAudioDocs, sessionOnlyMedia } from '../src/commands/file-extra.js';
+import { exportAudio } from '../src/export/export.js';
 
 describe('raw data import', () => {
   it('decodes interleaved 16-bit little- and big-endian samples', () => {
@@ -48,6 +49,10 @@ describe('range marker export names', () => {
   });
   it('numbers files after a prefix', () => {
     expect(rangeExportNames(markers.slice(0, 2), { naming: 'prefix', prefix: 'Take', format: 'flac' })).toEqual(['Take 01.flac', 'Take 02.flac']);
+  });
+  it('counts from a chosen number and can add the marker names', () => {
+    expect(rangeExportNames(markers.slice(0, 2), { naming: 'prefix', prefix: 'Take', format: 'wav', start: 9 })).toEqual(['Take 09.wav', 'Take 10.wav']);
+    expect(rangeExportNames([{ name: 'Verse' }, { name: '' }], { naming: 'prefixName', prefix: 'Song', format: 'wav' })).toEqual(['Song 01 Verse.wav', 'Song 02 Range 2.wav']);
   });
 });
 
@@ -112,5 +117,34 @@ describe('export audio within range markers', () => {
     await running;
     expect(write).toHaveBeenCalledTimes(1);
     expect(write.mock.calls[0][0]).toBe('/u/AudioStudio/Verse 2.wav');
+  });
+
+  it('puts the markers inside each range into its file unless asked not to', async () => {
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { FEATURES } = await import('../src/features.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { createMarker } = await import('../src/model/markers.js');
+    const app = new App();
+    for (const install of FEATURES) install(app);
+    app.syncGraph = () => {};
+    window.puter = { auth: { isSignedIn: () => true, getUser: async () => ({ username: 'u' }) }, fs: { write: vi.fn(async () => ({})), stat: async () => Promise.reject(Object.assign(new Error('missing'), { code: 'subject_does_not_exist' })) } };
+    const doc = AudioFile.blank({ name: 'Song.wav', sampleRate: 8000, channels: 1, seconds: 1 });
+    const verse = createMarker({ start: 0, duration: 4000, name: 'Verse', type: 'range' });
+    const cue = createMarker({ start: 1000, name: 'Hit' });
+    doc.apply('Markers', { ...doc.state, markers: [verse, cue] });
+    app.addDocument(doc);
+    for (const keep of [true, false]) {
+      exportAudio.mockClear();
+      const running = app.commands.run('file.exportRanges');
+      await new Promise((r) => setTimeout(r, 20));
+      const dialog = [...document.querySelectorAll('.dialog')].pop();
+      dialog.querySelector('select[aria-label="Location"]').value = 'puter';
+      const box = [...dialog.querySelectorAll('label.check')].find((l) => l.textContent.includes('markers inside')).querySelector('input');
+      box.checked = keep;
+      [...dialog.querySelectorAll('.dialog-foot .btn')].find((b) => b.textContent === 'Export').click();
+      await running;
+      expect(exportAudio.mock.calls[0][0].markers.map((m) => m.name)).toEqual(keep ? ['Hit'] : []);
+    }
   });
 });

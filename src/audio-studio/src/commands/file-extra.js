@@ -157,10 +157,17 @@ async function importRawDialog(app) {
 // ------------------------------------------------- export range markers
 
 /** File names for exported range markers: the marker name, or prefix + number. */
-export function rangeExportNames(markers, { naming, prefix, format }) {
+/**
+ * File names for range exports. naming: 'name' (marker names), 'prefix' (prefix and a number
+ * counting up from `start`) or 'prefixName' (prefix, number and marker name).
+ */
+export function rangeExportNames(markers, { naming, prefix, format, start = 1 }) {
   const taken = new Set();
+  const first = Math.max(0, Math.round(Number(start)) || 0);
   return markers.map((m, i) => {
-    const stem = naming === 'prefix' ? `${prefix || 'Region'} ${String(i + 1).padStart(2, '0')}` : m.name || `Range ${i + 1}`;
+    const number = String(first + i).padStart(2, '0');
+    const own = m.name || `Range ${i + 1}`;
+    const stem = naming === 'prefix' ? `${prefix || 'Region'} ${number}` : naming === 'prefixName' ? `${prefix || 'Region'} ${number} ${own}` : own;
     return uniqueName(withExtension(sanitizeFileName(stem) || `Range ${i + 1}`, format), taken);
   });
 }
@@ -177,9 +184,19 @@ async function exportRangesDialog(app) {
   );
   const saved = batchSettings(app.prefs.get('batchExport'));
   const fmt = h('select.select', { 'aria-label': 'Format' }, FORMATS.map((f) => h('option', { value: f.id, selected: f.id === saved.format }, f.label)));
-  const naming = h('select.select', { 'aria-label': 'File names' }, h('option', { value: 'name' }, 'Marker names'), h('option', { value: 'prefix' }, 'Prefix and number'));
+  const naming = h('select.select', { 'aria-label': 'File names' }, h('option', { value: 'name' }, 'Marker names'), h('option', { value: 'prefix' }, 'Prefix and number'), h('option', { value: 'prefixName' }, 'Prefix, number and marker name'));
   const prefix = h('input.input', { type: 'text', value: baseName(doc.name), 'aria-label': 'Name prefix', disabled: true });
-  naming.addEventListener('change', () => (prefix.disabled = naming.value !== 'prefix'));
+  const startAt = h('input.input.num', { type: 'number', min: 0, max: 9999, step: 1, value: 1, 'aria-label': 'First number', disabled: true, style: { width: '72px' } });
+  const example = h('span.faint.range-export-example');
+  const syncNaming = () => {
+    prefix.disabled = startAt.disabled = naming.value === 'name';
+    const names = rangeExportNames(ranges.filter((_, i) => checks[i].checked).slice(0, 1), { naming: naming.value, prefix: prefix.value, format: fmt.value, start: startAt.value });
+    example.textContent = names.length ? `Example: ${names[0]}` : '';
+  };
+  // Markers inside a range go into its file (moved to its start), as Save As does.
+  const withMarkers = h('input', { type: 'checkbox', checked: app.prefs.get('exportMarkers') !== false });
+  for (const el of [naming, prefix, startAt, fmt, ...checks]) el.addEventListener(el === prefix || el === startAt ? 'input' : 'change', syncNaming);
+  syncNaming();
   const sdk = Boolean(puter.sdk());
   const loc = h('select.select', { 'aria-label': 'Location' }, h('option', { value: 'puter', disabled: !sdk }, sdk ? `Puter folder (~/${puter.APP_DIR})` : 'Puter folder (not available)'), h('option', { value: 'download', selected: !sdk || saved.location !== 'puter' }, 'Download (ZIP for several files)'));
   const r = await openDialog({
@@ -188,7 +205,22 @@ async function exportRangesDialog(app) {
       'div',
       h('p.muted', { style: { margin: '0 0 8px' } }, 'Each checked range is saved as its own file.'),
       list,
-      h('div.form-grid', { style: { marginTop: '10px' } }, h('label', 'Format:'), fmt, h('label', 'File Names:'), naming, h('label', 'Prefix:'), prefix, h('label', 'Location:'), loc),
+      h(
+        'div.form-grid',
+        { style: { marginTop: '10px' } },
+        h('label', 'Format:'),
+        fmt,
+        h('label', 'File Names:'),
+        naming,
+        h('label', 'Prefix:'),
+        h('div.row', prefix, h('span.muted', 'from'), startAt),
+        h('span'),
+        example,
+        h('label', 'Location:'),
+        loc,
+      ),
+      h('label.check', { style: { marginTop: '8px' } }, withMarkers, 'Include the markers inside each range, and other metadata'),
+      h('p.faint', { style: { margin: '6px 0 0' } }, 'Sample rate, bit depth and format settings follow Batch Process > Export Settings.'),
     ),
     buttons: [
       { label: 'Cancel', value: null },
@@ -215,7 +247,8 @@ async function exportRangesDialog(app) {
   }
   const settings = { ...saved, format: getFormat(fmt.value).id };
   const options = exportOptionsFor(settings, { sampleRate: state.sampleRate, channels: state.channels.length });
-  const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format });
+  const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format, start: startAt.value });
+  const keep = withMarkers.checked;
   // The Batch Process writer: files already in the Puter folder are kept (or replaced) as its
   // "If a file exists" setting says, and downloads too big for one ZIP arrive separately.
   const out = await outputWriter(app, { ...settings, location: loc.value });
@@ -225,7 +258,7 @@ async function exportRangesDialog(app) {
     for (let i = 0; i < chosen.length; i++) {
       const m = chosen[i];
       const blob = await exportAudio(
-        { channels: state.channels, sampleRate: state.sampleRate, start: m.start, end: m.start + m.duration, markers: [], meta: state.meta || {} },
+        { channels: state.channels, sampleRate: state.sampleRate, start: m.start, end: m.start + m.duration, markers: keep ? state.markers.filter((x) => x.id !== m.id) : [], meta: keep ? state.meta || {} : {} },
         options,
         { signal, onProgress: (f) => onProgress((i + f) / chosen.length) },
       );
