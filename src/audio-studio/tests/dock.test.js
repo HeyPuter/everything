@@ -229,3 +229,64 @@ describe('tab drag', () => {
     expect(dock.groupOf('files').tabs).toEqual(['files']);
   });
 });
+
+describe('floating frames', () => {
+  const make = () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    let items = null;
+    const app = { openMenu: (list) => (items = list), layoutMode: 'desktop' };
+    const dock = new Dock(app, root, registry(['editor', 'files', 'history', 'markers']));
+    dock.setLayout({ t: 'row', c: [{ t: 'group', tabs: ['files', 'history', 'markers'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    return { root, dock, menu: () => items };
+  };
+
+  it('undocks a panel into a floating frame, keeps it with the layout and docks it back', () => {
+    const { root, dock, menu } = make();
+    root.querySelector('#tab-history').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const undock = menu().find((i) => i.label === 'Undock Panel');
+    expect(menu().find((i) => i.label === 'Undock Frame').enabled).toBe(true);
+    undock.run();
+    expect(dock.floats).toHaveLength(1);
+    expect(dock.groupOf('files').tabs).toEqual(['files', 'markers']);
+    expect(dock.isVisible('history')).toBe(true);
+    const float = root.querySelector('.dock-float');
+    expect(float.querySelector('#tab-history')).not.toBe(null);
+    expect(float.querySelector('.panel-group.floating')).not.toBe(null);
+    // Saved with the layout and restored from it.
+    const saved = dock.layout();
+    expect(saved.floats).toEqual([expect.objectContaining({ tabs: ['history'], a: 'history' })]);
+    dock.setLayout({ t: 'group', tabs: ['editor'] });
+    expect(dock.floats).toHaveLength(0);
+    dock.setLayout(saved);
+    expect(dock.floatOf(dock.groupOf('history'))).not.toBe(null);
+    // Its menu docks it back (and floating frames do not maximize).
+    root.querySelector('.dock-float #tab-history').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(menu().find((i) => /Maximize/.test(i.label)).enabled).toBe(false);
+    menu().find((i) => i.label === 'Dock Frame').run();
+    expect(dock.floats).toHaveLength(0);
+    expect(dock.groupOf('files').tabs).toEqual(['files', 'markers', 'history']);
+    expect(dock.layout().floats).toBeUndefined();
+  });
+
+  it('keeps the editor docked and drops floats whose panels are already docked', () => {
+    const { root, dock, menu } = make();
+    root.querySelector('#tab-editor').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(menu().find((i) => i.label === 'Undock Panel').enabled).toBe(false);
+    dock.setLayout({ t: 'group', tabs: ['editor', 'files'], floats: [{ tabs: ['files', 'history'], x: 10, y: 10, w: 300, h: 200 }] });
+    expect(dock.floats.map((f) => f.group.tabs)).toEqual([['history']]);
+  });
+
+  it('closing a floating frame’s last panel removes the frame', () => {
+    const { dock } = make();
+    dock.undock('markers');
+    expect(dock.floats).toHaveLength(1);
+    dock.closePanel('markers');
+    expect(dock.floats).toHaveLength(0);
+    expect(dock.isOpen('markers')).toBe(false);
+    // Reopening docks it again.
+    dock.openPanel('markers', { focus: false });
+    expect(dock.floats).toHaveLength(0);
+    expect(dock.groupOf('files').tabs).toContain('markers');
+  });
+});

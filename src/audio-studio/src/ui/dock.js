@@ -5,6 +5,8 @@
 // Splitters resize neighbours (pointer or arrow keys); tabs can be dragged into
 // another frame (between its tabs), onto a frame edge to split it or onto a
 // workspace edge for a full-height or full-width frame; a frame can be maximized.
+// Panels can also be undocked into floating frames (saved with the layout as
+// `floats: [{ tabs, a, x, y, w, h }]` on the root).
 
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
@@ -27,6 +29,9 @@ export class Dock extends Emitter {
     this.registry = registry;
     this.instances = new Map();
     this.tree = { t: 'row', c: [], s: [] };
+    /** Floating frames: { group, x, y, w, h } (window pixels). */
+    this.floats = [];
+    this.floatObservers = [];
     this.maximized = null;
     this.focusedGroup = null;
     root.classList.add('dock');
@@ -43,7 +48,17 @@ export class Dock extends Emitter {
   // ------------------------------------------------------------------ model
 
   setLayout(tree) {
-    this.tree = normalize(structuredClone(tree), this.registry) || { t: 'group', tabs: [], a: null };
+    const { floats = [], ...docked } = structuredClone(tree) || {};
+    this.tree = normalize(docked, this.registry) || { t: 'group', tabs: [], a: null };
+    // Floating frames saved with the layout; panels already docked stay docked.
+    const inTree = new Set(this.groups(this.tree).flatMap((g) => g.tabs));
+    this.floats = (Array.isArray(floats) ? floats : [])
+      .map((f) => {
+        const group = f && normalize({ t: 'group', tabs: (f.tabs || []).filter((id) => !inTree.has(id)), a: f.a }, this.registry);
+        group?.tabs.forEach((id) => inTree.add(id));
+        return group && { group, x: Number(f.x) || 80, y: Number(f.y) || 80, w: Number(f.w) || 320, h: Number(f.h) || 260 };
+      })
+      .filter(Boolean);
     // The editor cannot be closed, so a layout without it is damaged: give it a frame.
     if (this.registry.has('editor') && !this.groupOf('editor')) {
       const editor = { t: 'group', tabs: ['editor'], a: 'editor' };
@@ -55,13 +70,71 @@ export class Dock extends Emitter {
   }
 
   layout() {
-    return structuredClone(this.tree);
+    const tree = structuredClone(this.tree);
+    if (this.floats.length) tree.floats = this.floats.map((f) => ({ tabs: [...f.group.tabs], a: f.group.a, x: f.x, y: f.y, w: f.w, h: f.h }));
+    return tree;
   }
 
-  groups(node = this.tree, out = []) {
+  /** Every frame: the docked ones, then the floating ones (or the frames under `node`). */
+  groups(node, out = []) {
+    if (node === undefined) {
+      this.groups(this.tree, out);
+      for (const f of this.floats) out.push(f.group);
+      return out;
+    }
     if (node.t === 'group') out.push(node);
     else for (const c of node.c) this.groups(c, out);
     return out;
+  }
+
+  /** The floating frame holding `group`, if it floats. */
+  floatOf(group) {
+    return this.floats.find((f) => f.group === group) || null;
+  }
+
+  /** Drops emptied frames: tidies the docked tree and removes empty floating frames. */
+  #tidy() {
+    this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+    this.floats = this.floats.filter((f) => f.group.tabs.length);
+    if (this.maximized && !this.groups().includes(this.maximized)) this.maximized = null;
+  }
+
+  /**
+   * Takes a panel (or its whole frame) out of the docked layout into a floating
+   * frame near where it was.
+   */
+  undock(panelId, { frame = false } = {}) {
+    const g = this.groupOf(panelId);
+    if (!g || this.floatOf(g) && (frame || g.tabs.length === 1)) return;
+    const el = [...this.root.querySelectorAll('.panel-group')].find((x) => x._group === g);
+    const r = el?.getBoundingClientRect();
+    const tabs = frame ? [...g.tabs] : [panelId];
+    g.tabs = g.tabs.filter((t) => !tabs.includes(t));
+    if (!tabs.includes(g.a) || !g.tabs.includes(g.a)) g.a = g.tabs[0] ?? null;
+    const w = Math.round(Math.max(260, Math.min(480, r?.width || 320)));
+    const hgt = Math.round(Math.max(200, Math.min(420, r?.height || 260)));
+    const n = this.floats.length;
+    this.floats.push({ group: { t: 'group', tabs, a: frame ? (tabs.includes(panelId) ? panelId : tabs[0]) : panelId }, x: Math.round((r?.left ?? 80) + 24 + n * 16), y: Math.round((r?.top ?? 80) + 24 + n * 16), w, h: hgt });
+    if (this.maximized === g) this.maximized = null;
+    this.#tidy();
+    this.render();
+    this.emit('change');
+  }
+
+  /** Puts a floating frame's panels back into the docked layout. */
+  dockFloat(group) {
+    const f = this.floatOf(group);
+    if (!f) return;
+    this.floats = this.floats.filter((x) => x !== f);
+    const docked = this.groups(this.tree);
+    const target = docked.find((x) => x.tabs.length && !x.tabs.includes('editor')) || docked[0];
+    if (target) {
+      target.tabs.push(...group.tabs);
+      target.a = group.a;
+    } else this.tree = group;
+    this.#tidy();
+    this.render();
+    this.emit('change');
   }
 
   groupOf(panelId) {
@@ -96,7 +169,8 @@ export class Dock extends Emitter {
     let g = this.groupOf(panelId);
     if (!g) {
       const def = this.registry.get(panelId);
-      const groups = this.groups();
+      // A docked frame, not a floating one.
+      const groups = this.groups(this.tree);
       g = (def.near && groups.find((x) => def.near.some((n) => x.tabs.includes(n)))) || groups.find((x) => !x.tabs.includes('editor')) || groups[0];
       if (!g) {
         this.tree = { t: 'group', tabs: [panelId], a: panelId };
@@ -118,7 +192,7 @@ export class Dock extends Emitter {
     g.tabs = g.tabs.filter((t) => t !== panelId);
     if (g.a === panelId) g.a = g.tabs[0] ?? null;
     this.instances.get(panelId)?.hide?.();
-    this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+    this.#tidy();
     if (this.maximized === g && !g.tabs.length) this.maximized = null;
     this.render();
     this.emit('change');
@@ -133,7 +207,8 @@ export class Dock extends Emitter {
     // Without an explicit frame: the focused one, else the editor's frame
     // (nothing has focus yet right after launch or a workspace change).
     if (!group) group = this.maximized || (this.groups().includes(this.focusedGroup) ? this.focusedGroup : this.groupOf('editor'));
-    if (!group) return;
+    // Floating frames are sized by hand instead.
+    if (!group || this.floatOf(group)) return;
     this.maximized = this.maximized === group ? null : group;
     this.render();
   }
@@ -166,6 +241,7 @@ export class Dock extends Emitter {
       return box;
     };
     this.tabsObserver?.disconnect();
+    for (const ro of this.floatObservers.splice(0)) ro.disconnect();
     // Rebuilding detaches whatever had focus in the dock; it is given back below.
     const focused = document.activeElement;
     const hadFocus = focused && focused !== document.body && this.root.contains(focused);
@@ -173,6 +249,7 @@ export class Dock extends Emitter {
     const content = this.maximized && this.groups().includes(this.maximized) ? this.#group(this.maximized, shown) : build(this.tree);
     content.style.flex = '1 1 0px';
     this.root.replaceChildren(content);
+    if (!this.maximized || !this.floatOf(this.maximized)) for (const f of this.floats) this.root.append(this.#float(f, shown));
     for (const [id, inst] of this.instances) {
       if (!shown.has(id)) inst.hide?.();
     }
@@ -203,6 +280,63 @@ export class Dock extends Emitter {
       this.app.focusTarget?.() ||
       this.root.querySelector(tab);
     target?.focus(opts);
+  }
+
+  /** A floating frame: a panel frame in a movable, resizable window over the workspace. */
+  #float(f, shown) {
+    const vw = window.innerWidth || 1024;
+    const vh = window.innerHeight || 768;
+    f.w = Math.max(220, Math.min(f.w, vw - 8));
+    f.h = Math.max(140, Math.min(f.h, vh - 8));
+    f.x = Math.max(4 - f.w + 80, Math.min(f.x, vw - 80));
+    f.y = Math.max(0, Math.min(f.y, vh - 40));
+    const wrap = h('div.dock-float', { style: { left: `${f.x}px`, top: `${f.y}px`, width: `${f.w}px`, height: `${f.h}px` } });
+    const frame = this.#group(f.group, shown);
+    frame.classList.add('floating');
+    const strip = frame.querySelector('.panel-tabs');
+    const grip = h('div.dock-float-grip', { title: 'Drag to move this floating frame', 'aria-hidden': 'true' }, icon('grip-vertical', 14));
+    strip.prepend(grip);
+    // Drag the grip or the strip's free space to move the window.
+    strip.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target instanceof Element && e.target.closest('button'))) return;
+      e.preventDefault();
+      strip.setPointerCapture?.(e.pointerId);
+      const start = { x: e.clientX, y: e.clientY, fx: f.x, fy: f.y };
+      const move = (ev) => {
+        f.x = Math.round(Math.max(80 - f.w, Math.min(window.innerWidth - 80, start.fx + ev.clientX - start.x)));
+        f.y = Math.round(Math.max(0, Math.min(window.innerHeight - 40, start.fy + ev.clientY - start.y)));
+        wrap.style.left = `${f.x}px`;
+        wrap.style.top = `${f.y}px`;
+      };
+      const up = () => {
+        strip.removeEventListener('pointermove', move);
+        strip.removeEventListener('pointerup', up);
+        strip.removeEventListener('pointercancel', up);
+        this.emit('change');
+      };
+      strip.addEventListener('pointermove', move);
+      strip.addEventListener('pointerup', up);
+      strip.addEventListener('pointercancel', up);
+    });
+    // The corner resizes it (CSS resize); the size is kept with the layout.
+    if (typeof ResizeObserver !== 'undefined') {
+      let timer = 0;
+      const ro = new ResizeObserver(() => {
+        if (!wrap.isConnected || !wrap.offsetWidth) return;
+        const w = wrap.offsetWidth;
+        const hh = wrap.offsetHeight;
+        if (w === f.w && hh === f.h) return;
+        f.w = w;
+        f.h = hh;
+        this.emit('resize');
+        clearTimeout(timer);
+        timer = setTimeout(() => this.emit('change'), 300);
+      });
+      ro.observe(wrap);
+      this.floatObservers.push(ro);
+    }
+    wrap.append(frame);
+    return wrap;
   }
 
   #group(g, shown) {
@@ -351,6 +485,8 @@ export class Dock extends Emitter {
 
   #panelMenu(anchor, g, id) {
     const def = this.registry.get(id);
+    // The editor stays docked; panels can opt out with floatable: false.
+    const floatable = (t) => t !== 'editor' && this.registry.get(t)?.floatable !== false;
     const extra = def.menu ? def.menu(this.app) : [];
     const items = [
       ...extra,
@@ -363,12 +499,22 @@ export class Dock extends Emitter {
         for (const t of g.tabs.slice()) this.closePanel(t);
       } },
       { type: 'sep' },
+      ...(this.floatOf(g)
+        ? [{ type: 'cmd', label: 'Dock Frame', enabled: true, run: () => this.dockFloat(g) }]
+        : this.app.layoutMode && this.app.layoutMode !== 'desktop'
+          ? []
+          : [
+            { type: 'cmd', label: 'Undock Panel', enabled: floatable(id), run: () => this.undock(id) },
+            { type: 'cmd', label: 'Undock Frame', enabled: g.tabs.every(floatable), run: () => this.undock(id, { frame: true }) },
+          ]),
+      ...(this.floatOf(g) && g.tabs.length > 1 ? [{ type: 'cmd', label: 'Undock Panel', enabled: true, run: () => this.undock(id) }] : []),
+      { type: 'sep' },
       {
         type: 'cmd',
         label: this.maximized === g ? 'Restore Frame Size' : 'Maximize Frame',
         // The key Window > Maximize Frame has now (it can be remapped).
         shortcut: this.app.commands?.shortcutLabel('window.maximize') ?? '`',
-        enabled: true,
+        enabled: !this.floatOf(g),
         run: () => this.toggleMaximize(g),
       },
     ];
@@ -512,7 +658,9 @@ export class Dock extends Emitter {
         return { group: null, side: `root-${side}`, rect };
       }
     }
-    for (const el of this.root.querySelectorAll('.panel-group')) {
+    // Floating frames lie over the docked ones: the topmost (last) first.
+    const frames = [...this.root.querySelectorAll('.dock-float > .panel-group')].reverse().concat([...this.root.querySelectorAll('.panel-group:not(.floating)')]);
+    for (const el of frames) {
       const r = el.getBoundingClientRect();
       if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
       const group = el._group;
@@ -536,7 +684,8 @@ export class Dock extends Emitter {
       const fx = (x - r.left) / r.width;
       const fy = (y - r.top) / r.height;
       const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
-      if (edge > 0.25) return { group, side: 'center', rect: r };
+      // A floating frame joins tabs only (it has no layout to split).
+      if (edge > 0.25 || this.floatOf(group)) return { group, side: 'center', rect: r };
       let side;
       if (edge === fx) side = 'left';
       else if (edge === 1 - fx) side = 'right';
@@ -574,7 +723,7 @@ export class Dock extends Emitter {
       } else {
         this.tree = { t: dir, c: first ? [fresh, tree] : [tree, fresh], s: first ? [1, 3] : [3, 1] };
       }
-      this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+      this.#tidy();
       this.render();
       this.emit('change');
       return;
@@ -585,7 +734,7 @@ export class Dock extends Emitter {
       if (from.a === id) from.a = from.tabs[0] ?? null;
       to.tabs.splice(Math.max(0, Math.min(at, to.tabs.length)), 0, id);
       to.a = id;
-      this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+      this.#tidy();
       this.render();
       this.emit('change');
       return;
@@ -614,7 +763,7 @@ export class Dock extends Emitter {
         Object.assign(to, split);
       }
     }
-    this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+    this.#tidy();
     this.render();
     this.emit('change');
   }
@@ -672,5 +821,6 @@ export function withoutPanel(tree, id) {
     else n.c.forEach(walk);
   };
   walk(copy);
+  if (Array.isArray(copy.floats)) copy.floats = copy.floats.map((f) => ({ ...f, tabs: (f.tabs || []).filter((t) => t !== id) }));
   return copy;
 }

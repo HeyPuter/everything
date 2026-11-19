@@ -516,6 +516,48 @@ puter-user-menu::part(apps-panel) {
   transition: none;
 }
 
+/* Floating frames: a panel frame in a window over the workspace, moved by its
+   tab strip (or grip) and resized from the corner. */
+.dock-float {
+  position: fixed;
+  z-index: 800;
+  display: flex;
+  min-width: 220px;
+  min-height: 140px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-dialog);
+  resize: both;
+  overflow: hidden;
+}
+
+.dock-float > .panel-group {
+  flex: 1;
+  min-width: 0;
+  border-color: var(--divider);
+}
+
+.dock-float > .panel-group.focused {
+  border-color: var(--accent);
+}
+
+.dock-float .panel-tabs {
+  cursor: move;
+}
+
+.dock-float .panel-tab {
+  cursor: pointer;
+}
+
+.dock-float-grip {
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-left: -2px;
+  color: var(--text-faint);
+}
+
 /* ----------------------------------------------------------- status bar */
 
 .statusbar {
