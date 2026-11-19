@@ -95,14 +95,27 @@ export class App extends Emitter {
     if (doc && this.dock && !this.dock.isVisible('editor')) this.dock.openPanel('editor', { focus: false });
   }
 
-  async closeDocument(doc, { force = false } = {}) {
+  /**
+   * Closes a document, asking to save it first when it has changes. `batch` ({ others, answer })
+   * is shared by the documents one command closes: the prompt offers Save All / Don't Save Any,
+   * and that answer is used for the rest without asking again.
+   */
+  async closeDocument(doc, { force = false, batch = null } = {}) {
     if (!doc) return true;
     // Include the final capture block in both the save prompt and the saved
     // file; closing a not-yet-previewed take must not remove its destination.
     if (this.recorder?.document === doc) await this.recorder.stop();
     if (!force && doc.dirty) {
       this.activate(doc);
-      const answer = await saveChangesDialog(doc.name);
+      let answer = batch?.answer;
+      if (!answer) {
+        answer = await saveChangesDialog(doc.name, { others: batch ? Math.max(0, batch.others) : 0 });
+        if (answer === 'saveAll' || answer === 'discardAll') {
+          batch.answer = answer;
+          answer = answer === 'saveAll' ? 'save' : 'discard';
+        }
+      } else answer = answer === 'saveAll' ? 'save' : 'discard';
+      if (batch) batch.others--;
       if (answer === null) return false;
       if (answer === 'save') {
         // A pending open can change the active document while the dialog is up.

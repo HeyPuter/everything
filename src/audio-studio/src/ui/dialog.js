@@ -168,13 +168,20 @@ export async function confirmDialog({ title, message, confirm = 'OK', cancel = '
 }
 
 /** Three-way question: resolves 'save' | 'discard' | null (cancel). */
-export async function saveChangesDialog(name) {
+/**
+ * Asks whether to save a file before it closes: 'save', 'discard' or null (cancel). When
+ * `others` more unsaved files are closing after it, it also offers 'saveAll' and 'discardAll'.
+ */
+export async function saveChangesDialog(name, { others = 0 } = {}) {
+  const more = others > 0 ? ` ${others} more file${others === 1 ? ' has' : 's have'} unsaved changes.` : '';
   return openDialog({
     title: 'Save changes?',
-    body: h('p', { style: { margin: 0, maxWidth: '420px' } }, `Save changes to "${name}" before closing?`),
+    body: h('p', { style: { margin: 0, maxWidth: '420px' } }, `Save changes to "${name}" before closing?${more}`),
     buttons: [
       { label: "Don't Save", value: 'discard', danger: true },
+      ...(others > 0 ? [{ label: "Don't Save Any", value: 'discardAll', danger: true }] : []),
       { label: 'Cancel', value: null },
+      ...(others > 0 ? [{ label: 'Save All', value: 'saveAll' }] : []),
       { label: 'Save', value: 'save', primary: true },
     ],
   });

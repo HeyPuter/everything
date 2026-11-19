@@ -43,7 +43,8 @@ export function sessionOnlyMedia(documents, session) {
 }
 
 async function closeAll(app, docs) {
-  for (const d of docs) if (!(await app.closeDocument(d))) return false;
+  const batch = { others: docs.filter((d) => d.dirty).length - 1, answer: null };
+  for (const d of docs) if (!(await app.closeDocument(d, { batch }))) return false;
   return true;
 }
 

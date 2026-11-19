@@ -248,7 +248,9 @@ export function installCoreCommands(app) {
       shortcut: 'Mod+Shift+W',
       enabled: (a) => a.documents.length > 0,
       run: async () => {
-        for (const d of app.documents.slice()) if (!(await app.closeDocument(d))) return;
+        const docs = app.documents.slice();
+        const batch = { others: docs.filter((d) => d.dirty).length - 1, answer: null };
+        for (const d of docs) if (!(await app.closeDocument(d, { batch }))) return;
       },
     },
     { id: 'file.save', label: 'Save', shortcut: 'Mod+S', enabled: hasAudio, run: () => saveDocument(app, audio(app)) },

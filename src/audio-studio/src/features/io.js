@@ -456,8 +456,10 @@ function installWindowClose(app) {
     // Finalizing a session take can add unsaved audio files and edit the
     // session. Finish it before taking the list of documents to prompt for.
     if (app.multitrack?.recorder?.active) await app.multitrack.recorder.stop();
-    for (const doc of app.documents.filter((d) => d.dirty)) {
-      if (!(await app.closeDocument(doc))) return; // Cancel keeps the window open
+    const dirty = app.documents.filter((d) => d.dirty);
+    const batch = { others: dirty.length - 1, answer: null };
+    for (const doc of dirty) {
+      if (!(await app.closeDocument(doc, { batch }))) return; // Cancel keeps the window open
     }
     await app.autosave?.run().catch(() => {});
     p.exit();
