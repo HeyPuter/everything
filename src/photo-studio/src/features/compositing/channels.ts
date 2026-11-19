@@ -15,6 +15,7 @@ import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { commitTarget, pixelTarget, previewTarget, previewTiles, roundIRect, toRGBA8, type PixelTarget } from '../pixels';
 import { latest, openShell, resultGrid } from '../adjust/dialog';
 import { checkbox, h, select, slider } from '../adjust/ui';
+import { layerLock } from '../../model/locks';
 import { commitSelectionMask } from '../selection';
 import { previewJob } from './client';
 import { openDocument } from './sources';
@@ -173,7 +174,17 @@ export async function applyImageDialog(e: Editor) {
   const sources = new Sources(e);
   const pick: Pick = { session: e.session.id, layer: MERGED, channel: target.kind === 'pixels' ? 'rgb' : 'gray', invert: false };
   const mask = { on: false, pick: { session: e.session.id, layer: MERGED, channel: 'gray', invert: false } as Pick };
-  const o: ChannelOptions = { blend: 'multiply', opacity: 1, scale: 1, offset: 0, preserveTransparency: false };
+  // A layer whose transparency is locked keeps it: Preserve transparency is
+  // on and cannot be turned off.
+  const alphaLocked =
+    target.kind === 'pixels' && layerLock(e.doc.layers, target.layer.id, 'transparency');
+  const o: ChannelOptions = {
+    blend: 'multiply',
+    opacity: 1,
+    scale: 1,
+    offset: 0,
+    preserveTransparency: alphaLocked,
+  };
   let channel: TargetChannel = 'rgb';
   const shell = openShell(e, 'Apply Image', { wide: true });
   const tiles = previewTiles(e, target.grid);
@@ -221,7 +232,17 @@ export async function applyImageDialog(e: Editor) {
   shell.body.append(targetRow);
   if (target.kind === 'pixels') shell.body.append(select('Target channel', [['rgb', 'RGB'], ['r', 'Red'], ['g', 'Green'], ['b', 'Blue']], channel, (v) => ((channel = v as TargetChannel), changed())).el);
   shell.body.append(blendControls(o, (commit) => commit && changed()));
-  if (target.kind === 'pixels') shell.body.append(checkbox('Preserve transparency', !!o.preserveTransparency, (v) => ((o.preserveTransparency = v), changed())).el);
+  if (target.kind === 'pixels') {
+    const preserve = checkbox('Preserve transparency', alphaLocked, (v) => {
+      o.preserveTransparency = v;
+      changed();
+    });
+    if (alphaLocked) {
+      preserve.input.disabled = true;
+      preserve.el.title = 'The layer’s transparency is locked.';
+    }
+    shell.body.append(preserve.el);
+  }
   shell.body.append(maskControls(e, mask, changed));
   shell.preview.addEventListener('change', () => (shell.preview.checked ? refresh() : e.update()));
   refresh();
