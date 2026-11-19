@@ -59,4 +59,22 @@ describe('mono master', () => {
     expect(app.active.state.master.channels).toBe(1);
     expect(app.prefs.get('newSessionMix')).toBe(1);
   });
+
+  it('remembers the folder chosen for the new session as the place Save offers', async () => {
+    const app = await makeApp();
+    window.puter = { auth: { isSignedIn: () => true }, ui: { showDirectoryPicker: async () => ({ path: '/u/Projects' }) } };
+    try {
+      const done = app.commands.run('file.newSession');
+      const dialog = [...document.querySelectorAll('.dialog')].pop();
+      expect(dialog.querySelector('.io-path').textContent).toBe('~/AudioStudio');
+      [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Browse...').click();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(dialog.querySelector('.io-path').textContent).toBe('/u/Projects');
+      dialog.querySelector('.dialog-foot .btn.primary').click();
+      await done;
+      expect(app.prefs.get('sessionSaveFolder')).toBe('/u/Projects');
+    } finally {
+      delete window.puter;
+    }
+  });
 });

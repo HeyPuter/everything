@@ -113,9 +113,23 @@ async function newSessionDialog(app) {
   const bits = h('select.select', { 'aria-label': 'Bit depth' }, [16, 24, 32].map((b) => h('option', { value: b, selected: b === 32 }, b === 32 ? '32 (float)' : String(b))));
   const master = h('select.select', { 'aria-label': 'Mix' }, h('option', { value: '2' }, 'Stereo'), h('option', { value: '1' }, 'Mono'), h('option', { value: '6' }, '5.1'));
   master.value = String([1, 6].includes(app.prefs.get('newSessionMix')) ? app.prefs.get('newSessionMix') : 2);
+  // Where the session is saved the first time (Puter only): Save offers this folder.
+  let folder = app.prefs.get('sessionSaveFolder') || '';
+  const folderText = h('span.io-path', folder || `~/${puter.APP_DIR}`);
+  const browseFolder = h('button.btn', { type: 'button' }, 'Browse...');
+  browseFolder.addEventListener('click', async () => {
+    try {
+      if (!puter.isSignedIn() && !(await puter.signIn())) return;
+      const item = await puter.pickDirectory();
+      if (item?.path) folderText.textContent = folder = item.path;
+    } catch (err) {
+      app.notify(err?.message || 'The folder could not be chosen.', { error: true });
+    }
+  });
+  const folderRow = puter.sdk() ? [h('label', 'Folder:'), h('div.io-loc-path', icon('folder', 14), folderText, browseFolder)] : [];
   const r = await openDialog({
     title: 'New Multitrack Session',
-    body: h('div.form-grid', h('label', 'Session Name:'), name, h('label', 'Template:'), h('div.row', template, delTemplate), h('label', 'Sample Rate:'), rate.el, h('label', 'Bit Depth:'), h('div.row', bits, h('span.muted', 'bits')), h('label', 'Mix:'), master, h('span'), error),
+    body: h('div.form-grid', h('label', 'Session Name:'), name, ...folderRow, h('label', 'Template:'), h('div.row', template, delTemplate), h('label', 'Sample Rate:'), rate.el, h('label', 'Bit Depth:'), h('div.row', bits, h('span.muted', 'bits')), h('label', 'Mix:'), master, h('span'), error),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
@@ -129,6 +143,7 @@ async function newSessionDialog(app) {
   if (r !== 'ok') return null;
   const chosen = TEMPLATES.find((t) => t.id === template.value) || userTemplates(app.prefs).find((t) => t.id === template.value);
   app.prefs.set('newSessionMix', Number(master.value));
+  if (folder) app.prefs.set('sessionSaveFolder', folder);
   return { name: `${name.value.trim() || 'Untitled Session'}.asesx`, template: chosen, sampleRate: rate.value(), bitDepth: Number(bits.value), masterChannels: Number(master.value) };
 }
 
