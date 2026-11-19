@@ -149,9 +149,14 @@ input[type='range'].slider.fx-vrange::-moz-range-track {
   background: var(--text-dim);
 }
 
+/* A labelled step shows its number alone: a tick drawn beside "-40" read as a double minus. */
+.fx-vtick.major:has(+ .fx-vtick-label) {
+  display: none;
+}
+
 .fx-vtick-label {
   position: absolute;
-  left: 7px;
+  left: 2px;
   transform: translateY(50%);
   color: var(--text-dim);
   font-size: var(--fs-xs);
