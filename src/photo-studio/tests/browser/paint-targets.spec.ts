@@ -534,6 +534,38 @@ test('Shift-click draws a line only from a stroke in the same document', async (
   expect(await pixel(100, 60)).toEqual([64, 64, 64, 255]);
 });
 
+for (const id of ['brush', 'pencil']) {
+  test(`Shift-click after a smoothed ${id} stroke continues from where the stroke caught up`, async ({ page }) => {
+    await page.evaluate((id) => {
+      const e = window.photoStudio;
+      e.setTool(id);
+      e.activeTool!.brush?.set(e, { size: 4, hardness: 1, smoothing: 0.5, pulledString: false, catchUpEnd: true });
+      e.setForeground('#ffffff');
+    }, id);
+    await idle(page);
+    // Smoothing trails the pointer; releasing catches the stroke up to (120, 30).
+    await canvasDrag(page, [[20, 30], [120, 30]], 4);
+    const [cx, cy] = await client(page, 120, 100);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(cx, cy);
+    await page.keyboard.up('Shift');
+    await idle(page);
+    const pixel = (x: number, y: number) =>
+      page.evaluate(
+        async ([x, y]) => {
+          const e = window.photoStudio;
+          const { readRGBA } = await import('/src/model/tiles.ts');
+          return Array.from(readRGBA(e.assets.tiles, e.doc.layers[0].pixels!, { x, y, width: 1, height: 1 }).data);
+        },
+        [x, y] as const,
+      );
+    expect(await pixel(120, 30)).toEqual([255, 255, 255, 255]);
+    // The line runs straight down from the stroke's end, not from inside it.
+    expect(await pixel(120, 65)).toEqual([255, 255, 255, 255]);
+    expect(await pixel(110, 65)).toEqual([128, 128, 128, 255]);
+  });
+}
+
 test('a stroke whose pointer capture is lost is stored and ends the gesture', async ({ page }) => {
   await page.evaluate(() => {
     const e = window.photoStudio;

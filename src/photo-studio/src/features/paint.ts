@@ -610,8 +610,13 @@ function finish(e: Editor, a: Active, id: string) {
   if (a.last) {
     const p = e.pointerInfo;
     const b = brushFor(id);
-    if (p && b.smoothing > 0 && b.catchUpEnd !== false) a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
-    lastPoint(e).set(id, a.last);
+    // Shift-click continues from where the stroke ends: after the catch-up, if any.
+    let end = a.last;
+    if (p && b.smoothing > 0 && b.catchUpEnd !== false) {
+      a.session!.addPoint(p.x, p.y, a.pressure ?? 1);
+      end = [p.x, p.y];
+    }
+    lastPoint(e).set(id, end);
   }
   const grid = a.session!.commit();
   delete e.settings.quickMaskPreview;
