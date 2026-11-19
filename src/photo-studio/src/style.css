@@ -278,6 +278,10 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .marching .ants-black { fill: none; stroke: var(--ants-b); animation: ants 0.6s linear infinite; }
 @keyframes ants { to { stroke-dashoffset: -8; } }
 .crop-shade { fill: #000; opacity: 0.55; pointer-events: none; }
+.crop-shield-popover { width: 240px; }
+.crop-shield-popover label { display: flex; align-items: center; gap: 8px; }
+.crop-shield-popover label select { flex: 1; }
+.crop-shield-popover input[type='color'] { width: 32px; height: 22px; padding: 0; }
 .crop-box { fill: none; stroke: #fff; }
 .crop-grid path { stroke: #fff9; fill: none; }
 .crop-handle { fill: #fff; stroke: #333; pointer-events: all; }

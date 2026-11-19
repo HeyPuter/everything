@@ -10,6 +10,7 @@ import { setDocumentResolution } from '../../model/text-layer';
 import { homography, type Point } from '../../imaging/filters/warp';
 import { compose, inscribedSize, rectifiedSize, rotateM, straightenAngle, toPixels, translate, type LengthUnit, type Quad } from './math';
 import { refocusAfterChoice } from './focus';
+import { closeShieldPopover, openShieldPopover, shieldMarkup } from './crop-shield';
 
 type Box = { cx: number; cy: number; w: number; h: number; angle: number };
 type Drag =
@@ -317,6 +318,7 @@ export const cropTool: Tool = {
     box = undefined;
     drag = undefined;
     straighten = false;
+    closeShieldPopover();
   },
   options: (e) => {
     const s = settings(e);
@@ -329,6 +331,7 @@ export const cropTool: Tool = {
     html += `<button data-crop-action="clear" title="Clear the ratio">Clear</button><span class="divider"></span>`;
     html += `<button class="toggle" data-crop-action="straighten" aria-pressed="${straighten}" title="Draw a line along the horizon or a vertical edge to level the image">${svg('ruler', 14)} Straighten</button>`;
     html += `<label>Overlay <select id="crop-overlay">${CROP_OVERLAYS.map(([id, l]) => `<option value="${id}" ${s.overlay === id ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    html += `<button type="button" class="icon-button" id="crop-settings" aria-haspopup="dialog" title="Crop settings: how the cropped area is shown" aria-label="Crop settings">${svg('settings', 15)}</button>`;
     html += `<label class="transform-setting" title="When off, pixels outside the crop stay on their layers"><input id="crop-delete" type="checkbox" ${s.deleteCropped ? 'checked' : ''}>Delete Cropped Pixels</label>`;
     html += `<span class="hint" id="crop-size"></span><span class="divider"></span><button data-command="crop.reset" class="icon-button" title="Reset the crop box" aria-label="Reset crop">${svg('rotate-ccw', 16)}</button><button data-command="crop.cancel" class="icon-button" title="Cancel crop (Escape)" aria-label="Cancel crop">${svg('ban', 16)}</button><button data-command="crop.commit" class="icon-button transform-apply" title="Commit crop (Enter)" aria-label="Commit crop">${svg('check', 16)}</button>`;
     return html;
@@ -375,6 +378,7 @@ export const cropTool: Tool = {
       e.overlay();
     });
     el.querySelector<HTMLInputElement>('#crop-delete')?.addEventListener('change', (ev) => (s.deleteCropped = (ev.target as HTMLInputElement).checked));
+    el.querySelector<HTMLButtonElement>('#crop-settings')?.addEventListener('click', (ev) => openShieldPopover(e, ev.currentTarget as HTMLElement));
     el.querySelectorAll<HTMLButtonElement>('[data-crop-action]').forEach((b) =>
       b.addEventListener('click', () => {
         const a = b.dataset.cropAction;
@@ -483,7 +487,7 @@ export const cropTool: Tool = {
       H = e.doc.height,
       pad = Math.max(W, H) * 4;
     const corners = boxCorners(b);
-    let html = `<path class="crop-shade" fill-rule="evenodd" d="M${-pad} ${-pad}H${W + pad}V${H + pad}H${-pad}Z M${corners.map((c) => `${c.x} ${c.y}`).join('L')}Z"/>`;
+    let html = shieldMarkup(e, `M${-pad} ${-pad}H${W + pad}V${H + pad}H${-pad}Z M${corners.map((c) => `${c.x} ${c.y}`).join('L')}Z`, !!drag && drag.kind !== 'straighten');
     const overlayKind = settings(e).overlay;
     html += `<g transform="translate(${b.cx} ${b.cy}) rotate(${b.angle})">`;
     if (overlayKind !== 'none') html += `<path class="crop-grid-lines" d="${overlayLines(overlayKind, b.w, b.h, z)}" stroke-width="${0.8 / z}"/>`;
