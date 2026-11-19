@@ -113,6 +113,72 @@ const wheel = (id: string, label: string) => [
   n([`grade${id}Lum`, `${label} luminance`, -100, 100]),
 ];
 
+// ---------- Local adjustment masks (masks.ts renders them) ----------
+export type MaskType = 'off' | 'linear' | 'radial' | 'brush';
+export const MASK_SLOTS = 4;
+export const MASK_ADJUST: [
+  suffix: string,
+  label: string,
+  min: number,
+  max: number,
+  step: number,
+][] = [
+  ['Exposure', 'Exposure', -4, 4, 0.05],
+  ['Contrast', 'Contrast', -100, 100, 1],
+  ['Highlights', 'Highlights', -100, 100, 1],
+  ['Shadows', 'Shadows', -100, 100, 1],
+  ['Temperature', 'Temperature', -100, 100, 1],
+  ['Tint', 'Tint', -100, 100, 1],
+  ['Saturation', 'Saturation', -100, 100, 1],
+];
+
+/** Settings of one mask slot (n from 1). */
+export function maskSpecs(n: number): ParamSpec[] {
+  const k = (s: string) => `mask${n}${s}`;
+  const nm = (
+    key: string,
+    label: string,
+    min: number,
+    max: number,
+    def: number,
+    step = 1,
+  ): ParamSpec => ({
+    key: k(key),
+    label: `Mask ${n} ${label}`,
+    type: 'number',
+    min,
+    max,
+    step,
+    default: def,
+  });
+  return [
+    {
+      key: k('Type'),
+      label: `Mask ${n} type`,
+      type: 'select',
+      options: [
+        { value: 'off', label: 'None' },
+        { value: 'linear', label: 'Linear Gradient' },
+        { value: 'radial', label: 'Radial Gradient' },
+        { value: 'brush', label: 'Brush' },
+      ],
+      default: 'off',
+    },
+    nm('Ax', 'start x', 0, 1, 0.5, 0.001),
+    nm('Ay', 'start y', 0, 1, 0.3, 0.001),
+    nm('Bx', 'end x', 0, 1, 0.5, 0.001),
+    nm('By', 'end y', 0, 1, 0.7, 0.001),
+    nm('Feather', 'feather', 0, 100, 50),
+    nm('Amount', 'amount', 0, 100, 100),
+    { key: k('Invert'), label: `Mask ${n} invert`, type: 'checkbox', default: false },
+    { key: k('Strokes'), label: `Mask ${n} brush strokes`, type: 'paths', default: [], limit: 256 },
+    ...MASK_ADJUST.map(([s, label, min, max, step]) =>
+      nm(s, label.toLowerCase(), min, max, 0, step),
+    ),
+  ];
+}
+export const maskKeys = (n: number) => maskSpecs(n).map((s) => s.key);
+
 export const developParams: ParamSpec[] = [
   n(['version', 'Settings version', 1, 99, DEVELOP_VERSION]),
   // Profile and treatment.
@@ -237,6 +303,9 @@ export const developParams: ParamSpec[] = [
   check('opticsOn', 'Optics on'),
   check('geometryOn', 'Geometry on'),
   check('calibrationOn', 'Calibration on'),
+  check('masksOn', 'Masks on'),
+  // Masks.
+  ...Array.from({ length: MASK_SLOTS }, (_, i) => maskSpecs(i + 1)).flat(),
 ];
 
 export type PanelId =
@@ -249,7 +318,8 @@ export type PanelId =
   | 'detail'
   | 'optics'
   | 'geometry'
-  | 'calibration';
+  | 'calibration'
+  | 'masks';
 /** Panels in workspace order with the keys each one resets and switches off. */
 export const PANELS: { id: PanelId; label: string; toggle: string; keys: string[] }[] = [
   {
@@ -378,6 +448,12 @@ export const PANELS: { id: PanelId; label: string; toggle: string; keys: string[
       'calBlueHue',
       'calBlueSat',
     ],
+  },
+  {
+    id: 'masks',
+    label: 'Masks',
+    toggle: 'masksOn',
+    keys: Array.from({ length: MASK_SLOTS }, (_, i) => maskKeys(i + 1)).flat(),
   },
 ];
 

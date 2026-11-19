@@ -17,7 +17,8 @@ export type PreviewUI = {
   zoomLabel?: HTMLElement;
   // Extra drawing over the pane (grid overlay), in pane pixels; `after` is
   // the span of pane columns showing the filtered result.
-  overlay?: (ctx: CanvasRenderingContext2D, w: number, h: number, after: { x: number; width: number }) => void;
+  // `origin` is the pane column of the result view's left edge.
+  overlay?: (ctx: CanvasRenderingContext2D, w: number, h: number, after: { x: number; width: number; origin: number }) => void;
   // Called with the pane's latest proxy image (histograms).
   onImage?: (img: RGBA8) => void;
   // Largest side of the reduced copy previewed for non-local filters.
@@ -441,7 +442,7 @@ export class FilterPreview {
       label(ctx, 'Before', 8, 8);
       label(ctx, 'After', ax + 8, 8);
     }
-    this.ui.overlay?.(ctx, w, h, { x: ax, width: w - ax });
+    this.ui.overlay?.(ctx, w, h, { x: ax, width: w - ax, origin: aOff });
   }
   /** The filtered result in pane columns [x0, x1), its view's left edge at `off`. */
   private drawAfter(ctx: CanvasRenderingContext2D, v: { x: number; y: number }, x0: number, off: number, x1: number, h: number) {

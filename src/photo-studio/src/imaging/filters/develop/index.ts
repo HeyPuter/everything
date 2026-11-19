@@ -8,7 +8,7 @@
 //   (clarity, texture) and the Light curve on a perceptual luminance
 //   (Y^(1/2.2)), applied to RGB as a luminance ratio so hues hold ->
 //   vibrance/saturation -> Color Mixer, or the gray mix in black and white ->
-//   Color Grading -> gamut compression toward luminance instead of
+//   local adjustment masks (masks.ts) -> Color Grading -> gamut compression toward luminance instead of
 //   per-channel clipping -> vignette -> encode -> Curve tables -> grain;
 //   post-pass: sharpening (grain then follows it, so it is not sharpened).
 // Profiles and the panel switches are resolved into the settings first
@@ -22,6 +22,7 @@ import { KB, KG, KR, calibrationMatrix, gradeTable, grayOf, grayTable, mixPixel,
 import { detailActive, reduceNoise, sharpen } from './detail';
 import { geometryActive, transformGeometry } from './geometry';
 import { correctLens, opticsActive } from './optics';
+import { activeMasks, applyLocal, maskRows, prepareMasks } from './masks';
 import { developParams, migrateDevelop } from './params';
 import { resolveDevelop } from './profiles';
 import { PERCEPTUAL, curveTables, toneLUT } from './tone';
@@ -230,7 +231,8 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
     cal = calibrationMatrix(q),
     shTint = v('calShadowTint') / 100;
   const basic = BASIC.some((k) => v(k) !== 0);
-  const mainOn = basic || curves.active || mono || !!mix?.active || grade.active || !!cal || shTint !== 0;
+  const hasMasks = activeMasks(q).length > 0;
+  const mainOn = basic || curves.active || mono || !!mix?.active || grade.active || !!cal || shTint !== 0 || hasMasks;
   const det = detailActive(q),
     lens = opticsActive(q),
     geo = geometryActive(q);
@@ -394,7 +396,8 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
     cG = curves.g,
     cB = curves.b,
     cN = curves.n,
-    px3 = new Float64Array(3);
+    px3 = new Float64Array(3),
+    locals = hasMasks ? prepareMasks(q, w, h) : [];
   const clarUp = blurC ? upsampler(blurC, cw, ch, w, h) : null,
     rowC = new Float32Array(w);
   const out = cloneRGBA8(img),
@@ -402,6 +405,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
   // One function per row keeps V8 from bouncing in and out of OSR code.
   const row = (y: number) => {
     linear(y);
+    if (locals.length) maskRows(locals, y, w, h);
     if (clarUp) upsampleRow(clarUp, y, rowC);
     const gRow = (y & (GRAIN_T - 1)) * GRAIN_T;
     for (let x = 0; x < w; x++) {
@@ -450,6 +454,17 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
         g = px3[1];
         b = px3[2];
       } else if (gray) r = g = b = grayOf(gray, r, g, b);
+      for (let m = 0; m < locals.length; m++) {
+        const wt = locals[m].row[x];
+        if (wt < 0.002) continue;
+        px3[0] = r;
+        px3[1] = g;
+        px3[2] = b;
+        applyLocal(locals[m], wt, px3);
+        r = px3[0];
+        g = px3[1];
+        b = px3[2];
+      }
       if (gradeOn) {
         const gx = (xo < 0 ? 0 : xo > 1 ? 1 : xo) * gN,
           gi = Math.min(gN - 1, gx | 0),
@@ -460,7 +475,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
         b *= gGains[o + 2] + (gGains[o + 5] - gGains[o + 2]) * gf;
       }
       // Compress out-of-range colors toward their luminance (keeps hue).
-      const Yc = mixOn || gray || gradeOn ? KR * r + KG * g + KB * b : Yn;
+      const Yc = mixOn || gray || gradeOn || locals.length ? KR * r + KG * g + KB * b : Yn;
       const mx = Math.max(r, g, b),
         mn = Math.min(r, g, b);
       if (mx > 1 && Yc < 1) {

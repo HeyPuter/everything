@@ -173,3 +173,35 @@ test('recorded settings from the first version play back with their meaning', as
   expect(center[0]).toBeGreaterThan(160);
   expect(corner[0]).toBeLessThan(center[0] - 20);
 });
+
+test('a linear gradient mask placed on the preview darkens only its side', async ({ page }) => {
+  await openImage(page, 300, 200, '#808080');
+  await openDevelop(page);
+  const d = workspace(page);
+  await d.locator('[data-tool="masks"]').click();
+  await expect(d.locator('[data-tool="masks"]')).toHaveAttribute('aria-pressed', 'true');
+  await d.locator('[data-mask-add="linear"]').click();
+  await expect(d.locator('[data-mask-select="1"]')).toBeVisible();
+  // Drag from the top of the image (full effect) to its middle (no effect).
+  const top = await d.evaluate(() => {
+    const pane = document.querySelector<HTMLCanvasElement>('.dv-pane')!;
+    const r = pane.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  const zoom = await d.evaluate(
+    () => parseFloat(document.querySelector('.dv-zoom-label')!.textContent!) / 100,
+  );
+  await page.mouse.move(top.x, top.y - 100 * zoom);
+  await page.mouse.down();
+  await page.mouse.move(top.x, top.y, { steps: 4 });
+  await page.mouse.up();
+  await setField(page, 'mask1Exposure', '-1');
+  await d.locator('.dv-ok').click();
+  await expect(workspace(page)).toHaveCount(0, { timeout: 60_000 });
+  await idle(page);
+  expect(await historyLabels(page)).toEqual(['Develop']);
+  const upper = (await layerPixel(page, 150, 2))[0],
+    lower = (await layerPixel(page, 150, 190))[0];
+  expect(upper).toBeLessThan(110);
+  expect(Math.abs(lower - 128)).toBeLessThanOrEqual(1);
+});

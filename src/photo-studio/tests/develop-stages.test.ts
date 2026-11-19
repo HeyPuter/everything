@@ -40,6 +40,7 @@ import {
   whiteBalanceFor,
 } from '../src/imaging/filters/develop/auto';
 import { normalizeFor } from '../src/features/filters/catalog';
+import { gradientRow, readMask } from '../src/imaging/filters/develop/masks';
 import { SRGB_TO_LINEAR, encodeSRGB } from '../src/imaging/filters/sampling';
 
 const ctx: OperationContext = { foreground: [0, 0, 0], background: [255, 255, 255], seed: 3 };
@@ -384,5 +385,80 @@ describe('develop pixel passes in the pipeline', () => {
       b = dev(src, { sharpenAmount: 50, grain: 40 });
     expect(maxDiff(a, b)).toBe(0);
     expect(maxDiff(a, src)).toBeGreaterThan(2);
+  });
+});
+
+describe('develop local adjustment masks', () => {
+  const gray = () => solid([110, 110, 110], 40, 40);
+  it('a linear gradient applies fully at its start and fades out by its end', () => {
+    const out = dev(gray(), {
+      mask1Type: 'linear',
+      mask1Ax: 0.5,
+      mask1Ay: 0,
+      mask1Bx: 0.5,
+      mask1By: 1,
+      mask1Exposure: 1,
+    });
+    const top = px(out, 20, 0)[0],
+      mid = px(out, 20, 20)[0],
+      bottom = px(out, 20, 39)[0];
+    expect(top).toBeGreaterThan(140);
+    expect(mid).toBeGreaterThan(110);
+    expect(mid).toBeLessThan(top);
+    expect(Math.abs(bottom - 110)).toBeLessThanOrEqual(1);
+  });
+  it('a radial gradient changes the inside; invert changes the outside', () => {
+    const p = {
+      mask1Type: 'radial',
+      mask1Ax: 0.5,
+      mask1Ay: 0.5,
+      mask1Bx: 0.8,
+      mask1By: 0.8,
+      mask1Exposure: -1,
+    };
+    const out = dev(gray(), p);
+    expect(px(out, 20, 20)[0]).toBeLessThan(90);
+    expect(px(out, 0, 0)[0]).toBe(110);
+    const inv = dev(gray(), { ...p, mask1Invert: true });
+    expect(px(inv, 20, 20)[0]).toBe(110);
+    expect(px(inv, 0, 0)[0]).toBeLessThan(90);
+  });
+  it('brush strokes paint where they go and erase strokes take it back', () => {
+    const stroke = [
+      { x: 0.25, y: 0.1, t: 0.08 },
+      { x: 0.25, y: 0.9, t: 0.08 },
+    ];
+    const p = { mask2Type: 'brush', mask2Saturation: -100, mask2Strokes: [stroke] };
+    const red = solid([200, 40, 40], 40, 40);
+    const out = dev(red, p);
+    const [r, g] = px(out, 10, 20);
+    expect(Math.abs(r - g)).toBeLessThan(8);
+    expect(px(out, 32, 20)).toEqual([200, 40, 40]);
+    const erased = dev(red, {
+      ...p,
+      mask2Strokes: [stroke, stroke.map((q) => ({ ...q, t: -0.12 }))],
+    });
+    expect(px(erased, 10, 20)).toEqual([200, 40, 40]);
+  });
+  it('masks without adjustments, at amount 0 or switched off change nothing', () => {
+    const src = photo(24, 24);
+    const p = { mask1Type: 'radial', mask1Exposure: 1 };
+    expect(maxDiff(dev(src, { mask1Type: 'radial' }), src)).toBe(0);
+    expect(maxDiff(dev(src, { ...p, mask1Amount: 0 }), src)).toBe(0);
+    expect(maxDiff(dev(src, { ...p, masksOn: false }), src)).toBe(0);
+    expect(maxDiff(dev(src, p), src)).toBeGreaterThan(10);
+  });
+  it('gradient weights stay in [0, 1] and fall off along the gradient', () => {
+    const m = readMask(
+      { mask1Type: 'linear', mask1Ax: 0.1, mask1Ay: 0.2, mask1Bx: 0.9, mask1By: 0.7 },
+      1,
+    )!;
+    const row = new Float32Array(64);
+    gradientRow(m, 20, 64, 64, row);
+    for (let x = 0; x < 64; x++) {
+      expect(row[x]).toBeGreaterThanOrEqual(0);
+      expect(row[x]).toBeLessThanOrEqual(1);
+      if (x) expect(row[x]).toBeLessThanOrEqual(row[x - 1] + 1e-6);
+    }
   });
 });

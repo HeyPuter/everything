@@ -71,6 +71,7 @@ import {
   rememberDevelopLast,
   saveDevelopPreset,
 } from './presets';
+import { MasksView } from './masks-ui';
 import './develop.css';
 
 const OP = 'develop';
@@ -139,7 +140,8 @@ class DevelopWorkspace {
   private wheel!: GradeWheel;
   private mixMode: MixMode = 'hue';
   private gradeRegion: GradeRegion = 'Midtone';
-  private side: 'edit' | 'presets' = 'edit';
+  private side: 'edit' | 'presets' | 'masks' = 'edit';
+  private masks!: MasksView;
   private lastColorProfile = 'natural';
   private history: ParamValues[] = [];
   private future: ParamValues[] = [];
@@ -180,6 +182,17 @@ class DevelopWorkspace {
       onImage: (img) => this.onImage(img),
       tool: (ev, phase) => this.paneTool(ev, phase),
     });
+    this.masks = new MasksView(
+      this.q('.dv-masks'),
+      {
+        params: () => this.params,
+        set: (v, done) => this.set(v, done),
+        preview: this.preview,
+        region: () => this.s.rect,
+        status: (t) => this.status(t),
+      },
+      this.q('.dv-view'),
+    );
     this.buildPanels();
     this.bind();
     const view = this.q('.dv-view');
@@ -204,7 +217,12 @@ class DevelopWorkspace {
 
   // ---------- Markup ----------
   private markup() {
-    const tool = (id: Tool | 'edit' | 'presets', icon: string, label: string, key?: string) =>
+    const tool = (
+      id: Tool | 'edit' | 'presets' | 'masks',
+      icon: string,
+      label: string,
+      key?: string,
+    ) =>
       `<button type="button" class="icon-button dv-tool" data-tool="${id}" aria-pressed="false" title="${escapeXML(label)}${key ? ` (${key})` : ''}" aria-label="${escapeXML(label)}"${key ? ` aria-keyshortcuts="${key}"` : ''}>${svg(icon, 18)}</button>`;
     const view = (mode: ViewMode, icon: string, label: string) =>
       `<button type="button" class="icon-button" role="radio" data-view="${mode}" aria-checked="${mode === 'after'}" title="${escapeXML(label)}" aria-label="${escapeXML(label)}">${svg(icon, 16)}</button>`;
@@ -237,11 +255,12 @@ class DevelopWorkspace {
     <div class="dv-scroll">
       <div class="dv-panels"></div>
       <div class="dv-presets" hidden></div>
+      <div class="dv-masks" hidden></div>
       <div class="dv-blending"></div>
     </div>
   </aside>
   <nav class="dv-rail" aria-label="Develop tools">
-    ${tool('edit', 'sliders-horizontal', 'Edit')}${tool('presets', 'bookmark', 'Presets', 'Shift+P')}
+    ${tool('edit', 'sliders-horizontal', 'Edit')}${tool('masks', 'circle-dashed', 'Masks: local adjustments', 'M')}${tool('presets', 'bookmark', 'Presets', 'Shift+P')}
     <span class="dv-rail-gap"></span>
     ${tool('wb', 'pipette', 'White balance: click a neutral area', 'I')}${tool('target', 'target', 'Targeted adjustment: drag up or down on a color', 'T')}
     <span class="dv-rail-gap"></span>
@@ -301,6 +320,8 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
           `<button type="button" role="radio" class="dv-seg" data-upright="${v}" aria-checked="false" title="${escapeXML(title)}">${label}</button>`;
         return `<div class="dv-segs dv-upright" role="radiogroup" aria-label="Upright">${up('off', 'Off', 'No automatic correction')}${up('auto', 'Auto', 'Balanced level and perspective correction')}${up('level', 'Level', 'Level the horizon')}${up('vertical', 'Vertical', 'Level and make verticals parallel')}${up('full', 'Full', 'Level, vertical and horizontal perspective')}</div>${sliderHTML('geoVertical')}${sliderHTML('geoHorizontal')}${sliderHTML('geoRotate')}${sliderHTML('geoAspect')}${sliderHTML('geoScale')}${sliderHTML('geoOffsetX')}${sliderHTML('geoOffsetY')}${checkHTML('geoConstrain')}`;
       }
+      case 'masks':
+        return '';
       case 'calibration':
         return `${sliderHTML('calShadowTint', { label: 'Shadows tint', track: TINT_TRACK })}<h4>Red primary</h4>${sliderHTML('calRedHue', { label: 'Hue', track: bandHueTrack(0) })}${sliderHTML('calRedSat', { label: 'Saturation', track: bandSatTrack(0) })}<h4>Green primary</h4>${sliderHTML('calGreenHue', { label: 'Hue', track: bandHueTrack(120) })}${sliderHTML('calGreenSat', { label: 'Saturation', track: bandSatTrack(120) })}<h4>Blue primary</h4>${sliderHTML('calBlueHue', { label: 'Hue', track: bandHueTrack(240) })}${sliderHTML('calBlueSat', { label: 'Saturation', track: bandSatTrack(240) })}`;
     }
@@ -308,10 +329,12 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
 
   private buildPanels() {
     const host = this.q('.dv-panels');
-    host.innerHTML = PANELS.map((p) => {
-      const open = this.open.has(p.id);
-      return `<section class="dv-panel" data-panel="${p.id}"><div class="dv-panel-head"><button type="button" class="dv-disclose" aria-expanded="${open}" aria-controls="dv-body-${p.id}">${svg(open ? 'chevron-down' : 'chevron-right', 14)}<span>${escapeXML(p.label)}</span><span class="dv-changed" title="Changed from the defaults" hidden></span></button><button type="button" class="icon-button dv-panel-reset" data-panel-reset="${p.id}" title="Reset ${escapeXML(p.label)}" aria-label="Reset ${escapeXML(p.label)}">${svg('rotate-ccw', 14)}</button><button type="button" class="icon-button dv-eye" data-eye="${p.id}" aria-pressed="true" title="Show or hide the ${escapeXML(p.label)} adjustments" aria-label="${escapeXML(p.label)} effect">${svg('eye', 15)}</button></div><div class="dv-panel-body" id="dv-body-${p.id}" ${open ? '' : 'hidden'}>${this.panelBody(p.id)}</div></section>`;
-    }).join('');
+    host.innerHTML = PANELS.filter((p) => p.id !== 'masks')
+      .map((p) => {
+        const open = this.open.has(p.id);
+        return `<section class="dv-panel" data-panel="${p.id}"><div class="dv-panel-head"><button type="button" class="dv-disclose" aria-expanded="${open}" aria-controls="dv-body-${p.id}">${svg(open ? 'chevron-down' : 'chevron-right', 14)}<span>${escapeXML(p.label)}</span><span class="dv-changed" title="Changed from the defaults" hidden></span></button><button type="button" class="icon-button dv-panel-reset" data-panel-reset="${p.id}" title="Reset ${escapeXML(p.label)}" aria-label="Reset ${escapeXML(p.label)}">${svg('rotate-ccw', 14)}</button><button type="button" class="icon-button dv-eye" data-eye="${p.id}" aria-pressed="true" title="Show or hide the ${escapeXML(p.label)} adjustments" aria-label="${escapeXML(p.label)} effect">${svg('eye', 15)}</button></div><div class="dv-panel-body" id="dv-body-${p.id}" ${open ? '' : 'hidden'}>${this.panelBody(p.id)}</div></section>`;
+      })
+      .join('');
     this.curve = new CurveEditor(
       this.q<HTMLCanvasElement>('.dv-curve'),
       () => this.params,
@@ -364,6 +387,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     this.committed = { ...p };
     this.syncAll();
     this.schedule();
+    if (this.side === 'masks') this.masks.render();
     this.status(redo ? 'Redone' : 'Undone');
   }
   private schedule() {
@@ -387,8 +411,16 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     this.q('.dv-mix-color').hidden = mono;
     this.q('.dv-mix-gray').hidden = !mono;
     for (const p of PANELS) {
-      const sec = this.q(`[data-panel="${p.id}"]`);
       const on = this.params[p.toggle] !== false;
+      if (p.id === 'masks') {
+        const eye = this.ws.dialog.querySelector<HTMLElement>('[data-eye="masks"]');
+        if (eye && eye.getAttribute('aria-pressed') !== String(on)) {
+          eye.setAttribute('aria-pressed', String(on));
+          eye.innerHTML = svg(on ? 'eye' : 'eye-off', 15);
+        }
+        continue;
+      }
+      const sec = this.q(`[data-panel="${p.id}"]`);
       const eye = sec.querySelector<HTMLElement>('.dv-eye')!;
       // Replace the icon only when the state changes: rewriting it between a
       // press and release would lose the click.
@@ -475,6 +507,14 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     ctx: CanvasRenderingContext2D,
     _w: number,
     h: number,
+    after: { x: number; width: number; origin: number },
+  ) {
+    this.pixelOverlay(ctx, h, after);
+    if (this.side === 'masks') this.masks.overlay(ctx, h, after);
+  }
+  private pixelOverlay(
+    ctx: CanvasRenderingContext2D,
+    h: number,
     after: { x: number; width: number },
   ) {
     if (after.width <= 0) return;
@@ -514,6 +554,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
   private paneTool(ev: PointerEvent, phase: 'down' | 'move' | 'up' | 'hover'): boolean {
     const pane = this.q('.dv-pane');
     const tool = this.spaceHeld ? 'hand' : this.tool;
+    if (this.side === 'masks' && !this.spaceHeld && this.masks.pointer(ev, phase)) return true;
     if (phase === 'hover') {
       this.showPixel(ev);
       return false;
@@ -690,7 +731,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
       const v = t.closest<HTMLElement>('[data-view]');
       if (v) this.setView(v.dataset.view as ViewMode);
       const tool = t.closest<HTMLElement>('[data-tool]');
-      if (tool) this.setTool(tool.dataset.tool as Tool | 'edit' | 'presets');
+      if (tool) this.setTool(tool.dataset.tool as Tool | 'edit' | 'presets' | 'masks');
     });
     this.q('.dv-fit').addEventListener('click', () => this.preview.setZoom(this.preview.fitZoom()));
     this.q('.dv-actual').addEventListener('click', () => this.preview.setZoom(1));
@@ -714,6 +755,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
         ...developDefaults(),
         ...Object.fromEntries(PANELS.map((p) => [p.toggle, true])),
       });
+      if (this.side === 'masks') this.masks.render();
       this.status('All settings reset');
     });
     const cancel = this.q<HTMLButtonElement>('.dv-cancel');
@@ -723,6 +765,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
         this.blending = this.initialBlending && { ...this.initialBlending };
         this.syncBlending();
         this.set({});
+        if (this.side === 'masks') this.masks.render();
         this.status('Settings restored');
         return;
       }
@@ -796,6 +839,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
       h: () => this.setTool('hand'),
       v: () => this.toggleMono(),
       P: () => this.setTool('presets'),
+      m: () => this.setTool('masks'),
     };
     const fn = actions[ev.shiftKey ? k : k.toLowerCase()];
     if (!fn || (ev.shiftKey && k !== 'P')) return;
@@ -906,16 +950,24 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     for (const b of this.ws.dialog.querySelectorAll<HTMLElement>('[data-view]'))
       b.setAttribute('aria-checked', String(b.dataset.view === mode));
   }
-  private setTool(tool: Tool | 'edit' | 'presets') {
-    if (tool === 'edit' || tool === 'presets') {
-      this.side = tool === 'presets' && this.side !== 'presets' ? 'presets' : 'edit';
+  private setTool(tool: Tool | 'edit' | 'presets' | 'masks') {
+    if (tool === 'edit' || tool === 'presets' || tool === 'masks') {
+      this.side = tool !== 'edit' && this.side !== tool ? tool : 'edit';
       this.q('.dv-panels').hidden = this.side !== 'edit';
       this.q('.dv-presets').hidden = this.side !== 'presets';
+      this.q('.dv-masks').hidden = this.side !== 'masks';
       if (this.side === 'presets') this.renderPresets();
+      if (this.side === 'masks') this.masks.render();
+      else this.masks.hideCursor();
+      this.preview.draw();
     } else this.tool = this.tool === tool && tool !== 'hand' ? 'hand' : tool;
     for (const b of this.ws.dialog.querySelectorAll<HTMLElement>('[data-tool]')) {
       const id = b.dataset.tool;
-      b.setAttribute('aria-pressed', String(id === this.tool || id === this.side));
+      // In the masks view the pane edits masks, so no pane tool shows as active.
+      b.setAttribute(
+        'aria-pressed',
+        String((id === this.tool && this.side !== 'masks') || id === this.side),
+      );
     }
     const pane = this.q('.dv-pane');
     pane.classList.toggle('dv-tool-hand', this.tool === 'hand');
