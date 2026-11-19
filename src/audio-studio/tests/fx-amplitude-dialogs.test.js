@@ -123,6 +123,21 @@ describe('Amplitude and Compression dialogs', () => {
     });
   }
 
+  it('Gain Envelope labels its points with times in the selection and its grid with levels', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(filled(RATE * 4, 0.1))] });
+    app.active = doc;
+    doc.setSelection(RATE, RATE * 3);
+    const p = openEffectDialog(app, getEffect('gainEnvelope'), { doc, values: { envelope: [{ t: 0, v: 1 }, { t: 0.5, v: 2 }, { t: 1, v: 1 }] } });
+    const dlg = document.querySelector('.fx-dialog');
+    const points = [...dlg.querySelectorAll('.fx-envelope .fx-point')];
+    // The middle point sits half way through the 1..3 s selection.
+    expect(points[1].getAttribute('aria-valuetext')).toBe('2.00 s, 200 %');
+    expect(getEffect('gainEnvelope').params[0].ticks).toEqual([1, 2, 3]);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await p;
+  });
+
   it('Single-band Compressor and Hard Limiter report their gain reduction', () => {
     const comp = readout('singleBandCompressor', { threshold: -30, ratio: 4, knee: 0 }, sine(48000, 1000, 0.316));
     expect(comp[0]).toBeCloseTo(-10, 0);

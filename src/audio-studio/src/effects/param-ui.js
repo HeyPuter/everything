@@ -178,6 +178,9 @@ export function paramControl(p, getValues, onSet, { doc = null, range = null, sm
             onChange: (points) => onSet(p.id, points),
             doc,
             range,
+            // `ticks`: levels the definition labels (unity gain...); a selection labels its times.
+            yTicks: p.ticks || null,
+            ...envelopeTimes(doc, range),
             smooth: smoothNow,
             // A definition's own drawing (the spline its process applies).
             render: p.render ? (points, n) => p.render(points, n, getValues()) : null,
@@ -442,4 +445,14 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
   };
   refresh(getValues(), null);
   return { el, refresh };
+}
+
+/** Time labels for an envelope drawn across `range` of `doc`: the grid ticks and each point's time. */
+function envelopeTimes(doc, range) {
+  const rate = doc?.sampleRate;
+  if (!rate || !range || range[1] <= range[0]) return {};
+  const at = (t) => (range[0] + t * (range[1] - range[0])) / rate;
+  const text = (s) => (s < 60 ? `${s.toFixed(s < 10 ? 2 : 1)} s` : `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`);
+  const xTicks = [0.25, 0.5, 0.75];
+  return { xTicks, xTickLabels: xTicks.map((t) => text(at(t))), xLabel: (t) => text(at(t)) };
 }

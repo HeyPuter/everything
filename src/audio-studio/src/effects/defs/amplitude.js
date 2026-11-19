@@ -722,6 +722,7 @@ registerEffect({
       min: 0,
       max: 1,
       unit: '%',
+      ticks: [0.25, 0.5, 0.75],
       default: [{ t: 0, v: 0 }, { t: 1, v: 1 }],
       render: drawEnvelope,
     },
@@ -753,6 +754,8 @@ registerEffect({
       min: 0,
       max: 4,
       unit: '%',
+      // Unity gain and twice, three times as loud, labelled on the grid.
+      ticks: [1, 2, 3],
       default: [{ t: 0, v: 1 }, { t: 1, v: 1 }],
       render: drawEnvelope,
     },
