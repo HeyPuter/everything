@@ -358,14 +358,17 @@ registerEffect({
   about: 'Turns down harsh "s" and "sh" sounds. The detector listens to the shaded band; in Multiband mode only that band is reduced, in Broadband mode the whole signal is. Output Sibilance Only lets you hear what is being removed.',
   params: [
     choice('mode', 'Mode', ['Broadband', 'Multiband'], 1),
-    hz('frequency', 'Center Frequency', 1000, 16000, 6500),
-    hz('bandwidth', 'Bandwidth', 100, 10000, 3000),
-    db('threshold', 'Threshold', -80, 0, -30),
-    db('reduction', 'Maximum Reduction', 0, 40, 12),
+    // Defaults cover the whole sibilance region (4..10 kHz) and catch the
+    // "s" sounds of speech recorded anywhere from about -40 to -12 dBFS,
+    // taking them down by about 4..5 dB; vowels stay below the threshold.
+    hz('frequency', 'Center Frequency', 1000, 16000, 7000),
+    hz('bandwidth', 'Bandwidth', 100, 10000, 6000),
+    db('threshold', 'Threshold', -80, 0, -42),
+    db('reduction', 'Maximum Reduction', 0, 40, 8),
     bool('sibilanceOnly', 'Output Sibilance Only', false),
   ],
   presets: [
-    preset('Default', { mode: 1, frequency: 6500, bandwidth: 3000, threshold: -30, reduction: 12, sibilanceOnly: false }),
+    preset('Default', { mode: 1, frequency: 7000, bandwidth: 6000, threshold: -42, reduction: 8, sibilanceOnly: false }),
     preset('Low Voice Sibilance', { mode: 1, frequency: 4800, bandwidth: 2500, threshold: -32, reduction: 10 }),
     preset('High Voice Sibilance', { mode: 1, frequency: 7800, bandwidth: 3500, threshold: -30, reduction: 12 }),
     preset('Gentle Broadband', { mode: 0, frequency: 6500, bandwidth: 4000, threshold: -26, reduction: 6 }),
