@@ -10,7 +10,7 @@
 //     repair:   { on, items: { noise, rumble, hum, ess, reverb } }
 //     clarity:  { on, items: { dynamics, eq, enhance } }
 //     creative: { on, items: { reverb, width? } }
-//     duration: { on, seconds, orig }              orig: { sourceId, offset, length } once stretched
+//     duration: { on, seconds, method, orig }      method 'stretch' | 'remix' (clips); orig: { sourceId, offset, length } once stretched
 //     ducking:  { on, against: [type], sensitivity, reduce, fade }
 //     pan:      { on, value }
 //     volume:   { level, mute } }
@@ -125,7 +125,7 @@ export function defaultSettings(type) {
     s.creative = { on: false, items: { reverb: item(true, type === 'ambience' ? 3 : 4, { preset: type === 'dialogue' ? 'room' : 'hall' }) } };
     if (type === 'ambience') s.creative.items.width = item(false, 140);
   }
-  if (tasks.includes('duration')) s.duration = { on: false, seconds: 30, orig: null };
+  if (tasks.includes('duration')) s.duration = { on: false, seconds: 30, method: 'stretch', orig: null };
   if (tasks.includes('ducking')) s.ducking = { on: false, against: ['dialogue'], sensitivity: 6, reduce: type === 'ambience' ? -12 : -18, fade: 800 };
   if (tasks.includes('pan')) s.pan = { on: false, value: 0 };
   s.volume = { level: 0, mute: false };

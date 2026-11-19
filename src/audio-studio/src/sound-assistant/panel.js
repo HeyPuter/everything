@@ -221,8 +221,35 @@ export function soundAssistantPanel(app) {
   async function applyDuration() {
     const t = target(app);
     if (t.mode !== 'session') return;
+    const d = t.settings?.duration;
+    if (d?.on && d.method === 'remix') return remixDuration(t, d);
     const state = await run('Changing Duration', (signal, onProgress) => ops.applyDurationClips(t.doc, t.ids, { signal, onProgress }));
     if (state) t.doc.apply('Sound Assistant: Duration', state);
+  }
+
+  /** Duration by remixing: the music is rearranged at its beats to the target length. */
+  async function remixDuration(t, d) {
+    if (busy) return;
+    const [{ runRemix }, { remixBlocker }] = await Promise.all([import('../multitrack/remix-commands.js'), import('../multitrack/remix.js')]);
+    // A clip stretched by Duration goes back to its own audio first: remix works on the original.
+    const reverted = ops.revertDurationClips(t.doc.state, t.ids);
+    if (reverted !== t.doc.state) t.doc.apply('Sound Assistant: Undo Stretch', reverted);
+    busy = true;
+    refresh();
+    try {
+      for (const id of t.ids) {
+        const clip = t.doc.state.clips.find((c) => c.id === id);
+        const why = remixBlocker(t.doc, clip);
+        if (why) {
+          app.notify(`${clip?.name || 'Clip'}: ${why}`, { error: true });
+          continue;
+        }
+        await runRemix(app, t.doc, 'Sound Assistant: Duration', id, { target: Math.round(d.seconds * t.doc.sampleRate) });
+      }
+    } finally {
+      busy = false;
+      refresh();
+    }
   }
 
   function generateKeyframes() {
@@ -508,6 +535,8 @@ export function soundAssistantPanel(app) {
         const info = h('div.sa-readout.faint');
         const stretch = () => keepFocus('.sa-duration .sa-action', applyDuration);
         const btn = sessionMode ? h('button.btn.sa-action', { type: 'button', onclick: stretch }, 'Apply Duration') : null;
+        // Clips can also be remixed: rearranged at the beats rather than stretched.
+        const method = sessionMode ? h('div.sa-field', h('label.sa-label', 'Method'), choice(['duration', 'method'], 'Duration method', [{ value: 'stretch', label: 'Stretch' }, { value: 'remix', label: 'Remix' }])) : null;
         refreshers.push((s) => {
           if (document.activeElement !== input) input.value = String(s?.duration?.seconds ?? 30);
           const cur = target(app);
@@ -515,14 +544,15 @@ export function soundAssistantPanel(app) {
             const c = cur.lead;
             const orig = s?.duration?.orig;
             const len = orig ? orig.length : c.length;
-            info.textContent = `Original ${formatTime(len, cur.doc.sampleRate, 'decimal')}${orig ? `, now ${formatTime(c.length, cur.doc.sampleRate, 'decimal')}` : ''}. The music is stretched without changing its pitch.`;
+            const how = s?.duration?.method === 'remix' ? 'The music is rearranged at its beats to fit.' : 'The music is stretched without changing its pitch.';
+            info.textContent = `Original ${formatTime(len, cur.doc.sampleRate, 'decimal')}${orig ? `, now ${formatTime(c.length, cur.doc.sampleRate, 'decimal')}` : ''}. ${how}`;
           } else if (cur.mode === 'file') {
             const [a, b] = cur.doc.editRange();
             info.textContent = `${cur.doc.hasSelection ? 'Selection' : 'File'} is ${formatTime(b - a, cur.doc.sampleRate, 'decimal')}. Apply stretches it without changing its pitch.`;
           }
           if (btn) btn.disabled = busy;
         });
-        return [h('div.sa-field', h('label.sa-label', { for: id }, 'Target (s)'), input), btn ? h('div.sa-actions', btn) : null, info];
+        return [h('div.sa-field', h('label.sa-label', { for: id }, 'Target (s)'), input), method, btn ? h('div.sa-actions', btn) : null, info];
       },
       ducking: () => {
         if (!sessionMode) return [h('p.sa-readout.faint', 'Ducking lowers this audio under other clips, so it works on clips in a multitrack session.')];

@@ -193,6 +193,19 @@ export async function autoMatchClips(session, ids, { signal, onProgress, applyCh
  * Stretches clips to their Duration targets (or restores the original when
  * Duration is off). New audio goes into the session pool. Returns the new state.
  */
+/** Clips stretched by Duration back on their own audio (Duration settings kept), before a remix. */
+export function revertDurationClips(state, ids) {
+  let next = state;
+  for (const id of ids) {
+    const c = S.findClip(next, id);
+    const s = clipSettings(c);
+    const orig = s?.duration?.orig;
+    if (!orig) continue;
+    next = S.updateClips(next, [c.id], { ...clipPatch(c, setPath(s, ['duration', 'orig'], null)), sourceId: orig.sourceId, offset: orig.offset, length: orig.length, volumeEnv: scaleEnvelope(c.volumeEnv, orig.length / c.length), panEnv: scaleEnvelope(c.panEnv, orig.length / c.length) });
+  }
+  return next === state ? state : regenerateDucking(next);
+}
+
 export async function applyDurationClips(session, ids, { signal, onProgress } = {}) {
   const rate = session.sampleRate;
   const def = getEffect('stretchPitch');
