@@ -57,6 +57,15 @@ export function setSectionOpen(id: string, open: boolean) {
   }
 }
 export const sectionOpen = (id: string) => !closedSections().has(id);
+/** Open or close every section the panel shows now (its flyout menu). */
+export function setAllSections(root: HTMLElement, open: boolean) {
+  for (const toggle of root.querySelectorAll<HTMLElement>('[data-section-toggle]')) {
+    const id = toggle.dataset.sectionToggle!;
+    setSectionOpen(id, open);
+    toggle.setAttribute('aria-expanded', String(open));
+    root.querySelector<HTMLElement>(`#pf-${CSS.escape(id)}`)?.toggleAttribute('hidden', !open);
+  }
+}
 
 /** A titled section the person can collapse; `extra` goes on the heading row. */
 export function section(id: string, title: string, body: string, extra = ''): string {

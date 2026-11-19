@@ -2,7 +2,7 @@ import type { Editor } from '../../editor';
 import { registerPanel, registerCommand, commands, type Panel } from '../../app/registry';
 import { isMac } from '../../app/shortcuts';
 import { layersPanel, layersPanelOptionsCommand } from './layers';
-import { propertiesPanel } from './properties';
+import { propertiesPanel, propertiesSectionCommands } from './properties';
 import { ColorControls } from '../../ui/color';
 import { escapeXML } from '../../model/assets';
 import { svg } from '../../app/icons';
@@ -281,6 +281,7 @@ export function installPanels(e: Editor) {
   registerPanel(colorPanel, swatchesPanel, propertiesPanel, layersPanel, historyPanel, navigatorPanel, infoPanel, histogramPanel);
   registerCommand(
     layersPanelOptionsCommand,
+    ...propertiesSectionCommands,
     {
       id: 'swatches.reset',
       label: 'Reset Swatches',

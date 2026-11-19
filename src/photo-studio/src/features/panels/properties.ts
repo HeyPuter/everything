@@ -11,7 +11,7 @@ import { setVectorColor, vectorHexColor } from '../../color/vector';
 import { setPixelMaskLinked } from '../../model/pixel-mask';
 import { performAction } from '../../ui/actions';
 import { escapeXML } from '../../model/assets';
-import { bindFields, rememberFocus, restoreFocus } from './property-fields';
+import { bindFields, rememberFocus, restoreFocus, setAllSections } from './property-fields';
 import { documentChange, documentClick, documentKey, documentProperties } from './document-properties';
 import { ADJUSTMENTS_MARK, layerClick, layerProperties, maskSection, multipleProperties } from './layer-properties';
 import { hasMask } from '../../model/masks';
@@ -23,11 +23,24 @@ export const propertiesEditors = new Map<string, PropertiesEditor>();
 export const propertySections: ((e: Editor, l: Layer) => string)[] = [];
 
 let lastHtml = '';
+const sectionsCommand = (open: boolean) => ({
+  id: open ? 'properties.expand-sections' : 'properties.collapse-sections',
+  label: open ? 'Expand All Sections' : 'Collapse All Sections',
+  description: open ? 'Show every section of the Properties panel' : 'Show only the section headings of the Properties panel',
+  enabled: (e: Editor) => !!e.root.querySelector('#properties [data-section-toggle]'),
+  run: (e: Editor) => {
+    const el = e.root.querySelector<HTMLElement>('#properties');
+    if (el) setAllSections(el, open);
+  },
+  recordable: false,
+});
+export const propertiesSectionCommands = [sectionsCommand(true), sectionsCommand(false)];
 export const propertiesPanel: Panel = {
   id: 'properties',
   title: 'Properties',
   icon: 'sliders-horizontal',
   location: 'dock-middle',
+  menu: () => ['properties.expand-sections', 'properties.collapse-sections'],
   mount: (e, el) => {
     el.id = 'properties';
     bindFields(e, el);

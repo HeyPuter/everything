@@ -162,6 +162,13 @@ test.describe('document properties', () => {
     await expect(spin(page, 'Canvas width')).toBeHidden();
     await toggle.press('Enter');
     await expect(spin(page, 'Canvas width')).toBeVisible();
+    // The panel menu collapses and expands every section.
+    await page.evaluate(() => window.photoStudio.runCommand('properties.collapse-sections'));
+    await expect(props(page).locator('[data-section-toggle][aria-expanded="true"]')).toHaveCount(0);
+    await page.evaluate(() => window.photoStudio.runCommand('properties.expand-sections'));
+    await expect(props(page).locator('[data-section-toggle][aria-expanded="false"]')).toHaveCount(
+      0,
+    );
     // Nothing overflows the panel sideways.
     expect(await props(page).evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(
       1,
