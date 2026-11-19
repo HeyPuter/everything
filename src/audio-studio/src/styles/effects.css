@@ -1772,6 +1772,16 @@ input[type='range'].fx-slider:disabled {
   margin-top: 8px;
 }
 
+/* A narrow details pane wraps long values instead of running past its edge. */
+.fav-details .data-table {
+  width: 100%;
+}
+
+.fav-details .data-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .fav-note {
   margin: 8px;
 }
