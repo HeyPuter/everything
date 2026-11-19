@@ -200,7 +200,7 @@ export function installAnimation(e: Editor) {
   onPlaybackChange(() => e.overlay());
   installVideo(e);
   // Dialog commands record the settings they were confirmed with.
-  for (const id of ['animation.tween', 'animation.onion-settings', 'animation.delay-custom', 'animation.loop-custom', 'timeline.settings', 'timeline.convert-to-frames']) recordsSettings(id);
+  for (const id of ['animation.tween', 'animation.onion-settings', 'animation.delay-custom', 'animation.loop-custom', 'timeline.settings', 'timeline.convert-to-frames', 'timeline.transitions', 'layer.video-interpret']) recordsSettings(id);
   const animated = hasAnimation;
   const many = (e: Editor) => frameCount(e) > 1;
   // Playback, stepping and onion skins also drive the video timeline.

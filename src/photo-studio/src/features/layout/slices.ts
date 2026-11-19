@@ -5,9 +5,8 @@ import { contributeMenu, registerCommand, registerOverlay } from '../../app/regi
 import { snapProviders } from '../../model/transform';
 import { MAX_SLICE_NAME, MAX_SLICES, sliceRect, type Slice, type SliceFormat } from '../../model/slices';
 import { formDialog } from '../../ui/dialog';
-import { recordsSettings, settingsDialog } from '../action-settings';
+import { recordsSettings, settingsDialog, settingsModal } from '../action-settings';
 import { escapeXML } from '../../model/assets';
-import { modal, fieldValue } from '../files/ui';
 import { addSlice, installSliceTools, newSliceId, selectedSlices, showSlices, sliceState, slicesLocked, slicesOverlay } from './slice-tools';
 import { lazy, lazyRun } from '../../app/lazy';
 
@@ -15,11 +14,11 @@ const webExport = lazy(() => import('./export-web'));
 
 const formatLabels: [SliceFormat | '', string][] = [['', 'Export default'], ['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['gif', 'GIF']];
 
-async function sliceOptions(e: Editor) {
+async function sliceOptions(e: Editor, arg?: unknown) {
   const s = selectedSlices(e)[0];
   if (!s) return;
   const quality = s.quality ?? (s.format === 'gif' ? 256 : 80);
-  const result = await modal({
+  const v = await settingsModal(e, 'slices.options', arg, {
     title: 'Slice Options',
     submit: 'OK',
     className: 'slice-options-dialog',
@@ -38,11 +37,10 @@ async function sliceOptions(e: Editor) {
       sync();
     },
   });
-  if (!result) return;
-  const name = fieldValue(result.form, 'name').trim();
-  const format = fieldValue(result.form, 'format') as SliceFormat | '';
-  const q = format === 'gif' ? Number(fieldValue(result.form, 'colors')) : Number(fieldValue(result.form, 'quality'));
-  result.close();
+  if (!v) return;
+  const name = v.name.trim().slice(0, MAX_SLICE_NAME);
+  const format = v.format as SliceFormat | '';
+  const q = format === 'gif' ? Number(v.colors) : Number(v.quality);
   e.command('Slice Options', (d) => {
     d.slices = (d.slices ?? []).map((x) => {
       if (x.id !== s.id) return x;
@@ -175,8 +173,9 @@ async function fromGuides(e: Editor) {
 }
 
 export function installSlices(e: Editor) {
-  // Records the settings its dialog was confirmed with.
+  // Records the settings their dialogs were confirmed with.
   recordsSettings('slices.divide');
+  recordsSettings('slices.options');
   installSliceTools(e);
   registerOverlay('slices', slicesOverlay);
   snapProviders.push((doc) => {
@@ -251,7 +250,7 @@ export function installSlices(e: Editor) {
       },
       description: 'A slice that follows the bounds of the selected layer',
     },
-    { id: 'slices.options', label: 'Slice Options…', enabled: (ed) => selectedSlices(ed).length === 1, run: sliceOptions },
+    { id: 'slices.options', label: 'Slice Options…', enabled: (ed) => selectedSlices(ed).length === 1, run: (ed, arg) => sliceOptions(ed, arg) },
     { id: 'slices.promote', label: 'Promote Slice', enabled: (ed) => !!sliceState.auto || selectedSlices(ed).some((s) => s.layerId), run: promote },
     { id: 'slices.delete', label: 'Delete Slice', enabled: (ed) => selectedSlices(ed).length > 0, run: deleteSelected },
     { id: 'slices.divide', label: 'Divide Slice…', enabled: (ed) => selectedSlices(ed).length === 1 && !selectedSlices(ed)[0].layerId, run: (ed, arg) => divide(ed, arg) },

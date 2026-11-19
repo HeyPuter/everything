@@ -6,10 +6,9 @@ import type { Editor } from '../../editor';
 import { allLayers, assertSize, findLayer, insertLayerAt, type Layer, type PhotoDocument } from '../../model/document';
 import { hasArtboards } from '../../model/artboard';
 import { newPixelLayer } from '../../model/pixel-layer';
-import { settingsDialog } from '../action-settings';
+import { settingsDialog, settingsModal } from '../action-settings';
 import { escapeXML } from '../../model/assets';
 import type { TileGrid } from '../../model/tiles';
-import { modal, fieldChecked, fieldValue } from '../files/ui';
 import {
   blankVideo,
   deleteFrame,
@@ -416,12 +415,12 @@ export async function replaceFootage(e: Editor, arg?: unknown) {
   });
 }
 
-export async function interpretFootage(e: Editor) {
+export async function interpretFootage(e: Editor, arg?: unknown) {
   const l = videoLayerOf(e)!;
   const v = l.video;
   const fileRate = v.footage?.fps;
   const rates = [...new Set([...frameRates, v.fps, ...(fileRate ? [fileRate] : [])])].sort((a, b) => a - b);
-  const result = await modal({
+  const result = await settingsModal(e, 'layer.video-interpret', arg, {
     title: 'Interpret Footage',
     submit: 'OK',
     className: 'animation-export-dialog',
@@ -432,10 +431,9 @@ export async function interpretFootage(e: Editor) {
       <label class="dialog-field checkbox-field">Loop until the clip ends<input name="forever" type="checkbox" ${v.loops === 0 ? 'checked' : ''}></label>`,
   });
   if (!result) return;
-  const fps = Number(fieldValue(result.form, 'fps'));
-  const alpha = fieldValue(result.form, 'alpha') as VideoAlpha;
-  const loops = fieldChecked(result.form, 'forever') ? 0 : Math.max(1, Math.min(10000, Math.round(Number(fieldValue(result.form, 'loops')) || 1)));
-  result.close();
+  const fps = Number(result.fps);
+  const alpha = result.alpha as VideoAlpha;
+  const loops = result.forever === 'yes' ? 0 : Math.max(1, Math.min(10000, Math.round(Number(result.loops) || 1)));
   if (!Number.isFinite(fps) || fps <= 0 || fps > 240 || !videoAlphaModes.some(([m]) => m === alpha)) return;
   await editTimeline(e, 'Interpret Footage', (d) => {
     const x = findLayer(d.layers, l.id) as VideoLayer;
@@ -598,7 +596,7 @@ export function changeClips(e: Editor, ids: string[], label: string, next: (c: C
 
 // ----- Transitions -----
 
-export async function transitionsDialog(e: Editor) {
+export async function transitionsDialog(e: Editor, arg?: unknown) {
   const tl = tlOf(e);
   const id = e.selected;
   const l = e.layer;
@@ -610,7 +608,7 @@ export async function transitionsDialog(e: Editor) {
   const select = (name: string, edge: 'in' | 'out', tr?: Transition) =>
     `<select name="${name}">${kinds(edge).map(([k, label]) => `<option value="${k}" ${(tr?.kind ?? 'none') === k ? 'selected' : ''}>${escapeXML(label)}</option>`).join('')}</select>`;
   const color = c.fadeIn?.color ?? c.fadeOut?.color ?? '#000000';
-  const result = await modal({
+  const v = await settingsModal(e, 'timeline.transitions', arg, {
     title: 'Transitions',
     submit: 'OK',
     className: 'animation-export-dialog',
@@ -621,18 +619,16 @@ export async function transitionsDialog(e: Editor) {
       <label class="dialog-field">Duration (s)<input name="outSeconds" type="number" min="${(1 / tl.fps).toFixed(3)}" max="60" step="any" value="${seconds(c.fadeOut)}"></label></div>
       <label class="dialog-field">Fade color<input name="color" type="color" value="${color}"></label>`,
   });
-  if (!result) return;
-  const f = result.form;
+  if (!v) return;
   const make = (edge: 'in' | 'out'): Transition | undefined => {
-    const kind = fieldValue(f, edge);
+    const kind = v[edge];
     if (!transitionKinds.some(([k]) => k === kind)) return undefined;
-    const duration = Math.max(1, Math.min(maxTimelineFrames, Math.round(Number(fieldValue(f, `${edge}Seconds`)) * tl.fps) || defaultTransitionFrames(tl.fps)));
-    const colorValue = /^#[0-9a-f]{6}$/i.test(fieldValue(f, 'color')) ? fieldValue(f, 'color') : '#000000';
+    const duration = Math.max(1, Math.min(maxTimelineFrames, Math.round(Number(v[`${edge}Seconds`]) * tl.fps) || defaultTransitionFrames(tl.fps)));
+    const colorValue = /^#[0-9a-f]{6}$/i.test(v.color) ? v.color : '#000000';
     return { kind: kind as Transition['kind'], duration, ...(kind === 'fade-color' ? { color: colorValue } : {}) };
   };
   const fadeIn = make('in'),
     fadeOut = make('out');
-  result.close();
   await changeClip(e, id, 'Transitions', (clip) => {
     const out = { ...clip };
     if (fadeIn) out.fadeIn = fadeIn;
