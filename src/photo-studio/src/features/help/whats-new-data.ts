@@ -11,6 +11,13 @@ export type WhatsNewEntry = { id: string; title: string; text: string; release: 
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: 'relight-layers',
+    title: 'Relight Layers',
+    text: 'Add lights to a photo after the fact: drag up to eight lights over the canvas, set their color temperature, depth, brightness and spread, and keep the edit adjustable in Properties.',
+    release: 'November 2026',
+    action: { commands: ['layer.new-relight'], needs: 'document' },
+  },
+  {
     id: 'assistant',
     title: 'Describe an Edit',
     text: 'Describe a change in words and the Assistant plans it with Photo Studio’s own commands. Review or change the steps, then run them as one undo step (Puter AI).',

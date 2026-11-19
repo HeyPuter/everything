@@ -20,11 +20,9 @@
 import type { RGBA8 } from '../types';
 import { luma } from '../adjust/color-math';
 import {
-  fromLinear,
   isIdentityRelight,
   prepareLights,
   relightGeometry,
-  toLinear,
   type PreparedLight,
   type RelightGeometry,
   type RelightParams,
@@ -228,27 +226,23 @@ export function estimateSurface(
   return surface;
 }
 
-/** Bilinear coordinates of full-resolution pixel (x, y) in a reduced plane. */
-function taps(g: RelightGeometry, x: number, y: number) {
-  const qx = (x + 0.5) / g.factor - 0.5,
-    qy = (y + 0.5) / g.factor - 0.5;
-  const ix = Math.floor(qx),
-    iy = Math.floor(qy);
-  const x0 = Math.min(g.width - 1, Math.max(0, ix)),
-    x1 = Math.min(g.width - 1, Math.max(0, ix + 1)),
-    y0 = Math.min(g.height - 1, Math.max(0, iy)),
-    y1 = Math.min(g.height - 1, Math.max(0, iy + 1));
-  return {
-    i00: y0 * g.width + x0,
-    i10: y0 * g.width + x1,
-    i01: y1 * g.width + x0,
-    i11: y1 * g.width + x1,
-    tx: qx - ix,
-    ty: qy - iy,
-  };
-}
+const GAMMA_INV = 1 / 2.2;
 
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** Bilinear taps along one axis: for each full-resolution coordinate, the
+ * two reduced indices and the weight of the second. */
+function axisTaps(n: number, factor: number, size: number) {
+  const i0 = new Int32Array(n),
+    i1 = new Int32Array(n),
+    t = new Float64Array(n);
+  for (let v = 0; v < n; v++) {
+    const q = (v + 0.5) / factor - 0.5,
+      iq = Math.floor(q);
+    i0[v] = Math.min(size - 1, Math.max(0, iq));
+    i1[v] = Math.min(size - 1, Math.max(0, iq + 1));
+    t[v] = q - iq;
+  }
+  return { i0, i1, t };
+}
 
 /** Relit straight RGBA floats. (ox, oy): document position of the first
  * pixel; the lights are placed in a document of docWidth x docHeight. */
@@ -274,63 +268,89 @@ export function relightFloat(
     docHeight = opts.docHeight ?? height;
   const clampTop = opts.clampTop ?? true;
   const lights = prepareLights(p, docWidth, docHeight);
+  const n = lights.length;
   const surface =
     opts.surface ?? estimateSurface(px, width, height, p, docWidth, docHeight, ox, oy);
   const g = surface.geometry,
     N = surface.normals,
     S = surface.shadows;
   const ambient = p.ambient / 100;
-  const shade = new Float64Array(8);
-  for (let y = 0; y < height; y++)
+  const cols = axisTaps(width, g.factor, g.width),
+    rows = axisTaps(height, g.factor, g.height);
+  // Light records as flat arrays (x, y, z, reach, r, g, b, wrap).
+  const L = new Float64Array(n * 8);
+  lights.forEach((l, k) => L.set([l.x, l.y, l.z, l.reach, l.r, l.g, l.b, l.wrap], k * 8));
+  const shade = new Float64Array(8).fill(1);
+  const w = g.width;
+  for (let y = 0; y < height; y++) {
+    const r0 = rows.i0[y] * w,
+      r1 = rows.i1[y] * w,
+      ty = rows.t[y];
+    const Y = oy + y + 0.5;
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       if (!(px[i + 3] > 0)) continue;
-      const t = taps(g, x, y);
-      const bil = (plane: Float32Array, c: number) =>
-        lerp(
-          lerp(plane[t.i00 * 4 + c], plane[t.i10 * 4 + c], t.tx),
-          lerp(plane[t.i01 * 4 + c], plane[t.i11 * 4 + c], t.tx),
-          t.ty,
-        );
-      let nx = bil(N, 0),
-        ny = bil(N, 1),
-        nz = bil(N, 2);
-      const H = bil(N, 3);
-      const len = Math.hypot(nx, ny, nz);
+      const tx = cols.t[x];
+      const a = (r0 + cols.i0[x]) * 4,
+        b = (r0 + cols.i1[x]) * 4,
+        c = (r1 + cols.i0[x]) * 4,
+        d = (r1 + cols.i1[x]) * 4;
+      const w00 = (1 - tx) * (1 - ty),
+        w10 = tx * (1 - ty),
+        w01 = (1 - tx) * ty,
+        w11 = tx * ty;
+      let nx = N[a] * w00 + N[b] * w10 + N[c] * w01 + N[d] * w11,
+        ny = N[a + 1] * w00 + N[b + 1] * w10 + N[c + 1] * w01 + N[d + 1] * w11,
+        nz = N[a + 2] * w00 + N[b + 2] * w10 + N[c + 2] * w01 + N[d + 2] * w11;
+      const H = N[a + 3] * w00 + N[b + 3] * w10 + N[c + 3] * w01 + N[d + 3] * w11;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
       if (len > 1e-6) ((nx /= len), (ny /= len), (nz /= len));
       else ((nx = 0), (ny = 0), (nz = 1));
-      shade.fill(1);
       if (S)
-        for (let c = 0; c < 4; c++) {
-          const a = [t.i00, t.i10, t.i01, t.i11].map((k) => unpackPair(S[k * 4 + c]));
-          shade[2 * c] = lerp(lerp(a[0][0], a[1][0], t.tx), lerp(a[2][0], a[3][0], t.tx), t.ty);
-          shade[2 * c + 1] = lerp(lerp(a[0][1], a[1][1], t.tx), lerp(a[2][1], a[3][1], t.tx), t.ty);
+        for (let ch = 0; ch < 4 && 2 * ch < n; ch++) {
+          // Unpack each tap, then interpolate (as the shader does).
+          let hi = 0,
+            lo = 0;
+          for (let q = 0; q < 4; q++) {
+            const v = S[(q === 0 ? a : q === 1 ? b : q === 2 ? c : d) + ch];
+            const wt = q === 0 ? w00 : q === 1 ? w10 : q === 2 ? w01 : w11;
+            const h8 = Math.floor(v / 256);
+            hi += h8 * wt;
+            lo += (v - h8 * 256) * wt;
+          }
+          shade[2 * ch] = hi / 255;
+          shade[2 * ch + 1] = lo / 255;
         }
-      const X = ox + x + 0.5,
-        Y = oy + y + 0.5;
+      const X = ox + x + 0.5;
       let sr = 0,
         sg = 0,
         sb = 0;
-      for (let k = 0; k < lights.length; k++) {
-        const l = lights[k];
-        const lx = l.x - X,
-          ly = l.y - Y,
-          lz = l.z - H;
-        const dist = Math.max(1e-3, Math.hypot(lx, ly, lz));
+      for (let k = 0; k < n; k++) {
+        const o = k * 8;
+        const lx = L[o] - X,
+          ly = L[o + 1] - Y,
+          lz = L[o + 2] - H;
+        const dist = Math.max(1e-3, Math.sqrt(lx * lx + ly * ly + lz * lz));
         const ndl = (nx * lx + ny * ly + nz * lz) / dist;
-        const d = Math.max(0, (ndl + l.wrap) / (1 + l.wrap));
-        const q = dist / l.reach;
-        const e = (d / (1 + q * q)) * shade[k];
-        sr += l.r * e;
-        sg += l.g * e;
-        sb += l.b * e;
+        const wrap = L[o + 7];
+        const dif = (ndl + wrap) / (1 + wrap);
+        if (dif <= 0) continue;
+        const q = dist / L[o + 3];
+        const e = (dif / (1 + q * q)) * shade[k];
+        sr += L[o + 4] * e;
+        sg += L[o + 5] * e;
+        sb += L[o + 6] * e;
       }
-      const vals = [sr, sg, sb];
-      for (let c = 0; c < 3; c++) {
-        const v = fromLinear(toLinear(px[i + c]) * (ambient + vals[c]));
-        out[i + c] = clampTop ? Math.min(1, v) : v;
-      }
+      // In linear light the color is scaled by (ambient + light); back in
+      // gamma space that is the same as scaling by its 1/2.2 power.
+      const v0 = Math.max(0, px[i]) * Math.pow(ambient + sr, GAMMA_INV),
+        v1 = Math.max(0, px[i + 1]) * Math.pow(ambient + sg, GAMMA_INV),
+        v2 = Math.max(0, px[i + 2]) * Math.pow(ambient + sb, GAMMA_INV);
+      out[i] = clampTop ? Math.min(1, v0) : v0;
+      out[i + 1] = clampTop ? Math.min(1, v1) : v1;
+      out[i + 2] = clampTop ? Math.min(1, v2) : v2;
     }
+  }
   return out;
 }
 

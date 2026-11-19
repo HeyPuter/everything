@@ -36,7 +36,7 @@ describe("What's New data", () => {
   }, 60_000);
 
   it('lists the newest release first', () => {
-    expect(WHATS_NEW[0].release).toBe('October 2026');
+    expect(WHATS_NEW[0].release).toBe('November 2026');
     const releases = WHATS_NEW.map((w) => w.release);
     // Entries of one release are grouped together.
     const firstIndex = new Map<string, number>();
