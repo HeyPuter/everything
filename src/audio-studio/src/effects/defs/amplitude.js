@@ -549,9 +549,11 @@ registerEffect({
   kind: null,
   about: 'Scales the selection so its loudest peak reaches the target. Equal normalization keeps the balance between channels. DC bias adjust measures each channel\'s offset and moves it to the amount you set (0 % centers the waveform), with or without normalizing.',
   params: [
-    choice('unit', 'Normalize To', ['dB', '%'], 1, { enabledIf: (v) => v.normalizeTo }),
+    // Default: -1 dB peak, a little headroom for lossy encoding and resampling.
+    // Saved presets carry their own unit and target, so they keep working.
+    choice('unit', 'Normalize To', ['dB', '%'], 0, { enabledIf: (v) => v.normalizeTo }),
     num('targetPercent', 'Target (%)', 1, 200, 100, '%', { step: 0.1, enabledIf: (v) => v.normalizeTo && v.unit === 1 }),
-    db('targetDb', 'Target (dB)', -60, 6, 0, { enabledIf: (v) => v.normalizeTo && v.unit === 0 }),
+    db('targetDb', 'Target (dB)', -60, 6, -1, { enabledIf: (v) => v.normalizeTo && v.unit === 0 }),
     bool('equal', 'Normalize All Channels Equally', true, { enabledIf: (v) => v.normalizeTo }),
     bool('removeDc', 'DC Bias Adjust', false),
     // Off: no level change, so DC Bias Adjust can run on its own.
@@ -559,8 +561,9 @@ registerEffect({
     num('dcAmount', 'DC Bias', -50, 50, 0, '%', { step: 0.1, enabledIf: (v) => v.removeDc }),
   ],
   presets: [
-    preset('Full Scale', { unit: 1, targetPercent: 100, equal: true, removeDc: false }),
+    // The first preset is what the dialog opens with: the defaults.
     preset('Peak -1 dB', { unit: 0, targetDb: -1, equal: true, removeDc: false }),
+    preset('Full Scale', { unit: 1, targetPercent: 100, equal: true, removeDc: false }),
     preset('Peak -3 dB with DC Removal', { unit: 0, targetDb: -3, equal: true, removeDc: true }),
     preset('Half Scale', { unit: 1, targetPercent: 50, equal: true }),
     preset('Balance Channels to -0.5 dB', { unit: 0, targetDb: -0.5, equal: false, removeDc: true }),

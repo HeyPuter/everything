@@ -238,12 +238,12 @@ describe('Amplitude and Compression dialogs', () => {
     const { dlg, close } = open('normalize');
     const hots = () => [...dlg.querySelectorAll('.hot')].filter((x) => !x.closest('[hidden]'));
     const unit = () => dlg.querySelector('.fx-radios input:checked').nextSibling.textContent;
-    expect(unit()).toBe('%');
-    expect(hots().map((x) => x.textContent)).toEqual(['100.0 %', '0.0 %']);
-    const db = dlg.querySelector('.fx-radios input');
-    db.checked = true;
-    db.dispatchEvent(new Event('change'));
-    expect(hots()[0].textContent).toMatch(/dB/);
+    expect(unit()).toBe('dB');
+    expect(hots().map((x) => x.textContent)).toEqual(['-1.0 dB', '0.0 %']);
+    const pct = dlg.querySelectorAll('.fx-radios input')[1];
+    pct.checked = true;
+    pct.dispatchEvent(new Event('change'));
+    expect(hots()[0].textContent).toBe('100.0 %');
     // Normalize To off greys the target, unit and equal-channels option; DC bias waits for its switch.
     const box = (text) => [...dlg.querySelectorAll('label.check input')].find((i) => i.closest('label').textContent.startsWith(text));
     expect(hots()[1].disabled).toBe(true);
