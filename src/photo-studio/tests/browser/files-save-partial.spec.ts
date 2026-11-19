@@ -187,3 +187,36 @@ test('Save asks before writing a JPEG without the EXIF metadata of the file it r
   await expect(dialog).toHaveCount(0);
   await expect.poll(async () => (await stub(page)).picked).toEqual(['IMG_2.jpg']);
 });
+
+test('agreeing to flatten a copy does not let Save flatten the file itself without asking', async ({
+  page,
+}) => {
+  await boot(page, 'default', sdk);
+  await page.evaluate(async () => {
+    const w = window as unknown as Stub;
+    const c = new OffscreenCanvas(8, 6);
+    c.getContext('2d')!.fillRect(0, 0, 8, 6);
+    w.__drive['/me/card.png'] = await c.convertToBlob({ type: 'image/png' });
+    window.dispatchEvent(
+      new CustomEvent('drop', { detail: { items: [w.__item('/me/card.png')] } }),
+    );
+  });
+  await expect.poll(() => page.evaluate(() => window.photoStudio.hasDocument)).toBe(true);
+  await idle(page);
+  await page.evaluate(async () => {
+    const { newPixelLayer } = await import('/src/model/pixel-layer.ts');
+    window.photoStudio.command('Layer', (d) => d.layers.push(newPixelLayer('Top', d)));
+  });
+  await start(page, 'file.save-copy', 'png');
+  const dialog = page.locator('#dialog[open]');
+  await expect(dialog).toContainText('A PNG flattens the layers into pixels.');
+  await dialog.getByRole('button', { name: 'Save as PNG', exact: true }).click();
+  await expect.poll(async () => (await stub(page)).picked).toEqual(['card.png']);
+  await idle(page);
+  // Save writes over the file itself: it asks again.
+  await start(page, 'file.save');
+  await expect(dialog).toContainText('A PNG flattens the layers into pixels.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await idle(page);
+  expect((await stub(page)).written).toEqual([]);
+});

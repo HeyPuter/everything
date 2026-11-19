@@ -63,12 +63,13 @@ const keepsAll = (s: DocumentSession, losses: PsdLoss[]) =>
     : KEEPS_ALL;
 
 /** Ask before writing a format that would lose something not agreed to yet;
- * the answer may be a project instead. Undefined when cancelled. */
+ * the answer may be a project instead. Undefined when cancelled. `copy`: the
+ * answer is for this copy only, not for later saves of the document. */
 async function confirmLosses(
   e: Editor,
   s: DocumentSession,
   format: SaveFormat,
-  inPlace = false,
+  { inPlace = false, copy = false } = {},
 ): Promise<SaveFormat | undefined> {
   const losses = lossesOf(s, format, inPlace);
   const seen = acceptedLosses.get(s);
@@ -80,7 +81,7 @@ async function confirmLosses(
     [format, `Save as ${name}`],
   ]);
   if (!choice) return cancelSave(e, s);
-  if (choice === format) acceptLosses(s, format, losses);
+  if (choice === format && !copy) acceptLosses(s, format, losses);
   return choice;
 }
 
@@ -177,7 +178,7 @@ export async function save(e: Editor) {
   if (e.session.saveHandler) return e.session.saveHandler();
   await emitAppEvent('before-save', e.session);
   const s = e.session;
-  const format = await confirmLosses(e, s, saveFormat(s), true);
+  const format = await confirmLosses(e, s, saveFormat(s), { inPlace: true });
   if (!format) return;
   const w = await encode(e, s, format);
   if (w) await store(e, s, w);
@@ -201,7 +202,7 @@ export async function saveAs(e: Editor, copy = false, format?: unknown) {
   if (!chosen) return;
   // The question named a PSD's losses: later saves of this PSD do not ask again.
   if (chosen === 'psd' && !copy) acceptLosses(s, 'psd', losses);
-  if (isFlat(chosen)) chosen = await confirmLosses(e, s, chosen);
+  if (isFlat(chosen)) chosen = await confirmLosses(e, s, chosen, { copy });
   if (!chosen) return;
   const w = await encode(e, s, chosen);
   if (w) await store(e, s, w, { pick: true, copy });
