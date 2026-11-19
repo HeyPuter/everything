@@ -152,7 +152,7 @@ function radioGroup(p, getValues, onSet) {
  * One param's control. Returns { cells: [label, control, value?], kind, show(values, from), setDisabled }.
  * `cells` fill a three-column grid row (kind 'row') or span it (kind 'wide').
  */
-export function paramControl(p, getValues, onSet, { doc = null, range = null, smooth } = {}) {
+export function paramControl(p, getValues, onSet, { doc = null, range = null, smooth, linear = null } = {}) {
   const type = paramType(p);
   const label = p.label || p.id;
   if (type === 'bool') {
@@ -171,7 +171,7 @@ export function paramControl(p, getValues, onSet, { doc = null, range = null, sm
     const smoothNow = () => Boolean(smooth?.(getValues()));
     const env =
       type === 'curve'
-        ? curveControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), smooth: smoothNow })
+        ? curveControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), smooth: smoothNow, linear })
         : envelopeControl({
             param: p,
             value: getValues()[p.id],
@@ -256,6 +256,10 @@ export function sectionGroups(params) {
  * Returns { el, refresh(values, from) }; onSet(id, value) reports changes.
  */
 export function paramControls(def, getValues, onSet, { doc = null, range = null, smooth, params = def.params, sections = null, layout = def.layout || {}, onReadout = null } = {}) {
+  // A Scale choice with a Linear option (FFT Filter) switches frequency curves to a linear axis.
+  const scaleP = def.params.find((q) => q.id === 'scale' && q.options?.some((o) => o.label === 'Linear'));
+  const linearValue = scaleP?.options.find((o) => o.label === 'Linear').value;
+  const linear = scaleP ? () => String(getValues().scale) === String(linearValue) : null;
   const refreshers = [];
   const toggles = [];
   const built = new Map();
@@ -268,7 +272,7 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
 
   function rowsFor(list, grid) {
     for (const p of list) {
-      const c = paramControl(p, getValues, onSet, { doc, range, smooth });
+      const c = paramControl(p, getValues, onSet, { doc, range, smooth, linear });
       if (c.kind === 'row') grid.append(h('div.fx-row', c.cells));
       else grid.append(h(`div.fx-row.${c.kind}`, c.cells));
       refreshers.push((v, from) => {

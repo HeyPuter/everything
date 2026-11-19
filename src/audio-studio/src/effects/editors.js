@@ -491,7 +491,7 @@ export function transferEditor(opts = {}) {
  *      render(points, n) to draw the curve some other way (n samples across) }
  * Click empty space to add a point, drag points, Delete or double-click to remove.
  */
-export function envelopeControl({ param, value, onChange, smooth = () => false, doc = null, range = null, xLabel = (t) => `${Math.round(t * 100)}%`, xTicks = [0.25, 0.5, 0.75], xTickLabels = [], yTicks = null, overlay = null, className = '', pointText = null, render = null }) {
+export function envelopeControl({ param, value, onChange, smooth = () => false, doc = null, range = null, xLabel = (t) => `${Math.round(t * 100)}%`, xTicks = [0.25, 0.5, 0.75], xTickLabels = [], yTicks = null, overlay = null, className = '', pointText = null, render = null, grid = null }) {
   const min = param.min ?? 0;
   const max = param.max ?? 100;
   const fmt = (v) => formatPoint(param, v);
@@ -509,14 +509,17 @@ export function envelopeControl({ param, value, onChange, smooth = () => false, 
         g.fillRect(x, mid - a, Math.max(1, W / peaks.length), 2 * a || 1);
       }
     }
-    const ys = [];
-    if (yTicks) for (const v of yTicks) ys.push(yOf(v, H));
-    else for (let k = 0; k <= 4; k++) ys.push(yOf(min + ((max - min) * k) / 4, H));
-    gridLines(g, W, H, xTicks.map((f) => f * W), ys);
-    if (yTicks) yTicks.forEach((v) => labelText(g, fmt(v).replace(/\.0 /, ' '), 3, yOf(v, H) + 2));
-    labelText(g, fmt(max), 3, 3);
-    labelText(g, fmt(min), 3, H - 16);
-    xTickLabels.forEach((text, i) => text && labelText(g, text, xTicks[i] * W + 3, H - 14));
+    if (grid) grid(g, W, H, (v) => yOf(v, H));
+    else {
+      const ys = [];
+      if (yTicks) for (const v of yTicks) ys.push(yOf(v, H));
+      else for (let k = 0; k <= 4; k++) ys.push(yOf(min + ((max - min) * k) / 4, H));
+      gridLines(g, W, H, xTicks.map((f) => f * W), ys);
+      if (yTicks) yTicks.forEach((v) => labelText(g, fmt(v).replace(/\.0 /, ' '), 3, yOf(v, H) + 2));
+      labelText(g, fmt(max), 3, 3);
+      labelText(g, fmt(min), 3, H - 16);
+      xTickLabels.forEach((text, i) => text && labelText(g, text, xTicks[i] * W + 3, H - 14));
+    }
     const curve = render ? render(points, Math.max(2, Math.round(W))) : renderEnvelope(points, Math.max(2, Math.round(W)), { smooth: smooth() });
     g.strokeStyle = cssVar('--envelope-vol');
     g.lineWidth = 2;
@@ -636,23 +639,53 @@ export function formatPoint(param, v) {
   return formatValue({ ...param, type: 'number', step: param.step || ((param.max ?? 1) - (param.min ?? 0)) / 100 }, v);
 }
 
-/** Frequency curve editor for a param of type 'curve' ([{ f, g }], f in Hz on a log axis, g in dB). */
-export function curveControl({ param, value, onChange, smooth = () => false }) {
+/** dB lines for a curve span: a step that gives about eight lines, from the top down. */
+export function dbTicks(min, max) {
+  const step = [3, 6, 12, 20, 24].find((s) => (max - min) / s <= 11) || 24;
+  const out = [];
+  for (let v = Math.floor(max / step) * step; v >= min; v -= step) out.push(v);
+  return out;
+}
+
+/**
+ * Frequency curve editor for a param of type 'curve' ([{ f, g }], f in Hz,
+ * g in dB) on a log axis with the dense log grid, or on a linear axis while
+ * linear() is true. dB lines are labelled down the right edge.
+ */
+export function curveControl({ param, value, onChange, smooth = () => false, linear = null }) {
   const fMin = 20;
   const fMax = 20000;
-  const toT = (f) => clamp(Math.log(Math.max(fMin, f) / fMin) / Math.log(fMax / fMin), 0, 1);
-  const toF = (t) => fMin * Math.pow(fMax / fMin, t);
+  const isLinear = () => Boolean(linear?.());
+  const toT = (f) => (isLinear() ? clamp(f / fMax, 0, 1) : clamp(Math.log(Math.max(fMin, f) / fMin) / Math.log(fMax / fMin), 0, 1));
+  const toF = (t) => (isLinear() ? Math.max(fMin, t * fMax) : fMin * Math.pow(fMax / fMin, t));
   const conv = (pts) => (pts || []).map((p) => ({ t: toT(p.f), v: p.g }));
   const fText = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`);
-  const ticks = [100, 1000, 10000];
+  const prm = { min: -60, max: 24, unit: 'dB', ...param };
+  const ticks = dbTicks(prm.min, prm.max);
   const el = envelopeControl({
-    param: { min: -60, max: 24, unit: 'dB', ...param },
+    param: prm,
     value: conv(value),
     onChange: (pts) => onChange(pts.map((p) => ({ f: Math.round(toF(p.t) * 10) / 10, g: Math.round(p.v * 10) / 10 }))),
     xLabel: (t) => fText(toF(t)),
-    xTicks: ticks.map(toT),
-    xTickLabels: ['100', '1k', '10k'],
     smooth,
+    grid: (g, W, H, yOf) => {
+      const ys = ticks.map(yOf);
+      if (isLinear()) {
+        const xs = [];
+        for (let f = 1000; f < fMax; f += 1000) xs.push(f);
+        g.save();
+        g.globalAlpha = 0.45;
+        gridLines(g, W, H, xs.filter((f) => f % 5000).map((f) => toT(f) * W), []);
+        g.restore();
+        gridLines(g, W, H, xs.filter((f) => f % 5000 === 0).map((f) => toT(f) * W), ys);
+        const every = W < 360 ? 5000 : 2000;
+        for (let f = every; f < fMax; f += every) labelText(g, `${f / 1000}k`, toT(f) * W + 3, H - 14);
+      } else freqGridLines(g, W, H, (f) => toT(f) * W, { fMin, fMax, ys });
+      ticks.forEach((v, i) => {
+        const y = yOf(v);
+        if (y > 4 && y < H - 18) labelText(g, i === 0 ? `${v} dB` : String(v), W - 4, y + 2, 'right');
+      });
+    },
   });
   const set = el.setPoints;
   el.setPoints = (pts) => set(conv(pts));
