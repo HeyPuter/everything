@@ -42,6 +42,20 @@
   background: var(--accent);
 }
 
+/* A small grip in the middle says the boundary can be dragged. */
+.spec-divider::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 28px;
+  height: 4px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: repeating-linear-gradient(to right, var(--text-faint) 0 2px, transparent 2px 4px);
+  opacity: 0.8;
+}
+
 .spec-divider:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
