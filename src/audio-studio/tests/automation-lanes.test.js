@@ -424,3 +424,43 @@ describe('saving the new session settings', () => {
     expect(state.metronomePattern).toEqual(['down', 'none', 'sub', 'up']);
   });
 });
+
+describe('effect setting automation', () => {
+  it('lists numeric effect settings as lanes and plays them through the effect host', async () => {
+    const { fxAutomationParams, laneInfo, laneParams } = await import('../src/multitrack/fx-automation.js');
+    const { FxHost } = await import('../src/engine/fxhost.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    st = S.updateTrack(st, id, { fx: [{ id: 'sA', effect: 'amplify', values: { left: 0, right: 0, linked: true }, enabled: true }] });
+    const t = S.findTrack(st, id);
+    const params = fxAutomationParams(t);
+    expect(params.map((p) => p.id)).toEqual(['fx.sA.left', 'fx.sA.right']);
+    expect(laneParams(t)).toContain('fx.sA.left');
+    const info = laneInfo(t, 'fx.sA.left');
+    expect(info.label).toBe('Amplify: Left');
+    expect(info.toPos(-96)).toBe(0);
+    expect(info.fromPos(1)).toBe(48);
+    expect(info.value).toBe(0);
+    st = S.setAutomation(st, id, 'fx.sA.left', [{ t: 0, v: -12 }, { t: 1000, v: 6 }]);
+    const spec = buildSessionGraph(st, new Map()).graph.tracks[0].fx[0];
+    expect(spec.paramEnv).toEqual([{ index: 0, points: [{ t: 0, v: -12 }, { t: 1000, v: 6 }] }]);
+    // Mode Off leaves the settings alone.
+    expect(buildSessionGraph(S.updateTrack(st, id, { mode: 'off' }), new Map()).graph.tracks[0].fx[0].paramEnv).toBeUndefined();
+    // The host sets the parameter from the block position.
+    const calls = [];
+    const host = Object.create(FxHost.prototype);
+    host.x = { fx_set: (h, i, v) => calls.push([h, i, v]) };
+    const inst = { handle: 7, params: [0, 0, 1] };
+    host.automate({ paramEnv: spec.paramEnv, inst }, 500);
+    expect(calls).toEqual([[7, 0, -3]]);
+    host.automate({ paramEnv: spec.paramEnv, inst }, 500);
+    expect(calls.length).toBe(1);
+  });
+
+  it('keeps effect lanes with their slot and drops them with it', () => {
+    const t = S.createTrack({ showAutomation: true, lanes: ['fx.sA.left', 'volume'], fx: [{ id: 'sA', effect: 'amplify', values: {} }], automation: { 'fx.sA.left': [{ t: 0, v: 1 }] } });
+    expect(t.automation['fx.sA.left']).toEqual([{ t: 0, v: 1 }]);
+    expect(S.trackLanes(t)).toEqual(['fx.sA.left', 'volume']);
+    expect(S.trackLanes({ ...t, fx: [] })).toEqual(['volume']);
+  });
+});

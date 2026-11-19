@@ -327,11 +327,11 @@ function addInto(track, src, dst, frames) {
  * The dry signal is delayed by `fxLatency` frames, the wet slots' processing
  * delay, so the two line up instead of comb filtering.
  */
-function runChain(track, buf, frames, scratch, runFx) {
+function runChain(track, buf, frames, scratch, runFx, at) {
   const mix = track.fxMix ?? 1;
   const n = track.fxWet || 0;
   if (mix >= 1 || !n) {
-    runFx(track.fx, buf, frames);
+    runFx(track.fx, buf, frames, at);
     return;
   }
   if (track.fxParts?.src !== track.fx) track.fxParts = { src: track.fx, wet: track.fx.slice(0, n), rest: track.fx.slice(n) };
@@ -341,7 +341,7 @@ function runChain(track, buf, frames, scratch, runFx) {
   for (let c = 0; c < nch; c++) dry[c].set(buf[c].subarray(0, frames));
   const lat = track.fxLatency || 0;
   if (lat > 0) delayDry(scratch, track.id ?? 'master', dry, nch, frames, lat);
-  runFx(track.fxParts.wet, buf, frames);
+  runFx(track.fxParts.wet, buf, frames, at);
   const d = (1 - Math.max(0, mix)) * (track.fxDry ?? 1);
   const w = Math.max(0, mix);
   for (let c = 0; c < nch; c++) {
@@ -349,7 +349,7 @@ function runChain(track, buf, frames, scratch, runFx) {
     const x = dry[c];
     for (let i = 0; i < frames; i++) b[i] = b[i] * w + x[i] * d;
   }
-  if (track.fxParts.rest.length) runFx(track.fxParts.rest, buf, frames);
+  if (track.fxParts.rest.length) runFx(track.fxParts.rest, buf, frames, at);
 }
 
 /** Delays `frames` of the dry channels in place by `lat` frames (a ring per track in scratch). */
@@ -476,7 +476,7 @@ export function compensateLatency(graph) {
 /**
  * Renders one block of `frames` frames starting at timeline frame `pos` into
  * `master` (stereo planar Float32Array[2]). Per-track peaks are written into
- * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames)`
+ * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames, pos)`
  * applies an effect chain in place to a stereo planar buffer.
  */
 const plans = new WeakMap();
@@ -605,7 +605,7 @@ function clipBuffer(scratch, id, frames) {
 /**
  * Renders one block of `frames` frames starting at timeline frame `pos` into
  * `master` (stereo planar Float32Array[2]). Per-track peaks are written into
- * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames)`
+ * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames, pos)`
  * applies an effect chain in place to a stereo planar buffer.
  */
 export function renderBlock(graph, store, pos, frames, master, scratch, { meters, runFx, missing } = {}) {
@@ -712,7 +712,8 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       }
     }
     if (track.fx && track.fx.length && runFx) {
-      runChain(track, tbuf, frames, scratch, runFx);
+      // Effect automation is read where the track's audio is (latency compensation runs it ahead).
+      runChain(track, tbuf, frames, scratch, runFx, pos + (track.envShift || 0));
       active = true;
     }
     if (!active) {
@@ -777,7 +778,7 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
     }
   }
   const m = graph.master || {};
-  if (m.fx && m.fx.length && runFx) runChain(m, surround ? master.slice(0, 6) : master, frames, scratch, runFx);
+  if (m.fx && m.fx.length && runFx) runChain(m, surround ? master.slice(0, 6) : master, frames, scratch, runFx, pos + (m.envShift || 0));
   const mg = (m.invert ? -1 : 1) * (m.gain ?? 1);
   const mvol = envelopeFrames(m.volumeEnv, pos, frames, scratch, 0, 1);
   const m0 = mg * envelopeAt(m.volumeEnv, pos);
@@ -848,7 +849,7 @@ function renderSix(graph, store, pos, frames, track, plan, master, scratch, { me
     return;
   }
   // Surround-capable effects (the stereo ones are left out on six channels).
-  if (track.fx?.length && runFx) runChain(track, buf, frames, scratch, runFx);
+  if (track.fx?.length && runFx) runChain(track, buf, frames, scratch, runFx, pos + (track.envShift || 0));
   const g = (track.invert ? -1 : 1) * track.gain;
   const at = pos + (track.envShift || 0);
   const vol = envelopeFrames(track.volumeEnv, at, frames, scratch, 0, 1);

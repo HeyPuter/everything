@@ -16,6 +16,7 @@ import { MeterBar } from '../multitrack/meter.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
 import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
 import { pickCustomColor } from '../multitrack/custom-color.js';
+import { fxAutomationParams, laneInfo, laneParams } from '../multitrack/fx-automation.js';
 
 export class TrackHeader {
   /**
@@ -196,19 +197,30 @@ export class TrackHeader {
     const lanes = trackLanes(track);
     const state = this.doc.state;
     const busName = (id) => state.tracks.find((b) => b.id === id)?.name || '';
-    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode, (track.sends || []).map((x) => (x?.target ? busName(x.target) : ''))]);
+    const key = JSON.stringify([lanes, lanes.map((p) => Boolean(track.automation[p]?.length)), track.mode, (track.sends || []).map((x) => (x?.target ? busName(x.target) : '')), (track.fx || []).map((x) => (x ? `${x.id}:${x.effect}` : ''))]);
     if (this.lanesKey === key) return;
     this.lanesKey = key;
     const run = (cmd, args) => this.app.commands.run(cmd, { id: this.id, ...args });
     const params = automationParams(track);
+    const fxParams = fxAutomationParams(track);
     const label = (p) => {
       const i = sendIndexOf(p);
       if (i >= 0) return `Send ${i + 1}${track.sends?.[i]?.target ? ` (${busName(track.sends[i].target)})` : ''}`;
-      return AUTOMATION_PARAMS.find((x) => x.id === p)?.label || p;
+      return AUTOMATION_PARAMS.find((x) => x.id === p)?.label || laneInfo(track, p).label;
+    };
+    // Track parameters first, then each effect's settings under its name.
+    const options = (param) => {
+      const base = [...new Set([...params, ...(fxParams.some((x) => x.id === param) ? [] : [param])])].map((p) => h('option', { value: p, selected: p === param }, label(p)));
+      const groups = new Map();
+      for (const x of fxParams) {
+        if (!groups.has(x.effect)) groups.set(x.effect, []);
+        groups.get(x.effect).push(h('option', { value: x.id, selected: x.id === param }, `${x.effect}: ${x.label}`));
+      }
+      return [...base, ...[...groups].map(([name, opts]) => h('optgroup', { label: name }, opts))];
     };
     const rows = lanes.map((param, lane) => {
       const name = label(param);
-      const sel = h('select.select.mt-th-select.mt-lane-param', { 'aria-label': `Automation lane ${lane + 1} parameter`, title: 'Lane Parameter' }, [...new Set([...params, param])].map((p) => h('option', { value: p, selected: p === param }, label(p))));
+      const sel = h('select.select.mt-th-select.mt-lane-param', { 'aria-label': `Automation lane ${lane + 1} parameter`, title: 'Lane Parameter' }, options(param));
       sel.addEventListener('change', () => run('mt.setAutomationParam', { param: sel.value, lane }));
       sel.addEventListener('keydown', (e) => e.stopPropagation());
       const btn = (ic, text, cmd, extra = {}) => h('button.icon-btn.sm.mt-lane-btn', { type: 'button', 'aria-label': `${text} (${name})`, title: text, onclick: () => run(cmd, { param, lane }), ...extra }, icon(ic, 13));
@@ -225,7 +237,7 @@ export class TrackHeader {
       );
     });
     this.lanesEl.replaceChildren(...rows, ...(rows.length ? [this.laneResize] : []));
-    this.addLaneBtn.disabled = !params.some((p) => !lanes.includes(p));
+    this.addLaneBtn.disabled = !laneParams(track).some((p) => !lanes.includes(p));
   }
 
   #bindGrip() {

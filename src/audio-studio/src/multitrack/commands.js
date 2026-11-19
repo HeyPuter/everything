@@ -39,6 +39,7 @@ const ALIGN_PRECISIONS = [
   { id: 'high', label: 'High (slow)' },
 ];
 import { pickCustomColor } from './custom-color.js';
+import { laneParams } from './fx-automation.js';
 import { templateFromState, stateFromTemplate, userTemplates, saveTemplate, deleteTemplate } from './templates.js';
 import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
@@ -1100,12 +1101,12 @@ export function installMultitrackCommands(app) {
       label: 'Add Automation Lane',
       enabled: (a, args) => {
         const t = selTrack(a, args);
-        return Boolean(t) && S.automationParams(t).some((p) => !S.trackLanes(t).includes(p));
+        return Boolean(t) && laneParams(t).some((p) => !S.trackLanes(t).includes(p));
       },
       run: (a, args) => {
         const t = selTrack(app, args);
         const lanes = S.trackLanes(t);
-        const next = S.automationParams(t).find((p) => !lanes.includes(p));
+        const next = laneParams(t).find((p) => !lanes.includes(p));
         session(app).amendView((st) => S.updateTrack(S.setTrackLanes(st, t.id, [...lanes, next]), t.id, { showAutomation: true }));
       },
     },

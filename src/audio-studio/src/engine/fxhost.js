@@ -10,10 +10,29 @@
 // channels feed the effect and which channels receive its output.
 // A slot with `channels: 6` (a surround-capable effect on a 5.1 chain) is
 // created for six channels; run() over a 6-channel buffer processes those
-// slots and leaves the stereo ones out.
+// slots and leaves the stereo ones out. A slot's `paramEnv` ([{ index, points:
+// [{ t, v }] }], automation) sets those parameters from the timeline position
+// passed to run() at the start of every block.
 
 const MAX_FRAMES = 8192;
 const READOUT_MAX = 64;
+
+/** Linear breakpoint value at `t` (flat outside the points). */
+function envelopeValueAt(points, t) {
+  if (t <= points[0].t) return points[0].v;
+  const last = points[points.length - 1];
+  if (t >= last.t) return last.v;
+  let lo = 0;
+  let hi = points.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].t <= t) lo = mid;
+    else hi = mid;
+  }
+  const a = points[lo];
+  const b = points[hi];
+  return a.v + ((b.v - a.v) * (t - a.t)) / (b.t - a.t || 1);
+}
 
 export class FxHost {
   constructor(instance, rate) {
@@ -65,9 +84,22 @@ export class FxHost {
       // (otherwise offline renders begin with a parameter ramp).
       if (created) this.x.fx_reset(s.handle);
       s.readout = Boolean(spec.readout);
-      live.push({ handle: s.handle, channels, enabled: spec.enabled !== false, shadow: Boolean(spec.shadow), mix: spec.mix ?? 1, key: spec.key, route: spec.route || null });
+      live.push({ handle: s.handle, channels, enabled: spec.enabled !== false, shadow: Boolean(spec.shadow), mix: spec.mix ?? 1, key: spec.key, route: spec.route || null, paramEnv: spec.paramEnv?.length ? spec.paramEnv : null, inst: s });
     }
     return live;
+  }
+
+  /** Applies a slot's parameter automation at timeline frame `pos`. */
+  automate(slot, pos) {
+    if (!slot.paramEnv) return;
+    const s = slot.inst;
+    for (const { index, points } of slot.paramEnv) {
+      const v = envelopeValueAt(points, pos);
+      if (s.params[index] !== v) {
+        this.x.fx_set(s.handle, index, v);
+        s.params[index] = v;
+      }
+    }
   }
 
   /** Copies a Float32Array into WASM memory for fx_data (the effect keeps its own copy). */
@@ -138,9 +170,10 @@ export class FxHost {
    * Runs a resolved chain over 5.1 planar `buf` (Float32Array[6]) in place:
    * only the six-channel slots process it (the others are stereo effects).
    */
-  runSix(chain, buf, frames) {
+  runSix(chain, buf, frames, pos) {
     const slots = chain.filter((c) => c.channels === 6 && (c.enabled || c.shadow));
     if (!slots.length) return;
+    if (pos != null) for (const slot of slots) this.automate(slot, pos);
     for (let at = 0; at < frames; at += MAX_FRAMES) {
       const n = Math.min(MAX_FRAMES, frames - at);
       let heap = new Float32Array(this.memory, this.buf, 6 * n);
@@ -162,12 +195,13 @@ export class FxHost {
   }
 
   /** Runs a resolved chain over stereo planar `buf` (Float32Array[2], or [6] for 5.1: runSix) in place. */
-  run(chain, buf, frames) {
+  run(chain, buf, frames, pos) {
     if (buf.length >= 6) {
-      this.runSix(chain, buf, frames);
+      this.runSix(chain, buf, frames, pos);
       return;
     }
     if (!chain.some((c) => c.channels !== 6 && (c.enabled || c.shadow))) return;
+    if (pos != null) for (const slot of chain) this.automate(slot, pos);
     for (let at = 0; at < frames; at += MAX_FRAMES) {
       const n = Math.min(MAX_FRAMES, frames - at);
       let heap = new Float32Array(this.memory, this.buf, 2 * n);

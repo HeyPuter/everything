@@ -7,7 +7,8 @@
 //    lane, heard live through graph overrides, committed as one undo step
 //    when playback stops.
 
-import { findTrack, updateTrack, setAutomation, setSend, writeEnvelopeRange, envelopeValue, muteSteps, trackLanes, staticValue, sendIndexOf } from '../model/session-edits.js';
+import { findTrack, updateTrack, setAutomation, setSend, writeEnvelopeRange, envelopeValue, muteSteps, trackLanes, staticValue, sendIndexOf, fxParamRef } from '../model/session-edits.js';
+import { laneInfo } from './fx-automation.js';
 
 const RECORDING = new Set(['write', 'latch', 'touch']);
 const AUTO_LABELS = { volume: 'Volume Automation', pan: 'Pan Automation', mute: 'Mute Automation' };
@@ -32,7 +33,7 @@ export class TrackControls {
     const o = this.doc.overrides[track.id];
     if (o && o[param] !== undefined) return o[param];
     const lane = track.automation?.[param];
-    const own = staticValue(track, param);
+    const own = fxParamRef(param) ? laneInfo(track, param).value : staticValue(track, param);
     if (param === 'mute') return track.mode !== 'off' && lane?.length ? envelopeValue(muteSteps(lane), frame, own) : own;
     if (track.mode !== 'off' && lane && lane.length) return envelopeValue(lane, frame, own);
     return own;
@@ -65,6 +66,11 @@ export class TrackControls {
       const key = { t, v: value, ...(param === 'mute' || (prev?.hold && Math.abs(prev.t - t) <= near) ? { hold: true } : {}) };
       const points = [...lane.filter((p) => Math.abs(p.t - t) > near), key];
       doc.apply(AUTO_LABELS[param] || 'Send Automation', setAutomation(doc.state, trackId, param, points), { coalesce: `auto:${trackId}:${param}` });
+    } else if (fxParamRef(param)) {
+      // An unautomated effect setting: change the slot's value.
+      const ref = fxParamRef(param);
+      const fx = track.fx.map((x) => (x?.id === ref.slotId ? { ...x, values: { ...x.values, [ref.paramId]: value } } : x));
+      doc.apply('Effect Settings', updateTrack(doc.state, trackId, { fx }), { coalesce: `fx:${trackId}:${param}` });
     } else if (sendIndexOf(param) >= 0) {
       const i = sendIndexOf(param);
       doc.apply('Track Send', setSend(doc.state, trackId, i, { level: value }), { coalesce: `send:${trackId}:${i}` });
@@ -183,7 +189,7 @@ export class TrackControls {
       if (!track) continue;
       let lane = track.automation[pass.param] || [];
       if (pass.param === 'mute') lane = muteSteps(lane);
-      const fallback = staticValue(track, pass.param);
+      const fallback = fxParamRef(pass.param) ? laneInfo(track, pass.param).value : staticValue(track, pass.param);
       pass.segments.forEach((seg, i) => {
         const last = i === pass.segments.length - 1;
         const end = last && !pass.done ? Math.max(pass.lastT, Math.round(stopFrame ?? pass.lastT)) : seg.points[seg.points.length - 1].t;

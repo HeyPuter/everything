@@ -31,6 +31,10 @@ import { isRemixed, remixSeams, MIN_REMIX_SECONDS } from '../model/clip-remix.js
 import { runRemix } from '../multitrack/remix-commands.js';
 import { VideoLane } from '../video/video-lane.js';
 import { PEAK_BLOCK } from '../multitrack/recorder.js';
+import { laneInfo, laneParams } from '../multitrack/fx-automation.js';
+
+/** Lane parameter descriptions per track state (tracks are immutable: a changed track is a new key). */
+const laneInfos = new WeakMap();
 import { TrackNav } from './track-nav.js';
 
 const HEADER_BAR = 16;
@@ -792,10 +796,19 @@ export class MultitrackView {
     return row.lanes?.find((l) => l.param === param) || row.lanes?.[0] || { top: row.autoTop, height: row.autoHeight };
   }
 
+  /** What a lane parameter of a track is (name, range, lane mapping), cached per track state. */
+  #info(track, param) {
+    let byParam = laneInfos.get(track);
+    if (!byParam) laneInfos.set(track, (byParam = new Map()));
+    let info = byParam.get(param);
+    if (!info) byParam.set(param, (info = laneInfo(track, param)));
+    return info;
+  }
+
   #autoY(row, param, v) {
     const lane = this.#lane(row, param);
     const top = lane.top - this.scrollY + 4;
-    return top + (1 - envPos(param, v)) * (lane.height - 8);
+    return top + (1 - this.#info(row.track, param).toPos(v)) * (lane.height - 8);
   }
 
   #autoPos(row, param, y) {
@@ -804,7 +817,7 @@ export class MultitrackView {
   }
 
   #autoValue(row, param, y) {
-    return envValueAt(param, this.#autoPos(row, param, y));
+    return this.#info(row.track, param).fromPos(this.#autoPos(row, param, y));
   }
 
   /**
@@ -1057,13 +1070,13 @@ export class MultitrackView {
         const pts = lanePoints(param, t.automation[param] || []);
         const color = param === 'pan' ? panColor : param === 'mute' ? cssVar('--text-dim') : volColor;
         ctx.fillStyle = cssVar('--text-dim');
-        ctx.fillText(`${laneName(param)}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
+        ctx.fillText(`${this.#info(t, param).label}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
         ctx.globalAlpha = t.mode === 'off' ? 0.45 : 1;
         ctx.beginPath();
         if (!pts.length) {
-          const y = this.#autoY(row, param, S.staticValue(t, param));
+          const y = this.#autoY(row, param, this.#info(t, param).value);
           ctx.setLineDash([4, 3]);
           ctx.moveTo(0, y);
           ctx.lineTo(W, y);
@@ -1359,7 +1372,7 @@ export class MultitrackView {
       for (let i = pts.length - 1; i >= 0; i--) {
         if (Math.abs(this.xOf(pts[i].t) - x) <= near && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= near) return { part: 'autoKey', row, param, index: i, auto: true };
       }
-      const fallback = S.staticValue(t, param);
+      const fallback = this.#info(t, param).value;
       const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), fallback) : fallback;
       if (Math.abs(this.#autoY(row, param, v) - y) <= (touch ? 10 : 4)) return { part: 'autoLine', row, param, auto: true };
       return { part: 'auto', row, param, auto: true };
@@ -1728,7 +1741,7 @@ export class MultitrackView {
       const seg = segmentKeys(pts, f);
       if (seg) {
         doc.selectedKeys = { owner: t.id, param: hit.param, indices: seg.indices };
-        this.drag = { ...base, kind: 'autoKey', trackId: t.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: this.#autoPos(hit.row, hit.param, y) };
+        this.drag = { ...base, kind: 'autoKey', trackId: t.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: this.#autoPos(hit.row, hit.param, y), info: this.#info(t, hit.param) };
         this.invalidate('overlay');
         return;
       }
@@ -1748,7 +1761,7 @@ export class MultitrackView {
         doc.preview(S.setAutomation(doc.state, t.id, param, pts));
       }
       const pick = this.#pickKeys(e, t.id, param, index, hit.part === 'autoLine');
-      this.drag = { ...base, kind: 'autoKey', trackId: t.id, param, index, pts, added: hit.part === 'autoLine', ...pick };
+      this.drag = { ...base, kind: 'autoKey', trackId: t.id, param, index, pts, added: hit.part === 'autoLine', ...pick, info: this.#info(t, param) };
       this.invalidate('overlay');
       return;
     }
@@ -1872,7 +1885,9 @@ export class MultitrackView {
   #movedKeys(d, e, x, y, t, pos, end) {
     const pts = d.pts;
     const lead = pts[d.index];
-    const pos0 = envPos(d.param, lead.v);
+    const toPos = d.info ? d.info.toPos : (v) => envPos(d.param, v);
+    const fromPos = d.info ? d.info.fromPos : (pos) => envValueAt(d.param, pos);
+    const pos0 = toPos(lead.v);
     if (d.vertical) {
       // A segment moves by how far the pointer moved, without jumping to it.
       t = lead.t;
@@ -1897,8 +1912,8 @@ export class MultitrackView {
     return pts.map((p, i) => {
       if (!d.indices.has(i)) return p;
       let v = p.v;
-      if (i === d.index) v = envValueAt(d.param, pos);
-      else if (dpos) v = envValueAt(d.param, Math.max(0, Math.min(1, envPos(d.param, p.v) + dpos)));
+      if (i === d.index) v = fromPos(pos);
+      else if (dpos) v = fromPos(Math.max(0, Math.min(1, toPos(p.v) + dpos)));
       return { ...p, t: p.t + dt, v };
     });
   }
@@ -2012,7 +2027,7 @@ export class MultitrackView {
         if (!row) break;
         const pts = this.#movedKeys(d, e, x, y, this.snap(this.frameAt(x), { off: fine }), this.#autoPos(row, d.param, y), Infinity);
         doc.preview(S.setAutomation(d.state0, d.trackId, d.param, pts));
-        this.#status(keyText(d.param, pts[d.index].v));
+        this.#status(d.info ? d.info.format(pts[d.index].v) : keyText(d.param, pts[d.index].v));
         break;
       }
       case 'keyBand': {
@@ -2107,7 +2122,7 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${laneName(d.param)} Automation` };
+    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
@@ -2247,7 +2262,7 @@ export class MultitrackView {
       items.push(
         { type: 'cmd', label: 'Clear Lane', enabled: pts.length > 0, run: () => run('mt.clearAutomation') },
         { type: 'sep' },
-        { type: 'cmd', label: 'Add Automation Lane', enabled: Boolean(t && S.automationParams(t).some((p) => !S.trackLanes(t).includes(p))), run: () => run('mt.addAutomationLane') },
+        { type: 'cmd', label: 'Add Automation Lane', enabled: Boolean(t && laneParams(t).some((p) => !S.trackLanes(t).includes(p))), run: () => run('mt.addAutomationLane') },
         { type: 'cmd', label: 'Close Lane', enabled: true, run: () => run('mt.removeAutomationLane', { lane: S.trackLanes(t).indexOf(param) }) },
       );
     } else {

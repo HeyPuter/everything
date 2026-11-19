@@ -72,7 +72,7 @@ export const LANE_HEIGHT = 46;
 
 function copyLanes(a) {
   const out = {};
-  for (const [k, v] of Object.entries(a || {})) if (sendIndexOf(k) >= 0 && Array.isArray(v)) out[k] = v.slice();
+  for (const [k, v] of Object.entries(a || {})) if ((sendIndexOf(k) >= 0 || fxParamRef(k)) && Array.isArray(v)) out[k] = v.slice();
   return out;
 }
 
@@ -96,15 +96,26 @@ export function automationParams(t) {
   return [...base, ...sends];
 }
 
-/** A parameter's own (unautomated) value: the switch, knob or send level. */
+/** Automation parameter of an effect setting: `fx.<slot id>.<param id>` (the track's rack). */
+export const fxParam = (slotId, paramId) => `fx.${slotId}.${paramId}`;
+
+/** { slotId, paramId } of an effect automation parameter, or null. */
+export function fxParamRef(param) {
+  const m = /^fx\.([^.]+)\.(.+)$/.exec(param || '');
+  return m ? { slotId: m[1], paramId: m[2] } : null;
+}
+
+/** A parameter's own (unautomated) value: the switch, knob, send level or effect setting (undefined: its default). */
 export function staticValue(t, param) {
+  const ref = fxParamRef(param);
+  if (ref) return t.fx?.find((x) => x?.id === ref.slotId)?.values?.[ref.paramId];
   const i = sendIndexOf(param);
   if (i >= 0) return t.sends?.[i]?.level ?? 0;
   return param === 'mute' ? Number(t.mute) : t[param];
 }
 
 function cleanLanes(type, lanes, first) {
-  const ok = (p) => automationParams(type).includes(p) || (type !== 'master' && sendIndexOf(p) >= 0);
+  const ok = (p) => automationParams(type).includes(p) || (type !== 'master' && sendIndexOf(p) >= 0) || Boolean(fxParamRef(p));
   const list = (Array.isArray(lanes) && lanes.length ? lanes : [first || 'volume']).filter((p, i, a) => ok(p) && a.indexOf(p) === i);
   return list.length ? list : ['volume'];
 }
@@ -112,7 +123,12 @@ function cleanLanes(type, lanes, first) {
 /** Automation lanes shown under a track (none while its lanes are closed); lanes of removed sends drop out. */
 export function trackLanes(t) {
   if (!t.showAutomation) return [];
-  const list = (t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume']).filter((p) => sendIndexOf(p) < 0 || t.sends?.[sendIndexOf(p)]);
+  const has = (p) => {
+    const ref = fxParamRef(p);
+    if (ref) return t.fx?.some((x) => x?.id === ref.slotId);
+    return sendIndexOf(p) < 0 || Boolean(t.sends?.[sendIndexOf(p)]);
+  };
+  const list = (t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume']).filter(has);
   return list.length ? list : ['volume'];
 }
 
@@ -220,7 +236,7 @@ export function createTrack(o = {}) {
     fxMix: o.fxMix ?? 1,
     invert: Boolean(o.invert),
     mode: o.mode || 'read',
-    // Send level lanes (send1..send8) are kept too.
+    // Send level lanes (send1..send8) and effect setting lanes (fx.<slot>.<param>) are kept too.
     automation: { ...copyLanes(o.automation), volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice(), mute: (o.automation?.mute || []).slice() },
     showAutomation: Boolean(o.showAutomation),
     autoParam: o.autoParam || 'volume',

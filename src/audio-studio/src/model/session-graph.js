@@ -14,7 +14,7 @@
 
 import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope, sendParam } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope, sendParam, fxParamRef } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
 import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
@@ -31,6 +31,7 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
   if (!t.fxPower) return { fx: [] };
   const slots = slotSpecs(t.fx, `trk:${t.id}`, rateDoc, channels);
   if (!slots.length) return { fx: [] };
+  automateSlots(t, slots, `trk:${t.id}`);
   const inGain = t.fxIn ? gainSpec(`trk:${t.id}:in`, t.fxIn) : null;
   const wet = inGain ? [inGain, ...slots] : slots;
   const out = t.fxOut ? gainSpec(`trk:${t.id}:out`, t.fxOut) : null;
@@ -44,6 +45,24 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
     Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0), fxLatency });
   }
   return r;
+}
+
+/**
+ * Effect setting automation: each automated setting of a rack slot becomes a `paramEnv`
+ * entry ({ index into the slot's params, points }) the effect host applies every block.
+ * Lanes are read in every mode but Off.
+ */
+function automateSlots(t, specs, prefix) {
+  if (t.mode === 'off' || !t.automation) return;
+  for (const [param, pts] of Object.entries(t.automation)) {
+    const ref = pts?.length ? fxParamRef(param) : null;
+    if (!ref) continue;
+    const spec = specs.find((sp) => sp.key === `${prefix}:${ref.slotId}`);
+    const def = getEffect(t.fx.find((x) => x?.id === ref.slotId)?.effect);
+    const index = def ? def.params.findIndex((p) => p.id === ref.paramId) : -1;
+    if (!spec || index < 0) continue;
+    (spec.paramEnv ||= []).push({ index, points: expandHolds(pts).map((p) => ({ t: p.t, v: p.v })) });
+  }
 }
 
 /** Processing delay (frames) of a track's or the master's rack: its switched-on slots, in series. */
