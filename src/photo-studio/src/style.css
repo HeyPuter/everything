@@ -208,7 +208,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 /* Options bar */
 .optionsbar { display: flex; align-items: center; gap: 6px; padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden; }
 .active-tool-icon { display: grid; place-items: center; width: 28px; height: 26px; border-right: 1px solid var(--line-soft); padding-right: 6px; }
-.mode-switch { display: inline-flex; flex: none; padding: 2px; gap: 2px; border: 1px solid var(--input-line); border-radius: 6px; background: var(--input); margin-right: 4px; }
+.mode-switch { display: inline-flex; flex: none; padding: 2px; gap: 2px; border: 1px solid var(--input-line); border-radius: 6px; background: var(--input); margin-right: 8px; }
 .mode-switch[hidden] { display: none; }
 .mode-switch button { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .mode-switch button:hover { color: var(--text); }

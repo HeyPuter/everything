@@ -2,7 +2,7 @@
 // quick actions bar and shows the essential tools (the others stay in the
 // Extra Tools flyout and keep their shortcuts); Pro brings back the
 // workspace exactly as it was before Assisted was chosen. The choice is a
-// preference; a two-part switch at the start of the options bar changes it
+// preference; a two-part switch in the top bar, beside the search button, changes it
 // and Window › Editor Mode shows or hides that switch.
 import type { Editor } from '../../editor';
 import { contributeMenu, registerCommand } from '../../app/registry';
@@ -86,8 +86,9 @@ export function installEditorMode(e: Editor) {
     setMode(next);
     buttons.find((b) => b.dataset.mode === next)?.focus();
   });
-  const bar = e.root.querySelector('.optionsbar');
-  bar?.insertBefore(sw, bar.firstChild);
+  // In the top bar, where it doesn't take width from tool options.
+  const top = e.root.querySelector('.top-actions');
+  top?.insertBefore(sw, top.firstChild);
 
   /** Bring the workspace into a mode (without storing the preference). */
   const apply = (mode: EditorMode, first = false) => {
@@ -159,7 +160,7 @@ export function installEditorMode(e: Editor) {
       id: 'window.mode-switch',
       label: 'Show Mode Switch',
       recordable: false,
-      description: 'Show or hide the Assisted/Pro switch at the start of the options bar',
+      description: 'Show or hide the Assisted/Pro switch in the top bar',
       checked: (ed) => ed.preferences.showModeSwitch,
       run: (ed) => {
         ed.preferences.showModeSwitch = !ed.preferences.showModeSwitch;

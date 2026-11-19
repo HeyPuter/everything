@@ -257,7 +257,7 @@ export const SETTINGS: SettingDef[] = [
   { page: 'interface', section: 'Behavior', type: 'boolean', key: 'panelAnimations', label: 'Enable panel animations', default: true, keywords: 'motion transitions reduce' },
   // ----- Workspace -----
   { page: 'workspace', section: 'Editor mode', type: 'choice', key: 'editorMode', label: 'Editor mode', default: 'pro', options: [['pro', 'Pro (the full workspace)'], ['assisted', 'Assisted (Assistant, quick actions, essential tools)']], help: 'Assisted opens the Assistant and the quick actions bar and shows the essential tools; Pro brings back the workspace as you left it.', keywords: 'simple beginner ai guided' },
-  { page: 'workspace', section: 'Editor mode', type: 'boolean', key: 'showModeSwitch', label: 'Show the Assisted/Pro switch in the options bar', default: true, keywords: 'simple beginner ai guided' },
+  { page: 'workspace', section: 'Editor mode', type: 'boolean', key: 'showModeSwitch', label: 'Show the Assisted/Pro switch in the top bar', default: true, keywords: 'simple beginner ai guided' },
   { page: 'workspace', section: 'Panels', type: 'boolean', key: 'autoCollapsePanels', label: 'Auto-collapse icon panels', default: false, help: 'A panel opened from the icon strip closes when you click elsewhere.' },
   { page: 'workspace', section: 'Documents', type: 'boolean', key: 'openAsTabs', label: 'Open documents as tabs', default: true, help: 'Otherwise new documents open in floating windows.' },
   { page: 'workspace', section: 'Documents', type: 'boolean', key: 'floatDocking', label: 'Enable floating document window docking', default: true, help: 'Dropping a floating window’s title bar on the tab bar docks it as a tab.' },
