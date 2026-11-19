@@ -670,3 +670,18 @@ describe('ripple edits and automation', () => {
     expect(S.findTrack(r, b.id).automation.volume).toEqual([{ t: 3500, v: -6 }]);
   });
 });
+
+describe('saving open files with a session', () => {
+  it('keeps referenced files without clips in the saved session', async () => {
+    const { serializeSession, parseSession } = await import('../src/model/session-io.js');
+    const { referenceOpenFiles } = await import('../src/multitrack/storage.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { app, doc } = await appWithSession();
+    const file = new AudioFile({ name: 'loose.wav', sampleRate: RATE, channels: [Channel.fromSamples(new Float32Array(480).fill(0.2))] });
+    app.addDocument(file, { activate: false });
+    expect(parseSession(serializeSession(doc).text).sources).toHaveLength(0);
+    await referenceOpenFiles(app, doc);
+    const saved = parseSession(serializeSession(doc).text);
+    expect(saved.sources.map((x) => x.name)).toEqual(['loose.wav']);
+  });
+});

@@ -223,7 +223,7 @@ export function sessionPropertySection(app, doc) {
       row('Tempo (BPM)', tempo, tempoId),
       row('Beats per Bar', beats, beatsId),
       row('Beat Note', note, noteId),
-      h('div.prop-checks', check('Crossfade overlapping clips', state.autoCrossfade !== false, (v) => doc.apply(v ? 'Automatic Crossfades On' : 'Automatic Crossfades Off', { ...doc.state, autoCrossfade: v }))),
+      h('div.prop-checks', check('Crossfade overlapping clips', state.autoCrossfade !== false, (v) => doc.apply(v ? 'Automatic Crossfades On' : 'Automatic Crossfades Off', { ...doc.state, autoCrossfade: v })), check('Save open audio files with the session', Boolean(app.prefs.get('sessionIncludeOpenFiles')), (v) => app.prefs.set('sessionIncludeOpenFiles', v))),
       text('Tracks', String(state.tracks.length)),
       text('Clips', String(state.clips.length)),
     ),

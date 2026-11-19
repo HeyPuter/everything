@@ -7,7 +7,7 @@ import { Session } from '../model/session.js';
 import { serializeSession, parseSession, sessionBaseName, SESSION_EXT } from '../model/session-io.js';
 import { encodeWav, wavHeader } from '../audio/wav.js';
 import { audioFileFromBlob, downloadBlob, rememberRecent, OPENERS, EXTRA_ACCEPT } from '../storage/files.js';
-import { channelsAtRate } from './insert.js';
+import { channelsAtRate, linkSource } from './insert.js';
 import { zipStore, unzipStore } from '../lib/zip.js';
 import * as puter from '../storage/puter.js';
 import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
@@ -127,6 +127,7 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       path = item.path;
       name = item.name;
     }
+    if (app.prefs?.get('sessionIncludeOpenFiles')) await referenceOpenFiles(app, doc);
     // Different tabs may target the same file after Save As. Reserve its
     // complete preparation/upload sequence before waiting for any media work.
     return orderedDestination(app, path, async (paths) => {
@@ -134,12 +135,24 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       return writeCloudSession(app, doc, { path, name, copy, paths });
     });
   }
+  if (app.prefs?.get('sessionIncludeOpenFiles')) await referenceOpenFiles(app, doc);
   await prepareSessionMedia(doc);
   const { blob, fileName, state, snapshot } = await prepareSessionZip(doc);
   downloadBlob(blob, fileName);
   if (!copy) doc.markSaved(state, snapshot);
   app.setStatus(`Downloaded ${fileName}`);
   return true;
+}
+
+/**
+ * Adds every open audio file to the session's media (without clips), so the saved session
+ * brings them back into the Files panel when it is opened.
+ */
+export async function referenceOpenFiles(app, doc) {
+  for (const file of app.documents || []) {
+    if (file.kind !== 'audio' || !file.length) continue;
+    doc.referencedSources.add(await linkSource(doc, file));
+  }
 }
 
 async function writeCloudSession(app, doc, { path, name, copy, paths }) {
@@ -323,6 +336,8 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
       session.addSource({ id: src.id, name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: mediaSource.path || null });
       session.pool.get(src.id).stateRef = doc.state;
+      // Files saved without clips stay part of the session.
+      if (!parsed.state.clips.some((c) => [c.sourceId, c.stretch?.sourceId, c.remix?.sourceId, c.soundAssistant?.duration?.orig?.sourceId].includes(src.id))) session.referencedSources.add(src.id);
       if (mediaSource.path) savedMediaOf(session, source.path).set(src.id, { file: src.file, channels, sampleRate: doc.sampleRate });
     } catch {
       addOffline();

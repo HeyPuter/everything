@@ -54,6 +54,8 @@ export function serializeSession(session, { name = session.name, embedVideo = fa
   // A clip stretched by Sound Assistant Duration keeps its original audio for undoing the stretch.
   // A time-stretched clip keeps its original audio for restretching, a remixed clip for remixing again.
   const used = new Set(state.clips.flatMap((c) => [c.sourceId, c.soundAssistant?.duration?.orig?.sourceId, c.stretch?.sourceId, c.remix?.sourceId].filter(Boolean)));
+  // Files the session references without clips (saved with "Include all open audio files").
+  for (const id of session.referencedSources || []) if (session.pool.has(id)) used.add(id);
   const folder = mediaFolderName(name);
   // Reserve missing files too: a new source must not take their ZIP filename.
   const taken = new Set();
