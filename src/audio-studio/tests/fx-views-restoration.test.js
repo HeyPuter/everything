@@ -134,6 +134,25 @@ describe('dehummer view', () => {
     expect((await p).frequency).toBeLessThan(60);
   });
 
+  it('with Auto on shows the detected hum, draws its notches, and a dragged notch goes manual', async () => {
+    const app = fakeApp();
+    const rate = 48000;
+    const x = Float32Array.from({ length: rate * 3 }, (_, i) => 0.01 * Math.sin((2 * Math.PI * 50 * i) / rate) + 0.005 * Math.sin((2 * Math.PI * 150 * i) / rate));
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: rate, channels: [Channel.fromSamples(x)] });
+    app.active = doc;
+    const p = openEffectDialog(app, getEffect('dehummer'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    expect(dlg.querySelector('.hum-detected').textContent).toBe('Detected hum: 50.0 Hz');
+    const handle = dlg.querySelector('.fx-response .fx-handle');
+    expect(handle.getAttribute('aria-valuetext')).toMatch(/^50(\.0)? Hz/);
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(dlg.querySelector('.hum-detected').hidden).toBe(true);
+    dlg.querySelector('.btn.primary').click();
+    const v = await p;
+    expect(v.auto).toBe(false);
+    expect(v.frequency).toBeGreaterThan(50);
+  });
+
   it('draws the Output Hum Only curve the processor applies', async () => {
     const { instance } = await import('./fx-wasm.js');
     const { paramArray } = await import('../src/effects/registry.js');

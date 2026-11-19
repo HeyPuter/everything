@@ -8,7 +8,7 @@ import { Channel } from '../src/audio/channel.js';
 import { lastValues } from '../src/effects/presets.js';
 import { normalizeValues } from '../src/effects/params.js';
 import { memoryPrefs } from './fx-helpers.js';
-import { captureNoisePrint } from '../src/effects/defs/restoration.js';
+import { captureNoisePrint, detectHum } from '../src/effects/defs/restoration.js';
 import { dsp } from '../src/audio/dsp.js';
 
 describe('DeEsser defaults', () => {
@@ -157,5 +157,64 @@ describe('Hard Limiter: Maximize to Ceiling', () => {
     const doc = { state, selection: { start: 0, end: RATE } };
     expect(slotSpec(def, normalizeValues(def, { maximize: true, ceiling: -1 }), { doc }).params[1]).toBeCloseTo(boost([0, RATE]), 4);
     expect(boost(null)).toBeCloseTo(boost([RATE, 2 * RATE]), 4);
+  });
+});
+
+describe('DeHummer Auto', () => {
+  /** Hum at f0 with decaying harmonics, at `db` dBFS for the fundamental. */
+  const hum = (n, f0, db = -40, harmonics = 5, rate = RATE) => {
+    const x = new Float32Array(n);
+    const a = 10 ** (db / 20);
+    for (let h = 1; h <= harmonics; h++) for (let i = 0; i < n; i++) x[i] += (a / h) * Math.sin((2 * Math.PI * f0 * h * i) / rate + h);
+    return x;
+  };
+  const withSpeech = (f0, db = -40) => {
+    const sp = speech({ seconds: 6 });
+    const hm = hum(sp.x.length, f0, db);
+    return { sp, hm, x: sp.x.map((v, i) => v + hm[i]) };
+  };
+
+  for (const f0 of [50, 60, 59.8, 50.2]) {
+    it(`finds a ${f0} Hz hum under speech`, () => {
+      const { x } = withSpeech(f0);
+      const r = detectHum([x], RATE);
+      expect(r).not.toBeNull();
+      expect(Math.abs(r.frequency - f0)).toBeLessThan(0.15);
+    });
+  }
+
+  it('finds hum whose fundamental is weaker than its harmonics', () => {
+    const n = RATE * 4;
+    const x = hum(n, 50, -60, 1);
+    const h2 = hum(n, 100, -38, 3);
+    const r = detectHum([x.map((v, i) => v + h2[i] + 0.002 * Math.sin(i))], RATE);
+    expect(Math.abs(r.frequency - 50)).toBeLessThan(0.15);
+  });
+
+  it('reports nothing on speech or noise without hum', () => {
+    expect(detectHum([speech({ seconds: 6 }).x], RATE)).toBeNull();
+    expect(detectHum([gaussNoise(RATE * 4, 0.05, 9)], RATE)).toBeNull();
+  });
+
+  it('is the default and removes 50 Hz hum that a fixed 60 Hz setting misses', async () => {
+    const def = getEffect('dehummer');
+    expect(normalizeValues(def, {}).auto).toBe(true);
+    const { sp, hm, x } = withSpeech(50);
+    const state = { sampleRate: RATE, channels: [Channel.fromSamples(x)] };
+    const run = async (values) => {
+      const spec = slotSpec(def, normalizeValues(def, values), { state, range: [0, x.length] });
+      return (await dsp()).runEffect(def.kind, RATE, [x], spec.params)[0];
+    };
+    const residual = (y) => dbOf(segRms(y.map((v, i) => v - sp.x[i]), sp.pauses.slice(1)));
+    const before = residual(x);
+    expect(before - residual(await run({}))).toBeGreaterThan(15);
+    expect(before - residual(await run({ auto: false, frequency: 60 }))).toBeLessThan(3);
+    expect(dbOf(segRms(hm, sp.pauses.slice(1)))).toBeCloseTo(before, 0);
+  });
+
+  it('settings saved before Auto existed keep their fixed frequency', () => {
+    const def = getEffect('dehummer');
+    expect(normalizeValues(def, { frequency: 50, q: 30, gain: -40, harmonics: 6, slope: 75, humOnly: false }).auto).toBe(false);
+    expect(normalizeValues(def, def.presets.find((p) => p.name === 'Mains 50 Hz').values).auto).toBe(false);
   });
 });

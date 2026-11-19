@@ -10,7 +10,8 @@ import { icon } from '../../ui/icons.js';
 import { labelText, envelopeControl } from '../editors.js';
 import { controlsFor, disclosure, radioChoice, vSlider, groupBox, glyph, enableWhen, checkbox, readout } from '../layout.js';
 import { responseEditor, spectrumMonitor, hzLabel, needBanner } from './common.js';
-import { learnSoundModel, MAX_SOUND_SECONDS, captureNoisePrint, floorPoints, floorAt, FLOOR_DB } from '../defs/restoration.js';
+import { learnSoundModel, MAX_SOUND_SECONDS, captureNoisePrint, floorPoints, floorAt, FLOOR_DB, humIn } from '../defs/restoration.js';
+import { getEffect } from '../registry.js';
 import { dsp } from '../../audio/dsp.js';
 import { downloadBlob, pickLocalFiles } from '../../storage/files.js';
 import { encodeWav } from '../../audio/wav.js';
@@ -18,14 +19,43 @@ import { decodeAudio } from '../../audio/decode.js';
 
 // DeHummer: the comb of hum notches, with a handle on the base notch
 // (drag sideways for the hum frequency, down for depth; Alt+arrows or the
-// wheel change Q).
-const dehummer = responseEditor({
-  label: 'Hum filter response',
-  span: [-80, 6],
-  step: 10,
-  handles: (v) => [{ label: 'Base notch', freq: v.frequency, gain: v.gain, q: v.q, ids: { freq: 'frequency', gain: 'gain', q: 'q' } }],
-  centers: (v) => Array.from({ length: Math.max(1, Math.round(v.harmonics)) }, (_, k) => v.frequency * (k + 1)),
-});
+// wheel change Q). With Auto on, the graph shows the notches at the detected
+// fundamental, a line under it says what was found, and dragging the base
+// notch switches to a manual frequency.
+const dehummer = (ctx) => {
+  const def = getEffect('dehummer');
+  const hum = () => (ctx.values.auto ? humIn(ctx.doc?.state, ctx.range, ctx.doc) : null);
+  const shown = (v) => (v.auto ? { ...v, frequency: hum()?.frequency ?? v.frequency } : v);
+  const manual = Object.create(ctx);
+  manual.set = (id, value) => {
+    if (id === 'frequency' && ctx.values.auto) ctx.set('auto', false);
+    ctx.set(id, value);
+  };
+  const graph = responseEditor({
+    label: 'Hum filter response',
+    span: [-80, 6],
+    step: 10,
+    response: (v, freqs, rate) => def.response(shown(v), freqs, rate),
+    handles: (v) => {
+      const s = shown(v);
+      return [{ label: 'Base notch', freq: s.frequency, gain: s.gain, q: s.q, ids: { freq: 'frequency', gain: 'gain', q: 'q' } }];
+    },
+    centers: (v) => {
+      const s = shown(v);
+      return Array.from({ length: Math.max(1, Math.round(s.harmonics)) }, (_, k) => s.frequency * (k + 1));
+    },
+  })(manual);
+  const note = h('div.hum-detected.faint', { role: 'status' });
+  const update = () => {
+    const v = ctx.values;
+    const found = hum();
+    note.hidden = !v.auto;
+    note.textContent = !v.auto ? '' : found ? `Detected hum: ${found.frequency.toFixed(1)} Hz` : ctx.doc ? `No steady hum found; using ${v.frequency.toFixed(1)} Hz` : `Detects the hum when applied; until then ${v.frequency.toFixed(1)} Hz`;
+  };
+  ctx.subscribe(update);
+  update();
+  return h('div.fx-stack', graph, note);
+};
 
 // ------------------------------------------------------- DeNoise, DeReverb
 

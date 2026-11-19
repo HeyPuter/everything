@@ -432,7 +432,7 @@ export function openEffectDialog(app, def, { mode = 'apply', values: initial, ti
     if (mode !== 'apply') return;
     let spec = null;
     if ((previewing || live) && realtime) {
-      spec = slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route });
+      spec = slotSpec(def, values, { key: `preview:${def.id}`, enabled: power, doc, route, range });
       // Its processing delay, which the file's playback graph compensates (decorateGraph).
       const latency = doc ? latencyFrames(def, values, doc.sampleRate) : 0;
       if (latency) spec.latency = latency;

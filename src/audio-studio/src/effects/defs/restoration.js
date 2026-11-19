@@ -6,6 +6,9 @@
 import { registerEffect, getEffect, paramArray } from '../registry.js';
 import { offloaded, runTask } from '../offline-fx.js';
 import { num, db, hz, ms, pct, bool, choice, preset, pause, checkAbort, dataId, packCurve } from './util.js';
+import { humIn } from './hum-detect.js';
+
+export { detectHum, humIn } from './hum-detect.js';
 
 const GROUP = 'Noise Reduction / Restoration';
 
@@ -44,14 +47,21 @@ registerEffect({
   group: GROUP,
   kind: 130,
   params: [
-    hz('frequency', 'Frequency', 20, 1000, 60, { step: 0.1 }),
+    hz('frequency', 'Frequency', 20, 1000, 60, { step: 0.1, enabledIf: (v) => !v.auto }),
     num('q', 'Q', 5, 200, 30, '', { step: 1, scale: 'log' }),
     db('gain', 'Gain', -80, 0, -40),
     num('harmonics', 'Number of Harmonics', 1, 20, 6, '', { step: 1 }),
     pct('slope', 'Harmonic Slope', 75),
     bool('humOnly', 'Output Hum Only', false),
+    // Auto: the fundamental is found in the audio (hum-detect.js), falling
+    // back to Frequency when no steady hum stands out. Settings saved with a
+    // frequency before this option existed keep that frequency.
+    bool('auto', 'Auto Detect Frequency', true, { order: -1, missing: (v) => (v.frequency !== undefined ? false : undefined) }),
   ],
+  resolve: (v, { doc, state, range }) => (v.auto ? { ...v, frequency: humIn(state, range, doc)?.frequency ?? v.frequency } : v),
   presets: [
+    // The first preset is what the dialog opens with: the defaults (Auto).
+    preset('Auto Detect', {}),
     preset('Mains 60 Hz', { frequency: 60, q: 30, gain: -40, harmonics: 6, slope: 75, humOnly: false }),
     preset('Mains 50 Hz', { frequency: 50, q: 30, gain: -40, harmonics: 6, slope: 75, humOnly: false }),
     preset('Ground Loop Buzz 60 Hz', { frequency: 60, q: 25, gain: -50, harmonics: 16, slope: 95, humOnly: false }),
