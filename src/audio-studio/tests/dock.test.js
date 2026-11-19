@@ -204,4 +204,28 @@ describe('tab drag', () => {
     expect(e.defaultPrevented).toBe(true);
     expect(label).toBe('HISTORY panel menu');
   });
+
+  it('docks a dragged tab along a whole workspace edge', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    const dock = new Dock({ openMenu() {} }, root, registry(['editor', 'files', 'history']));
+    dock.setLayout({ t: 'col', c: [{ t: 'group', tabs: ['files', 'history'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 });
+    const at = (type, x, y) => {
+      const e = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+      Object.defineProperty(e, 'pointerType', { value: 'mouse' });
+      return e;
+    };
+    root.querySelector('#tab-history').dispatchEvent(at('pointerdown', 50, 10));
+    window.dispatchEvent(at('pointermove', 795, 300));
+    const zone = document.querySelector('.dock-drop');
+    expect(zone.style.left).toBe('600px');
+    expect(zone.style.height).toBe('600px');
+    window.dispatchEvent(at('pointerup', 795, 300));
+    const tree = dock.layout();
+    expect(tree.t).toBe('row');
+    expect(tree.c[1]).toMatchObject({ t: 'group', tabs: ['history'] });
+    expect(tree.c[0].t).toBe('col');
+    expect(dock.groupOf('files').tabs).toEqual(['files']);
+  });
 });

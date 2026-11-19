@@ -3,13 +3,16 @@
 //   { t: 'group', tabs: [panelId...], a: activePanelId }    tabbed panel frame
 // Panels are created once and moved between frames, so they keep their state.
 // Splitters resize neighbours (pointer or arrow keys); tabs can be dragged into
-// another frame or onto a frame edge to split it; a frame can be maximized.
+// another frame (between its tabs), onto a frame edge to split it or onto a
+// workspace edge for a full-height or full-width frame; a frame can be maximized.
 
 import { h } from '../lib/dom.js';
 import { icon } from './icons.js';
 import { Emitter } from '../lib/emitter.js';
 
 const MIN = 80;
+/** Pixels from the workspace's outer edge where a dragged tab docks along the whole edge. */
+const ROOT_EDGE = 10;
 
 export class Dock extends Emitter {
   /**
@@ -496,6 +499,19 @@ export class Dock extends Emitter {
    * bar shows), the middle of a frame (joins its tabs) or a frame edge (splits it).
    */
   #dropZone(x, y, from = null, id = null) {
+    // The workspace's own edges: a new frame spanning its full height or width.
+    const ws = this.root.getBoundingClientRect();
+    if (ws.width > 0 && !this.maximized && x >= ws.left && x <= ws.right && y >= ws.top && y <= ws.bottom) {
+      const d = { left: x - ws.left, right: ws.right - x, top: y - ws.top, bottom: ws.bottom - y };
+      const side = Object.keys(d).find((k) => d[k] < ROOT_EDGE);
+      if (side) {
+        const across = side === 'left' || side === 'right';
+        const w = across ? Math.min(ws.width / 4, 320) : ws.width;
+        const hgt = across ? ws.height : Math.min(ws.height / 4, 240);
+        const rect = { left: side === 'right' ? ws.right - w : ws.left, top: side === 'bottom' ? ws.bottom - hgt : ws.top, width: w, height: hgt };
+        return { group: null, side: `root-${side}`, rect };
+      }
+    }
     for (const el of this.root.querySelectorAll('.panel-group')) {
       const r = el.getBoundingClientRect();
       if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
@@ -538,6 +554,31 @@ export class Dock extends Emitter {
   }
 
   #drop(from, id, { group: to, side, index }) {
+    if (side.startsWith('root-')) {
+      const edge = side.slice(5);
+      const dir = edge === 'left' || edge === 'right' ? 'row' : 'col';
+      const first = edge === 'left' || edge === 'top';
+      from.tabs = from.tabs.filter((t) => t !== id);
+      if (from.a === id) from.a = from.tabs[0] ?? null;
+      const fresh = { t: 'group', tabs: [id], a: id };
+      const tree = this.tree;
+      if (tree.t === dir) {
+        const w = tree.s.reduce((a, b) => a + b, 0) / Math.max(1, tree.c.length * 2);
+        if (first) {
+          tree.c.unshift(fresh);
+          tree.s.unshift(w);
+        } else {
+          tree.c.push(fresh);
+          tree.s.push(w);
+        }
+      } else {
+        this.tree = { t: dir, c: first ? [fresh, tree] : [tree, fresh], s: first ? [1, 3] : [3, 1] };
+      }
+      this.tree = normalize(this.tree, this.registry) || { t: 'group', tabs: [], a: null };
+      this.render();
+      this.emit('change');
+      return;
+    }
     if (side === 'tabs') {
       const at = to === from && from.tabs.indexOf(id) < index ? index - 1 : index;
       from.tabs = from.tabs.filter((t) => t !== id);
