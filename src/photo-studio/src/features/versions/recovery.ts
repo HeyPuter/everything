@@ -11,6 +11,7 @@ import { deserialize, serialize } from '../../model/serialization';
 import { liveInstances, RecoveryStore, relativeTime, type RecoveryRecord } from '../../persistence/versions';
 import { documentThumbnail } from './thumbs';
 import { ownerOf } from '../embedded/owners';
+import { leftOutOfFile } from '../files/left-out';
 
 const store = new RecoveryStore();
 const instance = crypto.randomUUID();
@@ -104,7 +105,9 @@ async function writeRecord(e: Editor, s: DocumentSession, needed: Set<DocumentSe
     : undefined;
   const fileName = s.fileName;
   const path = s.storage.path;
-  const metadataKey = JSON.stringify([parent, fileName, path]);
+  // What of its source file was not opened goes along, so Save still asks after a restore.
+  const leftOut = leftOutOfFile.get(s);
+  const metadataKey = JSON.stringify([parent, fileName, path, leftOut]);
   const clean = !s.dirty;
   const previous = recovered.get(s);
   if (previous?.doc === s.doc && previous.extrasRevision === s.extrasRevision && previous.clean === clean && previous.metadataKey === metadataKey) return;
@@ -114,7 +117,7 @@ async function writeRecord(e: Editor, s: DocumentSession, needed: Set<DocumentSe
   const thumb = await documentThumbnail(e, s, 160, doc).catch(() => undefined);
   // Saved or closed while the record was being written: nothing to recover.
   if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) return;
-  await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName, path, time: Date.now(), project, thumb, clean, parent });
+  await store.save({ sessionId: s.id, instance, docId: doc.id, name: doc.name, fileName, path, time: Date.now(), project, thumb, clean, parent, ...(leftOut ? { leftOut } : {}) });
   recovered.set(s, { doc, extrasRevision, clean, metadataKey });
   if (!e.sessions.includes(s) || (!s.dirty && !recoverySessions(e).has(s))) {
     recovered.delete(s);
@@ -237,6 +240,7 @@ async function restoreRecord(e: Editor, r: RecoveryRecord) {
   s.hasDocument = true;
   s.fileName = r.fileName;
   if (r.path) s.storage.path = r.path;
+  if (r.leftOut && Array.isArray(r.leftOut.what)) leftOutOfFile.set(s, r.leftOut);
   // Unchanged ancestors retain their saved state; edited contents stay dirty.
   s.saved = r.clean ? s.doc : undefined;
   e.session = s;

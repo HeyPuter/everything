@@ -27,7 +27,7 @@ import { decodeApng, isApng } from '../../imaging/codecs/apng';
 import { framesFromLayers, maxFrames } from '../../model/animation';
 import { noteRecent, type RecentSource } from './recent';
 import { flatSaveFormat } from './formats';
-import type { DocumentSession } from '../../app/session';
+import { leftOutOfFile } from './left-out';
 import { emitAppEvent, openedFiles } from '../../app/app-events';
 
 const browserTypes: Record<string, string> = {
@@ -411,12 +411,6 @@ export function fileMetadata(bytes: Uint8Array): string | undefined {
 const isAnimatedWebp = (head: Uint8Array) =>
   head.length > 20 && String.fromCharCode(...head.subarray(12, 16)) === 'VP8X' && (head[20] & 0x02) !== 0;
 
-/** What of the file a document was opened from was not opened, while the
- * document still saves back to that file (see DecodedFile.leftOut). */
-export const leftOutOfFile = new WeakMap<
-  DocumentSession,
-  { name: string; path?: string; what: string[] }
->();
 
 const resolution = (dpi: number): PhotoDocument['resolution'] => ({
   horizontalResolution: dpi,

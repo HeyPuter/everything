@@ -69,6 +69,22 @@ test('Save asks before replacing an animated GIF opened as its first frame', asy
   await page.evaluate(() =>
     window.photoStudio.command('Fill', (d) => (d.layers[0].name = 'Edited')),
   );
+  // A recovery copy carries it, so Save still asks after a restore.
+  const recovered = await page.evaluate(async () => {
+    const { recoveryTick } = await import('/src/features/versions/recovery.ts');
+    const { RecoveryStore } = await import('/src/persistence/versions.ts');
+    await recoveryTick(window.photoStudio);
+    const store = new RecoveryStore();
+    const id = window.photoStudio.session.id;
+    const record = (await store.list()).find((r) => r.sessionId === id);
+    await store.remove(id);
+    return record?.leftOut;
+  });
+  expect(recovered).toEqual({
+    name: 'anim.gif',
+    path: '/me/anim.gif',
+    what: ['the other 2 frames'],
+  });
   await start(page, 'file.save');
   await expect(dialog).toContainText('the other 2 frames of anim.gif');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
