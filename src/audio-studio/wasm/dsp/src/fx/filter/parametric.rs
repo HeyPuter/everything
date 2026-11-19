@@ -10,6 +10,7 @@
 //!   33 LP on  34 LP freq  35 LP order
 //!   36 ultra-quiet (0/1): double-precision filtering (37 is the dialog's
 //!      graph range, not used here)
+//!   38 LS type, 39 HS type: 0 shelf, 1 bell (peak) shaped like bands 0..4
 //!
 //! Constant Q keeps a band's width the same whether it boosts or cuts (a cut
 //! mirrors the matching boost); proportional Q narrows as the gain grows, like
@@ -20,7 +21,7 @@ use crate::fx::util::{db_to_gain, Coefs};
 use crate::fx::{Effect, Smooth};
 
 pub const BANDS: usize = 5;
-const NPARAMS: usize = 36;
+const NPARAMS: usize = 40;
 // Stage layout.
 const HP: usize = 0;
 const LS: usize = 4;
@@ -45,6 +46,8 @@ fn spec() -> Vec<(f32, Glide)> {
         s.extend([(1.0, Step), (f, Log), (0.0, Lin), (1.0, Log)]);
     }
     s.extend([(0.0, Step), (8000.0, Log), (0.0, Lin), (0.7071, Log), (0.0, Step), (18000.0, Log), (2.0, Step)]);
+    // 36 ultra-quiet and 37 graph range (not used as smoothed values), 38/39 shelf types.
+    s.extend([(0.0, Step), (0.0, Step), (0.0, Step), (0.0, Step)]);
     debug_assert_eq!(s.len(), NPARAMS);
     s
 }
@@ -73,17 +76,17 @@ impl ParametricEq {
         }
         self.orders = [hp_order, lp_order];
         butterworth_stages(&mut c.coefs, &mut c.on, HP, r, p.get(3), hp_order, true, p.on(2));
-        c.on[LS] = p.on(5);
-        c.coefs[LS] = Coefs::low_shelf(r, p.get(6), p.get(8), p.get(7));
         let proportional = p.raw[1] >= 0.5;
+        let bell = |f: f32, q: f32, g: f32| if proportional { Coefs::peaking(r, f, q, g) } else { Coefs::peaking_cq(r, f, q, g) };
+        c.on[LS] = p.on(5);
+        c.coefs[LS] = if p.on(38) { bell(p.get(6), p.get(8), p.get(7)) } else { Coefs::low_shelf(r, p.get(6), p.get(8), p.get(7)) };
         for b in 0..BANDS {
             let i = 9 + 4 * b;
             c.on[BAND + b] = p.on(i);
-            let (f, g, q) = (p.get(i + 1), p.get(i + 2), p.get(i + 3));
-            c.coefs[BAND + b] = if proportional { Coefs::peaking(r, f, q, g) } else { Coefs::peaking_cq(r, f, q, g) };
+            c.coefs[BAND + b] = bell(p.get(i + 1), p.get(i + 3), p.get(i + 2));
         }
         c.on[HS] = p.on(29);
-        c.coefs[HS] = Coefs::high_shelf(r, p.get(30), p.get(32), p.get(31));
+        c.coefs[HS] = if p.on(39) { bell(p.get(30), p.get(32), p.get(31)) } else { Coefs::high_shelf(r, p.get(30), p.get(32), p.get(31)) };
         butterworth_stages(&mut c.coefs, &mut c.on, LP, r, p.get(34), lp_order, false, p.on(33));
         c.commit();
         self.master.target = db_to_gain(p.raw[0]);
@@ -190,6 +193,24 @@ mod tests {
         assert!((eq(&[(33, 1.0), (34, 2000.0)], 2000.0) + 3.0).abs() < 0.3);
         // Master gain.
         assert!((eq(&[(0, -6.0)], 1000.0) + 6.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn low_and_high_bands_switch_between_shelf_and_peak() {
+        // L band at 200 Hz +9 dB: a shelf lifts everything below it, a peak only around it.
+        let ls = [(5u32, 1.0f32), (6, 200.0), (7, 9.0), (8, 1.0)];
+        assert!((eq(&ls, 30.0) - 9.0).abs() < 0.5);
+        let mut lp = ls.to_vec();
+        lp.push((38, 1.0));
+        assert!((eq(&lp, 200.0) - 9.0).abs() < 0.3);
+        assert!(eq(&lp, 30.0) < 1.5, "{}", eq(&lp, 30.0));
+        // H band at 5 kHz -8 dB.
+        let hs = [(29u32, 1.0f32), (30, 5000.0), (31, -8.0), (32, 1.0)];
+        assert!((eq(&hs, 16000.0) + 8.0).abs() < 0.5);
+        let mut hp = hs.to_vec();
+        hp.push((39, 1.0));
+        assert!((eq(&hp, 5000.0) + 8.0).abs() < 0.3);
+        assert!(eq(&hp, 16000.0) > -1.5, "{}", eq(&hp, 16000.0));
     }
 
     #[test]

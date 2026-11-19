@@ -75,6 +75,20 @@
   color: var(--text-strong);
 }
 
+.io-grid > .io-top {
+  align-self: start;
+  padding-top: 5px;
+}
+
+.io-format-note {
+  margin: 0;
+  max-width: 440px;
+}
+
+.io-format-note[hidden] {
+  display: none;
+}
+
 .io-settings {
   display: flex;
   flex-wrap: wrap;
@@ -146,6 +160,35 @@
   display: none;
 }
 
+/* One label column across the page's separate grids, so the fields line up. */
+.io-sample-page > .form-grid,
+.io-adv .form-grid {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.io-adv {
+  margin: -4px 0 0;
+  padding-left: 12px;
+}
+
+.io-sample-page .io-adv[hidden],
+.io-rate[hidden] {
+  display: none;
+}
+
+.io-rate {
+  width: 110px;
+}
+
+.io-adv .io-row .slider {
+  flex: 1;
+  min-width: 120px;
+}
+
+.io-adv .input.num {
+  width: 64px;
+}
+
 .io-sample-actions {
   display: flex;
   justify-content: flex-end;
@@ -154,6 +197,44 @@
 
 .dialog-foot.io-hidden {
   display: none;
+}
+
+.io-mix-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.io-mix-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.io-mix-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 4px);
+  background: var(--bg-panel-alt);
+}
+
+.io-mix-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.io-mix-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ----------------------------------------------------------------- progress */
@@ -385,7 +466,6 @@
 .media-seek {
   flex: 1;
   min-width: 60px;
-  accent-color: var(--accent);
 }
 
 .media-time {
@@ -462,9 +542,31 @@
   display: none;
 }
 
+.meta-templates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.meta-templates[hidden] {
+  display: none;
+}
+.meta-template-sel {
+  flex: 1;
+  min-width: 0;
+}
+
 .meta-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+/* UMIDs are long hex strings: monospace keeps them readable. */
+.metadata-panel .meta-hex {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-sm);
 }
 
 .meta-actions .btn .icon {

@@ -9,6 +9,7 @@ export const DEFAULTS = {
   theme: 'system',
   workspace: 'Default',
   layouts: {},
+  dialogPositions: {}, // { [dialog title]: { x, y } } where each dialog was last moved to
   timeFormat: 'decimal',
   tempo: 120,
   beatsPerBar: 4,
@@ -31,6 +32,11 @@ export const DEFAULTS = {
   clipFadeHandles: true,
   favorites: null,
   defaultRate: 48000,
+  batchConcurrency: 2,
+  embeddedTimecode: false,
+  channelZones: true,
+  meterOnArm: true,
+  embedEditOriginal: true,
   defaultChannels: 2,
   returnToStart: true,
   skipSelection: false,
@@ -40,6 +46,9 @@ export const DEFAULTS = {
   sessionTemplates: [],
   previewEditor: false,
   previewAuto: true,
+  learnProgress: {}, // Learn panel: { [tutorialId]: { step, done } }
+  recordOverwrite: false, // Waveform recording without a selection: overwrite instead of insert
+  previewZoom: 'sync', // Preview Editor zoom: 'sync' (follows the main editor) | 'independent'
   visibilityInMixer: true,
   controlSurface: { enabled: false, input: '', output: '', protocol: 'mcu', mappings: {} },
 
@@ -49,6 +58,7 @@ export const DEFAULTS = {
   defaultFadeCurve: 'linear', // 'linear' | 'log' | 'cosine' for new fades
   rightClick: 'menu', // 'menu' | 'extend' (extend the time selection)
   hudSelectionOnly: false,
+  ampUnits: 'db', // amplitude ruler unit: 'db' | 'percent' | 'normalized' | 'samples'
   syncFiles: false, // selection, zoom and playhead follow across open audio files
   zoomStep: 50, // percent of the view each Zoom In/Out (Time) step removes
   dismissedNotices: [], // notice ids turned off with "Don't show this again"
@@ -57,10 +67,11 @@ export const DEFAULTS = {
   waveColors: null, // { wave, selection, background } or null for the theme colors
   waveColorPresets: [], // [{ name, wave, selection, background, playhead, cue, subclip, cart, cd }]
   uiBrightness: 0, // -100 (darker) .. 100 (lighter) for panels and backgrounds
+  userLooks: [], // Looks saved in Preferences > Appearance: [{ id, label, theme, brightness, accent, colors }]
   // Audio Channel Mapping and Audio Hardware
   inputMap: [0, 1], // device input channel recorded as file channel 1 and 2 (-1 = none)
   outputMap: [0, 1], // device output channel that plays mix channel 1 and 2 (-1 = none)
-  latencyHint: 'interactive', // 'interactive' | 'balanced' | 'playback'
+  latencyHint: 'interactive', // 'interactive' | 'balanced' | 'playback' | buffer size in samples
   outputDevice: '', // sink id; '' = system default
   // Data
   smoothDelete: false,
@@ -102,6 +113,8 @@ export const DEFAULTS = {
   clipsToFront: false,
   clipGainWaveform: true,
   insertMultiple: 'tracks', // 'tracks' | 'same'
+  automationFollowsClips: false,
+  insertChannels: 'clip', // 'clip' | 'split' (one clip per channel, each on a mono track)
   clipStretchMode: 'realtime', // mode for newly stretched clips: 'realtime' | 'rendered'
   // Playback and Recording
   returnToStartOn: 'first', // 'first' | 'second' stop
@@ -129,6 +142,9 @@ export const DEFAULTS = {
   // Video
   videoZoom: 'fit',
   videoFullscreen: true, // double-click the Video panel for full screen
+  videoResolution: 'full', // 'full' | '2' | '4' | '8': the picture drawn at that fraction of its size
+  videoFullOnStop: true,
+  videoSpot: true, // dragging an audio clip shows the frame at its start
   videoTimecode: false,
   videoTcSize: 30, // percent
   videoTcOpacity: 65, // percent
@@ -138,7 +154,7 @@ export const DEFAULTS = {
 };
 
 /** Keys left out of exported settings: they point at files on this device or account. */
-export const LOCAL_ONLY_KEYS = new Set(['recent', 'exportFolder', 'mediaFolder', 'inputDevice', 'outputDevice']);
+export const LOCAL_ONLY_KEYS = new Set(['recent', 'exportFolder', 'mediaFolder', 'inputDevice', 'outputDevice', 'dialogPositions']);
 
 const SETTINGS_KIND = 'audio-studio-settings';
 

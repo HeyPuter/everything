@@ -39,10 +39,12 @@ export function healDelta(d, src, mask, cols, n, hop, first) {
 /** Streaming BS.1770-4 loudness meter. push() takes per-channel arrays of equal length. */
 export function loudnessMeter(d, rate, channels) {
   const h = d.x.lufs_new(rate, channels);
+  let pushed = 0;
   return {
     push(chans) {
       const frames = chans[0].length;
       if (!frames) return;
+      pushed += frames;
       const buf = d.floats(frames * channels);
       const v = buf.view();
       for (let c = 0; c < channels; c++) v.set(chans[Math.min(c, chans.length - 1)], c * frames);
@@ -66,6 +68,24 @@ export function loudnessMeter(d, rate, channels) {
         truePeak: r.slice(6, 6 + channels),
         samplePeak: r.slice(6 + channels, 6 + 2 * channels),
       };
+    },
+    /**
+     * Momentary and short-term loudness through the measured audio, at most
+     * `maxPoints` of each: { step (s between points), momentary[], shortTerm[] } (LUFS).
+     */
+    series(maxPoints = 600) {
+      if (!d.x.lufs_series) return null;
+      const subs = Math.floor((pushed * 10) / rate); // completed 100 ms sub-blocks
+      const step = Math.max(1, Math.ceil(subs / maxPoints));
+      const cap = Math.floor(subs / step) + 1;
+      const read = (n) => {
+        const out = d.floats(cap);
+        const k = d.x.lufs_series(h, n, step, out.ptr, cap);
+        const r = Array.from(out.view().subarray(0, k), (v) => (v <= -999 ? -Infinity : v));
+        out.free();
+        return r;
+      };
+      return { step: step / 10, momentary: read(4), shortTerm: read(30) };
     },
     free() {
       d.x.lufs_free(h);

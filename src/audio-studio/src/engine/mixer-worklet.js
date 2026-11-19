@@ -153,7 +153,7 @@ class MixerProcessor extends AudioWorkletProcessor {
     const meters = this.blockMeters;
     const opts = {
       meters,
-      runFx: this.host ? (chain, buf, f) => this.host.run(chain, buf, f) : null,
+      runFx: this.host ? (chain, buf, f, at) => this.host.run(chain, buf, f, at) : null,
       missing: (key, frame) => {
         if (this.underrunReported.has(key)) return;
         this.underrunReported.add(key);

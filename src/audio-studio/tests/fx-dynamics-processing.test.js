@@ -188,6 +188,20 @@ describe('transfer curve editor', () => {
     close();
   });
 
+  it('meters the output beside the curve while audio plays', () => {
+    const { ctx, close } = ctxFor(normalizeValues(def, {}));
+    let feed = null;
+    ctx.onLevels = (fn) => (feed = fn);
+    const el = dynamicsProcessingEditor()(ctx);
+    const meter = el.querySelector('.fx-dp-top .fx-dp-meter');
+    expect(meter.getAttribute('aria-label')).toBe('Out');
+    feed([0.5, 0.5], [0.25, 0.5]);
+    expect(Number(meter.getAttribute('aria-valuenow'))).toBeCloseTo(-6, 0);
+    feed(null, null);
+    expect(Number(meter.getAttribute('aria-valuenow'))).toBe(-60);
+    close();
+  });
+
   it('inverts the curve: a compressor becomes the matching expander', () => {
     const comp = [{ x: -100, y: -100 }, { x: -20, y: -20 }, { x: 0, y: -10 }];
     const inv = invertCurve(comp);

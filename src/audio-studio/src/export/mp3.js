@@ -4,6 +4,7 @@
 import { ByteSink } from './sink.js';
 import { Quantizer } from '../audio/quantize.js';
 import { id3v2Tag } from '../audio/meta.js';
+import { id3ChapterFrames } from '../audio/chapters.js';
 
 /** MPEG-1 Layer III rates, then MPEG-2 and MPEG-2.5. */
 export const MP3_RATES = [32000, 44100, 48000, 16000, 22050, 24000, 8000, 11025, 12000];
@@ -14,7 +15,7 @@ export function mp3Bitrates(rate) {
 }
 
 export class Mp3Writer {
-  constructor({ sampleRate, channels, dither = 'none', meta = {}, settings = {} }) {
+  constructor({ sampleRate, channels, dither = 'none', meta = {}, markers = [], frames = 0, settings = {} }) {
     this.rate = sampleRate;
     this.nch = Math.min(2, channels);
     const allowed = mp3Bitrates(sampleRate);
@@ -22,7 +23,8 @@ export class Mp3Writer {
     this.kbps = allowed.reduce((best, b) => (Math.abs(b - want) < Math.abs(best - want) ? b : best), allowed[0]);
     this.quantizer = new Quantizer(16, this.nch, dither);
     this.sink = new ByteSink();
-    this.tag = id3v2Tag(meta, { padding: 256 });
+    // Markers travel as ID3 chapters (CHAP), which podcast players show.
+    this.tag = id3v2Tag(meta, { padding: 256, extraFrames: id3ChapterFrames(markers, sampleRate, frames) });
     this.samples = 0;
     this.size = 1152 * 8;
     this.pcm = Array.from({ length: this.nch }, () => new Int16Array(this.size));

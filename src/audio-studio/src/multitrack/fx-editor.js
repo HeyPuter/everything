@@ -6,6 +6,7 @@ import { h } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
 import { createRackEditor } from '../effects/rack.js';
 import { findTrack, updateTrack } from '../model/session-edits.js';
+import { editTrackEffect } from './fx-slots.js';
 
 export const TRACK_SLOTS = 16;
 
@@ -21,6 +22,8 @@ export async function openTrackEffects(app, doc, trackId) {
     },
     label: `${track()?.name || 'Track'} effects`,
     slotCount: TRACK_SLOTS,
+    // Settings go through the slot editor, so automated ones write keyframes.
+    onEdit: (i) => editTrackEffect(app, doc, trackId, i),
   });
   doc.endGesture();
   editor.render();

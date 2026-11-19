@@ -11,11 +11,21 @@ import { openFiles } from '../storage/files.js';
 import { statusParts } from './status-fields.js';
 import { tabNames } from './workspace-manager.js';
 import { TOOLS } from './tools.js';
+import { spectralToolOptions } from '../spectral/tool-options.js';
 import { eventKey } from '../commands/registry.js';
 import { keyedLabel, syncKeyedLabel } from '../panels/transport-controls.js';
+import { installTooltips } from './tooltip.js';
+import { rememberDialogPlaces } from './dialog.js';
+import { installNumberScrub } from './controls.js';
 
 /** Actions offered by the menu beside the current workspace tab. */
 const WORKSPACE_ACTIONS = ['workspace.reset', 'workspace.saveChanges', 'workspace.saveAs', '-', 'workspace.edit'];
+
+/** View > Status Bar's items (show the bar, then one check per field). */
+export function statusBarMenuSpec(menus = MENUS) {
+  const view = menus.find((m) => m.label === 'View');
+  return view?.submenu.find((it) => it?.label === 'Status Bar')?.submenu || ['view.statusBar'];
+}
 
 export function createShell(app, root) {
   const menubar = createMenubar(app, MENUS);
@@ -31,7 +41,9 @@ export function createShell(app, root) {
   });
   const title = h('div.app-title', h('span.app-logo', appIcon(20)), h('span.app-name', 'Audio Studio'));
   const docTitle = h('div.doc-title');
-  const appbar = h('header.appbar', appMenuBtn, title, menubar, docTitle, h('div.spacer'), createAccount(app));
+  const account = createAccount(app);
+  const appbarSpacer = h('div.spacer.appbar-spacer');
+  const appbar = h('header.appbar', appMenuBtn, title, menubar, docTitle, appbarSpacer, account);
 
   // Toolbar ------------------------------------------------------------------
   const modeBtn = (kind, ic, label, cmd) =>
@@ -65,14 +77,22 @@ export function createShell(app, root) {
   const search = h('input.input.command-search', { type: 'search', placeholder: 'Search commands', 'aria-label': 'Search commands', autocomplete: 'off' });
   const searchWrap = h('div.command-search-wrap', icon('search', 14), search);
   bindCommandSearch(app, search);
-  const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': 'Main toolbar' }, modes, h('div.toolbar-sep'), displayBtns, h('div.toolbar-sep'), toolBtns, h('div.spacer'), workspaceTabs, workspaceMore, searchWrap);
+  const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': 'Main toolbar' }, modes, h('div.toolbar-sep'), displayBtns, h('div.toolbar-sep'), toolBtns, spectralToolOptions(app), h('div.spacer'), workspaceTabs, workspaceMore, searchWrap);
 
   const dockRoot = h('main.workspace', { 'aria-label': 'Workspace' });
   const status = h('span.status-message', { role: 'status' });
   const statusInfo = h('div.status-info');
   const statusbar = h('footer.statusbar', status, h('div.spacer'), statusInfo);
+  // Right-click picks the fields, as View > Status Bar does.
+  statusbar.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openMenu(app, resolveItems(app, statusBarMenuSpec()), { x: e.clientX, y: e.clientY, label: 'Status bar fields' });
+  });
   const live = h('div#live-region.sr-only', { 'aria-live': 'polite', 'aria-atomic': 'true' });
   root.replaceChildren(appbar, toolbar, dockRoot, statusbar, live);
+  installTooltips();
+  rememberDialogPlaces(app.prefs);
+  installNumberScrub();
 
   const dock = new Dock(app, dockRoot, app.panels);
   app.dock = dock;
@@ -143,7 +163,37 @@ export function createShell(app, root) {
       pending = 0;
       refreshToolbar();
       refreshStatus();
+      fitChrome();
     });
+  };
+
+  // One row on wide desktop windows: the toolbar joins the menu bar when
+  // everything in both fits (the other workspace tabs move to the chevron and
+  // the document name to the window title and the editor tab), saving a row.
+  const MERGED_SEARCH = 120;
+  const fitChrome = () => {
+    const merged = root.classList.contains('chrome-merged');
+    // Without layout (tests, hidden tabs) nothing can be measured.
+    if (!menubar.offsetWidth) return;
+    let want = false;
+    if (app.layoutMode === 'desktop') {
+      const w = (el) => (el && !el.hidden ? el.offsetWidth : 0);
+      const current = workspaceTabs.querySelector('.workspace-tab[aria-selected=true]');
+      const bar = w(title.querySelector('.app-logo')) + menubar.scrollWidth + w(account);
+      // The search field is narrower in one row (shell.css), so it counts at that width.
+      const tools = [...toolbar.children].filter((c) => !c.classList.contains('spacer') && c !== workspaceTabs).reduce((a, c) => a + (c === searchWrap ? Math.min(w(c), MERGED_SEARCH) : w(c)), 0);
+      const tabs = w(current) + w(workspaceTabs.querySelector('.workspace-menu-btn'));
+      const gaps = 6 * (toolbar.children.length + 4) + 48;
+      const need = bar + tools + tabs + gaps;
+      // A little slack before joining, so a window at the edge does not flip back and forth.
+      want = window.innerWidth >= need + (merged ? 0 : 32);
+    }
+    if (want === merged) return;
+    root.classList.toggle('chrome-merged', want);
+    search.placeholder = want ? 'Search' : 'Search commands';
+    if (want) appbar.insertBefore(toolbar, appbarSpacer);
+    else appbar.after(toolbar);
+    dock.emit('resize');
   };
   for (const ev of ['active', 'documents', 'tool', 'prefs', 'transport', 'status', 'clipboard', 'workspace']) app.on(ev, refresh);
   app.on('doc-change', (doc, e) => doc === app.active && e.kind !== 'view' && e.kind !== 'cursor' && refresh());
@@ -163,6 +213,7 @@ export function createShell(app, root) {
   app.layoutMode = modeFor(window.innerWidth);
   document.documentElement.dataset.layout = app.layoutMode;
   window.addEventListener('resize', applyMode);
+  window.addEventListener('resize', () => fitChrome());
   dock.setLayout(app.currentLayout());
 
   // Keyboard -----------------------------------------------------------------
@@ -177,9 +228,11 @@ export function createShell(app, root) {
     if (typing && !(e.metaKey || e.ctrlKey)) return;
     // Text editing keys (select all, clipboard, undo, caret and word moves) stay with the field.
     if (typing && TEXT_KEYS.test(eventKey(e))) return;
-    if (document.querySelector('.dialog-backdrop')) return;
+    if (document.querySelector('.dialog-backdrop:not(.modeless)')) return;
     const id = app.commands.match(e);
     if (!id) return;
+    // Inside a floating effect window only the transport keys (Space to preview) reach the app.
+    if (t instanceof Element && t.closest('.dialog-backdrop.modeless') && !id.startsWith('transport.')) return;
     // Plain keys (Space, letters) should still activate focused buttons and menus.
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
     if (plain && (e.key === ' ' || e.key === 'Enter') && t instanceof HTMLElement && t.closest('button, input[type=checkbox], input[type=radio], [role=menuitem], [role=menuitemcheckbox], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio], a, summary')) return;
@@ -221,7 +274,7 @@ export function createShell(app, root) {
 
   window.addEventListener('beforeunload', (e) => {
     if (import.meta.env?.DEV) return;
-    if (app.documents.some((d) => d.dirty)) {
+    if (app.documents.some((d) => d.dirty && !d.practice)) {
       e.preventDefault();
       e.returnValue = '';
     }

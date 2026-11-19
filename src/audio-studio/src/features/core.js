@@ -4,6 +4,7 @@ import { installCoreCommands } from '../commands/core.js';
 import { installEditExtraCommands } from '../commands/edit-extra.js';
 import { installFileExtraCommands } from '../commands/file-extra.js';
 import { editorPanel } from '../panels/editor.js';
+import { installPreviewEditorCommands } from '../editor/preview-editor.js';
 import { filesPanel } from '../panels/files.js';
 import { historyPanel } from '../panels/history.js';
 import { markersPanel } from '../panels/markers.js';
@@ -26,6 +27,7 @@ export function installCore(app) {
   installWorkspaceCommands(app);
   installHelpCommands(app);
   installScriptCommands(app);
+  installPreviewEditorCommands(app);
   app.registerPanel({
     id: 'editor',
     title: (a) => (a.active ? `Editor: ${a.active.name}` : 'Editor'),

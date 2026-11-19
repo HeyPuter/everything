@@ -4,13 +4,13 @@
 //! 4 output gain dB, 5 knee dB, 6 detection (0 peak, 1 RMS), 7 link channels.
 //! Tube params: 0 threshold dB, 1 ratio, 2 attack ms, 3 release ms,
 //! 4 output gain dB, 5 drive dB, 6 character % (asymmetry of the saturation).
-//! Tube readout: [input peak dB, deepest gain reduction dB, output peak dB]
+//! Readout (both): [input peak dB, deepest gain reduction dB, output peak dB]
 //! since the last read.
 //!
 //! Detection is instantaneous (peak) or a 10 ms RMS; the gain change from the
 //! static soft-knee curve is smoothed in dB with the attack and release times.
 
-use super::common::{db_lin, frame_peak, lin_db, soft_tanh, Detector, GainSmoother};
+use super::common::{db_lin, frame_peak, lin_db, soft_tanh, Detector, GainSmoother, Meters};
 use crate::fx::util::{compress_db, sanitize, Biquad, Coefs};
 use crate::fx::Effect;
 use super::common::Ramp;
@@ -57,6 +57,7 @@ pub struct Compressor {
     link: bool,
     out: Ramp,
     side: [Side; 2],
+    meters: Meters,
 }
 
 impl Compressor {
@@ -70,6 +71,7 @@ impl Compressor {
             link: true,
             out: Ramp::new(1.0, rate, 20.0),
             side: [Side::default(); 2],
+            meters: Meters::default(),
         };
         c.update();
         c
@@ -104,11 +106,17 @@ impl Effect for Compressor {
     fn process(&mut self, buf: &mut [f32], channels: usize, frames: usize) {
         let floor = self.curve.floor_lin();
         let curve = self.curve;
+        let m = &mut self.meters;
         if self.link || channels == 1 {
             let s = &mut self.side[0];
             for i in 0..frames {
-                let level = s.det.next(frame_peak(buf, channels, frames, i));
-                let g = db_lin(s.gain.next(curve.gain_db(level, floor))) * self.out.next();
+                let pk = frame_peak(buf, channels, frames, i);
+                let level = s.det.next(pk);
+                let gr = s.gain.next(curve.gain_db(level, floor));
+                let g = db_lin(gr) * self.out.next();
+                m.inp = m.inp.max(pk);
+                m.gr = m.gr.min(gr);
+                m.out = m.out.max(pk * g);
                 for c in 0..channels {
                     buf[c * frames + i] *= g;
                 }
@@ -120,10 +128,18 @@ impl Effect for Compressor {
                     let s = &mut self.side[c];
                     let x = &mut buf[c * frames + i];
                     let level = s.det.next(x.abs());
-                    *x *= db_lin(s.gain.next(curve.gain_db(level, floor))) * o;
+                    let gr = s.gain.next(curve.gain_db(level, floor));
+                    m.inp = m.inp.max(x.abs());
+                    m.gr = m.gr.min(gr);
+                    *x *= db_lin(gr) * o;
+                    m.out = m.out.max(x.abs());
                 }
             }
         }
+        m.gr = sanitize(m.gr);
+    }
+    fn readout(&mut self, out: &mut [f32]) -> usize {
+        self.meters.read(out)
     }
     fn reset(&mut self) {
         self.out.settle();
@@ -363,4 +379,26 @@ mod tests {
         assert!(thd(18.0) > thd(0.0) * 3.0);
         assert!(thd(18.0) > 0.01);
     }
+
+    #[test]
+    fn single_band_reports_its_gain_reduction() {
+        // -10 dBFS sine, threshold -30, 4:1, no knee: about 15 dB of reduction once settled.
+        let mut fx = make(31, 48000.0, 1);
+        for (i, v) in [(0u32, -30.0f32), (1, 4.0), (5, 0.0), (2, 1.0)] {
+            fx.set_param(i, v);
+        }
+        fx.reset();
+        let x = sine(1000.0, 48000.0, 48000, 0.316);
+        let mut buf = x.clone();
+        fx.process(&mut buf, 1, 48000);
+        let mut out = [0.0f32; 3];
+        assert_eq!(fx.readout(&mut out), 3);
+        assert!((out[0] + 10.0).abs() < 0.2, "input {}", out[0]);
+        assert!((out[1] + 15.0).abs() < 1.0, "reduction {}", out[1]);
+        // The output peak includes the first few cycles, before the attack has acted.
+        assert!(out[2] < out[0] - 2.0, "output {}", out[2]);
+        fx.readout(&mut out);
+        assert_eq!(out[1], 0.0);
+    }
 }
+

@@ -32,6 +32,33 @@ export function punchTakes(n, lead, length, loop) {
   return Array.from({ length: passes }, (_, i) => ({ start: lead + i * length, length }));
 }
 
+/** Input frames per live preview peak. */
+export const PEAK_BLOCK = 256;
+
+/** Adds the peaks of one captured block (planar channels) to a take's live preview. */
+export function livePeaks(live, channels) {
+  const n = channels[0]?.length || 0;
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    for (const ch of channels) {
+      const v = ch[i] < 0 ? -ch[i] : ch[i];
+      if (v > m) m = v;
+    }
+    if (m > live.acc) live.acc = m;
+    if (++live.accN === PEAK_BLOCK) {
+      if (live.count === live.peaks.length) {
+        const grown = new Float32Array(live.peaks.length * 2);
+        grown.set(live.peaks);
+        live.peaks = grown;
+      }
+      live.peaks[live.count++] = live.acc;
+      live.acc = 0;
+      live.accN = 0;
+    }
+  }
+  live.frames += n;
+}
+
 export class SessionRecorder {
   constructor(app) {
     this.app = app;
@@ -84,7 +111,12 @@ export class SessionRecorder {
     this.starting = null;
     pending.off();
     const chunks = [];
-    const off = engine.on('record-data', (channels) => chunks.push(channels));
+    // Running peaks of what was captured (one per PEAK_BLOCK input frames) for the live take preview.
+    const live = { peaks: new Float32Array(1024), count: 0, frames: 0, rate: engine.rate, acc: 0, accN: 0 };
+    const off = engine.on('record-data', (channels) => {
+      chunks.push(channels);
+      livePeaks(live, channels);
+    });
     let monitoring = false;
     if (armed.some((t) => t.monitor)) {
       try {
@@ -99,7 +131,7 @@ export class SessionRecorder {
     const preroll = punch ? Math.round((Number(app.prefs?.get('prerollSeconds')) || 0) * doc.sampleRate) : 0;
     const loop = Boolean(punch && app.loop);
     const from = punch ? Math.max(0, punch.start - preroll) : doc.cursor;
-    const take = { doc, from, punch, loop, chunks, off, armed: armed.map((t) => t.id), closed: false, controller: new AbortController() };
+    const take = { doc, from, punch, loop, chunks, off, live, armed: armed.map((t) => t.id), closed: false, controller: new AbortController() };
     // Closing the session stops the transport; the take must not reopen it.
     take.offClose = doc.on('close', () => { take.closed = true; this.stop(); });
     take.offActive = app.on('active', (active) => { if (active !== doc) this.stop(); });
@@ -134,6 +166,11 @@ export class SessionRecorder {
     // Context/DSP preparation may wait on I/O. Capturing during that wait
     // would prepend unrelated input before playback actually starts.
     engine.setRecording(true);
+    // The Multitrack editor draws the growing take on the armed tracks.
+    live.frames = 0;
+    live.count = 0;
+    doc.liveTake = take;
+    doc.emit('change', { kind: 'recording' });
     app.setStatus?.('Recording...');
     app.recording = true;
     app.emit('transport', 'recording');
@@ -176,6 +213,10 @@ export class SessionRecorder {
     const inputRequest = engine.inputRequest;
     take.controller.abort();
     engine.setRecording(false);
+    if (take.doc.liveTake === take) {
+      take.doc.liveTake = null;
+      take.doc.emit('change', { kind: 'recording' });
+    }
     engine.stop();
     app.recording = false;
     app.playStart = null;
@@ -233,6 +274,8 @@ export class SessionRecorder {
       if (!track) continue;
       const all = track.channels === 1 ? [channels[0]] : [channels[0], channels[Math.min(1, channels.length - 1)]];
       const clips = [];
+      // Loop passes stack as takes of one group (the clip menu's Takes picks the one that plays).
+      const takeGroup = pieces.length > 1 ? S.uid('take') : null;
       for (let i = 0; i < pieces.length; i++) {
         const p = pieces[i];
         const own = all.map((c) => c.slice(p.start, p.start + p.length));
@@ -244,7 +287,7 @@ export class SessionRecorder {
         app.addDocument(file, { activate: false });
         const sourceId = await linkSource(doc, file);
         // Only the newest of stacked takes plays; the others stay to pick from.
-        clips.push(S.createClip({ trackId, sourceId, name: file.name.replace(/\.wav$/, ''), start: p.at, length: p.length, mute: i < pieces.length - 1 }));
+        clips.push(S.createClip({ trackId, sourceId, name: file.name.replace(/\.wav$/, ''), start: p.at, length: p.length, mute: i < pieces.length - 1, takeGroup }));
       }
       // Takes play over the clips they were recorded over (a punch-in replaces what is there).
       state = S.addClipsOnTop(state, clips);

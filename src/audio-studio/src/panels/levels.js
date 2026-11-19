@@ -62,6 +62,9 @@ export function levelsPanel(app) {
   };
   clipL.addEventListener('click', reset);
   clipR.addEventListener('click', reset);
+  // Clicking the meter itself also resets the peak holds and clip indicators.
+  canvas.addEventListener('click', reset);
+  canvas.title = 'Click to reset the peak holds and clip indicators';
 
   const feed = (peaks) => {
     const now = performance.now();
@@ -114,13 +117,29 @@ export function levelsPanel(app) {
     const range = prefs.get('meterRange') || 60;
     const horizontal = meterHorizontal(W, H, prefs.get('meterOrientation'));
     const scale = 18;
-    const len = horizontal ? W - 30 : H - 24;
+    // Clip indicators are finger-sized on touch screens (24 px along the bar, the bar's own thickness across).
+    const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    const ledSize = touch ? 24 : horizontal ? 14 : 10;
+    // Vertical meters keep a strip at the top for the clip indicators.
+    const ledRoom = horizontal ? 0 : ledSize + 4;
+    const len = horizontal ? W - 16 - ledSize : H - 24 - ledRoom;
     const pos = (db) => Math.max(0, Math.min(1, (db + range) / range)) * len;
     const toDb = (v) => (v <= 0 ? -Infinity : 20 * Math.log10(v));
     const bars = 2;
     const thick = horizontal ? Math.max(4, Math.min(24, (H - scale - 10) / bars - 2)) : Math.max(4, Math.min(24, (W - 34) / bars - 2));
     // The scale sits right under the bars (horizontal) so a tall panel has no dead gap.
     const scaleY = Math.min(H - 4, 6 + bars * (thick + 2) + 13);
+    // Clip indicators sit at the loud end of each bar: right of it, or above it.
+    if (el.dataset.orientation !== (horizontal ? 'horizontal' : 'vertical')) el.dataset.orientation = horizontal ? 'horizontal' : 'vertical';
+    [clipL, clipR].forEach((led, c) => {
+      const box = horizontal
+        ? { left: W - 8 - ledSize, top: 6 + c * (thick + 2), width: ledSize, height: thick }
+        : { left: 4 + c * (thick + 2), top: 4, width: thick, height: ledSize };
+      for (const [k, v] of Object.entries(box)) {
+        const px = `${Math.round(v)}px`;
+        if (led.style[k] !== px) led.style[k] = px;
+      }
+    });
     ctx.font = CANVAS_FONT;
     ctx.fillStyle = cssVar('--text-dim');
     const { step, labelEvery } = scaleSteps(range, len);

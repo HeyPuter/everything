@@ -45,8 +45,8 @@ impl NoiseReduction {
         let mut nr = NoiseReduction {
             rate,
             channels,
-            amount: 60.0,
-            reduce_db: 20.0,
+            amount: 80.0,
+            reduce_db: 24.0,
             decay: 65.0,
             smoothing: 1.0,
             precision: 7.0,
@@ -104,13 +104,17 @@ impl NoiseReduction {
     fn settings(&self) -> GateSettings {
         let hop = self.fft / self.overlap();
         GateSettings {
-            threshold_db: 3.0,
+            threshold_db: 4.0,
             width_db: self.width,
             floor_db: -self.reduce_db,
             power_alpha: 1.0 - 1.0 / (1.0 + self.precision * 0.15),
             instant_rise: false,
             smooth_bins: self.smoothing.round() as usize,
             dilate_bins: 0,
+            // Signal power averaged over about +-24 Hz before it is compared
+            // with the print: random peaks of the noise then rarely open the
+            // gate, so deep reduction leaves a steady floor, not warbling tones.
+            snr_bins: ((24.0 * self.fft as f32 / self.rate).round() as usize).min(8),
             fall: fall_per_frame(self.decay * 6.0, hop, self.rate),
             residual: self.residual,
         }

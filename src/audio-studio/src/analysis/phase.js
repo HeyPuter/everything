@@ -15,6 +15,45 @@ import { select } from '../ui/controls.js';
 import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { fitCanvas, masterTap } from './common.js';
 
+/**
+ * Samples of a stopped document for the scope: the selection (up to `max`
+ * samples spread evenly across it) or `n` samples around the playhead.
+ * Returns { L, R, label } (mono files use the one channel for both), or null.
+ */
+export function documentBlock(doc, n = 2048, max = 16384) {
+  if (!doc || doc.kind !== 'audio' || !doc.length) return null;
+  const chans = doc.state.channels;
+  const [a, b] = [chans[0], chans[1] || chans[0]];
+  const sel = doc.selection;
+  if (sel && sel.end - sel.start >= 256) {
+    const len = sel.end - sel.start;
+    const count = Math.min(max, len);
+    const L = new Float32Array(count);
+    const R = new Float32Array(count);
+    if (count === len) {
+      a.read(sel.start, L);
+      b.read(sel.start, R);
+    } else {
+      const one = new Float32Array(1);
+      for (let i = 0; i < count; i++) {
+        const at = sel.start + Math.floor((i * len) / count);
+        a.read(at, one);
+        L[i] = one[0];
+        b.read(at, one);
+        R[i] = one[0];
+      }
+    }
+    return { L, R, label: 'Selection' };
+  }
+  const size = Math.min(n, doc.length);
+  const start = Math.max(0, Math.min(doc.length - size, Math.round(doc.cursor - size / 2)));
+  const L = new Float32Array(size);
+  const R = new Float32Array(size);
+  a.read(start, L);
+  b.read(start, R);
+  return { L, R, label: 'Playhead' };
+}
+
 /** Pearson correlation of two blocks (0 for silence). */
 export function correlation(L, R) {
   let lr = 0;
@@ -53,7 +92,7 @@ export function phaseAnalysisPanel(app) {
   const GRID = 160;
   const density = new Float32Array(GRID * GRID);
   const scope = h('canvas', { 'aria-hidden': 'true' });
-  const scopeWrap = h('div.phase-scope', scope);
+  const scopeWrap = h('div.phase-scope', { role: 'img', 'aria-label': 'Stereo image' }, scope);
   // Correlation as a number in the toolbar; the Phase Meter panel shows it as a bar.
   const value = h('div.phase-value', { title: 'Phase correlation (+1 mono, 0 unrelated, -1 out of phase)' }, '');
   toolbar.append(h('div.spacer'), value);
@@ -79,10 +118,31 @@ export function phaseAnalysisPanel(app) {
     if (!raf && visible) raf = requestAnimationFrame(draw);
   };
 
+  // Stopped: the selection or the audio around the playhead (cached until it changes).
+  let still = null;
+  let stillKey = [];
+  const stillBlock = () => {
+    const doc = app.active;
+    if (app.engine.playing || !doc || doc.kind !== 'audio') return null;
+    const n = app.prefs.get('phaseSamples') || 2048;
+    const key = [doc, doc.state, doc.selection.start, doc.selection.end, doc.cursor, n];
+    if (key.every((v, i) => v === stillKey[i])) return still;
+    stillKey = key;
+    const b = documentBlock(doc, n);
+    still = b ? { ...b, corr: correlation(b.L, b.R) } : null;
+    return still;
+  };
+
   const draw = () => {
     raf = 0;
     drawScope();
-    value.textContent = block || seen ? `${corr >= 0 ? '+' : ''}${corr.toFixed(2)}` : '';
+    const st = !block && !app.engine.playing ? stillBlock() : null;
+    value.textContent = st ? `${st.corr >= 0 ? '+' : ''}${st.corr.toFixed(2)}` : block || seen ? `${corr >= 0 ? '+' : ''}${corr.toFixed(2)}` : '';
+    // The scope's text alternative: what it shows and the correlation (not while it moves every frame).
+    if (!app.engine.playing) {
+      const label = st ? `Stereo image of the ${st.label.toLowerCase()}, correlation ${correlationText(st.corr)}` : 'Stereo image';
+      if (scopeWrap.getAttribute('aria-label') !== label) scopeWrap.setAttribute('aria-label', label);
+    }
     if (!app.engine.playing && block) {
       // Let the trail fade out after playback stops.
       block = null;
@@ -106,6 +166,9 @@ export function phaseAnalysisPanel(app) {
     const ctx = scope.getContext('2d');
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Stopped: a still picture of the selection or the playhead, drawn whole (no trail).
+    const st = !block && !app.engine.playing ? stillBlock() : null;
+    if (st) clearTrail = true;
     const bg = cssVar('--bg-editor');
     // Persistence: fade the previous frame rather than clearing it.
     ctx.globalAlpha = clearTrail ? 1 : 0.35;
@@ -153,14 +216,21 @@ export function phaseAnalysisPanel(app) {
       ctx.fillText('R', cx + r / 2 + 6, cy - r / 2 - 2);
       ctx.fillText('S', cx + r - 6, cy - 4);
     }
-    if (!block) {
+    const src = block || st;
+    if (st) {
+      ctx.textAlign = 'left';
+      ctx.fillText(st.label, 8, 14);
+      ctx.textAlign = 'center';
+      if (mode === 'density') density.fill(0);
+    }
+    if (!src) {
       if (!app.engine.playing && !seen) {
         ctx.fillStyle = cssVar('--text-dim');
-        ctx.fillText('Play audio to see the stereo image', cx, cy + r * 0.55);
+        ctx.fillText('Play audio, or open a file, to see the stereo image', cx, cy + r * 0.55);
       }
       return;
     }
-    const { L, R } = block;
+    const { L, R } = src;
     const color = cssVar('--wave');
     ctx.fillStyle = color;
     ctx.strokeStyle = color;
@@ -244,6 +314,9 @@ export function phaseAnalysisPanel(app) {
   });
   ro.observe(scopeWrap);
   app.on('transport', () => schedule());
+  // Stopped, the scope follows the selection and the playhead.
+  app.on('active', () => schedule());
+  app.on('doc-change', (doc, e) => doc === app.active && !app.engine.playing && (e.kind === 'cursor' || e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history') && schedule());
   // Keep the toolbar in step with the preferences (another window or a script may change them).
   app.prefs.on('change', (key) => {
     if (key === 'phaseMode') {
@@ -271,6 +344,22 @@ export function phaseAnalysisPanel(app) {
     hide() {
       visible = false;
       tap.stop();
+    },
+    /** Panel menu: display mode and normalizing. */
+    menu: () => {
+      const mode = app.prefs.get('phaseMode') || 'gonio';
+      const setMode = (v) => {
+        app.prefs.set('phaseMode', v);
+        modeSel.value = v;
+      };
+      return [
+        ...[['gonio', 'Goniometer'], ['lines', 'Goniometer (Lines)'], ['density', 'Density'], ['xy', 'Lissajous (X/Y)']].map(([v, label]) => ({ type: 'cmd', label, enabled: true, checked: mode === v, run: () => setMode(v) })),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Normalize', enabled: true, checked: Boolean(app.prefs.get('phaseNormalize')), run: () => {
+          app.prefs.set('phaseNormalize', !app.prefs.get('phaseNormalize'));
+          normBox.checked = Boolean(app.prefs.get('phaseNormalize'));
+        } },
+      ];
     },
   };
 }
@@ -315,8 +404,25 @@ export function phaseMeterPanel(app) {
     if (!raf && visible) raf = requestAnimationFrame(draw);
   };
 
+  // Stopped: the correlation of the selection, or of the audio around the playhead.
+  let stillKey = [];
+  let still = null;
+  const stillValue = () => {
+    const doc = app.active;
+    if (app.engine.playing || active || !doc || doc.kind !== 'audio') return null;
+    const key = [doc, doc.state, doc.selection.start, doc.selection.end, doc.cursor];
+    if (key.every((v, i) => v === stillKey[i])) return still;
+    stillKey = key;
+    const b = documentBlock(doc, 4096, 65536);
+    still = b ? { corr: correlation(b.L, b.R), label: b.label } : null;
+    return still;
+  };
+
   const draw = () => {
     raf = 0;
+    const st = stillValue();
+    const lit = active || Boolean(st);
+    const shown = st ? st.corr : corr;
     const vertical = meterIsVertical(el.clientWidth, el.clientHeight);
     el.classList.toggle('vertical', vertical);
     const fit = fitCanvas(canvas, bar);
@@ -342,10 +448,10 @@ export function phaseMeterPanel(app) {
     rect(-1, 1);
     // Unlit: the whole scale dimmed. Lit: from 0 to the current value.
     ctx.fillStyle = grad;
-    ctx.globalAlpha = active ? 0.28 : 0.45;
+    ctx.globalAlpha = lit ? 0.28 : 0.45;
     rect(-1, 1);
     ctx.globalAlpha = 1;
-    if (active) rect(0, corr);
+    if (lit) rect(0, shown);
     // Segment gaps every 0.05.
     ctx.fillStyle = cssVar('--meter-bg');
     for (let i = -19; i <= 19; i++) {
@@ -356,10 +462,10 @@ export function phaseMeterPanel(app) {
     // Centre line, needle and the low hold tick.
     ctx.fillStyle = cssVar('--text-dim');
     rect(-0.004, 0.004);
-    if (active) {
+    if (lit) {
       ctx.fillStyle = cssVar('--text-strong');
-      rect(corr - 0.008, corr + 0.008);
-      if (low) {
+      rect(shown - 0.008, shown + 0.008);
+      if (active && low) {
         ctx.fillStyle = cssVar('--hot');
         rect(low.v - 0.006, low.v + 0.006);
       }
@@ -383,12 +489,13 @@ export function phaseMeterPanel(app) {
         ctx.fillText(text, p, thick + 5);
       }
     }
-    value.textContent = `${corr >= 0 ? '+' : ''}${corr.toFixed(2)}`;
+    value.textContent = `${shown >= 0 ? '+' : ''}${shown.toFixed(2)}`;
+    value.title = st ? `Correlation of the ${st.label.toLowerCase()} (stopped)` : 'Phase correlation';
     const now = performance.now();
     // Spoken at most once a second while active; at rest it must not keep a stale reading.
     if (now - lastSpoken > 1000 || !active) {
-      bar.setAttribute('aria-valuenow', corr.toFixed(2));
-      bar.setAttribute('aria-valuetext', active ? correlationText(corr) : 'No signal');
+      bar.setAttribute('aria-valuenow', shown.toFixed(2));
+      bar.setAttribute('aria-valuetext', active ? correlationText(corr) : st ? `${correlationText(st.corr)} (${st.label.toLowerCase()})` : 'No signal');
       lastSpoken = now;
     }
     if (!app.engine.playing && active) {
@@ -406,6 +513,8 @@ export function phaseMeterPanel(app) {
   const ro = new ResizeObserver(() => schedule());
   ro.observe(el);
   app.on('transport', () => schedule());
+  app.on('active', () => schedule());
+  app.on('doc-change', (doc, e) => doc === app.active && !app.engine.playing && (e.kind === 'cursor' || e.kind === 'selection' || e.kind === 'edit' || e.kind === 'history') && schedule());
   window.addEventListener('themechange', () => schedule());
 
   return {

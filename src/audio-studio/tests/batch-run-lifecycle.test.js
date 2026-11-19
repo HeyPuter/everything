@@ -51,6 +51,8 @@ function setup(location, count = 1) {
   app.syncGraph = vi.fn();
   app.notify = vi.fn();
   app.prefs.set('batchExport', { format: 'wav', bitDepth: 32, dither: 'none', collision: 'overwrite', location });
+  // One file at a time, so a cancel lands while exactly one write is in flight.
+  app.prefs.set('batchConcurrency', 1);
   for (let i = 0; i < count; i++) app.addDocument(new AudioFile({ name: `File ${i + 1}.wav`, sampleRate: 8000, channels: [Channel.fromSamples(new Float32Array(32).fill(0.25))] }));
   const panel = batchPanel(app);
   document.body.append(panel.el);
@@ -175,4 +177,25 @@ it.each(['saved', 'failed'])('reports a %s upload accurately when cancelled duri
   expect(panel.el.querySelector('.batch-summary').textContent).toBe(outcome === 'saved' ? '1 of 2 files processed, 1 cancelled.' : '0 of 2 files processed, 2 cancelled.');
   expect(run.disabled).toBe(false);
   expect(cancel.hidden).toBe(true);
+});
+
+it('marks the app and the panel busy while a batch runs', async () => {
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const getUser = vi.fn(async () => { await wait; return { username: 'u' }; });
+  window.puter = { auth: { isSignedIn: () => true, getUser }, fs: { write: async () => ({}) } };
+  const { panel } = setup('puter');
+  const summary = panel.el.querySelector('.batch-summary');
+  const done = panel.api.run();
+  await vi.waitFor(() => expect(getUser).toHaveBeenCalledOnce(), { interval: 1 });
+  expect(document.documentElement.hasAttribute('data-busy')).toBe(true);
+  expect(panel.el.hasAttribute('aria-busy')).toBe(true);
+  expect(summary.classList.contains('busy')).toBe(true);
+  expect(summary.textContent).toMatch(/^Processing/);
+  release();
+  await done;
+  expect(document.documentElement.hasAttribute('data-busy')).toBe(false);
+  expect(panel.el.hasAttribute('aria-busy')).toBe(false);
+  expect(summary.classList.contains('busy')).toBe(false);
+  expect(summary.textContent).toBe('1 of 1 file processed.');
 });

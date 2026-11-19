@@ -23,6 +23,7 @@ import { inlinePrompt } from './dialog.js';
 import { smoothBoundaries } from '../model/edits.js';
 import { editSmoothFrames } from '../editor/view-prefs.js';
 import { findClip, findTrack, updateClips, updateTrack } from '../model/session-edits.js';
+import { clipAudio, trackAudio } from '../model/session-graph.js';
 
 const racks = new WeakMap();
 
@@ -113,6 +114,12 @@ export function sessionRackTarget(doc, kind) {
       id,
       name: findClip(doc.state, id)?.name || 'Clip',
       slots: () => findClip(doc.state, id)?.fx || [],
+      // The audio the chain plays, for settings found from it (DeHummer Auto).
+      sources: () => {
+        const c = findClip(doc.state, id);
+        const src = c && doc.pool?.get(c.sourceId);
+        return src?.channels?.length ? [clipAudio(c, src, doc.state.sampleRate)] : [];
+      },
       // Clip chains have no empty slots.
       set: (slots) => doc.apply('Clip Effects', updateClips(doc.state, [id], { fx: slots.filter(Boolean) }), { coalesce: `clip-fx:${id}` }),
     };
@@ -126,6 +133,7 @@ export function sessionRackTarget(doc, kind) {
     id,
     name: track.name || (track.type === 'master' ? 'Mix' : 'Track'),
     slots: () => findTrack(doc.state, id)?.fx || [],
+    sources: () => (doc.pool ? trackAudio(doc.state, findTrack(doc.state, id) || track, doc.pool) : []),
     set: (slots) => doc.apply('Track Effects', updateTrack(doc.state, id, { fx: slots }), { coalesce: `fx:${id}` }),
     // Rack input/output gain (dB) and dry/wet mix (0..1).
     levels: () => {
@@ -168,6 +176,55 @@ export function installRackCommands(app) {
       },
     },
   ]);
+}
+
+// -------------------------------------------------------------- meters
+
+const METER_FLOOR = -60;
+const METER_TICKS = [-48, -36, -24, -12, 0];
+const toFrac = (peak) => (peak > 0 ? Math.max(0, Math.min(1, (20 * Math.log10(peak) - METER_FLOOR) / -METER_FLOOR)) : 0);
+
+/**
+ * Input and output level meters (L/R bars and a dB scale) under the rack's
+ * gain knobs. set(input, output) takes linear peaks per channel; the bars hold
+ * peaks briefly and fall back smoothly.
+ */
+export function rackMeters() {
+  const pair = (label) => {
+    const bars = [0, 1].map(() => h('div.rack-meter-bar', h('div.rack-meter-fill')));
+    return { label, bars, held: [0, 0], row: h('div.rack-meter-row', h('span.rack-meter-label', label), h('div.rack-meter-pair', bars)) };
+  };
+  const rows = [pair('In'), pair('Out')];
+  const scale = h('div.rack-meter-scale', { 'aria-hidden': 'true' }, h('span.rack-meter-label'), h('div.rack-meter-ticks', METER_TICKS.map((d) => h('span', { style: { left: `${(1 - d / METER_FLOOR) * 100}%` } }, String(d)))));
+  const el = h('div.rack-meters', { role: 'group', 'aria-label': 'Rack input and output levels' }, rows.map((r) => r.row), scale);
+  const set = (input, output) => {
+    [input, output].forEach((pk, i) => {
+      const r = rows[i];
+      r.bars.forEach((b, c) => {
+        const v = pk ? pk[c] ?? pk[0] ?? 0 : 0;
+        // Peak hold with a gentle fall, like the main level meters.
+        r.held[c] = Math.max(v, r.held[c] * 0.85);
+        b.firstChild.style.clipPath = `inset(0 ${((1 - toFrac(r.held[c])) * 100).toFixed(1)}% 0 0)`;
+        b.classList.toggle('clip', v >= 0.999);
+      });
+    });
+  };
+  const clear = () => {
+    rows.forEach((r) => (r.held = [0, 0]));
+    set(null, null);
+  };
+  return { el, set, clear };
+}
+
+/** Peak of each of the first two channels of `doc` just before frame `at`. */
+function filePeak(doc, at, frames = 2048) {
+  const buf = new Float32Array(frames);
+  return doc.state.channels.slice(0, 2).map((c) => {
+    c.read(Math.max(0, Math.floor(at - frames)), buf);
+    let m = 0;
+    for (let i = 0; i < frames; i++) m = Math.max(m, Math.abs(buf[i]));
+    return m;
+  });
 }
 
 // -------------------------------------------------------------- panel
@@ -282,6 +339,10 @@ export function effectsRackPanel(app) {
       const c = chain();
       return c ? Boolean(c.missing) || (c.power ? !c.power() : false) : !rack()?.power;
     },
+    sources: () => {
+      const c = chain();
+      return c && !c.missing ? c.sources?.() || null : null;
+    },
   });
 
   // Footer: gains, mix, process range, apply.
@@ -335,8 +396,9 @@ export function effectsRackPanel(app) {
   });
   const applyBtn = h('button.btn.primary.rack-apply', { type: 'button', onclick: () => applyRack(app) }, 'Apply');
   const knobs = h('div.rack-knobs', input.el, output.el, mix);
+  const meters = rackMeters();
   const processRow = h('div.rack-process', h('label.rack-toolbar-label', 'Process:'), processSel, h('div.spacer'), applyBtn);
-  const footer = h('div.rack-footer', knobs, processRow);
+  const footer = h('div.rack-footer', knobs, meters.el, processRow);
 
   const empty = h('div.empty-state.rack-empty', icon('fx-rack', 28), h('p', 'Open an audio file or a multitrack session to add effects.'));
   const scroll = h('div.rack-scroll', editor.el);
@@ -407,6 +469,23 @@ export function effectsRackPanel(app) {
     applyBtn.disabled = !rackActive(r);
     renderPresets();
   }
+  // Meters: a file's input is read at the playhead (times the input gain), its output is the
+  // file track's level after the rack; a session track shows its own level as the output.
+  const dbGain = (db) => 10 ** ((db || 0) / 20);
+  app.engine?.on?.('meters', (m) => {
+    if (!el.isConnected || footer.hidden) return;
+    const c = chain();
+    if (c) {
+      meters.set(null, c.kind === 'track' && !c.missing ? m.tracks.get(c.id) : null);
+      return;
+    }
+    const doc = audioDoc();
+    const r = rack();
+    if (!doc || !r) return;
+    const g = r.power === false ? 1 : dbGain(r.input);
+    meters.set(filePeak(doc, app.engine.position).map((v) => v * g), m.tracks.get('file') || m.master);
+  });
+  app.on('transport', (state) => state === 'stopped' && meters.clear());
   app.on('active', render);
   app.on('rack', (doc) => doc === audioDoc() && render());
   app.on('rack-target', render);

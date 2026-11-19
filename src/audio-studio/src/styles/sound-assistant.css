@@ -37,6 +37,73 @@
   overflow: auto;
 }
 
+/* The file or clip the panel edits. */
+.sa-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.sa-target-name {
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sa-editor > .sa-target {
+  padding: 6px 8px 0;
+}
+
+.sa-preset.sa-assign-preset {
+  padding: 0;
+  border-bottom: none;
+}
+
+/* The suggested audio type. */
+/* The type the audio sounds like: a dashed edge and a small tag, so it never reads as chosen. */
+.sa-type-btn.suggested {
+  position: relative;
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.sa-type-btn.suggested::after {
+  content: 'Suggested';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: var(--hot);
+  font-size: var(--fs-xs);
+}
+
+.sa-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.sa-suggest .icon {
+  color: var(--accent);
+}
+
+.sa-suggest .link-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--hot);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .sa-assign-text {
   margin: 0;
   color: var(--text);
@@ -325,7 +392,7 @@
 }
 
 .batch-list {
-  min-height: 60px;
+  min-height: 84px;
 }
 
 .batch-table .batch-status-col {
@@ -421,8 +488,15 @@
 
 .batch-label {
   flex: none;
-  width: 58px;
+  width: 66px;
   color: var(--text-dim);
+}
+
+.batch-export-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 66px;
 }
 
 .batch-export {
@@ -470,6 +544,26 @@
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A batch run in progress: a small spinning ring before the count. */
+.batch-summary.busy::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 1.5px solid var(--text-faint);
+  border-top-color: var(--hot);
+  border-radius: 50%;
+  animation: file-status-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .batch-summary.busy::before {
+    animation: none;
+  }
 }
 
 .batch-settings {
@@ -531,6 +625,24 @@
 @container (max-width: 360px) {
   .batch-toolbar .btn span {
     display: none;
+  }
+
+  /* Icons only: drawn like the toolbar's other icon buttons, not as empty pills. */
+  .batch-toolbar .btn {
+    justify-content: center;
+    width: var(--control);
+    height: var(--control);
+    min-width: 0;
+    padding: 0;
+    border-color: transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-dim);
+  }
+
+  .batch-toolbar .btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--text-strong);
   }
 
   .batch-export {

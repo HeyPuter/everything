@@ -111,6 +111,42 @@ describe('Amplitude and Compression dialogs', () => {
     await close();
   });
 
+  for (const id of ['singleBandCompressor', 'hardLimiter']) {
+    it(`${id} shows input, gain reduction and output meters beside its transfer graph`, async () => {
+      const { app, dlg, close } = open(id);
+      const meters = [...dlg.querySelectorAll('.fx-tr-meters [role=meter]')];
+      expect(meters.map((m) => m.getAttribute('aria-label'))).toEqual(['In', 'GR', 'Out']);
+      expect(dlg.querySelector('.fx-transfer-meters .fx-transfer')).not.toBeNull();
+      app.engine.emit('fx-readout', new Map([[`preview:${id}`, Float32Array.of(-4, -8.5, -12)]]));
+      expect(meters.map((m) => m.getAttribute('aria-valuenow'))).toEqual(['-4', '-8.5', '-12']);
+      await close();
+    });
+  }
+
+  it('Gain Envelope labels its points with times in the selection and its grid with levels', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(filled(RATE * 4, 0.1))] });
+    app.active = doc;
+    doc.setSelection(RATE, RATE * 3);
+    const p = openEffectDialog(app, getEffect('gainEnvelope'), { doc, values: { envelope: [{ t: 0, v: 1 }, { t: 0.5, v: 2 }, { t: 1, v: 1 }] } });
+    const dlg = document.querySelector('.fx-dialog');
+    const points = [...dlg.querySelectorAll('.fx-envelope .fx-point')];
+    // The middle point sits half way through the 1..3 s selection.
+    expect(points[1].getAttribute('aria-valuetext')).toBe('2.00 s, 200 %');
+    expect(getEffect('gainEnvelope').params[0].ticks).toEqual([1, 2, 3]);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await p;
+  });
+
+  it('Single-band Compressor and Hard Limiter report their gain reduction', () => {
+    const comp = readout('singleBandCompressor', { threshold: -30, ratio: 4, knee: 0 }, sine(48000, 1000, 0.316));
+    expect(comp[0]).toBeCloseTo(-10, 0);
+    expect(comp[1]).toBeLessThan(-12);
+    const lim = readout('hardLimiter', { ceiling: -6 }, sine(24000, 1000, 1));
+    expect(lim[1]).toBeCloseTo(-6, 0);
+    expect(lim[2]).toBeLessThan(-5.8);
+  });
+
   it('DeEsser reports its gain reduction', () => {
     const r = readout('deesser', { threshold: -40 }, sine(24000, 7000, 0.5));
     expect(r).toHaveLength(1);
@@ -129,6 +165,25 @@ describe('Amplitude and Compression dialogs', () => {
     expect(dlg.querySelector('[data-section="Low Band"]')).toBeNull(); // band settings live in the strips
     app.engine.emit('fx-readout', new Map([['preview:multibandCompressor', Float32Array.of(-10, -3, -20, 0, -30, 0, -40, 0, -1)]]));
     expect(strips[0].querySelectorAll('[role=meter]')[1].getAttribute('aria-valuenow')).toBe('-3');
+    // Output Gain is a fader with an output meter beside the graph, not a frame of its own.
+    expect(dlg.querySelector('.fx-mb-top .fx-mb-output .fx-vmeter')).not.toBeNull();
+    expect(dlg.querySelector('[data-section="Output"]')).toBeNull();
+    expect(dlg.querySelector('.fx-columns').style.getPropertyValue('--cols')).toBe('2');
+    await close();
+  });
+
+  it('Multiband Compressor thresholds have graph handles and ride on the input meters', async () => {
+    const { dlg, close } = open('multibandCompressor');
+    const handles = dlg.querySelectorAll('.fx-mb-thresh');
+    expect(handles).toHaveLength(4);
+    expect(handles[2].getAttribute('aria-valuenow')).toBe('-18');
+    handles[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', shiftKey: true, bubbles: true }));
+    expect(handles[2].getAttribute('aria-valuenow')).toBe('-15');
+    const strip = dlg.querySelectorAll('.fx-mb-strip')[2];
+    expect(strip.querySelector('.hot').textContent).toMatch(/-15/);
+    // The input meter marks the threshold (0 dB at the top, -60 at the bottom) and has a dB scale.
+    expect(strip.querySelector('.fx-mb-thresh-mark').style.top).toBe('25%');
+    expect(strip.querySelector('.fx-lm-scale').textContent).toContain('-48');
     await close();
   });
 
@@ -198,16 +253,33 @@ describe('Amplitude and Compression dialogs', () => {
     await close();
   });
 
+  it('Channel Mixer inverts each input on its own', async () => {
+    const { dlg, close } = open('channelMixer');
+    const [lInv, rInv] = dlg.querySelectorAll('[role=tabpanel]')[0].querySelectorAll('.cm-invert input');
+    expect(lInv.checked).toBe(false);
+    // R into L is 0 %: nothing to invert yet.
+    expect(rInv.disabled).toBe(true);
+    lInv.checked = true;
+    lInv.dispatchEvent(new Event('change'));
+    const values = () => [...dlg.querySelectorAll('[role=tabpanel]')[0].querySelectorAll('.hot')].map((x) => x.textContent);
+    expect(values()[0]).toMatch(/^-100/);
+    expect(dlg.querySelector('.fx-preset-select').value).not.toBe('Default');
+    lInv.checked = false;
+    lInv.dispatchEvent(new Event('change'));
+    expect(values()[0]).toMatch(/^100/);
+    await close();
+  });
+
   it('Normalize greys out the target it does not use', async () => {
     const { dlg, close } = open('normalize');
     const hots = () => [...dlg.querySelectorAll('.hot')].filter((x) => !x.closest('[hidden]'));
     const unit = () => dlg.querySelector('.fx-radios input:checked').nextSibling.textContent;
-    expect(unit()).toBe('%');
-    expect(hots().map((x) => x.textContent)).toEqual(['100.0 %', '0.0 %']);
-    const db = dlg.querySelector('.fx-radios input');
-    db.checked = true;
-    db.dispatchEvent(new Event('change'));
-    expect(hots()[0].textContent).toMatch(/dB/);
+    expect(unit()).toBe('dB');
+    expect(hots().map((x) => x.textContent)).toEqual(['-1.0 dB', '0.0 %']);
+    const pct = dlg.querySelectorAll('.fx-radios input')[1];
+    pct.checked = true;
+    pct.dispatchEvent(new Event('change'));
+    expect(hots()[0].textContent).toBe('100.0 %');
     // Normalize To off greys the target, unit and equal-channels option; DC bias waits for its switch.
     const box = (text) => [...dlg.querySelectorAll('label.check input')].find((i) => i.closest('label').textContent.startsWith(text));
     expect(hots()[1].disabled).toBe(true);

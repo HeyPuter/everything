@@ -319,6 +319,19 @@
   font-weight: 400;
 }
 
+/* Row labels share the row's stripe, so each label reads with its values. */
+.stats-table tbody th[scope='row'] {
+  background: transparent;
+}
+
+.stats-table tr.amp-group th {
+  padding-top: 8px;
+  color: var(--text-strong);
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+
 .data-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -402,6 +415,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--fs-sm);
+}
+
+.match-settings[hidden] {
+  display: none;
 }
 
 .match-settings {

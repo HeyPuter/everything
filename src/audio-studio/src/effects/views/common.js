@@ -4,40 +4,40 @@
 
 import { h } from '../../lib/dom.js';
 import { cssVar } from '../../ui/theme.js';
-import { plot, gridLines, labelText, draggable } from '../editors.js';
+import { plot, labelText, draggable, freqGridLines } from '../editors.js';
 import { logFrequencies } from '../biquad.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 export const hzLabel = (f) => (f >= 1000 ? `${Number((f / 1000).toFixed(f >= 10000 ? 1 : 2))} kHz` : `${Math.round(f)} Hz`);
 
-/** Frequency ticks for a log axis up to fMax: [value, label] (labels only on decades). */
-export function freqTicks(fMax) {
-  return [30, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter((f) => f < fMax).map((f) => [f, [100, 1000, 10000].includes(f) ? (f >= 1000 ? `${f / 1000}k` : String(f)) : '']);
-}
-
 /**
  * Response plot with band handles.
  *  response(values, freqs, rate) -> dB per frequency (default: the definition's response)
  *  handles(values) -> [{ freq, gain, enabled, ids: { freq, gain, q }, label }]
  *  span: [lo, hi] dB shown; step: grid step in dB
+ *  centers(values) -> frequencies sampled exactly (narrow notches, which a
+ *    per-pixel sweep could step over; default: the handles' frequencies)
  * Drag a handle to move its frequency (and gain when it has a gain id);
  * arrows nudge, Alt+Up/Down or the wheel change Q.
  */
-export function responseEditor({ label = 'Frequency response', span = [-24, 24], step = 6, response, handles = () => [], className = '' }) {
+export function responseEditor({ label = 'Frequency response', span = [-24, 24], step = 6, response, handles = () => [], centers = null, className = '' }) {
   return (ctx) => {
     const rate = ctx.doc?.sampleRate || 48000;
     const fMin = 20;
     const fMax = Math.min(20000, rate / 2);
-    const freqs = logFrequencies(320, fMin, fMax);
     const [lo, hi] = span;
+    // Two points per pixel, plus the exact centre of every notch or peak, so narrow ones draw to full depth.
+    const sweep = (W, values) => {
+      const extra = (centers ? centers(values) : handles(values).map((b) => b.freq)).filter((f) => f > fMin && f < fMax);
+      return Float64Array.from([...logFrequencies(Math.max(320, Math.ceil(W * 2)), fMin, fMax), ...extra]).sort();
+    };
     const xOf = (f, W) => (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
     const yOf = (d, H) => 6 + ((hi - d) / (hi - lo)) * (H - 12);
     const view = plot(`fx-response${className ? `.${className}` : ''}`, label, (g, W, H) => {
-      const ticks = freqTicks(fMax);
       const ys = [];
       for (let d = Math.ceil(lo / step) * step; d <= hi; d += step) ys.push(d);
-      gridLines(g, W, H, ticks.map(([f]) => xOf(f, W)), ys.map((d) => yOf(d, H)));
+      freqGridLines(g, W, H, (f) => xOf(f, W), { fMin, fMax, ys: ys.map((d) => yOf(d, H)) });
       if (lo < 0 && hi >= 0) {
         g.strokeStyle = cssVar('--grid-strong');
         g.beginPath();
@@ -45,6 +45,7 @@ export function responseEditor({ label = 'Frequency response', span = [-24, 24],
         g.lineTo(W, Math.round(yOf(0, H)) + 0.5);
         g.stroke();
       }
+      const freqs = sweep(W, ctx.values);
       const resp = (response || ctx.def.response)(ctx.values, freqs, rate);
       g.strokeStyle = cssVar('--wave');
       g.lineWidth = 2;
@@ -56,7 +57,6 @@ export function responseEditor({ label = 'Frequency response', span = [-24, 24],
         else g.moveTo(x, y);
       }
       g.stroke();
-      ticks.forEach(([f, text]) => text && labelText(g, text, xOf(f, W) + 3, H - 14));
       ys.filter((d, i) => i % 2 === 0 || ys.length < 8).forEach((d) => labelText(g, `${d > 0 ? '+' : ''}${d}`, 3, yOf(d, H) + 2));
     });
 
@@ -216,9 +216,7 @@ export function spectrumMonitor(ctx, { label = 'Spectrum at the playhead', size 
   const yOf = (d, H) => 4 + (-d / 100) * (H - 18);
   const spec = liveSpectrum(ctx, { size, onFrame: () => view.redraw() });
   const view = plot('fx-spectrum', label, (g, W, H) => {
-    const ticks = freqTicks(fMax);
-    gridLines(g, W, H, ticks.map(([f]) => xOf(f, W)), [-20, -40, -60, -80].map((d) => yOf(d, H)));
-    ticks.forEach(([f, text]) => text && labelText(g, text, xOf(f, W) + 3, H - 14));
+    freqGridLines(g, W, H, (f) => xOf(f, W), { fMin: 20, fMax, ys: [-20, -40, -60, -80].map((d) => yOf(d, H)) });
     [-20, -40, -60, -80].forEach((d) => labelText(g, `${d}`, 3, yOf(d, H) + 2));
     if (!spec.live()) {
       labelText(g, 'Press Preview to see the spectrum of the audio', 8, 8);
@@ -229,4 +227,42 @@ export function spectrumMonitor(ctx, { label = 'Spectrum at the playhead', size 
     drawSpectrum(g, spec, (f) => xOf(f, W), (d) => yOf(d, H), { H });
   });
   return view.el;
+}
+
+/**
+ * The note an effect shows while the file lacks what it learns from (a noise
+ * print, a sound model): what to select, and with a selection, a button that
+ * takes it from there in one click. Hidden once has() is true.
+ * Returns the element; `run` performs the capture (and may throw).
+ */
+export function needBanner(ctx, { has, missing, howTo, action, run, change }) {
+  const { doc } = ctx;
+  const text = h('span.fx-need-text');
+  const btn = h('button.btn.fx-need-btn', {
+    type: 'button',
+    onclick: async () => {
+      btn.disabled = true;
+      try {
+        await run();
+      } catch (err) {
+        ctx.app?.notify?.(err?.message || String(err), { error: true });
+      } finally {
+        show();
+      }
+    },
+  }, action);
+  const el = h('div.fx-need', { role: 'status' }, h('span.fx-need-icon', { 'aria-hidden': 'true' }, '!'), text, btn);
+  function show() {
+    const ready = Boolean(has());
+    el.hidden = ready || !doc;
+    if (ready || !doc) return;
+    const sel = doc.hasSelection ? (doc.selection.end - doc.selection.start) / doc.sampleRate : 0;
+    text.textContent = sel > 0 ? `${missing} Use the selection (${sel.toFixed(sel < 10 ? 2 : 1)} s) to apply this effect.` : `${missing} ${howTo}`;
+    btn.hidden = !(sel > 0);
+    btn.disabled = false;
+  }
+  const off = doc?.on?.('change', (e) => (e?.kind === 'selection' || e?.kind === change) && show());
+  if (off) ctx.onClose?.(off);
+  show();
+  return el;
 }

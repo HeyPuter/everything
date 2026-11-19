@@ -15,8 +15,10 @@ import { installAppearance } from '../ui/appearance.js';
 import { CATEGORIES, preferencesDialog, openAudioBytes } from '../ui/preferences.js';
 import { formatBytesShort } from '../export/formats.js';
 import { openDialog } from '../ui/dialog.js';
-import { pickLocalFiles, downloadBlob } from '../storage/files.js';
+import { pickLocalFiles } from '../storage/files.js';
 import { setResampleSettings } from '../audio/dsp.js';
+import * as puter from '../storage/puter.js';
+import { saveSmallFile } from '../export/save-file.js';
 
 /** Copies preference values into the module options that read them. */
 export function applyModulePrefs(prefs) {
@@ -26,6 +28,8 @@ export function applyModulePrefs(prefs) {
   placementOptions.randomColor = Boolean(prefs.get('randomTrackColor'));
   placementOptions.avoidOverlap = Boolean(prefs.get('avoidOverlap'));
   placementOptions.sameTrack = prefs.get('insertMultiple') === 'same';
+  placementOptions.embeddedTimecode = Boolean(prefs.get('embeddedTimecode'));
+  placementOptions.splitChannels = prefs.get('insertChannels') === 'split';
   rackOptions.processBypassed = Boolean(prefs.get('fxProcessBypassed'));
   rackOptions.sort = prefs.get('fxMenuSort') === 'name' ? 'name' : 'category';
   const caution = Number(prefs.get('meterCaution'));
@@ -60,8 +64,20 @@ export function importSettingsValues(app, values) {
   if (app.dock && app.layoutMode === 'desktop') app.setWorkspace(app.prefs.get('workspace'));
 }
 
-async function importSettings(app) {
+/** A settings file: from Puter when signed in, else from this device. */
+async function pickSettingsFile() {
+  if (puter.sdk() && puter.isSignedIn()) {
+    const [item] = await puter.pickFiles({ multiple: false, accept: '.json' });
+    if (!item) return null;
+    const blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);
+    return new File([blob], item.name || 'Settings.json');
+  }
   const [file] = await pickLocalFiles({ accept: '.json,application/json', multiple: false });
+  return file || null;
+}
+
+async function importSettings(app) {
+  const file = await pickSettingsFile();
   if (!file) return false;
   let parsed;
   try {
@@ -118,6 +134,25 @@ export function installPreferences(app) {
     app.notify(`Open files use about ${formatBytesShort(bytes)} of memory. Save and close files you no longer need to keep the browser responsive.`);
   });
 
+  // Preferences > Multitrack: arming a track for recording meters the input, until the last
+  // track is disarmed (input metering switched on by hand stays on).
+  let armMetering = false;
+  const anyArmed = () => app.documents.some((d) => d.kind === 'session' && d.state.tracks.some((t) => t.arm));
+  const syncArmMetering = () => {
+    if (!app.commands.get('transport.meterInput')) return;
+    const want = app.prefs.get('meterOnArm') !== false && anyArmed();
+    if (want && !armMetering && !app.inputMetering) {
+      armMetering = true;
+      app.commands.run('transport.meterInput');
+    } else if (!want && armMetering) {
+      armMetering = false;
+      if (app.inputMetering && !app.recording) app.commands.run('transport.meterInput');
+    }
+  };
+  app.on('doc-change', (doc) => doc.kind === 'session' && syncArmMetering());
+  app.on('documents', syncArmMetering);
+  app.prefs.on('change', (key) => key === 'meterOnArm' && syncArmMetering());
+
   // Keep selection, zoom and playhead in step across open audio files.
   let syncing = false;
   app.on('doc-change', (doc, e) => {
@@ -159,10 +194,10 @@ export function installPreferences(app) {
     {
       id: 'file.exportSettings',
       label: 'Application Settings...',
-      run: () => {
+      run: async () => {
         const json = JSON.stringify(exportSettings(app.prefs), null, 2);
-        downloadBlob(new Blob([json], { type: 'application/json' }), settingsFileName());
-        app.setStatus('Settings exported');
+        const saved = await saveSmallFile(app, new Blob([json], { type: 'application/json' }), settingsFileName(), { title: 'Export Application Settings', ext: '.json', pref: 'settingsExportFolder' });
+        if (saved) app.setStatus(saved.type === 'puter' ? `Settings exported to ${saved.path}` : 'Settings exported');
       },
     },
   ]);

@@ -7,7 +7,7 @@
 import { h } from '../lib/dom.js';
 import { hotNumber } from '../ui/controls.js';
 import { paramControls } from './dialog.js';
-import { toPosition, fromPosition, formatValue, parseValue, editValueText } from './params.js';
+import { toPosition, fromPosition, formatValue, parseValue, editValueText, scaleTicks } from './params.js';
 
 const param = (ctx, id) => ctx.def.params.find((p) => p.id === id);
 
@@ -88,7 +88,7 @@ export function tabPanels(tabs, { selected = 0, label = 'Settings', onSelect } =
  * A vertical fader for a number param: the slider with the value under it.
  * Log params move along their log scale like the horizontal sliders.
  */
-export function vSlider(ctx, id, { label } = {}) {
+export function vSlider(ctx, id, { label, meter = null } = {}) {
   const p = param(ctx, id);
   const name = p.label;
   const shown = label ?? p.label;
@@ -122,7 +122,32 @@ export function vSlider(ctx, id, { label } = {}) {
   };
   show(ctx.values);
   ctx.subscribe(show);
-  return h('div.fx-vfader', shown ? h('div.fx-vfader-label', shown) : null, slider, h('div.fx-vfader-value', hot));
+  // A scale beside the fader: labelled steps and minor ticks, bottom = minimum.
+  const { major, minor } = scaleTicks(p, { maxLabels: 5 });
+  const at = (x) => ({ bottom: `${(x * 100).toFixed(3)}%` });
+  const ruler = h(
+    'div.fx-vruler',
+    { 'aria-hidden': 'true' },
+    minor.map((x) => h('span.fx-vtick', { style: at(x) })),
+    major.map((t) => [h('span.fx-vtick.major', { style: at(t.x) }), h('span.fx-vtick-label', { style: at(t.x) }, t.label)]),
+  );
+  // meter 'in' | 'out': a level bar beside the fader, fed while the dialog previews.
+  let bar = null;
+  if (meter && ctx.onLevels) {
+    const fill = h('div.fx-vmeter-fill');
+    bar = h('div.fx-vmeter', { 'aria-hidden': 'true', title: meter === 'in' ? 'Input level' : 'Output level' }, fill);
+    let held = 0;
+    ctx.onLevels((input, output) => {
+      const pk = meter === 'in' ? input : output;
+      const v = pk ? Math.max(...pk) : 0;
+      held = pk ? Math.max(v, held * 0.85) : 0;
+      const db = held > 0 ? 20 * Math.log10(held) : -Infinity;
+      const f = Math.max(0, Math.min(1, (db + 60) / 60));
+      fill.style.clipPath = `inset(${((1 - f) * 100).toFixed(1)}% 0 0 0)`;
+      bar.classList.toggle('clip', v >= 0.999);
+    });
+  }
+  return h('div.fx-vfader', shown ? h('div.fx-vfader-label', shown) : null, h('div.fx-vscale', bar, slider, ruler), h('div.fx-vfader-value', hot));
 }
 
 /**

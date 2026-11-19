@@ -196,3 +196,53 @@
   max-width: 34em;
   margin: 0;
 }
+
+/* Preview resolution: the picture drawn small and scaled up; the video plays on underneath. */
+.video-low {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.video-low[hidden] {
+  display: none;
+}
+.video-el.video-under {
+  opacity: 0;
+}
+.video-frame.outside .video-low {
+  visibility: hidden;
+}
+
+/* Spotting: the frame shown is where a dragged clip starts, not the playhead. */
+.video-frame.spotting {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.video-spot-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+}
+.video-spot-badge[hidden] {
+  display: none;
+}
+.mt-video-spot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  border-left: 2px dashed var(--accent);
+  pointer-events: none;
+}
+.mt-video-spot[hidden] {
+  display: none;
+}

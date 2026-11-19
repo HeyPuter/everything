@@ -3,7 +3,7 @@
 // (cue + LIST/adtl labl/ltxt), which round-trip markers with other editors,
 // mu-law/A-law and LIST/INFO metadata (title, artist, ...).
 
-import { parseRiffInfo, parseBext, parseCart, decodeText } from './meta.js';
+import { parseRiffInfo, parseBext, parseCart, parseIxml, decodeText } from './meta.js';
 import { parseXmp } from './xmp.js';
 import { ulaw, alaw } from './aiff.js';
 
@@ -229,6 +229,8 @@ export function parseWav(buffer) {
       meta = { ...(id === 'bext' ? parseBext(bytes) : parseCart(bytes)), ...meta };
     } else if (KEPT_CHUNKS.includes(id) && body + size <= buffer.byteLength) {
       extra.push({ id, bytes: new Uint8Array(buffer.slice(body, body + size)) });
+      // Scene, take and the other production fields iXML carries are editable metadata too.
+      if (id === 'iXML') meta = { ...parseIxml(decodeText(new Uint8Array(buffer, body, size)).replace(/\0+$/, '')), ...meta };
     } else if (id === 'LIST' && body + 4 <= buffer.byteLength && ascii(dv, body, 4) === 'adtl') {
       let q = body + 4;
       const end = Math.min(body + size, buffer.byteLength);

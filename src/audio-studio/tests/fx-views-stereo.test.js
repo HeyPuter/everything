@@ -42,7 +42,7 @@ describe('center channel extractor', () => {
     const tone = (f, i) => 0.3 * Math.sin((2 * Math.PI * f * i) / 48000);
     const l = Float32Array.from({ length: n }, (_, i) => tone(1000, i) * Math.cos(a) + tone(3000, i));
     const r = Float32Array.from({ length: n }, (_, i) => tone(1000, i) * Math.sin(a) + tone(3000, i));
-    const v = normalizeValues(def, { target: 4, pan: 50, centerLevel: -48 });
+    const v = normalizeValues(def, { target: 4, pan: 50, centerLevel: -48, sideLevel: 0 });
     const [ol] = d.runEffect(def.kind, 48000, [l, r], paramArray(def, v));
     const tail = ol.subarray(24000);
     expect(level(tail, 1000)).toBeLessThan(0.02);
@@ -62,6 +62,20 @@ describe('center channel extractor', () => {
     expect(dlg.querySelectorAll('.cce-levels .fx-vrange')).toHaveLength(2);
     dlg.querySelector('.btn.primary').click();
     expect((await p).target).toBe(4);
+  });
+});
+
+describe('center channel extractor custom range', () => {
+  it('starts from the band in use when switched to Custom', async () => {
+    const { app, doc } = setup();
+    const p = openEffectDialog(app, getEffect('centerChannelExtractor'), { doc, values: { range: 2 } });
+    const dlg = document.querySelector('.fx-dialog');
+    const range = [...dlg.querySelectorAll('select')].find((s) => s.getAttribute('aria-label') === 'Frequency Range');
+    range.value = '4';
+    range.dispatchEvent(new Event('change'));
+    dlg.querySelector('.btn.primary').click();
+    const v = await p;
+    expect([v.range, v.lowFreq, v.highFreq]).toEqual([4, 150, 10000]);
   });
 });
 

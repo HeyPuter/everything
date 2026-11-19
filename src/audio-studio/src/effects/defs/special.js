@@ -260,6 +260,7 @@ registerEffect({
   name: 'Doppler Shifter',
   group: SPECIAL,
   kind: null,
+  modal: true, // laid out for the selection it opened with
   params: [
     choice('path', 'Path Type', ['Straight Line', 'Circular'], 0),
     num('startDistance', 'Starting Distance Away', 1, 200, 30, 'm', { step: 0.1, section: 'Straight Line' }),
@@ -276,6 +277,7 @@ registerEffect({
     choice('quality', 'Quality', ['Low', 'Normal', 'High', 'Highest'], 2),
   ],
   presets: [
+    preset('Default', {}),
     preset('Passing Car', { path: 0, startDistance: 40, velocity: 25, comingFrom: -90, passFront: 6 }),
     preset('Fast Flyby', { path: 0, startDistance: 80, velocity: 90, comingFrom: -60, passFront: 15, passRight: 0 }),
     preset('Slow Walk Past', { path: 0, startDistance: 8, velocity: 1.5, comingFrom: 90, passFront: 1.5 }),
@@ -331,7 +333,11 @@ registerEffect({
   name: 'Delete Silence',
   group: DIAG,
   kind: null,
-  params: [...detectionParams({ silenceThreshold: -40, silenceMin: 500, audioThreshold: -36, audioMin: 20 }), num('keep', 'Shorten Silence To', 0, 5000, 200, 'ms', { step: 1 })],
+  params: [
+    ...detectionParams({ silenceThreshold: -40, silenceMin: 500, audioThreshold: -36, audioMin: 20 }),
+    // Each silence is shortened, not removed, so speech keeps natural gaps (0 removes it).
+    num('keep', 'Shorten Silences To', 0, 5000, 300, 'ms', { step: 1 }),
+  ],
   presets: [
     preset('Default', {}),
     preset('Trim Long Pauses', { silenceThreshold: -45, silenceMin: 1000, keep: 300 }),

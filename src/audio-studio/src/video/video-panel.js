@@ -4,12 +4,30 @@
 // while stopped or scrubbing it seeks to the playhead. Zoom is Best Fit or a
 // percentage of the video's own size (View > Video Display or the panel menu).
 // Preferences > Video sets the timecode overlay (size, background, position,
-// session or file time) and double-click for full screen.
+// session or file time), double-click for full screen, the preview resolution
+// (the picture drawn at a half, quarter or eighth of its size, optionally only
+// while playing) and spotting: while an audio clip is dragged in the
+// Multitrack editor the panel shows the frame where the clip starts (or the
+// trimmed edge), so sound can be placed on picture.
 
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { videoClip, videoPool, videoTimeAt, syncStep } from '../model/session-video.js';
 import { videoURL } from './media.js';
+
+/** Preview resolutions: the divisor of the picture's size. */
+export const VIDEO_RESOLUTIONS = [
+  { id: 'full', label: 'Full', k: 1 },
+  { id: '2', label: '1/2', k: 2 },
+  { id: '4', label: '1/4', k: 4 },
+  { id: '8', label: '1/8', k: 8 },
+];
+
+/** The divisor the picture is drawn at now: 1 for full resolution. */
+export function previewDivisor({ resolution, fullOnStop = true, playing }) {
+  const k = VIDEO_RESOLUTIONS.find((r) => r.id === String(resolution))?.k || 1;
+  return k > 1 && (playing || !fullOnStop) ? k : 1;
+}
 
 export const VIDEO_ZOOMS = [
   { id: 'fit', label: 'Best Fit' },
@@ -29,7 +47,10 @@ export function videoPanel(app) {
   const video = h('video.video-el', { muted: true, playsInline: true, preload: 'auto', disablePictureInPicture: true, 'aria-hidden': 'true' });
   video.muted = true;
   const timecode = h('div.video-timecode', { 'aria-hidden': 'true' });
-  const frame = h('div.video-frame', video, timecode);
+  // The picture at a reduced resolution, drawn from the video (Preferences > Video).
+  const low = h('canvas.video-low', { 'aria-hidden': 'true', hidden: true });
+  const spotBadge = h('div.video-spot-badge', { 'aria-hidden': 'true', hidden: true }, 'Clip');
+  const frame = h('div.video-frame', video, low, timecode, spotBadge);
   const stage = h('div.video-stage', frame);
   const emptyText = h('p.muted');
   const empty = h('div.empty-state.video-empty', icon('video-off', 28), h('strong', 'No video'), emptyText);
@@ -41,11 +62,13 @@ export function videoPanel(app) {
   let src = null;
   let lastCheck = 0;
   let pendingSeek = null;
+  let spot = null; // frame of a dragged audio clip's start, while spotting
+  let divisor = 1;
 
   const target = () => {
     const clip = session && videoClip(session.viewState);
     if (!clip) return null;
-    const frameAt = app.active === session ? app.playhead : session.cursor;
+    const frameAt = spot ?? (app.active === session ? app.playhead : session.cursor);
     const t = videoTimeAt(clip, frameAt, session.sampleRate);
     if (t === null) return null;
     const dur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : src?.duration || Infinity;
@@ -66,7 +89,33 @@ export function videoPanel(app) {
   };
   video.addEventListener('seeked', () => {
     if (pendingSeek !== null && Math.abs(pendingSeek - video.currentTime) > 0.001) seek(pendingSeek);
+    drawLow();
   });
+
+  /** Shows the picture at full resolution or through the reduced-resolution canvas. */
+  const updateResolution = () => {
+    const next = previewDivisor({ resolution: app.prefs.get('videoResolution'), fullOnStop: app.prefs.get('videoFullOnStop') !== false, playing: playing() && !spot });
+    if (next === divisor && !low.hidden === next > 1) return;
+    divisor = next;
+    low.hidden = divisor === 1;
+    video.classList.toggle('video-under', divisor > 1);
+    el.dataset.resolution = String(divisor);
+    drawLow();
+  };
+  const drawLow = () => {
+    if (divisor === 1 || !video.videoWidth || video.readyState < 2) return;
+    const w = Math.max(1, Math.round(video.videoWidth / divisor));
+    const hh = Math.max(1, Math.round(video.videoHeight / divisor));
+    if (low.width !== w || low.height !== hh) {
+      low.width = w;
+      low.height = hh;
+    }
+    try {
+      low.getContext('2d')?.drawImage(video, 0, 0, w, hh);
+    } catch {
+      // A frame that cannot be drawn yet is drawn on the next tick.
+    }
+  };
   video.addEventListener('loadedmetadata', () => {
     layout();
     if (pendingSeek !== null) seek(pendingSeek);
@@ -78,6 +127,9 @@ export function videoPanel(app) {
   /** Brings the video to the playhead; `force` checks drift now instead of on the next interval. */
   const sync = (force = false) => {
     if (!session || !src?.blob) return;
+    updateResolution();
+    spotBadge.hidden = spot === null;
+    frame.classList.toggle('spotting', spot !== null);
     const t = target();
     frame.classList.toggle('outside', t === null);
     timecode.textContent = app.prefs.get('videoTimecode') ? timecodeText(t) : '';
@@ -85,7 +137,7 @@ export function videoPanel(app) {
       if (!video.paused) video.pause();
       return;
     }
-    if (!playing()) {
+    if (!playing() || spot !== null) {
       if (!video.paused) video.pause();
       video.playbackRate = 1;
       const step = syncStep({ current: video.currentTime, target: t, playing: false, fps: src.fps });
@@ -182,6 +234,7 @@ export function videoPanel(app) {
     raf = 0;
     if (!visible) return;
     sync();
+    if (divisor > 1 && !video.paused) drawLow();
     if (app.engine.playing) schedule();
   };
   const schedule = () => {
@@ -198,7 +251,15 @@ export function videoPanel(app) {
     if (e.kind === 'edit' || e.kind === 'history' || e.kind === 'preview' || e.kind === 'graph') update();
     else if (e.kind === 'cursor' && !app.engine.playing) sync(true);
   });
+  app.on('clip-spot', (doc, at) => {
+    if (doc !== session) return;
+    const next = at !== null && at !== undefined && app.prefs.get('videoSpot') !== false ? at : null;
+    if (next === spot) return;
+    spot = next;
+    sync(true);
+  });
   app.on('prefs', (key) => {
+    if (key === 'videoResolution' || key === 'videoFullOnStop') sync(true);
     if (key === 'videoZoom') layout();
     if (key === 'videoTimecode' || key === 'videoTcReference') sync(true);
     if (key === 'videoTcSize' || key === 'videoTcOpacity' || key === 'videoTcPosition') styleTimecode();

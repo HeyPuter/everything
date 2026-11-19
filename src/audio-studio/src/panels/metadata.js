@@ -1,6 +1,8 @@
 // Metadata panel: the active audio file's tags, on tabs by format.
 //   BWF: broadcast extension (description, originator, origination date and
-//        time, time reference, coding history), written as a WAV bext chunk.
+//        time, time reference, UMID, coding history), written as a WAV bext chunk.
+//   iXML: production sound fields (project, scene, take, tape, circled, note),
+//        merged into the file's own iXML chunk (other elements are kept).
 //   ID3: title, artist, album, year, genre, track and the other music tags,
 //        written as ID3v2 (MP3, AIFF), Vorbis comments (FLAC, Ogg) or MP4 atoms.
 //   RIFF: the WAV INFO list, sharing the general fields with ID3.
@@ -13,9 +15,13 @@
 // metadata" is on.
 
 import { h } from '../lib/dom.js';
-import { icon } from '../ui/icons.js';
-import { ALL_META_FIELDS, cleanMeta } from '../audio/meta.js';
+import { Fingerprint } from 'lucide';
+import { icon, registerIcons } from '../ui/icons.js';
+import { ALL_META_FIELDS, cleanMeta, newUmid, hasIxml, parseIxml, writeIxml } from '../audio/meta.js';
+import { wavChunksOf } from '../audio/wav.js';
 import { subTabs } from './subtabs.js';
+import { metaTemplates, saveMetaTemplate, deleteMetaTemplate, applyMetaTemplate, templateFields } from './metadata-templates.js';
+import { promptDialog, confirmDialog } from '../ui/dialog.js';
 
 /** New document state with one field changed (null when nothing changes). Pure. */
 export function withMetaField(state, field, value) {
@@ -28,7 +34,13 @@ export function withMetaField(state, field, value) {
 
 /** Tabs and their fields; a second entry relabels a shared field for that format. */
 export const META_TABS = [
-  { id: 'bwf', label: 'BWF', note: 'Saved in WAV exports as a broadcast extension (bext) chunk.', fields: ['bextDescription', 'bextOriginator', 'bextOriginatorRef', 'bextDate', 'bextTime', 'bextTimeRef', 'bextCodingHistory'] },
+  { id: 'bwf', label: 'BWF', note: 'Saved in WAV exports as a broadcast extension (bext) chunk.', fields: ['bextDescription', 'bextOriginator', 'bextOriginatorRef', 'bextDate', 'bextTime', 'bextTimeRef', 'bextUmid', 'bextCodingHistory'] },
+  {
+    id: 'ixml',
+    label: 'iXML',
+    note: 'Saved in WAV exports as an iXML chunk, read by field recorders and video editors. Other iXML data the file came with is kept.',
+    fields: ['ixmlProject', 'ixmlScene', 'ixmlTake', 'ixmlTape', 'ixmlCircled', 'ixmlNote'],
+  },
   {
     id: 'id3',
     label: 'ID3',
@@ -57,6 +69,24 @@ export const META_TABS = [
 
 const FIELD = new Map(ALL_META_FIELDS.map((f) => [f.id, f]));
 
+/**
+ * With every iXML field cleared, the file's own iXML chunk (kept for export)
+ * loses those elements too, so the cleared values do not come back on save.
+ * `doc` gives the kept chunks; returns the state to apply.
+ */
+export function withIxmlCleared(doc, state) {
+  if (hasIxml(state.meta)) return state;
+  const kept = wavChunksOf({ ...doc, state });
+  const i = kept?.list?.findIndex((c) => c.id === 'iXML') ?? -1;
+  if (i < 0) return state;
+  const text = new TextDecoder().decode(kept.list[i].bytes).replace(/\0+$/, '');
+  if (!Object.keys(parseIxml(text)).length) return state;
+  const stripped = writeIxml({}, text);
+  if (stripped == null) return state;
+  const list = kept.list.map((c, k) => (k === i ? { id: 'iXML', bytes: new TextEncoder().encode(stripped) } : c));
+  return { ...state, wavChunks: { ...kept, list } };
+}
+
 /** Normalizes typed text for a field: trims, checks dates, times and whole numbers. Returns { value } or { error }. */
 export function normalizeMetaValue(field, text) {
   const f = FIELD.get(field);
@@ -69,6 +99,14 @@ export function normalizeMetaValue(field, text) {
     const m = v.match(/^(\d{4})[-/.:]?(\d{1,2})[-/.:]?(\d{1,2})$/);
     if (!m || Number(m[2]) < 1 || Number(m[2]) > 12 || Number(m[3]) < 1 || Number(m[3]) > 31) return { error: 'Enter a date as YYYY-MM-DD.' };
     v = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  } else if (f?.kind === 'hex') {
+    v = v.replace(/[\s:-]+/g, '');
+    if (!/^([0-9a-fA-F]{2}){32}$|^([0-9a-fA-F]{2}){64}$/.test(v)) return { error: 'Enter 64 or 128 hexadecimal digits.' };
+    return { value: v.toUpperCase() };
+  } else if (f?.kind === 'bool') {
+    if (/^(y|yes|true|1|on|circled)$/i.test(v)) return { value: 'TRUE' };
+    if (/^(n|no|false|0|off)$/i.test(v)) return { value: 'FALSE' };
+    return { error: 'Enter Yes or No.' };
   } else if (f?.kind === 'time') {
     const m = v.match(/^(\d{1,2})[:.-](\d{1,2})(?:[:.-](\d{1,2}))?$/);
     if (!m || Number(m[1]) > 23 || Number(m[2]) > 59 || Number(m[3] || 0) > 59) return { error: 'Enter a time as HH:MM:SS.' };
@@ -79,6 +117,8 @@ export function normalizeMetaValue(field, text) {
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
+
+registerIcons({ fingerprint: Fingerprint });
 
 export function metadataPanel(app) {
   const inputs = new Map(); // field id -> inputs showing it (one per tab)
@@ -98,7 +138,7 @@ export function metadataPanel(app) {
     error.hidden = true;
     input.value = r.value;
     const state = withMetaField(doc.state, fieldId, r.value);
-    if (state) doc.apply('Edit Metadata', state);
+    if (state) doc.apply('Edit Metadata', withIxmlCleared(doc, state));
   };
 
   const fieldRow = (spec) => {
@@ -107,9 +147,11 @@ export function metadataPanel(app) {
     const id = `meta-${fieldId}-${++n}`;
     const errId = `${id}-err`;
     const placeholder = f.kind === 'date' ? 'YYYY-MM-DD' : f.kind === 'time' ? 'HH:MM:SS' : null;
-    const input = f.multiline
+    const input = f.kind === 'bool'
+      ? h('select.select.meta-bool', { id, 'aria-describedby': errId }, h('option', { value: '' }, '(not set)'), h('option', { value: 'TRUE' }, 'Yes'), h('option', { value: 'FALSE' }, 'No'))
+      : f.multiline
       ? h('textarea.input.meta-comment', { id, rows: fieldId === 'bextDescription' ? 2 : 3, spellcheck: 'true', 'aria-describedby': errId })
-      : h('input.input', { id, type: 'text', autocomplete: 'off', placeholder, inputMode: f.kind === 'int' || fieldId === 'year' ? 'numeric' : null, maxLength: f.max || (fieldId === 'year' ? 10 : 500), 'aria-describedby': errId });
+      : h(`input.input${f.kind === 'hex' ? '.meta-hex' : ''}`, { id, type: 'text', autocomplete: 'off', spellcheck: f.kind === 'hex' ? 'false' : null, placeholder, inputMode: f.kind === 'int' || fieldId === 'year' ? 'numeric' : null, maxLength: f.kind === 'hex' ? 200 : f.max || (fieldId === 'year' ? 10 : 500), 'aria-describedby': errId });
     const error = h('div.meta-error', { id: errId, hidden: true, role: 'alert' });
     input.addEventListener('change', () => commit(fieldId, input, error));
     input.addEventListener('keydown', (e) => {
@@ -143,22 +185,89 @@ export function metadataPanel(app) {
     doc.apply('Edit Metadata', { ...doc.state, meta: cleanMeta(meta) });
   };
 
+  /** BWF: a new basic UMID (replacing the current one). */
+  const generateUmid = () => {
+    const doc = app.active;
+    if (!doc || doc.kind !== 'audio') return;
+    const state = withMetaField(doc.state, 'bextUmid', newUmid());
+    if (state) doc.apply('Edit Metadata', state);
+  };
+
   const tabs = subTabs(
     META_TABS.map((t) => {
       const form = h('div.form-grid.meta-form', ...t.fields.flatMap(fieldRow));
-      const extra = t.id === 'bwf' ? h('div.meta-actions', h('button.btn.sm', { type: 'button', title: 'Set the origination date and time to now', onclick: stampNow }, icon('clock', 13), 'Stamp Date and Time')) : null;
+      const extra = t.id === 'bwf'
+        ? h(
+            'div.meta-actions',
+            h('button.btn.sm', { type: 'button', title: 'Set the origination date and time to now', onclick: stampNow }, icon('clock', 13), 'Stamp Date and Time'),
+            h('button.btn.sm', { type: 'button', title: 'Give the file a new unique material identifier', onclick: generateUmid }, icon('fingerprint', 13), 'New UMID'),
+          )
+        : null;
       return { id: t.id, label: t.label, pane: h('div.meta-pane', form, extra, h('p.muted.meta-note', t.note)) };
     }),
     { label: 'Metadata formats', value: app.prefs.get('metadataTab') || 'bwf', onChange: (id) => app.prefs.set('metadataTab', id) },
   );
+  // Templates: save the file's metadata under a name, apply it to other files.
+  const templateSel = h('select.select.meta-template-sel', { 'aria-label': 'Metadata template' });
+  const applyBtn = h('button.btn.sm', { type: 'button', title: 'Fill in the fields the template has' }, 'Apply');
+  const saveBtn = h('button.btn.sm', { type: 'button', title: 'Save this file\'s metadata as a template' }, 'Save...');
+  const delBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Delete template', title: 'Delete Template' }, icon('trash-2', 13));
+  const templateBar = h('div.meta-templates', h('label.muted', { for: 'meta-template-sel' }, 'Template:'), Object.assign(templateSel, { id: 'meta-template-sel' }), applyBtn, saveBtn, delBtn);
+  const fillTemplates = () => {
+    const list = metaTemplates(app.prefs);
+    const cur = templateSel.value;
+    templateSel.replaceChildren(h('option', { value: '' }, list.length ? 'Choose a template' : 'No templates saved'), ...list.map((t) => h('option', { value: t.name }, t.name)));
+    templateSel.value = list.some((t) => t.name === cur) ? cur : '';
+    const ok = app.active?.kind === 'audio';
+    applyBtn.disabled = !ok || !templateSel.value;
+    delBtn.disabled = !templateSel.value;
+    saveBtn.disabled = !ok || !Object.keys(templateFields(app.active?.state?.meta || {})).length;
+  };
+  const applyTemplate = (name) => {
+    const doc = app.active;
+    const t = metaTemplates(app.prefs).find((x) => x.name === name);
+    if (!doc || doc.kind !== 'audio' || !t) return;
+    const meta = applyMetaTemplate(doc.state.meta || {}, t);
+    if (JSON.stringify(meta) !== JSON.stringify(cleanMeta(doc.state.meta || {}))) doc.apply(`Apply Metadata Template "${t.name}"`, { ...doc.state, meta });
+  };
+  const saveTemplate = async () => {
+    const doc = app.active;
+    if (!doc || doc.kind !== 'audio') return;
+    const name = await promptDialog({
+      title: 'Save Metadata Template',
+      label: 'Template name:',
+      value: templateSel.value || '',
+      confirm: 'Save',
+      validate: (v) => (!v.trim() ? 'Enter a name.' : ''),
+    });
+    if (!name) return;
+    if (metaTemplates(app.prefs).some((t) => t.name.toLowerCase() === name.trim().toLowerCase() && t.name !== templateSel.value) && !(await confirmDialog({ title: 'Replace Template?', message: `A template named "${name.trim()}" exists. Replace it?`, confirm: 'Replace' }))) return;
+    saveMetaTemplate(app.prefs, name, doc.state.meta || {});
+    fillTemplates();
+    templateSel.value = name.trim();
+    fillTemplates();
+  };
+  templateSel.addEventListener('change', fillTemplates);
+  applyBtn.addEventListener('click', () => applyTemplate(templateSel.value));
+  saveBtn.addEventListener('click', saveTemplate);
+  delBtn.addEventListener('click', async () => {
+    const name = templateSel.value;
+    if (!name || !(await confirmDialog({ title: 'Delete Template', message: `Delete the metadata template "${name}"?`, confirm: 'Delete', danger: true }))) return;
+    deleteMetaTemplate(app.prefs, name);
+    fillTemplates();
+  });
+  app.on('prefs', (key) => key === 'metaTemplates' && fillTemplates());
+
   const empty = h('div.empty-state', 'Open an audio file to edit its metadata.');
-  const el = h('div.metadata-panel', tabs.el, empty);
+  const el = h('div.metadata-panel', templateBar, tabs.el, empty);
 
   const render = () => {
     const doc = app.active;
     const ok = doc?.kind === 'audio';
     tabs.el.hidden = !ok;
+    templateBar.hidden = !ok;
     empty.hidden = ok;
+    fillTemplates();
     if (!ok) return;
     const meta = doc.state.meta || {};
     for (const [id, list] of inputs) {
@@ -178,5 +287,31 @@ export function metadataPanel(app) {
   app.on('active', render);
   app.on('doc-change', (doc, e) => doc === app.active && (e.kind === 'edit' || e.kind === 'history') && render());
   render();
-  return { el, show: render, focus: () => tabs.bar.querySelector('[aria-selected=true]')?.focus() };
+  /** Clears every field on one tab (null: every tab) as one undoable edit. */
+  const clearFields = (tab) => {
+    const doc = app.active;
+    if (!doc || doc.kind !== 'audio') return;
+    const ids = (tab ? [tab] : META_TABS).flatMap((t) => t.fields.map((f) => (Array.isArray(f) ? f[0] : f)));
+    const meta = { ...(doc.state.meta || {}) };
+    for (const id of ids) delete meta[id];
+    const next = cleanMeta(meta);
+    if (JSON.stringify(next) !== JSON.stringify(cleanMeta(doc.state.meta || {}))) doc.apply('Clear Metadata', withIxmlCleared(doc, { ...doc.state, meta: next }));
+  };
+  const menu = () => {
+    const ok = app.active?.kind === 'audio';
+    const meta = ok ? app.active.state.meta || {} : {};
+    const tab = META_TABS.find((t) => t.id === (app.prefs.get('metadataTab') || 'bwf')) || META_TABS[0];
+    const tabHas = tab.fields.some((f) => meta[Array.isArray(f) ? f[0] : f]);
+    return [
+      { type: 'cmd', label: 'Stamp Date and Time', enabled: ok, run: stampNow },
+      { type: 'cmd', label: 'New UMID', enabled: ok, run: generateUmid },
+      { type: 'sep' },
+      { type: 'cmd', label: `Clear ${tab.label} Fields`, enabled: ok && tabHas, run: () => clearFields(tab) },
+      { type: 'cmd', label: 'Clear All Metadata', enabled: ok && Object.keys(cleanMeta(meta)).length > 0, run: () => clearFields(null) },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Save as Template...', enabled: ok && Object.keys(templateFields(meta)).length > 0, run: saveTemplate },
+      ...metaTemplates(app.prefs).map((t) => ({ type: 'cmd', label: `Apply "${t.name}"`, enabled: ok, run: () => applyTemplate(t.name) })),
+    ];
+  };
+  return { el, show: render, menu, focus: () => tabs.bar.querySelector('[aria-selected=true]')?.focus() };
 }

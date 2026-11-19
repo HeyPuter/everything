@@ -52,6 +52,13 @@ describe('time and pitch', () => {
     }
   });
 
+  it('locked to a new duration, stretches any length to that duration', async () => {
+    const def = getEffect('stretchPitch');
+    const out = await def.process({ channels: [sine(440, 0.5)], rate: RATE, values: { algorithm: 0, stretch: 100, lockDuration: true, targetDuration: 0.75 } });
+    expect(out[0].length).toBe(36000);
+    expect(def.outputLength({ stretch: 100, lockDuration: true, targetDuration: 2 }, RATE, RATE)).toBe(2 * RATE);
+  });
+
   it('shifts pitch without changing length', async () => {
     const def = getEffect('stretchPitch');
     const out = await def.process({ channels: [sine(330, 0.5)], rate: RATE, values: { semitones: 7 } });

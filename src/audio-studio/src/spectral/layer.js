@@ -1,7 +1,8 @@
 // Spectral Frequency Display: a WaveformView layer below the waveform with a
 // spectrogram per channel, a frequency ruler beside it, a draggable divider,
 // spectral selection tools (marquee, lasso, paintbrush, spot healing brush)
-// and an optional pitch (f0) overlay.
+// and the Spectral Pitch Display mode (a note-scaled axis fitted to the pitch
+// contour, with the contour drawn over the spectrum).
 //
 // Analysis runs in the analysis workers (Rust STFT); results come back as
 // byte tiles cached as GPU textures (see tiles.js, renderer.js). Only tiles
@@ -14,15 +15,24 @@ import { icon } from '../ui/icons.js';
 import { cssVar, CANVAS_FONT, resolvedTheme } from '../ui/theme.js';
 import { SpectrogramRenderer } from './renderer.js';
 import { TileCache, planTiles, chooseHop, readTileSamples, FLOOR_DB } from './tiles.js';
-import { makeScale, frequencyTicks, formatHzLong, noteName } from './freq-scale.js';
+import { makeScale, frequencyTicks, noteTicks, pitchBand, formatHzLong, noteName } from './freq-scale.js';
 import { buildLut } from './colormaps.js';
 import { settings, setSettings, displayOn, pitchOn, logScale, docState, visibleBand, setSpectralSelection, SPECTRAL_TOOLS, pitchSettings } from './state.js';
-import { addBrushDot, dotOutline, shapeIntervals } from './mask.js';
+import { addBrushDot, dotOutline, shapeIntervals, selectionBounds } from './mask.js';
 import { analysisPool } from '../analysis/pool.js';
 import { sourceKey } from '../engine/engine.js';
 import { spectralMenuItems } from './menu.js';
+import { invertSelection } from './tool-options.js';
 
 const CACHE_BYTES = 96 * 1024 * 1024;
+
+/**
+ * The healing brush's Shift+click shape: every frequency over the frames from a to b,
+ * widened by the brush radius `rt` (frames) either side.
+ */
+export function columnShape(a, b, rt, nyquist) {
+  return { type: 'rect', t0: Math.max(0, Math.min(a, b) - rt), t1: Math.max(a, b) + rt, f0: 0, f1: nyquist };
+}
 const MAX_INFLIGHT = 6;
 const MAX_PER_FRAME = 3;
 const LANE_GAP = 1;
@@ -78,6 +88,16 @@ export class SpectralLayer {
         if (doc !== this.doc) this.release();
       }),
     ];
+    // Pressing or releasing Shift over the display switches the healing cursor at once.
+    const shiftKey = (e) => {
+      if (e.key === 'Shift' && this.hover) this.#setColumnHeal(e.type === 'keydown');
+    };
+    window.addEventListener('keydown', shiftKey);
+    window.addEventListener('keyup', shiftKey);
+    this.offs.push(() => {
+      window.removeEventListener('keydown', shiftKey);
+      window.removeEventListener('keyup', shiftKey);
+    });
     this.sync();
   }
 
@@ -145,6 +165,12 @@ export class SpectralLayer {
   }
 
   scale() {
+    // The pitch display: a logarithmic axis fitted to the pitch contour in view.
+    if (pitchOn(this.app)) {
+      // Zoomed by hand (ruler or Zoom In/Out (Frequency)), or else fitted to the contour.
+      const band = docState(this.doc).pitchBand || this.pitch?.band || pitchSettings(this.app.prefs, this.doc.sampleRate);
+      return makeScale({ log: true, lo: band.lo ?? band.fmin, hi: band.hi ?? band.fmax });
+    }
     const band = visibleBand(this.doc);
     return makeScale({ log: logScale(this.app), lo: band.lo, hi: band.hi });
   }
@@ -329,7 +355,7 @@ export class SpectralLayer {
       ctx.fillStyle = cssVar('--text-strong');
       for (const lane of lanes) {
         const top = lane.top - y0;
-        for (const t of frequencyTicks(scale, lane.bottom - lane.top, 16)) ctx.fillRect(0, Math.round(top + t.y), W, 1);
+        for (const t of pitchOn(this.app) ? noteTicks(scale, lane.bottom - lane.top, 13) : frequencyTicks(scale, lane.bottom - lane.top, 16)) ctx.fillRect(0, Math.round(top + t.y), W, 1);
       }
       ctx.restore();
     }
@@ -355,20 +381,34 @@ export class SpectralLayer {
     if (shapes.length) {
       for (const lane of lanes) {
         if (channels[lane.channel] === false && !this.drag) continue;
-        this.#drawShapes(ctx, shapes, lane, scale, this.drag?.tool === 'heal');
+        this.#drawShapes(ctx, shapes, lane, scale, this.drag?.tool === 'heal', st.selection?.invert ? selectionBounds(st.selection) : null);
       }
     }
     // Pitch overlay.
     if (pitchOn(this.app) && this.pitch?.f0s) this.#drawPitch(ctx, lanes, scale);
-    // Brush cursor.
+    // Brush cursor: the circle the brush covers, or with Shift and the healing brush, the
+    // full-height column a click heals (in every channel enabled for editing).
     const tool = this.app.tool;
     if (this.hover && (tool === 'brush' || tool === 'heal')) {
       const r = settings(this.app).brushSize / 2;
       ctx.strokeStyle = tool === 'heal' ? cssVar('--warning') : cssVar('--text-strong');
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(this.hover.x, this.hover.y - y0, r, 0, Math.PI * 2);
-      ctx.stroke();
+      if (tool === 'heal' && this.columnHeal) {
+        ctx.setLineDash([4, 3]);
+        for (const lane of lanes) {
+          if (this.doc.selection.channels[lane.channel] === false) continue;
+          ctx.fillStyle = cssVar('--warning');
+          ctx.globalAlpha = 0.15;
+          ctx.fillRect(this.hover.x - r, lane.top - y0, 2 * r, lane.bottom - lane.top);
+          ctx.globalAlpha = 1;
+          ctx.strokeRect(Math.round(this.hover.x - r) + 0.5, Math.round(lane.top - y0) + 0.5, Math.round(2 * r), Math.round(lane.bottom - lane.top) - 1);
+        }
+        ctx.setLineDash([]);
+      } else {
+        ctx.beginPath();
+        ctx.arc(this.hover.x, this.hover.y - y0, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
   }
 
@@ -378,7 +418,7 @@ export class SpectralLayer {
     return [x, y];
   }
 
-  #drawShapes(ctx, shapes, lane, scale, healing) {
+  #drawShapes(ctx, shapes, lane, scale, healing, inverted = null) {
     const y0 = this.rect.y;
     ctx.save();
     ctx.beginPath();
@@ -388,31 +428,57 @@ export class SpectralLayer {
     const fill = healing ? cssVar('--warning') : resolvedTheme() === 'light' ? '#1473e6' : '#ffffff';
     ctx.globalAlpha = healing ? 0.35 : 0.22;
     ctx.fillStyle = fill;
-    ctx.beginPath();
+    // Inverted: shade the time range around the shapes, leaving the shapes clear.
+    const scratch = inverted ? (this.invertCanvas ??= document.createElement('canvas')) : null;
+    const sctx = scratch?.getContext('2d');
+    const target = sctx || ctx;
+    if (sctx) {
+      const dpr = this.rect.dpr || window.devicePixelRatio || 1;
+      scratch.width = Math.max(1, Math.round(this.rect.width * dpr));
+      scratch.height = Math.max(1, Math.round(this.rect.height * dpr));
+      sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      sctx.fillStyle = fill;
+      const xa = Math.max(0, this.view.xOf(inverted.t0));
+      const xb = Math.min(this.rect.width, this.view.xOf(inverted.t1));
+      sctx.fillRect(xa, lane.top - y0, Math.max(0, xb - xa), lane.bottom - lane.top);
+      sctx.globalCompositeOperation = 'destination-out';
+      sctx.fillStyle = '#000';
+    }
+    const fillPath = () => {
+      if (!sctx) return ctx.fill('nonzero');
+      sctx.fill('nonzero');
+      sctx.globalCompositeOperation = 'source-over';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(scratch, 0, 0);
+      const dpr = this.rect.dpr || window.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    const pathCtx = target;
+    pathCtx.beginPath();
     for (const s of shapes) {
       if (s.type === 'rect') {
         const [xa, ya] = this.#toXY(lane, scale, s.t0, Math.max(s.f0, s.f1));
         const [xb, yb] = this.#toXY(lane, scale, s.t1, Math.min(s.f0, s.f1));
-        ctx.rect(xa, ya, xb - xa, yb - ya);
+        pathCtx.rect(xa, ya, xb - xa, yb - ya);
       } else if (s.type === 'poly') {
         s.points.forEach(([t, f], i) => {
           const [x, y] = this.#toXY(lane, scale, t, f);
-          if (i) ctx.lineTo(x, y);
-          else ctx.moveTo(x, y);
+          if (i) pathCtx.lineTo(x, y);
+          else pathCtx.moveTo(x, y);
         });
-        ctx.closePath();
+        pathCtx.closePath();
       } else if (s.type === 'brush') {
         for (const dot of s.dots) {
           dotOutline(s, dot, 16).forEach(([t, f], i) => {
             const [x, y] = this.#toXY(lane, scale, t, f);
-            if (i) ctx.lineTo(x, y);
-            else ctx.moveTo(x, y);
+            if (i) pathCtx.lineTo(x, y);
+            else pathCtx.moveTo(x, y);
           });
-          ctx.closePath();
+          pathCtx.closePath();
         }
       }
     }
-    ctx.fill('nonzero');
+    fillPath();
     ctx.globalAlpha = 1;
     ctx.strokeStyle = healing ? cssVar('--warning') : cssVar('--sel-edge');
     ctx.setLineDash([4, 3]);
@@ -448,10 +514,11 @@ export class SpectralLayer {
     ctx.font = CANVAS_FONT;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = cssVar('--text-dim');
+    const pitch = pitchOn(this.app);
     for (const lane of lanes) {
       const top = lane.top - y0;
       const lh = lane.bottom - lane.top;
-      for (const t of frequencyTicks(scale, lh, 16)) {
+      for (const t of pitch ? noteTicks(scale, lh, 13) : frequencyTicks(scale, lh, 16)) {
         const y = top + t.y;
         if (y < top + (lane.channel === 0 ? 26 : 8)) continue;
         ctx.fillRect(0, Math.round(y), 4, 1);
@@ -459,7 +526,7 @@ export class SpectralLayer {
       }
     }
     // The unit sits beside the settings button at the top of the ruler.
-    ctx.fillText('Hz', 4, 12);
+    ctx.fillText(pitch ? 'Note' : 'Hz', 4, 12);
   }
 
   // ------------------------------------------------------------- pitch
@@ -496,7 +563,8 @@ export class SpectralLayer {
           return analysisPool().call({ op: 'pitch', samples, rate: doc.sampleRate, n, hop: n, frames, fmin, fmax, threshold: 0.15 }, [samples.buffer]);
         }),
       );
-      this.pitch = { key, f0s, start, hop, n };
+      const band = pitchBand(f0s, { fmin, fmax: Math.min(fmax, doc.sampleRate / 2), prev: this.pitch?.band });
+      this.pitch = { key, f0s, start, hop, n, band };
       this.invalidate();
     } catch (err) {
       console.warn('[spectral] pitch', err);
@@ -506,24 +574,34 @@ export class SpectralLayer {
 
   #drawPitch(ctx, lanes, scale) {
     const { f0s, start, hop, n } = this.pitch;
-    ctx.strokeStyle = cssVar('--envelope-vol');
-    ctx.lineWidth = 2;
-    for (const lane of lanes) {
-      const f0 = f0s[lane.channel] || f0s[0];
-      ctx.beginPath();
-      let pen = false;
-      for (let i = 0; i < f0.length; i++) {
-        const f = f0[i];
-        if (!(f > 0) || f < scale.lo || f > scale.hi) {
-          pen = false;
-          continue;
+    // A cool cyan (deep blue on light) stands apart from the warm spectrum colors; a dark
+    // halo under it keeps it readable over bright partials.
+    const light = resolvedTheme() === 'light';
+    const passes = [
+      { color: light ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.6)', width: 4 },
+      { color: light ? '#0b63c9' : '#5ee0ff', width: 2 },
+    ];
+    ctx.lineJoin = 'round';
+    for (const pass of passes) {
+      for (const lane of lanes) {
+        ctx.strokeStyle = pass.color;
+        ctx.lineWidth = pass.width;
+        const f0 = f0s[lane.channel] || f0s[0];
+        ctx.beginPath();
+        let pen = false;
+        for (let i = 0; i < f0.length; i++) {
+          const f = f0[i];
+          if (!(f > 0) || f < scale.lo || f > scale.hi) {
+            pen = false;
+            continue;
+          }
+          const [x, y] = this.#toXY(lane, scale, start + i * hop + n / 2, f);
+          if (pen) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+          pen = true;
         }
-        const [x, y] = this.#toXY(lane, scale, start + i * hop + n / 2, f);
-        if (pen) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-        pen = true;
+        ctx.stroke();
       }
-      ctx.stroke();
     }
     ctx.lineWidth = 1;
   }
@@ -544,14 +622,40 @@ export class SpectralLayer {
     return { x, y, lane, scale, t: this.view.frameAt(x), f: scale.toHz(Math.max(0, Math.min(1, frac))) };
   }
 
+  /**
+   * Right-click menu entries for the spectral area (shown above the waveform menu):
+   * the spectral selection's Invert and Clear, and the display settings.
+   */
+  menuItems(e) {
+    if (!this.#locate(e)) return null;
+    const app = this.app;
+    const sel = docState(this.doc).selection;
+    const has = Boolean(sel && selectionBounds(sel));
+    return [
+      { label: sel?.invert ? 'Uninvert Spectral Selection' : 'Invert Spectral Selection', enabled: has, run: () => setSpectralSelection(app, this.doc, invertSelection(sel)) },
+      { label: 'Clear Spectral Selection', enabled: has, run: () => setSpectralSelection(app, this.doc, null) },
+      { label: 'Spectral Display', items: () => spectralMenuItems(app) },
+    ];
+  }
+
   cursor(e) {
     const p = this.#locate(e);
+    this.#setColumnHeal(e.shiftKey);
     this.#setHover(p);
     if (!p) return null;
     const tool = this.app.tool;
     if (tool === 'brush' || tool === 'heal') return 'none';
     if (tool === 'marquee' || tool === 'lasso') return 'crosshair';
     return null;
+  }
+
+  /** Shift with the healing brush: heal a full-height column (the cursor shows it). */
+  #setColumnHeal(on) {
+    on = Boolean(on) && this.app.tool === 'heal';
+    if (on === Boolean(this.columnHeal)) return;
+    this.columnHeal = on;
+    this.needs = true;
+    this.app.requestRender?.();
   }
 
   #setHover(p) {
@@ -608,13 +712,18 @@ export class SpectralLayer {
     const st = docState(doc);
     const base = add && st.selection ? st.selection : null;
     let shape;
+    let rt = 0;
     if (tool === 'marquee') shape = { type: 'rect', t0: p.t, t1: p.t, f0: p.f, f1: p.f };
     else if (tool === 'lasso') shape = { type: 'poly', log: p.scale.log, points: [[p.t, p.f]] };
-    else {
+    else if (tool === 'heal' && e.shiftKey) {
+      // A full-height column at the click, as wide as the brush; dragging widens it.
+      rt = this.#brushShape(p, tool).rt;
+      shape = columnShape(p.t, p.t, rt, this.doc.sampleRate / 2);
+    } else {
       shape = this.#brushShape(p, tool);
       addBrushDot(shape, p.t, p.f);
     }
-    this.drag = { tool, shape, base, start: p, last: p, moved: tool === 'brush' || tool === 'heal' };
+    this.drag = { tool, shape, base, start: p, last: p, moved: tool === 'brush' || tool === 'heal', column: shape.type === 'rect' && tool === 'heal', rt };
     this.invalidate();
   }
 
@@ -623,7 +732,9 @@ export class SpectralLayer {
     d.last = p;
     if (Math.abs(p.x - d.start.x) + Math.abs(p.y - d.start.y) > 3) d.moved = true;
     const s = d.shape;
-    if (s.type === 'rect') {
+    if (d.column) {
+      d.shape = columnShape(d.start.t, p.t, d.rt, this.doc.sampleRate / 2);
+    } else if (s.type === 'rect') {
       s.t0 = Math.min(d.start.t, p.t);
       s.t1 = Math.max(d.start.t, p.t);
       s.f0 = Math.min(d.start.f, p.f);
@@ -733,6 +844,11 @@ export class SpectralLayer {
       { passive: false },
     );
     el.addEventListener('dblclick', () => this.svc.resetFrequency(this.doc));
+    // Right-click: the display settings (scale, resolution, range, zoom).
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.app.openMenu(spectralMenuItems(this.app), { x: e.clientX, y: e.clientY, label: 'Spectral display settings' });
+    });
     el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
@@ -755,8 +871,12 @@ export class SpectralLayer {
         }
         if (lo < (s0.log ? 20 : 0)) return;
         const st = docState(this.doc);
-        st.lo = lo;
-        st.hi = hi;
+        // The pitch display keeps its own band (null = fitted to the contour).
+        if (pitchOn(this.app)) st.pitchBand = { lo, hi };
+        else {
+          st.lo = lo;
+          st.hi = hi;
+        }
         this.invalidate();
       };
       const up = () => {

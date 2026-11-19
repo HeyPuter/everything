@@ -88,6 +88,12 @@ function wavChunksInfo(r) {
   return { wavChunks: { sampleRate: r.sampleRate, channels, frames, list: r.chunks } };
 }
 
+/** Edit > Edit Original for a file whose metadata names the session it was mixed down from. */
+export function originFromMeta(meta) {
+  const path = String(meta?.editOriginal || '').trim();
+  return path.startsWith('/') ? { sessionId: null, name: path.split('/').pop(), path } : null;
+}
+
 /** Decodes a Blob/File into a new AudioFile document. */
 export async function audioFileFromBlob(blob, name, source = { type: 'local' }) {
   const buffer = await blob.arrayBuffer();
@@ -98,8 +104,10 @@ export async function audioFileFromBlob(blob, name, source = { type: 'local' }) 
     channels: r.channels.map((c) => Channel.fromSamples(c)),
     markers: sortMarkers((r.markers || []).map((m, i) => createMarker({ ...m, name: m.name || `Marker ${String(i + 1).padStart(2, '0')}` }))),
     meta: r.meta || {},
-    info: { bitDepth: r.bitDepth, format: r.format, size: blob.size, ...wavChunksInfo(r) },
+    // A 32-bit integer file saves as 32-bit integer again (32 bits otherwise means float).
+    info: { bitDepth: r.bitDepth, format: r.format, size: blob.size, ...(r.bitDepth === 32 && r.float === false ? { int32: true } : {}), ...wavChunksInfo(r) },
     source,
+    origin: originFromMeta(r.meta),
   });
   return doc;
 }
@@ -206,7 +214,11 @@ export async function openFromPuter(app) {
   if (!puter.sdk()) return openFiles(app, await pickLocalFiles());
   if (!puter.isSignedIn()) {
     const ok = await puter.signIn().catch(() => false);
-    if (!ok) return [];
+    if (!ok) {
+      // Declined or blocked sign-in: say where else files can come from.
+      app.notify?.('Sign in to Puter to open files from it, or use File > Open from This Device.');
+      return [];
+    }
   }
   const items = await puter.pickFiles({ multiple: true, accept: openAccept() });
   return openFiles(app, items);

@@ -152,7 +152,7 @@ function radioGroup(p, getValues, onSet) {
  * One param's control. Returns { cells: [label, control, value?], kind, show(values, from), setDisabled }.
  * `cells` fill a three-column grid row (kind 'row') or span it (kind 'wide').
  */
-export function paramControl(p, getValues, onSet, { doc = null, range = null, smooth } = {}) {
+export function paramControl(p, getValues, onSet, { doc = null, range = null, smooth, linear = null } = {}) {
   const type = paramType(p);
   const label = p.label || p.id;
   if (type === 'bool') {
@@ -171,13 +171,16 @@ export function paramControl(p, getValues, onSet, { doc = null, range = null, sm
     const smoothNow = () => Boolean(smooth?.(getValues()));
     const env =
       type === 'curve'
-        ? curveControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), smooth: smoothNow })
+        ? curveControl({ param: p, value: getValues()[p.id], onChange: (points) => onSet(p.id, points), smooth: smoothNow, linear })
         : envelopeControl({
             param: p,
             value: getValues()[p.id],
             onChange: (points) => onSet(p.id, points),
             doc,
             range,
+            // `ticks`: levels the definition labels (unity gain...); a selection labels its times.
+            yTicks: p.ticks || null,
+            ...envelopeTimes(doc, range),
             smooth: smoothNow,
             // A definition's own drawing (the spline its process applies).
             render: p.render ? (points, n) => p.render(points, n, getValues()) : null,
@@ -256,6 +259,10 @@ export function sectionGroups(params) {
  * Returns { el, refresh(values, from) }; onSet(id, value) reports changes.
  */
 export function paramControls(def, getValues, onSet, { doc = null, range = null, smooth, params = def.params, sections = null, layout = def.layout || {}, onReadout = null } = {}) {
+  // A Scale choice with a Linear option (FFT Filter) switches frequency curves to a linear axis.
+  const scaleP = def.params.find((q) => q.id === 'scale' && q.options?.some((o) => o.label === 'Linear'));
+  const linearValue = scaleP?.options.find((o) => o.label === 'Linear').value;
+  const linear = scaleP ? () => String(getValues().scale) === String(linearValue) : null;
   const refreshers = [];
   const toggles = [];
   const built = new Map();
@@ -268,7 +275,7 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
 
   function rowsFor(list, grid) {
     for (const p of list) {
-      const c = paramControl(p, getValues, onSet, { doc, range, smooth });
+      const c = paramControl(p, getValues, onSet, { doc, range, smooth, linear });
       if (c.kind === 'row') grid.append(h('div.fx-row', c.cells));
       else grid.append(h(`div.fx-row.${c.kind}`, c.cells));
       refreshers.push((v, from) => {
@@ -303,6 +310,20 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
     }
     if ((layout.vertical || []).includes(name)) {
       const strip = h('div.fx-vsliders');
+      // Sliders that share one range get a labelled scale at the left of the row.
+      const nums = rest.filter((p) => paramType(p) === 'number');
+      if (nums.length > 1 && nums.every((p) => p.min === nums[0].min && p.max === nums[0].max && p.scale === nums[0].scale)) {
+        const { major } = scaleTicks(nums[0], { maxLabels: 7 });
+        strip.append(
+          h(
+            'div.fx-vaxis',
+            { 'aria-hidden': 'true' },
+            h('div.fx-vlabel', nums[0].unit || ''),
+            h('div.fx-scale.v', h('div.fx-vaxis-labels', major.map((t) => h('span.fx-vaxis-label', { style: { bottom: `${(t.x * 100).toFixed(3)}%` } }, t.label)))),
+            h('div.fx-value'),
+          ),
+        );
+      }
       for (const p of rest) {
         if (paramType(p) !== 'number') continue;
         const c = verticalControl(p, getValues, onSet);
@@ -391,7 +412,8 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
 
   const el = h('div.fx-controls', table);
   const placed = new Set();
-  const cols = (layout.columns || []).map((names) => names.filter((n) => built.has(n)));
+  // A column whose frames a custom view took over (all their params hidden) drops out.
+  const cols = (layout.columns || []).map((names) => names.filter((n) => built.has(n))).filter((c) => c.length);
   if (cols.some((c) => c.length)) {
     el.append(
       h(
@@ -423,4 +445,14 @@ export function paramControls(def, getValues, onSet, { doc = null, range = null,
   };
   refresh(getValues(), null);
   return { el, refresh };
+}
+
+/** Time labels for an envelope drawn across `range` of `doc`: the grid ticks and each point's time. */
+function envelopeTimes(doc, range) {
+  const rate = doc?.sampleRate;
+  if (!rate || !range || range[1] <= range[0]) return {};
+  const at = (t) => (range[0] + t * (range[1] - range[0])) / rate;
+  const text = (s) => (s < 60 ? `${s.toFixed(s < 10 ? 2 : 1)} s` : `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`);
+  const xTicks = [0.25, 0.5, 0.75];
+  return { xTicks, xTickLabels: xTicks.map((t) => text(at(t))), xLabel: (t) => text(at(t)) };
 }

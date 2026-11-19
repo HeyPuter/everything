@@ -42,6 +42,20 @@
   background: var(--accent);
 }
 
+/* A small grip in the middle says the boundary can be dragged. */
+.spec-divider::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 28px;
+  height: 4px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: repeating-linear-gradient(to right, var(--text-faint) 0 2px, transparent 2px 4px);
+  opacity: 0.8;
+}
+
 .spec-divider:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
@@ -90,4 +104,36 @@
   .spec-divider::after {
     top: 7px;
   }
+}
+
+/* Spectral tool options in the main toolbar (brush size and opacity, Invert). */
+.tool-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+}
+.tool-options[hidden],
+.tool-options [hidden] {
+  display: none;
+}
+.tool-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.tool-opt-num.input.num {
+  width: 52px;
+  height: 22px;
+}
+.tool-opt-hint {
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.tool-opt-invert[aria-pressed='true'] {
+  color: var(--accent-strong);
+  border-color: var(--accent-strong);
 }

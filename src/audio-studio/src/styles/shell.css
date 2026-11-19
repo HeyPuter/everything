@@ -19,8 +19,8 @@
   gap: 4px;
   height: 30px;
   padding: 0 6px;
-  background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-soft);
   flex: none;
 }
 
@@ -132,6 +132,7 @@ puter-user-menu::part(sign-in):hover {
 
 puter-user-menu::part(menu),
 puter-user-menu::part(apps-panel) {
+  box-shadow: var(--shadow-pop);
   background: var(--bg-raised);
   border-color: var(--border);
   --caret-border: var(--border);
@@ -170,8 +171,8 @@ puter-user-menu::part(apps-panel) {
   gap: 6px;
   height: 36px;
   padding: 0 8px;
-  background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  /* Toolbar and status bar share the panels' surface; the workspace gutter separates them. */
+  background: var(--bg-panel);
   flex: none;
   min-width: 0;
 }
@@ -186,8 +187,9 @@ puter-user-menu::part(apps-panel) {
 
 .mode-switch {
   display: flex;
-  border: 1px solid var(--divider);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius);
+  background: var(--bg-panel-alt);
   overflow: hidden;
   flex: none;
 }
@@ -205,7 +207,7 @@ puter-user-menu::part(apps-panel) {
 }
 
 .mode-btn + .mode-btn {
-  border-left: 1px solid var(--divider);
+  border-left: 1px solid var(--border-soft);
 }
 
 .mode-btn:hover {
@@ -213,9 +215,10 @@ puter-user-menu::part(apps-panel) {
   color: var(--text-strong);
 }
 
-/* Accent text moved a little toward the text color reads at 4.5:1 on the active fill, for every accent. */
+/* The current editor and tool sit sunken into the bar, drawn in the accent color.
+   Accent text moved a little toward the text color reads at 4.5:1 on the well, for every accent. */
 .mode-btn.on {
-  background: var(--bg-active);
+  background: var(--bg-app);
   color: color-mix(in srgb, var(--accent-strong) 80%, var(--text-strong));
 }
 
@@ -229,6 +232,13 @@ puter-user-menu::part(apps-panel) {
 .tool-group .icon-btn {
   width: 28px;
   height: 28px;
+  border: 1px solid transparent;
+}
+
+.tool-group .icon-btn[aria-pressed='true'] {
+  border-color: var(--border-soft);
+  background: var(--bg-app);
+  color: color-mix(in srgb, var(--accent-strong) 85%, var(--text-strong));
 }
 
 .workspace-tabs {
@@ -287,6 +297,49 @@ puter-user-menu::part(apps-panel) {
 .command-search {
   width: 190px;
   padding-left: 26px;
+}
+
+/* Wide windows: menu bar and toolbar share one row (shell.js decides when it fits). */
+.chrome-merged .appbar {
+  height: 38px;
+  gap: 2px;
+}
+
+.chrome-merged .app-name,
+.chrome-merged .doc-title,
+.chrome-merged .appbar-spacer,
+.chrome-merged .workspace-tab:not([aria-selected='true']) {
+  display: none;
+}
+
+.chrome-merged .app-title {
+  padding-right: 2px;
+}
+
+.chrome-merged .toolbar {
+  flex: 1;
+  height: 100%;
+  padding: 0 0 0 6px;
+  background: transparent;
+}
+
+/* The search field starts narrower in one row and widens while you type in it. */
+.chrome-merged .command-search {
+  width: 120px;
+  transition: width 120ms var(--ease);
+}
+
+.chrome-merged .command-search:focus {
+  width: 180px;
+}
+
+.chrome-merged .toolbar::before {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin-right: 4px;
+  background: var(--divider);
 }
 
 /* ------------------------------------------------------------ workspace */
@@ -384,7 +437,23 @@ puter-user-menu::part(apps-panel) {
   flex: none;
   overflow-x: auto;
   scrollbar-width: none;
-  border-bottom: 1px solid var(--border-soft);
+}
+
+/* A strip scrolled to show its current tab fades at the left, so the cut tab reads as more tabs. */
+.panel-tabs.scrolled {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px);
+}
+
+/* More tabs past the right edge (beside the overflow chevron): that edge fades too. */
+.panel-tabs.clipped {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 24px);
+  mask-image: linear-gradient(to left, transparent 0, #000 24px);
+}
+
+.panel-tabs.scrolled.clipped {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 24px, #000 calc(100% - 24px), transparent 100%);
 }
 
 .panel-tabs::-webkit-scrollbar {
@@ -393,6 +462,10 @@ puter-user-menu::part(apps-panel) {
 
 .panel-tab {
   position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   height: 100%;
   padding: 0 8px;
   border: 0;
@@ -407,8 +480,22 @@ puter-user-menu::part(apps-panel) {
   color: var(--text-strong);
 }
 
+.panel-tab.dragging {
+  opacity: 0.45;
+}
+
 .panel-tab[aria-selected='true'] {
   color: var(--text-strong);
+  font-weight: 600;
+}
+
+/* Reserves the bold label's width, so tabs keep their places when the current one changes. */
+.panel-tab[data-label]::before {
+  content: attr(data-label) / '';
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
 }
 
 .panel-tab[aria-selected='true']::after {
@@ -419,7 +506,8 @@ puter-user-menu::part(apps-panel) {
   bottom: 3px;
   height: 2px;
   border-radius: 1px;
-  background: var(--accent);
+  /* Neutral: the accent marks the focused frame (its border), not every group's current tab. */
+  background: var(--tab-mark);
 }
 
 .panel-menu-btn {
@@ -463,8 +551,9 @@ puter-user-menu::part(apps-panel) {
   z-index: 1200;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
+  box-shadow: var(--shadow-pop);
   pointer-events: none;
 }
 
@@ -473,8 +562,158 @@ puter-user-menu::part(apps-panel) {
   z-index: 1100;
   display: none;
   border: 2px solid var(--accent);
+  border-radius: var(--radius);
   background: var(--accent-soft);
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
+  transition: left 80ms var(--ease), top 80ms var(--ease), width 80ms var(--ease), height 80ms var(--ease);
+}
+
+
+/* What letting go does, in words, in the middle of the highlighted area. */
+.dock-drop-label {
+  max-width: calc(100% - 12px);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-fill);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dock-drop-label:empty {
+  display: none;
+}
+
+/* A new floating window: its outline at the size it will open. */
+.dock-drop.zone-float {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  transition: none;
+}
+
+/* Between two tabs: an insertion bar. */
+.dock-drop.zone-tabs {
+  border: 0;
+  border-radius: 1px;
+  background: var(--accent);
+  transition: none;
+}
+
+.dock-drop.zone-tabs .dock-drop-label {
+  display: none;
+}
+
+/* The frame a split divides. */
+.dock-drop-frame {
+  position: fixed;
+  z-index: 1099;
+  display: none;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  pointer-events: none;
+}
+
+/* A panel a menu command opened (Match Loudness, Diagnostics): its frame
+   glows for a moment so it is found wherever it docks. */
+.panel-group.panel-attention {
+  animation: panel-attention 1.5s ease-out;
+}
+
+@keyframes panel-attention {
+  0%,
+  40% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 0 18px var(--accent-soft);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-group.panel-attention {
+    animation: none;
+    border-color: var(--accent);
+  }
+}
+
+/* Floating frames: a panel frame in a window over the workspace, moved by its
+   tab strip (or grip) and resized from the corner. */
+.dock-float {
+  position: fixed;
+  z-index: 800;
+  display: flex;
+  min-width: 220px;
+  min-height: 140px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-dialog);
+  resize: both;
+  overflow: hidden;
+}
+
+.dock-float > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dock-float {
+  background: var(--bg-app);
+  border: 1px solid var(--divider);
+}
+
+.dock-float .panel-group.focused {
+  border-color: var(--accent);
+}
+
+.dock-float .panel-tabs {
+  cursor: move;
+}
+
+.dock-float .panel-tab {
+  cursor: pointer;
+}
+
+.dock-float {
+  flex-direction: column;
+}
+
+.dock-float-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 22px;
+  padding: 0 2px 0 6px;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  cursor: move;
+  user-select: none;
+}
+
+.dock-float-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-btn.dock-float-btn {
+  width: 20px;
+  height: 18px;
+  cursor: pointer;
 }
 
 /* ----------------------------------------------------------- status bar */
@@ -485,8 +724,7 @@ puter-user-menu::part(apps-panel) {
   gap: 10px;
   height: 22px;
   padding: 0 10px calc(env(safe-area-inset-bottom) * 0) 10px;
-  background: var(--bg-panel-alt);
-  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
   color: var(--text-dim);
   font-size: var(--fs-sm);
   flex: none;
@@ -537,8 +775,9 @@ puter-user-menu::part(apps-panel) {
 
 /* ------------------------------------------------------------ responsive */
 
+/* Narrower windows keep the current workspace and its menu; the others are under the chevron. */
 @media (max-width: 1280px) {
-  .workspace-tabs {
+  .workspace-tab:not([aria-selected='true']) {
     display: none;
   }
 }
@@ -603,8 +842,19 @@ puter-user-menu::part(apps-panel) {
   margin-right: -6px;
   padding-right: 6px;
   border-radius: 0;
-  border-left: 1px solid var(--border-soft);
   background: var(--bg-panel);
+}
+
+/* Tabs running under the chevron fade out beside it. */
+.panel-tabs-more::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to right, transparent, var(--bg-panel));
+  pointer-events: none;
 }
 
 .panel-tabs-more[hidden] {

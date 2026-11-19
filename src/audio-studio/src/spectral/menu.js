@@ -23,7 +23,7 @@ export function spectralMenuItems(app) {
     { type: 'cmd', label: 'Zoom Out (Frequency)', shortcut: app.commands.shortcutLabel('view.zoomOutFreq'), enabled: app.commands.isEnabled('view.zoomOutFreq'), run: () => app.commands.run('view.zoomOutFreq') },
     { type: 'cmd', label: 'Show All Frequencies', enabled: app.commands.isEnabled('view.zoomFullFreq'), run: () => app.commands.run('view.zoomFullFreq') },
     { type: 'sep' },
-    radio('Show Pitch Contour', pitchOn(app), () => app.commands.run('view.spectralPitch')),
+    radio('Pitch Display', pitchOn(app), () => app.commands.run(pitchOn(app) ? 'view.spectral' : 'view.spectralPitch')),
     { type: 'cmd', label: 'Reset Display Settings', enabled: true, run: () => app.prefs.set('spectralSettings', {}) },
   ];
 }

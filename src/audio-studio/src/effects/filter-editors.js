@@ -4,7 +4,7 @@
 
 import { h } from '../lib/dom.js';
 import { cssVar } from '../ui/theme.js';
-import { plot, gridLines, labelText } from './editors.js';
+import { plot, freqGridLines, labelText } from './editors.js';
 import { scientificSections, cascadeDb, cascadePhase, cascadeGroupDelay } from './defs/filter-math.js';
 import { scientificOrderFor, scientificTransition } from './defs/filter.js';
 import { logFrequencies } from './biquad.js';
@@ -46,8 +46,7 @@ export function scientificEditor() {
       const yOf = (y) => ((r.top - y) / (r.top - r.bottom)) * H;
       const ys = [];
       for (let y = r.top - r.step; y > r.bottom; y -= r.step) ys.push(yOf(y));
-      gridLines(g, W, H, [50, 100, 200, 500, 1000, 2000, 5000, 10000].filter((f) => f < fMax).map((f) => xOf(f, W)), ys);
-      for (const f of [100, 1000, 10000]) if (f < fMax) labelText(g, f >= 1000 ? `${f / 1000}k` : String(f), xOf(f, W) + 3, H - 14);
+      freqGridLines(g, W, H, (f) => xOf(f, W), { fMin: F_MIN, fMax, ys });
       for (let y = r.top - r.step; y > r.bottom; y -= 2 * r.step) labelText(g, String(Number(y.toPrecision(3))), W - 4, yOf(y) + 2, 'right');
       g.strokeStyle = cssVar(VIEWS.find((x) => x.id === view).colour);
       g.lineWidth = 2;

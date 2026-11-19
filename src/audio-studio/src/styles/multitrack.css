@@ -380,8 +380,20 @@
 
 .mt-th-fxlabel {
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mt-th-fxlabel:hover {
+  color: var(--text-strong);
+  text-decoration: underline;
 }
 
 .mt-th-fxpower {
@@ -419,10 +431,6 @@
 }
 
 .mt-th-mode {
-  flex: 0 1 76px;
-}
-
-.mt-th-param {
   flex: 0 1 76px;
 }
 
@@ -468,6 +476,71 @@
 /* With the automation lane open the mode controls always show. */
 .mt-th.with-auto .mt-th-r4 {
   display: flex;
+}
+
+/* Automation lane headers, one per lane, under the track's own controls. */
+.mt-th-lanes {
+  position: relative;
+  grid-column: 1 / -1;
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 5px solid color-mix(in srgb, var(--track-color) 45%, transparent);
+  background: var(--bg-panel-alt);
+}
+
+.mt-th.with-auto .mt-th-lanes {
+  display: flex;
+}
+
+.mt-lane-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1px;
+  box-sizing: border-box;
+  height: var(--lane-h, 46px);
+  min-width: 0;
+  padding: 3px 4px 0 6px;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.mt-lane-param {
+  flex: 1 1 auto;
+  min-width: 52px;
+  margin-right: 3px;
+}
+
+.mt-lane-btn {
+  flex: none;
+}
+
+.mt-lane-btn:disabled {
+  opacity: 0.35;
+}
+
+.mt-lane-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 5px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.mt-lane-resize:hover {
+  background: var(--accent-soft);
+}
+
+.mt-th-addlane:disabled {
+  opacity: 0.35;
+}
+
+/* A mute switch that follows its automation lane. */
+.mt-tb-mute.automated,
+.mx-btns .automated {
+  box-shadow: inset 0 -2px 0 var(--envelope-vol);
 }
 
 .mt-th .mt-meter {
@@ -738,6 +811,45 @@
   cursor: pointer;
 }
 
+.mx-fx-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--divider);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.mx-fx-menu:hover,
+.mx-fx-slot.empty:hover {
+  color: var(--text-strong);
+  background: var(--bg-hover);
+}
+
+.mx-fx-slot.empty::after {
+  content: '+';
+  margin: 0 auto;
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.mx-fx-slot.empty:hover::after,
+.mx-fx-slot.empty:focus-visible::after {
+  opacity: 1;
+}
+
+/* On the selected (lighter) strip, empty slots keep a visible outline and a darker well. */
+.mx-strip.selected .mx-fx-slot.empty {
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
+  background: color-mix(in srgb, var(--bg-input) 60%, transparent);
+}
+
 .mx-fx-slot.empty {
   border-style: dashed;
   border-color: var(--divider);
@@ -896,6 +1008,16 @@
   margin-top: 4px;
 }
 
+.prop-note {
+  margin: 4px 0 0;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+
+.prop-row > .input:disabled {
+  opacity: 0.55;
+}
+
 /* ----------------------------------------------------- touch and phone */
 
 @media (pointer: coarse) {
@@ -914,8 +1036,9 @@
     min-height: 30px;
   }
 
+  /* Wide enough for four finger-sized switches in a row (M, S, R, monitor). */
   .mx-strip {
-    width: 108px;
+    width: 136px;
   }
 
   .mt-th-resize {
@@ -924,6 +1047,92 @@
 
   .mt-splitter {
     width: 8px;
+  }
+
+  /* Track headers: a wider color strip to tap, a full-height name field, and the input and
+     output side by side so the rows fit the default track height. */
+  .mt-th {
+    grid-template-columns: 12px minmax(0, 1fr) 9px;
+  }
+
+  .mt-th-color {
+    width: 12px;
+  }
+
+  .mt-th-name {
+    height: 30px;
+  }
+
+  .mt-th .hot {
+    min-height: 28px;
+    min-width: 32px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .mt-th-io {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .mt-th-io-row {
+    flex: 1 1 0;
+  }
+
+  .mt-th-io .mt-th-glyph {
+    display: none;
+  }
+
+  .mt-th-mode {
+    flex: 0 0 auto;
+    min-width: 84px;
+  }
+
+  .mt-th-autotoggle,
+  .mt-th-addlane,
+  .mt-lane-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .mt-lane-param {
+    min-width: 96px;
+    height: 32px;
+  }
+
+  .mt-lane-head {
+    align-items: center;
+    padding-top: 0;
+  }
+
+  /* With lanes open on a medium track the routing row makes room for the automation row. */
+  .mt-th.with-auto[data-size='md'] .mt-th-r3 {
+    display: none;
+  }
+
+  /* Mixer: finger-sized empty effect slots, slot menus and send menus (the desktop look stays). */
+  .mx-fx {
+    max-height: 132px;
+  }
+
+  .mx-fx-slot {
+    height: 32px;
+  }
+
+  .mx-fx-power,
+  .mx-fx-menu {
+    width: 30px;
+  }
+
+  /* (More specific than the strip's compact send menu rules further down.) */
+  .mx-strip .mx-select.mx-send-sel,
+  .mx-strip .mx-select.mx-send-target {
+    height: 32px;
+  }
+
+  .mx-strip .mx-select.mx-send-sel {
+    flex: none;
+    width: 52px;
   }
 }
 
@@ -957,19 +1166,23 @@
   display: none;
 }
 
-/* Narrow headers: the automation parameter wraps under the mode so both stay readable. */
-[data-layout='phone'] .mt-th-r4 {
-  flex-wrap: wrap;
-}
-
 [data-layout='phone'] .mt-th-mode {
   flex: 1 1 0;
   min-width: 0;
 }
 
-[data-layout='phone'] .mt-th-param {
-  flex: 1 1 100%;
-  min-width: 0;
+/* Phones: an automation lane's header is narrower than its parameter and keyframe buttons,
+   so it scrolls sideways (a swipe) instead of cutting the buttons off. */
+[data-layout='phone'] .mt-lane-head {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+
+[data-layout='phone'] .mt-lane-param {
+  flex: none;
+  width: 92px;
 }
 
 /* The knobs are hidden on phones: keep the volume and pan glyphs so the two readouts are told apart. */
@@ -993,7 +1206,8 @@
   padding: 0 13px 0 3px;
   background-position: calc(100% - 2px) 50%;
 }
-.mx-send-pre {
+.mx-send-pre,
+.mx-fx-post {
   width: auto;
   padding: 0 3px;
   font-size: 9px;
@@ -1046,4 +1260,119 @@
 
 [data-layout='phone'] .remix-dialog .form-grid {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* ------------------------------------------------- metronome pattern */
+
+.metro-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 300px;
+}
+
+.metro-pattern {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.metro-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.metro-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.metro-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+
+.metro-beats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.metro-beat {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-strong);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.metro-beat:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.metro-swatch.down,
+.metro-beat.down {
+  background: var(--accent);
+}
+
+.metro-swatch.up,
+.metro-beat.up {
+  background: color-mix(in srgb, var(--accent) 45%, var(--bg-input));
+}
+
+.metro-swatch.sub,
+.metro-beat.sub {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-input));
+}
+
+.metro-swatch.none,
+.metro-beat.none {
+  background: var(--bg-input);
+  color: var(--text-faint);
+}
+
+.add-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 300px;
+}
+
+/* Frozen tracks: the freeze switch pulses while the pre-render runs. */
+.mx-freeze.busy {
+  animation: mt-freeze-busy 1s ease-in-out infinite alternate;
+}
+
+@keyframes mt-freeze-busy {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mx-freeze.busy {
+    animation: none;
+    outline: 1px dashed var(--accent);
+  }
+}
+
+.mt-th.frozen .mt-th-name {
+  color: var(--accent-strong, var(--accent));
 }

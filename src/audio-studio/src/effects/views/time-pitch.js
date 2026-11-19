@@ -44,11 +44,29 @@ function stretchView(ctx) {
     format: clockText,
     parse: parseClock,
     pixelsPerStep: 0.02,
-    onInput: (s) => current && ctx.set('stretch', (s / current) * 100),
-    onChange: (s) => current && ctx.set('stretch', (s / current) * 100),
+    onInput: (s) => setDuration(s),
+    onChange: (s) => setDuration(s),
   });
+  // Locked, the new duration is the setting (kept for any selection) and the stretch follows it.
+  const setDuration = (s) => {
+    if (!current) return;
+    if (ctx.values.lockDuration) ctx.set('targetDuration', s);
+    ctx.set('stretch', (s / current) * 100);
+  };
   newDuration.disabled = !current;
   ctx.subscribe((v) => newDuration.setValue((current * v.stretch) / 100));
+  const lockBox = h('input', {
+    type: 'checkbox',
+    checked: Boolean(ctx.values.lockDuration),
+    onchange: () => {
+      const on = lockBox.checked; // read first: the subscriber below redraws the box on each set
+      if (on) ctx.set('targetDuration', (current * ctx.values.stretch) / 100);
+      ctx.set('lockDuration', on);
+    },
+  });
+  ctx.subscribe((v) => (lockBox.checked = Boolean(v.lockDuration)));
+  // Opened on another selection, a locked dialog shows the stretch that reaches the kept duration.
+  if (ctx.values.lockDuration && ctx.values.targetDuration > 0 && current) ctx.set('stretch', Math.min(1000, Math.max(10, (ctx.values.targetDuration / current) * 100)));
   let lastAlgorithm = ctx.values.algorithm === 2 ? 0 : ctx.values.algorithm;
   const resample = h('input', {
     type: 'checkbox',
@@ -64,8 +82,8 @@ function stretchView(ctx) {
   return h(
     'div.fx-stack',
     controlsFor(ctx, ['algorithm', 'precision']),
-    groupBox('Duration', h('div.sp-durations', h('span.fx-label', 'Current Duration:'), h('span.fx-readout', current ? clockText(current) : 'No audio selected'), h('span.fx-label', 'New Duration:'), newDuration)),
-    groupBox('Stretch and Pitch', h('label.check.fx-check', resample, 'Lock Stretch and Pitch (Resample)'), controlsFor(ctx, ['stretch']), pitch, follows),
+    groupBox('Duration', h('div.sp-durations', h('span.fx-label', 'Current Duration:'), h('span.fx-readout', current ? clockText(current) : 'No audio selected'), h('span.fx-label', 'New Duration:'), newDuration), h('label.check.fx-check', lockBox, 'Lock Stretch Settings to New Duration')),
+    groupBox('Stretch and Pitch', h('label.check.fx-check', resample, 'Lock Stretch and Pitch (Resample)'), enableWhen(ctx, controlsFor(ctx, ['stretch']), (v) => !v.lockDuration), pitch, follows),
     disclosure('Advanced', controlsFor(ctx, ['lockChannels', 'formants']), { prefs: ctx.app?.prefs, key: 'stretchPitch' }),
   );
 }

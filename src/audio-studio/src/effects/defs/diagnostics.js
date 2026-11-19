@@ -70,6 +70,7 @@ registerEffect({
   kind: null,
   params: clickParams(),
   presets: [
+    preset('Default', {}),
     preset('Light Crackle', { sensitivity: 70, discrimination: 20, runSize: 16, oversample: 30, passes: 2, bigPops: false }),
     preset('Old Record', { sensitivity: 60, discrimination: 30, runSize: 48, oversample: 60, passes: 3, bigPops: true }),
     preset('Isolated Pops Only', { sensitivity: 40, discrimination: 70, runSize: 64, oversample: 50, passes: 1, bigPops: true }),

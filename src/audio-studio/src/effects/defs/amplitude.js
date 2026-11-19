@@ -65,6 +65,7 @@ registerEffect({
   name: 'Hard Limiter',
   group: AMP,
   kind: 30,
+  readout: true,
   about: 'Keeps peaks under a ceiling without audible clipping, looking ahead so it can turn the level down just before each peak. True Peak also catches peaks that fall between samples.',
   params: [
     db('ceiling', 'Maximum Amplitude', -100, 0, -0.1),
@@ -73,6 +74,10 @@ registerEffect({
     release(80, { min: 10, max: 1000 }),
     bool('link', 'Link Channels', true),
     choice('truePeak', 'Detection', ['Peak', 'True Peak'], 0, { order: -1 }),
+    // Raises the audio so its loudest peak meets the ceiling (Input Boost
+    // then drives further into the limiter). The processor never sees it:
+    // `resolve` folds it into the boost.
+    bool('maximize', 'Maximize to Ceiling', false),
   ],
   presets: [
     preset('Default', { ceiling: -0.1, inputBoost: 0, lookahead: 5, release: 80, link: true }),
@@ -82,10 +87,54 @@ registerEffect({
     preset('Gentle Lift +3 dB', { ceiling: -0.5, inputBoost: 3, lookahead: 7, release: 200, link: true }),
     preset('Loud and Tight +6 dB', { ceiling: -0.1, inputBoost: 6, lookahead: 4, release: 50, link: true }),
     preset('Dialogue -2 dB Ceiling', { ceiling: -2, inputBoost: 4, lookahead: 5, release: 120, link: true }),
+    preset('Maximize to Ceiling', { ceiling: -1, inputBoost: 0, lookahead: 5, release: 100, link: true, truePeak: 1, maximize: true }),
   ],
   latency: (v, rate) => limiterLatency(v.lookahead, rate) + (v.truePeak ? TRUE_PEAK_DELAY : 0),
   transfer: (v, inDb) => Math.min(inDb + v.inputBoost, v.ceiling),
+  resolve: (v, ctx) => (v.maximize ? { ...v, inputBoost: maximizeBoost(v, ctx) } : v),
 });
+
+const peakCache = new WeakMap();
+
+/**
+ * Peak level (dBFS) of `state` over `range`, else the selection of `doc`, else
+ * all of it; null when there is no audio or it is silent.
+ */
+export function audioPeakDb(state, range = null, doc = null) {
+  const channels = state?.channels;
+  if (!channels?.length) return null;
+  const len = channels[0].length;
+  const sel = doc?.selection;
+  const [a, b] = range || (sel && sel.end > sel.start ? [sel.start, sel.end] : [0, len]);
+  const start = Math.max(0, Math.min(len, a));
+  const end = Math.max(start, Math.min(len, b));
+  const key = `${start}:${end}`;
+  let byRange = peakCache.get(state);
+  if (!byRange) peakCache.set(state, (byRange = new Map()));
+  if (!byRange.has(key)) {
+    let p = 0;
+    const chunk = 1 << 16;
+    for (const ch of channels) {
+      for (let at = start; at < end; at += chunk) {
+        const x = ch.toArray(at, Math.min(end, at + chunk));
+        for (let i = 0; i < x.length; i++) {
+          const v = Math.abs(x[i]);
+          if (v > p) p = v;
+        }
+      }
+    }
+    if (byRange.size > 32) byRange.clear();
+    byRange.set(key, p > 0 ? 20 * Math.log10(p) : null);
+  }
+  return byRange.get(key);
+}
+
+/** Input boost that brings the peak of the processed audio to the ceiling, plus Input Boost. */
+function maximizeBoost(v, { doc, state, range } = {}) {
+  const peakDb = audioPeakDb(state, range, doc);
+  const lift = peakDb == null ? 0 : Math.max(0, v.ceiling - peakDb);
+  return Math.min(48, lift + v.inputBoost);
+}
 
 // --------------------------------------------------- Single-band Compressor
 
@@ -94,6 +143,7 @@ registerEffect({
   name: 'Single-band Compressor',
   group: AMP,
   kind: 31,
+  readout: true,
   about: 'Turns down levels above the threshold by the ratio, smoothing the change with the attack and release times. Output gain makes up the lost level.',
   params: [
     db('threshold', 'Threshold', -60, 0, -20),
@@ -358,14 +408,17 @@ registerEffect({
   about: 'Turns down harsh "s" and "sh" sounds. The detector listens to the shaded band; in Multiband mode only that band is reduced, in Broadband mode the whole signal is. Output Sibilance Only lets you hear what is being removed.',
   params: [
     choice('mode', 'Mode', ['Broadband', 'Multiband'], 1),
-    hz('frequency', 'Center Frequency', 1000, 16000, 6500),
-    hz('bandwidth', 'Bandwidth', 100, 10000, 3000),
-    db('threshold', 'Threshold', -80, 0, -30),
-    db('reduction', 'Maximum Reduction', 0, 40, 12),
+    // Defaults cover the whole sibilance region (4..10 kHz) and catch the
+    // "s" sounds of speech recorded anywhere from about -40 to -12 dBFS,
+    // taking them down by about 4..5 dB; vowels stay below the threshold.
+    hz('frequency', 'Center Frequency', 1000, 16000, 7000),
+    hz('bandwidth', 'Bandwidth', 100, 10000, 6000),
+    db('threshold', 'Threshold', -80, 0, -42),
+    db('reduction', 'Maximum Reduction', 0, 40, 8),
     bool('sibilanceOnly', 'Output Sibilance Only', false),
   ],
   presets: [
-    preset('Default', { mode: 1, frequency: 6500, bandwidth: 3000, threshold: -30, reduction: 12, sibilanceOnly: false }),
+    preset('Default', { mode: 1, frequency: 7000, bandwidth: 6000, threshold: -42, reduction: 8, sibilanceOnly: false }),
     preset('Low Voice Sibilance', { mode: 1, frequency: 4800, bandwidth: 2500, threshold: -32, reduction: 10 }),
     preset('High Voice Sibilance', { mode: 1, frequency: 7800, bandwidth: 3500, threshold: -30, reduction: 12 }),
     preset('Gentle Broadband', { mode: 0, frequency: 6500, bandwidth: 4000, threshold: -26, reduction: 6 }),
@@ -546,9 +599,11 @@ registerEffect({
   kind: null,
   about: 'Scales the selection so its loudest peak reaches the target. Equal normalization keeps the balance between channels. DC bias adjust measures each channel\'s offset and moves it to the amount you set (0 % centers the waveform), with or without normalizing.',
   params: [
-    choice('unit', 'Normalize To', ['dB', '%'], 1, { enabledIf: (v) => v.normalizeTo }),
+    // Default: -1 dB peak, a little headroom for lossy encoding and resampling.
+    // Saved presets carry their own unit and target, so they keep working.
+    choice('unit', 'Normalize To', ['dB', '%'], 0, { enabledIf: (v) => v.normalizeTo }),
     num('targetPercent', 'Target (%)', 1, 200, 100, '%', { step: 0.1, enabledIf: (v) => v.normalizeTo && v.unit === 1 }),
-    db('targetDb', 'Target (dB)', -60, 6, 0, { enabledIf: (v) => v.normalizeTo && v.unit === 0 }),
+    db('targetDb', 'Target (dB)', -60, 6, -1, { enabledIf: (v) => v.normalizeTo && v.unit === 0 }),
     bool('equal', 'Normalize All Channels Equally', true, { enabledIf: (v) => v.normalizeTo }),
     bool('removeDc', 'DC Bias Adjust', false),
     // Off: no level change, so DC Bias Adjust can run on its own.
@@ -556,8 +611,9 @@ registerEffect({
     num('dcAmount', 'DC Bias', -50, 50, 0, '%', { step: 0.1, enabledIf: (v) => v.removeDc }),
   ],
   presets: [
-    preset('Full Scale', { unit: 1, targetPercent: 100, equal: true, removeDc: false }),
+    // The first preset is what the dialog opens with: the defaults.
     preset('Peak -1 dB', { unit: 0, targetDb: -1, equal: true, removeDc: false }),
+    preset('Full Scale', { unit: 1, targetPercent: 100, equal: true, removeDc: false }),
     preset('Peak -3 dB with DC Removal', { unit: 0, targetDb: -3, equal: true, removeDc: true }),
     preset('Half Scale', { unit: 1, targetPercent: 50, equal: true }),
     preset('Balance Channels to -0.5 dB', { unit: 0, targetDb: -0.5, equal: false, removeDc: true }),
@@ -666,6 +722,7 @@ registerEffect({
       min: 0,
       max: 1,
       unit: '%',
+      ticks: [0.25, 0.5, 0.75],
       default: [{ t: 0, v: 0 }, { t: 1, v: 1 }],
       render: drawEnvelope,
     },
@@ -697,6 +754,8 @@ registerEffect({
       min: 0,
       max: 4,
       unit: '%',
+      // Unity gain and twice, three times as loud, labelled on the grid.
+      ticks: [1, 2, 3],
       default: [{ t: 0, v: 1 }, { t: 1, v: 1 }],
       render: drawEnvelope,
     },

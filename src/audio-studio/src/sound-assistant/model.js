@@ -10,12 +10,14 @@
 //     repair:   { on, items: { noise, rumble, hum, ess, reverb } }
 //     clarity:  { on, items: { dynamics, eq, enhance } }
 //     creative: { on, items: { reverb, width? } }
-//     duration: { on, seconds, orig }              orig: { sourceId, offset, length } once stretched
+//     duration: { on, seconds, method, orig }      method 'stretch' | 'remix' (clips); orig: { sourceId, offset, length } once stretched
 //     ducking:  { on, against: [type], sensitivity, reduce, fade }
 //     pan:      { on, value }
 //     volume:   { level, mute } }
 // An item is { on, amount (0..10), ...choice } (hum.freq, eq.preset,
 // enhance.voice, reverb.preset; width uses `amount` as a percentage).
+
+import { getEffect, defaults } from '../effects/index.js';
 
 export const TYPE_IDS = ['dialogue', 'music', 'sfx', 'ambience'];
 
@@ -125,7 +127,7 @@ export function defaultSettings(type) {
     s.creative = { on: false, items: { reverb: item(true, type === 'ambience' ? 3 : 4, { preset: type === 'dialogue' ? 'room' : 'hall' }) } };
     if (type === 'ambience') s.creative.items.width = item(false, 140);
   }
-  if (tasks.includes('duration')) s.duration = { on: false, seconds: 30, orig: null };
+  if (tasks.includes('duration')) s.duration = { on: false, seconds: 30, method: 'stretch', orig: null };
   if (tasks.includes('ducking')) s.ducking = { on: false, against: ['dialogue'], sensitivity: 6, reduce: type === 'ambience' ? -12 : -18, fade: 800 };
   if (tasks.includes('pan')) s.pan = { on: false, value: 0 };
   s.volume = { level: 0, mute: false };
@@ -238,6 +240,16 @@ export function deleteUserPreset(user, type, name) {
 // ------------------------------------------------------------ chain mapping
 
 const f10 = (a) => Math.max(0, Math.min(10, Number(a) || 0)) / 10;
+
+/**
+ * DeEsser settings for an ess amount f (0..1): the effect's own defaults (its
+ * detection band and threshold) at the default amount 4, with a lower
+ * threshold and deeper reduction as the amount grows.
+ */
+export function deesserValues(f) {
+  const d = defaults(getEffect('deesser'));
+  return { mode: 1, frequency: d.frequency, bandwidth: d.bandwidth, threshold: d.threshold - Math.round((f - 0.4) * 10), reduction: Math.max(1, Math.round(d.reduction * (0.5 + 1.25 * f))), sibilanceOnly: false };
+}
 const r1 = (v) => Math.round(v * 10) / 10;
 const BANDS_OFF = { band1On: false, band2On: false, band3On: false, band4On: false, band5On: false };
 
@@ -279,11 +291,11 @@ export function assistantChain(s, { loudness = true, volume = false } = {}) {
     }
     if (on('repair', 'reverb') && amt('repair', 'reverb') > 0) {
       const f = amt('repair', 'reverb');
-      add('dereverb', 'dereverb', { amount: Math.round(10 + f * 80), focus: 0, gain: r1(f * 2), decay: 800 });
+      add('dereverb', 'dereverb', { amount: Math.round(10 + f * 80), focus: 0, gain: r1(f * 2), decay: 800, autoGain: false });
     }
     if (on('repair', 'ess') && amt('repair', 'ess') > 0) {
       const f = amt('repair', 'ess');
-      add('ess', 'deesser', { mode: 1, frequency: 6500, bandwidth: 3000, threshold: -Math.round(18 + f * 24), reduction: Math.round(4 + f * 16), sibilanceOnly: false });
+      add('ess', 'deesser', deesserValues(f));
     }
   }
   if (s.clarity?.on) {

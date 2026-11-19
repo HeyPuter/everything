@@ -1,7 +1,7 @@
 // Overview navigator: the whole timeline in miniature with the visible range
 // as a frame. Drag the frame to scroll, drag its edges to zoom, click outside
-// it to centre the view there, double-click to zoom out fully. Keyboard:
-// Left/Right scroll, +/- zoom.
+// it to centre the view there, double-click to zoom out fully, scroll to zoom
+// around the pointer. Keyboard: Left/Right scroll, +/- zoom.
 //   host.timeline() -> { rate, length, view, cursor, selection }
 //   host.setView(start, end), host.overviewPeaks(columns) -> Float32Array(min,max pairs),
 //   or an array of them (one strip per channel), or null; optional host.viewMax(), the
@@ -9,6 +9,20 @@
 
 import { h } from '../lib/dom.js';
 import { cssVar } from '../ui/theme.js';
+
+/**
+ * The view zoomed by `factor` (< 1 zooms in) keeping frame `at` where it is on screen
+ * (inside the view; a point outside it zooms around the nearer edge), at least 16
+ * frames wide and no wider than `max`.
+ */
+export function overviewZoom(view, factor, at, max) {
+  const span = view.end - view.start;
+  const next = Math.max(16, Math.min(Math.max(16, max), span * factor));
+  const anchor = Math.max(view.start, Math.min(view.end, at));
+  const frac = span > 0 ? (anchor - view.start) / span : 0.5;
+  const start = anchor - frac * next;
+  return { start, end: start + next };
+}
 
 export class Overview {
   constructor(app, host) {
@@ -37,6 +51,25 @@ export class Overview {
       this.host.setView(0, Math.max(t.length, 1));
     });
     this.el.addEventListener('keydown', (e) => this.#keys(e));
+    // Wheel: zoom the view around the frame under the pointer; horizontal motion
+    // (or Shift) scrolls it.
+    this.el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const t = this.host.timeline();
+        const span = t.view.end - t.view.start;
+        const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+        if (Math.abs(dx) > Math.abs(e.deltaY) || e.shiftKey) {
+          const shift = (dx / Math.max(1, this.width)) * this.#total(t);
+          this.host.setView(t.view.start + shift, t.view.end + shift);
+          return;
+        }
+        const next = overviewZoom(t.view, Math.pow(1.002, e.deltaY), this.#frame(e.clientX - this.el.getBoundingClientRect().left), this.host.viewMax?.() ?? Math.max(t.length, 1));
+        if (next.end - next.start !== span || next.start !== t.view.start) this.host.setView(next.start, next.end);
+      },
+      { passive: false },
+    );
     // Hover feedback matching what a drag would do: resize at the frame edges,
     // move inside it, jump elsewhere.
     this.el.addEventListener('pointermove', (e) => {

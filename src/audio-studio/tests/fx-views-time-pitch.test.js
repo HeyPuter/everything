@@ -66,6 +66,19 @@ describe('time and pitch views', () => {
     expect(v.stretch).toBeCloseTo(150, 1);
     expect(v.algorithm).toBe(2);
   });
+  it('stretch and pitch can lock the new duration instead of the stretch', async () => {
+    const { app, doc } = setup(2);
+    const p = openEffectDialog(app, getEffect('stretchPitch'), { doc, values: { stretch: 150 } });
+    const dlg = document.querySelector('.fx-dialog');
+    const lock = [...dlg.querySelectorAll('.fx-check input')].find((i) => i.closest('label').textContent.includes('New Duration'));
+    lock.checked = true;
+    lock.dispatchEvent(new Event('change'));
+    dlg.querySelector('.btn.primary').click();
+    const v = await p;
+    expect(v.lockDuration).toBe(true);
+    expect(v.targetDuration).toBeCloseTo(3, 3);
+  });
+
   it('pitch shifter shows the ratio', async () => {
     const { app, doc } = setup();
     const p = openEffectDialog(app, getEffect('pitchShifter'), { doc, values: { semitones: 12 } });

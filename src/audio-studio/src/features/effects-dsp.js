@@ -9,6 +9,7 @@ import { dsp } from '../audio/dsp.js';
 import { captureNoisePrint, learnSoundModel, MAX_SOUND_SECONDS } from '../effects/defs/restoration.js';
 import { getEffect } from '../effects/registry.js';
 import { lastValues } from '../effects/presets.js';
+import { normalizeValues } from '../effects/params.js';
 import { withProgress } from '../effects/progress.js';
 import { isAbort } from '../effects/apply.js';
 
@@ -18,12 +19,20 @@ const MAX_SECONDS = 30;
 const audioDoc = (app) => (app.active?.kind === 'audio' && app.active.length > 0 ? app.active : null);
 
 export function installEffectsDsp(app) {
+  // The settings of an open Sound Remover window (its dialog announces them
+  // while it is open), which Learn Sound Model learns for.
+  let removerWindow = null;
+  app.on?.('effect-values', (e) => {
+    if (e?.def?.id === 'soundRemover') removerWindow = { doc: e.doc, values: e.values };
+    else if (!e) removerWindow = null;
+  });
   app.commands.register({
     id: 'fx.captureNoisePrint',
     label: 'Capture Noise Print',
     shortcut: 'Shift+P',
     enabled: (a) => Boolean(audioDoc(a)),
-    run: async (a) => {
+    // args.values: the Sound Remover settings to learn for (its window passes its own).
+    run: async (a, args) => {
       const doc = audioDoc(a);
       if (!doc) return;
       const [start, full] = doc.editRange();
@@ -47,14 +56,19 @@ export function installEffectsDsp(app) {
     id: 'fx.learnSoundModel',
     label: 'Learn Sound Model',
     enabled: (a) => Boolean(audioDoc(a)),
-    run: async (a) => {
+    // args.values: the Sound Remover settings to learn for (its window passes its own).
+    run: async (a, args) => {
       const doc = audioDoc(a);
       if (!doc) return;
       const [start, full] = doc.editRange();
       const end = Math.min(full, start + Math.round(MAX_SOUND_SECONDS * doc.sampleRate));
       const mask = doc.channelMask;
       const channels = doc.state.channels.filter((_, i) => !mask || mask[i]).map((c) => c.toArray(start, end));
-      const values = lastValues(a.prefs, getEffect('soundRemover'));
+      const def = getEffect('soundRemover');
+      // Complexity and passes shape the model: those of the open window (also when
+      // learning from the menu or a shortcut), else the settings last applied.
+      const open = removerWindow?.doc === doc ? removerWindow.values : null;
+      const values = normalizeValues(def, args?.values || open || lastValues(a.prefs, def));
       try {
         const model = await withProgress(a, 'Learning Sound Model', (signal) => learnSoundModel(channels, doc.sampleRate, values, { signal }), { indeterminate: true });
         doc.soundModel = model;

@@ -49,11 +49,19 @@
 //   tasks: { name: async (args) => result } // optional worker helpers (offline-fx.js runTask)
 //   editor: (ctx) => HTMLElement   // optional custom dialog body (EQ curve, graph...); ctx has
 //                                  // { values, set(id, value), def, app, doc, onReadout(fn), onClose(fn) }
+//   modal: true                    // optional: the dialog blocks the editor while open (its layout
+//                                  // depends on the selection it opened with); other Effects menu
+//                                  // dialogs float beside the editor
 //   measureOnly: true              // optional: passes audio through unchanged to measure it
 //                                  // (Loudness Meter); its dialog has no Apply
 //   display: 'loudness'            // optional: a built-in live display for the dialog (editors.js)
 //   surround: true                 // optional: also runs on 5.1 (6-channel tracks, a 5.1 master),
 //                                  // created with six channels (slotSpec `channels`)
+//   resolve: (values, { doc, state, range, sources }) => values  // optional: processor values that
+//                                  // depend on the audio being processed (range [start, end) of
+//                                  // state, else the doc's selection or all of it), via slotSpec;
+//                                  // on multitrack chains `sources` lists the audio the chain
+//                                  // plays ([{ channels, rate, range }]: a clip's source, a track's clips)
 //   readout: true                  // optional: the processor reports live readings (fx_readout:
 //                                  // meters, detector levels) while playing; editors receive them
 //                                  // through ctx.onReadout(fn(Float32Array))
@@ -90,7 +98,11 @@ export function paramArray(def, values) {
  * with `data` (FFT Filter curve, convolution impulse, noise print), and a
  * channel `route` (routing.js) to feed and write chosen channels.
  */
-export function slotSpec(def, values, { key = def.id, enabled = true, mix = 1, doc = null, rate = doc?.sampleRate ?? 48000, route = null, channels = 2 } = {}) {
+export function slotSpec(def, values, { key = def.id, enabled = true, mix = 1, doc = null, rate = doc?.sampleRate ?? 48000, route = null, channels = 2, range = null, state = null, sources = null } = {}) {
+  // `resolve` turns settings that depend on the audio (Maximize to Ceiling)
+  // into processor values, from the audio being processed: `state` (default
+  // the document's) over `range` (default its selection, or all of it).
+  if (def.resolve) values = def.resolve({ ...defaults(def), ...values }, { doc, state: state || doc?.state || null, range, sources });
   const spec = { key, kind: def.kind, params: paramArray(def, values), enabled, mix };
   // On a 5.1 chain a surround-capable effect gets all six channels; the others are not run there.
   if (channels === 6 && def.surround) spec.channels = 6;

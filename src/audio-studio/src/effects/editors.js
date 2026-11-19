@@ -23,6 +23,7 @@ import { combinedResponse, logFrequencies, qForBandwidth, filterTypeFromLabel } 
 import { addPoint, movePoint, removePoint, normalizeEnvelope, renderEnvelope } from './envelope.js';
 import { formatValue } from './params.js';
 import { loudnessMeterEditor } from './meter-view.js';
+import { levelMeter } from './meters-ui.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -111,6 +112,50 @@ export function gridLines(ctx, W, H, xs, ys) {
     ctx.lineTo(W, Math.round(y) + 0.5);
   }
   ctx.stroke();
+}
+
+const LABEL_ORDER = [[100, 1000, 10000], [50, 500, 5000], [20, 200, 2000, 20000], [30, 300, 3000], [40, 400, 4000]];
+const shortHz = (f) => (f >= 1000 ? `${f / 1000}k` : String(f));
+
+/**
+ * A log frequency grid: faint lines at every 2..9 step of each decade,
+ * stronger decade lines, horizontal lines at `ys` (pixels), and as many
+ * frequency labels along the bottom as fit without crowding (decades first,
+ * then 50/500/5k, 20/200/2k/20k...). xOf(f) gives the pixel of a frequency.
+ */
+export function freqGridLines(ctx, W, H, xOf, { fMin = 20, fMax = 20000, ys = [], labels = true } = {}) {
+  const minor = [];
+  const major = [];
+  for (let d = 10; d <= 10000; d *= 10) {
+    for (let k = 1; k <= 9; k++) {
+      const f = k * d;
+      if (f <= fMin || f >= fMax) continue;
+      (k === 1 ? major : minor).push(xOf(f));
+    }
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  gridLines(ctx, W, H, minor, []);
+  ctx.restore();
+  gridLines(ctx, W, H, major, ys);
+  if (labels) freqLabels(ctx, W, H, xOf, { fMin, fMax });
+}
+
+/** The frequency labels of freqGridLines alone (to draw them over a filled plot). */
+export function freqLabels(ctx, W, H, xOf, { fMin = 20, fMax = 20000 } = {}) {
+  ctx.font = CANVAS_FONT;
+  const taken = [];
+  for (const group of LABEL_ORDER) {
+    for (const f of group) {
+      if (f <= fMin || f >= fMax) continue;
+      const text = shortHz(f);
+      const x0 = xOf(f) + 3;
+      const x1 = x0 + ctx.measureText(text).width;
+      if (x1 > W - 2 || taken.some(([a, b]) => x0 < b + 8 && x1 > a - 8)) continue;
+      taken.push([x0, x1]);
+      labelText(ctx, text, x0, H - 14);
+    }
+  }
 }
 
 export function labelText(ctx, text, x, y, align = 'left') {
@@ -235,26 +280,29 @@ export function eqEditor(opts = {}) {
     const rate = ctx.doc?.sampleRate || 48000;
     const fMin = 20;
     const fMax = Math.min(20000, rate / 2);
-    const freqs = logFrequencies(320, fMin, fMax);
     const xOf = (f, W) => (Math.log(f / fMin) / Math.log(fMax / fMin)) * W;
     const yOf = (db, H) => H / 2 - (db / range) * (H / 2 - 8);
+    // Two samples a pixel, plus every band's own centre: narrow notches draw to their full depth.
+    const sampleFreqs = (W, values) => {
+      const centres = getBands(values).filter((b) => b.enabled && b.freq > fMin && b.freq < fMax).map((b) => b.freq);
+      return Float64Array.from([...logFrequencies(Math.max(320, Math.ceil(W * 2)), fMin, fMax), ...centres]).sort();
+    };
     const param = (id) => def.params.find((p) => p.id === id);
 
     const view = plot('fx-eq', 'Equalizer curve', (g, W, H) => {
       range = rangeNow();
-      const xs = [50, 100, 200, 500, 1000, 2000, 5000, 10000].filter((f) => f < fMax).map((f) => xOf(f, W));
       const step = range > 24 ? 12 : range % 6 ? 5 : 6;
       const ys = [];
       for (let d = Math.ceil(-range / step) * step; d <= range; d += step) ys.push(yOf(d, H));
-      gridLines(g, W, H, xs, ys);
+      freqGridLines(g, W, H, (f) => xOf(f, W), { fMin, fMax, ys });
       g.strokeStyle = cssVar('--grid-strong');
       g.beginPath();
       g.moveTo(0, Math.round(yOf(0, H)) + 0.5);
       g.lineTo(W, Math.round(yOf(0, H)) + 0.5);
       g.stroke();
-      for (const f of [100, 1000, 10000]) if (f < fMax) labelText(g, f >= 1000 ? `${f / 1000}k` : String(f), xOf(f, W) + 3, H - 14);
       for (const d of range % 6 ? [range, 10, 5, -5, -10] : [range, range / 2, -range / 2]) labelText(g, `${d > 0 ? '+' : ''}${Math.round(d)}`, 3, yOf(d, H) + 2);
       const values = ctx.values;
+      const freqs = sampleFreqs(W, values);
       // A definition's own response (exact for its filter design) wins over the biquad model.
       const resp = def.response && !opts.bands ? def.response(values, freqs, rate) : combinedResponse(getBands(values), freqs, rate, offset(values));
       g.strokeStyle = cssVar('--wave');
@@ -333,7 +381,28 @@ export function eqEditor(opts = {}) {
     };
     ctx.subscribe(update);
     update();
-    return view.el;
+    // Effects that report their levels (readout [input dB, reduction dB, output dB])
+    // get input, gain reduction and output meters beside the graph.
+    if (!ctx.def.readout || !ctx.onReadout) return view.el;
+    const scale = [0, -12, -24, -36, -48];
+    const meters = [
+      levelMeter({ label: 'In', min: lo, vertical: true, scale }),
+      levelMeter({ label: 'GR', kind: 'gr', min: -24, vertical: true, scale: [0, -6, -12, -18, -24] }),
+      levelMeter({ label: 'Out', min: lo, vertical: true, scale }),
+    ];
+    ctx.onReadout((r) => {
+      if (r.length < 3) return;
+      meters.forEach((m, i) => m.set(r[i]));
+      live = r[0];
+      clearTimeout(liveIdle);
+      liveIdle = setTimeout(() => {
+        live = null;
+        view.redraw();
+      }, 500);
+      view.redraw();
+    });
+    ctx.onClose?.(() => clearTimeout(liveIdle));
+    return h('div.fx-band-wrap.fx-transfer-meters', view.el, h('div.fx-tr-meters', meters.map((m) => m.el)));
   };
 }
 
@@ -412,7 +481,17 @@ export function transferEditor(opts = {}) {
         else g.moveTo(px, py);
       }
       g.stroke();
+      // While audio plays through it: the input level on the curve.
+      if (live != null && live > lo) {
+        const y = clamp(transferCurve(live, o), lo, 0);
+        g.fillStyle = cssVar('--accent');
+        g.beginPath();
+        g.arc(pos(Math.min(0, live), W), H - pos(y, H), 4, 0, Math.PI * 2);
+        g.fill();
+      }
     });
+    let live = null;
+    let liveIdle = 0;
     const handleId = ids.threshold || ids.ceiling;
     const handle = h('button.fx-handle', { type: 'button', role: 'slider', 'aria-label': ids.threshold ? 'Threshold' : 'Ceiling' });
     view.layer.append(handle);
@@ -437,7 +516,28 @@ export function transferEditor(opts = {}) {
     };
     ctx.subscribe(update);
     update();
-    return view.el;
+    // Effects that report their levels (readout [input dB, reduction dB, output dB])
+    // get input, gain reduction and output meters beside the graph.
+    if (!ctx.def.readout || !ctx.onReadout) return view.el;
+    const scale = [0, -12, -24, -36, -48];
+    const meters = [
+      levelMeter({ label: 'In', min: lo, vertical: true, scale }),
+      levelMeter({ label: 'GR', kind: 'gr', min: -24, vertical: true, scale: [0, -6, -12, -18, -24] }),
+      levelMeter({ label: 'Out', min: lo, vertical: true, scale }),
+    ];
+    ctx.onReadout((r) => {
+      if (r.length < 3) return;
+      meters.forEach((m, i) => m.set(r[i]));
+      live = r[0];
+      clearTimeout(liveIdle);
+      liveIdle = setTimeout(() => {
+        live = null;
+        view.redraw();
+      }, 500);
+      view.redraw();
+    });
+    ctx.onClose?.(() => clearTimeout(liveIdle));
+    return h('div.fx-band-wrap.fx-transfer-meters', view.el, h('div.fx-tr-meters', meters.map((m) => m.el)));
   };
 }
 
@@ -449,7 +549,7 @@ export function transferEditor(opts = {}) {
  *      render(points, n) to draw the curve some other way (n samples across) }
  * Click empty space to add a point, drag points, Delete or double-click to remove.
  */
-export function envelopeControl({ param, value, onChange, smooth = () => false, doc = null, range = null, xLabel = (t) => `${Math.round(t * 100)}%`, xTicks = [0.25, 0.5, 0.75], xTickLabels = [], yTicks = null, overlay = null, className = '', pointText = null, render = null }) {
+export function envelopeControl({ param, value, onChange, smooth = () => false, doc = null, range = null, xLabel = (t) => `${Math.round(t * 100)}%`, xTicks = [0.25, 0.5, 0.75], xTickLabels = [], yTicks = null, overlay = null, className = '', pointText = null, render = null, grid = null }) {
   const min = param.min ?? 0;
   const max = param.max ?? 100;
   const fmt = (v) => formatPoint(param, v);
@@ -467,14 +567,17 @@ export function envelopeControl({ param, value, onChange, smooth = () => false, 
         g.fillRect(x, mid - a, Math.max(1, W / peaks.length), 2 * a || 1);
       }
     }
-    const ys = [];
-    if (yTicks) for (const v of yTicks) ys.push(yOf(v, H));
-    else for (let k = 0; k <= 4; k++) ys.push(yOf(min + ((max - min) * k) / 4, H));
-    gridLines(g, W, H, xTicks.map((f) => f * W), ys);
-    if (yTicks) yTicks.forEach((v) => labelText(g, fmt(v).replace(/\.0 /, ' '), 3, yOf(v, H) + 2));
-    labelText(g, fmt(max), 3, 3);
-    labelText(g, fmt(min), 3, H - 16);
-    xTickLabels.forEach((text, i) => text && labelText(g, text, xTicks[i] * W + 3, H - 14));
+    if (grid) grid(g, W, H, (v) => yOf(v, H));
+    else {
+      const ys = [];
+      if (yTicks) for (const v of yTicks) ys.push(yOf(v, H));
+      else for (let k = 0; k <= 4; k++) ys.push(yOf(min + ((max - min) * k) / 4, H));
+      gridLines(g, W, H, xTicks.map((f) => f * W), ys);
+      if (yTicks) yTicks.forEach((v) => labelText(g, fmt(v).replace(/\.0 /, ' '), 3, yOf(v, H) + 2));
+      labelText(g, fmt(max), 3, 3);
+      labelText(g, fmt(min), 3, H - 16);
+      xTickLabels.forEach((text, i) => text && labelText(g, text, xTicks[i] * W + 3, H - 14));
+    }
     const curve = render ? render(points, Math.max(2, Math.round(W))) : renderEnvelope(points, Math.max(2, Math.round(W)), { smooth: smooth() });
     g.strokeStyle = cssVar('--envelope-vol');
     g.lineWidth = 2;
@@ -594,23 +697,53 @@ export function formatPoint(param, v) {
   return formatValue({ ...param, type: 'number', step: param.step || ((param.max ?? 1) - (param.min ?? 0)) / 100 }, v);
 }
 
-/** Frequency curve editor for a param of type 'curve' ([{ f, g }], f in Hz on a log axis, g in dB). */
-export function curveControl({ param, value, onChange, smooth = () => false }) {
+/** dB lines for a curve span: a step that gives about eight lines, from the top down. */
+export function dbTicks(min, max) {
+  const step = [3, 6, 12, 20, 24].find((s) => (max - min) / s <= 11) || 24;
+  const out = [];
+  for (let v = Math.floor(max / step) * step; v >= min; v -= step) out.push(v);
+  return out;
+}
+
+/**
+ * Frequency curve editor for a param of type 'curve' ([{ f, g }], f in Hz,
+ * g in dB) on a log axis with the dense log grid, or on a linear axis while
+ * linear() is true. dB lines are labelled down the right edge.
+ */
+export function curveControl({ param, value, onChange, smooth = () => false, linear = null }) {
   const fMin = 20;
   const fMax = 20000;
-  const toT = (f) => clamp(Math.log(Math.max(fMin, f) / fMin) / Math.log(fMax / fMin), 0, 1);
-  const toF = (t) => fMin * Math.pow(fMax / fMin, t);
+  const isLinear = () => Boolean(linear?.());
+  const toT = (f) => (isLinear() ? clamp(f / fMax, 0, 1) : clamp(Math.log(Math.max(fMin, f) / fMin) / Math.log(fMax / fMin), 0, 1));
+  const toF = (t) => (isLinear() ? Math.max(fMin, t * fMax) : fMin * Math.pow(fMax / fMin, t));
   const conv = (pts) => (pts || []).map((p) => ({ t: toT(p.f), v: p.g }));
   const fText = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`);
-  const ticks = [100, 1000, 10000];
+  const prm = { min: -60, max: 24, unit: 'dB', ...param };
+  const ticks = dbTicks(prm.min, prm.max);
   const el = envelopeControl({
-    param: { min: -60, max: 24, unit: 'dB', ...param },
+    param: prm,
     value: conv(value),
     onChange: (pts) => onChange(pts.map((p) => ({ f: Math.round(toF(p.t) * 10) / 10, g: Math.round(p.v * 10) / 10 }))),
     xLabel: (t) => fText(toF(t)),
-    xTicks: ticks.map(toT),
-    xTickLabels: ['100', '1k', '10k'],
     smooth,
+    grid: (g, W, H, yOf) => {
+      const ys = ticks.map(yOf);
+      if (isLinear()) {
+        const xs = [];
+        for (let f = 1000; f < fMax; f += 1000) xs.push(f);
+        g.save();
+        g.globalAlpha = 0.45;
+        gridLines(g, W, H, xs.filter((f) => f % 5000).map((f) => toT(f) * W), []);
+        g.restore();
+        gridLines(g, W, H, xs.filter((f) => f % 5000 === 0).map((f) => toT(f) * W), ys);
+        const every = W < 360 ? 5000 : 2000;
+        for (let f = every; f < fMax; f += every) labelText(g, `${f / 1000}k`, toT(f) * W + 3, H - 14);
+      } else freqGridLines(g, W, H, (f) => toT(f) * W, { fMin, fMax, ys });
+      ticks.forEach((v, i) => {
+        const y = yOf(v);
+        if (y > 4 && y < H - 18) labelText(g, i === 0 ? `${v} dB` : String(v), W - 4, y + 2, 'right');
+      });
+    },
   });
   const set = el.setPoints;
   el.setPoints = (pts) => set(conv(pts));

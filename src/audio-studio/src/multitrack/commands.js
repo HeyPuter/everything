@@ -8,18 +8,19 @@ import { icon } from '../ui/icons.js';
 import { Session } from '../model/session.js';
 import { mergeWithLayout, relocateMergeLayouts } from '../model/merge-layout.js';
 import { restartFade } from '../model/clip-fades.js';
-import { clipPlan } from '../model/session-graph.js';
+import { clipPlan, metronomePattern, BEAT_KINDS } from '../model/session-graph.js';
 import * as S from '../model/session-edits.js';
 import { markersInRange } from '../model/edits.js';
 import { AudioFile } from '../model/audio-file.js';
 import { Channel } from '../audio/channel.js';
 import { createMarker, sortMarkers, MARKER_TYPES } from '../model/markers.js';
-import { pickLocalFiles, saveDocument, downloadBlob } from '../storage/files.js';
+import { pickLocalFiles, downloadBlob } from '../storage/files.js';
 import { AUDIO_ACCEPT, VIDEO_EXTENSIONS, baseName } from '../audio/decode.js';
 import { videoClip } from '../model/session-video.js';
 import * as puter from '../storage/puter.js';
 import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks, trackChannelsFor } from './insert.js';
 import { renderSession, renderedDoc, clipsRange } from './render.js';
+import { exportMixdown } from '../export/mixdown.js';
 import { saveSession, exportSession, prepareSessionZip } from './storage.js';
 import { openTrackEffects } from './fx-editor.js';
 import { sessionBaseName } from '../model/session-io.js';
@@ -37,7 +38,11 @@ const ALIGN_PRECISIONS = [
   { id: 'medium', label: 'Medium' },
   { id: 'high', label: 'High (slow)' },
 ];
+import { pickCustomColor } from './custom-color.js';
+import { laneParams, laneInfo } from './fx-automation.js';
+import { canFreeze } from './freeze.js';
 import { templateFromState, stateFromTemplate, userTemplates, saveTemplate, deleteTemplate } from './templates.js';
+import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
 const session = (app) => (app.active?.kind === 'session' ? app.active : null);
 const hasSession = (app) => Boolean(session(app));
@@ -106,37 +111,95 @@ async function newSessionDialog(app) {
   });
   template.addEventListener('change', () => (delTemplate.disabled = !userTemplates(app.prefs).some((t) => t.id === template.value)));
   fillTemplates();
-  const rate = h('select.select', { 'aria-label': 'Sample rate' }, [22050, 32000, 44100, 48000, 88200, 96000, 192000].map((r) => h('option', { value: r, selected: r === (app.prefs.get('defaultRate') || 48000) }, `${r} Hz`)));
+  const rate = rateField(app.prefs.get('defaultRate') || 48000);
+  const error = h('div.dlg-error', { role: 'alert' });
   const bits = h('select.select', { 'aria-label': 'Bit depth' }, [16, 24, 32].map((b) => h('option', { value: b, selected: b === 32 }, b === 32 ? '32 (float)' : String(b))));
   const master = h('select.select', { 'aria-label': 'Mix' }, h('option', { value: '2' }, 'Stereo'), h('option', { value: '1' }, 'Mono'), h('option', { value: '6' }, '5.1'));
   master.value = String([1, 6].includes(app.prefs.get('newSessionMix')) ? app.prefs.get('newSessionMix') : 2);
+  // Where the session is saved the first time (Puter only): Save offers this folder.
+  let folder = app.prefs.get('sessionSaveFolder') || '';
+  const folderText = h('span.io-path', folder || `~/${puter.APP_DIR}`);
+  const browseFolder = h('button.btn', { type: 'button' }, 'Browse...');
+  browseFolder.addEventListener('click', async () => {
+    try {
+      if (!puter.isSignedIn() && !(await puter.signIn())) return;
+      const item = await puter.pickDirectory();
+      if (item?.path) folderText.textContent = folder = item.path;
+    } catch (err) {
+      app.notify(err?.message || 'The folder could not be chosen.', { error: true });
+    }
+  });
+  const folderRow = puter.sdk() ? [h('label', 'Folder:'), h('div.io-loc-path', icon('folder', 14), folderText, browseFolder)] : [];
   const r = await openDialog({
     title: 'New Multitrack Session',
-    body: h('div.form-grid', h('label', 'Session Name:'), name, h('label', 'Template:'), h('div.row', template, delTemplate), h('label', 'Sample Rate:'), rate, h('label', 'Bit Depth:'), bits, h('label', 'Mix:'), master),
+    body: h('div.form-grid', h('label', 'Session Name:'), name, ...folderRow, h('label', 'Template:'), h('div.row', template, delTemplate), h('label', 'Sample Rate:'), rate.el, h('label', 'Bit Depth:'), h('div.row', bits, h('span.muted', 'bits')), h('label', 'Mix:'), master, h('span'), error),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      error.textContent = rate.value() ? '' : RATE_PROBLEM;
+      if (!rate.value()) rate.input.focus();
+      return Boolean(rate.value());
+    },
   });
   if (r !== 'ok') return null;
   const chosen = TEMPLATES.find((t) => t.id === template.value) || userTemplates(app.prefs).find((t) => t.id === template.value);
   app.prefs.set('newSessionMix', Number(master.value));
-  return { name: `${name.value.trim() || 'Untitled Session'}.asesx`, template: chosen, sampleRate: Number(rate.value), bitDepth: Number(bits.value), masterChannels: Number(master.value) };
+  if (folder) app.prefs.set('sessionSaveFolder', folder);
+  return { name: `${name.value.trim() || 'Untitled Session'}.asesx`, template: chosen, sampleRate: rate.value(), bitDepth: Number(bits.value), masterChannels: Number(master.value) };
 }
 
-async function addTracksDialog(app) {
-  const count = h('input.input.num', { type: 'number', min: 1, max: 64, value: 1, 'aria-label': 'Number of tracks' });
-  const type = h('select.select', { 'aria-label': 'Track type' }, h('option', { value: 'stereo' }, 'Stereo Audio Track'), h('option', { value: 'mono' }, 'Mono Audio Track'), h('option', { value: 'bus' }, 'Stereo Bus Track'), h('option', { value: 'monoBus' }, 'Mono Bus Track'), h('option', { value: 'surround' }, '5.1 Audio Track'), h('option', { value: 'surroundBus' }, '5.1 Bus Track'));
+const CHANNEL_CHOICES = [
+  { value: '1', label: 'Mono' },
+  { value: '2', label: 'Stereo' },
+  { value: '6', label: '5.1' },
+];
+
+/** Add Tracks: a video track, audio tracks and bus tracks in one go. Resolves to the counts or null. */
+async function addTracksDialog(app, { videoAllowed = true } = {}) {
+  const group = (title, ...rows) => h('fieldset.dlg-group', h('legend', title), ...rows);
+  const counter = (label) => h('input.input.num', { type: 'number', min: 0, max: 64, value: 0, 'aria-label': label });
+  const channels = (label) => h('select.select', { 'aria-label': label }, CHANNEL_CHOICES.map((c) => h('option', { value: c.value, selected: c.value === '2' }, c.label)));
+  // Starts from the last choice.
+  const last = app.prefs.get('addTracks');
+  const prev = last && typeof last === 'object' ? last : {};
+  const video = h('input', { type: 'checkbox', disabled: !videoAllowed });
+  const audio = counter('Number of audio tracks');
+  audio.value = String(Number.isInteger(prev.audio) ? prev.audio : 1);
+  const audioCh = channels('Audio track channels');
+  const bus = counter('Number of bus tracks');
+  bus.value = String(Number.isInteger(prev.bus) ? prev.bus : 0);
+  const busCh = channels('Bus track channels');
+  for (const [el, v] of [[audioCh, prev.audioChannels], [busCh, prev.busChannels]]) if (CHANNEL_CHOICES.some((c) => c.value === String(v))) el.value = String(v);
+  const count = (el) => Math.max(0, Math.min(64, Math.round(Number(el.value) || 0)));
+  const body = h(
+    'div.add-tracks',
+    group('Video Track', h('label.check', video, videoAllowed ? 'Add a video track (pick a video file next)' : 'Add a video track (the session has one)')),
+    group('Audio Tracks', h('div.form-grid', h('label', 'Add:'), h('div.row', audio, h('span.muted', 'audio tracks')), h('label', 'Channels:'), audioCh)),
+    group('Bus Tracks', h('div.form-grid', h('label', 'Add:'), h('div.row', bus, h('span.muted', 'bus tracks')), h('label', 'Channels:'), busCh)),
+  );
+  // Channels apply only while there is something to add.
+  const sync = () => {
+    audioCh.disabled = !count(audio);
+    busCh.disabled = !count(bus);
+    const ok = body.closest('.dialog')?.querySelector('.btn.primary');
+    if (ok) ok.disabled = !(count(audio) || count(bus) || video.checked);
+  };
+  for (const el of [audio, bus, video]) el.addEventListener('input', sync);
+  video.addEventListener('change', sync);
+  queueMicrotask(sync);
   const r = await openDialog({
     title: 'Add Tracks',
-    body: h('div.form-grid', h('label', 'Add:'), count, h('label', 'Type:'), type),
+    body,
     buttons: [
       { label: 'Cancel', value: null },
-      { label: 'OK', value: 'ok', primary: true },
+      { label: 'Add', value: 'ok', primary: true },
     ],
   });
   if (r !== 'ok') return null;
-  return { count: Math.max(1, Math.min(64, Math.round(Number(count.value) || 1))), type: type.value };
+  app.prefs.set('addTracks', { audio: count(audio), audioChannels: Number(audioCh.value), bus: count(bus), busChannels: Number(busCh.value) });
+  return { video: video.checked && videoAllowed, audio: { count: count(audio), channels: Number(audioCh.value) }, bus: { count: count(bus), channels: Number(busCh.value) } };
 }
 
 async function sessionPropertiesDialog(app, doc) {
@@ -144,8 +207,17 @@ async function sessionPropertiesDialog(app, doc) {
   const tempo = h('input.input.num', { type: 'number', min: 20, max: 400, step: 0.1, value: s.tempo, 'aria-label': 'Tempo' });
   const beats = h('input.input.num', { type: 'number', min: 1, max: 16, value: s.beatsPerBar, 'aria-label': 'Beats per bar' });
   const xf = h('input', { type: 'checkbox', checked: s.autoCrossfade });
+  const error = h('div.dlg-error', { role: 'alert' });
   const r = await openDialog({
     title: 'Session Properties',
+    onSubmit: () => {
+      const t = Number(tempo.value);
+      const b = Number(beats.value);
+      const problem = !(tempo.value.trim() && t >= 20 && t <= 400) ? 'Enter a tempo from 20 to 400 beats per minute.' : !(Number.isInteger(b) && b >= 1 && b <= 16) ? 'Enter from 1 to 16 beats per bar.' : '';
+      error.textContent = problem;
+      if (problem) (problem.includes('tempo') ? tempo : beats).focus();
+      return !problem;
+    },
     body: h(
       'div.form-grid',
       h('label', 'Sample Rate:'),
@@ -160,6 +232,8 @@ async function sessionPropertiesDialog(app, doc) {
       h('div.row', beats, h('span.muted', 'beats per bar')),
       h('label', 'Crossfades:'),
       h('label.check', xf, 'Create crossfades when clips overlap'),
+      h('span'),
+      error,
     ),
     buttons: [
       { label: 'Cancel', value: null },
@@ -240,14 +314,59 @@ function setMetronomeSound(app, doc, id) {
   app.syncGraph();
 }
 
+const BEAT_LABELS = { down: 'Accent', up: 'Beat', sub: 'Soft', none: 'Silent' };
+
 async function metronomeDialog(app, doc) {
   const tempo = h('input.input.num', { type: 'number', min: 20, max: 400, step: 0.1, value: doc.state.tempo, 'aria-label': 'Tempo' });
   const beats = h('input.input.num', { type: 'number', min: 1, max: 16, value: doc.state.beatsPerBar, 'aria-label': 'Beats per bar' });
   const current = metronomeSoundOf(app, doc);
   const sound = h('select.select', { 'aria-label': 'Metronome sound' }, METRONOME_SOUNDS.map((x) => h('option', { value: x.id, selected: x.id === current }, x.label)));
+  // The accent pattern: one button per beat; a click steps it Accent > Beat > Soft > Silent.
+  let pattern = metronomePattern(doc.state.metronomePattern, doc.state.beatsPerBar);
+  const beatRow = h('div.metro-beats', { role: 'group', 'aria-label': 'Accent pattern' });
+  const cycle = (i, dir) => {
+    const k = BEAT_KINDS.indexOf(pattern[i]);
+    pattern = pattern.map((x, j) => (j === i ? BEAT_KINDS[(k + dir + BEAT_KINDS.length) % BEAT_KINDS.length] : x));
+    drawBeats();
+    beatRow.children[i]?.focus();
+  };
+  const drawBeats = () => {
+    beatRow.replaceChildren(
+      ...pattern.map((kind, i) =>
+        h(
+          `button.metro-beat.${kind}`,
+          {
+            type: 'button',
+            'aria-label': `Beat ${i + 1}: ${BEAT_LABELS[kind]}`,
+            title: `Beat ${i + 1}: ${BEAT_LABELS[kind]} (click to change, right-click to go back)`,
+            onclick: () => cycle(i, 1),
+            oncontextmenu: (e) => {
+              e.preventDefault();
+              cycle(i, -1);
+            },
+          },
+          String(i + 1),
+        ),
+      ),
+    );
+  };
+  beats.addEventListener('input', () => {
+    const n = Math.max(1, Math.min(16, Math.round(Number(beats.value) || 0)));
+    if (n && n !== pattern.length) {
+      pattern = metronomePattern(pattern, n);
+      drawBeats();
+    }
+  });
+  drawBeats();
+  const legend = h('div.metro-legend', BEAT_KINDS.map((k) => h('span.metro-key', h(`span.metro-swatch.${k}`), BEAT_LABELS[k])));
+  const reset = h('button.btn.sm', { type: 'button', onclick: () => { pattern = metronomePattern(null, pattern.length); drawBeats(); } }, 'Reset Pattern');
   const r = await openDialog({
     title: 'Metronome Pattern',
-    body: h('div.form-grid', h('label', 'Tempo (BPM):'), tempo, h('label', 'Beats per Bar:'), beats, h('label', 'Sound:'), h('div.row', sound, h('span.muted', 'accented first beat'))),
+    body: h(
+      'div.metro-dialog',
+      h('div.form-grid', h('label', 'Tempo (BPM):'), tempo, h('label', 'Beats per Bar:'), beats, h('label', 'Sound:'), sound),
+      h('div.metro-pattern', legend, beatRow, h('div.row', reset)),
+    ),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
@@ -255,7 +374,13 @@ async function metronomeDialog(app, doc) {
   });
   if (r !== 'ok') return;
   setMetronomeSound(app, doc, sound.value);
-  doc.apply('Metronome Pattern', { ...doc.state, tempo: Math.max(20, Math.min(400, Number(tempo.value) || 120)), beatsPerBar: Math.max(1, Math.min(16, Math.round(Number(beats.value) || 4))) });
+  const beatsPerBar = Math.max(1, Math.min(16, Math.round(Number(beats.value) || 4)));
+  const fitted = metronomePattern(pattern, beatsPerBar);
+  const plain = fitted.every((k, i) => k === (i === 0 ? 'down' : 'up'));
+  const next = { ...doc.state, tempo: Math.max(20, Math.min(400, Number(tempo.value) || 120)), beatsPerBar };
+  if (plain) delete next.metronomePattern;
+  else next.metronomePattern = fitted;
+  doc.apply('Metronome Pattern', next);
   app.prefs.set('tempo', doc.state.tempo);
   app.prefs.set('beatsPerBar', doc.state.beatsPerBar);
 }
@@ -388,10 +513,13 @@ async function speechAlign(app, doc) {
 function colorMenu(app, current, apply, { withDefault } = {}) {
   const el = app.currentView?.()?.surface;
   const r = el ? el.getBoundingClientRect() : { left: 200, top: 200 };
-  const items = S.TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: COLOR_NAMES[i], enabled: true, checked: current === c, run: () => apply(c) }));
+  const items = S.TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: COLOR_NAMES[i], swatch: c, enabled: true, checked: current === c, run: () => apply(c) }));
   if (withDefault) items.unshift({ type: 'cmd', label: 'Track Color', enabled: true, checked: !current, run: () => apply(null) }, { type: 'sep' });
+  const custom = Boolean(current) && !S.TRACK_COLORS.includes(current);
+  items.push({ type: 'sep' }, { type: 'cmd', label: 'Custom Color...', swatch: custom ? current : null, enabled: true, checked: custom, run: () => pickCustomColor(current, apply) });
   app.openMenu(items, { x: r.left + 40, y: r.top + 40, label: 'Color' });
 }
+
 
 // ------------------------------------------------------------------ helpers
 
@@ -500,6 +628,28 @@ function importClipboardSources(doc, clip) {
   return ids;
 }
 
+/**
+ * A clips clipboard at `rate`: each media source resampled (offline ones keep their place, with
+ * their frame count scaled) and the clips' frames conformed. Cached per clipboard and rate.
+ */
+const conformed = new WeakMap();
+async function conformClipboard(clip, rate) {
+  let byRate = conformed.get(clip);
+  if (!byRate) conformed.set(clip, (byRate = new Map()));
+  if (byRate.has(rate)) return byRate.get(rate);
+  const r = rate / clip.sampleRate;
+  const pool = new Map();
+  for (const [id, src] of clip.pool) {
+    if (!src) continue;
+    const from = src.channelRate || clip.sampleRate;
+    const channels = src.channels?.length ? await channelsAtRate(src.channels, from, rate) : src.channels;
+    pool.set(id, { ...src, channels, channelRate: rate, stateRef: null, ...(src.frames ? { frames: Math.round(src.frames * r) } : {}) });
+  }
+  const out = { ...clip, sessionId: null, sampleRate: rate, clips: clip.clips.map((c) => S.conformClip(c, r)), pool };
+  byRate.set(rate, out);
+  return out;
+}
+
 async function pasteClips(app, doc, clip) {
   const at = doc.cursor;
   const rate = doc.sampleRate;
@@ -522,6 +672,16 @@ async function pasteClips(app, doc, clip) {
     const sourceId = await linkSource(doc, file);
     if (!canPaste()) return;
     prepared = { channels, file, sourceId };
+  }
+  if (clip.type !== 'audio' && clip.sampleRate !== rate) {
+    // Clips from a session at another rate: their media are resampled and their frames conformed.
+    const converted = await conformClipboard(clip, rate);
+    if (!isOpen(app, doc)) return;
+    if (doc.sampleRate !== rate) {
+      app.notify('Paste stopped because the session sample rate changed. Review the session and paste again.', { error: true });
+      return;
+    }
+    clip = converted;
   }
   // Resolve tracks and overlap against the current timeline after preparation.
   // A moved target stays the target; a removed/hidden target gets a new track.
@@ -548,10 +708,6 @@ async function pasteClips(app, doc, clip) {
     state = S.addClipsOnTop(state, [c]);
     ids.push(c.id);
   } else {
-    if (clip.sampleRate !== doc.sampleRate) {
-      app.notify('Clips copied from a session at another sample rate cannot be pasted here.', { error: true });
-      return;
-    }
     const sourceIds = importClipboardSources(doc, clip);
     const pasted = [];
     for (const c of clip.clips) {
@@ -724,14 +880,17 @@ export function installMultitrackCommands(app) {
     const doc = session(app);
     const v = view(app);
     const step = Math.max(1, Math.round((v?.fpp || doc.sampleRate / 1000) * 5));
-    doc.apply('Nudge', S.moveClips(doc.state, [...doc.selectedClips], dt * step, dTrack));
+    const ids = [...doc.selectedClips];
+    const moved = S.moveClips(doc.state, ids, dt * step, dTrack);
+    doc.apply('Nudge', app.prefs.get('automationFollowsClips') ? S.carryAutomation(doc.state, moved, ids) : moved);
   };
   const rendered = async (label, o) => {
     const doc = session(app);
     const data = await renderSession(app, doc, { ...o, label });
     return { doc, data };
   };
-  const mixdown = async (scope) => {
+  /** What a mixdown of `scope` renders, taken now: { doc, state, o, markers }. */
+  const mixdownJob = (scope) => {
     const doc = session(app);
     const state = doc.state;
     let o;
@@ -744,7 +903,21 @@ export function installMultitrackCommands(app) {
     // Keep output metadata with the rendered snapshot. Revert and later edits
     // may change the live session's rate, master width or markers while we wait.
     const markers = app.prefs.get('markersInMixdowns') ? markersInRange(state.markers, o.start, o.end).map((m) => createMarker(m)) : [];
+    return { doc, state, o, markers };
+  };
+  const exportMixdownOf = (scope) => {
+    const { doc, state, o, markers } = mixdownJob(scope);
+    return exportMixdown(app, doc, { state, ...o, markers });
+  };
+  const mixdown = async (scope) => {
+    const { doc, state, o, markers } = mixdownJob(scope);
     const { data } = await rendered('Mixing down', { ...o, state });
+    // Over full scale is kept (32-bit float), but would clip in a fixed-point file: say so.
+    const peak = data.reduce((m, ch) => {
+      for (let i = 0; i < ch.length; i++) if (ch[i] > m || -ch[i] > m) m = Math.abs(ch[i]);
+      return m;
+    }, 0);
+    if (peak > 1) app.notify(`The mixdown peaks at +${(20 * Math.log10(peak)).toFixed(1)} dBFS. It is kept as 32-bit float; lower the master or normalize it before saving at 16 or 24 bits.`);
     // A mono master mixes down to a mono file.
     return renderedDoc(app, doc, state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers, state.sampleRate);
   };
@@ -848,9 +1021,9 @@ export function installMultitrackCommands(app) {
         app.setStatus(`Saved template "${label.trim()}". Choose it in File > New > Multitrack Session.`);
       },
     },
-    { id: 'export.mixdownSession', label: 'Entire Session...', enabled: (a) => Boolean(session(a)?.length), run: async () => saveDocument(app, await mixdown('all'), { copy: true }) },
-    { id: 'export.mixdownTime', label: 'Time Selection...', enabled: hasTimeSel, run: async () => saveDocument(app, await mixdown('time'), { copy: true }) },
-    { id: 'export.mixdownClips', label: 'Selected Clips...', enabled: hasClips, run: async () => saveDocument(app, await mixdown('clips'), { copy: true }) },
+    { id: 'export.mixdownSession', label: 'Entire Session...', enabled: (a) => Boolean(session(a)?.length), run: () => exportMixdownOf('all') },
+    { id: 'export.mixdownTime', label: 'Time Selection...', enabled: hasTimeSel, run: () => exportMixdownOf('time') },
+    { id: 'export.mixdownClips', label: 'Selected Clips...', enabled: hasClips, run: () => exportMixdownOf('clips') },
 
     // ------------------------------------------------------ Multitrack
     { id: 'mt.addMono', label: 'Add Mono Audio Track', enabled: hasSession, run: addTrack('audio', 1) },
@@ -875,18 +1048,27 @@ export function installMultitrackCommands(app) {
       id: 'mt.addTracks',
       label: 'Add Tracks...',
       enabled: hasSession,
-      run: async () => {
+      run: async (a, args) => {
         const doc = session(app);
-        const o = await addTracksDialog(app);
+        // Arguments skip the dialog (scripts, tests): { audio: { count, channels }, bus: {...}, video }.
+        const o = args?.audio || args?.bus || args?.video ? args : await addTracksDialog(app, { videoAllowed: !videoClip(doc.state) });
         if (!o) return;
         let state = doc.state;
         let after = S.findTrack(state, doc.selectedTrack)?.type === 'master' ? undefined : doc.selectedTrack;
-        for (let i = 0; i < o.count; i++) {
-          const made = newTrack(state, { type: /bus/i.test(o.type) ? 'bus' : 'audio', channels: o.type === 'mono' || o.type === 'monoBus' ? 1 : /surround/.test(o.type) ? 6 : 2, afterId: after });
-          state = made.state;
-          after = made.track.id;
+        let added = 0;
+        for (const [type, spec] of [['audio', o.audio], ['bus', o.bus]]) {
+          for (let i = 0; i < (spec?.count || 0); i++) {
+            const made = newTrack(state, { type, channels: [1, 2, 6].includes(spec.channels) ? spec.channels : 2, afterId: after });
+            state = made.state;
+            after = made.track.id;
+            added++;
+          }
         }
-        doc.apply(o.count > 1 ? 'Add Tracks' : 'Add Track', state);
+        if (added) {
+          doc.apply(added > 1 ? 'Add Tracks' : 'Add Track', state);
+          doc.selectTrack(after);
+        }
+        if (o.video) await app.commands.run('mt.addVideoTrack');
       },
     },
     { id: 'mt.duplicateTrack', label: 'Duplicate Selected Track', enabled: (a) => selTrack(a)?.type === 'audio' || selTrack(a)?.type === 'bus', run: () => session(app).apply('Duplicate Track', S.duplicateTrack(session(app).state, selTrack(app).id)) },
@@ -952,7 +1134,107 @@ export function installMultitrackCommands(app) {
       doc.amendView((st) => S.updateTrack(st, t.id, { showAutomation: show }));
     } },
     { id: 'mt.setAutomationMode', label: 'Automation Mode', enabled: hasArgs('id', 'mode'), run: (a, args) => session(app).apply(`Automation ${args.mode[0].toUpperCase()}${args.mode.slice(1)}`, S.updateTrack(session(app).state, args.id, { mode: args.mode })) },
-    { id: 'mt.setAutomationParam', label: 'Automation Parameter', enabled: hasArgs('id', 'param'), run: (a, args) => session(app).amendView((st) => S.updateTrack(st, args.id, { autoParam: args.param, showAutomation: true })) },
+    {
+      id: 'mt.setAutomationParam',
+      label: 'Automation Parameter',
+      enabled: hasArgs('id', 'param'),
+      // Picks the parameter of lane `lane` (the first by default); a parameter shown in another lane swaps places.
+      run: (a, args) => session(app).amendView((st) => {
+        const t = S.findTrack(st, args.id);
+        if (!t) return st;
+        const lanes = (t.showAutomation ? S.trackLanes(t) : t.lanes).slice();
+        const i = Math.max(0, Math.min(lanes.length - 1, args.lane ?? 0));
+        const j = lanes.indexOf(args.param);
+        if (j >= 0) lanes[j] = lanes[i];
+        lanes[i] = args.param;
+        return S.updateTrack(S.setTrackLanes(st, t.id, lanes), t.id, { showAutomation: true });
+      }),
+    },
+    {
+      id: 'mt.addAutomationLane',
+      label: 'Add Automation Lane',
+      enabled: (a, args) => {
+        const t = selTrack(a, args);
+        return Boolean(t) && laneParams(t).some((p) => !S.trackLanes(t).includes(p));
+      },
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const lanes = S.trackLanes(t);
+        const next = laneParams(t).find((p) => !lanes.includes(p));
+        session(app).amendView((st) => S.updateTrack(S.setTrackLanes(st, t.id, [...lanes, next]), t.id, { showAutomation: true }));
+      },
+    },
+    {
+      id: 'mt.removeAutomationLane',
+      label: 'Remove Automation Lane',
+      enabled: (a, args) => Boolean(selTrack(a, args)?.showAutomation),
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const lanes = S.trackLanes(t);
+        const i = args?.lane ?? lanes.length - 1;
+        const rest = lanes.filter((_, k) => k !== i);
+        // Closing the last lane closes the lanes (and remembers its parameter for next time).
+        session(app).amendView((st) => (rest.length ? S.setTrackLanes(st, t.id, rest) : S.updateTrack(S.setTrackLanes(st, t.id, lanes), t.id, { showAutomation: false })));
+      },
+    },
+    {
+      id: 'mt.previousKeyframe',
+      label: 'Previous Keyframe',
+      enabled: hasArgs('id', 'param'),
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const at = app.playhead - 1;
+        const prev = (t.automation[args.param] || []).map((p) => p.t).filter((f) => f < at).pop();
+        if (prev !== undefined) view(app)?.seek(prev);
+      },
+    },
+    {
+      id: 'mt.nextKeyframe',
+      label: 'Next Keyframe',
+      enabled: hasArgs('id', 'param'),
+      run: (a, args) => {
+        const t = selTrack(app, args);
+        const at = app.playhead + 1;
+        const next = (t.automation[args.param] || []).map((p) => p.t).find((f) => f > at);
+        if (next !== undefined) view(app)?.seek(next);
+      },
+    },
+    {
+      id: 'mt.toggleKeyframe',
+      label: 'Add or Remove Keyframe',
+      enabled: hasArgs('id', 'param'),
+      // A keyframe at the playhead (within a few pixels) is removed; otherwise one is added with the value heard there.
+      run: (a, args) => {
+        const doc = session(app);
+        const t = selTrack(app, args);
+        const lane = t.automation[args.param] || [];
+        const at = Math.round(app.playhead);
+        const fpp = view(app)?.fpp || doc.sampleRate / 100;
+        const near = Math.max(1, Math.round(fpp * 3));
+        const hit = lane.findIndex((p) => Math.abs(p.t - at) <= near);
+        let points;
+        if (hit >= 0) points = lane.filter((_, i) => i !== hit);
+        else {
+          const v = doc.controls ? doc.controls.value(t, args.param, at) : t[args.param];
+          const prev = lane.filter((p) => p.t <= at).pop();
+          const stepped = laneInfo(t, args.param).stepped;
+          points = [...lane, { t: at, v: args.param === 'mute' ? (v >= 0.5 ? 1 : 0) : v, ...(stepped || prev?.hold ? { hold: true } : {}) }];
+        }
+        doc.selectedKeys = null;
+        doc.apply(hit >= 0 ? 'Delete Keyframe' : 'Add Automation Keyframe', S.setAutomation(doc.state, t.id, args.param, points));
+      },
+    },
+    {
+      id: 'mt.clearAutomation',
+      label: 'Clear Automation Lane',
+      enabled: (a, args) => Boolean(args?.param && selTrack(a, args)?.automation[args.param]?.length),
+      run: (a, args) => {
+        const doc = session(app);
+        const t = selTrack(app, args);
+        doc.selectedKeys = null;
+        doc.apply('Clear Automation', S.setAutomation(doc.state, t.id, args.param, []));
+      },
+    },
     {
       id: 'mt.insertFiles',
       label: 'Insert Files...',
@@ -962,7 +1244,7 @@ export function installMultitrackCommands(app) {
         if (args?.docs?.length) {
           const target = session(app) || (await targetSession(app, args.docs[0].sampleRate));
           app.activate(target);
-          return insertDocs(app, target, args.docs, { at: target.cursor });
+          return insertDocs(app, target, args.docs, { at: target.cursor, ranges: args.ranges, names: args.names, sameTrack: args.sameTrack });
         }
         const doc = session(app);
         if (!doc) {
@@ -1325,6 +1607,8 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'clip.mute', label: 'Mute', enabled: hasClips, checked: allSelected('mute'), run: toggleSelected('mute', 'Mute Clip', 'Unmute Clip') },
+    { id: 'clip.splineVolume', label: 'Spline Volume Envelope', enabled: hasClips, checked: allSelected('volumeSpline'), run: toggleSelected('volumeSpline', 'Spline Envelope', 'Linear Envelope') },
+    { id: 'clip.splinePan', label: 'Spline Pan Envelope', enabled: hasClips, checked: allSelected('panSpline'), run: toggleSelected('panSpline', 'Spline Envelope', 'Linear Envelope') },
     { id: 'clip.gain', label: 'Clip Gain...', enabled: hasClips, run: () => clipGainDialog(app, session(app), selected(app)) },
     { id: 'clip.matchLoudness', label: 'Match Clip Loudness...', enabled: hasClips, run: () => matchLoudnessDialog(app, session(app), selected(app)) },
     ...['none', 'fade', 'crossfade'].flatMap((m) => [fadeModeCmd('in', m), fadeModeCmd('out', m)]),
@@ -1545,6 +1829,19 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'view.clipVolumeEnvelopes', label: 'Show Clip Volume Envelopes', checked: (a) => a.prefs.get('clipVolumeEnvelopes') !== false, run: () => app.prefs.set('clipVolumeEnvelopes', app.prefs.get('clipVolumeEnvelopes') === false) },
+    {
+      id: 'mt.freezeTrack',
+      label: 'Freeze Track',
+      enabled: (a, args) => canFreeze(session(a)?.state, selTrack(a, args)),
+      checked: (a) => Boolean(selTrack(a)?.freeze),
+      run: (a, args) => {
+        const doc = session(app);
+        const t = selTrack(app, args);
+        doc.apply(t.freeze ? 'Unfreeze Track' : 'Freeze Track', S.updateTrack(doc.state, t.id, { freeze: !t.freeze }));
+        announce(t.freeze ? `${t.name} unfrozen` : `${t.name} frozen: its effects are being pre-rendered`);
+      },
+    },
+    { id: 'view.clipEffectEnvelopes', label: 'Show Clip Effect Envelopes', checked: (a) => a.prefs.get('clipEffectEnvelopes') !== false, run: () => app.prefs.set('clipEffectEnvelopes', app.prefs.get('clipEffectEnvelopes') === false) },
     { id: 'view.clipPanEnvelopes', label: 'Show Clip Pan Envelopes', checked: (a) => Boolean(a.prefs.get('clipPanEnvelopes')), run: () => app.prefs.toggle('clipPanEnvelopes') },
   ]);
 

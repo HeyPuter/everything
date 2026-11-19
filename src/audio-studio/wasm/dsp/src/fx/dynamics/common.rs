@@ -183,3 +183,26 @@ mod tests {
         assert!((soft_tanh(0.01) - 0.01).abs() < 1e-5);
     }
 }
+
+/// Meters since the last readout: input peak and output peak (linear) and the
+/// deepest gain reduction (dB, 0 or below).
+#[derive(Clone, Copy, Default)]
+pub struct Meters {
+    pub inp: f32,
+    pub gr: f32,
+    pub out: f32,
+}
+
+impl Meters {
+    /// Writes [input peak dB, deepest gain reduction dB, output peak dB] and starts over.
+    pub fn read(&mut self, out: &mut [f32]) -> usize {
+        if out.len() < 3 {
+            return 0;
+        }
+        out[0] = lin_db(self.inp + 1e-10).max(-120.0);
+        out[1] = self.gr.min(0.0);
+        out[2] = lin_db(self.out + 1e-10).max(-120.0);
+        *self = Meters::default();
+        3
+    }
+}

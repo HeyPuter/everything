@@ -40,6 +40,11 @@ export function nextMarkerName(markers, prefix = markerOptions.name || 'Marker')
   }
 }
 
+/** Name for a new marker: range markers count in their own sequence ("Range 01"). */
+export function newMarkerName(markers, { range = false } = {}) {
+  return range ? nextMarkerName(markers, 'Range') : nextMarkerName(markers);
+}
+
 export function sortMarkers(markers) {
   return markers.slice().sort((a, b) => a.start - b.start || a.duration - b.duration);
 }

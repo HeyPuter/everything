@@ -77,7 +77,9 @@ export function coerce(p, v) {
 /** Full, valid values for a definition from partial (or stale) values. Unknown keys are dropped. */
 export function normalizeValues(def, values = {}) {
   const out = {};
-  for (const p of def.params) out[p.id] = coerce(p, values?.[p.id] !== undefined ? values[p.id] : p.default);
+  // `missing(values)` lets a parameter added later choose its value for
+  // settings saved before it existed (undefined: the default).
+  for (const p of def.params) out[p.id] = coerce(p, values?.[p.id] !== undefined ? values[p.id] : (p.missing?.(values || {}) ?? p.default));
   return out;
 }
 

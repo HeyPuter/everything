@@ -46,6 +46,8 @@ export class Session extends Emitter {
     this.source = source;
     this.info = { bitDepth, format: 'asesx' };
     this.pool = new Map();
+    /** Source ids the session keeps without clips (open files it was saved with). */
+    this.referencedSources = new Set();
     this.history = new History(state || createSessionState({ sampleRate, bitDepth, tracks, template, autoCrossfade, masterChannels }), { label: 'New Session' });
     this.savedState = this.history.state;
     this.history.on('change', () => {
@@ -350,7 +352,7 @@ export class Session extends Emitter {
 
   /** Source ids referenced by any clip in any history step (what a save must keep). */
   usedSources() {
-    const used = new Set();
+    const used = new Set(this.referencedSources);
     for (const e of this.history.entries) {
       for (const c of e.state.clips) {
         used.add(c.sourceId);

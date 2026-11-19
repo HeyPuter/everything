@@ -377,7 +377,9 @@ describe('mixer panel', () => {
     strip.querySelector('.mx-fx-power').click();
     expect(doc.state.tracks[0].fx[1].enabled).toBe(false);
     expect(doc.history.undoLabel).toBe('Effect Off');
-    expect(panel.el.querySelector('.mx-strip .mx-fx-slot').classList.contains('off')).toBe(true);
+    // Slots show in rack order: the gap before the effect is an empty slot.
+    expect(panel.el.querySelector('.mx-strip .mx-fx-slot').classList.contains('empty')).toBe(true);
+    expect(panel.el.querySelector('.mx-strip .mx-fx-slot:not(.empty)').classList.contains('off')).toBe(true);
     panel.el.querySelector('.mx-strip .mx-fx-power').click();
     expect(doc.state.tracks[0].fx[1].enabled).toBe(true);
     panel.el.remove();

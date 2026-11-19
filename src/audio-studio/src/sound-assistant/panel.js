@@ -14,6 +14,42 @@ import { isAbort } from '../effects/apply.js';
 import { formatTime } from '../lib/time.js';
 import { TYPES, TYPE_IDS, TASKS, LOUDNESS_TARGETS, taskItems, defaultSettings, normalizeSettings, setPath, getPath, presetsFor, applyPreset, saveUserPreset, deleteUserPreset, loudnessGain, assistantChain } from './model.js';
 import * as ops from './ops.js';
+import { classifyAudio } from './classify.js';
+// Static: the main bundle has these already (Multitrack), so a dynamic import would not split them off.
+import { runRemix } from '../multitrack/remix-commands.js';
+import { remixBlocker } from '../multitrack/remix.js';
+
+/** Suggested types, keyed by the file state or the clip they were worked out for. */
+const suggestions = new WeakMap();
+
+/**
+ * The type the audio sounds like ({ type, confidence } or null): the whole
+ * file (its middle 40 s), or the first selected clip's audio. Cached.
+ */
+export function suggestionFor(t) {
+  let key;
+  let run;
+  if (t.mode === 'file') {
+    key = t.doc.state;
+    run = () => classifyAudio(t.doc.state.channels, t.doc.sampleRate, 0, t.doc.length);
+  } else if (t.mode === 'session' && t.clips.length) {
+    const clip = t.clips[0];
+    const src = t.doc.pool?.get(clip.sourceId);
+    if (!src?.channels?.length) return null;
+    key = clip;
+    run = () => classifyAudio(src.channels, t.doc.sampleRate, clip.offset, Math.min(src.channels[0].length, clip.offset + clip.length));
+  } else return null;
+  if (!suggestions.has(key)) {
+    let r = null;
+    try {
+      r = run();
+    } catch (err) {
+      console.error(err);
+    }
+    suggestions.set(key, r?.type ? { type: r.type, confidence: r.confidence } : null);
+  }
+  return suggestions.get(key);
+}
 
 const PRESETS_KEY = 'soundAssistantPresets';
 const COLLAPSED_KEY = 'soundAssistantCollapsed';
@@ -188,8 +224,34 @@ export function soundAssistantPanel(app) {
   async function applyDuration() {
     const t = target(app);
     if (t.mode !== 'session') return;
+    const d = t.settings?.duration;
+    if (d?.on && d.method === 'remix') return remixDuration(t, d);
     const state = await run('Changing Duration', (signal, onProgress) => ops.applyDurationClips(t.doc, t.ids, { signal, onProgress }));
     if (state) t.doc.apply('Sound Assistant: Duration', state);
+  }
+
+  /** Duration by remixing: the music is rearranged at its beats to the target length. */
+  async function remixDuration(t, d) {
+    if (busy) return;
+    // A clip stretched by Duration goes back to its own audio first: remix works on the original.
+    const reverted = ops.revertDurationClips(t.doc.state, t.ids);
+    if (reverted !== t.doc.state) t.doc.apply('Sound Assistant: Undo Stretch', reverted);
+    busy = true;
+    refresh();
+    try {
+      for (const id of t.ids) {
+        const clip = t.doc.state.clips.find((c) => c.id === id);
+        const why = remixBlocker(t.doc, clip);
+        if (why) {
+          app.notify(`${clip?.name || 'Clip'}: ${why}`, { error: true });
+          continue;
+        }
+        await runRemix(app, t.doc, 'Sound Assistant: Duration', id, { target: Math.round(d.seconds * t.doc.sampleRate) });
+      }
+    } finally {
+      busy = false;
+      refresh();
+    }
   }
 
   function generateKeyframes() {
@@ -267,17 +329,73 @@ export function soundAssistantPanel(app) {
     return h('div.sa-empty', h('p', text), extra || null);
   }
 
+  /** Assigns the preset's audio type and its settings in one step (Clip Volume stays). */
+  const assignPreset = (p) => {
+    const t = target(app);
+    const settings = (cur) => ({ ...applyPreset(cur, p), volume: cur?.volume || { level: 0, mute: false } });
+    if (t.mode === 'session') {
+      const typed = ops.assignType(t.doc.state, t.ids, p.type);
+      t.doc.apply(`Sound Assistant Preset: ${p.name}`, ops.setClipSettings(typed, t.ids, (cur) => settings(cur)));
+    } else if (t.mode === 'file') {
+      ops.setFileSettings(t.doc, settings(null));
+      refresh(true);
+    }
+    announce(`${TYPES[p.type].label}, preset ${p.name}`);
+    requestAnimationFrame(() => el.querySelector('.sa-preset select')?.focus());
+  };
+
+  /** File name, or the clip name (or count) the panel edits. */
+  function targetName(t) {
+    if (t.mode === 'file') return t.doc.name;
+    if (t.mode === 'session') return t.clips.length > 1 ? `${t.clips.length} clips` : t.clips[0].name || 'Clip';
+    return '';
+  }
+
   function assignView(t) {
     const what = t.mode === 'file' ? 'this audio file' : t.clips.length > 1 ? `the ${t.clips.length} selected clips` : 'the selected clip';
     const heading = t.mixed ? `The selected clips have different audio types. Choose one type for all of them:` : `Choose an audio type for ${what}:`;
+    // A preset of any type assigns that type with the preset's settings.
+    const presetSel = h(
+      'select.select',
+      { 'aria-label': 'Start from a preset' },
+      h('option', { value: '', disabled: true, selected: true }, 'Start from a preset...'),
+      TYPE_IDS.map((type) => h('optgroup', { label: TYPES[type].label }, presetsFor(type, userPresets()).map((p) => h('option', { value: `${type}\n${p.name}` }, p.user ? `${p.name} (mine)` : p.name)))),
+    );
+    // The type the audio sounds like, worked out just after the view shows (it reads the audio).
+    const suggestRow = h('p.sa-suggest', { 'aria-live': 'polite', hidden: true });
+    if (!t.mixed) {
+      setTimeout(() => {
+        if (!suggestRow.isConnected) return;
+        const sug = suggestionFor(t);
+        if (!sug) return;
+        const sure = sug.confidence >= 0.15;
+        const btn = el.querySelector(`.sa-type-btn[data-type="${sug.type}"]`);
+        btn?.classList.add('suggested');
+        btn?.setAttribute('aria-description', 'Suggested');
+        suggestRow.replaceChildren(
+          icon('wand-sparkles', 13),
+          h('span', `${sure ? 'Sounds like' : 'Might be'} ${TYPES[sug.type].label}. `),
+          h('button.link-btn', { type: 'button', onclick: () => assign(sug.type) }, `Use ${TYPES[sug.type].label}`),
+        );
+        suggestRow.hidden = false;
+      }, 30);
+    }
+    presetSel.addEventListener('change', () => {
+      const [type, name] = presetSel.value.split('\n');
+      const p = presetsFor(type, userPresets()).find((x) => x.name === name);
+      if (p) assignPreset(p);
+    });
     return h(
       'div.sa-assign',
+      h('div.sa-target', icon(t.mode === 'file' ? 'file-audio' : 'mode-multitrack', 14), h('span.sa-target-name', { title: targetName(t) }, targetName(t))),
+      h('div.sa-preset.sa-assign-preset', h('label.sa-label', 'Preset'), presetSel),
       h('p.sa-assign-text', heading),
       h(
         'div.sa-types',
         { role: 'group', 'aria-label': 'Audio type' },
         TYPE_IDS.map((id) => h('button.sa-type-btn', { type: 'button', 'data-type': id, onclick: () => assign(id) }, icon(TYPES[id].icon, 20), h('span', TYPES[id].label))),
       ),
+      suggestRow,
       t.mixed ? h('button.btn.sa-clear-mixed', { type: 'button', onclick: clearType }, 'Clear Audio Types') : null,
       h('p.sa-hint.faint', t.mode === 'file' ? 'Tasks you turn on can be previewed during playback and applied to the selection or the whole file.' : 'Settings are stored on the clips and play back in real time. Mixdowns and exports include them.'),
     );
@@ -289,7 +407,8 @@ export function soundAssistantPanel(app) {
     const s0 = () => target(app).settings;
     const sessionMode = t.mode === 'session';
 
-    // Header: type and Clear.
+    // Header: what is edited, its type and Clear.
+    const name = h('div.sa-target', icon(sessionMode ? 'mode-multitrack' : 'file-audio', 14), h('span.sa-target-name', { title: targetName(t) }, targetName(t)));
     const head = h(
       'div.sa-head',
       h('span.sa-type-icon', icon(TYPES[type].icon, 16)),
@@ -418,6 +537,8 @@ export function soundAssistantPanel(app) {
         const info = h('div.sa-readout.faint');
         const stretch = () => keepFocus('.sa-duration .sa-action', applyDuration);
         const btn = sessionMode ? h('button.btn.sa-action', { type: 'button', onclick: stretch }, 'Apply Duration') : null;
+        // Clips can also be remixed: rearranged at the beats rather than stretched.
+        const method = sessionMode ? h('div.sa-field', h('label.sa-label', 'Method'), choice(['duration', 'method'], 'Duration method', [{ value: 'stretch', label: 'Stretch' }, { value: 'remix', label: 'Remix' }])) : null;
         refreshers.push((s) => {
           if (document.activeElement !== input) input.value = String(s?.duration?.seconds ?? 30);
           const cur = target(app);
@@ -425,14 +546,15 @@ export function soundAssistantPanel(app) {
             const c = cur.lead;
             const orig = s?.duration?.orig;
             const len = orig ? orig.length : c.length;
-            info.textContent = `Original ${formatTime(len, cur.doc.sampleRate, 'decimal')}${orig ? `, now ${formatTime(c.length, cur.doc.sampleRate, 'decimal')}` : ''}. The music is stretched without changing its pitch.`;
+            const how = s?.duration?.method === 'remix' ? 'The music is rearranged at its beats to fit.' : 'The music is stretched without changing its pitch.';
+            info.textContent = `Original ${formatTime(len, cur.doc.sampleRate, 'decimal')}${orig ? `, now ${formatTime(c.length, cur.doc.sampleRate, 'decimal')}` : ''}. ${how}`;
           } else if (cur.mode === 'file') {
             const [a, b] = cur.doc.editRange();
             info.textContent = `${cur.doc.hasSelection ? 'Selection' : 'File'} is ${formatTime(b - a, cur.doc.sampleRate, 'decimal')}. Apply stretches it without changing its pitch.`;
           }
           if (btn) btn.disabled = busy;
         });
-        return [h('div.sa-field', h('label.sa-label', { for: id }, 'Target (s)'), input), btn ? h('div.sa-actions', btn) : null, info];
+        return [h('div.sa-field', h('label.sa-label', { for: id }, 'Target (s)'), input), method, btn ? h('div.sa-actions', btn) : null, info];
       },
       ducking: () => {
         if (!sessionMode) return [h('p.sa-readout.faint', 'Ducking lowers this audio under other clips, so it works on clips in a multitrack session.')];
@@ -492,7 +614,7 @@ export function soundAssistantPanel(app) {
       foot = h('div.sa-foot', previewBtn, h('div.spacer'), note, applyBtn);
     }
 
-    const root = h('div.sa-editor', head, presetRow, h('div.sa-scroll', sections), foot);
+    const root = h('div.sa-editor', name, head, presetRow, h('div.sa-scroll', sections), foot);
     const refreshAll = () => {
       const s = s0();
       if (!s) return;
@@ -541,8 +663,40 @@ export function soundAssistantPanel(app) {
   app.prefs.on('change', (key) => key === PRESETS_KEY && built?.refresh?.());
   refresh();
 
+  /** Panel menu: type, presets, preview and apply, and the sections. */
+  const menu = () => {
+    const t = target(app);
+    const typed = Boolean(t.type && t.settings);
+    const userPreset = typed && presetsFor(t.type, userPresets()).find((x) => x.name === t.settings.preset)?.user;
+    const keys = typed ? TYPES[t.type].tasks.map((task) => `${t.type}.${task}`) : [];
+    const setAllCollapsed = (on) => {
+      app.prefs.set(COLLAPSED_KEY, { ...collapsed(), ...Object.fromEntries(keys.map((k) => [k, on])) });
+      refresh(true);
+    };
+    const items = [
+      { type: 'cmd', label: 'Clear Audio Type', enabled: Boolean(t.type) || Boolean(t.mixed), run: clearType },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Save Settings as Preset...', enabled: typed, run: savePreset },
+      { type: 'cmd', label: 'Delete Preset', enabled: Boolean(userPreset), run: deletePreset },
+    ];
+    if (t.mode === 'file') {
+      items.push(
+        { type: 'sep' },
+        { type: 'cmd', label: 'Preview', enabled: typed && !busy, checked: Boolean(preview), run: () => setPreview(!preview) },
+        { type: 'cmd', label: 'Apply', enabled: typed && !busy && !el.querySelector('.sa-apply')?.disabled, run: () => keepFocus('.sa-apply', applyFile) },
+      );
+    }
+    items.push(
+      { type: 'sep' },
+      { type: 'cmd', label: 'Expand All Sections', enabled: keys.some((k) => collapsed()[k]), run: () => setAllCollapsed(false) },
+      { type: 'cmd', label: 'Collapse All Sections', enabled: keys.some((k) => !collapsed()[k]), run: () => setAllCollapsed(true) },
+    );
+    return items;
+  };
+
   return {
     el,
+    menu,
     show: () => refresh(),
     focus: () => el.querySelector('button, input, select')?.focus(),
   };

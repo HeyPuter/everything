@@ -17,11 +17,11 @@ import { icon } from '../ui/icons.js';
 import { contextMenu } from '../ui/menubar.js';
 import { fadeShape } from '../engine/mixcore.js';
 import * as S from '../model/session-edits.js';
-import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
+import { createMarker, newMarkerName, sortMarkers } from '../model/markers.js';
 import { TrackHeader } from './track-header.js';
 import { volumeToEnvPos, envPosToVolume, panToEnvPos, envPosToPan, formatGain, formatPan } from '../multitrack/levels.js';
 import { CLIP_CONTEXT, TRACK_CONTEXT, LANE_CONTEXT } from '../multitrack/menus.js';
-import { clipPlan } from '../model/session-graph.js';
+import { clipPlan, routedChannels } from '../model/session-graph.js';
 import { TYPES as ASSISTANT_TYPES } from '../sound-assistant/model.js';
 import { framesPerSecond, musicalStep } from '../lib/time.js';
 import { wheelZoom, followPlayhead, defaultFadeCurve } from './view-prefs.js';
@@ -30,6 +30,28 @@ import { stretcherFor } from '../multitrack/stretch.js';
 import { isRemixed, remixSeams, MIN_REMIX_SECONDS } from '../model/clip-remix.js';
 import { runRemix } from '../multitrack/remix-commands.js';
 import { VideoLane } from '../video/video-lane.js';
+import { newTrack } from '../multitrack/insert.js';
+import { PEAK_BLOCK } from '../multitrack/recorder.js';
+import { laneInfo, laneParams, fxAutomationParams } from '../multitrack/fx-automation.js';
+
+/**
+ * Edge trim cursors: a bracket for the clip edge with an arrow both ways (white with a dark
+ * outline so they read on any clip). The fallback is the plain resize cursor.
+ */
+const svgCursor = (paths, hx, hy, fallback) => {
+  const draw = (stroke, width) => paths.map((d) => `<path d='${d}' fill='none' stroke='${stroke}' stroke-width='${width}' stroke-linecap='round' stroke-linejoin='round'/>`).join('');
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>${draw('black', 4)}${draw('white', 1.6)}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hx} ${hy}, ${fallback}`;
+};
+const TRIM_IN_CURSOR = svgCursor(['M10 4h-3v16h3', 'M13 12h8', 'M18 9l3 3-3 3', 'M3 12h4'], 7, 12, 'ew-resize');
+const TRIM_OUT_CURSOR = svgCursor(['M14 4h3v16h-3', 'M11 12H3', 'M6 9l-3 3 3 3', 'M21 12h-4'], 17, 12, 'ew-resize');
+const FADE_CURSOR = svgCursor(['M4 19C9 18 13 12 15 5', 'M15 5h5', 'M4 19h16'], 15, 5, 'pointer');
+
+/** Crossfade ends per clip list (see #fadeEnds). */
+const fadeEndCache = new WeakMap();
+
+/** Lane parameter descriptions per track state (tracks are immutable: a changed track is a new key). */
+const laneInfos = new WeakMap();
 import { TrackNav } from './track-nav.js';
 
 const HEADER_BAR = 16;
@@ -45,6 +67,98 @@ const firstSampleOf = (frame) => Math.ceil(frame - 1e-4);
 const STRETCH_HANDLE = 10;
 /** Longest remix the right edge of a remixed clip can ask for (seconds). */
 const MAX_REMIX_SECONDS = 3600;
+
+/** Height of a value in an envelope or lane, 0 (bottom) to 1 (top). Mute: muted sits at the bottom. */
+function envPos(param, v) {
+  if (param === 'mute') return v >= 0.5 ? 0 : 1;
+  return param === 'pan' ? panToEnvPos(v) : volumeToEnvPos(v);
+}
+
+/** The value at height `pos` (0..1) of an envelope or lane. */
+function envValueAt(param, pos) {
+  if (param === 'mute') return pos < 0.5 ? 1 : 0;
+  return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
+}
+
+const LANE_NAMES = { volume: 'Volume', pan: 'Pan', mute: 'Mute' };
+const laneName = (param) => LANE_NAMES[param] || (S.sendIndexOf(param) >= 0 ? `Send ${S.sendIndexOf(param) + 1}` : param);
+
+/** Status text for a keyframe value. */
+function keyText(param, v) {
+  if (param === 'mute') return v >= 0.5 ? 'Muted' : 'Not muted';
+  if (S.sendIndexOf(param) >= 0) return `${laneName(param)} ${formatGain(v)}`;
+  return param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`;
+}
+
+/**
+ * The keyframes bounding the segment of an envelope at time `t`: the ones on either side (or the
+ * nearest one before the first or after the last). Returns { indices, lead } or null when empty.
+ */
+function segmentKeys(pts, t) {
+  if (!pts.length) return null;
+  let hi = pts.findIndex((p) => p.t > t);
+  if (hi < 0) hi = pts.length;
+  const indices = new Set([hi - 1, hi].filter((i) => i >= 0 && i < pts.length));
+  return { indices, lead: Math.max(0, hi - 1) };
+}
+
+/** True when a clip envelope is drawn (keyframes can be picked in clips). */
+const r0EnvelopesShown = (app) => app.prefs.get('clipVolumeEnvelopes') !== false || Boolean(app.prefs.get('clipPanEnvelopes'));
+
+
+/**
+ * Draws a small state glyph in a clip header at (x, cy) with the current stroke and fill
+ * styles; returns its width. 'lock' padlock, 'loop' circling arrow, 'fx' text tag, 'mute' crossed
+ * speaker, 'group' two linked squares.
+ */
+function clipGlyph(ctx, kind, x, cy) {
+  ctx.save();
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  let w = 9;
+  if (kind === 'lock') {
+    ctx.rect(x + 0.5, cy - 1, 8, 5.5);
+    ctx.moveTo(x + 2.5, cy - 1);
+    ctx.arc(x + 4.5, cy - 2.5, 2, Math.PI, 0);
+    ctx.lineTo(x + 6.5, cy - 1);
+    ctx.stroke();
+  } else if (kind === 'loop') {
+    ctx.arc(x + 4.5, cy, 3.6, -Math.PI * 0.35, Math.PI * 1.45);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + 5.5, cy - 5.6);
+    ctx.lineTo(x + 8.6, cy - 3.6);
+    ctx.lineTo(x + 5.3, cy - 1.8);
+    ctx.fill();
+  } else if (kind === 'group') {
+    ctx.rect(x + 0.5, cy - 4.5, 6, 6);
+    ctx.rect(x + 3.5, cy - 1.5, 6, 6);
+    ctx.stroke();
+    w = 10;
+  } else if (kind === 'mute') {
+    ctx.moveTo(x + 0.5, cy - 1.5);
+    ctx.lineTo(x + 2.5, cy - 1.5);
+    ctx.lineTo(x + 5, cy - 4);
+    ctx.lineTo(x + 5, cy + 4);
+    ctx.lineTo(x + 2.5, cy + 1.5);
+    ctx.lineTo(x + 0.5, cy + 1.5);
+    ctx.closePath();
+    ctx.moveTo(x + 6.5, cy - 2);
+    ctx.lineTo(x + 9.5, cy + 2);
+    ctx.moveTo(x + 9.5, cy - 2);
+    ctx.lineTo(x + 6.5, cy + 2);
+    ctx.stroke();
+    w = 10;
+  } else {
+    w = ctx.measureText('fx').width + 4;
+    ctx.globalAlpha = 0.25;
+    ctx.fillRect(x, cy - 5.5, w, 11);
+    ctx.globalAlpha = 1;
+    ctx.fillText('fx', x + 2, cy + 0.5);
+  }
+  ctx.restore();
+  return w;
+}
 
 export class MultitrackView {
   constructor(app, doc) {
@@ -137,7 +251,7 @@ export class MultitrackView {
     this.glCanvas = h('canvas.mt-gl', { 'aria-hidden': 'true' });
     this.overlay = h('canvas.mt-overlay', { 'aria-hidden': 'true' });
     this.playheadEl = h('div.playhead', { 'aria-hidden': 'true' });
-    this.status = h('div.sr-only', { id: `mt-help-${doc.id}` }, 'Multitrack editor. Arrow keys move the playhead, Up and Down select tracks, Tab selects the next clip, Alt+comma and Alt+period nudge clips, Delete removes them.');
+    this.status = h('div.sr-only', { id: `mt-help-${doc.id}` }, 'Multitrack editor. Arrow keys move the playhead, Up and Down select tracks, Tab selects the next clip, Alt+comma and Alt+period nudge clips, Delete removes them. Shift+Alt-drag in a clip selects its envelope keyframes.');
     this.surface = h(
       'div.mt-lanes.editor-surface',
       { tabindex: '0', role: 'application', 'aria-roledescription': 'multitrack editor', 'aria-label': `Multitrack session ${doc.name}`, 'aria-describedby': this.status.id },
@@ -234,8 +348,10 @@ export class MultitrackView {
     for (const t of S.allTracks(state)) {
       if (t.hidden) continue;
       const height = t.minimized ? MIN_ROW : Math.max(MIN_ROW, Math.round(t.height * amp));
-      const auto = t.showAutomation ? AUTO_H : 0;
-      rows.push({ id: t.id, track: t, top: y, height, autoTop: y + height, autoHeight: auto, total: height + auto });
+      const laneH = t.laneHeight || AUTO_H;
+      const lanes = S.trackLanes(t).map((param, i) => ({ param, top: y + height + i * laneH, height: laneH }));
+      const auto = lanes.length * laneH;
+      rows.push({ id: t.id, track: t, top: y, height, autoTop: y + height, autoHeight: auto, total: height + auto, lanes });
       y += height + auto;
     }
     this.rows = rows;
@@ -287,6 +403,10 @@ export class MultitrackView {
     const rows = this.computeRows(state);
     const seen = new Set();
     const order = [];
+    // Output and send menus list the buses: every header refreshes when they change.
+    const buses = state.tracks.filter((t) => t.type === 'bus').map((t) => `${t.id}:${t.name}:${t.output}:${(t.sends || []).map((x) => x.target).join(',')}`).join('|');
+    const busesChanged = buses !== this.busKey;
+    this.busKey = buses;
     for (const r of rows) {
       seen.add(r.id);
       let hd = this.headers.get(r.id);
@@ -294,7 +414,7 @@ export class MultitrackView {
         hd = new TrackHeader(this, r.track);
         hd.setMode(this.headerMode);
         this.headers.set(r.id, hd);
-      } else if (hd.track !== r.track) hd.update(r.track);
+      } else if (hd.track !== r.track || busesChanged) hd.update(r.track);
       hd.setHeight(r.height, r.autoHeight);
       hd.setSelected(this.doc.selectedTrack === r.id);
       order.push(hd.el);
@@ -399,6 +519,27 @@ export class MultitrackView {
     return (steps.find((s) => s / secPerPx >= 12) || 60) * rate;
   }
 
+  /** Top of the snap tag: below the header of the clip being dragged (or the top of the lanes). */
+  #snapTagY() {
+    const id = this.drag?.lead?.id || this.drag?.id;
+    const r = id ? this.clipRects().find((q) => q.clip.id === id) : null;
+    if (!r) return 2;
+    return Math.max(2, Math.min(this.height - 18, r.wy + 3));
+  }
+
+  /** What a snapped frame lines up with, for the snap tag. */
+  #snapKind(frame) {
+    const doc = this.doc;
+    const near = (f) => Math.abs(f - frame) <= 1;
+    if (near(doc.cursor)) return 'Playhead';
+    if (frame === 0) return 'Start';
+    if (doc.hasSelection && (near(doc.selection.start) || near(doc.selection.end))) return 'Selection';
+    if (doc.state.markers.some((m) => near(m.start) || near(m.start + m.duration))) return 'Marker';
+    const moving = new Set(this.drag?.ids || (this.drag?.id ? [this.drag.id] : []));
+    if (doc.state.clips.some((c) => !moving.has(c.id) && (near(c.start) || near(S.clipEnd(c))))) return 'Clip';
+    return 'Grid';
+  }
+
   /** Snaps a frame; returns the frame (and records the snap line for display). */
   snap(frame, { exclude, force, off } = {}) {
     if (off || (!this.app.prefs.get('snapping') && !force)) return Math.round(frame);
@@ -489,6 +630,8 @@ export class MultitrackView {
 
   #onMeters(m) {
     if (this.app.active !== this.doc) return;
+    // The live take grows with every block of input.
+    if (this.doc.liveTake) this.invalidate('overlay');
     for (const [id, hd] of this.headers) {
       if (hd.track.type === 'master') hd.meter.feed(m.master);
       else hd.meter.feed(m.tracks.get(id) || [0, 0]);
@@ -571,6 +714,9 @@ export class MultitrackView {
       if (r.autoHeight) {
         ctx.fillStyle = cssVar('--bg-panel-alt');
         ctx.fillRect(0, y + r.height, W, r.autoHeight);
+        // A hairline between lanes.
+        ctx.fillStyle = cssVar('--border-soft');
+        for (const lane of r.lanes.slice(1)) ctx.fillRect(0, lane.top - this.scrollY, W, 1);
       }
       ctx.fillStyle = cssVar('--border');
       ctx.fillRect(0, y + r.total - 1, W, 1);
@@ -640,7 +786,7 @@ export class MultitrackView {
       const c = r.clip;
       const src = doc.pool.get(c.sourceId);
       if (!src?.channels?.length || r.wh < 4) continue;
-      const chs = src.channels;
+      const chs = routedChannels(c, src.channels);
       const srcLen = chs[0].length;
       const color = this.#waveColor(this.clipColor(c, r.row.track), c.mute);
       // Preferences > Multitrack Clips: the drawn waveform can follow clip gain or stay at unity.
@@ -678,27 +824,96 @@ export class MultitrackView {
     }
   }
 
+  /**
+   * A clip's fade ends as heard: { in, out } lengths (an overlap's for a crossfade), whether each
+   * end crossfades, the clip a crossfading fade-out pairs with, and whether that pair is symmetric.
+   */
+  #fadeEnds(c) {
+    const state = this.doc.viewState;
+    let cache = fadeEndCache.get(state.clips);
+    if (!cache || cache.auto !== state.autoCrossfade) {
+      cache = { auto: state.autoCrossfade, map: new Map() };
+      const byId = new Map(state.clips.map((x) => [x.id, x]));
+      for (const x of S.activeCrossfades(state)) {
+        const len = x.end - x.start;
+        const a = cache.map.get(x.out) || {};
+        const b = cache.map.get(x.in) || {};
+        cache.map.set(x.out, { ...a, xfOut: true, out: len, partnerIn: x.in, symOut: byId.get(x.in)?.crossfade !== 'asymmetric' });
+        cache.map.set(x.in, { ...b, xfIn: true, in: len });
+      }
+      fadeEndCache.set(state.clips, cache);
+    }
+    const e = cache.map.get(c.id) || {};
+    return { ...e, in: e.xfIn ? e.in : c.fadeIn.length, out: e.xfOut ? e.out : c.fadeOut.length };
+  }
+
+  /** What a clip effect envelope's setting is (its clip's chain stands in for a track rack). */
+  #clipInfo(c, param) {
+    let byParam = laneInfos.get(c);
+    if (!byParam) laneInfos.set(c, (byParam = new Map()));
+    let info = byParam.get(param);
+    if (!info) byParam.set(param, (info = laneInfo({ type: 'audio', fx: c.fx || [], automation: c.fxEnv || {}, sends: [] }, param)));
+    return info;
+  }
+
+  /** A clip envelope as it plays: spline volume/pan, stepped effect switches. */
+  #clipShape(c, param) {
+    if (!S.fxParamRef(param)) return S.clipEnvelope(c, param);
+    const pts = S.clipEnvPoints(c, param);
+    return this.#clipInfo(c, param).stepped ? S.muteSteps(pts) : pts;
+  }
+
+  /** Clip effect envelopes drawn (View > Show Clip Effect Envelopes): their parameters. */
+  #clipFxParams(c) {
+    if (this.app.prefs.get('clipEffectEnvelopes') === false || !c.fxEnv) return [];
+    return Object.keys(c.fxEnv).filter((p) => c.fx?.some((x) => x?.id === S.fxParamRef(p)?.slotId));
+  }
+
   #envY(r, param, v) {
+    if (S.fxParamRef(param)) return r.wy + 2 + (1 - this.#clipInfo(r.clip, param).toPos(v)) * Math.max(1, r.wh - 4);
     const pos = param === 'pan' ? panToEnvPos(v) : volumeToEnvPos(v);
     return r.wy + 2 + (1 - pos) * Math.max(1, r.wh - 4);
   }
 
   #envValue(r, param, y) {
     const pos = 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4);
+    if (S.fxParamRef(param)) return this.#clipInfo(r.clip, param).fromPos(Math.max(0, Math.min(1, pos)));
     return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
+  }
+
+  /** Geometry of the lane showing `param` under a track row (the first lane if none does). */
+  #lane(row, param) {
+    return row.lanes?.find((l) => l.param === param) || row.lanes?.[0] || { top: row.autoTop, height: row.autoHeight };
+  }
+
+  /** What a lane parameter of a track is (name, range, lane mapping), cached per track state. */
+  #info(track, param) {
+    let byParam = laneInfos.get(track);
+    if (!byParam) laneInfos.set(track, (byParam = new Map()));
+    let info = byParam.get(param);
+    if (!info) byParam.set(param, (info = laneInfo(track, param)));
+    return info;
+  }
+
+  /** A lane's keyframes as they play (a stepped lane's all hold). */
+  #laneKeys(t, param) {
+    const pts = t.automation?.[param] || [];
+    return this.#info(t, param).stepped ? S.muteSteps(pts) : pts;
   }
 
   #autoY(row, param, v) {
-    const top = row.autoTop - this.scrollY + 4;
-    const hh = row.autoHeight - 8;
-    const pos = param === 'pan' ? panToEnvPos(v) : volumeToEnvPos(v);
-    return top + (1 - pos) * hh;
+    const lane = this.#lane(row, param);
+    const top = lane.top - this.scrollY + 4;
+    return top + (1 - this.#info(row.track, param).toPos(v)) * (lane.height - 8);
+  }
+
+  #autoPos(row, param, y) {
+    const lane = this.#lane(row, param);
+    return Math.max(0, Math.min(1, 1 - (y - (lane.top - this.scrollY + 4)) / Math.max(1, lane.height - 8)));
   }
 
   #autoValue(row, param, y) {
-    const top = row.autoTop - this.scrollY + 4;
-    const pos = 1 - (y - top) / (row.autoHeight - 8);
-    return param === 'pan' ? Math.round(envPosToPan(pos)) : Math.round(envPosToVolume(pos) * 10) / 10;
+    return this.#info(row.track, param).fromPos(this.#autoPos(row, param, y));
   }
 
   /**
@@ -821,6 +1036,7 @@ export class MultitrackView {
         drawFade('out', effOut);
       }
       if (r.wh > 12 && isRemixed(c) && !c.remixPreview) this.#drawSeams(ctx, r, remixSeams(c), accent, textColor);
+      if (c.loop && r.wh > 8) this.#drawLoopNotches(ctx, r, doc.sourceLength(c.sourceId), textColor);
       // Header: name, state glyphs, gain readout, fade handles.
       if (r.hb && w > 6) {
         ctx.save();
@@ -831,8 +1047,10 @@ export class MultitrackView {
         // handles show), and past a fade handle that sits further in.
         const pad = 10 + this.fadeInset;
         const handles = showFades && w > 18;
-        const hIn = x0 + Math.max(this.fadeInset, fadeIn / this.fpp);
-        const hOut = x1 - Math.max(this.fadeInset, fadeOut / this.fpp);
+        // Handles sit where the fades are heard: at the overlap's edges for a crossfade.
+        const ends = this.#fadeEnds(c);
+        const hIn = x0 + Math.max(this.fadeInset, ends.in / this.fpp);
+        const hOut = x1 - Math.max(this.fadeInset, ends.out / this.fpp);
         let tx = Math.max(0, x0) + pad;
         if (handles && hIn + 7 > tx - 4) tx = Math.max(tx, Math.min(hIn + 8, x0 + w * 0.5));
         const textEnd = handles && hOut - 7 < Math.min(W, x1) - pad ? Math.max(hOut - 8, x0 + w * 0.5) : Math.min(W, x1) - pad;
@@ -842,8 +1060,26 @@ export class MultitrackView {
         const stretchText = c.stretchPreview ? `  (stretch ${Math.round((stretchActive(st) ? st.ratio : 1) * c.stretchPreview * 1000) / 10}%)` : stretchActive(st) ? `  (${pending ? 'stretching… ' : ''}${Math.round(st.ratio * 1000) / 10}%${st.semitones ? ` ${st.semitones > 0 ? '+' : ''}${st.semitones} st` : ''})` : '';
         // While the right edge of a remixed clip is dragged, the header shows the new target.
         const remixText = c.remixPreview ? `  (remix to ${this.app.formatTime(c.length, doc.sampleRate)})` : '';
-        const label = c.name + (c.loop ? '  (loop)' : '') + (c.locked ? '  (locked)' : '') + stretchText + remixText;
-        ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
+        // State glyphs lead the name: locked in time, looped, clip effects, muted.
+        ctx.strokeStyle = textColor;
+        const glyphs = [c.groupId && 'group', c.locked && 'lock', c.loop && 'loop', c.fx?.some((x) => x && x.enabled !== false) && 'fx', c.mute && 'mute'].filter(Boolean);
+        for (const g of glyphs) {
+          // A grouped clip's glyph fades while groups are suspended.
+          ctx.globalAlpha = g === 'group' && doc.groupsSuspended ? 0.4 : 1;
+          tx += clipGlyph(ctx, g, tx, r.y + r.hb / 2) + 4;
+        }
+        ctx.globalAlpha = 1;
+        const label = c.name + stretchText + remixText;
+        // The name stops short of the gain readout on narrow clips instead of running under it.
+        const gainLeft = w > 90 && prefs.get('clipGainControls') !== false ? textEnd - ctx.measureText(formatGain(c.gain)).width - 6 : Infinity;
+        if (tx + ctx.measureText(label).width > gainLeft) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(tx, r.y, Math.max(0, gainLeft - tx), r.hb);
+          ctx.clip();
+          ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
+          ctx.restore();
+        } else ctx.fillText(label, tx, r.y + r.hb / 2 + 0.5);
         const type = c.soundAssistant && ASSISTANT_TYPES[c.soundAssistant.type];
         // Keep the badges clear of the gain readout (shown on wider clips).
         const gainShown = w > 90 && prefs.get('clipGainControls') !== false;
@@ -866,6 +1102,19 @@ export class MultitrackView {
           }
           bx += bw + 4;
         }
+        if (c.takeGroup) {
+          // Take badge: which of the stacked takes this is.
+          const takes = S.takeClips(state, c.takeGroup);
+          const text = `take ${takes.findIndex((x) => x.id === c.id) + 1}/${takes.length}`;
+          const tw = ctx.measureText(text).width + 8;
+          if (bx + tw <= room) {
+            ctx.globalAlpha = 0.22;
+            ctx.fillRect(bx, r.y + 2, tw, r.hb - 4);
+            ctx.globalAlpha = 1;
+            ctx.fillText(text, bx + 4, r.y + r.hb / 2 + 0.5);
+          }
+          bx += tw + 4;
+        }
         const bw = type ? ctx.measureText(type.label).width + 8 : 0;
         if (type && bx + bw <= room) {
           // Sound Assistant audio type badge after the name.
@@ -878,6 +1127,13 @@ export class MultitrackView {
           // Clip gain readout; drag it up or down to change the gain.
           const g = formatGain(c.gain);
           const gw = ctx.measureText(g).width;
+          // Hovered or dragged, the readout shows it is a control (drag up or down, double-click for 0 dB).
+          if (this.hoverGain === c.id || (this.drag?.kind === 'gain' && this.drag.id === c.id)) {
+            ctx.strokeStyle = textColor;
+            ctx.globalAlpha = 0.8;
+            ctx.strokeRect(Math.round(textEnd - gw - 4) + 0.5, r.y + 1.5, Math.round(gw + 8), r.hb - 3);
+            ctx.fillStyle = textColor;
+          }
           ctx.globalAlpha = Math.abs(c.gain) >= 0.05 ? 1 : 0.55;
           ctx.fillText(g, textEnd - gw, r.y + r.hb / 2 + 0.5);
           ctx.globalAlpha = 1;
@@ -885,8 +1141,22 @@ export class MultitrackView {
         ctx.restore();
         if (handles) {
           ctx.fillStyle = textColor;
-          ctx.fillRect(Math.round(hIn - 3), r.y + 4, 7, 7);
-          ctx.fillRect(Math.round(hOut - 4), r.y + 4, 7, 7);
+          // A crossfade's handle is a diamond: dragging it up or down shapes the crossfade.
+          const handle = (hx, xf) => {
+            if (!xf) {
+              ctx.fillRect(Math.round(hx - 3.5), r.y + 4, 7, 7);
+              return;
+            }
+            ctx.beginPath();
+            ctx.moveTo(hx, r.y + 3);
+            ctx.lineTo(hx + 4.5, r.y + 7.5);
+            ctx.lineTo(hx, r.y + 12);
+            ctx.lineTo(hx - 4.5, r.y + 7.5);
+            ctx.closePath();
+            ctx.fill();
+          };
+          handle(hIn, ends.xfIn);
+          handle(hOut, ends.xfOut);
         }
       }
       // Stretch handles: triangles in the top corners.
@@ -915,69 +1185,64 @@ export class MultitrackView {
             const y = this.#envY(r, param, fallback);
             ctx.moveTo(Math.max(0, x0), y);
             ctx.lineTo(Math.min(W, x1), y);
-          } else {
-            points.forEach((p, i) => {
-              const x = x0 + p.t / this.fpp;
-              const y = this.#envY(r, param, p.v);
-              if (i === 0) {
-                ctx.moveTo(x0, y);
-                ctx.lineTo(x, y);
-              } else ctx.lineTo(x, y);
-            });
-            ctx.lineTo(x1, this.#envY(r, param, points[points.length - 1].v));
-          }
+          } else this.#traceEnvelope(ctx, this.#clipShape(c, param), (p) => x0 + p.t / this.fpp, (v) => this.#envY(r, param, v), x0, x1);
           ctx.stroke();
           const sk = doc.selectedKeys;
           for (const [i, p] of points.entries()) {
             const x = x0 + p.t / this.fpp;
             if (x < -4 || x > W + 4) continue;
-            const y = this.#envY(r, param, p.v);
-            const on = sk && sk.owner === c.id && sk.param === param && sk.indices.has(i);
-            if (on) ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
-            else ctx.strokeRect(x - 3, y - 3, 6, 6);
+            this.#drawKey(ctx, x, this.#envY(r, param, p.v), Boolean(sk && sk.owner === c.id && sk.param === param && sk.indices.has(i)), p.hold);
           }
         };
         if (showVol) env('volume', volColor, c.volumeEnv, 0);
         if (showPan) env('pan', panColor, c.panEnv, 0);
+        for (const param of this.#clipFxParams(c)) env(param, accent, S.clipEnvPoints(c, param), this.#clipInfo(c, param).value);
       }
     }
+    if (doc.liveTake) this.#drawLiveTake(ctx, doc.liveTake);
     // Automation lanes.
     for (const row of this.rows) {
       if (!row.autoHeight) continue;
-      const top = row.autoTop - this.scrollY;
-      if (top > H || top + row.autoHeight < 0) continue;
       const t = row.track;
-      const param = t.type === 'master' ? 'volume' : t.autoParam;
-      const pts = t.automation[param];
-      const color = param === 'pan' ? panColor : volColor;
-      ctx.fillStyle = cssVar('--text-dim');
-      ctx.fillText(`${param === 'pan' ? 'Pan' : 'Volume'}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = t.mode === 'off' ? 0.45 : 1;
-      ctx.beginPath();
-      if (!pts.length) {
-        const y = this.#autoY(row, param, t[param]);
-        ctx.setLineDash([4, 3]);
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      } else {
-        ctx.moveTo(0, this.#autoY(row, param, pts[0].v));
-        for (const p of pts) ctx.lineTo(this.xOf(p.t), this.#autoY(row, param, p.v));
-        ctx.lineTo(W, this.#autoY(row, param, pts[pts.length - 1].v));
-        ctx.stroke();
-        const sk = doc.selectedKeys;
-        pts.forEach((p, i) => {
-          const x = this.xOf(p.t);
-          if (x < -4 || x > W + 4) return;
-          const y = this.#autoY(row, param, p.v);
-          if (sk && sk.owner === t.id && sk.param === param && sk.indices.has(i)) ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
-          else ctx.strokeRect(x - 3, y - 3, 6, 6);
-        });
+      const sk = doc.selectedKeys;
+      for (const lane of row.lanes) {
+        const top = lane.top - this.scrollY;
+        if (top > H || top + lane.height < 0) continue;
+        const param = lane.param;
+        const pts = this.#laneKeys(t, param);
+        const color = param === 'pan' ? panColor : param === 'mute' ? cssVar('--text-dim') : volColor;
+        ctx.fillStyle = cssVar('--text-dim');
+        ctx.fillText(`${this.#info(t, param).label}${t.mode === 'off' ? ' (off)' : ''}`, 6, top + 9);
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = t.mode === 'off' ? 0.45 : 1;
+        ctx.beginPath();
+        if (!pts.length) {
+          const y = this.#autoY(row, param, this.#info(t, param).value);
+          ctx.setLineDash([4, 3]);
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          this.#traceEnvelope(ctx, pts, (p) => this.xOf(p.t), (v) => this.#autoY(row, param, v), 0, W);
+          ctx.stroke();
+          pts.forEach((p, i) => {
+            const x = this.xOf(p.t);
+            if (x < -4 || x > W + 4) return;
+            this.#drawKey(ctx, x, this.#autoY(row, param, p.v), Boolean(sk && sk.owner === t.id && sk.param === param && sk.indices.has(i)), p.hold && !this.#info(t, param).stepped);
+          });
+        }
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
+    }
+    // Rubber band over keyframes in an automation lane.
+    if ((this.drag?.kind === 'keyBand' || this.drag?.kind === 'clipKeyBand') && this.drag.rect) {
+      const q = this.drag.rect;
+      ctx.strokeStyle = selEdge;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(q.x + 0.5, q.y + 0.5, q.w, q.h);
+      ctx.setLineDash([]);
     }
     // Markers (lines across the tracks can be hidden in Preferences > Markers & Metadata).
     for (const m of this.app.prefs.get('showMarkerLines') !== false ? this.markers() : []) {
@@ -1019,6 +1284,18 @@ export class MultitrackView {
     }
     if (this.snapLine !== null && this.snapLine !== undefined) {
       const x = Math.round(this.xOf(this.snapLine)) + 0.5;
+      // What it snapped to, and when: a tag at the top of the line.
+      const tag = `${this.#snapKind(this.snapLine)} ${this.app.formatTime(this.snapLine, doc.sampleRate)}`;
+      const tw = ctx.measureText(tag).width + 10;
+      const tx0 = Math.max(2, Math.min(W - tw - 2, x + 4));
+      // Over the waveform of the clip being edited, just under its header, so no clip name is covered.
+      const ty = this.#snapTagY();
+      ctx.fillStyle = cssVar('--text-strong');
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(tx0, ty, tw, 16);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = cssVar('--bg-panel');
+      ctx.fillText(tag, tx0 + 5, ty + 8.5);
       ctx.strokeStyle = cssVar('--text-strong');
       ctx.globalAlpha = 0.8;
       ctx.beginPath();
@@ -1052,6 +1329,21 @@ export class MultitrackView {
       }
       ctx.stroke();
     }
+    // The value of the keyframe being dragged, beside it.
+    if (this.keyReadout && (this.drag?.kind === 'key' || this.drag?.kind === 'autoKey')) {
+      const k = this.keyReadout;
+      const tw = ctx.measureText(k.text).width + 10;
+      const bx = Math.min(W - tw - 2, k.x + 8);
+      const by = Math.max(2, Math.min(H - 18, k.y - 22));
+      ctx.fillStyle = cssVar('--bg-panel');
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(bx, by, tw, 16);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = cssVar('--border');
+      ctx.strokeRect(Math.round(bx) + 0.5, Math.round(by) + 0.5, Math.round(tw) - 1, 15);
+      ctx.fillStyle = textColor;
+      ctx.fillText(k.text, bx + 5, by + 8.5);
+    } else this.keyReadout = null;
     // Past the content end of the last track.
     const below = this.contentHeight - this.scrollY;
     if (below < H) {
@@ -1059,6 +1351,138 @@ export class MultitrackView {
       ctx.globalAlpha = 0.5;
       ctx.fillRect(0, below, W, H - below);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  /**
+   * The take being recorded, growing on each armed track: a red block with a header and the
+   * input's peaks so far. With a punch range only the range shows; loop recording shows the
+   * current pass.
+   */
+  #drawLiveTake(ctx, take) {
+    const live = take.live;
+    const ratio = this.doc.sampleRate / (live.rate || this.doc.sampleRate);
+    const head = this.app.playhead;
+    let a = take.from;
+    let b = take.from + live.frames * ratio;
+    if (take.punch) {
+      a = take.punch.start;
+      b = take.loop ? Math.min(head, take.punch.end) : Math.min(b, take.punch.end);
+    }
+    if (b <= a) return;
+    const xa = Math.max(0, this.xOf(a));
+    const xb = Math.min(this.width, this.xOf(b));
+    if (xb <= xa) return;
+    const color = cssVar('--record');
+    // Recorded peak under timeline frame f.
+    const peakAt = (f) => {
+      const r = take.loop ? live.frames - (head - f) / ratio : (f - take.from) / ratio;
+      const i = Math.floor(r / PEAK_BLOCK);
+      return i >= 0 && i < live.count ? live.peaks[i] : 0;
+    };
+    for (const id of take.armed) {
+      const row = this.rowOf(id);
+      if (!row) continue;
+      const y = row.top - this.scrollY + 1;
+      const hgt = row.height - 2;
+      if (y > this.height || y + hgt < 0) continue;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.18;
+      ctx.fillRect(xa, y, xb - xa, hgt);
+      ctx.globalAlpha = 0.9;
+      const hb = hgt >= 36 ? HEADER_BAR : 0;
+      if (hb) {
+        ctx.fillRect(xa, y, xb - xa, hb);
+        ctx.fillStyle = '#fff';
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(xa, y, xb - xa, hb);
+        ctx.clip();
+        ctx.fillText('Recording', xa + 6, y + hb / 2 + 0.5);
+        ctx.restore();
+      }
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 1;
+      ctx.strokeRect(Math.round(xa) + 0.5, Math.round(y) + 0.5, Math.max(1, Math.round(xb - xa) - 1), Math.max(1, Math.round(hgt) - 1));
+      // Peaks, one column per pixel.
+      const wy = y + hb;
+      const mid = wy + (hgt - hb) / 2;
+      const half = (hgt - hb) / 2 - 2;
+      ctx.fillStyle = color;
+      for (let x = Math.floor(xa); x < xb; x++) {
+        const p = Math.min(1, peakAt(this.frameAt(x)));
+        const hh = Math.max(0.5, p * half);
+        ctx.fillRect(x, mid - hh, 1, hh * 2);
+      }
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Where a looped clip starts over from the top of its source (`srcLen` frames): a dotted line
+   * through the waveform with a notch at its top and bottom. Repeats closer than 6 px are skipped.
+   */
+  #drawLoopNotches(ctx, r, srcLen, color) {
+    const c = r.clip;
+    if (!(srcLen > 0)) return;
+    const step = srcLen / this.fpp;
+    if (step < 6) return;
+    const W = this.width;
+    const top = r.wy;
+    const bot = r.wy + r.wh;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.6;
+    ctx.setLineDash([2, 3]);
+    // The first restart is where the source runs out after the clip's offset into it.
+    for (let f = c.start + (srcLen - (c.offset % srcLen)); f < S.clipEnd(c); f += srcLen) {
+      const x = Math.round(this.xOf(f)) + 0.5;
+      if (x < -6) continue;
+      if (x > W + 6) break;
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bot);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 4, top);
+      ctx.lineTo(x + 4, top);
+      ctx.lineTo(x, top + 5);
+      ctx.closePath();
+      ctx.moveTo(x - 4, bot);
+      ctx.lineTo(x + 4, bot);
+      ctx.lineTo(x, bot - 5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Adds an envelope's path from x `from` to `to` to the context: flat before the first and after
+   * the last point, straight between points, and a step after a hold point.
+   */
+  #traceEnvelope(ctx, pts, xOf, yOf, from, to) {
+    let y = yOf(pts[0].v);
+    ctx.moveTo(from, y);
+    for (let i = 0; i < pts.length; i++) {
+      const x = xOf(pts[i]);
+      const ny = yOf(pts[i].v);
+      if (i > 0 && pts[i - 1].hold) ctx.lineTo(x, y);
+      ctx.lineTo(x, ny);
+      y = ny;
+    }
+    ctx.lineTo(to, y);
+  }
+
+  /** A keyframe: an outlined square, filled when selected; a hold keyframe has a step notch. */
+  #drawKey(ctx, x, y, selected, hold) {
+    if (selected) ctx.fillRect(x - 3.5, y - 3.5, 7, 7);
+    else ctx.strokeRect(x - 3, y - 3, 6, 6);
+    if (hold) {
+      // A short tick to the right marks the value held until the next keyframe.
+      ctx.fillRect(x + 4, y - 0.5, 4, 1.5);
     }
   }
 
@@ -1111,12 +1535,14 @@ export class MultitrackView {
     const doc = this.doc;
     if (cy >= row.autoTop && row.autoHeight) {
       const t = row.track;
-      const param = t.type === 'master' ? 'volume' : t.autoParam;
-      const pts = t.automation[param];
+      const lane = row.lanes.find((l) => cy >= l.top && cy < l.top + l.height) || row.lanes[row.lanes.length - 1];
+      const param = lane.param;
+      const pts = this.#laneKeys(t, param);
       for (let i = pts.length - 1; i >= 0; i--) {
         if (Math.abs(this.xOf(pts[i].t) - x) <= near && Math.abs(this.#autoY(row, param, pts[i].v) - y) <= near) return { part: 'autoKey', row, param, index: i, auto: true };
       }
-      const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), t[param]) : t[param];
+      const fallback = this.#info(t, param).value;
+      const v = pts.length ? S.envelopeValue(pts, this.frameAt(x), fallback) : fallback;
       if (Math.abs(this.#autoY(row, param, v) - y) <= (touch ? 10 : 4)) return { part: 'autoLine', row, param, auto: true };
       return { part: 'auto', row, param, auto: true };
     }
@@ -1138,9 +1564,10 @@ export class MultitrackView {
       }
       if (r.hb && y <= r.y + r.hb) {
         const handles = prefs.get('clipFadeHandles') !== false;
-        const hx1 = r.x1 - Math.max(this.fadeInset, c.fadeOut.length / this.fpp);
+        const ends = this.#fadeEnds(c);
+        const hx1 = r.x1 - Math.max(this.fadeInset, ends.out / this.fpp);
         if (handles) {
-          const hx0 = r.x0 + Math.max(this.fadeInset, c.fadeIn.length / this.fpp);
+          const hx0 = r.x0 + Math.max(this.fadeInset, ends.in / this.fpp);
           if (Math.abs(x - hx0) <= (touch ? 12 : 6)) return { ...hit, part: 'fadeIn' };
           if (Math.abs(x - hx1) <= (touch ? 12 : 6)) return { ...hit, part: 'fadeOut' };
         }
@@ -1160,7 +1587,8 @@ export class MultitrackView {
           }
           return null;
         };
-        const k = (showVol && keys('volume', c.volumeEnv)) || (showPan && keys('pan', c.panEnv));
+        let k = (showVol && keys('volume', c.volumeEnv)) || (showPan && keys('pan', c.panEnv));
+        for (const param of this.#clipFxParams(c)) k = k || keys(param, S.clipEnvPoints(c, param));
         if (k) return k;
       }
       if (Math.abs(x - r.x0) <= edge) return { ...hit, part: 'edgeIn' };
@@ -1168,8 +1596,11 @@ export class MultitrackView {
       if (r.wh > 14) {
         const t = this.frameAt(x) - c.start;
         const lineTol = touch ? 8 : 3;
-        if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(c.volumeEnv, t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'volume' };
-        if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(c.panEnv, t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'pan' };
+        if (showVol && Math.abs(this.#envY(r, 'volume', S.envelopeValue(S.clipEnvelope(c, 'volume'), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'volume' };
+        if (showPan && Math.abs(this.#envY(r, 'pan', S.envelopeValue(S.clipEnvelope(c, 'pan'), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param: 'pan' };
+        for (const param of this.#clipFxParams(c)) {
+          if (Math.abs(this.#envY(r, param, S.envelopeValue(this.#clipShape(c, param), t, 0)) - y) <= lineTol) return { ...hit, part: 'line', param };
+        }
       }
       return { ...hit, part: 'body' };
     }
@@ -1182,14 +1613,16 @@ export class MultitrackView {
     if (tool === 'razor' && hit.clip) return 'crosshair';
     switch (hit.part) {
       case 'edgeIn':
+        return hit.clip?.locked ? 'not-allowed' : TRIM_IN_CURSOR;
       case 'edgeOut':
-        return 'ew-resize';
+        return hit.clip?.locked ? 'not-allowed' : TRIM_OUT_CURSOR;
       case 'stretchIn':
         return 'nw-resize';
       case 'stretchOut':
         return 'ne-resize';
       case 'fadeIn':
       case 'fadeOut':
+        return FADE_CURSOR;
       case 'key':
       case 'autoKey':
         return 'pointer';
@@ -1255,7 +1688,7 @@ export class MultitrackView {
     const sel = doc.selection;
     const start = range && sel.end > sel.start ? sel.start : this.app.engine.playing && this.app.active === doc ? Math.round(this.app.playhead) : doc.cursor;
     const duration = range && sel.end > sel.start ? sel.end - sel.start : 0;
-    const m = createMarker({ start, duration, name: nextMarkerName(doc.state.markers) });
+    const m = createMarker({ start, duration, name: newMarkerName(doc.state.markers, { range: duration > 0 }) });
     doc.apply(range ? 'Add Range Marker' : 'Add Marker', { ...doc.state, markers: sortMarkers([...doc.state.markers, m]) });
     this.selectMarker(m.id);
     return m;
@@ -1285,6 +1718,10 @@ export class MultitrackView {
       for (const hd of this.headers.values()) hd.updateValues();
     } else if (k === 'automation') {
       for (const hd of this.headers.values()) hd.updateValues();
+    } else if (k === 'recording') {
+      this.invalidate('overlay');
+    } else if (k === 'freeze') {
+      for (const hd of this.headers.values()) hd.syncFreeze();
     } else if (k === 'rename') this.surface.setAttribute('aria-label', `Multitrack session ${this.doc.name}`);
   }
 
@@ -1367,6 +1804,11 @@ export class MultitrackView {
       if (!this.drag) {
         const hit = this.hitTest(x, y);
         s.style.cursor = this.#cursorFor(hit, e);
+        const gainId = hit.part === 'gain' ? hit.clip.id : null;
+        if (gainId !== (this.hoverGain || null)) {
+          this.hoverGain = gainId;
+          this.invalidate('overlay');
+        }
         const razor = this.app.tool === 'razor' && hit.clip ? { razorX: this.xOf(this.snap(this.frameAt(x), { off: e.metaKey || e.ctrlKey })), row: hit.row, all: e.shiftKey } : null;
         if (razor || this.hover?.razorX != null) {
           this.hover = razor;
@@ -1397,7 +1839,19 @@ export class MultitrackView {
     s.addEventListener('lostpointercapture', (e) => {
       if (this.drag) finish(e, false);
     });
+    // Double-click on a clip's gain readout: back to 0 dB.
+    s.addEventListener('dblclick', (e) => {
+      const { x, y } = this.#local(e);
+      const hit = this.hitTest(x, y);
+      if (hit.part !== 'gain' || !hit.clip.gain) return;
+      this.doc.apply('Clip Gain', S.updateClips(this.doc.state, [hit.clip.id], { gain: 0 }));
+      announce('Clip gain 0 dB');
+    });
     s.addEventListener('pointerleave', () => {
+      if (this.hoverGain) {
+        this.hoverGain = null;
+        this.invalidate('overlay');
+      }
       if (this.hover) {
         this.hover = null;
         this.invalidate('overlay');
@@ -1441,14 +1895,29 @@ export class MultitrackView {
     const doc = this.doc;
     if (hit.part === 'key' || hit.part === 'autoKey') {
       const owner = hit.auto ? hit.row.id : hit.clip.id;
-      doc.selectedKeys = { owner, param: hit.param, indices: new Set([hit.index]) };
+      const sk = doc.selectedKeys;
+      // A right-click on a selected keyframe acts on the whole selection.
+      if (!(sk && sk.owner === owner && sk.param === hit.param && sk.indices.has(hit.index))) doc.selectedKeys = { owner, param: hit.param, indices: new Set([hit.index]) };
       this.invalidate('overlay');
-      this.app.openMenu([{ type: 'cmd', label: 'Delete Keyframe', enabled: true, run: () => this.deleteSelectedKeys() }], { x: cx, y: cy, label: 'Keyframe' });
+      this.app.openMenu(this.#keyMenu(owner, hit.param, Boolean(hit.auto)), { x: cx, y: cy, label: 'Keyframe' });
+      return;
+    }
+    if (hit.auto) {
+      doc.selectTrack(hit.row.id);
+      this.app.openMenu(this.#keyMenu(hit.row.id, hit.param, true, { lane: true }), { x: cx, y: cy, label: 'Automation lane' });
       return;
     }
     if (hit.clip) {
       if (!doc.selectedClips.has(hit.clip.id)) doc.selectClips([hit.clip.id]);
-      contextMenu(this.app, CLIP_CONTEXT, cx, cy, 'Clip context menu');
+      // The clip's effect envelopes follow the Envelopes submenu.
+      const at = CLIP_CONTEXT.findIndex((x) => x?.label === 'Envelopes') + 1;
+      const items = [...CLIP_CONTEXT.slice(0, at), { label: 'Effect Envelopes', items: () => this.#clipFxEnvelopeItems(hit.clip.id) }, ...CLIP_CONTEXT.slice(at)];
+      // Stacked takes: pick the one that plays.
+      if (hit.clip.takeGroup) {
+        const takes = S.takeClips(doc.state, hit.clip.takeGroup);
+        items.unshift({ label: 'Takes', items: () => takes.map((x, i) => ({ type: 'cmd', label: `Take ${i + 1}: ${x.name}`, enabled: true, checked: !x.mute, run: () => doc.apply('Choose Take', S.selectTake(doc.state, x.id), { clips: [x.id] }) })) }, '-');
+      }
+      contextMenu(this.app, items, cx, cy, 'Clip context menu');
       return;
     }
     if (hit.row) {
@@ -1468,24 +1937,43 @@ export class MultitrackView {
     const f = this.frameAt(x);
     const base = { x0: x, y0: y, f0: f, hit, moved: false, state0: doc.state };
     const fine = e.metaKey || e.ctrlKey;
+    if (hit.part === 'autoLine' && (e.metaKey || e.ctrlKey)) {
+      // Cmd/Ctrl-drag on a line: move the segment (its two keyframes) up or down.
+      const t = hit.row.track;
+      const pts = this.#laneKeys(t, hit.param).slice();
+      const seg = segmentKeys(pts, f);
+      if (seg) {
+        doc.selectedKeys = { owner: t.id, param: hit.param, indices: seg.indices };
+        this.drag = { ...base, kind: 'autoKey', trackId: t.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: this.#autoPos(hit.row, hit.param, y), info: this.#info(t, hit.param) };
+        this.invalidate('overlay');
+        return;
+      }
+    }
     if (hit.part === 'autoKey' || hit.part === 'autoLine') {
       const t = hit.row.track;
-      let pts = t.automation[hit.param].slice();
+      const param = hit.param;
+      let pts = this.#laneKeys(t, param).slice();
       let index = hit.index;
       if (hit.part === 'autoLine') {
-        const v = this.#autoValue(hit.row, hit.param, y);
-        pts.push({ t: Math.round(this.snap(f, { off: fine })), v });
-        pts.sort((a, b) => a.t - b.t);
-        index = pts.findIndex((p) => p.v === v && p.t === Math.round(this.snap(f, { off: fine })));
-        doc.preview(S.setAutomation(doc.state, t.id, hit.param, pts));
+        const at = Math.round(this.snap(f, { off: fine }));
+        const prev = pts.filter((p) => p.t <= at).pop();
+        const key = { t: at, v: this.#autoValue(hit.row, param, y), ...(this.#info(t, param).stepped || prev?.hold ? { hold: true } : {}) };
+        pts.push(key);
+        pts.sort((p, q) => p.t - q.t);
+        index = pts.indexOf(key);
+        doc.preview(S.setAutomation(doc.state, t.id, param, pts));
       }
-      doc.selectedKeys = { owner: t.id, param: hit.param, indices: new Set([index]) };
-      this.drag = { ...base, kind: 'autoKey', trackId: t.id, param: hit.param, index, pts, added: hit.part === 'autoLine' };
+      const pick = this.#pickKeys(e, t.id, param, index, hit.part === 'autoLine');
+      this.drag = { ...base, kind: 'autoKey', trackId: t.id, param, index, pts, added: hit.part === 'autoLine', ...pick, info: this.#info(t, param) };
       this.invalidate('overlay');
       return;
     }
     if (hit.part === 'auto') {
-      this.drag = { ...base, kind: 'none' };
+      // Drag in an empty part of a lane: rubber band over its keyframes.
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      const sk = doc.selectedKeys;
+      const initial = additive && sk?.owner === hit.row.id && sk.param === hit.param ? new Set(sk.indices) : new Set();
+      this.drag = { ...base, kind: 'keyBand', trackId: hit.row.id, param: hit.param, initial };
       return;
     }
     const c = hit.clip;
@@ -1494,6 +1982,11 @@ export class MultitrackView {
       if (!(e.shiftKey || e.metaKey || e.ctrlKey)) doc.selectClips([]);
       if (tool === 'move' || tool === 'slip') this.drag = { ...base, kind: 'marquee', additive: e.shiftKey || e.metaKey || e.ctrlKey, initial: new Set(doc.selectedClips) };
       else this.drag = { ...base, kind: 'select', anchor: e.shiftKey && doc.hasSelection ? (Math.abs(f - doc.selection.start) < Math.abs(f - doc.selection.end) ? doc.selection.end : doc.selection.start) : this.snap(f), startRow: hit.row };
+      return;
+    }
+    // Shift+Alt-drag in a clip: rubber band over its envelope keyframes.
+    if (e.altKey && e.shiftKey && hit.part === 'body' && tool !== 'razor' && r0EnvelopesShown(this.app)) {
+      this.drag = { ...base, kind: 'clipKeyBand', id: c.id };
       return;
     }
     // Clip selection on press (Shift/Cmd toggles).
@@ -1517,29 +2010,52 @@ export class MultitrackView {
       case 'fadeIn':
       case 'fadeOut':
         {
-          const fc = hit.part === 'fadeIn' ? c.fadeIn : c.fadeOut;
+          const dir = hit.part === 'fadeIn' ? 'in' : 'out';
+          const ends = this.#fadeEnds(c);
+          if (dir === 'in' ? ends.xfIn : ends.xfOut) {
+            // A crossfade keeps the overlap as its length: its handle shapes it. A symmetric
+            // crossfade's shape is the incoming clip's fade-in.
+            const target = dir === 'in' || ends.symOut ? { id: dir === 'in' ? c.id : ends.partnerIn, dir: 'in' } : { id: c.id, dir: 'out' };
+            const tc = S.findClip(doc.state, target.id);
+            const curve0 = (target.dir === 'in' ? tc.fadeIn : tc.fadeOut).curve;
+            this.drag = { ...base, kind: 'xfade', id: target.id, dir: target.dir, curve0 };
+            return;
+          }
+          const fc = dir === 'in' ? c.fadeIn : c.fadeOut;
           // A new fade (from zero length) starts with the default curve from Preferences > General.
-          this.drag = { ...base, kind: 'fade', id: c.id, dir: hit.part === 'fadeIn' ? 'in' : 'out', curve0: fc.length > 0 ? fc.curve : defaultFadeCurve(this.app) };
+          this.drag = { ...base, kind: 'fade', id: c.id, dir, curve0: fc.length > 0 ? fc.curve : defaultFadeCurve(this.app) };
         }
         return;
       case 'gain':
-        this.drag = { ...base, kind: 'gain', id: c.id, gain0: c.gain };
+        // With several clips selected, they all change by the same amount.
+        this.drag = { ...base, kind: 'gain', id: c.id, gain0: c.gain, gains: new Map(doc.clipSelection.map((x) => [x.id, x.gain])) };
         return;
       case 'key':
       case 'line': {
-        const key = hit.param === 'pan' ? 'panEnv' : 'volumeEnv';
-        let pts = c[key].slice();
+        const fxInfo = S.fxParamRef(hit.param) ? this.#clipInfo(c, hit.param) : undefined;
+        let pts = (fxInfo?.stepped ? S.muteSteps(S.clipEnvPoints(c, hit.param)) : S.clipEnvPoints(c, hit.param)).slice();
+        const seg = hit.part === 'line' && (e.metaKey || e.ctrlKey) ? segmentKeys(pts, f - c.start) : null;
+        if (seg) {
+          // Cmd/Ctrl-drag on a line: move the segment up or down.
+          const r = hit.rect;
+          doc.selectedKeys = { owner: c.id, param: hit.param, indices: seg.indices };
+          this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index: seg.lead, pts, added: false, indices: seg.indices, onClick: null, vertical: true, grab: 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4), info: fxInfo };
+          this.invalidate('overlay');
+          return;
+        }
         let index = hit.index;
         if (hit.part === 'line') {
           const t = Math.round(this.snap(f, { off: fine }) - c.start);
-          const v = S.envelopeValue(pts, t, 0);
-          const ins = S.insertEnvelopePoint(pts, Math.max(0, Math.min(c.length, t)), v, c.length, 0);
+          const v = S.envelopeValue(this.#clipShape(c, hit.param), t, fxInfo ? fxInfo.value : 0);
+          const ins = S.insertEnvelopePoint(pts, Math.max(0, Math.min(c.length, t)), v, c.length, fxInfo ? fxInfo.value : 0);
           pts = ins.points;
           index = ins.index;
+          // Inside a held step the new keyframe holds too.
+          if (pts[index - 1]?.hold || fxInfo?.stepped) pts[index] = { ...pts[index], hold: true };
           doc.preview(S.setClipEnvelope(doc.state, c.id, hit.param, pts));
         }
-        doc.selectedKeys = { owner: c.id, param: hit.param, indices: new Set([index]) };
-        this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index, pts, added: hit.part === 'line' };
+        const pick = this.#pickKeys(e, c.id, hit.param, index, hit.part === 'line');
+        this.drag = { ...base, kind: 'key', id: c.id, param: hit.param, index, pts, added: hit.part === 'line', ...pick, info: fxInfo };
         this.invalidate('overlay');
         return;
       }
@@ -1557,6 +2073,71 @@ export class MultitrackView {
     }
     const ids = [...doc.selectedClips];
     this.drag = { ...base, kind: 'move', ids, lead: c, rowIndex: this.#audioIndex(hit.row.id), copy: false };
+    this.surface.style.cursor = 'grabbing';
+  }
+
+  /**
+   * Keyframe selection on press: a new keyframe is selected alone; Shift or Cmd adds a keyframe
+   * (a selected one comes off on release, if not dragged); a press on a selected keyframe keeps
+   * the selection so they all move together (a plain click then selects it alone).
+   */
+  #pickKeys(e, owner, param, index, added) {
+    const doc = this.doc;
+    const sk = doc.selectedKeys;
+    const same = !added && sk && sk.owner === owner && sk.param === param;
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+    let indices;
+    let onClick = null;
+    if (same && sk.indices.has(index)) {
+      indices = new Set(sk.indices);
+      if (additive) onClick = 'remove';
+      else if (indices.size > 1) onClick = 'only';
+    } else if (same && additive) indices = new Set([...sk.indices, index]);
+    else indices = new Set([index]);
+    doc.selectedKeys = { owner, param, indices };
+    return { indices, onClick };
+  }
+
+  /**
+   * Envelope points with the dragged keyframes moved: the one under the pointer goes to frame `t`
+   * and height `pos` (0..1), the other selected ones by the same amounts. They stay between the
+   * unselected neighbours and within [0, `end`]. Shift locks the move to its main direction.
+   */
+  #movedKeys(d, e, x, y, t, pos, end) {
+    const pts = d.pts;
+    const lead = pts[d.index];
+    const toPos = d.info ? d.info.toPos : (v) => envPos(d.param, v);
+    const fromPos = d.info ? d.info.fromPos : (pos) => envValueAt(d.param, pos);
+    const pos0 = toPos(lead.v);
+    if (d.vertical) {
+      // A segment moves by how far the pointer moved, without jumping to it.
+      t = lead.t;
+      pos = pos0 + (pos - d.grab);
+    } else if (e.shiftKey) {
+      if (Math.abs(x - d.x0) >= Math.abs(y - d.y0)) pos = pos0;
+      else t = lead.t;
+    }
+    pos = Math.max(0, Math.min(1, pos));
+    let lo = -Infinity;
+    let hi = Infinity;
+    for (const i of d.indices) {
+      let j = i - 1;
+      while (j >= 0 && d.indices.has(j)) j--;
+      let k = i + 1;
+      while (k < pts.length && d.indices.has(k)) k++;
+      // A keyframe stops a frame short of its neighbours, so it never lands on (and replaces) one.
+      lo = Math.max(lo, (j >= 0 ? pts[j].t + 1 : 0) - pts[i].t);
+      hi = Math.min(hi, (k < pts.length ? pts[k].t - 1 : end) - pts[i].t);
+    }
+    const dt = Math.max(lo, Math.min(hi, Math.round(t - lead.t)));
+    const dpos = pos - pos0;
+    return pts.map((p, i) => {
+      if (!d.indices.has(i)) return p;
+      let v = p.v;
+      if (i === d.index) v = fromPos(pos);
+      else if (dpos) v = fromPos(Math.max(0, Math.min(1, toPos(p.v) + dpos)));
+      return { ...p, t: p.t + dt, v };
+    });
   }
 
   /** Position among the shown audio tracks (clip moves skip hidden tracks). */
@@ -1579,13 +2160,28 @@ export class MultitrackView {
         const edges = moving.flatMap((c) => [c.start + df, S.clipEnd(c) + df]);
         const sn = this.snapDelta(edges, exclude, fine);
         const row = this.rowAt(y);
-        const target = row && row.track.type === 'audio' ? this.#audioIndex(row.id) : d.lastTrackIndex ?? d.rowIndex;
+        const shown = S.audioTracks(d.state0).filter((t) => !t.hidden);
+        // Below the last audio track (over the master or past the tracks): new tracks are made.
+        const below = (!row && y + this.scrollY >= this.contentHeight) || row?.track.type === 'master';
+        const target = row && row.track.type === 'audio' ? this.#audioIndex(row.id) : below ? shown.length : d.lastTrackIndex ?? d.rowIndex;
         d.lastTrackIndex = target;
         d.copy = e.altKey;
         const dt = Math.round(df + sn.delta);
-        doc.preview(S.moveClips(d.state0, d.ids, dt, target - d.rowIndex, { copy: d.copy }));
+        // Tracks the move needs past the last one, added in the same step as the move.
+        const index = new Map(shown.map((t, i) => [t.id, i]));
+        const lowest = Math.max(...moving.map((c) => index.get(c.trackId) ?? 0));
+        const extra = Math.max(0, lowest + (target - d.rowIndex) - (shown.length - 1));
+        let base = d.state0;
+        for (let i = 0; i < extra; i++) {
+          const last = base.tracks.filter((t) => t.type === 'audio').pop();
+          base = newTrack(base, { channels: S.findTrack(d.state0, d.lead.trackId)?.channels || 2, afterId: last?.id }).state;
+        }
+        d.newTracks = extra;
+        doc.preview(S.moveClips(base, d.ids, dt, target - d.rowIndex, { copy: d.copy }));
         this.snapLine = sn.at;
         d.dt = dt;
+        // The Video panel shows the picture where the clip now starts (Preferences > Video).
+        this.app.emit('clip-spot', doc, Math.max(0, d.lead.start + dt));
         this.#status(`Move ${dt >= 0 ? '+' : '-'}${this.app.formatTime(Math.abs(dt), doc.sampleRate)}`);
         break;
       }
@@ -1604,6 +2200,8 @@ export class MultitrackView {
           break;
         }
         doc.preview(S.trimClip(d.state0, d.id, d.edge, to, doc.sourceLength(c.sourceId)));
+        const trimmed = S.findClip(doc.viewState, d.id);
+        if (trimmed) this.app.emit('clip-spot', doc, d.edge === 'in' ? trimmed.start : S.clipEnd(trimmed));
         break;
       }
       case 'stretch': {
@@ -1646,36 +2244,91 @@ export class MultitrackView {
         this.#status(`Fade ${d.dir === 'in' ? 'In' : 'Out'} ${this.app.formatTime(fc.length, doc.sampleRate)}`);
         break;
       }
+      case 'xfade': {
+        // Up bows the curves out (faster in), down bows them in; snaps to linear near the middle.
+        const base0 = d.curve0 === 2 ? 0 : d.curve0;
+        let curve = Math.max(-1, Math.min(1, base0 + (d.y0 - y) / 80));
+        if (Math.abs(curve) < 0.04) curve = 0;
+        doc.preview(S.setFade(d.state0, [d.id], d.dir, { curve: Math.round(curve * 100) / 100 }));
+        this.#status(`Crossfade shape ${curve === 0 ? 'linear' : curve > 0 ? `logarithmic ${Math.round(curve * 100)}%` : `exponential ${Math.round(-curve * 100)}%`}`);
+        break;
+      }
       case 'gain': {
-        const g = Math.max(-48, Math.min(24, Math.round((d.gain0 + (d.y0 - y) * 0.1) * 10) / 10));
-        doc.preview(S.updateClips(d.state0, [d.id], { gain: g }));
+        // 0.1 dB per pixel, ten times finer with Shift.
+        const delta = (d.y0 - y) * (e.shiftKey ? 0.01 : 0.1);
+        const clamp = (v) => Math.max(-48, Math.min(24, Math.round(v * 100) / 100));
+        const g = clamp(d.gain0 + delta);
+        const others = [...(d.gains || [])].filter(([id]) => id !== d.id);
+        doc.preview(S.updateClips(d.state0, [d.id, ...others.map(([id]) => id)], (x) => ({ gain: x.id === d.id ? g : clamp(d.gains.get(x.id) + delta) })));
         this.#status(`Clip Gain ${formatGain(g)}`);
         break;
       }
       case 'key': {
-        const c = S.findClip(doc.viewState, d.id) || S.findClip(d.state0, d.id);
+        const c = S.findClip(d.state0, d.id);
         const r = this.clipRects().find((q) => q.clip.id === d.id);
-        if (!r) break;
-        const pts = d.pts.slice();
-        const lo = d.index > 0 ? pts[d.index - 1].t : 0;
-        const hi = d.index < pts.length - 1 ? pts[d.index + 1].t : c.length;
-        const t = Math.max(lo, Math.min(hi, Math.round(this.snap(c.start + (x - r.x0) * this.fpp, { exclude: new Set([c.id]), off: fine }) - c.start)));
-        const v = this.#envValue(r, d.param, y);
-        pts[d.index] = { t, v };
+        if (!c || !r) break;
+        const t = this.snap(c.start + (x - r.x0) * this.fpp, { exclude: new Set([c.id]), off: fine }) - c.start;
+        const pos = 1 - (y - r.wy - 2) / Math.max(1, r.wh - 4);
+        const pts = this.#movedKeys(d, e, x, y, t, pos, c.length);
         doc.preview(S.setClipEnvelope(d.state0, d.id, d.param, pts));
-        this.#status(d.param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`);
+        const text = d.info ? d.info.format(pts[d.index].v) : keyText(d.param, pts[d.index].v);
+        this.#status(text);
+        this.keyReadout = { x: r.x0 + pts[d.index].t / this.fpp, y: this.#envY(r, d.param, pts[d.index].v), text };
         break;
       }
       case 'autoKey': {
         const row = this.rowOf(d.trackId);
-        const pts = d.pts.slice();
-        const lo = d.index > 0 ? pts[d.index - 1].t : 0;
-        const hi = d.index < pts.length - 1 ? pts[d.index + 1].t : Infinity;
-        const t = Math.max(lo, Math.min(hi, this.snap(this.frameAt(x), { off: fine })));
-        const v = this.#autoValue(row, d.param, y);
-        pts[d.index] = { t, v };
+        if (!row) break;
+        const pts = this.#movedKeys(d, e, x, y, this.snap(this.frameAt(x), { off: fine }), this.#autoPos(row, d.param, y), Infinity);
         doc.preview(S.setAutomation(d.state0, d.trackId, d.param, pts));
-        this.#status(d.param === 'pan' ? `Pan ${formatPan(v)}` : `Volume ${formatGain(v)}`);
+        const text = d.info ? d.info.format(pts[d.index].v) : keyText(d.param, pts[d.index].v);
+        this.#status(text);
+        this.keyReadout = { x: this.xOf(pts[d.index].t), y: this.#autoY(row, d.param, pts[d.index].v), text };
+        break;
+      }
+      case 'clipKeyBand': {
+        const r = this.clipRects().find((q) => q.clip.id === d.id);
+        if (!r) break;
+        const c = r.clip;
+        const rx = Math.min(d.x0, x);
+        const ry = Math.min(d.y0, y);
+        d.rect = { x: rx, y: ry, w: Math.abs(x - d.x0), h: Math.abs(y - d.y0) };
+        // The envelope with more keyframes inside the band wins (selection holds one envelope).
+        const inside = (param, pts) => {
+          const set = new Set();
+          pts.forEach((p, i) => {
+            const px = r.x0 + p.t / this.fpp;
+            const py = this.#envY(r, param, p.v);
+            if (px >= rx - 3 && px <= rx + d.rect.w + 3 && py >= ry - 3 && py <= ry + d.rect.h + 3) set.add(i);
+          });
+          return set;
+        };
+        const prefs = this.app.prefs;
+        const vol = prefs.get('clipVolumeEnvelopes') !== false ? inside('volume', c.volumeEnv) : new Set();
+        const pan = prefs.get('clipPanEnvelopes') ? inside('pan', c.panEnv) : new Set();
+        let [param, indices] = pan.size > vol.size ? ['pan', pan] : ['volume', vol];
+        for (const p of this.#clipFxParams(c)) {
+          const got = inside(p, S.clipEnvPoints(c, p));
+          if (got.size > indices.size) [param, indices] = [p, got];
+        }
+        doc.selectedKeys = indices.size ? { owner: c.id, param, indices } : null;
+        this.invalidate('overlay');
+        break;
+      }
+      case 'keyBand': {
+        const row = this.rowOf(d.trackId);
+        if (!row) break;
+        const rx = Math.min(d.x0, x);
+        const ry = Math.min(d.y0, y);
+        d.rect = { x: rx, y: ry, w: Math.abs(x - d.x0), h: Math.abs(y - d.y0) };
+        const indices = new Set(d.initial);
+        this.#laneKeys(row.track, d.param).forEach((p, i) => {
+          const px = this.xOf(p.t);
+          const py = this.#autoY(row, d.param, p.v);
+          if (px >= rx - 3 && px <= rx + d.rect.w + 3 && py >= ry - 3 && py <= ry + d.rect.h + 3) indices.add(i);
+        });
+        doc.selectedKeys = indices.size ? { owner: d.trackId, param: d.param, indices } : null;
+        this.invalidate('overlay');
         break;
       }
       case 'select': {
@@ -1713,6 +2366,7 @@ export class MultitrackView {
   #dragEnd(e) {
     const d = this.drag;
     this.drag = null;
+    if (d.kind === 'move' || d.kind === 'trim') this.app.emit('clip-spot', this.doc, null);
     this.snapLine = null;
     const doc = this.doc;
     const { x } = this.#local(e);
@@ -1754,12 +2408,20 @@ export class MultitrackView {
       this.invalidate();
       return;
     }
-    const labels = { move: d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: d.param === 'pan' ? 'Pan Automation' : 'Volume Automation' };
+    const labels = { move: d.newTracks ? (d.copy ? 'Copy Clips to New Track' : 'Move Clips to New Track') : d.copy ? 'Copy Clips' : d.ids?.length > 1 ? 'Move Clips' : 'Move Clip', trim: 'Trim Clip', slip: 'Slip Clip', xfade: 'Crossfade Shape', fade: d.dir === 'in' ? 'Fade In' : 'Fade Out', gain: 'Clip Gain', key: d.info ? `${d.info.short} Envelope` : d.param === 'pan' ? 'Pan Envelope' : 'Volume Envelope', autoKey: `${d.info?.short || laneName(d.param)} Automation` };
     const label = labels[d.kind];
     if (label && doc.previewState) {
       const state = doc.previewState;
       let clips;
       if (d.kind === 'move' && d.copy) clips = state.clips.slice(d.state0.clips.length).map((c) => c.id);
+      // Preferences > Multitrack: track automation can travel with moved clips.
+      if (d.kind === 'move' && !d.copy && this.app.prefs.get('automationFollowsClips')) {
+        doc.apply(label, S.carryAutomation(d.state0, state, d.ids));
+        announce(`${label} ${d.dt >= 0 ? 'right' : 'left'} by ${this.app.formatTime(Math.abs(d.dt || 0), doc.sampleRate)}`);
+        this.#status('');
+        this.invalidate();
+        return;
+      }
       // A dragged keyframe keeps its place among the others, so it stays selected.
       const keys = d.kind === 'key' || d.kind === 'autoKey' ? doc.selectedKeys : null;
       doc.apply(label, state, clips ? { clips } : {});
@@ -1792,7 +2454,39 @@ export class MultitrackView {
         const keys = doc.selectedKeys;
         doc.apply(d.kind === 'key' ? 'Add Keyframe' : 'Add Automation Keyframe', state);
         doc.selectedKeys = keys;
+      } else if (d.onClick && doc.selectedKeys) {
+        const sk = doc.selectedKeys;
+        const indices = d.onClick === 'only' ? new Set([d.index]) : new Set([...sk.indices].filter((i) => i !== d.index));
+        doc.selectedKeys = indices.size ? { ...sk, indices } : null;
       }
+      return;
+    }
+    if (d.kind === 'clipKeyBand') {
+      doc.selectedKeys = null;
+      return;
+    }
+    if (d.kind === 'keyBand') {
+      // A click in an empty part of a lane clears its keyframe selection, or with nothing selected
+      // adds a keyframe on the curve at that time (the value it already has there).
+      if (d.initial.size) return;
+      if (doc.selectedKeys) {
+        doc.selectedKeys = null;
+        return;
+      }
+      const t = S.findTrack(doc.state, d.trackId);
+      if (!t || e.shiftKey || e.metaKey || e.ctrlKey) return;
+      const info = this.#info(t, d.param);
+      const pts = this.#laneKeys(t, d.param).slice();
+      const at = Math.round(this.snap(f));
+      const prev = pts.filter((p) => p.t <= at).pop();
+      const key = { t: at, v: S.envelopeValue(pts, at, info.value), ...(info.stepped || prev?.hold ? { hold: true } : {}) };
+      const near = Math.max(1, Math.round(this.fpp * 2));
+      if (pts.some((p) => Math.abs(p.t - at) <= near)) return;
+      pts.push(key);
+      pts.sort((a, b) => a.t - b.t);
+      // The new keyframe is not selected, so the next click adds another.
+      doc.apply(`${info.short} Automation`, S.setAutomation(doc.state, t.id, d.param, pts));
+      announce(`Keyframe added: ${info.format(key.v)}`);
       return;
     }
     if (d.kind === 'marquee' || (d.kind === 'select' && !hit.clip)) {
@@ -1814,6 +2508,7 @@ export class MultitrackView {
 
   #cancelDrag() {
     if (!this.drag) return;
+    if (this.drag.kind === 'move' || this.drag.kind === 'trim') this.app.emit('clip-spot', this.doc, null);
     this.drag = null;
     this.snapLine = null;
     this.doc.preview(null);
@@ -1833,6 +2528,112 @@ export class MultitrackView {
     if (text) this.app.setStatus(text);
   }
 
+  /**
+   * Clip context menu: the clip effects' settings, each toggling its envelope (a new one starts
+   * flat at the setting's value; showing them turns View > Show Clip Effect Envelopes on).
+   */
+  #clipFxEnvelopeItems(clipId) {
+    const doc = this.doc;
+    const c = S.findClip(doc.state, clipId);
+    if (!c?.fx?.length) return [{ type: 'cmd', label: 'Add effects to the clip first (Effects Rack, Clip)', enabled: false, run: () => {} }];
+    const items = fxAutomationParams({ fx: c.fx }).map((p) => {
+      const on = Boolean(c.fxEnv?.[p.id]?.length);
+      return {
+        effect: `${S.fxParamRef(p.id).slotId}\u0000${p.effect}`,
+        type: 'cmd',
+        label: p.label,
+        enabled: true,
+        checked: on,
+        run: () => {
+          if (on) {
+            doc.apply('Remove Effect Envelope', S.setClipEnvelope(doc.state, c.id, p.id, []));
+            return;
+          }
+          const v = this.#clipInfo(c, p.id).value;
+          const info = this.#clipInfo(c, p.id);
+          doc.apply('Add Effect Envelope', S.setClipEnvelope(doc.state, c.id, p.id, [{ t: 0, v, ...(info.stepped ? { hold: true } : {}) }, { t: c.length, v }]));
+          if (this.app.prefs.get('clipEffectEnvelopes') === false) this.app.prefs.set('clipEffectEnvelopes', true);
+        },
+      };
+    });
+    // One submenu per effect in the chain.
+    const groups = new Map();
+    for (const it of items) {
+      if (!groups.has(it.effect)) groups.set(it.effect, []);
+      groups.get(it.effect).push(it);
+    }
+    return [...groups].map(([key, list]) => ({ type: 'sub', label: key.split('\u0000')[1], items: list }));
+  }
+
+  /** The points of a clip envelope or automation lane, and a function that commits new ones. */
+  #envelopeOf(owner, param) {
+    const doc = this.doc;
+    const clip = S.findClip(doc.state, owner);
+    if (clip) return { points: S.clipEnvPoints(clip, param), commit: (pts, label) => doc.apply(label, S.setClipEnvelope(doc.state, clip.id, param, pts)) };
+    const t = S.findTrack(doc.state, owner);
+    if (!t) return null;
+    return { points: this.#laneKeys(t, param), commit: (pts, label) => doc.apply(label, S.setAutomation(doc.state, t.id, param, pts)) };
+  }
+
+  /** Items of the keyframe (or, with `lane`, automation lane) context menu. */
+  #keyMenu(owner, param, auto, { lane = false } = {}) {
+    const doc = this.doc;
+    const env = this.#envelopeOf(owner, param);
+    const sk = doc.selectedKeys;
+    const sel = !lane && sk && sk.owner === owner && sk.param === param ? sk.indices : new Set();
+    const pts = env?.points || [];
+    const allHold = sel.size > 0 && [...sel].every((i) => pts[i]?.hold);
+    const run = (cmd, args) => this.app.commands.run(cmd, { id: owner, param, ...args });
+    const ownerTrack = auto ? S.findTrack(doc.state, owner) : null;
+    const ownerClip = auto ? null : S.findClip(doc.state, owner);
+    const stepped = Boolean(ownerTrack ? this.#info(ownerTrack, param).stepped : ownerClip && S.fxParamRef(param) && this.#clipInfo(ownerClip, param).stepped);
+    const items = [];
+    if (!lane) {
+      items.push(
+        {
+          type: 'cmd',
+          label: 'Hold Keyframe',
+          // Mute, switch and choice keyframes always hold.
+          enabled: !stepped,
+          checked: stepped || allHold,
+          run: () => {
+            const keep = doc.selectedKeys;
+            env.commit(pts.map((p, i) => (!sel.has(i) ? p : allHold ? { t: p.t, v: p.v } : { ...p, hold: true })), allHold ? 'Linear Keyframes' : 'Hold Keyframes');
+            doc.selectedKeys = keep;
+          },
+        },
+        { type: 'cmd', label: sel.size > 1 ? `Delete ${sel.size} Keyframes` : 'Delete Keyframe', enabled: true, run: () => this.deleteSelectedKeys() },
+        { type: 'sep' },
+      );
+    }
+    items.push({
+      type: 'cmd',
+      label: 'Select All Keyframes',
+      enabled: pts.length > 0,
+      run: () => {
+        doc.selectedKeys = { owner, param, indices: new Set(pts.map((_, i) => i)) };
+        this.invalidate('overlay');
+      },
+    });
+    if (auto) {
+      const t = S.findTrack(doc.state, owner);
+      items.push(
+        { type: 'cmd', label: 'Clear Lane', enabled: pts.length > 0, run: () => run('mt.clearAutomation') },
+        { type: 'sep' },
+        { type: 'cmd', label: 'Add Automation Lane', enabled: Boolean(t && laneParams(t).some((p) => !S.trackLanes(t).includes(p))), run: () => run('mt.addAutomationLane') },
+        { type: 'cmd', label: 'Close Lane', enabled: true, run: () => run('mt.removeAutomationLane', { lane: S.trackLanes(t).indexOf(param) }) },
+      );
+    } else {
+      const c = S.findClip(doc.state, owner);
+      const key = param === 'pan' ? 'panSpline' : 'volumeSpline';
+      const fx = S.fxParamRef(param);
+      if (c && !fx) items.push({ type: 'cmd', label: 'Spline Curves', enabled: true, checked: Boolean(c[key]), run: () => doc.apply(c[key] ? 'Linear Envelope' : 'Spline Envelope', S.updateClips(doc.state, [c.id], { [key]: !c[key] })) });
+      items.push({ type: 'cmd', label: fx ? 'Remove Envelope' : 'Clear Envelope', enabled: pts.length > 0, run: () => env.commit([], fx ? 'Remove Effect Envelope' : param === 'pan' ? 'Clear Pan Envelope' : 'Clear Volume Envelope') });
+      if (!c) items.pop();
+    }
+    return items;
+  }
+
   deleteSelectedKeys() {
     const doc = this.doc;
     const sk = doc.selectedKeys;
@@ -1840,12 +2641,11 @@ export class MultitrackView {
     const clip = S.findClip(doc.state, sk.owner);
     let state;
     if (clip) {
-      const key = sk.param === 'pan' ? 'panEnv' : 'volumeEnv';
-      state = S.setClipEnvelope(doc.state, clip.id, sk.param, clip[key].filter((_, i) => !sk.indices.has(i)));
+      state = S.setClipEnvelope(doc.state, clip.id, sk.param, S.clipEnvPoints(clip, sk.param).filter((_, i) => !sk.indices.has(i)));
     } else {
       const t = S.findTrack(doc.state, sk.owner);
       if (!t) return false;
-      state = S.setAutomation(doc.state, t.id, sk.param, t.automation[sk.param].filter((_, i) => !sk.indices.has(i)));
+      state = S.setAutomation(doc.state, t.id, sk.param, (t.automation[sk.param] || []).filter((_, i) => !sk.indices.has(i)));
     }
     doc.selectedKeys = null;
     doc.apply('Delete Keyframe', state);
@@ -1963,11 +2763,12 @@ export class MultitrackView {
       const p = place(e);
       this.dropHint = null;
       this.invalidate('overlay');
-      const id = e.dataTransfer.getData('application/x-audio-studio-file');
+      // File ids from the Files panel, one per line (several files can be dragged at once).
+      const ids = e.dataTransfer.getData('application/x-audio-studio-file').split('\n').filter(Boolean);
       const mt = this.app.multitrack;
-      if (id) {
-        const doc = this.app.documents.find((d) => d.id === id);
-        if (doc && doc.kind === 'audio') await mt.insertDocs(this.doc, [doc], p);
+      if (ids.length) {
+        const docs = ids.map((id) => this.app.documents.find((d) => d.id === id)).filter((d) => d && d.kind === 'audio');
+        if (docs.length) await mt.insertDocs(this.doc, docs, p);
         return;
       }
       const files = [...(e.dataTransfer.files || [])];

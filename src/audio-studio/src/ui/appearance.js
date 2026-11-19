@@ -51,11 +51,14 @@ export const TEXT_TOKENS = [
   '--text-faint',
   '--accent-strong',
   '--hot',
+  '--tab-mark',
+  '--btn-border',
+  '--btn-border-hover',
 ];
 const TEXT_SURFACES = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input'];
 
 /** Surface tokens that the brightness setting lightens or darkens. */
-export const BRIGHTNESS_TOKENS = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input', '--bg-hover', '--bg-active', '--bg-track', '--bg-track-alt', '--bg-ruler', '--border', '--border-soft', '--divider'];
+export const BRIGHTNESS_TOKENS = ['--bg-app', '--bg-panel', '--bg-panel-alt', '--bg-raised', '--bg-input', '--bg-hover', '--bg-active', '--bg-track', '--bg-track-alt', '--bg-ruler', '--bg-well', '--border-well', '--meter-bg', '--border', '--border-soft', '--divider'];
 
 const hex2 = (n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
 
@@ -180,7 +183,7 @@ export function appearanceVars(prefs, theme = resolvedTheme(), base = () => '') 
   if (bg) vars['--bg-editor'] = bg;
   if (wave) {
     vars['--wave'] = wave;
-    vars['--wave-dim'] = mixColors(wave, bg || (theme === 'light' ? '#fbfbfb' : '#050505'), 0.55);
+    vars['--wave-dim'] = mixColors(wave, bg || (theme === 'light' ? '#fbfbfb' : '#000000'), 0.55);
   }
   if (sel) {
     vars['--wave-sel'] = sel;
@@ -209,7 +212,7 @@ export function markerColor(type) {
   return (type && type !== 'cue' && cssVar(`--marker-${type}`)) || cssVar('--marker');
 }
 
-const APPLIED = ['--text-strong', '--text', '--text-dim', '--text-faint', '--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
+const APPLIED = ['--text-strong', '--text', '--text-dim', '--text-faint', '--tab-mark', '--btn-border', '--btn-border-hover', '--accent', '--accent-strong', '--accent-soft', '--accent-fill', '--accent-fill-hover', '--hot', '--focus', '--cti', '--bg-editor', '--wave', '--wave-dim', '--wave-sel', '--sel-bg', '--sel-edge', '--playhead', '--marker', '--marker-range', '--marker-subclip', '--marker-cart', '--marker-cd', ...BRIGHTNESS_TOKENS];
 let lastKey = '';
 
 /** Writes the appearance properties onto <html>; repaints (via 'themechange') when they changed. */

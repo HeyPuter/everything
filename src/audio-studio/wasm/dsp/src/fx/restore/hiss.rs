@@ -164,6 +164,7 @@ impl Effect for HissReduction {
             instant_rise: false,
             smooth_bins: 1,
             dilate_bins: 0,
+            snr_bins: 0,
             fall: fall_per_frame(self.decay * 6.0, hop, self.rate),
             residual: self.residual,
         };

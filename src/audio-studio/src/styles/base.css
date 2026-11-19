@@ -53,6 +53,12 @@ svg.icon {
   outline-offset: -2px;
 }
 
+/* Sliders: a rounded ring just outside the track, not a box over it. */
+input[type='range']:focus-visible {
+  border-radius: var(--radius);
+  outline-offset: 1px;
+}
+
 .sr-only {
   position: absolute !important;
   width: 1px;
@@ -77,6 +83,10 @@ svg.icon {
   background-clip: content-box;
 }
 
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-hover);
+}
+
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -95,10 +105,11 @@ svg.icon {
   justify-content: center;
   gap: 6px;
   height: var(--control);
-  padding: 0 10px;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
+  padding: 0 12px;
+  /* Rounded, outlined push buttons; the default action is filled with the accent. */
+  border: 1px solid var(--btn-border);
+  border-radius: calc(var(--control) / 2);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
@@ -106,7 +117,9 @@ svg.icon {
 }
 
 .btn:hover:not(:disabled) {
+  border-color: var(--btn-border-hover);
   background: var(--bg-hover);
+  color: var(--text-strong);
 }
 
 .btn:active:not(:disabled) {
@@ -127,6 +140,19 @@ svg.icon {
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-fill-hover);
   border-color: var(--accent-fill-hover);
+  color: var(--accent-text);
+}
+
+.btn:focus-visible {
+  outline-offset: 1px;
+}
+
+/* A default button that is off reads as off in both themes: a quiet fill, not a faded accent. */
+.btn.primary:disabled {
+  border-color: var(--border-soft);
+  background: var(--bg-active);
+  color: var(--text-faint);
+  opacity: 1;
 }
 
 .btn.danger {
@@ -229,12 +255,99 @@ textarea.input {
   resize: vertical;
 }
 
+/* Check boxes and radio buttons drawn in the theme: an input-colored box with an
+   outline, filled with the accent when on. */
 input[type='checkbox'],
 input[type='radio'] {
-  accent-color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: none;
   margin: 0;
   width: 14px;
   height: 14px;
+  border: 1px solid var(--btn-border);
+  border-radius: 3px;
+  background: var(--bg-input);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--btn-border-hover);
+}
+
+input[type='checkbox']:checked,
+input[type='checkbox']:indeterminate,
+input[type='radio']:checked {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+}
+
+input[type='checkbox']::before,
+input[type='radio']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  transform: scale(0);
+  background: var(--accent-text);
+  transition: transform 80ms var(--ease);
+}
+
+input[type='checkbox']::before {
+  clip-path: polygon(14% 52%, 0% 66%, 38% 100%, 100% 26%, 86% 12%, 38% 72%);
+}
+
+input[type='checkbox']:indeterminate::before {
+  height: 2px;
+  clip-path: none;
+}
+
+input[type='radio']::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+input[type='checkbox']:checked::before,
+input[type='checkbox']:indeterminate::before,
+input[type='radio']:checked::before {
+  transform: scale(1);
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline-offset: 1px;
+}
+
+@media (pointer: coarse) {
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 18px;
+    height: 18px;
+  }
+
+  input[type='checkbox']::before {
+    width: 12px;
+    height: 12px;
+  }
+
+  input[type='radio']::before {
+    width: 8px;
+    height: 8px;
+  }
 }
 
 .check {
@@ -267,6 +380,10 @@ input[type='radio'] {
   text-decoration: underline dotted;
 }
 
+.hot:focus-visible {
+  outline-offset: 1px;
+}
+
 .hot:disabled {
   color: var(--text-faint);
   cursor: default;
@@ -284,7 +401,9 @@ input.hot-edit {
 }
 
 /* Range slider */
-input[type='range'].slider {
+input[type='range'].slider,
+input[type='range'].prefs-range,
+input[type='range'].media-seek {
   -webkit-appearance: none;
   appearance: none;
   height: 18px;
@@ -292,13 +411,17 @@ input[type='range'].slider {
   min-width: 60px;
 }
 
-input[type='range'].slider::-webkit-slider-runnable-track {
+input[type='range'].slider::-webkit-slider-runnable-track,
+input[type='range'].prefs-range::-webkit-slider-runnable-track,
+input[type='range'].media-seek::-webkit-slider-runnable-track {
   height: 3px;
   border-radius: 2px;
   background: var(--divider);
 }
 
-input[type='range'].slider::-webkit-slider-thumb {
+input[type='range'].slider::-webkit-slider-thumb,
+input[type='range'].prefs-range::-webkit-slider-thumb,
+input[type='range'].media-seek::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 12px;
   height: 12px;
@@ -308,18 +431,56 @@ input[type='range'].slider::-webkit-slider-thumb {
   background: var(--text);
 }
 
-input[type='range'].slider::-moz-range-track {
+input[type='range'].slider::-moz-range-track,
+input[type='range'].prefs-range::-moz-range-track,
+input[type='range'].media-seek::-moz-range-track {
   height: 3px;
   border-radius: 2px;
   background: var(--divider);
 }
 
-input[type='range'].slider::-moz-range-thumb {
+input[type='range'].slider::-moz-range-thumb,
+input[type='range'].prefs-range::-moz-range-thumb,
+input[type='range'].media-seek::-moz-range-thumb {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--text);
+}
+
+input[type='range'].slider:hover:not(:disabled)::-webkit-slider-thumb,
+input[type='range'].prefs-range:hover:not(:disabled)::-webkit-slider-thumb,
+input[type='range'].media-seek:hover:not(:disabled)::-webkit-slider-thumb {
+  background: var(--text-strong);
+}
+
+input[type='range']:disabled {
+  opacity: 0.45;
+}
+
+/* Number fields scrub like the hot values (controls.js installNumberScrub): no spin buttons,
+   the value in the accent color with a sideways cursor until the field is focused for typing. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type='number']:not(:focus):not(:disabled):not([readonly]) {
+  color: var(--hot);
+  cursor: ew-resize;
+}
+
+@media (pointer: coarse) {
+  input[type='number']:not(:focus) {
+    cursor: auto;
+  }
 }
 
 /* Knob control (canvas-free SVG) */
@@ -360,6 +521,7 @@ input[type='range'].slider::-moz-range-thumb {
   border-radius: var(--radius);
   background: var(--bg-raised);
   color: var(--text);
+  box-shadow: var(--shadow-pop);
 }
 
 .menu-item {
@@ -446,10 +608,49 @@ input[type='range'].slider::-moz-range-thumb {
   border-radius: var(--radius-lg);
   background: var(--bg-panel);
   color: var(--text);
+  box-shadow: var(--shadow-dialog);
 }
 
 .dialog.wide {
   max-width: min(880px, 100%);
+}
+
+/* A floating (modeless) window: the app behind it stays live. */
+.dialog-backdrop.modeless {
+  background: transparent;
+  pointer-events: none;
+}
+
+/* Floating windows share a stack with floating panel frames (src/ui/window-stack.js):
+   under modal dialogs, menus and tooltips, the one last clicked in front. */
+.dialog-backdrop.modeless {
+  z-index: 850;
+}
+
+.dialog.floating {
+  position: fixed;
+  pointer-events: auto;
+  box-shadow: var(--shadow-dialog);
+}
+
+/* However wide its content asks to be, a floating window fits the screen (tablets in portrait). */
+.dialog-backdrop.modeless > .dialog.floating {
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+}
+
+/* The window you are working in has the accent edge, like the focused panel frame. */
+.dialog.floating:focus-within {
+  border-color: var(--accent);
+}
+
+.dialog.floating:focus {
+  outline: none;
+}
+
+.dialog.floating .dialog-head {
+  cursor: move;
+  touch-action: none;
 }
 
 .dialog-head {
@@ -458,6 +659,20 @@ input[type='range'].slider::-moz-range-thumb {
   gap: 8px;
   padding: 10px 12px 8px 16px;
   border-bottom: 1px solid var(--border-soft);
+}
+
+/* The title bar moves the dialog (desktop layouts). */
+@media (min-width: 601px) {
+  .dialog-head {
+    cursor: move;
+    user-select: none;
+    /* A finger on the title bar moves the dialog instead of scrolling the page. */
+    touch-action: none;
+  }
+
+  .dialog-head .icon-btn {
+    cursor: pointer;
+  }
 }
 
 .dialog-title {
@@ -531,6 +746,7 @@ input[type='range'].slider::-moz-range-thumb {
   border-radius: var(--radius);
   background: var(--bg-raised);
   color: var(--text-strong);
+  box-shadow: var(--shadow-pop);
   pointer-events: auto;
 }
 
@@ -540,6 +756,49 @@ input[type='range'].slider::-moz-range-thumb {
 
 .toast .btn {
   height: 22px;
+}
+
+/* ----------------------------------------------------------------- tooltips */
+
+.tooltip {
+  position: fixed;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 8px));
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  pointer-events: none;
+  animation: tooltip-in 90ms var(--ease);
+}
+
+.tooltip-key {
+  flex: none;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--divider);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font: inherit;
+  text-align: center;
+}
+
+.tooltip-key[hidden] {
+  display: none;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+  }
 }
 
 /* ---------------------------------------------------------------- utilities */
@@ -585,6 +844,175 @@ input[type='range'].slider::-moz-range-thumb {
   flex-shrink: 0;
 }
 
+/* -------------------------------------------------------------- touch targets */
+/* On touch screens small controls keep their look but get a finger-sized hit area (at least
+   32 px) from an invisible box around them. Controls with their own ::after are left alone. */
+@media (pointer: coarse) {
+  .icon-btn.sm,
+  .hot,
+  .channel-btn,
+  .hud-knob,
+  .hud-pin,
+  .mx-gutter-btn,
+  .time-display {
+    position: relative;
+  }
+
+  .icon-btn.sm::after,
+  .hot::after,
+  .channel-btn::after,
+  .hud-knob::after,
+  .hud-pin::after,
+  .mx-gutter-btn::after,
+  .time-display::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+}
+
+/* ------------------------------------------------------------------ motion */
+/* Short, quiet entrances (90 to 160 ms) for things that appear; nothing moves on the way out.
+   Reduced motion turns them all off (below). */
+
+.menu {
+  animation: pop-in 90ms var(--ease);
+  transform-origin: top left;
+}
+
+.dialog-backdrop {
+  animation: fade-in 120ms var(--ease);
+}
+
+.dialog {
+  animation: dialog-in 160ms var(--ease);
+}
+
+.toast {
+  animation: rise-in 160ms var(--ease);
+}
+
+.panel-body.panel-enter {
+  animation: fade-in 110ms var(--ease);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (max-width: 600px) {
+  /* Bottom sheets slide up. */
+  .dialog {
+    animation-name: sheet-in;
+    animation-duration: 200ms;
+  }
+
+  @keyframes sheet-in {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+  }
+}
+
+/* --------------------------------------------------------------- progress */
+/* Every progress bar (effects, exports, analysis, batch) shares one look: a rounded well with an
+   accent fill that moves smoothly, with a slow sheen while work runs. */
+
+.fx-progress,
+.io-progress-bar,
+.analysis-progress,
+.batch-progress {
+  border-radius: 999px;
+  background: var(--bg-well);
+  box-shadow: inset 0 0 0 1px var(--border-well);
+  overflow: hidden;
+}
+
+.fx-progress-fill,
+.io-progress-fill,
+.analysis-progress-bar,
+.batch-progress-bar {
+  border-radius: inherit;
+  background-color: var(--accent);
+  background-image: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.28) 50%, transparent 100%);
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  transition: width 160ms linear;
+  animation: progress-sheen 1.6s linear infinite;
+}
+
+@keyframes progress-sheen {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* App busy (src/ui/busy.js): a thin moving line under the toolbar and a progress cursor. */
+:root[data-busy] .workspace {
+  position: relative;
+}
+
+:root[data-busy] .workspace::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat;
+  background-size: 30% 100%;
+  animation: busy-line 1.2s var(--ease) infinite;
+  pointer-events: none;
+}
+
+:root[data-busy] body {
+  cursor: progress;
+}
+
+@keyframes busy-line {
+  from {
+    background-position: -30% 0;
+  }
+  to {
+    background-position: 130% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-busy] .workspace::before {
+    background: var(--accent);
+    opacity: 0.6;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
@@ -619,6 +1047,34 @@ input[type='range'].slider::-moz-range-thumb {
   .panel-tab[aria-selected='true']::after {
     forced-color-adjust: none;
     background: Highlight;
+  }
+
+  .dock-drop.zone-tabs {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+
+  .tooltip {
+    border-color: CanvasText;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate,
+  input[type='radio']:checked {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  input[type='checkbox']::before,
+  input[type='radio']::before {
+    background: HighlightText;
   }
 
   .workspace-tab[aria-selected='true'],

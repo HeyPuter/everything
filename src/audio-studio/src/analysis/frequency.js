@@ -13,6 +13,7 @@ import { dsp } from '../audio/dsp.js';
 import { makeScale, frequencyTicks, formatHzLong, noteName, formatHz } from '../spectral/freq-scale.js';
 import { analysisPool } from './pool.js';
 import { fitCanvas, masterTap } from './common.js';
+import { toolbarKeys } from '../panels/toolbar-keys.js';
 
 const FFTS = [1024, 2048, 4096, 8192, 16384];
 const WINDOWS = [
@@ -99,9 +100,11 @@ export function frequencyPanel(app) {
   const toolbar = h(
     'div.panel-toolbar.analysis-toolbar',
     h('label.freq-field', h('span', 'Scale:'), scaleSel),
-    h('div.freq-holds', { role: 'group', 'aria-label': 'Hold slots' }, h('span.freq-holds-label', 'Hold:'), ...holdBtns),
+    h('div.freq-holds', { role: 'toolbar', 'aria-label': 'Hold slots' }, h('span.freq-holds-label', 'Hold:'), ...holdBtns),
     clearBtn,
   );
+  // The eight slots are one tab stop; arrow keys move between them.
+  toolbarKeys(toolbar.querySelector('.freq-holds'));
   const displaySel = select({ label: 'Display', value: p0.display, options: DISPLAYS, onChange: (v) => setPref({ display: v }) });
   const scanBtn = h('button.btn.sm', { type: 'button', title: 'Average the spectrum of the selection, or of the whole file', onclick: () => scanNow() }, 'Scan');
   const advBtn = h('button.disclosure.freq-adv-toggle', { type: 'button', 'aria-expanded': String(Boolean(p0.advanced)), onclick: () => setPref({ advanced: !prefs().advanced }) }, icon('chevron-right', 12), 'Advanced');
@@ -392,6 +395,40 @@ export function frequencyPanel(app) {
       ctx.fillRect(Math.round(hoverX), g.top, 1, g.bottom - g.top);
     }
     ctx.restore();
+    // What the trace shows, in the plot corner (live while playing, or what was measured).
+    if (data) {
+      ctx.font = CANVAS_FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = cssVar('--text-faint');
+      ctx.fillText(app.engine.playing ? 'Live' : data.label, g.left + 6, g.top + 4);
+    }
+    // Pointer readout at the cursor: a dot on the first trace and its frequency and level.
+    if (hoverX !== null && data && hoverX >= g.left && hoverX <= g.right) {
+      const f = scale.toHz((hoverX - g.left) / (g.right - g.left));
+      const [, db] = traces(data, channel)[0] || [];
+      const k = Math.round(f / (rate / data.fft));
+      const v = db && Number.isFinite(db[k]) ? db[k] : null;
+      const text = `${formatHzLong(f)}${v === null ? '' : `  ${v.toFixed(1)} dB`}`;
+      if (v !== null) {
+        const y = Math.min(g.bottom, Math.max(g.top, yOf(v)));
+        ctx.fillStyle = cssVar('--text-strong');
+        ctx.beginPath();
+        ctx.arc(hoverX, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.font = CANVAS_FONT;
+      const tw = ctx.measureText(text).width + 10;
+      const x = hoverX + 8 + tw > g.right ? hoverX - 8 - tw : hoverX + 8;
+      ctx.fillStyle = cssVar('--bg-raised');
+      ctx.globalAlpha = 0.92;
+      ctx.fillRect(x, g.top + 18, tw, 16);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = cssVar('--text-strong');
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + 5, g.top + 26);
+    }
     // Legend and readout.
     legend.replaceChildren(
       ...traces(data, channel).map(([name]) => h('span.legend-item', h('span.swatch', { style: { background: colors[name] } }), name === 'M' ? 'Mid' : name === 'L' ? 'Left' : 'Right')),
@@ -490,5 +527,20 @@ export function frequencyPanel(app) {
       plot.focus();
     },
     scan: () => scanNow(),
+    /** Panel menu: scale, display, scan and the held traces. */
+    menu: () => {
+      const p = prefs();
+      const radio = (label, on, patch) => ({ type: 'cmd', label, enabled: true, checked: on, run: () => setPref(patch) });
+      return [
+        radio('Logarithmic Scale', p.log, { log: true }),
+        radio('Linear Scale', !p.log, { log: false }),
+        { type: 'sep' },
+        ...DISPLAYS.map((d) => radio(d.label, p.display === d.value, { display: d.value })),
+        { type: 'sep' },
+        { type: 'cmd', label: 'Scan', enabled: !scanBtn.disabled, run: () => scanNow() },
+        { type: 'cmd', label: 'Clear Held Traces', enabled: holds.some(Boolean), run: () => clearHolds() },
+        { type: 'cmd', label: 'Show Advanced Settings', enabled: true, checked: Boolean(p.advanced), run: () => setPref({ advanced: !p.advanced }) },
+      ];
+    },
   };
 }

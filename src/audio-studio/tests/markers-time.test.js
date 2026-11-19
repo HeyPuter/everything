@@ -57,3 +57,13 @@ describe('time', () => {
     expect(rulerLabel(12.25, 0.01)).toBe('12.25');
   });
 });
+
+describe('range marker names', () => {
+  it('count in their own sequence', async () => {
+    const { newMarkerName } = await import('../src/model/markers.js');
+    const markers = [{ name: 'Marker 01' }, { name: 'Marker 02' }, { name: 'Range 01' }];
+    expect(newMarkerName(markers, { range: true })).toBe('Range 02');
+    expect(newMarkerName(markers)).toBe('Marker 03');
+    expect(newMarkerName([], { range: true })).toBe('Range 01');
+  });
+});

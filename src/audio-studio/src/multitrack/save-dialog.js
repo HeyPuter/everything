@@ -14,11 +14,13 @@ export async function sessionSaveDialog(app, doc, { copy = false } = {}) {
   const name = h('input.input.io-name', { id: `${id}-name`, 'aria-label': 'File name', value: `${sessionBaseName(doc.name)}.asesx`, spellcheck: false });
   const folder = h('input.input.io-name', { id: `${id}-folder`, 'aria-label': 'Puter folder', value: dir, spellcheck: false });
   const browse = h('button.btn', { type: 'button' }, 'Browse...');
+  const includeOpen = h('input', { type: 'checkbox', checked: Boolean(app.prefs.get('sessionIncludeOpenFiles')) });
   const error = h('p.io-error', { role: 'alert' });
   const body = h('div.io-export-wrap.io-export',
     h('div.form-grid',
       h('label', { for: name.id }, 'File name:'), name,
       h('label', { for: folder.id }, 'Puter folder:'), h('div.io-loc-path', folder, browse)),
+    h('label.check', includeOpen, 'Include all open audio files (they reopen with the session)'),
     h('p.muted', 'The session and its media will be saved in this folder.'), error);
   let active = true;
   let checking = false;
@@ -93,5 +95,6 @@ export async function sessionSaveDialog(app, doc, { copy = false } = {}) {
   active = false;
   if (result !== 'save') return null;
   app.prefs.set('sessionSaveFolder', destination.dir);
+  app.prefs.set('sessionIncludeOpenFiles', includeOpen.checked);
   return destination;
 }

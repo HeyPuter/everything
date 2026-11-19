@@ -68,7 +68,7 @@ async function run({ id, graph, start, end, module, block = 8192 }) {
       await ensureChunks(id, job, graph, at, n);
       if (job.cancelled) throw new Error('cancelled');
       const out = Array.from({ length: graph.surround ? 6 : 2 }, () => new Float32Array(n));
-      renderBlock(graph, job.store, at, n, out, scratch, { runFx: host ? (chain, buf, f) => host.run(chain, buf, f) : null });
+      renderBlock(graph, job.store, at, n, out, scratch, { runFx: host ? (chain, buf, f, at) => host.run(chain, buf, f, at) : null });
       self.postMessage({ type: 'data', id, at: at - start, channels: out }, out.map((c) => c.buffer));
       dropBehind(job, graph, at);
       const done = at + n - start;

@@ -8,12 +8,14 @@ import { Channel } from '../audio/channel.js';
 import { baseName } from '../audio/decode.js';
 import { openDialog } from '../ui/dialog.js';
 import { pickLocalFiles, openFiles } from '../storage/files.js';
-import { FORMATS, getFormat, sanitizeFileName, withExtension } from '../export/formats.js';
+import { getFormat, sanitizeFileName, withExtension } from '../export/formats.js';
+import { formatsNow, webCodecsSupport } from '../export/dialog.js';
 import { exportAudio } from '../export/export.js';
 import { withProgress } from '../export/progress.js';
 import { exportOptionsFor, batchSettings, uniqueName } from '../batch/queue.js';
 import { outputWriter } from '../batch/export-settings.js';
 import * as puter from '../storage/puter.js';
+import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
 
@@ -42,7 +44,8 @@ export function sessionOnlyMedia(documents, session) {
 }
 
 async function closeAll(app, docs) {
-  for (const d of docs) if (!(await app.closeDocument(d))) return false;
+  const batch = { others: docs.filter((d) => d.dirty).length - 1, answer: null };
+  for (const d of docs) if (!(await app.closeDocument(d, { batch }))) return false;
   return true;
 }
 
@@ -112,12 +115,25 @@ export function decodeRaw(bytes, { encoding, channels, bigEndian = false, offset
   return out;
 }
 
-async function importRawDialog(app) {
+/** One file of any type, from Puter when signed in, else from this device. */
+async function pickAnyFile() {
+  if (puter.sdk() && puter.isSignedIn()) {
+    const [item] = await puter.pickFiles({ multiple: false });
+    if (!item) return null;
+    const blob = typeof item.read === 'function' ? await item.read() : await puter.readFile(item.path);
+    return new File([blob], item.name || 'Raw data');
+  }
   const [file] = await pickLocalFiles({ accept: '*/*', multiple: false });
+  return file || null;
+}
+
+async function importRawDialog(app) {
+  const file = await pickAnyFile();
   if (!file) return;
   // The last settings used come back (raw files usually arrive in batches of one kind).
   const last = { rate: 44100, channels: 2, encoding: 's16', order: 'le', offset: 0, ...(app.prefs.get('importRaw') || {}) };
-  const rate = h('select.select', { 'aria-label': 'Sample rate' }, [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000].map((r) => h('option', { value: r, selected: r === last.rate }, `${r} Hz`)));
+  const rate = rateField(last.rate);
+  const error = h('div.dlg-error', { role: 'alert' });
   const channels = h('input.input.num', { type: 'number', min: 1, max: 8, value: last.channels, 'aria-label': 'Channels' });
   const enc = h('select.select', { 'aria-label': 'Sample type' }, RAW_ENCODINGS.map((e) => h('option', { value: e.id, selected: e.id === last.encoding }, e.label)));
   const order = h('select.select', { 'aria-label': 'Byte order' }, h('option', { value: 'le' }, 'Little-endian'), h('option', { value: 'be' }, 'Big-endian'));
@@ -128,39 +144,51 @@ async function importRawDialog(app) {
     const e = RAW_ENCODINGS.find((x) => x.id === enc.value);
     order.disabled = e.bytes === 1;
     const frames = Math.max(0, Math.floor((file.size - Number(offset.value || 0)) / (e.bytes * Math.max(1, Number(channels.value) || 1))));
-    info.textContent = `${file.name}: ${file.size.toLocaleString()} bytes, about ${app.formatTime(frames, Number(rate.value))} of audio.`;
+    info.textContent = rate.value() ? `${file.name}: ${file.size.toLocaleString()} bytes, about ${app.formatTime(frames, rate.value())} of audio.` : `${file.name}: ${file.size.toLocaleString()} bytes.`;
   };
-  for (const el of [rate, channels, enc, offset]) el.addEventListener('input', update);
+  for (const el of [rate.input, channels, enc, offset]) el.addEventListener('input', update);
   update();
   const r = await openDialog({
     title: 'Import Raw Data',
     body: h(
       'div',
-      h('div.form-grid', h('label', 'Sample Rate:'), rate, h('label', 'Channels:'), channels, h('label', 'Sample Type:'), enc, h('label', 'Byte Order:'), order, h('label', 'Start Byte Offset:'), offset),
+      h('div.form-grid', h('label', 'Sample Rate:'), rate.el, h('label', 'Channels:'), channels, h('label', 'Sample Type:'), enc, h('label', 'Byte Order:'), order, h('label', 'Start Byte Offset:'), offset),
       info,
+      error,
     ),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'Import', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      error.textContent = rate.value() ? '' : RATE_PROBLEM;
+      if (!rate.value()) rate.input.focus();
+      return Boolean(rate.value());
+    },
   });
   if (r !== 'ok') return;
   const ch = Math.max(1, Math.min(8, Math.round(Number(channels.value) || 1)));
-  app.prefs.set('importRaw', { rate: Number(rate.value), channels: ch, encoding: enc.value, order: order.value, offset: Math.max(0, Math.round(Number(offset.value) || 0)) });
+  app.prefs.set('importRaw', { rate: rate.value(), channels: ch, encoding: enc.value, order: order.value, offset: Math.max(0, Math.round(Number(offset.value) || 0)) });
   const data = decodeRaw(new Uint8Array(await file.arrayBuffer()), { encoding: enc.value, channels: ch, bigEndian: order.value === 'be', offset: Math.max(0, Math.round(Number(offset.value) || 0)) });
   if (!data[0].length) return app.notify('The file has no complete sample frames with those settings.', { error: true });
   const bits = { u8: 8, s8: 8, ulaw: 16, alaw: 16, s16: 16, s24: 24 }[enc.value] || 32;
-  const doc = new AudioFile({ name: app.uniqueName(`${baseName(file.name)}.wav`), sampleRate: Number(rate.value), channels: data.map((d) => Channel.fromSamples(d)), info: { bitDepth: bits, format: 'wav' }, source: { type: 'local' } });
+  const doc = new AudioFile({ name: app.uniqueName(`${baseName(file.name)}.wav`), sampleRate: rate.value(), channels: data.map((d) => Channel.fromSamples(d)), info: { bitDepth: bits, format: 'wav' }, source: { type: 'local' } });
   app.addDocument(doc);
 }
 
 // ------------------------------------------------- export range markers
 
-/** File names for exported range markers: the marker name, or prefix + number. */
-export function rangeExportNames(markers, { naming, prefix, format }) {
+/**
+ * File names for range exports. naming: 'name' (marker names), 'prefix' (prefix and a number
+ * counting up from `start`) or 'prefixName' (prefix, number and marker name).
+ */
+export function rangeExportNames(markers, { naming, prefix, format, start = 1 }) {
   const taken = new Set();
+  const first = Math.max(0, Math.round(Number(start)) || 0);
   return markers.map((m, i) => {
-    const stem = naming === 'prefix' ? `${prefix || 'Region'} ${String(i + 1).padStart(2, '0')}` : m.name || `Range ${i + 1}`;
+    const number = String(first + i).padStart(2, '0');
+    const own = m.name || `Range ${i + 1}`;
+    const stem = naming === 'prefix' ? `${prefix || 'Region'} ${number}` : naming === 'prefixName' ? `${prefix || 'Region'} ${number} ${own}` : own;
     return uniqueName(withExtension(sanitizeFileName(stem) || `Range ${i + 1}`, format), taken);
   });
 }
@@ -176,19 +204,46 @@ async function exportRangesDialog(app) {
     ranges.map((m, i) => h('label.check', checks[i], h('span', m.name || `Range ${i + 1}`), h('span.faint', ` ${app.formatTime(m.start, doc.sampleRate)} – ${app.formatTime(m.start + m.duration, doc.sampleRate)}`))),
   );
   const saved = batchSettings(app.prefs.get('batchExport'));
-  const fmt = h('select.select', { 'aria-label': 'Format' }, FORMATS.map((f) => h('option', { value: f.id, selected: f.id === saved.format }, f.label)));
-  const naming = h('select.select', { 'aria-label': 'File names' }, h('option', { value: 'name' }, 'Marker names'), h('option', { value: 'prefix' }, 'Prefix and number'));
+  // Synchronous, so the dialog opens on the audio as it is now.
+  const formats = formatsNow();
+  const fmt = h('select.select', { 'aria-label': 'Format' }, formats.map((f) => h('option', { value: f.id, selected: f.id === saved.format }, f.label)));
+  const naming = h('select.select', { 'aria-label': 'File names' }, h('option', { value: 'name' }, 'Marker names'), h('option', { value: 'prefix' }, 'Prefix and number'), h('option', { value: 'prefixName' }, 'Prefix, number and marker name'));
   const prefix = h('input.input', { type: 'text', value: baseName(doc.name), 'aria-label': 'Name prefix', disabled: true });
-  naming.addEventListener('change', () => (prefix.disabled = naming.value !== 'prefix'));
+  const startAt = h('input.input.num', { type: 'number', min: 0, max: 9999, step: 1, value: 1, 'aria-label': 'First number', disabled: true, style: { width: '72px' } });
+  const example = h('span.faint.range-export-example');
+  const syncNaming = () => {
+    prefix.disabled = startAt.disabled = naming.value === 'name';
+    const names = rangeExportNames(ranges.filter((_, i) => checks[i].checked).slice(0, 1), { naming: naming.value, prefix: prefix.value, format: fmt.value, start: startAt.value });
+    example.textContent = names.length ? `Example: ${names[0]}` : '';
+  };
+  // Markers inside a range go into its file (moved to its start), as Save As does.
+  const withMarkers = h('input', { type: 'checkbox', checked: app.prefs.get('exportMarkers') !== false });
+  for (const el of [naming, prefix, startAt, fmt, ...checks]) el.addEventListener(el === prefix || el === startAt ? 'input' : 'change', syncNaming);
+  syncNaming();
   const sdk = Boolean(puter.sdk());
-  const loc = h('select.select', { 'aria-label': 'Location' }, h('option', { value: 'puter', disabled: !sdk }, sdk ? `Puter folder (~/${puter.APP_DIR})` : 'Puter folder (not available)'), h('option', { value: 'download', selected: !sdk || saved.location !== 'puter' }, 'Download (ZIP for several files)'));
+  const loc = h('select.select', { 'aria-label': 'Location' }, h('option', { value: 'puter', disabled: !sdk }, sdk ? `Puter folder (~/${puter.APP_DIR})` : 'Puter folder (not available)'), h('option', { value: 'download', selected: !sdk || saved.location !== 'puter' || !puter.isSignedIn() }, 'Download (ZIP for several files)'));
   const r = await openDialog({
     title: 'Export Audio within Range Markers',
     body: h(
       'div',
       h('p.muted', { style: { margin: '0 0 8px' } }, 'Each checked range is saved as its own file.'),
       list,
-      h('div.form-grid', { style: { marginTop: '10px' } }, h('label', 'Format:'), fmt, h('label', 'File Names:'), naming, h('label', 'Prefix:'), prefix, h('label', 'Location:'), loc),
+      h(
+        'div.form-grid',
+        { style: { marginTop: '10px' } },
+        h('label', 'Format:'),
+        fmt,
+        h('label', 'File Names:'),
+        naming,
+        h('label', 'Prefix:'),
+        h('div.row', prefix, h('span.muted', 'from'), startAt),
+        h('span'),
+        example,
+        h('label', 'Location:'),
+        loc,
+      ),
+      h('label.check', { style: { marginTop: '8px' } }, withMarkers, 'Include the markers inside each range, and other metadata'),
+      h('p.faint', { style: { margin: '6px 0 0' } }, 'Sample rate, bit depth and format settings follow Batch Process > Export Settings.'),
     ),
     buttons: [
       { label: 'Cancel', value: null },
@@ -215,7 +270,8 @@ async function exportRangesDialog(app) {
   }
   const settings = { ...saved, format: getFormat(fmt.value).id };
   const options = exportOptionsFor(settings, { sampleRate: state.sampleRate, channels: state.channels.length });
-  const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format });
+  const names = rangeExportNames(chosen, { naming: naming.value, prefix: prefix.value, format: settings.format, start: startAt.value });
+  const keep = withMarkers.checked;
   // The Batch Process writer: files already in the Puter folder are kept (or replaced) as its
   // "If a file exists" setting says, and downloads too big for one ZIP arrive separately.
   const out = await outputWriter(app, { ...settings, location: loc.value });
@@ -225,7 +281,7 @@ async function exportRangesDialog(app) {
     for (let i = 0; i < chosen.length; i++) {
       const m = chosen[i];
       const blob = await exportAudio(
-        { channels: state.channels, sampleRate: state.sampleRate, start: m.start, end: m.start + m.duration, markers: [], meta: state.meta || {} },
+        { channels: state.channels, sampleRate: state.sampleRate, start: m.start, end: m.start + m.duration, markers: keep ? state.markers.filter((x) => x.id !== m.id) : [], meta: keep ? state.meta || {} : {} },
         options,
         { signal, onProgress: (f) => onProgress((i + f) / chosen.length) },
       );
@@ -241,6 +297,8 @@ async function exportRangesDialog(app) {
 // ------------------------------------------------------------ registration
 
 export function installFileExtraCommands(app) {
+  // Learn early which formats the browser can encode, so the range export lists them.
+  webCodecsSupport();
   app.commands.register([
     {
       id: 'file.closeUnused',

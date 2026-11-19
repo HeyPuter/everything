@@ -4,6 +4,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden !important;
+  container: editor-panel / inline-size;
 }
 
 .editor-stage {
@@ -20,6 +21,7 @@
 
 .editor-empty {
   flex: 1;
+  container-type: inline-size;
   display: grid;
   place-items: center;
   padding: 16px;
@@ -30,31 +32,202 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  max-width: 460px;
+  gap: 10px;
+  width: min(560px, 100%);
   text-align: center;
 }
 
 .editor-empty-inner h2 {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   font-size: var(--fs-xl);
   font-weight: 600;
   color: var(--text-strong);
 }
 
 .editor-empty-inner p {
-  margin: 0 0 8px;
+  margin: 0;
 }
 
 .editor-empty-icon {
   display: flex;
 }
 
-.editor-empty-actions {
+/* The four ways to start, as large buttons. */
+.welcome-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.welcome-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.welcome-card:hover {
+  border-color: var(--btn-border-hover);
+  background: var(--bg-hover);
+}
+
+.welcome-card.primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-soft));
+}
+
+.welcome-card-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.welcome-card[data-cmd='transport.record'] .welcome-card-icon {
+  background: color-mix(in srgb, var(--record) 18%, transparent);
+  color: var(--record);
+}
+
+.welcome-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.welcome-card-label {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.welcome-card-note {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-key {
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--divider);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.welcome-key[hidden],
+.welcome-recent[hidden] {
+  display: none;
+}
+
+.welcome-links {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 4px 16px;
+}
+
+.welcome-link,
+.welcome-recent-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--hot);
+  cursor: pointer;
+}
+
+.welcome-link:hover,
+.welcome-recent-item:hover {
+  background: var(--bg-hover);
+}
+
+.welcome-link .welcome-key {
+  margin-left: 2px;
+}
+
+.welcome-recent {
+  width: 100%;
+  text-align: left;
+}
+
+.welcome-recent h3 {
+  margin: 4px 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.welcome-recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-recent-item {
+  width: 100%;
+  color: var(--text);
+}
+
+.welcome-recent-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-drop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px dashed var(--divider);
+  border-radius: var(--radius-lg);
+  color: var(--text-faint);
+}
+
+@media (pointer: coarse) {
+  .welcome-key {
+    display: none;
+  }
+
+  .welcome-link,
+  .welcome-recent-item {
+    min-height: 36px;
+  }
+}
+
+/* Phones: the actions first, without the large icon. */
+[data-layout='phone'] .editor-empty-icon {
+  display: none;
+}
+
+[data-layout='phone'] .editor-empty {
+  place-items: start center;
+}
+
+@container (max-width: 520px) {
+  .welcome-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Waveform view grid */
@@ -301,10 +474,10 @@
   opacity: 1;
 }
 
-/* Unpinned, the HUD steps aside while the pointer is elsewhere. */
+/* Unpinned, the HUD stays in view but recedes while the pointer is elsewhere. */
 @media (hover: hover) {
   .wf:not(:hover) .hud:not(.pinned):not(:focus-within) {
-    opacity: 0;
+    opacity: 0.55;
   }
 }
 
@@ -363,11 +536,26 @@
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--divider);
+  cursor: ns-resize;
+  touch-action: none;
 }
 
 .wf-amp canvas {
   position: absolute;
   inset: 0;
+}
+
+/* Range picked by a right-drag on the amplitude ruler. */
+.amp-zoom-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.amp-zoom-band[hidden] {
+  display: none;
 }
 
 .wf-channel-buttons {
@@ -484,6 +672,17 @@
   row-gap: 2px;
 }
 
+/* Narrow desktop editor frames too: the zoom buttons wrap instead of being cut off. */
+@container editor-panel (max-width: 780px) {
+  .transport {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 40px;
+    padding: 4px 8px;
+    row-gap: 2px;
+  }
+}
+
 [data-layout='phone'] .transport {
   flex-wrap: wrap;
   height: auto;
@@ -534,7 +733,7 @@
   display: none;
 }
 
-/* Preview Editor: the effect's result under the waveform while its dialog is open. */
+/* Preview Editor: the effect's result (or the file as it is) under the waveform. */
 .preview-host {
   display: contents;
 }
@@ -549,11 +748,19 @@
 .preview-editor[hidden] {
   display: none;
 }
+.preview-editor.over-dialog {
+  position: relative;
+  z-index: 901;
+}
+/* A floating effect window leaves the editor usable, so the preview stays in the page's layer. */
+body:has(.dialog-backdrop.modeless) .preview-editor.over-dialog {
+  z-index: auto;
+}
 .preview-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 22px;
+  height: 24px;
   padding: 0 4px 0 8px;
   border-bottom: 1px solid var(--border-soft);
   font-size: var(--fs-sm);
@@ -561,6 +768,65 @@
 .preview-title {
   color: var(--text-dim);
   font-weight: 600;
+}
+.preview-zoom-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+.preview-zoom {
+  height: 18px;
+  font-size: var(--fs-sm);
+}
+.preview-ab {
+  height: 18px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.preview-ab .ab-sep {
+  margin: 0 2px;
+  color: var(--text-faint);
+}
+/* The side in view is bright; the other dims. */
+.preview-ab .ab-a,
+.preview-ab.showing-a .ab-b {
+  color: var(--text-faint);
+}
+.preview-ab .ab-b,
+.preview-ab.showing-a .ab-a {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.preview-ab:disabled .ab-a,
+.preview-ab:disabled .ab-b {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.preview-ruler {
+  flex: none;
+  height: 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.preview-overview {
+  flex: none;
+  height: 18px;
+  padding: 1px 0;
+}
+.preview-overview > .overview {
+  height: 100%;
+}
+.preview-amp {
+  position: absolute;
+  top: 0;
+  border-left: 1px solid var(--divider);
+}
+.preview-amp[hidden] {
+  display: none;
+}
+.preview-ruler > .time-ruler {
+  height: 100%;
 }
 .preview-surface {
   position: relative;

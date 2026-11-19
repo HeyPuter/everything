@@ -82,6 +82,10 @@ describe('Amplitude Statistics panel', () => {
     const { a, panel, caption } = setup();
     await panel.scan(false);
     expect(caption()).toBe('Statistics for a.wav, entire file');
+    // Loudness rows (all channels together) sit under their own heading.
+    const group = panel.el.querySelector('tr.amp-group th');
+    expect(group.textContent).toBe('Loudness (all channels)');
+    expect(group.closest('tr').nextElementSibling.textContent).toMatch(/^Integrated Loudness/);
     a.apply('Amplify', gainRange(a.state, 0, a.length, 0.5, null));
     expect(caption()).toMatch(/changed since this scan/);
     a.history.undo();

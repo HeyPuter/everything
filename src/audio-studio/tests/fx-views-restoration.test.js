@@ -84,6 +84,30 @@ describe('noise reduction dialog', () => {
     const values = await p;
     expect(values.curve[0].g).toBe(5);
   });
+  it('cannot apply or preview without a print, and captures one from the selection in one click', async () => {
+    const { app, doc } = setup();
+    const p = openEffectDialog(app, getEffect('noiseReduction'), { doc, modeless: true });
+    const dlg = document.querySelector('.fx-dialog');
+    const apply = dlg.querySelector('.dialog-foot .btn.primary');
+    const need = dlg.querySelector('.fx-need');
+    expect(apply.disabled).toBe(true);
+    expect(dlg.querySelector('.fx-play').disabled).toBe(true);
+    // Enter does not press the disabled Apply.
+    dlg.querySelector('.fx-controls input, .fx-controls .hot').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(dlg.isConnected).toBe(true);
+    expect(need.hidden).toBe(false);
+    expect(need.querySelector('.fx-need-btn').hidden).toBe(true);
+    expect(need.textContent).toMatch(/Select a stretch of noise only/);
+    doc.setSelection(0, 24000);
+    expect(need.textContent).toMatch(/selection \(0\.50 s\)/);
+    need.querySelector('.fx-need-btn').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(need.hidden).toBe(true);
+    expect(apply.disabled).toBe(false);
+    expect(dlg.querySelector('.fx-play').disabled).toBe(false);
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await p;
+  });
   it('selects the entire file', async () => {
     const { app, doc } = setup();
     doc.setSelection(100, 200);
@@ -108,6 +132,41 @@ describe('dehummer view', () => {
     handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
     dlg.querySelector('.btn.primary').click();
     expect((await p).frequency).toBeLessThan(60);
+  });
+
+  it('with Auto on shows the detected hum, draws its notches, and a dragged notch goes manual', async () => {
+    const app = fakeApp();
+    const rate = 48000;
+    const x = Float32Array.from({ length: rate * 3 }, (_, i) => 0.01 * Math.sin((2 * Math.PI * 50 * i) / rate) + 0.005 * Math.sin((2 * Math.PI * 150 * i) / rate));
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: rate, channels: [Channel.fromSamples(x)] });
+    app.active = doc;
+    const p = openEffectDialog(app, getEffect('dehummer'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    expect(dlg.querySelector('.hum-detected').textContent).toBe('Detected hum: 50.0 Hz');
+    const handle = dlg.querySelector('.fx-response .fx-handle');
+    expect(handle.getAttribute('aria-valuetext')).toMatch(/^50(\.0)? Hz/);
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(dlg.querySelector('.hum-detected').hidden).toBe(true);
+    dlg.querySelector('.btn.primary').click();
+    const v = await p;
+    expect(v.auto).toBe(false);
+    expect(v.frequency).toBeGreaterThan(50);
+  });
+
+  it('editing a session chain, shows the hum found in the audio its clips play', async () => {
+    const app = fakeApp();
+    const rate = 48000;
+    const x = Float32Array.from({ length: rate * 3 }, (_, i) => 0.01 * Math.sin((2 * Math.PI * 50 * i) / rate) + 0.005 * Math.sin((2 * Math.PI * 150 * i) / rate));
+    const sources = () => [{ channels: [x], rate, range: [0, x.length] }];
+    const p = openEffectDialog(app, getEffect('dehummer'), { mode: 'edit', values: {}, sources });
+    const dlg = document.querySelector('.fx-dialog');
+    expect(dlg.querySelector('.hum-detected').textContent).toBe('Detected hum: 50.0 Hz in the clips');
+    dlg.querySelector('.dialog-head .icon-btn').click();
+    await p;
+    const q = openEffectDialog(app, getEffect('dehummer'), { mode: 'edit', values: {}, sources: () => [{ channels: [new Float32Array(rate * 3)], rate }] });
+    expect(document.querySelector('.fx-dialog .hum-detected').textContent).toBe('No steady hum found; using 60.0 Hz');
+    document.querySelector('.fx-dialog .dialog-head .icon-btn').click();
+    await q;
   });
 
   it('draws the Output Hum Only curve the processor applies', async () => {
@@ -186,7 +245,7 @@ describe('denoise and dereverb', () => {
     expect(err).toBeLessThan(1e-3);
     const dr = getEffect('dereverb');
     const rms = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
-    expect(rms(run(dr, { amount: 100, decay: 3000, autoGain: true }).subarray(12000))).toBeGreaterThan(rms(run(dr, { amount: 100, decay: 3000 }).subarray(12000)));
+    expect(rms(run(dr, { amount: 100, decay: 3000, autoGain: true }).subarray(12000))).toBeGreaterThan(rms(run(dr, { amount: 100, decay: 3000, autoGain: false }).subarray(12000)));
   });
 });
 
@@ -224,9 +283,11 @@ describe('hiss reduction noise floor', () => {
     const p = openEffectDialog(app, getEffect('hissReduction'), { doc });
     const dlg = document.querySelector('.fx-dialog');
     expect(dlg.querySelector('.nr-status').textContent).toMatch(/automatically/);
-    expect(dlg.querySelector('.hr-graph .fx-point')).toBeNull();
+    // Before a capture: the flat automatic line, its two ends draggable.
+    expect(dlg.querySelector('.hr-graph .hr-auto')).not.toBeNull();
+    expect(dlg.querySelectorAll('.hr-graph .fx-point').length).toBe(2);
     [...dlg.querySelectorAll('.btn')].find((b) => b.textContent === 'Capture Noise Floor').click();
-    for (let i = 0; i < 20 && !dlg.querySelector('.hr-graph .fx-point'); i++) await new Promise((r) => setTimeout(r, 10));
+    for (let i = 0; i < 20 && dlg.querySelectorAll('.hr-graph .fx-point').length < 3; i++) await new Promise((r) => setTimeout(r, 10));
     expect(dlg.querySelector('.nr-status').textContent).toMatch(/captured/);
     const handle = dlg.querySelector('.hr-graph .fx-point');
     handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
@@ -241,5 +302,23 @@ describe('hiss reduction noise floor', () => {
     // The quieter right channel reads about 20 dB lower.
     expect(values.floorLeft[12].g - values.floorRight[12].g).toBeGreaterThan(15);
     expect(values.floorScale).toBe(1);
+  });
+  it('dragging the automatic floor line sets a manual floor on both channels', async () => {
+    const app = fakeApp();
+    const doc = new AudioFile({ name: 'a.wav', sampleRate: 48000, channels: [Channel.fromSamples(filled(4800, 0)), Channel.fromSamples(filled(4800, 0))] });
+    app.active = doc;
+    const p = openEffectDialog(app, getEffect('hissReduction'), { doc });
+    const dlg = document.querySelector('.fx-dialog');
+    const graph = dlg.querySelector('.hr-graph .fx-envelope, .hr-graph .hr-floor');
+    dlg.querySelector('.hr-graph .fx-point').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(dlg.querySelector('.nr-status').textContent).toMatch(/captured/);
+    // The same graph stays (a drag in progress is not cut short).
+    expect(dlg.querySelector('.hr-graph .hr-floor')).toBe(graph);
+    expect(graph.classList.contains('hr-auto')).toBe(false);
+    dlg.querySelector('.btn.primary').click();
+    const values = await p;
+    expect(values.floorLeft.length).toBe(2);
+    expect(values.floorRight).toEqual(values.floorLeft);
+    expect(values.floorLeft[0].g).toBeGreaterThan(-70);
   });
 });

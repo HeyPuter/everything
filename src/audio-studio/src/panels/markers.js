@@ -4,15 +4,17 @@
 // duration, type and description edit in place (double-click, or Enter/F2 on
 // a row for the name); column headers sort; the filter menu limits the list
 // to some marker types. Delete removes the selected markers. The toolbar also
-// merges markers, exports range audio, adds markers to the playlist and sends
-// range audio to Batch Process.
+// merges markers, exports range audio, inserts range audio into a multitrack
+// session (end to end on one track, one clip per range), adds markers to the
+// playlist and sends range audio to Batch Process. Rows drag into the Playlist.
 
 import { h } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
 import { MARKER_TYPES, sortMarkers } from '../model/markers.js';
 import { parseTime, TIME_DISPLAY_KEYS } from '../lib/time.js';
-import { playlistOf, setPlaylist } from './playlist.js';
+import { playlistOf, setPlaylist, MARKERS_DRAG_TYPE } from './playlist.js';
 import { addMarkers } from '../model/playlist.js';
+import { toolbarKeys } from './toolbar-keys.js';
 
 const COLUMNS = [
   { id: 'name', label: 'Name', key: (m) => (m.name || '').toLowerCase() },
@@ -66,19 +68,23 @@ export function markersPanel(app) {
   const tbtn = (cmd, ic, label) => h('button.icon-btn', { type: 'button', 'aria-label': label, title: label, onclick: () => app.commands.run(cmd, ids()), dataset: { cmd } }, icon(ic, 15));
   const playlistBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Add to Playlist', title: 'Add Selected Markers to the Playlist', onclick: () => addToPlaylist() }, icon('list-plus', 15));
   const batchBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Send Ranges to Batch Process', title: 'Send the audio of the selected range markers (or of all of them) to Batch Process', onclick: () => sendToBatch() }, icon('layers', 15));
+  const sessionBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Insert Ranges into Multitrack', title: 'Insert the audio of the selected range markers (or of all of them) into a multitrack session', onclick: () => insertRanges() }, icon('mode-multitrack', 15));
   const filterBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Filter by type', title: 'Show Marker Types', 'aria-haspopup': 'menu', onclick: () => filterMenu() }, icon('list-filter', 15));
   const toolbar = h(
     'div.panel-toolbar',
+    { role: 'toolbar', 'aria-label': 'Markers' },
     tbtn('marker.add', 'marker-add', 'Add Cue Marker (M)'),
     tbtn('marker.deleteSelected', 'trash-2', 'Delete Selected Markers'),
     tbtn('marker.merge', 'link', 'Merge Selected Markers'),
     tbtn('file.exportRanges', 'file-audio', 'Export Audio within Range Markers'),
+    sessionBtn,
     playlistBtn,
     batchBtn,
-    tbtn('file.exportMarkers', 'upload', 'Export Markers'),
+    tbtn('file.exportMarkers', 'upload', 'Export Selected Markers to CSV'),
     search,
     filterBtn,
   );
+  const toolKeys = toolbarKeys(toolbar);
   const headRow = h('tr');
   const body = h('tbody');
   const table = h('table.data-table.markers-table', { role: 'grid', 'aria-label': 'Markers', 'aria-multiselectable': 'true' }, h('thead', headRow), body);
@@ -225,7 +231,15 @@ export function markersPanel(app) {
       'tr',
       {
         tabindex: '-1',
+        draggable: 'true',
         dataset: { id: m.id },
+        // Drag markers to the Playlist panel (a dragged unselected row goes alone).
+        ondragstart: (e) => {
+          if (e.target.closest?.('input, select')) return;
+          const ids = selected.has(m.id) ? visible.filter((x) => selected.has(x.id)).map((x) => x.id) : [m.id];
+          e.dataTransfer.setData(MARKERS_DRAG_TYPE, JSON.stringify({ docId: d.id, ids }));
+          e.dataTransfer.effectAllowed = 'copy';
+        },
         onclick: (e) => select(m, e, visible),
         oncontextmenu: (e) => {
           e.preventDefault();
@@ -240,6 +254,7 @@ export function markersPanel(app) {
           if (e.key === 'ArrowDown') go(i + 1);
           else if (e.key === 'ArrowUp') go(i - 1);
           else if (e.key === 'Enter' || e.key === 'F2') editCell(row.firstChild, m, 'name');
+          else if ((e.key === 'p' || e.key === 'P') && !e.metaKey && !e.ctrlKey && !e.altKey) playMarker(m);
           else if (e.key === 'Delete' || e.key === 'Backspace') app.commands.run('marker.deleteSelected', ids());
           else if ((e.key === 'a' || e.key === 'A') && (e.metaKey || e.ctrlKey)) {
             for (const x of visible) selected.add(x.id);
@@ -250,7 +265,14 @@ export function markersPanel(app) {
           e.stopPropagation();
         },
       },
-      cell('name', [icon(m.duration ? 'bookmark' : 'flag', 13), h('span.marker-name', m.name || 'Untitled')], '.name-cell'),
+      cell('name', [
+        h('button.icon-btn.marker-play', { type: 'button', tabindex: '-1', 'aria-label': `Play ${m.name || 'marker'}`, title: m.duration ? 'Play this range' : 'Play from this marker', onclick: (e) => {
+          e.stopPropagation();
+          playMarker(m);
+        } }, icon('play', 11)),
+        icon(m.duration ? 'bookmark' : 'flag', 13),
+        h('span.marker-name', m.name || 'Untitled'),
+      ], '.name-cell'),
       cell('start', app.formatTime(m.start, d.sampleRate), '.tabular.hot-cell'),
       cell('end', m.duration ? app.formatTime(m.start + m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
       cell('duration', m.duration ? app.formatTime(m.duration, d.sampleRate) : '', '.tabular.hot-cell'),
@@ -325,6 +347,21 @@ export function markersPanel(app) {
     for (const b of toolbar.querySelectorAll('[data-cmd]')) b.disabled = !app.commands.isEnabled(b.dataset.cmd, ids());
     playlistBtn.disabled = !doc() || !selected.size || !app.panels.has('playlist');
     batchBtn.disabled = !app.panels.has('batch') || !batchRanges().length;
+    sessionBtn.disabled = !app.commands.commands.has('mt.insertFiles') || !batchRanges().length;
+    toolKeys.sync();
+  };
+
+  /** Range audio into a session: one clip per range, end to end, named after its marker. */
+  const insertRanges = () => {
+    const d = doc();
+    const ranges = batchRanges();
+    if (!d || !ranges.length || sessionBtn.disabled) return;
+    return app.commands.run('mt.insertFiles', {
+      docs: ranges.map(() => d),
+      ranges: ranges.map((m) => [m.start, m.start + m.duration]),
+      names: ranges.map((m, i) => m.name || `Range ${i + 1}`),
+      sameTrack: true,
+    });
   };
 
   const addToPlaylist = () => {
@@ -380,15 +417,28 @@ export function markersPanel(app) {
     );
   };
 
+  /** Plays a range marker's range, or from a cue marker on; stops when it is already playing. */
+  const playMarker = (m) => {
+    if (app.engine.playing) {
+      app.stop();
+      return;
+    }
+    app.play({ from: m.start, to: m.duration ? m.start + m.duration : undefined, loop: false });
+  };
+
   const rowMenu = (x, y) => {
     const item = (cmd, label) => ({ type: 'cmd', label: label || app.commands.label(cmd), enabled: app.commands.isEnabled(cmd, ids()), run: () => app.commands.run(cmd, ids()) });
+    const one = selected.size === 1 ? doc()?.state.markers.find((m) => selected.has(m.id)) : null;
     app.openMenu(
       [
+        { type: 'cmd', label: one?.duration ? 'Play Range' : 'Play from Marker', enabled: Boolean(one), run: () => playMarker(one) },
+        { type: 'sep' },
         item('marker.rename', 'Edit Marker...'),
         item('marker.merge'),
         item('marker.convertRange'),
         { type: 'sep' },
         { type: 'cmd', label: 'Add to Playlist', enabled: !playlistBtn.disabled, run: addToPlaylist },
+        { type: 'cmd', label: 'Insert Ranges into Multitrack Session', enabled: !sessionBtn.disabled, run: insertRanges },
         { type: 'cmd', label: 'Send Ranges to Batch Process', enabled: !batchBtn.disabled, run: sendToBatch },
         item('file.exportRanges'),
         { type: 'sep' },
@@ -396,6 +446,36 @@ export function markersPanel(app) {
       ],
       { x, y, label: 'Marker' },
     );
+  };
+
+  /** Panel menu: adding, organizing, exporting and filtering markers. */
+  const panelMenu = () => {
+    const item = (cmd, label) => ({ type: 'cmd', label: label || app.commands.label(cmd), enabled: app.commands.commands.has(cmd) && app.commands.isEnabled(cmd, ids()), run: () => app.commands.run(cmd, ids()) });
+    const has = (cmd) => app.commands.commands.has(cmd);
+    return [
+      item('marker.add', 'Add Cue Marker'),
+      ...(has('marker.addRange') ? [item('marker.addRange', 'Add Range Marker')] : []),
+      { type: 'sep' },
+      item('marker.merge', 'Merge Selected Markers'),
+      ...(has('marker.convertRange') ? [item('marker.convertRange')] : []),
+      item('marker.deleteSelected', 'Delete Selected Markers'),
+      ...(has('marker.deleteAll') ? [item('marker.deleteAll', 'Delete All Markers')] : []),
+      { type: 'sep' },
+      { type: 'cmd', label: 'Insert Ranges into Multitrack Session', enabled: !sessionBtn.disabled, run: insertRanges },
+      { type: 'cmd', label: 'Add Selected to Playlist', enabled: !playlistBtn.disabled, run: addToPlaylist },
+      { type: 'cmd', label: 'Send Ranges to Batch Process', enabled: !batchBtn.disabled, run: sendToBatch },
+      item('file.exportRanges', 'Export Audio within Range Markers...'),
+      { type: 'sep' },
+      ...(has('file.importMarkers') ? [item('file.importMarkers', 'Import Markers...')] : []),
+      item('file.exportMarkers', 'Export Markers...'),
+      { type: 'sep' },
+      { type: 'cmd', label: 'Select All', enabled: visible.length > 0, run: () => {
+        for (const x of visible) selected.add(x.id);
+        showOnRuler();
+        markRows();
+      } },
+      { type: 'cmd', label: 'Show All Types', enabled: Boolean(types), run: () => ((types = null), render()) },
+    ];
   };
 
   // Delegated: the first click of a double-click re-renders the rows.
@@ -425,5 +505,5 @@ export function markersPanel(app) {
   });
   app.on('prefs', (key) => TIME_DISPLAY_KEYS.has(key) && render());
   render();
-  return { el, show: render };
+  return { el, show: render, menu: panelMenu };
 }

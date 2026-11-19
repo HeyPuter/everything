@@ -5,6 +5,7 @@
 
 import { h } from '../lib/dom.js';
 import { zoomButtons, syncButtons } from './transport-controls.js';
+import { toolbarKeys } from './toolbar-keys.js';
 
 export const ZOOM_PANEL_BUTTONS = [
   ['view.zoomInAmp', 'zoom-in-amp', 'Zoom In (Amplitude)'],
@@ -21,11 +22,17 @@ export const ZOOM_PANEL_BUTTONS = [
 
 export function zoomPanel(app) {
   const zoom = zoomButtons(app, ZOOM_PANEL_BUTTONS, { cls: '.tool-panel-btn', size: 18 });
-  const el = h('div.button-panel.zoom-panel', h('div.button-panel-row', { role: 'toolbar', 'aria-label': 'Zoom' }, zoom.list));
+  // Pairs (in and out per axis, full and selection, in and out points) wrap together.
+  const clusters = [];
+  for (let i = 0; i < zoom.list.length; i += 2) clusters.push(h('div.button-cluster', { role: 'group' }, zoom.list.slice(i, i + 2)));
+  const row = h('div.button-panel-row', { role: 'toolbar', 'aria-label': 'Zoom' }, clusters);
+  const keys = toolbarKeys(row);
+  const el = h('div.button-panel.zoom-panel', row);
   let pending = 0;
 
   const render = () => {
     syncButtons(app, zoom.list, { pressed: false });
+    keys.sync();
     for (const b of zoom.list) {
       const label = app.commands.label(b.dataset.cmd);
       const key = app.commands.shortcutLabel(b.dataset.cmd);

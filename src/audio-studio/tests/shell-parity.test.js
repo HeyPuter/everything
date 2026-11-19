@@ -515,3 +515,43 @@ describe('Space on focused controls', () => {
     spy.mockRestore();
   });
 });
+
+describe('status bar', () => {
+  it('right-click lists the status bar fields to show or hide', async () => {
+    const app = await makeApp();
+    const { createShell, statusBarMenuSpec } = await import('../src/ui/shell.js');
+    expect(statusBarMenuSpec()).toContain('status.duration');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const bar = root.querySelector('.statusbar');
+    const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 400, clientY: 590 });
+    bar.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    const menu = document.querySelector('[role=menu][aria-label="Status bar fields"]');
+    expect(menu).not.toBe(null);
+    const items = [...menu.querySelectorAll('[role^=menuitem]')];
+    const labels = items.map((el) => el.textContent);
+    expect(labels.some((t) => t.includes('Show Status Bar'))).toBe(true);
+    expect(labels.some((t) => t.includes('Duration'))).toBe(true);
+    // Choosing a field toggles it.
+    const before = app.commands.isChecked('status.duration');
+    items.find((el) => el.textContent.includes('Duration')).click();
+    expect(app.commands.isChecked('status.duration')).toBe(!before);
+  });
+});
+
+describe('welcome screen', () => {
+  it('offers open, record and create with their keys, and lists recent files', async () => {
+    const app = await makeApp({ recent: [{ name: 'Take 1.wav', path: '/a/Take 1.wav' }] });
+    const { createShell } = await import('../src/ui/shell.js');
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    createShell(app, root);
+    const cards = [...root.querySelectorAll('.welcome-card')].map((c) => c.dataset.cmd);
+    expect(cards).toEqual(['file.open', 'transport.record', 'file.newAudio', 'file.newSession']);
+    const open = root.querySelector('.welcome-card[data-cmd="file.open"] .welcome-key');
+    expect(open.textContent).toBe(app.commands.shortcutLabel('file.open'));
+    expect([...root.querySelectorAll('.welcome-recent-item')].map((b) => b.textContent)).toEqual(['Take 1.wav']);
+  });
+});

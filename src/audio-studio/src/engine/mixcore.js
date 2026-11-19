@@ -5,7 +5,8 @@
 // Graph shape (all times in frames at the graph rate):
 //   { rate, master: { gain, fx }, tracks: [
 //       { id, gain, pan, mute, solo, volumeEnv?, panEnv?, fx?: [slot],
-//         bus?, output?, sends?: [{ target, gain, pan, pre }], soloSafe?, mono?,
+//         bus?, output?, sends?: [{ target, gain, pan, pre, gainEnv? }], soloSafe?, mono?,
+//         fxPost? (effects after volume and pan; stereo tracks),
 //         clips: [{ id, source, channels, start, offset, length, gain,
 //                   fadeIn, fadeInCurve, fadeOut, fadeOutCurve, fadeInOffset?, fadeOutOffset?, mute, gainEnv?,
 //                   panEnv?, base?, full?, fx?: [slot], fxTail? }] } ] }
@@ -327,11 +328,11 @@ function addInto(track, src, dst, frames) {
  * The dry signal is delayed by `fxLatency` frames, the wet slots' processing
  * delay, so the two line up instead of comb filtering.
  */
-function runChain(track, buf, frames, scratch, runFx) {
+function runChain(track, buf, frames, scratch, runFx, at) {
   const mix = track.fxMix ?? 1;
   const n = track.fxWet || 0;
   if (mix >= 1 || !n) {
-    runFx(track.fx, buf, frames);
+    runFx(track.fx, buf, frames, at);
     return;
   }
   if (track.fxParts?.src !== track.fx) track.fxParts = { src: track.fx, wet: track.fx.slice(0, n), rest: track.fx.slice(n) };
@@ -341,7 +342,7 @@ function runChain(track, buf, frames, scratch, runFx) {
   for (let c = 0; c < nch; c++) dry[c].set(buf[c].subarray(0, frames));
   const lat = track.fxLatency || 0;
   if (lat > 0) delayDry(scratch, track.id ?? 'master', dry, nch, frames, lat);
-  runFx(track.fxParts.wet, buf, frames);
+  runFx(track.fxParts.wet, buf, frames, at);
   const d = (1 - Math.max(0, mix)) * (track.fxDry ?? 1);
   const w = Math.max(0, mix);
   for (let c = 0; c < nch; c++) {
@@ -349,7 +350,7 @@ function runChain(track, buf, frames, scratch, runFx) {
     const x = dry[c];
     for (let i = 0; i < frames; i++) b[i] = b[i] * w + x[i] * d;
   }
-  if (track.fxParts.rest.length) runFx(track.fxParts.rest, buf, frames);
+  if (track.fxParts.rest.length) runFx(track.fxParts.rest, buf, frames, at);
 }
 
 /** Delays `frames` of the dry channels in place by `lat` frames (a ring per track in scratch). */
@@ -476,7 +477,7 @@ export function compensateLatency(graph) {
 /**
  * Renders one block of `frames` frames starting at timeline frame `pos` into
  * `master` (stereo planar Float32Array[2]). Per-track peaks are written into
- * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames)`
+ * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames, pos)`
  * applies an effect chain in place to a stereo planar buffer.
  */
 const plans = new WeakMap();
@@ -555,19 +556,35 @@ function busBuffer(scratch, id, frames, channels = 2) {
   return b;
 }
 
-/** Adds `src` (stereo planar) times a send's gain and balance into the bus it targets. */
-function feedSend(scratch, send, src, frames, law, pg, channels = 2) {
+/**
+ * Adds `src` (stereo planar) times a send's gain and balance into the bus it targets. A send
+ * `gainEnv` (linear breakpoints, automation) scales its gain, read at timeline frame `at` less
+ * the send's delay (the delayed copy is that much older), ramped across the block.
+ */
+function feedSend(scratch, send, src, frames, law, pg, channels = 2, at = 0) {
   const b = busBuffer(scratch, send.target, frames, channels);
   if (!b.used) {
     for (const c of b.buf) c.fill(0, 0, frames);
     b.used = true;
   }
   panGains(send.pan || 0, law, pg);
+  const [L, R] = src;
+  const [bl, br] = b.buf;
+  if (send.gainEnv) {
+    const t0 = at - (send.delay || 0);
+    const g0 = send.gain * envelopeAt(send.gainEnv, t0);
+    const g1 = send.gain * envelopeAt(send.gainEnv, t0 + frames);
+    if (!g0 && !g1) return;
+    for (let i = 0; i < frames; i++) {
+      const g = g0 + ((g1 - g0) * i) / frames;
+      bl[i] += L[i] * g * pg[0];
+      br[i] += R[i] * g * pg[1];
+    }
+    return;
+  }
   const gl = send.gain * pg[0];
   const gr = send.gain * pg[1];
   if (!gl && !gr) return;
-  const [L, R] = src;
-  const [bl, br] = b.buf;
   for (let i = 0; i < frames; i++) {
     bl[i] += L[i] * gl;
     br[i] += R[i] * gr;
@@ -589,7 +606,7 @@ function clipBuffer(scratch, id, frames) {
 /**
  * Renders one block of `frames` frames starting at timeline frame `pos` into
  * `master` (stereo planar Float32Array[2]). Per-track peaks are written into
- * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames)`
+ * `meters` (Map track id -> [l, r]) when given. `runFx(slots, buf, frames, pos)`
  * applies an effect chain in place to a stereo planar buffer.
  */
 export function renderBlock(graph, store, pos, frames, master, scratch, { meters, runFx, missing } = {}) {
@@ -674,7 +691,7 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
     }
     if (clipFx) {
       for (const { buf, fx } of clipFx.values()) {
-        runFx(fx, buf, frames);
+        runFx(fx, buf, frames, pos + (track.envShift || 0));
         const [cl, cr] = buf;
         for (let i = 0; i < frames; i++) {
           tbuf[0][i] += cl[i];
@@ -695,21 +712,24 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
         R[i] = -R[i];
       }
     }
+    // Post-fader effects run after the volume and pan (and before post-fader sends).
+    const postFx = Boolean(track.fxPost && track.fx && track.fx.length && runFx);
     if (track.fx && track.fx.length && runFx) {
-      runChain(track, tbuf, frames, scratch, runFx);
+      // Effect automation is read where the track's audio is (latency compensation runs it ahead).
+      if (!postFx) runChain(track, tbuf, frames, scratch, runFx, pos + (track.envShift || 0));
       active = true;
     }
     if (!active) {
       if (meters) meters.set(track.id, [0, 0]);
       continue;
     }
+    // The track's audio runs `envShift` frames ahead of the timeline (latency compensation).
+    const at = pos + (track.envShift || 0);
     const sends = audible && track.sends && track.sends.length ? track.sends : null;
-    if (sends) for (const snd of sends) if (snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target));
+    if (sends) for (const snd of sends) if (snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target), at);
     const to = plan.dest(track);
     // Feeding a 6-channel destination, the surround panner places the track instead of the stereo pan.
     const toSix = surround && (to ? plan.six.has(to) : true);
-    // The track's audio runs `envShift` frames ahead of the timeline (latency compensation).
-    const at = pos + (track.envShift || 0);
     const vol = envelopeFrames(track.volumeEnv, at, frames, scratch, 0, 1);
     const pan = toSix ? null : envelopeFrames(track.panEnv, at, frames, scratch, 1, 0);
     const v0 = track.gain * envelopeAt(track.volumeEnv, at);
@@ -736,12 +756,23 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
       if (al > pkL) pkL = al;
       if (ar > pkR) pkR = ar;
     }
+    if (postFx) {
+      runChain(track, tbuf, frames, scratch, runFx, at);
+      pkL = 0;
+      pkR = 0;
+      for (let i = 0; i < frames; i++) {
+        const al = L[i] < 0 ? -L[i] : L[i];
+        const ar = R[i] < 0 ? -R[i] : R[i];
+        if (al > pkL) pkL = al;
+        if (ar > pkR) pkR = ar;
+      }
+    }
     if (meters) meters.set(track.id, [pkL, pkR]);
     if (!audible) {
       dropDelays(scratch, track);
       continue;
     }
-    if (sends) for (const snd of sends) if (!snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target));
+    if (sends) for (const snd of sends) if (!snd.pre) feedSend(scratch, snd, snd.delay ? delayed(scratch, `${track.id}>${snd.target}`, tbuf, frames, snd.delay) : tbuf, frames, law, pg, chOf(snd.target), at);
     const outBuf = track.outDelay ? delayed(scratch, `${track.id}>`, tbuf, frames, track.outDelay) : tbuf;
     if (toSix) {
       addInto(track, outBuf, to ? usedBus(scratch, to, frames, 6).buf : master, frames);
@@ -761,7 +792,7 @@ export function renderBlock(graph, store, pos, frames, master, scratch, { meters
     }
   }
   const m = graph.master || {};
-  if (m.fx && m.fx.length && runFx) runChain(m, surround ? master.slice(0, 6) : master, frames, scratch, runFx);
+  if (m.fx && m.fx.length && runFx) runChain(m, surround ? master.slice(0, 6) : master, frames, scratch, runFx, pos + (m.envShift || 0));
   const mg = (m.invert ? -1 : 1) * (m.gain ?? 1);
   const mvol = envelopeFrames(m.volumeEnv, pos, frames, scratch, 0, 1);
   const m0 = mg * envelopeAt(m.volumeEnv, pos);
@@ -832,7 +863,7 @@ function renderSix(graph, store, pos, frames, track, plan, master, scratch, { me
     return;
   }
   // Surround-capable effects (the stereo ones are left out on six channels).
-  if (track.fx?.length && runFx) runChain(track, buf, frames, scratch, runFx);
+  if (track.fx?.length && runFx) runChain(track, buf, frames, scratch, runFx, pos + (track.envShift || 0));
   const g = (track.invert ? -1 : 1) * track.gain;
   const at = pos + (track.envShift || 0);
   const vol = envelopeFrames(track.volumeEnv, at, frames, scratch, 0, 1);

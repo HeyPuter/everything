@@ -87,6 +87,7 @@ function fitTo(clip, length) {
     fadeOut: { ...clip.fadeOut, length: Math.min(length, clip.fadeOut.length) },
     volumeEnv: clip.volumeEnv.length ? normalizeEnvelope(clip.volumeEnv, length) : clip.volumeEnv,
     panEnv: clip.panEnv.length ? normalizeEnvelope(clip.panEnv, length) : clip.panEnv,
+    fxEnv: Object.fromEntries(Object.entries(clip.fxEnv || {}).map(([k, v]) => [k, normalizeEnvelope(v, length)])),
   };
 }
 
@@ -229,6 +230,7 @@ export function splitRemix(clip, makeId, sourceLength = Infinity) {
       fadeOut: s.last ? { ...clip.fadeOut, length: Math.min(clip.fadeOut.length, length) } : { length: 0, curve: 0.5, xf: true },
       volumeEnv: padEnvelope(env(clip.volumeEnv, t0, s.len), left),
       panEnv: padEnvelope(env(clip.panEnv, t0, s.len), left),
+      fxEnv: Object.fromEntries(Object.entries(clip.fxEnv || {}).map(([k, v]) => [k, padEnvelope(env(v, t0, s.len), left)])),
     };
   });
 }

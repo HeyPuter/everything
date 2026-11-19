@@ -13,10 +13,15 @@ import { knob, hotNumber } from '../ui/controls.js';
 import { getEffect } from '../effects/registry.js';
 import { allTracks, wouldCycle, SILENT_DB, MAX_DB, AUTOMATION_MODES } from '../model/session-edits.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
+import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
+import { canFreeze } from '../multitrack/freeze.js';
 import { dbToFader, faderToDb, formatGain, formatGainShort, formatPan, parseGain } from '../multitrack/levels.js';
 import { MeterBar, METER_RANGE } from '../multitrack/meter.js';
 
-const SCALE = [15, 10, 5, 0, -5, -10, -20, -30, -40, -60];
+/** Fader scale marks; layout keeps as many as fit the fader's height (0 dB always). */
+const SCALE = [15, 12, 9, 6, 3, 0, -3, -6, -9, -12, -15, -18, -21, -24, -30, -36, -40, -45, -50, -60];
+/** Least vertical room (px) between two scale labels. */
+const SCALE_GAP = 11;
 
 /** Vertical dB fader (role=slider). */
 export function fader({ value, label, onInput, onChange }) {
@@ -109,20 +114,23 @@ class Strip {
     this.mode = h('select.select.mx-select.mx-mode', { 'aria-label': 'Automation mode', title: 'Automation Mode' }, AUTOMATION_MODES.map((m) => h('option', { value: m.id }, m.label)));
     this.mode.addEventListener('change', () => app.commands.run('mt.setAutomationMode', { id: this.id, mode: this.mode.value }));
     this.fxPower = h('button.mt-tb.mt-tb-fx', { type: 'button', 'aria-label': 'Effects power', title: 'Effects Power', 'aria-pressed': 'true', onclick: () => c().toggle(this.id, 'fxPower') }, icon('power', 12));
+    this.fxPost = isMaster ? null : h('button.mt-tb.mx-fx-post', { type: 'button', 'aria-label': 'Post-fader effects', title: 'Post-Fader (effects after the track volume and pan)', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'fxPost') }, 'Post');
+    this.freeze = isAudio ? h('button.mt-tb.mx-freeze', { type: 'button', 'aria-label': 'Freeze track', title: 'Freeze: pre-render the clips and effects so they cost nothing during playback', 'aria-pressed': 'false', onclick: () => app.commands.run('mt.freezeTrack', { id: this.id }) }, icon('freeze', 12)) : null;
     this.fxEdit = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Edit effects', title: 'Edit Effects', onclick: () => app.commands.run('mt.trackEffects', { id: this.id }) }, icon('fx', 13));
     this.pan = isMaster ? null : knob({ value: 0, min: -100, max: 100, step: 1, defaultValue: 0, bipolar: true, label: 'Pan', format: formatPan, size: 26, onInput: (v) => c().set(this.id, 'pan', v, 'input'), onChange: (v) => c().set(this.id, 'pan', v, 'change') });
     this.panText = h('span.mx-pan-text', 'C');
     this.mute = toggle('mute', 'M', 'Mute');
     this.solo = isMaster ? null : toggle('solo', 'S', 'Solo');
     this.arm = isAudio ? toggle('arm', 'R', 'Arm for Record') : null;
-    this.monitor = isAudio ? h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-label': 'Monitor input', title: 'Monitor Input', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'monitor') }, icon('monitor-input', 12)) : null;
+    this.monitor = isAudio ? h('button.mt-tb.mt-tb-monitor', { type: 'button', 'aria-label': 'Monitor input', title: 'Monitor Input: hear the input of an armed track while stopped and while recording', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'monitor') }, icon('monitor-input', 12)) : null;
     this.fader = fader({ value: 0, label: `${track.name} volume`, onInput: (v) => c().set(this.id, 'volume', v, 'input'), onChange: (v) => c().set(this.id, 'volume', v, 'change') });
     this.meter = new MeterBar({ vertical: true, label: `${track.name} level` });
     this.dbNum = hotNumber({ value: 0, min: SILENT_DB, max: MAX_DB, step: 0.1, defaultValue: 0, label: 'Volume (dB)', format: formatGainShort, parse: parseGain, onInput: (v) => c().set(this.id, 'volume', v, 'input'), onChange: (v) => c().set(this.id, 'volume', v, 'change') });
     this.name = h('div.mx-name');
     this.sends = isMaster ? null : new SendControls(app, doc, track.id);
     this.eq = new EqControls(app, doc, track.id);
-    const scale = h('div.mx-scale', { 'aria-hidden': 'true' }, SCALE.map((db) => h('span', { style: { bottom: `calc(${(dbToFader(db) * 100).toFixed(2)}% - ${(dbToFader(db) * 18 - 9).toFixed(1)}px)` } }, db > 0 ? `+${db}` : String(db))));
+    const scale = h('div.mx-scale', { 'aria-hidden': 'true' }, SCALE.map((db) => h('span', { dataset: { db: String(db) }, style: { bottom: `calc(${(dbToFader(db) * 100).toFixed(2)}% - ${(dbToFader(db) * 18 - 9).toFixed(1)}px)` } }, db > 0 ? `+${db}` : String(db))));
+    this.scaleEl = scale;
     // Meter scale: dBFS every 12 dB beside the meter.
     const mscale = h('div.mx-mscale', { 'aria-hidden': 'true' }, [0, -12, -24, -36, -48, -60].map((db) => h('span', { style: { bottom: `${((METER_RANGE + db) / METER_RANGE) * 100}%` } }, String(db))));
     this.el = h(
@@ -132,7 +140,7 @@ class Strip {
       // Sections the gutter can collapse (data-sec); the master keeps empty
       // ones so its controls line up with the tracks'.
       h('div.mx-sec', { dataset: { sec: 'io' } }, h('div.mx-io', h('div.mx-io-top', this.invert), this.input ? h('label.mx-io-row', icon('log-in', 12), this.input) : h('div.mx-io-row.placeholder', { 'aria-hidden': 'true' }), h('label.mx-io-row', icon('log-out', 12), this.output))),
-      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', h('span', 'Effects'), h('div.spacer'), this.fxPower, this.fxEdit), this.fxRows),
+      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', { title: 'Effects' }, this.fxPower, this.fxPost, this.freeze, h('div.spacer'), this.fxEdit), this.fxRows),
       h('div.mx-sec', { dataset: { sec: 'sends' } }, this.sends?.el),
       h('div.mx-sec', { dataset: { sec: 'eq' } }, this.eq.el),
       h('div.mx-panrow', this.pan, this.pan ? this.panText : null),
@@ -153,9 +161,11 @@ class Strip {
     this.el.setAttribute('aria-label', `${track.type === 'master' ? 'Master' : track.name} channel strip`);
     this.name.textContent = track.name;
     this.name.title = track.name;
-    for (const [b, k] of [[this.mute, 'mute'], [this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) b?.setAttribute('aria-pressed', String(Boolean(track[k])));
+    for (const [b, k] of [[this.solo, 'solo'], [this.arm, 'arm'], [this.monitor, 'monitor'], [this.invert, 'invert']]) b?.setAttribute('aria-pressed', String(Boolean(track[k])));
     this.mode.value = track.mode;
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
+    this.fxPost?.setAttribute('aria-pressed', String(Boolean(track.fxPost)));
+    this.syncFreeze();
     if (this.input) {
       this.input.replaceChildren(h('option', { value: 'none' }, 'None'), h('option', { value: 'default' }, track.channels === 1 ? 'Default Mono Input' : 'Default Stereo Input'));
       this.input.value = track.input;
@@ -164,24 +174,54 @@ class Strip {
     if (track.type !== 'master') for (const b of state.tracks) if (b.type === 'bus' && b.id !== track.id && !wouldCycle(state, track.id, b.id)) outs.push(h('option', { value: b.id }, b.name));
     this.output.replaceChildren(...outs);
     this.output.value = track.output || 'master';
-    // Every effect (the list scrolls past four), each with its own power, then empty slots up to four.
-    const edit = () => this.app.commands.run('mt.trackEffects', { id: this.id });
-    const filled = track.fx.map((s, i) => [s, i]).filter(([s]) => s);
-    const rows = filled.map(([s, i]) => {
+    // Slots in rack order (the list scrolls past four): each effect with its power and a menu to
+    // replace, edit or remove it; empty slots up to four (and gaps) take an effect from their menu.
+    const last = track.fx.reduce((n, s, i) => (s ? i : n), -1);
+    const rows = [];
+    for (let i = 0; i < Math.max(4, last + 1); i++) {
+      const s = track.fx[i];
+      const menu = (e) => openTrackSlotMenu(this.app, this.doc, this.id, i, e.currentTarget.closest('.mx-fx-slot'));
+      if (!s) {
+        rows.push(h('button.mx-fx-slot.empty', { type: 'button', 'aria-label': `Empty effect slot ${i + 1}, add an effect`, 'aria-haspopup': 'menu', onclick: menu }));
+        continue;
+      }
       const name = getEffect(s.effect)?.name || 'Effect';
       const on = s.enabled !== false;
-      return h(
-        `div.mx-fx-slot${on ? '' : '.off'}`,
-        h('button.mx-fx-power', { type: 'button', 'aria-pressed': String(on), 'aria-label': `${name} power`, title: on ? 'Bypass this effect' : 'Turn this effect on', onclick: () => toggleTrackEffect(this.doc, this.id, i) }, icon('power', 10)),
-        h('button.mx-fx-name', { type: 'button', 'aria-label': `${name}${on ? '' : ' (off)'}, edit effects`, onclick: edit }, name),
+      rows.push(
+        h(
+          `div.mx-fx-slot${on ? '' : '.off'}`,
+          h('button.mx-fx-power', { type: 'button', 'aria-pressed': String(on), 'aria-label': `${name} power`, title: on ? 'Bypass this effect' : 'Turn this effect on', onclick: () => toggleTrackEffect(this.doc, this.id, i) }, icon('power', 10)),
+          h('button.mx-fx-name', { type: 'button', 'aria-label': `${name}${on ? '' : ' (off)'}, edit settings`, title: `${name}: edit settings`, onclick: () => editTrackEffect(this.app, this.doc, this.id, i) }, name),
+          h('button.mx-fx-menu', { type: 'button', 'aria-label': `Slot ${i + 1} menu`, 'aria-haspopup': 'menu', title: 'Replace, bypass or remove', onclick: menu }, icon('chevron-right', 10)),
+        ),
       );
-    });
-    for (let i = rows.length; i < 4; i++) rows.push(h('button.mx-fx-slot.empty', { type: 'button', 'aria-label': `Empty effect slot ${i + 1}, add an effect`, onclick: edit }));
+    }
     this.fxRows.replaceChildren(...rows);
     this.fader.setAttribute('aria-label', `${track.name} volume`);
     this.sends?.update(track);
     this.eq.update(track);
     this.values();
+  }
+
+  /** The freeze switch: on, rendering (busy) or unavailable (post-fader effects, 5.1). */
+  syncFreeze() {
+    if (!this.freeze) return;
+    const t = this.track;
+    this.freeze.setAttribute('aria-pressed', String(Boolean(t.freeze)));
+    this.freeze.classList.toggle('busy', Boolean(this.doc.freezing?.has(t.id)));
+    this.freeze.disabled = !t.freeze && !canFreeze(this.doc.state, t);
+  }
+
+  /** Shows the scale labels that fit the fader's current height without crowding. */
+  fitScale() {
+    const hgt = this.scaleEl.clientHeight;
+    if (!hgt || hgt === this.scaleHeight) return;
+    this.scaleHeight = hgt;
+    // The thumb's 18 px are taken out of the travel, as in the label positions.
+    const y = (db) => (1 - dbToFader(db)) * (hgt - 18);
+    const kept = [0];
+    for (const db of SCALE) if (db !== 0 && kept.every((k) => Math.abs(y(k) - y(db)) >= SCALE_GAP)) kept.push(db);
+    for (const span of this.scaleEl.children) span.hidden = !kept.includes(Number(span.dataset.db));
   }
 
   values() {
@@ -192,6 +232,10 @@ class Strip {
     if (this.fader.getValue() !== v) this.fader.setValue(v);
     if (this.dbNum.getValue() !== v) this.dbNum.setValue(v);
     this.fader.classList.toggle('automated', c.automated(t, 'volume'));
+    // Mute follows its automation lane during playback.
+    const muted = String(c.muted(t));
+    if (this.mute.getAttribute('aria-pressed') !== muted) this.mute.setAttribute('aria-pressed', muted);
+    this.mute.classList.toggle('automated', c.automated(t, 'mute'));
     if (this.pan) {
       const p = c.value(t, 'pan');
       if (this.pan.getValue() !== p) this.pan.setValue(p);
@@ -298,6 +342,7 @@ export function mixerPanel(app) {
       el.classList.toggle(`mx-hide-${b.dataset.sec}`, on);
     }
     if (!doc || !visible) return;
+    for (const st of strips.values()) st.fitScale();
     const first = scroller.firstElementChild;
     const master = masterBox.firstElementChild;
     const masterSends = master?.querySelector(".mx-sec[data-sec='sends']");
@@ -330,11 +375,14 @@ export function mixerPanel(app) {
     for (const [id, s] of strips) s.meter.feed(s.track.type === 'master' ? m.master : m.tracks.get(id) || [0, 0]);
     schedule();
   });
+  // A taller or shorter panel fits more or fewer fader scale labels.
+  if (globalThis.ResizeObserver) new ResizeObserver(() => visible && doc && strips.forEach((st) => st.fitScale())).observe(el);
   app.on('active', render);
   app.on('doc-change', (d, e) => {
     if (d !== app.active || d.kind !== 'session') return;
     if (e.kind === 'edit' || e.kind === 'history' || e.kind === 'clip-selection') render();
     else if (e.kind === 'cursor' || e.kind === 'automation') for (const s of strips.values()) s.values();
+    else if (e.kind === 'freeze') for (const s of strips.values()) s.syncFreeze();
   });
   app.on('transport', schedule);
   app.on('prefs', (key) => key === 'visibilityInMixer' && render());

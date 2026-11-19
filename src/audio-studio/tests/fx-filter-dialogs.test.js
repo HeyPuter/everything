@@ -43,6 +43,44 @@ describe('Filter and EQ dialogs', () => {
     await close();
   });
 
+  it('Parametric Equalizer L and H bands switch between shelf and peak from the Q cell', async () => {
+    const { dlg, close } = open('parametricEq', { lsOn: true });
+    const [low, high] = dlg.querySelectorAll('.peq-shape');
+    expect(low.getAttribute('aria-label')).toBe('Low type: Shelf');
+    expect(low.getAttribute('aria-pressed')).toBe('false');
+    expect(high.disabled).toBe(true);
+    const q = () => dlg.querySelector('.fx-table-cell[data-section="Low Shelf"].peq-shelf-q .hot').textContent;
+    const before = q();
+    low.click();
+    expect(low.getAttribute('aria-label')).toBe('Low type: Peak');
+    expect(low.getAttribute('aria-pressed')).toBe('true');
+    // The type changes, not the Q.
+    expect(q()).toBe(before);
+    low.click();
+    expect(low.getAttribute('aria-label')).toBe('Low type: Shelf');
+    await close();
+  });
+
+  it('FFT Filter draws its curve on a linear axis when Scale is Linear', async () => {
+    const { dlg, close } = open('fftFilter', { curve: [{ f: 20, g: 0 }, { f: 10000, g: -12 }, { f: 20000, g: 0 }] });
+    const left = () => parseFloat(dlg.querySelectorAll('.fx-curve .fx-point')[1].style.left);
+    // 10 kHz sits about 90 % along a 20 Hz..20 kHz log axis, half way along a linear one.
+    expect(left()).toBeCloseTo(90, 0);
+    const linear = [...dlg.querySelectorAll('.fx-radios input')].find((i) => i.parentElement.textContent === 'Linear');
+    linear.checked = true;
+    linear.dispatchEvent(new Event('change'));
+    expect(left()).toBeCloseTo(50, 0);
+    await close();
+  });
+
+  it('a row of band sliders shares one labelled dB scale', async () => {
+    const { dlg, close } = open('graphicEq10');
+    const axis = dlg.querySelector('.fx-vsliders .fx-vaxis');
+    expect(axis.querySelector('.fx-vlabel').textContent).toBe('dB');
+    expect([...axis.querySelectorAll('.fx-vaxis-label')].map((e) => e.textContent)).toContain('0');
+    await close();
+  });
+
   it('Parametric Equalizer Range rescales the graph and Ultra-Quiet reaches the processor', async () => {
     const app = fakeApp();
     const doc = new AudioFile({ name: 'a.wav', sampleRate: RATE, channels: [Channel.fromSamples(filled(4800, 0.1))] });

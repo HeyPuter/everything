@@ -2,7 +2,8 @@
 // new state (or the input unchanged) and never mutates its arguments.
 //
 // State shape (times in frames at the session rate):
-//   { sampleRate, bitDepth, tempo, beatsPerBar, metronome, metronomeSound?, autoCrossfade,
+//   { sampleRate, bitDepth, tempo, beatsPerBar, metronome, metronomeSound?, metronomePattern?
+//     (per beat 'down'|'up'|'sub'|'none', see session-graph metronomeBar), autoCrossfade,
 //     tracks: Track[],          audio and bus tracks in display order
 //     master: Track,            the master (mix) track
 //     clips: Clip[],            flat list; clip.trackId says where it lives
@@ -12,11 +13,16 @@
 //   id), fx: Effects Rack slots { id, effect, values, enabled } (nulls allowed), fxPower,
 //   fxIn/fxOut (rack input/output gain, dB), fxMix (rack dry/wet, 0..1), invert
 //   (polarity), mode ('off'|'read'|'write'|'latch'|'touch'),
-//   automation: { volume: [{t, v dB}], pan: [{t, v}] }, showAutomation,
-//   autoParam, height, minimized, hidden }
+//   automation: { volume: [{t, v dB}], pan: [{t, v}], mute: [{t, v 0|1}] } (a point with
+//   `hold` keeps its value until the next point), showAutomation, lanes (parameters shown
+//   as automation lanes, in order), laneHeight, autoParam (the first lane), height,
+//   minimized, hidden }
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
 //   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
-//   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}],
+//   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}], volumeSpline,
+//   panSpline (smooth curves through the envelope keyframes), fxEnv (clip effect setting
+//   envelopes by fx.<slot>.<param>, clip-relative), channelMap ([l, r] source
+//   channel indices the clip plays, or null),
 //   mute, locked, loop, groupId, z, fx: clip effect slots { id, effect, values,
 //   enabled } (Sound Assistant chains), soundAssistant: Sound Assistant settings or null,
 //   stretch: time stretch and pitch settings or null (see clip-stretch.js),
@@ -55,6 +61,171 @@ export const MAX_DB = 15;
 
 export const FADE_CURVES = { linear: 0, log: 0.5, cosine: 2 };
 
+/** Track parameters that can be automated, in menu order. */
+export const AUTOMATION_PARAMS = [
+  { id: 'volume', label: 'Volume' },
+  { id: 'mute', label: 'Mute' },
+  { id: 'pan', label: 'Pan' },
+];
+
+/** Default height of one automation lane (CSS px). */
+export const LANE_HEIGHT = 46;
+
+function copyFxEnv(e) {
+  const out = {};
+  for (const [k, v] of Object.entries(e || {})) if (fxParamRef(k) && Array.isArray(v) && v.length) out[k] = v.slice();
+  return out;
+}
+
+/** A clip with `fn(points)` applied to each of its effect envelopes. */
+export function mapFxEnv(c, fn) {
+  if (!c.fxEnv || !Object.keys(c.fxEnv).length) return c.fxEnv || {};
+  return Object.fromEntries(Object.entries(c.fxEnv).map(([k, v]) => [k, fn(v)]));
+}
+
+function copyLanes(a) {
+  const out = {};
+  for (const [k, v] of Object.entries(a || {})) if ((sendIndexOf(k) >= 0 || fxParamRef(k)) && Array.isArray(v)) out[k] = v.slice();
+  return out;
+}
+
+/** Automation parameter of send `i` (0-based): its level, in dB. */
+export const sendParam = (i) => `send${i + 1}`;
+
+/** The send index (0-based) a parameter automates, or -1. */
+export function sendIndexOf(param) {
+  const m = /^send([1-8])$/.exec(param || '');
+  return m ? Number(m[1]) - 1 : -1;
+}
+
+/**
+ * Parameters a track can automate: volume, mute and pan (the master has no pan), and the level
+ * of each routed send. `t` is a track, or just its type (then without sends).
+ */
+export function automationParams(t) {
+  const type = typeof t === 'string' ? t : t.type;
+  const base = AUTOMATION_PARAMS.filter((p) => type !== 'master' || p.id !== 'pan').map((p) => p.id);
+  const sends = typeof t === 'string' ? [] : (t.sends || []).map((x, i) => (x?.target ? sendParam(i) : null)).filter(Boolean);
+  return [...base, ...sends];
+}
+
+/** Automation parameter of an effect setting: `fx.<slot id>.<param id>` (the track's rack; slot `eq` is the track EQ). */
+export const fxParam = (slotId, paramId) => `fx.${slotId}.${paramId}`;
+
+/** { slotId, paramId } of an effect automation parameter, or null. */
+export function fxParamRef(param) {
+  const m = /^fx\.([^.]+)\.(.+)$/.exec(param || '');
+  return m ? { slotId: m[1], paramId: m[2] } : null;
+}
+
+/** A parameter's own (unautomated) value: the switch, knob, send level or effect setting (undefined: its default). */
+export function staticValue(t, param) {
+  const ref = fxParamRef(param);
+  if (ref) return (ref.slotId === 'eq' ? t.eq : t.fx?.find((x) => x?.id === ref.slotId))?.values?.[ref.paramId];
+  const i = sendIndexOf(param);
+  if (i >= 0) return t.sends?.[i]?.level ?? 0;
+  return param === 'mute' ? Number(t.mute) : t[param];
+}
+
+function cleanLanes(type, lanes, first) {
+  const ok = (p) => automationParams(type).includes(p) || (type !== 'master' && sendIndexOf(p) >= 0) || Boolean(fxParamRef(p));
+  const list = (Array.isArray(lanes) && lanes.length ? lanes : [first || 'volume']).filter((p, i, a) => ok(p) && a.indexOf(p) === i);
+  return list.length ? list : ['volume'];
+}
+
+/** Automation lanes shown under a track (none while its lanes are closed); lanes of removed sends drop out. */
+export function trackLanes(t) {
+  if (!t.showAutomation) return [];
+  const has = (p) => {
+    const ref = fxParamRef(p);
+    if (ref) return ref.slotId === 'eq' || t.fx?.some((x) => x?.id === ref.slotId);
+    return sendIndexOf(p) < 0 || Boolean(t.sends?.[sendIndexOf(p)]);
+  };
+  const list = (t.lanes || [t.type === 'master' ? 'volume' : t.autoParam || 'volume']).filter(has);
+  return list.length ? list : ['volume'];
+}
+
+/** Sets the parameters shown as lanes (first one also becomes autoParam). */
+export function setTrackLanes(state, trackId, lanes) {
+  return updateTrack(state, trackId, (t) => {
+    const list = cleanLanes(t.type, lanes, t.autoParam);
+    return { lanes: list, autoParam: list[0] };
+  });
+}
+
+/**
+ * A smooth curve through envelope keyframes as dense breakpoints (monotone cubic, so it never
+ * overshoots the keyframe values); segments after a hold point stay flat.
+ */
+export function splineEnvelope(points, steps = 16) {
+  if (!points || points.length < 3) return points;
+  const n = points.length;
+  const d = [];
+  for (let i = 0; i < n - 1; i++) d.push((points[i + 1].v - points[i].v) / (points[i + 1].t - points[i].t || 1));
+  const m = new Array(n);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    const sq = a * a + b * b;
+    if (sq > 9) {
+      const tau = 3 / Math.sqrt(sq);
+      m[i] = tau * a * d[i];
+      m[i + 1] = tau * b * d[i];
+    }
+  }
+  const out = [];
+  for (let i = 0; i < n - 1; i++) {
+    const p = points[i];
+    const q = points[i + 1];
+    out.push(p);
+    const h = q.t - p.t;
+    if (p.hold || h < steps) continue;
+    for (let k = 1; k < steps; k++) {
+      const s = k / steps;
+      const s2 = s * s;
+      const s3 = s2 * s;
+      const v = (2 * s3 - 3 * s2 + 1) * p.v + (s3 - 2 * s2 + s) * h * m[i] + (-2 * s3 + 3 * s2) * q.v + (s3 - s2) * h * m[i + 1];
+      out.push({ t: Math.round(p.t + s * h), v });
+    }
+  }
+  out.push(points[n - 1]);
+  return out;
+}
+
+/** The shape a clip envelope plays: its keyframes, or the smooth curve through them. */
+export function clipEnvelope(c, param) {
+  return param === 'pan' ? (c.panSpline ? splineEnvelope(c.panEnv) : c.panEnv) : c.volumeSpline ? splineEnvelope(c.volumeEnv) : c.volumeEnv;
+}
+
+/** Mute automation always steps: every point holds until the next. */
+export function muteSteps(points) {
+  return points?.length && !points.every((p) => p.hold) ? points.map((p) => (p.hold ? p : { ...p, hold: true })) : points;
+}
+
+/**
+ * Envelope points with every hold point turned into a step (an extra point just
+ * before the next one), for consumers that only interpolate linearly.
+ */
+export function expandHolds(points) {
+  if (!points?.some((p) => p.hold)) return points;
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const next = points[i + 1];
+    out.push(p.hold ? { t: p.t, v: p.v } : p);
+    if (p.hold && next && next.t - 1 > p.t) out.push({ t: next.t - 1, v: p.v });
+  }
+  return out;
+}
+
 export function createTrack(o = {}) {
   const type = o.type || 'audio';
   return {
@@ -73,14 +244,21 @@ export function createTrack(o = {}) {
     output: type === 'master' ? null : o.output || 'master',
     fx: o.fx ? o.fx.map((s) => (s ? { ...s, values: { ...(s.values || {}) } } : null)) : [],
     fxPower: o.fxPower ?? true,
+    // Effects after the track volume and pan (post-fader) instead of before.
+    fxPost: Boolean(o.fxPost),
+    // Frozen: the clips and effects play from a pre-render (see multitrack/freeze.js).
+    freeze: Boolean(o.freeze),
     fxIn: o.fxIn ?? 0,
     fxOut: o.fxOut ?? 0,
     fxMix: o.fxMix ?? 1,
     invert: Boolean(o.invert),
     mode: o.mode || 'read',
-    automation: { volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice() },
+    // Send level lanes (send1..send8) and effect setting lanes (fx.<slot>.<param>) are kept too.
+    automation: { ...copyLanes(o.automation), volume: (o.automation?.volume || []).slice(), pan: (o.automation?.pan || []).slice(), mute: (o.automation?.mute || []).slice() },
     showAutomation: Boolean(o.showAutomation),
     autoParam: o.autoParam || 'volume',
+    lanes: cleanLanes(type, o.lanes, o.autoParam),
+    laneHeight: o.laneHeight || LANE_HEIGHT,
     height: o.height || 124,
     minimized: Boolean(o.minimized),
     hidden: Boolean(o.hidden),
@@ -119,10 +297,19 @@ export function createClip(o = {}) {
     crossfade: o.crossfade || 'symmetric',
     volumeEnv: (o.volumeEnv || []).slice(),
     panEnv: (o.panEnv || []).slice(),
+    // Clip effect envelopes: { 'fx.<slot id>.<param>': [{ t, v }] } for the clip's effect chain.
+    fxEnv: copyFxEnv(o.fxEnv),
+    // Envelopes drawn as smooth curves through their keyframes (see splineEnvelope).
+    volumeSpline: Boolean(o.volumeSpline),
+    panSpline: Boolean(o.panSpline),
+    // Source channel routing: the source channel each clip channel plays (null = as recorded).
+    channelMap: Array.isArray(o.channelMap) && o.channelMap.length === 2 ? o.channelMap.map((i) => Math.max(0, Math.round(Number(i) || 0))) : null,
     mute: Boolean(o.mute),
     locked: Boolean(o.locked),
     loop: Boolean(o.loop),
     groupId: o.groupId || null,
+    // Loop-recorded takes of one pass share a take group (see selectTake).
+    takeGroup: o.takeGroup || null,
     z: o.z || 0,
     ...(o.mergeLayout ? { mergeLayout: copyMergeLayout(o.mergeLayout) } : {}),
     fx: Array.isArray(o.fx) ? o.fx.filter(Boolean).map((x) => ({ ...x, values: { ...(x.values || {}) } })) : [],
@@ -132,6 +319,32 @@ export function createClip(o = {}) {
     stretch: o.stretch ? { ...o.stretch } : null,
     // Remix (see clip-remix.js); sourceId then names the remixed media. A clip is never both.
     remix: o.remix?.segments?.length ? { ...o.remix, segments: o.remix.segments.map(([a, b]) => [a, b]) } : null,
+  };
+}
+
+/**
+ * A clip's frame positions and lengths at another sample rate (`r` = new rate / old rate): start,
+ * offset and length, fades, envelopes (volume, pan, effects) and remix segments. Baked overlap
+ * geometry is dropped (the destination works it out again).
+ */
+export function conformClip(c, r) {
+  if (r === 1) return c;
+  const f = (n) => Math.round(n * r);
+  const fade = (x) => ({ ...x, length: f(x.length), ...(x.duration != null ? { duration: f(x.duration) } : {}), ...(x.offset != null ? { offset: f(x.offset) } : {}) });
+  const env = (pts) => (pts || []).map((p) => ({ ...p, t: f(p.t) }));
+  const { mergeLayout, ...rest } = c;
+  return {
+    ...rest,
+    start: f(c.start),
+    offset: f(c.offset),
+    length: Math.max(1, f(c.length)),
+    fadeIn: fade(c.fadeIn),
+    fadeOut: fade(c.fadeOut),
+    volumeEnv: env(c.volumeEnv),
+    panEnv: env(c.panEnv),
+    fxEnv: Object.fromEntries(Object.entries(c.fxEnv || {}).map(([k, v]) => [k, env(v)])),
+    remix: c.remix ? { ...c.remix, target: c.remix.target != null ? f(c.remix.target) : c.remix.target, ...(c.remix.offset != null ? { offset: f(c.remix.offset) } : {}), ...(c.remix.length != null ? { length: f(c.remix.length) } : {}), segments: c.remix.segments.map(([a, b]) => [f(a), f(b)]) } : c.remix,
+    soundAssistant: c.soundAssistant?.duration?.orig ? { ...c.soundAssistant, duration: { ...c.soundAssistant.duration, orig: { ...c.soundAssistant.duration.orig, offset: f(c.soundAssistant.duration.orig.offset || 0), length: f(c.soundAssistant.duration.orig.length || 0) } } } : c.soundAssistant,
   };
 }
 
@@ -264,7 +477,21 @@ export function setSend(state, trackId, index, patch) {
 }
 
 export function removeSend(state, trackId, index) {
-  return updateTrack(state, trackId, (t) => ({ sends: (t.sends || []).filter((_, i) => i !== index) }));
+  return updateTrack(state, trackId, (t) => {
+    // Later sends move up one place, and their automation lanes with them.
+    const automation = {};
+    for (const [k, v] of Object.entries(t.automation)) {
+      const i = sendIndexOf(k);
+      if (i < 0) automation[k] = v;
+      else if (i > index) automation[sendParam(i - 1)] = v;
+      else if (i < index) automation[k] = v;
+    }
+    const lanes = (t.lanes || []).flatMap((p) => {
+      const i = sendIndexOf(p);
+      return i < 0 || i < index ? [p] : i > index ? [sendParam(i - 1)] : [];
+    });
+    return { sends: (t.sends || []).filter((_, i) => i !== index), automation, lanes: lanes.length ? lanes : ['volume'] };
+  });
 }
 
 // ------------------------------------------------------------------ tracks
@@ -420,10 +647,12 @@ export function splitEnvelope(points, at, fallback) {
   const v = envelopeValue(points, at, fallback);
   const left = points.filter((p) => p.t < at);
   const right = points.filter((p) => p.t > at).map((p) => ({ ...p, t: p.t - at }));
-  return [[...left, { t: at, v }], [{ t: 0, v }, ...right]];
+  // Inside a held step the right part starts held too.
+  const held = left.length && left[left.length - 1].hold ? { hold: true } : {};
+  return [[...left, { t: at, v }], [{ t: 0, v, ...held }, ...right]];
 }
 
-/** Evaluates a breakpoint envelope (linear between points) at t. */
+/** Evaluates a breakpoint envelope (linear between points, flat after a hold point) at t. */
 export function envelopeValue(points, t, fallback = 0) {
   if (!points || !points.length) return fallback;
   if (t <= points[0].t) return points[0].v;
@@ -438,6 +667,7 @@ export function envelopeValue(points, t, fallback = 0) {
   }
   const a = points[lo];
   const b = points[hi];
+  if (a.hold) return a.v;
   return a.v + ((b.v - a.v) * (t - a.t)) / (b.t - a.t || 1);
 }
 
@@ -448,7 +678,9 @@ export function splitClip(c, at) {
   const cut = at - c.start;
   const [lv, rv] = splitEnvelope(c.volumeEnv, cut, 0);
   const [lp, rp] = splitEnvelope(c.panEnv, cut, 0);
-  const left = { ...c, length: cut, fadeOut: sliceFade(c.fadeOut, c.length - cut, c.length), fadeIn: sliceFade(c.fadeIn, 0, cut), volumeEnv: lv, panEnv: lp };
+  const fxParts = mapFxEnv(c, (pts) => splitEnvelope(pts, cut, pts[0]?.v ?? 0));
+  const fxSide = (i) => Object.fromEntries(Object.entries(fxParts).map(([k, v]) => [k, v[i]]));
+  const left = { ...c, length: cut, fadeOut: sliceFade(c.fadeOut, c.length - cut, c.length), fadeIn: sliceFade(c.fadeIn, 0, cut), volumeEnv: lv, panEnv: lp, fxEnv: fxSide(0) };
   const right = {
     ...c,
     id: uid('c'),
@@ -459,6 +691,7 @@ export function splitClip(c, at) {
     fadeOut: sliceFade(c.fadeOut, 0, c.length - cut),
     volumeEnv: rv,
     panEnv: rp,
+    fxEnv: fxSide(1),
   };
   return splitMergeLayout(c, [left, right]);
 }
@@ -486,7 +719,9 @@ function shiftEnvelope(points, d, length, fallback) {
   const v0 = envelopeValue(points, d, fallback);
   const v1 = envelopeValue(points, d + length, fallback);
   const inner = points.filter((p) => p.t > d && p.t < d + length).map((p) => ({ ...p, t: p.t - d }));
-  return [{ t: 0, v: v0 }, ...inner, { t: length, v: v1 }];
+  const before = points.filter((p) => p.t <= d);
+  const held = before.length && before[before.length - 1].hold ? { hold: true } : {};
+  return [{ t: 0, v: v0, ...held }, ...inner, { t: length, v: v1 }];
 }
 
 /**
@@ -522,6 +757,7 @@ export function trimmedClip(c, edge, frame, sourceLength = Infinity) {
       fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, length) },
       volumeEnv: d > 0 ? shiftEnvelope(c.volumeEnv, d, length, 0) : c.volumeEnv.map((p) => ({ ...p, t: p.t - d })),
       panEnv: d > 0 ? shiftEnvelope(c.panEnv, d, length, 0) : c.panEnv.map((p) => ({ ...p, t: p.t - d })),
+      fxEnv: mapFxEnv(c, (pts) => (d > 0 ? shiftEnvelope(pts, d, length, pts[0]?.v ?? 0) : pts.map((p) => ({ ...p, t: p.t - d })))),
     };
   } else {
     const maxEnd = c.loop ? Infinity : c.start + Math.max(1, sourceLength - c.offset);
@@ -535,6 +771,7 @@ export function trimmedClip(c, edge, frame, sourceLength = Infinity) {
       fadeOut: { ...c.fadeOut, length: Math.min(c.fadeOut.length, length) },
       volumeEnv: length < c.length ? shiftEnvelope(c.volumeEnv, 0, length, 0) : c.volumeEnv,
       panEnv: length < c.length ? shiftEnvelope(c.panEnv, 0, length, 0) : c.panEnv,
+      fxEnv: length < c.length ? mapFxEnv(c, (pts) => shiftEnvelope(pts, 0, length, pts[0]?.v ?? 0)) : c.fxEnv,
     };
   }
   return next;
@@ -641,9 +878,12 @@ export function removeTimeFromLane(points, a, b) {
 function rippleAutomation(state, a, b, hit) {
   const shift = (t) => {
     if (!hit(t)) return t;
-    const volume = removeTimeFromLane(t.automation.volume, a, b);
-    const pan = removeTimeFromLane(t.automation.pan, a, b);
-    return volume === t.automation.volume && pan === t.automation.pan ? t : { ...t, automation: { ...t.automation, volume, pan } };
+    let automation = t.automation;
+    for (const [param, points] of Object.entries(t.automation)) {
+      const next = removeTimeFromLane(points, a, b);
+      if (next !== points) automation = { ...automation, [param]: next };
+    }
+    return automation === t.automation ? t : { ...t, automation };
   };
   return { ...state, tracks: state.tracks.map(shift), master: shift(state.master) };
 }
@@ -701,7 +941,12 @@ export function rippleDeleteClips(state, ids) {
       for (const [a, b] of cuts.get(c.trackId)) if (c.start >= b) shift += b - a;
       return shift ? { ...c, start: c.start - shift } : c;
     });
-  return { ...state, clips };
+  // Each track's automation closes the same gaps (latest first, so earlier ranges keep their place).
+  let next = { ...state, clips };
+  for (const [trackId, ranges] of cuts) {
+    for (const [a, b] of ranges.slice().reverse()) next = rippleAutomation(next, a, b, (t) => t.id === trackId);
+  }
+  return next;
 }
 
 /** The empty gap on a track around frame `at`: [start, end) or null. */
@@ -744,14 +989,30 @@ export function defaultFadeLength(clip, rate) {
 /** Sorted, de-duplicated copy of envelope points clamped to [0, length]. */
 export function normalizeEnvelope(points, length) {
   const out = points
-    .map((p) => ({ t: Math.max(0, Math.min(length, Math.round(p.t))), v: p.v }))
+    .map((p) => ({ t: Math.max(0, Math.min(length, Math.round(p.t))), v: p.v, ...(p.hold ? { hold: true } : {}) }))
     .sort((a, b) => a.t - b.t);
   return out.filter((p, i) => i === 0 || p.t !== out[i - 1].t || i === out.length - 1);
 }
 
 export function setClipEnvelope(state, id, param, points) {
+  if (fxParamRef(param)) {
+    // An emptied effect envelope goes away (the effect keeps its own setting).
+    return updateClips(state, [id], (c) => {
+      const fxEnv = { ...(c.fxEnv || {}) };
+      if (points.length) fxEnv[param] = normalizeEnvelope(points, c.length);
+      else delete fxEnv[param];
+      return { fxEnv };
+    });
+  }
   const key = param === 'pan' ? 'panEnv' : 'volumeEnv';
   return updateClips(state, [id], (c) => ({ [key]: normalizeEnvelope(points, c.length) }));
+}
+
+/** A clip envelope's points by parameter: volume, pan or an effect setting. */
+export function clipEnvPoints(c, param) {
+  if (param === 'pan') return c.panEnv;
+  if (param === 'volume') return c.volumeEnv;
+  return c.fxEnv?.[param] || [];
 }
 
 /**
@@ -765,6 +1026,88 @@ export function insertEnvelopePoint(points, t, v, length, fallback) {
   list.push({ t: Math.round(t), v });
   list.sort((a, b) => a.t - b.t);
   return { points: list, index: list.findIndex((p) => p.t === Math.round(t) && p.v === v) };
+}
+
+/**
+ * Fewer keyframes for the same shape: drops points that lie within `tol` (in value units) of the
+ * straight line between the points kept around them (Douglas-Peucker on the value). The first
+ * and last points and hold points always stay.
+ */
+export function thinEnvelope(points, tol) {
+  if (!points || points.length < 3 || !(tol > 0)) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  points.forEach((p, i) => p.hold && (keep[i] = 1));
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const pa = points[a];
+    const pb = points[b];
+    let worst = -1;
+    let far = tol;
+    for (let i = a + 1; i < b; i++) {
+      const p = points[i];
+      const line = pb.t === pa.t ? pa.v : pa.v + ((pb.v - pa.v) * (p.t - pa.t)) / (pb.t - pa.t);
+      const d = Math.abs(p.v - line);
+      if (d > far) {
+        far = d;
+        worst = i;
+      }
+    }
+    if (worst >= 0) {
+      keep[worst] = 1;
+      stack.push([a, worst], [worst, b]);
+    }
+  }
+  return points.filter((_, i) => keep[i]);
+}
+
+/**
+ * Track automation under moved clips (from `before` to `after`) moves with them: the keyframes over
+ * each clip's old span (with its edge values) are shifted by the clip's move, replacing what was at
+ * the destination. A clip moved to another track takes them to that track's matching lanes (the
+ * same parameter: volume, pan, mute, a routed send of the same number, the same effect slot);
+ * lanes the destination does not have stay where they were.
+ */
+export function carryAutomation(before, after, ids) {
+  let state = after;
+  for (const id of ids) {
+    const a = findClip(before, id);
+    const b = findClip(after, id);
+    if (!a || !b || (b.start === a.start && b.trackId === a.trackId)) continue;
+    const from = findTrack(state, a.trackId);
+    const to = findTrack(state, b.trackId);
+    if (!from || !to) continue;
+    const span = { a: a.start, b: clipEnd(a), dt: b.start - a.start };
+    const fromLanes = { ...from.automation };
+    const toLanes = from.id === to.id ? fromLanes : { ...to.automation };
+    for (const [param, pts] of Object.entries(from.automation)) {
+      if (!pts?.length || !hasLane(to, param)) continue;
+      const own = staticValue(from, param);
+      const edge = (at) => ({ t: at, v: envelopeValue(pts, at, own), ...(pts.filter((p) => p.t <= at).pop()?.hold ? { hold: true } : {}) });
+      const moved = [edge(span.a), ...pts.filter((p) => p.t > span.a && p.t < span.b), edge(span.b)].map((p) => ({ ...p, t: p.t + span.dt }));
+      const to0 = span.a + span.dt;
+      const to1 = span.b + span.dt;
+      // The vacated span keeps the values around it; the destination takes the moved shape.
+      fromLanes[param] = pts.filter((p) => p.t < span.a || p.t > span.b);
+      const dest = toLanes[param] || [];
+      toLanes[param] = [...dest.filter((p) => p.t < to0 || p.t > to1), ...moved].sort((x, y) => x.t - y.t);
+      if (from.id === to.id) fromLanes[param] = toLanes[param];
+    }
+    state = updateTrack(state, from.id, { automation: fromLanes });
+    if (from.id !== to.id) state = updateTrack(state, to.id, { automation: toLanes });
+  }
+  return state;
+}
+
+/** Whether a track has a lane for `param` (a routed send of that number, or that effect slot). */
+function hasLane(t, param) {
+  const ref = fxParamRef(param);
+  if (ref) return ref.slotId === 'eq' ? Boolean(t.eq) : Boolean(t.fx?.some((x) => x?.id === ref.slotId));
+  const i = sendIndexOf(param);
+  if (i >= 0) return Boolean(t.sends?.[i]?.target);
+  return ['volume', 'pan', 'mute'].includes(param) && (t.type !== 'master' || param !== 'pan');
 }
 
 /** Writes recorded automation: replaces points in [t0, t1] with `recorded`. */
@@ -907,6 +1250,19 @@ export function bringToFront(state, ids) {
 export function sendToBack(state, ids) {
   const z = Math.min(0, ...state.clips.map((c) => c.z)) - 1;
   return updateClips(state, ids, { z });
+}
+
+/** The clips of a take group, oldest take first. */
+export function takeClips(state, group) {
+  return group ? state.clips.filter((c) => c.takeGroup === group) : [];
+}
+
+/** Plays take `id` of its group: it is unmuted and brought to the front, the other takes muted. */
+export function selectTake(state, id) {
+  const c = findClip(state, id);
+  if (!c?.takeGroup) return state;
+  const others = takeClips(state, c.takeGroup).filter((x) => x.id !== id).map((x) => x.id);
+  return bringToFront(updateClips(updateClips(state, others, { mute: true }), [id], { mute: false }), [id]);
 }
 
 export function groupClips(state, ids) {

@@ -1,6 +1,7 @@
 // Waveform editor view for an AudioFile: overview navigator, time ruler,
 // channel lanes (WebGL2), dB ruler with channel enable buttons, selection,
-// markers, fade handles, the gain HUD and touch/pointer/keyboard interaction.
+// markers, fade handles, the gain HUD, sample point dragging at high zoom and
+// touch/pointer/keyboard interaction.
 //
 // Extensions (e.g. the spectral display) register through
 // WaveformView.extensions: each is { attach(view) } and may set
@@ -17,9 +18,10 @@ import { icon } from '../ui/icons.js';
 import './editor-icons.js';
 import { gainRange, fadeRange, fadeCurve, smoothBoundaries } from '../model/edits.js';
 import { WAVEFORM_CONTEXT } from '../ui/menus.js';
-import { contextMenu } from '../ui/menubar.js';
+import { contextMenu, resolveItems } from '../ui/menubar.js';
+import { bindRightDrag } from './right-drag.js';
 import { dbToGain, formatDb, framesPerSecond, musicalStep } from '../lib/time.js';
-import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
+import { createMarker, newMarkerName, sortMarkers } from '../model/markers.js';
 import {
   wheelZoom,
   followPlayhead,
@@ -34,10 +36,28 @@ const CHANNEL_TOKENS = ['--wave', '--wave-2', '--wave-3', '--wave-4'];
 /** Per-channel waveform color for View > Waveform Channels > Uniquely Colored. */
 const channelColor = (i) => cssVar(CHANNEL_TOKENS[i % CHANNEL_TOKENS.length]);
 
+const channelCursors = new Map();
+
+/** A text cursor labelled with a channel name, shown where a drag selects that channel alone. */
+export function channelCursor(name) {
+  if (!channelCursors.has(name)) {
+    const beam = 'M5 3h5M7.5 3v18M5 21h5';
+    const svg =
+      `<svg xmlns='http://www.w3.org/2000/svg' width='26' height='24'>` +
+      `<path d='${beam}' fill='none' stroke='black' stroke-width='3'/><path d='${beam}' fill='none' stroke='white' stroke-width='1'/>` +
+      `<text x='12' y='11' font-family='sans-serif' font-size='10' font-weight='700' fill='white' stroke='black' stroke-width='2.5' paint-order='stroke'>${name}</text></svg>`;
+    channelCursors.set(name, `url("data:image/svg+xml,${encodeURIComponent(svg)}") 7 12, text`);
+  }
+  return channelCursors.get(name);
+}
+
 function withAlpha(color, alpha) {
   const [r, g, b, a] = parseColor(color);
   return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a * alpha})`;
 }
+
+/** Pixels between samples from which sample points can be dragged (the renderer draws them as dots). */
+export const SAMPLE_EDIT_PX = 6;
 
 /** Time each frame may spend building peak levels for blocks drawn for the first time. */
 const PEAK_FRAME_BUDGET_MS = 12;
@@ -50,9 +70,10 @@ const DB_LADDER = [0, -1, -3, -6, -9, -12, -18, -24, -30, -36, -42, -48, -54, -6
  * collide: [{ db, y, y2 }] with y above the centre line and y2 its mirror
  * below (null when too close to the lane edge). The grid uses the same ticks.
  */
-export function dbTicks(lane, amp) {
+export function dbTicks(lane, amp, off = 0) {
   const mid = (lane.top + lane.bottom) / 2;
   const half = (lane.bottom - lane.top) / 2;
+  if (off) return offsetDbTicks(lane, amp, off, mid, half);
   const out = [];
   let lastY = -Infinity;
   for (const db of DB_LADDER) {
@@ -68,11 +89,47 @@ export function dbTicks(lane, amp) {
   return out;
 }
 
+/**
+ * dB ticks of a lane scrolled vertically (zero line off centre): either side of a level
+ * can be out of view, so y or y2 may be null.
+ */
+function offsetDbTicks(lane, amp, off, mid, half) {
+  const yOf = (v) => mid - (v - off) * amp * half;
+  const yZero = yOf(0);
+  const ok = (y) => y >= lane.top + 15 && y <= lane.bottom - 6 && Math.abs(y - yZero) >= 12;
+  const out = [];
+  let lastG = Infinity;
+  for (const db of DB_LADDER) {
+    const g = dbToGain(db);
+    if ((lastG - g) * amp * half < 13) continue;
+    if (g * amp * half < 12) break;
+    const y = yOf(g);
+    const y2 = yOf(-g);
+    if (!ok(y) && !ok(y2)) continue;
+    out.push({ db, y: ok(y) ? y : null, y2: ok(y2) ? y2 : null });
+    lastG = g;
+  }
+  return out;
+}
+
 /** y positions of the amplitude ruler's unlabelled 1 dB ticks (both halves of the lane). */
-export function dbMinorTicks(lane, amp) {
+export function dbMinorTicks(lane, amp, off = 0) {
   const mid = (lane.top + lane.bottom) / 2;
   const half = (lane.bottom - lane.top) / 2;
   const out = [];
+  if (off) {
+    const yOf = (v) => mid - (v - off) * amp * half;
+    const yZero = yOf(0);
+    let lastG = Infinity;
+    for (let db = 0; db >= -96; db--) {
+      const g = dbToGain(db);
+      if (g * amp * half < 10) break;
+      if ((lastG - g) * amp * half < 4) continue;
+      for (const y of [yOf(g), yOf(-g)]) if (y >= lane.top && y <= lane.bottom && Math.abs(y - yZero) >= 10) out.push(y);
+      lastG = g;
+    }
+    return out;
+  }
   let last = -Infinity;
   for (let db = 0; db >= -96; db--) {
     const v = dbToGain(db) * amp;
@@ -85,6 +142,87 @@ export function dbMinorTicks(lane, amp) {
   }
   return out;
 }
+
+/** Units the amplitude ruler can show (right-click the ruler to choose). */
+export const AMP_UNITS = [
+  { id: 'db', label: 'Decibels', caption: 'dB' },
+  { id: 'percent', label: 'Percentage', caption: '%' },
+  { id: 'normalized', label: 'Normalized Values', caption: 'norm' },
+  { id: 'samples', label: 'Samples', caption: 'smpl' },
+];
+
+/** Full-scale value of a linear amplitude unit: integer sample values for fixed-point files. */
+export function ampFullScale(unit, bits = 16) {
+  if (unit === 'percent') return 100;
+  if (unit === 'samples' && bits <= 24) return 2 ** (bits - 1);
+  return 1;
+}
+
+function formatAmpValue(v, step, unit) {
+  if (unit === 'samples' && step >= 1) return Math.abs(v) >= 10000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v));
+  const decimals = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9) + (String(step).includes('25') ? 1 : 0));
+  return v.toFixed(Math.min(4, decimals)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+/**
+ * Linear amplitude ruler ticks (percent, normalized or sample values) for a lane:
+ * [{ value, y, y2, label }] at round steps at least 24 px apart, up to full scale,
+ * with y above the centre line and y2 the negative value's mirror below (null near the edge).
+ */
+export function linearTicks(lane, amp, unit, bits = 16, off = 0) {
+  const mid = (lane.top + lane.bottom) / 2;
+  const half = (lane.bottom - lane.top) / 2;
+  const full = ampFullScale(unit, bits);
+  const pxPer = (half * amp) / full;
+  if (!(pxPer > 0)) return [];
+  const raw = 24 / pxPer;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw * 0.9999);
+  const out = [];
+  if (off) {
+    // Scrolled: each visible value gets its own entry, negative ones labelled with a sign.
+    const offU = off * full;
+    const yZero = mid + offU * pxPer;
+    const lo = Math.max(-full, offU - full / amp);
+    const hi = Math.min(full, offU + full / amp);
+    for (let k = Math.ceil(lo / step - 1e-9); k * step <= hi + 1e-9 && out.length < 200; k++) {
+      if (k === 0) continue;
+      const value = k * step;
+      const y = mid - (value - offU) * pxPer;
+      if (y < lane.top + 15 || y > lane.bottom - 6 || Math.abs(y - yZero) < 10) continue;
+      out.push({ value, y, y2: null, label: `${value < 0 ? '-' : ''}${formatAmpValue(Math.abs(value), step, unit)}` });
+    }
+    return out;
+  }
+  for (let k = 1; k * step <= full * 1.0001 && out.length < 200; k++) {
+    const value = k * step;
+    const y = mid - value * pxPer;
+    if (y < lane.top + 15) break;
+    const y2 = mid + value * pxPer;
+    out.push({ value, y, y2: y2 < lane.bottom - 6 ? y2 : null, label: formatAmpValue(value, step, unit) });
+  }
+  return out;
+}
+
+/** Sample value at y (px) in a lane at amplitude zoom `amp` scrolled to `off`. */
+export const ampValueAt = (lane, y, amp, off = 0) => off + ((lane.top + lane.bottom) / 2 - y) / ((lane.bottom - lane.top) / 2) / amp;
+
+/**
+ * Amplitude zoom and scroll that make the range y0..y1 (px, dragged on the amplitude
+ * ruler) fill the lane it starts in: { amp, offset }, or null outside the lanes.
+ */
+export function ampForRange(lanes, y0, y1, amp, off = 0) {
+  const lane = lanes.find((l) => y0 >= l.top && y0 <= l.bottom);
+  if (!lane) return null;
+  y1 = Math.max(lane.top, Math.min(lane.bottom, y1));
+  if (Math.abs(y1 - y0) < 2) return null;
+  const v0 = ampValueAt(lane, y0, amp, off);
+  const v1 = ampValueAt(lane, y1, amp, off);
+  return { amp: 2 / Math.abs(v0 - v1), offset: (v0 + v1) / 2 };
+}
+
+/** Amplitude zoom for a vertical drag of dy px on the amplitude ruler (up zooms in). */
+export const ampDragZoom = (amp0, dy) => amp0 * Math.pow(1.01, -dy);
 
 /**
  * The first sample at or after a grid line between samples (a video frame or beat): the
@@ -106,6 +244,7 @@ export class WaveformView {
     this.layers = [];
     this.hudGain = 0;
     this.fadeDrag = null;
+    this.snapLine = null;
     this.dirty = { wave: true, overlay: true, ruler: true, overview: true, amp: true };
     this.#build();
     this.offDoc = doc.on('change', (e) => this.#onDocChange(e));
@@ -113,10 +252,15 @@ export class WaveformView {
       if (key === 'waveLayered' || key === 'waveUniqueColors') this.#buildChannelButtons();
       if (key === 'waveLayered') this.overview.peaksFor = null;
       if (key === 'hudPinned') this.syncHudPin?.();
+      if (key === 'ampUnits') this.amp.title = this.#ampTitle();
       this.invalidate();
     });
     this.onTheme = () => this.invalidate();
     window.addEventListener('themechange', this.onTheme);
+    // A drag anywhere (lanes, ruler) ends with a release: the snap line goes with it.
+    this.onRelease = () => this.#showSnap(null);
+    window.addEventListener('pointerup', this.onRelease, true);
+    window.addEventListener('pointercancel', this.onRelease, true);
     for (const ext of WaveformView.extensions) ext.attach?.(this);
   }
 
@@ -139,6 +283,12 @@ export class WaveformView {
       setView: (a, b) => doc.setView(a, b),
       viewMax: () => Math.max(doc.length, doc.sampleRate),
       moveMarker: (id, start, { preview }) => this.moveMarker(id, start, preview),
+      resizeMarker: (id, end, { preview }) => this.resizeMarker(id, end, preview),
+      selectRange: (a, b, id) => {
+        doc.setSelection(a, b, { channels: doc.state.channels.map(() => true) });
+        if (!app.engine.playing) doc.setCursor(a, { silent: true });
+        this.selectMarker(id);
+      },
       cancelMarkerMove: () => {
         this.markerPreview = null;
         this.invalidate('ruler');
@@ -147,6 +297,16 @@ export class WaveformView {
       renameMarker: (id) => app.commands.run('marker.rename', { id }),
       selectMarker: (id) => this.selectMarker(id),
       overviewPeaks: (cols, total) => this.#overviewPeaks(cols, total),
+      setSelection: (a, b) => {
+        this.#showSnap(this.lastSnapTarget);
+        doc.setSelection(a, b, { channels: doc.selection.channels });
+        if (!app.engine.playing) doc.setCursor(Math.min(a, b), { silent: true });
+      },
+      wheel: (e, x) => this.#wheel(e, x),
+      zoomRange: (a, b) => {
+        if (b - a >= MIN_VIEW_FRAMES) doc.setView(a, b);
+      },
+      menuItems: () => this.rulerMenuItems(),
       peaksKey: () => doc.state,
     };
     this.ruler = new TimeRuler(app, timelineHost);
@@ -181,6 +341,7 @@ export class WaveformView {
     this.ampCanvas = h('canvas', { 'aria-hidden': 'true' });
     this.channelButtons = h('div.wf-channel-buttons');
     this.amp = h('div.wf-amp', this.ampCanvas, this.channelButtons);
+    this.amp.title = this.#ampTitle();
     this.snapBtn = h(
       'button.icon-btn.sm',
       {
@@ -215,6 +376,7 @@ export class WaveformView {
     this.#bindPointer();
     this.#bindKeys();
     this.#bindFadeHandles();
+    this.#bindAmpRuler();
     this.resizeObserver = new ResizeObserver(() => this.layout());
     this.resizeObserver.observe(this.surface);
     this.resizeObserver.observe(this.ruler.el);
@@ -227,7 +389,7 @@ export class WaveformView {
     const grip = h('span.hud-grip', { title: 'Drag to move the HUD. Double-click to put it back.', 'aria-hidden': 'true' });
     const pinBtn = h(
       'button.icon-btn.hud-pin',
-      { type: 'button', 'aria-label': 'Pin HUD', title: 'Keep the HUD visible when the pointer leaves the editor', onclick: () => this.app.prefs.toggle('hudPinned') },
+      { type: 'button', 'aria-label': 'Pin HUD', title: 'Pin the HUD: keep it at full strength when the pointer leaves the editor', onclick: () => this.app.prefs.toggle('hudPinned') },
       icon('pin', 12),
     );
     const hud = h('div.hud', grip, h('span.hud-icon', icon('hud-level', 14)), knobEl, valueEl, h('span.hud-unit', 'dB'), h('span.hud-sep'), pinBtn);
@@ -447,14 +609,18 @@ export class WaveformView {
   /** Snaps a frame to markers, selection edges, playhead, ruler ticks or zero crossings. */
   snap(frame, { exclude, force } = {}) {
     const prefs = this.app.prefs;
+    this.lastSnapTarget = null;
     if (!prefs.get('snapping') && !force) return Math.round(frame);
     const snap = prefs.get('snap');
     const tol = this.fpp * 8;
     let best = Math.round(frame);
     let bestD = tol;
-    const consider = (f) => {
+    // Ruler ticks and video frames sit everywhere, so they pull from half as far as
+    // markers and edges: a drag at a wide zoom keeps the time it was let go at.
+    const gridTol = this.fpp * 4;
+    const consider = (f, max = tol) => {
       const d = Math.abs(f - frame);
-      if (d < bestD) {
+      if (d < bestD && d < max) {
         bestD = d;
         best = f;
       }
@@ -472,19 +638,19 @@ export class WaveformView {
       const rate = this.doc.sampleRate;
       if (prefs.get('timeFormat') === 'bars') {
         const step = musicalStep(this.fpp, rate, this.app.timeOptions(), snap.rulerFine ? 3 : 12);
-        consider(firstSampleOf(Math.round(frame / step) * step));
+        consider(firstSampleOf(Math.round(frame / step) * step), gridTol);
       } else {
         const secPerPx = this.fpp / rate;
         const steps = [0.001, 0.01, 0.1, 0.5, 1, 5, 10, 30, 60];
         // Coarse snaps to labelled ticks; fine to ticks about 3 px apart.
         const step = steps.find((s) => s / secPerPx >= (snap.rulerFine ? 3 : 12)) || 60;
-        consider(Math.round(frame / rate / step) * step * rate);
+        consider(Math.round(frame / rate / step) * step * rate, gridTol);
       }
     }
     const fps = snap.frames ? framesPerSecond(this.app.prefs) : 0;
     if (fps) {
       const step = this.doc.sampleRate / fps;
-      consider(firstSampleOf(Math.round(frame / step) * step));
+      consider(firstSampleOf(Math.round(frame / step) * step), gridTol);
     }
     if (snap.zero && bestD === tol) {
       // The sum of the channels enabled for editing, as Adjust Selection to Zero Crossings uses.
@@ -510,10 +676,21 @@ export class WaveformView {
             }
           }
         }
-        if (zbest >= 0) return zbest;
+        if (zbest >= 0) {
+          this.lastSnapTarget = zbest;
+          return zbest;
+        }
       }
     }
+    if (bestD < tol) this.lastSnapTarget = best;
     return best;
+  }
+
+  /** Shows (or with null hides) the line marking where a drag snapped. */
+  #showSnap(frame) {
+    if (frame === (this.snapLine ?? null)) return;
+    this.snapLine = frame;
+    this.invalidate('overlay');
   }
 
   // ----------------------------------------------------------------- render
@@ -579,7 +756,8 @@ export class WaveformView {
     });
     const amp = doc.view.amp;
     this.waveMask = doc.selection.channels.join();
-    this.renderer.draw({ channels: doc.state.channels, start: doc.view.start, fpp: this.fpp / dpr, amp, lanes, colors, defer: this.peakDefer });
+    const channels = this.sampleDrag ? doc.state.channels.map((c, i) => (i === this.sampleDrag.ch ? this.sampleDrag.channel : c)) : doc.state.channels;
+    this.renderer.draw({ channels, start: doc.view.start, fpp: this.fpp / dpr, amp, offset: doc.view.ampOffset || 0, lanes, colors, defer: this.peakDefer });
   }
 
   #drawOverlay() {
@@ -594,13 +772,16 @@ export class WaveformView {
     const amp = doc.view.amp;
     // Grid: centre line and dB lines.
     // Grid lines sit on the dB values labelled in the ruler beside the lanes.
+    const unit = this.ampUnit();
+    const off = doc.view.ampOffset || 0;
     for (const lane of lanes) {
-      const mid = (lane.top + lane.bottom) / 2;
+      // The zero line (the centre unless scrolled vertically).
+      const zero = this.#zeroY(lane);
       ctx.fillStyle = cssVar('--grid-strong');
-      ctx.fillRect(0, Math.round(mid), W, 1);
+      if (zero >= lane.top && zero <= lane.bottom) ctx.fillRect(0, Math.round(zero), W, 1);
       ctx.fillStyle = cssVar('--grid');
-      for (const t of dbTicks(lane, amp)) {
-        ctx.fillRect(0, Math.round(t.y), W, 1);
+      for (const t of unit === 'db' ? dbTicks(lane, amp, off) : linearTicks(lane, amp, unit, this.#bits(), off)) {
+        if (t.y !== null) ctx.fillRect(0, Math.round(t.y), W, 1);
         if (t.y2 !== null) ctx.fillRect(0, Math.round(t.y2), W, 1);
       }
     }
@@ -650,6 +831,34 @@ export class WaveformView {
         ctx.fillStyle = cssVar('--sel-edge');
         if (this.xOf(sel.start) >= 0) ctx.fillRect(Math.round(x0), 0, 1, this.waveHeight);
         if (this.xOf(sel.end) <= W) ctx.fillRect(Math.round(x1) - 1, 0, 1, this.waveHeight);
+      }
+    }
+    // The sample point under the pointer (or being dragged), ringed so it reads as grabbable.
+    const ring = this.sampleDrag ? { ch: this.sampleDrag.ch, frame: this.sampleDrag.a + (this.sampleDrag.last?.i ?? 0) } : this.hoverSample;
+    if (ring && this.samplesEditable() && lanes[ring.ch]) {
+      const one = new Float32Array(1);
+      const ch = this.sampleDrag ? this.sampleDrag.channel : doc.state.channels[ring.ch];
+      ch?.read(ring.frame, one);
+      ctx.strokeStyle = cssVar('--text-strong');
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(this.xOf(ring.frame), this.#sampleY(lanes[ring.ch], one[0]), 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+    // Where a drag snapped (to a marker, selection edge, ruler tick or zero crossing).
+    if (this.snapLine !== null && this.snapLine !== undefined) {
+      const x = Math.round(this.xOf(this.snapLine)) + 0.5;
+      if (x >= 0 && x <= W) {
+        ctx.strokeStyle = cssVar('--text-strong');
+        ctx.globalAlpha = 0.85;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
       }
     }
     // Fade preview curve.
@@ -715,25 +924,178 @@ export class WaveformView {
     ctx.textBaseline = 'middle';
     ctx.fillStyle = cssVar('--text-dim');
     const amp = this.doc.view.amp;
+    const off = this.doc.view.ampOffset || 0;
     const faint = cssVar('--text-faint');
+    const unit = this.ampUnit();
+    const caption = AMP_UNITS.find((u) => u.id === unit)?.caption || 'dB';
     for (const lane of this.lanes()) {
-      const mid = (lane.top + lane.bottom) / 2;
+      const zero = this.#zeroY(lane);
+      const zeroShown = zero >= lane.top + 10 && zero <= lane.bottom - 4;
+      // Zoomed in, a thin bar at the right edge shows which part of full scale is in view.
+      if (amp > 1) {
+        const lh = lane.bottom - lane.top;
+        ctx.fillStyle = faint;
+        ctx.globalAlpha = 0.35;
+        ctx.fillRect(W - 3, lane.top + 1, 2, lh - 2);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = cssVar('--text-dim');
+        ctx.fillRect(W - 3, lane.top + ((1 - (off + 1 / amp)) / 2) * lh, 2, Math.max(4, lh / amp));
+      }
+      ctx.fillStyle = cssVar('--text-dim');
+      if (unit !== 'db') {
+        for (const { y, y2, label } of linearTicks(lane, amp, unit, this.#bits(), off)) {
+          ctx.fillRect(0, Math.round(y), 4, 1);
+          ctx.fillText(label, 6, y);
+          if (y2 !== null) {
+            ctx.fillRect(0, Math.round(y2), 4, 1);
+            ctx.fillText(`-${label}`, 6, y2);
+          }
+        }
+        if (zeroShown) ctx.fillText('0', 6, zero);
+        ctx.fillText(caption, 6, lane.top + 6);
+        continue;
+      }
       // Minor ticks every dB while they stay a few pixels apart.
       ctx.fillStyle = faint;
-      for (const y of dbMinorTicks(lane, amp)) ctx.fillRect(0, Math.round(y), 2, 1);
+      for (const y of dbMinorTicks(lane, amp, off)) ctx.fillRect(0, Math.round(y), 2, 1);
       ctx.fillStyle = cssVar('--text-dim');
-      for (const { db, y, y2 } of dbTicks(lane, amp)) {
+      for (const { db, y, y2 } of dbTicks(lane, amp, off)) {
         const text = db === 0 ? '0' : String(db);
-        ctx.fillRect(0, Math.round(y), 4, 1);
-        ctx.fillText(text, 6, y);
+        if (y !== null) {
+          ctx.fillRect(0, Math.round(y), 4, 1);
+          ctx.fillText(text, 6, y);
+        }
         if (y2 !== null) {
           ctx.fillRect(0, Math.round(y2), 4, 1);
           ctx.fillText(text, 6, y2);
         }
       }
-      ctx.fillText('-\u221e', 6, mid);
+      if (zeroShown) ctx.fillText('-\u221e', 6, zero);
       ctx.fillText('dB', 6, lane.top + 6);
     }
+  }
+
+  /** y of the zero line in a lane (its centre unless scrolled vertically). */
+  #zeroY(lane) {
+    return this.#sampleY(lane, 0);
+  }
+
+  /** The lane under y px, or the nearest one. */
+  #laneNear(y) {
+    const lanes = this.lanes();
+    return lanes.find((l) => y >= l.top && y <= l.bottom) || lanes[y < (lanes[0]?.top ?? 0) ? 0 : lanes.length - 1];
+  }
+
+  /** Amplitude zoom by `factor` keeping the value under y (px) where it is. */
+  zoomAmpAt(factor, y) {
+    const lane = this.#laneNear(y);
+    const v = this.doc.view;
+    const anchor = lane ? ampValueAt(lane, y, v.amp, v.ampOffset || 0) : undefined;
+    this.doc.setAmp(v.amp * factor, { anchor });
+  }
+
+  /** Scrolls the amplitude view by dy px (positive moves the waveform down). */
+  scrollAmp(dy) {
+    const lane = this.lanes()[0];
+    if (!lane) return;
+    const v = this.doc.view;
+    this.doc.setAmpOffset((v.ampOffset || 0) + dy / ((lane.bottom - lane.top) / 2) / v.amp);
+  }
+
+  #ampTitle() {
+    const u = AMP_UNITS.find((x) => x.id === this.ampUnit());
+    return `Amplitude (${u.label}). Scroll to zoom, drag to scroll when zoomed in (Shift+drag zooms), right-drag over a range to zoom to it, double-click to reset, right-click for units.`;
+  }
+
+  /** Unit of the amplitude ruler and grid: 'db', 'percent', 'normalized' or 'samples'. */
+  ampUnit() {
+    const u = this.app.prefs.get('ampUnits');
+    return AMP_UNITS.some((x) => x.id === u) ? u : 'db';
+  }
+
+  #bits() {
+    return this.doc.info?.bitDepth || 32;
+  }
+
+  /** Right-click menu of the amplitude ruler: units and amplitude zoom. */
+  ampMenuItems() {
+    const app = this.app;
+    const unit = this.ampUnit();
+    const cmd = (id) => ({ type: 'cmd', label: app.commands.label(id), shortcut: app.commands.shortcutLabel(id), enabled: app.commands.isEnabled(id), run: () => app.commands.run(id) });
+    return [
+      ...AMP_UNITS.map((u) => ({ type: 'cmd', label: u.label, enabled: true, checked: unit === u.id, run: () => app.prefs.set('ampUnits', u.id) })),
+      { type: 'sep' },
+      cmd('view.zoomInAmp'),
+      cmd('view.zoomOutAmp'),
+      { type: 'cmd', label: 'Reset Amplitude Zoom', enabled: this.doc.view.amp !== 1, run: () => this.doc.setAmp(1) },
+    ];
+  }
+
+  /** Amplitude ruler: right-click for units, wheel or vertical drag to zoom, double-click to reset. */
+  #bindAmpRuler() {
+    const el = this.amp;
+    // Only the amplitude ruler itself: layers (the spectral display's frequency ruler)
+    // and the channel buttons share this column and handle their own events.
+    const mine = (e) => e.target === el || e.target === this.ampCanvas;
+    // Right-click: units and zoom. Right-drag: zoom so the range dragged over fills the lane.
+    const band = h('div.amp-zoom-band', { hidden: true });
+    el.append(band);
+    const yOf = (e) => e.clientY - el.getBoundingClientRect().top;
+    bindRightDrag(el, {
+      filter: mine,
+      move: (a, b) => {
+        const [y0, y1] = [yOf(a), yOf(b)].sort((p, q) => p - q);
+        Object.assign(band.style, { top: `${y0}px`, height: `${y1 - y0}px` });
+        band.hidden = false;
+      },
+      done: (a, b) => {
+        band.hidden = true;
+        const r = ampForRange(this.lanes(), yOf(a), yOf(b), this.doc.view.amp, this.doc.view.ampOffset || 0);
+        if (r) {
+          this.doc.setAmp(r.amp);
+          this.doc.setAmpOffset(r.offset);
+        }
+      },
+      cancel: () => (band.hidden = true),
+      menu: (x, y) => this.app.openMenu(this.ampMenuItems(), { x, y, label: 'Amplitude ruler' }),
+    });
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        if (!mine(e)) return;
+        e.preventDefault();
+        // Shift scrolls (when zoomed in); otherwise zoom around the level under the pointer.
+        if (e.shiftKey) this.scrollAmp(-(e.deltaY || e.deltaX));
+        else this.zoomAmpAt(Math.pow(1.0015, -(e.deltaY || e.deltaX)), yOf(e));
+      },
+      { passive: false },
+    );
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !mine(e)) return;
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      const y0 = e.clientY;
+      const amp0 = this.doc.view.amp;
+      // Zoomed in, a drag scrolls through the levels; at full scale (or with Shift) it zooms.
+      const zoom = e.shiftKey || amp0 <= 1;
+      let last = y0;
+      const move = (ev) => {
+        if (zoom) this.doc.setAmp(ampDragZoom(amp0, ev.clientY - y0));
+        else this.scrollAmp(ev.clientY - last);
+        last = ev.clientY;
+      };
+      const up = () => {
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', up);
+        el.removeEventListener('pointercancel', up);
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+    });
+    el.addEventListener('dblclick', (e) => {
+      if (mine(e)) this.doc.setAmp(1);
+    });
   }
 
   /** Overview peaks: one strip per channel, like the lanes (merged when layered). */
@@ -775,6 +1137,7 @@ export class WaveformView {
     // Markers stay inside the file: a drag past the end stops with the marker (or range) at the end.
     const dur = this.doc.state.markers.find((m) => m.id === id)?.duration || 0;
     start = Math.max(0, Math.min(Math.round(start), this.doc.length - dur));
+    this.#showSnap(preview ? this.lastSnapTarget : null);
     if (preview) {
       this.markerPreview = { id, start };
       this.invalidate('ruler');
@@ -786,11 +1149,33 @@ export class WaveformView {
     this.doc.apply('Move Marker', { ...this.doc.state, markers: sortMarkers(markers) });
   }
 
+  /** Drags the end of a range marker: it keeps its start and stays at least one sample long. */
+  resizeMarker(id, end, preview) {
+    const m = this.doc.state.markers.find((x) => x.id === id);
+    if (!m) return;
+    const duration = Math.max(1, Math.min(Math.round(end), this.doc.length) - m.start);
+    this.#showSnap(preview ? this.lastSnapTarget : null);
+    if (preview) {
+      this.markerPreview = { id, start: m.start, duration };
+      this.invalidate('ruler');
+      this.invalidate('overlay');
+      return;
+    }
+    this.markerPreview = null;
+    if (duration === m.duration) {
+      this.invalidate('ruler');
+      this.invalidate('overlay');
+      return;
+    }
+    const markers = this.doc.state.markers.map((x) => (x.id === id ? { ...x, duration } : x));
+    this.doc.apply('Resize Marker', { ...this.doc.state, markers: sortMarkers(markers) });
+  }
+
   /** Markers as displayed, including a marker being dragged. */
   markers() {
     const p = this.markerPreview;
     if (!p) return this.doc.state.markers;
-    return this.doc.state.markers.map((m) => (m.id === p.id ? { ...m, start: p.start } : m));
+    return this.doc.state.markers.map((m) => (m.id === p.id ? { ...m, start: p.start, duration: p.duration ?? m.duration } : m));
   }
 
   #onDocChange(e) {
@@ -823,10 +1208,12 @@ export class WaveformView {
   }
 
   /** Channel mask for a selection drag that starts at y: the top quarter of the
-   *  first lane selects only it, the bottom quarter of the last lane only it. */
+   *  first lane selects only it, the bottom quarter of the last lane only it
+   *  (unless Preferences > General turns context-sensitive channel editing off). */
   #channelMaskAt(y) {
     const n = this.doc.channelCount;
     if (n < 2) return null;
+    if (this.app.prefs.get('channelZones') === false) return this.lanes().map(() => true);
     // Below the waveform (spectral display): every channel.
     if (y >= (this.waveHeight ?? this.height)) return this.lanes().map(() => true);
     const lanes = this.lanes();
@@ -855,7 +1242,9 @@ export class WaveformView {
         this.extendSelectionTo(this.frameAt(e.clientX - s.getBoundingClientRect().left));
         return;
       }
-      contextMenu(this.app, WAVEFORM_CONTEXT, e.clientX, e.clientY, 'Waveform context menu');
+      // Layers (the spectral display) add their own entries above the waveform ones.
+      const extra = this.layers.flatMap((l) => (l.visible?.() !== false && l.menuItems?.(e)) || []);
+      contextMenu(this.app, extra.length ? [...extra, '-', ...WAVEFORM_CONTEXT] : WAVEFORM_CONTEXT, e.clientX, e.clientY, 'Waveform context menu');
     });
 
     s.addEventListener('pointerdown', (e) => {
@@ -885,6 +1274,14 @@ export class WaveformView {
       const rect = s.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+      // Zoomed in to single samples: dragging a sample point redraws the waveform.
+      const hit = !e.shiftKey && e.pointerType !== 'touch' ? this.sampleAt(x, y) : null;
+      if (hit) {
+        s.setPointerCapture(e.pointerId);
+        this.#startSampleDrag(hit);
+        drag = { samples: true };
+        return;
+      }
       const now = performance.now();
       if (now - clicks.t < 400 && Math.abs(x - clicks.x) < 6) clicks.n++;
       else clicks.n = 1;
@@ -936,7 +1333,13 @@ export class WaveformView {
       menuTouch = false;
       if (e.cancelable) e.preventDefault();
     });
-    s.addEventListener('pointerleave', () => this.app.emit('cursor-data', null));
+    s.addEventListener('pointerleave', () => {
+      this.app.emit('cursor-data', null);
+      if (this.hoverSample) {
+        this.hoverSample = null;
+        this.invalidate('overlay');
+      }
+    });
     s.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pinch && pointers.size === 2) {
@@ -959,6 +1362,11 @@ export class WaveformView {
         drag.layer.pointer(e, 'move');
         return;
       }
+      if (drag.samples) {
+        const r = s.getBoundingClientRect();
+        this.#moveSampleDrag(e.clientX - r.left, e.clientY - r.top);
+        return;
+      }
       const rect = s.getBoundingClientRect();
       const x = e.clientX - rect.left;
       if (!drag.started && Math.abs(x - drag.x0) < (drag.pointerType === 'touch' ? 8 : 3)) return;
@@ -979,6 +1387,16 @@ export class WaveformView {
         drag = null;
         return;
       }
+      if (drag.samples) {
+        const start = this.sampleDrag?.start;
+        // A click on a sample point without dragging places the playhead, as anywhere else.
+        if (!this.#endSampleDrag(cancelled) && !cancelled && start !== undefined) {
+          this.doc.setSelection(start, start, { channels: this.doc.state.channels.map(() => true) });
+          this.seek(start);
+        }
+        drag = null;
+        return;
+      }
       if (cancelled) {
         this.doc.setSelection(drag.prev.start, drag.prev.end, { channels: drag.prev.channels });
       } else if (!drag.started) {
@@ -994,31 +1412,142 @@ export class WaveformView {
     s.addEventListener('lostpointercapture', (e) => {
       if (drag && !drag.layer) finish(e, false);
     });
+    s.addEventListener('keydown', (e) => {
+      // Escape during a sample drag puts the samples back.
+      if (e.key === 'Escape' && drag?.samples) {
+        this.#endSampleDrag(true);
+        drag = null;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    });
 
     s.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
-        const rect = s.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const v = this.doc.view;
-        const span = v.end - v.start;
-        if (e.altKey) {
-          this.doc.setAmp(this.doc.view.amp * Math.pow(1.0015, -e.deltaY));
-          return;
-        }
-        // Horizontal trackpad motion (or Shift+wheel) scrolls; vertical zooms
-        // around the pointer, as in desktop audio editors.
-        const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
-        if (Math.abs(dx) > Math.abs(e.deltaY) || e.shiftKey) {
-          const shift = (dx / this.width) * span;
-          this.doc.setView(v.start + shift, v.end + shift);
-          return;
-        }
-        wheelZoom(this.app, this.doc, e, x, this.width);
+        this.#wheel(e, e.clientX - s.getBoundingClientRect().left);
       },
       { passive: false },
     );
+  }
+
+  /** Mouse wheel over the lanes or the time ruler, at x px from the left edge. */
+  #wheel(e, x) {
+    const v = this.doc.view;
+    const span = v.end - v.start;
+    if (e.altKey) {
+      this.zoomAmpAt(Math.pow(1.0015, -e.deltaY), e.clientY - this.surface.getBoundingClientRect().top);
+      return;
+    }
+    // Horizontal trackpad motion (or Shift+wheel) scrolls; vertical zooms
+    // around the pointer, as in desktop audio editors.
+    const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX;
+    if (Math.abs(dx) > Math.abs(e.deltaY) || e.shiftKey) {
+      const shift = (dx / this.width) * span;
+      this.doc.setView(v.start + shift, v.end + shift);
+      return;
+    }
+    wheelZoom(this.app, this.doc, e, x, this.width);
+  }
+
+  /** Right-click menu of the time ruler: the time display format and time zoom. */
+  rulerMenuItems() {
+    const app = this.app;
+    const formats = app.timeFormatMenuItems?.() || [];
+    return [
+      ...formats,
+      ...(formats.length ? [{ type: 'sep' }] : []),
+      ...resolveItems(app, ['view.zoomInTime', 'view.zoomOutTime', 'view.zoomSelection', 'view.zoomFull', '-', 'edit.selectView', 'edit.selectAll']),
+    ];
+  }
+
+  /** True when the view is zoomed in far enough for single samples to be dragged. */
+  samplesEditable() {
+    return this.doc.length > 0 && this.width > 0 && 1 / this.fpp >= SAMPLE_EDIT_PX;
+  }
+
+  /** y (CSS px) of a sample value in a lane at the current amplitude zoom. */
+  #sampleY(lane, v) {
+    const mid = (lane.top + lane.bottom) / 2;
+    return mid - Math.max(-1.05, Math.min(1.05, (v - (this.doc.view.ampOffset || 0)) * this.doc.view.amp)) * ((lane.bottom - lane.top) / 2);
+  }
+
+  /**
+   * The sample point under (x, y) when zoomed in to single samples: { ch, frame }, or
+   * null. Only channels enabled for editing respond; in a layered display the channel
+   * whose point is nearest wins.
+   */
+  sampleAt(x, y) {
+    if (!this.samplesEditable() || y >= (this.waveHeight ?? this.height)) return null;
+    const doc = this.doc;
+    const frame = Math.round(this.frameAt(x));
+    if (frame < 0 || frame >= doc.length || Math.abs(this.xOf(frame) - x) > 5) return null;
+    const one = new Float32Array(1);
+    let best = null;
+    let bestD = 6;
+    this.lanes().forEach((lane, ch) => {
+      if (doc.selection.channels[ch] === false || y < lane.top - 2 || y > lane.bottom + 2) return;
+      doc.state.channels[ch].read(frame, one);
+      const d = Math.abs(this.#sampleY(lane, one[0]) - y);
+      if (d <= bestD) {
+        bestD = d;
+        best = { ch, frame };
+      }
+    });
+    return best;
+  }
+
+  #startSampleDrag({ ch, frame }) {
+    const doc = this.doc;
+    const before = doc.state;
+    const a = Math.max(0, Math.floor(doc.view.start) - 1);
+    const b = Math.min(doc.length, Math.ceil(doc.view.end) + 2);
+    this.sampleDrag = { ch, start: frame, before, a, buf: before.channels[ch].toArray(a, b), last: null, channel: before.channels[ch], changed: false };
+    this.#setSampleAt(frame, this.xOf(frame));
+  }
+
+  /** Sets the sample under x to the value at y, filling in samples skipped since the last move. */
+  #moveSampleDrag(x, y) {
+    const d = this.sampleDrag;
+    if (!d) return;
+    d.y = y;
+    const frame = Math.round(this.frameAt(Math.max(0, Math.min(this.width, x))));
+    this.#setSampleAt(frame, x);
+  }
+
+  #setSampleAt(frame, x, y = this.sampleDrag.y) {
+    const d = this.sampleDrag;
+    const lane = this.lanes()[d.ch];
+    const value = y === undefined ? null : Math.max(-1, Math.min(1, ampValueAt(lane, y, this.doc.view.amp, this.doc.view.ampOffset || 0)));
+    const i = frame - d.a;
+    if (value === null || i < 0 || i >= d.buf.length) {
+      d.last = i >= 0 && i < d.buf.length ? { i, v: d.buf[i] } : d.last;
+      return;
+    }
+    const from = d.last ?? { i, v: value };
+    const lo = Math.min(from.i, i);
+    const hi = Math.max(from.i, i);
+    for (let k = lo; k <= hi; k++) {
+      const t = hi === lo ? 1 : (k - from.i) / (i - from.i);
+      d.buf[k] = from.v + (value - from.v) * t;
+    }
+    d.last = { i, v: value };
+    d.changed = true;
+    d.channel = d.before.channels[d.ch].write(d.a, d.buf.slice());
+    this.invalidate('wave');
+    this.invalidate('overlay');
+    // The status bar reads the value being drawn, not the one in the file.
+    const names = this.doc.channelCount === 1 ? ['M'] : CHANNEL_NAMES;
+    this.app.emit('cursor-data', { frame, rate: this.doc.sampleRate, channel: names[d.ch] || String(d.ch + 1), db: value ? 20 * Math.log10(Math.abs(value)) : -Infinity });
+  }
+
+  #endSampleDrag(cancelled) {
+    const d = this.sampleDrag;
+    this.sampleDrag = null;
+    this.invalidate('wave');
+    if (!d || cancelled || !d.changed || this.doc.state !== d.before) return false;
+    return this.doc.apply('Edit Samples', { ...d.before, channels: d.before.channels.map((c, i) => (i === d.ch ? d.channel : c)) });
   }
 
   /** Extends the time selection to `frame` from its far edge (or from the playhead). */
@@ -1039,7 +1568,19 @@ export class WaveformView {
     const sel = this.doc.selection;
     const tol = 6 * this.fpp;
     const onEdge = sel.end > sel.start && (Math.abs(f - sel.start) < tol || Math.abs(f - sel.end) < tol);
-    let cursor = onEdge ? 'ew-resize' : 'text';
+    const y = e.clientY - rect.top;
+    const sample = onEdge ? null : this.sampleAt(x, y);
+    if (sample?.frame !== this.hoverSample?.frame || sample?.ch !== this.hoverSample?.ch) {
+      this.hoverSample = sample;
+      this.invalidate('overlay');
+    }
+    let cursor = onEdge ? 'ew-resize' : sample ? 'ns-resize' : 'text';
+    if (cursor === 'text') {
+      // Near the top or bottom edge a drag selects one channel: the I-beam names it.
+      const mask = this.#channelMaskAt(y);
+      const one = mask && mask.filter(Boolean).length === 1 ? mask.indexOf(true) : -1;
+      if (one >= 0) cursor = channelCursor(CHANNEL_NAMES[one] || String(one + 1));
+    }
     for (const l of this.layers) {
       const c = l.visible?.() !== false && l.cursor?.(e);
       if (c) cursor = c;
@@ -1049,6 +1590,7 @@ export class WaveformView {
 
   #dragTo(drag, x) {
     const f = this.snap(Math.max(0, Math.min(this.doc.length, this.frameAt(x))));
+    this.#showSnap(this.lastSnapTarget);
     this.doc.setSelection(drag.anchor, f, { channels: drag.channels || this.doc.selection.channels });
     if (!this.app.engine.playing) this.doc.setCursor(Math.min(drag.anchor, f), { silent: true });
   }
@@ -1162,7 +1704,7 @@ export class WaveformView {
     const sel = doc.selection;
     const start = range && sel.end > sel.start ? sel.start : this.app.engine.playing && this.app.active === doc ? Math.round(this.app.playhead) : doc.cursor;
     const duration = range && sel.end > sel.start ? sel.end - sel.start : 0;
-    const m = createMarker({ start, duration, name: nextMarkerName(doc.state.markers) });
+    const m = createMarker({ start, duration, name: newMarkerName(doc.state.markers, { range: duration > 0 }) });
     doc.apply(range ? 'Add Range Marker' : 'Add Marker', { ...doc.state, markers: sortMarkers([...doc.state.markers, m]) });
     this.selectMarker(m.id);
     return m;
@@ -1177,6 +1719,8 @@ export class WaveformView {
     this.offPrefs();
     this.offActive();
     window.removeEventListener('themechange', this.onTheme);
+    window.removeEventListener('pointerup', this.onRelease, true);
+    window.removeEventListener('pointercancel', this.onRelease, true);
     this.resizeObserver.disconnect();
     this.renderer.dispose();
     for (const l of this.layers) l.destroy?.();

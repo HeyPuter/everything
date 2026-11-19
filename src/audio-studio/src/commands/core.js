@@ -18,9 +18,13 @@ import { shortcutsDialog } from '../ui/shortcuts-dialog.js';
 import { preferencesDialog } from '../ui/preferences.js';
 import { deleteSmoothFrames, zoomInFactor, MIN_VIEW_FRAMES } from '../editor/view-prefs.js';
 import { shuttleCommands } from './shuttle.js';
-import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
+import { mixPasteDialog, mixPasteAgain, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
+import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
+import { saveSmallFile } from '../export/save-file.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
+/** Files to open: from Puter when signed in (as File > Open does), else from this device. */
+const pickAudioFiles = async () => (puter.sdk() && puter.isSignedIn() ? puter.pickFiles({ multiple: true }) : pickLocalFiles());
 const hasAudio = (app) => Boolean(audio(app));
 const hasSel = (app) => Boolean(audio(app)?.hasSelection);
 const anyDoc = (app) => Boolean(app.active);
@@ -72,11 +76,8 @@ function newDocFromClip(app, clip, name) {
 
 async function newAudioDialog(app, { title = 'New Audio File', name } = {}) {
   const nameInput = h('input.input', { type: 'text', value: name || app.uniqueName('Untitled'), 'aria-label': 'File name', style: { width: '100%' } });
-  const rate = h(
-    'select.select',
-    { 'aria-label': 'Sample rate' },
-    [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000].map((r) => h('option', { value: r, selected: r === app.prefs.get('defaultRate') }, `${r} Hz`)),
-  );
+  const rate = rateField(app.prefs.get('defaultRate') || 48000);
+  const error = h('div.dlg-error', { role: 'alert' });
   const channels = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: '1', selected: app.prefs.get('defaultChannels') === 1 }, 'Mono'), h('option', { value: '2', selected: app.prefs.get('defaultChannels') !== 1 }, 'Stereo'));
   const bits = h('select.select', { 'aria-label': 'Bit depth' }, [8, 16, 24, 32].map((b) => h('option', { value: b, selected: b === 32 }, b === 32 ? '32 (float)' : String(b))));
   const r = await openDialog({
@@ -86,47 +87,68 @@ async function newAudioDialog(app, { title = 'New Audio File', name } = {}) {
       h('label', 'File Name:'),
       nameInput,
       h('label', 'Sample Rate:'),
-      rate,
+      rate.el,
       h('label', 'Channels:'),
       channels,
       h('label', 'Bit Depth:'),
-      bits,
+      h('div.row', bits, h('span.muted', 'bits')),
+      h('span'),
+      error,
     ),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      error.textContent = rate.value() ? '' : RATE_PROBLEM;
+      if (!rate.value()) rate.input.focus();
+      return Boolean(rate.value());
+    },
   });
   if (r !== 'ok') return null;
-  app.prefs.set('defaultRate', Number(rate.value));
+  app.prefs.set('defaultRate', rate.value());
   app.prefs.set('defaultChannels', Number(channels.value));
-  return { name: nameInput.value.trim() || 'Untitled', sampleRate: Number(rate.value), channels: Number(channels.value), bitDepth: Number(bits.value) };
+  return { name: nameInput.value.trim() || 'Untitled', sampleRate: rate.value(), channels: Number(channels.value), bitDepth: Number(bits.value) };
 }
 
 /** Longest silence Insert Silence adds (s): far beyond real use, short of what stalls the tab. */
 export const MAX_INSERT_SECONDS = 24 * 3600;
 
-async function durationDialog(app, title, label) {
+/**
+ * Asks for a duration in the current time format; starts from the last one used (`pref`, in
+ * seconds) and checks it before closing. Resolves frames or null.
+ */
+async function durationDialog(app, title, label, { pref = 'insertSilenceSeconds' } = {}) {
   const doc = audio(app);
-  const input = h('input.input', { type: 'text', value: app.formatTime(doc.sampleRate, doc.sampleRate), 'aria-label': label, style: { width: '160px' } });
+  const last = Number(app.prefs.get(pref));
+  const initial = Math.round((last > 0 && last <= MAX_INSERT_SECONDS ? last : 1) * doc.sampleRate);
+  const input = h('input.input', { type: 'text', value: app.formatTime(initial, doc.sampleRate), 'aria-label': label, 'aria-describedby': 'duration-error', style: { width: '160px' }, spellcheck: 'false' });
+  const error = h('div.dlg-error', { id: 'duration-error', role: 'alert' });
+  const hint = h('div.faint', `In the time display format (${app.formatTime(doc.sampleRate * 90, doc.sampleRate)} is 90 seconds).`);
+  let frames = null;
   const r = await openDialog({
     title,
-    body: h('div.form-grid', h('label', `${label}:`), input),
+    body: h('div.dlg-stack', h('div.form-grid', h('label', { for: 'duration-input' }, `${label}:`), Object.assign(input, { id: 'duration-input' })), hint, error),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      const f = parseTime(input.value, doc.sampleRate, app.prefs.get('timeFormat'), app.timeOptions());
+      const problem = !Number.isFinite(f) || f <= 0 ? 'Enter a duration greater than zero.' : f > MAX_INSERT_SECONDS * doc.sampleRate ? 'Enter a duration of 24 hours or less.' : '';
+      error.textContent = problem;
+      input.setAttribute('aria-invalid', String(Boolean(problem)));
+      if (problem) {
+        input.focus();
+        input.select();
+        return false;
+      }
+      frames = f;
+      return true;
+    },
   });
-  if (r !== 'ok') return null;
-  const frames = parseTime(input.value, doc.sampleRate, app.prefs.get('timeFormat'), app.timeOptions());
-  if (!Number.isFinite(frames) || frames <= 0) {
-    app.notify('Enter a duration greater than zero.', { error: true });
-    return null;
-  }
-  if (frames > MAX_INSERT_SECONDS * doc.sampleRate) {
-    app.notify('Enter a duration of 24 hours or less.', { error: true });
-    return null;
-  }
+  if (r !== 'ok' || !frames) return null;
+  app.prefs.set(pref, frames / doc.sampleRate);
   return frames;
 }
 
@@ -194,7 +216,7 @@ export function installCoreCommands(app) {
       enabled: hasAudio,
       run: async () => {
         const doc = audio(app);
-        const files = await pickLocalFiles();
+        const files = await pickAudioFiles();
         for (const f of files) {
           const [opened] = await openFiles(app, [f], { activate: false });
           if (!opened) continue;
@@ -212,7 +234,7 @@ export function installCoreCommands(app) {
       id: 'file.appendNew',
       label: 'To New...',
       run: async () => {
-        const files = await pickLocalFiles();
+        const files = await pickAudioFiles();
         const docs = await openFiles(app, files, { activate: false });
         if (!docs.length) return;
         const first = docs[0];
@@ -243,7 +265,9 @@ export function installCoreCommands(app) {
       shortcut: 'Mod+Shift+W',
       enabled: (a) => a.documents.length > 0,
       run: async () => {
-        for (const d of app.documents.slice()) if (!(await app.closeDocument(d))) return;
+        const docs = app.documents.slice();
+        const batch = { others: docs.filter((d) => d.dirty).length - 1, answer: null };
+        for (const d of docs) if (!(await app.closeDocument(d, { batch }))) return;
       },
     },
     { id: 'file.save', label: 'Save', shortcut: 'Mod+S', enabled: hasAudio, run: () => saveDocument(app, audio(app)) },
@@ -306,15 +330,20 @@ export function installCoreCommands(app) {
     { id: 'file.properties', label: 'File Info', enabled: anyDoc, run: () => app.dock.openPanel('properties') },
     {
       id: 'file.exportMarkers',
-      label: 'Markers...',
-      enabled: (a) => Boolean(audio(a)?.state.markers.length),
-      run: () => {
-        const doc = audio(app);
+      label: 'Selected Markers to CSV...',
+      enabled: (a) => Boolean(a.active?.state?.markers?.length),
+      run: async (a, args) => {
+        const doc = app.active;
+        // The markers selected in the Markers panel (or handed over by its toolbar), else all of them.
+        const ids = new Set(args?.ids || app.selectedMarkerIds?.() || []);
+        const chosen = doc.state.markers.filter((m) => ids.has(m.id));
+        const markers = chosen.length ? chosen : doc.state.markers;
         // Sample columns keep positions exact when the list is imported again.
         const rows = [['Name', 'Start', 'Duration', 'Time Format', 'Type', 'Description', 'Start Samples', 'Duration Samples', 'Sample Rate']];
-        for (const m of doc.state.markers) rows.push([m.name, app.formatTime(m.start, doc.sampleRate), app.formatTime(m.duration, doc.sampleRate), app.prefs.get('timeFormat'), m.type, m.description || '', m.start, m.duration, doc.sampleRate]);
+        for (const m of markers) rows.push([m.name, app.formatTime(m.start, doc.sampleRate), app.formatTime(m.duration, doc.sampleRate), app.prefs.get('timeFormat'), m.type, m.description || '', m.start, m.duration, doc.sampleRate]);
         const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join('\t')).join('\n');
-        downloadBlob(new Blob([csv], { type: 'text/csv' }), `${baseName(doc.name)} Markers.csv`);
+        const saved = await saveSmallFile(app, new Blob([csv], { type: 'text/csv' }), `${baseName(doc.name)} Markers.csv`, { title: 'Export Selected Markers to CSV', ext: '.csv', pref: 'markerExportFolder' });
+        if (saved) app.setStatus(`Exported ${markers.length} marker${markers.length === 1 ? '' : 's'}${chosen.length ? ' (the selection)' : ''}${saved.type === 'puter' ? ` to ${saved.path}` : ''}`);
       },
     },
 
@@ -353,6 +382,7 @@ export function installCoreCommands(app) {
       label: 'Cut',
       shortcut: 'Mod+X',
       enabled: hasSel,
+      repeatable: true,
       run: () => {
         const doc = audio(app);
         app.clipboard = clipFromSelection(app, doc);
@@ -367,6 +397,7 @@ export function installCoreCommands(app) {
       label: 'Paste',
       shortcut: 'Mod+V',
       enabled: (a) => hasAudio(a) && a.clipboard?.type === 'audio',
+      repeatable: true,
       run: async () => {
         const doc = audio(app);
         // The clipboard as it was when Paste ran (another can be chosen while a clip is resampled).
@@ -380,13 +411,22 @@ export function installCoreCommands(app) {
       },
     },
     { id: 'edit.pasteToNew', label: 'Paste to New', shortcut: 'Mod+Alt+V', enabled: (a) => a.clipboard?.type === 'audio', run: () => newDocFromClip(app, app.clipboard, 'Untitled') },
-    { id: 'edit.mixPaste', label: 'Mix Paste...', shortcut: 'Mod+Shift+V', enabled: hasAudio, run: () => mixPasteDialog(app, { doc: audio(app), conformRate }) },
+    {
+      id: 'edit.mixPaste',
+      label: 'Mix Paste...',
+      shortcut: 'Mod+Shift+V',
+      enabled: hasAudio,
+      repeatable: true,
+      // Repeat Without Dialog mixes the current clipboard in again with the last settings.
+      run: (a, args) => (args?.repeat ? mixPasteAgain(app, { doc: audio(app), conformRate }) : mixPasteDialog(app, { doc: audio(app), conformRate })),
+    },
     {
       id: 'edit.delete',
       label: 'Delete',
       shortcut: 'Delete',
       altShortcuts: ['Backspace'],
       enabled: hasSel,
+      repeatable: true,
       run: () => {
         const doc = audio(app);
         const { start, end } = doc.selection;
@@ -409,12 +449,15 @@ export function installCoreCommands(app) {
       id: 'edit.insertSilence',
       label: 'Silence...',
       enabled: hasAudio,
+      repeatable: true,
       run: async (a, args) => {
         const doc = audio(app);
-        // args.seconds (a recorded favorite) inserts without asking.
-        const seconds = Math.min(MAX_INSERT_SECONDS, args?.seconds);
+        // args.seconds (a recorded favorite) inserts without asking, as does Repeat Without
+        // Dialog with the last duration.
+        const seconds = Math.min(MAX_INSERT_SECONDS, args?.seconds ?? (args?.repeat ? app.lastSilenceSeconds : undefined));
         const frames = seconds > 0 ? Math.round(seconds * doc.sampleRate) : await durationDialog(app, 'Insert Silence', 'Duration');
         if (!frames) return;
+        app.lastSilenceSeconds = frames / doc.sampleRate;
         const at = doc.hasSelection ? doc.selection.start : doc.cursor;
         doc.apply('Insert Silence', E.insertSilence(doc.state, at, frames), { selection: { start: at, end: at + frames } });
       },
@@ -868,7 +911,7 @@ export function installCoreCommands(app) {
     })),
 
     // ----------------------------------------------------------------- Help
-    { id: 'help.shortcuts', label: 'Keyboard Shortcuts', shortcut: 'Mod+/', run: () => shortcutsDialog(app) },
+    { id: 'help.shortcuts', label: 'Keyboard Shortcuts...', shortcut: 'Mod+/', run: () => shortcutsDialog(app) },
     { id: 'help.about', label: 'About Audio Studio', run: () => aboutDialog() },
   ]);
 

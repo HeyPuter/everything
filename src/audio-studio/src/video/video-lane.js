@@ -33,7 +33,15 @@ export class VideoLane {
     this.height = 0;
     this.canvas = h('canvas.mt-video-canvas', { 'aria-hidden': 'true' });
     this.playheadEl = h('div.playhead', { 'aria-hidden': 'true' });
-    this.lane = h('div.mt-video-lane', { tabindex: '0', role: 'group', 'aria-roledescription': 'video track', 'aria-label': 'Video track' }, this.canvas, this.playheadEl);
+    // Where a dragged audio clip starts (or the trimmed edge), while the Video panel shows that frame.
+    this.spotEl = h('div.mt-video-spot', { 'aria-hidden': 'true', hidden: true });
+    this.spot = null;
+    this.lane = h('div.mt-video-lane', { tabindex: '0', role: 'group', 'aria-roledescription': 'video track', 'aria-label': 'Video track' }, this.canvas, this.spotEl, this.playheadEl);
+    this.offSpot = this.app.on?.('clip-spot', (doc, frame) => {
+      if (doc !== this.doc) return;
+      this.spot = frame !== null && frame !== undefined && this.app.prefs.get('videoSpot') !== false ? frame : null;
+      this.app.requestRender?.();
+    });
     this.nameEl = h('span.mt-video-name');
     this.panelBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Show Video Panel', title: 'Show Video Panel', onclick: () => this.app.commands.run('video.showPanel') }, icon('monitor-play', 14));
     this.head = h('div.mt-video-head', h('span.mt-video-glyph', icon('film', 14)), h('span.mt-video-label', 'Video'), this.nameEl, this.panelBtn);
@@ -125,6 +133,9 @@ export class VideoLane {
     const x = this.view.xOf(p);
     this.playheadEl.style.transform = `translateX(${Math.round(x)}px)`;
     this.playheadEl.style.display = x >= -1 && x <= this.width + 1 ? '' : 'none';
+    const sx = this.spot === null ? -1 : this.view.xOf(this.spot);
+    this.spotEl.hidden = this.spot === null || sx < -1 || sx > this.width + 1;
+    if (!this.spotEl.hidden) this.spotEl.style.transform = `translateX(${Math.round(sx)}px)`;
   }
 
   #rect() {
@@ -371,6 +382,7 @@ export class VideoLane {
   destroy() {
     this.resizeObserver.disconnect();
     this.offDoc();
+    this.offSpot?.();
     if (this.thumbs && this.onThumb) this.thumbs.listeners.delete(this.onThumb);
   }
 }

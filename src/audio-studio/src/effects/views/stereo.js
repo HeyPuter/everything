@@ -20,6 +20,16 @@ function extractorView(ctx) {
     const centre = Math.sqrt(Math.max(20, lo) * hi);
     return `Band ${hzLabel(lo)} to ${hzLabel(hi)}: centre ${hzLabel(centre)}, width ${hzLabel(hi - lo)}`;
   }, 'faint');
+  // Switching to a Custom range starts from the band that was in use (Male Voice's 80 Hz to 8 kHz...).
+  let lastRange = ctx.values.range;
+  ctx.subscribe((v) => {
+    const prev = lastRange;
+    lastRange = v.range;
+    if (v.range !== 4 || prev === 4 || prev == null) return;
+    const [lo, hi] = extractorBand({ ...v, range: prev }, rate);
+    ctx.set('lowFreq', Math.round(Math.min(20000, Math.max(20, lo))));
+    ctx.set('highFreq', Math.round(Math.min(20000, Math.max(20, hi))));
+  });
   const extraction = h('div.fx-stack', controlsFor(ctx, ['target'], { labels: { target: 'Extract' } }), custom, controlsFor(ctx, ['range']), band, bandText);
   const discrimination = controlsFor(ctx, ['bleed', 'phaseDisc', 'ampDisc', 'decay']);
   const tabs = tabPanels([

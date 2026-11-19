@@ -98,6 +98,7 @@ export function restretchClip(clip, patch, derivedId = null) {
     fadeOut: fade(clip.fadeOut),
     volumeEnv: scaleEnv(clip.volumeEnv, scale, length),
     panEnv: scaleEnv(clip.panEnv, scale, length),
+    fxEnv: Object.fromEntries(Object.entries(clip.fxEnv || {}).map(([k, v]) => [k, scaleEnv(v, scale, length)])),
     stretch: next.mode === 'off' ? null : next,
   };
 }

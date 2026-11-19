@@ -125,3 +125,69 @@ export function zoomRange({ lo, hi }, factor, nyquist, log, centre = null) {
   if (nlo <= min + 1e-6) nlo = 0;
   return { lo: Math.max(0, nlo), hi: Math.min(nyquist, nhi) };
 }
+
+const NATURAL = [true, false, true, false, true, true, false, true, false, true, false, true];
+
+/**
+ * Note ticks for the spectral pitch display's ruler (a logarithmic scale): every
+ * semitone when there is room, else the natural notes, else C, E and G#, else C
+ * alone. A notes carry their frequency ("A3 220"). Returns { f, y, label, midi }.
+ */
+export function noteTicks(scale, height, minGap = 14) {
+  const yOf = (f) => (1 - scale.toFrac(f)) * height;
+  const midiOf = (f) => 69 + 12 * Math.log2(f / 440);
+  const m0 = Math.ceil(midiOf(Math.max(scale.lo, 1)));
+  const m1 = Math.floor(midiOf(scale.hi));
+  if (!(m1 >= m0)) return [];
+  const semitonePx = Math.abs(yOf(440) - yOf(440 * 2 ** (1 / 12)));
+  const keep =
+    semitonePx >= minGap
+      ? () => true
+      : semitonePx * 2 >= minGap
+        ? (pc) => NATURAL[pc]
+        : semitonePx * 4 >= minGap
+          ? (pc) => pc % 4 === 0
+          : (pc) => pc === 0;
+  const out = [];
+  for (let m = m0; m <= m1 && out.length < 400; m++) {
+    const pc = ((m % 12) + 12) % 12;
+    if (!keep(pc)) continue;
+    const f = 440 * 2 ** ((m - 69) / 12);
+    const y = yOf(f);
+    if (y < 4 || y > height - 4) continue;
+    const name = `${NOTES[pc]}${Math.floor(m / 12) - 1}`;
+    out.push({ f, y, midi: m, label: pc === 9 ? `${name} ${Math.round(f)}` : name });
+  }
+  return out;
+}
+
+/**
+ * Frequency band for the spectral pitch display: the voiced pitch values (Hz, 0 =
+ * unvoiced) with `margin` semitones either side, at least `minOctaves` tall, inside
+ * [fmin, fmax]. A previous band is kept while the contour still fits in it and it is
+ * not more than twice as tall as needed, so scrolling does not make the axis jump.
+ */
+export function pitchBand(f0s, { fmin, fmax, prev = null, margin = 4, minOctaves = 1 }) {
+  let lo = Infinity;
+  let hi = 0;
+  for (const arr of f0s) {
+    for (const f of arr) {
+      if (!(f > 0)) continue;
+      if (f < lo) lo = f;
+      if (f > hi) hi = f;
+    }
+  }
+  if (!(hi > 0)) return prev || { lo: fmin, hi: fmax };
+  lo *= 2 ** (-margin / 12);
+  hi *= 2 ** (margin / 12);
+  const need = Math.log2(hi / lo);
+  if (need < minOctaves) {
+    const c = Math.sqrt(lo * hi);
+    lo = c * 2 ** (-minOctaves / 2);
+    hi = c * 2 ** (minOctaves / 2);
+  }
+  lo = Math.max(fmin, lo);
+  hi = Math.min(fmax, hi);
+  if (prev && prev.lo <= lo && prev.hi >= hi && Math.log2(prev.hi / prev.lo) <= 2 * Math.max(minOctaves, Math.log2(hi / lo))) return prev;
+  return { lo, hi };
+}

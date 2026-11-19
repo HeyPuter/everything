@@ -186,6 +186,15 @@ impl Lsar {
             let right = &rest[l.min(rest.len())..right1 - s];
             self.burg(&left[left0..], right, order)
         };
+        if p == 0 && s >= 1 && s + l < x.len() {
+            // No model to fit (the surroundings are digital silence): a straight
+            // line between the samples either side, so a click in silence still goes.
+            let (a, b) = (x[s - 1], x[s + l]);
+            for i in 0..l {
+                x[s + i] = a + (b - a) * (i + 1) as f32 / (l + 1) as f32;
+            }
+            return true;
+        }
         if p == 0 || s < p || s + l + p > x.len() {
             return false;
         }
@@ -196,6 +205,17 @@ impl Lsar {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repairs_a_click_in_digital_silence() {
+        let mut x = vec![0.0f32; 2000];
+        for v in &mut x[1000..1003] {
+            *v = 0.5;
+        }
+        let mut l = Lsar::new(64, 16, 4096);
+        assert!(l.repair(&mut x, 998, 7, 16, 512));
+        assert!(x.iter().all(|v| v.abs() < 1e-6), "{:?}", &x[996..1008]);
+    }
 
     #[test]
     fn burg_recovers_ar2() {

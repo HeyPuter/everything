@@ -65,7 +65,9 @@ export function installSpectral(app) {
         const d = dspSync || (await loadDsp());
         if (!unchanged(doc, before, 'Spot Healing Brush')) return false;
         const next = healSpectral(before, selection, d);
-        if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
+        // A stroke outside the audio (past the end, or a disabled channel) changes nothing: say so.
+        if (next === before) app.setStatus('Spot healing: nothing to change under that stroke');
+        else if (commit(doc, 'Spot Healing Brush', next)) announce('Spot healing applied');
       } catch (err) {
         app.notify(`Spot healing could not be applied: ${err?.message || 'Unknown error'}`, { error: true });
         return false;
@@ -73,6 +75,14 @@ export function installSpectral(app) {
     },
     zoomFrequency(doc, factor, centre) {
       const nyq = doc.sampleRate / 2;
+      if (pitchOn(app)) {
+        const s = layerOf(doc)?.scale();
+        if (!s) return;
+        const r = zoomRange({ lo: s.lo, hi: s.hi }, factor, nyq, true, centre);
+        docState(doc).pitchBand = { lo: Math.max(20, r.lo), hi: r.hi };
+        invalidateDoc(doc);
+        return;
+      }
       const r = zoomRange(visibleBand(doc), factor, nyq, logScale(app), centre);
       const st = docState(doc);
       st.lo = r.lo;
@@ -81,6 +91,12 @@ export function installSpectral(app) {
     },
     resetFrequency(doc) {
       const st = docState(doc);
+      if (pitchOn(app)) {
+        // Back to the band fitted to the pitch contour.
+        st.pitchBand = null;
+        invalidateDoc(doc);
+        return;
+      }
       st.lo = 0;
       st.hi = null;
       invalidateDoc(doc);
@@ -152,7 +168,8 @@ export function installSpectral(app) {
   app.fileGraphHooks.push((graph, doc) => {
     if (!app.prefs.get('spectralPlaySelected')) return;
     const sel = spectralSelection(app, doc);
-    const b = sel ? selectionBounds(sel) : null;
+    // An inverted selection spans every frequency: nothing to band-limit.
+    const b = sel && !sel.invert ? selectionBounds(sel) : null;
     const spec = b ? bandSlot(b.f0, b.f1, doc.sampleRate) : null;
     if (spec) for (const t of graph.tracks) t.fx = [...(t.fx || []), { ...spec, key: `${spec.key}:${t.id}` }];
   });
@@ -163,6 +180,7 @@ export function installSpectral(app) {
 
   const C = app.commands;
   const specOn = () => displayOn(app) && Boolean(audio());
+  const freqZoomOn = specOn;
   const brushTool = () => specOn() && (app.tool === 'brush' || app.tool === 'heal');
   const brushStep = (dSize, dOpacity) => {
     const s = settings(app);
@@ -180,9 +198,11 @@ export function installSpectral(app) {
       shortcut: 'Shift+D',
       // The spectral display belongs to the Waveform editor.
       enabled: () => app.active?.kind !== 'session',
-      checked: () => displayOn(app),
+      checked: () => displayOn(app) && !pitchOn(app),
       run: () => {
-        const on = !displayOn(app);
+        // From the pitch display this switches to the frequency display.
+        const on = !displayOn(app) || pitchOn(app);
+        if (pitchOn(app)) app.prefs.set('spectralPitch', false);
         app.prefs.set('spectralDisplay', on);
         announce(on ? 'Spectral frequency display shown' : 'Spectral frequency display hidden');
       },
@@ -195,15 +215,15 @@ export function installSpectral(app) {
       run: () => {
         const on = !(pitchOn(app) && displayOn(app));
         app.prefs.set('spectralPitch', on);
-        if (on && !displayOn(app)) app.prefs.set('spectralDisplay', true);
-        announce(on ? 'Pitch contour shown' : 'Pitch contour hidden');
+        app.prefs.set('spectralDisplay', on);
+        announce(on ? 'Spectral pitch display shown' : 'Spectral pitch display hidden');
       },
     },
     { id: 'view.specLog', label: 'Logarithmic', checked: () => logScale(app), run: () => app.prefs.set('spectralLog', true) },
     { id: 'view.specLinear', label: 'Linear', checked: () => !logScale(app), run: () => app.prefs.set('spectralLog', false) },
-    { id: 'view.zoomInFreq', label: 'Zoom In (Frequency)', shortcut: 'Alt+Shift+=', enabled: specOn, run: () => services.zoomFrequency(audio(), 0.6) },
-    { id: 'view.zoomOutFreq', label: 'Zoom Out (Frequency)', shortcut: 'Alt+Shift+-', enabled: specOn, run: () => services.zoomFrequency(audio(), 1 / 0.6) },
-    { id: 'view.zoomFullFreq', label: 'Zoom Out Full (Frequency)', enabled: specOn, run: () => services.resetFrequency(audio()) },
+    { id: 'view.zoomInFreq', label: 'Zoom In (Frequency)', shortcut: 'Alt+Shift+=', enabled: freqZoomOn, run: () => services.zoomFrequency(audio(), 0.6) },
+    { id: 'view.zoomOutFreq', label: 'Zoom Out (Frequency)', shortcut: 'Alt+Shift+-', enabled: freqZoomOn, run: () => services.zoomFrequency(audio(), 1 / 0.6) },
+    { id: 'view.zoomFullFreq', label: 'Zoom Out Full (Frequency)', enabled: freqZoomOn, run: () => services.resetFrequency(audio()) },
     {
       id: 'spectral.settings',
       label: 'Spectral Display Settings...',

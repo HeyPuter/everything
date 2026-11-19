@@ -8,6 +8,7 @@
 
 import { h, announce } from '../lib/dom.js';
 import { icon } from '../ui/icons.js';
+import { beginBusy } from '../ui/busy.js';
 import { hotNumber, select } from '../ui/controls.js';
 import { Channel } from '../audio/channel.js';
 import { dsp } from '../audio/dsp.js';
@@ -161,6 +162,8 @@ export function loudnessPanel(app) {
   const entries = []; // { doc, measure, status, busy }
   let selected = null;
   let running = false;
+  // The files the last Run changed ({ doc, after }), so Undo can take that run back.
+  let lastRun = [];
 
   // Settings ------------------------------------------------------------------
   const p = prefs();
@@ -221,7 +224,13 @@ export function loudnessPanel(app) {
   });
   const scanBtn = h('button.btn', { type: 'button', onclick: () => scanAll() }, 'Scan');
   const runBtn = h('button.btn.primary', { type: 'button', onclick: () => runAll() }, 'Run');
-  const toolbar = h('div.panel-toolbar.analysis-toolbar', addAll, removeBtn, clearBtn, h('div.spacer'), scanBtn, runBtn);
+  const undoBtn = h('button.btn', { type: 'button', title: 'Take back the last Run on every file it changed', onclick: () => undoRun() }, 'Undo');
+  // The settings fold away to leave the list more room (remembered).
+  const settingsBtn = h('button.icon-btn.match-settings-toggle', { type: 'button', 'aria-label': 'Match settings', title: 'Show or hide the match settings', 'aria-expanded': 'true', onclick: () => {
+    app.prefs.set('matchLoudnessSettingsHidden', !settingsGrid.hidden);
+    showSettings();
+  } }, icon('sliders-horizontal', 15));
+  const toolbar = h('div.panel-toolbar.analysis-toolbar', addAll, removeBtn, clearBtn, settingsBtn, h('div.spacer'), scanBtn, undoBtn, runBtn);
   const body = h('tbody');
   const table = h(
     'table.data-table.match-table',
@@ -244,6 +253,11 @@ export function loudnessPanel(app) {
   }, 'Export Settings...');
   const exportNote = h('span.match-export-note.faint');
   const exportBar = h('div.match-export', h('label.check', exportBox, h('span', 'Export')), exportBtn, exportNote);
+  const showSettings = () => {
+    settingsGrid.hidden = Boolean(app.prefs.get('matchLoudnessSettingsHidden'));
+    settingsBtn.setAttribute('aria-expanded', String(!settingsGrid.hidden));
+  };
+  showSettings();
   const el = h('div.analysis-panel.loudness-panel', toolbar, settingsGrid, h('div.table-scroll', table), exportBar, h('div.analysis-foot', status, liveMeter));
 
   const addDocs = (docs) => {
@@ -267,6 +281,7 @@ export function loudnessPanel(app) {
     removeBtn.disabled = busy || !selected;
     clearBtn.disabled = busy || !entries.length;
     addAll.disabled = busy;
+    undoBtn.disabled = busy || !lastRun.some(undoable);
     body.replaceChildren();
     if (!entries.length) {
       body.append(h('tr', h('td.empty-row', { colspan: '7' }, h('span.empty-text', 'Add open files to measure their loudness and match them to a target.'))));
@@ -343,6 +358,8 @@ export function loudnessPanel(app) {
     if (running) return;
     const refocus = holdFocus();
     running = true;
+    // The app-wide busy line shows the work even when this panel is out of view.
+    const endBusy = beginBusy();
     try {
       // Closing/removing a row during an await must not shift the next file
       // past the iterator. Still skip rows removed before their turn.
@@ -356,9 +373,24 @@ export function loudnessPanel(app) {
       status.textContent = `Scan failed: ${err.message}`;
     } finally {
       running = false;
+      endBusy();
       renderRows();
       refocus();
     }
+  };
+
+  // A file can be taken back while the run is still its latest change.
+  const undoable = (r) => app.documents.includes(r.doc) && r.doc.state === r.after && r.doc.history?.undoLabel === 'Match Loudness';
+  const undoRun = () => {
+    if (running) return;
+    const list = lastRun.filter(undoable);
+    for (const r of list) r.doc.history.undo();
+    const skipped = lastRun.length - list.length;
+    lastRun = [];
+    status.textContent = `Undid Match Loudness on ${list.length} file${list.length === 1 ? '' : 's'}.${skipped ? ` ${skipped} changed since and ${skipped === 1 ? 'was' : 'were'} left as they are.` : ''}`;
+    announce(status.textContent);
+    renderRows();
+    (undoBtn.disabled ? runBtn : undoBtn).focus();
   };
 
   const runAll = async () => {
@@ -366,6 +398,8 @@ export function loudnessPanel(app) {
     if (prefs().export) return exportAll();
     const refocus = holdFocus();
     running = true;
+    const endBusy = beginBusy();
+    lastRun = [];
     const s = prefs();
     let changed = 0;
     let short = 0;
@@ -392,6 +426,7 @@ export function loudnessPanel(app) {
           continue;
         }
         commitWhole(e.doc, 'Match Loudness', state);
+        lastRun.push({ doc: e.doc, after: e.doc.state });
         changed++;
         const outcome = matchOutcome(plan, await scanOne(e), s);
         if (outcome.short) short++;
@@ -405,6 +440,7 @@ export function loudnessPanel(app) {
       status.textContent = `Matching failed: ${err.message}`;
     } finally {
       running = false;
+      endBusy();
       renderRows();
       refocus();
     }
@@ -415,6 +451,7 @@ export function loudnessPanel(app) {
     const s = prefs();
     const x = exportSettings();
     running = true;
+    const endBusy = beginBusy();
     renderRows();
     let written = 0;
     try {
@@ -447,6 +484,7 @@ export function loudnessPanel(app) {
       status.textContent = `Export failed: ${err.message}`;
     } finally {
       running = false;
+      endBusy();
       renderRows();
       refocus();
     }

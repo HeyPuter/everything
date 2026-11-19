@@ -4,6 +4,7 @@
 import { h } from '../lib/dom.js';
 import { openDialog } from '../ui/dialog.js';
 import { isCancelled } from './export.js';
+import { beginBusy } from '../ui/busy.js';
 
 /**
  * Runs `work(onProgress, signal)` behind a progress dialog. The dialog only
@@ -45,12 +46,14 @@ export async function withProgress(title, work, { delay = 250, detail = '' } = {
     });
     update(fraction);
   }, delay);
+  const endBusy = beginBusy();
   try {
     return await work(update, controller.signal);
   } catch (err) {
     if (isCancelled(err) || controller.signal.aborted) return null;
     throw err;
   } finally {
+    endBusy();
     clearTimeout(timer);
     if (shown) close?.('done');
   }

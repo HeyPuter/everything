@@ -74,6 +74,13 @@ export function installIo(app) {
       run: () => toggleRecord(app),
     },
     {
+      id: 'transport.recordOverwrite',
+      label: 'Overwrite When Recording',
+      // Waveform editor, no selection: record over the audio after the playhead instead of inserting.
+      checked: (a) => Boolean(a.prefs.get('recordOverwrite')),
+      run: () => app.prefs.toggle('recordOverwrite'),
+    },
+    {
       id: 'transport.punchRoll',
       label: 'Punch and Roll',
       // Waveform editor: rolls in from before the playhead (or selection) and records over what follows.
@@ -91,14 +98,16 @@ export function installIo(app) {
   app.preferenceSections = app.preferenceSections || [];
   app.preferenceSections.push({ category: 'audioHardware', title: 'Devices', keywords: 'input microphone device latency output', build: audioHardwarePrefs });
 
-  // Open Recent: Puter files, reopened through their path.
+  // Open Recent: Puter files, reopened through their path. Sessions come first, then audio
+  // files; a name shared by files in different folders shows its folder.
   app.recentMenuItems = () => {
     const list = app.prefs.get('recent') || [];
     if (!list.length) return [{ type: 'cmd', label: 'No Recent Files', enabled: false }];
+    const groups = recentGroups(list);
     return [
-      ...list.map((r) => ({
+      ...groups.flatMap((g, i) => [...(i ? [null] : []), ...g]).map((r) => (!r ? { type: 'sep' } : {
         type: 'cmd',
-        label: r.name,
+        label: r.label,
         enabled: Boolean(r.path),
         run: async () => {
           if (puter.sdk() && !puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return;
@@ -232,7 +241,10 @@ async function toggleRecord(app) {
   if (replace && secs > 0 && replace[0] > 0) {
     if (!(await preroll(app, doc, replace[0], secs))) return;
   }
-  return app.recorder.start({ doc, replace, at: doc.cursor });
+  // Without a selection the take goes in at the playhead, pushing later audio along, or
+  // (Overwrite When Recording) records over it.
+  // Punching in or overwriting leaves channels disabled for editing alone.
+  return app.recorder.start({ doc, replace, at: doc.cursor, overwrite: Boolean(app.prefs.get('recordOverwrite')), mask: doc.channelMask });
 }
 
 /**
@@ -448,6 +460,23 @@ export async function importMarkers(app) {
 
 // ------------------------------------------------------------ window close
 
+/**
+ * Recent files for the Open Recent menu: [sessions, audio files] (empty groups left out),
+ * each { name, path, label }, the label naming the folder when two files share a name.
+ */
+export function recentGroups(list) {
+  const count = new Map();
+  for (const r of list) count.set(r.name, (count.get(r.name) || 0) + 1);
+  const label = (r) => {
+    if (count.get(r.name) < 2 || !r.path) return r.name;
+    const parts = r.path.split('/');
+    return `${r.name} (${parts[parts.length - 2] || '/'})`;
+  };
+  const item = (r) => ({ ...r, label: label(r) });
+  const session = (r) => /\.asesx$/i.test(r.name || '');
+  return [list.filter(session).map(item), list.filter((r) => !session(r)).map(item)].filter((g) => g.length);
+}
+
 function installWindowClose(app) {
   const p = puter.sdk();
   if (!p?.ui?.onWindowClose || puter.env() !== 'app') return;
@@ -456,8 +485,10 @@ function installWindowClose(app) {
     // Finalizing a session take can add unsaved audio files and edit the
     // session. Finish it before taking the list of documents to prompt for.
     if (app.multitrack?.recorder?.active) await app.multitrack.recorder.stop();
-    for (const doc of app.documents.filter((d) => d.dirty)) {
-      if (!(await app.closeDocument(doc))) return; // Cancel keeps the window open
+    const dirty = app.documents.filter((d) => d.dirty);
+    const batch = { others: dirty.length - 1, answer: null };
+    for (const doc of dirty) {
+      if (!(await app.closeDocument(doc, { batch }))) return; // Cancel keeps the window open
     }
     await app.autosave?.run().catch(() => {});
     p.exit();

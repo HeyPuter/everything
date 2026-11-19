@@ -24,7 +24,7 @@ export function installSoundAssistant(app) {
       ...cmd,
       repeatable: false,
       run: () => {
-        app.dock.openPanel('diagnostics');
+        app.dock.openPanel('diagnostics', { attention: true });
         app.dock.instance('diagnostics')?.select?.(id);
       },
     });

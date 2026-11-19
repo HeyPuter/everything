@@ -9,12 +9,14 @@ import { resolveItems } from '../ui/menubar.js';
 import { OPEN_HOOKS } from '../storage/files.js';
 import { INSERT_HOOKS } from '../multitrack/insert.js';
 import { rememberVideo, insertVideoHook } from '../video/media.js';
-import { videoPanel, VIDEO_ZOOMS, videoZoom } from '../video/video-panel.js';
+import { videoPanel, VIDEO_ZOOMS, VIDEO_RESOLUTIONS, videoZoom } from '../video/video-panel.js';
 import { releaseThumbnails } from '../video/video-lane.js';
 import { videoClip, videoPool, setVideoClip, updateVideoClip, videoSourceOf } from '../model/session-video.js';
 
 const ZOOM_IDS = { fit: 'view.videoFit', 25: 'view.video25', 50: 'view.video50', 100: 'view.video100', 200: 'view.video200' };
-export const VIDEO_DISPLAY_MENU = [...VIDEO_ZOOMS.map((z) => ZOOM_IDS[z.id]), '-', 'view.videoTimecode'];
+const RES_IDS = { full: 'view.videoResFull', 2: 'view.videoRes2', 4: 'view.videoRes4', 8: 'view.videoRes8' };
+const RES_LABELS = { full: 'Full Resolution', 2: '1/2 Resolution', 4: '1/4 Resolution', 8: '1/8 Resolution' };
+export const VIDEO_DISPLAY_MENU = [...VIDEO_ZOOMS.map((z) => ZOOM_IDS[z.id]), '-', ...VIDEO_RESOLUTIONS.map((r) => RES_IDS[r.id]), '-', 'view.videoFullOnStop', '-', 'view.videoTimecode'];
 
 export function installVideo(app) {
   OPEN_HOOKS.push(rememberVideo);
@@ -46,6 +48,13 @@ export function installVideo(app) {
         if (!app.dock?.isOpen('video')) app.dock?.openPanel('video');
       },
     })),
+    ...VIDEO_RESOLUTIONS.map((r) => ({
+      id: RES_IDS[r.id],
+      label: RES_LABELS[r.id],
+      checked: (a) => String(a.prefs.get('videoResolution') || 'full') === r.id,
+      run: () => app.prefs.set('videoResolution', r.id),
+    })),
+    { id: 'view.videoFullOnStop', label: 'Full Resolution on Stop', enabled: (a) => String(a.prefs.get('videoResolution') || 'full') !== 'full', checked: (a) => a.prefs.get('videoFullOnStop') !== false, run: () => app.prefs.set('videoFullOnStop', app.prefs.get('videoFullOnStop') === false) },
     { id: 'video.showPanel', label: 'Show Video Panel', enabled: (a) => a.panels.has('video'), run: () => app.dock?.openPanel('video') },
     { id: 'view.videoTimecode', label: 'Show Timecode on Video', checked: (a) => Boolean(a.prefs.get('videoTimecode')), run: () => app.prefs.toggle('videoTimecode') },
     { id: 'video.remove', label: 'Remove Video', enabled: withVideo, run: () => edit('Remove Video', (st) => setVideoClip(st, null)) },

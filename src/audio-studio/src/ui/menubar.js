@@ -121,6 +121,8 @@ export function openMenu(app, items, { x, y, anchor, onClose, parentMenu = null,
         'aria-expanded': isSub ? 'false' : null,
       },
       h('span.menu-check', item.checked ? icon('check', 14) : null),
+      // A color choice shows its color before the name.
+      item.swatch ? h('span.menu-swatch', { 'aria-hidden': 'true', style: { display: 'inline-block', width: '12px', height: '12px', marginRight: '8px', borderRadius: '2px', background: item.swatch, boxShadow: 'inset 0 0 0 1px rgba(0, 0, 0, 0.35)', flex: 'none' } }) : null,
       h('span.menu-label', item.label),
       h('span.menu-shortcut', item.shortcut || ''),
       isSub ? h('span.menu-arrow', icon('chevron-right', 14)) : null,

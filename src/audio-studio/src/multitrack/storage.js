@@ -3,11 +3,14 @@
 // (or for a local copy) the session and its media download as one ZIP, which
 // File > Open accepts again.
 
+import { h } from '../lib/dom.js';
+import { openDialog } from '../ui/dialog.js';
 import { Session } from '../model/session.js';
 import { serializeSession, parseSession, sessionBaseName, SESSION_EXT } from '../model/session-io.js';
 import { encodeWav, wavHeader } from '../audio/wav.js';
 import { audioFileFromBlob, downloadBlob, rememberRecent, OPENERS, EXTRA_ACCEPT } from '../storage/files.js';
-import { channelsAtRate } from './insert.js';
+import { channelsAtRate, linkSource } from './insert.js';
+import { dsp } from '../audio/dsp.js';
 import { zipStore, unzipStore } from '../lib/zip.js';
 import * as puter from '../storage/puter.js';
 import { saveSessionVideo, videoZipEntry, loadSessionVideo } from '../video/session-media.js';
@@ -103,8 +106,30 @@ function mediaRevision(file) {
   return file.replace(/(\.[^/.]+)$/, `-${id}$1`);
 }
 
-function mediaBlob(m) {
-  return encodeWav({ sampleRate: m.sampleRate, channels: m.channels, bitDepth: 32, float: true });
+/** A media file: 32-bit float WAV, or the sample type an export asks for (16/24-bit integer, dithered below 24). */
+function mediaBlob(m, bitDepth = 32) {
+  return encodeWav({ sampleRate: m.sampleRate, channels: m.channels, bitDepth, float: bitDepth === 32 });
+}
+
+/** True when an export's media options change the media from what the session holds. */
+const converts = (media, rate) => Boolean(media && (media.format !== 'wav' || media.bitDepth !== 32 || (media.rate && media.rate !== rate)));
+
+/** Encodes a media copy for an export: WAV or FLAC at a bit depth, resampled to another rate when asked. */
+export async function encodeMedia(m, { format = 'wav', bitDepth = 32, rate = m.sampleRate } = {}) {
+  const channels = rate && rate !== m.sampleRate ? await channelsAtRate(m.channels, m.sampleRate, rate) : m.channels;
+  const sampleRate = rate || m.sampleRate;
+  if (format !== 'flac') return encodeWav({ sampleRate, channels, bitDepth, float: bitDepth === 32 });
+  const { FlacWriter } = await import('../export/flac.js');
+  const w = new FlacWriter({ sampleRate, channels: channels.length, bitDepth: Math.min(24, bitDepth), dsp: await dsp() });
+  const CH = 65536;
+  const frames = channels[0].length;
+  const tmp = channels.map(() => new Float32Array(CH));
+  for (let at = 0; at < frames; at += CH) {
+    const n = Math.min(CH, frames - at);
+    channels.forEach((c, i) => c.read(at, tmp[i], 0, n));
+    w.write(tmp, n);
+  }
+  return w.finish();
 }
 
 /**
@@ -117,7 +142,7 @@ export function saveSession(app, doc, options = {}) {
   return orderedSave(cloudSaves, doc, () => saveSessionNow(app, doc, options));
 }
 
-async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
+async function saveSessionNow(app, doc, { saveAs = false, copy = false, media = null } = {}) {
   if (puter.sdk() && puter.isSignedIn()) {
     let path = !saveAs && !copy && doc.source?.type === 'puter' && /\.asesx$/i.test(doc.source.path || '') ? doc.source.path : null;
     let name = withExt(doc.name);
@@ -127,22 +152,37 @@ async function saveSessionNow(app, doc, { saveAs = false, copy = false } = {}) {
       path = item.path;
       name = item.name;
     }
+    if (app.prefs?.get('sessionIncludeOpenFiles')) await referenceOpenFiles(app, doc);
     // Different tabs may target the same file after Save As. Reserve its
     // complete preparation/upload sequence before waiting for any media work.
     return orderedDestination(app, path, async (paths) => {
       await prepareSessionMedia(doc);
-      return writeCloudSession(app, doc, { path, name, copy, paths });
+      return writeCloudSession(app, doc, { path, name, copy, paths, media });
     });
   }
+  if (app.prefs?.get('sessionIncludeOpenFiles')) await referenceOpenFiles(app, doc);
   await prepareSessionMedia(doc);
-  const { blob, fileName, state, snapshot } = await prepareSessionZip(doc);
+  const { blob, fileName, state, snapshot } = await prepareSessionZip(doc, { media });
   downloadBlob(blob, fileName);
   if (!copy) doc.markSaved(state, snapshot);
   app.setStatus(`Downloaded ${fileName}`);
   return true;
 }
 
-async function writeCloudSession(app, doc, { path, name, copy, paths }) {
+/**
+ * Adds every open audio file to the session's media (without clips), so the saved session
+ * brings them back into the Files panel when it is opened.
+ */
+export async function referenceOpenFiles(app, doc) {
+  for (const file of app.documents || []) {
+    if (file.kind !== 'audio' || !file.length) continue;
+    doc.referencedSources.add(await linkSource(doc, file));
+  }
+}
+
+async function writeCloudSession(app, doc, { path, name, copy, paths, media: convert = null }) {
+  // Converted copies (an export in another format or rate) never reuse or replace cached media.
+  const converted = converts(convert, doc.sampleRate);
   const dir = dirOf(path);
   // Resolve unlike roots only when a used offline source needs it. Ordinary
   // saves and references using the same root require no account lookup.
@@ -160,9 +200,11 @@ async function writeCloudSession(app, doc, { path, name, copy, paths }) {
   const onDisk = savedMediaOf(doc, path, paths);
   const { text, media, video } = serializeSession(doc, {
     name,
+    mediaExt: converted && convert.format === 'flac' ? 'flac' : 'wav',
+    mediaRate: converted ? convert.rate : null,
     mediaPath: (id, src, file) => {
       if (src.offline && src.path) return relativePath(paths.resolve(dir), paths.resolve(src.path));
-      const prior = onDisk.get(id);
+      const prior = converted ? null : onDisk.get(id);
       if (prior && prior.channels === src.channels && prior.sampleRate === saved.sampleRate) return prior.file;
       return src.channels?.length ? mediaRevision(file) : file;
     },
@@ -176,11 +218,11 @@ async function writeCloudSession(app, doc, { path, name, copy, paths }) {
   for (const m of media) {
     const target = `${dir}/${m.file}`;
     if (!m.channels?.length) continue;
-    if (onDisk.get(m.id)?.file === m.file) continue;
+    if (!converted && onDisk.get(m.id)?.file === m.file) continue;
     app.setStatus(`Saving media ${++written}...`);
-    await puter.writeFile(target, mediaBlob(m));
+    await puter.writeFile(target, converted ? await encodeMedia(m, convert) : mediaBlob(m));
     // A completed upload is reusable even if the following manifest write fails.
-    onDisk.set(m.id, m);
+    if (!converted) onDisk.set(m.id, m);
   }
   const item = await puter.writeFile(path, new Blob([text], { type: 'application/json' }));
   const writtenPath = typeof item?.path === 'string' && item.path.startsWith('/') ? normalizePath(item.path) : null;
@@ -228,28 +270,34 @@ export function sessionZip(doc, { videoBytes } = {}) {
   return packSessionZip(sessionZipData(doc), videoBytes);
 }
 
-function sessionZipData(doc) {
+function sessionZipData(doc, convert = null) {
   const name = withExt(doc.name);
   const state = doc.state;
-  const data = serializeSession(doc, { name, embedVideo: true });
+  const data = serializeSession(doc, { name, embedVideo: true, mediaExt: convert?.format === 'flac' ? 'flac' : 'wav', mediaRate: convert?.rate || null });
   return { name, state, ...data, snapshot: captureSavedSession(doc, state, data.media, data.video) };
 }
 
 /** Captures one session version, reads its video, and returns its ZIP and saved state. */
-export async function prepareSessionZip(doc) {
-  const data = sessionZipData(doc);
+export async function prepareSessionZip(doc, { media: convert = null, bitDepth } = {}) {
+  // `bitDepth` alone is short for WAV at that depth.
+  if (!convert && bitDepth && bitDepth !== 32) convert = { format: 'wav', bitDepth, rate: doc.sampleRate };
+  const converted = converts(convert, doc.sampleRate);
+  const data = sessionZipData(doc, converted ? convert : null);
   const videoBytes = new WeakMap();
   const videoBlob = data.video?.blob;
   if (videoBlob) videoBytes.set(videoBlob, new Uint8Array(await videoBlob.arrayBuffer()));
-  return { blob: packSessionZip(data, videoBytes), fileName: `${sessionBaseName(data.name)}.zip`, state: data.state, snapshot: data.snapshot };
+  // Media at another sample type are encoded ahead (the packer is synchronous).
+  const mediaBytes = new Map();
+  if (converted) for (const m of data.media) if (m.channels?.length) mediaBytes.set(m.file, new Uint8Array(await (await encodeMedia(m, convert)).arrayBuffer()));
+  return { blob: packSessionZip(data, videoBytes, mediaBytes), fileName: `${sessionBaseName(data.name)}.zip`, state: data.state, snapshot: data.snapshot };
 }
 
-function packSessionZip({ name, text, media, video }, videoBytes) {
+function packSessionZip({ name, text, media, video }, videoBytes, mediaBytes = new Map()) {
   const files = [{ name, data: new TextEncoder().encode(text) }];
   // Media descriptors hold the same audio and rate used by the manifest.
   for (const m of media) {
     if (!m.channels?.length) continue;
-    files.push({ name: m.file, data: wavBytes(m.sampleRate, m.channels) });
+    files.push({ name: m.file, data: mediaBytes.get(m.file) || wavBytes(m.sampleRate, m.channels) });
   }
   const v = videoZipEntry(video, videoBytes);
   if (v) files.push(v);
@@ -284,8 +332,47 @@ export function wavBytes(rate, channels) {
 }
 
 /** Saves a copy of the session (and its media) to Puter, or downloads it. */
-export function exportSession(app, doc) {
-  return saveSession(app, doc, { copy: true, saveAs: true });
+export async function exportSession(app, doc) {
+  const media = await exportSessionDialog(app, doc);
+  if (!media) return false;
+  return saveSession(app, doc, { copy: true, saveAs: true, media });
+}
+
+const MEDIA_FORMATS = [
+  { value: 'wav:32', label: 'WAV, 32-bit float (as edited)' },
+  { value: 'wav:24', label: 'WAV, 24-bit integer' },
+  { value: 'wav:16', label: 'WAV, 16-bit integer (dithered)' },
+  { value: 'flac:24', label: 'FLAC, 24-bit (lossless, smaller)' },
+  { value: 'flac:16', label: 'FLAC, 16-bit (dithered)' },
+];
+const MEDIA_RATES = [22050, 32000, 44100, 48000, 88200, 96000];
+
+/**
+ * Export Session options: the format and sample rate of the media copies. Resolves to
+ * { format, bitDepth, rate } or null. The session keeps its own rate (media are converted
+ * back to it when the session opens).
+ */
+async function exportSessionDialog(app, doc) {
+  const saved = String(app.prefs.get('sessionExportMedia') || 'wav:32');
+  const type = h('select.select', { 'aria-label': 'Media format' }, MEDIA_FORMATS.map((t) => h('option', { value: t.value, selected: t.value === saved }, t.label)));
+  const rates = [...new Set([doc.sampleRate, ...MEDIA_RATES])].sort((a, b) => a - b);
+  const rate = h('select.select', { 'aria-label': 'Media sample rate' }, rates.map((r) => h('option', { value: String(r), selected: r === doc.sampleRate }, `${r} Hz${r === doc.sampleRate ? ' (session)' : ''}`)));
+  const r = await openDialog({
+    title: 'Export Session',
+    body: h(
+      'div',
+      h('div.form-grid', h('label', 'Media format:'), type, h('label', 'Sample rate:'), rate),
+      h('p.muted', { style: { maxWidth: '380px' } }, 'The session is saved as a copy with copies of all its media in this format. Your open session is not changed; media at another rate are converted back to the session rate when it opens.'),
+    ),
+    buttons: [
+      { label: 'Cancel', value: null },
+      { label: 'Continue', value: 'ok', primary: true },
+    ],
+  });
+  if (r !== 'ok') return null;
+  app.prefs.set('sessionExportMedia', type.value);
+  const [format, bits] = type.value.split(':');
+  return { format, bitDepth: Number(bits), rate: Number(rate.value) };
 }
 
 /**
@@ -323,6 +410,8 @@ export async function sessionFromText(app, text, name, source, loadMedia) {
       const channels = await channelsAtRate(doc.state.channels, doc.sampleRate, session.sampleRate);
       session.addSource({ id: src.id, name: doc.name, channels, sampleRate: doc.sampleRate, docId: doc.id, path: mediaSource.path || null });
       session.pool.get(src.id).stateRef = doc.state;
+      // Files saved without clips stay part of the session.
+      if (!parsed.state.clips.some((c) => [c.sourceId, c.stretch?.sourceId, c.remix?.sourceId, c.soundAssistant?.duration?.orig?.sourceId].includes(src.id))) session.referencedSources.add(src.id);
       if (mediaSource.path) savedMediaOf(session, source.path).set(src.id, { file: src.file, channels, sampleRate: doc.sampleRate });
     } catch {
       addOffline();
@@ -359,7 +448,7 @@ async function openSessionZip(app, blob, name, source, context) {
   const text = new TextDecoder().decode(files.get(entry));
   return sessionFromText(app, text, entry, { type: 'local' }, async (src) => {
     const bytes = files.get(src.file);
-    return bytes ? new Blob([bytes], { type: 'audio/wav' }) : null;
+    return bytes ? new Blob([bytes], { type: /\.flac$/i.test(src.file) ? 'audio/flac' : 'audio/wav' }) : null;
   });
 }
 

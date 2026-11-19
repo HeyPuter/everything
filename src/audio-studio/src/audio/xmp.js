@@ -17,6 +17,8 @@
 // attribute-form properties for the names below.
 
 const DC = 'http://purl.org/dc/elements/1.1/';
+/** Audio Studio's own properties: the session a mixdown came from (for Edit > Edit Original). */
+const AS = 'https://github.com/HeyPuter/everything/ns/audio-studio/1.0/';
 
 /**
  * Field id -> [property, form]. form: 'alt' (language alternative), 'seq'
@@ -35,6 +37,7 @@ export const XMP_PROPS = {
   identifier: ['dc:identifier', 'text'],
   source: ['dc:source', 'text'],
   relation: ['dc:relation', 'bag'],
+  editOriginal: ['asx:editOriginal', 'text'],
 };
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -71,7 +74,7 @@ export function buildXmp(meta = {}) {
   return [
     '<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>',
     '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
-    ` <rdf:Description rdf:about="" xmlns:dc="${DC}">`,
+    ` <rdf:Description rdf:about="" xmlns:dc="${DC}"${meta.editOriginal ? ` xmlns:asx="${AS}"` : ''}>`,
     ...props,
     ' </rdf:Description>',
     '</rdf:RDF>',

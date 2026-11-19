@@ -1,6 +1,6 @@
 // Batch Process: queue, output names, export options, the runner and the
 // per-item pipeline (with fake load, encode and write).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import './fx-wasm.js';
 import '../src/effects/index.js';
 import { registerEffect } from '../src/effects/registry.js';
@@ -97,6 +97,30 @@ describe('batch queue', () => {
     });
     expect(r.items.map((i) => i.status)).toEqual(['done', 'cancelled', 'cancelled']);
     expect(r.cancelled).toBe(2);
+  });
+
+  it('works on several items at once when asked, never more', async () => {
+    const { items } = addSources([], [1, 2, 3, 4, 5].map((i) => ({ type: 'local', file: file(`f${i}.wav`) })));
+    let running = 0;
+    let most = 0;
+    const gates = [];
+    const pending = runQueue(items, {
+      concurrency: 2,
+      process: async () => {
+        running++;
+        most = Math.max(most, running);
+        await new Promise((resolve) => gates.push(resolve));
+        running--;
+        return {};
+      },
+    });
+    for (let k = 0; k < 5; k++) {
+      await vi.waitFor(() => expect(gates.length).toBeGreaterThan(k));
+      gates[k]();
+    }
+    const r = await pending;
+    expect(most).toBe(2);
+    expect(r.done).toBe(5);
   });
 });
 

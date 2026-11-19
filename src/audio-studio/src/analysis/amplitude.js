@@ -12,6 +12,7 @@ import { subTabs } from '../panels/subtabs.js';
 import { analysisPool } from './pool.js';
 import { fmtDb, gainToDb, fitCanvas } from './common.js';
 import { HIST_BINS, binDb, rmsBin } from './rms-histogram.js';
+import { beginBusy } from '../ui/busy.js';
 
 /** RMS settings: window width in ms and the 0 dB reference (full-scale square or sine wave). */
 export const RMS_DEFAULTS = { windowMs: 50, ref: 'square' };
@@ -208,10 +209,13 @@ export function amplitudePanel(app) {
     const changed = last.doc.state !== last.state;
     caption.textContent = `Statistics for ${title}${changed ? ' (the file has changed since this scan: scan again to update)' : ''}`;
     head.replaceChildren(h('tr', h('th', { scope: 'col' }, ''), ...names.map((n) => h('th.num', { scope: 'col' }, n))));
+    // Loudness is measured over all channels together: those rows sit under their own heading.
+    const firstShared = rows.findIndex(([, v]) => !Array.isArray(v));
     body.replaceChildren(
-      ...rows.map(([label, v]) =>
+      ...rows.flatMap(([label, v], i) => [
+        ...(i === firstShared ? [h('tr.amp-group', h('th', { scope: 'colgroup', colspan: String(names.length + 1) }, 'Loudness (all channels)'))] : []),
         h('tr', h('th', { scope: 'row' }, label), ...(Array.isArray(v) ? v.map((x) => h('td.num', x)) : [h('td.num', { colspan: String(names.length) }, v)])),
-      ),
+      ]),
     );
   };
 
@@ -322,6 +326,7 @@ export function amplitudePanel(app) {
     const s = settings();
     const state = doc.state;
     abort = new AbortController();
+    const endBusy = beginBusy();
     progress.hidden = false;
     const bar = progress.firstChild;
     bar.style.width = '0%';
@@ -355,6 +360,7 @@ export function amplitudePanel(app) {
     } catch (err) {
       caption.textContent = err.message === 'Cancelled' ? 'Scan cancelled.' : `Scan failed: ${err.message}`;
     } finally {
+      endBusy();
       abort = null;
       progress.hidden = true;
       refresh();
@@ -395,6 +401,14 @@ export function amplitudePanel(app) {
     },
     focus: () => (scanAll.disabled ? scanSel : scanAll).focus(),
     scan: (selectionOnly) => scan(Boolean(selectionOnly)),
+    /** Panel menu: the footer's actions. */
+    menu: () => [
+      { type: 'cmd', label: 'Scan Selection', enabled: !scanSel.disabled && !scanSel.hidden, run: () => scan(true) },
+      { type: 'cmd', label: 'Scan File', enabled: !scanAll.disabled && !scanAll.hidden, run: () => scan(false) },
+      { type: 'cmd', label: 'Cancel Scan', enabled: !cancelBtn.hidden, run: () => abort?.abort() },
+      { type: 'sep' },
+      { type: 'cmd', label: 'Copy All', enabled: !copyBtn.disabled, run: () => copy() },
+    ],
     /** For tests: the latest scan. */
     get result() {
       return last;

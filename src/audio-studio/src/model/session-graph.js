@@ -2,7 +2,8 @@
 // session state and its media pool. Pure apart from sourceKey, which assigns
 // stable ids to Channel objects.
 //
-// Handles: bus routing and sends, track EQ, solo/mute, track volume/pan automation (Off/Read and
+// Handles: bus routing and sends (with send level automation), track EQ, solo/mute, track
+// volume/pan/mute automation (Off/Read and
 // the recording modes), clip gain, fades, crossfades on overlaps (or the
 // front clip hiding the rear one when automatic crossfades are off), clip
 // volume/pan envelopes, looped clips, polarity inversion, effect chains
@@ -13,7 +14,7 @@
 
 import { mergeScene } from './merge-layout.js';
 import { sourceKey } from '../engine/engine.js';
-import { activeCrossfades, clipEnd, SILENT_DB } from './session-edits.js';
+import { activeCrossfades, clipEnd, SILENT_DB, expandHolds, envelopeValue, clipEnvelope, sendParam, fxParamRef, muteSteps } from './session-edits.js';
 import { slotSpecs, rackTiming, gainSpec } from '../effects/rack.js';
 import { compensateLatency } from '../engine/mixcore.js';
 import { getEffect } from '../effects/registry.js';
@@ -26,10 +27,25 @@ export const dbToGain = (db) => (db <= SILENT_DB ? 0 : Math.pow(10, db / 20));
  * below 100%, { fxMix, fxWet, fxDry, fxLatency } (see mixcore runChain). Input and
  * output gain only apply while the rack has effects to run.
  */
-export function trackRackSpecs(t, rateDoc, channels = 2) {
+/** The source audio a clip plays: { channels, rate, range } (its offset over its length). */
+export function clipAudio(c, src, rate) {
+  return { channels: src.channels, rate: src.channelRate || rate, range: [c.offset, c.offset + c.length] };
+}
+
+/** The audio a track's clips play, longest clips first (at most four), for chains that analyse it. */
+export function trackAudio(state, t, pool) {
+  return state.clips
+    .filter((c) => c.trackId === t.id && !c.mute && pool.get(c.sourceId)?.channels?.length)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 4)
+    .map((c) => clipAudio(c, pool.get(c.sourceId), state.sampleRate));
+}
+
+export function trackRackSpecs(t, rateDoc, channels = 2, sources = null) {
   if (!t.fxPower) return { fx: [] };
-  const slots = slotSpecs(t.fx, `trk:${t.id}`, rateDoc, channels);
+  const slots = slotSpecs(t.fx, `trk:${t.id}`, rateDoc, channels, sources);
   if (!slots.length) return { fx: [] };
+  automateSlots(t, slots, `trk:${t.id}`);
   const inGain = t.fxIn ? gainSpec(`trk:${t.id}:in`, t.fxIn) : null;
   const wet = inGain ? [inGain, ...slots] : slots;
   const out = t.fxOut ? gainSpec(`trk:${t.id}:out`, t.fxOut) : null;
@@ -43,6 +59,35 @@ export function trackRackSpecs(t, rateDoc, channels = 2) {
     Object.assign(r, { fxMix: mix, fxWet: wet.length, fxDry: dbToGain(t.fxIn || 0), fxLatency });
   }
   return r;
+}
+
+/**
+ * Effect setting automation: each automated setting of a rack slot becomes a `paramEnv`
+ * entry ({ index into the slot's params, points }) the effect host applies every block.
+ * Lanes are read in every mode but Off.
+ */
+function automateSlots(t, specs, prefix, slots = t.fx, lanes = t.automation, offset = 0) {
+  if (t.mode === 'off' || !lanes) return;
+  for (const [param, pts] of Object.entries(lanes)) {
+    const ref = pts?.length ? fxParamRef(param) : null;
+    if (!ref) continue;
+    const spec = specs.find((sp) => sp.key === `${prefix}:${ref.slotId}`);
+    const def = getEffect(slots.find((x) => x?.id === ref.slotId)?.effect);
+    const index = def ? def.params.findIndex((p) => p.id === ref.paramId) : -1;
+    if (!spec || index < 0) continue;
+    // Switches and choices step between keyframes.
+    const type = def.params[index].type;
+    const keys = type === 'bool' || type === 'choice' ? muteSteps(pts) : pts;
+    (spec.paramEnv ||= []).push({ index, points: expandHolds(keys).map((p) => ({ t: p.t + offset, v: p.v })) });
+  }
+}
+
+/** The track EQ as a chain slot, with its automated settings (lanes `fx.eq.<param>`). */
+function eqSpecs(t, rateDoc) {
+  const slot = { id: 'eq', effect: 'parametricEq', values: t.eq.values, enabled: true };
+  const specs = slotSpecs([slot], `eq:${t.id}`, rateDoc);
+  automateSlots(t, specs, `eq:${t.id}`, [slot]);
+  return specs;
 }
 
 /** Processing delay (frames) of a track's or the master's rack: its switched-on slots, in series. */
@@ -77,6 +122,54 @@ export function dbEnvelopeToGain(points, offset = 0) {
 }
 
 const panEnvelope = (points, offset = 0) => points.map((p) => ({ t: p.t + offset, v: p.v / 100 }));
+
+/**
+ * The channels a clip plays from its source: `clip.channelMap` picks a source channel for each
+ * of its two channels (e.g. [0, 0] plays the left channel on both sides). Unrouted clips, mono
+ * sources and maps that do not fit the source play the source as it is.
+ */
+export function routedChannels(clip, channels) {
+  const map = clip.channelMap;
+  if (!Array.isArray(map) || map.length !== 2 || channels.length < 2) return channels;
+  if (!map.every((i) => Number.isInteger(i) && i >= 0 && i < channels.length)) return channels;
+  if (map[0] === 0 && map[1] === 1) return channels;
+  return map.map((i) => channels[i]);
+}
+
+/** Ramp at each step of mute automation (frames at 48 kHz scale with the rate): avoids clicks. */
+const MUTE_RAMP_SECONDS = 0.003;
+
+/**
+ * Linear gain breakpoints for mute automation (points { t, v: 1 muted | 0 audible }, each
+ * holding until the next): 0 or 1 with a short ramp at every change.
+ */
+export function muteEnvelope(points, rate) {
+  const ramp = Math.max(1, Math.round(rate * MUTE_RAMP_SECONDS));
+  const gainOf = (p) => (p.v >= 0.5 ? 0 : 1);
+  const out = [{ t: points[0].t, v: gainOf(points[0]) }];
+  for (let i = 1; i < points.length; i++) {
+    const g = gainOf(points[i]);
+    const prev = out[out.length - 1].v;
+    if (g === prev) continue;
+    const at = points[i].t;
+    out.push({ t: Math.max(out[out.length - 1].t, at - ramp), v: prev }, { t: at, v: g });
+  }
+  return out;
+}
+
+/** Product of two linear breakpoint envelopes (breakpoints at the union of their times). */
+export function multiplyEnvelopes(a, b) {
+  const times = [...new Set([...a.map((p) => p.t), ...b.map((p) => p.t)])].sort((x, y) => x - y);
+  return times.map((t) => ({ t, v: envelopeValue(a, t, 1) * envelopeValue(b, t, 1) }));
+}
+
+/** A track's gain envelope with its mute automation applied (or null when it has none). */
+function withMuteAutomation(gainEnv, gain, mutePts, rate) {
+  if (!mutePts.length) return gainEnv;
+  const mute = muteEnvelope(mutePts, rate);
+  if (gainEnv) return multiplyEnvelopes(gainEnv, mute);
+  return mute.map((p) => ({ t: p.t, v: p.v * gain }));
+}
 
 /** Subtracts intervals `cut` (sorted or not) from [a, b). */
 function subtract(a, b, cuts) {
@@ -222,7 +315,32 @@ function sourceSegments(clip, a, b, srcLen) {
  *   caller that changes the routing first (bounces render without the master or the track's output)
  * @returns {{ graph, sources: Map<string, Channel[]> }}
  */
-export function buildSessionGraph(state, pool, { clipIds = null, overrides = {}, metronome = null, metronomeEnd = 0, panLaw = null, compensate = true } = {}) {
+/**
+ * What a frozen track's pre-rendered audio depends on: its clips (and their media), effects,
+ * EQ, polarity and effect automation. A changed key means the render is out of date.
+ */
+export function freezeKey(state, t, pool) {
+  const clips = state.clips.filter((c) => c.trackId === t.id);
+  const media = clips.map((c) => {
+    const src = pool.get(c.sourceId);
+    return src?.channels?.length ? sourceKey(src.channels) : '';
+  });
+  const fxLanes = Object.entries(t.automation || {}).filter(([k]) => fxParamRef(k));
+  // Post-fader effects take the volume and pan into the render.
+  const fader = t.fxPost ? [t.volume, t.pan, t.mode === 'off' ? [] : [t.automation.volume, t.automation.pan]] : null;
+  return JSON.stringify([clips, media, t.fx, t.fxPower, t.fxIn, t.fxOut, t.fxMix, t.eq, t.invert, t.channels, t.mode === 'off' ? [] : fxLanes, state.sampleRate, state.autoCrossfade, fader]);
+}
+
+/** True when a track plays its pre-rendered audio: frozen, rendered for its current state, pre-fader. */
+export function frozenAudio(state, t, pool, frozen) {
+  if (!t.freeze || t.type !== 'audio') return null;
+  // Post-fader renders hold the volume and pan: pre-fader sends would lose their dry signal.
+  if (t.fxPost && (t.sends || []).some((x) => x.pre && x.on && x.target)) return null;
+  const f = frozen?.get(t.id);
+  return f && f.key === freezeKey(state, t, pool) ? f : null;
+}
+
+export function buildSessionGraph(state, pool, { clipIds = null, overrides = {}, metronome = null, metronomeEnd = 0, panLaw = null, compensate = true, frozen = null } = {}) {
   const sources = new Map();
   const keyOf = new Map();
   for (const [id, src] of pool) {
@@ -239,15 +357,17 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   for (const t of state.tracks) {
     const o = overrides[t.id] || {};
     const auto = t.mode !== 'off';
-    const volPts = auto && o.volume === undefined ? t.automation.volume : [];
-    const panPts = auto && o.pan === undefined ? t.automation.pan : [];
+    const volPts = auto && o.volume === undefined ? expandHolds(t.automation.volume) : [];
+    const panPts = auto && o.pan === undefined ? expandHolds(t.automation.pan) : [];
+    const mutePts = auto && o.mute === undefined ? t.automation.mute || [] : [];
     const gt = {
       id: t.id,
       gain: volPts.length ? 1 : dbToGain(o.volume ?? t.volume),
       pan: panPts.length ? 0 : (o.pan ?? t.pan) / 100,
-      mute: t.mute,
+      // Mute automation (or a live override while it is written) replaces the mute switch.
+      mute: o.mute !== undefined ? o.mute >= 0.5 : mutePts.length ? false : t.mute,
       solo: t.solo,
-      ...trackRackSpecs(t, rateDoc, surround && t.channels === 6 ? 6 : 2),
+      ...trackRackSpecs(t, rateDoc, surround && t.channels === 6 ? 6 : 2, () => trackAudio(state, t, pool)),
       clips: [],
     };
     const lat = rackLatency(t, state.sampleRate, surround && t.channels === 6 ? 6 : 2);
@@ -260,7 +380,11 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         if (t.channels === 1) gt.monoIn = true;
       }
     }
-    if (volPts.length) gt.volumeEnv = dbEnvelopeToGain(volPts);
+    const volumeEnv = withMuteAutomation(volPts.length ? dbEnvelopeToGain(volPts) : null, gt.gain, mutePts, state.sampleRate);
+    if (volumeEnv) {
+      gt.volumeEnv = volumeEnv;
+      gt.gain = 1;
+    }
     if (panPts.length) gt.panEnv = panEnvelope(panPts);
     if (t.type === 'bus') {
       gt.bus = true;
@@ -268,22 +392,60 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
     }
     if (t.output && t.output !== 'master' && busIds.has(t.output) && t.output !== t.id) gt.output = t.output;
     // Track EQ runs after the effects chain, whatever the chain's power state.
-    if (t.eq?.on) gt.fx = [...gt.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: t.eq.values, enabled: true }], `eq:${t.id}`, rateDoc)];
-    const sends = (t.sends || []).filter((x) => x.on && x.target !== t.id && busIds.has(x.target));
-    if (sends.length) gt.sends = sends.map((x) => ({ target: x.target, gain: dbToGain(x.level), pan: x.pan / 100, pre: x.pre }));
-    if (t.type === 'audio') {
+    if (t.eq?.on) gt.fx = [...gt.fx, ...eqSpecs(t, rateDoc)];
+    // Post-fader: the effects (and the EQ after them) follow the volume and pan.
+    if (t.fxPost && gt.fx.length && !gt.six) gt.fxPost = true;
+    const sends = (t.sends || []).map((x, i) => [x, sendParam(i)]).filter(([x]) => x.on && x.target !== t.id && busIds.has(x.target));
+    if (sends.length) {
+      gt.sends = sends.map(([x, param]) => {
+        // Send level automation (or a live value while it is written).
+        const pts = auto && o[param] === undefined ? expandHolds(t.automation[param] || []) : [];
+        const snd = { target: x.target, gain: pts.length ? 1 : dbToGain(o[param] ?? x.level), pan: x.pan / 100, pre: x.pre };
+        if (pts.length) snd.gainEnv = dbEnvelopeToGain(pts);
+        return snd;
+      });
+    }
+    // A frozen track plays its pre-rendered clips and effects (volume, pan and sends still apply).
+    const ice = !clipIds && surround !== true ? frozenAudio(state, t, pool, frozen) : null;
+    if (ice) {
+      const key = sourceKey(ice.channels);
+      sources.set(key, ice.channels);
+      gt.fx = [];
+      delete gt.latency;
+      delete gt.invert;
+      delete gt.fxPost;
+      gt.clips.push({ id: `frozen:${t.id}`, source: key, channels: ice.channels.length, start: 0, offset: 0, length: ice.length, gain: 1, fadeIn: 0, fadeOut: 0 });
+      if (t.fxPost) {
+        // Post-fader: the volume and pan are in the render; mute (automation) stays live.
+        gt.gain = 1;
+        gt.pan = 0;
+        delete gt.panEnv;
+        const mute = mutePts.length ? withMuteAutomation(null, 1, mutePts, state.sampleRate) : null;
+        if (mute) gt.volumeEnv = mute;
+        else delete gt.volumeEnv;
+      }
+    } else if (t.type === 'audio') {
       for (const c of state.clips) {
         if (c.trackId !== t.id || c.mute) continue;
         if (clipIds && !clipIds.has(c.id)) continue;
-        const key = keyOf.get(c.sourceId);
+        let key = keyOf.get(c.sourceId);
         const p = plan.get(c.id);
         if (!key || !p) continue;
-        const src = pool.get(c.sourceId);
+        let src = pool.get(c.sourceId);
+        // Source channel routing: the clip plays the source channels it picks, as a source of their own.
+        const routed = routedChannels(c, src.channels);
+        if (routed !== src.channels) {
+          key = sourceKey(routed);
+          sources.set(key, routed);
+          src = { ...src, channels: routed };
+        }
         const srcLen = src.channels[0].length;
         // 5.1 tracks in a 5.1 mix play their clips without clip chains (the mix core runs those on
         // stereo tracks only), so they must not read ahead for the chain's latency either.
-        const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc) : null;
+        const clipFx = c.fx?.length && !gt.six ? slotSpecs(c.fx, `clip:${c.id}`, rateDoc, 2, () => [clipAudio(c, pool.get(c.sourceId), state.sampleRate)]) : null;
         const timing = clipFx?.length ? rackTiming({ slots: c.fx }, state.sampleRate) : null;
+        // Clip effect envelopes, on the timeline (the chain runs `latency` early, as the clip reads).
+        if (clipFx?.length && c.fxEnv && Object.keys(c.fxEnv).length) automateSlots({ mode: 'read' }, clipFx, `clip:${c.id}`, c.fx, c.fxEnv, c.start - (timing?.latency || 0));
         for (const [a, b] of p.parts) {
           for (const seg of sourceSegments(c, a, b, srcLen)) {
             // A clip chain with latency (spectral repair, lookahead) reads its
@@ -309,8 +471,8 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
             if (p.fadeIn.offset) gc.fadeInOffset = p.fadeIn.offset;
             if (p.fadeOut.offset) gc.fadeOutOffset = p.fadeOut.offset;
             if (t.channels === 1 && src.channels.length > 1) gc.mono = true;
-            if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(c.volumeEnv);
-            if (c.panEnv.length) gc.panEnv = panEnvelope(c.panEnv);
+            if (c.volumeEnv.length) gc.gainEnv = dbEnvelopeToGain(expandHolds(clipEnvelope(c, 'volume')));
+            if (c.panEnv.length) gc.panEnv = panEnvelope(expandHolds(clipEnvelope(c, 'pan')));
             if (clipFx?.length) {
               gc.fx = clipFx;
               gc.fxTail = timing.tail + lat;
@@ -338,13 +500,16 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   const masterLat = rackLatency(m, state.sampleRate, surround ? 6 : 2);
   if (masterLat) master.latency = masterLat;
   if (m.invert) master.invert = true;
-  if (m.eq?.on) master.fx = [...master.fx, ...slotSpecs([{ id: 'eq', effect: 'parametricEq', values: m.eq.values, enabled: true }], `eq:${m.id}`, rateDoc)];
-  if (m.mode !== 'off' && mo.volume === undefined && m.automation.volume.length) {
+  if (m.eq?.on) master.fx = [...master.fx, ...eqSpecs(m, rateDoc)];
+  const masterVol = m.mode !== 'off' && mo.volume === undefined && m.automation.volume.length ? dbEnvelopeToGain(expandHolds(m.automation.volume)) : null;
+  const masterMute = m.mode !== 'off' && mo.mute === undefined ? m.automation.mute || [] : [];
+  const masterEnv = withMuteAutomation(masterVol, master.gain, masterMute, state.sampleRate);
+  if (masterEnv) {
     master.gain = 1;
-    master.volumeEnv = dbEnvelopeToGain(m.automation.volume);
+    master.volumeEnv = masterEnv;
   }
   // Muting the master silences the mix (after its effects, so they keep their state).
-  if (m.mute) {
+  if (mo.mute !== undefined ? mo.mute >= 0.5 : !masterMute.length && m.mute) {
     master.gain = 0;
     delete master.volumeEnv;
   }
@@ -358,17 +523,34 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
   return { graph, sources };
 }
 
-/** One bar of metronome clicks (accented downbeat) at the session tempo, in a sound set from metronome-sounds.js. */
-export function metronomeBar(Channel, { sampleRate, tempo = 120, beatsPerBar = 4, sound = DEFAULT_METRONOME_SOUND }) {
-  const beat = Math.round((60 / tempo) * sampleRate);
+/** Kinds of metronome beat: accented, plain, soft, silent. */
+export const BEAT_KINDS = ['down', 'up', 'sub', 'none'];
+
+/** The accent pattern for a bar of `beatsPerBar` beats: a stored one fitted to length, or an accented first beat. */
+export function metronomePattern(pattern, beatsPerBar = 4) {
+  return Array.from({ length: beatsPerBar }, (_, i) => (BEAT_KINDS.includes(pattern?.[i]) ? pattern[i] : i === 0 ? 'down' : 'up'));
+}
+
+/**
+ * One bar of metronome clicks at the session tempo, in a sound set from metronome-sounds.js. Each beat
+ * follows the accent pattern: 'down' accented, 'up' plain, 'sub' a softer plain click, 'none' silent.
+ */
+export function metronomeBar(Channel, { sampleRate, tempo = 120, beatsPerBar = 4, beatNote = 4, sound = DEFAULT_METRONOME_SOUND, metronomePattern: pattern }) {
+  // Tempo counts quarter notes; the beat note sets the length of a beat (as the bars-and-beats grid does).
+  const beat = Math.round((60 / tempo) * (4 / (beatNote || 4)) * sampleRate);
   const n = beat * beatsPerBar;
   const out = new Float32Array(n);
   const accent = clickSound(sound, sampleRate, true);
   const normal = clickSound(sound, sampleRate, false);
+  const kinds = metronomePattern(pattern, beatsPerBar);
   for (let b = 0; b < beatsPerBar; b++) {
-    const click = b === 0 ? accent : normal;
+    const kind = kinds[b];
+    if (kind === 'none') continue;
+    const click = kind === 'down' ? accent : normal;
     const at = b * beat;
-    out.set(click.subarray(0, Math.min(click.length, n - at)), at);
+    const part = click.subarray(0, Math.min(click.length, n - at));
+    if (kind === 'sub') for (let i = 0; i < part.length; i++) out[at + i] = part[i] * 0.45;
+    else out.set(part, at);
   }
   return [Channel.fromSamples(out)];
 }

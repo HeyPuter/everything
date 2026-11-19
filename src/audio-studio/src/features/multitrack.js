@@ -13,6 +13,8 @@ import { installSessionStorage } from '../multitrack/storage.js';
 import { insertDocs, insertFiles, syncLinkedSources } from '../multitrack/insert.js';
 import { TrackControls } from '../multitrack/track-controls.js';
 import { SessionRecorder } from '../multitrack/recorder.js';
+import { FreezeController } from '../multitrack/freeze.js';
+import { SmartMonitor } from '../multitrack/monitor.js';
 import { sessionPropertySection } from '../multitrack/properties.js';
 import { mixerPanel } from '../panels/mixer.js';
 import { followDucking } from '../multitrack/ducking.js';
@@ -29,6 +31,8 @@ export function installMultitrack(app) {
   registerIcons(MULTITRACK_ICONS);
   installSessionStorage();
   const recorder = new SessionRecorder(app);
+  app.freezer = new FreezeController(app);
+  app.smartMonitor = new SmartMonitor(app);
   app.multitrack = {
     recorder,
     insertDocs: (session, docs, o) => insertDocs(app, session, docs, o),
@@ -38,11 +42,16 @@ export function installMultitrack(app) {
   const overrides = installMultitrackCommands(app);
 
   let click = null;
+  // A new beat note changes the metronome's beat length.
+  app.on('prefs', (key) => {
+    if (key === 'beatNote' && app.active?.kind === 'session' && app.active.state.metronome) app.syncGraph?.();
+  });
   const clickFor = (state) => {
     // A session keeps the sound picked for it; otherwise the last one picked anywhere.
     const sound = state.metronomeSound || app.prefs.get('metronomeSound') || undefined;
-    const key = `${state.sampleRate}:${state.tempo}:${state.beatsPerBar}:${sound}`;
-    if (!click || click.key !== key) click = { key, channels: metronomeBar(Channel, { ...state, sound }) };
+    const beatNote = Number(app.prefs.get('beatNote')) || 4;
+    const key = `${state.sampleRate}:${state.tempo}:${state.beatsPerBar}:${beatNote}:${sound}:${(state.metronomePattern || []).join(',')}`;
+    if (!click || click.key !== key) click = { key, channels: metronomeBar(Channel, { ...state, beatNote, sound }) };
     return click.channels;
   };
   app.registerDocumentKind('session', {
@@ -55,6 +64,7 @@ export function installMultitrack(app) {
       const state = doc.state;
       return buildSessionGraph(state, doc.pool, {
         overrides: doc.overrides || {},
+        frozen: doc.frozen || null,
         metronome: state.metronome ? clickFor(state) : null,
         metronomeEnd: Math.max(doc.length, doc.extent),
         panLaw: { mode: app.prefs.get('panLaw'), centerDb: app.prefs.get('panLawDb') },

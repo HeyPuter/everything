@@ -23,9 +23,12 @@ import { icon } from './icons.js';
 import { TIME_FORMATS } from '../lib/time.js';
 import { WINDOWS, FFT_SIZES, FLOORS, settings as spectralSettings, setSettings as setSpectralSettings } from '../spectral/state.js';
 import { ACCENTS, WAVE_PRESETS, EDITOR_COLORS, COLOR_FIELDS, cleanColor, toHex } from './appearance.js';
-import { VIDEO_ZOOMS } from '../video/video-panel.js';
+import { VIDEO_ZOOMS, VIDEO_RESOLUTIONS } from '../video/video-panel.js';
 import { cssVar } from './theme.js';
+import { LOOKS, lookPicker } from './looks.js';
 import { formatBytesShort } from '../export/formats.js';
+import { userTemplates, saveTemplate, deleteTemplate, renameTemplate, templateFileText, parseTemplateFile } from '../multitrack/templates.js';
+import { downloadBlob, pickLocalFiles } from '../storage/files.js';
 
 const check = (key, label, o = {}) => ({ type: 'check', key, label, ...o });
 const select = (key, label, options, o = {}) => ({ type: 'select', key, label, options, ...o });
@@ -68,6 +71,7 @@ export const CATEGORIES = [
           select('defaultFadeCurve', 'Curve for new fades', opts([['linear', 'Linear'], ['log', 'Logarithmic'], ['cosine', 'Cosine (S-curve)']]), { help: 'Used when you drag a fade handle on a file or a clip without a fade.' }),
           check('hud', 'Show the amplitude HUD over the waveform'),
           check('hudSelectionOnly', 'Show the HUD only while part of the file is selected', { enabledIf: (p) => p.get('hud') }),
+          check('channelZones', 'Select a single channel by dragging near the top or bottom of a stereo waveform', { keywords: 'context-sensitive channel editing left right lane', help: 'Starting a drag in the top quarter of the waveform selects only the first channel, in the bottom quarter only the last. Off: every drag selects all channels.' }),
           check('syncFiles', 'Keep selection, zoom and playhead in step across open audio files', { help: 'Switching to another file shows the same range (as far as that file reaches).' }),
           select('historyLimit', 'Undo history steps', opts([[50, '50'], [100, '100'], [200, '200'], [500, '500']])),
           { type: 'custom', label: 'Warning dialogs', keys: ['dismissedNotices'], keywords: "reset warnings don't show again alerts notices", render: resetNotices },
@@ -76,7 +80,7 @@ export const CATEGORIES = [
       {
         title: 'New Files',
         items: [
-          select('defaultRate', 'Sample rate', [8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000].map((r) => ({ value: r, label: `${r} Hz` }))),
+          number('defaultRate', 'Sample rate', { min: 3000, max: 384000, step: 1, unit: 'Hz', help: 'Any rate: New Audio File and New Multitrack Session start with it.' }),
           select('defaultChannels', 'Channels', opts([[1, 'Mono'], [2, 'Stereo']])),
         ],
       },
@@ -86,6 +90,10 @@ export const CATEGORIES = [
     id: 'appearance',
     label: 'Appearance',
     sections: [
+      {
+        title: 'Look',
+        items: [{ type: 'custom', bare: true, label: 'Look: theme, brightness, accent and editor colors together', keys: ['theme', 'uiBrightness', 'accentColor', 'waveColors', 'userLooks'], keywords: 'look preset scheme bundle save ' + LOOKS.map((l) => l.label).join(' '), render: lookPicker }],
+      },
       {
         title: 'Editor Colors',
         items: [{ type: 'custom', bare: true, label: 'Waveform, background, selection, playhead and marker colors', keys: ['waveColors'], keywords: 'color colour preset waveform background selection playhead marker cue subclip cart cd save delete', render: colorEditor }],
@@ -120,7 +128,7 @@ export const CATEGORIES = [
     label: 'Audio Hardware',
     sections: [
       {
-        items: [select('latencyHint', 'Latency', opts([['interactive', 'Lowest (most responsive)'], ['balanced', 'Balanced'], ['playback', 'Highest (fewest dropouts)']]), { help: 'A larger buffer helps when playback crackles. Takes effect the next time playback starts from stopped.' })],
+        items: [select('latencyHint', 'Buffer size', opts([['interactive', 'Automatic: lowest latency'], ['balanced', 'Automatic: balanced'], ['playback', 'Automatic: fewest dropouts'], [128, '128 samples'], [256, '256 samples'], [512, '512 samples'], [1024, '1024 samples'], [2048, '2048 samples'], [4096, '4096 samples']]), { keywords: 'latency io buffer size samples crackle dropouts', help: 'A larger buffer helps when playback crackles; a smaller one makes playback and recording respond sooner. The browser treats a size as a request. Takes effect the next time playback starts from stopped.' })],
       },
     ],
     note: 'The browser runs playback at the sample rate of the file or session when the device allows it.',
@@ -170,6 +178,10 @@ export const CATEGORIES = [
           check('srcFilter', 'Pre/post filter', { keywords: 'resample anti-alias aliasing imaging lowpass', help: 'Rolls off the top of the band just below the new Nyquist frequency so nothing folds back. Off keeps a little more treble but lets some of it alias.' }),
         ],
       },
+      {
+        title: 'Batch Process',
+        items: [number('batchConcurrency', 'Files processed at once', { min: 1, max: 8, step: 1, keywords: 'concurrent parallel simultaneous processes batch', help: 'More files at once finish a batch sooner on a fast computer but use more memory.' })],
+      },
     ],
   },
   {
@@ -200,6 +212,10 @@ export const CATEGORIES = [
         title: 'Browser Storage',
         items: [{ type: 'custom', bare: true, label: 'Storage used by Audio Studio in this browser', keys: [], keywords: 'disk cache quota space persistent storage recovery delete clear', render: storageInfo }],
       },
+      {
+        title: 'Session Templates',
+        items: [{ type: 'custom', bare: true, label: 'Saved session templates', keys: ['sessionTemplates'], keywords: 'multitrack session templates rename delete import export share', render: templateManager }],
+      },
     ],
   },
   {
@@ -226,6 +242,7 @@ export const CATEGORIES = [
           check('markersWithClipboard', 'Include markers when cutting, copying and pasting audio'),
           check('showMarkerLines', 'Show marker lines across the waveform'),
           check('markersInMixdowns', 'Copy session markers into multitrack mixdowns and recorded takes'),
+          check('embedEditOriginal', 'Save the link to the session in multitrack mixdowns', { keywords: 'edit original session link mixdown metadata xmp', help: 'Edit > Edit Original can then open the session from a saved mixdown, even after it is closed and opened again.' }),
           { type: 'custom', label: 'Show metadata in', keys: [], keywords: 'metadata files panel', render: metadataButtons },
           { type: 'text', key: 'markerName', label: 'Name for new markers', maxLength: 40, help: 'New markers are numbered after it, for example "Marker 01".' },
         ],
@@ -242,7 +259,9 @@ export const CATEGORIES = [
           select('panLawDb', 'Level at center (equal power)', [-1.5, -2.5, -3, -4.5, -6].map((v) => ({ value: v, label: `${v} dB` })), { enabledIf: (p) => p.get('panLaw') === 'equalPower' }),
           radio('soloExclusive', 'Track solo', opts([[false, 'Non-exclusive: several tracks can be soloed'], [true, 'Exclusive: soloing a track unsolos the others']])),
           check('loopToLastClip', 'When looping without a selection, loop at the end of the last clip', { help: 'When off, the loop runs to the end of the bar the last clip ends in.' }),
+          check('meterOnArm', 'Meter the input while a track is armed for recording', { keywords: 'arm record input metering level meters microphone', help: 'The level meters show the input signal from when the first track is armed until the last one is disarmed.' }),
           check('avoidOverlap', 'Avoid overlapping clips when inserting or pasting (use the next free track)'),
+          check('automationFollowsClips', 'Track automation moves with clips that are dragged or nudged (to the same lanes when they change track)', { keywords: 'keyframes envelopes move with clips automation follow' }),
           check('randomTrackColor', 'Give new tracks a random color'),
         ],
       },
@@ -256,6 +275,7 @@ export const CATEGORIES = [
         items: [
           check('autoCrossfade', 'Crossfade overlapping clips automatically in new sessions'),
           check('clipsToFront', 'Bring clips to the front when selecting them'),
+          check('embeddedTimecode', 'Place inserted files at their embedded timecode', { keywords: 'bwf bext time reference timestamp field recorder sync', help: 'A broadcast WAV with a time reference (from a field recorder or another editor) lands at that time instead of at the playhead.' }),
           check('clipGainWaveform', 'Scale the clip waveform with the clip gain'),
           check('clipFadeHandles', 'Show fade handles'),
           check('clipVolumeEnvelopes', 'Show clip volume envelopes'),
@@ -264,7 +284,10 @@ export const CATEGORIES = [
       },
       {
         title: 'Inserting Several Files',
-        items: [radio('insertMultiple', 'When inserting several files', opts([['tracks', 'Place each file on its own track'], ['same', 'Place them one after another on the same track']]))],
+        items: [
+          radio('insertMultiple', 'When inserting several files', opts([['tracks', 'Place each file on its own track'], ['same', 'Place them one after another on the same track']])),
+          radio('insertChannels', 'When inserting a file with several channels', opts([['clip', 'Keep its channels together in one clip'], ['split', 'Put each channel in its own clip, on its own mono track']]), { keywords: 'stereo split mono channels distribute dual mono interview' }),
+        ],
       },
       {
         title: 'Clip Stretching',
@@ -358,6 +381,9 @@ export const CATEGORIES = [
         title: 'Video Display',
         items: [
           select('videoZoom', 'Scaling', VIDEO_ZOOMS.map((z) => ({ value: z.id, label: z.label }))),
+          select('videoResolution', 'Resolution', VIDEO_RESOLUTIONS.map((r) => ({ value: r.id, label: r.label })), { keywords: 'preview quality performance playback', help: 'A smaller picture is lighter to draw during playback on a slow computer.' }),
+          check('videoFullOnStop', 'Full resolution when stopped', { enabledIf: (p) => String(p.get('videoResolution') || 'full') !== 'full' }),
+          check('videoSpot', 'Show the frame where a clip starts while dragging or trimming audio clips', { keywords: 'spot sync picture clip drag', help: 'The Video panel shows the picture at the dragged clip\'s start (or the trimmed edge) until the mouse is released.' }),
           check('videoFullscreen', 'Double-click the video to show it full screen'),
         ],
       },
@@ -690,6 +716,57 @@ function resetNotices({ app, row }) {
   sync();
   row.refresh = sync;
   return b;
+}
+
+/** Saved session templates: rename, delete, export to a file and import from one. */
+function templateManager({ app, row }) {
+  const list = h('div.prefs-templates', { role: 'list', 'aria-label': 'Saved session templates' });
+  const importBtn = h('button.btn', { type: 'button' }, 'Import...');
+  const render = () => {
+    const items = userTemplates(app.prefs);
+    list.replaceChildren(
+      ...(items.length
+        ? items.map((t) => {
+            const btn = (text, label, onclick) => h('button.btn', { type: 'button', 'aria-label': `${label} ${t.label}`, onclick }, text);
+            return h(
+              'div.prefs-template',
+              { role: 'listitem' },
+              h('span.prefs-template-name', t.label),
+              h('span.muted', `${t.tracks.length} track${t.tracks.length === 1 ? '' : 's'}`),
+              btn('Rename...', 'Rename', async () => {
+                const label = await promptDialog({ title: 'Rename Template', label: 'Name:', value: t.label, confirm: 'Rename', validate: (v) => (v.trim() ? '' : 'Enter a name.') });
+                if (!label || label.trim() === t.label) return;
+                renameTemplate(app.prefs, t.id, label.trim());
+                render();
+              }),
+              btn('Export', 'Export', () => {
+                downloadBlob(new Blob([templateFileText(t)], { type: 'application/json' }), `${t.label.replace(/[\\/:*?"<>|]/g, '_')}.astemplate.json`);
+              }),
+              btn('Delete', 'Delete', async () => {
+                if (!(await confirmDialog({ title: 'Delete Template', message: `Delete the session template "${t.label}"?`, confirm: 'Delete', danger: true }))) return;
+                deleteTemplate(app.prefs, t.id);
+                render();
+              }),
+            );
+          })
+        : [h('p.muted', 'No saved templates. Save one from a session with File > Export > Session as Template.')]),
+    );
+  };
+  importBtn.addEventListener('click', async () => {
+    const [file] = await pickLocalFiles({ accept: '.json,application/json', multiple: false });
+    if (!file) return;
+    try {
+      const t = parseTemplateFile(await file.text());
+      saveTemplate(app.prefs, t);
+      render();
+      announce(`Imported the template ${t.label}`);
+    } catch (err) {
+      app.notify(`"${file.name}": ${err.message}`, { error: true });
+    }
+  });
+  render();
+  row.refresh = render;
+  return h('div.prefs-templates-wrap', list, h('div.prefs-inline', importBtn, h('span.muted', 'Templates appear in File > New > Multitrack Session.')));
 }
 
 function recoverButton({ app }) {

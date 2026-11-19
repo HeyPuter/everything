@@ -4,6 +4,11 @@
 // also remembers the values it was last applied with, as dialogs reopen with
 // the previous settings.
 //
+// Rule: a dialog opens with the settings the effect was last applied with,
+// else its defaults. The first built-in preset always equals the defaults
+// ("Default", or a name such as "Flat" that says what the defaults do), so the
+// preset list shows it selected when a dialog opens fresh.
+//
 // prefs keys:
 //   fxPresets: { [effectId]: [{ name, values }] }
 //   fxLast:    { [effectId]: values }
@@ -60,7 +65,7 @@ export function matchPreset(prefs, def, values) {
 
 export function lastValues(prefs, def) {
   const v = read(prefs, LAST)[def.id];
-  return normalizeValues(def, v || def.presets?.[0]?.values || {});
+  return normalizeValues(def, v || {});
 }
 
 export function rememberValues(prefs, def, values) {

@@ -428,6 +428,42 @@ input[type='range'].fx-slider:disabled {
   font-size: var(--fs-sm);
 }
 
+/* The shared value scale at the left of a row of vertical sliders. */
+.fx-vaxis {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 28px;
+}
+
+.fx-vaxis .fx-value {
+  min-height: 1.4em;
+}
+
+.fx-vaxis .fx-vlabel {
+  color: var(--text-dim);
+}
+
+.fx-vaxis-labels {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  right: 0;
+}
+
+.fx-vaxis-label {
+  position: absolute;
+  right: 2px;
+  transform: translateY(50%);
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
 .fx-vlabel {
   color: var(--text);
   font-size: var(--fs-xs);
@@ -541,6 +577,55 @@ input[type='range'].fx-slider:disabled {
 .fx-lm-bar.v {
   width: 10px;
   height: 120px;
+}
+
+.fx-lm-barwrap {
+  display: flex;
+  gap: 2px;
+}
+
+.fx-lm-scale {
+  position: relative;
+  width: 18px;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.fx-lm-scale span {
+  position: absolute;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.fx-lm-scale span:first-child {
+  transform: none;
+}
+
+/* Multiband: the band threshold on its input meter (drag the meter to set it). */
+.fx-mb-meters .fx-lm-bar.level {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.fx-mb-thresh-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--band, var(--hot));
+  box-shadow: 0 0 0 1px var(--bg-editor);
+  pointer-events: none;
+}
+
+.fx-handle.fx-mb-thresh {
+  width: 22px;
+  height: 10px;
+  margin: -5px 0 0 -11px;
+  border-radius: 3px;
+  background: var(--band, var(--hot));
+  cursor: ns-resize;
 }
 
 .fx-lm-fill {
@@ -846,15 +931,16 @@ input[type='range'].fx-slider:disabled {
   position: absolute;
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
   padding: 0;
   border: 1.5px solid var(--bg-editor);
   border-radius: 50%;
-  background: var(--hot);
+  background: var(--accent-fill);
   color: var(--accent-text);
-  font-size: 8px;
+  font-size: 9px;
+  font-weight: 600;
   line-height: 1;
   cursor: grab;
   touch-action: none;
@@ -1101,6 +1187,12 @@ input[type='range'].fx-slider:disabled {
 
 .lm-offline-text {
   font-size: var(--fs-sm);
+}
+
+.lm-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 @media (max-width: 480px) {
@@ -1577,6 +1669,69 @@ input[type='range'].fx-slider:disabled {
   font-size: var(--fs-sm);
 }
 
+.rack-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rack-meter-row,
+.rack-meter-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rack-meter-label {
+  flex: 0 0 26px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.rack-meter-pair {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rack-meter-bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  background: var(--meter-bg);
+}
+
+.rack-meter-fill {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 100% 0 0);
+  background: linear-gradient(90deg, var(--meter-green) 0 75%, var(--meter-yellow) 75% 90%, var(--meter-red) 90%);
+}
+
+.rack-meter-bar.clip {
+  box-shadow: inset -3px 0 0 var(--meter-red);
+}
+
+.rack-meter-ticks {
+  position: relative;
+  flex: 1;
+  height: 11px;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.rack-meter-ticks span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+
+.rack-meter-ticks span:last-child {
+  transform: translateX(-100%);
+}
+
 .rack-process {
   display: flex;
   align-items: center;
@@ -1596,7 +1751,7 @@ input[type='range'].fx-slider:disabled {
   container-type: inline-size;
 }
 
-/* The list, and the selected favorite's actions and settings beside it in wide frames. */
+/* The list, and the selected favorite's actions and settings beside it (under it in narrow frames). */
 .fav-split {
   display: grid;
   flex: 1;
@@ -1618,6 +1773,16 @@ input[type='range'].fx-slider:disabled {
   margin-top: 8px;
 }
 
+/* A narrow details pane wraps long values instead of running past its edge. */
+.fav-details .data-table {
+  width: 100%;
+}
+
+.fav-details .data-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .fav-note {
   margin: 8px;
 }
@@ -1632,13 +1797,17 @@ input[type='range'].fx-slider:disabled {
   width: auto;
 }
 
+/* Narrow frames stack the selected favorite's steps under the list. */
 @container (max-width: 420px) {
   .fav-split {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(60px, 1fr) minmax(0, auto);
   }
 
   .fav-details {
-    display: none;
+    max-height: 45cqh;
+    border-left: 0;
+    border-top: 1px solid var(--border-soft);
   }
 }
 
@@ -1746,6 +1915,32 @@ input[type='range'].fx-slider:disabled {
   gap: 6px;
 }
 
+/* The transfer curve with the output meter beside it, the meter as tall as the curve. */
+.fx-dp-top {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.fx-dp-top > :first-child {
+  flex: 0 1 340px;
+  min-width: 0;
+}
+
+.fx-dp-meter.fx-lm.v {
+  justify-content: flex-start;
+}
+
+.fx-dp-meter .fx-lm-barwrap {
+  flex: 1;
+}
+
+.fx-dp-meter .fx-lm-bar.v {
+  height: auto;
+  min-height: 120px;
+}
+
 .fx-dp-tools {
   display: flex;
   gap: 2px;
@@ -1796,6 +1991,26 @@ input[type='range'].fx-slider:disabled {
   align-items: flex-end;
 }
 
+/* Input, gain reduction and output meters beside a compressor or limiter graph. */
+.fx-tr-meters {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.fx-tr-meters .fx-lm.v {
+  justify-content: flex-start;
+}
+
+.fx-tr-meters .fx-lm-barwrap {
+  flex: 1;
+}
+
+.fx-tr-meters .fx-lm-bar.v {
+  height: auto;
+  min-height: 120px;
+}
+
 .fx-mb-editor {
   display: flex;
   flex-direction: column;
@@ -1804,6 +2019,18 @@ input[type='range'].fx-slider:disabled {
 
 .fx-plot.fx-mb {
   height: 170px;
+}
+
+/* The crossover graph with the Output fader and meter beside it. */
+.fx-mb-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.fx-mb-output .fx-vrange {
+  height: 118px;
 }
 
 .fx-handle.fx-xover {

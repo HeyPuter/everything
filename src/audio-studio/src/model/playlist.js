@@ -45,6 +45,23 @@ export function addMarkers(entries, markerIds) {
   return [...entries, ...markerIds.filter((id) => !listed.has(id)).map((id) => createEntry(id))];
 }
 
+/** Entries for the markers in `markerIds` not listed yet, inserted before index `at` (dragged in). */
+export function insertMarkersAt(entries, markerIds, at = entries.length) {
+  const added = addMarkers(entries, markerIds).slice(entries.length);
+  const i = Math.max(0, Math.min(entries.length, Math.round(at)));
+  return [...entries.slice(0, i), ...added, ...entries.slice(i)];
+}
+
+/** The entries in `ids` moved, keeping their order, to before index `at` of the current list (dragged). */
+export function moveEntriesTo(entries, ids, at) {
+  const sel = new Set(ids);
+  const moving = entries.filter((e) => sel.has(e.id));
+  if (!moving.length) return entries;
+  const before = entries.slice(0, Math.max(0, Math.min(entries.length, at))).filter((e) => !sel.has(e.id)).length;
+  const rest = entries.filter((e) => !sel.has(e.id));
+  return [...rest.slice(0, before), ...moving, ...rest.slice(before)];
+}
+
 /** Moves the entries in `ids` one step up (delta -1) or down (+1), keeping their order. */
 export function moveEntries(entries, ids, delta) {
   const sel = new Set(ids);

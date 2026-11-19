@@ -16,6 +16,7 @@ import { icon } from './icons.js';
 import { openDialog, promptDialog, confirmDialog } from './dialog.js';
 import { formatShortcut, eventShortcut, normalizeShortcut, browserReserved, IS_MAC } from '../commands/registry.js';
 import { commandMenuPaths, contextLabel } from './menus.js';
+import { describeCommand } from '../commands/descriptions.js';
 
 /** Category of a command for the tree and the copied list. */
 const PREFIX_CATEGORY = {
@@ -118,6 +119,26 @@ export const KEY_ROWS = [
   IS_MAC ? MAC_MODS : PC_MODS,
 ];
 
+/** The physical key (KeyboardEvent.code) of a character on the U.S. layout drawn above. */
+const PUNCT_CODES = { '`': 'Backquote', '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote', ',': 'Comma', '.': 'Period', '/': 'Slash' };
+export function keyCode(key) {
+  if (/^[A-Z]$/.test(key)) return `Key${key}`;
+  if (/^\d$/.test(key)) return `Digit${key}`;
+  return PUNCT_CODES[key] || null;
+}
+
+/**
+ * What a U.S.-layout key is on the user's keyboard. `layout` maps physical keys to the
+ * characters they type (navigator.keyboard.getLayoutMap()). Shortcuts follow the letter a
+ * key types and the position of every other key, so a key that types a letter takes that
+ * letter (Q on a French keyboard is A); the rest keep their U.S. name.
+ */
+export function localKey(key, layout) {
+  const code = keyCode(key);
+  const typed = code && layout?.get(code);
+  return typed && /^[a-z]$/i.test(typed) ? typed.toUpperCase() : key;
+}
+
 /** Navigation block beside each main row (three keys wide). */
 export const NAV_ROWS = [
   [],
@@ -158,6 +179,11 @@ export function shortcutsDialog(app) {
   const C = app.commands;
   const prefs = app.prefs;
   const paths = commandMenuPaths();
+  const descriptions = new Map();
+  const describe = (id) => {
+    if (!descriptions.has(id)) descriptions.set(id, describeCommand(C, id, { paths, label: C.label(id) }));
+    return descriptions.get(id);
+  };
   const label = (id) => contextLabel(id, C.label(id), paths);
   const opened = { overrides: snapshot(C), set: prefs.get('shortcutSet') || '' };
   const undoStack = [];
@@ -263,8 +289,10 @@ export function shortcutsDialog(app) {
       return b;
     }
     const b = h('button.sc-key', { type: 'button', style: { gridColumn: `span ${span}` }, dataset: { key } }, h('span.sc-key-cmd'), h('span.sc-key-name', cap));
-    b.addEventListener('click', () => selectKey(key, true));
-    keyEls.push({ el: b, key });
+    // `us` is the key as drawn for the U.S. layout; `key` follows the chosen layout.
+    const entry = { el: b, key, us: key, cap };
+    b.addEventListener('click', () => selectKey(entry.key, true));
+    keyEls.push(entry);
     return b;
   };
   const board = h('div.sc-board', { role: 'group', 'aria-label': 'Keyboard map' });
@@ -392,7 +420,7 @@ export function shortcutsDialog(app) {
   const matches = (id, q) => {
     if (!q) return true;
     const keys = C.keysFor(id);
-    return label(id).toLowerCase().includes(q) || categoryOf(id).toLowerCase().includes(q) || keys.some((k) => formatShortcut(k).toLowerCase().includes(q) || k.toLowerCase().includes(q));
+    return label(id).toLowerCase().includes(q) || categoryOf(id).toLowerCase().includes(q) || describe(id).toLowerCase().includes(q) || keys.some((k) => formatShortcut(k).toLowerCase().includes(q) || k.toLowerCase().includes(q));
   };
 
   /** A button in the command's current row (after a rebuild), focused. */
@@ -454,6 +482,7 @@ export function shortcutsDialog(app) {
           `div.sc-row${id === selectedId ? '.k-selected' : ''}`,
           { role: 'treeitem', 'aria-selected': String(id === selectedId), tabindex: id === selectedId ? '0' : '-1', dataset: { id } },
           h('span.sc-name', label(id), custom ? h('span.sc-custom', { title: 'Changed from the default' }, '•') : null),
+          h('span.sc-desc', { title: describe(id) }, describe(id)),
           shortcutCell(id),
         );
         row.addEventListener('click', () => selectCommand(id));
@@ -502,7 +531,43 @@ export function shortcutsDialog(app) {
   const focusRow = (id) => tree.querySelector(`.sc-row[data-id="${id}"]`)?.focus({ preventScroll: true });
 
   // The keyboard key of a shortcut ("Mod+Shift+K" -> "K"), as the board names it.
-  const boardKeys = new Map(keyEls.map(({ key }) => [normalizeShortcut(key), key]));
+  const boardKeys = new Map();
+  const indexKeys = () => {
+    boardKeys.clear();
+    for (const { key } of keyEls) if (!boardKeys.has(normalizeShortcut(key))) boardKeys.set(normalizeShortcut(key), key);
+  };
+  indexKeys();
+
+  // Keyboard layout: the caps follow this keyboard's layout (where the browser tells it) or U.S.
+  let layoutMap = null;
+  const layoutSel = h('select.select.sc-layout', { 'aria-label': 'Keyboard layout' }, h('option', { value: 'local' }, 'This keyboard'), h('option', { value: 'us' }, 'U.S.'));
+  const applyLayout = () => {
+    const map = layoutSel.value === 'local' ? layoutMap : null;
+    for (const entry of keyEls) {
+      const k = keyCode(entry.us) ? localKey(entry.us, map) : entry.us;
+      entry.key = k;
+      entry.el.dataset.key = k;
+      entry.el.querySelector('.sc-key-name').textContent = k === entry.us ? entry.cap : k;
+    }
+    indexKeys();
+    renderKeyboard();
+  };
+  const layoutRow = h('label.sc-layout-row', { hidden: true }, h('span.sc-label', 'Keyboard:'), layoutSel);
+  layoutSel.addEventListener('change', () => {
+    prefs.set('shortcutLayout', layoutSel.value);
+    selectedKey = null;
+    applyLayout();
+    renderKeyList();
+  });
+  navigator.keyboard?.getLayoutMap?.().then(
+    (map) => {
+      layoutMap = map;
+      layoutSel.value = prefs.get('shortcutLayout') === 'us' ? 'us' : 'local';
+      layoutRow.hidden = false;
+      applyLayout();
+    },
+    () => {},
+  );
   const keyOf = (s) => boardKeys.get(normalizeShortcut(s).split(/\+(?!$)/).pop()) || null;
 
   // ------------------------------------------------------------ capture
@@ -625,12 +690,12 @@ export function shortcutsDialog(app) {
   const body = h(
     'div.sc',
     { 'data-own-enter': '' },
-    h('div.sc-bar', h('label.sc-label', { for: 'sc-preset' }, 'Preset:'), presetSel, saveBtn, delBtn, h('span.sc-sep'), copyBtn, h('span.spacer'), status),
+    h('div.sc-bar', h('label.sc-label', { for: 'sc-preset' }, 'Preset:'), presetSel, saveBtn, delBtn, h('span.sc-sep'), copyBtn, h('span.spacer'), status, layoutRow),
     h('div.sc-board-wrap', board),
     legend,
     h(
       'div.sc-split',
-      h('section.sc-pane.sc-commands', { 'aria-label': 'Commands' }, h('div.sc-pane-head', search, h('span.sc-col', 'Shortcuts')), tree),
+      h('section.sc-pane.sc-commands', { 'aria-label': 'Commands' }, h('div.sc-pane-head', search, h('span.sc-col.sc-col-desc', 'Description'), h('span.sc-col', 'Shortcuts')), tree),
       h('section.sc-pane.sc-keypane', { 'aria-label': 'Key details' }, h('div.sc-pane-head', keyTitle), h('div.sc-key-head', h('span', 'Modifiers'), h('span', 'Command')), keyRows, h('div.sc-actions', undoBtn, clearBtn, resetBtn)),
     ),
   );

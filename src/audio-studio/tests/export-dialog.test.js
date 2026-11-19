@@ -32,8 +32,8 @@ describe('Export File dialog', () => {
     // Without Puter only "This device" can be chosen.
     expect($('select[aria-label=Location]').value).toBe('download');
     expect($('.io-export').textContent).toContain('48000 Hz Stereo, 24-bit');
-    // WebCodecs formats are listed but disabled in this environment.
-    expect($('select[aria-label=Format] option[value=opus]').disabled).toBe(true);
+    // Formats this browser cannot encode (WebCodecs ones in this environment) are left out.
+    expect($('select[aria-label=Format] option[value=opus]')).toBeNull();
     change($('select[aria-label=Format]'), 'mp3');
     expect(name.value).toBe('Podcast.mp3');
     expect($('select[aria-label="Bitrate (CBR)"]').value).toBe('192');
@@ -60,6 +60,69 @@ describe('Export File dialog', () => {
     expect(r.options).toMatchObject({ format: 'flac', sampleRate: 44100, channels: 1, bitDepth: 16, dither: 'shaped', settings: { level: 5 } });
     // Choices are remembered for the next export.
     expect(app.prefs.get('exportPrefs')).toMatchObject({ format: 'flac', dither: 'shaped', settings: { flac: { level: 5 } } });
+  });
+
+  it('takes a custom sample rate, conversion quality and the mono mix levels', async () => {
+    app.prefs.set('srcQuality', 80);
+    const doc = AudioFile.blank({ name: 'Talk.wav', sampleRate: 48000, channels: 2, seconds: 1 });
+    const pending = exportFileDialog(app, doc, { mode: 'export' });
+    await tick(10);
+    $('[aria-label="Change sample type"]').click();
+    // Same rate and channels: nothing to tune.
+    expect($('.io-sample-page .io-adv').hidden).toBe(true);
+    change($('select[aria-label="Sample rate"]'), 'custom');
+    const custom = $('[aria-label="Custom sample rate (Hz)"]');
+    expect(custom.hidden).toBe(false);
+    custom.value = '12';
+    custom.dispatchEvent(new Event('input'));
+    const ok = () => [...document.querySelectorAll('.io-sample-actions .btn')].find((b) => b.textContent === 'OK').click();
+    ok();
+    // Out of range: the page stays open and says why.
+    expect($('.io-sample-page').hidden).toBe(false);
+    expect($('.io-sample-page .io-error').textContent).toContain('1000');
+    custom.value = '37800';
+    custom.dispatchEvent(new Event('input'));
+    const [rateAdv, mixAdv] = document.querySelectorAll('.io-sample-page .io-adv');
+    expect(rateAdv.hidden).toBe(false);
+    expect($('[aria-label="Conversion quality (percent)"]').value).toBe('80');
+    $('[aria-label="Conversion quality (percent)"]').value = '30';
+    $('[aria-label="Conversion quality (percent)"]').dispatchEvent(new Event('change'));
+    expect(mixAdv.hidden).toBe(true);
+    change($('select[aria-label=Channels]'), 1);
+    expect(mixAdv.hidden).toBe(false);
+    expect($('[aria-label="Left mix (percent)"]').value).toBe('50');
+    $('[aria-label="Left mix (percent)"]').value = '100';
+    $('[aria-label="Right mix (percent)"]').value = '0';
+    ok();
+    expect($('.io-export').textContent).toContain('37800 Hz Mono');
+    $('.dialog-foot .btn.primary').click();
+    const r = await pending;
+    expect(r.options).toMatchObject({ sampleRate: 37800, channels: 1, resampler: { quality: 30, filter: true }, mix: { left: 1, right: 0 } });
+    // The conversion quality is remembered for the next export.
+    expect(app.prefs.get('exportPrefs').resampler).toEqual({ quality: 30, filter: true });
+  });
+
+  it('keeps a 32-bit integer file at 32-bit integer', async () => {
+    const doc = AudioFile.blank({ name: 'Int.wav', sampleRate: 48000, channels: 1, seconds: 1 });
+    Object.assign(doc.info, { bitDepth: 32, int32: true });
+    const pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('.io-export').textContent).toContain('48000 Hz Mono, 32-bit integer');
+    $('.dialog-foot .btn.primary').click();
+    expect((await pending).options).toMatchObject({ bitDepth: 32, int32: true });
+  });
+
+  it('offers 32-bit integer samples for WAV', async () => {
+    const doc = AudioFile.blank({ name: 'A.wav', sampleRate: 48000, channels: 2, seconds: 1 });
+    const pending = exportFileDialog(app, doc, { mode: 'export' });
+    await tick(10);
+    $('[aria-label="Change sample type"]').click();
+    change($('select[aria-label="Bit depth"]'), '32i');
+    [...document.querySelectorAll('.io-sample-actions .btn')].find((b) => b.textContent === 'OK').click();
+    expect($('.io-export').textContent).toContain('32-bit integer');
+    expect($('.io-export').textContent).toContain('Uncompressed, 32-bit integer');
+    $('.dialog-foot .btn.primary').click();
+    expect((await pending).options).toMatchObject({ bitDepth: 32, int32: true });
   });
 
   it('requires a file name and lets Escape leave the sample type page', async () => {
@@ -97,5 +160,22 @@ describe('Export File dialog', () => {
       .find((b) => b.textContent === 'Cancel')
       .click();
     await third;
+  });
+
+  it('starts on This device while signed out, until a Puter save is remembered', async () => {
+    window.puter = { auth: { isSignedIn: () => false } };
+    const doc = AudioFile.blank({ name: 'Voice.wav', sampleRate: 48000, channels: 1, seconds: 1 });
+    const cancel = () => [...document.querySelectorAll('.dialog-foot .btn')].find((b) => b.textContent === 'Cancel').click();
+    let pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('select[aria-label=Location]').value).toBe('download');
+    cancel();
+    await pending;
+    app.prefs.set('exportLocation', 'puter');
+    pending = exportFileDialog(app, doc, { mode: 'saveAs' });
+    await tick(10);
+    expect($('select[aria-label=Location]').value).toBe('puter');
+    cancel();
+    await pending;
   });
 });

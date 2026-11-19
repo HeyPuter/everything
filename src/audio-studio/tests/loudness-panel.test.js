@@ -33,6 +33,7 @@ import { AudioFile } from '../src/model/audio-file.js';
 import { Channel } from '../src/audio/channel.js';
 import { deleteRange } from '../src/model/edits.js';
 import { loudnessPanel } from '../src/analysis/loudness.js';
+import { isBusy } from '../src/ui/busy.js';
 
 const RATE = 8000;
 const tone = (n, a) =>
@@ -79,6 +80,35 @@ describe('Match Loudness panel', () => {
     expect(edited).not.toBe(null);
     expect(doc.state).toBe(edited);
     expect(doc.length).toBe(RATE * 3);
+  });
+
+  it('marks the app busy while it matches', async () => {
+    const { button } = setup();
+    expect(isBusy()).toBe(false);
+    button(/^Run$/).click();
+    expect(isBusy()).toBe(true);
+    await expect.poll(() => button(/^Run$/).disabled, { timeout: 5000 }).toBe(false);
+    expect(isBusy()).toBe(false);
+  });
+
+  it('Undo takes back the last Run, and the settings fold away', async () => {
+    const { app, doc, panel, button } = setup();
+    app.matchLoudnessAdd?.(doc);
+    const before = doc.state;
+    expect(button(/^Undo$/).disabled).toBe(true);
+    button(/^Run$/).click();
+    await expect.poll(() => button(/^Run$/).disabled, { timeout: 5000 }).toBe(false);
+    expect(doc.state).not.toBe(before);
+    expect(button(/^Undo$/).disabled).toBe(false);
+    button(/^Undo$/).click();
+    expect(doc.state).toBe(before);
+    expect(button(/^Undo$/).disabled).toBe(true);
+    const toggle = panel.el.querySelector('.match-settings-toggle');
+    toggle.click();
+    expect(panel.el.querySelector('.match-settings').hidden).toBe(true);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    expect(panel.el.querySelector('.match-settings').hidden).toBe(false);
   });
 
   it('keeps keyboard focus in the list when files are removed', () => {

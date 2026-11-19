@@ -45,6 +45,25 @@
   container-type: inline-size;
 }
 
+/* Lists sit in an inset well: a slightly deeper surface with a hairline edge, so rows read
+   apart from the panel's toolbar and footer controls. */
+.table-scroll,
+.history-list {
+  margin: 0 4px 4px;
+  border: 1px solid var(--border-well);
+  border-radius: var(--radius-sm);
+  background: var(--bg-well);
+}
+
+/* The well's edge separates it from a toolbar above, so the toolbar drops its own line. */
+.panel-toolbar:has(+ .table-scroll, + .history-list) {
+  border-bottom-color: transparent;
+}
+
+.table-scroll > .data-table th {
+  background: var(--bg-well);
+}
+
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -139,11 +158,35 @@
   color: var(--warning);
 }
 
+/* Files panel status: an icon and a word. */
+.file-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+.file-status.st-modified,
+.file-status.st-offline {
+  color: var(--warning);
+}
+.file-status.st-saving .icon {
+  animation: file-status-spin 1s linear infinite;
+}
+@keyframes file-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-status.st-saving .icon {
+    animation: none;
+  }
+}
+
 /* History */
 .history-list {
   flex: 1;
-  margin: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   list-style: none;
   overflow: auto;
 }
@@ -174,6 +217,25 @@
   color: var(--text-faint);
 }
 
+/* Snapshots: named states above the history list. */
+.history-section {
+  padding: 4px 10px 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.history-list.history-snapshots {
+  flex: none;
+  max-height: 40%;
+  border-bottom: 1px solid var(--border-soft);
+}
+.history-snapshot svg {
+  color: var(--accent);
+}
+.history-section[hidden],
+.history-list[hidden] {
+  display: none;
+}
+
 /* Levels */
 .levels-panel {
   position: absolute;
@@ -186,27 +248,28 @@
   inset: 0;
 }
 
+/* The clip indicators are placed by the meter (levels.js) at the loud end of each bar. */
 .clip-leds {
   position: absolute;
-  right: 4px;
-  top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-[data-orientation='vertical'] .clip-leds {
-  flex-direction: row;
+  inset: 0;
+  pointer-events: none;
 }
 
 .clip-led {
+  position: absolute;
+  pointer-events: auto;
   width: 10px;
   height: 10px;
   padding: 0;
-  border: 1px solid var(--divider);
+  /* Unlit: the meter's own well color, so idle LEDs read as part of the meter, not as empty fields. */
+  border: 1px solid transparent;
   border-radius: 2px;
   background: var(--meter-bg);
   cursor: pointer;
+}
+
+.clip-led:hover {
+  border-color: var(--border-well);
 }
 
 .clip-led.on {
@@ -216,10 +279,6 @@
 
 /* Touch: each LED takes taps over a finger-sized area around it, growing away from its neighbour. */
 @media (pointer: coarse) {
-  .clip-led {
-    position: relative;
-  }
-
   .clip-led::before {
     content: '';
     position: absolute;
@@ -293,6 +352,14 @@
 
 .time-field:disabled {
   color: var(--text-faint);
+}
+
+/* Hot text: drag sideways to scrub, click to type. */
+.selection-panel .time-field:not(:focus):not(:disabled) {
+  cursor: ew-resize;
+}
+.selection-panel .time-field.scrubbing {
+  border-color: var(--hot);
 }
 
 /* Narrow frames (the Default workspace on a 1280 px screen): tighter spacing and
@@ -463,9 +530,35 @@
   flex-wrap: nowrap;
 }
 
-.mixpaste-slider > .slider {
+.mixpaste-track {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 120px;
+}
+
+.mixpaste-track > .slider {
+  width: 100%;
+}
+
+/* 0-200 % scale under a Mix Paste volume slider (labels sit on the thumb's travel). */
+.mixpaste-scale {
+  position: relative;
+  height: 12px;
+  /* The thumb's centre travels inside the track by about its radius. */
+  margin: 0 7px;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mixpaste-scale > span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.mixpaste .input.mixpaste-xf {
+  width: 96px;
 }
 
 .mixpaste .input.num {
@@ -862,6 +955,93 @@
   outline-offset: 2px;
 }
 
+/* Looks (Preferences > Appearance): radio cards with a small preview. */
+.look-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.look-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.look-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px 4px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.look-card:hover {
+  border-color: var(--btn-border-hover);
+}
+
+.look-card[aria-checked='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--text-strong);
+}
+
+.look-preview {
+  display: grid;
+  grid-template-columns: 30% 1fr;
+  gap: 2px;
+  height: 46px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.look-preview-panel {
+  position: relative;
+  border-radius: 2px;
+}
+
+.look-preview-tab {
+  position: absolute;
+  left: 4px;
+  top: 5px;
+  width: 50%;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.look-preview-editor {
+  display: flex;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.look-preview-editor svg {
+  width: 100%;
+  height: 100%;
+}
+
+.look-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.look-actions .btn[hidden] {
+  display: none;
+}
+
+.look-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+
 .prefs-wave-colors {
   display: flex;
   flex-direction: column;
@@ -917,7 +1097,6 @@
 .prefs-range {
   flex: 0 1 220px;
   min-width: 100px;
-  accent-color: var(--accent);
 }
 
 .prefs-slider-row > .input.num {
@@ -1172,3 +1351,162 @@ kbd {
   white-space: pre-wrap;
 }
 
+
+/* Files panel: the active file reads in the accent color (selection can hold several files). */
+.files-panel .data-table tbody tr.is-active td {
+  /* --hot, the accent for text on surfaces (--accent-text is for text on accent fills: white). */
+  color: var(--hot);
+}
+
+/* Playlist: where dragged markers or entries will land. */
+.playlist-table tbody tr.drop-before td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.playlist-table tbody tr.drop-after td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.playlist-panel .table-scroll.drop-target {
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+/* Markers: a play button at the start of each row, shown on hover and for selected rows. */
+.markers-table .marker-play {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  margin-left: -4px;
+  opacity: 0;
+  color: var(--text-dim);
+}
+.markers-table tr:hover .marker-play,
+.markers-table tr[aria-selected='true'] .marker-play,
+.markers-table .marker-play:focus-visible {
+  opacity: 1;
+}
+.markers-table .marker-play:hover {
+  color: var(--accent);
+}
+
+/* Preferences > Media & Disk Cache: saved session templates. */
+.prefs-templates-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prefs-templates {
+  display: flex;
+  flex-direction: column;
+}
+.prefs-template {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.prefs-template-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* File > Browse and Run Script: examples beside an editor, the API and the output. */
+.scripts {
+  display: grid;
+  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
+  gap: 12px;
+  width: min(860px, calc(100vw - 96px));
+  max-width: 100%;
+}
+.script-head {
+  margin: 0 0 6px;
+  font-size: var(--fs-sm, 12px);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.script-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.script-example {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.script-example:hover,
+.script-example:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border-soft);
+}
+.script-example .muted {
+  font-size: 11px;
+}
+.script-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.script-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.script-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.script-editor {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+}
+.scripts .script-output {
+  max-width: none;
+  max-height: 160px;
+  min-height: 2.5em;
+}
+.scripts .script-output:empty {
+  display: none;
+}
+.script-output.script-failed {
+  border-color: var(--danger);
+}
+.script-api dl {
+  display: grid;
+  grid-template-columns: minmax(0, 230px) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.script-api dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+.script-api dt code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.script-api summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}

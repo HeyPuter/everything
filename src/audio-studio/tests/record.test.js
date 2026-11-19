@@ -80,6 +80,30 @@ describe('placeTake', () => {
     expect(s.markers).toBe(base.markers);
   });
 
+  it('overwrites from the playhead, keeping markers and growing past the end', () => {
+    const s = placeTake(base, rec, { at: 100, overwrite: true });
+    expect(s.channels[0].length).toBe(1000);
+    const a = s.channels[0].toArray();
+    expect([a[99], a[100], a[299], a[300]]).toEqual([1, 0.5, 0.5, 1]);
+    expect(s.markers).toBe(base.markers);
+    const t = placeTake(base, rec, { at: 900, overwrite: true });
+    expect(t.channels[0].length).toBe(1100);
+    expect(t.channels[1].toArray(899, 1100)[1]).toBe(-0.5);
+    expect(t.channels[1].toArray(899, 1100)[0]).toBe(1);
+  });
+
+  it('punches in and overwrites only the channels enabled for editing', () => {
+    const p = placeTake(base, rec, { replace: [300, 400], mask: [false, true] });
+    expect(p.channels[0]).toBe(base.channels[0]);
+    expect(p.channels[1].toArray(300, 301)[0]).toBe(-0.5);
+    const o = placeTake(base, rec, { at: 900, overwrite: true, mask: [true, false] });
+    expect(o.channels[0].length).toBe(1100);
+    expect(o.channels[1].length).toBe(1100);
+    expect(o.channels[1].toArray(950, 951)[0]).toBe(1);
+    expect(o.channels[1].toArray(1050, 1051)[0]).toBe(0);
+    expect(o.channels[0].toArray(950, 951)[0]).toBe(0.5);
+  });
+
   it('names new recordings by date and time', () => {
     expect(recordingName(new Date(2026, 9, 10, 9, 5, 7))).toBe('Recording 2026-10-10 09.05.07');
   });
@@ -300,5 +324,27 @@ describe('recorder', () => {
     await expect(rec.start({ doc: AudioFile.blank({}) })).rejects.toThrow(/Allow access/);
     expect(rec.active).toBe(false);
     expect(app.recording).toBeFalsy();
+  });
+});
+
+describe('overwrite recording', () => {
+  it('records over the audio after the playhead as one Record step', async () => {
+    vi.useFakeTimers();
+    try {
+      const app = fakeApp();
+      const rec = createRecorder(app);
+      const doc = new AudioFile({ name: 'a.wav', sampleRate: 48000, channels: [Channel.fromSamples(new Float32Array(1000).fill(1))] });
+      await rec.start({ doc, at: 100, overwrite: true });
+      app.engine.emit('record-data', [new Float32Array(200).fill(0.5)]);
+      const stop = rec.stop();
+      await vi.advanceTimersByTimeAsync(200);
+      await stop;
+      expect(doc.length).toBe(1000);
+      const a = doc.state.channels[0].toArray();
+      expect([a[99], a[100], a[299], a[300]]).toEqual([1, 0.5, 0.5, 1]);
+      expect(doc.history.undoLabel).toBe('Record');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

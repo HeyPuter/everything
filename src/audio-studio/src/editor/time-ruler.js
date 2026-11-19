@@ -5,8 +5,13 @@
 //   host.timeline() -> { rate, length, view: {start, end}, cursor, selection, markers }
 //   host.seek(frame), host.moveMarker(id, start), host.renameMarker(id), host.snap(frame),
 //   host.cancelMarkerMove() (drops a marker drag's preview)
+// Optional: host.resizeMarker(id, end, { preview }) to drag range ends,
+//   host.setSelection(a, b) for selection handles, host.selectRange(a, b, id) for a
+//   double-click on a range marker's bar, host.menuItems(), host.zoomRange(a, b)
+//   and host.wheel(e, x) (see the constructor).
 
 import { h } from '../lib/dom.js';
+import { bindRightDrag } from './right-drag.js';
 import { rulerStep, rulerLabel, formatTime, musicalStep, frameRateOf } from '../lib/time.js';
 import { cssVar, CANVAS_FONT } from '../ui/theme.js';
 import { markerColor } from '../ui/appearance.js';
@@ -83,8 +88,61 @@ export class TimeRuler {
     this.el.addEventListener('keydown', (e) => this.#keys(e));
     this.el.addEventListener('dblclick', (e) => {
       const m = this.#markerAt(e.offsetX);
-      if (m) host.renameMarker?.(m.id);
+      if (m) return host.renameMarker?.(m.id);
+      // Double-click a range's bar to select its time range.
+      const r = e.offsetY > this.height * 0.45 ? this.rangeBarAt(e.offsetX) : null;
+      if (r && host.selectRange) host.selectRange(r.start, r.start + r.duration, r.id);
     });
+    // Optional: host.menuItems() for a right-click menu, host.zoomRange(a, b) for a
+    // right-drag that zooms to the range dragged over, host.wheel(e, x) for the mouse wheel.
+    if (host.menuItems || host.zoomRange) {
+      const xOfEvent = (e) => e.clientX - this.el.getBoundingClientRect().left;
+      bindRightDrag(this.el, {
+        move: (a, b) => {
+          if (!host.zoomRange) return;
+          this.zoomBand = [xOfEvent(a), xOfEvent(b)];
+          this.draw();
+        },
+        done: (a, b) => {
+          this.zoomBand = null;
+          if (host.zoomRange) {
+            const [x0, x1] = [xOfEvent(a), xOfEvent(b)].sort((p, q) => p - q);
+            host.zoomRange(this.frameAt(Math.max(0, x0)), this.frameAt(Math.min(this.width, x1)));
+          }
+          this.draw();
+        },
+        cancel: () => {
+          this.zoomBand = null;
+          this.draw();
+        },
+        menu: (x, y) => host.menuItems && this.app.openMenu?.(host.menuItems(), { x, y, label: 'Time ruler' }),
+      });
+    }
+    if (host.wheel) {
+      this.el.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          host.wheel(e, e.clientX - this.el.getBoundingClientRect().left);
+        },
+        { passive: false },
+      );
+    }
+  }
+
+  /**
+   * The time selection edge within `tol` px of x, when the host lets the ruler adjust the
+   * selection (host.setSelection): 'start' or 'end', else null.
+   */
+  selectionEdgeAt(x, tol = 5) {
+    if (!this.host.setSelection) return null;
+    const t = this.host.timeline();
+    const sel = t.selection;
+    if (!sel || sel.end <= sel.start) return null;
+    const ds = Math.abs(x - this.xOf(sel.start, t.view));
+    const de = Math.abs(x - this.xOf(sel.end, t.view));
+    if (Math.min(ds, de) > tol) return null;
+    return ds <= de ? 'start' : 'end';
   }
 
   resize(w, hgt) {
@@ -115,6 +173,36 @@ export class TimeRuler {
     let bestD = Infinity;
     for (const m of t.markers || []) {
       const d = Math.abs(x - this.xOf(m.start, t.view));
+      if (d <= tol && d < bestD) {
+        best = m;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /** The range marker whose bar spans x (the shortest when ranges overlap), or null. */
+  rangeBarAt(x) {
+    const t = this.host.timeline();
+    let best = null;
+    for (const m of t.markers || []) {
+      if (!m.duration) continue;
+      const a = this.xOf(m.start, t.view);
+      const b = this.xOf(m.start + m.duration, t.view);
+      if (x >= a && x <= b && (!best || m.duration < best.duration)) best = m;
+    }
+    return best;
+  }
+
+  /** The range marker whose end is nearest x within `tol` px (when the host can resize ranges). */
+  #rangeEndAt(x, tol = 5) {
+    if (!this.host.resizeMarker) return null;
+    const t = this.host.timeline();
+    let best = null;
+    let bestD = Infinity;
+    for (const m of t.markers || []) {
+      if (!m.duration) continue;
+      const d = Math.abs(x - this.xOf(m.start + m.duration, t.view));
       if (d <= tol && d < bestD) {
         best = m;
         bestD = d;
@@ -171,10 +259,25 @@ export class TimeRuler {
     this.el.setPointerCapture(e.pointerId);
     // A finger covers more than a mouse pointer: markers grab from further away on touch.
     const tol = e.pointerType === 'touch' ? 12 : 5;
-    const m = e.offsetY > this.height * 0.45 ? this.#markerAt(e.offsetX, tol) : null;
+    const low = e.offsetY > this.height * 0.45;
+    const m = low ? this.#markerAt(e.offsetX, tol) : null;
+    // A range's end handle resizes it (a start at the same spot still moves the marker).
+    const r = low && !m ? this.#rangeEndAt(e.offsetX, tol) : null;
+    if (r) {
+      this.drag = { kind: 'rangeEnd', id: r.id, dx: e.offsetX - this.xOf(r.start + r.duration), moved: false };
+      this.host.selectMarker?.(r.id);
+      return;
+    }
     if (m && this.host.moveMarker) {
       this.drag = { kind: 'marker', id: m.id, dx: e.offsetX - this.xOf(m.start), moved: false };
       this.host.selectMarker?.(m.id);
+      return;
+    }
+    const edge = this.selectionEdgeAt(e.offsetX, tol + 1);
+    if (edge) {
+      // Grabbing a selection handle adjusts that edge; a click without moving still seeks.
+      const sel = this.host.timeline().selection;
+      this.drag = { kind: 'edge', anchor: edge === 'start' ? sel.end : sel.start, x0: e.offsetX, moved: false };
       return;
     }
     this.drag = { kind: 'seek' };
@@ -185,7 +288,16 @@ export class TimeRuler {
 
   #move(e) {
     if (!this.drag) {
-      this.el.style.cursor = this.#markerAt(e.offsetX) && e.offsetY > this.height * 0.45 ? 'ew-resize' : '';
+      const grab = ((this.#markerAt(e.offsetX) || this.#rangeEndAt(e.offsetX)) && e.offsetY > this.height * 0.45) || this.selectionEdgeAt(e.offsetX);
+      this.el.style.cursor = grab ? 'ew-resize' : '';
+      return;
+    }
+    if (this.drag.kind === 'edge') {
+      if (!this.drag.moved && Math.abs(e.offsetX - this.drag.x0) < 3) return;
+      this.drag.moved = true;
+      const t = this.host.timeline();
+      const raw = Math.max(0, Math.min(t.length, this.frameAt(e.offsetX)));
+      this.host.setSelection(this.drag.anchor, this.host.snap ? this.host.snap(raw) : Math.round(raw));
       return;
     }
     const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
@@ -194,7 +306,10 @@ export class TimeRuler {
       this.host.seek(at);
       this.app.scrub?.(at);
     }
-    else if (this.drag.kind === 'marker') {
+    else if (this.drag.kind === 'rangeEnd') {
+      this.drag.moved = true;
+      this.host.resizeMarker(this.drag.id, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f, { preview: true });
+    } else if (this.drag.kind === 'marker') {
       this.drag.moved = true;
       this.host.moveMarker(this.drag.id, Math.max(0, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f), { preview: true });
     }
@@ -203,10 +318,27 @@ export class TimeRuler {
   #up(e, cancelled = false) {
     if (!this.drag) return;
     // A cancelled marker drag (the system took the touch) leaves the marker where it was.
+    if (this.drag.kind === 'edge' && !this.drag.moved && !cancelled) {
+      const f = this.host.snap ? this.host.snap(this.frameAt(this.drag.x0)) : Math.round(this.frameAt(this.drag.x0));
+      this.host.seek(f);
+    }
+    if (this.drag.kind === 'rangeEnd') {
+      if (cancelled || !this.drag.moved) this.host.cancelMarkerMove?.();
+      else {
+        const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
+        this.host.resizeMarker(this.drag.id, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f, { preview: false });
+      }
+      this.drag = null;
+      return;
+    }
     if (cancelled && this.drag.kind === 'marker') this.host.cancelMarkerMove?.();
     else if (this.drag.kind === 'marker' && this.drag.moved) {
       const f = this.frameAt(e.offsetX - (this.drag.dx || 0));
       this.host.moveMarker(this.drag.id, Math.max(0, this.host.snap ? this.host.snap(f, { exclude: this.drag.id }) : f), { preview: false });
+    } else if (this.drag.kind === 'marker' && !cancelled) {
+      // A click on a marker (no drag) also moves the playhead to it.
+      const m = this.host.timeline().markers?.find((x) => x.id === this.drag.id);
+      if (m) this.host.seek(m.start);
     }
     this.drag = null;
   }
@@ -301,7 +433,21 @@ export class TimeRuler {
       if (x1 > x0) {
         ctx.fillStyle = cssVar('--accent-soft');
         ctx.fillRect(x0, H - 6, x1 - x0, 6);
+        // Handles for hosts that let the ruler adjust the selection.
+        if (this.host.setSelection) {
+          ctx.fillStyle = cssVar('--sel-edge');
+          const xs = this.xOf(sel.start, t.view);
+          const xe = this.xOf(sel.end, t.view);
+          if (xs >= 0 && xs <= W) ctx.fillRect(Math.round(xs), H - 10, 3, 10);
+          if (xe >= 0 && xe <= W) ctx.fillRect(Math.round(xe) - 3, H - 10, 3, 10);
+        }
       }
+    }
+    // A right-drag's zoom range.
+    if (this.zoomBand) {
+      const [a, b] = this.zoomBand;
+      ctx.fillStyle = cssVar('--accent-soft');
+      ctx.fillRect(Math.min(a, b), 0, Math.abs(b - a), H);
     }
     // Markers.
     for (const m of t.markers || []) {

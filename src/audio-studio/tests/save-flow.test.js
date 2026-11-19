@@ -165,9 +165,10 @@ describe('saving to Puter', () => {
     expect(doc.dirty).toBe(false);
   });
 
+  // Save As does not suggest another lossy pass: it proposes a lossless copy (WAV).
   for (const [file, proposed] of [
-    ['Clip.mp4', 'Clip.m4a'],
-    ['Stream.aac', 'Stream.m4a'],
+    ['Clip.mp4', 'Clip.wav'],
+    ['Stream.aac', 'Stream.wav'],
   ]) {
     it(`never rewrites ${file} as an M4A in place: Save asks where to save`, async () => {
       const write = vi.fn(async () => ({ uid: 'u1' }));

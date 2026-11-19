@@ -72,7 +72,7 @@ export function optionsForSave(doc, format) {
     const opts = converted ? { ...last, sampleRate, channels } : last;
     return conformOptions(format, opts).options;
   }
-  const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc) };
+  const source = { sampleRate: doc.sampleRate, channels: doc.channelCount, bitDepth: docBitDepth(doc), int32: doc.info?.int32 };
   return defaultOptions(source, format);
 }
 
@@ -214,6 +214,9 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
   const format = inPlace ? formatForName(path) : null;
   if (!saveAs && !copy && path && format && getFormat(format)) {
     if (!puter.isSignedIn() && !(await puter.signIn().catch(() => false))) return false;
+    // The Files panel shows "Saving" while the write is in progress.
+    doc.saving = true;
+    app.emit?.('documents');
     return withUploadOrder(app, path, async (write, paths) => {
       const options = optionsForSave(doc, format);
       const state = doc.state;
@@ -227,6 +230,9 @@ export async function saveDocument(app, doc, { saveAs = false, copy = false } = 
       markWritten(app, doc, { path, identity, state, options, size: blob.size, chunks });
       app.setStatus(`Saved ${name}`);
       return true;
+    }).finally(() => {
+      doc.saving = false;
+      app.emit?.('documents');
     });
   }
   return saveFlow(app, doc, { mode: copy ? 'copy' : 'saveAs' });

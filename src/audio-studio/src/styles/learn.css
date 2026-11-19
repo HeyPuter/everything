@@ -1,0 +1,219 @@
+/* Learn panel: guided tutorials, and the ring and callout that point at the interface. */
+
+.learn-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  padding: 10px;
+  overflow: auto;
+}
+
+.learn-intro {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.learn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.learn-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.learn-item[aria-current='step'] {
+  border-color: var(--accent);
+}
+
+.learn-item-head,
+.learn-item-foot,
+.learn-run-head,
+.learn-run-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.learn-item-title,
+.learn-run-title {
+  font-weight: 600;
+}
+
+.learn-item-summary,
+.learn-item-state {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.learn-done {
+  color: var(--hot);
+  font-weight: 700;
+}
+
+.learn-meter {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--divider);
+  overflow: hidden;
+}
+
+.learn-meter-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.learn-run {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.learn-run[hidden] {
+  display: none;
+}
+
+/* Narrow frames: the step's buttons wrap instead of running past the edge. */
+.learn-run-buttons {
+  flex-wrap: wrap;
+}
+
+.learn-run-count {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+}
+
+.learn-step-title {
+  margin: 4px 0 0;
+  font-size: var(--fs-md, 13px);
+}
+
+.learn-step-text,
+.learn-step-key {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.learn-problem {
+  margin: 0;
+  padding: 6px 8px;
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  line-height: 1.45;
+}
+
+.learn-checking {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.learn-step-key kbd {
+  padding: 0 4px;
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+/* Pointing at the interface: above menus and dialogs, never in the way of the pointer. */
+.learn-ring {
+  position: fixed;
+  z-index: 1250;
+  border: 2px solid var(--accent-strong);
+  border-radius: 6px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+  pointer-events: none;
+  transition: left 0.12s var(--ease), top 0.12s var(--ease), width 0.12s var(--ease), height 0.12s var(--ease);
+}
+
+.learn-callout {
+  position: fixed;
+  z-index: 1250;
+  max-width: 260px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-fill);
+  color: var(--accent-text);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.learn-trail {
+  position: fixed;
+  z-index: 1250;
+  height: 0;
+  border-top: 2px dashed var(--accent-strong);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.learn-ghost {
+  position: fixed;
+  z-index: 1251;
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 50%));
+  animation: learn-drag 2s ease-in-out infinite;
+}
+
+/* The pointer appears, presses, travels the drag and lets go. */
+@keyframes learn-drag {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(1);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  20% {
+    transform: translate(0, 0) scale(0.85);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(var(--dx), var(--dy)) scale(0.85);
+  }
+  85%,
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(1);
+  }
+}
+
+.learn-ring[hidden],
+.learn-callout[hidden],
+.learn-trail[hidden],
+.learn-ghost[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learn-ring {
+    transition: none;
+  }
+
+  /* No movement: the pointer waits at the end of the dashed trail. */
+  .learn-ghost {
+    animation: none;
+    transform: translate(var(--dx), var(--dy));
+  }
+}
