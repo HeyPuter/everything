@@ -141,6 +141,16 @@ export class Dock extends Emitter {
     this.emit('change');
   }
 
+  /** Docks every frame of a floating window. */
+  dockWindow(f) {
+    for (const g of this.groups(f.node).slice()) if (this.floats.includes(f)) this.dockFloat(g);
+  }
+
+  /** Closes every panel in a floating window. */
+  closeWindow(f) {
+    for (const id of this.groups(f.node).flatMap((g) => g.tabs)) this.closePanel(id);
+  }
+
   /** Puts a floating frame's panels back into the docked layout (its window closes when emptied). */
   dockFloat(group) {
     const f = this.floatOf(group);
@@ -335,13 +345,21 @@ export class Dock extends Emitter {
     this.floatEls.set(f, wrap);
     const content = build(f.node);
     content.style.flex = '1 1 0px';
-    wrap.append(content);
+    const groups = this.groups(f.node);
+    const names = groups.flatMap((g) => g.tabs).map((id) => this.#title(id));
+    // A thin title bar: the window's panels, and buttons to dock or close all of them.
+    const bar = h(
+      'div.dock-float-bar',
+      icon('grip-vertical', 12),
+      h('span.dock-float-title', names.join(', ')),
+      h('button.icon-btn.dock-float-btn', { type: 'button', 'aria-label': `Dock ${names.join(', ')}`, title: 'Dock this window', onclick: () => this.dockWindow(f) }, icon('panel-bottom', 13)),
+      h('button.icon-btn.dock-float-btn', { type: 'button', 'aria-label': `Close ${names.join(', ')}`, title: 'Close this window', disabled: groups.some((g) => g.tabs.some((t) => this.registry.get(t)?.closable === false)), onclick: () => this.closeWindow(f) }, icon('x', 13)),
+    );
+    wrap.append(bar, content);
     const frames = [...wrap.querySelectorAll('.panel-group')];
     for (const fr of frames) fr.classList.add('floating');
-    const grip = h('div.dock-float-grip', { title: 'Drag to move this window', 'aria-hidden': 'true' }, icon('grip-vertical', 14));
-    frames[0]?.querySelector('.panel-tabs')?.prepend(grip);
-    // Drag the grip or any tab strip's free space to move the window.
-    for (const strip of wrap.querySelectorAll('.panel-tabs')) strip.addEventListener('pointerdown', (e) => {
+    // Drag the title bar or any tab strip's free space to move the window.
+    for (const strip of [bar, ...wrap.querySelectorAll('.panel-tabs')]) strip.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || (e.target instanceof Element && e.target.closest('button'))) return;
       e.preventDefault();
       strip.setPointerCapture?.(e.pointerId);

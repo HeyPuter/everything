@@ -363,3 +363,21 @@ describe('floating windows with splits', () => {
     expect(root.querySelector('.dock-float').style.left).toBe('720px');
   });
 });
+
+describe('floating window title bar', () => {
+  it('names the window’s panels and docks or closes all of them', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    const dock = new Dock({ openMenu() {}, layoutMode: 'desktop' }, root, registry(['editor', 'files', 'history', 'markers']));
+    dock.setLayout({ t: 'row', c: [{ t: 'group', tabs: ['files'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3], floats: [{ node: { t: 'col', c: [{ t: 'group', tabs: ['history'] }, { t: 'group', tabs: ['markers'] }], s: [1, 1] }, x: 10, y: 10, w: 300, h: 300 }] });
+    const bar = root.querySelector('.dock-float-bar');
+    expect(bar.querySelector('.dock-float-title').textContent).toBe('HISTORY, MARKERS');
+    bar.querySelector('[title="Dock this window"]').click();
+    expect(dock.floats).toHaveLength(0);
+    expect(dock.groupOf('files').tabs).toEqual(['files', 'history', 'markers']);
+    dock.undock('history');
+    root.querySelector('.dock-float-bar [title="Close this window"]').click();
+    expect(dock.floats).toHaveLength(0);
+    expect(dock.isOpen('history')).toBe(false);
+  });
+});
