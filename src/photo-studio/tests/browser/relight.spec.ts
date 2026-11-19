@@ -35,24 +35,9 @@ const lights = (page: Page) =>
   });
 const handles = (page: Page) => page.locator('#overlay [data-relight-light]');
 
-test('relight layer: add and drag lights, N hides them, undo, and save and reopen', async ({
-  page,
-}) => {
-  await boot(page);
-  await openScene(page);
-  await menu(page, 'Layer', 'New Relight Layer');
-  await idle(page);
-  expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toEqual([
-    'Background',
-    'Relight 1',
-  ]);
-  expect((await historyLabels(page)).at(-1)).toBe('New Relight Layer');
-  await panel(page, 'Properties');
-  const props = page.locator('#properties');
-  await expect(props.getByRole('button', { name: 'Add a light' })).toBeVisible();
-  await expect(handles(page)).toHaveCount(1);
-
-  // The compositor matches the CPU reference of the same settings.
+// The compositor's result for the first relight layer matches the CPU
+// reference of the same settings, and visibly changes the image.
+async function matchesCpu(page: Page) {
   const diff = await page.evaluate(async () => {
     const e = window.photoStudio;
     const { compositeRGBA } = await import('/src/features/pixels.ts');
@@ -81,6 +66,26 @@ test('relight layer: add and drag lights, N hides them, undo, and save and reope
   expect(diff.changed).toBeGreaterThan(1000);
   expect(diff.mean).toBeLessThan(1);
   expect(diff.max).toBeLessThanOrEqual(6);
+}
+
+test('relight layer: add and drag lights, N hides them, undo, and save and reopen', async ({
+  page,
+}) => {
+  await boot(page);
+  await openScene(page);
+  await menu(page, 'Layer', 'New Relight Layer');
+  await idle(page);
+  expect(await page.evaluate(() => window.photoStudio.doc.layers.map((l) => l.name))).toEqual([
+    'Background',
+    'Relight 1',
+  ]);
+  expect((await historyLabels(page)).at(-1)).toBe('New Relight Layer');
+  await panel(page, 'Properties');
+  const props = page.locator('#properties');
+  await expect(props.getByRole('button', { name: 'Add a light' })).toBeVisible();
+  await expect(handles(page)).toHaveCount(1);
+
+  await matchesCpu(page);
 
   await props.getByRole('button', { name: 'Add a light' }).click();
   await idle(page);
@@ -189,4 +194,33 @@ test('relight layer: rasterize keeps the look, duplicate keeps the lights, grays
   await run(page, 'layer.new-relight');
   expect(await page.evaluate(() => window.photoStudio.doc.layers.length)).toBe(count);
   await expect(page.locator('#status')).toContainText('Relight layers need');
+});
+
+test('relight layer: the WebGL2 compositor matches the CPU reference, shadows and several lights included', async ({
+  page,
+}) => {
+  await boot(page, 'WebGL');
+  await openScene(page);
+  await run(page, 'layer.new-relight');
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const l = e.doc.layers[1];
+    const p = structuredClone(l.adjustment!.params) as {
+      lights: Record<string, unknown>[];
+      shadows: number;
+    };
+    p.lights.push({
+      ...p.lights[0],
+      id: 'light-2',
+      name: 'Light 2',
+      x: 0.9,
+      y: 0.8,
+      depth: -40,
+      color: [80, 140, 255],
+    });
+    p.shadows = 80;
+    e.command('Lights', (d) => void (d.layers[1].adjustment = { kind: 'relight', params: p }));
+  });
+  await idle(page);
+  await matchesCpu(page);
 });

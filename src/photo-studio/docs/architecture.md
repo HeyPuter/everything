@@ -185,9 +185,38 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   blend as a group). `rangeWeight`/`blendIfWeight` are the CPU reference of the shader math.
 - Knockout backdrops: `Renderer.knockStack` holds a copy of each enclosing group's
   start (shallow); the Background layer alone is rendered once per draw (deep).
-- Spatial adjustment kinds (Clarity & Dehaze, Grain) render through
+- Spatial adjustment kinds (Clarity & Dehaze, Grain, Relight) render through
   `Backend.filterPass` (`filter-shaders.ts`, `spatial-pass.ts`); the CPU reference
   in `src/imaging/adjust/spatial.ts` serves destructive commands and tests.
+
+## Relight layers (`src/imaging/relight/`, `src/features/relight/`)
+
+- A relight layer is an adjustment layer of kind `relight` (a spatial kind),
+  so masks, clipping, opacity, duplication, history and projects work as for
+  other adjustment layers. Its settings (`RelightParams`, `model.ts`) hold up
+  to eight lights (position as fractions of the canvas, depth from behind to
+  in front, temperature or custom color, brightness, spread, softness) and
+  scene amounts (existing light kept, surface relief and detail, shadows).
+  `normalizeRelight` checks stored records; `specAdjustment` uses it.
+- The surface is guessed from luminance on a copy at most `RELIGHT_WORK`
+  pixels long: three blur scales mixed into a height map, cross-bilateral
+  smoothing guided by the fine luminance, normals from the gradient, and
+  soft shadows marched toward each light (two lights per channel, 8-bit).
+  Shading adds wrapped diffuse light with falloff in linear light to the
+  existing light scaled by the ambient amount. `surface.ts` is the CPU
+  reference (adjustment worker, tests; estimates cached by content);
+  `SpatialPasses.relight` runs the same passes as filter shader modes 6–10
+  every frame, so edits below the layer show at once. Keep the GLSL, WGSL
+  and CPU versions in step (a browser test compares GPU and CPU results).
+- The light handles are an overlay drawn while one relight layer is
+  selected; `relightUi` (`state.ts`) keeps the selected light, the N toggle
+  and the settings previewed during a drag, per person and outside the
+  document. A drag previews with `e.preview` and commits one step.
+- Rasterize, Edit › Copy and PSD export render the relit image beneath the
+  layer (`raster.ts`: later layers hidden, the layer drawn plainly, enclosing
+  isolated groups respected) and keep the layer's name, mask and blending.
+  Documents whose mode cannot hold color (grayscale, indexed, bitmap,
+  duotone, multichannel) refuse new relight layers.
 
 ## Artboards, frames, comps and slices (`src/features/layout/`)
 
