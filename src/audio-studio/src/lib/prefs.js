@@ -46,6 +46,7 @@ export const DEFAULTS = {
   sessionTemplates: [],
   previewEditor: false,
   previewAuto: true,
+  learnProgress: {}, // Learn panel: { [tutorialId]: { step, done } }
   recordOverwrite: false, // Waveform recording without a selection: overwrite instead of insert
   previewZoom: 'sync', // Preview Editor zoom: 'sync' (follows the main editor) | 'independent'
   visibilityInMixer: true,

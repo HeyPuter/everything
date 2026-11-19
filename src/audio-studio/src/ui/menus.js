@@ -363,6 +363,7 @@ export const MENUS = [
       'window.files',
       'window.frequency',
       'window.history',
+      'window.learn',
       'window.levels',
       'window.loudness',
       'window.markers',
@@ -387,7 +388,7 @@ export const MENUS = [
   },
   {
     label: 'Help',
-    submenu: ['help.gettingStarted', 'help.shortcuts', '-', 'help.events', 'help.reportIssue', 'help.source', '-', 'help.about'],
+    submenu: ['help.gettingStarted', 'help.learn', 'help.shortcuts', '-', 'help.events', 'help.reportIssue', 'help.source', '-', 'help.about'],
   },
 ];
 

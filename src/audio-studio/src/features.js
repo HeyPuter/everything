@@ -14,6 +14,7 @@ import { installControlSurface } from './control-surface/index.js';
 import { installMoreCommands } from './multitrack/more-commands.js';
 import { installVideo } from './features/video.js';
 import { installKeymap } from './commands/keymap.js';
+import { installLearn } from './learn/install.js';
 
 // The keymap goes last: it sets the default keys of commands the others register.
-export const FEATURES = [installCore, installEffects, installEffectsDsp, installMultitrack, installIo, installSpectralAnalysis, installSoundAssistant, installPanelsExtra, installPreferences, installControlSurface, installMoreCommands, installVideo, installKeymap];
+export const FEATURES = [installCore, installEffects, installEffectsDsp, installMultitrack, installIo, installSpectralAnalysis, installSoundAssistant, installPanelsExtra, installPreferences, installControlSurface, installMoreCommands, installVideo, installLearn, installKeymap];
