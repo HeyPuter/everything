@@ -79,6 +79,19 @@ export function dbEnvelopeToGain(points, offset = 0) {
 
 const panEnvelope = (points, offset = 0) => points.map((p) => ({ t: p.t + offset, v: p.v / 100 }));
 
+/**
+ * The channels a clip plays from its source: `clip.channelMap` picks a source channel for each
+ * of its two channels (e.g. [0, 0] plays the left channel on both sides). Unrouted clips, mono
+ * sources and maps that do not fit the source play the source as it is.
+ */
+export function routedChannels(clip, channels) {
+  const map = clip.channelMap;
+  if (!Array.isArray(map) || map.length !== 2 || channels.length < 2) return channels;
+  if (!map.every((i) => Number.isInteger(i) && i >= 0 && i < channels.length)) return channels;
+  if (map[0] === 0 && map[1] === 1) return channels;
+  return map.map((i) => channels[i]);
+}
+
 /** Ramp at each step of mute automation (frames at 48 kHz scale with the rate): avoids clicks. */
 const MUTE_RAMP_SECONDS = 0.003;
 
@@ -325,10 +338,17 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
       for (const c of state.clips) {
         if (c.trackId !== t.id || c.mute) continue;
         if (clipIds && !clipIds.has(c.id)) continue;
-        const key = keyOf.get(c.sourceId);
+        let key = keyOf.get(c.sourceId);
         const p = plan.get(c.id);
         if (!key || !p) continue;
-        const src = pool.get(c.sourceId);
+        let src = pool.get(c.sourceId);
+        // Source channel routing: the clip plays the source channels it picks, as a source of their own.
+        const routed = routedChannels(c, src.channels);
+        if (routed !== src.channels) {
+          key = sourceKey(routed);
+          sources.set(key, routed);
+          src = { ...src, channels: routed };
+        }
         const srcLen = src.channels[0].length;
         // 5.1 tracks in a 5.1 mix play their clips without clip chains (the mix core runs those on
         // stereo tracks only), so they must not read ahead for the chain's latency either.

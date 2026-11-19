@@ -20,7 +20,8 @@
 // Clip: { id, trackId, sourceId, name, color, start, offset, length, gain (dB),
 //   fadeIn/out: { length, curve, xf?, duration?, offset? } (see clip-fades.js), crossfade
 //   ('symmetric'|'asymmetric'), volumeEnv: [{t, v dB}], panEnv: [{t, v}], volumeSpline,
-//   panSpline (smooth curves through the envelope keyframes),
+//   panSpline (smooth curves through the envelope keyframes), channelMap ([l, r] source
+//   channel indices the clip plays, or null),
 //   mute, locked, loop, groupId, z, fx: clip effect slots { id, effect, values,
 //   enabled } (Sound Assistant chains), soundAssistant: Sound Assistant settings or null,
 //   stretch: time stretch and pitch settings or null (see clip-stretch.js),
@@ -266,6 +267,8 @@ export function createClip(o = {}) {
     // Envelopes drawn as smooth curves through their keyframes (see splineEnvelope).
     volumeSpline: Boolean(o.volumeSpline),
     panSpline: Boolean(o.panSpline),
+    // Source channel routing: the source channel each clip channel plays (null = as recorded).
+    channelMap: Array.isArray(o.channelMap) && o.channelMap.length === 2 ? o.channelMap.map((i) => Math.max(0, Math.round(Number(i) || 0))) : null,
     mute: Boolean(o.mute),
     locked: Boolean(o.locked),
     loop: Boolean(o.loop),

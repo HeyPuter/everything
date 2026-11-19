@@ -21,7 +21,7 @@ import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
 import { TrackHeader } from './track-header.js';
 import { volumeToEnvPos, envPosToVolume, panToEnvPos, envPosToPan, formatGain, formatPan } from '../multitrack/levels.js';
 import { CLIP_CONTEXT, TRACK_CONTEXT, LANE_CONTEXT } from '../multitrack/menus.js';
-import { clipPlan } from '../model/session-graph.js';
+import { clipPlan, routedChannels } from '../model/session-graph.js';
 import { TYPES as ASSISTANT_TYPES } from '../sound-assistant/model.js';
 import { framesPerSecond, musicalStep } from '../lib/time.js';
 import { wheelZoom, followPlayhead, defaultFadeCurve } from './view-prefs.js';
@@ -739,7 +739,7 @@ export class MultitrackView {
       const c = r.clip;
       const src = doc.pool.get(c.sourceId);
       if (!src?.channels?.length || r.wh < 4) continue;
-      const chs = src.channels;
+      const chs = routedChannels(c, src.channels);
       const srcLen = chs[0].length;
       const color = this.#waveColor(this.clipColor(c, r.row.track), c.mute);
       // Preferences > Multitrack Clips: the drawn waveform can follow clip gain or stay at unity.

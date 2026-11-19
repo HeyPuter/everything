@@ -362,3 +362,27 @@ describe('live take preview', () => {
     expect([...live.peaks.subarray(0, 3)].map((v) => Math.round(v * 10) / 10)).toEqual([0.9, 0.2, 0.2]);
   });
 });
+
+describe('source channel routing', () => {
+  it('plays the picked source channels and draws from the Properties panel', async () => {
+    const { routedChannels } = await import('../src/model/session-graph.js');
+    const { sessionPropertySection } = await import('../src/multitrack/properties.js');
+    const L = Channel.fromSamples(new Float32Array(10).fill(0.5));
+    const R = Channel.fromSamples(new Float32Array(10));
+    expect(routedChannels({ channelMap: [0, 0] }, [L, R])).toEqual([L, L]);
+    expect(routedChannels({ channelMap: [0, 1] }, [L, R])).toEqual([L, R]);
+    expect(routedChannels({ channelMap: [0, 5] }, [L, R])).toEqual([L, R]);
+    expect(routedChannels({ channelMap: null }, [L])).toEqual([L]);
+    const { app, doc } = await appWithSession();
+    const src = doc.addSource({ name: 'st.wav', channels: [L, R] });
+    const clip = S.createClip({ trackId: doc.state.tracks[0].id, sourceId: src, start: 0, length: 10 });
+    doc.apply('Insert File', S.addClips(doc.state, [clip]));
+    doc.selectClips([clip.id]);
+    const el = sessionPropertySection(app, doc).querySelector('[aria-label="Source channel the clip plays on the right"]');
+    el.value = '0';
+    el.dispatchEvent(new Event('change'));
+    expect(S.findClip(doc.state, clip.id).channelMap).toEqual([0, 0]);
+    const { graph, sources } = buildSessionGraph(doc.state, doc.pool);
+    expect(sources.get(graph.tracks[0].clips[0].source)).toEqual([L, L]);
+  });
+});

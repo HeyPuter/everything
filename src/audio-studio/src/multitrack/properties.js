@@ -128,6 +128,29 @@ export function sessionPropertySection(app, doc) {
         h('div.prop-checks', check('Loop', c.loop, (v) => doc.apply(v ? 'Loop Clip' : 'Unloop Clip', S.setClipsLoop(doc.state, [c.id], v, (id) => doc.sourceLength(id)))), check('Lock in Time', c.locked, (v) => set(v ? 'Lock Clip' : 'Unlock Clip', { locked: v })), check('Mute', c.mute, (v) => set(v ? 'Mute Clip' : 'Unmute Clip', { mute: v }))),
       ),
     );
+    // Source channel routing: which source channel each side of the clip plays.
+    if (srcChannels >= 2) {
+      const map = Array.isArray(c.channelMap) ? c.channelMap : [0, 1];
+      const names = Array.from({ length: srcChannels }, (_, i) => ({ value: String(i), label: srcChannels === 2 ? (i ? 'Right' : 'Left') : `Channel ${i + 1}` }));
+      const route = (side) => (v) => {
+        const next = map.slice();
+        next[side] = Number(v);
+        set('Source Channel Routing', { channelMap: next[0] === 0 && next[1] === 1 ? null : next });
+      };
+      const [left, leftId] = select(names, map[0], route(0));
+      const [right, rightId] = select(names, map[1], route(1));
+      left.setAttribute('aria-label', 'Source channel the clip plays on the left');
+      right.setAttribute('aria-label', 'Source channel the clip plays on the right');
+      sections.push(
+        h(
+          'section.prop-section',
+          h('h3.prop-heading', 'Source Channel Routing'),
+          row('Left Plays', left, leftId),
+          row('Right Plays', right, rightId),
+          h('div.prop-row', h('span.prop-label', ''), h('button.btn.sm', { type: 'button', disabled: !c.channelMap, onclick: () => set('Source Channel Routing', { channelMap: null }) }, 'As Recorded')),
+        ),
+      );
+    }
   } else if (clips.length > 1) {
     sections.push(h('section.prop-section', h('h3.prop-heading', 'Clips'), text('Selected', `${clips.length} clips`), text('Range', `${fmt(Math.min(...clips.map((c) => c.start)))} to ${fmt(Math.max(...clips.map(S.clipEnd)))}`)));
   }
