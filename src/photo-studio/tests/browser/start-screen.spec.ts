@@ -177,3 +177,29 @@ test('with no document open, zoom and close commands are disabled and Window ›
   expect(open.enabled).toEqual(ids.filter((id) => id !== 'edit.toggle-last-state'));
   expect(open.documents).toEqual(['window.document-0']);
 });
+
+test('Tab on the start screen skips the covered canvas, its tab and the dimmed tool options', async ({
+  page,
+}) => {
+  await boot(page);
+  const stops: string[] = [];
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab');
+    stops.push(
+      await page.evaluate(() => {
+        const a = document.activeElement as HTMLElement;
+        return a.closest('#empty') ? 'start' : a.id || a.className;
+      }),
+    );
+    if (stops.at(-1) === 'start') break;
+  }
+  expect(stops.at(-1)).toBe('start');
+  expect(stops).not.toContain('viewport');
+  expect(stops.filter((s) => /document-tab|tab-close|auto-select|transform/.test(s))).toEqual([]);
+  await openFiles(page, await png(page, 'open.png', 64, 48));
+  await page.locator('#viewport').focus();
+  await expect(page.locator('#viewport')).toBeFocused();
+  await expect(page.locator('#auto-select')).toBeEnabled();
+  await page.locator('#auto-select').focus();
+  await expect(page.locator('#auto-select')).toBeFocused();
+});

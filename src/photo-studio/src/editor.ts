@@ -624,6 +624,9 @@ export class Editor {
     this.el('.canvas-color-mode').textContent = `${this.colorModeLabel} / ${depth}`;
     this.el('#empty').hidden = this.hasDocument;
     this.root.classList.toggle('no-document', !this.hasDocument);
+    // The start screen covers the document area, and the options it dims
+    // ignore the pointer: the keyboard and screen readers skip them too.
+    for (const sel of ['.document-tabs', '.canvas-area', '#tool-options']) this.el(sel).inert = !this.hasDocument;
     this.windows.renderTabs();
     this.options();
     this.toolbar?.render();
