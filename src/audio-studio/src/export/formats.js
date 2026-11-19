@@ -214,7 +214,7 @@ export function describeSampleType(o) {
 export function describeSettings(o) {
   const f = getFormat(o.format);
   if (!f) return '';
-  if (f.id === 'wav' || f.id === 'aiff') return o.bitDepth === 32 && !o.int32 ? 'Uncompressed, 32-bit floating point' : 'Uncompressed, integer';
+  if (f.id === 'wav' || f.id === 'aiff') return o.bitDepth === 32 && !o.int32 ? 'Uncompressed, 32-bit floating point' : `Uncompressed, ${o.bitDepth}-bit integer`;
   if (f.id === 'flac') return `Lossless, level ${o.settings.level}`;
   if (f.id === 'mp3') return `${o.settings.bitrate} kbps CBR`;
   return `${o.settings.bitrate} kbps`;

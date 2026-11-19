@@ -120,7 +120,7 @@ describe('Export File dialog', () => {
     change($('select[aria-label="Bit depth"]'), '32i');
     [...document.querySelectorAll('.io-sample-actions .btn')].find((b) => b.textContent === 'OK').click();
     expect($('.io-export').textContent).toContain('32-bit integer');
-    expect($('.io-export').textContent).toContain('Uncompressed, integer');
+    expect($('.io-export').textContent).toContain('Uncompressed, 32-bit integer');
     $('.dialog-foot .btn.primary').click();
     expect((await pending).options).toMatchObject({ bitDepth: 32, int32: true });
   });
