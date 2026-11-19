@@ -358,6 +358,16 @@ export class Dock extends Emitter {
       this.toggleMaximize(g);
     });
     const body = h('div.panel-body', { role: 'tabpanel' });
+    // Right-click where a panel has no menu of its own: the panel's options (its ≡ menu
+    // without the frame commands). Text fields keep the browser's menu; the editor has its own.
+    body.addEventListener('contextmenu', (e) => {
+      if (e.defaultPrevented || !g.a || g.a === 'editor' || e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const def = this.registry.get(g.a);
+      const items = def?.menu ? def.menu(this.app) : this.instances.get(g.a)?.menu?.() || [];
+      if (!items.length) return;
+      e.preventDefault();
+      this.app.openMenu(items, { x: e.clientX, y: e.clientY, label: `${this.#title(g.a)} options` });
+    });
     g.tabs.forEach((id) => {
       const active = id === g.a;
       const tabId = `tab-${id}`;

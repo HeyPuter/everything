@@ -92,3 +92,29 @@ describe('Media Browser menu', () => {
     expect(app.prefs.get('mediaAutoPlay')).toBe(true);
   });
 });
+
+describe('right-click in a panel', () => {
+  it('opens the panel options where the panel has no menu of its own', async () => {
+    const { Dock } = await import('../src/ui/dock.js');
+    const root = document.createElement('div');
+    document.body.append(root);
+    const opened = [];
+    const app = { openMenu: (items) => opened.push(items) };
+    const inner = document.createElement('div');
+    const field = document.createElement('input');
+    const handled = document.createElement('span');
+    handled.addEventListener('contextmenu', (e) => e.preventDefault());
+    inner.append(field, handled);
+    const registry = new Map([['p', { id: 'p', title: 'P', create: () => ({ el: inner, menu: () => [{ type: 'cmd', label: 'Own Item', enabled: true, run() {} }] }) }]]);
+    const dock = new Dock(app, root, registry);
+    dock.setLayout({ t: 'group', tabs: ['p'], a: 'p' });
+    const fire = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    fire(inner);
+    expect(opened).toHaveLength(1);
+    expect(opened[0].map((i) => i.label)).toEqual(['Own Item']);
+    fire(field);
+    fire(handled);
+    expect(opened).toHaveLength(1);
+    root.remove();
+  });
+});
