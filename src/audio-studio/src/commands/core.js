@@ -22,6 +22,8 @@ import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './
 import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
+/** Files to open: from Puter when signed in (as File > Open does), else from this device. */
+const pickAudioFiles = async () => (puter.sdk() && puter.isSignedIn() ? puter.pickFiles({ multiple: true }) : pickLocalFiles());
 const hasAudio = (app) => Boolean(audio(app));
 const hasSel = (app) => Boolean(audio(app)?.hasSelection);
 const anyDoc = (app) => Boolean(app.active);
@@ -199,7 +201,7 @@ export function installCoreCommands(app) {
       enabled: hasAudio,
       run: async () => {
         const doc = audio(app);
-        const files = await pickLocalFiles();
+        const files = await pickAudioFiles();
         for (const f of files) {
           const [opened] = await openFiles(app, [f], { activate: false });
           if (!opened) continue;
@@ -217,7 +219,7 @@ export function installCoreCommands(app) {
       id: 'file.appendNew',
       label: 'To New...',
       run: async () => {
-        const files = await pickLocalFiles();
+        const files = await pickAudioFiles();
         const docs = await openFiles(app, files, { activate: false });
         if (!docs.length) return;
         const first = docs[0];
