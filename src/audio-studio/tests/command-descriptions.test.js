@@ -24,7 +24,8 @@ it('describes the commands people look up, and builds the rest from what they ar
   const paths = commandMenuPaths();
   const d = (id) => describeCommand(C, id, { paths, label: C.label(id) });
   expect(d('edit.copy')).toBe(DESCRIPTIONS['edit.copy']);
-  expect(d('fx.amplify')).toMatch(/^Opens Amplify \(Amplitude and Compression\) to preview and apply it/);
+  // Effects describe themselves.
+  expect(d('fx.amplify')).toMatch(/^Raises or lowers the level/);
   expect(d('window.markers')).toBe('Shows or hides the Markers panel.');
   expect(d('workspace.select3')).toBe('Switches to the Default workspace.');
   expect(d('prefs.general')).toBe('Opens Preferences at the General page.');

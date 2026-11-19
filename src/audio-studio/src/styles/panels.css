@@ -1398,3 +1398,100 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* File > Browse and Run Script: examples beside an editor, the API and the output. */
+.scripts {
+  display: grid;
+  grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
+  gap: 12px;
+  width: min(860px, calc(100vw - 96px));
+  max-width: 100%;
+}
+.script-head {
+  margin: 0 0 6px;
+  font-size: var(--fs-sm, 12px);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.script-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.script-example {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 4px);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.script-example:hover,
+.script-example:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border-soft);
+}
+.script-example .muted {
+  font-size: 11px;
+}
+.script-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.script-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.script-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.script-editor {
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+}
+.scripts .script-output {
+  max-width: none;
+  max-height: 160px;
+  min-height: 2.5em;
+}
+.scripts .script-output:empty {
+  display: none;
+}
+.script-output.script-failed {
+  border-color: var(--danger);
+}
+.script-api dl {
+  display: grid;
+  grid-template-columns: minmax(0, 230px) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.script-api dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+.script-api dt code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.script-api summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}

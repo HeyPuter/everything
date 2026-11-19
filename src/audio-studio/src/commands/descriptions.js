@@ -119,6 +119,7 @@ export function describeCommand(C, id, { paths = null, label = null } = {}) {
   const [prefix, rest = ''] = id.split(/\.(.*)/s);
   if (prefix === 'fx') {
     const def = getEffect(rest);
+    if (def?.about) return def.about;
     if (def) {
       const group = effectGroup(rest);
       const what = def.params?.length ? `Opens ${def.name}${group ? ` (${group})` : ''} to preview and apply it` : `Applies ${def.name}${group ? ` (${group})` : ''}`;
