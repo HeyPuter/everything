@@ -136,7 +136,8 @@ function buildEmpty(app) {
     const all = app.recentMenuItems?.() || [];
     // The files, not the commands after the separator.
     const sep = all.findIndex((it) => it.type === 'sep');
-    const items = (sep < 0 ? all : all.slice(0, sep)).filter((it) => it.type === 'cmd').slice(0, 5);
+    // Only files that open ("No Recent Files" placeholders are disabled).
+    const items = (sep < 0 ? all : all.slice(0, sep)).filter((it) => it.type === 'cmd' && it.enabled !== false && it.run).slice(0, 5);
     recentList.replaceChildren(...items.map((it) => h('li', h('button.welcome-recent-item', { type: 'button', onclick: () => it.run() }, icon('file-audio', 14), h('span', it.label)))));
     recent.hidden = !items.length;
   };

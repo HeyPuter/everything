@@ -622,6 +622,8 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
   .dialog-head {
     cursor: move;
     user-select: none;
+    /* A finger on the title bar moves the dialog instead of scrolling the page. */
+    touch-action: none;
   }
 
   .dialog-head .icon-btn {
@@ -796,6 +798,33 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
 
 .empty-state > * {
   flex-shrink: 0;
+}
+
+/* -------------------------------------------------------------- touch targets */
+/* On touch screens small controls keep their look but get a finger-sized hit area (at least
+   32 px) from an invisible box around them. Controls with their own ::after are left alone. */
+@media (pointer: coarse) {
+  .icon-btn.sm,
+  .hot,
+  .channel-btn,
+  .hud-knob,
+  .hud-pin,
+  .mx-gutter-btn,
+  .time-display {
+    position: relative;
+  }
+
+  .icon-btn.sm::after,
+  .hot::after,
+  .channel-btn::after,
+  .hud-knob::after,
+  .hud-pin::after,
+  .mx-gutter-btn::after,
+  .time-display::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
 }
 
 /* ------------------------------------------------------------------ motion */

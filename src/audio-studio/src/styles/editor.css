@@ -208,6 +208,19 @@
   .welcome-key {
     display: none;
   }
+
+  .welcome-link {
+    min-height: 36px;
+  }
+}
+
+/* Phones: the actions first, without the large icon. */
+[data-layout='phone'] .editor-empty-icon {
+  display: none;
+}
+
+[data-layout='phone'] .editor-empty {
+  place-items: start center;
 }
 
 @container (max-width: 520px) {
