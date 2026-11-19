@@ -15,11 +15,21 @@ export type PreviewUI = {
   pane: HTMLCanvasElement;
   progress: HTMLElement;
   zoomLabel?: HTMLElement;
-  // Extra drawing over the pane (grid overlay), in pane pixels.
-  overlay?: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+  // Extra drawing over the pane (grid overlay), in pane pixels; `after` is
+  // the span of pane columns showing the filtered result.
+  overlay?: (ctx: CanvasRenderingContext2D, w: number, h: number, after: { x: number; width: number }) => void;
   // Called with the pane's latest proxy image (histograms).
   onImage?: (img: RGBA8) => void;
+  // Largest side of the reduced copy previewed for non-local filters.
+  proxyLimit?: number;
+  // Pause after the last change before the full-resolution render starts (ms).
+  fullDelay?: number;
+  // A pane tool: return true from 'down' to take the drag instead of panning.
+  tool?: (ev: PointerEvent, phase: 'down' | 'move' | 'up' | 'hover') => boolean | void;
 };
+/** What the pane shows: the result, the original, the two split down the
+ * middle, or both side by side. */
+export type ViewMode = 'after' | 'before' | 'split' | 'side';
 
 /** Paint a tile grid into a pane image with box sampling (2x2 when reduced). */
 function sampleGrid(store: TileStore, grid: TileGrid, ox: number, oy: number, zoom: number, out: ImageData, x0 = 0, x1 = out.width) {
@@ -86,6 +96,17 @@ export function regionThumbnail(s: Session, canvas: HTMLCanvasElement) {
   sampleGrid(s.e.assets.tiles, s.base, R.x, R.y, z, out);
   ctx.putImageData(out, 0, 0);
 }
+function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  ctx.save();
+  ctx.font = '600 11px system-ui, sans-serif';
+  const w = ctx.measureText(text).width + 12;
+  ctx.fillStyle = '#000a';
+  ctx.fillRect(x, y, w, 18);
+  ctx.fillStyle = '#fff';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + 6, y + 9.5);
+  ctx.restore();
+}
 export function toCanvas(img: RGBA8) {
   const c = document.createElement('canvas');
   c.width = img.width;
@@ -98,8 +119,15 @@ export class FilterPreview {
   zoom = 1;
   focus = { x: 0, y: 0 };
   canvasPreview = true;
+  viewMode: ViewMode = 'after';
   // Before/after split: the left part of the pane shows the unfiltered source.
-  split = false;
+  get split() {
+    return this.viewMode === 'split';
+  }
+  set split(on: boolean) {
+    this.viewMode = on ? 'split' : 'after';
+  }
+  private beforeCache?: { key: string; data: ImageData };
   private paneLane = new Lane('pane');
   private fullLane = new Lane('full');
   private entries: StackEntry[] = [];
@@ -131,8 +159,49 @@ export class FilterPreview {
   get size() {
     return { w: this.ui.pane.width, h: this.ui.pane.height };
   }
-  fitZoom() {
+  /** Pane size of one view (half the width side by side). */
+  get viewSize() {
     const { w, h } = this.size;
+    // Side by side leaves a gap between the two views.
+    return { w: this.viewMode === 'side' ? Math.max(1, Math.floor((w - 8) / 2)) : w, h };
+  }
+  /** Resize the pane (workspaces that fill their window). */
+  resize(w: number, h: number) {
+    const pane = this.ui.pane;
+    w = Math.max(1, Math.round(w));
+    h = Math.max(1, Math.round(h));
+    if (pane.width === w && pane.height === h) return;
+    pane.width = w;
+    pane.height = h;
+    this.refreshView();
+  }
+  setViewMode(mode: ViewMode) {
+    this.viewMode = mode;
+    this.refreshView();
+  }
+  /** Region coordinates under a client point, and whether it is over the
+   * result (false over the original's half or outside the image). */
+  regionPoint(clientX: number, clientY: number) {
+    const pane = this.ui.pane,
+      r = pane.getBoundingClientRect();
+    const px = ((clientX - r.left) * pane.width) / Math.max(1, r.width),
+      py = ((clientY - r.top) * pane.height) / Math.max(1, r.height);
+    const { w } = this.size,
+      half = this.viewSize.w;
+    let off = 0,
+      after = this.viewMode !== 'before';
+    if (this.viewMode === 'side') {
+      if (px >= w - half) off = w - half;
+      else after = false;
+    } else if (this.viewMode === 'split' && px < Math.round(w / 2)) after = false;
+    const v = this.viewRect();
+    const x = v.x + (px - off) / this.zoom,
+      y = v.y + py / this.zoom;
+    const inside = x >= 0 && y >= 0 && x < this.s.rect.width && y < this.s.rect.height;
+    return { x, y, after, inside };
+  }
+  fitZoom() {
+    const { w, h } = this.viewSize;
     return Math.min(1, w / this.s.rect.width, h / this.s.rect.height);
   }
   setZoom(z: number) {
@@ -147,7 +216,7 @@ export class FilterPreview {
   }
   /** Pane view in region coordinates (clamped so the image fills it if it can). */
   viewRect() {
-    const { w, h } = this.size;
+    const { w, h } = this.viewSize;
     const vw = w / this.zoom,
       vh = h / this.zoom;
     const R = this.s.rect;
@@ -169,7 +238,7 @@ export class FilterPreview {
     let k = 0;
     while (k < 12) {
       const d = this.levelDims(k);
-      if (Math.max(d.w, d.h) <= 1200) break;
+      if (Math.max(d.w, d.h) <= (this.ui.proxyLimit ?? 1200)) break;
       k++;
     }
     return k;
@@ -207,18 +276,35 @@ export class FilterPreview {
   private bindPane() {
     const pane = this.ui.pane;
     let drag: { x: number; y: number; fx: number; fy: number } | undefined;
+    let toolDrag = false;
     pane.addEventListener('pointerdown', (ev) => {
       pane.setPointerCapture(ev.pointerId);
+      if (this.ui.tool?.(ev, 'down')) {
+        toolDrag = true;
+        return;
+      }
       drag = { x: ev.clientX, y: ev.clientY, fx: this.focus.x, fy: this.focus.y };
       pane.classList.add('dragging');
     });
     pane.addEventListener('pointermove', (ev) => {
-      if (!drag) return;
+      if (toolDrag) {
+        this.ui.tool?.(ev, 'move');
+        return;
+      }
+      if (!drag) {
+        this.ui.tool?.(ev, 'hover');
+        return;
+      }
       const k = pane.width / pane.getBoundingClientRect().width;
       this.focus = { x: drag.fx - ((ev.clientX - drag.x) * k) / this.zoom, y: drag.fy - ((ev.clientY - drag.y) * k) / this.zoom };
       this.draw();
     });
-    const end = () => {
+    const end = (ev: PointerEvent) => {
+      if (toolDrag) {
+        toolDrag = false;
+        this.ui.tool?.(ev, 'up');
+        return;
+      }
       if (!drag) return;
       drag = undefined;
       pane.classList.remove('dragging');
@@ -302,35 +388,63 @@ export class FilterPreview {
     const { w, h } = this.size;
     const v = this.viewRect();
     ctx.clearRect(0, 0, w, h);
-    const store = this.s.e.assets.tiles;
     const R = this.s.rect;
-    const splitX = this.split ? Math.round(w / 2) : 0;
+    const mode = this.viewMode;
+    // Pane columns of the result [ax, w) and of the original [0, bx), and
+    // where each view's left edge sits.
+    const half = this.viewSize.w;
+    let ax = 0,
+      aOff = 0,
+      bx = 0;
+    if (mode === 'split') ax = bx = Math.round(w / 2);
+    else if (mode === 'side') {
+      ax = aOff = w - half;
+      bx = half;
+    } else if (mode === 'before') {
+      ax = w;
+      bx = w;
+    }
+    if (ax < w) this.drawAfter(ctx, v, ax, aOff, w, h);
+    if (bx > 0) {
+      const key = `${mode},${w},${h},${this.zoom},${v.x},${v.y}`;
+      if (this.beforeCache?.key !== key) {
+        const out = ctx.createImageData(w, h);
+        sampleGrid(this.s.e.assets.tiles, this.s.base, R.x + v.x, R.y + v.y, this.zoom, out, 0, bx);
+        this.beforeCache = { key, data: out };
+      }
+      ctx.putImageData(this.beforeCache.data, 0, 0, 0, 0, bx, h);
+    }
+    if (mode === 'split') {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(bx - 0.5, 0, 1, h);
+    }
+    if (mode === 'split' || mode === 'side') {
+      label(ctx, 'Before', 8, 8);
+      label(ctx, 'After', ax + 8, 8);
+    }
+    this.ui.overlay?.(ctx, w, h, { x: ax, width: w - ax });
+  }
+  /** The filtered result in pane columns [x0, x1), its view's left edge at `off`. */
+  private drawAfter(ctx: CanvasRenderingContext2D, v: { x: number; y: number }, x0: number, off: number, x1: number, h: number) {
+    const R = this.s.rect;
     if (this.fullRes?.sig === this.sig) {
-      const out = ctx.createImageData(w, h);
-      sampleGrid(store, this.fullRes.grid, R.x + v.x, R.y + v.y, this.zoom, out, splitX, w);
-      ctx.putImageData(out, 0, 0, splitX, 0, w - splitX, h);
+      const out = ctx.createImageData(x1, h);
+      sampleGrid(this.s.e.assets.tiles, this.fullRes.grid, R.x + v.x - off / this.zoom, R.y + v.y, this.zoom, out, x0, x1);
+      ctx.putImageData(out, 0, 0, x0, 0, x1 - x0, h);
     } else if (this.paneImg) {
       const p = this.paneImg,
         f = 2 ** p.level;
       ctx.save();
       ctx.beginPath();
-      ctx.rect(splitX, 0, w - splitX, h);
+      ctx.rect(x0, 0, x1 - x0, h);
       ctx.clip();
       ctx.imageSmoothingEnabled = !(p.level === 0 && this.zoom >= 1);
-      ctx.drawImage(p.canvas, (p.x * f - v.x) * this.zoom, (p.y * f - v.y) * this.zoom, p.img.width * f * this.zoom, p.img.height * f * this.zoom);
+      ctx.drawImage(p.canvas, off + (p.x * f - v.x) * this.zoom, (p.y * f - v.y) * this.zoom, p.img.width * f * this.zoom, p.img.height * f * this.zoom);
       ctx.restore();
     }
-    if (this.split) {
-      const out = ctx.createImageData(w, h);
-      sampleGrid(store, this.s.base, R.x + v.x, R.y + v.y, this.zoom, out, 0, splitX);
-      ctx.putImageData(out, 0, 0, 0, 0, splitX, h);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(splitX - 0.5, 0, 1, h);
-    }
-    this.ui.overlay?.(ctx, w, h);
   }
   // ----- Full resolution -----
-  private scheduleFull(delay = 350) {
+  private scheduleFull(delay = this.ui.fullDelay ?? 350) {
     clearTimeout(this.fullTimer);
     if (this.disposed || this.fullRes?.sig === this.sig || this.fullRun?.sig === this.sig) return;
     if (!this.canvasPreview && this.local) return;

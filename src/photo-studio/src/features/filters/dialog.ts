@@ -1,11 +1,11 @@
 // The filter dialog generated from an operation's ParamSpec, with a real-size
 // preview pane, canvas preview, Reset (Alt-click Cancel) and progress. The
-// Develop and Lens Correction workspaces are layouts of the same dialog.
+// Lens Correction workspace is a layout of the same dialog; Develop has its
+// own workspace (develop/workspace.ts).
 import type { Editor } from '../../editor';
 import { blendGroupStarts, blendLabel, blends, findLayer, type Blend } from '../../model/document';
 import { escapeXML } from '../../model/assets';
-import { histograms } from '../../imaging/adjust/histogram';
-import { defaults, type ParamValues, type RGBA8 } from '../../imaging/types';
+import { defaults, type ParamValues } from '../../imaging/types';
 import { svg } from '../../app/icons';
 import { filterOp, normalizeFor, commandId } from './catalog';
 import { closeSession, commitSession, isLiveLayer, opLabel, openSession, sessionEntries } from './apply';
@@ -16,13 +16,6 @@ import { recordStep } from './record';
 
 // Settings last used per filter in this session, restored when its dialog reopens.
 export const lastUsed = new Map<string, ParamValues>();
-
-const developGroups: { label: string; keys: string[] }[] = [
-  { label: 'White Balance', keys: ['temperature', 'tint'] },
-  { label: 'Tone', keys: ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'] },
-  { label: 'Presence', keys: ['texture', 'clarity', 'dehaze', 'vibrance', 'saturation'] },
-  { label: 'Effects', keys: ['vignette', 'grain', 'grainSize'] },
-];
 
 export function blendOptions(selected: Blend) {
   return blends.map((b) => `${blendGroupStarts.includes(b) ? '<option disabled>──────────</option>' : ''}<option value="${b}" ${b === selected ? 'selected' : ''}>${blendLabel(b)}</option>`).join('');
@@ -94,31 +87,6 @@ export function makeMovable(dialog: HTMLDialogElement) {
     title.addEventListener('pointerup', up);
   });
 }
-function drawHistogram(canvas: HTMLCanvasElement, img: RGBA8) {
-  const h = histograms(img);
-  const ctx = canvas.getContext('2d')!;
-  const W = canvas.width,
-    H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-  let max = 1;
-  for (const ch of [h.r, h.g, h.b]) for (let i = 1; i < 255; i++) max = Math.max(max, ch[i]);
-  ctx.globalCompositeOperation = 'lighter';
-  for (const [ch, color] of [
-    [h.r, '#d24040'],
-    [h.g, '#3fae4a'],
-    [h.b, '#3f6fd8'],
-  ] as const) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(0, H);
-    for (let i = 0; i < 256; i++) ctx.lineTo((i / 255) * W, H - Math.min(1, ch[i] / max) * (H - 2));
-    ctx.lineTo(W, H);
-    ctx.closePath();
-    ctx.fill();
-  }
-  ctx.globalCompositeOperation = 'source-over';
-}
-
 export type DialogOptions = { edit?: { layerId: string; index: number }; initial?: ParamValues; record?: boolean };
 
 // Filters with their own workspace (Wide Angle Correction) open it in place
@@ -143,9 +111,8 @@ export async function filterDialog(e: Editor, opId: string, opts: DialogOptions 
   const s = await openSession(e, opId, params, opts.edit);
   if (!s) return false;
   if (s.live && !blending) blending = { opacity: 1, blend: 'normal' };
-  const develop = opId === 'develop',
-    lens = opId === 'lens-correction';
-  const big = develop || lens;
+  const lens = opId === 'lens-correction';
+  const big = lens;
   // Large panes follow the image's aspect within the space available.
   let paneW = 300,
     paneH = 300;
@@ -157,9 +124,8 @@ export async function filterDialog(e: Editor, opId: string, opts: DialogOptions 
     paneW = Math.max(240, Math.round(Math.min(maxW, maxH * aspect)));
     paneH = Math.max(180, Math.round(Math.min(maxH, paneW / aspect)));
   }
-  const ui = dialogShell(`${op.label}${s.live ? ' (Live Filter)' : ''}`, develop ? 'develop' : lens ? 'lens' : '', paneW, paneH);
+  const ui = dialogShell(`${op.label}${s.live ? ' (Live Filter)' : ''}`, lens ? 'lens' : '', paneW, paneH);
   let showGrid = false;
-  let histogram: HTMLCanvasElement | undefined;
   const preview = new FilterPreview(s, {
     pane: ui.pane,
     progress: ui.progress,
@@ -173,24 +139,12 @@ export async function filterDialog(e: Editor, opId: string, opts: DialogOptions 
       for (let y = 0.5; y < h; y += 32) ctx.moveTo(0, y), ctx.lineTo(w, y);
       ctx.stroke();
     },
-    onImage: (img) => histogram && drawHistogram(histogram, img),
   });
   const update = () => preview.setEntries(sessionEntries(s, opId, params, blending));
 
-  if (develop) {
-    ui.extra.innerHTML = `<canvas class="fd-histogram" width="256" height="84" aria-label="Histogram"></canvas>`;
-    histogram = ui.extra.querySelector('canvas')!;
-    ui.zoomExtra.innerHTML = `<button type="button" class="fd-fit">Fit</button><button type="button" class="fd-split" aria-pressed="false" title="Show the original on the left half">${svg('flip-horizontal-2', 14)} Before / After</button>`;
-  }
   if (lens) ui.extra.innerHTML = `<label class="fd-grid-toggle"><input type="checkbox" class="fd-grid"> Show Grid</label>`;
   ui.extra.querySelector<HTMLInputElement>('.fd-grid')?.addEventListener('change', (ev) => {
     showGrid = (ev.target as HTMLInputElement).checked;
-    preview.draw();
-  });
-  ui.zoomExtra.querySelector('.fd-fit')?.addEventListener('click', () => preview.setZoom(preview.fitZoom()));
-  ui.zoomExtra.querySelector('.fd-split')?.addEventListener('click', (ev) => {
-    preview.split = !preview.split;
-    (ev.currentTarget as HTMLElement).setAttribute('aria-pressed', String(preview.split));
     preview.draw();
   });
 
@@ -200,21 +154,7 @@ export async function filterDialog(e: Editor, opId: string, opts: DialogOptions 
     update();
   };
   const thumbnail = (c: HTMLCanvasElement) => regionThumbnail(s, c);
-  if (develop) {
-    ui.params.innerHTML = developGroups
-      .map((g, i) => `<section class="fd-group"><header><h3>${escapeXML(g.label)}</h3><button type="button" class="fd-group-reset" data-group="${i}" title="Reset ${escapeXML(g.label)}">Reset</button></header><div class="fd-group-body" data-group-body="${i}"></div></section>`)
-      .join('');
-    developGroups.forEach((g, i) => forms.push(paramForm(ui.params.querySelector<HTMLElement>(`[data-group-body="${i}"]`)!, op.params, params, onChange, { keys: g.keys })));
-    ui.params.addEventListener('click', (ev) => {
-      const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-group]');
-      if (!b) return;
-      const g = developGroups[Number(b.dataset.group)];
-      const d = defaults(op);
-      const reset = Object.fromEntries(g.keys.map((k) => [k, d[k]]));
-      forms[Number(b.dataset.group)].set(reset);
-      onChange(reset);
-    });
-  } else if (op.params.length) forms.push(paramForm(ui.params, op.params, params, onChange, { thumbnail }));
+  if (op.params.length) forms.push(paramForm(ui.params, op.params, params, onChange, { thumbnail }));
   else ui.params.innerHTML = `<p class="fd-note">This filter has no settings.</p>`;
 
   if (s.live && blending) {

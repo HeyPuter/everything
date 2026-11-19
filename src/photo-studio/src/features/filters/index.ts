@@ -19,7 +19,7 @@ export async function runFilter(e: Editor, opId: string, arg?: unknown) {
 }
 
 const filterDescriptions: Record<string, string> = {
-  develop: 'White balance, tone, presence and effects with a before/after preview.',
+  develop: 'A raw-style workspace: light, color, curves, color mixer, color grading, detail, optics, geometry and profiles with before/after views.',
   denoise: 'Remove luminance and color noise while keeping edges and texture (noise level measured automatically).',
   'sharpen-details': 'Recover detail lost to soft focus or blur by deconvolution, without amplifying noise.',
 };
