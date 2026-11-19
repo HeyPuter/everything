@@ -198,9 +198,12 @@ export function dynamicsProcessingEditor({ id = 'curve' } = {}) {
 
 export function deesserEditor() {
   return (ctx) => {
-    const meter = levelMeter({ label: 'Reduction', kind: 'gr', min: -24, vertical: true });
+    const meter = levelMeter({ label: 'Reduction', kind: 'gr', min: -24, vertical: true, scale: [0, -6, -12, -18, -24] });
+    // The input spectrum behind the band while audio plays, to place the band on the sibilance.
+    const spec = liveSpectrum(ctx, { onFrame: () => view.redraw() });
     const view = plot('fx-band', 'Sibilance band', (g, W, H) => {
       const yOf = freqGrid(g, W, H, { top: 0, bottom: -120, step: 10 });
+      if (spec.live()) drawSpectrum(g, spec, (f) => xOfF(f, W), yOf, { H, fill: cssVar('--wave-dim') });
       const v = ctx.values;
       const lo = Math.max(FREQ_MIN, v.frequency - v.bandwidth / 2);
       const hi = Math.min(FREQ_MAX, v.frequency + v.bandwidth / 2);
