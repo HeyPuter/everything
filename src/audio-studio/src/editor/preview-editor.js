@@ -411,7 +411,12 @@ export function installPreviewEditor(app, host) {
     if (doc) setView(doc, { start: 0, end: Math.max(1, doc.length) });
   });
   new ResizeObserver(() => draw()).observe(surface);
+  installPreviewEditorCommands(app);
+}
 
+/** View > Show Preview Editor: a preference, so it is registered with the app, not the editor panel. */
+export function installPreviewEditorCommands(app) {
+  if (app.commands.get?.('view.previewEditor')) return;
   app.commands.register([
     { id: 'view.previewEditor', label: 'Show Preview Editor', checked: (a) => Boolean(a.prefs.get('previewEditor')), run: () => app.prefs.toggle('previewEditor') },
   ]);
