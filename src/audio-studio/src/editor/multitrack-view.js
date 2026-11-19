@@ -17,7 +17,7 @@ import { icon } from '../ui/icons.js';
 import { contextMenu } from '../ui/menubar.js';
 import { fadeShape } from '../engine/mixcore.js';
 import * as S from '../model/session-edits.js';
-import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
+import { createMarker, newMarkerName, sortMarkers } from '../model/markers.js';
 import { TrackHeader } from './track-header.js';
 import { volumeToEnvPos, envPosToVolume, panToEnvPos, envPosToPan, formatGain, formatPan } from '../multitrack/levels.js';
 import { CLIP_CONTEXT, TRACK_CONTEXT, LANE_CONTEXT } from '../multitrack/menus.js';
@@ -1527,7 +1527,7 @@ export class MultitrackView {
     const sel = doc.selection;
     const start = range && sel.end > sel.start ? sel.start : this.app.engine.playing && this.app.active === doc ? Math.round(this.app.playhead) : doc.cursor;
     const duration = range && sel.end > sel.start ? sel.end - sel.start : 0;
-    const m = createMarker({ start, duration, name: nextMarkerName(doc.state.markers) });
+    const m = createMarker({ start, duration, name: newMarkerName(doc.state.markers, { range: duration > 0 }) });
     doc.apply(range ? 'Add Range Marker' : 'Add Marker', { ...doc.state, markers: sortMarkers([...doc.state.markers, m]) });
     this.selectMarker(m.id);
     return m;

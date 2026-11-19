@@ -21,7 +21,7 @@ import { WAVEFORM_CONTEXT } from '../ui/menus.js';
 import { contextMenu, resolveItems } from '../ui/menubar.js';
 import { bindRightDrag } from './right-drag.js';
 import { dbToGain, formatDb, framesPerSecond, musicalStep } from '../lib/time.js';
-import { createMarker, nextMarkerName, sortMarkers } from '../model/markers.js';
+import { createMarker, newMarkerName, sortMarkers } from '../model/markers.js';
 import {
   wheelZoom,
   followPlayhead,
@@ -1704,7 +1704,7 @@ export class WaveformView {
     const sel = doc.selection;
     const start = range && sel.end > sel.start ? sel.start : this.app.engine.playing && this.app.active === doc ? Math.round(this.app.playhead) : doc.cursor;
     const duration = range && sel.end > sel.start ? sel.end - sel.start : 0;
-    const m = createMarker({ start, duration, name: nextMarkerName(doc.state.markers) });
+    const m = createMarker({ start, duration, name: newMarkerName(doc.state.markers, { range: duration > 0 }) });
     doc.apply(range ? 'Add Range Marker' : 'Add Marker', { ...doc.state, markers: sortMarkers([...doc.state.markers, m]) });
     this.selectMarker(m.id);
     return m;
