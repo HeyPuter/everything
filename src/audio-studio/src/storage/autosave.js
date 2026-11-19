@@ -72,7 +72,7 @@ export function validManifest(m) {
  */
 export function planAutosave(docs, written, maxBytes) {
   const candidates = docs
-    .filter((d) => d.kind === 'audio' && d.dirty && written.get(d.id) !== d.state)
+    .filter((d) => d.kind === 'audio' && d.dirty && !d.practice && written.get(d.id) !== d.state)
     .map((d) => ({ doc: d, bytes: 44 + d.length * d.channelCount * 4 }))
     .sort((a, b) => a.bytes - b.bytes);
   const out = [];

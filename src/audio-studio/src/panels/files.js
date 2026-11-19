@@ -84,6 +84,7 @@ export function fileStatus(doc) {
     const offline = [...(doc.pool?.values?.() || [])].filter((s) => s.offline).length;
     if (offline) return { id: 'offline', label: 'Media Offline', icon: 'triangle-alert', title: `${offline} media file${offline === 1 ? ' is' : 's are'} offline` };
   }
+  if (doc.practice) return { id: 'practice', label: 'Practice', icon: 'file-plus', title: 'Tutorial practice audio: closes without asking to save. Save As keeps a copy.' };
   if (doc.dirty) return { id: 'modified', label: 'Modified', icon: 'circle-dot', title: 'Unsaved changes' };
   if (doc.kind === 'audio' && (!doc.source || doc.source.type === 'new')) return { id: 'new', label: 'New', icon: 'file-plus', title: 'This file has not been saved yet' };
   const ext = String(doc.source?.path || '').split('.').pop().toLowerCase();

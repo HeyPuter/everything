@@ -272,7 +272,7 @@ export function createShell(app, root) {
 
   window.addEventListener('beforeunload', (e) => {
     if (import.meta.env?.DEV) return;
-    if (app.documents.some((d) => d.dirty)) {
+    if (app.documents.some((d) => d.dirty && !d.practice)) {
       e.preventDefault();
       e.returnValue = '';
     }

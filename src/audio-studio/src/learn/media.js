@@ -158,6 +158,15 @@ export function practiceFile(app, name, make) {
   }
   const { rate, channels } = make();
   const doc = new AudioFile({ name, sampleRate: rate, channels: channels.map((c) => Channel.fromSamples(c)) });
+  // Practice material: closes without a save prompt and is left out of autosave, until
+  // Save As keeps a copy.
+  doc.practice = true;
+  const off = doc.on('change', (e) => {
+    if (e.kind === 'saved' || doc.source?.type === 'puter' || doc.source?.type === 'download') {
+      doc.practice = false;
+      off();
+    }
+  });
   app.addDocument(doc);
   return doc;
 }

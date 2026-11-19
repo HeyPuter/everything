@@ -105,7 +105,8 @@ export class App extends Emitter {
     // Include the final capture block in both the save prompt and the saved
     // file; closing a not-yet-previewed take must not remove its destination.
     if (this.recorder?.document === doc) await this.recorder.stop();
-    if (!force && doc.dirty) {
+    // Tutorial practice files (doc.practice) close without asking: there is nothing to keep.
+    if (!force && doc.dirty && !doc.practice) {
       this.activate(doc);
       let answer = batch?.answer;
       if (!answer) {
