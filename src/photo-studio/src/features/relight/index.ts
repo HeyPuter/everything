@@ -55,8 +55,24 @@ export function commitRelight(e: Editor, id: string, params: RelightParams, labe
   return true;
 }
 
-function drawHandles(e: Editor) {
+/** True when the layer and every group containing it are shown. */
+function shown(layers: Layer[], id: string): boolean | undefined {
+  for (const l of layers) {
+    if (l.id === id) return l.visible;
+    const inside = shown(l.children, id);
+    if (inside !== undefined) return inside && l.visible;
+  }
+}
+
+/** The relight layer whose lights the canvas shows and edits: the selected
+ * one, while it is visible (a hidden layer's lights light nothing). */
+function canvasRelightLayer(e: Editor) {
   const l = activeRelightLayer(e);
+  return l && shown(e.doc.layers, l.id) ? l : undefined;
+}
+
+function drawHandles(e: Editor) {
+  const l = canvasRelightLayer(e);
   if (!l || relightUi.hidden) return '';
   // A preview that never ended in a commit (a slider moved and put back)
   // stops counting once the document changes.
@@ -166,7 +182,7 @@ function bindCanvas(e: Editor) {
       if (ev.button !== 0 || e.busy) return;
       const handle = (ev.target as Element).closest?.('[data-relight-light]');
       if (!handle) return;
-      const l = activeRelightLayer(e);
+      const l = canvasRelightLayer(e);
       if (!l) return;
       ev.preventDefault();
       ev.stopImmediatePropagation();
@@ -198,7 +214,7 @@ export function toggleHandles(e: Editor) {
 
 /** Nudge the selected light by (dx, dy) document pixels. */
 export function nudgeLight(e: Editor, dx: number, dy: number) {
-  const l = activeRelightLayer(e);
+  const l = canvasRelightLayer(e);
   if (!l) return false;
   const p = relightParams(l);
   const light = selectedLight(l.id, p);

@@ -314,6 +314,50 @@ test('relight layer: arrow keys nudge a selected path with the path tools', asyn
   expect(await lights(page)).toEqual(before);
 });
 
+test('relight layer: a hidden relight layer, or one in a hidden group, shows no light handles and its lights stay put', async ({
+  page,
+}) => {
+  await boot(page);
+  await openScene(page);
+  await run(page, 'layer.new-relight');
+  await expect(handles(page)).toHaveCount(1);
+  const box = (await handles(page).first().boundingBox())!;
+  const before = await lights(page);
+  await run(page, 'layer.hide');
+  await expect(handles(page)).toHaveCount(0);
+  // Arrow keys and a drag where the handle was leave the lights alone (the
+  // Hand tool neither selects nor moves layers).
+  await page.evaluate(() => window.photoStudio.setTool('hand'));
+  await page.locator('#viewport').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20, { steps: 4 });
+  await page.mouse.up();
+  await idle(page);
+  expect(await lights(page)).toEqual(before);
+  await run(page, 'layer.hide');
+  await expect(handles(page)).toHaveCount(1);
+  // Inside a hidden group.
+  await run(page, 'layer.group');
+  await expect(handles(page)).toHaveCount(0);
+  await page.evaluate(() => {
+    const e = window.photoStudio;
+    const group = e.doc.layers.find((l) => l.kind === 'group')!;
+    e.selectLayer(group.children[0].id);
+    e.update();
+  });
+  await idle(page);
+  await expect(handles(page)).toHaveCount(1);
+  await page.evaluate(() =>
+    window.photoStudio.command('Hide Group', (d) => {
+      d.layers.find((l) => l.kind === 'group')!.visible = false;
+    }),
+  );
+  await idle(page);
+  await expect(handles(page)).toHaveCount(0);
+});
+
 // A slider moved and put back without a release (no change event) leaves no
 // preview behind: handles follow later edits of the stored settings.
 test('relight layer: handles follow nudges and undo after a slider returns to its value', async ({
