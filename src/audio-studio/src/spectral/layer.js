@@ -18,7 +18,7 @@ import { TileCache, planTiles, chooseHop, readTileSamples, FLOOR_DB } from './ti
 import { makeScale, frequencyTicks, noteTicks, pitchBand, formatHzLong, noteName } from './freq-scale.js';
 import { buildLut } from './colormaps.js';
 import { settings, setSettings, displayOn, pitchOn, logScale, docState, visibleBand, setSpectralSelection, SPECTRAL_TOOLS, pitchSettings } from './state.js';
-import { addBrushDot, dotOutline, shapeIntervals } from './mask.js';
+import { addBrushDot, dotOutline, shapeIntervals, selectionBounds } from './mask.js';
 import { analysisPool } from '../analysis/pool.js';
 import { sourceKey } from '../engine/engine.js';
 import { spectralMenuItems } from './menu.js';
@@ -361,7 +361,7 @@ export class SpectralLayer {
     if (shapes.length) {
       for (const lane of lanes) {
         if (channels[lane.channel] === false && !this.drag) continue;
-        this.#drawShapes(ctx, shapes, lane, scale, this.drag?.tool === 'heal');
+        this.#drawShapes(ctx, shapes, lane, scale, this.drag?.tool === 'heal', st.selection?.invert ? selectionBounds(st.selection) : null);
       }
     }
     // Pitch overlay.
@@ -384,7 +384,7 @@ export class SpectralLayer {
     return [x, y];
   }
 
-  #drawShapes(ctx, shapes, lane, scale, healing) {
+  #drawShapes(ctx, shapes, lane, scale, healing, inverted = null) {
     const y0 = this.rect.y;
     ctx.save();
     ctx.beginPath();
@@ -394,31 +394,57 @@ export class SpectralLayer {
     const fill = healing ? cssVar('--warning') : resolvedTheme() === 'light' ? '#1473e6' : '#ffffff';
     ctx.globalAlpha = healing ? 0.35 : 0.22;
     ctx.fillStyle = fill;
-    ctx.beginPath();
+    // Inverted: shade the time range around the shapes, leaving the shapes clear.
+    const scratch = inverted ? (this.invertCanvas ??= document.createElement('canvas')) : null;
+    const sctx = scratch?.getContext('2d');
+    const target = sctx || ctx;
+    if (sctx) {
+      const dpr = this.rect.dpr || window.devicePixelRatio || 1;
+      scratch.width = Math.max(1, Math.round(this.rect.width * dpr));
+      scratch.height = Math.max(1, Math.round(this.rect.height * dpr));
+      sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      sctx.fillStyle = fill;
+      const xa = Math.max(0, this.view.xOf(inverted.t0));
+      const xb = Math.min(this.rect.width, this.view.xOf(inverted.t1));
+      sctx.fillRect(xa, lane.top - y0, Math.max(0, xb - xa), lane.bottom - lane.top);
+      sctx.globalCompositeOperation = 'destination-out';
+      sctx.fillStyle = '#000';
+    }
+    const fillPath = () => {
+      if (!sctx) return ctx.fill('nonzero');
+      sctx.fill('nonzero');
+      sctx.globalCompositeOperation = 'source-over';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(scratch, 0, 0);
+      const dpr = this.rect.dpr || window.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    const pathCtx = target;
+    pathCtx.beginPath();
     for (const s of shapes) {
       if (s.type === 'rect') {
         const [xa, ya] = this.#toXY(lane, scale, s.t0, Math.max(s.f0, s.f1));
         const [xb, yb] = this.#toXY(lane, scale, s.t1, Math.min(s.f0, s.f1));
-        ctx.rect(xa, ya, xb - xa, yb - ya);
+        pathCtx.rect(xa, ya, xb - xa, yb - ya);
       } else if (s.type === 'poly') {
         s.points.forEach(([t, f], i) => {
           const [x, y] = this.#toXY(lane, scale, t, f);
-          if (i) ctx.lineTo(x, y);
-          else ctx.moveTo(x, y);
+          if (i) pathCtx.lineTo(x, y);
+          else pathCtx.moveTo(x, y);
         });
-        ctx.closePath();
+        pathCtx.closePath();
       } else if (s.type === 'brush') {
         for (const dot of s.dots) {
           dotOutline(s, dot, 16).forEach(([t, f], i) => {
             const [x, y] = this.#toXY(lane, scale, t, f);
-            if (i) ctx.lineTo(x, y);
-            else ctx.moveTo(x, y);
+            if (i) pathCtx.lineTo(x, y);
+            else pathCtx.moveTo(x, y);
           });
-          ctx.closePath();
+          pathCtx.closePath();
         }
       }
     }
-    ctx.fill('nonzero');
+    fillPath();
     ctx.globalAlpha = 1;
     ctx.strokeStyle = healing ? cssVar('--warning') : cssVar('--sel-edge');
     ctx.setLineDash([4, 3]);

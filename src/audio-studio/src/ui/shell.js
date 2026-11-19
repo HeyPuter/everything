@@ -11,6 +11,7 @@ import { openFiles } from '../storage/files.js';
 import { statusParts } from './status-fields.js';
 import { tabNames } from './workspace-manager.js';
 import { TOOLS } from './tools.js';
+import { spectralToolOptions } from '../spectral/tool-options.js';
 import { eventKey } from '../commands/registry.js';
 import { keyedLabel, syncKeyedLabel } from '../panels/transport-controls.js';
 
@@ -65,7 +66,7 @@ export function createShell(app, root) {
   const search = h('input.input.command-search', { type: 'search', placeholder: 'Search commands', 'aria-label': 'Search commands', autocomplete: 'off' });
   const searchWrap = h('div.command-search-wrap', icon('search', 14), search);
   bindCommandSearch(app, search);
-  const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': 'Main toolbar' }, modes, h('div.toolbar-sep'), displayBtns, h('div.toolbar-sep'), toolBtns, h('div.spacer'), workspaceTabs, workspaceMore, searchWrap);
+  const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': 'Main toolbar' }, modes, h('div.toolbar-sep'), displayBtns, h('div.toolbar-sep'), toolBtns, spectralToolOptions(app), h('div.spacer'), workspaceTabs, workspaceMore, searchWrap);
 
   const dockRoot = h('main.workspace', { 'aria-label': 'Workspace' });
   const status = h('span.status-message', { role: 'status' });

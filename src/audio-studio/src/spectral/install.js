@@ -152,7 +152,8 @@ export function installSpectral(app) {
   app.fileGraphHooks.push((graph, doc) => {
     if (!app.prefs.get('spectralPlaySelected')) return;
     const sel = spectralSelection(app, doc);
-    const b = sel ? selectionBounds(sel) : null;
+    // An inverted selection spans every frequency: nothing to band-limit.
+    const b = sel && !sel.invert ? selectionBounds(sel) : null;
     const spec = b ? bandSlot(b.f0, b.f1, doc.sampleRate) : null;
     if (spec) for (const t of graph.tracks) t.fx = [...(t.fx || []), { ...spec, key: `${spec.key}:${t.id}` }];
   });

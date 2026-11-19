@@ -1,7 +1,8 @@
 // Spectral selections: a time-frequency mask made of shapes, drawn on the
 // spectral display and applied by STFT processing (see process.js).
 //
-//   selection = { channels: boolean[], shapes: Shape[] }
+//   selection = { channels: boolean[], shapes: Shape[], invert?: boolean }
+//   (inverted, it covers everything in the shapes' time range except the shapes)
 //   Shape =
 //     { type: 'rect', t0, t1, f0, f1 }                         frames, Hz
 //     { type: 'poly', log, points: [[t, f], ...] }             lasso outline
@@ -64,6 +65,10 @@ export function weightAt(selection, t, f) {
   for (const s of selection.shapes) {
     for (const [lo, hi, o] of shapeIntervals(s, t)) if (f >= lo && f <= hi && o > w) w = o;
   }
+  if (selection.invert) {
+    const b = selectionBounds(selection);
+    return b && t >= b.t0 && t <= b.t1 ? 1 - w : 0;
+  }
   return w;
 }
 
@@ -94,6 +99,8 @@ export function selectionBounds(selection) {
     }
   }
   if (!(t1 >= t0)) return null;
+  // Inverted, the selection reaches every frequency in its time range.
+  if (selection.invert) return { t0: Math.max(0, t0), t1, f0: 0, f1: Infinity };
   return { t0: Math.max(0, t0), t1, f0: Math.max(0, f0), f1 };
 }
 
@@ -121,6 +128,14 @@ export function rasterize(selection, { first, cols, hop, n, rate, growBins = 2, 
         const k1 = Math.min(bins - 1, Math.round(hi / df));
         for (let k = k0; k <= k1; k++) if (out[row + k] < w) out[row + k] = w;
       }
+    }
+  }
+  if (selection.invert) {
+    const b = selectionBounds(selection);
+    for (let c = 0; c < cols; c++) {
+      const t = first + c * hop;
+      const inside = b && t >= b.t0 && t <= b.t1;
+      for (let k = c * bins, e = k + bins; k < e; k++) out[k] = inside ? 1 - out[k] : 0;
     }
   }
   if (growBins || growCols) {

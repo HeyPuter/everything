@@ -91,3 +91,30 @@
     top: 7px;
   }
 }
+
+/* Spectral tool options in the main toolbar (brush size and opacity, Invert). */
+.tool-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 8px;
+}
+.tool-options[hidden],
+.tool-options [hidden] {
+  display: none;
+}
+.tool-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+.tool-opt-num.input.num {
+  width: 52px;
+  height: 22px;
+}
+.tool-opt-invert[aria-pressed='true'] {
+  color: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
