@@ -1,6 +1,7 @@
 import type { Editor } from '../editor';
 import { selectedRoots, assertEditable } from '../model/layers';
 import { hitLayer } from './hit-test';
+import { syncTransformFields } from '../features/panels/layer-properties';
 import { snapMove, smartGuidesSvg, snapOptions, type MoveGuides } from '../features/view-extras';
 import { expandLinked, followLinkedMasks } from '../model/links';
 import { setLayerPixels } from '../model/pixel-layer';
@@ -249,6 +250,30 @@ export class FreeTransform {
       this.e.message((error as Error).message);
     }
   }
+  /** Give the selected layers' frame a new position or uniform size (the
+   * Properties fields of groups and several layers): one undo step. */
+  setFrame(after: { x: number; y: number; width: number; height: number }, label: string) {
+    this.apply();
+    if (!this.editable()) {
+      this.e.message('Unlock the selected layers to transform them.');
+      return;
+    }
+    const before = this.frame();
+    if (!before) return;
+    const ids = new Set(this.e.selectedIds);
+    try {
+      this.e.command(label, (doc) => {
+        transformSelection(this.roots(doc), before, { ...before, ...after });
+        afterMove(doc, ids);
+      });
+    } catch (error) {
+      this.e.message((error as Error).message);
+    }
+  }
+  /** The selected layers' frame (Properties fields). */
+  get selectionFrame() {
+    return this.frame();
+  }
   private preview(doc = this.session?.draft) {
     if (!doc) return;
     this.e.preview(doc);
@@ -260,6 +285,7 @@ export class FreeTransform {
         if (field && document.activeElement !== field)
           field.value = String(Math.round(value * 100) / 100);
       }
+    if (l && l.kind !== 'group') syncTransformFields(this.e, l.transform);
   }
   /** The single selected pixel layer while a selection is active. */
   private selectedPixelLayer(): Layer | undefined {

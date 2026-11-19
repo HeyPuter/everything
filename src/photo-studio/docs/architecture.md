@@ -524,6 +524,29 @@ Options-bar controls get tooltips from `src/app/option-tips.ts` when they have n
   writing a file that loses something.
 - Warnings that can be turned off use `warnOnce` (`features/preferences/warnings.ts`).
 
+## Properties and Layers panels (`src/features/panels/`)
+
+- `properties.ts` picks the view: the document (no layer, or the Background layer,
+  selected; `document-properties.ts`), several layers or one layer
+  (`layer-properties.ts`), or a kind's own editor from `propertiesEditors` (type,
+  shape, artboard, frame, adjustment and fill layers). Editors mount into a fresh
+  host element, so listeners they add die with it. Adjustment and fill layers get
+  the shared Mask section under their editor; features add mask commands with
+  `maskActions` and sections above Adjustments with `propertySections`.
+- Number fields come from `property-fields.ts`: text inputs with the spinbutton role
+  that accept units and arithmetic (`property-values.ts`, unit tested), commit once
+  on Enter or blur through `fieldHandlers` (keyed by the field key's first segment,
+  such as `doc`, `layer`, `frame` or `pref`), restore on Escape, step with the arrow
+  keys and scrub when the label is dragged (previewed, then one undo step).
+  Sections collapse and remember it per browser.
+- Canvas size edits run `image.canvas-size` with parameters (anchor from the panel),
+  so they record in actions like the dialog. Resolution goes through
+  `setDocumentResolution`. Grid, guide and ruler settings are preferences, not
+  document edits, and never add history steps.
+- Layer thumbnails follow the document's aspect ratio (`--thumb-w`); Layers → Panel
+  Options sets their size (none, small, medium, large) and whether they frame the
+  document or the layer's bounds, kept in this browser.
+
 ## Canvas edits and document-wide state
 
 - A canvas edit (resize, crop, rotation, flip, perspective crop) maps the state kept

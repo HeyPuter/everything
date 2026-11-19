@@ -13,7 +13,8 @@ import { performAction } from '../../ui/actions';
 import { escapeXML } from '../../model/assets';
 import { bindFields, rememberFocus, restoreFocus } from './property-fields';
 import { documentChange, documentClick, documentKey, documentProperties } from './document-properties';
-import { ADJUSTMENTS_MARK, layerClick, layerProperties, multipleProperties } from './layer-properties';
+import { ADJUSTMENTS_MARK, layerClick, layerProperties, maskSection, multipleProperties } from './layer-properties';
+import { hasMask } from '../../model/masks';
 
 // Adjustment and fill layers provide their own Properties editors.
 export type PropertiesEditor = { mount: (e: Editor, el: HTMLElement, l: Layer) => void };
@@ -65,7 +66,8 @@ export const propertiesPanel: Panel = {
     const single = l && e.selectedIds.size === 1;
     const custom = single ? propertiesEditors.get(l.artboard ? 'artboard' : l.frame ? 'frame' : l.kind === 'adjustment' ? `adjustment:${l.adjustment?.kind}` : l.fill ? 'fill' : l.kind) : undefined;
     if (custom && l) {
-      const key = `${l.id}:${JSON.stringify(l.adjustment ?? l.fill ?? l.artboard ?? l.frame ?? l.color)}:${l.artboard || l.frame ? `${l.name}:${l.children.length}:${l.locked}` : ''}`;
+      const withMask = l.kind === 'adjustment' || !!l.fill;
+      const key = `${l.id}:${JSON.stringify(l.adjustment ?? l.fill ?? l.artboard ?? l.frame ?? l.color)}:${l.artboard || l.frame ? `${l.name}:${l.children.length}:${l.locked}` : ''}${withMask ? `:${hasMask(l) || !!l.maskGrid}:${!!l.maskDisabled}:${l.pixelMask?.userMaskDensity ?? ''}:${l.pixelMask?.positionRelativeToLayer ?? ''}:${layerLocked(e.doc.layers, l.id)}` : ''}`;
       if (el.dataset.key === key) return;
       el.dataset.key = key;
       lastHtml = '';
@@ -75,6 +77,12 @@ export const propertiesPanel: Panel = {
       host.dataset.key = key;
       el.replaceChildren(host);
       custom.mount(e, host, l);
+      if (withMask) {
+        const mask = document.createElement('div');
+        mask.className = 'property-body pf-extra';
+        mask.innerHTML = `<fieldset ${layerLocked(e.doc.layers, l.id) ? 'disabled' : ''}>${maskSection(e, l)}</fieldset>`;
+        el.append(mask);
+      }
       return;
     }
     delete el.dataset.key;
@@ -93,7 +101,8 @@ export const propertiesPanel: Panel = {
       const at = html.indexOf(ADJUSTMENTS_MARK);
       html = at >= 0 ? html.slice(0, at) + extra + html.slice(at) : html + extra;
     }
-    if (html === lastHtml && el.firstElementChild) return;
+    if (html === lastHtml && el.firstElementChild && !el.dataset.stale) return;
+    delete el.dataset.stale;
     lastHtml = html;
     const focus = document.activeElement as HTMLInputElement | null;
     const focusKey = focus && el.contains(focus) ? (focus.dataset.property ?? focus.dataset.filter ?? focus.dataset.pf) : undefined;

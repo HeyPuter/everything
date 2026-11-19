@@ -88,6 +88,48 @@ ${len('height', 'H', 'Height')}${len('y', 'Y', 'Vertical position of the top edg
   return section('layer-transform', 'Transform', body);
 }
 
+/** Position and uniform size of a group or several layers, from their
+ * combined frame; flips turn them all. */
+export function frameSection(e: Editor, disabled: boolean) {
+  const f = e.transform.selectionFrame;
+  if (!f) return '';
+  const unit = layerUnit(e);
+  const step = unit === 'px' || unit === 'percent' ? 1 : 0.1;
+  const len = (key: Axis, label: string, title: string) =>
+    field({
+      key: `frame.${key}`,
+      label,
+      title,
+      value: formatLength(f[key], lengthCtx(e, key)),
+      suffix: UNIT_SUFFIX[unit],
+      disabled,
+      step,
+    });
+  const body = `<div class="pf-transform">
+<button type="button" class="icon-button toggle pf-link" aria-pressed="true" title="Groups and several layers scale proportionally" aria-label="Width and height keep proportions" disabled>${svg('link', 14)}</button>
+${len('width', 'W', 'Width of the combined bounds')}${len('x', 'X', 'Left edge of the combined bounds')}
+${len('height', 'H', 'Height of the combined bounds')}${len('y', 'Y', 'Top edge of the combined bounds')}
+</div>
+<div class="pf-angle"><span class="pf-note">Scales proportionally about the center.</span><div class="pf-flips">${commandButton(e, 'edit.flip-horizontal', 'Flip horizontal', 'flip-horizontal-2', { iconOnly: true })}${commandButton(e, 'edit.flip-vertical', 'Flip vertical', 'flip-vertical-2', { iconOnly: true })}</div></div>`;
+  return section('layer-transform', 'Transform', body);
+}
+
+/** Show a live transform (a Free Transform drag) in the fields without committing. */
+export function syncTransformFields(e: Editor, t: Layer['transform']) {
+  const root = e.root.querySelector<HTMLElement>('#properties');
+  if (!root) return;
+  // The next panel update redraws even when its markup did not change.
+  root.dataset.stale = 'true';
+  for (const key of ['x', 'y', 'width', 'height', 'rotation'] as const) {
+    const input = root.querySelector<HTMLInputElement>(`input[data-field="layer.${key}"]`);
+    if (!input || document.activeElement === input) continue;
+    const v =
+      key === 'rotation' ? formatNumber(t.rotation, 2) : formatLength(t[key], lengthCtx(e, key));
+    input.value = v;
+    input.dataset.initial = v;
+  }
+}
+
 const ALIGN: [string, string, string][] = [
   ['layer.align-left', 'Align left edges', 'align-start-vertical'],
   ['layer.align-hcenter', 'Align horizontal centers', 'align-horizontal-justify-center'],
@@ -180,7 +222,9 @@ export function layerProperties(
     parts.transform === false
       ? ''
       : (parts.transform ??
-        (l.kind !== 'group' ? transformSection(e, l, locked || posLocked) : ''));
+        (l.kind !== 'group'
+          ? transformSection(e, l, locked || posLocked)
+          : frameSection(e, locked || posLocked)));
   const kindControls = isVectorGradient(l.vector?.fill)
     ? gradientProperties(l, doc)
     : isVectorPattern(l.vector?.fill)
@@ -203,18 +247,30 @@ export function layerProperties(
       .join(''),
     `<button data-action="reset-filters" class="pf-head-button" title="Reset adjustments" aria-label="Reset adjustments">${svg('rotate-ccw', 12)}</button>`,
   );
-  const maskBody = `${l.pixelMask ? `${number('maskDensity', 'Mask density (%)', (l.pixelMask.userMaskDensity ?? 1) * 100, 0, 100)}<label class="lock-label"><input type="checkbox" data-property="maskLinked" ${l.pixelMask.positionRelativeToLayer ? '' : 'checked'}> Link mask to layer</label>` : ''}${
-    hasMask(l)
-      ? `<div class="mask-info">${svg('square-dashed', 13)} ${l.maskDisabled ? 'Mask disabled' : 'Layer mask active'} <button data-action="invert-mask">Invert</button><button data-action="toggle-mask">${l.maskDisabled ? 'Enable' : 'Disable'}</button><button data-action="remove-mask" aria-label="Remove mask">${svg('x', 13)}</button></div><div class="pf-actions pf-mask-actions">${commandButton(e, 'select.mask-refine', 'Select and Mask…', 'feather')}${commandButton(e, 'layer.mask-apply', 'Apply Mask', 'check')}</div>`
+  return `<div class="property-body">${parts.header === false ? '' : layerTitle(l, parts.title)}<input class="layer-name-input" data-property="name" aria-label="Layer name" value="${escapeXML(l.name)}" ${locked ? 'disabled' : ''}><label class="lock-label"><input type="checkbox" data-property="locked" ${l.locked ? 'checked' : ''} ${ancestorLocked ? 'disabled' : ''}> Lock layer</label><div class="partial-locks">${partial('transparency', 'Lock transparency')}${partial('composite', 'Lock image pixels')}${partial('position', 'Lock position')}</div><fieldset ${locked ? 'disabled' : ''}>
+${transform}${alignSection(e)}${text}${kindControls}${l.vector ? strokeProperties(l, doc) : ''}${parts.insert ?? ''}${ADJUSTMENTS_MARK}${adjustments}${maskSection(e, l)}${quickActionsSection(e, l)}</fieldset></div>`;
+}
+
+/** Features add mask commands to the Mask section: [command, label, icon]. */
+export const maskActions: [string, string, string][] = [];
+/** The Mask section: density and link of an imported mask, state, refine and apply. */
+export function maskSection(e: Editor, l: Layer) {
+  // Painted masks (maskGrid) are masks too, as in the Layers panel.
+  const masked = hasMask(l) || !!l.maskGrid;
+  const maskBody = `${l.pixelMask ? `${number('maskDensity', 'Mask density (%)', (l.pixelMask.userMaskDensity ?? 1) * 100, 0, 100)}<label class="lock-label"><input type="checkbox" data-property="maskLinked" ${l.pixelMask.positionRelativeToLayer ? '' : 'checked'}> Link mask to layer</label>` : masked && !l.vectorMask ? commandToggle(e, 'layer.mask-link', 'Link mask to layer') : ''}${
+    masked
+      ? `<div class="mask-info">${svg('square-dashed', 13)} ${l.maskDisabled ? 'Mask disabled' : 'Layer mask active'} <button data-action="invert-mask">Invert</button><button data-action="toggle-mask">${l.maskDisabled ? 'Enable' : 'Disable'}</button><button data-action="remove-mask" aria-label="Remove mask">${svg('x', 13)}</button></div><div class="pf-actions pf-mask-actions">${commandButton(e, 'select.mask-refine', 'Select and Mask…', 'feather')}${commandButton(e, 'layer.mask-apply', 'Apply Mask', 'check')}${maskActions
+          .filter(([id]) => commandExists(id))
+          .map(([id, label, icon]) => commandButton(e, id, label, icon))
+          .join('')}</div>`
       : '<button data-action="mask" class="wide">Add layer mask</button>'
   }`;
-  return `<div class="property-body">${parts.header === false ? '' : layerTitle(l, parts.title)}<input class="layer-name-input" data-property="name" aria-label="Layer name" value="${escapeXML(l.name)}" ${locked ? 'disabled' : ''}><label class="lock-label"><input type="checkbox" data-property="locked" ${l.locked ? 'checked' : ''} ${ancestorLocked ? 'disabled' : ''}> Lock layer</label><div class="partial-locks">${partial('transparency', 'Lock transparency')}${partial('composite', 'Lock image pixels')}${partial('position', 'Lock position')}</div><fieldset ${locked ? 'disabled' : ''}>
-${transform}${alignSection(e)}${text}${kindControls}${l.vector ? strokeProperties(l, doc) : ''}${parts.insert ?? ''}${ADJUSTMENTS_MARK}${adjustments}${section('layer-mask', 'Mask', maskBody)}${quickActionsSection(e, l)}</fieldset></div>`;
+  return section('layer-mask', 'Mask', maskBody);
 }
 
 /** Markup for several selected layers. */
 export function multipleProperties(e: Editor, count: number) {
-  return `<div class="property-body"><div class="pf-title">${svg('layers', 14)}<span class="eyebrow">MULTIPLE LAYERS</span></div><h3>${count} layers selected</h3>${alignSection(e)}${section(
+  return `<div class="property-body"><div class="pf-title">${svg('layers', 14)}<span class="eyebrow">MULTIPLE LAYERS</span></div><h3>${count} layers selected</h3>${frameSection(e, false)}${alignSection(e)}${section(
     'multi-actions',
     'Quick Actions',
     `<div class="pf-actions">${commandButton(e, 'edit.free-transform', 'Free Transform', 'transform-box')}<button type="button" class="pf-action" data-action="group">${svg('folder-plus', 14)}<span>Group selected layers</span></button>${commandButton(e, 'layer.merge-down', 'Merge Layers', 'merge')}${commandButton(e, 'layer.link', 'Link Layers', 'link')}</div>`,
@@ -283,6 +339,29 @@ fieldHandlers.set('layer', {
     e.preview(doc);
   },
   cancel: (e) => e.preview(e.displayDoc),
+});
+
+fieldHandlers.set('frame', {
+  commit: (e, key, text) => {
+    const k = key.slice(6) as Axis;
+    const f = e.transform.selectionFrame;
+    if (!f) return;
+    const px = parseLength(text, lengthCtx(e, k));
+    if (px === undefined) return 'Enter a value such as 120, 2 in or 50%.';
+    const next = { x: f.x, y: f.y, width: f.width, height: f.height };
+    if (k === 'x' || k === 'y') next[k] = Math.round(px * 100) / 100;
+    else {
+      const s = linkedSize(f.width, f.height, k, clamp(px, 1, 30000), true);
+      // Uniform scaling about the center keeps the frame centered.
+      next.x = f.x + (f.width - s.width) / 2;
+      next.y = f.y + (f.height - s.height) / 2;
+      next.width = s.width;
+      next.height = s.height;
+    }
+    if (['x', 'y', 'width', 'height'].every((p) => Math.abs(next[p as Axis] - f[p as Axis]) < 1e-9))
+      return void e.update();
+    e.transform.setFrame(next, k === 'x' || k === 'y' ? 'Move Layers' : 'Resize Layers');
+  },
 });
 
 /** Handle a click on a layer control; true when it was one. */

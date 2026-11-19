@@ -244,3 +244,83 @@ test.describe('layer properties', () => {
     expect((await historyLabels(page)).length).toBe(2);
   });
 });
+
+test.describe('groups, masks and the Layers panel', () => {
+  test.beforeEach(async ({ page }) => {
+    await boot(page);
+    const doc = newDocument(400, 200, 'Groups');
+    const a = layer('solid', 'A', 100, 50),
+      b = layer('solid', 'B', 100, 50);
+    a.transform.x = 20;
+    a.transform.y = 20;
+    b.transform.x = 120;
+    b.transform.y = 70;
+    doc.layers = [a, b];
+    await openProject(page, doc, [], 'groups.photo');
+    await panel(page, 'Properties');
+  });
+
+  test('a group moves and scales proportionally from its Transform fields', async ({ page }) => {
+    await page.evaluate(() =>
+      window.photoStudio.selectLayers(window.photoStudio.doc.layers.map((l) => l.id)),
+    );
+    await page.evaluate(() => window.photoStudio.runCommand('layer.group'));
+    await idle(page);
+    await expect(props(page).getByRole('region', { name: 'Transform' })).toBeVisible();
+    await expect(spin(page, 'W')).toHaveValue('200');
+    await expect(spin(page, 'H')).toHaveValue('100');
+    await commit(page, 'X', '40');
+    const children = () =>
+      page.evaluate(() =>
+        window.photoStudio.doc.layers[0].children.map((l) => ({ ...l.transform })),
+      );
+    expect((await children()).map((t) => t.x)).toEqual([40, 140]);
+    await commit(page, 'W', '400');
+    await expect(spin(page, 'H')).toHaveValue('200');
+    expect((await children())[0]).toMatchObject({ width: 200, height: 100 });
+    expect((await historyLabels(page)).slice(-2)).toEqual(['Move Layers', 'Resize Layers']);
+    await undo(page);
+    await expect(spin(page, 'W')).toHaveValue('200');
+  });
+
+  test('a painted mask shows the Mask section with its actions', async ({ page }) => {
+    await page.locator('#layers .layer-select').first().click();
+    await page.evaluate(() => window.photoStudio.runCommand('layer.mask-reveal-all'));
+    await idle(page);
+    const mask = props(page).getByRole('region', { name: 'Mask' });
+    await expect(mask.getByRole('button', { name: 'Invert', exact: true })).toBeVisible();
+    await expect(mask.getByRole('checkbox', { name: 'Link mask to layer' })).toBeChecked();
+    await mask.getByRole('checkbox', { name: 'Link mask to layer' }).uncheck();
+    await idle(page);
+    expect(await page.evaluate(() => window.photoStudio.layer?.maskUnlinked)).toBe(true);
+    await expect(mask.getByRole('button', { name: 'Add layer mask' })).toHaveCount(0);
+  });
+
+  test('Panel Options sets the thumbnail size and boxes follow the document aspect', async ({
+    page,
+  }) => {
+    const row = page.locator('#layers .layer-row').first();
+    expect((await row.boundingBox())!.height).toBeCloseTo(40, 0);
+    // 400 × 200 document: thumbnails are twice as wide as tall (within limits).
+    expect((await row.locator('.layer-thumbnail').boundingBox())!.width).toBeCloseTo(54, 0);
+    await page.evaluate(() => void window.photoStudio.runCommand('layers.panel-options'));
+    const dialog = page.locator('#dialog');
+    await dialog.getByLabel('Thumbnail size').selectOption('large');
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    await idle(page);
+    expect((await row.boundingBox())!.height).toBeCloseTo(56, 0);
+    await page.evaluate(() => void window.photoStudio.runCommand('layers.panel-options'));
+    await dialog.getByLabel('Thumbnail size').selectOption('none');
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    await idle(page);
+    await expect(row.locator('.layer-thumbnail')).toBeHidden();
+    // Kept for the next visit.
+    await page.reload();
+    await page.waitForFunction(() => !!window.photoStudio?.renderer, null, { timeout: 90_000 });
+    expect(
+      await page.evaluate(
+        () => JSON.parse(localStorage.getItem('photo-studio-layers-panel') ?? '{}').thumbnails,
+      ),
+    ).toBe('none');
+  });
+});

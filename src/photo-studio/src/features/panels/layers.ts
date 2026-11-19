@@ -5,6 +5,8 @@ import { svg } from '../../app/icons';
 import { hasMask } from '../../model/masks';
 import { cachedSourceThumbnail, hydrateSourceThumbnails } from '../../ui/thumbnails';
 import { gridThumbnail } from './thumbnails';
+import { gridDocBounds } from '../../model/tiles';
+import { formDialog } from '../../ui/dialog';
 import { layerLock, ownLock, setFullLock, setPartialLock } from '../../model/locks';
 import { bindLayerDrag } from '../../ui/layers';
 import { showContextMenu } from '../../app/menubar';
@@ -23,11 +25,54 @@ const kindIcon: Record<string, string> = {
   solid: 'square',
   adjustment: 'adjustment-layer',
 };
+// Layers panel options: thumbnail size and what thumbnails frame, kept in this browser.
+export type ThumbnailSize = 'none' | 'small' | 'medium' | 'large';
+export type LayersPanelOptions = { thumbnails: ThumbnailSize; contents: 'document' | 'bounds' };
+const OPTIONS_KEY = 'photo-studio-layers-panel';
+const SIZES: ThumbnailSize[] = ['none', 'small', 'medium', 'large'];
+// Thumbnail height in CSS pixels and the sampled size (crisp on dense screens).
+const THUMB_PX: Record<ThumbnailSize, [number, number]> = { none: [0, 0], small: [20, 40], medium: [30, 64], large: [46, 96] };
+let panelOptions: LayersPanelOptions | undefined;
+export function layersPanelOptions(): LayersPanelOptions {
+  if (panelOptions) return panelOptions;
+  panelOptions = { thumbnails: 'medium', contents: 'document' };
+  try {
+    const raw = JSON.parse(localStorage.getItem(OPTIONS_KEY) ?? '{}');
+    if (SIZES.includes(raw?.thumbnails)) panelOptions.thumbnails = raw.thumbnails;
+    if (raw?.contents === 'bounds') panelOptions.contents = 'bounds';
+  } catch {
+    // Defaults.
+  }
+  return panelOptions;
+}
+export function setLayersPanelOptions(e: Editor, next: Partial<LayersPanelOptions>) {
+  const o = layersPanelOptions();
+  if (next.thumbnails && SIZES.includes(next.thumbnails)) o.thumbnails = next.thumbnails;
+  if (next.contents === 'document' || next.contents === 'bounds') o.contents = next.contents;
+  try {
+    localStorage.setItem(OPTIONS_KEY, JSON.stringify(o));
+  } catch {
+    // Kept for this page only.
+  }
+  e.update();
+}
+/** Thumbnail box width for the document's aspect ratio at `height` pixels. */
+export function thumbnailWidth(docW: number, docH: number, height: number) {
+  if (!height) return 0;
+  return Math.round(Math.min(height * 1.8, Math.max(height * 0.7, (height * docW) / Math.max(1, docH))));
+}
+function pixelThumbnail(e: Editor, l: Layer & { pixels: NonNullable<Layer['pixels']> }) {
+  const doc = e.doc;
+  const size = THUMB_PX[layersPanelOptions().thumbnails][1] || 64;
+  const b = layersPanelOptions().contents === 'bounds' ? gridDocBounds(l.pixels) : null;
+  const url = b ? gridThumbnail(e.assets.tiles, l.pixels, b.width, b.height, size, false, { x: b.x, y: b.y }) : gridThumbnail(e.assets.tiles, l.pixels, doc.width, doc.height, size);
+  return `<img src="${url}" alt="" draggable="false">`;
+}
 function thumbnail(e: Editor, l: Layer) {
   const doc = e.doc;
   if (l.artboard) return svg('artboard-layer', 16);
   if (l.frame) return svg(l.frame.shape === 'ellipse' ? 'frame-ellipse' : 'frame-tool', 16);
-  if (l.kind === 'pixel' && l.pixels) return `<img src="${gridThumbnail(e.assets.tiles, l.pixels, doc.width, doc.height)}" alt="" draggable="false">`;
+  if (l.kind === 'pixel' && l.pixels) return pixelThumbnail(e, l as Layer & { pixels: NonNullable<Layer['pixels']> });
   if (l.kind === 'solid') return fillThumb(l) ?? `<span class="swatch-thumb" style="background:${l.color}"></span>`;
   if (l.asset) {
     const url = cachedSourceThumbnail(l, e.assets, doc);
@@ -37,7 +82,7 @@ function thumbnail(e: Editor, l: Layer) {
   return svg(kindIcon[l.kind] ?? 'image', 16);
 }
 function maskThumb(e: Editor, l: Layer) {
-  if (l.maskGrid) return `<img src="${gridThumbnail(e.assets.tiles, l.maskGrid, e.doc.width, e.doc.height, 40, true)}" alt="" draggable="false">`;
+  if (l.maskGrid) return `<img src="${gridThumbnail(e.assets.tiles, l.maskGrid, e.doc.width, e.doc.height, THUMB_PX[layersPanelOptions().thumbnails][1] || 64, true)}" alt="" draggable="false">`;
   return svg('mask-add', 16);
 }
 // Layer filtering by kind or name from the panel's filter row.
@@ -406,6 +451,10 @@ export const layersPanel: Panel = {
     bindLayerDrag(e, el);
   },
   update: (e, el) => {
+    // Thumbnail size from Panel Options; boxes follow the document's aspect ratio.
+    const opts = layersPanelOptions();
+    el.dataset.thumbnails = opts.thumbnails;
+    el.style.setProperty('--thumb-w', `${thumbnailWidth(e.doc.width, e.doc.height, THUMB_PX[opts.thumbnails][0])}px`);
     const l = e.selectedIds.size === 1 ? e.layer : undefined;
     const locked = !!l && !!layerLock(e.doc.layers, l.id, 'all', false);
     const options = el.querySelector('.layer-options')!;
@@ -437,5 +486,20 @@ export const layersPanel: Panel = {
     el.querySelector('#layer-count')!.textContent = String(allLayers(e.doc.layers).length);
     hydrateSourceThumbnails(el, e.doc, e.assets);
   },
-  menu: () => ['layer.new', 'layer.duplicate-dialog', 'layer.delete', '-', 'layer.new-group', 'layer.group', '-', 'layer.rename', 'layer.style-dialog', { label: 'Color', items: colorLabelItems }, '-', 'layer.clipping-mask', '-', 'layer.merge-down', 'layer.merge-visible', 'layer.flatten'],
+  menu: () => ['layer.new', 'layer.duplicate-dialog', 'layer.delete', '-', 'layer.new-group', 'layer.group', '-', 'layer.rename', 'layer.style-dialog', { label: 'Color', items: colorLabelItems }, '-', 'layer.clipping-mask', '-', 'layer.merge-down', 'layer.merge-visible', 'layer.flatten', '-', 'layers.panel-options'],
 };
+
+/** Layers → Panel Options: thumbnail size and contents. */
+async function panelOptionsDialog(e: Editor) {
+  const o = layersPanelOptions();
+  const v = await formDialog(
+    'Layers Panel Options',
+    [
+      { name: 'thumbnails', label: 'Thumbnail size', value: o.thumbnails, type: 'select', options: [['none', 'None'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
+      { name: 'contents', label: 'Thumbnail contents', value: o.contents, type: 'select', options: [['document', 'Entire document'], ['bounds', 'Layer bounds']] },
+    ],
+    'OK',
+  );
+  if (v) setLayersPanelOptions(e, { thumbnails: v.thumbnails as ThumbnailSize, contents: v.contents as LayersPanelOptions['contents'] });
+}
+export const layersPanelOptionsCommand = { id: 'layers.panel-options', label: 'Panel Options…', description: 'Choose the thumbnail size and what layer thumbnails show.', run: (e: Editor) => panelOptionsDialog(e), recordable: false };

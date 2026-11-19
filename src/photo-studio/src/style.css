@@ -494,7 +494,12 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .opacity-control { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
 .opacity-control input { width: 46px; }
 #layers { flex: 1; overflow-y: auto; min-height: 40px; }
-.layer-row { display: flex; align-items: center; height: 40px; border-bottom: 1px solid var(--line); padding-left: calc(var(--depth) * 16px); gap: 2px; }
+.layers-panel { --thumb-h: 30px; --row-h: 40px; }
+.layers-panel[data-thumbnails='small'] { --thumb-h: 20px; --row-h: 30px; }
+.layers-panel[data-thumbnails='large'] { --thumb-h: 46px; --row-h: 56px; }
+.layers-panel[data-thumbnails='none'] { --thumb-h: 20px; --row-h: 28px; }
+.layers-panel[data-thumbnails='none'] .layer-thumbnail { display: none; }
+.layer-row { display: flex; align-items: center; height: var(--row-h, 40px); border-bottom: 1px solid var(--line); padding-left: calc(var(--depth) * 16px); gap: 2px; }
 .layer-row:hover { background: var(--hover); }
 .layer-row.selected { background: var(--row-selected); }
 .layer-row.hidden-layer .layer-thumbnail, .layer-row.hidden-layer .layer-name { opacity: 0.5; }
@@ -504,12 +509,15 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .disclosure-spacer { width: 14px; }
 .group-disclosure { width: 14px; padding: 0; min-height: 0; }
 .layer-select { padding: 0; min-height: 0; }
-.layer-thumbnail { width: 34px; height: 30px; display: grid; place-items: center; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 8px 8px; border: 1px solid #0005; overflow: hidden; }
+.layer-thumbnail { width: var(--thumb-w, 34px); height: var(--thumb-h, 30px); display: grid; place-items: center; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 8px 8px; border: 1px solid #0005; overflow: hidden; }
 .layer-thumbnail.group, .layer-thumbnail.text, .layer-thumbnail.adjustment, .layer-thumbnail.vector, .layer-thumbnail.paint { background: var(--surface2); }
 .layer-thumbnail img { max-width: 100%; max-height: 100%; display: block; }
+/* Image thumbnails carry their own checkerboard and edge; the box around them stays clear. */
+.layer-thumbnail.pixel, .layer-thumbnail.image { background: none; border-color: transparent; }
+.layer-thumbnail.pixel img, .layer-thumbnail.image img { box-shadow: 0 0 0 1px #0007; background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 8px 8px; }
 .layer-thumbnail.target, .mask-thumbnail.target { outline: 2px solid var(--text); outline-offset: 1px; }
 .swatch-thumb { width: 100%; height: 100%; }
-.mask-thumbnail { width: 34px; height: 30px; padding: 0; min-height: 0; border: 1px solid #0005; background: #000; overflow: hidden; margin-left: 4px; }
+.mask-thumbnail { width: var(--thumb-w, 34px); height: var(--thumb-h, 30px); padding: 0; min-height: 0; border: 1px solid #0005; background: #000; overflow: hidden; margin-left: 4px; }
 .mask-thumbnail img { width: 100%; height: 100%; object-fit: contain; display: block; background: #888; }
 .mask-thumbnail.disabled-mask { position: relative; }
 .mask-thumbnail.disabled-mask::after { content: ''; position: absolute; inset: 0; background: linear-gradient(45deg, transparent 46%, #e33 46% 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, #e33 46% 54%, transparent 54%); }
@@ -523,7 +531,7 @@ puter-user-menu::part(menu), puter-user-menu::part(apps-panel) {
 .lock-badge { color: var(--muted); padding: 0 6px; }
 .link-badge { color: var(--muted); padding: 0 2px 0 6px; display: inline-flex; }
 .link-badge.active { color: var(--accent); }
-.mask-link { width: 14px; height: 30px; padding: 0; min-height: 0; border: 0; background: none; color: var(--muted); display: grid; place-items: center; }
+.mask-link { width: 14px; height: var(--thumb-h, 30px); padding: 0; min-height: 0; border: 0; background: none; color: var(--muted); display: grid; place-items: center; }
 .mask-link + .mask-thumbnail { margin-left: 0; }
 .mask-link.unlinked svg { opacity: 0; }
 .mask-link.unlinked:hover svg, .mask-link.unlinked:focus-visible svg { opacity: .45; }

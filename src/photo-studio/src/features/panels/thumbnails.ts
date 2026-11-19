@@ -30,8 +30,9 @@ const checker = (x: number, y: number) => (((x >> 2) + (y >> 2)) & 1 ? 204 : 255
 
 /** A small data-URL thumbnail of a tile grid over a document-sized frame,
  * sampled directly from tiles (nearest) so it costs O(thumbnail pixels). */
-export function gridThumbnail(store: TileStore, grid: TileGrid, docW: number, docH: number, size = 40, mask = false): string {
-  const key = `${docW}x${docH}:${size}:${mask}`;
+export function gridThumbnail(store: TileStore, grid: TileGrid, docW: number, docH: number, size = 40, mask = false, origin = { x: 0, y: 0 }): string {
+  // `origin` and the size describe the framed area (the document, or the layer's bounds).
+  const key = `${docW}x${docH}@${origin.x},${origin.y}:${size}:${mask}`;
   let entry = cache.get(grid);
   const hit = entry?.get(key);
   if (hit) return hit;
@@ -59,8 +60,8 @@ export function gridThumbnail(store: TileStore, grid: TileGrid, docW: number, do
   const d = img.data;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const dx = Math.floor((x + 0.5) / scale) - grid.x,
-        dy = Math.floor((y + 0.5) / scale) - grid.y;
+      const dx = origin.x + Math.floor((x + 0.5) / scale) - grid.x,
+        dy = origin.y + Math.floor((y + 0.5) / scale) - grid.y;
       const tx = Math.floor(dx / TILE),
         ty = Math.floor(dy / TILE);
       const id = grid.tiles[tileKey(tx, ty)];
