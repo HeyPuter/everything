@@ -247,6 +247,7 @@ export const CATEGORIES = [
           select('panLawDb', 'Level at center (equal power)', [-1.5, -2.5, -3, -4.5, -6].map((v) => ({ value: v, label: `${v} dB` })), { enabledIf: (p) => p.get('panLaw') === 'equalPower' }),
           radio('soloExclusive', 'Track solo', opts([[false, 'Non-exclusive: several tracks can be soloed'], [true, 'Exclusive: soloing a track unsolos the others']])),
           check('loopToLastClip', 'When looping without a selection, loop at the end of the last clip', { help: 'When off, the loop runs to the end of the bar the last clip ends in.' }),
+          check('meterOnArm', 'Meter the input while a track is armed for recording', { keywords: 'arm record input metering level meters microphone', help: 'The level meters show the input signal from when the first track is armed until the last one is disarmed.' }),
           check('avoidOverlap', 'Avoid overlapping clips when inserting or pasting (use the next free track)'),
           check('randomTrackColor', 'Give new tracks a random color'),
         ],

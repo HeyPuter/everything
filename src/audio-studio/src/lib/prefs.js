@@ -34,6 +34,7 @@ export const DEFAULTS = {
   batchConcurrency: 2,
   embeddedTimecode: false,
   channelZones: true,
+  meterOnArm: true,
   defaultChannels: 2,
   returnToStart: true,
   skipSelection: false,

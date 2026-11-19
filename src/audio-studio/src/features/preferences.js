@@ -119,6 +119,25 @@ export function installPreferences(app) {
     app.notify(`Open files use about ${formatBytesShort(bytes)} of memory. Save and close files you no longer need to keep the browser responsive.`);
   });
 
+  // Preferences > Multitrack: arming a track for recording meters the input, until the last
+  // track is disarmed (input metering switched on by hand stays on).
+  let armMetering = false;
+  const anyArmed = () => app.documents.some((d) => d.kind === 'session' && d.state.tracks.some((t) => t.arm));
+  const syncArmMetering = () => {
+    if (!app.commands.get('transport.meterInput')) return;
+    const want = app.prefs.get('meterOnArm') !== false && anyArmed();
+    if (want && !armMetering && !app.inputMetering) {
+      armMetering = true;
+      app.commands.run('transport.meterInput');
+    } else if (!want && armMetering) {
+      armMetering = false;
+      if (app.inputMetering && !app.recording) app.commands.run('transport.meterInput');
+    }
+  };
+  app.on('doc-change', (doc) => doc.kind === 'session' && syncArmMetering());
+  app.on('documents', syncArmMetering);
+  app.prefs.on('change', (key) => key === 'meterOnArm' && syncArmMetering());
+
   // Keep selection, zoom and playhead in step across open audio files.
   let syncing = false;
   app.on('doc-change', (doc, e) => {
