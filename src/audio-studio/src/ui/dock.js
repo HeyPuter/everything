@@ -34,6 +34,8 @@ export class Dock extends Emitter {
     this.floats = [];
     this.floatObservers = [];
     this.floatEls = new WeakMap();
+    /** Each frame's current tab at the last render, to fade in a newly chosen one. */
+    this.lastActive = new WeakMap();
     this.maximized = null;
     // A smaller window pulls floating windows back into view.
     if (typeof window !== 'undefined') window.addEventListener('resize', () => this.#fitFloats());
@@ -484,6 +486,13 @@ export class Dock extends Emitter {
     if (g.a) {
       const inst = this.instance(g.a);
       if (inst) {
+        // A tab switch fades the panel in (a frame's first render does not).
+        const before = this.lastActive.get(g);
+        if (before !== undefined && before !== g.a) {
+          body.classList.add('panel-enter');
+          body.addEventListener('animationend', () => body.classList.remove('panel-enter'), { once: true });
+        }
+        this.lastActive.set(g, g.a);
         body.id = `body-${g.a}`;
         body.setAttribute('aria-labelledby', `tab-${g.a}`);
         body.append(inst.el);

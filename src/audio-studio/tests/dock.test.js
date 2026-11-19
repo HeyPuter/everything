@@ -381,3 +381,16 @@ describe('floating window title bar', () => {
     expect(dock.isOpen('history')).toBe(false);
   });
 });
+
+describe('panel switch motion', () => {
+  it('fades in a panel chosen by its tab, not frames drawn for the first time', () => {
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    const dock = new Dock({ openMenu() {} }, root, registry(['editor', 'files', 'history']));
+    dock.setLayout({ t: 'row', c: [{ t: 'group', tabs: ['files', 'history'] }, { t: 'group', tabs: ['editor'] }], s: [1, 3] });
+    expect(root.querySelector('.panel-enter')).toBe(null);
+    root.querySelector('#tab-history').click();
+    expect(root.querySelector('#body-history').classList.contains('panel-enter')).toBe(true);
+    expect(root.querySelector('#body-editor').classList.contains('panel-enter')).toBe(false);
+  });
+});

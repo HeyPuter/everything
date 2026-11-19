@@ -848,6 +848,10 @@ input[type='number']:not(:focus):not(:disabled):not([readonly]) {
   animation: rise-in 160ms var(--ease);
 }
 
+.panel-body.panel-enter {
+  animation: fade-in 110ms var(--ease);
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
