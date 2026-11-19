@@ -308,6 +308,8 @@ export function createClip(o = {}) {
     locked: Boolean(o.locked),
     loop: Boolean(o.loop),
     groupId: o.groupId || null,
+    // Loop-recorded takes of one pass share a take group (see selectTake).
+    takeGroup: o.takeGroup || null,
     z: o.z || 0,
     ...(o.mergeLayout ? { mergeLayout: copyMergeLayout(o.mergeLayout) } : {}),
     fx: Array.isArray(o.fx) ? o.fx.filter(Boolean).map((x) => ({ ...x, values: { ...(x.values || {}) } })) : [],
@@ -1175,6 +1177,19 @@ export function bringToFront(state, ids) {
 export function sendToBack(state, ids) {
   const z = Math.min(0, ...state.clips.map((c) => c.z)) - 1;
   return updateClips(state, ids, { z });
+}
+
+/** The clips of a take group, oldest take first. */
+export function takeClips(state, group) {
+  return group ? state.clips.filter((c) => c.takeGroup === group) : [];
+}
+
+/** Plays take `id` of its group: it is unmuted and brought to the front, the other takes muted. */
+export function selectTake(state, id) {
+  const c = findClip(state, id);
+  if (!c?.takeGroup) return state;
+  const others = takeClips(state, c.takeGroup).filter((x) => x.id !== id).map((x) => x.id);
+  return bringToFront(updateClips(updateClips(state, others, { mute: true }), [id], { mute: false }), [id]);
 }
 
 export function groupClips(state, ids) {

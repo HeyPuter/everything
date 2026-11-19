@@ -1030,6 +1030,19 @@ export class MultitrackView {
           }
           bx += bw + 4;
         }
+        if (c.takeGroup) {
+          // Take badge: which of the stacked takes this is.
+          const takes = S.takeClips(state, c.takeGroup);
+          const text = `take ${takes.findIndex((x) => x.id === c.id) + 1}/${takes.length}`;
+          const tw = ctx.measureText(text).width + 8;
+          if (bx + tw <= room) {
+            ctx.globalAlpha = 0.22;
+            ctx.fillRect(bx, r.y + 2, tw, r.hb - 4);
+            ctx.globalAlpha = 1;
+            ctx.fillText(text, bx + 4, r.y + r.hb / 2 + 0.5);
+          }
+          bx += tw + 4;
+        }
         const bw = type ? ctx.measureText(type.label).width + 8 : 0;
         if (type && bx + bw <= room) {
           // Sound Assistant audio type badge after the name.
@@ -1774,6 +1787,11 @@ export class MultitrackView {
       // The clip's effect envelopes follow the Envelopes submenu.
       const at = CLIP_CONTEXT.findIndex((x) => x?.label === 'Envelopes') + 1;
       const items = [...CLIP_CONTEXT.slice(0, at), { label: 'Effect Envelopes', items: () => this.#clipFxEnvelopeItems(hit.clip.id) }, ...CLIP_CONTEXT.slice(at)];
+      // Stacked takes: pick the one that plays.
+      if (hit.clip.takeGroup) {
+        const takes = S.takeClips(doc.state, hit.clip.takeGroup);
+        items.unshift({ label: 'Takes', items: () => takes.map((x, i) => ({ type: 'cmd', label: `Take ${i + 1}: ${x.name}`, enabled: true, checked: !x.mute, run: () => doc.apply('Choose Take', S.selectTake(doc.state, x.id), { clips: [x.id] }) })) }, '-');
+      }
       contextMenu(this.app, items, cx, cy, 'Clip context menu');
       return;
     }

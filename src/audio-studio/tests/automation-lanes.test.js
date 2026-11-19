@@ -726,3 +726,17 @@ describe('inserting a file channel by channel', () => {
     }
   });
 });
+
+describe('stacked takes', () => {
+  it('plays the chosen take and mutes the others', () => {
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 1 });
+    const id = st.tracks[0].id;
+    const takes = [0, 1, 2].map((i) => S.createClip({ trackId: id, sourceId: `s${i}`, start: 100, length: 50, mute: i < 2, takeGroup: 'tg' }));
+    st = S.addClipsOnTop(st, takes);
+    expect(S.takeClips(st, 'tg').map((c) => c.id)).toEqual(takes.map((c) => c.id));
+    st = S.selectTake(st, takes[0].id);
+    expect(S.takeClips(st, 'tg').map((c) => c.mute)).toEqual([false, true, true]);
+    const order = S.frontOrder(st);
+    expect(order.get(takes[0].id)).toBeGreaterThan(order.get(takes[2].id));
+  });
+});

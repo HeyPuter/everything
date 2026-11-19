@@ -274,6 +274,8 @@ export class SessionRecorder {
       if (!track) continue;
       const all = track.channels === 1 ? [channels[0]] : [channels[0], channels[Math.min(1, channels.length - 1)]];
       const clips = [];
+      // Loop passes stack as takes of one group (the clip menu's Takes picks the one that plays).
+      const takeGroup = pieces.length > 1 ? S.uid('take') : null;
       for (let i = 0; i < pieces.length; i++) {
         const p = pieces[i];
         const own = all.map((c) => c.slice(p.start, p.start + p.length));
@@ -285,7 +287,7 @@ export class SessionRecorder {
         app.addDocument(file, { activate: false });
         const sourceId = await linkSource(doc, file);
         // Only the newest of stacked takes plays; the others stay to pick from.
-        clips.push(S.createClip({ trackId, sourceId, name: file.name.replace(/\.wav$/, ''), start: p.at, length: p.length, mute: i < pieces.length - 1 }));
+        clips.push(S.createClip({ trackId, sourceId, name: file.name.replace(/\.wav$/, ''), start: p.at, length: p.length, mute: i < pieces.length - 1, takeGroup }));
       }
       // Takes play over the clips they were recorded over (a punch-in replaces what is there).
       state = S.addClipsOnTop(state, clips);
