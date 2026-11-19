@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runScript } from '../src/commands/scripts.js';
+import { runScript, scriptPreview } from '../src/commands/scripts.js';
 
 describe('scripts', () => {
   const app = { documents: [{ kind: 'audio', name: 'a.wav' }, { kind: 'session', name: 's' }], commands: { run: async (id, args) => `${id}:${args?.x}` } };
@@ -16,5 +16,10 @@ describe('scripts', () => {
     expect(r.error.message).toBe('boom');
     expect(r.output).toEqual(['before']);
     expect((await runScript(app, 'this is not javascript')).ok).toBe(false);
+  });
+
+  it('previews the start of a script before it runs', () => {
+    expect(scriptPreview('a\r\nb\nc', 2)).toBe('a\nb\n...');
+    expect(scriptPreview('one line')).toBe('one line');
   });
 });
