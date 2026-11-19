@@ -204,7 +204,7 @@ test('Tab on the start screen skips the covered canvas, its tab and the dimmed t
   await expect(page.locator('#auto-select')).toBeFocused();
 });
 
-test('closing the last document clears the Navigator and disables its zoom controls', async ({
+test('closing the last document clears the Navigator and History and disables their controls', async ({
   page,
 }) => {
   await boot(page);
@@ -227,4 +227,9 @@ test('closing the last document clears the Navigator and disables its zoom contr
   await expect(zoom).toBeDisabled();
   await expect(page.locator('.navigator-box')).toBeHidden();
   expect(await painted()).toBe(false);
+  // History lists no steps of the closed image and offers no snapshot.
+  await page.evaluate(() => window.photoStudio.dock.show('history'));
+  const history = page.locator('.panel-body[aria-label="History"]');
+  await expect(history.locator('.history-row')).toHaveCount(0);
+  await expect(history.getByRole('button', { name: 'Create new snapshot' })).toBeDisabled();
 });
