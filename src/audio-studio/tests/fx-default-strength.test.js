@@ -133,11 +133,11 @@ describe('restoration defaults do an audible, safe job', () => {
     expect(Math.abs(dbOf(segRms(y, sp.vowels)) - dbOf(segRms(x, sp.vowels)))).toBeLessThan(0.6);
   });
 
-  /** Speech over a faint floor with 1..4-sample clicks every 80..180 ms. */
-  const clicky = () => {
+  /** Speech over a faint floor (or digital silence) with 1..4-sample clicks every 80..180 ms. */
+  const clicky = (floor = 0.0003) => {
     const sp = speech({ seconds: 4, pause: 0.4 });
-    const fl = gaussNoise(sp.x.length, 0.0003, 9);
-    const clean = sp.x.map((v, i) => v + fl[i]);
+    const fl = gaussNoise(sp.x.length, floor, 9);
+    const clean = sp.x.map((v, i) => v + (floor ? fl[i] : 0));
     const x = clean.slice();
     const at = [];
     let s = 11;
@@ -150,12 +150,16 @@ describe('restoration defaults do an audible, safe job', () => {
     }
     return { clean, x, at };
   };
-  for (const [id, minFixed, maxDamage] of [
-    ['autoClickRemover', 0.8, -40],
-    ['declicker', 0.9, -55],
+  for (const [id, minFixed, maxDamage, floor] of [
+    ['autoClickRemover', 0.8, -40, 0.0003],
+    ['declicker', 0.9, -55, 0.0003],
+    // Pauses of digital silence: clicks there are repaired too (the first
+    // glottal pulses after a pause can still pass for clicks, hence the looser bounds).
+    ['autoClickRemover', 0.65, -36, 0],
+    ['declicker', 0.9, -36, 0],
   ]) {
-    it(`${id} repairs most clicks without touching the audio between them`, async () => {
-      const { clean, x, at } = clicky();
+    it(`${id} repairs most clicks without touching the audio between them (${floor ? 'faint floor' : 'digital silence'})`, async () => {
+      const { clean, x, at } = clicky(floor);
       const [y] = await runFx(id, {}, [x, x.slice()]);
       const err = (s, i) => {
         let e = 0;

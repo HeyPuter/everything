@@ -204,11 +204,13 @@ pub struct ClickScratch {
     resid: Vec<f32>,
     level: Vec<f32>,
     sorted: Vec<f32>,
+    /// Robust residual level per detection block.
+    meds: Vec<f32>,
 }
 
 impl ClickScratch {
     pub fn new(n: usize) -> ClickScratch {
-        ClickScratch { resid: vec![0.0; n], level: vec![0.0; n], sorted: vec![0.0; DET_BLOCK] }
+        ClickScratch { resid: vec![0.0; n], level: vec![0.0; n], sorted: vec![0.0; DET_BLOCK], meds: Vec::new() }
     }
 }
 
@@ -223,6 +225,7 @@ pub fn find_clicks(x: &[f32], s: &DeclickSettings, lsar: &mut Lsar, sc: &mut Cli
         return;
     }
     let max_run = s.max_run.clamp(2, 1024);
+    sc.meds.clear();
     let resid = &mut sc.resid;
     let level = &mut sc.level;
     let sorted = &mut sc.sorted;
@@ -243,11 +246,19 @@ pub fn find_clicks(x: &[f32], s: &DeclickSettings, lsar: &mut Lsar, sc: &mut Cli
         let m = end - at;
         sorted[..m].copy_from_slice(&resid[at..end]);
         sorted[..m].sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let med = sorted[m / 2] * 1.4826;
-        for v in &mut level[at..end] {
-            *v = med.max(1e-6);
-        }
+        sc.meds.push(sorted[m / 2] * 1.4826);
         at = end;
+    }
+    // A block's level is at least half its neighbours': where audio starts after
+    // digital silence, the onset is not mistaken for a click against a level of zero.
+    let meds = &sc.meds;
+    for (b, &med) in meds.iter().enumerate() {
+        let near = meds[b.saturating_sub(1)].max(*meds.get(b + 1).unwrap_or(&0.0));
+        let lv = med.max(0.5 * near).max(1e-6);
+        let (a, e) = (b * B, ((b + 1) * B).min(n));
+        for v in &mut level[a..e] {
+            *v = lv;
+        }
     }
     // Group detections into runs.
     let mut i = ORDER;
