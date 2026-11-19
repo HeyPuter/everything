@@ -32,6 +32,9 @@ import {
   whiteBalanceFor,
 } from '../../../imaging/filters/develop/auto';
 import { sharpenMask } from '../../../imaging/filters/develop/detail';
+import { correctLens, opticsActive } from '../../../imaging/filters/develop/optics';
+import { geometryActive, transformGeometry } from '../../../imaging/filters/develop/geometry';
+import { resolveDevelop } from '../../../imaging/filters/develop/profiles';
 import { openWorkspace } from '../../retouch/workspace';
 import {
   closeSession,
@@ -488,6 +491,30 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     if (!this.source) await this.loadSource();
     return this.source;
   }
+  private placed?: { key: string; src: RGBA8; img: RGBA8 };
+  /** The source copy where a pick lands: over the result, lens corrections
+   * and geometry have moved its pixels before the color work, so the copy
+   * is moved the same way (over the original it is used as it is). */
+  private async pickSource(after: boolean): Promise<RGBA8 | undefined> {
+    const src = await this.needSource();
+    if (!src || !after) return src;
+    const { params: q } = resolveDevelop(this.params);
+    const lens = opticsActive(q),
+      geo = geometryActive(q);
+    if (!lens && !geo) return src;
+    const key = JSON.stringify(
+      PANELS.filter((p) => p.id === 'optics' || p.id === 'geometry').flatMap((p) =>
+        p.keys.map((k) => q[k]),
+      ),
+    );
+    if (this.placed?.key !== key || this.placed.src !== src) {
+      let img = src;
+      if (lens) img = correctLens(img, q, 2 ** -this.sourceLevel);
+      if (geo) img = transformGeometry(img, q, 2 ** -this.sourceLevel);
+      this.placed = { key, src, img };
+    }
+    return this.placed.img;
+  }
 
   // ---------- Pane ----------
   private onImage(img: RGBA8) {
@@ -599,9 +626,9 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     this.preview.focus = { x: pt.x, y: pt.y };
     this.preview.stepZoom(dir);
   }
-  private async pickWhite(pt: { x: number; y: number; inside: boolean }) {
+  private async pickWhite(pt: { x: number; y: number; inside: boolean; after: boolean }) {
     if (!pt.inside) return;
-    const src = await this.needSource();
+    const src = await this.pickSource(pt.after);
     if (!src) return;
     const f = 2 ** -this.sourceLevel;
     const c = sampleLinear(src, pt.x * f, pt.y * f, 2);
@@ -618,9 +645,12 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     );
   }
   private target?: { y: number; start: ParamValues; weights: Float64Array; keys: string[] };
-  private async startTarget(pt: { x: number; y: number; inside: boolean }, clientY: number) {
+  private async startTarget(
+    pt: { x: number; y: number; inside: boolean; after: boolean },
+    clientY: number,
+  ) {
     if (!pt.inside) return;
-    const src = await this.needSource();
+    const src = await this.pickSource(pt.after);
     if (!src) return;
     const f = 2 ** -this.sourceLevel;
     const c = sampleLinear(src, pt.x * f, pt.y * f, 1);
