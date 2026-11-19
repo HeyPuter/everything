@@ -162,13 +162,15 @@ const ORIGINAL = {
   'zoom-out-amp': [['circle', { cx: '13', cy: '11', r: '5' }], ['path', { d: 'm16.5 14.5 4 4M11 11h4' }], ['path', { d: 'M4 4v16M2.5 5.5 4 4l1.5 1.5M2.5 18.5 4 20l1.5-1.5' }]],
   'zoom-in-time': [['circle', { cx: '11', cy: '13', r: '5' }], ['path', { d: 'm14.5 16.5 4 4M9 13h4M11 11v4' }], ['path', { d: 'M3 4h18M4.5 2.5 3 4l1.5 1.5M19.5 2.5 21 4l-1.5 1.5' }]],
   'zoom-out-time': [['circle', { cx: '11', cy: '13', r: '5' }], ['path', { d: 'm14.5 16.5 4 4M9 13h4' }], ['path', { d: 'M3 4h18M4.5 2.5 3 4l1.5 1.5M19.5 2.5 21 4l-1.5 1.5' }]],
-  'zoom-full': [['circle', { cx: '11', cy: '11', r: '6' }], ['path', { d: 'm15.5 15.5 5 5' }], ['path', { d: 'M8 9v4M14 9v4' }]],
+  // Brackets at both ends: the whole length in view.
+  'zoom-full': [['circle', { cx: '11.5', cy: '10.5', r: '4.5' }], ['path', { d: 'm14.8 13.8 3 3' }], ['path', { d: 'M3 5v13M2 5h2M2 18h2M21 5v13M20 5h2M20 18h2' }]],
   'zoom-selection': [['circle', { cx: '12', cy: '11', r: '5' }], ['path', { d: 'm15.5 14.5 4.5 4.5' }], ['path', { d: 'M4 6v10M3 6h2M3 16h2' }]],
   'zoom-in-point': [['path', { d: 'M5 4c-2 2-2 14 0 16' }], ['circle', { cx: '13', cy: '11', r: '5' }], ['path', { d: 'm16.5 14.5 4 4' }]],
   'zoom-out-point': [['path', { d: 'M19 4c2 2 2 14 0 16' }], ['circle', { cx: '10', cy: '11', r: '5' }], ['path', { d: 'm13.5 14.5 4 4' }]],
   // Tools.
   'tool-move': [fill('M4 3.5 15 9l-4.6 1.3-2 4.6z'), ['path', { d: 'M16 13v8M12 17h8M14.5 14.5 16 13l1.5 1.5M14.5 19.5 16 21l1.5-1.5M13.5 15.5 12 17l1.5 1.5M18.5 15.5 20 17l-1.5 1.5' }]],
-  'tool-razor': [['path', { d: 'M6 18 18 6l-1.5-3L3 16.5z', 'stroke-linejoin': 'round' }], ['path', { d: 'M6 18 9 21' }], ['path', { d: 'M9 10.5 13.5 15' }]],
+  // A craft knife: a wedge blade on a short handle.
+  'tool-razor': [['path', { d: 'M21 3 15 13.5 10.5 9z', 'stroke-linejoin': 'round' }], ['path', { d: 'M10.5 9 15 13.5 8 20.5 3.5 16z', 'stroke-linejoin': 'round' }], ['path', { d: 'm8.5 13.5 2 2' }]],
   'tool-slip': [['path', { d: 'M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3' }], ['path', { d: 'M9 6v12M15 6v12' }]],
   'tool-time': [['path', { d: 'M12 4v16M9 4h6M9 20h6' }]],
   'tool-marquee': [['rect', { x: '4', y: '5', width: '16', height: '14', 'stroke-dasharray': '2.5 2' }]],
