@@ -203,3 +203,28 @@ test('Tab on the start screen skips the covered canvas, its tab and the dimmed t
   await page.locator('#auto-select').focus();
   await expect(page.locator('#auto-select')).toBeFocused();
 });
+
+test('closing the last document clears the Navigator and disables its zoom controls', async ({
+  page,
+}) => {
+  await boot(page);
+  await openFiles(page, await png(page, 'shown.png', 120, 90));
+  await page.evaluate(() => window.photoStudio.dock.show('navigator'));
+  const painted = () =>
+    page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>('.navigator-view canvas')!;
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      return d.some((v, i) => i % 4 === 3 && v > 0);
+    });
+  await expect.poll(painted).toBe(true);
+  const zoom = page.locator('.navigator-zoom input');
+  await expect(zoom).toBeEnabled();
+  await page.evaluate(async () => {
+    while (window.photoStudio.hasDocument) await window.photoStudio.runCommand('file.close');
+  });
+  await expect(page.locator('#empty')).toBeVisible();
+  await page.evaluate(() => window.photoStudio.dock.show('navigator'));
+  await expect(zoom).toBeDisabled();
+  await expect(page.locator('.navigator-box')).toBeHidden();
+  expect(await painted()).toBe(false);
+});

@@ -251,6 +251,17 @@ const navigatorPanel: Panel = {
   },
   update: (e, el) => {
     const canvas = el.querySelector('canvas')!;
+    // No document (the start screen): nothing to show or zoom, and the last
+    // closed image's thumbnail must not stay behind.
+    const none = !e.hasDocument;
+    el.querySelectorAll<HTMLInputElement | HTMLButtonElement>('.navigator-zoom :is(input, button)').forEach((c) => (c.disabled = none));
+    el.querySelector<HTMLElement>('.navigator-box')!.hidden = none;
+    if (none) {
+      clearTimeout(snapshotTimer);
+      canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height);
+      el.querySelector('output')!.textContent = '';
+      return;
+    }
     const s = Math.min(canvas.width / e.doc.width, canvas.height / e.doc.height);
     const ox = (canvas.width - e.doc.width * s) / 2,
       oy = (canvas.height - e.doc.height * s) / 2;
@@ -266,9 +277,9 @@ const navigatorPanel: Panel = {
     const range = el.querySelector<HTMLInputElement>('input[type=range]')!;
     range.value = String(((Math.log(e.zoom) - Math.log(0.01)) / (Math.log(64) - Math.log(0.01))) * 100);
     el.querySelector('output')!.textContent = `${Math.round(e.zoom * 100)}%`;
-    if (!e.hasDocument) return;
     later(e, async () => {
       const img = await compositeSnapshot(e);
+      if (!e.hasDocument) return;
       const tmp = new OffscreenCanvas(img.width, img.height);
       tmp.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.data), img.width, img.height), 0, 0);
       const c = canvas.getContext('2d')!;
