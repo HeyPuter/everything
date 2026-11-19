@@ -349,3 +349,40 @@ describe('develop auto settings', () => {
     expect(flat.blacks).toBeLessThan(0);
   });
 });
+
+describe('develop pixel passes in the pipeline', () => {
+  const edge = () => {
+    const img = rgba8(32, 32);
+    for (let y = 0; y < 32; y++)
+      for (let x = 0; x < 32; x++) {
+        const v = x < 16 ? 80 : 170;
+        img.data.set([v, v, v, 255], (y * 32 + x) * 4);
+      }
+    return img;
+  };
+  it('sharpening raises edge contrast and its panel switch turns it off', () => {
+    const src = edge();
+    const out = dev(src, { sharpenAmount: 120 });
+    expect(px(out, 14, 10)[0]).toBeLessThan(80);
+    expect(px(out, 17, 10)[0]).toBeGreaterThan(170);
+    expect(maxDiff(dev(src, { sharpenAmount: 120, detailOn: false }), src)).toBe(0);
+  });
+  it('geometry and lens corrections run before the tone work', () => {
+    const src = photo(40, 30);
+    const rotated = dev(src, { geoRotate: 5 });
+    expect(maxDiff(rotated, src)).toBeGreaterThan(20);
+    expect(maxDiff(dev(src, { geoRotate: 5, geometryOn: false }), src)).toBe(0);
+    const lens = dev(src, { lensVignetting: 80 });
+    expect(px(lens, 0, 0)[2]).toBeGreaterThanOrEqual(px(src, 0, 0)[2]);
+    // Rotation and exposure together: both apply.
+    const both = dev(src, { geoRotate: 5, exposure: 1 });
+    expect(maxDiff(both, rotated)).toBeGreaterThan(10);
+  });
+  it('grain after sharpening is deterministic', () => {
+    const src = solid([128, 128, 128], 24, 24);
+    const a = dev(src, { sharpenAmount: 50, grain: 40 }),
+      b = dev(src, { sharpenAmount: 50, grain: 40 });
+    expect(maxDiff(a, b)).toBe(0);
+    expect(maxDiff(a, src)).toBeGreaterThan(2);
+  });
+});

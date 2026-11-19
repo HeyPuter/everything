@@ -10,7 +10,7 @@
 //   vibrance/saturation -> Color Mixer, or the gray mix in black and white ->
 //   Color Grading -> gamut compression toward luminance instead of
 //   per-channel clipping -> vignette -> encode -> Curve tables -> grain;
-//   post-pass: sharpening (grain then follows it).
+//   post-pass: sharpening (grain then follows it, so it is not sharpened).
 // Profiles and the panel switches are resolved into the settings first
 // (profiles.ts). Every stage is the identity at its defaults, and stages at
 // their defaults are skipped.
@@ -19,6 +19,9 @@ import { checkCancelled, cloneRGBA8 } from '../../types';
 import { resize } from '../resample';
 import { SRGB_TO_LINEAR, blendSelection, boxBlurPlane, encodeSRGB, hash3, num, str } from '../sampling';
 import { KB, KG, KR, calibrationMatrix, gradeTable, grayOf, grayTable, mixPixel, mixerTable } from './color';
+import { detailActive, reduceNoise, sharpen } from './detail';
+import { geometryActive, transformGeometry } from './geometry';
+import { correctLens, opticsActive } from './optics';
 import { developParams, migrateDevelop } from './params';
 import { resolveDevelop } from './profiles';
 import { PERCEPTUAL, curveTables, toneLUT } from './tone';
@@ -227,8 +230,37 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
     cal = calibrationMatrix(q),
     shTint = v('calShadowTint') / 100;
   const basic = BASIC.some((k) => v(k) !== 0);
-  if (!basic && !curves.active && !mono && !mix?.active && !grade.active && !cal && !shTint) return cloneRGBA8(src);
-  const img = src;
+  const mainOn = basic || curves.active || mono || !!mix?.active || grade.active || !!cal || shTint !== 0;
+  const det = detailActive(q),
+    lens = opticsActive(q),
+    geo = geometryActive(q);
+  if (!mainOn && !det.noise && !det.sharpen && !lens && !geo) return cloneRGBA8(src);
+  const scale = ctx.scale ?? 1;
+  // Pixel passes before the tone work, each with a share of the progress.
+  const phases = [det.noise, lens, geo, mainOn, det.sharpen].filter(Boolean).length;
+  let phase = 0;
+  const part = (): Progress | undefined =>
+    progress && {
+      cancelled: progress.cancelled,
+      report: ((k) => (f: number) => progress.report?.((k + Math.max(0, Math.min(1, f))) / phases))(phase++),
+    };
+  let img = src;
+  if (det.noise) img = reduceNoise(img, q, scale, part());
+  if (lens) img = correctLens(img, q, scale, part());
+  if (geo) img = transformGeometry(img, q, scale, part());
+  checkCancelled(progress);
+  const grain = v('grain') / 100;
+  const finish = (out: RGBA8) => {
+    if (det.sharpen) {
+      out = sharpen(out, q, scale, part());
+      // Grain goes on after sharpening so it is not sharpened.
+      if (grain) applyGrain(out, grainTexture(grainCell(q, ctx), (ctx.seed ?? 0) | 0, num(q, 'grainRoughness', 50) / 100), grain);
+    }
+    progress?.report?.(1);
+    return blendSelection(src, out, ctx.selection);
+  };
+  if (!mainOn) return finish(img === src ? cloneRGBA8(src) : img);
+  const mainProgress = part();
   const w = img.width,
     h = img.height,
     sd = img.data,
@@ -326,8 +358,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
 
   const vib = v('vibrance') / 100,
     sat = v('saturation') / 100,
-    vig = v('vignette') / 100,
-    grain = v('grain') / 100;
+    vig = v('vignette') / 100;
   // Vignette shape: an ellipse following the frame (roundness 0) that turns
   // into a circle (+100) or a rounded rectangle (-100); midpoint and feather
   // place and widen the falloff in units of the corner distance.
@@ -353,13 +384,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
       t = Math.min(1, Math.max(0, (d - vin) / vwid));
     return t * t * (3 - 2 * t);
   };
-  const grainTile = grain
-    ? grainTexture(
-        Math.max(0.5, (1 + (num(q, 'grainSize', 25) / 100) * 3) * (ctx.scale ?? 1)),
-        (ctx.seed ?? 0) | 0,
-        num(q, 'grainRoughness', 50) / 100,
-      )
-    : null;
+  const grainTile = grain && !det.sharpen ? grainTexture(grainCell(q, ctx), (ctx.seed ?? 0) | 0, num(q, 'grainRoughness', 50) / 100) : null;
   const mixOn = !!mix?.active,
     gradeOn = grade.active,
     gGains = grade.gains,
@@ -485,10 +510,7 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
         B += (t - B) * a;
       }
       if (grainTile) {
-        // Strongest in the midtones.
-        const n = grainTile[gRow + (x & (GRAIN_T - 1))],
-          l = (0.299 * R + 0.587 * G + 0.114 * B) / 255,
-          a = n * grain * 70 * (0.3 + 2.8 * l * (1 - l));
+        const a = grainAt(grainTile[gRow + (x & (GRAIN_T - 1))], grain, R, G, B);
         R += a;
         G += a;
         B += a;
@@ -501,12 +523,31 @@ export function develop(src: RGBA8, p: ParamValues, ctx: OperationContext, progr
   for (let y = 0; y < h; y++) {
     if ((y & 31) === 0) {
       checkCancelled(progress);
-      progress?.report?.(y / h);
+      mainProgress?.report?.(y / h);
     }
     row(y);
   }
-  progress?.report?.(1);
-  return blendSelection(src, out, ctx.selection);
+  return finish(out);
+}
+
+const grainCell = (q: ParamValues, ctx: OperationContext) => Math.max(0.5, (1 + (num(q, 'grainSize', 25) / 100) * 3) * (ctx.scale ?? 1));
+// Grain offset for one pixel (encoded values), strongest in the midtones.
+function grainAt(n: number, amount: number, R: number, G: number, B: number) {
+  const l = (0.299 * R + 0.587 * G + 0.114 * B) / 255;
+  return n * amount * 70 * (0.3 + 2.8 * l * (1 - l));
+}
+function applyGrain(img: RGBA8, tile: Float32Array, amount: number) {
+  const d = img.data,
+    w = img.width;
+  for (let y = 0; y < img.height; y++) {
+    const gRow = (y & (GRAIN_T - 1)) * GRAIN_T;
+    for (let x = 0, k = y * w * 4; x < w; x++, k += 4) {
+      const a = grainAt(tile[gRow + (x & (GRAIN_T - 1))], amount, d[k], d[k + 1], d[k + 2]);
+      d[k] += a;
+      d[k + 1] += a;
+      d[k + 2] += a;
+    }
+  }
 }
 
 // Grain is looked up in a tileable 512 x 512 texture of two-octave value noise
