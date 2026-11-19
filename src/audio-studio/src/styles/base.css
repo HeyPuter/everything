@@ -279,6 +279,10 @@ input[type='radio'] {
   text-decoration: underline dotted;
 }
 
+.hot:focus-visible {
+  outline-offset: 1px;
+}
+
 .hot:disabled {
   color: var(--text-faint);
   cursor: default;

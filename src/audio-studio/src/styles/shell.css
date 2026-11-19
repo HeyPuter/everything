@@ -575,8 +575,9 @@ puter-user-menu::part(apps-panel) {
 
 /* ------------------------------------------------------------ responsive */
 
+/* Narrower windows keep the current workspace and its menu; the others are under the chevron. */
 @media (max-width: 1280px) {
-  .workspace-tabs {
+  .workspace-tab:not([aria-selected='true']) {
     display: none;
   }
 }
