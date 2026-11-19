@@ -12,7 +12,15 @@ import { DITHER_MODES } from '../audio/quantize.js';
 import { codecSupported } from './webcodecs.js';
 import { mp3Bitrates } from './mp3.js';
 
-const TITLES = { saveAs: 'Save As', copy: 'Save a Copy', export: 'Export Audio File', selection: 'Save Selection As', download: 'Download to This Device' };
+const TITLES = { saveAs: 'Save As', copy: 'Save a Copy', export: 'Export Audio File', selection: 'Save Selection As', download: 'Download to This Device', mixdown: 'Export Multitrack Mixdown' };
+
+/** "Master only", "Master and 2 tracks", "3 tracks": what a mixdown export writes. */
+export function describeMixdown(mix) {
+  const n = mix.tracks.size ?? mix.tracks.length;
+  const tracks = `${n} track${n === 1 ? '' : 's'}`;
+  if (mix.master) return n ? `Master and ${tracks}, each as its own file` : 'Master only';
+  return n ? `${tracks}, each as its own file` : 'Nothing selected';
+}
 
 let supportCache = null;
 /** Which WebCodecs formats this browser can encode (checked once). */
@@ -48,10 +56,12 @@ export function initialState(doc, { mode, frames, remembered = {}, includeMeta }
 
 /**
  * Shows the dialog. Resolves { fileName, location: { type: 'puter', dir } | { type: 'download' }, options } or null.
+ * `mixdown` ({ tracks: [{ id, name, type, channels }] }) adds Mixdown Options: the master and/or
+ * tracks to write as separate files; the result then has `mixdown: { master, tracks: [ids] }`.
  * `initial` is an earlier result of this dialog to start from (the user is asked again, e.g.
  * after declining to replace an existing file): its name, folder and options are kept.
  */
-export async function exportFileDialog(app, doc, { mode = 'export', frames = doc.length, initial = null } = {}) {
+export async function exportFileDialog(app, doc, { mode = 'export', frames = doc.length, initial = null, mixdown = null } = {}) {
   const remembered = app.prefs.get('exportPrefs') || {};
   const state = initialState(doc, { mode, frames, remembered, includeMeta: app.prefs.get('exportMarkers') !== false });
   if (initial) {
@@ -62,11 +72,13 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const sdk = Boolean(puter.sdk());
   let locationType = mode === 'download' || !sdk ? 'download' : app.prefs.get('exportLocation') === 'download' ? 'download' : 'puter';
   if (initial && sdk && mode !== 'download') locationType = initial.location.type;
-  // Save As and Save a Copy start in the folder of the document's own Puter file.
+  // Save As, Save a Copy and a mixdown start in the folder of the document's (session's) own Puter file.
   const ownPath = doc.source?.type === 'puter' ? doc.source.path : null;
-  const ownDir = (mode === 'saveAs' || mode === 'copy') && ownPath ? puter.dirname(ownPath) : null;
+  const ownDir = (mode === 'saveAs' || mode === 'copy' || mode === 'mixdown') && ownPath ? puter.dirname(ownPath) : null;
   let dir = initial?.location.dir || ownDir || app.prefs.get('exportFolder') || null;
   let notes = [];
+  const mixTracks = mixdown?.tracks || [];
+  const mix = mixdown ? { master: initial?.mixdown?.master ?? true, tracks: new Set((initial?.mixdown?.tracks || []).filter((id) => mixTracks.some((t) => t.id === id))) } : null;
 
   // ---------------------------------------------------------------- controls
   const nameInput = h('input.input.io-name', { type: 'text', value: state.name, 'aria-label': 'File name', spellcheck: 'false', autocomplete: 'off' });
@@ -93,6 +105,8 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   const changeBtn = h('button.btn', { type: 'button', 'aria-label': 'Change sample type' }, 'Change...');
   const settingsHost = h('div.io-settings');
   const settingsText = h('span.io-summary');
+  const mixText = h('span.io-summary');
+  const mixBtn = h('button.btn', { type: 'button', 'aria-label': 'Change mixdown options' }, 'Change...');
   const metaCheck = h('input', { type: 'checkbox', checked: state.options.meta !== false });
   const sizeText = h('span.io-size.tabular', { 'aria-live': 'polite' });
   const noteText = h('div.io-notes', { role: 'status' });
@@ -112,6 +126,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
       h('div.io-row', sampleText, changeBtn),
       h('label', 'Format Settings:'),
       h('div.io-col', settingsText, settingsHost),
+      ...(mix ? [h('label', 'Mixdown Options:'), h('div.io-row', mixText, mixBtn)] : []),
     ),
     h('label.check.io-check', metaCheck, 'Include markers and other metadata'),
     h('div.io-foot-info', h('span.muted', 'Estimated file size:'), sizeText),
@@ -135,6 +150,33 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     h('div.form-grid', h('label', 'Sample Rate:'), rateSel, h('label', 'Channels:'), chSel, ...bitRow, ...ditherRow),
     h('div.io-sample-actions', sampleBack, sampleOk),
   );
+
+  // Mixdown options page: the master and the tracks to write, each as its own file.
+  const masterCheck = h('input', { type: 'checkbox', 'aria-label': 'Master' });
+  const trackChecks = mixTracks.map((t) => h('input', { type: 'checkbox', value: t.id, 'aria-label': t.name }));
+  const setAll = (on) => trackChecks.forEach((c) => (c.checked = on));
+  const mixCancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const mixOk = h('button.btn.primary', { type: 'button' }, 'OK');
+  const mixPage = mix
+    ? h(
+        'div.io-sample-page.io-mix-page',
+        { hidden: true, role: 'group', 'aria-label': 'Mixdown options' },
+        h('label.check', masterCheck, h('span', h('strong', 'Master'), h('span.muted', ' \u2014 the whole session mix'))),
+        h(
+          'div.io-mix-head',
+          h('span', 'Tracks and buses, each as its own file:'),
+          h('span.io-mix-tools', h('button.btn', { type: 'button', onclick: () => setAll(true), disabled: !mixTracks.length }, 'All'), h('button.btn', { type: 'button', onclick: () => setAll(false), disabled: !mixTracks.length }, 'None')),
+        ),
+        h(
+          'div.io-mix-list',
+          mixTracks.length
+            ? mixTracks.map((t, i) => h('label.check.io-mix-track', trackChecks[i], h('span.io-mix-name', t.name), h('span.muted.io-mix-kind', `${t.type === 'bus' ? 'Bus' : 'Track'}, ${channelLabel(t.channels)}${t.empty ? ' (empty)' : ''}`)))
+            : h('p.muted', 'This session has no tracks.'),
+        ),
+        h('p.muted.io-sample-note', 'A track file holds the track after its own volume, pan and effects, plus anything routed to it, without the master track. It is named after the file name above and the track, for example "Mix_Vocals.wav".'),
+        h('div.io-sample-actions', mixCancel, mixOk),
+      )
+    : null;
 
   // ----------------------------------------------------------------- logic
   const fmt = () => getFormat(state.options.format);
@@ -165,7 +207,9 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     sampleText.textContent = describeSampleType(state.options);
     settingsText.textContent = describeSettings(state.options);
     settingsText.hidden = fmt().settings.length > 0;
-    sizeText.textContent = formatBytesShort(estimateSize(state.options, frames, doc.sampleRate));
+    const files = mix ? (mix.master ? 1 : 0) + mix.tracks.size : 1;
+    sizeText.textContent = formatBytesShort(estimateSize(state.options, frames, doc.sampleRate) * files) + (files > 1 ? ` in ${files} files` : '');
+    if (mix) mixText.textContent = describeMixdown(mix);
     noteText.textContent = notes.join(' ');
     noteText.hidden = !notes.length;
     renderSettings();
@@ -203,7 +247,22 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     }
   });
 
-  let samplePageOpen = false;
+  // The open sub-page ('sample' | 'mixdown') replaces the form until OK or Cancel.
+  let page = null;
+  const showPage = (el, title) => {
+    main.hidden = true;
+    el.hidden = false;
+    setTitle(title);
+    footer()?.classList.add('io-hidden');
+  };
+  const hidePage = (el, focus) => {
+    el.hidden = true;
+    main.hidden = false;
+    page = null;
+    setTitle(TITLES[mode] || 'Export');
+    footer()?.classList.remove('io-hidden');
+    focus.focus();
+  };
   const openSamplePage = () => {
     const f = fmt();
     const rates = f.rates || [...new Set([...COMMON_RATES, doc.sampleRate])].sort((a, b) => a - b);
@@ -224,11 +283,8 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
     bitSel.onchange = syncDither;
     ditherSel.value = state.options.dither;
     syncDither();
-    main.hidden = true;
-    samplePage.hidden = false;
-    samplePageOpen = true;
-    setTitle('Change Sample Type');
-    footer()?.classList.add('io-hidden');
+    page = 'sample';
+    showPage(samplePage, 'Change Sample Type');
     rateSel.focus();
   };
   const closeSamplePage = (apply) => {
@@ -237,13 +293,30 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
       state.options = { ...state.options, sampleRate: Number(rateSel.value), channels: Number(chSel.value), bitDepth: fmt().bitDepths ? Number(bitSel.value) : undefined, dither: ditherSel.value };
       refresh();
     }
-    samplePage.hidden = true;
-    main.hidden = false;
-    samplePageOpen = false;
-    setTitle(TITLES[mode] || 'Export');
-    footer()?.classList.remove('io-hidden');
-    changeBtn.focus();
+    hidePage(samplePage, changeBtn);
   };
+  const openMixPage = () => {
+    masterCheck.checked = mix.master;
+    trackChecks.forEach((c) => (c.checked = mix.tracks.has(c.value)));
+    page = 'mixdown';
+    showPage(mixPage, 'Mixdown Options');
+    masterCheck.focus();
+  };
+  const closeMixPage = (apply) => {
+    if (apply) {
+      mix.master = masterCheck.checked;
+      mix.tracks = new Set(trackChecks.filter((c) => c.checked).map((c) => c.value));
+      error.textContent = '';
+      refresh();
+    }
+    hidePage(mixPage, mixBtn);
+  };
+  const closePage = (apply) => (page === 'mixdown' ? closeMixPage(apply) : closeSamplePage(apply));
+  if (mix) {
+    mixBtn.addEventListener('click', openMixPage);
+    mixCancel.addEventListener('click', () => closeMixPage(false));
+    mixOk.addEventListener('click', () => closeMixPage(true));
+  }
   changeBtn.addEventListener('click', openSamplePage);
   sampleBack.addEventListener('click', () => closeSamplePage(false));
   sampleOk.addEventListener('click', () => closeSamplePage(true));
@@ -266,19 +339,19 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   // Escape on the sample type page goes back instead of closing the dialog.
   // Window capture runs before the dialog's own document-level handler.
   const escape = (e) => {
-    if (samplePageOpen && e.key === 'Escape') {
+    if (page && e.key === 'Escape') {
       e.preventDefault();
       e.stopImmediatePropagation();
-      closeSamplePage(false);
+      closePage(false);
     }
   };
   window.addEventListener('keydown', escape, true);
-  const primaryLabel = mode === 'export' ? 'Export' : mode === 'download' ? 'Download' : 'Save';
+  const primaryLabel = mode === 'export' || mode === 'mixdown' ? 'Export' : mode === 'download' ? 'Download' : 'Save';
   const shown = openDialog({
     title: TITLES[mode] || 'Export',
     className: 'io-export-dialog',
     body: () => {
-      dialogEl = h('div.io-export-wrap', main, samplePage);
+      dialogEl = h('div.io-export-wrap', main, samplePage, mixPage);
       return dialogEl;
     },
     buttons: [
@@ -286,14 +359,19 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
       { label: primaryLabel, value: 'ok', primary: true },
     ],
     onSubmit: () => {
-      if (samplePageOpen) {
-        closeSamplePage(true);
+      if (page) {
+        closePage(true);
         return false;
       }
       const name = sanitizeFileName(nameInput.value);
       if (!name || /^\.[a-z0-9]+$/i.test(name)) {
         error.textContent = 'Enter a file name.';
         nameInput.focus();
+        return false;
+      }
+      if (mix && !mix.master && !mix.tracks.size) {
+        error.textContent = 'Choose the master or at least one track to export (Mixdown Options).';
+        mixBtn.focus();
         return false;
       }
       return true;
@@ -316,7 +394,7 @@ export async function exportFileDialog(app, doc, { mode = 'export', frames = doc
   });
   if (mode !== 'download') app.prefs.set('exportLocation', location.type);
   if (location.dir) app.prefs.set('exportFolder', location.dir);
-  return { fileName, location, options: state.options };
+  return { fileName, location, options: state.options, ...(mix ? { mixdown: { master: mix.master, tracks: mixTracks.map((t) => t.id).filter((id) => mix.tracks.has(id)) } } : {}) };
 }
 
 export { mp3Bitrates };

@@ -14,11 +14,12 @@ import { panGains, compensateLatency } from '../engine/mixcore.js';
  * @param {Set<string>} [o.clipIds] only these clips
  * @param {string} [o.trackId] only this track, before its output routing and the master
  * @param {Function} [o.onPrepared] observes ready media synchronously before the render graph is built
+ * @param {Function} [o.onProgress] receives the fraction rendered; [o.signal] cancels the render
  * @param {boolean} [o.master] false renders audio that will play through a track and the master
  *   again (bounces, merged clips): it leaves out the master track's volume, effects and polarity,
  *   and the pan law's centre level, which the new track's centred pan applies once more
  */
-export async function renderSession(app, session, { state = session.state, start = 0, end = session.length, clipIds = null, trackId = null, master = true, label = 'Rendering', onPrepared } = {}) {
+export async function renderSession(app, session, { state = session.state, start = 0, end = session.length, clipIds = null, trackId = null, master = true, label = 'Rendering', onPrepared, onProgress, signal } = {}) {
   if (end <= start) throw new Error('There is nothing to render in that range.');
   // Stretched and remixed clips render with their finished audio, not the preview.
   if (session.stretcher?.busy) await session.stretcher.whenIdle();
@@ -39,7 +40,9 @@ export async function renderSession(app, session, { state = session.state, start
   const out = await renderGraph(graph, sources, {
     start,
     end,
+    signal,
     onProgress: (p) => {
+      onProgress?.(p);
       const pct = Math.floor(p * 100);
       if (pct !== last && pct % 5 === 0) {
         last = pct;

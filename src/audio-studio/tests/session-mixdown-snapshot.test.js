@@ -61,7 +61,17 @@ it.each(cases.map(([rate, scope, action, exporting = false]) => [rate, scope, ac
   const copying = app.commands.run('file.saveCopy'); await confirmSessionSave('Target.asesx', { replace: true }); await copying; app.activate(doc);
   doc.setSelection(8, 24); doc.selectClips([clips[1].id]);
   let release; gate.wait = new Promise(resolve => { release = resolve; });
+  // The export dialog comes first; the render of the snapshot taken when the command ran follows OK.
+  const fillAndSave = async () => {
+    await vi.waitFor(() => expect(document.querySelector('.io-export-dialog')).not.toBeNull(), { interval: 1 });
+    const form = document.querySelector('.io-export-dialog');
+    const name = form.querySelector('[aria-label="File name"]'); name.value = 'Mix.wav'; name.dispatchEvent(new Event('input', { bubbles: true }));
+    [...form.querySelectorAll('button')].find((b) => b.textContent === 'Browse...').click();
+    await vi.waitFor(() => expect(form.querySelector('.io-path').textContent).toBe('/u'), { interval: 1 });
+    form.querySelector('.dialog-foot button[data-value="ok"]').click();
+  };
   const mixing = app.commands.run(exporting ? `export.mixdown${scope === 'All' ? 'Session' : scope}` : `mt.mixdown${scope}`);
+  if (exporting) await fillAndSave();
   try {
     await vi.waitFor(() => expect(gate.called).toBe(true), { interval: 1 });
     if (['changed', 'same', 'undone'].includes(action)) {
@@ -77,8 +87,8 @@ it.each(cases.map(([rate, scope, action, exporting = false]) => [rate, scope, ac
   } finally { release(); }
   const before = doc.state, history = doc.history.entries.slice();
   let file;
-  if (!exporting) { await mixing; file = app.active; }
-  else await vi.waitFor(() => expect(document.querySelector('.io-export-dialog')).not.toBeNull(), { interval: 1 });
+  await mixing;
+  if (!exporting) file = app.active;
   const start = scope === 'All' ? 0 : 8, end = scope === 'Time' ? 24 : 32;
   const expected = gate.output.slice(0, original.master.channels);
   const markers = action === 'disabled' ? [] : [{ name: 'Original cue', start: 12 - start, duration: 0 }, { name: 'Original range', start: 18 - start, duration: Math.min(26, end) - 18 }];
@@ -89,12 +99,8 @@ it.each(cases.map(([rate, scope, action, exporting = false]) => [rate, scope, ac
     expect.soft(file.state.markers).toMatchObject(markers);
   }
   const saving = exporting ? mixing : app.commands.run('file.saveAs');
-  await vi.waitFor(() => expect(document.querySelector('.io-export-dialog')).not.toBeNull(), { interval: 1 });
-  const form = document.querySelector('.io-export-dialog');
-  const name = form.querySelector('[aria-label="File name"]'); name.value = 'Mix.wav'; name.dispatchEvent(new Event('input', { bubbles: true }));
-  [...form.querySelectorAll('button')].find((b) => b.textContent === 'Browse...').click();
-  await vi.waitFor(() => expect(form.querySelector('.io-path').textContent).toBe('/u'), { interval: 1 });
-  form.querySelector('.dialog-foot button[data-value="ok"]').click(); await saving;
+  if (!exporting) await fillAndSave();
+  await saving;
   const wav = parseWav(await stored.get('/u/Mix.wav').arrayBuffer());
   expect.soft(wav.sampleRate).toBe(rate); expect.soft(wav.channels.map((c) => [...c])).toEqual(expected.map((c) => [...c]));
   expect.soft(wav.markers).toMatchObject(markers); if (file) expect(file.dirty).toBe(false);

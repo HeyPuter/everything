@@ -14,12 +14,13 @@ import { markersInRange } from '../model/edits.js';
 import { AudioFile } from '../model/audio-file.js';
 import { Channel } from '../audio/channel.js';
 import { createMarker, sortMarkers, MARKER_TYPES } from '../model/markers.js';
-import { pickLocalFiles, saveDocument, downloadBlob } from '../storage/files.js';
+import { pickLocalFiles, downloadBlob } from '../storage/files.js';
 import { AUDIO_ACCEPT, VIDEO_EXTENSIONS, baseName } from '../audio/decode.js';
 import { videoClip } from '../model/session-video.js';
 import * as puter from '../storage/puter.js';
 import { insertDocs, insertFiles, linkSource, newTrack, channelsAtRate, placementOptions, freeTrackShift, shownAudioTracks, trackChannelsFor } from './insert.js';
 import { renderSession, renderedDoc, clipsRange } from './render.js';
+import { exportMixdown } from '../export/mixdown.js';
 import { saveSession, exportSession, prepareSessionZip } from './storage.js';
 import { openTrackEffects } from './fx-editor.js';
 import { sessionBaseName } from '../model/session-io.js';
@@ -731,7 +732,8 @@ export function installMultitrackCommands(app) {
     const data = await renderSession(app, doc, { ...o, label });
     return { doc, data };
   };
-  const mixdown = async (scope) => {
+  /** What a mixdown of `scope` renders, taken now: { doc, state, o, markers }. */
+  const mixdownJob = (scope) => {
     const doc = session(app);
     const state = doc.state;
     let o;
@@ -744,6 +746,14 @@ export function installMultitrackCommands(app) {
     // Keep output metadata with the rendered snapshot. Revert and later edits
     // may change the live session's rate, master width or markers while we wait.
     const markers = app.prefs.get('markersInMixdowns') ? markersInRange(state.markers, o.start, o.end).map((m) => createMarker(m)) : [];
+    return { doc, state, o, markers };
+  };
+  const exportMixdownOf = (scope) => {
+    const { doc, state, o, markers } = mixdownJob(scope);
+    return exportMixdown(app, doc, { state, ...o, markers });
+  };
+  const mixdown = async (scope) => {
+    const { doc, state, o, markers } = mixdownJob(scope);
     const { data } = await rendered('Mixing down', { ...o, state });
     // A mono master mixes down to a mono file.
     return renderedDoc(app, doc, state.master.channels === 1 ? data.slice(0, 1) : data, `${sessionBaseName(doc.name)}_mixdown`, markers, state.sampleRate);
@@ -848,9 +858,9 @@ export function installMultitrackCommands(app) {
         app.setStatus(`Saved template "${label.trim()}". Choose it in File > New > Multitrack Session.`);
       },
     },
-    { id: 'export.mixdownSession', label: 'Entire Session...', enabled: (a) => Boolean(session(a)?.length), run: async () => saveDocument(app, await mixdown('all'), { copy: true }) },
-    { id: 'export.mixdownTime', label: 'Time Selection...', enabled: hasTimeSel, run: async () => saveDocument(app, await mixdown('time'), { copy: true }) },
-    { id: 'export.mixdownClips', label: 'Selected Clips...', enabled: hasClips, run: async () => saveDocument(app, await mixdown('clips'), { copy: true }) },
+    { id: 'export.mixdownSession', label: 'Entire Session...', enabled: (a) => Boolean(session(a)?.length), run: () => exportMixdownOf('all') },
+    { id: 'export.mixdownTime', label: 'Time Selection...', enabled: hasTimeSel, run: () => exportMixdownOf('time') },
+    { id: 'export.mixdownClips', label: 'Selected Clips...', enabled: hasClips, run: () => exportMixdownOf('clips') },
 
     // ------------------------------------------------------ Multitrack
     { id: 'mt.addMono', label: 'Add Mono Audio Track', enabled: hasSession, run: addTrack('audio', 1) },

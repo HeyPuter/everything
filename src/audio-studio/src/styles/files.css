@@ -156,6 +156,44 @@
   display: none;
 }
 
+.io-mix-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.io-mix-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.io-mix-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 4px);
+  background: var(--bg-panel-alt);
+}
+
+.io-mix-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.io-mix-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ----------------------------------------------------------------- progress */
 
 .io-progress {
