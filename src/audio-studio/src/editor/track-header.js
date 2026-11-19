@@ -144,9 +144,9 @@ export class TrackHeader {
     const names = ['Green', 'Blue', 'Amber', 'Red', 'Violet', 'Cyan', 'Pink', 'Lime', 'Orange', 'Indigo', 'Olive', 'Slate'];
     this.app.openMenu(
       [
-        ...TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: names[i], enabled: true, checked: this.track.color === c, run: () => this.app.commands.run('mt.trackColor', { id: this.id, color: c }) })),
+        ...TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: names[i], swatch: c, enabled: true, checked: this.track.color === c, run: () => this.app.commands.run('mt.trackColor', { id: this.id, color: c }) })),
         { type: 'sep' },
-        { type: 'cmd', label: 'Custom Color...', enabled: true, checked: !TRACK_COLORS.includes(this.track.color), run: () => pickCustomColor(this.track.color, (color) => this.app.commands.run('mt.trackColor', { id: this.id, color })) },
+        { type: 'cmd', label: 'Custom Color...', swatch: TRACK_COLORS.includes(this.track.color) ? null : this.track.color, enabled: true, checked: !TRACK_COLORS.includes(this.track.color), run: () => pickCustomColor(this.track.color, (color) => this.app.commands.run('mt.trackColor', { id: this.id, color })) },
       ],
       { x: r.right, y: r.top, anchor: this.colorBtn, label: 'Track color' },
     );

@@ -39,7 +39,7 @@ const ALIGN_PRECISIONS = [
   { id: 'high', label: 'High (slow)' },
 ];
 import { pickCustomColor } from './custom-color.js';
-import { laneParams } from './fx-automation.js';
+import { laneParams, laneInfo } from './fx-automation.js';
 import { templateFromState, stateFromTemplate, userTemplates, saveTemplate, deleteTemplate } from './templates.js';
 import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
@@ -512,10 +512,10 @@ async function speechAlign(app, doc) {
 function colorMenu(app, current, apply, { withDefault } = {}) {
   const el = app.currentView?.()?.surface;
   const r = el ? el.getBoundingClientRect() : { left: 200, top: 200 };
-  const items = S.TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: COLOR_NAMES[i], enabled: true, checked: current === c, run: () => apply(c) }));
+  const items = S.TRACK_COLORS.map((c, i) => ({ type: 'cmd', label: COLOR_NAMES[i], swatch: c, enabled: true, checked: current === c, run: () => apply(c) }));
   if (withDefault) items.unshift({ type: 'cmd', label: 'Track Color', enabled: true, checked: !current, run: () => apply(null) }, { type: 'sep' });
   const custom = Boolean(current) && !S.TRACK_COLORS.includes(current);
-  items.push({ type: 'sep' }, { type: 'cmd', label: 'Custom Color...', enabled: true, checked: custom, run: () => pickCustomColor(current, apply) });
+  items.push({ type: 'sep' }, { type: 'cmd', label: 'Custom Color...', swatch: custom ? current : null, enabled: true, checked: custom, run: () => pickCustomColor(current, apply) });
   app.openMenu(items, { x: r.left + 40, y: r.top + 40, label: 'Color' });
 }
 
@@ -1180,7 +1180,8 @@ export function installMultitrackCommands(app) {
         else {
           const v = doc.controls ? doc.controls.value(t, args.param, at) : t[args.param];
           const prev = lane.filter((p) => p.t <= at).pop();
-          points = [...lane, { t: at, v: args.param === 'mute' ? (v >= 0.5 ? 1 : 0) : v, ...(args.param === 'mute' || prev?.hold ? { hold: true } : {}) }];
+          const stepped = laneInfo(t, args.param).stepped;
+          points = [...lane, { t: at, v: args.param === 'mute' ? (v >= 0.5 ? 1 : 0) : v, ...(stepped || prev?.hold ? { hold: true } : {}) }];
         }
         doc.selectedKeys = null;
         doc.apply(hit >= 0 ? 'Delete Keyframe' : 'Add Automation Keyframe', S.setAutomation(doc.state, t.id, args.param, points));
