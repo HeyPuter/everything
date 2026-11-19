@@ -587,6 +587,14 @@
   height: 18px;
   font-size: var(--fs-sm);
 }
+.preview-ruler {
+  flex: none;
+  height: 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.preview-ruler > .time-ruler {
+  height: 100%;
+}
 .preview-surface {
   position: relative;
   flex: 1;

@@ -20,6 +20,7 @@ import { WaveformRenderer } from '../render/waveform-gl.js';
 import { renderEffect, isAbort, isRealtime } from '../effects/apply.js';
 import { cssVar } from '../ui/theme.js';
 import { icon } from '../ui/icons.js';
+import { TimeRuler } from './time-ruler.js';
 
 /** Most audio the preview processes, in seconds of the original. */
 export const PREVIEW_MAX_SECONDS = 120;
@@ -65,7 +66,8 @@ export function installPreviewEditor(app, host) {
   );
   const head = h('div.preview-head', h('span.preview-title', 'Preview Editor:'), label, h('div.spacer'), status, h('label.preview-zoom-label', 'Zoom:', zoomSelect), close);
   const surface = h('div.preview-surface', canvas);
-  const el = h('div.preview-editor', { hidden: true, role: 'region', 'aria-label': 'Preview Editor' }, head, surface);
+  const rulerRow = h('div.preview-ruler');
+  const el = h('div.preview-editor', { hidden: true, role: 'region', 'aria-label': 'Preview Editor' }, head, rulerRow, surface);
   host.append(el);
   const renderer = new WaveformRenderer(canvas);
   let current = null; // { def, values, doc }
@@ -84,6 +86,26 @@ export function installPreviewEditor(app, host) {
   };
   // With no effect dialog open, View > Show Preview Editor shows the active file as it is.
   const idleDoc = () => (app.prefs.get('previewEditor') && app.active?.kind === 'audio' && app.active.length ? app.active : null);
+
+  // Time ruler over the preview: its own view in Independent mode, the effect's
+  // stretched or shrunk span when it changes the length.
+  const ruler = new TimeRuler(app, {
+    timeline: () => {
+      const doc = current?.doc || idleDoc();
+      if (!doc) return { rate: 48000, length: 0, view: { start: 0, end: 1 }, cursor: 0, selection: null, markers: [] };
+      const v = viewOf(doc);
+      const span = result && !result.idle ? result.span : v.end - v.start;
+      return { rate: doc.sampleRate, length: doc.length, view: { start: v.start, end: v.start + Math.max(1, span) }, cursor: app.active === doc ? app.playhead : doc.cursor, selection: null, markers: [] };
+    },
+    seek: (f) => {
+      const doc = current?.doc || idleDoc();
+      if (!doc) return;
+      const view = app.currentView?.();
+      if (view?.doc === doc && view.seek) view.seek(f);
+      else doc.setCursor?.(Math.max(0, Math.min(doc.length, Math.round(f))));
+    },
+  });
+  rulerRow.append(ruler.el);
 
   // Automatic: for effects that change the length, or for any effect (Preferences > Effects).
   const wanted = () => (current ? Boolean(app.prefs.get('previewEditor') || (app.prefs.get('previewAuto') !== false && (changesLength || app.prefs.get('previewAutoMode') === 'any'))) : Boolean(idleDoc()));
@@ -158,6 +180,9 @@ export function installPreviewEditor(app, host) {
     const left = wave && wave.width ? Math.max(0, wave.left - rect.left) : 0;
     const W = Math.max(1, Math.min(rect.width - left, wave?.width || rect.width));
     canvas.style.left = `${left}px`;
+    ruler.el.style.marginLeft = `${left}px`;
+    ruler.el.style.width = `${W}px`;
+    ruler.resize(W, rulerRow.clientHeight || 20);
     const H = Math.max(1, rect.height);
     const dpr = window.devicePixelRatio || 1;
     renderer.resize(W, H, dpr);
@@ -169,6 +194,7 @@ export function installPreviewEditor(app, host) {
       const v = viewOf(idle);
       result = { channels: idle.state.channels, start: v.start, span: v.end - v.start, idle: true };
     } else if (result?.idle) result = null;
+    if (ruler.ctx) ruler.draw();
     if (!result || !(current || idle)) {
       renderer.draw({ channels: [], start: 0, fpp: 1, amp: 1, lanes: [], colors: [] });
       return;
