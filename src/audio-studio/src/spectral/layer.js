@@ -25,6 +25,14 @@ import { spectralMenuItems } from './menu.js';
 import { invertSelection } from './tool-options.js';
 
 const CACHE_BYTES = 96 * 1024 * 1024;
+
+/**
+ * The healing brush's Shift+click shape: every frequency over the frames from a to b,
+ * widened by the brush radius `rt` (frames) either side.
+ */
+export function columnShape(a, b, rt, nyquist) {
+  return { type: 'rect', t0: Math.max(0, Math.min(a, b) - rt), t1: Math.max(a, b) + rt, f0: 0, f1: nyquist };
+}
 const MAX_INFLIGHT = 6;
 const MAX_PER_FRAME = 3;
 const LANE_GAP = 1;
@@ -80,6 +88,16 @@ export class SpectralLayer {
         if (doc !== this.doc) this.release();
       }),
     ];
+    // Pressing or releasing Shift over the display switches the healing cursor at once.
+    const shiftKey = (e) => {
+      if (e.key === 'Shift' && this.hover) this.#setColumnHeal(e.type === 'keydown');
+    };
+    window.addEventListener('keydown', shiftKey);
+    window.addEventListener('keyup', shiftKey);
+    this.offs.push(() => {
+      window.removeEventListener('keydown', shiftKey);
+      window.removeEventListener('keyup', shiftKey);
+    });
     this.sync();
   }
 
@@ -368,15 +386,29 @@ export class SpectralLayer {
     }
     // Pitch overlay.
     if (pitchOn(this.app) && this.pitch?.f0s) this.#drawPitch(ctx, lanes, scale);
-    // Brush cursor.
+    // Brush cursor: the circle the brush covers, or with Shift and the healing brush, the
+    // full-height column a click heals (in every channel enabled for editing).
     const tool = this.app.tool;
     if (this.hover && (tool === 'brush' || tool === 'heal')) {
       const r = settings(this.app).brushSize / 2;
       ctx.strokeStyle = tool === 'heal' ? cssVar('--warning') : cssVar('--text-strong');
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(this.hover.x, this.hover.y - y0, r, 0, Math.PI * 2);
-      ctx.stroke();
+      if (tool === 'heal' && this.columnHeal) {
+        ctx.setLineDash([4, 3]);
+        for (const lane of lanes) {
+          if (this.doc.selection.channels[lane.channel] === false) continue;
+          ctx.fillStyle = cssVar('--warning');
+          ctx.globalAlpha = 0.15;
+          ctx.fillRect(this.hover.x - r, lane.top - y0, 2 * r, lane.bottom - lane.top);
+          ctx.globalAlpha = 1;
+          ctx.strokeRect(Math.round(this.hover.x - r) + 0.5, Math.round(lane.top - y0) + 0.5, Math.round(2 * r), Math.round(lane.bottom - lane.top) - 1);
+        }
+        ctx.setLineDash([]);
+      } else {
+        ctx.beginPath();
+        ctx.arc(this.hover.x, this.hover.y - y0, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
   }
 
@@ -608,12 +640,22 @@ export class SpectralLayer {
 
   cursor(e) {
     const p = this.#locate(e);
+    this.#setColumnHeal(e.shiftKey);
     this.#setHover(p);
     if (!p) return null;
     const tool = this.app.tool;
     if (tool === 'brush' || tool === 'heal') return 'none';
     if (tool === 'marquee' || tool === 'lasso') return 'crosshair';
     return null;
+  }
+
+  /** Shift with the healing brush: heal a full-height column (the cursor shows it). */
+  #setColumnHeal(on) {
+    on = Boolean(on) && this.app.tool === 'heal';
+    if (on === Boolean(this.columnHeal)) return;
+    this.columnHeal = on;
+    this.needs = true;
+    this.app.requestRender?.();
   }
 
   #setHover(p) {
@@ -670,13 +712,18 @@ export class SpectralLayer {
     const st = docState(doc);
     const base = add && st.selection ? st.selection : null;
     let shape;
+    let rt = 0;
     if (tool === 'marquee') shape = { type: 'rect', t0: p.t, t1: p.t, f0: p.f, f1: p.f };
     else if (tool === 'lasso') shape = { type: 'poly', log: p.scale.log, points: [[p.t, p.f]] };
-    else {
+    else if (tool === 'heal' && e.shiftKey) {
+      // A full-height column at the click, as wide as the brush; dragging widens it.
+      rt = this.#brushShape(p, tool).rt;
+      shape = columnShape(p.t, p.t, rt, this.doc.sampleRate / 2);
+    } else {
       shape = this.#brushShape(p, tool);
       addBrushDot(shape, p.t, p.f);
     }
-    this.drag = { tool, shape, base, start: p, last: p, moved: tool === 'brush' || tool === 'heal' };
+    this.drag = { tool, shape, base, start: p, last: p, moved: tool === 'brush' || tool === 'heal', column: shape.type === 'rect' && tool === 'heal', rt };
     this.invalidate();
   }
 
@@ -685,7 +732,9 @@ export class SpectralLayer {
     d.last = p;
     if (Math.abs(p.x - d.start.x) + Math.abs(p.y - d.start.y) > 3) d.moved = true;
     const s = d.shape;
-    if (s.type === 'rect') {
+    if (d.column) {
+      d.shape = columnShape(d.start.t, p.t, d.rt, this.doc.sampleRate / 2);
+    } else if (s.type === 'rect') {
       s.t0 = Math.min(d.start.t, p.t);
       s.t1 = Math.max(d.start.t, p.t);
       s.f0 = Math.min(d.start.f, p.f);

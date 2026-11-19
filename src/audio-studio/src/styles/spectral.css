@@ -128,6 +128,11 @@
   width: 52px;
   height: 22px;
 }
+.tool-opt-hint {
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
 .tool-opt-invert[aria-pressed='true'] {
   color: var(--accent-strong);
   border-color: var(--accent-strong);

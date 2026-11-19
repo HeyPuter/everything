@@ -40,3 +40,51 @@ describe('healing clicks', () => {
     expect(roughness(window(out), 0, 800)).toBeLessThan(roughness(window(state), 0, 800) / 3);
   });
 });
+
+describe('Shift+click with the healing brush', () => {
+  it('heals a full-height column as wide as the brush, widened by a drag', async () => {
+    const { columnShape } = await import('../src/spectral/layer.js');
+    expect(columnShape(1000, 1000, 100, 22050)).toEqual({ type: 'rect', t0: 900, t1: 1100, f0: 0, f1: 22050 });
+    expect(columnShape(1500, 1000, 100, 22050)).toMatchObject({ t0: 900, t1: 1600 });
+    expect(columnShape(50, 50, 100, 22050).t0).toBe(0);
+  });
+
+  it('sends the column to the healing service on a Shift+click', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+    };
+    HTMLCanvasElement.prototype.getContext = () => null;
+    localStorage.clear();
+    const { App } = await import('../src/app.js');
+    const { installCore } = await import('../src/features/core.js');
+    const { installSpectralAnalysis } = await import('../src/features/spectral-analysis.js');
+    const { AudioFile } = await import('../src/model/audio-file.js');
+    const { WaveformView } = await import('../src/editor/waveform-view.js');
+    const app = new App();
+    installCore(app);
+    installSpectralAnalysis(app);
+    const doc = new AudioFile({ name: 't.wav', sampleRate: 48000, channels: [Channel.fromSamples(new Float32Array(48000))] });
+    app.addDocument(doc);
+    app.prefs.set('spectralDisplay', true);
+    const view = new WaveformView(app, doc);
+    document.body.replaceChildren(view.el);
+    const layer = view.layers.find((l) => l.id === 'spectral' && l.app === app);
+    view.width = 600;
+    layer.layout({ x: 0, y: 100, width: 600, height: 200, dpr: 1 });
+    view.surface.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 300 });
+    app.commands.run('tool.heal');
+    const calls = [];
+    layer.svc.heal = (d, sel) => calls.push(sel);
+    const ev = { clientX: 300, clientY: 200, shiftKey: true };
+    expect(layer.pointer(ev, 'down')).toBe(true);
+    layer.pointer(ev, 'up');
+    expect(calls).toHaveLength(1);
+    const shape = calls[0].shapes[0];
+    expect(shape.type).toBe('rect');
+    expect([shape.f0, shape.f1]).toEqual([0, 24000]);
+    expect(shape.t0).toBeLessThan(24000);
+    expect(shape.t1).toBeGreaterThan(24000);
+    view.destroy();
+  });
+});

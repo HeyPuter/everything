@@ -72,13 +72,15 @@ export function spectralToolOptions(app) {
     },
     'Invert',
   );
-  const el = h('div.tool-group.tool-options', { role: 'group', 'aria-label': 'Tool options', hidden: true }, size.el, opacity.el, invert);
+  const healHint = h('span.tool-opt-hint', 'Shift+click: heal the full height');
+  const el = h('div.tool-group.tool-options', { role: 'group', 'aria-label': 'Tool options', hidden: true }, size.el, opacity.el, invert, healHint);
   const sync = () => {
     const kinds = displayOn(app) && doc() ? toolOptionKinds(app.tool) : [];
     el.hidden = !kinds.length;
     size.el.hidden = !kinds.includes('size');
     opacity.el.hidden = !kinds.includes('opacity');
     invert.hidden = !kinds.includes('invert');
+    healHint.hidden = app.tool !== 'heal' || !kinds.length;
     if (document.activeElement?.closest?.('.tool-opt') !== size.el) size.sync();
     if (document.activeElement?.closest?.('.tool-opt') !== opacity.el) opacity.sync();
     const sel = doc() ? docState(doc()).selection : null;
