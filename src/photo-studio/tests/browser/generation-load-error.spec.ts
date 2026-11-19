@@ -29,3 +29,12 @@ test('Generation History reports a read failure and can retry without losing sav
     return entries.length === 1 && !!(await store.image(entries[0].id));
   })).toBe(true);
 });
+
+test('the empty Generation History names every kind of result it keeps', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => window.photoStudio.dock.show('generations'));
+  const panel = page.locator('.generations-panel');
+  await expect(panel.locator('.gen-empty')).toBeVisible();
+  for (const label of ['AI Recompose', 'Remove Reflections', 'Rotate Object', 'Portrait & Restore'])
+    await expect(panel.locator('.gen-empty')).toContainText(label);
+});
