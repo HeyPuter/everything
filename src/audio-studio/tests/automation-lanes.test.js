@@ -685,3 +685,22 @@ describe('saving open files with a session', () => {
     expect(saved.sources.map((x) => x.name)).toEqual(['loose.wav']);
   });
 });
+
+describe('exporting a session with converted media', () => {
+  it('writes its media at the chosen sample type', async () => {
+    const { prepareSessionZip } = await import('../src/multitrack/storage.js');
+    const { unzipStore } = await import('../src/lib/zip.js');
+    const doc = new Session({ name: 'Ex.asesx', sampleRate: RATE, tracks: 1 });
+    const src = doc.addSource({ name: 'a.wav', channels: [Channel.fromSamples(new Float32Array(1000).fill(0.25)), Channel.fromSamples(new Float32Array(1000))] });
+    doc.apply('Insert', S.addClips(doc.state, [S.createClip({ trackId: doc.state.tracks[0].id, sourceId: src, length: 1000 })]));
+    const bits = async (bitDepth) => {
+      const { blob } = await prepareSessionZip(doc, { bitDepth });
+      const files = unzipStore(await blob.arrayBuffer());
+      const wav = [...files.entries()].find(([k]) => k.endsWith('.wav'))[1];
+      return new DataView(wav.buffer, wav.byteOffset).getUint16(34, true);
+    };
+    expect(await bits(32)).toBe(32);
+    expect(await bits(16)).toBe(16);
+    expect(await bits(24)).toBe(24);
+  });
+});
