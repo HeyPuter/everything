@@ -7,7 +7,7 @@ import { readMask, readRGBA, writeRect, type TileGrid } from '../../model/tiles'
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import { renderGradientInto, type GradientType } from '../../imaging/gradient/gradient';
 import { gradientToCss } from '../../imaging/gradient/edit';
-import { compositeRGBA8 } from '../../imaging/blend/composite';
+import { compositeRGBA8, compositeRGBA8KeepAlpha } from '../../imaging/blend/composite';
 import type { BlendMode } from '../../imaging/blend/modes';
 import { commitTarget, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
 import { blendOptions, openGradientPicker } from './controls';
@@ -67,8 +67,9 @@ function compose(e: Editor, d: Drag): RGBA8 | Mask8 {
   }
   const base = d.base as RGBA8;
   const out: RGBA8 = { width: base.width, height: base.height, data: new Uint8ClampedArray(base.data) };
-  compositeRGBA8(out, grad, o.mode, o.opacity, d.cover);
-  if (d.preserveAlpha) for (let i = 3; i < out.data.length; i += 4) out.data[i] = base.data[i];
+  // Locked transparency: colors move by the gradient's coverage, alpha stays.
+  if (d.preserveAlpha) compositeRGBA8KeepAlpha(out, grad, o.mode, o.opacity, d.cover);
+  else compositeRGBA8(out, grad, o.mode, o.opacity, d.cover);
   return out;
 }
 function constrain(start: { x: number; y: number }, p: CanvasPointer) {
