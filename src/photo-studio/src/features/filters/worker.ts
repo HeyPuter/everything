@@ -5,7 +5,8 @@
 import { LiquifyField } from '../../imaging/filters/liquify';
 import type { IRect, Mask8, RGBA8 } from '../../imaging/types';
 import type { FromWorker, ToWorker, View } from './protocol';
-import { cropMask, cropRGBA, fadeMix, halveMask, halveRGBA, maskToRGBA, mixByMask, rgbaToMask, runStack } from './stack';
+import { cropMask, cropRGBA, fadeMix, halveMask, halveRGBA, keepAlpha, maskToRGBA } from './stack';
+import { mixByMask, rgbaToMask, runStack } from './stack';
 import { readPayload, tileize, type GridPayload } from './tilepack';
 
 type Source = {
@@ -86,7 +87,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
       const v = viewOf(s, m.view);
       const scale = (m.ctx.scale ?? 1) * (m.view ? 2 ** -m.view.level : 1);
       const out = await runStack(v.img, m.filters, { ...m.ctx, scale }, { selection: m.useSelection ? v.sel : undefined, mask: m.useMask ? v.mask : undefined }, progressFor(m.job));
-      finish(m.job, s, out, m.output);
+      finish(m.job, s, m.keepAlpha ? keepAlpha(v.img, out) : out, m.output);
     } else if (m.type === 'thumbs') {
       const s = sources.get(m.key);
       if (!s) throw new Error('The filter source is not loaded.');
@@ -107,6 +108,7 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
       const src = s.levels[0];
       let out = field.render(src);
       if (m.useSelection && s.sel) out = mixByMask(src, out, s.sel[0]);
+      if (m.keepAlpha) out = keepAlpha(src, out);
       finish(m.job, s, out, 'tiles');
     } else if (m.type === 'fade') {
       const a = sources.get(m.beforeKey),

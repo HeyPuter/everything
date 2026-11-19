@@ -99,6 +99,23 @@ export function lerpRGBA(a: RGBA8, b: RGBA8, t: number, out = new Uint8ClampedAr
   }
   return { width: a.width, height: a.height, data: out };
 }
+/** Locked transparency: `after` keeps the alpha of `before` (in place). Pixels
+ * that were transparent keep their stored color, and visible pixels the
+ * filter made fully transparent keep theirs, since that result has no color. */
+export function keepAlpha(before: RGBA8, after: RGBA8): RGBA8 {
+  const bd = before.data,
+    od = after.data;
+  for (let i = 0; i < bd.length; i += 4) {
+    const a = bd[i + 3];
+    if (a === 0 || od[i + 3] === 0) {
+      od[i] = bd[i];
+      od[i + 1] = bd[i + 1];
+      od[i + 2] = bd[i + 2];
+    }
+    od[i + 3] = a;
+  }
+  return after;
+}
 /** Per-pixel mix by coverage: 0 keeps `before`, 255 takes `after` (in place). */
 export function mixByMask(before: RGBA8, after: RGBA8, mask: Mask8): RGBA8 {
   const bd = before.data,

@@ -298,6 +298,7 @@ class LiquifyWorkspace {
               key: this.s.key,
               field: this.out.serialize(),
               useSelection: !!this.s.selection,
+              keepAlpha: !!this.s.keepAlpha,
             },
             [this.s.key],
             (f) => bar.querySelector('progress')!.setAttribute('value', String(f)),
@@ -568,6 +569,7 @@ class LiquifyWorkspace {
     const freeze = this.showMask ? this.freeze : undefined;
     const [mr, mg, mb] = hexRGB(this.maskColor);
     const showImage = this.showImage;
+    const keep = !!this.s.keepAlpha;
     const bdl = this.showBackdrop && this.backdrop ? this.backdropLevel(k) : undefined;
     const bd = bdl?.data,
       bw = bdl?.width ?? 0,
@@ -642,6 +644,16 @@ class LiquifyWorkspace {
               b = ld[i + 2];
               al = ld[i + 3];
             }
+          }
+          if (keep && showImage) {
+            // Locked transparency: the warp moves colors, not coverage.
+            const j = (Math.min(lh - 1, (qy * f) | 0) * lw + Math.min(lw - 1, (qx * f) | 0)) * 4;
+            if (al === 0 || ld[j + 3] === 0) {
+              r = ld[j];
+              g = ld[j + 1];
+              b = ld[j + 2];
+            }
+            al = ld[j + 3];
           }
           if (bd) {
             // The other layers, unwarped, behind or in front at an opacity.

@@ -9,6 +9,7 @@ import { intersectRect, type TileGrid } from '../../model/tiles';
 import type { BlendMode } from '../../imaging/blend';
 import type { IRect, ParamValues } from '../../imaging/types';
 import { hexRgb, pixelTarget, previewTarget, type PixelTarget } from '../pixels';
+import { layerLock } from '../../model/locks';
 import { GALLERY_ID, filterOp, normalizeFor, selectionMargin } from './catalog';
 import { filterLabel } from './menu';
 import { Lane, isCancel, registerSource, releaseSource } from './client';
@@ -29,6 +30,8 @@ export type Session = {
   live?: { layerId: string; filters: LiveFilter[]; index: number; mask?: TileGrid; newMask?: TileGrid };
   // Last answer of the transparency check behind the selection margin.
   clear?: { key: string; value: boolean };
+  // The target layer's transparency is locked: filters keep its alpha.
+  keepAlpha?: boolean;
 };
 export { filterState, isLiveLayer, liveRect, type FadeInfo } from './state';
 import { filterState, isLiveLayer, liveRect } from './state';
@@ -136,7 +139,20 @@ export async function openSession(e: Editor, opId: string, params: ParamValues, 
     e.message('No pixels are selected.');
     return;
   }
-  const s: Session = { e, target, base: target.grid, rect: canvasRect(e.doc), key: '', selection, selBounds, seed: randomSeed() };
+  // Like brushes and fills, filters keep the alpha of a layer whose
+  // transparency is locked.
+  const keep = target.kind === 'pixels' && layerLock(e.doc.layers, target.layer.id, 'transparency');
+  const s: Session = {
+    e,
+    target,
+    base: target.grid,
+    rect: canvasRect(e.doc),
+    key: '',
+    selection,
+    selBounds,
+    seed: randomSeed(),
+    keepAlpha: keep,
+  };
   s.rect = regionFor(s, [{ id: opId, params }], true);
   load(s);
   return s;
@@ -150,7 +166,11 @@ export function sessionEntries(s: Session, opId: string, params: ParamValues, bl
     return { id: f.id, params: cur ? params : normalizeFor(f.id, f.params), enabled: f.enabled, opacity: b.opacity, blend: toMode(b.blend), seed: f.seed };
   });
 }
-export const runFlags = (s: Session) => ({ useSelection: !s.live && !!s.selection, useMask: !!s.live?.mask });
+export const runFlags = (s: Session) => ({
+  useSelection: !s.live && !!s.selection,
+  useMask: !!s.live?.mask,
+  keepAlpha: !s.live && !!s.keepAlpha,
+});
 export function sessionDoc(s: Session, grid: TileGrid) {
   return previewTarget(s.e, s.target, grid);
 }
