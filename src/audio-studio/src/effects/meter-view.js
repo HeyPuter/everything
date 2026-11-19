@@ -3,8 +3,9 @@
 //     numbers (with a reset), then bars on tick scales for the input peak
 //     (dBTP) and the short-term, integrated and momentary loudness around the
 //     target, the maxima, a scrolling history of the last minute, and
-//     "Measure Selection", which measures the selection offline with the same
-//     BS.1770-4 meter (analysis/loudness.js) without playing it.
+//     "Scan Selection" / "Scan File", which measures offline with the same
+//     BS.1770-4 meter (analysis/loudness.js) without playing and shows the
+//     result in the same readouts (short-term as its maximum).
 //   Settings: the loudness standard (target and true peak ceiling), units
 //     (LUFS or LU relative to the target) and the bar scale.
 // It is fed by the effect's readout (wasm/dsp/src/fx/special/meter.rs) while
@@ -17,6 +18,7 @@ import { icon } from '../ui/icons.js';
 import { plot, gridLines, labelText } from './editors.js';
 import { tabPanels, controlsFor } from './layout.js';
 import { measureLoudness } from '../analysis/loudness.js';
+import { beginBusy } from '../ui/busy.js';
 import { LOUDNESS_STANDARDS } from './defs/loudness-standards.js';
 
 const HISTORY_SECONDS = 60;
@@ -93,7 +95,8 @@ export function loudnessMeterEditor() {
     const big = (label, cls) => {
       const value = h('span.lm-big-value.tabular', '--');
       const unit = h('span.lm-unit');
-      return { el: h(`div.lm-big.${cls}`, h('span.lm-big-label', label), h('span.lm-big-line', value, unit)), value, unit };
+      const name = h('span.lm-big-label', label);
+      return { el: h(`div.lm-big.${cls}`, name, h('span.lm-big-line', value, unit)), value, unit, name };
     };
     const head = {
       shortTerm: big('Short-Term', 'st'),
@@ -182,18 +185,25 @@ export function loudnessMeterEditor() {
     });
 
     const hint = h('div.lm-hint.faint');
-    const offlineBtn = h('button.btn', { type: 'button', disabled: !ctx.doc }, 'Measure Selection');
+    // Offline scan: the selection (or the whole file) measured without playing it.
+    const offlineBtn = h('button.btn.lm-scan', { type: 'button', disabled: !ctx.doc, title: 'Measure the selection, or the whole file, without playing it' }, icon('activity', 14), h('span.lm-scan-label', 'Scan File'));
     const offlineText = h('span.lm-offline-text.faint', { 'aria-live': 'polite' });
     offlineBtn.addEventListener('click', () => measureOffline());
+    const syncScanLabel = () => (offlineBtn.lastChild.textContent = ctx.doc?.hasSelection ? 'Scan Selection' : 'Scan File');
+    const offSel = ctx.doc?.on?.('change', (e) => e?.kind === 'selection' && syncScanLabel());
+    if (offSel) ctx.onClose?.(offSel);
+    syncScanLabel();
+    // A scan's result: { label } of what it measured; cleared when live readings arrive.
+    let scanned = null;
 
     const levels = h(
       'div.lm-view',
       h('div.lm-head', Object.values(head).map((x) => x.el), resetBtn),
+      h('div.lm-offline', offlineBtn, offlineText),
       h('div.lm-bars', input.el, bars.map((b) => b.el)),
       h('div.lm-stats', Object.values(stats).map((s) => s.el)),
       graph.el,
       hint,
-      h('div.lm-offline', offlineBtn, offlineText),
     );
 
     // ------------------------------------------------------------- settings
@@ -246,6 +256,8 @@ export function loudnessMeterEditor() {
         head[k].value.textContent = r && Number.isFinite(r[k]) ? loudnessText(r[k], values) : '--';
         head[k].unit.textContent = unit;
       }
+      // A scan has no "now": its short-term reading is the loudest 3 s.
+      head.shortTerm.name.textContent = scanned ? 'Short-Term Max' : 'Short-Term';
       head.range.value.textContent = r && r.seconds > 0 ? fmt(r.range) : '--';
       head.range.unit.textContent = 'LU';
       head.truePeak.value.textContent = r ? fmt(r.truePeakDb) : '-∞';
@@ -254,7 +266,9 @@ export function loudnessMeterEditor() {
       stats.maxMomentary.value.textContent = r ? `${loudnessText(r.maxMomentary, values)} ${unit}` : '-';
       stats.maxShortTerm.value.textContent = r ? `${loudnessText(r.maxShortTerm, values)} ${unit}` : '-';
       stats.time.value.textContent = r ? formatTime(r.seconds) : '-';
-      hint.textContent = reading
+      hint.textContent = scanned
+        ? `Scanned ${scanned.label} without playing it. Integrated loudness is ${Number.isFinite(r.integrated) ? `${fmt(Math.abs(r.integrated - values.target))} LU ${r.integrated > values.target ? 'above' : 'below'} the target` : 'not measurable (too short or too quiet)'}.`
+        : reading
         ? `Measuring since playback started. Integrated loudness is ${Number.isFinite(r.integrated) ? `${fmt(Math.abs(r.integrated - values.target))} LU ${r.integrated > values.target ? 'above' : 'below'} the target` : 'not available yet'}.`
         : 'Play audio through the effect (Preview, the Effects Rack or a track) to measure it. Measurement restarts when playback starts.';
       graph.redraw();
@@ -262,6 +276,8 @@ export function loudnessMeterEditor() {
 
     function reset() {
       reading = null;
+      scanned = null;
+      offlineText.textContent = '';
       history.length = 0;
       const engine = ctx.app?.engine;
       // Seeking in place restarts every meter on the playback path.
@@ -273,6 +289,10 @@ export function loudnessMeterEditor() {
     ctx.onReadout?.((v) => {
       if (v.length < 9) return;
       reading = readLoudness(v);
+      if (scanned) {
+        scanned = null;
+        offlineText.textContent = '';
+      }
       if (history.length && reading.seconds < history[history.length - 1].t) history.length = 0; // restarted
       history.push({ t: reading.seconds, m: reading.momentary, s: reading.shortTerm });
       while (history.length && history[0].t < reading.seconds - HISTORY_SECONDS) history.shift();
@@ -296,17 +316,24 @@ export function loudnessMeterEditor() {
       if (!doc) return;
       const [start, end] = doc.editRange();
       if (end <= start) return;
+      const where = doc.hasSelection ? 'the selection' : 'the file';
       offlineBtn.disabled = true;
-      offlineText.textContent = 'Measuring...';
+      offlineText.textContent = 'Scanning...';
+      const endBusy = beginBusy();
       try {
         const state = { sampleRate: doc.sampleRate, channels: doc.state.channels.map((c) => c.slice(start, end)) };
-        const m = await measureLoudness(state);
-        const where = doc.hasSelection ? 'Selection' : 'File';
-        offlineText.textContent = `${where}: ${fmt(m.integrated)} LUFS integrated, ${fmt(m.range)} LU range, ${fmt(m.truePeakDb)} dBTP true peak.`;
-        announce(offlineText.textContent);
+        const m = await measureLoudness(state, (f) => (offlineText.textContent = `Scanning ${Math.round(f * 100)}%`));
+        const seconds = (end - start) / doc.sampleRate;
+        reading = { momentary: -Infinity, shortTerm: m.maxShortTerm, integrated: m.integrated, range: m.range, truePeakDb: m.truePeakDb, maxMomentary: m.maxMomentary, maxShortTerm: m.maxShortTerm, seconds, inputDb: -Infinity };
+        history.length = 0;
+        scanned = { label: where };
+        offlineText.textContent = `${where === 'the selection' ? 'Selection' : 'File'} scanned (${formatTime(seconds)}).`;
+        render();
+        announce(`${offlineText.textContent} Integrated ${fmt(m.integrated)} LUFS, maximum short-term ${fmt(m.maxShortTerm)} LUFS, loudness range ${fmt(m.range)} LU, true peak ${fmt(m.truePeakDb)} dBTP.`);
       } catch (err) {
-        offlineText.textContent = `Could not measure: ${err?.message || err}`;
+        offlineText.textContent = `Could not scan: ${err?.message || err}`;
       } finally {
+        endBusy();
         offlineBtn.disabled = false;
       }
     }

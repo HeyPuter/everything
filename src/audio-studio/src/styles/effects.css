@@ -1152,6 +1152,12 @@ input[type='range'].fx-slider:disabled {
   font-size: var(--fs-sm);
 }
 
+.lm-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 @media (max-width: 480px) {
   .lm-row {
     grid-template-columns: 72px 1fr 84px;
