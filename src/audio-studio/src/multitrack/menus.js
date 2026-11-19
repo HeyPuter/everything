@@ -59,6 +59,7 @@ export const TRACK_CONTEXT = [
   'mt.addAutomationLane',
   '-',
   'mt.trackEffects',
+  'mt.freezeTrack',
   'mt.bounceTrack',
 ];
 

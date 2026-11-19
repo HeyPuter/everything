@@ -246,6 +246,8 @@ export function createTrack(o = {}) {
     fxPower: o.fxPower ?? true,
     // Effects after the track volume and pan (post-fader) instead of before.
     fxPost: Boolean(o.fxPost),
+    // Frozen: the clips and effects play from a pre-render (see multitrack/freeze.js).
+    freeze: Boolean(o.freeze),
     fxIn: o.fxIn ?? 0,
     fxOut: o.fxOut ?? 0,
     fxMix: o.fxMix ?? 1,

@@ -1244,3 +1244,28 @@
   gap: 10px;
   min-width: 300px;
 }
+
+/* Frozen tracks: the freeze switch pulses while the pre-render runs. */
+.mx-freeze.busy {
+  animation: mt-freeze-busy 1s ease-in-out infinite alternate;
+}
+
+@keyframes mt-freeze-busy {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mx-freeze.busy {
+    animation: none;
+    outline: 1px dashed var(--accent);
+  }
+}
+
+.mt-th.frozen .mt-th-name {
+  color: var(--accent-strong, var(--accent));
+}

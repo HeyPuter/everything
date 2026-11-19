@@ -301,7 +301,28 @@ function sourceSegments(clip, a, b, srcLen) {
  *   caller that changes the routing first (bounces render without the master or the track's output)
  * @returns {{ graph, sources: Map<string, Channel[]> }}
  */
-export function buildSessionGraph(state, pool, { clipIds = null, overrides = {}, metronome = null, metronomeEnd = 0, panLaw = null, compensate = true } = {}) {
+/**
+ * What a frozen track's pre-rendered audio depends on: its clips (and their media), effects,
+ * EQ, polarity and effect automation. A changed key means the render is out of date.
+ */
+export function freezeKey(state, t, pool) {
+  const clips = state.clips.filter((c) => c.trackId === t.id);
+  const media = clips.map((c) => {
+    const src = pool.get(c.sourceId);
+    return src?.channels?.length ? sourceKey(src.channels) : '';
+  });
+  const fxLanes = Object.entries(t.automation || {}).filter(([k]) => fxParamRef(k));
+  return JSON.stringify([clips, media, t.fx, t.fxPower, t.fxIn, t.fxOut, t.fxMix, t.eq, t.invert, t.channels, t.mode === 'off' ? [] : fxLanes, state.sampleRate, state.autoCrossfade]);
+}
+
+/** True when a track plays its pre-rendered audio: frozen, rendered for its current state, pre-fader. */
+export function frozenAudio(state, t, pool, frozen) {
+  if (!t.freeze || t.fxPost || t.type !== 'audio') return null;
+  const f = frozen?.get(t.id);
+  return f && f.key === freezeKey(state, t, pool) ? f : null;
+}
+
+export function buildSessionGraph(state, pool, { clipIds = null, overrides = {}, metronome = null, metronomeEnd = 0, panLaw = null, compensate = true, frozen = null } = {}) {
   const sources = new Map();
   const keyOf = new Map();
   for (const [id, src] of pool) {
@@ -366,7 +387,17 @@ export function buildSessionGraph(state, pool, { clipIds = null, overrides = {},
         return snd;
       });
     }
-    if (t.type === 'audio') {
+    // A frozen track plays its pre-rendered clips and effects (volume, pan and sends still apply).
+    const ice = !clipIds && surround !== true ? frozenAudio(state, t, pool, frozen) : null;
+    if (ice) {
+      const key = sourceKey(ice.channels);
+      sources.set(key, ice.channels);
+      gt.fx = [];
+      delete gt.latency;
+      delete gt.invert;
+      delete gt.fxPost;
+      gt.clips.push({ id: `frozen:${t.id}`, source: key, channels: ice.channels.length, start: 0, offset: 0, length: ice.length, gain: 1, fadeIn: 0, fadeOut: 0 });
+    } else if (t.type === 'audio') {
       for (const c of state.clips) {
         if (c.trackId !== t.id || c.mute) continue;
         if (clipIds && !clipIds.has(c.id)) continue;

@@ -1595,6 +1595,8 @@ export class MultitrackView {
       for (const hd of this.headers.values()) hd.updateValues();
     } else if (k === 'recording') {
       this.invalidate('overlay');
+    } else if (k === 'freeze') {
+      for (const hd of this.headers.values()) hd.syncFreeze();
     } else if (k === 'rename') this.surface.setAttribute('aria-label', `Multitrack session ${this.doc.name}`);
   }
 

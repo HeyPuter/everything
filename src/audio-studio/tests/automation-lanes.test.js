@@ -592,3 +592,37 @@ describe('clip effect envelopes', () => {
     expect(S.findClip(st, clip.id).fxEnv).toEqual({});
   });
 });
+
+describe('frozen tracks', () => {
+  it('play their pre-render while it matches the track, and render only the track', async () => {
+    const { freezeKey } = await import('../src/model/session-graph.js');
+    const { freezeState, canFreeze } = await import('../src/multitrack/freeze.js');
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 2 });
+    const [a, b] = st.tracks;
+    const ch = Channel.fromSamples(new Float32Array(1000).fill(0.1));
+    const pool = new Map([['src', { channels: [ch, ch] }]]);
+    st = S.addClips(st, [S.createClip({ trackId: a.id, sourceId: 'src', length: 1000 }), S.createClip({ trackId: b.id, sourceId: 'src', length: 1000 })]);
+    st = S.updateTrack(st, a.id, { freeze: true, volume: -6, pan: 30, fx: [{ id: 'sA', effect: 'amplify', values: {}, enabled: true }], automation: { volume: [{ t: 0, v: -3 }], pan: [], mute: [], 'fx.sA.left': [{ t: 0, v: 2 }] } });
+    expect(canFreeze(st, S.findTrack(st, a.id))).toBe(true);
+    expect(canFreeze(st, S.updateTrack(st, a.id, { fxPost: true }).tracks[0])).toBe(false);
+    const render = Channel.fromSamples(new Float32Array(5000));
+    const frozen = new Map([[a.id, { key: freezeKey(st, S.findTrack(st, a.id), pool), channels: [render, render], length: 5000 }]]);
+    const gt = buildSessionGraph(st, pool, { frozen }).graph.tracks[0];
+    expect(gt.fx).toEqual([]);
+    expect(gt.clips).toHaveLength(1);
+    expect(gt.clips[0].length).toBe(5000);
+    // Volume automation stays live.
+    expect(gt.volumeEnv).toBeTruthy();
+    // A clip edit makes the render stale: the track plays live again.
+    const moved = S.moveClips(st, [st.clips[0].id], 100, 0);
+    expect(buildSessionGraph(moved, pool, { frozen }).graph.tracks[0].fx.length).toBe(1);
+    // Volume changes do not.
+    expect(buildSessionGraph(S.updateTrack(st, a.id, { volume: 3 }), pool, { frozen }).graph.tracks[0].fx).toEqual([]);
+    const fs = freezeState(st, a.id);
+    expect(fs.tracks.map((t) => t.id)).toEqual([a.id]);
+    expect(fs.clips.every((c) => c.trackId === a.id)).toBe(true);
+    expect(fs.tracks[0].volume).toBe(0);
+    expect(fs.tracks[0].automation.volume).toEqual([]);
+    expect(fs.tracks[0].automation['fx.sA.left']).toEqual([{ t: 0, v: 2 }]);
+  });
+});

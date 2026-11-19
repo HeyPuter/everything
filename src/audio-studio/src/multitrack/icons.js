@@ -13,6 +13,8 @@ export const MULTITRACK_ICONS = {
   'key-toggle': [['path', { d: 'M12 4l8 8-8 8-8-8z' }], ['path', { d: 'M12 9v6M9 12h6' }]],
   // A lane wiped clean: an envelope line with a cross through its keyframe.
   'lane-clear': [['path', { d: 'M3 17h5l4-8 3 4h6' }], ['path', { d: 'M15 3l5 5M20 3l-5 5' }]],
+  // Freeze (pre-render) a track: a six-armed crystal.
+  freeze: [['path', { d: 'M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7' }], ['path', { d: 'M9.5 3.5 12 6l2.5-2.5M9.5 20.5 12 18l2.5 2.5' }]],
   // Hold keyframe: a step.
   'key-hold': [['path', { d: 'M3 17h7V7h11' }], ['rect', { x: '8', y: '15', width: '4', height: '4' }]],
 };

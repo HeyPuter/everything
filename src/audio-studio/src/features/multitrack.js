@@ -13,6 +13,7 @@ import { installSessionStorage } from '../multitrack/storage.js';
 import { insertDocs, insertFiles, syncLinkedSources } from '../multitrack/insert.js';
 import { TrackControls } from '../multitrack/track-controls.js';
 import { SessionRecorder } from '../multitrack/recorder.js';
+import { FreezeController } from '../multitrack/freeze.js';
 import { sessionPropertySection } from '../multitrack/properties.js';
 import { mixerPanel } from '../panels/mixer.js';
 import { followDucking } from '../multitrack/ducking.js';
@@ -29,6 +30,7 @@ export function installMultitrack(app) {
   registerIcons(MULTITRACK_ICONS);
   installSessionStorage();
   const recorder = new SessionRecorder(app);
+  app.freezer = new FreezeController(app);
   app.multitrack = {
     recorder,
     insertDocs: (session, docs, o) => insertDocs(app, session, docs, o),
@@ -60,6 +62,7 @@ export function installMultitrack(app) {
       const state = doc.state;
       return buildSessionGraph(state, doc.pool, {
         overrides: doc.overrides || {},
+        frozen: doc.frozen || null,
         metronome: state.metronome ? clickFor(state) : null,
         metronomeEnd: Math.max(doc.length, doc.extent),
         panLaw: { mode: app.prefs.get('panLaw'), centerDb: app.prefs.get('panLawDb') },

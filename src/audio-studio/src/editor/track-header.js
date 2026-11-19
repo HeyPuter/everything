@@ -16,6 +16,7 @@ import { MeterBar } from '../multitrack/meter.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
 import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
 import { pickCustomColor } from '../multitrack/custom-color.js';
+import { canFreeze } from '../multitrack/freeze.js';
 import { fxAutomationParams, laneInfo, laneParams } from '../multitrack/fx-automation.js';
 
 export class TrackHeader {
@@ -114,7 +115,8 @@ export class TrackHeader {
       h('div.mt-th-io-row', h('span.mt-th-glyph', { title: 'Output' }, icon('log-out', 12)), this.outputSel, this.inputSel ? null : this.invert),
     );
     this.fxPost = isMaster ? null : h('button.mt-tb.mx-fx-post', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Post-fader effects', title: 'Post-Fader (effects after the track volume and pan)', onclick: () => controls().toggle(this.id, 'fxPost') }, 'Post');
-    this.rowFx = h('div.mt-th-row.mt-th-r3.mt-th-fx', this.fxList, this.fxPost, this.fxEdit);
+    this.freeze = isMaster || isBus ? null : h('button.mt-tb.mx-freeze', { type: 'button', 'aria-pressed': 'false', 'aria-label': 'Freeze track', title: 'Freeze: pre-render the clips and effects so they cost nothing during playback', onclick: () => app.commands.run('mt.freezeTrack', { id: this.id }) }, icon('freeze', 12));
+    this.rowFx = h('div.mt-th-row.mt-th-r3.mt-th-fx', this.fxList, this.fxPost, this.freeze, this.fxEdit);
     this.sendCtl = isMaster ? null : new SendControls(app, doc, track.id, { compact: true });
     this.eqCtl = new EqControls(app, doc, track.id, { compact: true });
     this.rowSends = h('div.mt-th-row.mt-th-r3.mt-th-sendrow', this.sendCtl ? this.sendCtl.el : h('span.faint', 'No sends on the master'));
@@ -279,6 +281,7 @@ export class TrackHeader {
     }
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
     this.fxPost?.setAttribute('aria-pressed', String(Boolean(track.fxPost)));
+    this.syncFreeze();
     const fx = track.fx.filter(Boolean);
     this.fxPower.hidden = !fx.length;
     this.updateValues();
@@ -325,6 +328,16 @@ export class TrackHeader {
     this.sendCtl?.update(track);
     this.eqCtl.update(track);
     this.meter.label = `${track.name} level`;
+  }
+
+  /** The freeze switch: on, rendering (busy) or unavailable (post-fader effects, 5.1). */
+  syncFreeze() {
+    if (!this.freeze) return;
+    const t = this.track;
+    this.freeze.setAttribute('aria-pressed', String(Boolean(t.freeze)));
+    this.freeze.classList.toggle('busy', Boolean(this.doc.freezing?.has(t.id)));
+    this.freeze.disabled = !t.freeze && !canFreeze(this.doc.state, t);
+    this.el.classList.toggle('frozen', Boolean(t.freeze));
   }
 
   /** Knob readouts (also called every frame during playback for automation). */

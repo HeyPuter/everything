@@ -14,6 +14,7 @@ import { getEffect } from '../effects/registry.js';
 import { allTracks, wouldCycle, SILENT_DB, MAX_DB, AUTOMATION_MODES } from '../model/session-edits.js';
 import { SendControls, EqControls, toggleTrackEffect } from '../multitrack/send-eq.js';
 import { openTrackSlotMenu, editTrackEffect } from '../multitrack/fx-slots.js';
+import { canFreeze } from '../multitrack/freeze.js';
 import { dbToFader, faderToDb, formatGain, formatGainShort, formatPan, parseGain } from '../multitrack/levels.js';
 import { MeterBar, METER_RANGE } from '../multitrack/meter.js';
 
@@ -114,6 +115,7 @@ class Strip {
     this.mode.addEventListener('change', () => app.commands.run('mt.setAutomationMode', { id: this.id, mode: this.mode.value }));
     this.fxPower = h('button.mt-tb.mt-tb-fx', { type: 'button', 'aria-label': 'Effects power', title: 'Effects Power', 'aria-pressed': 'true', onclick: () => c().toggle(this.id, 'fxPower') }, icon('power', 12));
     this.fxPost = isMaster ? null : h('button.mt-tb.mx-fx-post', { type: 'button', 'aria-label': 'Post-fader effects', title: 'Post-Fader (effects after the track volume and pan)', 'aria-pressed': 'false', onclick: () => c().toggle(this.id, 'fxPost') }, 'Post');
+    this.freeze = isAudio ? h('button.mt-tb.mx-freeze', { type: 'button', 'aria-label': 'Freeze track', title: 'Freeze: pre-render the clips and effects so they cost nothing during playback', 'aria-pressed': 'false', onclick: () => app.commands.run('mt.freezeTrack', { id: this.id }) }, icon('freeze', 12)) : null;
     this.fxEdit = h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Edit effects', title: 'Edit Effects', onclick: () => app.commands.run('mt.trackEffects', { id: this.id }) }, icon('fx', 13));
     this.pan = isMaster ? null : knob({ value: 0, min: -100, max: 100, step: 1, defaultValue: 0, bipolar: true, label: 'Pan', format: formatPan, size: 26, onInput: (v) => c().set(this.id, 'pan', v, 'input'), onChange: (v) => c().set(this.id, 'pan', v, 'change') });
     this.panText = h('span.mx-pan-text', 'C');
@@ -138,7 +140,7 @@ class Strip {
       // Sections the gutter can collapse (data-sec); the master keeps empty
       // ones so its controls line up with the tracks'.
       h('div.mx-sec', { dataset: { sec: 'io' } }, h('div.mx-io', h('div.mx-io-top', this.invert), this.input ? h('label.mx-io-row', icon('log-in', 12), this.input) : h('div.mx-io-row.placeholder', { 'aria-hidden': 'true' }), h('label.mx-io-row', icon('log-out', 12), this.output))),
-      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', h('span', { title: 'Effects' }, 'FX'), h('div.spacer'), this.fxPower, this.fxPost, this.fxEdit), this.fxRows),
+      h('div.mx-sec', { dataset: { sec: 'fx' } }, h('div.mx-fx-head', h('span', { title: 'Effects' }, 'FX'), h('div.spacer'), this.fxPower, this.fxPost, this.freeze, this.fxEdit), this.fxRows),
       h('div.mx-sec', { dataset: { sec: 'sends' } }, this.sends?.el),
       h('div.mx-sec', { dataset: { sec: 'eq' } }, this.eq.el),
       h('div.mx-panrow', this.pan, this.pan ? this.panText : null),
@@ -163,6 +165,7 @@ class Strip {
     this.mode.value = track.mode;
     this.fxPower.setAttribute('aria-pressed', String(track.fxPower));
     this.fxPost?.setAttribute('aria-pressed', String(Boolean(track.fxPost)));
+    this.syncFreeze();
     if (this.input) {
       this.input.replaceChildren(h('option', { value: 'none' }, 'None'), h('option', { value: 'default' }, track.channels === 1 ? 'Default Mono Input' : 'Default Stereo Input'));
       this.input.value = track.input;
@@ -198,6 +201,15 @@ class Strip {
     this.sends?.update(track);
     this.eq.update(track);
     this.values();
+  }
+
+  /** The freeze switch: on, rendering (busy) or unavailable (post-fader effects, 5.1). */
+  syncFreeze() {
+    if (!this.freeze) return;
+    const t = this.track;
+    this.freeze.setAttribute('aria-pressed', String(Boolean(t.freeze)));
+    this.freeze.classList.toggle('busy', Boolean(this.doc.freezing?.has(t.id)));
+    this.freeze.disabled = !t.freeze && !canFreeze(this.doc.state, t);
   }
 
   /** Shows the scale labels that fit the fader's current height without crowding. */
@@ -370,6 +382,7 @@ export function mixerPanel(app) {
     if (d !== app.active || d.kind !== 'session') return;
     if (e.kind === 'edit' || e.kind === 'history' || e.kind === 'clip-selection') render();
     else if (e.kind === 'cursor' || e.kind === 'automation') for (const s of strips.values()) s.values();
+    else if (e.kind === 'freeze') for (const s of strips.values()) s.syncFreeze();
   });
   app.on('transport', schedule);
   app.on('prefs', (key) => key === 'visibilityInMixer' && render());

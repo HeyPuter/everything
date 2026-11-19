@@ -40,6 +40,7 @@ const ALIGN_PRECISIONS = [
 ];
 import { pickCustomColor } from './custom-color.js';
 import { laneParams, laneInfo } from './fx-automation.js';
+import { canFreeze } from './freeze.js';
 import { templateFromState, stateFromTemplate, userTemplates, saveTemplate, deleteTemplate } from './templates.js';
 import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
@@ -1792,6 +1793,18 @@ export function installMultitrackCommands(app) {
       },
     },
     { id: 'view.clipVolumeEnvelopes', label: 'Show Clip Volume Envelopes', checked: (a) => a.prefs.get('clipVolumeEnvelopes') !== false, run: () => app.prefs.set('clipVolumeEnvelopes', app.prefs.get('clipVolumeEnvelopes') === false) },
+    {
+      id: 'mt.freezeTrack',
+      label: 'Freeze Track',
+      enabled: (a, args) => canFreeze(session(a)?.state, selTrack(a, args)),
+      checked: (a) => Boolean(selTrack(a)?.freeze),
+      run: (a, args) => {
+        const doc = session(app);
+        const t = selTrack(app, args);
+        doc.apply(t.freeze ? 'Unfreeze Track' : 'Freeze Track', S.updateTrack(doc.state, t.id, { freeze: !t.freeze }));
+        announce(t.freeze ? `${t.name} unfrozen` : `${t.name} frozen: its effects are being pre-rendered`);
+      },
+    },
     { id: 'view.clipEffectEnvelopes', label: 'Show Clip Effect Envelopes', checked: (a) => a.prefs.get('clipEffectEnvelopes') !== false, run: () => app.prefs.set('clipEffectEnvelopes', app.prefs.get('clipEffectEnvelopes') === false) },
     { id: 'view.clipPanEnvelopes', label: 'Show Clip Pan Envelopes', checked: (a) => Boolean(a.prefs.get('clipPanEnvelopes')), run: () => app.prefs.toggle('clipPanEnvelopes') },
   ]);
