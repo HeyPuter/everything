@@ -76,7 +76,7 @@ export const CATEGORIES = [
       {
         title: 'New Files',
         items: [
-          select('defaultRate', 'Sample rate', [8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000].map((r) => ({ value: r, label: `${r} Hz` }))),
+          number('defaultRate', 'Sample rate', { min: 3000, max: 384000, step: 1, unit: 'Hz', help: 'Any rate: New Audio File and New Multitrack Session start with it.' }),
           select('defaultChannels', 'Channels', opts([[1, 'Mono'], [2, 'Stereo']])),
         ],
       },

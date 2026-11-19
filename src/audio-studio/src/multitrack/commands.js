@@ -39,6 +39,7 @@ const ALIGN_PRECISIONS = [
   { id: 'high', label: 'High (slow)' },
 ];
 import { templateFromState, stateFromTemplate, userTemplates, saveTemplate, deleteTemplate } from './templates.js';
+import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
 const session = (app) => (app.active?.kind === 'session' ? app.active : null);
 const hasSession = (app) => Boolean(session(app));
@@ -107,22 +108,28 @@ async function newSessionDialog(app) {
   });
   template.addEventListener('change', () => (delTemplate.disabled = !userTemplates(app.prefs).some((t) => t.id === template.value)));
   fillTemplates();
-  const rate = h('select.select', { 'aria-label': 'Sample rate' }, [22050, 32000, 44100, 48000, 88200, 96000, 192000].map((r) => h('option', { value: r, selected: r === (app.prefs.get('defaultRate') || 48000) }, `${r} Hz`)));
+  const rate = rateField(app.prefs.get('defaultRate') || 48000);
+  const error = h('div.dlg-error', { role: 'alert' });
   const bits = h('select.select', { 'aria-label': 'Bit depth' }, [16, 24, 32].map((b) => h('option', { value: b, selected: b === 32 }, b === 32 ? '32 (float)' : String(b))));
   const master = h('select.select', { 'aria-label': 'Mix' }, h('option', { value: '2' }, 'Stereo'), h('option', { value: '1' }, 'Mono'), h('option', { value: '6' }, '5.1'));
   master.value = String([1, 6].includes(app.prefs.get('newSessionMix')) ? app.prefs.get('newSessionMix') : 2);
   const r = await openDialog({
     title: 'New Multitrack Session',
-    body: h('div.form-grid', h('label', 'Session Name:'), name, h('label', 'Template:'), h('div.row', template, delTemplate), h('label', 'Sample Rate:'), rate, h('label', 'Bit Depth:'), bits, h('label', 'Mix:'), master),
+    body: h('div.form-grid', h('label', 'Session Name:'), name, h('label', 'Template:'), h('div.row', template, delTemplate), h('label', 'Sample Rate:'), rate.el, h('label', 'Bit Depth:'), h('div.row', bits, h('span.muted', 'bits')), h('label', 'Mix:'), master, h('span'), error),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      error.textContent = rate.value() ? '' : RATE_PROBLEM;
+      if (!rate.value()) rate.input.focus();
+      return Boolean(rate.value());
+    },
   });
   if (r !== 'ok') return null;
   const chosen = TEMPLATES.find((t) => t.id === template.value) || userTemplates(app.prefs).find((t) => t.id === template.value);
   app.prefs.set('newSessionMix', Number(master.value));
-  return { name: `${name.value.trim() || 'Untitled Session'}.asesx`, template: chosen, sampleRate: Number(rate.value), bitDepth: Number(bits.value), masterChannels: Number(master.value) };
+  return { name: `${name.value.trim() || 'Untitled Session'}.asesx`, template: chosen, sampleRate: rate.value(), bitDepth: Number(bits.value), masterChannels: Number(master.value) };
 }
 
 async function addTracksDialog(app) {

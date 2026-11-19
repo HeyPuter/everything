@@ -19,6 +19,7 @@ import { preferencesDialog } from '../ui/preferences.js';
 import { deleteSmoothFrames, zoomInFactor, MIN_VIEW_FRAMES } from '../editor/view-prefs.js';
 import { shuttleCommands } from './shuttle.js';
 import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
+import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
 const hasAudio = (app) => Boolean(audio(app));
@@ -72,11 +73,8 @@ function newDocFromClip(app, clip, name) {
 
 async function newAudioDialog(app, { title = 'New Audio File', name } = {}) {
   const nameInput = h('input.input', { type: 'text', value: name || app.uniqueName('Untitled'), 'aria-label': 'File name', style: { width: '100%' } });
-  const rate = h(
-    'select.select',
-    { 'aria-label': 'Sample rate' },
-    [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000].map((r) => h('option', { value: r, selected: r === app.prefs.get('defaultRate') }, `${r} Hz`)),
-  );
+  const rate = rateField(app.prefs.get('defaultRate') || 48000);
+  const error = h('div.dlg-error', { role: 'alert' });
   const channels = h('select.select', { 'aria-label': 'Channels' }, h('option', { value: '1', selected: app.prefs.get('defaultChannels') === 1 }, 'Mono'), h('option', { value: '2', selected: app.prefs.get('defaultChannels') !== 1 }, 'Stereo'));
   const bits = h('select.select', { 'aria-label': 'Bit depth' }, [8, 16, 24, 32].map((b) => h('option', { value: b, selected: b === 32 }, b === 32 ? '32 (float)' : String(b))));
   const r = await openDialog({
@@ -86,21 +84,28 @@ async function newAudioDialog(app, { title = 'New Audio File', name } = {}) {
       h('label', 'File Name:'),
       nameInput,
       h('label', 'Sample Rate:'),
-      rate,
+      rate.el,
       h('label', 'Channels:'),
       channels,
       h('label', 'Bit Depth:'),
-      bits,
+      h('div.row', bits, h('span.muted', 'bits')),
+      h('span'),
+      error,
     ),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'OK', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      error.textContent = rate.value() ? '' : RATE_PROBLEM;
+      if (!rate.value()) rate.input.focus();
+      return Boolean(rate.value());
+    },
   });
   if (r !== 'ok') return null;
-  app.prefs.set('defaultRate', Number(rate.value));
+  app.prefs.set('defaultRate', rate.value());
   app.prefs.set('defaultChannels', Number(channels.value));
-  return { name: nameInput.value.trim() || 'Untitled', sampleRate: Number(rate.value), channels: Number(channels.value), bitDepth: Number(bits.value) };
+  return { name: nameInput.value.trim() || 'Untitled', sampleRate: rate.value(), channels: Number(channels.value), bitDepth: Number(bits.value) };
 }
 
 /** Longest silence Insert Silence adds (s): far beyond real use, short of what stalls the tab. */
