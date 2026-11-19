@@ -301,10 +301,10 @@
   opacity: 1;
 }
 
-/* Unpinned, the HUD steps aside while the pointer is elsewhere. */
+/* Unpinned, the HUD stays in view but recedes while the pointer is elsewhere. */
 @media (hover: hover) {
   .wf:not(:hover) .hud:not(.pinned):not(:focus-within) {
-    opacity: 0;
+    opacity: 0.55;
   }
 }
 

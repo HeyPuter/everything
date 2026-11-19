@@ -227,7 +227,7 @@ export class WaveformView {
     const grip = h('span.hud-grip', { title: 'Drag to move the HUD. Double-click to put it back.', 'aria-hidden': 'true' });
     const pinBtn = h(
       'button.icon-btn.hud-pin',
-      { type: 'button', 'aria-label': 'Pin HUD', title: 'Keep the HUD visible when the pointer leaves the editor', onclick: () => this.app.prefs.toggle('hudPinned') },
+      { type: 'button', 'aria-label': 'Pin HUD', title: 'Pin the HUD: keep it at full strength when the pointer leaves the editor', onclick: () => this.app.prefs.toggle('hudPinned') },
       icon('pin', 12),
     );
     const hud = h('div.hud', grip, h('span.hud-icon', icon('hud-level', 14)), knobEl, valueEl, h('span.hud-unit', 'dB'), h('span.hud-sep'), pinBtn);
