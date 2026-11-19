@@ -14,6 +14,7 @@ import { withProgress } from '../export/progress.js';
 import { exportOptionsFor, batchSettings, uniqueName } from '../batch/queue.js';
 import { outputWriter } from '../batch/export-settings.js';
 import * as puter from '../storage/puter.js';
+import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
 
@@ -117,7 +118,8 @@ async function importRawDialog(app) {
   if (!file) return;
   // The last settings used come back (raw files usually arrive in batches of one kind).
   const last = { rate: 44100, channels: 2, encoding: 's16', order: 'le', offset: 0, ...(app.prefs.get('importRaw') || {}) };
-  const rate = h('select.select', { 'aria-label': 'Sample rate' }, [8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000].map((r) => h('option', { value: r, selected: r === last.rate }, `${r} Hz`)));
+  const rate = rateField(last.rate);
+  const error = h('div.dlg-error', { role: 'alert' });
   const channels = h('input.input.num', { type: 'number', min: 1, max: 8, value: last.channels, 'aria-label': 'Channels' });
   const enc = h('select.select', { 'aria-label': 'Sample type' }, RAW_ENCODINGS.map((e) => h('option', { value: e.id, selected: e.id === last.encoding }, e.label)));
   const order = h('select.select', { 'aria-label': 'Byte order' }, h('option', { value: 'le' }, 'Little-endian'), h('option', { value: 'be' }, 'Big-endian'));
@@ -128,35 +130,40 @@ async function importRawDialog(app) {
     const e = RAW_ENCODINGS.find((x) => x.id === enc.value);
     order.disabled = e.bytes === 1;
     const frames = Math.max(0, Math.floor((file.size - Number(offset.value || 0)) / (e.bytes * Math.max(1, Number(channels.value) || 1))));
-    info.textContent = `${file.name}: ${file.size.toLocaleString()} bytes, about ${app.formatTime(frames, Number(rate.value))} of audio.`;
+    info.textContent = rate.value() ? `${file.name}: ${file.size.toLocaleString()} bytes, about ${app.formatTime(frames, rate.value())} of audio.` : `${file.name}: ${file.size.toLocaleString()} bytes.`;
   };
-  for (const el of [rate, channels, enc, offset]) el.addEventListener('input', update);
+  for (const el of [rate.input, channels, enc, offset]) el.addEventListener('input', update);
   update();
   const r = await openDialog({
     title: 'Import Raw Data',
     body: h(
       'div',
-      h('div.form-grid', h('label', 'Sample Rate:'), rate, h('label', 'Channels:'), channels, h('label', 'Sample Type:'), enc, h('label', 'Byte Order:'), order, h('label', 'Start Byte Offset:'), offset),
+      h('div.form-grid', h('label', 'Sample Rate:'), rate.el, h('label', 'Channels:'), channels, h('label', 'Sample Type:'), enc, h('label', 'Byte Order:'), order, h('label', 'Start Byte Offset:'), offset),
       info,
+      error,
     ),
     buttons: [
       { label: 'Cancel', value: null },
       { label: 'Import', value: 'ok', primary: true },
     ],
+    onSubmit: () => {
+      error.textContent = rate.value() ? '' : RATE_PROBLEM;
+      if (!rate.value()) rate.input.focus();
+      return Boolean(rate.value());
+    },
   });
   if (r !== 'ok') return;
   const ch = Math.max(1, Math.min(8, Math.round(Number(channels.value) || 1)));
-  app.prefs.set('importRaw', { rate: Number(rate.value), channels: ch, encoding: enc.value, order: order.value, offset: Math.max(0, Math.round(Number(offset.value) || 0)) });
+  app.prefs.set('importRaw', { rate: rate.value(), channels: ch, encoding: enc.value, order: order.value, offset: Math.max(0, Math.round(Number(offset.value) || 0)) });
   const data = decodeRaw(new Uint8Array(await file.arrayBuffer()), { encoding: enc.value, channels: ch, bigEndian: order.value === 'be', offset: Math.max(0, Math.round(Number(offset.value) || 0)) });
   if (!data[0].length) return app.notify('The file has no complete sample frames with those settings.', { error: true });
   const bits = { u8: 8, s8: 8, ulaw: 16, alaw: 16, s16: 16, s24: 24 }[enc.value] || 32;
-  const doc = new AudioFile({ name: app.uniqueName(`${baseName(file.name)}.wav`), sampleRate: Number(rate.value), channels: data.map((d) => Channel.fromSamples(d)), info: { bitDepth: bits, format: 'wav' }, source: { type: 'local' } });
+  const doc = new AudioFile({ name: app.uniqueName(`${baseName(file.name)}.wav`), sampleRate: rate.value(), channels: data.map((d) => Channel.fromSamples(d)), info: { bitDepth: bits, format: 'wav' }, source: { type: 'local' } });
   app.addDocument(doc);
 }
 
 // ------------------------------------------------- export range markers
 
-/** File names for exported range markers: the marker name, or prefix + number. */
 /**
  * File names for range exports. naming: 'name' (marker names), 'prefix' (prefix and a number
  * counting up from `start`) or 'prefixName' (prefix, number and marker name).
