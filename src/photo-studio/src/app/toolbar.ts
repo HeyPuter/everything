@@ -107,13 +107,17 @@ export class Toolbar {
     const cancel = () => clearTimeout(timer);
     el.addEventListener('pointerup', cancel);
     el.addEventListener('pointerleave', cancel);
+    // The keys a toolbar button handles stay out of the workspace, where the
+    // arrows would nudge the layer with the Move tool.
     el.addEventListener('keydown', (ev) => {
       const slot = (ev.target as HTMLElement).closest<HTMLElement>('[data-slot]');
       if (slot && (ev.key === 'ArrowRight' || (ev.key === 'Enter' && ev.altKey))) {
         ev.preventDefault();
+        ev.stopPropagation();
         this.openFlyout(slot.dataset.slot!, slot);
       } else if (slot && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) {
         ev.preventDefault();
+        ev.stopPropagation();
         const slots = [...el.querySelectorAll<HTMLElement>('[data-slot]')];
         const at = slots.indexOf(slot);
         slots[(at + (ev.key === 'ArrowDown' ? 1 : -1) + slots.length) % slots.length].focus();

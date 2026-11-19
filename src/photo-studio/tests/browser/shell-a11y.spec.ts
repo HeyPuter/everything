@@ -194,6 +194,23 @@ test('a tool chosen from a toolbar flyout with the keyboard keeps the focus on i
   await expect(page.locator('[data-slot="marquee"]')).toBeFocused();
 });
 
+test('arrow keys used in the toolbar do not nudge the layer with the Move tool', async ({ page }) => {
+  await page.evaluate(() => window.photoStudio.runCommand('layer.duplicate'));
+  await idle(page);
+  await page.evaluate(() => window.photoStudio.setTool('move'));
+  const steps = () => page.evaluate(() => window.photoStudio.history.labels.length);
+  const before = await steps();
+  await page.locator('[data-slot="marquee"]').focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.tool-flyout')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await idle(page);
+  expect(await steps()).toBe(before);
+  expect(await page.evaluate(() => window.photoStudio.tool)).toBe('move');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 375, height: 812 } });
   test('the Preferences window keeps Cancel and Done on screen', async ({ page }) => {
