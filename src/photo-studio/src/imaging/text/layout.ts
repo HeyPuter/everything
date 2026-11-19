@@ -14,6 +14,7 @@ import { featureOn } from './feature-list';
 import { graphemeBoundaries, ptToPx, type Align, type CharStyle, type TextLayerData } from './model';
 import { layoutOnPath, pathGeometry, shapeSpans, type PathGeometry, type PathPlacement } from './path-text';
 import { applyBlock } from './block-text';
+import { resolveFit } from './fit';
 
 export type FontMetrics = { width: number; ascent: number; descent: number };
 // `font` is a CSS font shorthand; `kerning` false asks for unkerned advances.
@@ -123,6 +124,8 @@ export type TextLayout = {
   path?: PathPlacement;
   // Area text: the outline lines flow inside (local space).
   shape?: PathGeometry;
+  // Dynamic text: the box the text fits (local space).
+  fitBox?: Rect;
 };
 
 export type LayoutOptions = {
@@ -165,6 +168,11 @@ type Cluster = {
 const isLower = (s: string) => s !== s.toUpperCase() && s === s.toLowerCase();
 
 export function layoutText(data: TextLayerData, opts: LayoutOptions): TextLayout {
+  if (data.fit && data.orientation === 'horizontal') {
+    // Dynamic text: laid out as the ordinary text its fit resolves to.
+    const { data: resolved, box } = resolveFit(data, opts, layoutText);
+    return { ...layoutText(resolved, opts), fitBox: box };
+  }
   if (data.path?.kind === 'path' && data.path.knots.length >= 2) return layoutOnPath(data, opts, layoutText);
   return layoutFlow(data, opts);
 }

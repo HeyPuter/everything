@@ -34,7 +34,7 @@ export function psdLosses(doc: PhotoDocument, extras: { comments?: boolean } = {
   flattened('frames', 'frames', any((l) => l.frame));
   flattened('vector-masks', 'vector masks', any((l) => l.vectorMask));
   flattened('warps', 'warps', any((l) => l.pinWarp));
-  flattened('shaped-text', 'text on a path and area text', any((l) => l.kind === 'text' && (l.textData?.path || l.textData?.block)));
+  flattened('shaped-text', 'text on a path, area text and dynamic text', any((l) => l.kind === 'text' && (l.textData?.path || l.textData?.block || l.textData?.fit)));
   flattened('resampled', 'scaled or rotated images', any(resampled));
   flattened('layer-filters', 'layer filter settings', any((l) => l.kind !== 'group' && filtered(l)));
   flattened('merged-groups', 'groups that have a style, filter or shape mask', any((l) => l.kind === 'group' && !l.frame && (activeLayerStyle(l) || filtered(l) || (hasMask(l) && !l.pixelMask))));

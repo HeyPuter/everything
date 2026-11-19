@@ -106,7 +106,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     title: 'Block text',
     text: 'A new arc-text shape that stacks lines and scales each one to the same width, for bold headline blocks that stay editable.',
     release: 'October 2026',
-    action: { commands: ['type.arc-block'], needs: 'document', hint: 'Select a text layer, then choose Type → Convert to Arc Text → Block.' },
+    action: { commands: ['type.fit-block'], needs: 'document', hint: 'Select a text layer, then choose Type → Convert to Dynamic Text → Block.' },
   },
   {
     id: 'actual-size',

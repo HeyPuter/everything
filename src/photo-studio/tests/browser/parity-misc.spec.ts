@@ -297,16 +297,16 @@ test('block text, vertical forms and named stylistic sets', async ({ page }) => 
   await page.keyboard.type('HEADLINE');
   await page.keyboard.press('Escape');
   await idle(page);
-  await run(page, 'type.arc-block');
+  await run(page, 'type.fit-block');
   const block = await page.evaluate(async () => {
     const e = window.photoStudio;
     const { layoutOf, ppiOf } = await import('/src/features/type/text-utils.ts');
     const d = e.layer!.textData!;
-    return { block: d.block, widths: layoutOf(d, ppiOf(e)).lines.map((l) => Math.round(l.width)) };
+    return { fit: d.fit, widths: layoutOf(d, ppiOf(e)).lines.map((l) => Math.round(l.width)) };
   });
-  expect(block.block!.width).toBeGreaterThan(50);
-  expect(block.widths).toEqual([Math.round(block.block!.width), Math.round(block.block!.width)]);
-  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Convert to Block Text');
+  expect(block.fit!.width).toBeGreaterThan(50);
+  expect(block.widths).toEqual([Math.round(block.fit!.width), Math.round(block.fit!.width)]);
+  expect(await page.evaluate(() => window.photoStudio.history.labels.at(-1))).toBe('Convert to Dynamic Text');
 
   // Inter names its stylistic sets; the first one is offered by name.
   await page.waitForFunction(async () => {
@@ -317,7 +317,8 @@ test('block text, vertical forms and named stylistic sets', async ({ page }) => 
   await run(page, 'type.ot-ss01');
   expect(await page.evaluate(() => window.photoStudio.layer!.textData!.content.paragraphs[0].runs[0].style.features)).toContain('ss01');
 
-  // Vertical text turns Latin sideways on request (the block is dropped).
+  // Vertical text turns Latin sideways on request (after releasing the fit).
+  await run(page, 'type.release-fit');
   await run(page, 'type.vertical');
   await run(page, 'type.vertical-rotate');
   const v = await page.evaluate(() => {

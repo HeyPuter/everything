@@ -4,7 +4,7 @@ import { Assets } from "./assets";
 import { rasterMimeType } from './raster';
 import { maxIccProfileBytes, psdResourcesMimeType } from './psd-resources';
 import { validateVectorShape } from './vector';
-import { validateTextData } from './text-layer';
+import { migrateTextData, validateTextData } from './text-layer';
 import { validateDocumentPaths, validateLayerVectorMask } from './paths';
 import { psdMetadataMimeType } from './psd-metadata';
 import { inverseMaskMatrix, validatePixelMask } from './pixel-mask';
@@ -282,6 +282,7 @@ export function validateDocument(value: unknown): PhotoDocument {
       if (l.textData !== undefined || l.textFrame !== undefined) {
         if (l.kind !== 'text') throw new Error('Invalid text layer kind.');
         validateTextData(l.textData);
+        if (l.textData) l.textData = migrateTextData(l.textData);
         if (l.textFrame !== undefined && !(finite(l.textFrame, ['x', 'y', 'width', 'height']) && l.textFrame.width > 0 && l.textFrame.height > 0))
           throw new Error('Invalid text frame.');
       }

@@ -39,6 +39,11 @@ export type CharStyle = {
   // Vertical text: Latin and digits upright (undefined or ''), rotated
   // sideways, or short runs combined horizontally in one cell ('combine').
   vertical?: '' | 'rotate' | 'combine';
+  // Keep these characters on one line (no line break inside the run).
+  noBreak?: boolean;
+  // Snap glyph advances to whole pixels (Fractional Widths off), which can
+  // keep small on-screen text evenly spaced.
+  wholeWidths?: boolean;
 };
 export type Align = 'left' | 'center' | 'right' | 'justify-left' | 'justify-center' | 'justify-right' | 'justify-all';
 export type ParagraphStyle = {
@@ -53,6 +58,33 @@ export type ParagraphStyle = {
   // (undefined: left to right).
   paragraphStyle?: string;
   direction?: 'ltr' | 'rtl';
+  // Justified Arabic-script lines stretch letter joins with kashidas
+  // (tatweel) before widening spaces.
+  kashida?: boolean;
+  // How line spacing is measured: from baseline to baseline (undefined or ''),
+  // from the top of one line's em box to the next ('top'), or bottom to
+  // bottom ('bottom'). The models differ only when sizes on lines differ.
+  leadingModel?: '' | 'top' | 'bottom';
+  // Auto leading in percent of the type size (undefined: 120).
+  autoLeading?: number;
+  // Justification limits, [minimum, desired, maximum]: word spacing in percent
+  // of a normal space (80/100/133), letter spacing in percent of a space
+  // added between letters (0/0/0), glyph scaling in percent (100/100/100).
+  wordSpacing?: number[];
+  letterSpacing?: number[];
+  glyphScaling?: number[];
+  // Hyphenation settings (undefined: defaults in breaks.ts).
+  hyphenMinWord?: number; // shortest word that is hyphenated
+  hyphenBefore?: number; // letters kept before a hyphen
+  hyphenAfter?: number; // letters kept after a hyphen
+  hyphenLimit?: number; // most consecutive hyphenated lines (0: no limit)
+  hyphenZone?: number; // points: lines this close to the right edge are not hyphenated (unjustified text)
+  hyphenSkipCapitalized?: boolean;
+  // Line breaking: one line at a time ('' or undefined) or all lines of the
+  // paragraph considered together for even spacing ('every-line').
+  composer?: '' | 'every-line';
+  // Punctuation at line edges hangs outside the margins (paragraph text).
+  hanging?: boolean;
 };
 export type TextRun = { text: string; style: CharStyle };
 export type Paragraph = { runs: TextRun[]; style: ParagraphStyle };
@@ -99,6 +131,22 @@ export type TextLayerData = {
   // Block text (horizontal point text): every line scaled to `width` pixels
   // and stacked with `gap` pixels between lines (imaging/text/block-text.ts).
   block?: { width: number; gap: number };
+  // Dynamic text: the type is sized (and block lines broken) to fill a shape
+  // in the box at `origin` (its top-left corner) of `width` × `height`
+  // pixels; sizes in the content are relative (imaging/text/fit.ts).
+  fit?: TextFit;
+};
+export type FitShape = 'block' | 'circle' | 'arch' | 'bow' | 'wave';
+export type TextFit = {
+  shape: FitShape;
+  width: number;
+  // Block only: undefined lets the box grow with its lines; `origin` is then
+  // the first baseline at the aligned edge (as for point text).
+  height?: number;
+  bend: number; // arch, bow and wave: -100..100
+  gap: number; // block: pixels between lines before the block shrinks to fit
+  // Block: break paragraphs into lines that best fill the box.
+  autoLines: boolean;
 };
 
 export const defaultCharStyle = (): CharStyle => ({
@@ -152,14 +200,17 @@ export function textLayer(text = '', style: Partial<CharStyle> = {}, opts: Parti
 
 // ---------------------------------------------------------------- styles
 
-export const optionalCharKeys = ['charStyle', 'features', 'digits', 'vertical'] as const;
-export const optionalParagraphKeys = ['paragraphStyle', 'direction'] as const;
+export const optionalCharKeys = ['charStyle', 'features', 'digits', 'vertical', 'noBreak', 'wholeWidths'] as const;
+export const optionalParagraphKeys = [
+  'paragraphStyle', 'direction', 'kashida', 'leadingModel', 'autoLeading', 'wordSpacing', 'letterSpacing', 'glyphScaling',
+  'hyphenMinWord', 'hyphenBefore', 'hyphenAfter', 'hyphenLimit', 'hyphenZone', 'hyphenSkipCapitalized', 'composer', 'hanging',
+] as const;
 const charKeys = [...Object.keys(defaultCharStyle()), ...optionalCharKeys] as (keyof CharStyle)[];
 const paraKeys = [...Object.keys(defaultParagraphStyle()), ...optionalParagraphKeys] as (keyof ParagraphStyle)[];
 
 function sameValue(a: unknown, b: unknown) {
-  // Optional keys: missing and empty mean the same.
-  if ((a === undefined || a === '') && (b === undefined || b === '')) return true;
+  // Optional keys: missing, empty and off mean the same.
+  if ((a === undefined || a === '' || a === false) && (b === undefined || b === '' || b === false)) return true;
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => v === b[i]);
   return a === b;
 }
@@ -410,7 +461,7 @@ export function insertContent(c: TextContent, index: number, piece: TextContent)
     for (const r of p.runs) {
       // Optional keys the piece lacks are cleared, not inherited from the destination.
       const style: Partial<CharStyle> = { ...r.style };
-      for (const k of optionalCharKeys) if (style[k] === undefined) style[k] = '';
+      for (const k of optionalCharKeys) if (style[k] === undefined) (style as Record<string, unknown>)[k] = k === 'noBreak' || k === 'wholeWidths' ? false : '';
       if (r.text) out = applyCharStyle(out, pos, pos + r.text.length, style);
       pos += r.text.length;
     }

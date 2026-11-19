@@ -92,6 +92,7 @@ export function fitTextFrame(l: Layer, local: Rect) {
 // non-uniform scaling stays in the transform.
 export function bakeTextScale(l: Layer): boolean {
   if (!l.textData) return false;
+  if (l.textData.fit) return bakeFitScale(l);
   const [sx, sy] = textScale(l);
   if (!Number.isFinite(sx) || Math.abs(sx - sy) > 1e-3 * Math.max(sx, sy) || Math.abs(sx - 1) < 1e-4) return false;
   const f = textFrameOf(l);
@@ -101,6 +102,31 @@ export function bakeTextScale(l: Layer): boolean {
   // Same center; the frame takes the transform's size so the scale is exactly 1.
   const { width, height } = l.transform;
   l.textFrame = { x: cx - width / 2, y: cy - height / 2, width, height };
+  return true;
+}
+
+// Dynamic text: any scaling from the transform tools resizes the fit box
+// (about the frame center) and the text refits it; nothing is stretched.
+// The frame of fitted text is its box, so no layout is needed here.
+function bakeFitScale(l: Layer): boolean {
+  const d = l.textData!;
+  const fit = d.fit!;
+  const [sx, sy] = textScale(l);
+  if (!Number.isFinite(sx) || !Number.isFinite(sy) || (Math.abs(sx - 1) < 1e-4 && Math.abs(sy - 1) < 1e-4)) return false;
+  const f = textFrameOf(l);
+  const cx = f.x + f.width / 2,
+    cy = f.y + f.height / 2;
+  const { width, height } = l.transform;
+  const frame = { x: cx - width / 2, y: cy - height / 2, width, height };
+  const uniform = Math.abs(sx - sy) <= 1e-3 * Math.max(sx, sy);
+  if (fit.height === undefined && uniform) {
+    // A block of automatic height keeps its baseline origin, scaled with it.
+    l.textData = { ...d, origin: { x: cx + (d.origin.x - cx) * sx, y: cy + (d.origin.y - cy) * sy }, fit: { ...fit, width: fit.width * sx, gap: fit.gap * sx } };
+  } else {
+    const gap = fit.gap * Math.sqrt(Math.abs(sx * sy));
+    l.textData = { ...d, origin: { x: frame.x, y: frame.y }, fit: { ...fit, width: Math.max(1, width), height: Math.max(1, height), gap } };
+  }
+  l.textFrame = frame;
   return true;
 }
 
@@ -126,6 +152,7 @@ export function scaleTextData(data: TextLayerData, s: number, cx = 0, cy = 0): T
     box: data.box ? { width: data.box.width * s, height: data.box.height * s } : undefined,
     warp: data.warp ? { ...data.warp } : undefined,
     ...(data.block ? { block: { width: data.block.width * s, gap: data.block.gap * s } } : {}),
+    ...(data.fit ? { fit: { ...data.fit, width: data.fit.width * s, gap: data.fit.gap * s, ...(data.fit.height !== undefined ? { height: data.fit.height * s } : {}) } } : {}),
     path: data.path
       ? {
           ...data.path,
@@ -206,6 +233,27 @@ const AA = ['none', 'sharp', 'crisp', 'strong', 'smooth'];
 const num = (v: unknown, lo = -1e6, hi = 1e6) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 const bool = (v: unknown) => typeof v === 'boolean';
 
+const triple = (v: unknown, lo: number, hi: number) => Array.isArray(v) && v.length === 3 && v.every((x) => num(x, lo, hi)) && v[0] <= v[1] && v[1] <= v[2];
+function validParagraphOptions(s: ParagraphStyle): boolean {
+  const opt = (v: unknown, ok: (v: unknown) => boolean) => v === undefined || ok(v);
+  return (
+    opt(s.kashida, bool) && opt(s.hanging, bool) && opt(s.hyphenSkipCapitalized, bool) &&
+    opt(s.leadingModel, (v) => v === '' || v === 'top' || v === 'bottom') && opt(s.composer, (v) => v === '' || v === 'every-line') &&
+    opt(s.autoLeading, (v) => num(v, 0, 500)) &&
+    opt(s.wordSpacing, (v) => triple(v, 0, 1000)) && opt(s.letterSpacing, (v) => triple(v, -100, 500)) && opt(s.glyphScaling, (v) => triple(v, 50, 200)) &&
+    opt(s.hyphenMinWord, (v) => num(v, 2, 25)) && opt(s.hyphenBefore, (v) => num(v, 1, 15)) && opt(s.hyphenAfter, (v) => num(v, 1, 15)) &&
+    opt(s.hyphenLimit, (v) => num(v, 0, 25)) && opt(s.hyphenZone, (v) => num(v, 0, 5000))
+  );
+}
+
+/** Older documents: block text becomes dynamic block text of automatic height,
+ * which lays out exactly the same (same origin, width and line spacing). */
+export function migrateTextData(d: TextLayerData): TextLayerData {
+  if (!d.block || d.path || d.fit || d.orientation !== 'horizontal' || d.mode !== 'point') return d;
+  const { block, ...rest } = d;
+  return { ...rest, fit: { shape: 'block', width: block.width, bend: 0, gap: block.gap, autoLines: false } };
+}
+
 export function validateTextData(d: unknown): asserts d is TextLayerData {
   const fail = (what: string) => {
     throw new Error(`Invalid text layer (${what}).`);
@@ -227,6 +275,15 @@ export function validateTextData(d: unknown): asserts d is TextLayerData {
     )
       fail('path');
   }
+  if (t.fit !== undefined) {
+    const f = t.fit;
+    if (
+      !f || !['block', 'circle', 'arch', 'bow', 'wave'].includes(f.shape) || !num(f.width, 1, 1e6) ||
+      (f.height === undefined ? f.shape !== 'block' : !num(f.height, 1, 1e6)) || !num(f.bend, -100, 100) || !num(f.gap, -1e5, 1e5) ||
+      !bool(f.autoLines) || t.orientation !== 'horizontal' || !!t.path || !!t.block || t.mode !== 'point'
+    )
+      fail('fit');
+  }
   if (t.block !== undefined && (!t.block || !num(t.block.width, 1, 1e6) || !num(t.block.gap, -1e5, 1e5) || t.orientation !== 'horizontal' || !!t.path)) fail('block');
   const paras = t.content?.paragraphs;
   if (!Array.isArray(paras) || !paras.length || paras.length > 100_000) fail('paragraphs');
@@ -235,6 +292,7 @@ export function validateTextData(d: unknown): asserts d is TextLayerData {
     const s = p?.style;
     if (!s || !ALIGN.includes(s.align) || !['indentLeft', 'indentRight', 'indentFirst', 'spaceBefore', 'spaceAfter'].every((k) => num(s[k as keyof ParagraphStyle])) || !bool(s.hyphenate)) fail('paragraph style');
     if ((s.paragraphStyle !== undefined && typeof s.paragraphStyle !== 'string') || (s.direction !== undefined && s.direction !== 'ltr' && s.direction !== 'rtl')) fail('paragraph style');
+    if (!validParagraphOptions(s)) fail('paragraph style');
     if (!Array.isArray(p.runs) || !p.runs.length) fail('runs');
     for (const r of p.runs) {
       if (typeof r?.text !== 'string' || r.text.includes('\n')) fail('run text');
@@ -252,7 +310,8 @@ export function validateTextData(d: unknown): asserts d is TextLayerData {
         (c.charStyle !== undefined && typeof c.charStyle !== 'string') ||
         (c.features !== undefined && (typeof c.features !== 'string' || c.features.length > 200)) ||
         (c.digits !== undefined && c.digits !== '' && c.digits !== 'arabic' && c.digits !== 'persian') ||
-        (c.vertical !== undefined && c.vertical !== '' && c.vertical !== 'rotate' && c.vertical !== 'combine')
+        (c.vertical !== undefined && c.vertical !== '' && c.vertical !== 'rotate' && c.vertical !== 'combine') ||
+        (c.noBreak !== undefined && !bool(c.noBreak)) || (c.wholeWidths !== undefined && !bool(c.wholeWidths))
       )
         fail('character style');
     }
