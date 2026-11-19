@@ -151,6 +151,7 @@ class DevelopWorkspace {
   private readonly initialBlending?: { opacity: number; blend: Blend };
   private resolveRun!: (applied: boolean) => void;
   private closed = false;
+  private resizer?: ResizeObserver;
 
   constructor(
     private e: Editor,
@@ -201,11 +202,12 @@ class DevelopWorkspace {
       this.preview.resize(r.width, r.height);
     };
     fit();
-    new ResizeObserver(() => {
+    this.resizer = new ResizeObserver(() => {
       const wasFit = Math.abs(this.preview.zoom - this.preview.fitZoom()) < 1e-6;
       fit();
       if (wasFit) this.preview.setZoom(this.preview.fitZoom());
-    }).observe(view);
+    });
+    this.resizer.observe(view);
     this.syncAll();
     this.update();
     this.preview.setZoom(this.preview.fitZoom());
@@ -1093,6 +1095,7 @@ ${BANDS.map((b) => `<div class="dv-mix-row" data-mix-row="hue">${sliderHTML(`hue
     this.closed = true;
     if (this.frame) cancelAnimationFrame(this.frame);
     window.removeEventListener('blur', this.onBlur);
+    this.resizer?.disconnect();
     this.preview.dispose(applied);
     this.aux.dispose();
     closeSession(this.s);

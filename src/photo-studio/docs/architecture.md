@@ -448,6 +448,36 @@ every transform, so a symmetric stroke is still one session and one undo step.
   as the first filter cleans the full-resolution source even for previews,
   because block edges exist only on the original pixel grid.
 
+## Develop (`src/imaging/filters/develop/`, `src/features/filters/develop/`)
+
+- One catalog operation (`develop`) whose settings (`params.ts`) cover every
+  panel: Light, Color, Effects, Curve (parametric regions and point curves as
+  one-polyline `paths`), Color Mixer and gray mix (eight hue bands), Color
+  Grading, Detail, Optics, Geometry, Calibration, profiles, four local
+  adjustment mask slots and one on/off switch per panel. `PANELS` groups the
+  keys for the workspace and for switching a panel off.
+- Settings carry a `version`; `migrate` on the operation (called by
+  `normalizeFor`) upgrades older settings before normalizing, so Live Filters,
+  recorded actions and presets from the first Develop filter keep their look.
+- `resolveDevelop` (`profiles.ts`) resets switched-off panels and adds the
+  profile's look as offsets to the same settings, so profiles cost nothing per
+  pixel. The pipeline (`index.ts`) runs pixel passes (noise reduction, lens
+  corrections, geometry), then one fused per-pixel loop in linear light (white
+  balance, calibration, dehaze, clarity/texture, the Light curve on perceptual
+  luminance, vibrance/saturation, mixer or gray mix, masks, grading, gamut
+  compression, vignette, Curve tables, grain), then sharpening. Stages at
+  their defaults are skipped; all defaults are the identity.
+- Spatial and geometric settings are relative to the image (radii scale with
+  `ctx.scale`, mask and geometry coordinates are normalized), so the reduced
+  preview matches the full render.
+- The workspace (`workspace.ts`) is a layout of the filter session: a
+  `FilterPreview` with `proxyLimit`, `adaptive` (half-size renders while a
+  slider keeps moving on slow images) and view modes (result, original, split,
+  side by side), plus a reduced source copy from the worker for Auto, the
+  white balance eyedropper and the targeted adjustment. Panel open state is a
+  per-browser convenience; presets and Last Used are stored per browser
+  (`presets.ts`).
+
 ## Type on paths and variables
 
 - Block text (`textData.block`) is laid out as point text and then each line is
