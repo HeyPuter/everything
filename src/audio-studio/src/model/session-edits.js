@@ -913,7 +913,12 @@ export function rippleDeleteClips(state, ids) {
       for (const [a, b] of cuts.get(c.trackId)) if (c.start >= b) shift += b - a;
       return shift ? { ...c, start: c.start - shift } : c;
     });
-  return { ...state, clips };
+  // Each track's automation closes the same gaps (latest first, so earlier ranges keep their place).
+  let next = { ...state, clips };
+  for (const [trackId, ranges] of cuts) {
+    for (const [a, b] of ranges.slice().reverse()) next = rippleAutomation(next, a, b, (t) => t.id === trackId);
+  }
+  return next;
 }
 
 /** The empty gap on a track around frame `at`: [start, end) or null. */

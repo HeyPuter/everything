@@ -653,3 +653,20 @@ describe('smart input monitoring', () => {
     expect(mon.active).toBe(true);
   });
 });
+
+describe('ripple edits and automation', () => {
+  it('closes the gap of rippled clips in their track automation', () => {
+    let st = S.createSessionState({ sampleRate: RATE, tracks: 2 });
+    const [a, b] = st.tracks;
+    const c1 = S.createClip({ trackId: a.id, sourceId: 's', start: 1000, length: 1000 });
+    const c2 = S.createClip({ trackId: a.id, sourceId: 's', start: 3000, length: 1000 });
+    st = S.addClips(st, [c1, c2]);
+    st = S.setAutomation(st, a.id, 'volume', [{ t: 0, v: 0 }, { t: 3500, v: -12 }]);
+    st = S.setAutomation(st, b.id, 'volume', [{ t: 3500, v: -6 }]);
+    const r = S.rippleDeleteClips(st, [c1.id]);
+    expect(S.findClip(r, c2.id).start).toBe(2000);
+    // The keyframe under the moved clip moves with it; another track's lane stays.
+    expect(S.findTrack(r, a.id).automation.volume.at(-1)).toEqual({ t: 2500, v: -12 });
+    expect(S.findTrack(r, b.id).automation.volume).toEqual([{ t: 3500, v: -6 }]);
+  });
+});
