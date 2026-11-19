@@ -186,7 +186,7 @@ export async function imageSizeDialog(e: Editor, arg?: unknown) {
     Object.assign(st, { w: s.width, h: s.height, ppi: s.ppi, resUnit: s.resUnit, resample: s.resample, method: s.method, scaleStyles: s.scaleStyles });
     st.constrain = Math.abs(s.width / s.height - ow / oh) < 1e-3;
   }
-  const composite = compositeRGBA(e).catch(() => undefined);
+  const composite = previewSource(e);
   const html = `<form method="dialog" class="image-size"><h2>Image Size</h2>
     <div class="is-layout">
       <figure class="is-preview"><canvas width="168" height="168" aria-label="Preview at 100%"></canvas><figcaption>Preview (100%)</figcaption></figure>
@@ -363,10 +363,31 @@ export async function imageSizeDialog(e: Editor, arg?: unknown) {
 }
 const labelFor = (m: ResizeMethod) => RESAMPLE_METHODS.find(([v]) => v === m)?.[1].replace(/ \(.*\)/, '') ?? m;
 /** 100% view of the image center after resampling with the chosen method. */
-async function drawPreview(canvas: HTMLCanvasElement, composite: Promise<RGBA8 | undefined>, ow: number, oh: number, st: State) {
-  const img = await composite;
+/** Pixels of the composite in a rectangle of the canvas. The preview shows a
+ * small part of the image, so only that part is read back (a whole large or
+ * high-depth image would take hundreds of megabytes); a read covering the
+ * next request is reused. */
+function previewSource(e: Editor) {
+  const doc = e.doc;
+  let last: { rect: IRect; img: Promise<RGBA8 | undefined> } | undefined;
+  return async (r: IRect): Promise<RGBA8 | undefined> => {
+    const inside = (a: IRect) => a.x <= r.x && a.y <= r.y && a.x + a.width >= r.x + r.width && a.y + a.height >= r.y + r.height;
+    if (!last || !inside(last.rect)) last = { rect: r, img: compositeRGBA(e, doc, r).catch(() => undefined) };
+    const { rect } = last,
+      img = await last.img;
+    if (!img || (rect.x === r.x && rect.y === r.y && rect.width === r.width && rect.height === r.height)) return img;
+    const out: RGBA8 = { width: r.width, height: r.height, data: new Uint8ClampedArray(r.width * r.height * 4) };
+    for (let y = 0; y < r.height; y++) {
+      const from = ((r.y - rect.y + y) * rect.width + (r.x - rect.x)) * 4;
+      out.data.set(img.data.subarray(from, from + r.width * 4), y * r.width * 4);
+    }
+    return out;
+  };
+}
+
+async function drawPreview(canvas: HTMLCanvasElement, composite: (r: IRect) => Promise<RGBA8 | undefined>, ow: number, oh: number, st: State) {
   const ctx = canvas.getContext('2d');
-  if (!img || !ctx) return;
+  if (!ctx) return;
   const W = canvas.width,
     H = canvas.height;
   const pw = Math.max(1, Math.round(st.resample ? st.w : ow)),
@@ -380,8 +401,8 @@ async function drawPreview(canvas: HTMLCanvasElement, composite: Promise<RGBA8 |
     rh = Math.min(oh, Math.ceil(H / fy) + margin * 2);
   const rx = Math.max(0, Math.min(ow - rw, Math.round(ow / 2 - rw / 2))),
     ry = Math.max(0, Math.min(oh - rh, Math.round(oh / 2 - rh / 2)));
-  const region: RGBA8 = { width: rw, height: rh, data: new Uint8ClampedArray(rw * rh * 4) };
-  for (let y = 0; y < rh; y++) region.data.set(img.data.subarray(((ry + y) * ow + rx) * 4, ((ry + y) * ow + rx + rw) * 4), y * rw * 4);
+  const region = await composite({ x: rx, y: ry, width: rw, height: rh });
+  if (!region) return;
   const out = resize(region, Math.max(1, Math.round(rw * fx)), Math.max(1, Math.round(rh * fy)), method);
   const ox = Math.round((out.width - W) / 2),
     oy = Math.round((out.height - H) / 2);

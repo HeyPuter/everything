@@ -7,6 +7,7 @@ export interface Texture {
 // Composite pass uniforms (vec4 u[24] in the shaders); see shaders.ts and
 // model/blending.ts for the layout of the upper half.
 export const UNIFORM_FLOATS = 96;
+export type ReadRect = { x: number; y: number; width: number; height: number };
 /** One rectangle copied from `source` into a destination texture of the same format. */
 export interface TextureCopy {
   source: Texture;
@@ -48,7 +49,8 @@ export interface Backend {
   // Image filter pass for spatial adjustments (see filter-shaders.ts): reads up
   // to three sources (missing ones repeat the first) and writes the target.
   filterPass(sources: Texture[], uniforms: Float32Array, target: Texture): void;
-  read(t: Texture): Promise<Uint8Array>;
-  readFloat(t: Texture): Promise<Float32Array>;
+  // Pixels of the texture, or of a rectangle `r` inside it (rows top to bottom).
+  read(t: Texture, r?: ReadRect): Promise<Uint8Array>;
+  readFloat(t: Texture, r?: ReadRect): Promise<Float32Array>;
   dispose(): void;
 }

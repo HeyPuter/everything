@@ -1,4 +1,4 @@
-import { UNIFORM_FLOATS, type Backend, type Texture, type TextureCopy } from './backend';
+import { UNIFORM_FLOATS, type Backend, type ReadRect, type Texture, type TextureCopy } from './backend';
 import { glVertex, glFragment, glFloatFragment, glResampleFragment, glFloatResampleFragment } from './shaders';
 import { needsRgbaResampling } from './sampling';
 import { glColorFragment } from './color-shaders';
@@ -247,24 +247,24 @@ export class WebGLBackend implements Backend {
     g.uniform4fv(g.getUniformLocation(program, 'u[0]'), data);
     g.drawArrays(g.TRIANGLES, 0, 3);
   }
-  read(t: Texture): Promise<Uint8Array> {
+  read(t: Texture, r?: ReadRect): Promise<Uint8Array> {
     if (t.format !== 'rgba8unorm')
       throw new Error('Use float readback for a floating-point texture.');
-    return this.readPixels(t, false) as Promise<Uint8Array>;
+    return this.readPixels(t, false, r) as Promise<Uint8Array>;
   }
-  readFloat(t: Texture): Promise<Float32Array> {
+  readFloat(t: Texture, r?: ReadRect): Promise<Float32Array> {
     if (t.format !== 'rgba32float')
       throw new Error('Float readback requires a floating-point texture.');
-    return this.readPixels(t, true) as Promise<Float32Array>;
+    return this.readPixels(t, true, r) as Promise<Float32Array>;
   }
-  private async readPixels(t: Texture, floating: boolean) {
+  private async readPixels(t: Texture, floating: boolean, r: ReadRect = { x: 0, y: 0, width: t.width, height: t.height }) {
     const g = this.gl;
     this.target(t);
     const buffer = g.createBuffer();
     if (!buffer) throw new Error('Could not allocate readback buffer.');
     g.bindBuffer(g.PIXEL_PACK_BUFFER, buffer);
-    g.bufferData(g.PIXEL_PACK_BUFFER, t.width * t.height * (floating ? 16 : 4), g.STREAM_READ);
-    g.readPixels(0, 0, t.width, t.height, g.RGBA, floating ? g.FLOAT : g.UNSIGNED_BYTE, 0);
+    g.bufferData(g.PIXEL_PACK_BUFFER, r.width * r.height * (floating ? 16 : 4), g.STREAM_READ);
+    g.readPixels(r.x, r.y, r.width, r.height, g.RGBA, floating ? g.FLOAT : g.UNSIGNED_BYTE, 0);
     const fence = g.fenceSync(g.SYNC_GPU_COMMANDS_COMPLETE, 0);
     g.flush();
     g.bindBuffer(g.PIXEL_PACK_BUFFER, null);
@@ -282,8 +282,8 @@ export class WebGLBackend implements Backend {
         poll();
       });
       const data = floating
-        ? new Float32Array(t.width * t.height * 4)
-        : new Uint8Array(t.width * t.height * 4);
+        ? new Float32Array(r.width * r.height * 4)
+        : new Uint8Array(r.width * r.height * 4);
       g.bindBuffer(g.PIXEL_PACK_BUFFER, buffer);
       g.getBufferSubData(g.PIXEL_PACK_BUFFER, 0, data);
       return data;

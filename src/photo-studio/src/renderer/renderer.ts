@@ -1518,12 +1518,13 @@ export class Renderer {
       return this.final!.format === 'rgba32float' ? this.backend.readFloat(this.final!) : this.backend.read(this.final!);
     });
   }
-  /** Composite of a document (all visible layers) as stored samples. */
-  async documentPixels(doc: PhotoDocument, assets: Assets): Promise<Uint8Array | Float32Array> {
+  /** Composite of a document (all visible layers) as stored samples, or of a
+   * rectangle of it (inside the canvas) when only part is needed. */
+  async documentPixels(doc: PhotoDocument, assets: Assets, rect?: IRect): Promise<Uint8Array | Float32Array> {
     await this.beforeReadback?.();
     return this.exclusive(async () => {
       await this.draw(doc, assets);
-      return this.final!.format === 'rgba32float' ? this.backend.readFloat(this.final!) : this.backend.read(this.final!);
+      return this.final!.format === 'rgba32float' ? this.backend.readFloat(this.final!, rect) : this.backend.read(this.final!, rect);
     });
   }
   async settle() {
