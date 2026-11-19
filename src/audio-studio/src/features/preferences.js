@@ -15,9 +15,10 @@ import { installAppearance } from '../ui/appearance.js';
 import { CATEGORIES, preferencesDialog, openAudioBytes } from '../ui/preferences.js';
 import { formatBytesShort } from '../export/formats.js';
 import { openDialog } from '../ui/dialog.js';
-import { pickLocalFiles, downloadBlob } from '../storage/files.js';
+import { pickLocalFiles } from '../storage/files.js';
 import { setResampleSettings } from '../audio/dsp.js';
 import * as puter from '../storage/puter.js';
+import { saveSmallFile } from '../export/save-file.js';
 
 /** Copies preference values into the module options that read them. */
 export function applyModulePrefs(prefs) {
@@ -192,10 +193,10 @@ export function installPreferences(app) {
     {
       id: 'file.exportSettings',
       label: 'Application Settings...',
-      run: () => {
+      run: async () => {
         const json = JSON.stringify(exportSettings(app.prefs), null, 2);
-        downloadBlob(new Blob([json], { type: 'application/json' }), settingsFileName());
-        app.setStatus('Settings exported');
+        const saved = await saveSmallFile(app, new Blob([json], { type: 'application/json' }), settingsFileName(), { title: 'Export Application Settings', ext: '.json', pref: 'settingsExportFolder' });
+        if (saved) app.setStatus(saved.type === 'puter' ? `Settings exported to ${saved.path}` : 'Settings exported');
       },
     },
   ]);

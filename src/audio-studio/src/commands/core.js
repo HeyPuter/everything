@@ -20,6 +20,7 @@ import { deleteSmoothFrames, zoomInFactor, MIN_VIEW_FRAMES } from '../editor/vie
 import { shuttleCommands } from './shuttle.js';
 import { mixPasteDialog, convertSampleTypeDialog, interpretRateDialog } from './edit-dialogs.js';
 import { rateField, RATE_PROBLEM } from '../ui/rate-field.js';
+import { saveSmallFile } from '../export/save-file.js';
 
 const audio = (app) => (app.active?.kind === 'audio' ? app.active : null);
 /** Files to open: from Puter when signed in (as File > Open does), else from this device. */
@@ -317,7 +318,7 @@ export function installCoreCommands(app) {
       id: 'file.exportMarkers',
       label: 'Selected Markers to CSV...',
       enabled: (a) => Boolean(a.active?.state?.markers?.length),
-      run: (a, args) => {
+      run: async (a, args) => {
         const doc = app.active;
         // The markers selected in the Markers panel (or handed over by its toolbar), else all of them.
         const ids = new Set(args?.ids || app.selectedMarkerIds?.() || []);
@@ -327,8 +328,8 @@ export function installCoreCommands(app) {
         const rows = [['Name', 'Start', 'Duration', 'Time Format', 'Type', 'Description', 'Start Samples', 'Duration Samples', 'Sample Rate']];
         for (const m of markers) rows.push([m.name, app.formatTime(m.start, doc.sampleRate), app.formatTime(m.duration, doc.sampleRate), app.prefs.get('timeFormat'), m.type, m.description || '', m.start, m.duration, doc.sampleRate]);
         const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join('\t')).join('\n');
-        downloadBlob(new Blob([csv], { type: 'text/csv' }), `${baseName(doc.name)} Markers.csv`);
-        app.setStatus(`Exported ${markers.length} marker${markers.length === 1 ? '' : 's'}${chosen.length ? ' (the selection)' : ''}`);
+        const saved = await saveSmallFile(app, new Blob([csv], { type: 'text/csv' }), `${baseName(doc.name)} Markers.csv`, { title: 'Export Selected Markers to CSV', ext: '.csv', pref: 'markerExportFolder' });
+        if (saved) app.setStatus(`Exported ${markers.length} marker${markers.length === 1 ? '' : 's'}${chosen.length ? ' (the selection)' : ''}${saved.type === 'puter' ? ` to ${saved.path}` : ''}`);
       },
     },
 
