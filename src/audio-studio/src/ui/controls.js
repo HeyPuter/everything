@@ -246,3 +246,55 @@ export function parseNumber(text) {
   const m = s.match(/^[-+]?\d*\.?\d+(e[-+]?\d+)?/);
   return m ? Number(m[0]) : NaN;
 }
+
+/**
+ * Number fields everywhere work like the scrubbable values: drag sideways to
+ * change the value (Shift for bigger steps, Alt or Cmd to move slower), click
+ * to type, arrow keys to step. The browser's spin buttons are hidden
+ * (base.css). Touch keeps the plain field, which brings up the number keypad.
+ */
+export function installNumberScrub(root = document) {
+  if (root.__numberScrub) return;
+  root.__numberScrub = true;
+  const usable = (el) => el instanceof HTMLInputElement && el.type === 'number' && !el.disabled && !el.readOnly && !el.hasAttribute('data-no-scrub');
+  // Holding the field (not yet focused) means scrubbing: keep the browser from focusing it until a click.
+  root.addEventListener('mousedown', (e) => {
+    if (e.button === 0 && usable(e.target) && document.activeElement !== e.target) e.preventDefault();
+  }, true);
+  root.addEventListener('pointerdown', (e) => {
+    const input = e.target;
+    if (e.button !== 0 || e.pointerType === 'touch' || !usable(input) || document.activeElement === input) return;
+    const step = Number(input.step) > 0 ? Number(input.step) : 1;
+    const min = input.min === '' ? -Infinity : Number(input.min);
+    const max = input.max === '' ? Infinity : Number(input.max);
+    const start = Number(input.value) || 0;
+    const x0 = e.clientX;
+    let moved = false;
+    input.setPointerCapture?.(e.pointerId);
+    const move = (ev) => {
+      const dx = ev.clientX - x0;
+      if (!moved && Math.abs(dx) < 3) return;
+      moved = true;
+      // Values stay on the field's step: Shift moves ten steps at a time, Alt/Cmd moves slower.
+      const pixels = ev.altKey || ev.metaKey ? 20 : 2;
+      const unit = ev.shiftKey ? step * 10 : step;
+      const v = Math.min(max, Math.max(min, Number((start + Math.round(dx / pixels) * unit).toFixed(10))));
+      if (String(v) === input.value) return;
+      input.value = String(v);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const up = () => {
+      input.removeEventListener('pointermove', move);
+      input.removeEventListener('pointerup', up);
+      input.removeEventListener('pointercancel', up);
+      if (moved) input.dispatchEvent(new Event('change', { bubbles: true }));
+      else {
+        input.focus();
+        input.select?.();
+      }
+    };
+    input.addEventListener('pointermove', move);
+    input.addEventListener('pointerup', up);
+    input.addEventListener('pointercancel', up);
+  });
+}

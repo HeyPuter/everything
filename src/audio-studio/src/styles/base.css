@@ -453,9 +453,28 @@ input[type='range']:disabled {
   opacity: 0.45;
 }
 
-/* A number field with suggestions shows the suggestions arrow only, not spin buttons too. */
-input[type='number'][list]::-webkit-inner-spin-button {
-  display: none;
+/* Number fields scrub like the hot values (controls.js installNumberScrub): no spin buttons,
+   the value in the accent color with a sideways cursor until the field is focused for typing. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type='number']:not(:focus):not(:disabled):not([readonly]) {
+  color: var(--hot);
+  cursor: ew-resize;
+}
+
+@media (pointer: coarse) {
+  input[type='number']:not(:focus) {
+    cursor: auto;
+  }
 }
 
 /* Knob control (canvas-free SVG) */
