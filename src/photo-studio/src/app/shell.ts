@@ -24,7 +24,7 @@ export function appShell(root: HTMLElement) {
   <div id="tool-options"></div>
   <div class="options-end">
     <label class="theme-label"><span class="sr-only">Color theme</span><select id="theme" aria-label="Color theme"><option value="dark">Dark</option><option value="medium">Medium</option><option value="light">Light</option><option value="system">System</option></select></label>
-    <button data-command="window.toggle-panels" class="icon-button" title="Show or hide panels (Tab)" aria-label="Toggle panels">${svg('panel-right', 17)}</button>
+    <button data-command="window.toggle-panels" class="icon-button" title="Show or hide panels (Tab)" data-key-title="Show or hide panels{key}" aria-label="Toggle panels">${svg('panel-right', 17)}</button>
   </div>
 </div>
 <div class="editor-layout">
@@ -33,15 +33,17 @@ export function appShell(root: HTMLElement) {
     <div class="tool-slots" role="toolbar" aria-label="Editing tools" aria-orientation="vertical"></div>
     <div class="tool-separator" role="separator"></div>
     <div class="color-chips">
-      <button class="chip-default" data-command="color.default" title="Default foreground and background colors (D)" aria-label="Default colors">${svg('default-colors', 12)}</button>
-      <button class="chip-swap" data-command="color.swap" title="Switch foreground and background colors (X)" aria-label="Switch colors">${svg('swap-colors', 12)}</button>
+      <button class="chip-default" data-command="color.default" title="Default foreground and background colors (D)" data-key-title="Default foreground and background colors{key}" aria-label="Default colors">${svg('default-colors', 12)}</button>
+      <button class="chip-swap" data-command="color.swap" title="Switch foreground and background colors (X)" data-key-title="Switch foreground and background colors{key}" aria-label="Switch colors">${svg('swap-colors', 12)}</button>
       <button class="chip bg-chip" data-command="color.pick-background" aria-label="Background color" title="Set background color"></button>
       <button class="chip fg-chip" data-command="color.pick-foreground" aria-label="Foreground color" title="Set foreground color"></button>
       <input type="color" id="foreground" value="#000000" aria-label="Foreground color value" tabindex="-1" class="sr-only">
     </div>
     <button class="tool-slot quick-mask-button" data-command="select.quick-mask" data-alt-command="select.quick-mask-options" title="Edit in Quick Mask mode (Q)
+Double-click or Alt-click for options" data-key-title="Edit in Quick Mask mode{key}
 Double-click or Alt-click for options" aria-label="Quick Mask mode">${svg('quick-mask')}</button>
     <button class="tool-slot" data-command="view.cycle-screen-mode" title="Change screen mode (F)
+Right-click or hold for the list" data-key-title="Change screen mode{key}
 Right-click or hold for the list" aria-label="Change screen mode" aria-haspopup="menu">${svg('screen-mode')}</button>
   </aside>
   <main class="workspace">

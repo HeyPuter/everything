@@ -48,6 +48,23 @@ test('tool keys and shortcuts still work after clicking an options-bar checkbox,
   expect(await tool(page)).toBe('brush');
 });
 
+test('the color chip and panel button tooltips name the keys set in the Keyboard Shortcuts editor', async ({ page }) => {
+  const swap = page.locator('.chip-swap');
+  await swap.hover();
+  await expect(swap).toHaveAttribute('title', /^Switch foreground and background colors \(X\)/);
+  await page.evaluate(async () => {
+    const { setCustomShortcuts } = await import('/src/features/arrange.ts');
+    setCustomShortcuts({ 'color.swap': 'Shift+X', 'window.toggle-panels': '' });
+  });
+  await page.mouse.move(600, 400);
+  await swap.hover();
+  await expect(swap).toHaveAttribute('title', /^Switch foreground and background colors \(⇧X\)/);
+  const panels = page.locator('[data-command="window.toggle-panels"]');
+  await panels.hover();
+  await expect(panels).toHaveAttribute('title', /^Show or hide panels(\n|$)/);
+  await page.evaluate(async () => (await import('/src/features/arrange.ts')).setCustomShortcuts({}));
+});
+
 test('brush keys: [ ] size, Shift+[ ] hardness, number keys opacity and flow', async ({ page }) => {
   await page.keyboard.press('b');
   const size = Number(await value(page, '#brush-size'));
