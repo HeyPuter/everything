@@ -91,7 +91,6 @@ export class FxHost {
 
   /** Applies a slot's parameter automation at timeline frame `pos`. */
   automate(slot, pos) {
-    if (!slot.paramEnv) return;
     const s = slot.inst;
     for (const { index, points } of slot.paramEnv) {
       const v = envelopeValueAt(points, pos);
@@ -173,12 +172,12 @@ export class FxHost {
   runSix(chain, buf, frames, pos) {
     const slots = chain.filter((c) => c.channels === 6 && (c.enabled || c.shadow));
     if (!slots.length) return;
-    if (pos != null) for (const slot of slots) this.automate(slot, pos);
     for (let at = 0; at < frames; at += MAX_FRAMES) {
       const n = Math.min(MAX_FRAMES, frames - at);
       let heap = new Float32Array(this.memory, this.buf, 6 * n);
       for (let c = 0; c < 6; c++) heap.set(buf[c].subarray(at, at + n), c * n);
       for (const slot of slots) {
+        if (slot.paramEnv && pos != null) this.automate(slot, pos + at);
         heap = new Float32Array(this.memory, this.buf, 6 * n);
         const keep = !slot.enabled || slot.mix < 1 ? heap.slice() : null;
         this.x.fx_process(slot.handle, this.buf, n);
@@ -201,7 +200,6 @@ export class FxHost {
       return;
     }
     if (!chain.some((c) => c.channels !== 6 && (c.enabled || c.shadow))) return;
-    if (pos != null) for (const slot of chain) this.automate(slot, pos);
     for (let at = 0; at < frames; at += MAX_FRAMES) {
       const n = Math.min(MAX_FRAMES, frames - at);
       let heap = new Float32Array(this.memory, this.buf, 2 * n);
@@ -209,6 +207,7 @@ export class FxHost {
       heap.set(buf[1].subarray(at, at + n), n);
       for (const slot of chain) {
         if (slot.channels === 6) continue;
+        if (slot.paramEnv && pos != null) this.automate(slot, pos + at);
         if (!slot.enabled) {
           // A bypassed slot kept running: process a copy and throw the output away.
           if (slot.shadow) {
